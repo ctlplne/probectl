@@ -294,3 +294,19 @@ readOnlyRootFilesystem: true
 capabilities:
   drop: ["ALL"]
 {{- end }}
+
+{{/*
+probectl.scrubUIDs (SUP-11): render a securityContext map, dropping the numeric
+runAsUser/runAsGroup/fsGroup when .Values.assignNumericUIDs is false so an
+OpenShift restricted-v2 SCC can assign them from its per-namespace range (an
+explicit id outside that range is rejected). runAsNonRoot, seccompProfile and
+any other keys are preserved. Call as:
+  {{- include "probectl.scrubUIDs" (dict "root" $ "sc" .Values.podSecurityContext) | nindent 8 }}
+*/}}
+{{- define "probectl.scrubUIDs" -}}
+{{- $sc := .sc -}}
+{{- if not .root.Values.assignNumericUIDs -}}
+{{- $sc = omit $sc "runAsUser" "runAsGroup" "fsGroup" -}}
+{{- end -}}
+{{- toYaml $sc -}}
+{{- end }}

@@ -1,0 +1,25 @@
+# values-openshift.yaml — OpenShift restricted-v2 SCC profile (SUP-11).
+#
+# OpenShift's default restricted-v2 SecurityContextConstraint assigns each
+# namespace its own uid/gid range and REJECTS any pod that pins an explicit
+# runAsUser/runAsGroup/fsGroup outside it. The chart's hardened default pins
+# numeric ids (good for vanilla Kubernetes restricted PSS and policy engines
+# that demand an explicit non-root uid), which restricted-v2 will not admit.
+#
+# This overlay flips the single knob that drops every numeric id — from the
+# control-plane and BGP-analyzer pods' values-driven contexts AND from the
+# image-specific browser-agent and backup/restore job contexts — so the SCC
+# fills them in. runAsNonRoot:true, the RuntimeDefault seccomp profile, the
+# read-only root filesystem and the dropped Linux capabilities all stay, so the
+# pods remain non-root and hardened; only the choice of uid moves to the SCC.
+#
+# Usage (layer AFTER any other profile):
+#   helm install probectl deploy/helm/probectl \
+#     -f deploy/helm/probectl/values-multitenant.yaml \
+#     -f deploy/helm/probectl/values-openshift.yaml \
+#     --set <your required secrets/stores...>
+#
+# See docs/hardening.md (OpenShift) and the openshift-scc-render gate
+# (scripts/check_helm_openshift_scc.sh), which asserts this profile renders no
+# explicit uid on any pod or container.
+assignNumericUIDs: false

@@ -94,8 +94,10 @@ spec:
           automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
-            runAsUser: 999 # the postgres image's postgres uid
+            {{- if .Values.assignNumericUIDs }}
+            runAsUser: 999 # the postgres image's postgres uid (SUP-11: dropped when assignNumericUIDs=false)
             runAsGroup: 999
+            {{- end }}
             seccompProfile:
               type: RuntimeDefault
           {{- if .Values.backup.encryption.enabled }}
@@ -213,8 +215,10 @@ spec:
           automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
-            runAsUser: 101 # the clickhouse image's clickhouse uid
+            {{- if .Values.assignNumericUIDs }}
+            runAsUser: 101 # the clickhouse image's clickhouse uid (SUP-11: dropped when assignNumericUIDs=false)
             runAsGroup: 101
+            {{- end }}
             seccompProfile:
               type: RuntimeDefault
           {{- if .Values.backup.encryption.enabled }}
@@ -339,9 +343,11 @@ spec:
           automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
+            {{- if .Values.assignNumericUIDs }}
             runAsUser: 65532
             fsGroup: 65532
             runAsGroup: 65532
+            {{- end }}
             seccompProfile:
               type: RuntimeDefault
           {{- if .Values.backup.encryption.enabled }}

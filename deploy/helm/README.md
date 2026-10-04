@@ -38,6 +38,13 @@ keeps that transport posture and
 additionally closes the default egress hole. The database migration runs as an
 init container; the pod runs non-root with a read-only root filesystem.
 
+On **OpenShift**, layer `probectl/values-openshift.yaml` on top of your other
+values: the default chart pins explicit non-root uids (for vanilla restricted
+PSS), which the `restricted-v2` SCC rejects, so this profile drops every numeric
+uid/gid and lets the SCC assign them from the namespace range while keeping the
+pods non-root and hardened. See [docs/hardening.md](../../docs/hardening.md)
+(OpenShift restricted-v2 SCC).
+
 For another ingress controller, set `ingress.enabled=false` and provide an
 operator-owned Ingress that independently enforces HTTPS redirect plus complete
 backend certificate chain and hostname verification. The chart does not guess

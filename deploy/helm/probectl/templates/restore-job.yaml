@@ -24,11 +24,14 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        {{- if .Values.assignNumericUIDs }}
         # DPR-088: runAsNonRoot alone cannot start the root-default postgres image;
-        # pin the image's postgres uid, as the backup CronJob does.
+        # pin the image's postgres uid, as the backup CronJob does. SUP-11:
+        # dropped when assignNumericUIDs=false so an OpenShift SCC assigns it.
         runAsUser: 999
         runAsGroup: 999
         fsGroup: 999
+        {{- end }}
         seccompProfile:
           type: RuntimeDefault
       initContainers:
@@ -159,8 +162,10 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 101 # the clickhouse image's clickhouse uid
+        {{- if .Values.assignNumericUIDs }}
+        runAsUser: 101 # the clickhouse image's clickhouse uid (SUP-11: dropped when assignNumericUIDs=false)
         runAsGroup: 101
+        {{- end }}
         seccompProfile:
           type: RuntimeDefault
       {{- if .Values.backup.encryption.enabled }}

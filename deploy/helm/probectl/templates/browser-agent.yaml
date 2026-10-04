@@ -30,12 +30,15 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        {{- if $.Values.assignNumericUIDs }}
         # DPR-062: pwuser in the pinned Playwright base (v1.55.1-noble) is uid
         # 1001 — noble's default user takes 1000. Run as the image's own user so
-        # HOME, the browser cache and the worker files line up.
+        # HOME, the browser cache and the worker files line up. SUP-11: dropped
+        # when assignNumericUIDs=false so an OpenShift SCC assigns the uid.
         runAsUser: 1001
         runAsGroup: 1001
         fsGroup: 1001
+        {{- end }}
         seccompProfile:
           type: RuntimeDefault
       {{- with .Values.imagePullSecrets }}
@@ -72,8 +75,14 @@ spec:
             {{- toYaml .Values.browserAgent.resources | nindent 12 }}
           securityContext:
             runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
+            {{- if $.Values.assignNumericUIDs }}
+            # SUP-11: pwuser is uid 1001 in the pinned Playwright base; uid 1000
+            # there is `ubuntu` (groups adm, sudo). Match the pod's 1001 so the
+            # worker runs as pwuser, not the sudo-capable default user. Dropped
+            # when assignNumericUIDs=false (OpenShift SCC assigns it).
+            runAsUser: 1001
+            runAsGroup: 1001
+            {{- end }}
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:

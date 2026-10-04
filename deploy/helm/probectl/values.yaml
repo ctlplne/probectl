@@ -371,10 +371,20 @@ initResources:
     cpu: 500m
     memory: 256Mi
 
+# SUP-11: pin explicit numeric runAsUser/runAsGroup/fsGroup on every pod and
+# container (the default). Vanilla Kubernetes restricted PSS and most policy
+# engines want an explicit non-root uid, not just runAsNonRoot:true. OpenShift's
+# restricted-v2 SCC is the opposite — it assigns a per-namespace uid range and
+# REJECTS any explicit id outside it. Set this false (deploy/helm/probectl/
+# values-openshift.yaml does) to drop every numeric id from both the chart's
+# values-driven contexts AND the image-specific job/browser contexts, so the SCC
+# fills them in. runAsNonRoot, seccomp and the dropped capabilities stay.
+assignNumericUIDs: true
+
 # Hardened pod/container security context (non-root, read-only root FS). The
 # image is distroless `nonroot` (uid/gid 65532), so we pin the numeric ids too —
 # pod admission (restricted PSS) and many policy engines require an explicit
-# runAsUser, not just runAsNonRoot.
+# runAsUser, not just runAsNonRoot (SUP-11: dropped when assignNumericUIDs=false).
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 65532

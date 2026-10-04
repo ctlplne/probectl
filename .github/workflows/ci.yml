@@ -697,6 +697,10 @@ jobs:
         run: |
           ./scripts/check_agent_chart.sh SELFTEST
           ./scripts/check_agent_chart.sh
+      - name: OpenShift restricted-v2 SCC profile renders no explicit uid (SUP-11)
+        run: |
+          ./scripts/check_helm_openshift_scc.sh SELFTEST
+          ./scripts/check_helm_openshift_scc.sh
       - name: compose config is valid
         # POSTGRES_PASSWORD is a required var with no default (SEC-006 fails
         # closed); supply a throwaway so interpolation can validate the file,

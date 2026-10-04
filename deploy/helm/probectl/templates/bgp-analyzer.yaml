@@ -59,7 +59,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- include "probectl.scrubUIDs" (dict "root" $ "sc" .Values.podSecurityContext) | nindent 8 }}
       containers:
         - name: bgp-analyzer
           image: {{ printf "%s@%s" .Values.bgpAnalyzer.image.repository $digest | quote }}
@@ -87,7 +87,7 @@ spec:
           resources:
             {{- toYaml .Values.bgpAnalyzer.resources | nindent 12 }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- include "probectl.scrubUIDs" (dict "root" $ "sc" .Values.securityContext) | nindent 12 }}
           volumeMounts:
             - name: analyzer-config
               mountPath: /etc/probectl-bgp

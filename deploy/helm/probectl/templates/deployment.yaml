@@ -29,7 +29,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- include "probectl.scrubUIDs" (dict "root" $ "sc" .Values.podSecurityContext) | nindent 8 }}
       {{- if or .Values.migrateOnBoot .Values.control.credentialFiles.existingSecret (and .Values.control.agentListener.enabled (not (include "probectl.agentListener.caSecret" .))) }}
       initContainers:
         {{- if .Values.control.credentialFiles.existingSecret }}
@@ -43,7 +43,7 @@ spec:
           command: ["/usr/local/bin/app"]
           args: ["stage-credentials", "/etc/probectl/credentials-source", {{ .Values.control.credentialFiles.mountPath | quote }}]
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- include "probectl.scrubUIDs" (dict "root" $ "sc" .Values.securityContext) | nindent 12 }}
           volumeMounts:
             - name: credentials-source
               mountPath: /etc/probectl/credentials-source
@@ -64,7 +64,7 @@ spec:
             - secretRef:
                 name: {{ include "probectl.secretName" . }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- include "probectl.scrubUIDs" (dict "root" $ "sc" .Values.securityContext) | nindent 12 }}
           {{- if .Values.control.trustBundle.existingConfigMap }}
           env:
             # DPR-026: the migration reaches the database with the same trust.
@@ -106,7 +106,7 @@ spec:
             - secretRef:
                 name: {{ include "probectl.secretName" . }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- include "probectl.scrubUIDs" (dict "root" $ "sc" .Values.securityContext) | nindent 12 }}
           {{- if .Values.control.trustBundle.existingConfigMap }}
           env:
             - name: SSL_CERT_FILE
@@ -194,7 +194,7 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- include "probectl.scrubUIDs" (dict "root" $ "sc" .Values.securityContext) | nindent 12 }}
           {{- if or .Values.control.tls.enabled (and .Values.objectStore.enabled (eq .Values.objectStore.mode "filesystem")) (((.Values.audit | default dict).worm | default dict).enabled) ((.Values.control.otlp.tls | default dict).existingSecret) .Values.license.existingSecret .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret .Values.control.agentListener.enabled (.Values.control.slo | default dict).existingConfigMap .Values.control.extraVolumeMounts }}
           volumeMounts:
             {{- if .Values.control.tls.enabled }}

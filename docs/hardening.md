@@ -428,6 +428,34 @@ where noted "operator action".
 - [ ] **Operator action:** verify the release signature or approved mirror
       provenance and scan the pinned digest with your supply-chain tooling.
 
+#### OpenShift (restricted-v2 SCC)
+
+The chart's hardened default pins explicit numeric `runAsUser`/`runAsGroup`/
+`fsGroup` on every pod and container, because vanilla Kubernetes restricted PSS
+and most policy engines want an explicit non-root uid, not just
+`runAsNonRoot: true`. OpenShift's default `restricted-v2`
+SecurityContextConstraint is the opposite: it assigns each namespace its own
+uid/gid range and **rejects** a pod that pins an id outside that range
+(`must be in the ranges: [...]`).
+
+Install with the OpenShift profile, which flips a single knob
+(`assignNumericUIDs: false`) so the chart drops every numeric id — from the
+control-plane and BGP-analyzer pods **and** the image-specific browser-agent and
+backup/restore job pods — and lets the SCC assign them. `runAsNonRoot: true`,
+the `RuntimeDefault` seccomp profile, the read-only root filesystem and the
+dropped capabilities all stay, so the pods remain non-root and hardened:
+
+```
+helm install probectl deploy/helm/probectl \
+  -f deploy/helm/probectl/values-multitenant.yaml \
+  -f deploy/helm/probectl/values-openshift.yaml \
+  --set <your required secrets/stores…>
+```
+
+CI renders both profiles and asserts the OpenShift render carries no explicit
+uid while staying non-root (`scripts/check_helm_openshift_scc.sh`, SUP-11), so
+the profile cannot silently regress.
+
 ---
 
 ## 3. Secure-defaults review
