@@ -30,6 +30,12 @@ var (
 	// ErrTenantIDPEncryptionRequired prevents client secrets from being stored
 	// by the keyless-development passthrough mode.
 	ErrTenantIDPEncryptionRequired = errors.New("store: tenant identity provider requires at-rest envelope encryption")
+	// ErrTenantIDPIssuerChangeNeedsSecret blocks pointing the sealed client
+	// secret at a different issuer without re-supplying it (AUTHZ-33): a blank
+	// secret preserves the stored one only when the issuer is unchanged, so a
+	// directory.write holder cannot redirect the existing secret to an issuer of
+	// their choosing.
+	ErrTenantIDPIssuerChangeNeedsSecret = errors.New("store: changing the tenant identity provider issuer requires a new client secret")
 )
 
 const tenantIDPSecretAAD = "tenant_idp.client_secret:v1"
@@ -100,10 +106,16 @@ LIMIT 1`).Scan(&out.TenantID, &out.Issuer, &out.ClientID, &sealed, &out.Redirect
 // surrounding tenant transaction. A blank secret preserves an existing sealed
 // value; a new row always requires a freshly envelope-sealed secret.
 func (TenantIDPs) UpsertScoped(ctx context.Context, sc tenancy.Scope, in TenantIDPInput) (*TenantIDP, error) {
-	var storedSecret string
-	err := sc.Q.QueryRow(ctx, `SELECT client_secret_sealed FROM tenant_idp LIMIT 1`).Scan(&storedSecret)
+	var storedSecret, storedIssuer string
+	err := sc.Q.QueryRow(ctx, `SELECT client_secret_sealed, issuer FROM tenant_idp LIMIT 1`).Scan(&storedSecret, &storedIssuer)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
+	}
+	// AUTHZ-33: a blank secret preserves the stored one, but only for the SAME
+	// issuer. Carrying the sealed secret to a different issuer would leak it to
+	// an operator-chosen endpoint, so an issuer change must re-supply the secret.
+	if in.ClientSecret == "" && storedSecret != "" && in.Issuer != storedIssuer {
+		return nil, ErrTenantIDPIssuerChangeNeedsSecret
 	}
 	if in.ClientSecret != "" {
 		sealed, sealErr := tenantcrypto.Seal(ctx, sc.Tenant.String(), []byte(in.ClientSecret), []byte(tenantIDPSecretAAD))

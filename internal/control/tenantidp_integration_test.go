@@ -68,11 +68,19 @@ func TestTenantIdPAdminAPIIsolationEncryptionAndAudit(t *testing.T) {
 		t.Fatalf("client secret is not envelope-sealed: %q", stored)
 	}
 
-	// Omitting client_secret rotates no key and preserves the sealed value.
+	// AUTHZ-33: a blank client_secret while CHANGING the issuer is rejected (422)
+	// — the sealed secret must never be redirected to an operator-chosen issuer.
 	body["client_secret"] = ""
 	body["issuer"] = "https://idp-a-new.example"
+	if reject := apiReq(t, h, http.MethodPut, "/v1/identity/settings", tenantA, body); reject.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("issuer change without client_secret must be 422, got %d %s", reject.Code, reject.Body)
+	}
+
+	// Omitting client_secret for the SAME issuer rotates no key and preserves the
+	// sealed value.
+	body["issuer"] = "https://idp-a.example"
 	if update := apiReq(t, h, http.MethodPut, "/v1/identity/settings", tenantA, body); update.Code != http.StatusOK {
-		t.Fatalf("metadata-only IdP update: %d %s", update.Code, update.Body)
+		t.Fatalf("metadata-only IdP update (same issuer): %d %s", update.Code, update.Body)
 	}
 	var after string
 	if err := db.Pool().QueryRow(context.Background(),

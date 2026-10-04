@@ -120,6 +120,8 @@ func (s *Server) handleTenantIDPPut(w http.ResponseWriter, r *http.Request) erro
 		switch {
 		case errors.Is(err, store.ErrTenantIDPSecretRequired):
 			return apierror.Validation("client_secret is required when creating a tenant IdP override")
+		case errors.Is(err, store.ErrTenantIDPIssuerChangeNeedsSecret):
+			return apierror.Validation("client_secret must be re-supplied when changing the issuer (AUTHZ-33)")
 		case errors.Is(err, store.ErrTenantIDPEncryptionRequired):
 			return apierror.Unavailable("at-rest envelope encryption is required before storing an IdP client secret")
 		default:
