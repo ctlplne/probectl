@@ -71,7 +71,7 @@ checking RBAC. The browser never sends `tenant_id`.
 | `GET /v1/dashboards/{id}/manifest`        | `metrics.read`                   | Export a deterministic, redacted native JSON manifest       |
 | `POST /v1/dashboard-manifests/import`     | `metrics.write`                  | Preview or explicitly confirm a strictly validated import   |
 | `GET/POST /v1/dashboard-report-schedules` | `metrics.read` / `metrics.write` | Inspect configured destinations or create a schedule        |
-| `POST /v1/dashboard-reports`              | `metrics.read`                   | Generate a PDF/CSV artifact in the tenant inbox             |
+| `POST /v1/dashboard-reports`              | `metrics.write`                  | Generate (persist) a PDF/CSV artifact in the tenant inbox   |
 | `GET /v1/dashboard-report-artifacts`      | `metrics.read`                   | List artifact metadata without loading binary bodies        |
 | `GET /v1/dashboard-report-artifacts/{id}` | `metrics.read`                   | Audited artifact download                                   |
 

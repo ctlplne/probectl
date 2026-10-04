@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/promapi"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/version"
@@ -440,9 +441,30 @@ func (s *Server) handlePromWrite(w http.ResponseWriter, r *http.Request) error {
 			fmt.Sprintf("body exceeds %d bytes or is unreadable", maxRemoteWriteBody))
 		return nil
 	}
+	// TEN-04 / SCALE-003: per-tenant fairness admission on the shared memory-TSDB
+	// byte wall — the same contract OTLP ingest applies (internal/pipeline/otlp.go).
+	// Charge the payload bytes BEFORE the decode, so a remote-write flood cannot
+	// make one tenant's writes evict another tenant's series; over-rate writes get
+	// a 429 (Prometheus remote-write backs off on it) instead of silently starving
+	// a neighbor (docs/guardrails.md G7-1).
+	if s.fairnessGate != nil && !s.fairnessGate.AdmitN(r.Context(), tid, fairness.MeterBytes, int64(len(body))) {
+		w.Header().Set("Retry-After", "1")
+		promapi.WriteError(w, http.StatusTooManyRequests, "throttled",
+			"tenant remote-write byte rate exceeded — retry shortly")
+		return nil
+	}
 	series, derr := promapi.DecodeRemoteWrite(body, tid, promapi.WriteLimits{})
 	if derr != nil {
 		promapi.WriteError(w, http.StatusBadRequest, "bad_data", derr.Error())
+		return nil
+	}
+	// SCALE-003: shed the decoded series against the per-tenant series meter
+	// BEFORE the store write (identical to the OTLP series meter), so the shared
+	// TSDB write path stays fair across tenants.
+	if s.fairnessGate != nil && !s.fairnessGate.AdmitN(r.Context(), tid, fairness.MeterOTLPSeries, int64(len(series))) {
+		w.Header().Set("Retry-After", "1")
+		promapi.WriteError(w, http.StatusTooManyRequests, "throttled",
+			"tenant remote-write series rate exceeded — retry shortly")
 		return nil
 	}
 	if err := s.tsdbIngestWriter.Write(r.Context(), series); err != nil {
