@@ -336,6 +336,15 @@ func (s *Service) CreateOperator(ctx context.Context, actor, email, name, role s
 // Bootstrap creates the FIRST admin from the deployment's bootstrap token.
 // It works only while zero operators exist; afterward the token is inert.
 func (s *Service) Bootstrap(ctx context.Context, configuredToken, presentedToken, email, name string) (Operator, string, error) {
+	// AUD-14: the read-only ladder (S-T0) blocks creating the first admin too.
+	// The provider handler is mounted whenever lic.Has(FeatureProviderPlane) is
+	// true, which stays true in read_only mode, so without this gate a degraded
+	// license could still bootstrap a new admin — contrary to docs/provider-plane.md
+	// (commercial features go read-only on expiry). Mirrors CreateOperator; the
+	// handler maps ErrReadOnly to 403 license_read_only.
+	if err := s.writable(); err != nil {
+		return Operator{}, "", err
+	}
 	if configuredToken == "" {
 		return Operator{}, "", errors.New("provider: bootstrap is not configured (set PROBECTL_PROVIDER_BOOTSTRAP_TOKEN)")
 	}
