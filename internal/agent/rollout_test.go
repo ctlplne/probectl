@@ -50,7 +50,9 @@ func mustPlan(t *testing.T, fleet []FleetAgent) *RolloutPlan {
 }
 
 // upgraded returns the fleet with the given wave's members on the target
-// version with fresh heartbeats.
+// version AND reporting the target artifact digest, with fresh heartbeats —
+// i.e. actually running the signed artifact. Verify requires the digest, not
+// just the version, so a real upgrade reports both (RTO-24).
 func upgraded(fleet []FleetAgent, w *Wave, version string, seen time.Time) []FleetAgent {
 	in := map[string]bool{}
 	for _, id := range w.AgentIDs {
@@ -60,6 +62,7 @@ func upgraded(fleet []FleetAgent, w *Wave, version string, seen time.Time) []Fle
 	for i := range out {
 		if in[out[i].ID] {
 			out[i].Version = version
+			out[i].Digest = goodArtifact().Digest
 			out[i].LastSeen = seen
 		}
 	}
@@ -337,6 +340,7 @@ func TestVerifyListsStragglers(t *testing.T) {
 		t.Fatal(err)
 	}
 	fleet[0].Version = "v0.2.0"
+	fleet[0].Digest = goodArtifact().Digest
 	complete, err := p.Verify(fleet, now.Add(time.Minute))
 	if err != nil || complete {
 		t.Fatalf("one straggler must keep the wave applying: complete=%v err=%v", complete, err)
@@ -345,6 +349,7 @@ func TestVerifyListsStragglers(t *testing.T) {
 		t.Fatalf("stragglers must name the lagging agent and its version, got %v", p.Stragglers)
 	}
 	fleet[1].Version = "v0.2.0"
+	fleet[1].Digest = goodArtifact().Digest
 	if complete, err := p.Verify(fleet, now.Add(2*time.Minute)); err != nil || !complete {
 		t.Fatalf("converged wave must complete: complete=%v err=%v", complete, err)
 	}
@@ -364,5 +369,94 @@ func TestArtifactDigestMustBeAnExactSHA256(t *testing.T) {
 		if _, err := PlanRolloutAt(testFleet(3, "v0.1.0"), a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err == nil {
 			t.Errorf("digest %q must be refused", bad)
 		}
+	}
+}
+
+// TestPlanRolloutRefusesANonVerifyingMethod (RTO-24): verify_method must name a
+// real signature verification (C6/cosign). Before the fix validate() only
+// rejected an EMPTY method, so "none" — or any unrecognized string — was
+// accepted and the rollout recorded itself as "verified" with no verification.
+// PlanRolloutAt is exactly the path handleCreateRollout runs, so this is the
+// create handler's gate. Fails closed on an unverifiable method
+// (docs/guardrails.md G7-12).
+func TestPlanRolloutRefusesANonVerifyingMethod(t *testing.T) {
+	fleet := testFleet(5, "v0.1.0")
+	for _, bad := range []string{"none", "None", " none ", "", "skip", "manual", "unverified", "trust me", "n/a", "off"} {
+		a := goodArtifact()
+		a.Method = bad
+		if _, err := PlanRolloutAt(fleet, a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err == nil {
+			t.Errorf("verify_method %q is not a real verification and must be refused (RTO-24)", bad)
+		}
+	}
+	// A real cosign verification is still accepted.
+	for _, ok := range []string{
+		"cosign verify ghcr.io/ctlplne/probectl-agent@sha256:...",
+		"cosign verify-blob --certificate-identity-regexp ...",
+		"COSIGN verify",
+	} {
+		a := goodArtifact()
+		a.Method = ok
+		if _, err := PlanRolloutAt(fleet, a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err != nil {
+			t.Errorf("a real cosign verify_method %q must be accepted: %v", ok, err)
+		}
+	}
+}
+
+// TestVerifyRequiresTheDeployedDigestNotJustTheVersion (RTO-24): a wave member
+// that reports the TARGET VERSION with a fresh heartbeat but a DIFFERENT (or
+// absent) artifact DIGEST has not taken the signed artifact the operator
+// cosign-verified — the version string is self-reported and an old or tampered
+// binary can carry it unchanged. Before the fix Verify compared only the
+// version and marked the wave complete; it must now gate on the deployed digest
+// and HALT on a mismatch past the window (docs/guardrails.md G7-8).
+func TestVerifyRequiresTheDeployedDigestNotJustTheVersion(t *testing.T) {
+	fleet := []FleetAgent{{ID: "a", Version: "v0.1.0", LastSeen: t0}}
+	p, err := PlanRolloutAt(fleet, goodArtifact(), lifecycle.Split{CanaryPercent: 100}, "v0.2.0", lifecycle.DefaultPolicy(), time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Advance(t0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reports the target version, fresh heartbeat — but a DIFFERENT digest.
+	// Version-only logic would complete this; digest-aware logic must not.
+	wrong := []FleetAgent{{ID: "a", Version: "v0.2.0", Digest: "sha256:" + strings.Repeat("c", 64), LastSeen: t0.Add(time.Minute)}}
+	if complete, err := p.Verify(wrong, t0.Add(time.Minute)); complete || err != nil {
+		t.Fatalf("right version + wrong digest must NOT complete: complete=%v err=%v", complete, err)
+	}
+	if len(p.Stragglers) != 1 || !strings.Contains(p.Stragglers[0], "a (reports digest") {
+		t.Fatalf("the wrong-digest member must be a straggler naming the digest, got %v", p.Stragglers)
+	}
+
+	// An agent that reports the target version with NO digest is likewise
+	// unverified, never converged.
+	none := []FleetAgent{{ID: "a", Version: "v0.2.0", LastSeen: t0.Add(2 * time.Minute)}}
+	if complete, _ := p.Verify(none, t0.Add(2*time.Minute)); complete {
+		t.Fatal("target version with no reported digest must NOT complete (RTO-24)")
+	}
+
+	// Past the window the digest mismatch HALTS the rollout — never a silent
+	// complete on the version string.
+	if _, err := p.Verify(wrong, t0.Add(p.VerifyWindow+time.Minute)); err == nil || !p.Halted {
+		t.Fatalf("a digest mismatch past the window must halt, err=%v halted=%v", err, p.Halted)
+	}
+}
+
+// TestVerifyCompletesOnTheMatchingDeployedDigest (RTO-24): the control case —
+// an agent reporting the target version AND the exact deployed digest with a
+// fresh heartbeat is genuinely converged, so the wave completes.
+func TestVerifyCompletesOnTheMatchingDeployedDigest(t *testing.T) {
+	fleet := []FleetAgent{{ID: "a", Version: "v0.1.0", LastSeen: t0}}
+	p, err := PlanRolloutAt(fleet, goodArtifact(), lifecycle.Split{CanaryPercent: 100}, "v0.2.0", lifecycle.DefaultPolicy(), time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Advance(t0); err != nil {
+		t.Fatal(err)
+	}
+	right := []FleetAgent{{ID: "a", Version: "v0.2.0", Digest: goodArtifact().Digest, LastSeen: t0.Add(time.Minute)}}
+	if complete, err := p.Verify(right, t0.Add(time.Minute)); !complete || err != nil {
+		t.Fatalf("matching version+digest must complete: complete=%v err=%v", complete, err)
 	}
 }

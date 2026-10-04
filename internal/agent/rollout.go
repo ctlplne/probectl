@@ -22,8 +22,14 @@ package agent
 //
 // Verification failure HALTS the rollout: no later wave can start until an
 // operator explicitly Resumes after remediation. The plan refuses targets
-// that would break the N/N-1 skew gate, and refuses artifacts without a
-// recorded signature verification.
+// that would break the N/N-1 skew gate, and refuses artifacts whose Method does
+// not name a RECOGNIZED signature verification — "none" or any unrecognized
+// string is not a verification, so recording it as "verified" is refused at
+// plan time (RTO-24; docs/guardrails.md G7-12). A wave completes only when
+// every member reports the exact DEPLOYED DIGEST, never the self-reported
+// version alone: the version is a label an old or tampered binary can still
+// carry, so version-only convergence is not proof the signed artifact landed
+// (RTO-24; docs/guardrails.md G7-8).
 
 import (
 	"fmt"
@@ -41,6 +47,14 @@ type FleetAgent struct {
 	ID       string
 	TenantID string
 	Version  string
+	// Digest is the exact artifact digest the agent reports it is running
+	// (sha256:<hex>). Verify requires it to equal the rollout's deployed digest
+	// before completing a wave — the self-reported Version is only a label, and
+	// an old or tampered binary can carry the target version while running a
+	// different image (RTO-24; docs/guardrails.md G7-8). Empty means the agent
+	// has not reported a deployed digest, which Verify treats as unverified
+	// (fail closed), never as "on the target".
+	Digest   string
 	LastSeen time.Time
 }
 
@@ -60,6 +74,30 @@ type VerifiedArtifact struct {
 	VerifiedBy string // operator identity (audit trail)
 }
 
+// recognizedVerifiers are the signature-verification tools a rollout accepts in
+// its Method record (C6; docs/ops/verify-artifacts.md). A Method naming none of
+// them — "none", a blank, or any unrecognized string — is not a verification,
+// so recording it as "verified" is refused at plan time rather than trusted
+// (RTO-24; docs/guardrails.md G7-12: missing signature → fail closed).
+var recognizedVerifiers = []string{"cosign"}
+
+// methodVerifies reports whether Method names a real signature verification. It
+// is deliberately a positive allowlist (fail closed): an unrecognized method —
+// crucially "none" — is NOT a verification. Extend the allowlist in one place
+// when a new verifier is adopted.
+func methodVerifies(method string) bool {
+	m := strings.ToLower(strings.TrimSpace(method))
+	if m == "" {
+		return false
+	}
+	for _, v := range recognizedVerifiers {
+		if strings.Contains(m, v) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a VerifiedArtifact) validate() error {
 	switch {
 	case a.Version == "":
@@ -70,6 +108,10 @@ func (a VerifiedArtifact) validate() error {
 		return fmt.Errorf("agent: rollout artifact digest must be sha256:<64 hex> (got %q)", a.Digest)
 	case a.Method == "":
 		return fmt.Errorf("agent: rollout artifact needs the signature-verification method (C6 — how was cosign run?)")
+	case !methodVerifies(a.Method):
+		// RTO-24: "none"/unknown is not a verification. Accepting it would let a
+		// rollout claim "verified" without any — fail closed (docs/guardrails.md G7-12).
+		return fmt.Errorf("agent: rollout verify_method %q is not a recognized signature verification — record how the artifact was cosign-verified; %q or an unverifiable method is refused (C6; docs/guardrails.md G7-12)", a.Method, "none")
 	case a.VerifiedBy == "":
 		return fmt.Errorf("agent: rollout artifact needs the verifier's identity (who ran the verification?)")
 	}
@@ -231,10 +273,18 @@ func (p *RolloutPlan) Advance(now time.Time) (*Wave, error) {
 }
 
 // Verify checks the applying wave against a fresh registry snapshot: every
-// member must be on the target version with a heartbeat within HeartbeatSLO.
-// All good → the wave completes. Stragglers inside VerifyWindow → still
-// converging (no state change). Stragglers after VerifyWindow — wrong
-// version, gone dark, or missing from the registry — HALT the whole rollout.
+// member must report the exact DEPLOYED DIGEST (not just the target version)
+// with a heartbeat within HeartbeatSLO. All good → the wave completes.
+// Stragglers inside VerifyWindow → still converging (no state change).
+// Stragglers after VerifyWindow — wrong version, wrong/absent artifact digest,
+// gone dark, or missing from the registry — HALT the whole rollout.
+//
+// The digest gate is the point of verification (RTO-24): the self-reported
+// version is a label an old or tampered binary can carry unchanged (e.g. a
+// same-tag rebuild with different content), so completing on the version alone
+// would let "verified" mean nothing. A member that has not reported the
+// deployed digest is treated as unverified, never as converged (fail closed,
+// docs/guardrails.md G7-8).
 func (p *RolloutPlan) Verify(fleet []FleetAgent, now time.Time) (complete bool, err error) {
 	if p.Halted {
 		return false, fmt.Errorf("agent: rollout is HALTED (%s)", p.HaltReason)
@@ -256,6 +306,11 @@ func (p *RolloutPlan) Verify(fleet []FleetAgent, now time.Time) (complete bool, 
 			stragglers = append(stragglers, id+" (missing from the registry)")
 		case a.Version != p.Target.Version:
 			stragglers = append(stragglers, fmt.Sprintf("%s (still on %s)", id, a.Version))
+		case a.Digest != p.Target.Digest:
+			// RTO-24: right version label, wrong (or no) deployed artifact — the
+			// agent has NOT taken the signed digest the operator verified. Never
+			// complete on the version string alone (docs/guardrails.md G7-8).
+			stragglers = append(stragglers, fmt.Sprintf("%s (%s)", id, digestStragglerReason(a.Digest, p.Target.Digest)))
 		case now.Sub(a.LastSeen) > p.HeartbeatSLO:
 			stragglers = append(stragglers, fmt.Sprintf("%s (no heartbeat for %s — dark after upgrade?)", id, now.Sub(a.LastSeen).Round(time.Second)))
 		}
@@ -273,6 +328,17 @@ func (p *RolloutPlan) Verify(fleet []FleetAgent, now time.Time) (complete bool, 
 		return false, fmt.Errorf("agent: ROLLOUT HALTED — %s", p.HaltReason)
 	}
 	return false, nil // inside the window: keep converging, verify again
+}
+
+// digestStragglerReason explains why a member on the target version is still a
+// straggler: it has not reported the deployed artifact digest at all, or it
+// reports a different one (RTO-24). An empty digest is the common case before
+// the agent reports what it is actually running — unverified, never "converged".
+func digestStragglerReason(got, want string) string {
+	if strings.TrimSpace(got) == "" {
+		return "has not reported the deployed artifact digest"
+	}
+	return fmt.Sprintf("reports digest %s, not the deployed %s", got, want)
 }
 
 // Halt stops the rollout immediately on operator command (OPS-002): the

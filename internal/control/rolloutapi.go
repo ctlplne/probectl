@@ -128,6 +128,15 @@ func (s *Server) rolloutFleet(ctx context.Context, sc tenancy.Scope) ([]agent.Fl
 			return nil, err
 		}
 		for _, a := range page {
+			// RTO-24: FleetAgent.Digest is the exact artifact digest the agent
+			// reports it is running, which Verify requires to equal the rollout's
+			// deployed digest before completing a wave. The registry does not yet
+			// carry an agent-reported deployed digest (reporting it end-to-end is a
+			// release-engineering follow-up: the build must inject the signed IMAGE
+			// digest — not the binary's own hash — so it matches the cosign-verified
+			// Target.Digest). Until then it stays empty, and Verify fails closed
+			// rather than completing on the self-reported version string alone
+			// (docs/guardrails.md G7-8).
 			fa := agent.FleetAgent{ID: a.ID, TenantID: a.TenantID, Version: a.AgentVersion}
 			if a.LastSeenAt != nil {
 				fa.LastSeen = *a.LastSeenAt
