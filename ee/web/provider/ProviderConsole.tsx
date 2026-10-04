@@ -807,6 +807,17 @@ interface UsageRow {
   unit: string;
 }
 
+/** parseQuota strictly interprets a quota field (WEB-23): "" is the only
+ *  "unlimited" (→ null, matching the field label); a clean non-negative integer
+ *  is that number; anything else (e.g. "1k") is INVALID (undefined) and must
+ *  block submit rather than silently coerce to NaN → null (unlimited) on the
+ *  wire. */
+function parseQuota(raw: string): number | null | undefined {
+  const s = raw.trim();
+  if (s === "") return null;
+  return /^\d+$/.test(s) ? Number(s) : undefined;
+}
+
 /** UsageCard (S-T3): per-tenant showback for the current month + the
  *  billing-export feed (CSV/JSONL) + per-tenant creation quotas (admin).
  *  Hidden honestly when the metering feature is not licensed (the API 404s). */
@@ -824,6 +835,11 @@ function UsageCard({
   const [maxTests, setMaxTests] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  // WEB-23: a non-numeric quota ("1k") must block submit, not become unlimited.
+  const maxAgentsParsed = parseQuota(maxAgents);
+  const maxTestsParsed = parseQuota(maxTests);
+  const quotaInvalid =
+    maxAgentsParsed === undefined || maxTestsParsed === undefined;
 
   const usageQuery = useProviderData<{ items: UsageRow[] }>(
     ["usage", "day"],
@@ -880,11 +896,23 @@ function UsageCard({
     e.preventDefault();
     setError("");
     setSaved(false);
+    if (quotaInvalid) {
+      // WEB-23: block rather than ship NaN → null (silent unlimited).
+      setError(
+        "Quotas must be whole numbers — leave a field blank for unlimited.",
+      );
+      return;
+    }
     try {
-      await api("PUT", `/provider/v1/tenants/${quotaTenant}/quotas`, {
-        max_agents: maxAgents === "" ? null : Number(maxAgents),
-        max_tests: maxTests === "" ? null : Number(maxTests),
-      });
+      // WEB-23: encode the operator-typed tenant id so "../x" cannot traverse.
+      await api(
+        "PUT",
+        `/provider/v1/tenants/${encodeURIComponent(quotaTenant)}/quotas`,
+        {
+          max_agents: maxAgentsParsed,
+          max_tests: maxTestsParsed,
+        },
+      );
       setSaved(true);
     } catch (err) {
       setError((err as Error).message);
@@ -948,6 +976,11 @@ function UsageCard({
               value={maxAgents}
               onChange={(e) => setMaxAgents(e.target.value)}
               disabled={readOnly}
+              error={
+                maxAgentsParsed === undefined
+                  ? "Whole number, or blank for unlimited."
+                  : undefined
+              }
             />
             <Field
               label="Max tests (blank = unlimited)"
@@ -955,8 +988,17 @@ function UsageCard({
               value={maxTests}
               onChange={(e) => setMaxTests(e.target.value)}
               disabled={readOnly}
+              error={
+                maxTestsParsed === undefined
+                  ? "Whole number, or blank for unlimited."
+                  : undefined
+              }
             />
-            <Button type="submit" variant="primary" disabled={readOnly}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={readOnly || quotaInvalid}
+            >
               Save quotas
             </Button>
           </form>
@@ -1003,6 +1045,10 @@ function GovernanceCard({
   const [redactExport, setRedactExport] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  // WEB-23: track the tenant actually loaded, separate from the editable field,
+  // so Save can never target a tenant the operator typed AFTER loading another.
+  const [loadedTenant, setLoadedTenant] = useState("");
+  const tenantChanged = tenant !== loadedTenant;
 
   if (!enabled) return null;
 
@@ -1013,9 +1059,10 @@ function GovernanceCard({
     try {
       const v = await api<GovernanceView>(
         "GET",
-        `/provider/v1/tenants/${tenant}/governance`,
+        `/provider/v1/tenants/${encodeURIComponent(tenant)}/governance`,
       );
       setView(v);
+      setLoadedTenant(tenant); // WEB-23: record what was actually loaded.
       setRedactFrom(v.redact_from || "pii");
       setRedactExport(!!v.redact_export);
     } catch (err) {
@@ -1027,11 +1074,17 @@ function GovernanceCard({
   const save = async () => {
     setError("");
     setSaved(false);
+    // WEB-23: never save to a tenant that is not the one loaded into this view.
+    if (!loadedTenant || tenantChanged) return;
     try {
-      await api("PUT", `/provider/v1/tenants/${tenant}/governance`, {
-        redact_from: redactFrom,
-        redact_export: redactExport,
-      });
+      await api(
+        "PUT",
+        `/provider/v1/tenants/${encodeURIComponent(loadedTenant)}/governance`,
+        {
+          redact_from: redactFrom,
+          redact_export: redactExport,
+        },
+      );
       setSaved(true);
     } catch (err) {
       setError((err as Error).message);
@@ -1127,7 +1180,7 @@ function GovernanceCard({
                   type="button"
                   variant="primary"
                   onClick={save}
-                  disabled={readOnly}
+                  disabled={readOnly || tenantChanged}
                 >
                   Save governance
                 </Button>
@@ -1253,7 +1306,7 @@ function FairnessCard({
     setError("");
     setSaved(false);
     try {
-      await api("PUT", `/provider/v1/tenants/${tenant}/fairness`, {
+      await api("PUT", `/provider/v1/tenants/${encodeURIComponent(tenant)}/fairness`, {
         results_per_sec: resultsSec === "" ? 0 : Number(resultsSec),
         flow_events_per_sec: flowsSec === "" ? 0 : Number(flowsSec),
         device_metrics_per_sec: deviceSec === "" ? 0 : Number(deviceSec),

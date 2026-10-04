@@ -96,7 +96,7 @@ export function TenantsCard({
   const act = async (id: string, action: TenantAction) => {
     setError("");
     try {
-      await api("POST", `/provider/v1/tenants/${id}/${action}`);
+      await api("POST", `/provider/v1/tenants/${encodeURIComponent(id)}/${action}`);
       load();
     } catch (err) {
       setError((err as Error).message);

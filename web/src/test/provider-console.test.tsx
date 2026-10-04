@@ -598,6 +598,54 @@ describe('provider console (S-T1)', () => {
     await userEvent.click(screen.getByRole('button', { name: /dismiss/i }))
     expect(screen.queryByText('op_enroll_tok')).not.toBeInTheDocument()
   })
+
+  test("WEB-23: a non-numeric quota ('1k') blocks submit instead of going unlimited", async () => {
+    const stub = providerStub()
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+    await screen.findByRole('table', { name: /usage and showback/i })
+
+    await userEvent.type(screen.getByLabelText(/tenant id \(quotas\)/i), 'tn_1')
+    await userEvent.type(screen.getByLabelText(/max agents/i), '1k')
+    const save = screen.getByRole('button', { name: /save quotas/i })
+    expect(save).toBeDisabled()
+    await userEvent.click(save)
+    const put = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => String(c[0]).includes('/quotas') && (c[1] as RequestInit)?.method === 'PUT',
+    )
+    expect(put).toBeUndefined()
+  })
+
+  test('WEB-23: changing the governance tenant field after Load disables Save', async () => {
+    vi.stubGlobal('fetch', providerStub())
+    renderApp('/provider')
+    await screen.findByText('Data governance')
+
+    await userEvent.type(screen.getByLabelText(/tenant id \(governance\)/i), 'tn_1')
+    await userEvent.click(screen.getByRole('button', { name: /^load$/i }))
+    const save = await screen.findByRole('button', { name: /save governance/i })
+    expect(save).toBeEnabled()
+    await userEvent.type(screen.getByLabelText(/tenant id \(governance\)/i), '2')
+    expect(save).toBeDisabled()
+  })
+
+  test("WEB-23: an operator tenant id with '../' is percent-encoded in the path", async () => {
+    const stub = providerStub()
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+    await screen.findByText('Data governance')
+
+    await userEvent.type(screen.getByLabelText(/tenant id \(governance\)/i), '../tn_evil')
+    await userEvent.click(screen.getByRole('button', { name: /^load$/i }))
+    await waitFor(() => {
+      const hit = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.find((c) =>
+        String(c[0]).includes('/governance'),
+      )
+      expect(hit).toBeTruthy()
+      expect(String(hit![0])).toContain('..%2Ftn_evil')
+      expect(String(hit![0])).not.toContain('../tn_evil')
+    })
+  })
 })
 
 // DPR-155: the provider console is outside the tenant shell and therefore
