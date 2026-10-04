@@ -220,6 +220,21 @@ func parseAWSVPCLine(tenantID, agentID, line string, now time.Time) ([]flow.Reco
 	if fields[13] != "OK" {
 		return nil, nil
 	}
+	// Field 12 is the ACCEPT/REJECT action; field 13 is the log-status checked
+	// above. A REJECT is a packet the VPC security group/NACL denied — not
+	// delivered traffic — so it must never be summed alongside ACCEPT flows.
+	// Drop denied rows here.
+	//
+	// Drop-vs-tag: tagging the row with an action dimension (action=accept|
+	// reject) would be richer for observability, but the normalized flow
+	// record, the flow store Row, the FlowRecord proto and the ClickHouse
+	// partitioning carry no action field, so tagging is a cross-package schema
+	// change. This fix is scoped to the cloud importer, so a denied flow is
+	// dropped rather than tagged — the accounting is then correct (denied
+	// traffic is not counted as delivered) within the one touched package.
+	if fields[12] == "REJECT" {
+		return nil, nil
+	}
 	src, err := parseAddr(fields[3])
 	if err != nil {
 		return nil, err
@@ -333,9 +348,12 @@ func parseAzureNSGLine(tenantID, agentID, line string, now time.Time) ([]flow.Re
 					exporter += ":" + strings.ToLower(mac)
 				}
 				for _, tuple := range macFlow.FlowTuples {
-					record, err := parseAzureTuple(tenantID, agentID, exporter, tuple, observed)
+					record, keep, err := parseAzureTuple(tenantID, agentID, exporter, tuple, observed)
 					if err != nil {
 						return nil, err
+					}
+					if !keep {
+						continue
 					}
 					out = append(out, record)
 				}
@@ -345,34 +363,44 @@ func parseAzureNSGLine(tenantID, agentID, line string, now time.Time) ([]flow.Re
 	return out, nil
 }
 
-func parseAzureTuple(tenantID, agentID, exporter, tuple string, observed time.Time) (flow.Record, error) {
+// parseAzureTuple decodes one NSG flow tuple. The bool report is whether the
+// tuple should be kept: a denied flow (traffic decision "D") is reported with
+// keep=false so the caller skips it. See parseAWSVPCLine for the drop-vs-tag
+// rationale — a denied flow is a blocked packet, not delivered traffic, and the
+// normalized schema has no action dimension to tag, so denied flows are dropped.
+func parseAzureTuple(tenantID, agentID, exporter, tuple string, observed time.Time) (flow.Record, bool, error) {
 	parts := strings.Split(tuple, ",")
 	if len(parts) < 8 {
-		return flow.Record{}, fmt.Errorf("azure nsg tuple needs at least 8 fields, got %d", len(parts))
+		return flow.Record{}, false, fmt.Errorf("azure nsg tuple needs at least 8 fields, got %d", len(parts))
+	}
+	// Part 7 is the traffic decision: "A" (allow) or "D" (deny). Drop denied
+	// flows so they are not counted alongside allowed traffic.
+	if strings.EqualFold(strings.TrimSpace(parts[7]), "D") {
+		return flow.Record{}, false, nil
 	}
 	start, err := parseUnixSeconds(parts[0])
 	if err != nil {
-		return flow.Record{}, err
+		return flow.Record{}, false, err
 	}
 	src, err := parseAddr(parts[1])
 	if err != nil {
-		return flow.Record{}, err
+		return flow.Record{}, false, err
 	}
 	dst, err := parseAddr(parts[2])
 	if err != nil {
-		return flow.Record{}, err
+		return flow.Record{}, false, err
 	}
 	srcPort, err := parsePort(parts[3])
 	if err != nil {
-		return flow.Record{}, err
+		return flow.Record{}, false, err
 	}
 	dstPort, err := parsePort(parts[4])
 	if err != nil {
-		return flow.Record{}, err
+		return flow.Record{}, false, err
 	}
 	proto, err := parseAzureProtocol(parts[5])
 	if err != nil {
-		return flow.Record{}, err
+		return flow.Record{}, false, err
 	}
 	packets := parseOptionalTupleUint(parts, 9) + parseOptionalTupleUint(parts, 11)
 	bytes := parseOptionalTupleUint(parts, 10) + parseOptionalTupleUint(parts, 12)
@@ -392,7 +420,7 @@ func parseAzureTuple(tenantID, agentID, exporter, tuple string, observed time.Ti
 		Bytes:        bytes,
 		Packets:      packets,
 		SamplingRate: 1,
-	}, nil
+	}, true, nil
 }
 
 type gcpLogEntry struct {

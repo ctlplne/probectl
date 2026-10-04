@@ -139,6 +139,61 @@ func TestConnectorRefusesMissingTenant(t *testing.T) {
 	}
 }
 
+// TestCloudflowDoesNotCountDeniedFlowsAsTraffic (ING-41) drives the real
+// import path (Emit → scan → decodeLine → the AWS/Azure decoders) and asserts
+// that a denied flow is distinguishable from an allowed one: a REJECT (AWS) or
+// a "D" decision (Azure) must NOT be imported as delivered traffic, while an
+// ACCEPT/allow flow still imports as one traffic record.
+//
+// Before the fix this failed: the AWS decoder checked only the log-status field
+// (OK), not the ACCEPT/REJECT action, so a REJECT line with log-status OK
+// imported indistinguishably from an ACCEPT; the Azure decoder never read the
+// A/D decision at all, so a deny tuple imported indistinguishably from allow.
+func TestCloudflowDoesNotCountDeniedFlowsAsTraffic(t *testing.T) {
+	// AWS VPC default format: field 12 = action (ACCEPT/REJECT),
+	// field 13 = log-status (OK). Both lines are log-status OK so the only
+	// difference under test is the action.
+	const (
+		awsAccept = "2 123456789012 eni-0abc1234 10.10.0.5 10.20.0.9 51514 443 6 11 2048 1782820800 1782820860 ACCEPT OK"
+		awsReject = "2 123456789012 eni-0abc1234 10.10.0.5 10.20.0.9 51514 443 6 11 2048 1782820800 1782820860 REJECT OK"
+	)
+	// Azure NSG v2 tuple: part 7 = traffic decision ("A" allow / "D" deny).
+	// Everything but that field is identical between the two lines.
+	azureLine := func(decision string) string {
+		return `{"records":[{"time":"2026-06-30T12:02:00Z","resourceId":"/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Network/networkSecurityGroups/nsg-prod","properties":{"Version":2,"flows":[{"rule":"Rule","flows":[{"mac":"000D3A123456","flowTuples":["1782820920,10.10.0.6,20.20.20.20,53000,443,T,O,` + decision + `,B,7,4096,2,1024"]}]}]}}]}`
+	}
+
+	for _, tc := range []struct {
+		name      string
+		provider  Provider
+		line      string
+		delivered bool // true: ACCEPT/allow, must import as traffic; false: denied, must not be counted
+	}{
+		{"aws_accept_imports_as_traffic", ProviderAWSVPC, awsAccept, true},
+		{"aws_reject_is_not_counted", ProviderAWSVPC, awsReject, false},
+		{"azure_allow_imports_as_traffic", ProviderAzureNSG, azureLine("A"), true},
+		{"azure_deny_is_not_counted", ProviderAzureNSG, azureLine("D"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			em := &captureEmitter{}
+			n, err := Emit(context.Background(), tc.provider, "tenant-a", "agent-cloud", strings.NewReader(tc.line), em)
+			if err != nil {
+				t.Fatalf("emit %s: %v", tc.provider, err)
+			}
+			if tc.delivered {
+				if n != 1 || len(em.recs) != 1 {
+					t.Fatalf("an ACCEPT/allow flow must import as one traffic record, got n=%d recs=%d", n, len(em.recs))
+				}
+				if em.recs[0].Bytes == 0 {
+					t.Fatalf("delivered flow imported with zero bytes, not counted as traffic: %+v", em.recs[0])
+				}
+			} else if n != 0 || len(em.recs) != 0 {
+				t.Fatalf("a REJECT/deny flow must NOT be counted as delivered traffic, but it imported n=%d recs=%d (indistinguishable from ACCEPT/allow)", n, len(em.recs))
+			}
+		})
+	}
+}
+
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", name))
