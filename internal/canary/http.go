@@ -201,6 +201,22 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		// A network / TLS / timeout failure is a probe failure (availability),
 		// not an internal plugin error — report it as success=false.
+		//
+		// RTP-18: the request transport floors at TLS 1.2 + the secure cipher
+		// set, so a server that only speaks TLS 1.0/1.1 or a weak-cipher-only
+		// server is REJECTED at negotiation (before VerifyConnection runs), and
+		// tlsState stays nil — yielding no posture at all. When an HTTPS probe
+		// fails with nothing captured (and it was not a timeout/cancel), run a
+		// RECORD-ONLY posture handshake that accepts legacy TLS + the broad
+		// cipher set and NEVER sends the request, so S27 still sees the
+		// deprecated_protocol / weak_cipher posture. This is observe-only — it
+		// records a SIGNAL, never blocks (docs/guardrails.md G7-9) — and it
+		// never lowers the main request's floor or trusts the peer.
+		if c.scheme == "https" && tlsState == nil && !isTimeout(err) {
+			if ps, pv := c.posturePeek(ctx, roots); ps != nil {
+				attachTLS(&res, ps, pv, start)
+			}
+		}
 		res.Duration = time.Since(start)
 		res.Success = false
 		res.Error = err.Error()
@@ -264,6 +280,82 @@ func (c *httpCanary) transport(roots *x509.CertPool, tlsState **tls.ConnectionSt
 		}
 	}
 	return transport
+}
+
+// posturePeek runs a RECORD-ONLY TLS handshake against the target that accepts
+// legacy versions (TLS 1.0+) and the broad cipher set (secure + insecure), so a
+// server that only speaks deprecated TLS or a weak cipher still yields a posture
+// record for S27 (deprecated_protocol / weak_cipher). It is used ONLY when the
+// main request's TLS 1.2 floor rejected the handshake before anything was
+// captured (RTP-18). It is observe-only: it completes the handshake, reads the
+// negotiated version/cipher and chain, and NEVER sends the probe's HTTP request
+// — detection is a SIGNAL, never an IPS (docs/guardrails.md G7-9). It does NOT
+// lower the main request's floor, and it does NOT trust the peer (verification
+// is captured as a flag, exactly as the request path does). The SSRF guard
+// (U-002) is enforced on the posture dial too, so this is not an SSRF bypass.
+func (c *httpCanary) posturePeek(ctx context.Context, roots *x509.CertPool) (*tls.ConnectionState, *bool) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	dialer := &net.Dialer{
+		Timeout: c.timeout,
+		Control: c.guard.DialControl(nil),
+	}
+	rawConn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(c.host, c.port))
+	if err != nil {
+		return nil, nil
+	}
+	defer func() { _ = rawConn.Close() }()
+
+	conn := tls.Client(rawConn, &tls.Config{
+		// Floor at TLS 1.0 and offer the broad cipher set so a legacy/weak-only
+		// server can negotiate — this is a POSTURE observation, not the request.
+		MinVersion:   tls.VersionTLS10,
+		MaxVersion:   tls.VersionTLS13,
+		ServerName:   c.host,
+		CipherSuites: postureCipherSuites(),
+		// Observe-only: we record what the server offers; we never trust it here
+		// and the chain's verification result is captured as a flag below.
+		InsecureSkipVerify: true,
+	})
+	if err := conn.HandshakeContext(ctx); err != nil {
+		return nil, nil
+	}
+	cs := conn.ConnectionState()
+	var verified *bool
+	if len(cs.PeerCertificates) > 0 {
+		ok := verifyPeer(cs, c.host, roots) == nil
+		verified = &ok
+	}
+	return &cs, verified
+}
+
+// postureCipherSuites returns every cipher suite this build implements — the
+// secure set plus the insecure legacy suites (RC4/3DES/CBC) — so a posture
+// handshake can negotiate with a weak-cipher-only server. These are offered
+// ONLY on the observe-only posture peek, never on the request transport.
+func postureCipherSuites() []uint16 {
+	secure := tls.CipherSuites()
+	insecure := tls.InsecureCipherSuites()
+	ids := make([]uint16, 0, len(secure)+len(insecure))
+	for _, cs := range secure {
+		ids = append(ids, cs.ID)
+	}
+	for _, cs := range insecure {
+		ids = append(ids, cs.ID)
+	}
+	return ids
+}
+
+// isTimeout reports whether err is a deadline/cancellation, so the posture peek
+// is skipped on a slow/unreachable target — the server never negotiated, and a
+// re-dial would only double the probe's latency.
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 func (c *httpCanary) statusOK(code int) bool {
