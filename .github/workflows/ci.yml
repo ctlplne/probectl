@@ -712,6 +712,15 @@ jobs:
           PROBECTL_SESSION_HMAC_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           PROBECTL_IMAGE: ghcr.io/ctlplne/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         run: docker compose -f deploy/compose/probectl.yml config >/dev/null
+      - name: compose stack is hardened + connects with verify-full (SUP-12)
+        # Asserts every service drops privileges, the control-image one-shots run
+        # read-only with no capabilities, long-running services bound their logs,
+        # and every control->Postgres DSN uses sslmode=verify-full (not just
+        # require). The KEK-beside-data refusal is covered by compose-image-gate's
+        # compose_env_preflight SELFTEST above.
+        run: |
+          bash scripts/check_compose_hardening.sh SELFTEST
+          bash scripts/check_compose_hardening.sh
 
   terraform-gate:
     name: terraform-gate

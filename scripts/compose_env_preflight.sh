@@ -73,7 +73,19 @@ check_env() { # check_env <file> -> 0 ok, 2 on any failure; messages on stderr
     local n
     n="$(printf '%s' "$v" | base64 -d 2>/dev/null | wc -c | tr -d ' ')" || n=0
     if [ "${n:-0}" -ne 32 ]; then
-      echo "compose env preflight: PROBECTL_ENVELOPE_KEY must be base64 of exactly 32 bytes (openssl rand -base64 32), or empty to generate one on first boot" >&2; fail=1
+      echo "compose env preflight: PROBECTL_ENVELOPE_KEY must be base64 of exactly 32 bytes (openssl rand -base64 32)" >&2; fail=1
+    fi
+  else
+    # SUP-12: the production stack must NOT mint its own KEK on first boot and
+    # persist it on the controldata volume beside the sealed data — a single
+    # host/volume snapshot would then yield both the ciphertext and the key that
+    # opens it. Require an operator-supplied key (inject it from a KMS / secret
+    # manager), unless an explicit throwaway-evaluation acknowledgement opts back
+    # into generate-beside-the-data.
+    local ack
+    ack="$(env_value "$file" PROBECTL_ALLOW_GENERATED_ENVELOPE_KEY)"
+    if [ "$ack" != "true" ]; then
+      echo "compose env preflight: PROBECTL_ENVELOPE_KEY is empty — the production stack will not generate a KEK beside the data (SUP-12). Set it to a base64 32-byte key from your KMS / secret manager (openssl rand -base64 32), or set PROBECTL_ALLOW_GENERATED_ENVELOPE_KEY=true for a THROWAWAY evaluation that mints one on first boot." >&2; fail=1
     fi
   fi
 
@@ -136,7 +148,7 @@ selftest() {
   good="$tmp/good.env"
   cat >"$good" <<GOOD
 POSTGRES_PASSWORD=selftest-not-a-secret
-PROBECTL_ENVELOPE_KEY=
+PROBECTL_ENVELOPE_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 PROBECTL_SESSION_HMAC_KEY=0123456701234567012345670123456701234567012345670123456701234567
 PROBECTL_TLS_HOSTS=localhost,127.0.0.1
 PROBECTL_AUTH_MODE=session
@@ -158,6 +170,15 @@ GOOD
   expect_fail short-hmac 's|^PROBECTL_SESSION_HMAC_KEY=.*|PROBECTL_SESSION_HMAC_KEY=0123abcd|'
   expect_fail non-hex-hmac 's|^PROBECTL_SESSION_HMAC_KEY=.*|PROBECTL_SESSION_HMAC_KEY=zz23456701234567012345670123456701234567012345670123456701234567|'
   expect_fail short-envelope 's|^PROBECTL_ENVELOPE_KEY=.*|PROBECTL_ENVELOPE_KEY=c2hvcnQ=|'
+  # SUP-12: an empty envelope key with no throwaway-eval acknowledgement is
+  # refused (the production stack must not mint a KEK beside the data).
+  expect_fail empty-envelope-no-ack 's|^PROBECTL_ENVELOPE_KEY=.*|PROBECTL_ENVELOPE_KEY=|'
+  # …but an empty key WITH the explicit eval acknowledgement is allowed.
+  # (Build the file portably — BSD/macOS sed has no GNU `$a` append.)
+  sed 's|^PROBECTL_ENVELOPE_KEY=.*|PROBECTL_ENVELOPE_KEY=|' "$good" >"$tmp/evalack.env"
+  printf 'PROBECTL_ALLOW_GENERATED_ENVELOPE_KEY=true\n' >>"$tmp/evalack.env"
+  PROBECTL_COMPOSE_ENV_FILE="$tmp/evalack.env" bash "$0" >/dev/null \
+    || { echo "selftest: empty envelope key WITH PROBECTL_ALLOW_GENERATED_ENVELOPE_KEY=true must pass" >&2; exit 1; }
   expect_fail blank-tls-hosts 's|^PROBECTL_TLS_HOSTS=.*|PROBECTL_TLS_HOSTS=|'
   expect_fail bad-auth-mode 's|^PROBECTL_AUTH_MODE=.*|PROBECTL_AUTH_MODE=none|'
   expect_fail missing-license 's|^PROBECTL_AUTH_MODE=.*|PROBECTL_LICENSE_PATH=/nonexistent/license.json|'

@@ -28,10 +28,11 @@ services:
       # password (no shipped default). Set it in .env (openssl rand -base64 24).
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (no default ships — SEC-006)}
       POSTGRES_DB: probectl
-    # TLS on the Postgres listener (U-039): reuse the certgen-provisioned cert
-    # (sslmode=require encrypts without verifying, so the self-signed quickstart
-    # cert works; operators with a CA-issued cert get it automatically). The
-    # key is install'ed postgres-owned 0600 as the server requires.
+    # TLS on the Postgres listener (U-039): reuse the certgen-provisioned cert,
+    # which carries a `postgres` SAN so the control plane connects with
+    # sslmode=verify-full (SUP-12) — CA + hostname verified against the certgen
+    # CA, not merely encrypted. The key is install'ed postgres-owned 0600 as the
+    # server requires.
     command: >
       bash -c "install -o postgres -g postgres -m 600 /certs/tls.key /var/lib/postgresql/server.key
       && install -o postgres -g postgres -m 644 /certs/tls.crt /var/lib/postgresql/server.crt
@@ -58,6 +59,13 @@ services:
       - no-new-privileges:true
     mem_limit: ${PROBECTL_POSTGRES_MEM_LIMIT:-1g}
     pids_limit: 512
+    # SUP-12: bound the json-file log so a chatty or looping container cannot
+    # fill the host disk (a cheap availability guard for a long-running service).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     # No host port: only the control plane reaches Postgres (in-network).
     restart: unless-stopped
 
@@ -71,7 +79,12 @@ services:
     image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE to a digest-pinned probectl-control image ref}"
     command: ["gen-cert", "--if-missing", "/certs"]
     environment:
-      PROBECTL_CERT_HOSTS: ${PROBECTL_TLS_HOSTS:-localhost,127.0.0.1}
+      # SUP-12: `postgres` is always a SAN so the control plane can reach the
+      # in-network database with sslmode=verify-full (hostname-checked) against
+      # this cert's CA — the same bundle Postgres serves below. If you bring your
+      # own certificate via PROBECTL_TLS_DIR, include `postgres` in its SANs for
+      # the verify-full DB hop (otherwise downgrade the DSNs below to verify-ca).
+      PROBECTL_CERT_HOSTS: ${PROBECTL_TLS_HOSTS:-localhost,127.0.0.1},postgres
     volumes:
       # A named volume by default; an operator certificate directory when
       # PROBECTL_TLS_DIR is set (gen-cert --if-missing leaves a complete
@@ -102,9 +115,15 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      PROBECTL_DATABASE_URL: postgres://probectl:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (no default ships — SEC-006)}@postgres:5432/probectl?sslmode=require
+      # SUP-12: verify-full — encrypt AND verify the DB server certificate (CA +
+      # hostname) against the certgen CA, so a man-in-the-middle on the compose
+      # network cannot impersonate Postgres. The cert carries a `postgres` SAN.
+      PROBECTL_DATABASE_URL: postgres://probectl:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (no default ships — SEC-006)}@postgres:5432/probectl?sslmode=verify-full&sslrootcert=/certs/ca.crt
       PROBECTL_LOG_FORMAT: json
     networks: [probectl]
+    volumes:
+      # Read-only CA bundle for the verify-full DB hop above.
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
     # RTO-03 container hardening (docs/guardrails.md G7-12): the migration
     # one-shot runs the distroless control image with an immutable root
     # filesystem, no capabilities, and no privilege escalation. It writes
@@ -138,9 +157,12 @@ services:
     entrypoint:
       - bash
       - -c
-      - exec psql "host=postgres user=probectl dbname=probectl sslmode=require" -v ON_ERROR_STOP=1 -v app_password="$$POSTGRES_APP_PASSWORD" -f /provision-app-login.sql
+      # SUP-12: verify-full for the provisioning hop too (CA + hostname checked
+      # against the certgen CA, which signed the `postgres`-SAN server cert).
+      - exec psql "host=postgres user=probectl dbname=probectl sslmode=verify-full sslrootcert=/certs/ca.crt" -v ON_ERROR_STOP=1 -v app_password="$$POSTGRES_APP_PASSWORD" -f /provision-app-login.sql
     volumes:
       - ./provision-app-login.sql:/provision-app-login.sql:ro
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
     networks: [probectl]
     # RTO-03 container hardening (docs/guardrails.md G7-12): a short-lived psql
     # one-shot on the upstream Postgres image — no privilege escalation and a
@@ -179,8 +201,9 @@ services:
       # RLS is the enforced tenant boundary on every path (a superuser serve login
       # bypasses RLS and boot now fails closed). Migrations ran as the privileged
       # owner in the `migrate` one-shot, so the control plane does not migrate on
-      # boot. sslmode=require (U-039): encrypted to the in-network Postgres above.
-      PROBECTL_DATABASE_URL: postgres://probectl_runtime:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set in .env (openssl rand -hex 24, URL-safe) — the least-privilege runtime DB login (TEN-01)}@postgres:5432/probectl?sslmode=require
+      # boot. SUP-12: sslmode=verify-full — encrypt AND verify the DB server cert
+      # (CA + `postgres` hostname) against the certgen CA, not just encrypt.
+      PROBECTL_DATABASE_URL: postgres://probectl_runtime:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set in .env (openssl rand -hex 24, URL-safe) — the least-privilege runtime DB login (TEN-01)}@postgres:5432/probectl?sslmode=verify-full&sslrootcert=/certs/ca.crt
       PROBECTL_MIGRATE_ON_BOOT: "false"
       # At-rest encryption is ON BY DEFAULT (SEC-002): when PROBECTL_ENVELOPE_KEY
       # is unset, the control plane GENERATES a KEK at the key-file path on
@@ -242,6 +265,13 @@ services:
     # deployments) so a runaway control plane cannot exhaust host memory or PIDs.
     mem_limit: ${PROBECTL_CONTROL_MEM_LIMIT:-2g}
     pids_limit: ${PROBECTL_CONTROL_PIDS_LIMIT:-512}
+    # SUP-12: bound the json-file log so the control plane cannot fill the host
+    # disk over a long uptime.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     restart: unless-stopped
 
 volumes:
