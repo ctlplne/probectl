@@ -37,11 +37,12 @@ type Kafka struct {
 	brokers  []string
 	extra    []kgo.Opt
 
-	produced    atomic.Uint64 // broker-acked records
-	failed      atomic.Uint64 // accepted but failed after retries (async)
-	shed        atomic.Uint64 // rejected at the full buffer (backpressure drop)
-	handlerErr  atomic.Uint64 // consumed records whose handler returned an error (NOT committed → redelivered)
-	maxBuffered int64
+	produced     atomic.Uint64 // broker-acked records
+	failed       atomic.Uint64 // accepted but failed after retries (async)
+	shed         atomic.Uint64 // rejected at the full buffer (backpressure drop)
+	handlerErr   atomic.Uint64 // consumed records whose handler returned an error (NOT committed → redelivered)
+	handlerPanic atomic.Uint64 // consumed records whose handler PANICKED and was recovered (ING-40 — not committed → redelivered)
+	maxBuffered  int64
 
 	// DPR-141: the consumer's own view of how far behind it is, taken from the
 	// high watermarks that every fetch response already carries.
@@ -98,6 +99,7 @@ type PublishStats struct {
 	Shed          uint64 // dropped at the full buffer
 	Buffered      int64  // currently in flight
 	HandlerErrors uint64 // consumed records whose handler errored (offset NOT committed → redelivered)
+	HandlerPanics uint64 // consumed records whose handler PANICKED and was recovered (ING-40 — counted, never a process crash)
 }
 
 // NewKafka creates a Kafka bus seeded with brokers. The async producer is
@@ -181,6 +183,7 @@ func (k *Kafka) Stats() PublishStats {
 		Shed:          k.shed.Load(),
 		Buffered:      k.producer.BufferedProduceRecords(),
 		HandlerErrors: k.handlerErr.Load(),
+		HandlerPanics: k.handlerPanic.Load(),
 	}
 }
 
@@ -459,7 +462,11 @@ func (k *Kafka) Subscribe(ctx context.Context, topic, group string, handler Hand
 	// by markable, never here. Handlers that have already accounted for a message
 	// (their own DLQ etc.) return nil; a non-nil error means "not safely handled".
 	process := func(r *kgo.Record) bool {
-		if herr := handler(ctx, Message{Topic: r.Topic, Key: r.Key, Value: r.Value}); herr != nil {
+		// ING-40: recover a handler panic into an error so a poison record fails
+		// (offset left uncommitted → redelivered, bounded by the firstFail ceiling
+		// + at-least-once restart) instead of crashing this consumer goroutine and
+		// the whole process. Counted on handlerPanic; logged without the payload.
+		if herr := recoverHandler(ctx, handler, Message{Topic: r.Topic, Key: r.Key, Value: r.Value}, &k.handlerPanic); herr != nil {
 			k.handlerErr.Add(1)
 			return false
 		}

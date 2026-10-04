@@ -62,13 +62,14 @@ type NATS struct {
 	maxPending int
 	maxDeliver int // bounded redelivery: a poison record is terminated after this many attempts (ING-12)
 
-	produced    atomic.Uint64
-	failed      atomic.Uint64
-	shed        atomic.Uint64
-	handlerErr  atomic.Uint64
-	handlerLost atomic.Uint64 // poison records terminated after exhausting MaxDeliver — a counted loss, never silent
-	inflight    atomic.Int64
-	lastFailure atomic.Pointer[produceFailure]
+	produced     atomic.Uint64
+	failed       atomic.Uint64
+	shed         atomic.Uint64
+	handlerErr   atomic.Uint64
+	handlerPanic atomic.Uint64 // handler panics recovered (ING-40 — counted, never a process crash)
+	handlerLost  atomic.Uint64 // poison records terminated after exhausting MaxDeliver — a counted loss, never silent
+	inflight     atomic.Int64
+	lastFailure  atomic.Pointer[produceFailure]
 
 	// DPR-141: this process's consumer backlog, from JetStream's per-message
 	// pending count.
@@ -344,6 +345,7 @@ func (n *NATS) Stats() PublishStats {
 		Shed:          n.shed.Load(),
 		Buffered:      n.inflight.Load(),
 		HandlerErrors: n.handlerErr.Load(),
+		HandlerPanics: n.handlerPanic.Load(),
 	}
 }
 
@@ -435,7 +437,11 @@ func (n *NATS) handleMessage(ctx context.Context, msg jetstream.Msg, handler Han
 	if h := msg.Headers().Get(natsKeyHeader); h != "" {
 		m.Key = []byte(h)
 	}
-	if herr := handler(ctx, m); herr != nil {
+	// ING-40: recover a handler panic into an error so a poison record takes the
+	// same Nak/Term bounded-redelivery path (counted in HandlerLost once the
+	// delivery bound is hit) instead of crashing this consumer goroutine and the
+	// whole process. Counted on handlerPanic; logged without the payload.
+	if herr := recoverHandler(ctx, handler, m, &n.handlerPanic); herr != nil {
 		n.handlerErr.Add(1)
 		if n.maxDeliver > 0 && numDelivered >= uint64(n.maxDeliver) {
 			// Poison: stop the redelivery loop explicitly and count the loss.

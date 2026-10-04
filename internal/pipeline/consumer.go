@@ -85,6 +85,14 @@ type Consumer struct {
 	writeQueueSaturationMetric *metrics.Counter
 	terminallyRejectedMetric   *metrics.Counter // RTO-17: permanent-reject terminal drops
 
+	// writeStagePanic counts panics recovered in the write-stage worker
+	// goroutines (ING-40). The write stage drains writeCh on goroutines the
+	// pipeline spawns itself, OUTSIDE any bus Subscribe handler, so a panic there
+	// has no recover above it and crashes the whole process; recovering it fails
+	// the record (redelivered) and keeps the worker — and the process — alive.
+	writeStagePanic       atomic.Uint64
+	writeStagePanicMetric *metrics.Counter
+
 	// card caps per-agent/per-tenant series identities (U-017); always set.
 	card *CardinalityLimiter
 }
@@ -96,6 +104,7 @@ type ConsumerStats struct {
 	TerminallyRejected  uint64 // permanent (4xx) store rejects dropped terminally (RTO-17)
 	Dropped             uint64
 	WriteQueueSaturated uint64
+	WriteStagePanics    uint64 // panics recovered in the write-stage workers (ING-40 — record failed, process preserved)
 }
 
 // Stats reports the cumulative retry/DLQ counters.
@@ -106,6 +115,7 @@ func (c *Consumer) Stats() ConsumerStats {
 		TerminallyRejected:  c.terminallyRejected.Load(),
 		Dropped:             c.dropped.Load(),
 		WriteQueueSaturated: c.writeQueueSaturated.Load(),
+		WriteStagePanics:    c.writeStagePanic.Load(),
 	}
 }
 
@@ -233,6 +243,8 @@ func (c *Consumer) WithMetrics(reg *metrics.Registry) *Consumer {
 		"Times the result write-stage queue was observed full before enqueue; backpressure was applied to the bus consumer.")
 	c.terminallyRejectedMetric = reg.Counter("probectl_pipeline_results_terminally_rejected_total",
 		"Results the store permanently rejected (4xx remote-write: out-of-order/too-old/malformed) and dropped terminally — counted once per record, never re-queued to the replayable dead-letter topic (RTO-17).")
+	c.writeStagePanicMetric = reg.Counter("probectl_pipeline_results_write_stage_panics_total",
+		"Panics recovered in the result write-stage workers; the record was failed (offset left uncommitted → redelivered) and the process preserved rather than crashed (ING-40).")
 	reg.Gauge("probectl_pipeline_results_write_queue_depth",
 		"Current result write-stage queued records waiting for TSDB writes.", func() float64 {
 			return float64(c.WriteChDepth())
@@ -335,7 +347,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 		go func() {
 			defer writeWG.Done()
 			for it := range c.writeCh {
-				it.done <- c.writeOne(ctx, it) // CORRECT-001: report durability back
+				// CORRECT-001: report durability back. ING-40: recover a panic in
+				// the write path so a buggy/poison record fails THIS record instead
+				// of crashing the worker goroutine (and the whole process) — the
+				// handler blocked on <-it.done would otherwise also hang forever.
+				it.done <- c.writeOneRecovered(ctx, it)
 			}
 		}()
 	}
@@ -391,6 +407,31 @@ type writeItem struct {
 	sourceTopic string
 	bytes       int        // ingest bytes to meter once the write is durable (CORRECT-005)
 	done        chan error // CORRECT-001: write-stage signals durability back to the handler
+}
+
+// writeOneRecovered wraps writeOne with panic recovery for the write-stage
+// worker goroutines (ING-40). Those workers drain writeCh OUTSIDE any bus
+// Subscribe handler, so the bus-layer handler recover cannot catch a panic here:
+// it would crash the worker goroutine and the whole process, and the handler
+// blocked on <-it.done would hang. A recovered panic is converted into a write
+// error — the record is treated exactly as a failed write (offset left
+// uncommitted → redelivered; a permanently-panicking record is bounded by the
+// bus's own redelivery cap), the worker survives to drain the next record, and
+// the panic is counted (writeStagePanic / the metric) and logged WITHOUT the
+// payload (docs/guardrails.md G7-6) so the failure is observable, never silent.
+func (c *Consumer) writeOneRecovered(ctx context.Context, it writeItem) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.writeStagePanic.Add(1)
+			if c.writeStagePanicMetric != nil {
+				c.writeStagePanicMetric.Inc()
+			}
+			c.log.Error("result write stage recovered a panic — record failed, process preserved (ING-40)",
+				"lane", it.sourceTopic, "panic", fmt.Sprint(r))
+			err = fmt.Errorf("pipeline: write-stage panic: %v", r)
+		}
+	}()
+	return c.writeOne(ctx, it)
 }
 
 // writeOne is the write stage's per-record body: store (with retry), then either

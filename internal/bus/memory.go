@@ -40,15 +40,16 @@ type Memory struct {
 	// every subscriber saw every message and any reasoning about independent
 	// offsets or replay isolation was Kafka-only, while lightweight mode is a
 	// shipped deployment option.
-	subs        map[string]map[string]*memoryGroup
-	closed      bool
-	bufSize     int
-	dropOn      bool          // overflow policy: true = drop+count, false = block (U-079)
-	dropped     atomic.Uint64 // messages dropped under the drop policy
-	handlerErr  atomic.Uint64 // handler errors observed (CORRECT-007 — never silent)
-	handlerLost atomic.Uint64 // records dropped after redelivery attempts exhausted
-	noSub       atomic.Uint64 // records discarded because no subscriber was present (ING-19 — never silent)
-	workers     int           // opt-in parallel handler workers; default preserves serial delivery
+	subs         map[string]map[string]*memoryGroup
+	closed       bool
+	bufSize      int
+	dropOn       bool          // overflow policy: true = drop+count, false = block (U-079)
+	dropped      atomic.Uint64 // messages dropped under the drop policy
+	handlerErr   atomic.Uint64 // handler errors observed (CORRECT-007 — never silent)
+	handlerLost  atomic.Uint64 // records dropped after redelivery attempts exhausted
+	handlerPanic atomic.Uint64 // handler panics recovered (ING-40 — counted, never a process crash)
+	noSub        atomic.Uint64 // records discarded because no subscriber was present (ING-19 — never silent)
+	workers      int           // opt-in parallel handler workers; default preserves serial delivery
 
 	flushMu   sync.Mutex
 	inFlight  int
@@ -123,6 +124,12 @@ func (m *Memory) HandlerErrors() uint64 { return m.handlerErr.Load() }
 // budget was exhausted (a permanently-failing handler). It is a real loss and
 // is counted — never silent.
 func (m *Memory) HandlerLost() uint64 { return m.handlerLost.Load() }
+
+// HandlerPanics returns how many times a subscriber handler PANICKED and was
+// recovered (ING-40) rather than crashing the process. A recovered panic is also
+// surfaced as a handler error (bounded redelivery → HandlerLost), so the poison
+// record is accounted like any other failure; this counter names the cause.
+func (m *Memory) HandlerPanics() uint64 { return m.handlerPanic.Load() }
 
 // NoSubscriberDrops returns how many records Publish discarded because the
 // topic had NO subscriber registered at publish time. The in-memory bus is a
@@ -343,7 +350,11 @@ func (m *Memory) Subscribe(ctx context.Context, topic, group string, handler Han
 // retrying promptly so shutdown never hangs.
 func (m *Memory) deliver(ctx context.Context, handler Handler, msg Message) {
 	for attempt := 0; ; attempt++ {
-		if err := handler(ctx, msg); err == nil {
+		// ING-40: a handler PANIC is recovered and turned into an error here, so
+		// it flows through this same bounded-redelivery loop instead of crashing
+		// the Subscribe goroutine (and the process). The panic is counted
+		// (handlerPanic) and logged without the payload.
+		if err := recoverHandler(ctx, handler, msg, &m.handlerPanic); err == nil {
 			return
 		}
 		m.handlerErr.Add(1)
