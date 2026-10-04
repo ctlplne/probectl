@@ -17,6 +17,7 @@
 /probectl-agent
 /probectl-ebpf-agent
 /probectl-endpoint
+/probectl-completeness
 
 # Go
 /vendor/
