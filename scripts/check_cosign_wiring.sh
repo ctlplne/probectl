@@ -142,6 +142,20 @@ grep -q -- '--no-verify' "$INSTALL"         || { echo "install.sh: missing expli
 grep -q 'VERIFY="${PROBECTL_VERIFY_COSIGN:-1}"' "$INSTALL" || { echo "install.sh: cosign verification is not default-on"; fail=1; }
 grep -q 'PROBECTL_UNVERIFIED_INSTALL_ACK' "$INSTALL" || { echo "install.sh: missing unverified-install acknowledgment"; fail=1; }
 grep -q 'cosign verify-blob' "$INSTALL"     || grep -q 'cosign \\' "$INSTALL" || { echo "install.sh: missing cosign verify-blob"; fail=1; }
+# ING-36: the verified bytes must be the installed bytes — install from the
+# private staging snapshot, never re-read ${BIN} after verifying it (TOCTOU).
+grep -q 'VERIFIED_SRC="${STAGE}"' "$INSTALL" || { echo "install.sh: missing TOCTOU-safe staging snapshot (ING-36)"; fail=1; }
+grep -q 'install -m 0755 "${VERIFIED_SRC}"' "$INSTALL" || { echo "install.sh: does not install the verified staged bytes (ING-36 TOCTOU)"; fail=1; }
+grep -q 'PROBECTL_COSIGN_IDENTITY_OVERRIDE_ACK' "$INSTALL" || { echo "install.sh: cosign identity/issuer override is not ack-gated (ING-36)"; fail=1; }
+# ING-36 functional: overriding the pinned identity without the ack must refuse.
+override_out="$(PROBECTL_COSIGN_IDENTITY_REGEXP='^https://github.com/attacker/' bash "$INSTALL" --verify /nonexistent-bin 2>&1 || true)"
+if ! grep -q 'moves the trust anchor' <<<"$override_out"; then
+  echo "install.sh: identity override without the ack was NOT refused (ING-36): $override_out"; fail=1
+fi
+override_ack_out="$(PROBECTL_COSIGN_IDENTITY_REGEXP='^https://github.com/attacker/' PROBECTL_COSIGN_IDENTITY_OVERRIDE_ACK=allow-custom-cosign-identity bash "$INSTALL" --verify /nonexistent-bin 2>&1 || true)"
+if grep -q 'moves the trust anchor' <<<"$override_ack_out"; then
+  echo "install.sh: identity override ack did not unblock the override gate (ING-36)"; fail=1
+fi
 for identity_source in "$INSTALL" "$AIRGAP" deploy/ansible/roles/probectl_agents/defaults/main.yml; do
   if grep -Fq '[^/]+/probectl' "$identity_source"; then
     echo "${identity_source}: default cosign identity trusts an arbitrary repository owner"; fail=1

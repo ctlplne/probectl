@@ -41,12 +41,35 @@ while [ "${1:-}" = "--verify" ] || [ "${1:-}" = "--no-verify" ]; do
   esac
   shift
 done
-COSIGN_ISSUER="${PROBECTL_COSIGN_ISSUER:-https://token.actions.githubusercontent.com}"
-COSIGN_IDENTITY_REGEXP="${PROBECTL_COSIGN_IDENTITY_REGEXP:-^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/}"
+DEFAULT_COSIGN_ISSUER="https://token.actions.githubusercontent.com"
+DEFAULT_COSIGN_IDENTITY_REGEXP="^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/"
+COSIGN_ISSUER="${PROBECTL_COSIGN_ISSUER:-$DEFAULT_COSIGN_ISSUER}"
+COSIGN_IDENTITY_REGEXP="${PROBECTL_COSIGN_IDENTITY_REGEXP:-$DEFAULT_COSIGN_IDENTITY_REGEXP}"
 UNVERIFIED_ACK_VALUE="allow-unsigned-cap-bpf-code"
+# ING-36: overriding the pinned signer identity/issuer moves the trust anchor —
+# a maliciously-signed binary would then "verify". It is break-glass, gated by
+# its own acknowledgment, not a silent env override.
+IDENTITY_OVERRIDE_ACK_VALUE="allow-custom-cosign-identity"
+if [ "${VERIFY}" = "1" ] && { [ "${COSIGN_ISSUER}" != "${DEFAULT_COSIGN_ISSUER}" ] || [ "${COSIGN_IDENTITY_REGEXP}" != "${DEFAULT_COSIGN_IDENTITY_REGEXP}" ]; }; then
+  if [ "${PROBECTL_COSIGN_IDENTITY_OVERRIDE_ACK:-}" != "${IDENTITY_OVERRIDE_ACK_VALUE}" ]; then
+    echo "install.sh: overriding the pinned cosign signer identity/issuer moves the trust anchor (SUPPLY-002)." >&2
+    echo "install.sh: for break-glass set PROBECTL_COSIGN_IDENTITY_OVERRIDE_ACK=${IDENTITY_OVERRIDE_ACK_VALUE} to acknowledge." >&2
+    exit 1
+  fi
+  echo "install.sh: BREAK-GLASS — verifying against a NON-DEFAULT cosign identity/issuer." >&2
+fi
 
 BIN="${1:?usage: install.sh [--verify|--no-verify] <path-to-probectl-ebpf-agent-binary> [config.yaml]}"
 [ -f "${BIN}" ] || { echo "install.sh: no binary at ${BIN}" >&2; exit 1; }
+
+# ING-36: the exact bytes we verify are the exact bytes we install. We snapshot
+# the binary to a private staging file, verify THAT, and install from THAT, so a
+# concurrent swap of ${BIN} between verify and install (TOCTOU) cannot slip
+# unverified bytes past the signature gate.
+STAGE="$(mktemp)"
+trap 'rm -f "${STAGE}"' EXIT
+cp "${BIN}" "${STAGE}"
+VERIFIED_SRC="${STAGE}"
 
 if [ "${VERIFY}" = "1" ]; then
   command -v cosign >/dev/null 2>&1 || {
@@ -63,7 +86,7 @@ if [ "${VERIFY}" = "1" ]; then
     --signature "${SIG}" \
     --certificate-oidc-issuer "${COSIGN_ISSUER}" \
     --certificate-identity-regexp "${COSIGN_IDENTITY_REGEXP}" \
-    "${BIN}" || {
+    "${VERIFIED_SRC}" || {
       echo "install.sh: COSIGN VERIFICATION FAILED for ${BIN} — refusing to install (SUPPLY-002, fail closed)" >&2
       exit 1
     }
@@ -95,7 +118,7 @@ if ! id -u probectl-agent >/dev/null 2>&1; then
   echo "created system user probectl-agent"
 fi
 
-install -m 0755 "${BIN}" /usr/local/bin/probectl-ebpf-agent
+install -m 0755 "${VERIFIED_SRC}" /usr/local/bin/probectl-ebpf-agent
 install -d -m 0755 /etc/probectl
 install -d -m 0750 -o probectl-agent -g probectl-agent /var/lib/probectl
 
