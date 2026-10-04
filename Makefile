@@ -9,10 +9,10 @@ MODULE   := github.com/ctlplne/probectl
 GO       ?= go
 PYTHON   ?= python3
 BIN_DIR  := bin
-BINARIES := probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl
+BINARIES := probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl probectl-bmp-listener
 # FIPS artifacts cover every customer-shipped binary plus security-sensitive
 # local/router tools that use probectl crypto but are not customer images.
-FIPS_BINARIES := $(BINARIES) probectl-license probectl-bmp-listener
+FIPS_BINARIES := $(BINARIES) probectl-license
 
 # FIPS 140-3 validated Go Cryptographic Module version (S-EE1). Selected at
 # build time via GOFIPS140 — see docs/hardening.md for the validated boundary.
