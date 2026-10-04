@@ -473,7 +473,7 @@
     }
   ],
   "verification": {
-    "workflow_jobs": 62,
+    "workflow_jobs": 63,
     "workflow_jobs_source": "scripts/count_workflow_jobs.py --total",
     "rca_eval": {
       "blocking": true,
