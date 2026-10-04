@@ -114,6 +114,11 @@ type WormExporter struct {
 	log     *slog.Logger
 	ir      IRWORMDurability
 
+	// verifyChain re-verifies the retained SQL provider chain against its stored
+	// hashes every cycle (AUD-05). Set by the PG wiring; nil for the ephemeral
+	// test/closure constructors that have no durable source table to re-read.
+	verifyChain func(ctx context.Context) error
+
 	gaps            atomic.Uint64 // chain-verification failures observed (never silent)
 	exportFails     atomic.Uint64 // DPR-200: export cycles that could not write
 	lastSuccessUnix atomic.Int64
@@ -205,9 +210,18 @@ func NewWormExporterEphemeralForTest(source WormSource, objects objectstore.Stor
 // ResolveWormSigningKey (KEYS-002 / D2) and MUST be persisted — empty PEMs are
 // REFUSED (KEYS-004), never auto-minted.
 func NewWormExporterPG(pool *pgxpool.Pool, objects objectstore.Store, privPEM, pubPEM []byte, log *slog.Logger) (*WormExporter, error) {
-	return NewWormExporter(func(ctx context.Context, afterSeq int64, limit int) ([]Event, error) {
+	w, err := NewWormExporter(func(ctx context.Context, afterSeq int64, limit int) ([]Event, error) {
 		return ListProvider(ctx, pool, afterSeq, limit)
 	}, objects, privPEM, pubPEM, log)
+	if err != nil {
+		return nil, err
+	}
+	// AUD-05: every cycle re-verifies the retained SQL chain against its stored
+	// hashes. ProviderVerify recomputes each row's canonical hash and proves the
+	// chain reaches the stream head, so a SQL-side rewrite of an already-exported
+	// row is caught as a chain failure even in a cycle with no new events.
+	w.verifyChain = func(ctx context.Context) error { return ProviderVerify(ctx, pool) }
+	return w, nil
 }
 
 // WithMetrics exposes aggregate WORM export health at /metrics. These series
@@ -320,6 +334,22 @@ func (w *WormExporter) runCycle(ctx context.Context) {
 				"error", err.Error(), "failures_total", failures)
 		}
 		return
+	}
+	// AUD-05: re-verify the RETAINED SQL chain against its stored hashes every
+	// cycle, including a no-new-events cycle. VerifyWORMChain only re-reads the
+	// signed object-store segments; a SQL-side rewrite of a row already exported
+	// (seq behind the export watermark) would otherwise be invisible until the
+	// next restart's ReconcileProviderHead. Classify any mismatch as a chain
+	// failure (tampering), never as an export/disk failure.
+	if w.verifyChain != nil {
+		if err := w.verifyChain(ctx); err != nil {
+			if ctx.Err() == nil {
+				failures := w.recordVerifyFailure(err)
+				w.log.Error("AUDIT PROVIDER SQL CHAIN VERIFICATION FAILED — possible rewrite or tampering",
+					"error", err.Error(), "failures_total", failures)
+			}
+			return
+		}
 	}
 	if w.metrics.exportedEvents != nil && exported > 0 {
 		w.metrics.exportedEvents.Add(uint64(exported))
