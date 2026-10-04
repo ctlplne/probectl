@@ -1431,6 +1431,8 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 			func() float64 { return float64(mb.HandlerLost()) })
 		m.Gauge("probectl_bus_memory_handler_errors", "Consumed records whose handler returned an error on the in-memory bus (CORRECT-007).",
 			func() float64 { return float64(mb.HandlerErrors()) })
+		m.Gauge("probectl_bus_memory_handler_panics", "Consumed records whose handler PANICKED and was recovered on the in-memory bus — counted and routed through redelivery, never a process crash (ING-40).",
+			func() float64 { return float64(mb.HandlerPanics()) })
 		m.Gauge("probectl_bus_memory_no_subscriber", "Records the in-memory bus discarded because the topic had NO subscriber at publish time — a live pub/sub has no backlog, so this is real telemetry loss, not a silent success (ING-19).",
 			func() float64 { return float64(mb.NoSubscriberDrops()) })
 	}

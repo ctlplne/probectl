@@ -8,13 +8,13 @@ package control
 
 import (
 	"context"
-	"crypto/subtle"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/version"
 )
@@ -136,7 +136,9 @@ func (s *Server) metricsScrapeAuthorized(r *http.Request) bool {
 	if presented == "" {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(presented), []byte(token)) == 1
+	// Crypto primitives route through internal/crypto (docs/guardrails.md G7-3);
+	// ConstantTimeEqual is the FIPS-enabler's constant-time comparison.
+	return crypto.ConstantTimeEqual([]byte(presented), []byte(token))
 }
 
 // handleVersion reports build metadata — an operational/observability endpoint.
