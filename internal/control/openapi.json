@@ -10,6 +10,14 @@
       "url": "/"
     }
   ],
+  "security": [
+    {
+      "cookieAuth": []
+    },
+    {
+      "bearerAuth": []
+    }
+  ],
   "tags": [
     {
       "name": "operational",
@@ -63,6 +71,7 @@
   "paths": {
     "/healthz": {
       "get": {
+        "security": [],
         "operationId": "getHealthz",
         "summary": "Liveness probe",
         "tags": [
@@ -84,6 +93,7 @@
     },
     "/readyz": {
       "get": {
+        "security": [],
         "operationId": "getReadyz",
         "summary": "Readiness probe",
         "description": "Returns 200 when dependencies (the database) are reachable, otherwise 503.",
@@ -116,6 +126,7 @@
     },
     "/version": {
       "get": {
+        "security": [],
         "operationId": "getVersion",
         "summary": "Build metadata",
         "tags": [
@@ -154,6 +165,7 @@
     },
     "/branding": {
       "get": {
+        "security": [],
         "operationId": "getBranding",
         "summary": "Deployment-wide probectl product theme",
         "description": "Public pre-auth theme metadata used by the login shell and tenant app. product_name is always probectl; token_overrides are operator-configured once per deployment, validated against an allowlist and WCAG contrast, and never vary by host, tenant, or session.",
@@ -176,6 +188,7 @@
     },
     "/v1/tests": {
       "get": {
+        "x-required-permission": "test.read",
         "operationId": "listTests",
         "summary": "List synthetic tests",
         "tags": [
@@ -228,6 +241,7 @@
         }
       },
       "post": {
+        "x-required-permission": "test.write",
         "operationId": "createTest",
         "summary": "Create a synthetic test",
         "tags": [
@@ -330,6 +344,7 @@
         }
       ],
       "get": {
+        "x-required-permission": "test.read",
         "operationId": "getTest",
         "summary": "Get a test",
         "tags": [
@@ -352,6 +367,7 @@
         }
       },
       "put": {
+        "x-required-permission": "test.write",
         "operationId": "updateTest",
         "summary": "Update a test",
         "tags": [
@@ -410,6 +426,7 @@
         }
       },
       "delete": {
+        "x-required-permission": "test.write",
         "operationId": "deleteTest",
         "summary": "Delete a test",
         "tags": [
@@ -435,6 +452,7 @@
         }
       ],
       "get": {
+        "x-required-permission": "test.read",
         "operationId": "getTestPath",
         "summary": "Latest discovered network path for a test (path-viz data)",
         "tags": [
@@ -457,6 +475,7 @@
         }
       },
       "post": {
+        "x-required-permission": "test.write",
         "operationId": "discoverTestPath",
         "summary": "Run a path discovery for a test and return the path",
         "tags": [
@@ -540,6 +559,7 @@
         }
       ],
       "get": {
+        "x-required-permission": "test.read",
         "operationId": "listTestPathHistory",
         "summary": "List immutable path-discovery rounds for comparison and stable replay",
         "description": "Every read is constrained by the authenticated tenant and the tenant-owned test target before opaque round IDs are applied.",
@@ -573,6 +593,7 @@
     },
     "/v1/agents": {
       "get": {
+        "x-required-permission": "agent.read",
         "operationId": "listAgents",
         "summary": "List agents",
         "description": "Returns one bounded page of the caller tenant's registry rows enriched with heartbeat age/reason, N/N-1 version readiness, capabilities, persisted rollout cohort/state, last failure, and exactly one read-only safe next action. The endpoint never updates an agent.",
@@ -628,6 +649,7 @@
     },
     "/v1/onboarding/progress": {
       "get": {
+        "x-required-permission": "agent.read",
         "operationId": "getOnboardingProgress",
         "summary": "Read first-run onboarding checklist progress",
         "description": "Returns tenant-scoped setup milestones derived from persisted rows. One-time enrollment and SCIM token secrets are never returned.",
@@ -669,6 +691,7 @@
         }
       ],
       "get": {
+        "x-required-permission": "agent.read",
         "operationId": "getAgent",
         "summary": "Get an agent",
         "tags": [
@@ -691,6 +714,7 @@
         }
       },
       "patch": {
+        "x-required-permission": "agent.write",
         "operationId": "patchAgent",
         "summary": "Update an agent's display name",
         "tags": [
@@ -726,6 +750,7 @@
         }
       },
       "delete": {
+        "x-required-permission": "agent.write",
         "operationId": "deleteAgent",
         "summary": "Deregister an agent (deprecated legacy metadata delete)",
         "description": "Deprecated legacy deregistration surface. Use POST /v1/agents/{id}/revoke for security offboarding because it persists identity revocation and feeds the live mTLS deny-list. This DELETE route remains available through the documented Sunset window for clients that only remove registry metadata.",
@@ -786,6 +811,7 @@
     },
     "/v1/alerts": {
       "get": {
+        "x-required-permission": "alert.read",
         "operationId": "listAlerts",
         "summary": "List alert rules",
         "tags": [
@@ -815,6 +841,7 @@
         }
       },
       "post": {
+        "x-required-permission": "alert.write",
         "operationId": "createAlert",
         "summary": "Create an alert rule",
         "tags": [
@@ -864,6 +891,7 @@
     },
     "/v1/alerts/test-channel": {
       "post": {
+        "x-required-permission": "alert.write",
         "operationId": "testAlertChannel",
         "summary": "Send a test alert delivery to a supplied channel",
         "tags": [
@@ -915,6 +943,7 @@
         }
       ],
       "get": {
+        "x-required-permission": "alert.read",
         "operationId": "getAlert",
         "summary": "Get an alert rule",
         "tags": [
@@ -937,6 +966,7 @@
         }
       },
       "put": {
+        "x-required-permission": "alert.write",
         "operationId": "updateAlert",
         "summary": "Update an alert rule",
         "tags": [
@@ -972,6 +1002,7 @@
         }
       },
       "delete": {
+        "x-required-permission": "alert.write",
         "operationId": "deleteAlert",
         "summary": "Delete an alert rule",
         "tags": [
@@ -989,6 +1020,7 @@
     },
     "/v1/alerts/{id}/evaluations": {
       "get": {
+        "x-required-permission": "alert.read",
         "operationId": "listAlertEvaluations",
         "summary": "List bounded alert evaluation receipts",
         "description": "Returns the caller tenant's retained deterministic state transitions for one alert rule. The store repeats tenant_id in every query under forced RLS. Receipts explain threshold or baseline math but never expose SQL, physical plans, global cardinality, or an ambient tenant identifier.",
@@ -1052,6 +1084,7 @@
     },
     "/v1/incidents": {
       "get": {
+        "x-required-permission": "incident.read",
         "operationId": "listIncidents",
         "summary": "List incidents",
         "tags": [
@@ -1091,6 +1124,7 @@
         }
       ],
       "get": {
+        "x-required-permission": "incident.read",
         "operationId": "getIncident",
         "summary": "Get an incident with its signal timeline",
         "tags": [
@@ -1113,6 +1147,7 @@
         }
       },
       "patch": {
+        "x-required-permission": "incident.write",
         "operationId": "patchIncident",
         "summary": "Resolve or explicitly reopen an incident",
         "tags": [
@@ -1150,6 +1185,7 @@
     },
     "/v1/incidents/{id}/correlation-overrides": {
       "post": {
+        "x-required-permission": "incident.write",
         "operationId": "createIncidentCorrelationOverride",
         "summary": "Detach a falsely grouped signal into an independent incident",
         "description": "Requires incident.write. Preserves the original timeline, creates a detached incident, and durably excludes future exact plane/kind/target/prefix matches from the source incident until explicit reversal. Tenant scope is enforced by RLS and the action is audited.",
@@ -1199,6 +1235,7 @@
     },
     "/v1/incidents/{id}/correlation-overrides/{override_id}/reverse": {
       "post": {
+        "x-required-permission": "incident.write",
         "operationId": "reverseIncidentCorrelationOverride",
         "summary": "Explicitly reverse an active incident-correlation override",
         "description": "Requires incident.write. Stops excluding later matching signals but preserves both incident timelines and the reversed override as audit-visible history.",
@@ -1254,6 +1291,7 @@
     },
     "/v1/incidents/{id}/journal": {
       "get": {
+        "x-required-permission": "incident.read",
         "operationId": "listIncidentJournal",
         "summary": "List one incident's tenant-local investigation journal",
         "description": "Returns live plain-text notes and cited checkpoints oldest-first. Every checkpoint share/evidence reference is re-authorized inside the caller tenant on each read. Expired, revoked, missing, foreign-tenant, and wrong-incident references expose only an explicit unavailable state and no evidence details.",
@@ -1297,6 +1335,7 @@
         }
       },
       "post": {
+        "x-required-permission": "incident.write",
         "operationId": "appendIncidentJournal",
         "summary": "Append an inert note or cited checkpoint",
         "description": "Appends bounded plain text. A checkpoint must cite a live redacted incident-share evidence item; the server re-authorizes the incident, share, and evidence in the authenticated tenant before writing. Journal content cannot invoke models, tools, runbooks, or remediation.",
@@ -1350,6 +1389,7 @@
     },
     "/v1/incidents/{id}/shares": {
       "post": {
+        "x-required-permission": "incident.read",
         "operationId": "createIncidentShare",
         "summary": "Create an expiring redacted cited-incident snapshot",
         "description": "Creates a stable same-tenant share artifact after re-authorizing the incident and gathering a fresh cited RCA. In addition to incident.read, the secondary ai.query permission must pass RBAC and the tenant ABAC deny-override before evidence access. The artifact is privacy-redacted, audited, and expires no later than the tenant object-retention policy. It is not a public bearer link.",
@@ -1409,6 +1449,7 @@
     },
     "/v1/incident-shares/{id}": {
       "get": {
+        "x-required-permission": "incident.read",
         "operationId": "getIncidentShare",
         "summary": "Read a live redacted incident share in the caller's tenant",
         "description": "Missing, expired, revoked, and cross-tenant artifact IDs all return the same not-found response. Authentication and incident.read are required on every read.",
@@ -1449,6 +1490,7 @@
     },
     "/v1/incidents/{id}/exports": {
       "post": {
+        "x-required-permission": "incident.read",
         "operationId": "exportIncidentEvidence",
         "summary": "Export an immutable signed incident evidence package",
         "description": "Builds a redacted probectl-evidence/v1 package whose factual statements resolve to content-addressed evidence records. The canonical manifest is signed with the deployment's stable Ed25519 evidence key and can be verified completely offline. The embedded public key proves integrity; verify its fingerprint out of band to prove operator identity. In addition to incident.read, ai.query is re-authorized tenant-first before evidence gathering.",
@@ -1484,6 +1526,7 @@
     },
     "/v1/oncall/status": {
       "get": {
+        "x-required-permission": "incident.read",
         "operationId": "getOncallStatus",
         "summary": "Get on-call and ITSM integration status",
         "tags": [
@@ -1511,6 +1554,7 @@
     },
     "/v1/oncall/test": {
       "post": {
+        "x-required-permission": "incident.write",
         "operationId": "testOncallConnector",
         "summary": "Send a test incident through a configured on-call connector",
         "tags": [
@@ -1557,6 +1601,7 @@
     },
     "/v1/hierarchy": {
       "get": {
+        "x-required-permission": "org.read",
         "operationId": "getHierarchy",
         "summary": "Get the tenant org/team/project hierarchy",
         "tags": [
@@ -1587,6 +1632,7 @@
     },
     "/v1/isolation/status": {
       "get": {
+        "x-required-permission": "tenant.read",
         "operationId": "getIsolationStatus",
         "summary": "Get the caller tenant's effective isolation posture",
         "tags": [
@@ -1614,6 +1660,7 @@
     },
     "/v1/hierarchy/orgs": {
       "post": {
+        "x-required-permission": "org.write",
         "operationId": "createHierarchyOrganization",
         "summary": "Create an organization in the caller tenant",
         "tags": [
@@ -1659,6 +1706,7 @@
     },
     "/v1/hierarchy/orgs/{id}/teams": {
       "post": {
+        "x-required-permission": "org.write",
         "operationId": "createHierarchyTeam",
         "summary": "Create a team under an organization",
         "tags": [
@@ -1711,6 +1759,7 @@
     },
     "/v1/hierarchy/teams/{id}/projects": {
       "post": {
+        "x-required-permission": "org.write",
         "operationId": "createHierarchyProject",
         "summary": "Create a project under a team",
         "tags": [
@@ -1763,6 +1812,7 @@
     },
     "/v1/audit": {
       "get": {
+        "x-required-permission": "audit.read",
         "operationId": "listAudit",
         "summary": "Read a page of the tenant's tamper-evident audit trail",
         "description": "Returns the tenant audit projection with optional actor/action/target contains filters. Append-only privacy.subject_erase markers are applied at read/export time: matching structured actor, target, and data values are replaced with an erased token while seq, prev_hash, and hash remain the raw-chain integrity proof.",
@@ -1855,6 +1905,7 @@
     },
     "/v1/audit/ir/{event_ref}/reveal": {
       "post": {
+        "x-required-permission": "ir.investigate",
         "operationId": "revealIRAttribution",
         "summary": "Reveal one encrypted break-glass attribution",
         "description": "Investigation-only, tenant-first reveal of a local encrypted IR attribution record. Requires the dedicated ir.investigate permission, MFA, and tenant ABAC. The authenticated principal supplies the tenant; the request cannot select another tenant. Admitted attempts are rate-bounded before they can create retention-surviving evidence; each intent, failed open, and successful open is committed to the separate provider/break-glass audit stream. Ordinary audit reads never invoke this path.",
@@ -1937,6 +1988,7 @@
     },
     "/v1/audit/verify": {
       "get": {
+        "x-required-permission": "audit.read",
         "operationId": "verifyAudit",
         "summary": "Verify the integrity of the tenant's audit chain",
         "tags": [
@@ -1993,6 +2045,7 @@
     },
     "/auth/login": {
       "get": {
+        "security": [],
         "operationId": "ssoLogin",
         "summary": "Begin OIDC SSO login (redirects to the tenant's identity provider)",
         "tags": [
@@ -2022,6 +2075,7 @@
     },
     "/auth/callback": {
       "get": {
+        "security": [],
         "operationId": "ssoCallback",
         "summary": "OIDC redirect URI: completes login and sets the session cookie",
         "tags": [
@@ -2060,6 +2114,7 @@
     },
     "/auth/logout": {
       "post": {
+        "security": [],
         "operationId": "ssoLogout",
         "summary": "Revoke the current session and clear the session cookie",
         "tags": [
@@ -2074,6 +2129,7 @@
     },
     "/v1/ai/ask": {
       "post": {
+        "x-required-permission": "ai.query",
         "operationId": "aiAsk",
         "summary": "Ask the AI assistant (cited, RBAC-scoped root-cause analysis)",
         "tags": [
@@ -2130,6 +2186,7 @@
     },
     "/v1/explorer/schema": {
       "get": {
+        "x-required-permission": "ai.query",
         "operationId": "getExplorerSchema",
         "summary": "Get the bounded Explorer grammar and canonical query recipes",
         "tags": [
@@ -2162,6 +2219,7 @@
     },
     "/v1/explorer/compare": {
       "post": {
+        "x-required-permission": "ai.query",
         "operationId": "compareExplorerPeriods",
         "summary": "Compare two explicit Explorer windows inside one tenant",
         "tags": [
@@ -2213,6 +2271,7 @@
     },
     "/v1/explorer/query": {
       "post": {
+        "x-required-permission": "ai.query",
         "operationId": "queryExplorer",
         "summary": "Run one structured Explorer query against tenant-scoped telemetry",
         "tags": [
@@ -2264,6 +2323,7 @@
     },
     "/v1/ai/feedback": {
       "post": {
+        "x-required-permission": "ai.query",
         "operationId": "aiFeedback",
         "summary": "Submit feedback (thumbs up/down) on an AI answer",
         "tags": [
@@ -2303,6 +2363,7 @@
     },
     "/v1/ai/author": {
       "post": {
+        "x-required-permission": "test.write",
         "operationId": "aiAuthor",
         "summary": "Author a test config from a natural-language request (schema-validated, pending confirmation)",
         "tags": [
@@ -2359,6 +2420,7 @@
     },
     "/v1/ai/discover": {
       "post": {
+        "x-required-permission": "test.write",
         "operationId": "aiDiscover",
         "summary": "Propose monitorable targets from incidents and authorized top flow destinations (ranked, deduped; pending confirmation)",
         "description": "Merges the caller tenant's incident targets with a bounded one-hour, top-20 flow-destination read when the caller also has flow.read after ABAC. Incident-derived targets are included only when the caller holds incident.read (ABAC-audited) and are withheld otherwise, exactly as flow.read gates the flow read; flow destinations require at least two stored flow records and become reachability proposals; no test or packet is created until the caller separately confirms through POST /v1/tests. The authenticated principal supplies tenant scope; no tenant selector is accepted.",
@@ -2396,6 +2458,7 @@
     },
     "/v1/changes": {
       "get": {
+        "x-required-permission": "change.read",
         "operationId": "listChanges",
         "summary": "List change events (the change timeline)",
         "tags": [
@@ -2427,6 +2490,7 @@
     },
     "/v1/bgp/events": {
       "get": {
+        "x-required-permission": "events.read",
         "operationId": "listBGPEvents",
         "summary": "List recent BGP/routing events",
         "tags": [
@@ -2489,6 +2553,7 @@
     },
     "/v1/devices": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "listDevices",
         "summary": "List topology-visible managed devices",
         "tags": [
@@ -2533,6 +2598,7 @@
     },
     "/v1/device/identity-conflicts": {
       "get": {
+        "x-required-permission": "topology.read",
         "operationId": "listDeviceIdentityConflicts",
         "summary": "List tenant-local cross-source device identity conflicts",
         "description": "Returns a bounded read-only view of competing management-address, device-name, interface-address, interface-name, and interface-index assertions preserved before topology label upserts can hide the losing claim. Evidence is derived locally from authenticated tenant-tagged device telemetry; the endpoint performs no outbound lookup and never merges or rewrites an entity.",
@@ -2627,6 +2693,7 @@
     },
     "/v1/device/metrics": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "listDeviceMetricSummaries",
         "summary": "List latest device metric summaries",
         "tags": [
@@ -2689,6 +2756,7 @@
     },
     "/v1/device/neighbors": {
       "get": {
+        "x-required-permission": "topology.read",
         "operationId": "listDeviceNeighbors",
         "summary": "List current LLDP/CDP physical adjacency evidence",
         "description": "Returns a bounded tenant-scoped snapshot collected through read-only MIB walks against explicitly configured devices. The collector performs no subnet scan, credential probing, device write, inferred FDB/ARP merge, or outbound vendor call.",
@@ -2758,6 +2826,7 @@
     },
     "/v1/device/collection-outcomes": {
       "get": {
+        "x-required-permission": "topology.read",
         "operationId": "listDeviceCollectionOutcomes",
         "summary": "List per-target LLDP/CDP collection outcome receipts",
         "description": "Returns one bounded, versioned, tenant-scoped readiness receipt per explicitly configured target and discovery protocol. Receipts contain stable states and reason codes only; they exclude credentials, raw SNMP values, discovered targets, free-form errors, scans, and write actions.",
@@ -2833,6 +2902,7 @@
     },
     "/v1/device/syslog": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "listDeviceSyslog",
         "summary": "List tenant-scoped device syslog events",
         "tags": [
@@ -2884,6 +2954,7 @@
         }
       },
       "post": {
+        "x-required-permission": "metrics.write",
         "operationId": "ingestDeviceSyslog",
         "summary": "Ingest one authenticated device syslog line",
         "tags": [
@@ -2920,6 +2991,7 @@
     },
     "/v1/device/configs": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "listDeviceConfigs",
         "summary": "List tenant-scoped device config versions",
         "tags": [
@@ -2971,6 +3043,7 @@
         }
       },
       "post": {
+        "x-required-permission": "metrics.write",
         "operationId": "archiveDeviceConfig",
         "summary": "Archive a redacted network-device config version",
         "tags": [
@@ -3007,6 +3080,7 @@
     },
     "/v1/ebpf/service-map": {
       "get": {
+        "x-required-permission": "topology.read",
         "operationId": "listEBPFServiceMap",
         "summary": "List eBPF host/L7 service edges",
         "tags": [
@@ -3088,6 +3162,7 @@
         }
       ],
       "get": {
+        "x-required-permission": "incident.read",
         "operationId": "listIncidentChanges",
         "summary": "List changes correlated to an incident (candidate causes)",
         "tags": [
@@ -3117,6 +3192,7 @@
     },
     "/v1/abac/policies": {
       "get": {
+        "x-required-permission": "directory.read",
         "operationId": "listPolicies",
         "summary": "List ABAC policies",
         "tags": [
@@ -3146,6 +3222,7 @@
         }
       },
       "post": {
+        "x-required-permission": "directory.write",
         "operationId": "createPolicy",
         "summary": "Create an ABAC policy",
         "tags": [
@@ -3193,6 +3270,7 @@
         }
       ],
       "delete": {
+        "x-required-permission": "directory.write",
         "operationId": "deletePolicy",
         "summary": "Delete an ABAC policy",
         "tags": [
@@ -3210,6 +3288,7 @@
     },
     "/v1/identity/settings": {
       "get": {
+        "x-required-permission": "directory.read",
         "operationId": "getTenantIdentitySettings",
         "summary": "Get the caller tenant's OIDC identity-provider settings",
         "description": "Returns public metadata only. Client-secret plaintext and ciphertext are never returned.",
@@ -3235,6 +3314,7 @@
         }
       },
       "put": {
+        "x-required-permission": "directory.write",
         "operationId": "putTenantIdentitySettings",
         "summary": "Create or replace the caller tenant's OIDC identity-provider override",
         "description": "The client secret is write-only and envelope-encrypted. Omitting it preserves an existing tenant secret; the first override must provide it.",
@@ -3278,6 +3358,7 @@
     },
     "/v1/directory/scim-tokens": {
       "get": {
+        "x-required-permission": "directory.read",
         "operationId": "listSCIMTokens",
         "summary": "List SCIM bearer-token metadata",
         "tags": [
@@ -3307,6 +3388,7 @@
         }
       },
       "post": {
+        "x-required-permission": "directory.write",
         "operationId": "createSCIMToken",
         "summary": "Create a SCIM bearer token",
         "tags": [
@@ -3354,6 +3436,7 @@
         }
       ],
       "delete": {
+        "x-required-permission": "directory.write",
         "operationId": "revokeSCIMToken",
         "summary": "Revoke a SCIM bearer token",
         "tags": [
@@ -3376,6 +3459,7 @@
         }
       ],
       "get": {
+        "x-required-permission": "directory.read",
         "operationId": "listDirectoryUsers",
         "summary": "List the tenant's users with their bound roles",
         "tags": [
@@ -3400,6 +3484,7 @@
         }
       },
       "post": {
+        "x-required-permission": "directory.write",
         "operationId": "createDirectoryUser",
         "summary": "Create a user before first login and optionally bind a role",
         "tags": [
@@ -3442,6 +3527,7 @@
         }
       ],
       "get": {
+        "x-required-permission": "directory.read",
         "operationId": "listDirectoryRoles",
         "summary": "List the tenant's roles with permissions and member counts",
         "tags": [
@@ -3476,6 +3562,7 @@
         }
       ],
       "post": {
+        "x-required-permission": "directory.write",
         "operationId": "bindDirectoryRole",
         "summary": "Bind a role to a user (idempotent, audited)",
         "tags": [
@@ -3530,6 +3617,7 @@
         }
       ],
       "delete": {
+        "x-required-permission": "directory.write",
         "operationId": "unbindDirectoryRole",
         "summary": "Remove a role from a user (the tenant's last administrator is refused)",
         "tags": [
@@ -3550,6 +3638,7 @@
     },
     "/v1/flows/ingest-quality": {
       "get": {
+        "x-required-permission": "flow.read",
         "operationId": "listFlowIngestQuality",
         "summary": "List bounded per-exporter flow ingest quality receipts",
         "description": "Returns current, secret-free quality receipts only for ACL-accepted exporters in the caller's tenant. Raw datagrams, decoded flow fields, rejected-source addresses, credentials, and free-form errors are never retained by this path.",
@@ -3634,6 +3723,7 @@
     },
     "/v1/flows/top": {
       "get": {
+        "x-required-permission": "flow.read",
         "operationId": "flowTopTalkers",
         "summary": "Top talkers from the flow plane (sampling-corrected)",
         "tags": [
@@ -3735,6 +3825,7 @@
     },
     "/v1/flows/capacity": {
       "get": {
+        "x-required-permission": "flow.read",
         "operationId": "flowCapacity",
         "summary": "Per-exporter/interface throughput buckets (capacity view)",
         "tags": [
@@ -3808,6 +3899,7 @@
     },
     "/v1/flows/anomalies": {
       "get": {
+        "x-required-permission": "flow.read",
         "operationId": "flowAnomalies",
         "summary": "Interfaces whose latest bucket departs from their own baseline",
         "tags": [
@@ -3901,6 +3993,7 @@
     },
     "/v1/grafana/api/v1/query": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "promQuery",
         "summary": "Instant query (Grafana datasource)",
         "tags": [
@@ -3944,6 +4037,7 @@
         "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
       },
       "post": {
+        "x-required-permission": "metrics.read",
         "operationId": "promQueryForm",
         "summary": "Instant query (form-encoded, as Grafana sends it)",
         "tags": [
@@ -3981,6 +4075,7 @@
     },
     "/v1/grafana/api/v1/query_range": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "promQueryRange",
         "summary": "Range query (Grafana datasource)",
         "tags": [
@@ -4042,6 +4137,7 @@
         "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
       },
       "post": {
+        "x-required-permission": "metrics.read",
         "operationId": "promQueryRangeForm",
         "summary": "Range query (form-encoded, as Grafana sends it)",
         "tags": [
@@ -4079,6 +4175,7 @@
     },
     "/v1/grafana/api/v1/series": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "promSeries",
         "summary": "Series metadata",
         "tags": [
@@ -4131,6 +4228,7 @@
         "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
       },
       "post": {
+        "x-required-permission": "metrics.read",
         "operationId": "promSeriesForm",
         "summary": "Series metadata (form-encoded)",
         "tags": [
@@ -4168,6 +4266,7 @@
     },
     "/v1/grafana/api/v1/labels": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "promLabels",
         "summary": "Label names",
         "tags": [
@@ -4220,6 +4319,7 @@
         "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
       },
       "post": {
+        "x-required-permission": "metrics.read",
         "operationId": "promLabelsForm",
         "summary": "Label names (form-encoded)",
         "tags": [
@@ -4257,6 +4357,7 @@
     },
     "/v1/grafana/api/v1/label/{name}/values": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "promLabelValues",
         "summary": "Label values",
         "tags": [
@@ -4320,6 +4421,7 @@
     },
     "/v1/grafana/api/v1/status/buildinfo": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "promBuildInfo",
         "summary": "Prometheus API compatibility level (Grafana capability probe)",
         "tags": [
@@ -4346,6 +4448,7 @@
     },
     "/v1/grafana/api/v1/metadata": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "promMetadata",
         "summary": "Metric metadata (empty; probectl serves none yet)",
         "tags": [
@@ -4372,6 +4475,7 @@
     },
     "/v1/prometheus/federate": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "promFederate",
         "summary": "Federation scrape (text exposition of latest samples)",
         "tags": [
@@ -4408,6 +4512,7 @@
     },
     "/v1/prometheus/write": {
       "post": {
+        "x-required-permission": "metrics.write",
         "operationId": "promRemoteWrite",
         "summary": "Prometheus remote-write ingest (snappy-compressed protobuf)",
         "tags": [
@@ -4442,6 +4547,7 @@
     },
     "/v1/cmdb/lookup": {
       "get": {
+        "x-required-permission": "cmdb.read",
         "operationId": "cmdbLookup",
         "summary": "Look up CMDB CIs by IP address or hostname",
         "tags": [
@@ -4478,6 +4584,7 @@
     },
     "/v1/secrets/health": {
       "get": {
+        "x-required-permission": "diagnostics.read",
         "operationId": "getSecretsHealth",
         "summary": "Secret-backend health (S41)",
         "tags": [
@@ -4545,6 +4652,7 @@
     },
     "/v1/editions": {
       "get": {
+        "x-required-permission": "diagnostics.read",
         "operationId": "getEditions",
         "summary": "Editions / license state (S-T0)",
         "tags": [
@@ -4656,6 +4764,7 @@
     },
     "/v1/topology": {
       "get": {
+        "x-required-permission": "topology.read",
         "operationId": "getTopology",
         "summary": "Topology dependency graph (S43)",
         "tags": [
@@ -4747,6 +4856,7 @@
     },
     "/v1/topology/whatif": {
       "post": {
+        "x-required-permission": "topology.read",
         "operationId": "simulateWhatIf",
         "summary": "What-if / impact simulation (S43)",
         "tags": [
@@ -4901,6 +5011,7 @@
     },
     "/v1/topology/whatif/export": {
       "get": {
+        "x-required-permission": "topology.read",
         "operationId": "exportWhatIf",
         "summary": "Download an audited topology what-if receipt",
         "tags": [
@@ -4955,6 +5066,7 @@
     },
     "/v1/coverage/debt": {
       "get": {
+        "x-required-permission": "test.read",
         "operationId": "listCoverageDebt",
         "summary": "List tenant-local cross-plane coverage debt",
         "description": "Returns a bounded, read-only entity/site by signal-plane map derived only from the caller tenant's registered agents/collectors, latest synthetic results, and persisted local topology evidence. Covered requires fresh exact evidence for that entity and plane. Registration, topology existence, IP geolocation, and external inventory never imply covered. Missing correlation and unwired or truncated producers are explicit unknowns. The endpoint performs no outbound lookup and no remediation.",
@@ -5011,6 +5123,7 @@
     },
     "/v1/coverage/vantages": {
       "get": {
+        "x-required-permission": "test.read",
         "operationId": "listVantageCoverage",
         "summary": "List the tenant's owned-vantage coverage matrix",
         "description": "Returns a read-only matrix derived only from authenticated agent placement labels, enabled test definitions, and the caller tenant's bounded latest and recent result partitions. Region and site are operator declarations; the server performs no IP geolocation or network lookup. No evidence is uncovered, old evidence is stale, and one independent vantage is non_redundant. execution_cadence separately reports exact test-id round gaps and history completeness while current_assignment_verified remains false because the control plane does not read or push local agent YAML. The endpoint never enrolls an agent, creates a test, assigns work, or rebalances an agent.",
@@ -5066,6 +5179,7 @@
     },
     "/v1/cost/summary": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "getCostSummary",
         "summary": "FinOps egress-cost summary (S44)",
         "tags": [
@@ -5148,6 +5262,7 @@
     },
     "/v1/carbon": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "getCarbon",
         "summary": "Network energy/carbon estimate (S48)",
         "tags": [
@@ -5280,6 +5395,7 @@
     },
     "/v1/slos": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "listSLOs",
         "summary": "SLO statuses (S45)",
         "tags": [
@@ -5370,6 +5486,7 @@
     },
     "/v1/slos/openslo": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "exportOpenSLO",
         "summary": "OpenSLO export (S45)",
         "tags": [
@@ -5397,6 +5514,7 @@
     },
     "/v1/outages": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "getOutages",
         "summary": "Collective internet-outage view (S47a)",
         "tags": [
@@ -5574,6 +5692,7 @@
     },
     "/v1/rum": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "getRUM",
         "summary": "RUM convergence view (S47b)",
         "tags": [
@@ -5693,6 +5812,7 @@
     },
     "/ingest/rum": {
       "post": {
+        "security": [],
         "operationId": "ingestRUMBeacon",
         "summary": "RUM beacon ingest (S47b) \u2014 public-key routed",
         "tags": [
@@ -5806,6 +5926,7 @@
     },
     "/v1/compliance": {
       "get": {
+        "x-required-permission": "threat.read",
         "operationId": "listComplianceResults",
         "summary": "Segmentation validation results (S46)",
         "tags": [
@@ -5852,6 +5973,7 @@
     },
     "/v1/compliance/evidence": {
       "get": {
+        "x-required-permission": "audit.read",
         "operationId": "exportComplianceEvidence",
         "summary": "Audit-grade compliance evidence export (S46)",
         "tags": [
@@ -5882,6 +6004,7 @@
     },
     "/v1/compliance/auditor-bundle": {
       "get": {
+        "x-required-permission": "audit.read",
         "operationId": "exportAuditorBundle",
         "summary": "Signed auditor evidence bundle (P7)",
         "tags": [
@@ -5912,6 +6035,7 @@
     },
     "/v1/incidents/{id}/cis": {
       "get": {
+        "x-required-permission": "incident.read",
         "operationId": "incidentCIs",
         "summary": "CMDB CIs correlated to an incident's targets",
         "tags": [
@@ -5948,6 +6072,7 @@
     },
     "/v1/agents/{id}/ci": {
       "get": {
+        "x-required-permission": "agent.read",
         "operationId": "agentCI",
         "summary": "CMDB CI correlated to an agent (by hostname)",
         "tags": [
@@ -5983,6 +6108,7 @@
     },
     "/v1/alerts/active": {
       "get": {
+        "x-required-permission": "alert.read",
         "operationId": "listActiveAlerts",
         "summary": "Firing alerts (engine truth) with silence/ack state",
         "tags": [
@@ -6078,6 +6204,7 @@
     },
     "/v1/alerts/active/{fingerprint}/workflow": {
       "get": {
+        "x-required-permission": "alert.read",
         "operationId": "getAlertWorkflow",
         "summary": "Durable alert-to-postmortem workflow receipts",
         "tags": [
@@ -6171,6 +6298,7 @@
     },
     "/v1/alerts/active/silence": {
       "post": {
+        "x-required-permission": "alert.write",
         "operationId": "silenceAlert",
         "summary": "Silence a firing alert's notifications until a deadline",
         "tags": [
@@ -6230,6 +6358,7 @@
     },
     "/v1/alerts/active/ack": {
       "post": {
+        "x-required-permission": "alert.write",
         "operationId": "acknowledgeAlert",
         "summary": "Acknowledge a firing alert (records who owns it)",
         "tags": [
@@ -6285,6 +6414,7 @@
     },
     "/v1/alerts/maintenance": {
       "get": {
+        "x-required-permission": "alert.read",
         "operationId": "listMaintenanceWindows",
         "summary": "List reusable planned-maintenance windows",
         "tags": [
@@ -6378,6 +6508,7 @@
         }
       },
       "post": {
+        "x-required-permission": "alert.write",
         "operationId": "upsertMaintenanceWindow",
         "summary": "Create or update a planned-maintenance window",
         "tags": [
@@ -6461,6 +6592,7 @@
     },
     "/v1/alerts/maintenance/preview": {
       "post": {
+        "x-required-permission": "alert.read",
         "operationId": "previewMaintenanceWindows",
         "summary": "Preview planned-maintenance occurrences",
         "tags": [
@@ -6561,6 +6693,7 @@
     },
     "/v1/alerts/maintenance/{id}": {
       "delete": {
+        "x-required-permission": "alert.write",
         "operationId": "deleteMaintenanceWindow",
         "summary": "Delete a planned-maintenance window",
         "tags": [
@@ -6596,6 +6729,7 @@
     },
     "/v1/tls/posture": {
       "get": {
+        "x-required-permission": "threat.read",
         "operationId": "listTLSPosture",
         "summary": "TLS/certificate posture inventory (latest analyzed posture per target)",
         "tags": [
@@ -6691,6 +6825,7 @@
     },
     "/v1/siem/status": {
       "get": {
+        "x-required-permission": "diagnostics.read",
         "operationId": "getSIEMStatus",
         "summary": "Get SIEM export status",
         "tags": [
@@ -6718,6 +6853,7 @@
     },
     "/v1/threat/rules": {
       "get": {
+        "x-required-permission": "diagnostics.read",
         "operationId": "listThreatRules",
         "summary": "The live NDR detection rule set: embedded defaults merged with the detection-as-code overlay",
         "tags": ["threat"],
@@ -6738,6 +6874,7 @@
     },
     "/v1/threat/detections": {
       "get": {
+        "x-required-permission": "threat.read",
         "operationId": "listThreatDetections",
         "summary": "Recent IOC/NDR detections with source attribution + confidence",
         "tags": [
@@ -6832,6 +6969,7 @@
     },
     "/v1/threat/intel/status": {
       "get": {
+        "x-required-permission": "threat.read",
         "operationId": "getThreatIntelStatus",
         "summary": "Open-data and threat-intel AUP plus refresh health matrix",
         "tags": [
@@ -6971,6 +7109,7 @@
     },
     "/v1/opendata/enrichment": {
       "get": {
+        "x-required-permission": "flow.read",
         "operationId": "getOpenDataEnrichment",
         "summary": "Open-data enrichment context for one IP address",
         "tags": [
@@ -7089,6 +7228,7 @@
     },
     "/v1/endpoints": {
       "get": {
+        "x-required-permission": "agent.read",
         "operationId": "listEndpoints",
         "summary": "Endpoint DEM fleet: WiFi/gateway/last-mile health + slowdown attribution",
         "tags": [
@@ -7171,6 +7311,7 @@
     },
     "/v1/inventory/views": {
       "get": {
+        "x-required-permission": "agent.read",
         "operationId": "listInventoryViews",
         "summary": "List per-user saved inventory views",
         "tags": [
@@ -7217,6 +7358,7 @@
         }
       },
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "createInventoryView",
         "summary": "Create a per-user saved inventory view",
         "tags": [
@@ -7254,6 +7396,7 @@
     },
     "/v1/inventory/views/{id}": {
       "get": {
+        "x-required-permission": "agent.read",
         "operationId": "getInventoryView",
         "summary": "Open a per-user saved inventory view",
         "tags": [
@@ -7289,6 +7432,7 @@
     },
     "/v1/results/latest": {
       "get": {
+        "x-required-permission": "test.read",
         "operationId": "listLatestResults",
         "summary": "Latest synthetic result per (type, target, agent) with full detail",
         "tags": [
@@ -7368,6 +7512,7 @@
     },
     "/v1/results/history": {
       "get": {
+        "x-required-permission": "test.read",
         "operationId": "listResultsHistory",
         "summary": "Recent synthetic results inside a trailing window, oldest first",
         "tags": [
@@ -7459,6 +7604,7 @@
     },
     "/v1/lifecycle/export": {
       "get": {
+        "x-required-permission": "lifecycle.export",
         "summary": "Download the tenant's portability bundle (tar.gz: manifest + postgres/<table>.jsonl + flows.jsonl; S-T5 \u2014 export is a compliance right, core)",
         "responses": {
           "200": {
@@ -7469,6 +7615,7 @@
     },
     "/v1/lifecycle/subjects/export": {
       "post": {
+        "x-required-permission": "lifecycle.export",
         "summary": "Download a subject-scoped portability bundle across identity, flow, OTLP, TSDB/RUM labels, topology/device labels, eBPF, endpoint, AI, and audit evidence; subject travels in the JSON body, never the URL",
         "requestBody": {
           "required": true,
@@ -7501,6 +7648,7 @@
     },
     "/v1/lifecycle/subjects/erase": {
       "post": {
+        "x-required-permission": "lifecycle.erase",
         "summary": "Erase one data subject across identity, persisted AI answers, flow telemetry, OTLP telemetry, TSDB/RUM labels, topology/device labels, eBPF aggregates, endpoint latest views, and append an audit projection marker; requires confirm equal to subject",
         "requestBody": {
           "required": true,
@@ -7536,6 +7684,7 @@
     },
     "/v1/lifecycle/retention": {
       "get": {
+        "x-required-permission": "lifecycle.erase",
         "summary": "The tenant's retention policy + residency/isolation visibility",
         "responses": {
           "200": {
@@ -7551,6 +7700,7 @@
         }
       },
       "put": {
+        "x-required-permission": "lifecycle.erase",
         "summary": "Set the tenant's per-plane retention policy (null = deployment default; audited atomically)",
         "requestBody": {
           "required": true,
@@ -7582,6 +7732,7 @@
     },
     "/v1/lifecycle/erase": {
       "post": {
+        "x-required-permission": "lifecycle.erase",
         "summary": "IRREVERSIBLE verifiable erasure across every store; requires confirm=<tenant slug>; returns the deletion attestation (also appended to the provider audit chain)",
         "requestBody": {
           "required": true,
@@ -7599,6 +7750,7 @@
     },
     "/v1/security/keys": {
       "get": {
+        "x-required-permission": "security.keys",
         "summary": "The tenant's at-rest key chain (S-T6: versions, mode, state \u2014 key MATERIAL never crosses; hidden 404 when byok is not licensed)",
         "responses": {
           "200": {
@@ -7619,6 +7771,7 @@
     },
     "/v1/api-tokens": {
       "post": {
+        "x-required-permission": "security.keys",
         "summary": "Mint an API bearer token for the calling user (INV-03/RT-02): mandatory bounded expiry (<=365d) and an optional scope subset; the token value is returned exactly once. Audited.",
         "requestBody": {
           "required": true,
@@ -7634,6 +7787,7 @@
         }
       },
       "get": {
+        "x-required-permission": "security.keys",
         "summary": "List the tenant's API tokens (metadata only; the secret and its hash never cross this API).",
         "responses": {
           "200": {
@@ -7650,6 +7804,7 @@
         {"$ref": "#/components/parameters/IdPath"}
       ],
       "delete": {
+        "x-required-permission": "security.keys",
         "summary": "Revoke exactly one API token by id, leaving the user's other tokens working (INV-03/RT-02). Audited.",
         "responses": {
           "200": {"description": "The token was revoked."},
@@ -7661,6 +7816,7 @@
     },
     "/v1/security/keys/rotate": {
       "post": {
+        "x-required-permission": "security.keys",
         "summary": "Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation \u2014 the lockout guard); retired versions stay decrypt-only (no downtime). A license that transitions past grace denies rotation with license_read_only while status and decrypt remain available",
         "requestBody": {
           "required": false,
@@ -7681,6 +7837,7 @@
     },
     "/v1/fairness": {
       "get": {
+        "x-required-permission": "fairness.read",
         "summary": "The tenant's own fairness view (S-T7): the bounds it runs under (policy) + admitted/shed/rejected accounting \u2014 debugging a fairness dispute never requires the provider's word",
         "responses": {
           "200": {
@@ -7691,6 +7848,7 @@
     },
     "/v1/governance/policy": {
       "get": {
+        "x-required-permission": "governance.read",
         "summary": "The calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature \u2014 404 when unlicensed): the remote-AI egress consent (ai_remote_egress), the redaction policy, and the effective classification of every category. Tenant-scoped at the storage layer (RLS); governance.read.",
         "responses": {
           "200": {
@@ -7699,6 +7857,7 @@
         }
       },
       "put": {
+        "x-required-permission": "governance.write",
         "summary": "Set the calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature \u2014 404 when unlicensed): classification overrides, the redaction floor (redact_from), redact_export, and the remote-AI egress consent (ai_remote_egress). Tenant comes from the authenticated principal, never the body; audited atomically in the tenant chain (governance.policy_set); governance.write. A management surface for the existing consent, not a relaxation \u2014 the AI egress gate still fails closed and redacts.",
         "requestBody": {
           "required": true,
@@ -7736,6 +7895,7 @@
     },
     "/v1/diagnostics": {
       "get": {
+        "x-required-permission": "diagnostics.read",
         "summary": "Native local self-observability (S-EE4): redacted per-component health, process metrics, and build identity with deterministic findings and safe local next actions \u2014 admin diagnostics.read; no tenant telemetry",
         "responses": {
           "200": {
@@ -7753,6 +7913,7 @@
     },
     "/v1/diagnostics/bundle": {
       "get": {
+        "x-required-permission": "diagnostics.read",
         "summary": "Secret-stripped support bundle (S-EE4): tar.gz of versions, redacted config, deep health, self-metrics, anonymized topology, runtime \u2014 NO secrets/PII (guardrail 6); admin diagnostics.read",
         "responses": {
           "200": {
@@ -7763,6 +7924,7 @@
     },
     "/v1/remediation/proposals": {
       "get": {
+        "x-required-permission": "remediation.propose",
         "operationId": "listRemediationProposals",
         "summary": "List guarded-remediation proposals (S-EE5). Hidden 404 when the remediation feature is unlicensed",
         "tags": ["remediation"],
@@ -7780,6 +7942,7 @@
         }
       },
       "post": {
+        "x-required-permission": "remediation.propose",
         "operationId": "proposeRemediation",
         "summary": "File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed \u2014 probectl never executes; a human must approve. A license that transitions past grace denies the mutation with license_read_only while proposal review remains available",
         "tags": ["remediation"],
@@ -7804,6 +7967,7 @@
     },
     "/v1/remediation/proposals/{id}": {
       "get": {
+        "x-required-permission": "remediation.propose",
         "operationId": "getRemediationProposal",
         "summary": "Get one remediation proposal + its dry-run/blast-radius",
         "tags": ["remediation"],
@@ -7821,6 +7985,7 @@
     },
     "/v1/remediation/proposals/{id}/approve": {
       "post": {
+        "x-required-permission": "remediation.approve",
         "operationId": "approveRemediationProposal",
         "summary": "Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING \u2014 operators carry it out. Read-only license mode denies the mutation with license_read_only",
         "tags": ["remediation"],
@@ -7849,6 +8014,7 @@
     },
     "/v1/remediation/proposals/{id}/reject": {
       "post": {
+        "x-required-permission": "remediation.approve",
         "operationId": "rejectRemediationProposal",
         "summary": "Record a human's rejection of a remediation proposal (audited). Read-only license mode denies the mutation with license_read_only",
         "tags": ["remediation"],
@@ -7877,6 +8043,7 @@
     },
     "/v1/agents/enroll-tokens": {
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "mintAgentEnrollToken",
         "summary": "Mint a one-time, tenant-scoped agent enrollment token (admin; audited; shown once)",
         "tags": [
@@ -7943,6 +8110,7 @@
     },
     "/enroll/agent": {
       "post": {
+        "security": [],
         "operationId": "agentEnroll",
         "summary": "Agent bootstrap: redeem a single-use join token for a tenant-bound SVID (pre-identity; token-authenticated; per-IP throttled)",
         "tags": [
@@ -7995,6 +8163,7 @@
     },
     "/enroll/agent/rotate": {
       "post": {
+        "security": [],
         "operationId": "agentRotate",
         "summary": "Rotate an agent SVID over proof of the current identity (chain + key possession); identity never changes",
         "tags": [
@@ -8042,6 +8211,7 @@
     },
     "/v1/agents/{id}/revoke": {
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "revokeAgent",
         "summary": "Revoke a registered agent or BMP-router identity (WIRE-003): persists, blocks re-enrollment/rotation, and refuses its mTLS handshakes from the next connection",
         "tags": [
@@ -8069,6 +8239,7 @@
     },
     "/v1/otlp/traces": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "otlpTraces",
         "summary": "Query externally-ingested OTLP trace spans (tenant-scoped)",
         "tags": [
@@ -8162,6 +8333,7 @@
     },
     "/v1/otlp/logs": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "otlpLogs",
         "summary": "Query externally-ingested OTLP log records (tenant-scoped)",
         "tags": [
@@ -8264,6 +8436,7 @@
     },
     "/v1/otlp-tokens": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "listOTLPTokens",
         "summary": "List OTLP bearer token metadata for the caller's tenant",
         "tags": [
@@ -8299,6 +8472,7 @@
         }
       },
       "post": {
+        "x-required-permission": "metrics.write",
         "operationId": "createOTLPToken",
         "summary": "Mint a DB-backed OTLP bearer token for the caller's tenant",
         "tags": [
@@ -8349,6 +8523,7 @@
     },
     "/v1/otlp-tokens/{id}": {
       "delete": {
+        "x-required-permission": "metrics.write",
         "operationId": "revokeOTLPToken",
         "summary": "Revoke a DB-backed OTLP bearer token for the caller's tenant",
         "tags": [
@@ -8379,6 +8554,7 @@
     },
     "/v1/a2a/sessions": {
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "startA2ASession",
         "summary": "Start a brokered agent-to-agent measurement session",
         "description": "Brokers a session between two of the caller's tenant's agents (ARCH-009). The tenant is taken from the authenticated principal, never the body; requires agent:write.",
@@ -8447,6 +8623,7 @@
     },
     "/v1/a2a/mesh": {
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "startA2AMesh",
         "summary": "Start a tenant-scoped agent-to-agent site mesh",
         "description": "Builds a directed full mesh across the caller tenant's site-labeled agents. The tenant is taken from the authenticated principal, never the request body; requires agent:write.",
@@ -8603,6 +8780,7 @@
     },
     "/v1/tests/bundle": {
       "get": {
+        "x-required-permission": "test.read",
         "operationId": "getTestBundle",
         "summary": "Signed, pull-able bundle of the tenant's enabled tests (ARCH-001)",
         "description": "Returns the caller's tenant's enabled tests as an Ed25519-SIGNED bundle. Agents poll this and verify the signature against a build-baked public key before applying \u2014 central test distribution without config push (StreamConfig stays denied). 503 when no signing key is configured.",
@@ -8642,6 +8820,7 @@
     },
     "/v1/rollouts": {
       "get": {
+        "x-required-permission": "agent.read",
         "operationId": "listRollouts",
         "summary": "List staged rollouts (OPS-002)",
         "tags": [
@@ -8677,6 +8856,7 @@
         }
       },
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "createRollout",
         "summary": "Plan a staged rollout over the live fleet",
         "tags": [
@@ -8719,6 +8899,7 @@
     },
     "/v1/rollouts/{id}": {
       "get": {
+        "x-required-permission": "agent.read",
         "operationId": "getRollout",
         "summary": "Get a rollout's wave state + progress",
         "tags": [
@@ -8760,6 +8941,7 @@
     },
     "/v1/rollouts/{id}/advance": {
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "advanceRollout",
         "summary": "Advance a rollout",
         "tags": [
@@ -8801,6 +8983,7 @@
     },
     "/v1/rollouts/{id}/verify": {
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "verifyRollout",
         "summary": "Verify the applying rollout wave from the live agent registry",
         "tags": [
@@ -8842,6 +9025,7 @@
     },
     "/v1/rollouts/{id}/halt": {
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "haltRollout",
         "summary": "Halt a rollout",
         "tags": [
@@ -8899,6 +9083,7 @@
     },
     "/v1/rollouts/{id}/resume": {
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "resumeRollout",
         "summary": "Resume a rollout",
         "tags": [
@@ -8956,6 +9141,7 @@
     },
     "/v1/dashboards": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "listDashboards",
         "summary": "List dashboard views owned by or shared with the caller",
         "tags": ["dashboards"],
@@ -8970,6 +9156,7 @@
         "x-probectl-pagination": {"mode": "bounded", "max_items": 200, "reason": "Saved dashboard lists are SQL-limited newest-first."}
       },
       "post": {
+        "x-required-permission": "metrics.write",
         "operationId": "createDashboard",
         "summary": "Save a dashboard definition inside the caller tenant",
         "tags": ["dashboards"],
@@ -8985,6 +9172,7 @@
     },
     "/v1/dashboards/{id}": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "getDashboard",
         "summary": "Get an owned or tenant-shared dashboard",
         "description": "Missing, unauthorized, and cross-tenant identifiers all return the same not-found response.",
@@ -9001,6 +9189,7 @@
     },
     "/v1/dashboards/{id}/manifest": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "exportDashboardManifest",
         "summary": "Export a deterministic redacted native dashboard manifest",
         "description": "Exports only the portable dashboard recipe. Tenant id, owner id, dashboard id, creation/update timestamps, credentials, secrets, and direct identifiers are omitted or redacted; the bounded observation interval remains. Missing, private, and cross-tenant identifiers are indistinguishable.",
@@ -9024,6 +9213,7 @@
     },
     "/v1/dashboard-manifests/import": {
       "post": {
+        "x-required-permission": "metrics.write",
         "operationId": "importDashboardManifest",
         "summary": "Preview or explicitly confirm a native dashboard manifest import",
         "description": "Strictly validates the version and every bounded definition field, redacts sensitive text again, and returns a normalized preview. The default confirm=false path creates no dashboard. On confirm=true the server assigns a new id and derives tenant and owner from the authenticated principal.",
@@ -9044,6 +9234,7 @@
     },
     "/v1/dashboard-report-schedules": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "listDashboardReportSchedules",
         "summary": "List caller-owned report schedules and configured destinations",
         "tags": ["dashboards"],
@@ -9055,6 +9246,7 @@
         "x-probectl-pagination": {"mode": "bounded", "max_items": 200, "reason": "Schedules are SQL-limited newest-first."}
       },
       "post": {
+        "x-required-permission": "metrics.write",
         "operationId": "createDashboardReportSchedule",
         "summary": "Schedule PDF or CSV delivery to a configured destination",
         "description": "Core configures only the internal tenant report inbox. An unconfigured or outbound destination fails closed; there is no default outbound delivery.",
@@ -9071,6 +9263,7 @@
     },
     "/v1/dashboard-reports": {
       "post": {
+        "x-required-permission": "metrics.write",
         "operationId": "generateDashboardReport",
         "summary": "Generate an audited PDF or CSV artifact in the tenant report inbox",
         "tags": ["dashboards"],
@@ -9101,6 +9294,7 @@
     },
     "/v1/dashboard-report-artifacts": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "listDashboardReportArtifacts",
         "summary": "List generated artifacts in the caller tenant's report inbox",
         "tags": ["dashboards"],
@@ -9129,6 +9323,7 @@
     },
     "/v1/dashboard-report-artifacts/{id}": {
       "get": {
+        "x-required-permission": "metrics.read",
         "operationId": "downloadDashboardReportArtifact",
         "summary": "Download and audit one tenant-confined report artifact",
         "description": "Missing and cross-tenant artifact IDs are indistinguishable.",
@@ -9145,6 +9340,7 @@
     },
     "/v1/collectors/register": {
       "post": {
+        "x-required-permission": "agent.write",
         "operationId": "registerCollector",
         "summary": "Register a tenant-scoped bus collector from a one-time enrollment token",
         "description": "Consumes a tenant-scoped one-time token inside the caller tenant. Bus-collector planes receive a registry identity to stamp on records; plane=bmp additionally requires csr_pem and returns a registry-issued /bmp/<router-id> SVID for router mTLS.",
@@ -9191,11 +9387,25 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "probectl_session",
+        "description": "Browser session cookie issued by the SSO login flow (GET /auth/login then /auth/callback): HttpOnly, Secure, SameSite=Lax. The tenant and RBAC/ABAC permissions are resolved from the authenticated principal bound to this session, never from a request header."
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API/MCP access token minted by POST /v1/api-tokens, sent as Authorization: Bearer <token>. The token is bound to a tenant and user; the server resolves the tenant boundary first, then RBAC/ABAC, from the token. Programmatic clients (SDKs, CI, MCP) authenticate this way."
+      }
+    },
     "parameters": {
       "TenantHeader": {
         "name": "X-Probectl-Tenant",
         "in": "header",
         "required": false,
+        "x-probectl-dev-only": true,
         "description": "Local dev-auth/test tenant override. In release/session mode the tenant is resolved from the authenticated principal, and this header is not an identity credential.",
         "schema": {
           "type": "string",
