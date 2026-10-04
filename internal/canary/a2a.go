@@ -35,6 +35,10 @@ const (
 	a2aReplyLen     = a2aReplyBodyLen + a2aMACLen
 	a2aReqMACDomain = "probectl-a2a-request-v1"
 	a2aRepMACDomain = "probectl-a2a-reply-v1"
+	// maxA2AProbeCount bounds the probes one initiator run allocates (ING-30).
+	// Mirrors a2a.MaxSessionCount, enforced independently in this leaf package so
+	// a crafted coordination task cannot drive an unbounded per-probe allocation.
+	maxA2AProbeCount = 10000
 )
 
 func a2aSessionKey(sessionID string) ([]byte, error) {
@@ -254,9 +258,30 @@ func (r *A2AResponder) serveTCP(ctx context.Context, count int) int {
 // authenticated measurement, returning an initiator-side Result with round-trip
 // plus forward/reverse one-way metrics. A dial/socket failure is an internal
 // error; lost probes are reported as loss, not an error.
-func RunA2AInitiator(ctx context.Context, mode, addr string, count int, timeout time.Duration, peerAgentID, sessionID string) (Result, error) {
+func RunA2AInitiator(ctx context.Context, mode, addr string, count int, timeout time.Duration, peerAgentID, sessionID string, guard *TargetGuard) (Result, error) {
 	if count <= 0 {
 		count = 5
+	}
+	// ING-30: refuse an over-large probe count before allocating per-probe
+	// slices — a crafted bus task (the broker already caps the API path) must
+	// not drive a multi-GB allocation on the agent. Mirrors a2a.MaxSessionCount.
+	if count > maxA2AProbeCount {
+		return Result{}, fmt.Errorf("a2a initiator: count %d exceeds the maximum %d", count, maxA2AProbeCount)
+	}
+	// ING-30: the responder host is self-reported by the peer agent, so a
+	// compromised responder could aim the initiator at an arbitrary internal
+	// host:port (an SSRF reachability oracle). Run it through the same guard the
+	// canaries use (docs/guardrails.md G7-12): a literal private/loopback/
+	// metadata target is refused here, and the dial-time control (below) catches
+	// a hostname that resolves into a denied range.
+	if guard != nil {
+		host := addr
+		if h, _, err := net.SplitHostPort(addr); err == nil {
+			host = h
+		}
+		if err := guard.CheckHost(host); err != nil {
+			return Result{}, fmt.Errorf("a2a initiator: responder endpoint refused: %w", err)
+		}
 	}
 	if timeout <= 0 {
 		timeout = 3 * time.Second
@@ -279,9 +304,9 @@ func RunA2AInitiator(ctx context.Context, mode, addr string, count int, timeout 
 	var rtt, fwd, rev []time.Duration
 	switch mode {
 	case "udp":
-		rtt, fwd, rev, err = a2aInitiate(ctx, "udp", addr, count, timeout, key, token, false)
+		rtt, fwd, rev, err = a2aInitiate(ctx, "udp", addr, count, timeout, key, token, false, guard)
 	case "tcp":
-		rtt, fwd, rev, err = a2aInitiate(ctx, "tcp", addr, count, timeout, key, token, true)
+		rtt, fwd, rev, err = a2aInitiate(ctx, "tcp", addr, count, timeout, key, token, true, guard)
 	default:
 		return Result{}, fmt.Errorf("a2a: unknown mode %q (want udp|tcp)", mode)
 	}
@@ -312,8 +337,14 @@ func RunA2AInitiator(ctx context.Context, mode, addr string, count int, timeout 
 // a2aInitiate sends count probes and collects replies, returning per-sequence
 // round-trip, forward, and reverse samples (negative = no reply). stream=true
 // frames replies over a TCP stream; otherwise each reply is one datagram.
-func a2aInitiate(ctx context.Context, network, addr string, count int, timeout time.Duration, key, token []byte, stream bool) (rtt, fwd, rev []time.Duration, err error) {
+func a2aInitiate(ctx context.Context, network, addr string, count int, timeout time.Duration, key, token []byte, stream bool, guard *TargetGuard) (rtt, fwd, rev []time.Duration, err error) {
 	d := net.Dialer{}
+	if guard != nil {
+		// ING-30: enforce the SSRF guard on the RESOLVED address at dial time, so
+		// a responder host that is a name resolving into a denied range cannot
+		// slip past the pre-dial CheckHost.
+		d.Control = guard.DialControl(nil)
+	}
 	conn, err := d.DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, nil, nil, err

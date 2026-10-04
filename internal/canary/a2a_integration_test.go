@@ -31,7 +31,7 @@ func TestA2ALoopback(t *testing.T) {
 			done := make(chan canary.Result, 1)
 			go func() { done <- resp.Serve(ctx, 4, "agent-B") }()
 
-			res, err := canary.RunA2AInitiator(context.Background(), mode, resp.Addr(), 4, 2*time.Second, "agent-B", sessionID)
+			res, err := canary.RunA2AInitiator(context.Background(), mode, resp.Addr(), 4, 2*time.Second, "agent-B", sessionID, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -64,7 +64,7 @@ func TestA2ALoopbackRejectsWrongSessionKey(t *testing.T) {
 			done := make(chan canary.Result, 1)
 			go func() { done <- resp.Serve(ctx, 1, "agent-B") }()
 
-			res, err := canary.RunA2AInitiator(context.Background(), mode, resp.Addr(), 1, 150*time.Millisecond, "agent-B", "wrong-session-"+mode)
+			res, err := canary.RunA2AInitiator(context.Background(), mode, resp.Addr(), 1, 150*time.Millisecond, "agent-B", "wrong-session-"+mode, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

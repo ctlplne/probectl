@@ -120,6 +120,13 @@ type A2AConfig struct {
 	AdvertiseHost string   `yaml:"advertise_host"`
 	PollInterval  Duration `yaml:"poll_interval"`
 	ResponderTTL  Duration `yaml:"responder_ttl"`
+	// AllowPrivateTargets lets the initiator dial a responder on a private /
+	// internal address (ING-30). Default false denies private/loopback/metadata
+	// responder endpoints so a compromised peer cannot turn the initiator into
+	// an internal port scanner; set true for deployments whose agents legitimately
+	// measure each other across a private network (the dial is still guarded
+	// against loopback/metadata smuggling at resolve time).
+	AllowPrivateTargets bool `yaml:"allow_private_targets"`
 }
 
 // ControlPlaneConfig is the control-plane connection.

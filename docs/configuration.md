@@ -862,7 +862,11 @@ reports forward-direction delivery (`probectl_probe_packets_received`,
 
 Enable participation in the agent's `a2a` block: `enabled: true`,
 `advertise_host` (the address peers use to reach this agent's responder),
-`poll_interval` (default `2s`), and `responder_ttl` (default `15s`).
+`poll_interval` (default `2s`), `responder_ttl` (default `15s`), and
+`allow_private_targets` (default `false`; when false the initiator refuses a
+responder endpoint on a private/loopback/metadata address so a compromised peer
+cannot aim it at internal hosts — set `true` only when agents legitimately
+measure each other across a private network).
 The default is `enabled: false`: an agent opens no A2A UDP/TCP listener unless
 the operator explicitly opts it into this deployment policy. For each brokered
 session, the control plane gives both agents a random session id over the

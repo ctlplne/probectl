@@ -155,7 +155,12 @@ func (co *Coordinator) runInitiator(ctx context.Context, task *agentv1.A2ATask) 
 	addr := net.JoinHostPort(task.GetResponderHost(), strconv.Itoa(int(task.GetResponderPort())))
 	ictx, cancel := context.WithTimeout(ctx, co.cfg.A2A.ResponderTTL.Std())
 	defer cancel()
-	res, err := canary.RunA2AInitiator(ictx, task.GetMode(), addr, int(task.GetCount()), 3*time.Second, task.GetPeerAgentId(), task.GetSessionId())
+	// ING-30: the responder host is self-reported by the peer, so guard the dial
+	// against SSRF. Deny private/internal targets unless the operator opts in
+	// (agents on a private network set a2a.allow_private_targets), mirroring the
+	// canary SSRF model (docs/guardrails.md G7-12).
+	guard := canary.NewTargetGuard(co.cfg.A2A.AllowPrivateTargets)
+	res, err := canary.RunA2AInitiator(ictx, task.GetMode(), addr, int(task.GetCount()), 3*time.Second, task.GetPeerAgentId(), task.GetSessionId(), guard)
 	if err != nil {
 		co.log.Error("a2a initiator failed", "session", task.GetSessionId(), "error", err.Error())
 		return

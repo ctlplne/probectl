@@ -113,6 +113,18 @@ func NewBroker() *Broker {
 // control plane refuses new work rather than growing memory (INJ-06).
 var ErrPendingFull = errors.New("a2a: tenant has too many unpolled tasks; let agents poll or retry later")
 
+// MaxSessionCount bounds the probe count one A2A session may request (ING-30).
+// The initiator allocates per-probe slices, so an unbounded count (the field is
+// a uint32) would let a tenant user drive a multi-GB allocation and crash an
+// agent. The session/mesh API (via this broker), the broker, and the agent
+// initiator all enforce it, so a crafted request or bus task cannot slip past.
+// 10000 probes is far beyond any real measurement.
+const MaxSessionCount = 10000
+
+// ErrSessionCountTooLarge rejects a session whose probe count exceeds
+// MaxSessionCount (ING-30). Handlers map it to HTTP 400.
+var ErrSessionCountTooLarge = errors.New("a2a: session count exceeds the maximum (10000)")
+
 func randomID() (string, error) {
 	b, err := crypto.Random(16)
 	if err != nil {
@@ -136,6 +148,9 @@ func (b *Broker) StartSession(tenantID, responderAgent, initiatorAgent, mode str
 	}
 	if count == 0 {
 		count = 5
+	}
+	if count > MaxSessionCount {
+		return "", ErrSessionCountTooLarge
 	}
 	id, err := b.newID()
 	if err != nil {
