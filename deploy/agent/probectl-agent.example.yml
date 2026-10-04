@@ -33,7 +33,7 @@ agent:
 buffer:
   # Disk-backed store-and-forward queue: results buffer here while the control
   # plane is unreachable and drain on reconnect.
-  dir: /var/lib/probectl/agent/buffer
+  dir: /var/lib/probectl-agent/buffer
   max_records: 10000
   # Reconnect catch-up streams are chunked so a full offline buffer does not
   # become one huge memory allocation or one huge gRPC stream.

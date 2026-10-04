@@ -326,6 +326,14 @@ func (c *Config) applyEnv() {
 	override("PROBECTL_AGENT_ENROLL_CA_PIN", &c.Enroll.CAPin)
 }
 
+// DefaultBufferDir is the store-and-forward buffer path when none is configured.
+// It lives under the packaged systemd unit's StateDirectory
+// (/var/lib/probectl-agent, deploy/packaging/systemd/probectl-agent.service), so
+// the hardened unit — which makes the rest of the filesystem read-only — can
+// create and write the buffer. A path outside ReadWritePaths makes MkdirAll fail
+// and the agent never starts (ING-29).
+const DefaultBufferDir = "/var/lib/probectl-agent/buffer"
+
 func (c *Config) applyDefaults() {
 	if c.Agent.Hostname == "" {
 		if h, err := os.Hostname(); err == nil {
@@ -336,7 +344,7 @@ func (c *Config) applyDefaults() {
 		c.Agent.HeartbeatInterval = Duration(30 * time.Second)
 	}
 	if c.Buffer.Dir == "" {
-		c.Buffer.Dir = "/var/lib/probectl/agent/buffer"
+		c.Buffer.Dir = DefaultBufferDir
 	}
 	if c.Buffer.MaxRecords == 0 {
 		c.Buffer.MaxRecords = defaultBufferMaxRecords
