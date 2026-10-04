@@ -80,6 +80,10 @@ jobs:
         run: PROBECTL_SECRET_SCAN_SELFTEST=planted ./scripts/check_secret_scan_history.sh
       - name: Scan full git history for secrets
         run: ./scripts/check_secret_scan_history.sh
+      - name: Leaked-key is documented untrusted and absent from HEAD (SUP-17)
+        run: |
+          ./scripts/check_untrusted_keys.sh SELFTEST
+          ./scripts/check_untrusted_keys.sh
 
   no-devauth-in-release:
     # Sprint 3 (RED-001/SEC-001): the dev-auth bypass must be PHYSICALLY

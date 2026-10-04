@@ -99,6 +99,21 @@ already tracked upstream (report those upstream, and tell us so we can bump);
 and findings against the intentionally non-production
 `deploy/compose/dev.yml` dependency stack.
 
+## Revoked / untrusted keys
+
+A test RSA private key once lived at `internal/auth/testdata/oidc_test_key.pem`
+(added in `95d313bd9d`, removed in `425143b`). Because it was committed, it is
+**public forever in the git history** and must be treated as **compromised**: it
+is trusted by nothing at HEAD and must never be configured as an OIDC signing or
+verification key, a fixture the product trusts, or anywhere else. It is a test
+artifact only.
+
+- Key: RSA-2048, SPKI SHA-256 fingerprint
+  `aa79707abde06822454541754a641a33fcfabc5d242768035973c7ebd835e46e`.
+- Enforcement: `scripts/check_untrusted_keys.sh` fails CI if this fingerprint is
+  dropped from this list, or if any tracked file at HEAD embeds the key's public
+  modulus (SUP-17).
+
 ## Our commitments
 
 - We acknowledge reports promptly and keep you updated through remediation.
