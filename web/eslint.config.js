@@ -3,6 +3,7 @@ import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
+import { restrictedSyntax } from './eslint.restrictions.js'
 
 export default tseslint.config(
   { ignores: ['dist', 'coverage'] },
@@ -45,24 +46,9 @@ export default tseslint.config(
       '@typescript-eslint/no-redundant-type-constituents': 'warn',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
-      // UX-006: apiFetch already prepends the /v1 API base, so a literal
-      // apiFetch('/v1/...') produces a /v1/v1/... double-prefix (UX-001). Ban
-      // the literal at lint time; off-/v1 surfaces use publicFetch instead.
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector:
-            "CallExpression[callee.name='apiFetch'] > Literal.arguments:first-child[value=/^\\/v1(\\/|$)/]",
-          message:
-            'apiFetch path must be relative to API_BASE — drop the /v1 prefix (it is prepended). Use publicFetch for off-/v1 surfaces. (UX-006)',
-        },
-        {
-          selector:
-            "CallExpression[callee.name='apiFetch'] > TemplateLiteral.arguments:first-child > TemplateElement:first-child[value.raw=/^\\/v1(\\/|$)/]",
-          message:
-            'apiFetch path must be relative to API_BASE — drop the /v1 prefix (it is prepended). Use publicFetch for off-/v1 surfaces. (UX-006)',
-        },
-      ],
+      // UX-006 + WEB-27: shared with scripts/check_web_no_danger.mjs so the
+      // lint gate and its self-test cannot drift (see eslint.restrictions.js).
+      'no-restricted-syntax': ['error', ...restrictedSyntax],
     },
   },
   {

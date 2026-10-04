@@ -1214,6 +1214,7 @@ jobs:
           node ../scripts/check_npm_audit_policy.mjs --selftest
           node ../scripts/check_web_router_mode.mjs --selftest
           node ../scripts/check_web_router_mode.mjs --root ..
+          node ../scripts/check_web_no_danger.mjs
           npm audit --json > ../npm-audit-web.json || true
           node ../scripts/check_npm_audit_policy.mjs \
             --workspace web \
