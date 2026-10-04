@@ -27,7 +27,7 @@ rislive = [
   "websockets==15.0.1",
 ]
 dev = [
-  "pytest==8.4.2",
+  "pytest==9.1.1",
   "pytest-cov==7.1.0",
   "ruff==0.15.16",
   "black==25.11.0",
