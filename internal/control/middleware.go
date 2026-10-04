@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -71,9 +72,27 @@ func securityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 			if hsts != "" {
 				h.Set("Strict-Transport-Security", hsts)
 			}
+			// WEB-16: authenticated API surfaces carry tenant data that must not
+			// be cached by the browser or a shared proxy. Static UI assets keep
+			// their cacheability (served under /ui/ by the webui handler, which
+			// sets no-store on the app-shell HTML itself).
+			if noStorePath(r.URL.Path) {
+				h.Set("Cache-Control", "no-store")
+			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// noStorePath reports whether a request path serves authenticated/sensitive
+// responses that must be Cache-Control: no-store (WEB-16). Public, cacheable
+// surfaces (the /ui bundle, health/version/branding, the RUM ingest) are not
+// listed, so they keep their own caching.
+func noStorePath(p string) bool {
+	return p == "/v1" || strings.HasPrefix(p, "/v1/") ||
+		strings.HasPrefix(p, "/auth/") ||
+		strings.HasPrefix(p, "/scim/") ||
+		strings.HasPrefix(p, "/provider/")
 }
 
 // requestContext assigns a request correlation ID (honoring an inbound

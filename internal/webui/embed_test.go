@@ -97,3 +97,24 @@ func names(entries []fs.DirEntry) []string {
 	}
 	return out
 }
+
+// TestAppShellIsolationHeaders proves WEB-16: the HTML app shell carries COOP,
+// CORP, and no-store so the authenticated document is isolated and never cached.
+func TestAppShellIsolationHeaders(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
+	Handler("/ui/").ServeHTTP(rec, req)
+
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("app shell Content-Type = %q, want text/html", ct)
+	}
+	for header, want := range map[string]string{
+		"Cross-Origin-Opener-Policy":   "same-origin",
+		"Cross-Origin-Resource-Policy": "same-origin",
+		"Cache-Control":                "no-store",
+	} {
+		if got := rec.Header().Get(header); got != want {
+			t.Errorf("app shell %s = %q, want %q", header, got, want)
+		}
+	}
+}

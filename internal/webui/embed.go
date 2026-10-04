@@ -78,5 +78,12 @@ func serveIndex(w http.ResponseWriter, _ *http.Request, sub fs.FS) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// WEB-16: the app shell is per-session and must not be cached; isolate the
+	// browsing context (COOP) and refuse cross-origin embedding of the document
+	// (CORP). The RUM script and beacon ingest are served elsewhere and stay
+	// cross-origin by design.
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 	_, _ = w.Write(b)
 }
