@@ -273,10 +273,24 @@ func (c *ClickHouse) TopEdges(ctx context.Context, tenantID string, q EdgeQuery)
 		where += " AND window_start<={until:DateTime64(3)}"
 		params.Set("param_until", q.Until.UTC().Format("2006-01-02 15:04:05.000"))
 	}
+	// RTP-16: the source-workload filter was accepted by the API and honored by
+	// the memory backend but silently dropped here, so a scoped ClickHouse
+	// service-map query returned every source. Apply it server-bound (exact
+	// match, matching the memory backend).
+	if q.SrcLike != "" {
+		where += " AND src_workload={src:String}"
+		params.Set("param_src", q.SrcLike)
+	}
 	if c.tenantScoping {
 		params.Set(tenantSettingName, tenantID) // TENANT-004: DB-level scope
 	}
-	sql := fmt.Sprintf("SELECT tenant_id, agent_id, toString(window_start) AS window_start, src_workload, dst_workload, dst_port, l7_protocol, sum(bytes) AS bytes, sum(packets) AS packets, sum(connections) AS connections FROM %s FINAL WHERE %s GROUP BY tenant_id, agent_id, window_start, src_workload, dst_workload, dst_port, l7_protocol ORDER BY bytes DESC LIMIT %d FORMAT JSONEachRow",
+	// RTP-16: alias the projected timestamp as window_start_text, NOT
+	// window_start. ClickHouse resolves a WHERE-clause identifier against a
+	// SELECT alias of the same name, so `toString(window_start) AS window_start`
+	// made `window_start >= {since:DateTime64(3)}` compare a String to a
+	// DateTime64 and fail with a 500. The scan loop does not read the projected
+	// timestamp, so the alias name is free to change.
+	sql := fmt.Sprintf("SELECT tenant_id, agent_id, toString(window_start) AS window_start_text, src_workload, dst_workload, dst_port, l7_protocol, sum(bytes) AS bytes, sum(packets) AS packets, sum(connections) AS connections FROM %s FINAL WHERE %s GROUP BY tenant_id, agent_id, window_start, src_workload, dst_workload, dst_port, l7_protocol ORDER BY bytes DESC LIMIT %d FORMAT JSONEachRow",
 		table, where, clampLimit(q.Limit))
 	rows, err := c.queryAt(ctx, t.BaseURL, sql, params)
 	if err != nil {
