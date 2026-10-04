@@ -133,6 +133,107 @@ func TestScopeLogsToTenant(t *testing.T) {
 	}
 }
 
+// dupTenantResource builds a resource carrying one probectl.tenant.id attribute
+// per value (so ("", "victim") produces the ING-39 duplicate-key shape).
+func dupTenantResource(values ...string) *resourcepb.Resource {
+	res := &resourcepb.Resource{}
+	for _, v := range values {
+		res.Attributes = append(res.Attributes, stringKV(otel.AttrTenantID, v))
+	}
+	return res
+}
+
+func dupTenantTraceReq(values ...string) *coltracepb.ExportTraceServiceRequest {
+	return &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{Resource: dupTenantResource(values...)}}}
+}
+
+func dupTenantLogReq(values ...string) *collogspb.ExportLogsServiceRequest {
+	return &collogspb.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{{Resource: dupTenantResource(values...)}}}
+}
+
+// TestScopeSignalsRejectDuplicateTenantAttr is the ING-39 regression on the
+// traces/logs INGEST scoping boundary (docs/guardrails.md G7-1). A resource
+// carrying DUPLICATE tenant attributes ["", "victim"] pushed by "attacker"
+// used to pass first-match scoping, leaving the foreign "victim" value on the
+// resource to ride through to OTLP export. Scoping must now fail closed on the
+// duplicate (and on a non-string tenant attribute), while an ordinary
+// single-tenant resource is still accepted and scoped.
+func TestScopeSignalsRejectDuplicateTenantAttr(t *testing.T) {
+	// --- duplicate ["", "victim"] authenticated as attacker: REJECTED ---
+	if err := scopeTracesToTenant(dupTenantTraceReq("", "victim"), "attacker"); err == nil {
+		t.Fatal("ING-39: duplicate tenant attrs [\"\", \"victim\"] on traces authed as attacker were ACCEPTED (want reject); the foreign \"victim\" value survives first-match scoping and rides through to export")
+	}
+	if err := scopeLogsToTenant(dupTenantLogReq("", "victim"), "attacker"); err == nil {
+		t.Fatal("ING-39: duplicate tenant attrs [\"\", \"victim\"] on logs authed as attacker were ACCEPTED (want reject); the foreign \"victim\" value survives first-match scoping and rides through to export")
+	}
+
+	// A duplicate whose values all match the authenticated tenant is still a
+	// malformed resource and is rejected — fail closed on the shape, not the
+	// values.
+	if err := scopeTracesToTenant(dupTenantTraceReq("attacker", "attacker"), "attacker"); err == nil {
+		t.Error("duplicate tenant attrs must be rejected even when every value matches the authenticated tenant")
+	}
+
+	// --- non-string tenant attribute: REJECTED (cannot be read as a tenant) ---
+	badTrace := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{
+		Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{{
+			Key:   otel.AttrTenantID,
+			Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: 7}},
+		}}},
+	}}}
+	if err := scopeTracesToTenant(badTrace, "attacker"); err == nil {
+		t.Error("non-string tenant attribute must be rejected")
+	}
+
+	// --- non-vacuity: a normal single-tenant resource is accepted and scoped ---
+	ok := traceReq("attacker")
+	if err := scopeTracesToTenant(ok, "attacker"); err != nil {
+		t.Fatalf("single-tenant trace resource rejected: %v", err)
+	}
+	if got := resourceTenantOf(ok.ResourceSpans[0].Resource); got != "attacker" {
+		t.Errorf("single-tenant trace scoped to %q, want attacker", got)
+	}
+	// And an unscoped resource is stamped with exactly the authenticated tenant.
+	stamped := traceReq("")
+	if err := scopeTracesToTenant(stamped, "attacker"); err != nil {
+		t.Fatalf("unscoped trace resource rejected: %v", err)
+	}
+	if n := tenantAttrCount(stamped.ResourceSpans[0].Resource); n != 1 {
+		t.Errorf("stamped resource has %d tenant attrs, want exactly 1", n)
+	}
+}
+
+// TestScopeSignalsHandlerRejectsDuplicateTenantAttr drives the same ING-39
+// regression through the real OTLP/HTTP ingest handler: a duplicate-tenant push
+// must be rejected (403) and never reach the sink.
+func TestScopeSignalsHandlerRejectsDuplicateTenantAttr(t *testing.T) {
+	auth := NewTokenAuthenticator(map[string]string{"tok": "attacker"})
+	reached := false
+	h := TracesHTTPHandler(auth, TraceSinkFunc(func(context.Context, string, *coltracepb.ExportTraceServiceRequest) error {
+		reached = true
+		return nil
+	}), 1<<20)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	if code := post(t, srv.URL, "tok", http.MethodPost, mustMarshal(t, dupTenantTraceReq("", "victim"))); code != http.StatusForbidden {
+		t.Fatalf("duplicate-tenant trace push = %d, want 403", code)
+	}
+	if reached {
+		t.Fatal("duplicate-tenant trace push reached the sink (must fail closed before consume)")
+	}
+}
+
+func tenantAttrCount(res *resourcepb.Resource) int {
+	n := 0
+	for _, kv := range res.GetAttributes() {
+		if kv.GetKey() == otel.AttrTenantID {
+			n++
+		}
+	}
+	return n
+}
+
 func TestSinksValidateRejectsIncomplete(t *testing.T) {
 	if err := (Sinks{}).validate(); err == nil {
 		t.Error("empty Sinks must be rejected")

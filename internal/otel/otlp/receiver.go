@@ -404,7 +404,17 @@ func readOTLPBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byt
 // the authenticated tenant. It mutates req in place.
 func scopeToTenant(req *colmetricspb.ExportMetricsServiceRequest, tenant string) error {
 	for _, rm := range req.GetResourceMetrics() {
-		if rt := ResourceTenant(rm); rt != "" && rt != tenant {
+		// resourceTenantStrict (not the first-match ResourceTenant) so a resource
+		// carrying duplicate or non-string tenant attributes — e.g. ["", "victim"]
+		// authenticated as a different tenant — is rejected rather than having
+		// only its first key stamped while a foreign value survives (ING-39, the
+		// metrics-ingest lane of the same first-match flaw fixed for traces/logs).
+		// docs/guardrails.md G7-1, fail closed.
+		rt, err := resourceTenantStrict(rm.GetResource())
+		if err != nil {
+			return err
+		}
+		if rt != "" && rt != tenant {
 			return fmt.Errorf("otlp: resource tenant %q does not match authenticated tenant", rt)
 		}
 		stampTenant(rm, tenant)

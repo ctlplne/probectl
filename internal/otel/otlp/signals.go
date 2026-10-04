@@ -115,6 +115,33 @@ func resourceTenantOf(res *resourcepb.Resource) string {
 	return ""
 }
 
+// resourceTenantStrict reads probectl.tenant.id from a resource, failing closed
+// (docs/guardrails.md G7-1) if the resource carries MORE THAN ONE tenant
+// attribute or one whose value is not a string. A first-match read (resourceTenantOf)
+// would let a resource with duplicate keys — e.g. ["", "victim"] — slip a
+// foreign tenant past scoping: the empty first value satisfies the match check
+// and the stamp overwrites only the first key, so the second value SURVIVES to
+// OTLP export where a last-wins reader attributes it to the foreign tenant
+// (ING-39). A scoped resource may carry at most one string tenant attribute.
+func resourceTenantStrict(res *resourcepb.Resource) (string, error) {
+	tenant := ""
+	seen := false
+	for _, kv := range res.GetAttributes() {
+		if kv.GetKey() != otel.AttrTenantID {
+			continue
+		}
+		if seen {
+			return "", fmt.Errorf("otlp: resource carries multiple %s attributes", otel.AttrTenantID)
+		}
+		if _, ok := kv.GetValue().GetValue().(*commonpb.AnyValue_StringValue); !ok {
+			return "", fmt.Errorf("otlp: resource %s attribute is not a string", otel.AttrTenantID)
+		}
+		tenant = kv.GetValue().GetStringValue()
+		seen = true
+	}
+	return tenant, nil
+}
+
 // stampResource sets probectl.tenant.id on res (which must be non-nil),
 // overwriting an empty-valued attribute in place (the U-082 fuzz finding:
 // appending after an empty value lets it shadow the stamp).
@@ -132,16 +159,23 @@ func stampResource(res *resourcepb.Resource, tenant string) {
 }
 
 // scopeTracesToTenant enforces tenant isolation on ingested spans, exactly
-// like scopeToTenant does for metrics.
+// like scopeToTenant does for metrics. A resource that names a different tenant
+// — or that carries a duplicate/non-string tenant attribute that could smuggle
+// one past a first-match read (ING-39) — is rejected; an unscoped resource is
+// stamped with the authenticated tenant.
 func scopeTracesToTenant(req *coltracepb.ExportTraceServiceRequest, tenant string) error {
 	for _, rs := range req.GetResourceSpans() {
-		if rt := resourceTenantOf(rs.GetResource()); rt != "" && rt != tenant {
+		rt, err := resourceTenantStrict(rs.GetResource())
+		if err != nil {
+			return err
+		}
+		if rt != "" && rt != tenant {
 			return fmt.Errorf("otlp: resource tenant %q does not match authenticated tenant", rt)
 		}
 		if rs.Resource == nil {
 			rs.Resource = &resourcepb.Resource{}
 		}
-		if resourceTenantOf(rs.Resource) == "" {
+		if rt == "" {
 			stampResource(rs.Resource, tenant)
 		}
 	}
@@ -151,13 +185,17 @@ func scopeTracesToTenant(req *coltracepb.ExportTraceServiceRequest, tenant strin
 // scopeLogsToTenant enforces tenant isolation on ingested log records.
 func scopeLogsToTenant(req *collogspb.ExportLogsServiceRequest, tenant string) error {
 	for _, rl := range req.GetResourceLogs() {
-		if rt := resourceTenantOf(rl.GetResource()); rt != "" && rt != tenant {
+		rt, err := resourceTenantStrict(rl.GetResource())
+		if err != nil {
+			return err
+		}
+		if rt != "" && rt != tenant {
 			return fmt.Errorf("otlp: resource tenant %q does not match authenticated tenant", rt)
 		}
 		if rl.Resource == nil {
 			rl.Resource = &resourcepb.Resource{}
 		}
-		if resourceTenantOf(rl.Resource) == "" {
+		if rt == "" {
 			stampResource(rl.Resource, tenant)
 		}
 	}

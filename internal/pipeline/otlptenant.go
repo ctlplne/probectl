@@ -55,21 +55,29 @@ func stampOTLPResourceTenant(res **resourcepb.Resource, tenant string) error {
 	if *res == nil {
 		*res = &resourcepb.Resource{}
 	}
+	// Scan EVERY probectl.tenant.id attribute, not just the first. A resource
+	// carrying duplicates — e.g. ["", "victim"] — would otherwise pass a
+	// first-match check (the empty first value is not a mismatch) and let the
+	// foreign second value ride through to the external collector, where a
+	// last-wins reader attributes the batch to the foreign tenant (ING-39).
+	// Reject any foreign value and strip every tenant attribute, then re-stamp
+	// exactly one holding the verified tenant so export can never emit a second
+	// tenant key — fail closed (docs/guardrails.md G7-1).
+	kept := make([]*commonpb.KeyValue, 0, len((*res).GetAttributes()))
 	for _, kv := range (*res).GetAttributes() {
 		if kv.GetKey() != otel.AttrTenantID {
+			kept = append(kept, kv)
 			continue
 		}
-		got := kv.GetValue().GetStringValue()
-		if got != "" && got != tenant {
+		if got := kv.GetValue().GetStringValue(); got != "" && got != tenant {
 			return fmt.Errorf("%w: bus tenant %q payload tenant %q", errOTLPResourceTenantMismatch, tenant, got)
 		}
-		kv.Value = otlpTenantValue(tenant)
-		return nil
 	}
-	(*res).Attributes = append((*res).Attributes, &commonpb.KeyValue{
+	kept = append(kept, &commonpb.KeyValue{
 		Key:   otel.AttrTenantID,
 		Value: otlpTenantValue(tenant),
 	})
+	(*res).Attributes = kept
 	return nil
 }
 
