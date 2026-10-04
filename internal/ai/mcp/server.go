@@ -344,6 +344,13 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		if auditErr := emit(CallPhaseTerminal, false, terminalToolDenial(err)); auditErr != nil {
 			return auditUnavailable()
 		}
+		// RTA-05: a per-tenant fairness/rate denial is NOT a tool failure. Surface
+		// it as the rate-limited JSON-RPC error (the HTTP transport maps it to 429
+		// + Retry-After) so a client's backoff keyed on the rate code / 429 fires,
+		// instead of an opaque "tool execution failed" the client cannot act on.
+		if errors.Is(err, fairness.ErrQueryConcurrency) || errors.Is(err, fairness.ErrQueryBudget) {
+			return errorResponse(req.ID, codeRateLimited, "rate limit exceeded; retry after backoff")
+		}
 		return resultResponse(req.ID, toolResult("tool execution failed", nil, true))
 	}
 	res, rerr := s.redactedResult(p.TenantID, out)

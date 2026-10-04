@@ -69,7 +69,11 @@ which one. Every call enforces the boundary at the MCP layer
 4. **Then rate-limit and fairness-admit.** Tool calls are rate-limited per
    tenant (default `120`/minute, `PROBECTL_MCP_RATE_PER_MIN`), and query tools
    enter the shared per-tenant fairness gate before touching a store, so one
-   tenant can't exhaust the server.
+   tenant can't exhaust the server. A denial from either the rate limiter or the
+   fairness gate is returned as the JSON-RPC error `-32003` (`rate limit
+   exceeded`), and over HTTP it also carries status `429` with a `Retry-After`
+   header — distinct from a genuine tool failure (an `isError` tool result), so a
+   client's backoff keys cleanly on the code / status.
 5. **Then the egress gate.** Returning tool output to an external AI client *is*
    tenant data leaving the platform, so each `tools/call` passes the shared egress
    gate — per-tenant consent, redaction, audit (its own section below).

@@ -8,6 +8,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -15,6 +16,22 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/httpbody"
 )
+
+// rpcErrorCode returns the JSON-RPC error code of a single serialized response,
+// or 0 when the body is a success result, a batch, or not decodable. It lets the
+// HTTP transport reflect a rate-limited response as HTTP 429 (RTA-05) without
+// changing the JSON-RPC body.
+func rpcErrorCode(resp []byte) int {
+	var r struct {
+		Error *struct {
+			Code int `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp, &r); err != nil || r.Error == nil {
+		return 0
+	}
+	return r.Error.Code
+}
 
 // Authenticator resolves a bearer token to a principal (tenant + RBAC + ABAC
 // subject attributes). The control-plane implementation maps a control-plane
@@ -77,6 +94,14 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// RTA-05: a rate-limited response also carries HTTP 429 + Retry-After, so
+		// a client's standard transport-level backoff triggers without having to
+		// parse the JSON-RPC body. Other responses keep HTTP 200 (JSON-RPC
+		// carries their status in the body, the protocol's contract).
+		if rpcErrorCode(resp) == codeRateLimited {
+			w.Header().Set("Retry-After", "60")
+			w.WriteHeader(http.StatusTooManyRequests)
+		}
 		_, _ = w.Write(resp)
 	})
 }

@@ -825,3 +825,35 @@ func TestHTTPHandlerRejectsOversizedBody(t *testing.T) {
 		t.Fatalf("status = %d, want 413", resp.StatusCode)
 	}
 }
+
+// TestFairnessDenialReturnsRateLimited proves RTA-05 at the JSON-RPC layer: a
+// per-tenant fairness/rate denial inside a tool call is surfaced as the
+// rate-limited JSON-RPC error, not a generic "tool execution failed" result a
+// client cannot act on.
+func TestFairnessDenialReturnsRateLimited(t *testing.T) {
+	s := newTestServer(&fakeBackend{listTestsErr: fairness.ErrQueryBudget}, testGate())
+	code, isErr := errCode(handle(t, s, principal("t", permTestRead), 12, "tools/call",
+		map[string]any{"name": "list_tests"}))
+	if !isErr || code != codeRateLimited {
+		t.Fatalf("fairness denial: code=%d isErr=%v, want JSON-RPC %d (rate limited), not a generic tool error (RTA-05)", code, isErr, codeRateLimited)
+	}
+}
+
+// TestHTTPHandlerRateLimitReturns429 proves RTA-05 over HTTP: a rate-limited
+// tool call carries HTTP 429 + Retry-After so a client's transport-level backoff
+// triggers. Before the fix the response was HTTP 200 with a generic tool error.
+func TestHTTPHandlerRateLimitReturns429(t *testing.T) {
+	s := newTestServer(&fakeBackend{listTestsErr: fairness.ErrQueryConcurrency}, testGate())
+	h := s.HTTPHandler(fakeAuthn{p: principal("t", permTestRead)})
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests"}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer x")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("rate-limited HTTP status = %d, want 429 (RTA-05); body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Errorf("a 429 must carry Retry-After")
+	}
+}
