@@ -1,0 +1,71 @@
+name: codeql
+
+# SUP-13 / DPR-245: CodeQL as ADVANCED setup, so the analyzed language list is
+# version-controlled HERE instead of living only in repo settings. The July 2026
+# regression — product analysis (Go, JS/TS, Python) silently stopped while only
+# `actions` kept running, undiscovered for 79 days because no diff could show a
+# settings change — is impossible to repeat quietly once this file is the source
+# of truth: dropping a language is a reviewable code change.
+#
+# ACTIVATION (one-time, repo settings — see design-partner-readiness
+# decisions-needed.md): this advanced workflow requires CodeQL *default setup*
+# to be DISABLED under Settings → Code security & analysis. GitHub refuses to run
+# advanced setup while default setup owns the configuration.
+#
+# scripts/check_codeql_coverage.sh (security-scan.yml) remains the belt-and-
+# suspenders API check that every required language has a fresh analysis.
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, plus every PR above — a cadence the staleness gate (14 days) passes.
+    - cron: "27 3 * * 1"
+  workflow_dispatch:
+
+# Least privilege (SUP-04): read-only by default; the analyze job elevates to
+# security-events:write for itself to upload SARIF.
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The product's languages + the workflows themselves. Keep in sync with
+        # scripts/check_codeql_coverage.sh REQUIRED_LANGUAGES (go, js/ts, python).
+        language: [go, javascript-typescript, python, actions]
+    env:
+      GOWORK: off
+      GOFLAGS: -mod=mod
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.7"
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
+        with:
+          languages: ${{ matrix.language }}
+          # security-extended includes go/clear-text-logging and go/zipslip —
+          # the two high-severity classes the frozen July snapshot had hidden.
+          queries: security-extended
+      - if: matrix.language == 'go'
+        name: Autobuild (Go)
+        uses: github/codeql-action/autobuild@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
+      - name: Analyze
+        uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
+        with:
+          category: "/language:${{ matrix.language }}"

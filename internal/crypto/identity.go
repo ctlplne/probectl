@@ -170,5 +170,8 @@ func serverMTLSConfigRotating(certFile, keyFile, caFile, spiffePrefix string) (*
 	cfg.ClientCAs = pool
 	cfg.ClientAuth = tls.RequireAndVerifyClientCert
 	cfg.VerifyPeerCertificate = requirePinnedTrustDomain
+	// G7-4/G123: resumed sessions skip VerifyPeerCertificate; force full
+	// handshakes so the SPIFFE trust-domain pin always runs (see hardenedServerTLS).
+	cfg.SessionTicketsDisabled = true
 	return cfg, ri, nil
 }

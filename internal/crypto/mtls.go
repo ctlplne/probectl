@@ -80,6 +80,10 @@ func ServerBMPMTLSConfigRegistered(certFile, keyFile, caFile string, verify Issu
 		}
 		return nil
 	}
+	// G7-4/G123: the live issued-identity registry lookup above must run on
+	// every handshake, so a client deregistered after its first connect cannot
+	// keep resuming. Disable session resumption (full handshake each time).
+	cfg.SessionTicketsDisabled = true
 	return cfg, nil
 }
 
@@ -117,6 +121,9 @@ func serverMTLSConfig(certFile, keyFile, caFile string, verify func([][]byte, []
 	cfg.ClientCAs = pool
 	cfg.ClientAuth = tls.RequireAndVerifyClientCert
 	cfg.VerifyPeerCertificate = verify
+	// G7-4/G123: resumed sessions skip VerifyPeerCertificate; force full
+	// handshakes so the custom mTLS checks always run (see hardenedServerTLS).
+	cfg.SessionTicketsDisabled = true
 	return cfg, nil
 }
 

@@ -181,5 +181,8 @@ func ServerBMPMTLSConfigRegisteredRevocable(
 
 func withRevocationList(cfg *tls.Config, rl *RevocationList) *tls.Config {
 	cfg.VerifyPeerCertificate = revocationGuard(rl, cfg.VerifyPeerCertificate)
+	// G7-4/G123: revocation must be re-checked on every handshake; a resumed
+	// session would skip VerifyPeerCertificate and keep a since-revoked peer.
+	cfg.SessionTicketsDisabled = true
 	return cfg
 }

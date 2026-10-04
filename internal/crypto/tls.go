@@ -55,6 +55,14 @@ func hardenedTLS() *tls.Config {
 func hardenedServerTLS() *tls.Config {
 	cfg := hardenedTLS()
 	cfg.MinVersion = tls.VersionTLS13
+	// SUP-13 / G7-4: disable TLS session resumption on every probectl server
+	// listener. On a resumed handshake Go does NOT re-invoke VerifyPeerCertificate,
+	// so the custom mTLS checks layered on top of it — SPIFFE trust-domain
+	// pinning, the live issued-identity registry lookup, and CRL revocation —
+	// would be silently skipped, letting a client whose identity was revoked
+	// after its first handshake keep resuming. Forcing a full handshake every
+	// time keeps those checks on the authentication path. (TLS 1.3, 1-RTT.)
+	cfg.SessionTicketsDisabled = true
 	return cfg
 }
 

@@ -15,6 +15,7 @@ linters:
   enable:
     - bodyclose
     - gocritic
+    - gosec
     - misspell
     - revive
     - unconvert
@@ -22,6 +23,47 @@ linters:
   settings:
     misspell:
       locale: US
+    gosec:
+      # SUP-13: run gosec as a FAST, DETERMINISTIC lint gate for the precise,
+      # high-value security rules (TLS misconfig G402, blocklisted crypto
+      # G401/G50x, subprocess G204, command/path, decompression, etc.). Two
+      # classes of rule are excluded globally; the deeper SAST they attempt is
+      # covered by CodeQL (.github/workflows/codeql.yml, security-extended):
+      #
+      # (1) NON-DETERMINISTIC in this golangci/gosec version — they report a
+      #     different site set run-to-run (and across cache states), which would
+      #     make a required gate flake red: the "via taint analysis" rules
+      #     (G702 command-injection, G703 path-traversal, G704, G705 XSS, G710
+      #     open-redirect), G602 (slice bounds) and G124 (cookie attributes).
+      #     Cookie security is enforced by internal/auth's central secure-cookie
+      #     builder and its tests.
+      #
+      # (2) PERVASIVELY FALSE-POSITIVE for this codebase's idioms, with far too
+      #     many instances to enumerate and each verified benign:
+      #       G115 — integer-overflow on provably-safe bounded protocol/field
+      #              conversions (ports, lengths, fixed-width codecs).
+      #       G404 — weak random: ALL non-crypto randomness here is jitter/
+      #              backoff/sampling; cryptographic randomness goes through
+      #              internal/crypto (crypto/rand). CodeQL covers the real case.
+      #       G306 — 0644 WriteFile: the writes are non-secret generated
+      #              artifacts/evidence meant to be world-readable; key material
+      #              is written through internal/crypto with restrictive perms.
+      #       G101 — entropy/keyword "hardcoded credential" heuristic: every hit
+      #              is a constant NAME/enum/header/OID/AAD-label, never a secret
+      #              value. Real embedded secrets are caught by the full-history
+      #              gitleaks gate (secret-scan) and CodeQL, not this heuristic.
+      excludes:
+        - G115
+        - G101
+        - G306
+        - G404
+        - G602
+        - G702
+        - G703
+        - G704
+        - G705
+        - G710
+        - G124
   exclusions:
     # Sensible built-in exemptions, incl. std-error-handling (e.g. unchecked
     # fmt.Print* / Close) and well-known false positives.
@@ -33,6 +75,61 @@ linters:
     paths:
       - internal/gen     # generated protobuf code (S4+)
       - node_modules     # untracked third-party JS deps (e.g. flatted/golang) — never our Go
+    # gosec tuning (SUP-13). Real gosec findings are FIXED in code (e.g. the
+    # G123 mTLS session-resumption bypass closed with SessionTicketsDisabled).
+    # These rules suppress only VERIFIED false positives — the rules stay
+    # enabled, so a genuinely new finding of the same class still fails lint.
+    rules:
+      # Test-harness false positives in the PRECISE rules that stay enabled:
+      # subprocess with test-controlled args (G204), filepath.Walk over the repo
+      # tree (G122), test TLS configs that deliberately exercise weak/insecure
+      # postures (G402), and a test http.Server without a read-header timeout
+      # (G112). (G101/G306/G404 are excluded globally above.)
+      - linters: [gosec]
+        path: '_test\.go'
+        text: '(G204|G122|G402|G112):'
+      # --- Verified production false positives in the precise rules (SUP-13) ---
+      # G402 canary probe: InsecureSkipVerify is paired with a VerifyConnection
+      # that performs (and RETURNS the error from) full chain+DNS verification, so
+      # a bad cert still fails the probe; the second site is an observe-only TLS-
+      # posture peek (G7-9) that sends no request and trusts no data.
+      - linters: [gosec]
+        path: 'internal/canary/http\.go'
+        text: 'G402:'
+      # G117 alert-channel Secret: the field is envelope-encrypted via
+      # internal/tenantcrypto BEFORE it is marshaled, so the DB jsonb holds
+      # ciphertext (decrypt-on-read), and the API response redacts it.
+      - linters: [gosec]
+        path: 'internal/store/alertrules(_rewrap)?\.go'
+        text: 'G117:'
+      # G109 OTLP severity: n is validated to 0..24 before the int32 conversion.
+      - linters: [gosec]
+        path: 'internal/control/otlpquery\.go'
+        text: 'G109:'
+      # G123 agent enrollment CLIENT configs derive from hardenedServerTLS()
+      # (SessionTicketsDisabled=true) and have a nil ClientSessionCache, so no
+      # resumption can bypass the pin check; gosec can't see across the helper.
+      - linters: [gosec]
+        path: 'internal/agent/identity\.go'
+        text: 'G123:'
+      # G204 subprocess: the command + args are operator-configured (browser
+      # worker launch, chaos-drill options) or a fixed `git` with constant
+      # subcommands; untrusted data travels on stdin, never as an argument.
+      - linters: [gosec]
+        path: 'internal/(browser/execdriver|chaos/dependency_drill|deliveryaudit/receipt)\.go'
+        text: 'G204:'
+      # G122 filepath.Walk: trusted root (the repo's evidence tree / the store's
+      # own data dir); symlink entries are explicitly rejected or not followed,
+      # and keys are validKey-sanitized, so there is no symlink-follow TOCTOU.
+      - linters: [gosec]
+        path: 'internal/(completeness/validate|objectstore/fs)\.go'
+        text: 'G122:'
+      # G118 context.Background in goroutine: graceful-shutdown drain and async
+      # fairness-policy refresh must OUTLIVE the triggering request ctx — binding
+      # them to it would cancel the work prematurely (a documented idiom).
+      - linters: [gosec]
+        path: 'internal/(agent/metrics/metrics|fairness/fairness)\.go'
+        text: 'G118:'
 
 formatters:
   enable:
