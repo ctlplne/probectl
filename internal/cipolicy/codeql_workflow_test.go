@@ -32,17 +32,15 @@ func TestCodeQLAdvancedWorkflowIsCommitted(t *testing.T) {
 	}
 	wf := string(raw)
 
-	// Every language scripts/check_codeql_coverage.sh REQUIRES must be analyzed
-	// by the committed workflow — the two must not drift apart.
-	for _, lang := range requiredCodeQLLanguages(t) {
-		if !regexp.MustCompile(`(?m)^\s*-?\s*`+regexp.QuoteMeta(lang)+`\b`).MatchString(wf) &&
-			!strings.Contains(wf, lang) {
-			t.Errorf("codeql.yml must analyze the required product language %q (coverage gate requires it)", lang)
+	// Every language scripts/check_codeql_coverage.sh REQUIRES must appear in the
+	// committed workflow's `language:` matrix — the two must not drift apart.
+	// Match the matrix entry specifically (a list item), NOT a loose substring, so
+	// "go" cannot be satisfied by "setup-go"/"go-version"/"GOWORK".
+	matrix := codeqlMatrixLanguages(t, wf)
+	for _, lang := range append(requiredCodeQLLanguages(t), "actions") {
+		if !matrix[lang] {
+			t.Errorf("codeql.yml language matrix must include %q (have %v); the coverage gate requires it", lang, matrix)
 		}
-	}
-	// `actions` is analyzed too (the one language that kept running — now explicit).
-	if !strings.Contains(wf, "actions") {
-		t.Errorf("codeql.yml should also analyze the workflows themselves (actions)")
 	}
 
 	for _, want := range []string{
@@ -72,6 +70,38 @@ func TestCodeQLAdvancedWorkflowIsCommitted(t *testing.T) {
 	if block := top.FindString(wf); block == "" || strings.Contains(block, "write") {
 		t.Errorf("codeql.yml workflow-level permissions must be read-only (got block: %q)", block)
 	}
+}
+
+// codeqlMatrixLanguages extracts the CodeQL job's `language:` matrix entries
+// (flow-list `[go, python, ...]` or block-list) as a set, so the presence check
+// is against actual matrix members rather than loose substrings.
+func codeqlMatrixLanguages(t *testing.T, wf string) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	// Flow style: "language: [go, javascript-typescript, python, actions]".
+	if m := regexp.MustCompile(`(?m)^\s*language:\s*\[([^\]]*)\]`).FindStringSubmatch(wf); m != nil {
+		for _, f := range strings.Split(m[1], ",") {
+			if s := strings.Trim(strings.TrimSpace(f), `"'`); s != "" {
+				out[s] = true
+			}
+		}
+		return out
+	}
+	// Block style: a "language:" key followed by "- <lang>" list items.
+	lines := strings.Split(wf, "\n")
+	for i, ln := range lines {
+		if regexp.MustCompile(`^\s*language:\s*$`).MatchString(ln) {
+			item := regexp.MustCompile(`^\s*-\s*"?([A-Za-z0-9_-]+)"?\s*$`)
+			for j := i + 1; j < len(lines); j++ {
+				mm := item.FindStringSubmatch(lines[j])
+				if mm == nil {
+					break
+				}
+				out[mm[1]] = true
+			}
+		}
+	}
+	return out
 }
 
 // requiredCodeQLLanguages parses REQUIRED_LANGUAGES from check_codeql_coverage.sh
