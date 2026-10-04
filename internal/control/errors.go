@@ -7,8 +7,11 @@
 package control
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/logging"
@@ -72,7 +75,19 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	log := logging.FromContext(r.Context())
 	domain, ok := apierror.As(err)
 	if !ok {
-		domain = apierror.Internal("internal error")
+		// WEB-20: a malformed id or other syntactically invalid value reaches
+		// Postgres as 22P02 (invalid_text_representation) — e.g. a non-UUID on a
+		// /v1/<resource>/{id} route. That is bad client input, not a server
+		// fault, so map it to 400 rather than a 500: scanners and broken clients
+		// stop generating ERROR-level 500s (noisy alerting / misleading SLO
+		// burn), and the raw SQLSTATE detail is never returned or logged at
+		// ERROR. The client message is fixed, so no query text leaks.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+			domain = apierror.BadRequest("malformed id or request parameter")
+		} else {
+			domain = apierror.Internal("internal error")
+		}
 	}
 	status := httpStatus(domain.Kind)
 	if status >= http.StatusInternalServerError {

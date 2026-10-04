@@ -84,8 +84,13 @@ func securityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 func requestContext(base *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// WEB-20: an inbound X-Request-Id is honored only when it is a sane
+			// correlation id — at most 128 chars of [A-Za-z0-9-]. A client must
+			// not be able to forge or collide ids, nor inflate log volume with an
+			// 8 KB value echoed into every log line; anything off-shape is
+			// replaced with a server-generated id.
 			id := r.Header.Get("X-Request-Id")
-			if id == "" {
+			if !validRequestID(id) {
 				id = newRequestID()
 			}
 			ctx := logging.WithRequestID(r.Context(), id)
@@ -184,4 +189,23 @@ func newRequestID() string {
 	binary.LittleEndian.PutUint64(b[0:8], rand.Uint64())
 	binary.LittleEndian.PutUint64(b[8:16], rand.Uint64())
 	return hex.EncodeToString(b[:])
+}
+
+// validRequestID reports whether an inbound X-Request-Id is a sane correlation
+// id worth honoring: 1..128 chars of [A-Za-z0-9-] (WEB-20). Anything longer or
+// with other characters is a forgery/collision/log-inflation vector and is
+// replaced with a freshly generated id.
+func validRequestID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
