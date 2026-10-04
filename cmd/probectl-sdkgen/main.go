@@ -164,6 +164,18 @@ func (g generator) operations() []operation {
 	seen := map[string]int{}
 	for _, path := range paths {
 		byMethod := g.doc.Paths[path]
+		// WEB-19: OpenAPI path-item-level `parameters` apply to every operation of
+		// the path (the {id}/{role} segments live here, often as a $ref). sdkgen
+		// previously read only each operation's own `parameters`, so these
+		// operations emitted a literal "{id}" in the URL with no argument. Merge
+		// the path-item parameters into every operation (operation params win on a
+		// (name,in) collision, per the spec).
+		var pathParams []*parameter
+		if raw, ok := byMethod["parameters"]; ok && len(raw) > 0 {
+			if err := json.Unmarshal(raw, &pathParams); err != nil {
+				fatal(fmt.Errorf("%s path-item parameters: %w", path, err))
+			}
+		}
 		for _, method := range methodOrder {
 			raw := byMethod[method]
 			if len(raw) == 0 {
@@ -181,7 +193,7 @@ func (g generator) operations() []operation {
 			if seen[id] > 1 {
 				id = fmt.Sprintf("%s%d", id, seen[id])
 			}
-			params := g.resolveParams(rawOp.Parameters)
+			params := g.resolveParams(g.mergePathParams(rawOp.Parameters, pathParams))
 			body, bodyRequired := jsonBody(rawOp.RequestBody)
 			resp, jsonResp, rawResp := jsonResponse(rawOp.Responses)
 			out = append(out, operation{
@@ -203,6 +215,33 @@ func (g generator) operations() []operation {
 		}
 	}
 	return out
+}
+
+// mergePathParams combines an operation's own parameters with the path-item
+// parameters that apply to it (WEB-19). Operation parameters take precedence on
+// a (name, in) collision, matching the OpenAPI rule; $ref parameters are
+// resolved only to compute the collision key.
+func (g generator) mergePathParams(opParams, pathParams []*parameter) []*parameter {
+	if len(pathParams) == 0 {
+		return opParams
+	}
+	type key struct{ name, in string }
+	seen := map[key]bool{}
+	for _, p := range opParams {
+		if rp := g.resolveParam(p); rp != nil {
+			seen[key{rp.Name, rp.In}] = true
+		}
+	}
+	merged := append([]*parameter(nil), opParams...)
+	for _, p := range pathParams {
+		rp := g.resolveParam(p)
+		if rp == nil || seen[key{rp.Name, rp.In}] {
+			continue
+		}
+		seen[key{rp.Name, rp.In}] = true
+		merged = append(merged, p)
+	}
+	return merged
 }
 
 func (g generator) resolveParams(params []*parameter) []resolvedParam {

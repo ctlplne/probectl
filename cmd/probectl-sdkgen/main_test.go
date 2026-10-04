@@ -7,6 +7,9 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -73,5 +76,42 @@ func TestGeneratedTypeScriptResponseBodyLimits(t *testing.T) {
 	}
 	if strings.Contains(source, "response.json()") {
 		t.Fatal("generated TypeScript SDK retained an unbounded response-body read")
+	}
+}
+
+// TestEveryPathPlaceholderHasAPathParameter proves WEB-19: after merging
+// path-item parameters, no generated operation carries a literal {param} in its
+// URL without a typed path argument to substitute it (the bug shipped 19
+// operations whose {id}/{role} were defined at the path-item level and dropped).
+func TestEveryPathPlaceholderHasAPathParameter(t *testing.T) {
+	data, err := os.ReadFile("../../internal/control/openapi.json")
+	if err != nil {
+		t.Fatalf("read openapi.json: %v", err)
+	}
+	var doc document
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("parse openapi.json: %v", err)
+	}
+	g := generator{doc: &doc}
+	placeholder := regexp.MustCompile(`\{([^}]+)\}`)
+	checked := 0
+	for _, op := range g.operations() {
+		for _, m := range placeholder.FindAllStringSubmatch(op.Path, -1) {
+			checked++
+			name := m[1]
+			found := false
+			for _, p := range op.Params {
+				if p.Name == name && p.In == "path" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s %s: path placeholder {%s} has no typed path parameter (WEB-19)", op.Method, op.Path, name)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no path placeholders found — the spec or operations() changed shape")
 	}
 }

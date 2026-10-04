@@ -1985,6 +1985,7 @@ export interface CreatePolicyRequest {
 export type CreatePolicyResponse = ABACPolicy
 
 export interface DeletePolicyRequest {
+  id: string
 }
 
 export type DeletePolicyResponse = void
@@ -2003,17 +2004,20 @@ export interface MintAgentEnrollTokenRequest {
 export type MintAgentEnrollTokenResponse = JsonObject
 
 export interface GetAgentRequest {
+  id: string
 }
 
 export type GetAgentResponse = FleetAgent
 
 export interface PatchAgentRequest {
+  id: string
   body: AgentPatch
 }
 
 export type PatchAgentResponse = Agent
 
 export interface DeleteAgentRequest {
+  id: string
 }
 
 export type DeleteAgentResponse = void
@@ -2118,17 +2122,20 @@ export interface TestAlertChannelRequest {
 export type TestAlertChannelResponse = AlertChannelTestResponse
 
 export interface GetAlertRequest {
+  id: string
 }
 
 export type GetAlertResponse = AlertRule
 
 export interface UpdateAlertRequest {
+  id: string
   body: AlertRequest
 }
 
 export type UpdateAlertResponse = AlertRule
 
 export interface DeleteAlertRequest {
+  id: string
 }
 
 export type DeleteAlertResponse = void
@@ -2153,6 +2160,7 @@ export interface PostV1ApiTokensRequest {
 export type PostV1ApiTokensResponse = CreatedAPIToken
 
 export interface DeleteV1ApiTokensIdRequest {
+  id: string
 }
 
 export type DeleteV1ApiTokensIdResponse = void
@@ -2392,6 +2400,7 @@ export interface CreateScimTokenRequest {
 export type CreateScimTokenResponse = SCIMTokenCreated
 
 export interface RevokeScimTokenRequest {
+  id: string
 }
 
 export type RevokeScimTokenResponse = void
@@ -2408,12 +2417,15 @@ export interface CreateDirectoryUserRequest {
 export type CreateDirectoryUserResponse = DirectoryUser
 
 export interface BindDirectoryRoleRequest {
+  id: string
   body: DirectoryRoleBind
 }
 
 export type BindDirectoryRoleResponse = DirectoryUser
 
 export interface UnbindDirectoryRoleRequest {
+  id: string
+  role: string
 }
 
 export type UnbindDirectoryRoleResponse = void
@@ -2629,17 +2641,20 @@ export interface ListIncidentsRequest {
 export type ListIncidentsResponse = IncidentList
 
 export interface GetIncidentRequest {
+  id: string
 }
 
 export type GetIncidentResponse = Incident
 
 export interface PatchIncidentRequest {
+  id: string
   body: IncidentPatch
 }
 
 export type PatchIncidentResponse = Incident
 
 export interface ListIncidentChangesRequest {
+  id: string
 }
 
 export type ListIncidentChangesResponse = ChangeCandidateList
@@ -2971,32 +2986,42 @@ export interface GetTestBundleRequest {
 export type GetTestBundleResponse = JsonObject
 
 export interface GetTestRequest {
+  id: string
 }
 
 export type GetTestResponse = Test
 
 export interface UpdateTestRequest {
+  id: string
   body: TestRequest
 }
 
 export type UpdateTestResponse = Test
 
 export interface DeleteTestRequest {
+  id: string
 }
 
 export type DeleteTestResponse = void
 
 export interface GetTestPathRequest {
+  id: string
 }
 
 export type GetTestPathResponse = Path
 
 export interface DiscoverTestPathRequest {
+  id: string
 }
 
 export type DiscoverTestPathResponse = Path
 
 export interface ListTestPathHistoryRequest {
+  id: string
+  from?: string
+  to?: string
+  roundId?: string[]
+  limit?: number
 }
 
 export type ListTestPathHistoryResponse = PathHistory
@@ -3149,8 +3174,9 @@ export class ProbectlSDKClient {
     return this.requestJSON<CreatePolicyResponse>("POST", path, query, request.body)
   }
 
-  async deletePolicy(): Promise<DeletePolicyResponse> {
+  async deletePolicy(request: DeletePolicyRequest): Promise<DeletePolicyResponse> {
     let path = "/v1/abac/policies/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
   }
@@ -3169,20 +3195,23 @@ export class ProbectlSDKClient {
     return this.requestJSON<MintAgentEnrollTokenResponse>("POST", path, query, request.body)
   }
 
-  async getAgent(): Promise<GetAgentResponse> {
+  async getAgent(request: GetAgentRequest): Promise<GetAgentResponse> {
     let path = "/v1/agents/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<GetAgentResponse>("GET", path, query, undefined)
   }
 
   async patchAgent(request: PatchAgentRequest): Promise<PatchAgentResponse> {
     let path = "/v1/agents/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<PatchAgentResponse>("PATCH", path, query, request.body)
   }
 
-  async deleteAgent(): Promise<DeleteAgentResponse> {
+  async deleteAgent(request: DeleteAgentRequest): Promise<DeleteAgentResponse> {
     let path = "/v1/agents/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
   }
@@ -3294,20 +3323,23 @@ export class ProbectlSDKClient {
     return this.requestJSON<TestAlertChannelResponse>("POST", path, query, request.body)
   }
 
-  async getAlert(): Promise<GetAlertResponse> {
+  async getAlert(request: GetAlertRequest): Promise<GetAlertResponse> {
     let path = "/v1/alerts/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<GetAlertResponse>("GET", path, query, undefined)
   }
 
   async updateAlert(request: UpdateAlertRequest): Promise<UpdateAlertResponse> {
     let path = "/v1/alerts/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<UpdateAlertResponse>("PUT", path, query, request.body)
   }
 
-  async deleteAlert(): Promise<DeleteAlertResponse> {
+  async deleteAlert(request: DeleteAlertRequest): Promise<DeleteAlertResponse> {
     let path = "/v1/alerts/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
   }
@@ -3333,8 +3365,9 @@ export class ProbectlSDKClient {
     return this.requestJSON<PostV1ApiTokensResponse>("POST", path, query, request.body)
   }
 
-  async deleteV1ApiTokensId(): Promise<DeleteV1ApiTokensIdResponse> {
+  async deleteV1ApiTokensId(request: DeleteV1ApiTokensIdRequest): Promise<DeleteV1ApiTokensIdResponse> {
     let path = "/v1/api-tokens/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
   }
@@ -3602,8 +3635,9 @@ export class ProbectlSDKClient {
     return this.requestJSON<CreateScimTokenResponse>("POST", path, query, request.body)
   }
 
-  async revokeScimToken(): Promise<RevokeScimTokenResponse> {
+  async revokeScimToken(request: RevokeScimTokenRequest): Promise<RevokeScimTokenResponse> {
     let path = "/v1/directory/scim-tokens/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
   }
@@ -3622,12 +3656,15 @@ export class ProbectlSDKClient {
 
   async bindDirectoryRole(request: BindDirectoryRoleRequest): Promise<BindDirectoryRoleResponse> {
     let path = "/v1/directory/users/{id}/roles"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<BindDirectoryRoleResponse>("POST", path, query, request.body)
   }
 
-  async unbindDirectoryRole(): Promise<UnbindDirectoryRoleResponse> {
+  async unbindDirectoryRole(request: UnbindDirectoryRoleRequest): Promise<UnbindDirectoryRoleResponse> {
     let path = "/v1/directory/users/{id}/roles/{role}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    path = path.replace("{role}", encodeURIComponent(String(request.role)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
   }
@@ -3867,20 +3904,23 @@ export class ProbectlSDKClient {
     return this.requestJSON<ListIncidentsResponse>("GET", path, query, undefined)
   }
 
-  async getIncident(): Promise<GetIncidentResponse> {
+  async getIncident(request: GetIncidentRequest): Promise<GetIncidentResponse> {
     let path = "/v1/incidents/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<GetIncidentResponse>("GET", path, query, undefined)
   }
 
   async patchIncident(request: PatchIncidentRequest): Promise<PatchIncidentResponse> {
     let path = "/v1/incidents/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<PatchIncidentResponse>("PATCH", path, query, request.body)
   }
 
-  async listIncidentChanges(): Promise<ListIncidentChangesResponse> {
+  async listIncidentChanges(request: ListIncidentChangesRequest): Promise<ListIncidentChangesResponse> {
     let path = "/v1/incidents/{id}/changes"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<ListIncidentChangesResponse>("GET", path, query, undefined)
   }
@@ -4246,39 +4286,49 @@ export class ProbectlSDKClient {
     return this.requestJSON<GetTestBundleResponse>("GET", path, query, undefined)
   }
 
-  async getTest(): Promise<GetTestResponse> {
+  async getTest(request: GetTestRequest): Promise<GetTestResponse> {
     let path = "/v1/tests/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<GetTestResponse>("GET", path, query, undefined)
   }
 
   async updateTest(request: UpdateTestRequest): Promise<UpdateTestResponse> {
     let path = "/v1/tests/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<UpdateTestResponse>("PUT", path, query, request.body)
   }
 
-  async deleteTest(): Promise<DeleteTestResponse> {
+  async deleteTest(request: DeleteTestRequest): Promise<DeleteTestResponse> {
     let path = "/v1/tests/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
   }
 
-  async getTestPath(): Promise<GetTestPathResponse> {
+  async getTestPath(request: GetTestPathRequest): Promise<GetTestPathResponse> {
     let path = "/v1/tests/{id}/path"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<GetTestPathResponse>("GET", path, query, undefined)
   }
 
-  async discoverTestPath(): Promise<DiscoverTestPathResponse> {
+  async discoverTestPath(request: DiscoverTestPathRequest): Promise<DiscoverTestPathResponse> {
     let path = "/v1/tests/{id}/path"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<DiscoverTestPathResponse>("POST", path, query, undefined)
   }
 
-  async listTestPathHistory(): Promise<ListTestPathHistoryResponse> {
+  async listTestPathHistory(request: ListTestPathHistoryRequest): Promise<ListTestPathHistoryResponse> {
     let path = "/v1/tests/{id}/path/history"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
+    if (request.from !== undefined) query.set("from", String(request.from))
+    if (request.to !== undefined) query.set("to", String(request.to))
+    if (request.roundId !== undefined) for (const value of request.roundId) query.append("round_id", String(value))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListTestPathHistoryResponse>("GET", path, query, undefined)
   }
 

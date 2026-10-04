@@ -2211,10 +2211,15 @@ func (c *Client) CreatePolicy(ctx context.Context, req CreatePolicyRequest) (*AB
 
 // Delete an ABAC policy
 type DeletePolicyRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) DeletePolicy(ctx context.Context, req DeletePolicyRequest) error {
 	path := "/v1/abac/policies/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
@@ -2258,10 +2263,15 @@ func (c *Client) MintAgentEnrollToken(ctx context.Context, req MintAgentEnrollTo
 
 // Get an agent
 type GetAgentRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) GetAgent(ctx context.Context, req GetAgentRequest) (*FleetAgent, error) {
 	path := "/v1/agents/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out FleetAgent
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
@@ -2272,11 +2282,16 @@ func (c *Client) GetAgent(ctx context.Context, req GetAgentRequest) (*FleetAgent
 
 // Update an agent's display name
 type PatchAgentRequest struct {
+	Id   string      `json:"-"`
 	Body *AgentPatch `json:"-"`
 }
 
 func (c *Client) PatchAgent(ctx context.Context, req PatchAgentRequest) (*Agent, error) {
 	path := "/v1/agents/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out Agent
 	if err := c.doJSON(ctx, http.MethodPatch, path, query, req.Body, &out); err != nil {
@@ -2287,10 +2302,15 @@ func (c *Client) PatchAgent(ctx context.Context, req PatchAgentRequest) (*Agent,
 
 // Deregister an agent (deprecated legacy metadata delete)
 type DeleteAgentRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) DeleteAgent(ctx context.Context, req DeleteAgentRequest) error {
 	path := "/v1/agents/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
@@ -2556,10 +2576,15 @@ func (c *Client) TestAlertChannel(ctx context.Context, req TestAlertChannelReque
 
 // Get an alert rule
 type GetAlertRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) GetAlert(ctx context.Context, req GetAlertRequest) (*AlertRule, error) {
 	path := "/v1/alerts/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out AlertRule
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
@@ -2570,11 +2595,16 @@ func (c *Client) GetAlert(ctx context.Context, req GetAlertRequest) (*AlertRule,
 
 // Update an alert rule
 type UpdateAlertRequest struct {
+	Id   string        `json:"-"`
 	Body *AlertRequest `json:"-"`
 }
 
 func (c *Client) UpdateAlert(ctx context.Context, req UpdateAlertRequest) (*AlertRule, error) {
 	path := "/v1/alerts/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out AlertRule
 	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
@@ -2585,10 +2615,15 @@ func (c *Client) UpdateAlert(ctx context.Context, req UpdateAlertRequest) (*Aler
 
 // Delete an alert rule
 type DeleteAlertRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) DeleteAlert(ctx context.Context, req DeleteAlertRequest) error {
 	path := "/v1/alerts/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
@@ -2651,10 +2686,15 @@ func (c *Client) PostV1ApiTokens(ctx context.Context, req PostV1ApiTokensRequest
 
 // Revoke exactly one API token by id, leaving the user's other tokens working (INV-03/RT-02). Audited.
 type DeleteV1ApiTokensIdRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) DeleteV1ApiTokensId(ctx context.Context, req DeleteV1ApiTokensIdRequest) error {
 	path := "/v1/api-tokens/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
@@ -3338,10 +3378,15 @@ func (c *Client) CreateScimToken(ctx context.Context, req CreateScimTokenRequest
 
 // Revoke a SCIM bearer token
 type RevokeScimTokenRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) RevokeScimToken(ctx context.Context, req RevokeScimTokenRequest) error {
 	path := "/v1/directory/scim-tokens/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
@@ -3377,11 +3422,16 @@ func (c *Client) CreateDirectoryUser(ctx context.Context, req CreateDirectoryUse
 
 // Bind a role to a user (idempotent, audited)
 type BindDirectoryRoleRequest struct {
+	Id   string             `json:"-"`
 	Body *DirectoryRoleBind `json:"-"`
 }
 
 func (c *Client) BindDirectoryRole(ctx context.Context, req BindDirectoryRoleRequest) (*DirectoryUser, error) {
 	path := "/v1/directory/users/{id}/roles"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out DirectoryUser
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
@@ -3392,10 +3442,20 @@ func (c *Client) BindDirectoryRole(ctx context.Context, req BindDirectoryRoleReq
 
 // Remove a role from a user (the tenant's last administrator is refused)
 type UnbindDirectoryRoleRequest struct {
+	Id   string `json:"-"`
+	Role string `json:"-"`
 }
 
 func (c *Client) UnbindDirectoryRole(ctx context.Context, req UnbindDirectoryRoleRequest) error {
 	path := "/v1/directory/users/{id}/roles/{role}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	if req.Role == "" {
+		return fmt.Errorf("role is required")
+	}
+	path = strings.ReplaceAll(path, "{role}", url.PathEscape(req.Role))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
@@ -4023,10 +4083,15 @@ func (c *Client) ListIncidents(ctx context.Context, req ListIncidentsRequest) (*
 
 // Get an incident with its signal timeline
 type GetIncidentRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) GetIncident(ctx context.Context, req GetIncidentRequest) (*Incident, error) {
 	path := "/v1/incidents/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out Incident
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
@@ -4037,11 +4102,16 @@ func (c *Client) GetIncident(ctx context.Context, req GetIncidentRequest) (*Inci
 
 // Resolve or explicitly reopen an incident
 type PatchIncidentRequest struct {
+	Id   string         `json:"-"`
 	Body *IncidentPatch `json:"-"`
 }
 
 func (c *Client) PatchIncident(ctx context.Context, req PatchIncidentRequest) (*Incident, error) {
 	path := "/v1/incidents/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out Incident
 	if err := c.doJSON(ctx, http.MethodPatch, path, query, req.Body, &out); err != nil {
@@ -4052,10 +4122,15 @@ func (c *Client) PatchIncident(ctx context.Context, req PatchIncidentRequest) (*
 
 // List changes correlated to an incident (candidate causes)
 type ListIncidentChangesRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) ListIncidentChanges(ctx context.Context, req ListIncidentChangesRequest) (*ChangeCandidateList, error) {
 	path := "/v1/incidents/{id}/changes"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out ChangeCandidateList
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
@@ -4971,10 +5046,15 @@ func (c *Client) GetTestBundle(ctx context.Context, req GetTestBundleRequest) (m
 
 // Get a test
 type GetTestRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) GetTest(ctx context.Context, req GetTestRequest) (*Test, error) {
 	path := "/v1/tests/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out Test
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
@@ -4985,11 +5065,16 @@ func (c *Client) GetTest(ctx context.Context, req GetTestRequest) (*Test, error)
 
 // Update a test
 type UpdateTestRequest struct {
+	Id   string       `json:"-"`
 	Body *TestRequest `json:"-"`
 }
 
 func (c *Client) UpdateTest(ctx context.Context, req UpdateTestRequest) (*Test, error) {
 	path := "/v1/tests/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out Test
 	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
@@ -5000,20 +5085,30 @@ func (c *Client) UpdateTest(ctx context.Context, req UpdateTestRequest) (*Test, 
 
 // Delete a test
 type DeleteTestRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) DeleteTest(ctx context.Context, req DeleteTestRequest) error {
 	path := "/v1/tests/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
 // Latest discovered network path for a test (path-viz data)
 type GetTestPathRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) GetTestPath(ctx context.Context, req GetTestPathRequest) (*Path, error) {
 	path := "/v1/tests/{id}/path"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out Path
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
@@ -5024,10 +5119,15 @@ func (c *Client) GetTestPath(ctx context.Context, req GetTestPathRequest) (*Path
 
 // Run a path discovery for a test and return the path
 type DiscoverTestPathRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) DiscoverTestPath(ctx context.Context, req DiscoverTestPathRequest) (*Path, error) {
 	path := "/v1/tests/{id}/path"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out Path
 	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
@@ -5038,11 +5138,34 @@ func (c *Client) DiscoverTestPath(ctx context.Context, req DiscoverTestPathReque
 
 // List immutable path-discovery rounds for comparison and stable replay
 type ListTestPathHistoryRequest struct {
+	Id      string    `json:"-"`
+	From    *string   `json:"-"`
+	To      *string   `json:"-"`
+	RoundId *[]string `json:"-"`
+	Limit   *int      `json:"-"`
 }
 
 func (c *Client) ListTestPathHistory(ctx context.Context, req ListTestPathHistoryRequest) (*PathHistory, error) {
 	path := "/v1/tests/{id}/path/history"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
+	if req.From != nil {
+		query.Set("from", formatQueryValue(*req.From))
+	}
+	if req.To != nil {
+		query.Set("to", formatQueryValue(*req.To))
+	}
+	if req.RoundId != nil {
+		for _, value := range *req.RoundId {
+			query.Add("round_id", formatQueryValue(value))
+		}
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
 	var out PathHistory
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
