@@ -121,15 +121,21 @@ func (h *Handler) handlePutGovernance(w http.ResponseWriter, r *http.Request, op
 		return err // the read-only license degrade blocks policy writes too
 	}
 	var in struct {
-		Overrides      map[string]string `json:"classifications"`
-		RedactFrom     string            `json:"redact_from"`
-		RedactExport   bool              `json:"redact_export"`
-		AIRemoteEgress bool              `json:"ai_remote_egress"` // U-013: tenant consent for remote-model egress
+		Overrides    map[string]string `json:"classifications"`
+		RedactFrom   string            `json:"redact_from"`
+		RedactExport bool              `json:"redact_export"`
+		// AUD-11: ai_remote_egress is the TENANT's consent to send its telemetry
+		// to remote AI models. A provider/MSP operator must NOT set or weaken it
+		// from this console (that would exfiltrate a tenant's telemetry without
+		// the tenant's consent); only a tenant admin sets it via the tenant-side
+		// /v1/governance/policy route. A *bool lets us tell "omitted" (preserve
+		// the tenant's value) apart from an explicit change attempt (refused).
+		AIRemoteEgress *bool `json:"ai_remote_egress"`
 	}
 	if err := decode(r, &in); err != nil {
 		return err
 	}
-	pol := govern.Policy{RedactExport: in.RedactExport, RedactFrom: govern.ParseClass(in.RedactFrom), AIRemoteEgress: in.AIRemoteEgress}
+	pol := govern.Policy{RedactExport: in.RedactExport, RedactFrom: govern.ParseClass(in.RedactFrom)}
 	if in.RedactFrom != "" && pol.RedactFrom == govern.ClassUnset {
 		return errBadJSON{strErr("redact_from must be one of: public, internal, confidential, pii, restricted")}
 	}
@@ -153,6 +159,14 @@ func (h *Handler) handlePutGovernance(w http.ResponseWriter, r *http.Request, op
 	if err != nil {
 		return err
 	}
+	// AUD-11: the provider console may never change the tenant's remote-AI
+	// egress consent. Refuse an explicit change (either direction) and always
+	// carry the tenant's prior value through, so an MSP operator cannot enable
+	// (or silently weaken) a tenant's remote-model telemetry egress.
+	if in.AIRemoteEgress != nil && *in.AIRemoteEgress != prior.AIRemoteEgress {
+		return errForbiddenConsent
+	}
+	pol.AIRemoteEgress = prior.AIRemoteEgress
 	if err := h.governance.Store.UpsertAudited(r.Context(), tenantID, pol, op.Email,
 		func(ctx context.Context, q tenancy.Querier) error {
 			return h.svc.AppendGovernanceAuditTx(ctx, q, op.Email, tenantID, prior, priorFound, pol)

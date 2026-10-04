@@ -78,14 +78,17 @@ func TestGovernancePutRollsBackOnAuditFailure(t *testing.T) {
 	token := f.bootstrapAndLoginFast(t)
 
 	sink.failGovernance = true
+	// A redaction change (the provider CAN set these) must still roll back with
+	// the audit append — ai_remote_egress is tenant-only now, so the atomicity
+	// regression uses the redaction floor rather than the consent bit.
 	rec := f.doAuthed(t, token, http.MethodPut, "/provider/v1/tenants/tn_1/governance", map[string]any{
-		"ai_remote_egress": true, "redact_from": "restricted", "redact_export": true,
+		"redact_from": "restricted", "redact_export": true,
 	})
 	if rec.Code == http.StatusOK {
 		t.Fatalf("AUD-11: governance PUT must fail when the audit append fails; got 200")
 	}
-	if got := store.pols["tn_1"]; got.AIRemoteEgress || got.RedactFrom != govern.ClassPII {
-		t.Fatalf("AUD-11: consent change persisted despite a failing audit sink: %+v", got)
+	if got := store.pols["tn_1"]; got.RedactFrom != govern.ClassPII || got.RedactExport {
+		t.Fatalf("AUD-11: redaction change persisted despite a failing audit sink: %+v", got)
 	}
 }
 
@@ -94,10 +97,13 @@ func TestGovernancePutRollsBackOnAuditFailure(t *testing.T) {
 // old/new (the prior event omitted the consent value entirely).
 func TestGovernancePutAuditRecordsConsentOldNew(t *testing.T) {
 	f, store, token := governedFixture(t)
-	store.pols["tn_1"] = govern.Policy{AIRemoteEgress: false}
+	// The provider cannot CHANGE the tenant's consent, but a provider governance
+	// write (here a redaction change) must still record the consent's old/new in
+	// the audit event so the state is transparent — unchanged, so old==new.
+	store.pols["tn_1"] = govern.Policy{AIRemoteEgress: true}
 
 	rec := f.doAuthed(t, token, http.MethodPut, "/provider/v1/tenants/tn_1/governance", map[string]any{
-		"ai_remote_egress": true, "redact_from": "restricted",
+		"redact_from": "restricted",
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put: %d %s", rec.Code, rec.Body.String())
@@ -110,8 +116,52 @@ func TestGovernancePutAuditRecordsConsentOldNew(t *testing.T) {
 	if !ok {
 		t.Fatalf("AUD-11: audit event omits ai_remote_egress old/new: %+v", data)
 	}
-	if egress["old"] != false || egress["new"] != true {
-		t.Fatalf("AUD-11: ai_remote_egress old/new wrong: %+v", egress)
+	if egress["old"] != true || egress["new"] != true {
+		t.Fatalf("AUD-11: ai_remote_egress old/new wrong (provider must preserve tenant consent): %+v", egress)
+	}
+	if !store.pols["tn_1"].AIRemoteEgress {
+		t.Fatalf("AUD-11: provider write must preserve the tenant's ai_remote_egress=true")
+	}
+}
+
+// TestProviderCannotSetTenantAIRemoteEgress is the AUD-11 access-control
+// regression: a provider/MSP operator must not enable (or weaken) a tenant's
+// remote-AI egress consent from the provider console. Pre-fix the handler
+// accepted ai_remote_egress from the provider body and upserted it, so this
+// POST-shaped escalation returned 200 and flipped the tenant's consent.
+func TestProviderCannotSetTenantAIRemoteEgress(t *testing.T) {
+	f, store, token := governedFixture(t)
+	store.pols["tn_1"] = govern.Policy{AIRemoteEgress: false, RedactFrom: govern.ClassPII}
+
+	// Attempt to ENABLE a tenant's consent from the provider console → refused.
+	rec := f.doAuthed(t, token, http.MethodPut, "/provider/v1/tenants/tn_1/governance", map[string]any{
+		"ai_remote_egress": true,
+	})
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "forbidden_tenant_consent") {
+		t.Fatalf("AUD-11: provider enabling ai_remote_egress must be 403 forbidden_tenant_consent; got %d %s", rec.Code, rec.Body.String())
+	}
+	if store.pols["tn_1"].AIRemoteEgress {
+		t.Fatalf("AUD-11: provider PUT flipped the tenant's consent to true")
+	}
+
+	// Attempt to WEAKEN an enabled consent from the provider console → refused.
+	store.pols["tn_1"] = govern.Policy{AIRemoteEgress: true}
+	if rec := f.doAuthed(t, token, http.MethodPut, "/provider/v1/tenants/tn_1/governance",
+		map[string]any{"ai_remote_egress": false}); rec.Code != http.StatusForbidden {
+		t.Fatalf("AUD-11: provider changing consent (true→false) must be 403; got %d", rec.Code)
+	}
+	if !store.pols["tn_1"].AIRemoteEgress {
+		t.Fatalf("AUD-11: provider PUT weakened the tenant's consent")
+	}
+
+	// A provider redaction change that OMITS ai_remote_egress is allowed and
+	// preserves the tenant's consent.
+	if rec := f.doAuthed(t, token, http.MethodPut, "/provider/v1/tenants/tn_1/governance",
+		map[string]any{"redact_from": "restricted"}); rec.Code != http.StatusOK {
+		t.Fatalf("AUD-11: provider redaction change (no consent field) must be 200; got %d %s", rec.Code, rec.Body.String())
+	}
+	if !store.pols["tn_1"].AIRemoteEgress {
+		t.Fatalf("AUD-11: omitted ai_remote_egress must preserve the tenant's prior consent")
 	}
 }
 

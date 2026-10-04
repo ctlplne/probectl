@@ -760,6 +760,9 @@ var (
 	// errRateLimited refuses a throttled/locked login dimension (SEC-003).
 	errRateLimited          = errors.New("provider: too many login attempts (locked, backing off)")
 	errForbiddenRole        = errors.New("provider: insufficient role")
+	// errForbiddenConsent refuses a provider/MSP attempt to change a tenant's
+	// remote-AI egress consent — only the tenant admin sets it (AUD-11).
+	errForbiddenConsent     = errors.New("provider: ai_remote_egress is tenant consent and cannot be set from the provider console; the tenant sets it via /v1/governance/policy")
 	errConsentNotConfigured = errors.New("provider: tenant-session auth is not configured on this deployment")
 	// Policy/subject/RBAC load failures are operational failures, not missing
 	// permissions. They still deny the request, but answer 503 so operators can
@@ -831,6 +834,10 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "unauthorized", http.StatusUnauthorized
 	case errors.Is(err, errForbiddenRole), errors.Is(err, ErrForbidden), errors.Is(err, ErrNotGrantee):
 		code, status = "forbidden", http.StatusForbidden
+	case errors.Is(err, errForbiddenConsent):
+		// AUD-11: the provider console cannot set a tenant's remote-AI egress
+		// consent; a distinct code so the UI can point to the tenant route.
+		code, status = "forbidden_tenant_consent", http.StatusForbidden
 	case errors.Is(err, ErrConsentSelfApproval):
 		// AUD-13 separation of duties: distinct from a plain RBAC/ABAC forbid so
 		// the console can explain WHY the approval was refused.
