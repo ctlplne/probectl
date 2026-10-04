@@ -121,12 +121,28 @@ func (b *BatchingSaver) Save(_ context.Context, tenantID string, p *path.Path) e
 // flushBackground bounds internally-owned timer, size-trigger, and shutdown
 // work. In production the inner store first acquires the durable tenant writer
 // lease; an unavailable database or erasure lock must fail closed without
-// pinning a flusher forever. Caller-owned reads still pass their own contexts
-// directly to Flush.
+// pinning a flusher forever.
 func (b *BatchingSaver) flushBackground() {
 	ctx, cancel := context.WithTimeout(context.Background(), pathBackgroundFlushTimeout)
 	defer cancel()
 	b.Flush(ctx)
+}
+
+// flushForRead drains the pending batch ahead of a read-your-write read. The
+// flush runs under an INTERNALLY-OWNED context derived from the caller's —
+// cancellation stripped (context.WithoutCancel) and re-bounded exactly like
+// flushBackground — NOT the caller's cancelable context. Flush drains the
+// DEPLOYMENT-WIDE, cross-tenant batch, so the reader's own request
+// cancellation (client disconnect / timeout) must never abort the shared flush:
+// doing so counts every co-batched tenant's queued paths lost and drops them,
+// letting ONE tenant's canceled read destroy ANOTHER tenant's writes — a
+// tenant-isolation break (docs/guardrails.md G7-1), so it fails closed instead.
+// The caller's values survive for tracing; the bound still fails closed on an
+// unavailable store. The delegated read itself keeps the caller's context.
+func (b *BatchingSaver) flushForRead(ctx context.Context) {
+	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), pathBackgroundFlushTimeout)
+	defer cancel()
+	b.Flush(flushCtx)
 }
 
 // Flush persists everything pending (one combined insert per table when the
@@ -215,16 +231,19 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 	}
 }
 
-// Latest flushes pending saves first (read-your-write), then delegates.
+// Latest flushes pending saves first (read-your-write), then delegates. The
+// flush uses flushForRead so this reader's cancellation cannot drop another
+// tenant's queued writes from the shared batch (G7-1).
 func (b *BatchingSaver) Latest(ctx context.Context, tenantID, target string) (*path.Path, bool, error) {
-	b.Flush(ctx)
+	b.flushForRead(ctx)
 	return b.inner.Latest(ctx, tenantID, target)
 }
 
 // History flushes pending saves first so a just-discovered round is immediately
-// available to the scrubber and stable-share flow.
+// available to the scrubber and stable-share flow. Like Latest it flushes via
+// flushForRead so a canceled history read never drops the shared batch (G7-1).
 func (b *BatchingSaver) History(ctx context.Context, tenantID, target string, q HistoryQuery) ([]Snapshot, error) {
-	b.Flush(ctx)
+	b.flushForRead(ctx)
 	return b.inner.History(ctx, tenantID, target, q)
 }
 
