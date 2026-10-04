@@ -7,7 +7,7 @@ module github.com/ctlplne/probectl
 go 1.26.7
 
 require (
-	github.com/cilium/ebpf v0.21.0
+	github.com/cilium/ebpf v0.22.0
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/google/uuid v1.6.0
@@ -76,7 +76,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/tools v0.49.0

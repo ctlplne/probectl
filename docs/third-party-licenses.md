@@ -25,7 +25,7 @@ duty in `docs/opendata-aup.md`).
 | font:web | `Syne Variable` | 5.2.7 | runtime (vendored) | OFL-1.1 | third_party/vendored-assets.json; web/src/styles/fonts/syne-latin-wght-normal.woff2; source @fontsource-variable/syne@5.2.7 latin wght WOFF2; sha256 68b623f0e45b905041b2edb9b2e4f563a505f13db1cd06b5f1946eb2e1f47048 |
 | go | `github.com/agext/levenshtein` | v1.2.2 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/apparentlymart/go-textseg/v15` | v15.0.0 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `github.com/cilium/ebpf` | v0.21.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `github.com/cilium/ebpf` | v0.22.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/coreos/go-oidc/v3` | v3.18.0 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/fatih/color` | v1.16.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/go-jose/go-jose/v4` | v4.1.4 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
@@ -73,7 +73,7 @@ duty in `docs/opendata-aup.md`).
 | go | `github.com/vmihailenco/tagparser/v2` | v2.0.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/zclconf/go-cty` | v1.17.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `go.opentelemetry.io/proto/otlp` | v1.10.0 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `golang.org/x/crypto` | v0.55.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/crypto` | v0.56.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/mod` | v0.40.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/net` | v0.58.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/oauth2` | v0.36.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
