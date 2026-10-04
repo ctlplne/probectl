@@ -202,21 +202,102 @@ func TestSupportBundleRedactsDatabaseQueryCredentials(t *testing.T) {
 			t.Fatalf("SECRET LEAKED into the support bundle: %q", secret)
 		}
 	}
-	// The DSN survives, password-redacted; the envelope key is only a boolean.
+	// PLAT-16/G7-1: this is the TENANT-plane bundle (/v1, dev principal = one
+	// tenant). The database DSNs are deployment-global infrastructure — they name
+	// the provider's DB endpoint and user — so the tenant bundle must OMIT them
+	// entirely, not merely password-redact them. (The full Redacted() view keeps
+	// the redacted DSN with its non-secret metadata for the provider plane; that
+	// redaction is covered by config.TestRedactedDatabaseURLsRedactQueryCredentials.)
+	// The non-secret envelope-key posture is tenant-safe and stays.
 	var cfgMap map[string]any
 	_ = json.Unmarshal(files["config-redacted.json"], &cfgMap)
-	if dsn, _ := cfgMap["database_url"].(string); !strings.Contains(dsn, "xxxxx") {
-		t.Fatalf("DSN not redacted: %q", dsn)
-	} else if !strings.Contains(dsn, "sslmode=require") || !strings.Contains(dsn, "application_name=control") {
-		t.Fatalf("writer DSN lost non-secret metadata: %q", dsn)
+	if _, present := cfgMap["database_url"]; present {
+		t.Fatalf("tenant bundle must omit the deployment writer DB endpoint: %v", cfgMap["database_url"])
 	}
-	if dsn, _ := cfgMap["database_read_url"].(string); !strings.Contains(dsn, "xxxxx") {
-		t.Fatalf("reader DSN not redacted: %q", dsn)
-	} else if !strings.Contains(dsn, "sslmode=verify-full") || !strings.Contains(dsn, "application_name=read-replica") {
-		t.Fatalf("reader DSN lost non-secret metadata: %q", dsn)
+	if _, present := cfgMap["database_read_url"]; present {
+		t.Fatalf("tenant bundle must omit the deployment reader DB endpoint: %v", cfgMap["database_read_url"])
 	}
 	if cfgMap["envelope_key_configured"] != true {
 		t.Fatalf("envelope key must surface as a boolean: %v", cfgMap["envelope_key_configured"])
+	}
+}
+
+// TestSupportBundleScopesDeploymentInfraToProviderPlane (PLAT-16/G7-1) proves
+// the diagnostics bundle no longer hands a tenant-admin the deployment's own
+// infrastructure. The tenant-plane bundle (/v1/diagnostics/bundle) must OMIT
+// every deployment-global infrastructure field — DB/listener endpoints, the
+// deployment IdP issuer, backup/DR note and region — while the full view the
+// provider plane receives RETAINS them. Before the fix the tenant bundle's
+// config-redacted.json carried database_url/oidc_issuer/http_addr, leaking the
+// provider's DB endpoint+user and IdP issuer to every customer tenant-admin.
+func TestSupportBundleScopesDeploymentInfraToProviderPlane(t *testing.T) {
+	cfg := &config.Config{
+		HTTPAddr:            "127.0.0.1:8443",
+		AuthMode:            "dev",
+		DatabaseURL:         "postgres://provuser@prov-db.internal:5432/probectl?sslmode=require",
+		DatabaseReadURL:     "postgres://provreader@prov-read.internal:5432/probectl?sslmode=require",
+		OIDCIssuer:          "https://idp.provider.example/realms/ops",
+		BackupRetentionNote: "90d WORM in provider-dr-vault",
+		Region:              "us-provider-1",
+	}
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), okPinger{}, nil, nil, nil)
+
+	// The deployment-global infrastructure fields and sentinel values that must
+	// never reach a tenant through config-redacted.json.
+	infraKeys := []string{
+		"database_url", "database_read_url", "http_addr",
+		"oidc_issuer", "backup_retention_note", "region",
+	}
+	infraSentinels := []string{
+		"prov-db.internal", "prov-read.internal", "127.0.0.1:8443",
+		"idp.provider.example", "provider-dr-vault", "us-provider-1",
+	}
+
+	// --- Tenant plane: the REAL entry point. ---
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/diagnostics/bundle", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	files, err := support.ReadBundle(bytes.NewReader(rr.Body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configRedacted := files["config-redacted.json"]
+	var cfgMap map[string]any
+	if err := json.Unmarshal(configRedacted, &cfgMap); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range infraKeys {
+		if _, present := cfgMap[key]; present {
+			t.Fatalf("tenant bundle config leaks deployment infra field %q: %v", key, cfgMap[key])
+		}
+	}
+	for _, sentinel := range infraSentinels {
+		if bytes.Contains(configRedacted, []byte(sentinel)) {
+			t.Fatalf("tenant bundle config leaks deployment infra value %q: %s", sentinel, configRedacted)
+		}
+	}
+	// The tenant still gets a safe operational view (not an empty map): the
+	// non-endpoint posture a tenant-admin legitimately reads to self-diagnose.
+	if cfgMap["auth_mode"] != "dev" {
+		t.Fatalf("tenant bundle dropped tenant-safe operational posture: %#v", cfgMap)
+	}
+
+	// --- Provider plane: the full deployment view is retained. ---
+	tid := tenancy.DefaultTenantID.String()
+	provider := srv.supportSources(context.Background(), tid, true)
+	for _, key := range infraKeys {
+		if _, present := provider.ConfigRedacted[key]; !present {
+			t.Fatalf("provider-plane bundle must RETAIN deployment infra field %q: %#v", key, provider.ConfigRedacted)
+		}
+	}
+	// ...and the same builder with a tenant context omits them (the gate itself).
+	tenant := srv.supportSources(context.Background(), tid, false)
+	for _, key := range infraKeys {
+		if _, present := tenant.ConfigRedacted[key]; present {
+			t.Fatalf("tenant-context builder leaks deployment infra field %q: %#v", key, tenant.ConfigRedacted)
+		}
 	}
 }
 

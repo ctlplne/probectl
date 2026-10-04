@@ -2050,6 +2050,47 @@ func (c *Config) Redacted() map[string]any {
 	}
 }
 
+// deploymentInfraRedactedKeys are the Redacted() fields that describe the
+// deployment's own INFRASTRUCTURE — the database and listener endpoints (and
+// the DB user they carry), the DB pool sizing, the deployment IdP issuer, the
+// backup/DR note, and the region topology. They are deployment-global: the same
+// for every tenant and never a tenant's own data. The provider plane is one
+// privilege domain over the whole deployment and legitimately sees them, but a
+// customer tenant-admin must not — in an MSP deployment that would hand every
+// tenant the provider's DB endpoint/user, IdP issuer and posture
+// (docs/guardrails.md G7-1: tenant isolation is the outermost boundary, and the
+// provider's infrastructure is not a tenant's to read). RedactedForTenant drops
+// exactly these.
+var deploymentInfraRedactedKeys = []string{
+	"http_addr",
+	"database_url",
+	"database_read_url",
+	"database_max_conns",
+	"database_min_conns",
+	"oidc_issuer",
+	"backup_retention_note",
+	"region",
+	"regions",
+	"residency",
+	"replication_mode",
+}
+
+// RedactedForTenant is the tenant-plane view of Redacted(): the same
+// secret-stripped allowlist with every deployment-global infrastructure field
+// (deploymentInfraRedactedKeys) removed. A tenant-scoped support bundle keeps
+// only operational posture that is safe for a customer tenant-admin to read
+// (TLS/HSTS on, telemetry durability, which planes/adapters are enabled); it
+// never discloses the provider's endpoints, DB user, IdP issuer or DR posture
+// (docs/guardrails.md G7-1). The full Redacted() view remains for the provider
+// plane, which spans the whole deployment.
+func (c *Config) RedactedForTenant() map[string]any {
+	full := c.Redacted()
+	for _, k := range deploymentInfraRedactedKeys {
+		delete(full, k)
+	}
+	return full
+}
+
 // envelopeKeySource reports the NON-SECRET origin of the deployment envelope
 // (at-rest) KEK so the support bundle can show whether at-rest encryption is
 // actually configured (RTO-06). It mirrors the serve-path resolution in

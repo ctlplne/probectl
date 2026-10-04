@@ -293,7 +293,15 @@ func (s *Server) handleDiagnosticsBundle(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return err
 	}
-	src := s.supportSources(r.Context(), tid)
+	// G7-1: /v1 is the TENANT plane — every principal that reaches this handler
+	// is a tenant-scoped caller (session or bearer token resolve to exactly one
+	// tenant; the provider plane is a separate privilege domain served under
+	// /provider/* with its own operator authn, and never lands here). So the
+	// tenant-plane bundle carries the tenant-safe config view and NONE of the
+	// deployment-global infrastructure fields (DB/listener endpoints and user,
+	// IdP issuer, backup/DR note, region). The full infra view is reserved for
+	// the provider plane via supportSources(..., includeDeploymentInfra=true).
+	src := s.supportSources(r.Context(), tid, false)
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", `attachment; filename="probectl-support-bundle.tar.gz"`)
 	if _, err := support.Generate(w, src); err != nil {
@@ -304,13 +312,24 @@ func (s *Server) handleDiagnosticsBundle(w http.ResponseWriter, r *http.Request)
 }
 
 // supportSources assembles the bundle inputs from the server. Everything here
-// is safe by construction: config.Redacted is an allowlist, the topology is
+// is safe by construction: the config view is an allowlist, the topology is
 // tenant-scoped anonymized counts, and the known secrets are passed as
 // RedactValues so they are scrubbed from the assembled bytes (defense in depth).
-func (s *Server) supportSources(ctx context.Context, tenant string) support.Sources {
+//
+// includeDeploymentInfra selects the config view (G7-1). The provider plane,
+// which spans the whole deployment, passes true and gets the full Redacted()
+// view (DB/listener endpoints, IdP issuer, region, backup note). A tenant-plane
+// caller passes false and gets RedactedForTenant(), which omits every
+// deployment-global infrastructure field so one tenant never learns the
+// provider's (or any other tenant's) infrastructure.
+func (s *Server) supportSources(ctx context.Context, tenant string, includeDeploymentInfra bool) support.Sources {
+	configRedacted := s.cfg.RedactedForTenant()
+	if includeDeploymentInfra {
+		configRedacted = s.cfg.Redacted()
+	}
 	return support.Sources{
 		Version:          version.Get(),
-		ConfigRedacted:   s.cfg.Redacted(),
+		ConfigRedacted:   configRedacted,
 		Health:           s.deepHealth(ctx),
 		SelfMetrics:      support.SelfSnapshot(s.startedAt),
 		Topology:         s.topologySummary(ctx, tenant),
