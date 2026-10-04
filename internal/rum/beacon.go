@@ -159,7 +159,12 @@ func volatileSegment(s string) bool {
 	if s == "" {
 		return false
 	}
-	digits, hexish := 0, 0
+	// WEB-12: a segment carrying userinfo/an email ('@') is PII, never a route
+	// word — collapse it (e.g. /users/alice@example.com).
+	if strings.ContainsRune(s, '@') {
+		return true
+	}
+	digits, hexish, upper, lower := 0, 0, 0, 0
 	for _, r := range s {
 		switch {
 		case r >= '0' && r <= '9':
@@ -167,6 +172,12 @@ func volatileSegment(s string) bool {
 			hexish++
 		case (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') || r == '-':
 			hexish++
+		}
+		switch {
+		case r >= 'A' && r <= 'Z':
+			upper++
+		case r >= 'a' && r <= 'z':
+			lower++
 		}
 	}
 	if digits == len(s) { // pure number
@@ -176,6 +187,12 @@ func volatileSegment(s string) bool {
 		return true
 	}
 	if len(s) > 32 && digits > 0 { // long opaque id
+		return true
+	}
+	// WEB-12: a long mixed-case token (a reset/invite code, an opaque id) is not
+	// a route word. Route segments are lowercase/kebab; a >=12-char segment with
+	// both cases is an identifier, e.g. /reset/AbCdEfGhIjKlMnOpQrSt.
+	if len(s) >= 12 && upper > 0 && lower > 0 {
 		return true
 	}
 	return false

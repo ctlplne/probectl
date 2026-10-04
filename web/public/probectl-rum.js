@@ -27,8 +27,15 @@
   if (!key || !endpoint) return
 
   // DNT / GPC: never arm. (The server cannot see these signals — honoring
-  // them is the SDK's job.)
-  if (navigator.doNotTrack === '1' || window.globalPrivacyControl) return
+  // them is the SDK's job.) The Global Privacy Control signal is
+  // navigator.globalPrivacyControl per the GPC spec; window.globalPrivacyControl
+  // is kept only as a legacy fallback (WEB-12).
+  if (
+    navigator.doNotTrack === '1' ||
+    navigator.globalPrivacyControl === true ||
+    window.globalPrivacyControl === true
+  )
+    return
 
   var consented = false
   var sent = false

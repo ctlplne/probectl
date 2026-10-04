@@ -121,6 +121,10 @@ func TestRedactPath(t *testing.T) {
 		"":                                        "/",
 		"no-slash":                                "/no-slash",
 		"/a#frag":                                 "/a",
+		// WEB-12: userinfo/email and long mixed-case tokens are PII, collapsed.
+		"/users/alice@example.com":        "/users/:id",
+		"/users/alice@example.com/orders": "/users/:id/orders",
+		"/reset/AbCdEfGhIjKlMnOpQrSt":     "/reset/:id",
 	}
 	for in, want := range tests {
 		if got := RedactPath(in); got != want {
