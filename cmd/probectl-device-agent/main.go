@@ -161,6 +161,9 @@ func run() error {
 }
 
 func runDiscover(args []string) error {
+	if len(args) > 0 && args[0] == "import" {
+		return runDiscoverImport(args[1:])
+	}
 	fs := flag.NewFlagSet("probectl-device-agent discover", flag.ContinueOnError)
 	jobPath := fs.String("job", "", "path to JSON discovery job")
 	fixturePath := fs.String("fixture", "", "optional JSON fixture for offline discovery")
@@ -207,6 +210,68 @@ func runDiscover(args []string) error {
 		return err
 	}
 	raw, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	if *outPath == "-" {
+		_, err = os.Stdout.Write(raw)
+		return err
+	}
+	return os.WriteFile(*outPath, raw, 0o600)
+}
+
+// runDiscoverImport is the human-gated import step: it reads a discovery result
+// (from `discover`) and a reviewer approval, validates the approval against the
+// result, and writes the device targets to import plus the
+// discovery.device_approved audit events. The approval is tenant-scoped and
+// audited (docs/guardrails.md G7-8 — human-gated, fully audited). This command
+// never probes the network; it only transforms already-reviewed JSON.
+func runDiscoverImport(args []string) error {
+	fs := flag.NewFlagSet("probectl-device-agent discover import", flag.ContinueOnError)
+	resultPath := fs.String("result", "", "path to the discovery result JSON produced by 'discover'")
+	reviewPath := fs.String("review", "", "path to the reviewer approval JSON (accepted candidate IDs)")
+	outPath := fs.String("out", "-", "output path for import JSON (- for stdout)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) != 0 {
+		return fmt.Errorf("unexpected arguments: %v", fs.Args())
+	}
+	if *resultPath == "" {
+		return fmt.Errorf("-result is required")
+	}
+	if *reviewPath == "" {
+		return fmt.Errorf("-review is required")
+	}
+
+	resultData, err := readDiscoveryInputFile(*resultPath)
+	if err != nil {
+		return fmt.Errorf("read result: %w", err)
+	}
+	var result device.DiscoveryResult
+	rdec := json.NewDecoder(bytes.NewReader(resultData))
+	rdec.DisallowUnknownFields()
+	if err := rdec.Decode(&result); err != nil {
+		return fmt.Errorf("parse result: %w", err)
+	}
+
+	reviewData, err := readDiscoveryInputFile(*reviewPath)
+	if err != nil {
+		return fmt.Errorf("read review: %w", err)
+	}
+	var review device.DiscoveryReview
+	vdec := json.NewDecoder(bytes.NewReader(reviewData))
+	vdec.DisallowUnknownFields()
+	if err := vdec.Decode(&review); err != nil {
+		return fmt.Errorf("parse review: %w", err)
+	}
+
+	imported, err := device.ApplyDiscoveryReview(result, review, time.Now)
+	if err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(imported, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -349,6 +349,56 @@ func ClassifyInventory(inv Inventory, rules []ClassifierRule) (string, float64) 
 	}
 }
 
+// DiscoveryImportTarget is the JSON-safe device target an approved candidate
+// becomes: the four fields buildDiscoveryImport sets, ready to append to the
+// device-agent config target list. Target itself carries only YAML tags, so a
+// dedicated shape keeps the import handoff stable JSON.
+type DiscoveryImportTarget struct {
+	Address    string `json:"address"`
+	Port       uint16 `json:"port,omitempty"`
+	Transport  string `json:"transport"`
+	Credential string `json:"credential"`
+}
+
+// DiscoveryImport is the reviewer-import handoff: the explicitly approved device
+// targets plus the discovery.device_approved audit events to persist. It stays
+// tenant-scoped (the review and result tenants must match) and every approval
+// is audited (docs/guardrails.md G7-8 — human-gated, fully audited).
+type DiscoveryImport struct {
+	TenantID    string                  `json:"tenant_id"`
+	JobID       string                  `json:"job_id"`
+	ReviewedBy  string                  `json:"reviewed_by,omitempty"`
+	Targets     []DiscoveryImportTarget `json:"targets"`
+	AuditEvents []DiscoveryAuditEvent   `json:"audit_events"`
+}
+
+// ApplyDiscoveryReview is the shipped entry point for the human-gated import
+// step: it validates a reviewer's approval against the discovery result and
+// returns the device targets to import plus the discovery.device_approved audit
+// events. The approval is tenant-scoped and audited (docs/guardrails.md G7-8).
+func ApplyDiscoveryReview(result DiscoveryResult, review DiscoveryReview, now func() time.Time) (DiscoveryImport, error) {
+	targets, events, err := buildDiscoveryImport(result, review, now)
+	if err != nil {
+		return DiscoveryImport{}, err
+	}
+	out := DiscoveryImport{
+		TenantID:    review.TenantID,
+		JobID:       review.JobID,
+		ReviewedBy:  review.ReviewedBy,
+		Targets:     make([]DiscoveryImportTarget, 0, len(targets)),
+		AuditEvents: events,
+	}
+	for _, t := range targets {
+		out.Targets = append(out.Targets, DiscoveryImportTarget{
+			Address:    t.Address,
+			Port:       t.Port,
+			Transport:  t.Transport,
+			Credential: t.Credential,
+		})
+	}
+	return out, nil
+}
+
 // buildDiscoveryImport turns explicit reviewer choices into regular device
 // targets. Non-selected candidates remain inactive.
 func buildDiscoveryImport(result DiscoveryResult, review DiscoveryReview, now func() time.Time) ([]Target, []DiscoveryAuditEvent, error) {
