@@ -40,7 +40,7 @@ the API:
 
 ```sh
 curl -sS --cacert ./certs/ca.crt -H 'Content-Type: application/json' \
-  -d '{"question": "why is checkout slow?", "subject": "checkout"}' \
+  -d '{"question": "why is checkout slow?", "subject": {"target": "checkout"}}' \
   https://127.0.0.1:8443/v1/ai/ask
 ```
 
