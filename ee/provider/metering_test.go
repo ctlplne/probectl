@@ -14,9 +14,22 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/ee/billing"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/usage"
 )
+
+// testSignKey mints a throwaway Ed25519 deployment signing key (PKCS#8 PEM) so
+// the metered fixture's usage exports are signed (AUD-21). The public half the
+// export carries verifies the bytes; the private half never leaves the test.
+func testSignKey(t *testing.T) []byte {
+	t.Helper()
+	priv, _, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return priv
+}
 
 // The S-T3 surface on the provider plane: usage/showback, the billing-export
 // feed, and quota management — hidden entirely when metering is unattached.
@@ -47,7 +60,7 @@ func meteredFixture(t *testing.T) (*fixture, *billing.MemStore, string) {
 	// rollup splits them whenever the test runs within 2h of UTC midnight.
 	*f.now = time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	store := billing.NewMemStore()
-	f.h.WithMetering(&Metering{Store: store})
+	f.h.WithMetering(&Metering{Store: store, SignKey: testSignKey(t)})
 	token := f.bootstrapAndLoginFast(t)
 	seedUsage(t, store, *f.now)
 	return f, store, token

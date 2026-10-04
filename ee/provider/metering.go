@@ -7,11 +7,17 @@
 package provider
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/ctlplne/probectl/ee/billing"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/usage"
 )
 
@@ -24,7 +30,31 @@ import (
 type Metering struct {
 	Store  billing.Store
 	Quotas *billing.QuotaChecker // Invalidate on quota writes; nil OK
+	// SignKey is the deployment signing key (PKCS#8 Ed25519 private PEM, via
+	// internal/crypto) used to sign the EXACT bytes of every usage/billing
+	// export (AUD-21), so the MSP — and probectl — can prove an export's origin
+	// and completeness. The attach seam always supplies it; a missing key fails
+	// the export CLOSED (docs/guardrails.md G7-12) rather than serving unprovable
+	// billing data.
+	SignKey []byte
 }
+
+// errExportUnsigned fails a usage export CLOSED when no signing key is
+// configured: an unprovable billing export (no origin/completeness proof) is
+// not served (AUD-21; docs/guardrails.md G7-12). It is an unmapped error, so it
+// surfaces as a redacted 500 while the real reason is logged server-side.
+var errExportUnsigned = errors.New("provider: usage export cannot be signed (no deployment signing key configured); refusing to serve an unprovable export")
+
+// Usage-export signature headers (AUD-21). The signature is an Ed25519 detached
+// signature over the exact response body; the public key travels with it so a
+// verifier can confirm the body is intact and was signed by the holder of that
+// key. Out-of-band trust is pinned by the fingerprint, as with incident evidence.
+const (
+	hdrUsageSigAlg         = "X-Probectl-Usage-Signature-Alg"
+	hdrUsageSig            = "X-Probectl-Usage-Signature"
+	hdrUsageSigKey         = "X-Probectl-Usage-Signing-Key"
+	hdrUsageSigFingerprint = "X-Probectl-Usage-Signing-Key-Fingerprint"
+)
 
 // usageWindow parses from/to with month-to-date defaults.
 func usageWindow(r *http.Request, now time.Time) (time.Time, time.Time, error) {
@@ -120,19 +150,45 @@ func (h *Handler) handleUsageExport(w http.ResponseWriter, r *http.Request, _ Op
 	if err != nil {
 		return err
 	}
-	format := r.URL.Query().Get("format")
-	switch format {
+	// Render the export into a buffer first: the detached signature must cover
+	// the EXACT bytes the operator receives, and the signature headers must be
+	// set before the body is written (AUD-21).
+	var (
+		buf                   bytes.Buffer
+		contentType, filename string
+	)
+	switch r.URL.Query().Get("format") {
 	case "", "csv":
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="probectl-usage.csv"`)
-		return billing.WriteCSV(w, records)
+		contentType, filename = "text/csv; charset=utf-8", "probectl-usage.csv"
+		err = billing.WriteCSV(&buf, records)
 	case "jsonl":
-		w.Header().Set("Content-Type", "application/x-ndjson")
-		w.Header().Set("Content-Disposition", `attachment; filename="probectl-usage.jsonl"`)
-		return billing.WriteJSONL(w, records)
+		contentType, filename = "application/x-ndjson", "probectl-usage.jsonl"
+		err = billing.WriteJSONL(&buf, records)
 	default:
 		return errBadJSON{strErr("format must be csv or jsonl")}
 	}
+	if err != nil {
+		return err
+	}
+	if h.metering == nil || len(h.metering.SignKey) == 0 {
+		return errExportUnsigned // fail closed — never serve an unprovable export
+	}
+	sig, err := crypto.SignEd25519(h.metering.SignKey, buf.Bytes())
+	if err != nil {
+		return err
+	}
+	pubPEM, err := crypto.PublicPEMFromPrivate(h.metering.SignKey)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
+	w.Header().Set(hdrUsageSigAlg, "ed25519")
+	w.Header().Set(hdrUsageSig, base64.StdEncoding.EncodeToString(sig))
+	w.Header().Set(hdrUsageSigKey, base64.StdEncoding.EncodeToString(pubPEM))
+	w.Header().Set(hdrUsageSigFingerprint, "sha256:"+hex.EncodeToString(crypto.Hash(pubPEM)))
+	_, err = w.Write(buf.Bytes())
+	return err
 }
 
 func (h *Handler) handleGetQuotas(w http.ResponseWriter, r *http.Request, _ Operator) error {

@@ -203,6 +203,7 @@
     "docs/isolation.md",
     "docs/journeys/production-operations.md",
     "docs/mcp.md",
+    "docs/metering.md",
     "docs/multi-region.md",
     "docs/ndr.md",
     "docs/ops/air-gap.md",

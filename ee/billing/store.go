@@ -31,15 +31,33 @@ func (s *PGStore) in(ctx context.Context, fn func(context.Context, tenancy.Queri
 }
 
 // AddCounters adds deltas with one UPSERT per row (rows are few: tenants ×
-// meters per hour). ON CONFLICT adds — re-flushing after a partial failure
-// can only over-deliver the deltas that FAILED, never the ones that landed,
-// because the recorder merges back only on error of the whole batch; the
-// batch runs in one transaction, so it lands or it does not.
+// meters per hour), all in ONE transaction, so the batch lands or it does not.
+// AUD-21: a batch carrying an idempotency key (BatchID) first claims that key
+// in usage_flush_batches IN THE SAME TRANSACTION; if the row already exists the
+// batch landed on an earlier attempt (a commit the recorder only saw fail), so
+// the whole call is a no-op — the counters are never applied twice. An empty
+// key keeps the plain additive behavior for direct callers and backfills.
 func (s *PGStore) AddCounters(ctx context.Context, deltas []CounterDelta) error {
 	if len(deltas) == 0 {
 		return nil
 	}
 	return s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		if id := batchIDOf(deltas); id != "" {
+			tag, err := q.Exec(ctx,
+				`INSERT INTO usage_flush_batches (batch_id) VALUES ($1) ON CONFLICT (batch_id) DO NOTHING`, id)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() == 0 {
+				return nil // this batch already landed durably — idempotent no-op
+			}
+			// Opportunistic prune: a batch id is only needed while its retries
+			// are in flight (seconds to minutes); keep two days and bound growth.
+			if _, err := q.Exec(ctx,
+				`DELETE FROM usage_flush_batches WHERE applied_at < now() - interval '2 days'`); err != nil {
+				return err
+			}
+		}
 		for _, d := range deltas {
 			if _, err := q.Exec(ctx, `
 				INSERT INTO usage_records (tenant_id, meter, kind, period_start, period_end, value)
@@ -141,12 +159,13 @@ type MemStore struct {
 	records map[counterKey]*UsageRecord
 	quotas  map[string]Quota
 	slugs   map[string]string
-	failAdd bool // tests: force one AddCounters failure
+	applied map[string]bool // batch ids already applied (AUD-21 idempotency)
+	failAdd bool            // tests: force one AddCounters failure
 }
 
 // NewMemStore returns an empty store.
 func NewMemStore() *MemStore {
-	return &MemStore{records: map[counterKey]*UsageRecord{}, quotas: map[string]Quota{}, slugs: map[string]string{}}
+	return &MemStore{records: map[counterKey]*UsageRecord{}, quotas: map[string]Quota{}, slugs: map[string]string{}, applied: map[string]bool{}}
 }
 
 // SetSlug names a tenant (export tests).
@@ -175,7 +194,13 @@ func (m *MemStore) AddCounters(_ context.Context, deltas []CounterDelta) error {
 	defer m.mu.Unlock()
 	if m.failAdd {
 		m.failAdd = false
-		return context.DeadlineExceeded
+		return context.DeadlineExceeded // pre-apply failure: nothing persisted
+	}
+	if id := batchIDOf(deltas); id != "" {
+		if m.applied[id] {
+			return nil // idempotent: this batch already landed durably
+		}
+		m.applied[id] = true
 	}
 	for _, d := range deltas {
 		k := counterKey{tenant: d.TenantID, meter: d.Meter, period: d.Period}

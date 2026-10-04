@@ -53,10 +53,17 @@ flowing** — the core call sites call the `internal/usage` seam as results, flo
 batches, and AI questions pass through. There is no parallel metering pipeline.
 Counters are bucketed **hourly at the moment of recording** (so an hour boundary
 is exact regardless of when the buffer flushes), buffered in memory, and flushed
-to Postgres every minute. If a flush fails, the buffered deltas are **merged
-back** and retried on the next tick — billing-critical losslessness: counts can
-be delayed, but never lost and never double-counted, because each flush is one
-transaction.
+to Postgres every minute. Each flush is one transaction, and carries a stable
+**idempotency key**. If a flush fails, that exact batch — unchanged, same key —
+is retried on the next tick, while new activity accumulates separately. The key
+is claimed in `usage_flush_batches` **inside the same transaction** as the
+counter rows (migration `0119`), so a batch that committed on the database but
+whose commit the control plane only saw fail is **deduplicated** on retry, never
+applied twice. New activity never rides under an already-applied key. The result
+is billing-critical losslessness: counts can be delayed, but **never lost and
+never double-counted** — even across a commit-then-client-error (AUD-21). At
+shutdown the final flush drains the buffer best-effort; deltas still unconfirmed
+when the process exits are the one documented loss (logged, never doubled).
 
 ### Why the gauges are exact
 
@@ -89,6 +96,30 @@ tenant_id,tenant_slug,meter,kind,period_start,period_end,value,unit
 
 Timestamps are RFC 3339 in UTC. JSON Lines carries the same field names, one
 object per line.
+
+### The export is signed (AUD-21)
+
+Every export is a **signed** artifact: the response carries an Ed25519 detached
+signature over the **exact bytes** of the body, so the MSP — and probectl — can
+prove an export's origin and that it was not altered. The export is self-
+describing through response headers:
+
+```text
+X-Probectl-Usage-Signature-Alg:              ed25519
+X-Probectl-Usage-Signature:                  <base64 detached signature>
+X-Probectl-Usage-Signing-Key:                <base64 PKIX public-key PEM>
+X-Probectl-Usage-Signing-Key-Fingerprint:    sha256:<hex>
+```
+
+A verifier confirms the body against `X-Probectl-Usage-Signature` using the
+public key, exactly as for incident evidence; the fingerprint is pinned out of
+band (the deployment publishes it) so authenticity, not just integrity, can be
+established. Signing uses the deployment signing key through `internal/crypto`
+(the same key as incident evidence — `PROBECTL_EVIDENCE_SIGNING_KEY[_FILE]`); if
+neither is configured an ephemeral key is minted at boot (exports stay self-
+verifiable, but the key changes on restart, so a stable key is recommended). An
+export that cannot be signed is **refused**, never served unsigned (fail closed,
+docs/guardrails.md G7-12).
 
 Records persist in the `usage_records` table (migration `0026_metering.sql`).
 This is provider-plane billing data *about* tenants: it is written and read by

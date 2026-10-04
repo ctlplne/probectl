@@ -21,9 +21,11 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -61,19 +63,56 @@ import (
 // already flow); the collector snapshots per-tenant gauges inside each tenant's
 // own scope; the quota checker gates resource creation (telemetry is never
 // quota-dropped). Returns nil when the feature is not licensed.
-func attachMetering(ctx context.Context, lic *license.Manager, pool *pgxpool.Pool, log *slog.Logger) *provider.Metering {
+func attachMetering(ctx context.Context, cfg *config.Config, lic *license.Manager, pool *pgxpool.Pool, log *slog.Logger) (*provider.Metering, error) {
 	if !lic.Has(license.FeatureMetering) {
-		return nil
+		return nil, nil
 	}
 	bstore := billing.NewPGStore(pool)
 	recorder := billing.NewRecorder(bstore, log)
 	usage.SetRecorder(recorder)
 	checker := attachQuotaChecker(lic, pool)
 	collector := billing.NewCollector(bstore, billing.PGTenantLister(pool), billing.PGTenantCounter(pool), log)
+	// AUD-21: every usage/billing export is signed with the deployment signing
+	// key so the MSP can prove its origin + completeness. A missing key fails the
+	// export closed (ee/provider), never serves it unsigned.
+	signKey, err := deploymentExportSignKey(cfg, log)
+	if err != nil {
+		return nil, err
+	}
 	go recorder.Run(ctx, time.Minute)
 	go collector.Run(ctx, 15*time.Minute)
-	log.Info("per-tenant metering attached (S-T3)", "flush", "1m", "snapshot", "15m")
-	return &provider.Metering{Store: bstore, Quotas: checker}
+	log.Info("per-tenant metering attached (S-T3)", "flush", "1m", "snapshot", "15m", "export_signing", "ed25519")
+	return &provider.Metering{Store: bstore, Quotas: checker, SignKey: signKey}, nil
+}
+
+// deploymentExportSignKey resolves the Ed25519 private key used to sign usage
+// exports (AUD-21). It reuses the deployment's incident-evidence signing key —
+// one signing identity for every offline-verifiable export — honoring the
+// multi-replica inline key first, then the single-node key file. With neither
+// set it mints an EPHEMERAL key so exports are still self-verifiable via the
+// public key in the response, and warns the operator to configure a stable key.
+func deploymentExportSignKey(cfg *config.Config, log *slog.Logger) ([]byte, error) {
+	switch {
+	case strings.TrimSpace(cfg.EvidenceSigningKey) != "":
+		priv, err := base64.StdEncoding.DecodeString(strings.TrimSpace(cfg.EvidenceSigningKey))
+		if err != nil {
+			return nil, fmt.Errorf("metering export signing key (PROBECTL_EVIDENCE_SIGNING_KEY): %w", err)
+		}
+		return priv, nil
+	case strings.TrimSpace(cfg.EvidenceSigningKeyFile) != "":
+		priv, _, _, err := crypto.LoadOrGenerateEd25519KeyFile(cfg.EvidenceSigningKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("metering export signing key: %w", err)
+		}
+		return priv, nil
+	default:
+		priv, _, err := crypto.GenerateEd25519KeyPEM()
+		if err != nil {
+			return nil, fmt.Errorf("metering export signing key: %w", err)
+		}
+		log.Warn("metering export signing: no deployment signing key configured (PROBECTL_EVIDENCE_SIGNING_KEY[_FILE]); generated an EPHEMERAL key. Exports stay self-verifiable via the public key in the response, but the signing key changes on restart — configure a stable key to pin a fingerprint out of band")
+		return priv, nil
+	}
 }
 
 // attachEE wires licensed ee/ features onto the core server — the Build* seam
@@ -181,11 +220,11 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			"ebpf_routed", ebpfCH != nil, "otel_routed", otelCH != nil, "endpoint_routed", endpointCH != nil)
 	}
 
-	// Per-tenant metering + quotas (S-T3). The recorder hooks the core usage
-	// seam (results/flows/AI calls meter as they already flow); the collector
-	// snapshots per-tenant gauges INSIDE each tenant's own scope; the quota
-	// checker gates resource creation (telemetry is never quota-dropped).
-	metering := attachMetering(ctx, lic, pool, log)
+	// Per-tenant metering + quotas + signed usage export (S-T3; see attachMetering).
+	metering, err := attachMetering(ctx, cfg, lic, pool, log)
+	if err != nil {
+		return err
+	}
 
 	// Per-tenant key isolation / BYOK (S-T6). The keyring replaces the
 	// deployment envelope as the PRIMARY sealer; the deployment sealer stays

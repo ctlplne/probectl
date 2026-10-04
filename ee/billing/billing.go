@@ -78,7 +78,11 @@ type Quota struct {
 
 // Store persists usage records and quotas.
 type Store interface {
-	// AddCounters adds deltas into (tenant, meter, period) counter rows.
+	// AddCounters adds deltas into (tenant, meter, period) counter rows. When
+	// the deltas carry a non-empty BatchID the call is IDEMPOTENT on that id:
+	// a batch that already landed durably is a no-op, so a commit-then-client-
+	// error retry re-applies nothing (AUD-21 — counts are never doubled). An
+	// empty BatchID keeps the plain additive behavior (direct callers/backfills).
 	AddCounters(ctx context.Context, deltas []CounterDelta) error
 	// SetGauge upserts a gauge snapshot for (tenant, meter, period).
 	SetGauge(ctx context.Context, tenantID, meter string, period time.Time, value int64) error
@@ -96,6 +100,19 @@ type CounterDelta struct {
 	Meter    string
 	Period   time.Time
 	Delta    int64
+	// BatchID ties every delta in one flush to a single idempotency key (set
+	// by the Recorder). A retry of a batch the store already applied carries
+	// the SAME id, so the store dedups it (AUD-21). Empty = no idempotency key.
+	BatchID string
+}
+
+// batchIDOf returns the shared idempotency key of a flush batch (every delta in
+// a batch carries the same id; empty = no key).
+func batchIDOf(deltas []CounterDelta) string {
+	if len(deltas) == 0 {
+		return ""
+	}
+	return deltas[0].BatchID
 }
 
 // Rollup granularities for queries/exports.
