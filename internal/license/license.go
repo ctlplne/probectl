@@ -333,7 +333,7 @@ func Load(path string, trustedPubPEMs [][]byte) (*Manager, error) {
 	}
 	// CRY-08: anchor the monotonic time high-water-mark beside the license file
 	// (the one directory the deployment configured for licensing). Reading a
-	// missing/corrupt anchor yields a zero mark — first-run behaviour — never a
+	// missing/corrupt anchor yields a zero mark — first-run behavior — never a
 	// startup error.
 	return &Manager{
 		claims: claims,
@@ -399,7 +399,7 @@ type timeAnchor struct {
 }
 
 // newTimeAnchor returns an anchor seeded from path's recorded high-water-mark.
-// A missing or unparseable file yields the zero time (first-run behaviour).
+// A missing or unparseable file yields the zero time (first-run behavior).
 func newTimeAnchor(path string) *timeAnchor {
 	a := &timeAnchor{path: path}
 	if raw, err := os.ReadFile(path); err == nil {
