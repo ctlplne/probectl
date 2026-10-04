@@ -334,7 +334,12 @@ where noted "operator action".
 
 ### Transport & network
 
-- [x] Every listener serves **TLS 1.2+** (1.3 preferred); AEAD-only suites.
+- [x] Every listener serves **TLS 1.3** (the enforced minimum floor on
+      probectl's own listeners); AEAD-only suites.
+- [x] Outbound probe/integration clients (canary HTTP/DNS, gNMI devices) keep a
+      **TLS 1.2+** floor for the third-party endpoints they monitor, where a
+      1.3-only floor would break legitimate targets; certificate validation is
+      always on.
 - [x] Agent ↔ control-plane is **mTLS** with SPIFFE-style tenant-bound
       identity; no plaintext agent transport.
 - [x] REST API, web UI, OTLP, MCP are **HTTPS**; shipped Compose + Helm serve TLS
@@ -433,7 +438,7 @@ posture. A green default means no action needed.
 
 | Component | Shipped default | Hardened recommendation | Action? |
 |---|---|---|---|
-| API / UI transport | HTTPS, TLS 1.2+, HSTS, CSP, secure cookies | Same; TLS 1.3-only at the ingress if clients allow | default ✓ |
+| API / UI transport | HTTPS, **TLS 1.3** listener floor, HSTS, CSP, secure cookies | Same; keep any fronting ingress/proxy at TLS 1.3 as well | default ✓ |
 | Agent transport | mTLS, tenant-bound SPIFFE identity | Same | default ✓ |
 | Dev auth | absent from release binaries; `PROBECTL_AUTH_MODE=dev` is a boot refusal (§2) | Same (never deploy a `-tags devauth` build) | default ✓ |
 | Crypto module | stdlib (transparent-swappable) | FIPS build (`make build-fips`), `fips140=on` | operator |

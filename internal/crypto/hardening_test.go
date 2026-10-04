@@ -8,6 +8,8 @@ package crypto
 
 import (
 	"crypto/tls"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +56,52 @@ func TestSecureDefaults(t *testing.T) {
 	}
 	if !hasP256 {
 		t.Error("P-256 not offered — FIPS-mode key exchange (no X25519) would fail")
+	}
+}
+
+// TestServerListenerTLSFloorMatchesHardeningDoc binds the documented listener
+// floor to the enforced one (PLAT-18). hardenedServerTLS — the policy behind
+// every probectl-OWNED listener (ServerTLSConfig/ConfigureServerTLS) — is
+// TLS 1.3-only, so docs/hardening.md's listener-floor line must state TLS 1.3,
+// not the looser "TLS 1.2+". A narrowing of the claim, enforced by a gate: if
+// either the code floor regresses or the doc drifts back to "TLS 1.2+" for the
+// listener, this fails. (The TLS 1.2+ floor for OUTBOUND clients lives on its
+// own doc line and is asserted separately by TestSecureDefaults.)
+func TestServerListenerTLSFloorMatchesHardeningDoc(t *testing.T) {
+	// Code side: every probectl-owned listener is TLS 1.3-only (WIRE-007).
+	if got := hardenedServerTLS().MinVersion; got != tls.VersionTLS13 {
+		t.Fatalf("hardenedServerTLS().MinVersion = %#x, want TLS 1.3 (%#x)", got, tls.VersionTLS13)
+	}
+
+	// Doc side: the listener-floor line in docs/hardening.md must advertise the
+	// SAME floor the code enforces. The test runs from the package directory,
+	// so the doc is two levels up.
+	const docPath = "../../docs/hardening.md"
+	b, err := os.ReadFile(docPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", docPath, err)
+	}
+
+	const anchor = "Every listener serves"
+	var line string
+	for _, ln := range strings.Split(string(b), "\n") {
+		if strings.Contains(ln, anchor) {
+			line = strings.TrimSpace(ln)
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("listener-floor line (anchored on %q) not found in %s", anchor, docPath)
+	}
+
+	// Must state the enforced TLS 1.3 floor...
+	if !strings.Contains(line, "TLS 1.3") {
+		t.Errorf("listener-floor line does not state the enforced TLS 1.3 floor: %q", line)
+	}
+	// ...and must NOT advertise the old TLS 1.2+ floor for the listener, which
+	// the code does not permit (doc/code mismatch guard).
+	if strings.Contains(line, "TLS 1.2+") {
+		t.Errorf("listener-floor line still advertises a TLS 1.2+ floor, but the code floor is TLS 1.3: %q", line)
 	}
 }
 
