@@ -41,3 +41,52 @@ func TestDNSTraceDelegationDialsAreSSRFGuarded(t *testing.T) {
 		t.Fatalf("with allow_private_targets the loopback delegation must be traced, got %q", res2.Error)
 	}
 }
+
+// RTP-24: a delegation trace must be able to start from operator-configured
+// root hints, so it can run on an isolated/air-gapped network or against a
+// private root instead of the baked IANA roots. The root_hints param carries
+// them; unset, the trace still falls back to the baked roots.
+func TestDNSTraceHonorsConfiguredRootHints(t *testing.T) {
+	configuredRoot := loopbackResolver(t) // a fake root that answers authoritatively
+
+	// Stand in for the baked IANA roots so the test never touches the network.
+	// Capture and restore the package var once; each sub-case reassigns it.
+	orig := rootServers
+	t.Cleanup(func() { rootServers = orig })
+
+	// Configured: with the baked roots emptied, the trace can only reach an
+	// authoritative answer by honoring the configured root hint. (Before the
+	// fix the param was ignored, the trace used the empty baked list, and this
+	// failed with "no servers to query".)
+	rootServers = nil
+	configured, err := NewDNS(Config{Target: "example.com", Timeout: 2 * time.Second, Params: map[string]string{
+		"mode":                  "trace",
+		"allow_private_targets": "true", // the fake root is on loopback
+		"root_hints":            configuredRoot,
+	}})
+	if err != nil {
+		t.Fatalf("NewDNS (configured root hints): %v", err)
+	}
+	res, _ := configured.Run(context.Background())
+	if !res.Success {
+		t.Fatalf("configured root_hints must be honored: the trace should start at the configured fake root, got error %q", res.Error)
+	}
+	if trace := res.Attributes["probectl.dns.trace"]; !strings.HasPrefix(trace, ".") {
+		t.Fatalf("the delegation path must start at the (configured) root, got trace %q", trace)
+	}
+
+	// Default: with no root_hints, the trace must fall back to the baked roots
+	// (here a live stand-in for the IANA roots).
+	rootServers = []string{configuredRoot}
+	deflt, err := NewDNS(Config{Target: "example.com", Timeout: 2 * time.Second, Params: map[string]string{
+		"mode":                  "trace",
+		"allow_private_targets": "true",
+	}})
+	if err != nil {
+		t.Fatalf("NewDNS (default roots): %v", err)
+	}
+	res2, _ := deflt.Run(context.Background())
+	if !res2.Success {
+		t.Fatalf("with no root_hints the trace must fall back to the baked IANA roots, got error %q", res2.Error)
+	}
+}

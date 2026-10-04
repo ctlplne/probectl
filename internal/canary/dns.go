@@ -51,6 +51,14 @@ type dnsCanary struct {
 	// via the trust_anchor param. A keyset that does not chain to one of these is
 	// never reported "secure" (docs/guardrails.md G7-9/G7-10).
 	trustAnchors []*dns.DS
+	// rootHints are the root-server addresses a delegation trace starts from
+	// (host[:port], set via the root_hints param). Empty means the baked IANA
+	// roots (rootServers in dnstrace.go); an operator points this at their own
+	// root so the trace runs on an isolated/air-gapped network or against a
+	// private root. Each hint is still SSRF-guarded at dial time like every
+	// trace hop (DPR-023): a hint in loopback/private space needs
+	// allow_private_targets, exactly as the baked roots and delegations do.
+	rootHints []string
 }
 
 // NewDNS builds a DNS canary. Target is the query name. Params: server (resolver
@@ -124,6 +132,19 @@ func NewDNS(cfg Config) (Canary, error) {
 				return nil, fmt.Errorf("dns: trust_anchor must be a DS record, got %s", dns.TypeToString[rr.Header().Rrtype])
 			}
 			c.trustAnchors = append(c.trustAnchors, ds)
+		}
+	}
+	// root_hints overrides the root-server addresses the delegation trace starts
+	// from (host[:port], ","-separated) in place of the baked IANA roots — e.g.
+	// a sovereign/air-gapped internal root, or an isolated test network with no
+	// route to the public roots. Unset = the baked IANA roots. Each hint is
+	// SSRF-guarded at dial time like every trace hop (a loopback/private root
+	// needs allow_private_targets); the port defaults to 53.
+	if v := strings.TrimSpace(p["root_hints"]); v != "" {
+		for _, part := range strings.Split(v, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				c.rootHints = append(c.rootHints, part)
+			}
 		}
 	}
 	if c.server == "" {

@@ -56,7 +56,13 @@ func (c *dnsCanary) trace(ctx context.Context) (chain []string, total time.Durat
 	// audited allow_private_targets override.
 	client := &dns.Client{Timeout: c.timeout, Net: "udp",
 		Dialer: &net.Dialer{Timeout: c.timeout, Control: c.guard.DialControl(nil)}}
-	servers := rootServers
+	// Start from the operator-configured root hints when set, otherwise the
+	// baked IANA roots. A configured root lets the trace run on an isolated or
+	// air-gapped network, or against a private root (see root_hints in NewDNS).
+	servers := c.rootHints
+	if len(servers) == 0 {
+		servers = rootServers
+	}
 	chain = []string{"."}
 
 	for hop := 0; hop < 16; hop++ {

@@ -653,6 +653,7 @@ optional DNSSEC verdict**. The `target` is the **query name**. Parameters:
 | `mode` | `resolver` \| `trace` | `resolver` | single query vs. delegation walk |
 | `dnssec` | `true` \| `false` | `false` | validate the zone signature |
 | `trust_anchor` | one or more `DS` records (presentation format, `;`-separated) | baked IANA root anchors | DNSSEC chain-of-trust entry point(s). Pin your own (e.g. a sovereign/air-gapped internal root) in place of the baked IANA root `DS`. A keyset that does not chain to a configured anchor is never reported `secure` |
+| `root_hints` | one or more root-server addresses `host[:port]` (`,`-separated; port defaults to `53`) | baked IANA roots | **trace mode only.** The root servers the delegation walk starts from, in place of the baked IANA roots — point it at your own root for an isolated/air-gapped network or a private root. Each hint is SSRF-guarded at dial time like every trace hop, so a loopback/private root also needs `allow_private_targets` |
 
 `server` defaults by transport: the first nameserver in `/etc/resolv.conf` (or
 `1.1.1.1:53`) for `udp`/`tcp`, `1.1.1.1:853` for **DoT** (DNS over TLS — the
@@ -696,8 +697,11 @@ does not vouch for the rest of the answer.
 
 In **trace mode** the canary performs an **iterative delegation walk** from the
 root hints, following `NS`/glue referrals down to the authoritative server (UDP,
-capped iterations, with a recursive fallback when a referral ships no glue). It
-emits `probectl_probe_dns_query_ms` (total walk time) and
+capped iterations, with a recursive fallback when a referral ships no glue). The
+walk starts from the baked IANA roots unless `root_hints` names your own — point
+it at a private or internal root so the trace runs on an **isolated or air-gapped
+network** with no route to the public roots. It emits
+`probectl_probe_dns_query_ms` (total walk time) and
 `probectl_probe_dns_trace_hops`, with the delegation chain in the `dns.trace`
 attribute. DNS-exfiltration detection and open-data baselines are out of scope for
 this probe (they live in the NDR and open-data features).
