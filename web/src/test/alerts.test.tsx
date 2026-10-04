@@ -437,7 +437,7 @@ describe('alerting surface (S-FE1)', () => {
     await userEvent.click(within(rulesTable).getByRole('button', { name: 'View as YAML' }))
     let dialog = await screen.findByRole('dialog', { name: /export as code: rtt high/i })
     expect(dialog).toHaveTextContent('kind: AlertRule')
-    expect(dialog).toHaveTextContent('url: https://hooks.example/alerts')
+    expect(dialog).toHaveTextContent('url: "https://hooks.example/alerts"')
     expect(dialog).toHaveTextContent('secret: <redacted-by-probectl>')
     expect(dialog).not.toHaveTextContent('top-secret')
 

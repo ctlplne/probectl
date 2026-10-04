@@ -108,6 +108,11 @@ func TestAgentToAgentEndToEnd(t *testing.T) {
 			A2A: agent.A2AConfig{
 				Enabled: true, AdvertiseHost: "127.0.0.1",
 				PollInterval: agent.Duration(200 * time.Millisecond), ResponderTTL: agent.Duration(10 * time.Second),
+				// ING-30: this end-to-end exercise measures between two agents on
+				// loopback; the SSRF guard denies private/loopback targets by
+				// default, so opt in explicitly as a private-network A2A
+				// deployment would.
+				AllowPrivateTargets: true,
 			},
 		}
 		a, err := agent.New(cfg, canary.NewRegistry(), log)

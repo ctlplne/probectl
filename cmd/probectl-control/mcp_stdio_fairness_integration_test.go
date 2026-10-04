@@ -132,29 +132,26 @@ func TestMCPStdioUsesStoredAndDefaultFairness(t *testing.T) {
 		if err := json.Unmarshal(bytes.TrimSuffix(out.Bytes(), []byte{'\n'}), &response); err != nil {
 			t.Fatalf("decode stdio response for %s: %v", tenantID, err)
 		}
+		return response
+	}
+	// RTA-05: a fairness/rate denial is surfaced as the rate-limited JSON-RPC
+	// error (-32003), not an isError tool result.
+	assertRateLimited := func(response map[string]any) {
+		t.Helper()
+		errObj, ok := response["error"].(map[string]any)
+		if !ok {
+			t.Fatalf("stdio response = %v, want a rate-limited error", response)
+		}
+		if code, _ := errObj["code"].(float64); int(code) != -32003 {
+			t.Fatalf("stdio error code = %v, want -32003 (rate limited)", errObj["code"])
+		}
+	}
+	assertSuccess := func(response map[string]any) {
+		t.Helper()
 		result, ok := response["result"].(map[string]any)
 		if !ok {
-			t.Fatalf("stdio response for %s has no tool result: %v", tenantID, response)
+			t.Fatalf("stdio response = %v, want a tool result", response)
 		}
-		return result
-	}
-	assertError := func(result map[string]any, contains string) {
-		t.Helper()
-		if result["isError"] != true {
-			t.Fatalf("tool result = %v, want error containing %q", result, contains)
-		}
-		content, _ := result["content"].([]any)
-		if len(content) != 1 {
-			t.Fatalf("tool error content = %v, want one entry", result["content"])
-		}
-		entry, _ := content[0].(map[string]any)
-		text, _ := entry["text"].(string)
-		if !strings.Contains(text, contains) {
-			t.Fatalf("tool error text = %q, want %q", text, contains)
-		}
-	}
-	assertSuccess := func(result map[string]any) {
-		t.Helper()
 		if result["isError"] == true {
 			t.Fatalf("tool result unexpectedly failed: %v", result)
 		}
@@ -168,10 +165,10 @@ func TestMCPStdioUsesStoredAndDefaultFairness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertError(listTests(storedTenant.ID), "tool execution failed")
+	assertRateLimited(listTests(storedTenant.ID))
 	storedRelease()
 	assertSuccess(listTests(storedTenant.ID))
-	assertError(listTests(storedTenant.ID), "tool execution failed")
+	assertRateLimited(listTests(storedTenant.ID))
 
 	// A tenant without an override gets the configured 2-in-flight /
 	// 3-per-minute deployment defaults through the same stdio server gate.
@@ -184,9 +181,9 @@ func TestMCPStdioUsesStoredAndDefaultFairness(t *testing.T) {
 		defaultRelease1()
 		t.Fatal(err)
 	}
-	assertError(listTests(defaultTenant.ID), "tool execution failed")
+	assertRateLimited(listTests(defaultTenant.ID))
 	defaultRelease1()
 	defaultRelease2()
 	assertSuccess(listTests(defaultTenant.ID))
-	assertError(listTests(defaultTenant.ID), "tool execution failed")
+	assertRateLimited(listTests(defaultTenant.ID))
 }
