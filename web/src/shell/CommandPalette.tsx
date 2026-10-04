@@ -115,10 +115,20 @@ export function CommandPalette({
         changesRoute: true,
         disabledReason,
         tag: spec.journey,
-        run: () =>
-          void navigate(
-            journeyCommandHref(spec, `${location.pathname}${location.search}${location.hash}`),
-          ),
+        run: () => {
+          const href = journeyCommandHref(
+            spec,
+            `${location.pathname}${location.search}${location.hash}`,
+          )
+          // WEB-13: a mutating journey (incident share creation is a persisting
+          // POST) carries its intent in navigation STATE, which only an explicit
+          // palette activation sets — a crafted or bookmarked ?task= URL cannot.
+          if (spec.extras?.task === 'incident-share') {
+            void navigate(href, { state: { task: 'incident-share' } })
+          } else {
+            void navigate(href)
+          }
+        },
       }
     })
     const task: Command[] = [

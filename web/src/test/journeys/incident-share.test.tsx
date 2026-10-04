@@ -241,4 +241,50 @@ describe('J2 cited incident sharing', () => {
     expect(measurement.context_breaks).toBe(0)
     expect(measurement.outcome.status).toBe('complete')
   })
+
+  // WEB-13: opening a ?task=incident-share deep link must NOT mint a share on
+  // load — a share is a persisting POST (fresh server-side RCA). The incident
+  // room renders (incident + shared answer), but no POST is issued until a click.
+  test('a ?task=incident-share deep link issues no share-creating POST on load', async () => {
+    const shareId = 'share_0123456789abcdef'
+    const artifact = {
+      id: shareId,
+      incident: { ...incident, tenant_id: '' },
+      context: {
+        from: incident.started_at,
+        to: incident.last_seen_at,
+        filters: { incident_status: 'open' },
+        selection: { kind: 'evidence', id: 'inc-share:1' },
+      },
+      answer: { ...answer, tenant: '' },
+      created_at: '2026-07-14T12:06:00Z',
+      expires_at: '2026-07-21T12:06:00Z',
+    }
+    const requests: { method: string; path: string }[] = []
+    const base = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        assertNoDoublePrefix(input)
+        const path = pathOf(input)
+        const method = init?.method ?? 'GET'
+        requests.push({ method, path })
+        if (path === '/v1/incidents') return jsonResponse({ items: [incident] })
+        if (path === '/v1/incidents/inc-share') return jsonResponse(incident)
+        if (path === '/v1/incidents/inc-share/changes') return jsonResponse({ items: [] })
+        if (path === '/v1/remediation/proposals')
+          return jsonResponse({ items: [], approvals_enabled: false })
+        if (path === `/v1/incident-shares/${shareId}` && method === 'GET')
+          return jsonResponse(artifact)
+        return base(input, init)
+      }),
+    )
+
+    renderApp(`/incidents?share=${shareId}&task=incident-share`)
+    await screen.findByRole('region', { name: /unified five-plane incident room/i })
+
+    // The deep link opened the room but minted nothing: no POST, none to /shares.
+    expect(requests.some((r) => r.method === 'POST')).toBe(false)
+    expect(requests.some((r) => r.path.endsWith('/shares'))).toBe(false)
+  })
 })

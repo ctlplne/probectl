@@ -4,8 +4,8 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import styles from './incidentRoom.module.css'
 import {
   Badge,
@@ -149,6 +149,7 @@ export function IncidentRoom({
   const { t } = useI18n()
   const { permissions } = useAuth()
   const [params, setParams] = useSearchParams()
+  const location = useLocation()
   const incident = useIncident(incidentSnapshot ? undefined : incidentId)
   const changes = useIncidentChanges(incidentSnapshot ? undefined : incidentId)
   const resolve = useResolveIncident(incidentId)
@@ -165,7 +166,6 @@ export function IncidentRoom({
   const [explanation, setExplanation] = useState<Answer | undefined>(sharedAnswer)
   const [shareLink, setShareLink] = useState<string>()
   const [lastShare, setLastShare] = useState<IncidentShareArtifact>()
-  const autoShareHandled = useRef(false)
 
   useEffect(() => setExplanation(sharedAnswer), [sharedAnswer])
 
@@ -250,19 +250,22 @@ export function IncidentRoom({
     [createShare, pivotContext, push, t],
   )
 
+  // WEB-13: a ?task=incident-share URL must NOT create a share on load —
+  // createShare is a persisting POST (a fresh server-side RCA), so a crafted or
+  // bookmarked link would be a confused-deputy mutation. The share is minted
+  // only when the intent arrives as navigation STATE, which the command palette
+  // sets on an explicit in-app activation and a plain URL/bookmark can never
+  // carry. The query param is stripped either way so the URL stays clean.
   useEffect(() => {
-    const requested = params.get('task') === 'incident-share'
-    if (!requested) {
-      autoShareHandled.current = false
-      return
-    }
-    if (autoShareHandled.current || !explanation || !inc) return
-    autoShareHandled.current = true
+    if (params.get('task') !== 'incident-share') return
     const next = new URLSearchParams(params)
     next.delete('task')
     setParams(next, { replace: true })
-    copyCitedShareLink(inc)
-  }, [copyCitedShareLink, explanation, inc, params, setParams])
+    const intent = (location.state as { task?: string } | null)?.task
+    if (intent === 'incident-share' && explanation && inc) {
+      copyCitedShareLink(inc)
+    }
+  }, [params, setParams, location.state, explanation, inc, copyCitedShareLink])
 
   if (!incidentSnapshot && incident.isLoading)
     return <LoadingState label={t('incidents.loadingOne')} />
