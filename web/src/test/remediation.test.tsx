@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
@@ -73,7 +73,7 @@ describe('guarded remediation (S-EE5)', () => {
     expect(screen.queryByText(/ai remediation proposals/i)).not.toBeInTheDocument()
   })
 
-  test('advisory-only (default): proposals render accessibly, Approve is disabled, and Reject is keyboard reachable', async () => {
+  test('advisory-only (default): the row never decides — a decision happens only in the review dialog, where Approve is disabled and Reject is keyboard reachable', async () => {
     const user = userEvent.setup()
     const calls: { url: string; body: unknown }[] = []
     vi.stubGlobal(
@@ -84,10 +84,23 @@ describe('guarded remediation (S-EE5)', () => {
     expect(await screen.findByText(/ai remediation proposals/i)).toBeInTheDocument()
     expect(screen.getByText(/reroute around failing hop/i)).toBeInTheDocument()
     expect(screen.getByText(/advisory-only/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled()
+    // WEB-21/G8: no decision control sits on the row; a single stray click
+    // cannot approve or reject. Only a Review button that opens the gate.
+    expect(screen.queryByRole('button', { name: /^approve$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^reject$/i })).not.toBeInTheDocument()
+
+    const review = screen.getByRole('button', { name: /review/i })
+    await tabUntil(user, review)
+    await user.keyboard('{Enter}')
+
+    const dialog = await screen.findByRole('dialog')
+    // The operator sees the dry-run blast radius and the never-executes guardrail.
+    expect(within(dialog).getByText(/never executes/i)).toBeInTheDocument()
     expect(await axe(container)).toHaveNoViolations()
 
-    const reject = screen.getByRole('button', { name: /reject/i })
+    const approve = within(dialog).getByRole('button', { name: /approve/i })
+    expect(approve).toBeDisabled()
+    const reject = within(dialog).getByRole('button', { name: /reject/i })
     expect(reject).toBeEnabled()
     await tabUntil(user, reject)
     expect(reject).toHaveFocus()
@@ -98,7 +111,7 @@ describe('guarded remediation (S-EE5)', () => {
     expect(calls[0].url).toMatch(/\/remediation\/proposals\/rem-1\/reject$/)
   })
 
-  test('approvals enabled: keyboard Approve posts to the approve route (human sign-off, no execution)', async () => {
+  test('approvals enabled: keyboard Approve in the review dialog posts to the approve route (human sign-off, no execution)', async () => {
     const user = userEvent.setup()
     const calls: { url: string; body: unknown }[] = []
     vi.stubGlobal(
@@ -106,7 +119,11 @@ describe('guarded remediation (S-EE5)', () => {
       licensedFetch({ approvals: true, onDecide: (url, body) => calls.push({ url, body }) }),
     )
     renderApp('/admin')
-    const approve = await screen.findByRole('button', { name: /approve/i })
+    const review = await screen.findByRole('button', { name: /review/i })
+    await tabUntil(user, review)
+    await user.keyboard('{Enter}')
+    const dialog = await screen.findByRole('dialog')
+    const approve = within(dialog).getByRole('button', { name: /approve/i })
     expect(approve).toBeEnabled()
     await tabUntil(user, approve)
     expect(approve).toHaveFocus()
@@ -114,5 +131,22 @@ describe('guarded remediation (S-EE5)', () => {
     expect(await screen.findByText(/approved \(not executed\)/i)).toBeInTheDocument()
     expect(calls).toHaveLength(1)
     expect(calls[0].url).toMatch(/\/remediation\/proposals\/rem-1\/approve$/)
+  })
+
+  test('the gate holds: cancelling the review dialog posts no decision (G8 human gate)', async () => {
+    const user = userEvent.setup()
+    const calls: { url: string; body: unknown }[] = []
+    vi.stubGlobal(
+      'fetch',
+      licensedFetch({ approvals: true, onDecide: (url, body) => calls.push({ url, body }) }),
+    )
+    renderApp('/admin')
+    await user.click(await screen.findByRole('button', { name: /review/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(calls).toHaveLength(0)
+    // Still proposed — nothing decided it.
+    expect(screen.getByText(/reroute around failing hop/i)).toBeInTheDocument()
   })
 })

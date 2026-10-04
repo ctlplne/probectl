@@ -598,6 +598,10 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     ])
 
     await user.click(within(testTable).getByRole('button', { name: /delete my-test/i }))
+    // WEB-21/G8: the row only opens the gate; the delete fires from the dialog.
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /delete test/i }),
+    )
     await waitFor(() =>
       expect(
         within(testTable).queryByRole('button', { name: /delete my-test/i }),

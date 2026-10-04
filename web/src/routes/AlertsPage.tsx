@@ -14,6 +14,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  ConfirmDialog,
   EmptyState,
   ErrorState,
   Field,
@@ -1047,6 +1048,12 @@ export function AlertsPage() {
   const del = useDeleteAlertRule()
   const delMaintenance = useDeleteMaintenanceWindow()
   const { push } = useToast()
+  // WEB-21: deletes require an explicit confirmation step, not a single click.
+  const [confirming, setConfirming] = useState<{
+    kind: 'rule' | 'window'
+    id: string
+    name: string
+  } | null>(null)
   const [params, setParams] = useSearchParams()
   const defaults = { alert_q: '', alert_state: 'all', alert_severity: 'all' }
   const query = filterValue(params, 'alert_q')
@@ -1205,13 +1212,7 @@ export function AlertsPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() =>
-              del.mutate(r.id, {
-                onSuccess: () => push({ tone: 'success', title: 'Rule deleted', message: r.name }),
-                onError: (e) =>
-                  push({ tone: 'danger', title: 'Delete failed', message: e.message }),
-              })
-            }
+            onClick={() => setConfirming({ kind: 'rule', id: r.id, name: r.name })}
           >
             Delete
           </Button>
@@ -1286,15 +1287,7 @@ export function AlertsPage() {
           <Button
             size="sm"
             variant="ghost"
-            disabled={delMaintenance.isPending}
-            onClick={() =>
-              delMaintenance.mutate(w.id, {
-                onSuccess: () =>
-                  push({ tone: 'success', title: 'Window deleted', message: w.name }),
-                onError: (e) =>
-                  push({ tone: 'danger', title: 'Delete failed', message: e.message }),
-              })
-            }
+            onClick={() => setConfirming({ kind: 'window', id: w.id, name: w.name })}
           >
             Delete
           </Button>
@@ -1467,6 +1460,39 @@ export function AlertsPage() {
           <CodeExportPanel title="View as YAML" code={codeExport.code} />
         </Modal>
       ) : null}
+      <ConfirmDialog
+        open={confirming !== null}
+        title={
+          confirming?.kind === 'window'
+            ? `Delete maintenance window ${confirming.name}`
+            : `Delete alert rule ${confirming?.name ?? ''}`
+        }
+        confirmLabel="Delete"
+        busyLabel="Deleting…"
+        pending={del.isPending || delMaintenance.isPending}
+        onClose={() => setConfirming(null)}
+        onConfirm={() => {
+          if (!confirming) return
+          if (confirming.kind === 'rule') {
+            del.mutate(confirming.id, {
+              onSuccess: () =>
+                push({ tone: 'success', title: 'Rule deleted', message: confirming.name }),
+              onError: (e) => push({ tone: 'danger', title: 'Delete failed', message: e.message }),
+            })
+          } else {
+            delMaintenance.mutate(confirming.id, {
+              onSuccess: () =>
+                push({ tone: 'success', title: 'Window deleted', message: confirming.name }),
+              onError: (e) => push({ tone: 'danger', title: 'Delete failed', message: e.message }),
+            })
+          }
+          setConfirming(null)
+        }}
+      >
+        This permanently removes{' '}
+        {confirming?.kind === 'window' ? 'maintenance window' : 'alert rule'}{' '}
+        <strong>{confirming?.name}</strong>. This cannot be undone.
+      </ConfirmDialog>
     </Page>
   )
 }

@@ -15,6 +15,7 @@ import {
   CardHeader,
   Column,
   EmptyState,
+  ConfirmDialog,
   Field,
   HonestDataState,
   Icon,
@@ -192,6 +193,7 @@ export function TargetsPage() {
   const [creating, setCreating] = useState(false)
   const [resultsFor, setResultsFor] = useState<Test | null>(null)
   const [codeFor, setCodeFor] = useState<Test | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<Test | null>(null)
   const [params, setParams] = useSearchParams()
   const defaults = { q: '', type: 'all', enabled: 'all', test_id: '' }
   const q = filterValue(params, 'q')
@@ -261,7 +263,7 @@ export function TargetsPage() {
       <Button
         variant="ghost"
         size="sm"
-        onClick={() => remove(test)}
+        onClick={() => setConfirmDelete(test)}
         aria-label={`Delete ${test.name}`}
         disabled={!canCreateTest}
         title={!canCreateTest ? 'Requires test.write permission' : undefined}
@@ -508,6 +510,21 @@ export function TargetsPage() {
         </Modal>
       ) : null}
       {resultsFor ? <ResultDetail test={resultsFor} onClose={() => setResultsFor(null)} /> : null}
+      {/* WEB-21: deleting a test requires an explicit confirmation, not a single click. */}
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={`Delete test ${confirmDelete?.name ?? ''}`}
+        confirmLabel="Delete test"
+        busyLabel="Deleting…"
+        pending={del.isPending}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete) remove(confirmDelete)
+          setConfirmDelete(null)
+        }}
+      >
+        <p>This removes the test and stops its scheduled runs. This cannot be undone.</p>
+      </ConfirmDialog>
     </Page>
   )
 }

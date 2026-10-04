@@ -646,6 +646,14 @@ const en = {
   'remediation.decidedBy': 'by {actor}',
   'remediation.approve': 'Approve',
   'remediation.reject': 'Reject',
+  'remediation.review': 'Review',
+  'remediation.cancel': 'Cancel',
+  'remediation.reviewTitle': 'Review proposal: {title}',
+  'remediation.reviewGuardrail':
+    'probectl never executes remediation. Approve records an audited, human sign-off — a change decision, not an action.',
+  'remediation.impactedServices': 'Impacted services',
+  'remediation.impactedPrefixes': 'Impacted prefixes',
+  'remediation.rationale': 'Rationale',
   'remediation.card.title': 'AI remediation proposals',
   'remediation.card.description':
     'The assistant PROPOSES remediations grounded in RCA + a topology what-if; a human decides. probectl never executes - Approve is a recorded, audited sign-off you carry out in your own change process.',
@@ -1981,6 +1989,14 @@ const es: Record<MessageKey, string> = {
   'remediation.decidedBy': 'por {actor}',
   'remediation.approve': 'Aprobar',
   'remediation.reject': 'Rechazar',
+  'remediation.review': 'Revisar',
+  'remediation.cancel': 'Cancelar',
+  'remediation.reviewTitle': 'Revisar propuesta: {title}',
+  'remediation.reviewGuardrail':
+    'probectl nunca ejecuta remediaciones. Aprobar registra una aprobacion humana auditada, una decision de cambio, no una accion.',
+  'remediation.impactedServices': 'Servicios afectados',
+  'remediation.impactedPrefixes': 'Prefijos afectados',
+  'remediation.rationale': 'Justificacion',
   'remediation.card.title': 'Propuestas de remediacion IA',
   'remediation.card.description':
     'El asistente PROPONE remediaciones basadas en RCA y simulacion de topologia; una persona decide. probectl nunca ejecuta - Aprobar es un registro auditado que ejecutas en tu propio proceso de cambios.',
@@ -3277,6 +3293,14 @@ const ar: Record<MessageKey, string> = {
   'remediation.decidedBy': 'بواسطة {actor}',
   'remediation.approve': 'اعتماد',
   'remediation.reject': 'رفض',
+  'remediation.review': 'مراجعة',
+  'remediation.cancel': 'إلغاء',
+  'remediation.reviewTitle': 'مراجعة المقترح: {title}',
+  'remediation.reviewGuardrail':
+    'probectl لا ينفذ المعالجة أبدًا. الاعتماد يسجل موافقة بشرية مدققة، وهو قرار تغيير وليس إجراءً.',
+  'remediation.impactedServices': 'الخدمات المتأثرة',
+  'remediation.impactedPrefixes': 'البادئات المتأثرة',
+  'remediation.rationale': 'المبرر',
   'remediation.card.title': 'مقترحات المعالجة بالذكاء الاصطناعي',
   'remediation.card.description':
     'يقترح المساعد معالجات مبنية على تحليل السبب الجذري ومحاكاة الطوبولوجيا؛ الإنسان هو من يقرر. probectl لا ينفذ أبدا - الاعتماد هو تسجيل مدقق تنفذه ضمن عملية التغيير الخاصة بك.',

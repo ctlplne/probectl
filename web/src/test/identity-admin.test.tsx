@@ -145,6 +145,10 @@ describe('Admin identity surface', () => {
     const oktaRow = screen.getByText('okta').closest('tr')
     expect(oktaRow).not.toBeNull()
     await userEvent.click(within(oktaRow!).getByRole('button', { name: /revoke/i }))
+    // WEB-21/G8: the row only opens the gate; the revoke fires from the dialog.
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /revoke token/i }),
+    )
     expect(capture.revoked).toBe('scim-1')
 
     await userEvent.clear(screen.getByLabelText(/policy name/i))
@@ -165,6 +169,9 @@ describe('Admin identity surface', () => {
     const originalPolicyRow = screen.getByText('contractor write guard').closest('tr')
     expect(originalPolicyRow).not.toBeNull()
     await userEvent.click(within(originalPolicyRow!).getByRole('button', { name: /delete/i }))
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /delete policy/i }),
+    )
     expect(capture.deleted).toBe('pol-1')
   })
 
@@ -189,6 +196,9 @@ describe('Admin identity surface', () => {
     const originalPolicyRow = (await screen.findByText('contractor write guard')).closest('tr')
     expect(originalPolicyRow).not.toBeNull()
     await userEvent.click(within(originalPolicyRow!).getByRole('button', { name: /delete/i }))
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /delete policy/i }),
+    )
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/policy store unavailable/i)
     expect(screen.getByText('contractor write guard')).toBeInTheDocument()

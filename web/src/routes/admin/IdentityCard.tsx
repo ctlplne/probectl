@@ -13,6 +13,7 @@ import {
   CardBody,
   CardHeader,
   Column,
+  ConfirmDialog,
   EmptyState,
   ErrorState,
   Field,
@@ -128,6 +129,14 @@ export function IdentityCard() {
   const [idpEnabled, setIdpEnabled] = useState(true)
   const [idpError, setIdpError] = useState('')
   const [idpSaved, setIdpSaved] = useState(false)
+  // WEB-21: revoking a token, deleting a policy, or removing a role is an
+  // irreversible privilege change — gate each behind an explicit confirm step.
+  const [confirm, setConfirm] = useState<
+    | { kind: 'token'; id: string; name: string }
+    | { kind: 'policy'; id: string; name: string }
+    | { kind: 'role'; user: DirectoryUser; role: string }
+    | null
+  >(null)
 
   useEffect(() => {
     const settings = idpSettings.data
@@ -163,8 +172,7 @@ export function IdentityCard() {
           <Button
             type="button"
             variant="ghost"
-            disabled={revokeToken.isPending}
-            onClick={() => revokeToken.mutate(t.id)}
+            onClick={() => setConfirm({ kind: 'token', id: t.id, name: t.name })}
           >
             Revoke
           </Button>
@@ -200,8 +208,7 @@ export function IdentityCard() {
           <Button
             type="button"
             variant="ghost"
-            disabled={deletePolicy.isPending}
-            onClick={() => deletePolicy.mutate(p.id!)}
+            onClick={() => setConfirm({ kind: 'policy', id: p.id!, name: p.name || p.id! })}
           >
             Delete
           </Button>
@@ -288,10 +295,7 @@ export function IdentityCard() {
                   type="button"
                   size="sm"
                   aria-label={`Remove ${r} from ${u.email}`}
-                  disabled={unbindRole.isPending}
-                  onClick={() => {
-                    void revoke(u, r)
-                  }}
+                  onClick={() => setConfirm({ kind: 'role', user: u, role: r })}
                 >
                   Remove
                 </Button>
@@ -628,6 +632,55 @@ export function IdentityCard() {
             }
           />
         )}
+        <ConfirmDialog
+          open={confirm !== null}
+          title={
+            confirm?.kind === 'token'
+              ? `Revoke SCIM token ${confirm.name}`
+              : confirm?.kind === 'policy'
+                ? `Delete ABAC policy ${confirm.name}`
+                : confirm?.kind === 'role'
+                  ? `Remove ${confirm.role} from ${confirm.user.email}`
+                  : ''
+          }
+          confirmLabel={
+            confirm?.kind === 'token'
+              ? 'Revoke token'
+              : confirm?.kind === 'policy'
+                ? 'Delete policy'
+                : 'Remove role'
+          }
+          pending={revokeToken.isPending || deletePolicy.isPending || unbindRole.isPending}
+          onClose={() => setConfirm(null)}
+          onConfirm={() => {
+            if (!confirm) return
+            if (confirm.kind === 'token') {
+              revokeToken.mutate(confirm.id)
+            } else if (confirm.kind === 'policy') {
+              deletePolicy.mutate(confirm.id)
+            } else {
+              void revoke(confirm.user, confirm.role)
+            }
+            setConfirm(null)
+          }}
+        >
+          {confirm?.kind === 'token' ? (
+            <>
+              This revokes SCIM token <strong>{confirm.name}</strong>. Provisioning clients using it
+              will stop syncing. This cannot be undone.
+            </>
+          ) : confirm?.kind === 'policy' ? (
+            <>
+              This deletes ABAC policy <strong>{confirm.name}</strong>. Access it granted or denied
+              reverts to the surrounding RBAC grants. This cannot be undone.
+            </>
+          ) : confirm?.kind === 'role' ? (
+            <>
+              This removes role <strong>{confirm.role}</strong> from{' '}
+              <strong>{confirm.user.email}</strong>.
+            </>
+          ) : null}
+        </ConfirmDialog>
       </CardBody>
     </Card>
   )

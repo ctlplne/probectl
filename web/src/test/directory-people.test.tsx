@@ -49,6 +49,10 @@ describe('people & roles', () => {
     await userEvent.click(
       within(table).getByRole('button', { name: 'Remove editor from viewer@probectl.test' }),
     )
+    // WEB-21/G8: removing a role is gated — confirm in the dialog.
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /remove role/i }),
+    )
     await waitFor(() =>
       expect(
         within(table).queryByRole('button', { name: 'Remove editor from viewer@probectl.test' }),
@@ -56,6 +60,9 @@ describe('people & roles', () => {
     )
     await userEvent.click(
       within(table).getByRole('button', { name: 'Remove admin from operator@probectl.test' }),
+    )
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /remove role/i }),
     )
     expect(await screen.findByRole('alert')).toHaveTextContent(/last administrator/i)
   })

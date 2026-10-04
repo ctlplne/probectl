@@ -451,6 +451,50 @@ describe('alerting surface (S-FE1)', () => {
     expect(dialog).toHaveTextContent('target: db')
   })
 
+  test('deleting a rule or a maintenance window is gated behind a confirm dialog (WEB-21/G8)', async () => {
+    const { state, fetcher } = alertsBackend()
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/alerts')
+
+    // The row Delete only OPENS the gate; a single click deletes nothing.
+    const rulesTable = await screen.findByRole('table', { name: 'Alert rules' })
+    await userEvent.click(within(rulesTable).getByRole('button', { name: 'Delete' }))
+    let dialog = await screen.findByRole('dialog', { name: /delete alert rule rtt high/i })
+    await userEvent.click(within(dialog).getByRole('button', { name: /cancel/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(
+      state.requests.some((r) => /\/v1\/alerts\/r1$/.test(r.url) && r.method === 'DELETE'),
+    ).toBe(false)
+
+    // Confirming in the dialog is what actually deletes.
+    await userEvent.click(within(rulesTable).getByRole('button', { name: 'Delete' }))
+    dialog = await screen.findByRole('dialog', { name: /delete alert rule rtt high/i })
+    await userEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }))
+    await waitFor(() =>
+      expect(
+        state.requests.some((r) => /\/v1\/alerts\/r1$/.test(r.url) && r.method === 'DELETE'),
+      ).toBe(true),
+    )
+    await waitFor(() =>
+      expect(within(rulesTable).queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument(),
+    )
+
+    // Maintenance windows are gated identically.
+    const maintenanceTable = screen.getByRole('table', { name: 'Maintenance windows' })
+    await userEvent.click(within(maintenanceTable).getByRole('button', { name: 'Delete' }))
+    dialog = await screen.findByRole('dialog', {
+      name: /delete maintenance window database patch/i,
+    })
+    await userEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }))
+    await waitFor(() =>
+      expect(
+        state.requests.some(
+          (r) => /\/v1\/alerts\/maintenance\/[^/]+$/.test(r.url) && r.method === 'DELETE',
+        ),
+      ).toBe(true),
+    )
+  })
+
   test('silence + acknowledge act through the API and render the ENGINE state', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)

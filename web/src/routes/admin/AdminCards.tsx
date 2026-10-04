@@ -16,6 +16,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  Modal,
   StatusDot,
   Table,
 } from '../../components'
@@ -35,6 +36,10 @@ export function RemediationCard() {
   const { t } = useI18n()
   const { data, isPending, isError, error } = useRemediations()
   const decide = useDecideRemediation()
+  // WEB-21 (G8): a remediation decision is human-gated. The row never decides;
+  // Approve/Reject fire only from the review dialog, after the operator has seen
+  // the dry-run blast radius and the "probectl never executes" guardrail note.
+  const [reviewing, setReviewing] = useState<Proposal | null>(null)
 
   // Hidden-unlicensed: render NOTHING until the API proves the feature is on.
   if (isPending) return null
@@ -82,22 +87,9 @@ export function RemediationCard() {
         p.state !== 'proposed' ? (
           <span>{p.decided_by ? t('remediation.decidedBy', { actor: p.decided_by }) : '—'}</span>
         ) : (
-          <span className={styles.actions}>
-            <Button
-              variant="primary"
-              disabled={!approvalsEnabled || decide.isPending}
-              onClick={() => decide.mutate({ id: p.id, decision: 'approve' })}
-            >
-              {t('remediation.approve')}
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={decide.isPending}
-              onClick={() => decide.mutate({ id: p.id, decision: 'reject' })}
-            >
-              {t('remediation.reject')}
-            </Button>
-          </span>
+          <Button variant="ghost" onClick={() => setReviewing(p)}>
+            {t('remediation.review')}
+          </Button>
         ),
     },
   ]
@@ -138,6 +130,74 @@ export function RemediationCard() {
           <p role="alert" className={styles.editionsLede}>
             {decide.error.message}
           </p>
+        ) : null}
+        {reviewing ? (
+          <Modal
+            open
+            onClose={() => setReviewing(null)}
+            title={t('remediation.reviewTitle', { title: reviewing.title })}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setReviewing(null)}>
+                  {t('remediation.cancel')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={decide.isPending}
+                  onClick={() => {
+                    decide.mutate({ id: reviewing.id, decision: 'reject' })
+                    setReviewing(null)
+                  }}
+                >
+                  {t('remediation.reject')}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!approvalsEnabled || decide.isPending}
+                  onClick={() => {
+                    decide.mutate({ id: reviewing.id, decision: 'approve' })
+                    setReviewing(null)
+                  }}
+                >
+                  {t('remediation.approve')}
+                </Button>
+              </>
+            }
+          >
+            <dl>
+              <dt>{t('remediation.column.kind')}</dt>
+              <dd>
+                <code>{reviewing.kind}</code>
+              </dd>
+              <dt>{t('remediation.column.blast')}</dt>
+              <dd>
+                {reviewing.dry_run.blast_radius < 0
+                  ? t('remediation.blast.unknown')
+                  : reviewing.dry_run.blast_radius}
+              </dd>
+              {reviewing.dry_run.impacted_services?.length ? (
+                <>
+                  <dt>{t('remediation.impactedServices')}</dt>
+                  <dd>{reviewing.dry_run.impacted_services.join(', ')}</dd>
+                </>
+              ) : null}
+              {reviewing.dry_run.impacted_prefixes?.length ? (
+                <>
+                  <dt>{t('remediation.impactedPrefixes')}</dt>
+                  <dd>{reviewing.dry_run.impacted_prefixes.join(', ')}</dd>
+                </>
+              ) : null}
+              {reviewing.rationale ? (
+                <>
+                  <dt>{t('remediation.rationale')}</dt>
+                  <dd>{reviewing.rationale}</dd>
+                </>
+              ) : null}
+            </dl>
+            <p role="note" className={styles.editionsLede}>
+              {t('remediation.reviewGuardrail')}
+            </p>
+          </Modal>
         ) : null}
       </CardBody>
     </Card>
