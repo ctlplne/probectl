@@ -12,6 +12,7 @@ import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 import { BlockList, isIP } from "node:net";
+import { domTimings } from "./timings.mjs";
 
 const STEP_TIMEOUT_MS = Number(process.env.PROBECTL_BROWSER_STEP_TIMEOUT_MS || 15000);
 const ALLOW_PRIVATE_TARGETS = process.env.PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS === "true";
@@ -293,17 +294,20 @@ function ms(start, end) {
 }
 
 async function readDOMTimings(page) {
-  return page.evaluate(() => {
+  // Read the RAW navigation + paint entries in the page; compute the reported
+  // metrics in Node via domTimings so an absent paint entry is omitted with a
+  // reason rather than reported as a false 0 ms (RTP-22).
+  const raw = await page.evaluate(() => {
     const nav = performance.getEntriesByType("navigation")[0] || {};
     const paints = {};
-    for (const p of performance.getEntriesByType("paint")) paints[p.name] = Math.round(p.startTime);
+    for (const p of performance.getEntriesByType("paint")) paints[p.name] = p.startTime;
     return {
-      dom_content_loaded_ms: Math.round(nav.domContentLoadedEventEnd || 0),
-      load_ms: Math.round(nav.loadEventEnd || 0),
-      first_paint_ms: paints["first-paint"] || 0,
-      first_contentful_paint_ms: paints["first-contentful-paint"] || 0,
+      domContentLoadedEventEnd: nav.domContentLoadedEventEnd || 0,
+      loadEventEnd: nav.loadEventEnd || 0,
+      paints,
     };
   });
+  return domTimings(raw);
 }
 
 (async () => {

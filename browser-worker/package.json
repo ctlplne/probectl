@@ -8,7 +8,7 @@
     "probectl-browser-worker": "worker.mjs"
   },
   "scripts": {
-    "check": "node --check worker.mjs && node --check smoke.mjs",
+    "check": "node --check worker.mjs && node --check smoke.mjs && node --check timings.mjs && node --test",
     "test": "node smoke.mjs",
     "worker": "node worker.mjs"
   },
