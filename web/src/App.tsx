@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from './theme/ThemeProvider'
+import { APP_BASENAME } from './lib/links'
 import { BrandProvider } from './brand/BrandProvider'
 import { AuthProvider } from './auth/AuthProvider'
 import { useAuth } from './auth/useAuth'
@@ -65,7 +66,7 @@ function AuthPreferenceBridge({ children }: { children: ReactNode }) {
 export function App() {
   return (
     <Providers>
-      <BrowserRouter basename="/ui">
+      <BrowserRouter basename={APP_BASENAME}>
         <AppRoutes />
       </BrowserRouter>
     </Providers>

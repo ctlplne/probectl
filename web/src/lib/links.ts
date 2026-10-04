@@ -27,6 +27,19 @@ export function safeHref(url: string | undefined | null): string | undefined {
   return parsed.protocol === 'https:' ? url : undefined
 }
 
+// APP_BASENAME is the single source of truth for the SPA's router basename —
+// App.tsx mounts <BrowserRouter basename={APP_BASENAME}> and the server serves
+// the bundle under it. It matches the Vite build base ("/ui/").
+export const APP_BASENAME = '/ui'
+
+// appPath prefixes an in-app route with APP_BASENAME so an ABSOLUTE link built
+// by hand (a copyable share URL, not a react-router <Link>, which applies the
+// basename itself) resolves to a real served path instead of 404ing (WEB-07).
+// appPath('/incidents') -> '/ui/incidents'.
+export function appPath(path: string): string {
+  return `${APP_BASENAME}${path.startsWith('/') ? path : `/${path}`}`
+}
+
 // safeInternalTo returns to only when it is an in-app absolute path (a single
 // leading slash), never a scheme (javascript:/http:) or a protocol-relative
 // //host target the browser would treat as external; otherwise undefined.

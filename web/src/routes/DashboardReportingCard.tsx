@@ -22,6 +22,7 @@ import {
   type ReportFormat,
 } from '../api/dashboardReporting'
 import { apiURL } from '../api/client'
+import { appPath } from '../lib/links'
 import { useAuth } from '../auth/useAuth'
 import { Badge, Button, Card, CardBody, CardHeader, Field, Select, useToast } from '../components'
 import { DateTime } from '../time/DateTime'
@@ -276,7 +277,7 @@ export function DashboardReportingCard({
           {activeView?.shared ? (
             <p className={styles.shareLink}>
               Tenant-authenticated share link:{' '}
-              <code>{`${window.location.origin}/dashboards?view=${encodeURIComponent(activeView.id)}#saved-dashboard`}</code>
+              <code>{`${window.location.origin}${appPath('/dashboards')}?view=${encodeURIComponent(activeView.id)}#saved-dashboard`}</code>
             </p>
           ) : null}
 

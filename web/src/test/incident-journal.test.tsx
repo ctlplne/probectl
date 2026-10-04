@@ -210,6 +210,10 @@ describe('tenant-local incident investigation journal', () => {
     renderApp('/incidents', journalOperator)
     await user.click(await screen.findByRole('button', { name: 'Explain this view' }))
     await user.click(await screen.findByRole('button', { name: 'Copy cited share link' }))
+    // WEB-07: the generated share link must carry the /ui basename or it 404s.
+    expect(
+      (await screen.findByRole('link', { name: 'Open shared snapshot' })).getAttribute('href'),
+    ).toMatch(/\/ui\/incidents\?share=/)
     await user.selectOptions(screen.getByLabelText('Entry type'), 'checkpoint')
     expect(await screen.findByText('Ready to cite: unexpected route origin')).toBeInTheDocument()
     await user.type(

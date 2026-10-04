@@ -186,6 +186,8 @@ describe('tenant-safe dashboard reporting', () => {
     await user.click(screen.getByRole('checkbox', { name: /share inside this tenant/i }))
     await user.click(screen.getByRole('button', { name: /save dashboard/i }))
     expect(await screen.findByText(/tenant-authenticated share link/i)).toBeInTheDocument()
+    // WEB-07: the copyable share link must carry the /ui basename or it 404s.
+    expect(screen.getByText(/\/ui\/dashboards\?view=/)).toBeInTheDocument()
     expect(screen.getByRole('region', { name: /selected saved snapshot/i })).toHaveTextContent(
       'Cross-plane posture',
     )

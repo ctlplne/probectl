@@ -52,6 +52,7 @@ import type { MessageKey } from '../i18n/messages'
 import { pivotHref, replacePivotContext, type PivotContext } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import type { Answer, Evidence } from '../api/ai'
+import { appPath } from '../lib/links'
 import { isApiStatus } from '../api/client'
 import { useAuth } from '../auth/useAuth'
 import { InvestigationJournal } from './InvestigationJournal'
@@ -225,7 +226,7 @@ export function IncidentRoom({
         },
         {
           onSuccess: (artifact) => {
-            const url = new URL('/incidents', window.location.origin)
+            const url = new URL(appPath('/incidents'), window.location.origin)
             url.searchParams.set('share', artifact.id)
             const stableLink = url.toString()
             setShareLink(stableLink)

@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { safeHref, safeInternalTo } from '../lib/links'
+import { appPath, safeHref, safeInternalTo } from '../lib/links'
 
 // WEB-14: server-provided link targets must pass a scheme allow-list before
 // being rendered as live links.
@@ -26,6 +26,13 @@ describe('link scheme allow-lists (WEB-14)', () => {
     ]) {
       expect(safeHref(hostile)).toBeUndefined()
     }
+  })
+
+  it('appPath prefixes the /ui basename so copyable links resolve (WEB-07)', () => {
+    expect(new URL(appPath('/incidents'), 'https://probectl.example').pathname).toBe(
+      '/ui/incidents',
+    )
+    expect(appPath('/dashboards')).toBe('/ui/dashboards')
   })
 
   it('safeInternalTo admits only single-slash in-app paths', () => {
