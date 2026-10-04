@@ -722,3 +722,45 @@ func TestForwarderEnqueueCancel(t *testing.T) {
 		t.Fatalf("blocked enqueue should return cancel, got %v", err)
 	}
 }
+
+// TestSyslogLiveHMACSourceAuthenticatesOverStream proves AUD-17: an hmac_secret
+// source framing each line as "sha256=<hmac> <line>" now authenticates over the
+// live listener (the stream had never populated the signature, so HMAC sources
+// could never authenticate). A line signed with the wrong secret is refused.
+func TestSyslogLiveHMACSourceAuthenticatesOverStream(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	var stored []SyslogEvent
+	store := syslogStoreFunc(func(_ context.Context, e SyslogEvent) (SyslogEvent, error) {
+		stored = append(stored, e)
+		return e, nil
+	})
+	const secret = "s3cr3t-hmac-key"
+	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
+		TenantID: "tenant-a",
+		Now:      func() time.Time { return now },
+		Log:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Sources: []SyslogSource{{
+			Name: "fw-hmac", HMACSecret: secret, RateLimit: 10, RateLimitWindow: time.Hour,
+		}},
+	}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	line := `<34>1 2026-07-26T12:00:00Z edge firewall - live - signed-over-stream`
+	framed := syslogSignature(secret, []byte(line)) + " " + line
+	consumeSyslogTestConnection(t, receiver, "", framed)
+	if len(stored) != 1 {
+		t.Fatalf("an HMAC-signed line over the live stream was not accepted (AUD-17): stored %d events", len(stored))
+	}
+	if stored[0].AuthMethod != "hmac-sha256" {
+		t.Fatalf("auth method = %q, want hmac-sha256", stored[0].AuthMethod)
+	}
+
+	stored = nil
+	forged := syslogSignature("wrong-secret", []byte(line)) + " " + line
+	consumeSyslogTestConnection(t, receiver, "", forged)
+	if len(stored) != 0 {
+		t.Fatalf("a line signed with the wrong secret was accepted: stored %d events", len(stored))
+	}
+}

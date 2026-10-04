@@ -8,6 +8,7 @@ package siem
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/hex"
@@ -294,8 +295,15 @@ func (r *SyslogReceiver) consumeConn(ctx context.Context, conn net.Conn, subject
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, defaultSyslogReadBufferInitial), r.cfg.MaxLineBytes)
 	for scanner.Scan() {
+		// AUD-17: an HMAC source frames each line as "sha256=<hex> <line>"; peel
+		// that authentication token off so the HMAC (computed over the exact
+		// line) can be verified. Without this the live listener never populated
+		// Signature, so an hmac_secret source could never authenticate over the
+		// stream (a client-cert source authenticates by TLS subject instead).
+		sig, line := splitSyslogSignature(scanner.Bytes())
 		r.handleLiveEnvelope(ctx, SyslogEnvelope{
-			Line:             append([]byte(nil), scanner.Bytes()...),
+			Line:             line,
+			Signature:        sig,
 			SourceAddress:    conn.RemoteAddr().String(),
 			TLSClientSubject: subject,
 			ReceivedAt:       r.cfg.Now().UTC(),
@@ -304,6 +312,20 @@ func (r *SyslogReceiver) consumeConn(ctx context.Context, conn net.Conn, subject
 	if scanner.Err() != nil {
 		r.health.ObserveFailure(ingesthealth.ClassParseFailed)
 	}
+}
+
+// splitSyslogSignature peels an optional leading "sha256=<hex> " authentication
+// token off a received line (AUD-17). The returned signature is verified against
+// the HMAC computed over the remaining line — the documented sender contract
+// (docs/siem.md: "sha256=<hmac> over the exact line"). A line with no such prefix
+// carries an empty signature, so a client-cert source still authenticates by its
+// TLS subject and an unsigned HMAC source is refused.
+func splitSyslogSignature(raw []byte) (string, []byte) {
+	sp := bytes.IndexByte(raw, ' ')
+	if sp <= 0 || !bytes.HasPrefix(raw[:sp], []byte("sha256=")) {
+		return "", append([]byte(nil), raw...)
+	}
+	return string(raw[:sp]), append([]byte(nil), raw[sp+1:]...)
 }
 
 func (r *SyslogReceiver) handleLiveEnvelope(ctx context.Context, env SyslogEnvelope) {
