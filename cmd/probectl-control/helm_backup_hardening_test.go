@@ -8,7 +8,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,9 +25,7 @@ import (
 // (KSV-0014). The Postgres restore Job additionally pins the image's postgres
 // uid: runAsNonRoot alone can never start a root-default image.
 func TestBackupAndRestorePodsAreHardened(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	var docs []string
 	for _, tmpl := range []string{"templates/backup-cronjobs.yaml", "templates/restore-job.yaml"} {
 		out, err := renderHelmAgentListener(t, tmpl,

@@ -61,9 +61,7 @@ func renderHelmConfigMap(t *testing.T, extra ...string) ([]byte, error) {
 // TestHelmRejectsChartOwnedExtraEnv proves generic extension values cannot
 // replace security settings whose authoritative source is the chart.
 func TestHelmRejectsChartOwnedExtraEnv(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	for _, name := range discoverChartOwnedControlEnv(t) {
 		t.Run(name, func(t *testing.T) {
 			out, err := renderHelmConfigMap(t, "--set-string", "control.extraEnv."+name+"=planted-override")
@@ -78,9 +76,7 @@ func TestHelmRejectsChartOwnedExtraEnv(t *testing.T) {
 }
 
 func TestHelmIRUnlockKeyRequiresExistingSecret(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 
 	const (
 		name   = "PROBECTL_IR_UNLOCK_KEY"
@@ -123,9 +119,7 @@ func TestHelmIRUnlockKeyRequiresExistingSecret(t *testing.T) {
 var renderedConfigMapEnvRE = regexp.MustCompile(`^  (PROBECTL_[A-Z0-9_]+):`)
 
 func TestHelmConfigMapKeysAreUniqueWithOrdinaryExtraEnv(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	out, err := renderHelmConfigMap(t,
 		"--set-string", "control.extraEnv.PROBECTL_BUS_MODE=memory",
 		"--set-string", "control.extraEnv.PROBECTL_REGION=local",

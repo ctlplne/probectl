@@ -22,9 +22,7 @@ var renderedHSTSMaxAgeRE = regexp.MustCompile(`(?m)^[[:space:]]*PROBECTL_HSTS_MA
 // Every shipped profile must therefore render a plain integer followed by "s";
 // scientific notation is not a valid time.Duration.
 func TestHelmRenderedHSTSConfigLoads(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 
 	const (
 		digest    = "sha256:0000000000000000000000000000000000000000000000000000000000000000"

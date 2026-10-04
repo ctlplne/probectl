@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -50,18 +51,31 @@ func TestGeoReaderErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestMMDBReader exercises the real MaxMind reader; it skips unless a GeoLite2
-// database is provided (probectl does not ship one — MaxMind licensing).
+// TestMMDBReader exercises the real MaxMind reader against a committed, SYNTHETIC
+// MaxMind-DB fixture (testdata/geoip-test.mmdb — our own fabricated data, not
+// GeoLite2, so there is no MaxMind licensing concern; see testdata/README.md to
+// regenerate). PROBECTL_GEOIP_DB still overrides it with a real GeoLite2 db.
+// TQ-13: this no longer SKIPs by default — the reader is exercised on every run.
 func TestMMDBReader(t *testing.T) {
 	path := os.Getenv("PROBECTL_GEOIP_DB")
 	if path == "" {
-		t.Skip("set PROBECTL_GEOIP_DB to a GeoLite2 .mmdb to test the MMDB reader")
+		path = filepath.Join("testdata", "geoip-test.mmdb")
 	}
 	r, err := OpenMMDB(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := r.LookupGeo(netip.MustParseAddr("8.8.8.8")); err != nil {
+	geo, ok, err := r.LookupGeo(netip.MustParseAddr("8.8.8.8"))
+	if err != nil {
 		t.Fatalf("lookup: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected a record for 8.8.8.8 in the fixture")
+	}
+	if geo.CountryCode != "US" || geo.City != "Mountain View" {
+		t.Fatalf("fixture lookup = %+v, want US / Mountain View", geo)
+	}
+	if geo.Latitude == 0 || geo.Longitude == 0 {
+		t.Fatalf("fixture lookup missing coordinates: %+v", geo)
 	}
 }

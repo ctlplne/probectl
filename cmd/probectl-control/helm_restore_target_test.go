@@ -7,7 +7,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -21,9 +20,7 @@ import (
 // after the data had already landed. Both steps now read one libpq
 // environment, so they cannot disagree, and credentials never enter the URL.
 func TestRestoreJobMigratesTheDatabaseItRestored(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	out, err := renderHelmAgentListener(t, "templates/restore-job.yaml",
 		"--set", "restore.enabled=true",
 		"--set", "restore.backupFile=postgres-probectl-20260917T133511Z.dump.pbk",

@@ -7,7 +7,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -18,9 +17,7 @@ import (
 // drops collector traffic even if the operator writes the Service by hand. An
 // operator following that page on Kubernetes could not receive a single span.
 func TestTheChartCanExposeTheOTLPReceiver(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	on := []string{
 		"--set", "control.otlp.enabled=true",
 		"--set", "networkPolicy.enabled=true",

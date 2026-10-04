@@ -623,8 +623,26 @@ jobs:
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: v3.16.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
       - name: helm lint + hardening gate (small/medium/large/multitenant + agent chart)
         run: make helm-gate
+      - name: Helm render tests actually run here (TQ-13 — require helm, fail on any skip)
+        # These Go tests shell out to `helm template`; in the main test job (no
+        # helm) they skip. This is the lane that HAS helm, so require it and fail
+        # if any of them skips — they must never silently stop exercising the chart.
+        env:
+          PROBECTL_TEST_REQUIRE_HELM: "1"
+        run: |
+          set -o pipefail
+          go test -count=1 -v ./cmd/probectl-control/ \
+            -run '^(TestBackupAndRestorePodsAreHardened|TestBackupAndRestoreReachTheDatastoresOverTLS|TestHelmAgentListenerIsOffByDefaultAndCompleteWhenOn|TestHelmBGPAnalyzerFiniteSourcesRunOnce|TestHelmBackupsClaimIsBoundOnInstall|TestHelmConfigMapKeysAreUniqueWithOrdinaryExtraEnv|TestHelmControlSelectorsExcludeAgentPods|TestHelmEBPFAgentBoundsPublishedRecords|TestHelmEBPFAgentCarriesRegisteredIdentityLaneAndBusAuth|TestHelmEBPFAgentMountsTraceFS|TestHelmEBPFAgentSeccompInstallerRunsOutsideTheProfileItInstalls|TestHelmIRUnlockKeyRequiresExistingSecret|TestHelmIngressClassIsVerifiedNginx|TestHelmIngressRejectsOwnedAnnotationOverrides|TestHelmIngressRequiresVerifiedBackendTLS|TestHelmRejectsChartOwnedExtraEnv|TestHelmRenderedHSTSConfigLoads|TestHelmSLODefinitionsReachTheControlPlane|TestMediumHAReferenceRequiresDurableBackends|TestMediumHARefusesEachMissingDurableBackend|TestRestoreJobMigratesTheDatabaseItRestored|TestTheChartCanExposeTheOTLPReceiver|TestWORMSegmentsHaveTheirOwnVolume)$' \
+            2>&1 | tee helm-render.out
+          if grep -q -- '--- SKIP' helm-render.out; then
+            echo "TQ-13: a Helm render test SKIPPED in the helm-provisioned lane — helm must be present here" >&2
+            exit 1
+          fi
       - name: kubeconform (rendered charts are valid Kubernetes; U-016)
         env:
           PROBECTL_HELM_TEST_ENVELOPE_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=

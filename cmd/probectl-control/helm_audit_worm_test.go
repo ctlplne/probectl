@@ -7,7 +7,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -20,9 +19,7 @@ import (
 // render: "PROBECTL_AUDIT_WORM_DIR requires objectStore.mode=filesystem".
 // WORM is a separate durability requirement and now has a separate volume.
 func TestWORMSegmentsHaveTheirOwnVolume(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	s3 := []string{
 		"--set", "objectStore.enabled=true",
 		"--set", "objectStore.mode=s3",

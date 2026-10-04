@@ -7,7 +7,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -18,9 +17,7 @@ import (
 // plane (fail closed on a missing directory). A typed ConfigMap mount now
 // provisions the definitions and sets the variable; the variable is chart-owned.
 func TestHelmSLODefinitionsReachTheControlPlane(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	out, err := renderHelmAgentListener(t, "templates/deployment.yaml", "--set", "control.slo.existingConfigMap=slo-defs")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)

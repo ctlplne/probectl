@@ -43,9 +43,7 @@ func renderHelmAgentListener(t *testing.T, showOnly string, extra ...string) (st
 // NetworkPolicy rule — and it must refuse to run without the control TLS
 // certificate it serves.
 func TestHelmAgentListenerIsOffByDefaultAndCompleteWhenOn(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	for _, tmpl := range []string{"templates/configmap.yaml", "templates/deployment.yaml", "templates/service.yaml", "templates/networkpolicy.yaml"} {
 		out, err := renderHelmAgentListener(t, tmpl)
 		if err != nil {

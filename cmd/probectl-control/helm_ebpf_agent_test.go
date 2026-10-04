@@ -49,9 +49,7 @@ func containerBlock(rendered, name string) string {
 // production control plane (registry-verified batches, per-tenant lanes,
 // authenticated Kafka) it could never deliver a single accepted batch.
 func TestHelmEBPFAgentCarriesRegisteredIdentityLaneAndBusAuth(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	if out, err := renderHelmEBPFAgent(t); err == nil {
 		t.Fatalf("chart rendered without agentID; the control plane would reject every batch (TENANT-101):\n%s", out)
 	} else if !strings.Contains(out, "agentID is required") {
@@ -103,9 +101,7 @@ func TestHelmEBPFAgentCarriesRegisteredIdentityLaneAndBusAuth(t *testing.T) {
 // node. On any node without the profile the pod stayed in
 // Init:CreateContainerError forever.
 func TestHelmEBPFAgentSeccompInstallerRunsOutsideTheProfileItInstalls(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	out, err := renderHelmEBPFAgent(t, "--set", "agentID=a")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -137,9 +133,7 @@ func TestHelmEBPFAgentSeccompInstallerRunsOutsideTheProfileItInstalls(t *testing
 // the node's /sys/kernel/tracing is mounted in; without it the agent died at
 // attach with "neither debugfs nor tracefs are mounted".
 func TestHelmEBPFAgentMountsTraceFS(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	out, err := renderHelmEBPFAgent(t, "--set", "agentID=a")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -158,9 +152,7 @@ func TestHelmEBPFAgentMountsTraceFS(t *testing.T) {
 // service map is split across records instead of outgrowing Kafka's message
 // limit; the schema refuses to switch the bound off.
 func TestHelmEBPFAgentBoundsPublishedRecords(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	out, err := renderHelmEBPFAgent(t, "--set", "agentID=a")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)

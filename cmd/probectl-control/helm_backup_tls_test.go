@@ -7,7 +7,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -21,9 +20,7 @@ import (
 // all — the backup simply could not run. §7.12: datastore TLS in transit,
 // outbound validates certs.
 func TestBackupAndRestoreReachTheDatastoresOverTLS(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	backup := func(extra ...string) string {
 		t.Helper()
 		out, err := renderHelmAgentListener(t, "templates/backup-cronjobs.yaml", append([]string{

@@ -7,7 +7,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -21,9 +20,7 @@ import (
 // the control component; the Deployment's immutable selector is unchanged and
 // its pod template carries the component.
 func TestHelmControlSelectorsExcludeAgentPods(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	const component = "app.kubernetes.io/component: control"
 	for _, tpl := range []string{"templates/pdb.yaml", "templates/networkpolicy.yaml"} {
 		out, err := renderHelmAgentListener(t, tpl,

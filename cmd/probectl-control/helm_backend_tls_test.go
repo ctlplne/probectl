@@ -44,9 +44,7 @@ func renderHelmIngress(t *testing.T, extra ...string) ([]byte, error) {
 }
 
 func TestHelmIngressRequiresVerifiedBackendTLS(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 
 	for _, tc := range []struct {
 		name  string
@@ -84,9 +82,7 @@ func TestHelmIngressRequiresVerifiedBackendTLS(t *testing.T) {
 }
 
 func TestHelmIngressClassIsVerifiedNginx(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 
 	verifiedBackend := []string{
 		"--set", "ingress.backendTLS.trustSecret=probectl-backend-ca",
@@ -134,9 +130,7 @@ func TestHelmIngressClassIsVerifiedNginx(t *testing.T) {
 }
 
 func TestHelmIngressRejectsOwnedAnnotationOverrides(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	for _, annotation := range chartOwnedIngressAnnotations {
 		t.Run(annotation, func(t *testing.T) {
 			key := strings.ReplaceAll(annotation, ".", `\.`)

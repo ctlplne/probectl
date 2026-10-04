@@ -51,9 +51,7 @@ func renderHelmBGPAnalyzer(t *testing.T, source string, extra ...string) (string
 // Finite sources render as a one-shot Job per release revision; the live
 // stream keeps its Deployment.
 func TestHelmBGPAnalyzerFiniteSourcesRunOnce(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	for _, source := range []string{"mrt", "replay"} {
 		out, err := renderHelmBGPAnalyzer(t, source, "--set", "bgpAnalyzer.sourceFile=/fixtures/routes."+source)
 		if err != nil {

@@ -7,7 +7,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -20,9 +19,7 @@ import (
 // revision, off with backup.persistence.bind=false, and absent when the
 // operator brings their own claim.
 func TestHelmBackupsClaimIsBoundOnInstall(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	render := func(extra ...string) string {
 		t.Helper()
 		out, err := renderHelmAgentListener(t, "templates/backup-cronjobs.yaml", append([]string{

@@ -91,9 +91,7 @@ func renderMediumConfigMap(t *testing.T, extra ...string) ([]byte, error) {
 }
 
 func TestMediumHAReferenceRequiresDurableBackends(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	values := readArtifact(t, "deploy/helm/probectl/values-medium.yaml")
 
 	// The reference must actually declare >1 replica (else there is no HA to make
@@ -147,9 +145,7 @@ func TestMediumHAReferenceRequiresDurableBackends(t *testing.T) {
 // such incomplete profile, naming the HA-durability guard — so the guard must
 // require the complete shared-backend set, not a convenient subset.
 func TestMediumHARefusesEachMissingDurableBackend(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm is not installed")
-	}
+	requireOrSkipHelm(t)
 	for _, backend := range haDurableBackends {
 		t.Run(backend.name, func(t *testing.T) {
 			out, err := renderMediumConfigMap(t, haDurableSets(backend.name)...)
