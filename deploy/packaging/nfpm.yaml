@@ -26,13 +26,18 @@ description: |
   the bus-publishing collectors, a registered identity) and reports telemetry.
 vendor: "probectl"
 homepage: "https://docs.probectl.example"
-license: "MPL-2.0"
+# SUP-14: the agents are the BUSL-1.1 core (MPL-2.0 covers only pkg/, proto/ and
+# examples/, which these packages do not ship). The package carries the matching
+# LICENSE text under /usr/share/doc; scripts/check_package_license.sh gates this.
+license: "BUSL-1.1"
 
 contents:
   - src: ./dist/probectl-${AGENT}_${FILE_TAG}_linux_${ARCH}
     dst: /usr/bin/probectl-${AGENT}
     file_info:
       mode: 0755
+  - src: ./LICENSE
+    dst: /usr/share/doc/probectl-${AGENT}/LICENSE
   - src: ./deploy/packaging/systemd/probectl-${AGENT}.service
     dst: /lib/systemd/system/probectl-${AGENT}.service
   - src: ./deploy/packaging/config/${AGENT}.yaml
