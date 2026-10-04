@@ -716,3 +716,62 @@ func TestRefreshAdoptsARenewedIntermediateWithoutAReload(t *testing.T) {
 		t.Errorf("minting a join token after the refresh failed: %v", err)
 	}
 }
+
+// TestEnrollSameHostnameDistinctAgentsBothSucceed proves CRY-09: two distinct
+// agents enrolling from hosts that share a hostname both succeed (the default
+// name is disambiguated) and end up with distinct registry names, instead of
+// the second enrollment failing with an internal 500 on the (tenant,name)
+// unique constraint.
+func TestEnrollSameHostnameDistinctAgentsBothSucceed(t *testing.T) {
+	ctx := context.Background()
+	pool, svc, tenantID := setup(ctx, t)
+
+	enrollOne := func(subject string) *enroll.Identity {
+		t.Helper()
+		display, _, err := svc.MintToken(ctx, tenantID, "", subject, "test", time.Hour)
+		if err != nil {
+			t.Fatalf("mint %s: %v", subject, err)
+		}
+		csr, _, err := crypto.CreateCSR("host-shared")
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := svc.Enroll(ctx, enroll.Request{Token: display, CSRPEM: string(csr), Hostname: "host-shared", Version: "v1"})
+		if err != nil {
+			t.Fatalf("enroll %s from shared hostname: %v", subject, err)
+		}
+		return id
+	}
+
+	a := enrollOne("agent-one")
+	b := enrollOne("agent-two")
+	if a.AgentID == b.AgentID {
+		t.Fatalf("distinct enrollments must get distinct agent ids, both %s", a.AgentID)
+	}
+
+	nameA := reservedAgentName(ctx, t, pool, tenantID, a.AgentID)
+	nameB := reservedAgentName(ctx, t, pool, tenantID, b.AgentID)
+	if nameA == "" || nameB == "" {
+		t.Fatalf("both agents must be reserved: %q / %q", nameA, nameB)
+	}
+	if nameA == nameB {
+		t.Fatalf("two agents on the same host must get distinct names (CRY-09), both %q", nameA)
+	}
+}
+
+func reservedAgentName(ctx context.Context, t *testing.T, pool *pgxpool.Pool, tenantID, agentID string) string {
+	t.Helper()
+	var name string
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+		a, e := (store.Agents{}).Get(ctx, sc, agentID)
+		if e != nil {
+			return e
+		}
+		name = a.Name
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("get agent %s: %v", agentID, err)
+	}
+	return name
+}

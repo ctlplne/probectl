@@ -115,6 +115,15 @@ func (Agents) Reserve(ctx context.Context, s tenancy.Scope, id, name, hostname, 
 	if err != nil {
 		return nil, err
 	}
+	// CRY-09: a (tenant, name) collision raises SQLSTATE 23505 and ABORTS the
+	// enclosing transaction. The savepoint keeps the conflict recoverable so the
+	// enrollment path can disambiguate a shared-hostname name and retry, and so a
+	// residual collision surfaces as a clean typed Conflict (409) rather than an
+	// internal 500. Same idiom as Register.
+	savepoint := false
+	if _, sErr := s.Q.Exec(ctx, "SAVEPOINT agent_reserve"); sErr == nil {
+		savepoint = true
+	}
 	var a Agent
 	err = scanAgent(s.Q.QueryRow(ctx,
 		`INSERT INTO agents (id, tenant_id, name, hostname, agent_version, status, capabilities, spiffe_id, last_seen_at)
@@ -125,7 +134,17 @@ func (Agents) Reserve(ctx context.Context, s tenancy.Scope, id, name, hostname, 
 		 RETURNING `+agentCols,
 		id, s.Tenant.String(), name, hostname, version, string(caps), spiffeID), &a)
 	if err != nil {
+		if savepoint {
+			_, _ = s.Q.Exec(ctx, "ROLLBACK TO SAVEPOINT agent_reserve")
+		}
+		var pg *pgconn.PgError
+		if errors.As(err, &pg) && pg.Code == "23505" {
+			return nil, apierror.Conflict(fmt.Sprintf("an agent named %q is already registered in this tenant: reuse its agent_id, or enroll with another name", name))
+		}
 		return nil, err
+	}
+	if savepoint {
+		_, _ = s.Q.Exec(ctx, "RELEASE SAVEPOINT agent_reserve")
 	}
 	return &a, nil
 }

@@ -35,6 +35,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -794,7 +795,18 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 					name = agentID
 				}
 				if _, err := (store.Agents{}).Reserve(ctx, sc, agentID, name, hostname, version, spiffe, capabilities); err != nil {
-					return err
+					// CRY-09: distinct agents may enroll from hosts that share a
+					// hostname, so the default (hostname) name can collide. On a
+					// name conflict, disambiguate with a short agent-id suffix and
+					// retry once; ON CONFLICT(id) keeps a same-agent re-enroll
+					// idempotent, and the savepoint in Reserve kept the tx alive.
+					domainErr, ok := apierror.As(err)
+					if !ok || domainErr.Kind != apierror.KindConflict {
+						return err
+					}
+					if _, err := (store.Agents{}).Reserve(ctx, sc, agentID, disambiguateAgentName(name, agentID), hostname, version, spiffe, capabilities); err != nil {
+						return err
+					}
 				}
 			}
 			return nil
@@ -816,6 +828,18 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 		SPIFFEID: spiffe, TenantID: tenantID, AgentID: agentID,
 		Plane: plane, Serial: serialHex, NotAfter: notAfter,
 	}, nil
+}
+
+// disambiguateAgentName suffixes a hostname-derived agent name with a short,
+// stable slice of the agent id so distinct agents enrolling from hosts that
+// share a hostname get distinct names (CRY-09). The agent id is unique, so the
+// result cannot collide with another agent's name.
+func disambiguateAgentName(name, agentID string) string {
+	short := agentID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return name + "-" + short
 }
 
 // Revoke stamps every identity of (tenant, agent) revoked, returns the
