@@ -11,6 +11,22 @@ the operator's own control plane. Secrets are passed to the local `probectl`
 process as environment variables for the provisioner; as with all Terraform
 automation, protect the state backend and CI logs.
 
+## Lifecycle (create, update, destroy)
+
+Each resource is applied with `probectl api`, and the created resource's id is
+recorded under `${path.module}/.probectl-state/`. `terraform destroy` issues the
+matching `probectl api DELETE` for every resource it created, so tearing down the
+Terraform configuration also removes the resources from the control plane (RTO-11
+— previously destroy left them live). A resource whose create response carries no
+`id` is skipped on destroy (best-effort).
+
+A Terraform **destroy-time** provisioner may read only `self`, never variables,
+so the delete sources the control-plane URL / tenant / path from the resource's
+own state but reads the token from the ambient **`PROBECTL_API_TOKEN`**
+environment variable. Export it (the same token as `token`) in the shell / CI job
+that runs `terraform destroy`, or the delete cannot authenticate. Keep the
+`.probectl-state/` directory alongside the Terraform state.
+
 ## Example
 
 ```hcl
