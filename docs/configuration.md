@@ -209,6 +209,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_OIDC_CLIENT_SECRET`      | (none)                                                           | OIDC client secret (kept out of logs/URLs)            |
 | `PROBECTL_OIDC_REDIRECT_URL`       | (none)                                                           | the control plane's `/auth/callback` URL registered with the IdP |
 | `PROBECTL_REQUIRE_MFA`             | `false`                                                         | require multi-factor auth. The session's MFA state comes from the ID token's `amr`/`acr` claims (a second factor like `otp`/`hwk`/`mfa`, or `acr` aal2+/loa2+). When `true`, every authenticated `/v1` request from a single-factor session gets 403 (enforced at request time). Off by default |
+| `PROBECTL_METRICS_SCRAPE_TOKEN`    | (none)                                                         | AUTHZ-25: scrape credential for the control-plane `GET /metrics` exposition. The Prometheus text carries build provenance (`probectl_build_info{version,commit}`) and pipeline counters — a fingerprinting surface — so on the public API listener an anonymous scrape is refused `401`. Set this to a high-entropy secret and have the ServiceMonitor present it as `Authorization: Bearer <token>`; a mismatched or absent credential gets `401`. Empty on a non-dev deployment means `/metrics` fails closed (no anonymous exposition). Kept out of logs and the support bundle. A local `dev`-auth build (loopback-only) serves `/metrics` without it |
 
 Invalid values fail fast: `probectl-control` reports **all** configuration problems
 at once and exits non-zero. The database password is redacted from logs.
@@ -227,8 +228,9 @@ how the control plane authenticated. See [`architecture.md`](architecture.md).
 | Method & path      | Purpose                                                  |
 | ------------------ | -------------------------------------------------------- |
 | `GET /healthz`     | Liveness — `200` while the process is serving            |
-| `GET /readyz`      | Readiness — `200` when the database is reachable, else `503`; includes aggregate `audit_retention` posture so operators can see when raw audit rows are not aging out |
-| `GET /version`     | Build and runtime metadata                               |
+| `GET /readyz`      | Readiness — `200` when the database is reachable, else `503`. An anonymous probe (the load balancer / uptime check) gets `status` only; an **authenticated** caller additionally gets the aggregate `audit_retention` + `alerting` posture, the multi-region `cluster` view, and any `volatile_stores` (AUTHZ-25 — the detailed posture is operator reconnaissance, so it is not exposed without credentials, mirroring `/version`) |
+| `GET /version`     | Build and runtime metadata — full detail only for an authenticated caller; an anonymous caller gets the service name (SEC-008) |
+| `GET /metrics`     | Prometheus self-metrics (process/aggregate health; no tenant data). Gated by `PROBECTL_METRICS_SCRAPE_TOKEN` as a bearer on the public listener — an anonymous scrape gets `401` (AUTHZ-25) |
 | `GET /openapi.json`| The OpenAPI 3.1 document                                 |
 
 Every response carries an `X-Request-Id` (honoring an inbound one) and the
@@ -556,8 +558,9 @@ install runs this way so a cold start needs zero external dependencies; it is a
 The control plane never runs volatile silently:
 
 - it logs a `WARN` at boot naming every memory-backed plane;
-- `/readyz` lists them under `volatile_stores` (the node stays ready — the
-  request path is up);
+- `/readyz` lists them under `volatile_stores` for an authenticated caller (the
+  node stays ready — the request path is up; an anonymous probe gets `status`
+  only, AUTHZ-25);
 - `/v1/diagnostics` reports **degraded** with the named finding
   `readiness.volatile_stores`;
 - `probectl-control preflight --strict` exits non-zero.

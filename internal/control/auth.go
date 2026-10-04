@@ -293,6 +293,15 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// AUTHZ-25: /metrics carries no principal — it is authorized by its own
+		// scrape credential in requireMetricsScrape (or is open in local dev).
+		// Skipping ambient resolution here keeps a configured scrape token from
+		// being mis-resolved as a session/API bearer and warn-logging on every
+		// scrape interval.
+		if r.URL.Path == "/metrics" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		// Dev auth exists only behind the compiled-in hook. In a release
 		// build (hook nil) AuthMode=dev grants NOTHING — requests fall
 		// through unauthenticated and the route layer 401s (and main has

@@ -93,10 +93,14 @@ func findRepoRoot(t *testing.T) string {
 // registered unconditionally in New).
 func scrapeExposedSeries(t *testing.T) map[string]bool {
 	t.Helper()
-	cfg := &config.Config{HTTPAddr: ":0", AuthMode: "session", HSTSEnabled: true, HSTSMaxAge: time.Hour}
+	const scrapeToken = "series-gate-scrape-token"
+	cfg := &config.Config{HTTPAddr: ":0", AuthMode: "session", HSTSEnabled: true, HSTSMaxAge: time.Hour, MetricsScrapeToken: scrapeToken}
 	s := New(cfg, logging.New(io.Discard, "error", "json"), nil, nil, nil, nil)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	// AUTHZ-25: /metrics is gated by the scrape token on the public listener.
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+scrapeToken)
+	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/metrics returned %d", rec.Code)
 	}

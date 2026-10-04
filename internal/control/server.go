@@ -615,10 +615,14 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /healthz", apiHandler(s.handleHealthz))
 	mux.Handle("GET /readyz", apiHandler(s.handleReadyz))
 	mux.Handle("GET /version", apiHandler(s.handleVersion))
-	// OPS-005: Prometheus self-metrics. Unauthenticated like /healthz (it
-	// carries no tenant data); production scopes scrape access at the
-	// NetworkPolicy + ServiceMonitor layer (values-strict.yaml).
-	mux.Handle("GET /metrics", s.metrics.Handler())
+	// OPS-005: Prometheus self-metrics (process/aggregate health only — never
+	// tenant data). AUTHZ-25: the exposition still carries build provenance
+	// (probectl_build_info{version,commit}) and pipeline counters, so on the
+	// public listener it is gated by a scrape credential — an anonymous scrape
+	// gets 401, not a fingerprint. requireMetricsScrape keeps a legitimate
+	// ServiceMonitor working via PROBECTL_METRICS_SCRAPE_TOKEN; NetworkPolicy +
+	// ServiceMonitor scoping (values-strict.yaml) remains defense in depth.
+	mux.Handle("GET /metrics", s.requireMetricsScrape(s.metrics.Handler()))
 	mux.Handle("GET /openapi.json", apiHandler(s.handleOpenAPI))
 	mux.Handle("GET /.well-known/security.txt", apiHandler(s.handleSecurityTxt))
 

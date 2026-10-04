@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/support"
@@ -25,6 +26,14 @@ import (
 // did was SAY so. /v1/diagnostics must report a named, degraded finding and
 // /readyz must surface the volatile planes (while staying up). okPinger lives in
 // diagnostics_test.go.
+
+// authedReadyzRequest builds a /readyz request already carrying a resolved
+// principal, so a direct handleReadyz call exercises the authenticated path
+// that gets the full operator posture (AUTHZ-25).
+func authedReadyzRequest() *http.Request {
+	r := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	return r.WithContext(auth.WithPrincipal(r.Context(), &auth.Principal{UserID: "ops"}))
+}
 
 func volatileStoresCheck(t *testing.T, h support.Health) (support.Check, bool) {
 	t.Helper()
@@ -121,7 +130,9 @@ func TestReadyzFlagsVolatileStores(t *testing.T) {
 	t.Run("volatile: body lists the planes and stays ready (200)", func(t *testing.T) {
 		s := volatileTestServer(allMemoryModes)
 		rec := httptest.NewRecorder()
-		if err := s.handleReadyz(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil)); err != nil {
+		// AUTHZ-25: volatile_stores is operator posture, carried for an
+		// authenticated caller (an anonymous probe gets status only).
+		if err := s.handleReadyz(rec, authedReadyzRequest()); err != nil {
 			t.Fatalf("handleReadyz: %v", err)
 		}
 		if rec.Code != http.StatusOK {
@@ -136,7 +147,7 @@ func TestReadyzFlagsVolatileStores(t *testing.T) {
 	t.Run("durable: no volatile_stores field", func(t *testing.T) {
 		s := volatileTestServer(allDurableModes)
 		rec := httptest.NewRecorder()
-		if err := s.handleReadyz(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil)); err != nil {
+		if err := s.handleReadyz(rec, authedReadyzRequest()); err != nil {
 			t.Fatalf("handleReadyz: %v", err)
 		}
 		if strings.Contains(rec.Body.String(), "volatile_stores") {

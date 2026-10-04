@@ -117,7 +117,7 @@ func TestRedactedEmitsNoSecretMaterial(t *testing.T) {
 		"ObjectStoreS3SessionToken", "EvidenceSigningKey", "AlertSMTPPassword",
 		"SessionHMACKey", "OIDCClientSecret", "CMDBSecret", "OTLPFreshnessHMACKey",
 		"OTLPExportToken", "AIModelToken", "OutageRadarToken",
-		"ProviderBootstrapToken", "SIEMToken",
+		"ProviderBootstrapToken", "SIEMToken", "MetricsScrapeToken",
 	}
 	cfg := &Config{}
 	v := reflect.ValueOf(cfg).Elem()

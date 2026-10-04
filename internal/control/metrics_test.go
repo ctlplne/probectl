@@ -18,17 +18,23 @@ import (
 	"github.com/ctlplne/probectl/internal/logging"
 )
 
-// OPS-005: /metrics is served, pre-auth (like /healthz), in Prometheus text
-// with probectl self-metrics — and carries no tenant data.
-func TestMetricsEndpointPreAuthAndPrometheus(t *testing.T) {
-	cfg := &config.Config{HTTPAddr: ":0", AuthMode: "session", HSTSEnabled: true, HSTSMaxAge: time.Hour}
+// OPS-005: /metrics is served in Prometheus text with probectl self-metrics and
+// carries no tenant data. AUTHZ-25: the exposition is a fingerprinting surface
+// (build_info + pipeline counters), so on the public listener it is gated by the
+// configured scrape token — this test was previously an ANONYMOUS scrape (it
+// encoded the leak) and now presents the credential a ServiceMonitor would.
+func TestMetricsEndpointServesWithScrapeCredential(t *testing.T) {
+	const scrapeToken = "service-monitor-scrape-token"
+	cfg := &config.Config{HTTPAddr: ":0", AuthMode: "session", HSTSEnabled: true, HSTSMaxAge: time.Hour, MetricsScrapeToken: scrapeToken}
 	s := New(cfg, logging.New(io.Discard, "error", "json"), nil, nil, nil, nil)
 
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+scrapeToken)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	s.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("/metrics must be reachable pre-auth (like /healthz): got %d", rec.Code)
+		t.Fatalf("/metrics must be reachable with the scrape credential: got %d", rec.Code)
 	}
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain; version=0.0.4") {
 		t.Fatalf("not Prometheus exposition: %q", ct)
@@ -46,20 +52,24 @@ func TestMetricsEndpointPreAuthAndPrometheus(t *testing.T) {
 }
 
 func TestMetricsExposeAuditRetentionHealth(t *testing.T) {
+	const scrapeToken = "service-monitor-scrape-token"
 	cfg := &config.Config{
-		HTTPAddr:       ":0",
-		AuthMode:       "session",
-		HSTSEnabled:    true,
-		HSTSMaxAge:     time.Hour,
-		AuditRetention: 365 * 24 * time.Hour,
-		AuditWORMDir:   "/var/lib/probectl/audit-worm",
-		SIEMEnabled:    true,
-		SIEMEndpoint:   "https://siem.example/ingest",
+		HTTPAddr:           ":0",
+		AuthMode:           "session",
+		HSTSEnabled:        true,
+		HSTSMaxAge:         time.Hour,
+		MetricsScrapeToken: scrapeToken,
+		AuditRetention:     365 * 24 * time.Hour,
+		AuditWORMDir:       "/var/lib/probectl/audit-worm",
+		SIEMEnabled:        true,
+		SIEMEndpoint:       "https://siem.example/ingest",
 	}
 	s := New(cfg, logging.New(io.Discard, "error", "json"), nil, nil, nil, nil)
 
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+scrapeToken)
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	s.Handler().ServeHTTP(rec, req)
 
 	body := rec.Body.String()
 	for _, want := range []string{
