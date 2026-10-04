@@ -27,9 +27,11 @@ export function safeHref(url: string | undefined | null): string | undefined {
   return parsed.protocol === 'https:' ? url : undefined
 }
 
-// APP_BASENAME is the single source of truth for the SPA's router basename —
-// App.tsx mounts <BrowserRouter basename={APP_BASENAME}> and the server serves
-// the bundle under it. It matches the Vite build base ("/ui/").
+// APP_BASENAME is the basename the SPA router is mounted under — App.tsx keeps
+// the explicit <BrowserRouter basename="/ui"> seam (asserted by
+// scripts/check_web_router_mode.mjs), and the server serves the bundle under it.
+// It matches the Vite build base ("/ui/") and is reused by appPath below so a
+// hand-built absolute link cannot drift from the router's basename.
 export const APP_BASENAME = '/ui'
 
 // appPath prefixes an in-app route with APP_BASENAME so an ABSOLUTE link built

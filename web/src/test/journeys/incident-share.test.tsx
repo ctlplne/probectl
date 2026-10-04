@@ -8,6 +8,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from '../renderApp'
+import { APP_BASENAME } from '../../lib/links'
 import { assertNoDoublePrefix, defaultFetch, jsonResponse, pathOf } from '../fetchStub'
 import {
   JourneyRecorder,
@@ -159,7 +160,9 @@ describe('J2 cited incident sharing', () => {
     await waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(1))
     const copied = String(clipboardWrite.mock.calls[0][0])
     const copiedURL = new URL(copied)
-    expect(copiedURL.pathname).toBe('/incidents')
+    // WEB-07: the copyable share link must carry the /ui router basename so it
+    // resolves to a real served path instead of 404ing.
+    expect(copiedURL.pathname).toBe(`${APP_BASENAME}/incidents`)
     expect(Array.from(copiedURL.searchParams.keys())).toEqual(['share'])
     expect(copied).not.toContain(tenantID)
     expect(copied).not.toMatch(/token|secret|password/i)
@@ -188,7 +191,11 @@ describe('J2 cited incident sharing', () => {
 
     first.unmount()
     const replayRequestStart = requests.length
-    renderApp(`${copiedURL.pathname}${copiedURL.search}`)
+    // A real <BrowserRouter basename="/ui"> strips the basename before route
+    // matching; renderApp's MemoryRouter mounts routes at the root, so strip the
+    // basename exactly as the app's router would before replaying the link.
+    const replayPath = copiedURL.pathname.slice(APP_BASENAME.length)
+    renderApp(`${replayPath}${copiedURL.search}`)
     const replay = await screen.findByRole('region', {
       name: /unified five-plane incident room/i,
     })
