@@ -157,7 +157,17 @@ async function run(script) {
   let success = true;
   let error = "";
 
-  const browser = await chromium.launch({ headless: true });
+  // SUP-02: chromiumSandbox is explicitly DISABLED, and this is deliberate, not
+  // an oversight. Chromium's setuid sandbox needs user-namespace creation /
+  // CAP_SYS_ADMIN and privilege escalation, which the shipped browser-agent pod
+  // forbids (runAsNonRoot, allowPrivilegeEscalation:false, capabilities drop
+  // ALL, seccomp, readOnlyRootFilesystem — see deploy/helm/probectl/templates/
+  // browser-agent.yaml, gate-asserted by TestBrowserAgentContainerIsHardened).
+  // That container-level isolation is the sandbox substitute; enabling the
+  // in-process sandbox here would only make Chromium fail to launch. The agent
+  // SVID living in the same container as this renderer is a separate, tracked
+  // residual (sidecar isolation — design-partner-readiness decisions-needed D-36).
+  const browser = await chromium.launch({ headless: true, chromiumSandbox: false });
   const context = await browser.newContext({ ignoreHTTPSErrors: false, serviceWorkers: "block" });
   const page = await context.newPage();
   await page.route("**/*", async (route) => {
