@@ -7,11 +7,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctlplne/probectl/internal/enroll"
 )
 
 // TestAgentCAInitRefusesToLogTheRootKey (DPR-121): "shown once, never stored"
@@ -47,33 +50,37 @@ func TestAgentCAInitRefusesToLogTheRootKey(t *testing.T) {
 // re-applied Job or a re-run pipeline step failed on a deployment that was
 // already correct and took everything downstream with it. -if-missing is the
 // repeatable form, and it must never overwrite.
-func TestAgentCAInitIfMissingIsTheRepeatableForm(t *testing.T) {
-	src, err := os.ReadFile("enroll.go")
+func TestAgentCAInitIfMissingIsANoOpOnAnInitializedCA(t *testing.T) {
+	ctx := context.Background()
+	db := setupBootstrapAdminDB(t)
+
+	// Ensure an initialized CA (idempotent setup: tolerate a CA a prior test in
+	// this shared DB already minted). -key-out satisfies the non-terminal-stdout
+	// guard — go test stdout is not a TTY — so a fresh init actually creates one.
+	if err := runAgentCAInit(ctx, db, []string{"-key-out", filepath.Join(t.TempDir(), "root.key")}); err != nil &&
+		!strings.Contains(err.Error(), "already initialized") {
+		t.Fatalf("first init: %v", err)
+	}
+	before, err := enroll.PublicBundle(ctx, db.Pool())
 	if err != nil {
-		t.Fatalf("read enroll.go: %v", err)
+		t.Fatalf("bundle before: %v", err)
 	}
-	s := string(src)
-	start := strings.Index(s, "func runAgentCAInit")
-	if start < 0 {
-		t.Fatal("runAgentCAInit not found")
+
+	// -if-missing on an already-initialized CA must succeed and change nothing.
+	// A broken variant fails here: dropping the flag -> unknown-flag parse error;
+	// dropping the no-op branch -> the non-terminal-stdout refusal; reordering so
+	// InitCA runs before the CAInitialized short-circuit -> InitCA's
+	// "already initialized (refusing to overwrite the trust root)" error.
+	if err := runAgentCAInit(ctx, db, []string{"-if-missing"}); err != nil {
+		t.Fatalf("-if-missing on an initialized CA must be a no-op, got: %v", err)
 	}
-	body := s[start:]
-	if end := strings.Index(body[1:], "\nfunc "); end > 0 {
-		body = body[:end]
+
+	after, err := enroll.PublicBundle(ctx, db.Pool())
+	if err != nil {
+		t.Fatalf("bundle after: %v", err)
 	}
-	if !strings.Contains(body, `fs.Bool("if-missing"`) {
-		t.Error("agent-ca init must offer -if-missing for automated bootstraps")
-	}
-	// The check must happen BEFORE any key material is generated, or a repeat
-	// run would mint a root key it then throws away.
-	initIdx := strings.Index(body, "enroll.CAInitialized")
-	genIdx := strings.Index(body, "enroll.InitCA")
-	if initIdx < 0 || genIdx < 0 || initIdx > genIdx {
-		t.Error("-if-missing must short-circuit before InitCA generates key material")
-	}
-	// And the refusal must stay the DEFAULT: silence on an existing CA is opt-in.
-	if !strings.Contains(body, "*ifMissing") {
-		t.Error("the no-op must be gated on the flag, not unconditional")
+	if !bytes.Equal(before, after) {
+		t.Fatal("-if-missing regenerated the trust root; it must leave an existing CA untouched")
 	}
 }
 
@@ -142,23 +149,19 @@ func TestReadRootKeyAcceptsStdinSoRenewalWorksOnADistrolessImage(t *testing.T) {
 // And the refusal an operator hits when they forget the flag entirely has to
 // tell them the form that works inside the container, because the obvious one
 // (`kubectl cp` the key in) cannot work there at all.
-func TestAgentCARenewRefusalNamesTheFormThatWorksInAContainer(t *testing.T) {
-	src, err := os.ReadFile("enroll.go")
-	if err != nil {
-		t.Fatalf("read enroll.go: %v", err)
-	}
-	s := string(src)
-	start := strings.Index(s, "func runAgentCARenew")
-	if start < 0 {
-		t.Fatal("runAgentCARenew not found")
-	}
-	body := s[start:]
-	if end := strings.Index(body[1:], "\nfunc "); end > 0 {
-		body = body[:end]
+func TestAgentCARenewRefusalNamesTheContainerSafeForm(t *testing.T) {
+	// No -root-key: the refusal returns before any DB access, so a nil db is safe.
+	// Asserting on the returned error VALUE (not source text) survives a reformat
+	// of the message and fails if the container-safe guidance is dropped, or if
+	// the required-flag guard is removed (control then reaches readRootKey("")
+	// and errors without naming "exec -i").
+	err := runAgentCARenew(context.Background(), nil, nil, nil)
+	if err == nil {
+		t.Fatal("agent-ca renew must refuse when -root-key is omitted")
 	}
 	for _, want := range []string{"exec -i", "-root-key -", "no shell and no tar"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the missing-flag refusal must mention %q: an operator on the shipped image has no other way in", want)
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the missing-flag refusal must name the container-safe form %q: %v", want, err)
 		}
 	}
 }

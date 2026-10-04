@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -251,5 +252,53 @@ func TestRejectsNonMTLS(t *testing.T) {
 	defer cancel()
 	if _, err := agentv1.NewAgentServiceClient(conn).Register(rpcCtx, &agentv1.RegisterRequest{Hostname: "x"}); err == nil {
 		t.Error("server must reject a non-mTLS client (no client certificate)")
+	}
+}
+
+// TestAgentTransportEnforces4MiBRecvCap proves FUZZ-005 behaviorally: the
+// server rejects an over-cap message at the gRPC decode layer (ResourceExhausted,
+// before the handler runs) and does NOT trip the cap on a message comfortably
+// under it. Raising maxRecvBytes — or hard-coding a larger explicit cap — lets
+// the 5 MiB message through and fails the first assertion; cutting the cap below
+// ~1 MiB fails the second. It drives real gRPC frames end to end, so renaming
+// maxRecvBytes cannot make it pass vacuously.
+func TestAgentTransportEnforces4MiBRecvCap(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+	ts := startTestServer(ctx, t, pool)
+
+	tn, err := store.NewTenants(pool).Create(ctx, fmt.Sprintf("recvcap-%d", time.Now().UnixNano()), "Recv Cap Tenant")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	agentID := newUUID(t)
+	dir := t.TempDir()
+	cc, ck, err := ts.ca.IssueClientCert(agentID, crypto.AgentSPIFFEID(tn.ID, agentID), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCfg, err := crypto.ClientMTLSConfig(
+		writeTemp(t, dir, "client.crt", cc), writeTemp(t, dir, "client.key", ck), ts.caFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCfg.ServerName = "localhost"
+	conn, err := grpc.NewClient(ts.addr, grpc.WithTransportCredentials(credentials.NewTLS(clientCfg)))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	client := agentv1.NewAgentServiceClient(conn)
+	rpcCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Over the 4 MiB cap: refused at decode, before the handler, as ResourceExhausted.
+	if _, err := client.Register(rpcCtx, &agentv1.RegisterRequest{Hostname: strings.Repeat("x", 5<<20)}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("a >4 MiB message must be refused with ResourceExhausted, got %v", err)
+	}
+	// Comfortably under the cap: whatever the handler does, it is NEVER the size cap.
+	if _, err := client.Register(rpcCtx, &agentv1.RegisterRequest{Hostname: strings.Repeat("x", 1<<20)}); status.Code(err) == codes.ResourceExhausted {
+		t.Fatalf("a 1 MiB message must not trip the receive cap: %v", err)
 	}
 }

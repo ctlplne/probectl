@@ -13,88 +13,12 @@ import (
 	"github.com/ctlplne/probectl/migrations"
 )
 
-func TestPreTenantAuthMigrationContract(t *testing.T) {
-	raw, err := migrations.FS.ReadFile("0070_strict_pretenant_auth_rls.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sql := string(raw)
-
-	for _, table := range []string{
-		"sessions",
-		"mcp_tokens",
-		"scim_tokens",
-		"agent_enroll_tokens",
-		"agent_identities",
-		"break_glass_grants",
-	} {
-		for _, want := range []string{
-			"DROP POLICY IF EXISTS tenant_isolation ON " + table,
-			"CREATE POLICY tenant_isolation ON " + table,
-		} {
-			if !strings.Contains(sql, want) {
-				t.Errorf("strict pre-tenant migration missing %q", want)
-			}
-		}
-	}
-
-	for _, function := range []string{
-		"pretenant_lookup_session",
-		"pretenant_rotate_session",
-		"pretenant_delete_session",
-		"pretenant_authenticate_mcp_token",
-		"pretenant_authenticate_scim_token",
-		"pretenant_consume_agent_enroll_token",
-		"provider_revoke_agent_enroll_token",
-		"provider_list_revoked_agent_identities",
-	} {
-		if !strings.Contains(sql, "FUNCTION "+function) {
-			t.Errorf("strict pre-tenant migration missing narrow function %s", function)
-		}
-	}
-
-	for _, want := range []string{
-		"TO probectl_app",
-		"TO probectl_pretenant_auth",
-		"TO probectl_provider",
-		"REVOKE ALL ON FUNCTION",
-		"GRANT EXECUTE ON FUNCTION",
-	} {
-		if !strings.Contains(sql, want) {
-			t.Errorf("strict pre-tenant migration missing role/function boundary %q", want)
-		}
-	}
-	if strings.Contains(sql, "IS NULL\n") && strings.Contains(sql, "OR tenant_id") {
-		t.Fatal("strict pre-tenant migration preserves an unset-GUC allow-all policy")
-	}
-	for _, want := range []string{
-		"GRANT EXECUTE ON FUNCTION provider_revoke_agent_enroll_token(uuid) TO probectl_provider",
-		"GRANT EXECUTE ON FUNCTION provider_list_revoked_agent_identities() TO probectl_provider",
-	} {
-		if !strings.Contains(sql, want) {
-			t.Errorf("provider operation is not provider-only: missing %q", want)
-		}
-	}
-	for _, forbidden := range []string{
-		"GRANT EXECUTE ON FUNCTION provider_revoke_agent_enroll_token(uuid) TO probectl_app",
-		"GRANT EXECUTE ON FUNCTION provider_list_revoked_agent_identities() TO probectl_app",
-	} {
-		if strings.Contains(sql, forbidden) {
-			t.Errorf("application role received provider-only operation: %q", forbidden)
-		}
-	}
-
-	definers := strings.Count(sql, "\nSECURITY DEFINER\n")
-	if definers == 0 {
-		t.Fatal("strict pre-tenant migration defines no security boundary functions")
-	}
-	if pinned := strings.Count(sql, "SET search_path = pg_catalog, public"); pinned != definers {
-		t.Fatalf("SECURITY DEFINER search paths pinned = %d, want %d", pinned, definers)
-	}
-	if revoked := strings.Count(sql, "REVOKE ALL ON FUNCTION"); revoked != definers {
-		t.Fatalf("SECURITY DEFINER PUBLIC execute revocations = %d, want %d", revoked, definers)
-	}
-}
+// TestPreTenantAuthMigrationContract was removed: it grepped 0070's SQL text,
+// so it passed under any reformat and proved nothing about the running DB. The
+// strict pre-tenant RLS it checked and the provider-only EXECUTE grants are now
+// exercised end to end against real catalogs by
+// TestStrictPreTenantAuthPoliciesAreEnforced in
+// pretenant_auth_rls_integration_test.go (TQ-10).
 
 func TestPreTenantSessionRotationPreservesSourceAuthority(t *testing.T) {
 	raw, err := migrations.FS.ReadFile("0070_strict_pretenant_auth_rls.sql")
