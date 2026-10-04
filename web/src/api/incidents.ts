@@ -182,7 +182,7 @@ export function useIncident(id: string | undefined) {
   return useQuery({
     queryKey: ['incident', id],
     enabled: !!id,
-    queryFn: () => apiFetch<Incident>(`/incidents/${encodeURIComponent(id)}`),
+    queryFn: () => apiFetch<Incident>(`/incidents/${encodeURIComponent(id ?? '')}`),
     // A tenant-scoped miss is authoritative. Retrying an unavailable ID only
     // delays fail-closed URL-context invalidation.
     retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
@@ -195,7 +195,9 @@ export function useIncidentChanges(id: string | undefined) {
     queryKey: ['incident-changes', id],
     enabled: !!id,
     queryFn: () =>
-      apiFetch<{ items: ChangeCandidate[] }>(`/incidents/${encodeURIComponent(id)}/changes`).then((r) => r.items),
+      apiFetch<{ items: ChangeCandidate[] }>(
+        `/incidents/${encodeURIComponent(id ?? '')}/changes`,
+      ).then((r) => r.items),
     retry: (failureCount, error) =>
       !isApiStatus(error, 404) && !isApiStatus(error, 503) && failureCount < 1,
   })
@@ -206,7 +208,7 @@ export function useIncidentChanges(id: string | undefined) {
 export function useCreateIncidentShare(id: string | undefined) {
   return useMutation({
     mutationFn: (request: CreateIncidentShareRequest) =>
-      apiFetch<IncidentShareArtifact>(`/incidents/${encodeURIComponent(id)}/shares`, {
+      apiFetch<IncidentShareArtifact>(`/incidents/${encodeURIComponent(id ?? '')}/shares`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
@@ -218,7 +220,7 @@ export function useCreateIncidentShare(id: string | undefined) {
 export function useExportIncidentEvidence(id: string | undefined) {
   return useMutation({
     mutationFn: () =>
-      apiFetchBytes(`/incidents/${encodeURIComponent(id)}/exports`, {
+      apiFetchBytes(`/incidents/${encodeURIComponent(id ?? '')}/exports`, {
         method: 'POST',
         headers: { Accept: 'application/vnd.probectl.evidence+json' },
       }),
@@ -231,7 +233,8 @@ export function useIncidentShare(id: string | undefined) {
   return useQuery({
     queryKey: ['incident-share', id],
     enabled: !!id,
-    queryFn: () => apiFetch<IncidentShareArtifact>(`/incident-shares/${encodeURIComponent(id)}`),
+    queryFn: () =>
+      apiFetch<IncidentShareArtifact>(`/incident-shares/${encodeURIComponent(id ?? '')}`),
     retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
   })
 }
@@ -242,7 +245,8 @@ export function useIncidentJournal(id: string | undefined, enabled = true) {
   return useQuery({
     queryKey: ['incident-journal', id],
     enabled: enabled && !!id,
-    queryFn: () => apiFetch<IncidentJournalList>(`/incidents/${encodeURIComponent(id)}/journal`),
+    queryFn: () =>
+      apiFetch<IncidentJournalList>(`/incidents/${encodeURIComponent(id ?? '')}/journal`),
     retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
   })
 }
@@ -253,7 +257,7 @@ export function useAppendIncidentJournal(id: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (request: AppendIncidentJournalRequest) =>
-      apiFetch<IncidentJournalEntry>(`/incidents/${encodeURIComponent(id)}/journal`, {
+      apiFetch<IncidentJournalEntry>(`/incidents/${encodeURIComponent(id ?? '')}/journal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
@@ -269,7 +273,7 @@ export function useResolveIncident(id: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () =>
-      apiFetch<Incident>(`/incidents/${encodeURIComponent(id)}`, {
+      apiFetch<Incident>(`/incidents/${encodeURIComponent(id ?? '')}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'resolved' }),
@@ -287,7 +291,7 @@ export function useReopenIncident(id: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () =>
-      apiFetch<Incident>(`/incidents/${encodeURIComponent(id)}`, {
+      apiFetch<Incident>(`/incidents/${encodeURIComponent(id ?? '')}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'open' }),
@@ -306,7 +310,7 @@ export function useCreateIncidentCorrelationOverride(id: string | undefined) {
       apiFetch<{
         override: IncidentCorrelationOverride
         detached_incident: Incident
-      }>(`/incidents/${encodeURIComponent(id)}/correlation-overrides`, {
+      }>(`/incidents/${encodeURIComponent(id ?? '')}/correlation-overrides`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
@@ -323,7 +327,7 @@ export function useReverseIncidentCorrelationOverride(id: string | undefined) {
   return useMutation({
     mutationFn: (request: { override_id: string; reason: string }) =>
       apiFetch<IncidentCorrelationOverride>(
-        `/incidents/${encodeURIComponent(id)}/correlation-overrides/${encodeURIComponent(request.override_id)}/reverse`,
+        `/incidents/${encodeURIComponent(id ?? '')}/correlation-overrides/${encodeURIComponent(request.override_id)}/reverse`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

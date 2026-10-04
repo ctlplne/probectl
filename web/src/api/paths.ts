@@ -89,7 +89,9 @@ export function usePath(testId: string | undefined) {
     enabled: !!testId,
     queryFn: async (): Promise<Path | null> => {
       try {
-        return normalizePath(await apiFetch<Path>(`/tests/${encodeURIComponent(testId)}/path`))
+        return normalizePath(
+          await apiFetch<Path>(`/tests/${encodeURIComponent(testId ?? '')}/path`),
+        )
       } catch (e) {
         if (e instanceof ApiError && e.status === 404) return null
         throw e
@@ -115,7 +117,7 @@ export function usePathHistory(
       if (options.to) params.set('to', options.to)
       for (const id of roundIds) params.append('round_id', id)
       return apiFetch<{ items: PathSnapshot[] }>(
-        `/tests/${encodeURIComponent(testId)}/path/history?${params.toString()}`,
+        `/tests/${encodeURIComponent(testId ?? '')}/path/history?${params.toString()}`,
       ).then((response) =>
         (response.items ?? []).map((snapshot) => ({
           ...snapshot,
@@ -131,7 +133,9 @@ export function useDiscoverPath(testId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () =>
-      apiFetch<Path>(`/tests/${encodeURIComponent(testId)}/path`, { method: 'POST' }).then(normalizePath),
+      apiFetch<Path>(`/tests/${encodeURIComponent(testId ?? '')}/path`, { method: 'POST' }).then(
+        normalizePath,
+      ),
     onSuccess: (p) => {
       qc.setQueryData(['path', testId], p)
       void qc.invalidateQueries({ queryKey: ['path-history', testId] })
