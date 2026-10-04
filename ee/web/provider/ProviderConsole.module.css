@@ -22,6 +22,11 @@
   z-index: var(--z-sticky);
   display: flex;
   align-items: center;
+  /* WEB-10/DPR-189: the banner carries title + domain badge + operator identity
+     + sign-out, which exceed a phone's width — wrap instead of forcing the page
+     to scroll horizontally (the sign-out button was the widest offender at
+     375px). The DPR-189 sticky-offset note below already assumes it wraps. */
+  flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-5);
   /* DPR-171: the soft warning token is a 12%-alpha tint, so a STICKY element

@@ -9,12 +9,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/ctlplne/probectl/internal/enroll"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
 // TestAgentCAInitRefusesToLogTheRootKey (DPR-121): "shown once, never stored"
@@ -54,33 +56,51 @@ func TestAgentCAInitIfMissingIsANoOpOnAnInitializedCA(t *testing.T) {
 	ctx := context.Background()
 	db := setupBootstrapAdminDB(t)
 
-	// Ensure an initialized CA (idempotent setup: tolerate a CA a prior test in
-	// this shared DB already minted). -key-out satisfies the non-terminal-stdout
-	// guard — go test stdout is not a TTY — so a fresh init actually creates one.
+	// KEYS-003: `agent-ca init` refuses to persist the CA intermediate key as
+	// plaintext, so configure a deployment envelope sealer first — exactly as a
+	// real deployment does via PROBECTL_ENVELOPE_KEY/BYOK. Test-only KEK;
+	// SetPrimary is process-global + idempotent (mirrors enroll's integration
+	// setup). Without it the init refuses and this test cannot establish a CA.
+	kek := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	sealer, err := tenantcrypto.NewEnvelopeSealer("test", kek)
+	if err != nil {
+		t.Fatalf("test envelope sealer: %v", err)
+	}
+	tenantcrypto.SetPrimary(sealer)
+
+	// Ensure an initialized CA (idempotent: tolerate one a prior test in this
+	// shared DB already minted). -key-out satisfies the non-terminal-stdout guard
+	// — go test stdout is not a TTY — so a fresh init actually creates one.
 	if err := runAgentCAInit(ctx, db, []string{"-key-out", filepath.Join(t.TempDir(), "root.key")}); err != nil &&
 		!strings.Contains(err.Error(), "already initialized") {
-		t.Fatalf("first init: %v", err)
-	}
-	before, err := enroll.PublicBundle(ctx, db.Pool())
-	if err != nil {
-		t.Fatalf("bundle before: %v", err)
+		t.Fatalf("ensure CA initialized: %v", err)
 	}
 
-	// -if-missing on an already-initialized CA must succeed and change nothing.
-	// A broken variant fails here: dropping the flag -> unknown-flag parse error;
-	// dropping the no-op branch -> the non-terminal-stdout refusal; reordering so
-	// InitCA runs before the CAInitialized short-circuit -> InitCA's
-	// "already initialized (refusing to overwrite the trust root)" error.
-	if err := runAgentCAInit(ctx, db, []string{"-if-missing"}); err != nil {
-		t.Fatalf("-if-missing on an initialized CA must be a no-op, got: %v", err)
-	}
-
-	after, err := enroll.PublicBundle(ctx, db.Pool())
+	// -if-missing on an already-initialized CA must succeed AND take the no-op
+	// short-circuit. We assert on the "already initialized — left untouched"
+	// message (captured from stdout) rather than diffing the trust bundle
+	// before/after: the agent CA is a database-global singleton, so a before/after
+	// compare races other packages' CA tests that share this database. Mutations
+	// this still catches: dropping the flag -> unknown-flag parse error; disabling
+	// the no-op branch -> the non-terminal-stdout refusal; reordering InitCA before
+	// the CAInitialized short-circuit -> InitCA's "already initialized" error.
+	r, w, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("bundle after: %v", err)
+		t.Fatalf("pipe: %v", err)
 	}
-	if !bytes.Equal(before, after) {
-		t.Fatal("-if-missing regenerated the trust root; it must leave an existing CA untouched")
+	orig := os.Stdout
+	os.Stdout = w
+	runErr := runAgentCAInit(ctx, db, []string{"-if-missing"})
+	_ = w.Close()
+	os.Stdout = orig
+	outBytes, _ := io.ReadAll(r)
+	out := string(outBytes)
+
+	if runErr != nil {
+		t.Fatalf("-if-missing on an initialized CA must be a no-op, got: %v", runErr)
+	}
+	if !strings.Contains(out, "already initialized") || !strings.Contains(out, "left untouched") {
+		t.Fatalf("-if-missing must take the no-op short-circuit and say so; stdout was: %q", out)
 	}
 }
 
