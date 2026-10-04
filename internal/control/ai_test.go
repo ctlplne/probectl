@@ -15,8 +15,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/ai/mcp"
@@ -322,5 +325,101 @@ func TestAIAuditAndPersistenceMinimizeSensitiveText(t *testing.T) {
 		if strings.Contains(raw, leaked) {
 			t.Fatalf("persisted AI answer leaked %q: %s", leaked, raw)
 		}
+	}
+}
+
+// rtaLocalEvidence is a minimal EntitiesSource that always yields one incident
+// so the RCA engine has something to cite (RTA-11 test seam).
+type rtaLocalEvidence struct{}
+
+func (rtaLocalEvidence) QueryEntities(_ context.Context, _ string, _ map[string]string, _ int) ([]ai.Row, error) {
+	return []ai.Row{{"id": "inc-1", "kind": "incident", "plane": "network", "title": "checkout latency", "severity": "high"}}, nil
+}
+
+// TestAIAskLoopbackLocalModelNeedsNoConsentAndDegradesWhenDown closes RTA-11:
+// with a loopback Ollama-shaped local model, POST /v1/ai/ask answers WITHOUT
+// requiring tenant remote-egress consent (the air-gap exemption — a remote
+// model on this path is 403, proven by TestAIAskRemoteEgressDeniedReturnsForbidden)
+// and the answer carries resolved citations; killing the local model degrades
+// to the air-gapped builtin (still 200, flagged degraded) via the resilient
+// wrapper the production buildModel installs. Fail-before is demonstrable by
+// treating the loopback endpoint as remote (consent gate → 403) or dropping the
+// ResilientModel builtin fallback (down → 503 instead of degraded).
+func TestAIAskLoopbackLocalModelNeedsNoConsentAndDegradesWhenDown(t *testing.T) {
+	var down atomic.Bool
+	var calls atomic.Int32
+	idRe := regexp.MustCompile(`E[0-9a-f]+-1\b`) // the first real, per-session evidence id in the prompt
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		calls.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		id := idRe.FindString(string(body))
+		ans := `{"root_cause":"checkout DB link flap","confidence":"high","insufficient_evidence":false,"root_cause_citations":["` + id + `"],"findings":[{"statement":"interface flapping","citations":["` + id + `"]}]}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": map[string]string{"content": ans}})
+	}))
+	defer ollama.Close()
+
+	m, err := ai.NewHTTPModel(ai.HTTPModelConfig{Kind: ai.KindOllama, Endpoint: ollama.URL, Model: "llama3.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := testServer(nil)
+	srv.analyzer = ai.NewAnalyzer(
+		ai.NewEngine(ai.WithEntities(rtaLocalEvidence{})),
+		ai.WithModel(ai.NewResilientModel(m, ai.NewBuiltinModel(), 5*time.Second)),
+		ai.WithEgressAudit(func(context.Context, ai.EgressEvent) error { return nil }),
+	)
+	h := srv.Handler()
+
+	type answer struct {
+		Degraded bool `json:"degraded"`
+		Findings []struct {
+			Citations []struct {
+				EvidenceID string `json:"evidence_id"`
+			} `json:"citations"`
+		} `json:"findings"`
+	}
+	ask := func(q string) (*httptest.ResponseRecorder, answer) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, aiTestReq(http.MethodPost, "/v1/ai/ask", map[string]any{"question": q}))
+		var out answer
+		if rec.Code == http.StatusOK {
+			if derr := json.Unmarshal(rec.Body.Bytes(), &out); derr != nil {
+				t.Fatalf("decode answer: %v; body=%s", derr, rec.Body.String())
+			}
+		}
+		return rec, out
+	}
+
+	rec, up := ask("why is checkout slow?")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("RTA-11: loopback ask status = %d, want 200 (loopback needs no consent); body=%s", rec.Code, rec.Body.String())
+	}
+	if calls.Load() == 0 {
+		t.Fatalf("RTA-11: the loopback local model was never called")
+	}
+	if up.Degraded {
+		t.Fatalf("RTA-11: a healthy loopback answer must not be flagged degraded")
+	}
+	cited := false
+	for _, f := range up.Findings {
+		if len(f.Citations) > 0 {
+			cited = true
+		}
+	}
+	if !cited {
+		t.Fatalf("RTA-11: loopback answer must carry resolved citations; body=%s", rec.Body.String())
+	}
+
+	down.Store(true)
+	rec2, deg := ask("what is causing checkout latency right now?")
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("RTA-11: killing the local model must still answer (builtin fallback), got %d; body=%s", rec2.Code, rec2.Body.String())
+	}
+	if !deg.Degraded {
+		t.Fatalf("RTA-11: killing the local model must yield a DEGRADED builtin answer; body=%s", rec2.Body.String())
 	}
 }
