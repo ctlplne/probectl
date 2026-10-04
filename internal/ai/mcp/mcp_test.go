@@ -483,10 +483,12 @@ func TestMCPFairnessAuditRecordsTerminalDenial(t *testing.T) {
 		return nil
 	}))
 
-	result := resultOf(t, handle(t, server, principal("tenant-a", permTestRead), 91, "tools/call",
-		map[string]any{"name": "list_tests"}))
-	if result["isError"] != true {
-		t.Fatalf("fairness rejection must not return tool data: %v", result)
+	// RTA-05: a fairness denial is surfaced as the rate-limited JSON-RPC error,
+	// not a generic tool result, so a client can act on it.
+	resp := handle(t, server, principal("tenant-a", permTestRead), 91, "tools/call",
+		map[string]any{"name": "list_tests"})
+	if code, isErr := errCode(resp); !isErr || code != codeRateLimited {
+		t.Fatalf("fairness rejection must be a rate-limited error, not tool data: %v", resp)
 	}
 	if len(events) != 2 {
 		t.Fatalf("fairness-rejected call audit events = %+v, want admission plus terminal denial", events)

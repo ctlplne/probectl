@@ -183,9 +183,18 @@ func TestMCPFairnessAuditIsTerminalAndTenantScoped(t *testing.T) {
 		UserID:      "user-a",
 		Permissions: map[string]bool{"test.read": true},
 	}
-	result := call(t, tenantA, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)
-	if result["isError"] != true {
-		t.Fatalf("saturated tenant A returned tool data: %+v", result)
+	// RTA-05: a fairness denial is surfaced as the rate-limited JSON-RPC error
+	// (-32003), not an isError tool result, so a client can back off on it.
+	var deniedA struct {
+		Error struct {
+			Code int `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(server.Handle(t.Context(), tenantA, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`)), &deniedA); err != nil {
+		t.Fatalf("decode MCP response: %v", err)
+	}
+	if deniedA.Error.Code != -32003 {
+		t.Fatalf("saturated tenant A must get a rate-limited error (-32003), got code %d", deniedA.Error.Code)
 	}
 	if len(events) != 2 ||
 		events[0].TenantID != "tenant-a" || events[0].Phase != mcp.CallPhaseAdmission || !events[0].Allowed ||
@@ -199,7 +208,7 @@ func TestMCPFairnessAuditIsTerminalAndTenantScoped(t *testing.T) {
 		UserID:      "user-b",
 		Permissions: map[string]bool{"test.read": true},
 	}
-	result = call(t, tenantB, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_path","arguments":{"target":"router.example"}}}`)
+	result := call(t, tenantB, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_path","arguments":{"target":"router.example"}}}`)
 	if result["isError"] == true {
 		t.Fatalf("independent tenant B was denied by tenant A saturation: %+v", result)
 	}
