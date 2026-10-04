@@ -50,6 +50,22 @@ func TestAnsibleAgentConfigUsesRealIdentityFilenames(t *testing.T) {
 			t.Errorf("SUP-08: agent.yaml.j2 tls.%s uses %q but the agent writes %q (internal/agent/identity.go)", c.key, c.got, c.want)
 		}
 	}
+
+	// RTO-23: the enroll IDEMPOTENCY probe in tasks/main.yml must stat the file
+	// enroll actually writes (IdentityCertFile), or the role re-enrolls on every
+	// run (never idempotent). It used identity/agent.crt — a file never created.
+	tasks, err := os.ReadFile(filepath.Join(root, "deploy", "ansible", "roles", "probectl_agents", "tasks", "main.yml"))
+	if err != nil {
+		t.Fatalf("read tasks/main.yml: %v", err)
+	}
+	statRe := regexp.MustCompile(`path:\s*"\{\{ probectl_state_dir \}\}/identity/([A-Za-z0-9_.]+)"`)
+	m := statRe.FindStringSubmatch(string(tasks))
+	if m == nil {
+		t.Fatalf("RTO-23: no identity stat path found in tasks/main.yml")
+	}
+	if m[1] != IdentityCertFile {
+		t.Errorf("RTO-23: enroll idempotency stat checks identity/%s but enroll writes %q — the role never becomes idempotent", m[1], IdentityCertFile)
+	}
 }
 
 func repoRootForTest(t *testing.T) string {

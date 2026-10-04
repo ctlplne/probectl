@@ -252,9 +252,14 @@
   notify: restart probectl agent
 
 - name: Check whether the mTLS agent already has an identity
+  # RTO-23: this idempotency probe MUST check the file `enroll` actually writes
+  # (internal/agent/identity.go: cert.pem), not agent.crt. With the old name the
+  # probe never found an identity, so enroll re-ran on every play (never
+  # idempotent — the role's "second run reports changed=0" never held) and could
+  # re-mint an SVID each converge.
   when: probectl_agent_type in probectl_mtls_agent_types
   ansible.builtin.stat:
-    path: "{{ probectl_state_dir }}/identity/agent.crt"
+    path: "{{ probectl_state_dir }}/identity/cert.pem"
   register: probectl_identity
 
 # OPS-004: only the canary `agent` ships an `enroll` subcommand — it mints an
