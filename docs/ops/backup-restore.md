@@ -515,7 +515,12 @@ writes a `<dump>.roles.sql` companion (`pg_dumpall --roles-only
 source). When restoring onto a fresh Postgres cluster, keep that companion next
 to the dump and set **`PGAPPPASSWORD`** to the application role's password:
 `restore_postgres.sh` recreates `probectl` + `probectl_app` + the NOLOGIN
-RLS/auth roles (as the bootstrap `PGSUPERUSER`, default `postgres`) and sets the
-login role's password from `PGAPPPASSWORD` before restoring the data, so the
-owners / GRANTs / RLS policies in the dump apply and the control plane can boot
-(RTO-15).
+RLS/auth roles (as the bootstrap **`PGSUPERUSER`**, which defaults to `PGUSER` —
+probectl's own compose/Helm Postgres is `initdb`'d with `probectl` as the cluster
+superuser and has no separate `postgres` role, so the default is correct there;
+set `PGSUPERUSER` to the real bootstrap role, e.g. `postgres`, only when the DR
+target cluster's superuser differs) and sets the login role's password from
+`PGAPPPASSWORD` before restoring the data, so the owners / GRANTs / RLS policies
+in the dump apply and the control plane can boot. Each carried `CREATE ROLE` is
+duplicate-tolerant, so re-running the restore (or restoring in place, where the
+roles already exist) is safe (RTO-15).

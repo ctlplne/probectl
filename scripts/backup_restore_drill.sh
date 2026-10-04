@@ -92,6 +92,19 @@ step "seed marker data (nonce ${NONCE})"
 psql_db "CREATE TABLE IF NOT EXISTS probectl_drill_marker (id int PRIMARY KEY, nonce text NOT NULL)"
 psql_db "TRUNCATE probectl_drill_marker"
 psql_db "INSERT INTO probectl_drill_marker SELECT g, '${NONCE}' FROM generate_series(1, ${PG_ROWS}) g"
+# RTO-15: exercise the carried-roles path for real. A NOLOGIN app role plus a
+# table whose RLS POLICY references it make the logical dump carry a
+# `CREATE POLICY … TO probectl_app`. We DROP that role at wipe (the fresh-cluster
+# case), so the restore only succeeds if restore_postgres.sh recreated it from
+# the roles companion FIRST — otherwise pg_restore aborts on the policy. This is
+# the exact failure RTO-15 fixes.
+psql_db "DO \$\$ BEGIN CREATE ROLE probectl_app NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$"
+psql_db "CREATE TABLE IF NOT EXISTS probectl_drill_rls (id int PRIMARY KEY, nonce text NOT NULL)"
+psql_db "ALTER TABLE probectl_drill_rls ENABLE ROW LEVEL SECURITY"
+psql_db "DROP POLICY IF EXISTS probectl_drill_rls_p ON probectl_drill_rls"
+psql_db "CREATE POLICY probectl_drill_rls_p ON probectl_drill_rls FOR SELECT TO probectl_app USING (true)"
+psql_db "TRUNCATE probectl_drill_rls"
+psql_db "INSERT INTO probectl_drill_rls VALUES (1, '${NONCE}')"
 ch "CREATE TABLE IF NOT EXISTS probectl.probectl_drill_marker (tenant_id String, id UInt32, nonce String) ENGINE = MergeTree ORDER BY (tenant_id, id)"
 ch "TRUNCATE TABLE probectl.probectl_drill_marker"
 ch "INSERT INTO probectl.probectl_drill_marker SELECT '${CH_TENANT}', number, '${NONCE}' FROM numbers(${CH_ROWS})"
@@ -145,6 +158,15 @@ step "WIPE all three stores (simulated regional loss; restore only from off-box 
 "${DC[@]}" exec -T postgres \
   psql -U probectl -d postgres -v ON_ERROR_STOP=1 -qAt \
   -c "DROP DATABASE IF EXISTS probectl WITH (FORCE)"
+# RTO-15: with the database gone, drop the app role too so the restore target is
+# a genuine fresh cluster missing probectl_app — the roles companion must
+# recreate it before the dump's RLS policy can restore.
+"${DC[@]}" exec -T postgres \
+  psql -U probectl -d postgres -v ON_ERROR_STOP=1 -qAt \
+  -c "DROP ROLE IF EXISTS probectl_app"
+if [ -n "$("${DC[@]}" exec -T postgres psql -U probectl -d postgres -qAt -c "SELECT 1 FROM pg_roles WHERE rolname = 'probectl_app'")" ]; then
+  echo "drill: probectl_app role still present after wipe" >&2; exit 1
+fi
 ch "DROP DATABASE IF EXISTS probectl SYNC"
 mv "${OBJECTSTORE_LIVE}" "${OBJECTSTORE_LIVE}.lost"
 if psql_db "SELECT 1" >/dev/null 2>&1; then
@@ -165,7 +187,11 @@ DECRYPTED="${OUT}/postgres-probectl.decrypted.dump"
 "${PCTL_BIN}" backup-open < "${PBK}" > "${DECRYPTED}"
 test -s "${DECRYPTED}" || { echo "drill: backup-open produced an empty dump (flag/contract break?)" >&2; exit 1; }
 (cd "$(dirname "${DECRYPTED}")" && sha256sum "$(basename "${DECRYPTED}")" > "$(basename "${DECRYPTED}").sha256")
-./scripts/restore_postgres.sh "${DECRYPTED}"
+# RTO-15: the sealed .pbk was decrypted to a DIFFERENT filename, so the roles
+# companion backup_postgres.sh wrote beside the .pbk is not at
+# "${DECRYPTED}.roles.sql". Point restore_postgres.sh at the real companion so
+# the carried-roles path actually runs (and recreates probectl_app).
+PROBECTL_RESTORE_ROLES_SQL="${PBK}.roles.sql" ./scripts/restore_postgres.sh "${DECRYPTED}"
 ./scripts/restore_clickhouse.sh "${CH_PBK}"
 PROBECTL_OBJECTSTORE_MODE=filesystem PROBECTL_OBJECTSTORE_RESTORE_ACK=replace-objectstore \
   ./scripts/restore_objectstore.sh "${OBJECT_PBK}" "${OBJECTSTORE_LIVE}"
@@ -179,6 +205,16 @@ ch_other_count="$(ch "SELECT count() FROM probectl.probectl_drill_marker WHERE t
 ch_nonce="$(ch "SELECT DISTINCT nonce FROM probectl.probectl_drill_marker WHERE tenant_id = '${CH_TENANT}'")"
 test "${pg_count}" = "${PG_ROWS}" || { echo "drill: postgres rows ${pg_count} != ${PG_ROWS}" >&2; exit 1; }
 test "${pg_nonce}" = "${NONCE}" || { echo "drill: postgres nonce mismatch (${pg_nonce})" >&2; exit 1; }
+# RTO-15: the RLS-policy'd table only restores if the roles companion recreated
+# probectl_app before pg_restore ran the `CREATE POLICY … TO probectl_app`.
+rls_count="$(psql_db 'SELECT count(*) FROM probectl_drill_rls')"
+rls_nonce="$(psql_db 'SELECT nonce FROM probectl_drill_rls WHERE id = 1')"
+test "${rls_count}" = "1" || { echo "drill: RLS-policy'd table rows ${rls_count} != 1 (roles companion did not recreate probectl_app)" >&2; exit 1; }
+test "${rls_nonce}" = "${NONCE}" || { echo "drill: RLS table nonce mismatch (${rls_nonce})" >&2; exit 1; }
+if [ -z "$("${DC[@]}" exec -T postgres psql -U probectl -d postgres -qAt -c "SELECT 1 FROM pg_roles WHERE rolname = 'probectl_app'")" ]; then
+  echo "drill: probectl_app role was not recreated by the roles companion" >&2; exit 1
+fi
+echo "roles-companion drill: PASS (probectl_app recreated from <dump>.roles.sql; RLS-policy'd table restored)"
 test "${ch_count}" = "${CH_ROWS}" || { echo "drill: clickhouse rows ${ch_count} != ${CH_ROWS}" >&2; exit 1; }
 test "${ch_other_count}" = "${CH_OTHER_ROWS}" || { echo "drill: clickhouse other-tenant rows ${ch_other_count} != ${CH_OTHER_ROWS}" >&2; exit 1; }
 test "${ch_nonce}" = "${NONCE}" || { echo "drill: clickhouse nonce mismatch (${ch_nonce})" >&2; exit 1; }

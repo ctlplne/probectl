@@ -73,10 +73,22 @@ echo "backup_postgres: wrote ${OUT} ($(wc -c < "${OUT}") bytes)"
 # (--no-role-passwords, so no secret leaves the source) — that restore_postgres.sh
 # applies before the data restore. The login role's password is re-set from the
 # operator's own credentials at restore time, not carried here.
+#
+# Each `CREATE ROLE` is rewritten into a duplicate-tolerant DO block. pg_dumpall
+# emits a bare `CREATE ROLE probectl;` for the cluster's OWN bootstrap superuser,
+# and that role ALWAYS exists on the restore target (probectl's compose/Helm
+# Postgres is initdb'd with probectl as the superuser), so a plain CREATE would
+# abort the whole restore under ON_ERROR_STOP. The guard lets a pre-existing role
+# pass while the ALTER that follows still (re)asserts its exact attributes;
+# genuinely missing roles (the fresh-cluster case) are still created.
 ROLES_OUT="${OUT}.roles.sql"
 docker compose -f "${COMPOSE_FILE}" exec -T "${PG_SERVICE}" \
   pg_dumpall -U "${PGUSER}" --roles-only --no-role-passwords 2>/dev/null \
-  | grep -iE '(CREATE|ALTER|GRANT) .*probectl' > "${ROLES_OUT}"
+  | grep -iE '(CREATE|ALTER|GRANT) .*probectl' \
+  | awk '
+      /^CREATE ROLE / { r=$0; sub(/^CREATE ROLE /,"",r); sub(/;[[:space:]]*$/,"",r);
+        printf "DO $$ BEGIN CREATE ROLE %s; EXCEPTION WHEN duplicate_object THEN NULL; END $$;\n", r; next }
+      { print }' > "${ROLES_OUT}"
 test -s "${ROLES_OUT}" || { echo "backup_postgres: refusing empty roles companion ${ROLES_OUT} (no probectl* roles found)" >&2; exit 1; }
 (cd "${OUT_DIR}" && sha256sum "$(basename "${ROLES_OUT}")" > "$(basename "${ROLES_OUT}").sha256")
 echo "backup_postgres: wrote ${ROLES_OUT} ($(grep -c 'CREATE ROLE' "${ROLES_OUT}") roles)"

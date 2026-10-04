@@ -20,19 +20,32 @@
 # Env:
 #   COMPOSE_FILE (deploy/compose/dev.yml), PG_SERVICE (postgres)
 #   PGUSER / PGDATABASE (probectl)          — the application role + database
-#   PGSUPERUSER (postgres)                  — the bootstrap superuser on the target
+#   PGSUPERUSER (defaults to PGUSER)        — the target cluster's BOOTSTRAP superuser.
+#                                             probectl's own compose/Helm Postgres is
+#                                             initdb'd with probectl AS the superuser (there
+#                                             is no separate `postgres` role), so the default
+#                                             is correct there; set this to the real bootstrap
+#                                             role (e.g. postgres) only when the DR target
+#                                             cluster's superuser differs.
 #   PGAPPPASSWORD                           — password to (re)create PGUSER with on a
 #                                             fresh cluster; defaults to PGUSER
 #   PROBECTL_PG_EXEC                        — override the exec wrapper (testing):
 #                                             a command prefix that runs its args
 #                                             inside the target Postgres container
+#   PROBECTL_RESTORE_ROLES_SQL              — explicit path to the `<dump>.roles.sql`
+#                                             companion. The real DR flow decrypts the
+#                                             sealed .pbk to a DIFFERENT filename before
+#                                             restoring, so `<dump>.roles.sql` next to the
+#                                             decrypted file does not exist; point this at
+#                                             the companion that travelled with the .pbk.
+#                                             Defaults to `<dump-arg>.roles.sql`.
 set -euo pipefail
 
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose/dev.yml}"
 PG_SERVICE="${PG_SERVICE:-postgres}"
 PGUSER="${PGUSER:-probectl}"
 PGDATABASE="${PGDATABASE:-probectl}"
-PGSUPERUSER="${PGSUPERUSER:-postgres}"
+PGSUPERUSER="${PGSUPERUSER:-${PGUSER}}"
 PGAPPPASSWORD="${PGAPPPASSWORD:-${PGUSER}}"
 DUMP="${1:?usage: restore_postgres.sh <dump-file>}"
 
@@ -67,7 +80,7 @@ psql_super() {
 # role's password from the operator's own credentials (PGAPPPASSWORD) so the app
 # can connect. Older backups without the companion fall back to bootstrapping
 # just the login role.
-ROLES_SQL="${DUMP}.roles.sql"
+ROLES_SQL="${PROBECTL_RESTORE_ROLES_SQL:-${DUMP}.roles.sql}"
 pw_esc="${PGAPPPASSWORD//\'/\'\'}"
 if [ -s "${ROLES_SQL}" ]; then
   if [ -s "${ROLES_SQL}.sha256" ]; then
