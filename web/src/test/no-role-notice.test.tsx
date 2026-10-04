@@ -22,8 +22,10 @@ describe('no-role notice', () => {
     expect(notice).toHaveTextContent('No role yet')
     expect(notice).toHaveTextContent(/signed in as new\.person@example\.test/)
     expect(notice).toHaveTextContent(/ask a tenant administrator/i)
+    // WEB-25: the IdP-supplied email is single-quoted so a hostile value cannot
+    // inject shell syntax into the copy-pasteable command.
     expect(notice).toHaveTextContent(
-      'probectl-control bootstrap-admin -email new.person@example.test',
+      "probectl-control bootstrap-admin -email 'new.person@example.test'",
     )
   })
 

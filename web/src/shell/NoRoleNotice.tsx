@@ -8,6 +8,7 @@ import { Badge } from '../components'
 import { useAuth } from '../auth/useAuth'
 import { useDemoMode } from '../demo/useDemoMode'
 import { useI18n } from '../i18n/useI18n'
+import { shellSingleQuote } from '../lib/clientGuards'
 import styles from './NoRoleNotice.module.css'
 
 /**
@@ -26,7 +27,9 @@ export function NoRoleNotice() {
       <Badge tone="warning">{t('norole.badge')}</Badge>
       <span>
         {t('norole.message', { email: user.email })}{' '}
-        <code className={styles.command}>probectl-control bootstrap-admin -email {user.email}</code>
+        <code className={styles.command}>
+          probectl-control bootstrap-admin -email {shellSingleQuote(user.email)}
+        </code>
       </span>
     </div>
   )

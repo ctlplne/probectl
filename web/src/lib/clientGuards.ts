@@ -39,3 +39,11 @@ export function safeISOString(value: string | number | Date): string {
   }
   return d.toISOString()
 }
+
+// shellSingleQuote wraps a value in POSIX single quotes so a copy-pasteable
+// command stays safe even when the value (e.g. an IdP-supplied email) contains
+// shell metacharacters (WEB-25). An embedded single quote is closed, escaped as
+// a literal, and reopened ('\'').
+export function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}

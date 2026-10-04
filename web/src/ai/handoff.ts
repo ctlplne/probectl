@@ -556,7 +556,7 @@ function markdownText(value: string): string {
   return value
     .replace(/\r\n?/g, '\n')
     .replace(/&/g, '&amp;')
-    .replace(/[\\`*_[\]{}()<>#+\-.!|~]/g, '\\$&')
+    .replace(/[\\`*_[\]{}()<>#+\-.!|~=]/g, '\\$&')
     .replace(/\n/g, '  \n')
 }
 

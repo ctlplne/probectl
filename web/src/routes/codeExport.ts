@@ -39,12 +39,31 @@ function redact(value: unknown, key = ''): YAMLValue {
   return null
 }
 
+// WEB-25: a string is emitted unquoted only when it cannot be re-read as some
+// OTHER YAML type — not a reserved word (true/null/yes/…), not number-like, and
+// composed only of unambiguous characters (no ':' '@' or indicators, no
+// whitespace). Everything else is JSON double-quoted, which YAML parses back to
+// the identical string, so an exported document round-trips for hostile input.
+const yamlReserved = /^(?:true|false|null|yes|no|on|off|~)$/i
+const yamlNumberLike = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/
+const yamlPlainChars = /^[A-Za-z0-9_./+<>-]+$/
+
+function plainYAMLString(value: string): boolean {
+  return yamlPlainChars.test(value) && !yamlReserved.test(value) && !yamlNumberLike.test(value)
+}
+
 function scalar(value: Scalar): string {
   if (value === null) return 'null'
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (value === '') return '""'
-  if (/^[A-Za-z0-9_.:/@+<>-]+$/.test(value)) return value
-  return JSON.stringify(value)
+  return plainYAMLString(value) ? value : JSON.stringify(value)
+}
+
+// yamlKey quotes a mapping key that would otherwise be ambiguous or break the
+// document (a newline, ':', leading indicator, reserved word) — unquoted keys
+// let a hostile param name corrupt the export (WEB-25).
+function yamlKey(key: string): string {
+  return plainYAMLString(key) ? key : JSON.stringify(key)
 }
 
 function toYAML(value: YAMLValue, depth = 0): string {
@@ -65,9 +84,9 @@ function toYAML(value: YAMLValue, depth = 0): string {
   return entries
     .map(([key, child]) => {
       if (child !== null && typeof child === 'object') {
-        return `${pad}${key}:\n${toYAML(child, depth + 2)}`
+        return `${pad}${yamlKey(key)}:\n${toYAML(child, depth + 2)}`
       }
-      return `${pad}${key}: ${scalar(child)}`
+      return `${pad}${yamlKey(key)}: ${scalar(child)}`
     })
     .join('\n')
 }
