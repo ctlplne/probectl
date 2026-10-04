@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -171,5 +172,56 @@ func TestCMDBLookupOnlyAnswersForKeysTheTenantOwns(t *testing.T) {
 	}
 	if len(asked) != 3 || asked[2] != "db.acme.example" {
 		t.Errorf("ownership must be checked with the canonical key, got %v", asked)
+	}
+}
+
+// TestCMDBLookupThroughNetBoxServesStaleWhenDown closes RTA-10: with a NetBox
+// provider configured, an OWNED key returns its CI; when NetBox is then down,
+// the lookup serves the STALE cache (a down CMDB must not break probectl); a
+// FOREIGN key is 404 and never confirms the key exists. The tiny TTL forces the
+// second lookup past the fresh-cache window so it exercises the provider-error
+// stale-fallback path (internal/cmdb.Resolver.Lookup). Fail-before: making that
+// stale branch a no-op turns the NetBox-down lookup into a 503 and fails here.
+func TestCMDBLookupThroughNetBoxServesStaleWhenDown(t *testing.T) {
+	var down atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/api/ipam/ip-addresses/") {
+			// NetBox IP shape (internal/cmdb/netbox.go lookupIP).
+			_, _ = w.Write([]byte(`{"results":[{"id":7,"address":"10.0.0.5/32","dns_name":"db-01","assigned_object":{"device":{"name":"db-01","display":"db-01"}}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer ts.Close()
+
+	// 1ns TTL: the first fetch caches, every later lookup is immediately stale,
+	// so the NetBox-down lookup below goes through the provider (error) path.
+	srv := testServer(fakePinger{}).WithCMDB(cmdb.NewResolver(cmdb.NewNetBox(ts.URL, "nb-token"), time.Nanosecond))
+	srv.cmdbKeyOwner = func(_ *http.Request, key string) (bool, error) { return key == "10.0.0.5", nil }
+
+	// Owned key → 200 with the CI resolved from the NetBox double.
+	rec := do(srv, http.MethodGet, "/v1/cmdb/lookup?key=10.0.0.5")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "db-01") {
+		t.Fatalf("RTA-10: owned NetBox lookup: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"provider":"netbox"`) {
+		t.Fatalf("RTA-10: response must name the netbox provider: %s", rec.Body.String())
+	}
+
+	// NetBox down → the stale cache entry is served, still 200 with the CI.
+	down.Store(true)
+	rec = do(srv, http.MethodGet, "/v1/cmdb/lookup?key=10.0.0.5")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "db-01") {
+		t.Fatalf("RTA-10: stale cache not served when NetBox is down: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Foreign key → 404, never confirming the key exists elsewhere.
+	if rec := do(srv, http.MethodGet, "/v1/cmdb/lookup?key=10.9.9.9"); rec.Code != http.StatusNotFound {
+		t.Fatalf("RTA-10: foreign key must be 404; got %d %s", rec.Code, rec.Body.String())
 	}
 }
