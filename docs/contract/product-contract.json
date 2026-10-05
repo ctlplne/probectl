@@ -7,7 +7,7 @@
         "F1"
       ],
       "name": "Canary agent",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`cmd/probectl-agent`, `internal/canary`"
     },
     {
@@ -15,7 +15,7 @@
         "F2"
       ],
       "name": "Network tests (a2s + a2a)",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/canary`, `internal/a2a`"
     },
     {
@@ -23,7 +23,7 @@
         "F3"
       ],
       "name": "Path visualization",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/path`, web hero view"
     },
     {
@@ -32,7 +32,7 @@
         "F5"
       ],
       "name": "HTTP / DNS tests",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/canary` (http, dns, dnssec, trace)"
     },
     {
@@ -40,7 +40,7 @@
         "F6"
       ],
       "name": "BGP monitoring",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`analyzer/`, `internal/bgp`"
     },
     {
@@ -48,24 +48,31 @@
         "F7"
       ],
       "name": "Open-data enrichment",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/opendata` (shared-once, per-tenant scoping)"
     },
     {
       "ids": [
-        "F8",
+        "F8"
+      ],
+      "name": "Alerting",
+      "status": "partial",
+      "evidence": "`internal/alert`; silences/acks persist through `migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`"
+    },
+    {
+      "ids": [
         "F9"
       ],
-      "name": "Alerting / dashboards + incident timeline",
+      "name": "Dashboards and incident timeline",
       "status": "delivered",
-      "evidence": "`internal/alert`, `internal/incident`, `web/`; dense Operator/Executive dashboards plus tenant-safe saved views and scheduled local-inbox PDF/CSV reporting use `migrations/0061_dashboard_reporting.sql`, `internal/store/dashboardreports.go`, `internal/control/dashboardreporting.go`; silences/acks persist through `migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`"
+      "evidence": "`internal/incident`, `web/`; dense Operator/Executive dashboards plus tenant-safe saved views and scheduled local-inbox PDF/CSV reporting use `migrations/0061_dashboard_reporting.sql`, `internal/store/dashboardreports.go`, `internal/control/dashboardreporting.go`"
     },
     {
       "ids": [
         "F10"
       ],
       "name": "Control plane + REST/gRPC + CLI",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/control`, `proto/`, `cmd/probectl` · *openapi-gate*"
     },
     {
@@ -73,7 +80,7 @@
         "F11"
       ],
       "name": "eBPF host/L7 agent",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/ebpf` · *kernel-matrix*"
     },
     {
@@ -81,7 +88,7 @@
         "F12"
       ],
       "name": "OTel-aligned data model + OTLP",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/otel`, `internal/otel/otlp`, `internal/pipeline/otlpexport.go` (metrics/traces/logs ingest/export; three-signal claim pinned by docslint — ARCH-002/003)"
     },
     {
@@ -89,7 +96,7 @@
         "F13"
       ],
       "name": "AI RCA + NL query",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/ai` · *rca-eval*"
     },
     {
@@ -97,7 +104,7 @@
         "F14"
       ],
       "name": "MCP server",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/ai/mcp`"
     },
     {
@@ -105,7 +112,7 @@
         "F15"
       ],
       "name": "Browser synthetic",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`browser-worker/` · *browser-worker*"
     },
     {
@@ -113,7 +120,7 @@
         "F16"
       ],
       "name": "Endpoint agent (DEM)",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/endpoint`, cross-OS builds"
     },
     {
@@ -129,7 +136,7 @@
         "F18"
       ],
       "name": "Device telemetry",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/device` (SNMP + gNMI)"
     },
     {
@@ -137,7 +144,7 @@
         "F19"
       ],
       "name": "Internet-outage view",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/outage`"
     },
     {
@@ -153,7 +160,7 @@
         "F21"
       ],
       "name": "Voice/RTP",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/canary/voice.go`"
     },
     {
@@ -161,7 +168,7 @@
         "F22"
       ],
       "name": "SSO + role model",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/auth` (fail-closed default — U-001)"
     },
     {
@@ -185,7 +192,7 @@
         "F25"
       ],
       "name": "SCIM/ABAC/delegated admin",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/control/scim.go`; ABAC deny-override in `internal/auth/abac.go` + `internal/control/abac.go`"
     },
     {
@@ -193,7 +200,7 @@
         "F26"
       ],
       "name": "SIEM integration",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/siem` (cursor, tenant-routed); API/CLI + native delivery-posture surface ✅ (`/v1/siem/status`, `probectl siem status`, `web/src/routes/admin/SIEMPostureCard.tsx`)"
     },
     {
@@ -201,7 +208,7 @@
         "F27"
       ],
       "name": "On-call & ITSM",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/notify`, `docs/oncall-itsm.md`"
     },
     {
@@ -209,7 +216,7 @@
         "F28"
       ],
       "name": "Zero-downtime lifecycle + fleet rollout",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "migrations gate + rollout engine ✅ (`internal/agent/rollout.go`); CLI/API + native human-gated wave console ✅ (`probectl rollout`, `/v1/rollouts`, `web/src/routes/admin/RolloutCard.tsx`, `docs/ops/fleet-rollout.md`)"
     },
     {
@@ -225,7 +232,7 @@
         "F30"
       ],
       "name": "CMDB / metrics federation",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/cmdb`, `internal/promapi`; Prometheus-compatible APIs support optional operator clients without a bundled dashboard runtime"
     },
     {
@@ -233,7 +240,7 @@
         "F31"
       ],
       "name": "Secrets integration",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/secrets` (seam + Vault path), device creds"
     },
     {
@@ -257,7 +264,7 @@
         "F34"
       ],
       "name": "Advanced governance",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/govern`, retention/erasure/redaction, BYOK"
     },
     {
@@ -273,7 +280,7 @@
         "F36"
       ],
       "name": "TLS/cert observability",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/threat`, trustctl handoff"
     },
     {
@@ -281,7 +288,7 @@
         "F37"
       ],
       "name": "NDR-lite detection engine",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/threat` (confidence-scored, suppression, SIEM)"
     },
     {
@@ -289,7 +296,7 @@
         "F38"
       ],
       "name": "Threat-intel enrichment",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/opendata` + AUP tracking (resale terms = counsel, §5.3)"
     },
     {
@@ -305,7 +312,7 @@
         "F40"
       ],
       "name": "Live topology graph",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/topology` (versioned, what-if; ADR U-047)"
     },
     {
@@ -313,7 +320,7 @@
         "F41"
       ],
       "name": "FinOps/egress cost",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/cost`"
     },
     {
@@ -321,7 +328,7 @@
         "F42"
       ],
       "name": "SLO + business impact",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/slo` (OpenSLO)"
     },
     {
@@ -329,7 +336,7 @@
         "F43"
       ],
       "name": "Segmentation validation",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/compliance`"
     },
     {
@@ -337,7 +344,7 @@
         "F44"
       ],
       "name": "Guarded remediation",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`ee/remediation` — observe-only/human-gated, dry-run, blast-radius, audited (guardrail intact)"
     },
     {
@@ -345,7 +352,7 @@
         "F45"
       ],
       "name": "AI authoring + discovery",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/ai/author`"
     },
     {
@@ -353,7 +360,7 @@
         "F46"
       ],
       "name": "Last-mile/WiFi/ISP diagnostics",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/endpoint` + `docs/endpoint-dem.md`"
     },
     {
@@ -361,7 +368,7 @@
         "F47"
       ],
       "name": "Network chaos",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/chaos`"
     },
     {
@@ -393,7 +400,7 @@
         "F51"
       ],
       "name": "Provider/MSP plane",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`ee/provider` (consumption-priced self-hosted resale under the probectl banner; break-glass audited; no implicit access)"
     },
     {
@@ -401,7 +408,7 @@
         "F52"
       ],
       "name": "Pooled/siloed/hybrid",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`ee/silo` (per-tenant ClickHouse provisioning/routing delivered across flow, path, eBPF, and OTLP; see `docs/isolation.md`; pinned by `TestProvisionDrivesEveryCHPlane`)"
     },
     {
@@ -409,7 +416,7 @@
         "F53"
       ],
       "name": "Metering/billing export",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`ee/billing`, `internal/usage` (operator-run export; never phone-home; MSP consumption basis)"
     },
     {
@@ -425,7 +432,7 @@
         "F55"
       ],
       "name": "Export/residency/verifiable deletion",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`internal/lifecycle` (attested erasure — U-027)"
     },
     {
@@ -433,7 +440,7 @@
         "F56"
       ],
       "name": "Per-tenant keys/BYOK",
-      "status": "delivered",
+      "status": "partial",
       "evidence": "`ee/tenantkeys`, `internal/tenantcrypto`"
     },
     {

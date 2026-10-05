@@ -53,14 +53,15 @@ record, agent, query, metric, event, and object.
 > [`docs/contract/product-contract.json`](docs/contract/product-contract.json):
 > the feature delivery matrix, the telemetry planes, the size of the verification
 > net, and the proofs that are deliberately parked — all machine-readable. CI
-> checks this file's shape and cross-references (`docs/contract_test.go`), and that
-> every capability it marks delivered is accounted for in the stricter evidence
-> ledger `capabilities.yaml` — where many delivered capabilities are honestly
-> marked `evidence_status: partial` pending real-stack proof. It is not a claim
-> that every delivered feature already has complete real-stack evidence; the
-> ledger is the authority on how far each proof has gone. Reference-hardware scale
-> and overhead, representative multi-region DR, and counsel-owned commercial paper
-> are the parked proofs; they are named there rather than implied to pass.
+> checks this file's shape and cross-references (`docs/contract_test.go`), and
+> enforces that every capability it marks `delivered` has complete real-stack
+> evidence in the stricter ledger `capabilities.yaml`
+> (`TestDeliveredContractMatchesEvidenceLedger`). A capability whose proof is
+> still partial is marked `partial` in the contract itself — not `delivered` — so
+> the matrix never over-claims; the ledger remains the authority on how far each
+> proof has gone. Reference-hardware scale and overhead, representative
+> multi-region DR, and counsel-owned commercial paper are the parked proofs; they
+> are named there rather than implied to pass.
 >
 > **Container tags:** published releases are pre-1.0, so
 > `ghcr.io/ctlplne/probectl-*:latest` currently resolves to a **pre-release**.
