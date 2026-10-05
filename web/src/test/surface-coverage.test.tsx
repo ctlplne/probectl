@@ -571,13 +571,13 @@ describe('frontend-coverage gate (S-FE6)', () => {
     )
 
     const staleCatalog = REQUIRED_FEATURES.map((feature): RequiredFeature => {
-      if (feature.id !== 'F28') {
+      if (feature.id !== 'F17') {
         return feature
       }
       return { ...feature, status: 'partial' }
     })
     expect(contractCatalogStatusViolations(staleCatalog)).toContain(
-      'F28 Zero-downtime lifecycle and fleet rollout: catalog status partial != contract status delivered',
+      'F17 Flow analytics: catalog status partial != contract status delivered',
     )
   })
 
