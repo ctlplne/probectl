@@ -71,8 +71,17 @@ func (d *ExecDriver) Run(ctx context.Context, s Script) (RunOutput, error) {
 		return RunOutput{}, fmt.Errorf("browser worker: %w: %s", err, trimErr(stderr.String()))
 	}
 
+	return parseWorkerResult(stdout.Bytes(), s, start)
+}
+
+// parseWorkerResult decodes the browser-worker's JSON result (a workerResult)
+// into a RunOutput, filling the script-derived fields. It is shared by
+// ExecDriver (the stdin one-shot subprocess) and SocketDriver (the shared
+// sidecar worker reached over a UNIX socket) so both speak the identical worker
+// contract — the worker's output format is defined once, here.
+func parseWorkerResult(out []byte, s Script, start time.Time) (RunOutput, error) {
 	var wr workerResult
-	if err := json.Unmarshal(stdout.Bytes(), &wr); err != nil {
+	if err := json.Unmarshal(out, &wr); err != nil {
 		return RunOutput{}, fmt.Errorf("browser worker: malformed result: %w", err)
 	}
 

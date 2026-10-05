@@ -11,7 +11,8 @@ import { chromium } from "playwright";
 import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
-import { BlockList, isIP } from "node:net";
+import { BlockList, createServer, isIP } from "node:net";
+import { unlinkSync } from "node:fs";
 import { domTimings } from "./timings.mjs";
 
 const STEP_TIMEOUT_MS = Number(process.env.PROBECTL_BROWSER_STEP_TIMEOUT_MS || 15000);
@@ -51,8 +52,8 @@ function mappedIPv4(address) {
   return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
 }
 
-function targetDenied(address, family) {
-  if (ALLOW_PRIVATE_TARGETS) return false;
+function targetDenied(address, family, allowPrivate) {
+  if (allowPrivate) return false;
   const unzoned = address.split("%")[0];
   const mapped = mappedIPv4(unzoned);
   if (mapped) return deniedIPv4.check(mapped, "ipv4");
@@ -61,7 +62,7 @@ function targetDenied(address, family) {
     : deniedIPv4.check(unzoned, "ipv4");
 }
 
-async function checkedAddresses(hostname) {
+async function checkedAddresses(hostname, allowPrivate) {
   const host = hostname.replace(/^\[|\]$/g, "");
   const literalFamily = isIP(host);
   const addresses = literalFamily
@@ -69,7 +70,7 @@ async function checkedAddresses(hostname) {
     : await lookup(host, { all: true, verbatim: true });
   if (addresses.length === 0) throw new Error(`SSRF guard: ${host} resolved to no addresses`);
   for (const item of addresses) {
-    if (targetDenied(item.address, item.family)) {
+    if (targetDenied(item.address, item.family, allowPrivate)) {
       throw new Error(`SSRF guard denied ${host} -> ${item.address}`);
     }
   }
@@ -95,14 +96,14 @@ function responseHeaders(headers) {
   return out;
 }
 
-async function fetchGuarded(route) {
+async function fetchGuarded(route, allowPrivate) {
   const request = route.request();
   const target = new URL(request.url());
   if (target.protocol !== "http:" && target.protocol !== "https:") {
     await route.abort("blockedbyclient");
     return;
   }
-  const addresses = await checkedAddresses(target.hostname);
+  const addresses = await checkedAddresses(target.hostname, allowPrivate);
   const transport = target.protocol === "https:" ? https : http;
   const headers = { ...request.headers(), host: target.host };
   delete headers.connection;
@@ -150,7 +151,15 @@ function targetFor(step, current) {
   return step.url && step.url !== "" ? step.url : current;
 }
 
-async function run(script) {
+async function run(script, opts = {}) {
+  // SUP-02/D-36: the step timeout and the SSRF allow-private flag arrive PER
+  // TRANSACTION. In stdin one-shot mode (ExecDriver) opts is empty and the
+  // module-env defaults apply, exactly as before; in socket mode (SocketDriver,
+  // one shared sidecar worker) they come in-band on each request so a per-canary
+  // allow-private value cannot leak to the whole fleet.
+  const stepTimeout =
+    Number.isFinite(opts.stepTimeoutMs) && opts.stepTimeoutMs > 0 ? opts.stepTimeoutMs : STEP_TIMEOUT_MS;
+  const allowPrivate = opts.allowPrivateTargets ?? ALLOW_PRIVATE_TARGETS;
   const started = Date.now();
   const steps = [];
   const waterfall = [];
@@ -172,7 +181,7 @@ async function run(script) {
   const page = await context.newPage();
   await page.route("**/*", async (route) => {
     try {
-      await fetchGuarded(route);
+      await fetchGuarded(route, allowPrivate);
     } catch (err) {
       process.stderr.write(`browser target blocked: ${String(err && err.message ? err.message : err)}\n`);
       await route.abort("blockedbyclient").catch(() => {});
@@ -215,13 +224,13 @@ async function run(script) {
       switch (step.action) {
         case "goto": {
           current = targetFor(step, current);
-          const resp = await page.goto(current, { timeout: STEP_TIMEOUT_MS, waitUntil: "load" });
+          const resp = await page.goto(current, { timeout: stepTimeout, waitUntil: "load" });
           lastStatus = resp ? resp.status() : 0;
           detail = String(lastStatus);
           break;
         }
         case "fill":
-          await page.fill(selectorFor(step), step.value || "", { timeout: STEP_TIMEOUT_MS });
+          await page.fill(selectorFor(step), step.value || "", { timeout: stepTimeout });
           detail = "filled";
           break;
         case "click":
@@ -229,7 +238,7 @@ async function run(script) {
           if (step.selector) {
             await Promise.all([
               page.waitForLoadState("load").catch(() => {}),
-              page.click(step.selector, { timeout: STEP_TIMEOUT_MS }),
+              page.click(step.selector, { timeout: stepTimeout }),
             ]);
           } else {
             await page.keyboard.press("Enter");
@@ -239,7 +248,7 @@ async function run(script) {
           break;
         case "assert_text":
         case "wait_text": {
-          await page.getByText(step.value, { exact: false }).first().waitFor({ timeout: STEP_TIMEOUT_MS });
+          await page.getByText(step.value, { exact: false }).first().waitFor({ timeout: stepTimeout });
           detail = "found";
           break;
         }
@@ -320,14 +329,70 @@ async function readDOMTimings(page) {
   return domTimings(raw);
 }
 
-(async () => {
+function errorResult(e) {
+  return { success: false, error: String(e && e.message ? e.message : e), steps: [], waterfall: [] };
+}
+
+// Socket-server mode (SUP-02/D-36): when PROBECTL_BROWSER_WORKER_SOCKET is set,
+// the worker runs as a long-lived SIDECAR and the agent (SocketDriver) dials the
+// UNIX socket once per transaction. The Chromium renderer lives in THIS
+// container; the agent's mTLS identity (key.pem) does NOT (it is mounted only in
+// the sibling agent container), so a browser RCE here cannot read it. One
+// connection == one transaction, mirroring the stdin one-shot's
+// one-process-per-run isolation; the agent's ctx-cancel closes the socket, which
+// ends this handler.
+function serveSocket(socketPath) {
   try {
-    const input = await readStdin();
-    const script = JSON.parse(input);
-    const result = await run(script);
-    process.stdout.write(JSON.stringify(result));
-  } catch (e) {
-    process.stdout.write(JSON.stringify({ success: false, error: String(e && e.message ? e.message : e), steps: [], waterfall: [] }));
-    process.exitCode = 1;
+    unlinkSync(socketPath);
+  } catch {
+    /* no stale socket to remove */
   }
-})();
+  const server = createServer((conn) => {
+    const chunks = [];
+    conn.on("data", (c) => chunks.push(c));
+    conn.on("end", async () => {
+      let result;
+      try {
+        const req = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        // The agent sends an envelope {script, step_timeout_ms,
+        // allow_private_targets}; tolerate a bare Script for compatibility.
+        const envelope = req && typeof req === "object" && "script" in req;
+        const script = envelope ? req.script : req;
+        result = await run(script, {
+          stepTimeoutMs: envelope ? req.step_timeout_ms : undefined,
+          allowPrivateTargets: envelope ? req.allow_private_targets : undefined,
+        });
+      } catch (e) {
+        result = errorResult(e);
+      }
+      conn.end(JSON.stringify(result));
+    });
+    conn.on("error", () => {
+      /* agent vanished (ctx cancel / RunTimeout) — abandon this transaction */
+    });
+  });
+  server.on("error", (e) => {
+    process.stderr.write(`browser-worker: socket server error: ${String(e && e.message ? e.message : e)}\n`);
+    process.exitCode = 1;
+  });
+  server.listen(socketPath, () => {
+    process.stderr.write(`browser-worker: listening on ${socketPath}\n`);
+  });
+}
+
+const WORKER_SOCKET = process.env.PROBECTL_BROWSER_WORKER_SOCKET;
+if (WORKER_SOCKET) {
+  serveSocket(WORKER_SOCKET);
+} else {
+  (async () => {
+    try {
+      const input = await readStdin();
+      const script = JSON.parse(input);
+      const result = await run(script);
+      process.stdout.write(JSON.stringify(result));
+    } catch (e) {
+      process.stdout.write(JSON.stringify(errorResult(e)));
+      process.exitCode = 1;
+    }
+  })();
+}

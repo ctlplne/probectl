@@ -500,7 +500,9 @@ jobs:
         run: |
           set -euo pipefail
           log="${RUNNER_TEMP:-/tmp}/probectl-browser-worker-smoke.log"
-          go test -tags=integration ./internal/browsercanary             -run '^TestAgentFactoryRunsRealPlaywrightWorker$' -count=1 -v 2>&1 | tee "$log"
+          # Both the stdin ExecDriver lane and the SUP-02/D-36 sidecar-socket
+          # lane (SocketDriver) drive the real worker against Chromium here.
+          go test -tags=integration ./internal/browsercanary             -run '^TestAgentFactoryRunsRealPlaywrightWorker(OverSocket)?$' -count=1 -v 2>&1 | tee "$log"
           if grep -q -- '--- SKIP: TestAgentFactoryRunsRealPlaywrightWorker' "$log"; then
             echo "::error::TestAgentFactoryRunsRealPlaywrightWorker skipped in its own lane" >&2
             exit 1

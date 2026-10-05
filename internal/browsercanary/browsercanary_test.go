@@ -243,6 +243,30 @@ func TestBrowserFactoryFailsClosedWhenWorkerMissing(t *testing.T) {
 	}
 }
 
+// TestBrowserFactorySidecarSocketSkipsLocalWorkerChecks closes the SUP-02/D-36
+// wiring: with WorkerSocket set, the worker lives in a SEPARATE container, so the
+// factory must NOT require a local worker command/path (a stat of either would be
+// meaningless across containers) — and it must reject configuring both transports
+// at once.
+//
+// Fail-before: the pre-split factory required WorkerCommand/WorkerPath for the
+// browser driver, so a socket-only config errored "worker command is required".
+func TestBrowserFactorySidecarSocketSkipsLocalWorkerChecks(t *testing.T) {
+	if _, err := NewFactory(DriverConfig{
+		Driver: DriverBrowser, WorkerSocket: "/run/browser-worker/worker.sock",
+	}, nil, nil); err != nil {
+		t.Fatalf("sidecar socket config rejected (no local worker command/path should be required): %v", err)
+	}
+
+	_, err := NewFactory(DriverConfig{
+		Driver: DriverBrowser, WorkerSocket: "/run/browser-worker/worker.sock",
+		WorkerCommand: "node", WorkerPath: "/worker/worker.mjs",
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "EITHER") {
+		t.Fatalf("socket + command/path together must be rejected, got: %v", err)
+	}
+}
+
 func TestRenderedBrowserPreservesScriptTargetGuard(t *testing.T) {
 	factory, err := NewFactory(DriverConfig{
 		Driver: DriverBrowser, WorkerCommand: os.Args[0], WorkerPath: os.Args[0],

@@ -190,13 +190,18 @@ type BrowserConfig struct {
 	Worker BrowserWorkerConfig `yaml:"worker"`
 }
 
-// BrowserWorkerConfig identifies the rendering worker packaged beside the
-// browser-capable agent. It opens no listener: the agent executes Command with
-// Path as its first argument for each isolated transaction.
+// BrowserWorkerConfig identifies the rendering worker for the browser-capable
+// agent. In the default single-container shape the agent executes Command with
+// Path as its first argument for each isolated transaction (stdin/stdout). When
+// Socket is set (SUP-02/D-36 sidecar split), the worker runs in a SEPARATE
+// container listening on that UNIX socket and the agent drives it over the
+// socket instead — so the agent's mTLS identity need not share a container with
+// the Chromium renderer. Socket and Command/Path are mutually exclusive.
 type BrowserWorkerConfig struct {
 	Command     string   `yaml:"command"`
 	Path        string   `yaml:"path"`
 	Args        []string `yaml:"args"`
+	Socket      string   `yaml:"socket"`
 	StepTimeout Duration `yaml:"step_timeout"`
 }
 
@@ -321,6 +326,7 @@ func (c *Config) applyEnv() {
 	override("PROBECTL_AGENT_BROWSER_DRIVER", &c.Browser.Driver)
 	override("PROBECTL_AGENT_BROWSER_WORKER_COMMAND", &c.Browser.Worker.Command)
 	override("PROBECTL_AGENT_BROWSER_WORKER_PATH", &c.Browser.Worker.Path)
+	override("PROBECTL_AGENT_BROWSER_WORKER_SOCKET", &c.Browser.Worker.Socket)
 	override("PROBECTL_AGENT_ENROLL_TOKEN_FILE", &c.Enroll.TokenFile)
 	override("PROBECTL_AGENT_ENROLL_SERVER", &c.Enroll.Server)
 	override("PROBECTL_AGENT_ENROLL_CA_PIN", &c.Enroll.CAPin)

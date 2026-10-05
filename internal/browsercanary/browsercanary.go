@@ -46,11 +46,18 @@ const defaultWorkerStepTimeout = 15 * time.Second
 // DriverConfig selects the agent-local implementation for browser tests.
 // WorkerPath is passed as the first argument to WorkerCommand; no listener or
 // network control channel is created between the Go agent and Playwright.
+//
+// WorkerSocket (SUP-02/D-36) switches to the sidecar transport: the Chromium
+// worker runs in a SEPARATE container listening on this UNIX socket, and the
+// agent drives it over the socket instead of spawning it as a child — so the
+// agent's mTLS identity is never in the renderer's container. WorkerSocket is
+// mutually exclusive with WorkerCommand/WorkerPath.
 type DriverConfig struct {
 	Driver        string
 	WorkerCommand string
 	WorkerPath    string
 	WorkerArgs    []string
+	WorkerSocket  string
 	StepTimeout   time.Duration
 }
 
@@ -91,21 +98,33 @@ func NewFactory(driver DriverConfig, store objectstore.Store, log *slog.Logger) 
 	switch driver.Driver {
 	case DriverHTTP:
 	case DriverBrowser:
-		if strings.TrimSpace(driver.WorkerCommand) == "" {
-			return nil, errors.New("browser: worker command is required for browser driver")
-		}
-		if _, err := exec.LookPath(driver.WorkerCommand); err != nil {
-			return nil, fmt.Errorf("browser: worker command %q is unavailable: %w", driver.WorkerCommand, err)
-		}
-		if strings.TrimSpace(driver.WorkerPath) == "" {
-			return nil, errors.New("browser: worker path is required for browser driver")
-		}
-		info, err := os.Stat(driver.WorkerPath)
-		if err != nil {
-			return nil, fmt.Errorf("browser: worker path %q is unavailable: %w", driver.WorkerPath, err)
-		}
-		if !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("browser: worker path %q is not a regular file", driver.WorkerPath)
+		if strings.TrimSpace(driver.WorkerSocket) != "" {
+			// SUP-02/D-36 sidecar: the worker is in a SEPARATE container reached
+			// over this UNIX socket. We cannot stat a command/path in another
+			// container, and the sidecar may still be starting, so we do not probe
+			// the socket at startup — the driver dials it per transaction and a dial
+			// failure recycles like any worker fault. Socket is mutually exclusive
+			// with command/path.
+			if strings.TrimSpace(driver.WorkerCommand) != "" || strings.TrimSpace(driver.WorkerPath) != "" {
+				return nil, errors.New("browser: set EITHER worker socket (sidecar) OR worker command/path (in-process), not both")
+			}
+		} else {
+			if strings.TrimSpace(driver.WorkerCommand) == "" {
+				return nil, errors.New("browser: worker command is required for browser driver")
+			}
+			if _, err := exec.LookPath(driver.WorkerCommand); err != nil {
+				return nil, fmt.Errorf("browser: worker command %q is unavailable: %w", driver.WorkerCommand, err)
+			}
+			if strings.TrimSpace(driver.WorkerPath) == "" {
+				return nil, errors.New("browser: worker path is required for browser driver")
+			}
+			info, err := os.Stat(driver.WorkerPath)
+			if err != nil {
+				return nil, fmt.Errorf("browser: worker path %q is unavailable: %w", driver.WorkerPath, err)
+			}
+			if !info.Mode().IsRegular() {
+				return nil, fmt.Errorf("browser: worker path %q is not a regular file", driver.WorkerPath)
+			}
 		}
 		if driver.StepTimeout <= 0 {
 			driver.StepTimeout = defaultWorkerStepTimeout
@@ -148,12 +167,22 @@ func newBrowser(cfg canary.Config, store objectstore.Store, log *slog.Logger, dr
 		return nil, fmt.Errorf("browser: test requires %s driver but this agent is configured for %s", requiredDriver, driver.Driver)
 	}
 	runTimeout := cfg.Timeout
+	allowPrivate := cfg.Params[canary.AllowPrivateParam] == "true"
 	driverFactory := func() browser.Driver {
 		if driver.Driver == DriverBrowser {
+			if driver.WorkerSocket != "" {
+				// SUP-02/D-36: drive the Chromium worker in its sidecar over the
+				// shared UNIX socket. The per-transaction step timeout and the
+				// allow-private flag travel in-band (the sidecar is one shared
+				// process, so env cannot vary them per canary).
+				return browser.NewSocketDriver(driver.WorkerSocket).
+					WithStepTimeout(driver.StepTimeout).
+					WithAllowPrivateTargets(allowPrivate)
+			}
 			args := append([]string{driver.WorkerPath}, driver.WorkerArgs...)
 			return browser.NewExecDriver(driver.WorkerCommand, args...).WithEnv(
 				"PROBECTL_BROWSER_STEP_TIMEOUT_MS="+strconv.FormatInt(driver.StepTimeout.Milliseconds(), 10),
-				"PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS="+strconv.FormatBool(cfg.Params[canary.AllowPrivateParam] == "true"),
+				"PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS="+strconv.FormatBool(allowPrivate),
 			)
 		}
 		return browser.NewHTTPDriver(browser.WithTargetGuard(guard))

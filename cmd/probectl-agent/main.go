@@ -164,6 +164,7 @@ func run() error {
 		WorkerCommand: cfg.Browser.Worker.Command,
 		WorkerPath:    cfg.Browser.Worker.Path,
 		WorkerArgs:    cfg.Browser.Worker.Args,
+		WorkerSocket:  cfg.Browser.Worker.Socket,
 		StepTimeout:   cfg.Browser.Worker.StepTimeout.Std(),
 	}, artifactStore, log)
 	if err != nil {

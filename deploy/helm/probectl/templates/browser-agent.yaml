@@ -4,6 +4,11 @@
 {{- if not .Values.browserAgent.networkPolicy.enabled -}}
 {{- fail "browserAgent.networkPolicy.enabled must remain true when browserAgent is enabled" -}}
 {{- end -}}
+{{- $image := printf "%s@%s" .Values.browserAgent.image.repository $digest -}}
+{{- /* SUP-02 / D-36: the agent and the Chromium worker run as SEPARATE containers
+       and talk over a shared-volume UNIX socket. The agent holds the mTLS SVID;
+       the renderer does not. */ -}}
+{{- $workerSocket := "/run/browser-worker/worker.sock" -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -54,8 +59,12 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
+        # SUP-02 / D-36: the AGENT container holds the agent's mTLS identity
+        # (cert.pem / key.pem / ca.pem, via browser-config) and drives the
+        # Chromium worker over the shared UNIX socket. It does NOT run a browser,
+        # so a renderer compromise cannot reach this container's identity key.
         - name: browser-agent
-          image: {{ printf "%s@%s" .Values.browserAgent.image.repository $digest | quote }}
+          image: {{ $image | quote }}
           imagePullPolicy: {{ .Values.browserAgent.image.pullPolicy }}
           args: ["-config", "/etc/probectl-browser/agent.yml"]
           env:
@@ -63,14 +72,58 @@ spec:
               value: /tmp/probectl-browser-home
             - name: PROBECTL_AGENT_BROWSER_DRIVER
               value: browser
+            # Drive the worker over the sidecar socket (SUP-02/D-36), never as a
+            # local child process. The empty command/path override the image's
+            # single-container defaults so the agent cannot fall back to spawning
+            # a renderer inside this identity-bearing container.
+            - name: PROBECTL_AGENT_BROWSER_WORKER_SOCKET
+              value: {{ $workerSocket | quote }}
             - name: PROBECTL_AGENT_BROWSER_WORKER_COMMAND
-              value: node
+              value: ""
             - name: PROBECTL_AGENT_BROWSER_WORKER_PATH
-              value: /worker/worker.mjs
+              value: ""
             {{- range $name, $value := .Values.browserAgent.extraEnv }}
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            {{- if $.Values.assignNumericUIDs }}
+            runAsUser: 1001
+            runAsGroup: 1001
+            {{- end }}
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # The SVID lives here — mounted ONLY in the agent container.
+            - name: browser-config
+              mountPath: /etc/probectl-browser
+              readOnly: true
+            - name: browser-worker-ipc
+              mountPath: /run/browser-worker
+            - name: agent-tmp
+              mountPath: /tmp
+            {{- with .Values.browserAgent.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        # SUP-02 / D-36: the WORKER container runs headless Chromium over
+        # UNTRUSTED web content and holds NO agent identity — browser-config
+        # (cert.pem / key.pem / ca.pem) is deliberately NOT mounted here, so a
+        # browser RCE cannot exfiltrate the agent's mTLS key. It reaches the agent
+        # only over the shared socket. Chromium's own sandbox stays disabled
+        # (the hardened pod forbids the privileges it needs — see worker.mjs);
+        # this container's locked-down securityContext is the isolation boundary.
+        - name: browser-worker
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ .Values.browserAgent.image.pullPolicy }}
+          command: ["node", "/worker/worker.mjs"]
+          env:
+            - name: HOME
+              value: /tmp/probectl-browser-home
+            - name: PROBECTL_BROWSER_WORKER_SOCKET
+              value: {{ $workerSocket | quote }}
           resources:
             {{- toYaml .Values.browserAgent.resources | nindent 12 }}
           securityContext:
@@ -88,16 +141,12 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
-            - name: browser-config
-              mountPath: /etc/probectl-browser
-              readOnly: true
+            - name: browser-worker-ipc
+              mountPath: /run/browser-worker
             - name: browser-tmp
               mountPath: /tmp
             - name: browser-shm
               mountPath: /dev/shm
-            {{- with .Values.browserAgent.extraVolumeMounts }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
       volumes:
         - name: browser-config
           secret:
@@ -110,10 +159,16 @@ spec:
               - key: key.pem
                 path: key.pem
                 # Projected Secrets are owned by root; fsGroup=1001 makes this
-                # group-readable by the non-root worker without making it public.
+                # group-readable by the non-root agent without making it public.
                 mode: 0440
               - key: ca.pem
                 path: ca.pem
+        # SUP-02/D-36: the agent↔worker IPC socket — shared between the two
+        # containers, holds no identity, never leaves the pod.
+        - name: browser-worker-ipc
+          emptyDir: {}
+        - name: agent-tmp
+          emptyDir: {}
         - name: browser-tmp
           emptyDir: {}
         - name: browser-shm

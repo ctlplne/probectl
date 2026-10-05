@@ -417,6 +417,7 @@ mounting a full file is awkward:
 | `PROBECTL_AGENT_BROWSER_DRIVER` | `browser.driver` | `http` for a non-rendering HTTP transaction or `browser` for rendered Playwright; rendered mode fails startup unless its worker is usable |
 | `PROBECTL_AGENT_BROWSER_WORKER_COMMAND` | `browser.worker.command` | executable used for the listener-free rendered worker (the shipped browser-agent image uses `node`) |
 | `PROBECTL_AGENT_BROWSER_WORKER_PATH` | `browser.worker.path` | worker program passed to the command (the shipped browser-agent image uses `/worker/worker.mjs`) |
+| `PROBECTL_AGENT_BROWSER_WORKER_SOCKET` | `browser.worker.socket` | UNIX socket of a browser-worker running in a SEPARATE sidecar container (SUP-02/D-36). When set, the agent drives the renderer over this socket instead of spawning it as a child, so the agent's mTLS identity need not share a container with Chromium; mutually exclusive with `browser.worker.command`/`path` |
 | `PROBECTL_AGENT_IDENTITY_SERVER` | `identity.server` | control-plane HTTPS base URL enabling automatic certificate rotation — the agent rotates its mTLS identity at ~2/3 of its lifetime via `/enroll/agent/rotate`. See [`agent/enrollment.md`](agent/enrollment.md) |
 | `PROBECTL_AGENT_JOIN_TOKEN` | — | a one-time join token for **first-boot enrollment**: with no identity present yet, the agent redeems it, writes its identity, then runs. Idempotent (a present identity is never overwritten) and fail-closed. See [`agent/enrollment.md`](agent/enrollment.md) |
 | `PROBECTL_AGENT_ENROLL_TOKEN_FILE` | `enroll.token_file` | a file holding the join token (a mounted secret, read once, maximum 64 KiB); oversized files fail closed without exposing token bytes; `PROBECTL_AGENT_JOIN_TOKEN` takes precedence |
@@ -822,6 +823,7 @@ agent-to-worker contracts:
 |---|---|---|
 | `PROBECTL_BROWSER_STEP_TIMEOUT_MS` | `15000` | `browser.worker.step_timeout`, converted to milliseconds by the Go driver |
 | `PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS` | `false` | the current test's audited `allow_private_targets` parameter |
+| `PROBECTL_BROWSER_WORKER_SOCKET` | (none) | set on the browser-worker PROCESS to run it as a sidecar socket server (SUP-02/D-36): it listens on this UNIX socket and the agent dials it once per transaction, instead of the default stdin/stdout one-shot. The per-transaction step timeout and allow-private flag arrive in-band on each request |
 
 Example CLI creation:
 
