@@ -347,7 +347,12 @@ function serveSocket(socketPath) {
   } catch {
     /* no stale socket to remove */
   }
-  const server = createServer((conn) => {
+  // allowHalfOpen: true is REQUIRED. The agent half-closes its write side
+  // (CloseWrite) to signal end-of-request; with the default (false) Node would
+  // auto-end this socket's WRITABLE side on that read-EOF, so conn.end(result)
+  // below would write to a closing socket and the agent would read an empty
+  // result. Keeping the write side open lets us reply after the request ends.
+  const server = createServer({ allowHalfOpen: true }, (conn) => {
     const chunks = [];
     conn.on("data", (c) => chunks.push(c));
     conn.on("end", async () => {
