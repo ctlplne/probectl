@@ -369,7 +369,7 @@ jobs:
       # none of which ship, so the published SBOM described the repo, not the
       # release. dist/ is fully populated by the build steps above, before this.
       - name: Generate SBOM (SPDX) over the shipped artifacts
-        uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84 # v0.20.9
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: dist
           format: spdx-json
