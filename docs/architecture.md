@@ -621,8 +621,12 @@ events as JSON Lines — a dependency-light, language-neutral contract — and
 `internal/bgp` is the bridge that parses each line, **fails closed on any event
 missing a `tenant_id`** (tenant is the outermost scope), translates it to the
 canonical `probectl.bgp.v1.BGPEvent` protobuf, and publishes it on the bus keyed
-by tenant. External BGP data is ingested **once** and then scoped per tenant by
-each tenant's monitoring configuration. RouteViews/RIS are open data; their
+by tenant, on that tenant's own lane (`probectl.t-<slug>.bgp.events`). BGP
+collector ingestion is per tenant by decision of record
+([`adr/bgp-ingest-model.md`](adr/bgp-ingest-model.md)): each monitored tenant
+runs its own analyzer subprocess on its own copy of the feeds, so there is no
+cross-tenant state to scope — unlike the open-data and threat feeds below, which
+are ingested once and then scoped per tenant. RouteViews/RIS are open data; their
 acceptable-use terms and per-source provenance are tracked for MSP/commercial
 resale, and are irrelevant to single-tenant self-hosted use.
 
