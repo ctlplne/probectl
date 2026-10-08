@@ -1011,7 +1011,7 @@ not receive Kafka/DB credentials — the Go bridge alone owns the bus connection
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `PROBECTL_BGP_ANALYZER_CONFIG` | (none) | analyzer JSON path (maximum 1 MiB); required; its `tenant_id` becomes the trusted output binding |
-| `PROBECTL_BGP_ANALYZER_SOURCE` | (none) | required: `ris-live` \| `mrt` \| `replay`; the stock image supports MRT/replay, while live mode needs the analyzer's optional `websockets` package |
+| `PROBECTL_BGP_ANALYZER_SOURCE` | (none) | required: `ris-live` \| `mrt` \| `replay`; the stock image supports all three (its hash-locked runtime pins the `websockets` package live mode needs); a source install outside the image adds it with the analyzer's `rislive` extra |
 | `PROBECTL_BGP_ANALYZER_SOURCE_FILE` | (none) | required input path for `mrt` and `replay` |
 | `PROBECTL_BGP_ANALYZER_BUS_NAMESPACE` | (none) | publish on the config tenant's own lane, `probectl.<ns>.bgp.events` (`t-<slug>`, the value collector registration prints for every plane). Required wherever `PROBECTL_INGEST_STRICT_TENANT_LANES` is on — the multi-tenant and regulated profiles refuse BGP events on the shared lane; a malformed value refuses start. Empty = route through the isolation router (the shared lane for a pooled tenant), which suits only the `single` profile |
 | `PROBECTL_BGP_ANALYZER_RESTART` | `true` for live; `false` for files | restart the subprocess after it exits; backoff is always bounded |

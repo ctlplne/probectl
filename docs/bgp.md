@@ -153,9 +153,12 @@ regulated profiles turn strict tenant lanes on and refuse BGP events on the
 shared lane, so there the lane is required (DPR-049, WIRE-001). A Python crash backs off and restarts without affecting
 the API or other telemetry planes. For a deterministic local proof, run the
 Compose `bgp-analyzer` profile documented in `deploy/compose/eval.yml`.
-The source must be selected explicitly. The stock sidecar image supports MRT
-and recorded RIS replay; live RIS streaming requires the analyzer's separately
-documented optional `websockets` package in a custom analyzer image.
+The source must be selected explicitly. The stock sidecar image supports all
+three: MRT, recorded RIS replay, and live RIS streaming — the image installs
+the hash-locked runtime (`analyzer/requirements.lock`), which pins the
+`websockets` package live mode needs (RTP-26/ING-38). Only a source install of
+the analyzer outside the image needs it added: `pip install -e '.[rislive]'`
+from `analyzer/`.
 
 To ingest direct router BMP streams, run the listener with a server certificate and
 the CA that signs router/client certificates:
