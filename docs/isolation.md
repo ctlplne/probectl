@@ -102,6 +102,13 @@ a transient routing blip delays the data instead of mis-routing it.
   tenant registry and restarts only the bus subscribers when that namespace set
   changes, so a tenant siloed *after* boot is picked up without a process restart;
   the shared lanes stay subscribed throughout, so pooled tenants keep flowing.
+  On a shared lane the record's own `tenant_id` is not trusted: the bus key —
+  set by the control plane from the agent certificate or the RUM app key — is
+  the authority, and every consumer of the shared result and RUM topics (the
+  storage pipeline, the latest-results view, SLO, outage, IOC, NDR, TLS posture,
+  RUM and the OTLP export) drops a record whose payload tenant disagrees with
+  its key, so a bus credential for one tenant can never write into another's
+  views or signals.
 - **Object store:** tenant-owned artifact callers use a bound object-store
   handle, so they pass relative paths like `browser/shot.png` and the storage
   adapter prepends the namespace. Siloed/hybrid keys move under

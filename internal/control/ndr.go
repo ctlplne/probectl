@@ -212,7 +212,10 @@ func (cs *NDRConsumer) handleResultLane(ctx context.Context, msg bus.Message, la
 		cs.log.Warn("ndr: skipping malformed result", "error", err)
 		return nil
 	}
-	stampResultLaneTenant(&r, laneTenant)
+	if !bindResultTenant(&r, msg, laneTenant) {
+		logUnboundResult(cs.log, "ndr-dns", &r, msg)
+		return nil
+	}
 	return cs.SinkResult(ctx, &r)
 }
 

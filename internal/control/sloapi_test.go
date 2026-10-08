@@ -101,7 +101,7 @@ func TestSLOConsumerTracksAndAlerts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := sc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
+		if err := sc.handleLane(context.Background(), bus.Message{Key: bus.TenantKey("t1", "agent-1"), Value: raw}, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -148,7 +148,7 @@ func TestSLOConsumerZeroEventTimeFallsBackToReceiveTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
+	if err := sc.handleLane(context.Background(), bus.Message{Key: bus.TenantKey("t1", "agent-1"), Value: raw}, ""); err != nil {
 		t.Fatal(err)
 	}
 	sts := eng.Statuses("t1")
@@ -172,7 +172,7 @@ func TestSLOConsumerFutureEventTimeClampsToReceiveTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
+	if err := sc.handleLane(context.Background(), bus.Message{Key: bus.TenantKey("t1", "agent-1"), Value: raw}, ""); err != nil {
 		t.Fatal(err)
 	}
 	sts := eng.Statuses("t1")

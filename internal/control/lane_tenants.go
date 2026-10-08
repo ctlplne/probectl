@@ -7,16 +7,42 @@
 package control
 
 import (
+	"log/slog"
+
+	"github.com/ctlplne/probectl/internal/bus"
 	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
-func stampResultLaneTenant(r *resultv1.Result, tenant string) {
-	if tenant != "" && r != nil {
-		r.TenantId = tenant
+// bindResultTenant settles the tenant of one decoded result or RUM event
+// before any consumer acts on it (docs/guardrails.md G7-1, ING-03). A
+// tenant-namespaced lane names its tenant and always wins. On the shared
+// pooled lane the authority is the bus key: the control plane sets it from the
+// agent certificate or RUM app key, and per-principal broker ACLs scope it to
+// one tenant. Any bus-credential holder can write the shared topic, so a record
+// whose payload tenant differs from its key, or that carries no key, is
+// refused: a key for tenant A must never place a record in tenant B's views,
+// signals or incidents. The storage pipeline and the OTLP export consumer
+// already made this check; every other consumer of the topic now does too.
+// It reports false when the record must be dropped.
+func bindResultTenant(r *resultv1.Result, msg bus.Message, laneTenant string) bool {
+	if r == nil {
+		return false
 	}
+	if laneTenant != "" {
+		r.TenantId = laneTenant
+		return true
+	}
+	key := bus.TenantFromKey(msg.Key)
+	return key != "" && r.GetTenantId() == key
+}
+
+// logUnboundResult records a result bindResultTenant refused.
+func logUnboundResult(log *slog.Logger, consumer string, r *resultv1.Result, msg bus.Message) {
+	log.Error("REJECTED result: payload tenant disagrees with the bus key on the shared lane (ING-03, fail closed)",
+		"consumer", consumer, "claimed_tenant", r.GetTenantId(), "key_tenant", bus.TenantFromKey(msg.Key), "topic", msg.Topic)
 }
 
 func stampFlowBatchLaneTenant(batch *flowv1.FlowBatch, tenant string) {

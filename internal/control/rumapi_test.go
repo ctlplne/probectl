@@ -389,7 +389,7 @@ func TestRUMEndToEndConvergenceAndIsolation(t *testing.T) {
 			TenantId: tid, CanaryType: "http", ServerAddress: "web.acme.example:443",
 			Success: false, StartTimeUnixNano: now.Add(time.Duration(i) * time.Minute).UnixNano(),
 		})
-		if err := rc.handleSynthetic(context.Background(), bus.Message{Value: raw}); err != nil {
+		if err := rc.handleSynthetic(context.Background(), bus.Message{Key: bus.TenantKey(tid, "agent-1"), Value: raw}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -406,8 +406,9 @@ func TestRUMEndToEndConvergenceAndIsolation(t *testing.T) {
 			t.Fatalf("beacon %d: %d", i, rec.Code)
 		}
 	}
-	for _, payload := range fb.payloads {
-		if err := rc.handleRUMEvent(context.Background(), bus.Message{Value: payload}); err != nil {
+	for i, payload := range fb.payloads {
+		// Delivered as the bus would: keyed by the tenant the handler published under.
+		if err := rc.handleRUMEvent(context.Background(), bus.Message{Key: []byte(fb.tenants[i]), Value: payload}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -465,8 +466,9 @@ func TestRUMPublicKeyReplayDoesNotOpenIncidentWithoutSyntheticCorroboration(t *t
 			t.Fatalf("replayed beacon %d: %d", i, rec.Code)
 		}
 	}
-	for _, payload := range fb.payloads {
-		if err := rc.handleRUMEvent(context.Background(), bus.Message{Value: payload}); err != nil {
+	for i, payload := range fb.payloads {
+		// Delivered as the bus would: keyed by the tenant the handler published under.
+		if err := rc.handleRUMEvent(context.Background(), bus.Message{Key: []byte(fb.tenants[i]), Value: payload}); err != nil {
 			t.Fatal(err)
 		}
 	}

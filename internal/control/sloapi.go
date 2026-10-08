@@ -165,13 +165,13 @@ func (sc *SLOConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 		sc.log.Warn("slo: skipping malformed result", "error", err)
 		return nil
 	}
+	// A namespaced lane is authoritative (CORRECT-005); on the shared lane the
+	// bus key is, and a disagreeing payload is refused (ING-03).
+	if !bindResultTenant(&r, msg, laneTenant) {
+		logUnboundResult(sc.log, "slo-results", &r, msg)
+		return nil
+	}
 	tenant := r.GetTenantId()
-	if laneTenant != "" {
-		tenant = laneTenant // namespaced lane is authoritative (CORRECT-005)
-	}
-	if tenant == "" {
-		return nil // unscoped records are dropped (guardrail 1)
-	}
 	at := pipeline.ResultEventTime(&r, sc.receivedAt())
 	sigs := sc.engine.ObserveResult(tenant, r.GetCanaryType(), r.GetServerAddress(), r.GetAttributes()[otel.AttrTestID], r.GetSuccess(), at)
 	for _, sig := range sigs {

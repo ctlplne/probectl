@@ -38,6 +38,7 @@ type ResultFan struct {
 
 	decoded   atomic.Uint64
 	sinkFails atomic.Uint64
+	rejected  atomic.Uint64 // shared-lane records whose payload tenant disagreed with the key
 }
 
 // ResultSink is one downstream consumer of decoded results.
@@ -94,7 +95,11 @@ func (f *ResultFan) handleLane(ctx context.Context, msg bus.Message, laneTenant 
 		f.log.Warn("result fan: skipping malformed result", "error", err)
 		return nil
 	}
-	stampResultLaneTenant(&r, laneTenant)
+	if !bindResultTenant(&r, msg, laneTenant) {
+		f.rejected.Add(1)
+		logUnboundResult(f.log, f.group, &r, msg)
+		return nil
+	}
 	f.decoded.Add(1)
 	for _, s := range f.sinks {
 		if err := s.Fn(ctx, &r); err != nil {
@@ -115,7 +120,10 @@ func runResultSinkLanes(ctx context.Context, b bus.Bus, group string, log *slog.
 			log.Warn("skipping malformed result", "error", err)
 			return nil
 		}
-		stampResultLaneTenant(&r, laneTenant)
+		if !bindResultTenant(&r, msg, laneTenant) {
+			logUnboundResult(log, group, &r, msg)
+			return nil
+		}
 		return sink(ctx, &r)
 	})
 }

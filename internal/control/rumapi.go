@@ -508,7 +508,10 @@ func (rc *RUMConsumer) handleRUMEventLane(ctx context.Context, msg bus.Message, 
 		rc.log.Warn("rum: skipping malformed event", "error", err)
 		return nil
 	}
-	stampResultLaneTenant(&r, laneTenant)
+	if !bindResultTenant(&r, msg, laneTenant) {
+		logUnboundResult(rc.log, "rum-events", &r, msg)
+		return nil
+	}
 	rc.ingest(ctx, rc.engine.ObserveRUM(&r))
 	return nil
 }
@@ -532,7 +535,10 @@ func (rc *RUMConsumer) handleSyntheticLane(ctx context.Context, msg bus.Message,
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		return nil // the result pipeline owns malformed-result logging
 	}
-	stampResultLaneTenant(&r, laneTenant)
+	if !bindResultTenant(&r, msg, laneTenant) {
+		logUnboundResult(rc.log, "rum-synthetic", &r, msg)
+		return nil
+	}
 	return rc.SinkResult(ctx, &r)
 }
 

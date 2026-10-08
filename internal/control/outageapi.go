@@ -202,7 +202,10 @@ func (oc *OutageConsumer) handleLane(ctx context.Context, msg bus.Message, laneT
 		oc.log.Warn("outage: skipping malformed result", "error", err)
 		return nil
 	}
-	stampResultLaneTenant(&r, laneTenant)
+	if !bindResultTenant(&r, msg, laneTenant) {
+		logUnboundResult(oc.log, "outage-vantage", &r, msg)
+		return nil
+	}
 	return oc.SinkResult(ctx, &r)
 }
 

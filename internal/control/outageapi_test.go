@@ -158,7 +158,7 @@ func TestOutageConsumerRaisesSignals(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := oc.handle(context.Background(), bus.Message{Value: raw}); err != nil {
+		if err := oc.handle(context.Background(), bus.Message{Key: bus.TenantKey(tenant, "agent-1"), Value: raw}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -211,7 +211,7 @@ func TestOutageConsumerDetectsVantageFromHTTPURLTargets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := oc.handle(context.Background(), bus.Message{Value: raw}); err != nil {
+		if err := oc.handle(context.Background(), bus.Message{Key: bus.TenantKey(tid, "agent-1"), Value: raw}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -266,7 +266,7 @@ func TestOutageConsumerFallsBackToServerAddress(t *testing.T) {
 		TenantId: "t1", CanaryType: "icmp", ServerAddress: "10.9.7.7:443", Success: false,
 		StartTimeUnixNano: time.Now().UnixNano(),
 	})
-	if err := oc.handle(context.Background(), bus.Message{Value: raw}); err != nil {
+	if err := oc.handle(context.Background(), bus.Message{Key: bus.TenantKey("t1", "agent-1"), Value: raw}); err != nil {
 		t.Fatal(err)
 	}
 	snap := eng.Snapshot("t1")
