@@ -89,10 +89,12 @@ var (
 	// key is absent. Before this sentinel the operator saw a bare 500 with
 	// no hint that a per-tenant key had to exist, let alone how to make one.
 	ErrTenantIRKeyMissing = errors.New("provider: tenant IR public key is absent")
-	// ErrGrantDecided is returned when a consent/deny/revoke loses a race to
-	// another decision on the same grant. The storage-layer predicates refuse
-	// the second writer rather than letting it clobber the first (S-ae06d833).
-	ErrGrantDecided = errors.New("provider: break-glass grant was already decided by a concurrent request")
+	// ErrGrantDecided is returned when a consent/deny/revoke finds the grant
+	// already past that transition: another decision won a race, or the grant
+	// was already revoked, denied or expired. The storage-layer predicates
+	// refuse the second writer rather than letting it clobber the first
+	// (S-ae06d833); the handler answers 409, never a 500.
+	ErrGrantDecided = errors.New("provider: break-glass grant was already decided (approved, denied, revoked or expired)")
 	ErrForbidden    = errors.New("provider: forbidden")
 	// ErrConsentSelfApproval rejects a break-glass consent whose verified tenant
 	// identity is also a provider operator — the requesting operator themselves

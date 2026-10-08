@@ -75,6 +75,26 @@ func TestProviderErrorClassificationAndRedaction(t *testing.T) {
 	}
 }
 
+// TestProviderDecidedGrantIsAConflictNotAnInternalError: revoking a grant the
+// tenant (or another operator) already revoked — or deciding one that is
+// already decided or expired — is a state conflict the caller can act on. It
+// used to fall through to a redacted 500 and an error log, so the console
+// could not tell "already ended" from a broken deployment.
+func TestProviderDecidedGrantIsAConflictNotAnInternalError(t *testing.T) {
+	var logs bytes.Buffer
+	h := &Handler{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	rec := httptest.NewRecorder()
+	h.writeErr(rec, fmt.Errorf("revoke: %w", ErrGrantDecided))
+	if rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), `"code":"breakglass_decided"`) ||
+		!strings.Contains(rec.Body.String(), ErrGrantDecided.Error()) {
+		t.Fatalf("decided grant = %d %s, want 409 breakglass_decided with the reason", rec.Code, rec.Body.String())
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("a state conflict was logged as a server error: %s", logs.String())
+	}
+}
+
 func TestProviderInternalErrorsAreRedacted(t *testing.T) {
 	const sentinel = "postgres connection failed for secret-db.internal"
 	var logs bytes.Buffer

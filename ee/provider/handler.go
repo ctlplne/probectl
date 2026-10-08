@@ -853,6 +853,11 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "separation_of_duties", http.StatusForbidden
 	case errors.Is(err, ErrNotConsented):
 		code, status = "breakglass_not_active", http.StatusForbidden
+	case errors.Is(err, ErrGrantDecided):
+		// A second revoke (from either side), or a decision on a grant that is
+		// already decided or expired: a state conflict the caller can read,
+		// not an internal failure.
+		code, status = "breakglass_decided", http.StatusConflict
 	case errors.Is(err, errTenantAuditUnavailable):
 		code, status = "tenant_audit_unavailable", http.StatusServiceUnavailable
 	case errors.Is(err, ErrTenantIRKeyMissing):

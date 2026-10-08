@@ -335,6 +335,9 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "409": {
+            "description": "The grant is already revoked, denied or expired (breakglass_decided)"
           }
         }
       }
@@ -417,6 +420,9 @@
           "403": {
             "description": "Forbidden by tenant RBAC or ABAC"
           },
+          "409": {
+            "description": "Another decision on this grant won a concurrent race (breakglass_decided)"
+          },
           "503": {
             "description": "Tenant authorization policy is unavailable"
           }
@@ -433,6 +439,9 @@
           },
           "403": {
             "description": "Forbidden by tenant RBAC or ABAC, or the grant belongs to another tenant"
+          },
+          "409": {
+            "description": "The grant is already revoked, denied or expired (breakglass_decided)"
           },
           "503": {
             "description": "Tenant authorization policy or tenant audit stream is unavailable"
