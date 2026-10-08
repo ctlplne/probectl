@@ -334,6 +334,10 @@ func collectorConfig(plane, tenantID, agentID, collectionProfile, busNamespace s
 		h.YAML["bus_mode"] = "kafka"
 		h.YAML["bus_brokers"] = "kafka-1:9093"
 		h.YAML["bus_tls_enabled"] = "true"
+		// DPR-049 / WIRE-001: the listener publishes on this tenant's lane and
+		// serves only this tenant's routers; strict-lane deployments refuse BGP
+		// events on the shared lane.
+		lane("PROBECTL_BMP_BUS_NAMESPACE")
 		h.StartupCommand = "probectl-bmp-listener"
 	case "bmp":
 		h.Env["PROBECTL_BMP_ROUTER_ID"] = agentID

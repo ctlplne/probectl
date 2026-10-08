@@ -59,6 +59,7 @@ func run() error {
 	busBrokers := fs.String("bus-brokers", os.Getenv("PROBECTL_BMP_BUS_BROKERS"), "comma-separated Kafka brokers")
 	agentID := fs.String("agent-id", os.Getenv("PROBECTL_BMP_AGENT_ID"), "this listener's registered collector id (DPR-084): with -tenant-id, the listener heartbeats its own fleet entry so the fleet view can say online/offline about it; empty = no heartbeat")
 	tenantID := fs.String("tenant-id", os.Getenv("PROBECTL_BMP_TENANT_ID"), "the tenant that registered this listener as a collector (DPR-084); required with -agent-id")
+	busNamespace := fs.String("bus-namespace", os.Getenv("PROBECTL_BMP_BUS_NAMESPACE"), "publish on this tenant's own lane (probectl.<ns>.bgp.events, printed by collector registration) and serve only -tenant-id's routers; required where strict tenant lanes are on (DPR-049, WIRE-001)")
 	handshakeTimeoutRaw := fs.String("handshake-timeout", envOr("PROBECTL_BMP_HANDSHAKE_TIMEOUT", bgp.DefaultBMPHandshakeTimeout.String()), "maximum unauthenticated mTLS handshake time")
 	readTimeoutRaw := fs.String("read-timeout", envOr("PROBECTL_BMP_READ_TIMEOUT", bgp.DefaultBMPReadTimeout.String()), "maximum time for a BMP frame in progress (header + payload once its first byte arrived)")
 	idleTimeoutRaw := fs.String("idle-timeout", envOr("PROBECTL_BMP_IDLE_TIMEOUT", bgp.DefaultBMPIdleTimeout.String()), "maximum quiet time between frames on an authenticated session; 0 = unbounded (TCP keepalive detects dead peers)")
@@ -126,6 +127,13 @@ func run() error {
 	}
 	if err := validateBMPDatabaseURLs(*databaseURL, *revocationDatabaseURL); err != nil {
 		return err
+	}
+	if *busNamespace != "" && *tenantID == "" {
+		return fmt.Errorf("PROBECTL_BMP_BUS_NAMESPACE binds the listener to one tenant's lane; PROBECTL_BMP_TENANT_ID (--tenant-id) is required with it")
+	}
+	laneTenant := "" // only a lane-bound listener restricts which tenant's routers it serves
+	if *busNamespace != "" {
+		laneTenant = *tenantID
 	}
 
 	log := logging.New(os.Stdout, envOr("PROBECTL_BMP_LOG_LEVEL", "info"), envOr("PROBECTL_BMP_LOG_FORMAT", "json"))
@@ -269,6 +277,7 @@ func run() error {
 			bgp.WithBMPSessionMetrics(metricsRuntime),
 			bgp.WithBMPRevocationList(revocations),
 			bgp.WithBMPIssuedIdentityVerifier(verifyIssued),
+			bgp.WithBMPTenantLane(laneTenant, *busNamespace),
 		).Serve(ctx)
 	})
 }

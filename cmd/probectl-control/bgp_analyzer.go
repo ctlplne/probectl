@@ -107,6 +107,17 @@ func loadBGPAnalyzerRuntime(getenv func(string) string) (bgpAnalyzerRuntime, err
 		return bgpAnalyzerRuntime{}, fmt.Errorf("PROBECTL_BGP_ANALYZER_RESTART: %w", err)
 	}
 
+	// DPR-049 / WIRE-001: the tenant's own lane, printed by collector
+	// registration. Strict-lane deployments refuse BGP events on the shared
+	// lane, so there this is required in practice; a malformed value refuses
+	// start rather than falling back to the shared lane.
+	namespace := strings.TrimSpace(getenv("PROBECTL_BGP_ANALYZER_BUS_NAMESPACE"))
+	if namespace != "" {
+		if _, err := bus.TopicFor(namespace, bus.BGPEventsTopic); err != nil {
+			return bgpAnalyzerRuntime{}, fmt.Errorf("PROBECTL_BGP_ANALYZER_BUS_NAMESPACE: %w", err)
+		}
+	}
+
 	if mode := strings.TrimSpace(getenv("PROBECTL_BUS_MODE")); mode != "kafka" {
 		return bgpAnalyzerRuntime{}, fmt.Errorf("PROBECTL_BUS_MODE must be kafka for the out-of-process analyzer bridge (got %q)", mode)
 	}
@@ -125,12 +136,13 @@ func loadBGPAnalyzerRuntime(getenv func(string) string) (bgpAnalyzerRuntime, err
 	}
 	return bgpAnalyzerRuntime{
 		process: bgp.AnalyzerProcess{
-			TenantID:   tenantID,
-			Executable: python,
-			Args:       args,
-			Dir:        strings.TrimSpace(getenv("PROBECTL_BGP_ANALYZER_WORKDIR")),
-			Env:        analyzerSubprocessEnv(getenv),
-			Restart:    restart,
+			TenantID:     tenantID,
+			BusNamespace: namespace,
+			Executable:   python,
+			Args:         args,
+			Dir:          strings.TrimSpace(getenv("PROBECTL_BGP_ANALYZER_WORKDIR")),
+			Env:          analyzerSubprocessEnv(getenv),
+			Restart:      restart,
 		},
 		brokers:   brokers,
 		security:  bus.SecurityFromEnv(getenv, "PROBECTL_BUS"),

@@ -274,8 +274,9 @@ func TestDeviceCollectorConfigIncludesCompiledProfile(t *testing.T) {
 	if got := hint.YAML["collection_profile"]; got != "topology-rich" {
 		t.Fatalf("profile YAML = %q", got)
 	}
-	// DPR-049: the tenant's namespaced lane rides along for every
-	// agent-published plane, and BGP/BMP (listener-fed) get none.
+	// DPR-049: the tenant's namespaced lane rides along for every plane that
+	// publishes to the bus itself — the bgp plane's listener included, since
+	// strict lanes refuse BGP on the shared lane too (TestBGPCollectorHintsCarryTheTenantLane).
 	// DPR-053: the YAML form is the collector's real nested key, bus.namespace.
 	if bus, _ := hint.YAML["bus"].(map[string]string); hint.Env["PROBECTL_DEVICE_BUS_NAMESPACE"] != "t-acme" || bus["namespace"] != "t-acme" {
 		t.Fatalf("device hint lacks the bus namespace: %+v", hint)
@@ -285,8 +286,8 @@ func TestDeviceCollectorConfigIncludesCompiledProfile(t *testing.T) {
 			t.Fatalf("%s hint lacks %s: %+v", plane, key, h)
 		}
 	}
-	if h := collectorConfig("bgp", "tenant-a", "agent-a", "", "t-acme"); h.YAML["bus"] != nil {
-		t.Fatalf("bgp must not advertise a collector lane: %+v", h)
+	if h := collectorConfig("bmp", "tenant-a", "agent-a", "", "t-acme"); h.YAML["bus"] != nil {
+		t.Fatalf("a bmp router (it publishes nothing to the bus) must not advertise a lane: %+v", h)
 	}
 	if h := collectorConfig("flow", "tenant-a", "agent-a", "", ""); h.YAML["bus"] != nil {
 		t.Fatalf("no slug, no lane hint: %+v", h)
@@ -329,6 +330,21 @@ func TestBGPCollectorHintsCarryBMPListenerHeartbeatEnv(t *testing.T) {
 		if got != want {
 			t.Fatalf("bgp hint %s = %q, want %q", key, got, want)
 		}
+	}
+}
+
+// TestBGPCollectorHintsCarryTheTenantLane (DPR-049, WIRE-001): a strict-lane
+// deployment refuses BGP events on the shared lane, so the plane=bgp hints must
+// print the tenant's lane under the exact key cmd/probectl-bmp-listener reads
+// (PROBECTL_BMP_BUS_NAMESPACE). Without it the hinted listener published every
+// event on the shared lane, where the incident consumer dropped them all.
+func TestBGPCollectorHintsCarryTheTenantLane(t *testing.T) {
+	h := collectorConfig("bgp", "tenant-a", "agent-a", "", "t-acme")
+	if got := h.Env["PROBECTL_BMP_BUS_NAMESPACE"]; got != "t-acme" {
+		t.Fatalf("bgp hint PROBECTL_BMP_BUS_NAMESPACE = %q, want the tenant lane t-acme: %+v", got, h.Env)
+	}
+	if lane, ok := h.YAML["bus"].(map[string]string); !ok || lane["namespace"] != "t-acme" {
+		t.Fatalf("bgp hint YAML bus.namespace = %+v, want t-acme", h.YAML["bus"])
 	}
 }
 

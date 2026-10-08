@@ -138,6 +138,7 @@ sidecar is opt-in and needs the same TLS Kafka settings as the control plane):
 PROBECTL_BGP_ANALYZER_CONFIG=/etc/probectl/bgp/analyzer.json \
 PROBECTL_BGP_ANALYZER_SOURCE=mrt \
 PROBECTL_BGP_ANALYZER_SOURCE_FILE=/var/lib/probectl/routes.mrt \
+PROBECTL_BGP_ANALYZER_BUS_NAMESPACE=t-<tenant-slug> \
 PROBECTL_BUS_MODE=kafka \
 PROBECTL_BUS_BROKERS=kafka-1:9093 \
 PROBECTL_BUS_TLS_ENABLED=true \
@@ -146,7 +147,10 @@ PROBECTL_BUS_TLS_ENABLED=true \
 
 The Go supervisor treats the JSON config's `tenant_id` as the trusted binding,
 rejects a Python payload that claims any other tenant, and only then publishes
-the canonical protobuf. A Python crash backs off and restarts without affecting
+the canonical protobuf — on that tenant's own lane, `probectl.t-<slug>.bgp.events`,
+when `PROBECTL_BGP_ANALYZER_BUS_NAMESPACE` names it. The multi-tenant and
+regulated profiles turn strict tenant lanes on and refuse BGP events on the
+shared lane, so there the lane is required (DPR-049, WIRE-001). A Python crash backs off and restarts without affecting
 the API or other telemetry planes. For a deterministic local proof, run the
 Compose `bgp-analyzer` profile documented in `deploy/compose/eval.yml`.
 The source must be selected explicitly. The stock sidecar image supports MRT
@@ -170,6 +174,7 @@ probectl bgp setup --body '{"token":"pjt_...","plane":"bgp","hostname":"rrc00"}'
 PROBECTL_BMP_LISTEN_ADDR=:1179 \
 PROBECTL_BMP_AGENT_ID=<collector id from register-collector> \
 PROBECTL_BMP_TENANT_ID=<tenant id> \
+PROBECTL_BMP_BUS_NAMESPACE=t-<tenant-slug> \
 PROBECTL_BMP_TLS_CERT_FILE=/etc/probectl/bmp/tls.crt \
 PROBECTL_BMP_TLS_KEY_FILE=/etc/probectl/bmp/tls.key \
 PROBECTL_BMP_TLS_CA_FILE=/etc/probectl/agent-ca.crt \
@@ -180,6 +185,13 @@ PROBECTL_BMP_BUS_BROKERS=kafka-1:9093 \
 PROBECTL_BMP_BUS_TLS_ENABLED=true \
   probectl-bmp-listener
 ```
+
+`PROBECTL_BMP_BUS_NAMESPACE` (printed by the registration above) binds the
+listener to its tenant's lane: it publishes on `probectl.t-<slug>.bgp.events`
+and refuses a router registered to any other tenant. The multi-tenant and
+regulated profiles refuse BGP events on the shared lane, so there you run one
+listener per tenant; a single-profile deployment may leave it empty and serve
+every tenant's routers from one listener on the shared lane.
 
 The two PostgreSQL logins the listener needs — `bmp_registry`, a member of
 `probectl_app` so the tenant-scoped identity lookup can assume that role, and

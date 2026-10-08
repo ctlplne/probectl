@@ -45,6 +45,10 @@ bgpAnalyzer:
     PROBECTL_BUS_MODE: kafka
     PROBECTL_BUS_BROKERS: ""
     PROBECTL_BUS_TLS_ENABLED: "true"
+    # The config tenant's own lane (t-<slug>, printed by collector registration).
+    # Required by the multi-tenant/regulated profiles, which refuse BGP events
+    # on the shared lane (DPR-049, WIRE-001):
+    # PROBECTL_BGP_ANALYZER_BUS_NAMESPACE: t-<tenant-slug>
   extraVolumes: []
   extraVolumeMounts: []
   resources:

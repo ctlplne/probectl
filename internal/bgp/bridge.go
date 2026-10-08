@@ -46,6 +46,7 @@ type Bridge struct {
 	bus            Publisher
 	log            *slog.Logger
 	expectedTenant string
+	busNamespace   string // the tenant's lane; "" = route via the isolation router
 }
 
 // Stats summarizes an ingest run.
@@ -71,22 +72,54 @@ func (br *Bridge) WithExpectedTenant(tenantID string) *Bridge {
 	return br
 }
 
+// WithBusNamespace publishes every event on the tenant's own namespaced lane
+// (PublishEventOnLane) — the lane collector registration prints and strict-lane
+// deployments require. "" keeps routing through the isolation router.
+func (br *Bridge) WithBusNamespace(namespace string) *Bridge {
+	br.busNamespace = namespace
+	return br
+}
+
 // PublishEvent validates and publishes one canonical BGP event. It is shared by
 // the JSONL analyzer bridge and the BMP listener so every source uses the same
-// tenant fail-closed path and the same bus key.
+// tenant fail-closed path and the same bus key. The topic comes from the
+// installed isolation router, which puts a pooled tenant on the shared lane;
+// a collector that carries its tenant's lane uses PublishEventOnLane.
 func PublishEvent(ctx context.Context, pub Publisher, ev Event) error {
 	if err := ev.validate(); err != nil {
 		return err
-	}
-	value, err := proto.Marshal(ev.toProto())
-	if err != nil {
-		return fmt.Errorf("bgp: marshal event: %w", err)
 	}
 	targets, err := tenancy.CurrentRouter().TargetsFor(ctx, ev.TenantID)
 	if err != nil {
 		return fmt.Errorf("bgp: resolve isolation targets for tenant %s: %w", ev.TenantID, err)
 	}
-	topic, err := bus.TopicFor(targets.BusNamespace, bus.BGPEventsTopic)
+	return publishOn(ctx, pub, ev, targets.BusNamespace)
+}
+
+// PublishEventOnLane publishes one canonical BGP event on its tenant's own
+// namespaced lane (probectl.t-<slug>.bgp.events, DPR-049). The out-of-process
+// BGP collectors — the analyzer bridge and the BMP listener — carry that lane
+// from collector registration exactly like the flow, device, endpoint and eBPF
+// agents, because a strict-lane deployment (WIRE-001; mandatory for the
+// multi-tenant and regulated profiles) refuses BGP events on the shared lane.
+// An empty or malformed namespace is refused rather than falling back to the
+// shared lane (fail closed).
+func PublishEventOnLane(ctx context.Context, pub Publisher, ev Event, namespace string) error {
+	if strings.TrimSpace(namespace) == "" {
+		return fmt.Errorf("bgp: a tenant lane namespace is required")
+	}
+	if err := ev.validate(); err != nil {
+		return err
+	}
+	return publishOn(ctx, pub, ev, namespace)
+}
+
+func publishOn(ctx context.Context, pub Publisher, ev Event, namespace string) error {
+	value, err := proto.Marshal(ev.toProto())
+	if err != nil {
+		return fmt.Errorf("bgp: marshal event: %w", err)
+	}
+	topic, err := bus.TopicFor(namespace, bus.BGPEventsTopic)
 	if err != nil {
 		return fmt.Errorf("bgp: route topic for tenant %s: %w", ev.TenantID, err)
 	}
@@ -111,6 +144,13 @@ func bgpPartitionEntropy(ev Event) string {
 		parts = append(parts, "prefix:"+ev.Prefix)
 	}
 	return strings.Join(parts, "|")
+}
+
+func (br *Bridge) publish(ctx context.Context, ev Event) error {
+	if br.busNamespace != "" {
+		return PublishEventOnLane(ctx, br.bus, ev, br.busNamespace)
+	}
+	return PublishEvent(ctx, br.bus, ev)
 }
 
 // Ingest reads JSON-Lines events from r until EOF, publishing each valid event
@@ -147,7 +187,7 @@ func (br *Bridge) Ingest(ctx context.Context, r io.Reader) (Stats, error) {
 			)
 			continue
 		}
-		if err := PublishEvent(ctx, br.bus, ev); err != nil {
+		if err := br.publish(ctx, ev); err != nil {
 			return stats, err
 		}
 		stats.Published++

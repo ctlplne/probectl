@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/bus"
 	probectlc "github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/wire"
 )
@@ -140,6 +141,11 @@ type BMPListener struct {
 	verifyIssued     BMPIdentityVerifier
 	revocations      *probectlc.RevocationList
 
+	// Tenant lane (DPR-049): when set, this listener serves exactly one
+	// tenant's routers and publishes on that tenant's namespaced lane.
+	laneTenant    string
+	laneNamespace string
+
 	// Pre-auth admission (ING-11): a small semaphore bounding concurrent
 	// unauthenticated handshakes, held only until promotion, plus per-source-IP
 	// and per-identity connection caps.
@@ -199,6 +205,17 @@ func WithBMPIssuedIdentityVerifier(verify BMPIdentityVerifier) BMPOption {
 
 // WithBMPRevocationList installs the existing registry-driven revocation list.
 // The listener consults it before accepting any BMP payload bytes.
+// WithBMPTenantLane binds the listener to one tenant's lane: routers of any
+// other tenant are refused after authentication (fail closed), and every event
+// is published on that tenant's namespaced lane (PublishEventOnLane) — the lane
+// collector registration prints and strict-lane deployments require (WIRE-001).
+func WithBMPTenantLane(tenantID, namespace string) BMPOption {
+	return func(l *BMPListener) {
+		l.laneTenant = tenantID
+		l.laneNamespace = namespace
+	}
+}
+
 func WithBMPRevocationList(rl *probectlc.RevocationList) BMPOption {
 	return func(l *BMPListener) {
 		if rl != nil {
@@ -369,6 +386,13 @@ func NewBMPListener(ln net.Listener, pub Publisher, collector string, log *slog.
 	return l
 }
 
+func (l *BMPListener) publish(ctx context.Context, ev Event) error {
+	if l.laneNamespace != "" {
+		return PublishEventOnLane(ctx, l.pub, ev, l.laneNamespace)
+	}
+	return PublishEvent(ctx, l.pub, ev)
+}
+
 // Serve accepts BMP peer sessions until ctx is canceled or the listener fails.
 func (l *BMPListener) Serve(ctx context.Context) error {
 	if l.ln == nil {
@@ -379,6 +403,14 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 	}
 	if l.verifyIssued == nil {
 		return errors.New("bgp bmp: issued-identity registry verifier is required")
+	}
+	if l.laneNamespace != "" || l.laneTenant != "" {
+		if l.laneTenant == "" || l.laneNamespace == "" {
+			return errors.New("bgp bmp: a tenant lane needs both the tenant id and its bus namespace")
+		}
+		if _, err := bus.TopicFor(l.laneNamespace, bus.BGPEventsTopic); err != nil {
+			return fmt.Errorf("bgp bmp: tenant lane namespace: %w", err)
+		}
 	}
 	go func() {
 		<-ctx.Done()
@@ -688,6 +720,11 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 	if !issued {
 		return errors.New("bgp bmp: unregistered router identity refused")
 	}
+	if l.laneTenant != "" && id.TenantID != l.laneTenant {
+		// A lane-bound listener publishes only on its own tenant's lane; another
+		// tenant's router can never ride it (G7-1, fail closed).
+		return fmt.Errorf("bgp bmp: router of tenant %s refused by the listener bound to tenant %s's lane", id.TenantID, l.laneTenant)
+	}
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		return fmt.Errorf("bgp bmp: clear mtls handshake deadline: %w", err)
 	}
@@ -832,7 +869,7 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 				suppressed++
 				continue
 			}
-			if err := PublishEvent(ctx, l.pub, ev); err != nil {
+			if err := l.publish(ctx, ev); err != nil {
 				return err
 			}
 			published++

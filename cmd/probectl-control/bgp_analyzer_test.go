@@ -45,6 +45,17 @@ func TestLoadBGPAnalyzerRuntimeBuildsTenantBoundReplay(t *testing.T) {
 	if len(rt.brokers) != 2 || !rt.security.TLSEnabled {
 		t.Fatalf("bus runtime = brokers %v security %+v", rt.brokers, rt.security)
 	}
+	if rt.process.BusNamespace != "" {
+		t.Fatalf("no lane configured, got %q", rt.process.BusNamespace)
+	}
+
+	// DPR-049 / WIRE-001: the tenant's lane, printed by collector registration,
+	// is what the runner publishes on (strict-lane deployments refuse the shared lane).
+	env["PROBECTL_BGP_ANALYZER_BUS_NAMESPACE"] = "t-acme"
+	rt, err = loadBGPAnalyzerRuntime(func(k string) string { return env[k] })
+	if err != nil || rt.process.BusNamespace != "t-acme" {
+		t.Fatalf("lane runtime = %q, %v; want the t-acme lane", rt.process.BusNamespace, err)
+	}
 }
 
 func TestLoadBGPAnalyzerRuntimeFailsClosed(t *testing.T) {
@@ -62,6 +73,8 @@ func TestLoadBGPAnalyzerRuntimeFailsClosed(t *testing.T) {
 		{name: "missing source", env: map[string]string{"PROBECTL_BGP_ANALYZER_CONFIG": configFile}, want: "SOURCE is required"},
 		{name: "separate memory bus", env: map[string]string{"PROBECTL_BGP_ANALYZER_CONFIG": configFile, "PROBECTL_BGP_ANALYZER_SOURCE": "ris-live", "PROBECTL_BUS_MODE": "memory"}, want: "must be kafka"},
 		{name: "finite source needs file", env: map[string]string{"PROBECTL_BGP_ANALYZER_CONFIG": configFile, "PROBECTL_BGP_ANALYZER_SOURCE": "mrt", "PROBECTL_BUS_MODE": "kafka"}, want: "SOURCE_FILE is required"},
+		{name: "malformed tenant lane", env: map[string]string{"PROBECTL_BGP_ANALYZER_CONFIG": configFile, "PROBECTL_BGP_ANALYZER_SOURCE": "ris-live",
+			"PROBECTL_BGP_ANALYZER_BUS_NAMESPACE": "BAD NS", "PROBECTL_BUS_MODE": "kafka", "PROBECTL_BUS_BROKERS": "kafka-0:9093"}, want: "PROBECTL_BGP_ANALYZER_BUS_NAMESPACE"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

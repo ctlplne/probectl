@@ -27,12 +27,16 @@ const (
 // Args never pass credentials: Kafka authentication stays in the Go publisher,
 // and the child receives only the explicitly allow-listed environment.
 type AnalyzerProcess struct {
-	TenantID   string
-	Executable string
-	Args       []string
-	Dir        string
-	Env        []string
-	Restart    bool
+	TenantID string
+	// BusNamespace is the tenant's lane (DPR-049), printed by collector
+	// registration; "" routes through the isolation router (shared lane for a
+	// pooled tenant, which strict-lane deployments refuse).
+	BusNamespace string
+	Executable   string
+	Args         []string
+	Dir          string
+	Env          []string
+	Restart      bool
 }
 
 // AnalyzerRunner supervises the Python analyzer and bridges its stdout to the
@@ -66,7 +70,7 @@ func NewAnalyzerRunner(pub Publisher, process AnalyzerProcess, log *slog.Logger)
 	}
 	return &AnalyzerRunner{
 		process:        process,
-		bridge:         NewBridge(pub, log).WithExpectedTenant(process.TenantID),
+		bridge:         NewBridge(pub, log).WithExpectedTenant(process.TenantID).WithBusNamespace(process.BusNamespace),
 		log:            log,
 		stderr:         os.Stderr,
 		minBackoff:     defaultAnalyzerBackoff,
