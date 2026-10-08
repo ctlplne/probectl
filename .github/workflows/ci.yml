@@ -458,7 +458,7 @@ jobs:
           ( cd analyzer && uv pip compile pyproject.toml --extra dev --generate-hashes -o /tmp/requirements-dev.lock --quiet )
           # The header comment embeds the output path; compare content only.
           diff -u <(grep -v '^#' analyzer/requirements-dev.lock) <(grep -v '^#' /tmp/requirements-dev.lock) \
-            || { echo "::error::analyzer/requirements-dev.lock is stale — regenerate with: cd analyzer && uv pip compile pyproject.toml --extra dev --generate-hashes -o requirements-dev.lock"; exit 1; }
+            || { echo "::error::analyzer/requirements-dev.lock is stale — regenerate with (Python ${PYTHON_VERSION}, uv 0.11.2): cd analyzer && uv pip compile pyproject.toml --extra dev --generate-hashes --upgrade -o requirements-dev.lock  (--upgrade is required: without it uv keeps the committed pins and the drift remains)"; exit 1; }
       - run: make test-python
 
   browser-worker:
