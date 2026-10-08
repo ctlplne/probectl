@@ -61,6 +61,11 @@ type HTTPModelConfig struct {
 	// Redaction is applied to prompt content before any REMOTE call (C8);
 	// nil = DefaultRedaction. Loopback endpoints are never redacted.
 	Redaction *RedactionPolicy
+	// CAFile is an optional PEM trust bundle that anchors validation of the
+	// endpoint's certificate instead of the system roots — for enterprise LLM
+	// gateways behind a private/corporate CA. Empty = system roots. Validation
+	// is never disabled; a bundle with no certificates is refused.
+	CAFile string
 }
 
 // NewHTTPModel builds a remote model adapter. It fails closed when a remote
@@ -85,12 +90,16 @@ func NewHTTPModel(cfg HTTPModelConfig) (*HTTPModel, error) {
 	if cfg.Redaction != nil {
 		redaction = *cfg.Redaction
 	}
+	client, err := crypto.HardenedHTTPClientWithCAFile(timeout, cfg.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("ai: model CA file: %w", err)
+	}
 	return &HTTPModel{
 		kind:     cfg.Kind,
 		endpoint: strings.TrimRight(u.String(), "/"),
 		model:    cfg.Model,
 		token:    cfg.Token,
-		client:   crypto.HardenedHTTPClient(timeout),
+		client:   client,
 		remote:   !isLoopbackHost(u.Hostname()),
 		redact:   redaction,
 	}, nil

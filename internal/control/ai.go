@@ -252,6 +252,7 @@ func buildModel(cfg *config.Config, log *slog.Logger) ai.ModelAdapter {
 		Model:    cfg.AIModelName,
 		Token:    cfg.AIModelToken,
 		Timeout:  cfg.AIModelTimeout,
+		CAFile:   cfg.AIModelCAFile,
 		Redaction: func() *ai.RedactionPolicy { // C8: pre-egress masking knobs
 			p := redactionPolicy(cfg)
 			return &p

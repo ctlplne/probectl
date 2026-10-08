@@ -615,8 +615,13 @@ type Config struct {
 	AIModelEndpoint string
 	AIModelName     string
 	AIModelToken    string
-	AIModelTimeout  time.Duration
-	AIMaxEvidence   int
+	// AIModelCAFile is an optional PEM trust bundle for the AI model endpoint's
+	// certificate (an enterprise LLM gateway behind a private CA). Empty = the
+	// system roots. Validated at load: an unreadable or certificate-less bundle
+	// refuses startup rather than silently degrading to the builtin model.
+	AIModelCAFile  string
+	AIModelTimeout time.Duration
+	AIMaxEvidence  int
 	// AIMaxConcurrent (U-048) caps concurrent RCA analyzes process-wide — a
 	// fail-fast (429) backstop that holds even when no per-tenant fairness
 	// gate is configured.
@@ -1202,6 +1207,7 @@ func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.AIModelEndpoint = l.str("PROBECTL_AI_MODEL_ENDPOINT", "")
 	cfg.AIModelName = l.str("PROBECTL_AI_MODEL_NAME", "")
 	cfg.AIModelToken = l.str("PROBECTL_AI_MODEL_TOKEN", "")
+	cfg.AIModelCAFile = l.str("PROBECTL_AI_MODEL_CA_FILE", "")
 	cfg.AIModelTimeout = l.dur("PROBECTL_AI_MODEL_TIMEOUT", 60*time.Second)
 	cfg.AIMaxEvidence = l.intRange("PROBECTL_AI_MAX_EVIDENCE", 50, 1, 1000)
 	cfg.AIMaxConcurrent = l.intRange("PROBECTL_AI_MAX_CONCURRENT", 8, 1, 1024)
@@ -1698,6 +1704,11 @@ func validateExternalEndpoints(l *loader, cfg *Config) {
 	if remoteAIEndpoint(cfg) && cfg.AIEgressAck != AIEgressAckPhrase {
 		l.errf("PROBECTL_AI_MODEL_ENDPOINT is a REMOTE endpoint: tenant telemetry would leave the network (U-013). "+
 			"Acknowledge explicitly with PROBECTL_AI_EGRESS_ACK=%q (see docs/ai-egress.md), or use a loopback local model / the builtin", AIEgressAckPhrase)
+	}
+	if strings.TrimSpace(cfg.AIModelCAFile) != "" {
+		if _, err := crypto.HardenedClientTLSConfigWithCAFile(cfg.AIModelCAFile); err != nil {
+			l.errf("PROBECTL_AI_MODEL_CA_FILE must be a readable PEM bundle with at least one certificate: %v", err)
+		}
 	}
 	if cfg.MCPHTTPAddr != "" && !cfg.MCPEnabled() {
 		l.errf("the MCP HTTP transport is TLS-only and authenticated: set PROBECTL_MCP_TLS_CERT_FILE and PROBECTL_MCP_TLS_KEY_FILE alongside PROBECTL_MCP_HTTP_ADDR")

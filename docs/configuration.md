@@ -2015,6 +2015,7 @@ rotate on restart. See [`ai-rca.md`](ai-rca.md).
 | `PROBECTL_AI_MODEL_ENDPOINT` | (none)    | base URL of the model (required for a non-`builtin` provider)      |
 | `PROBECTL_AI_MODEL_NAME`     | (none)    | model name (e.g. `llama3.1`, `gpt-4o-mini`)                        |
 | `PROBECTL_AI_MODEL_TOKEN`    | (none)    | API key / bearer token (optional for a local Ollama)              |
+| `PROBECTL_AI_MODEL_CA_FILE`  | (none)    | PEM trust bundle that anchors validation of the model endpoint's certificate instead of the system roots — for an enterprise LLM gateway behind a private/corporate CA (Helm: mount it with `control.trustBundle.existingConfigMap` and point this at the mounted path). Validated at startup: an unreadable or certificate-less bundle refuses to start. Certificate validation is never disabled |
 | `PROBECTL_AI_MODEL_TIMEOUT`  | `60s`     | per-request timeout for the model endpoint                         |
 | `PROBECTL_AI_MAX_EVIDENCE`   | `50`      | cost guard: the most signals one answer may gather                 |
 | `PROBECTL_AI_MAX_CONCURRENT` | `8`       | process-wide cap on concurrent analyzes (HTTP 429 when exceeded); a backstop beneath the per-tenant fairness gate |

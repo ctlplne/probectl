@@ -132,6 +132,24 @@ func InternalClientTLSConfig() *tls.Config { return hardenedServerTLS() }
 // only crypto policy routes through internal/crypto, so callers import no crypto
 // package directly.
 func HardenedHTTPClient(timeout time.Duration) *http.Client {
+	return hardenedHTTPClient(timeout, hardenedTLS())
+}
+
+// HardenedHTTPClientWithCAFile is HardenedHTTPClient whose server-certificate
+// validation is anchored on an operator-supplied PEM trust bundle instead of the
+// system roots — the same "ca_file" contract as HardenedClientTLSConfigWithCAFile,
+// for outbound integrations that sit behind a private CA (an enterprise LLM
+// gateway, an internal vLLM). An empty caFile yields exactly HardenedHTTPClient.
+// Certificate validation is never disabled; a bundle with no certificates fails.
+func HardenedHTTPClientWithCAFile(timeout time.Duration, caFile string) (*http.Client, error) {
+	tlsCfg, err := HardenedClientTLSConfigWithCAFile(caFile)
+	if err != nil {
+		return nil, err
+	}
+	return hardenedHTTPClient(timeout, tlsCfg), nil
+}
+
+func hardenedHTTPClient(timeout time.Duration, tlsCfg *tls.Config) *http.Client {
 	return &http.Client{
 		Timeout:       timeout,
 		CheckRedirect: hardenedHTTPRedirectPolicy,
@@ -141,7 +159,7 @@ func HardenedHTTPClient(timeout time.Duration) *http.Client {
 			// feeds) can traverse a mandatory egress proxy. With no proxy env set
 			// (the default) this is a no-op and the dialer behaves as before.
 			Proxy:               http.ProxyFromEnvironment,
-			TLSClientConfig:     hardenedTLS(),
+			TLSClientConfig:     tlsCfg,
 			ForceAttemptHTTP2:   true,
 			MaxIdleConns:        10,
 			IdleConnTimeout:     90 * time.Second,
