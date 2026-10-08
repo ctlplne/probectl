@@ -952,7 +952,6 @@ capabilities:
   - id: CLM-FAIL-CLOSED
     name: Missing channel security, credential, signature, tenant binding, or license state degrades closed, never open.
     status: delivered
-    evidence_status: partial
     owner: release/docs
     engine: {refs: ["file:internal/tenancy/posture.go", "file:internal/agenttransport/peer.go"]}
     binary: {refs: ["file:cmd/probectl-control/main.go#verifyServePosture("]}
@@ -962,7 +961,7 @@ capabilities:
     docs: {refs: ["file:docs/claims/register.json#CLM-FAIL-CLOSED"]}
     config_keys: {refs: ["config:PROBECTL_DEPLOYMENT_PROFILE", "config:PROBECTL_INGEST_STRICT_TENANT_LANES"]}
     telemetry: {refs: ["file:internal/agenttransport/service.go"]}
-    real_stack_proof: {gap: "The black-box E2E checks several transport and enrollment failures but not the global signature, tenant-binding, credential, and license fail-closed cases asserted by this claim."}
+    real_stack_proof: {refs: ["test:internal/control/fail_closed_integration_test.go#TestFailClosedSignatureTenantBindingCredentialLicenseRealStack"]}
     migration: {refs: ["file:migrations/0025_tenant_isolation.sql", "file:migrations/0070_strict_pretenant_auth_rls.sql"]}
 
   - id: CLM-TAMPER-EVIDENT

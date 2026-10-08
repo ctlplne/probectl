@@ -95,6 +95,13 @@
       "capabilities": [
         "CLM-SEP-AUDITED"
       ]
+    },
+    {
+      "ref": "test:internal/control/fail_closed_integration_test.go#TestFailClosedSignatureTenantBindingCredentialLicenseRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "CLM-FAIL-CLOSED"
+      ]
     }
   ]
 }
