@@ -212,6 +212,9 @@ PROBECTL_AI_MODEL_PROVIDER=anthropic
 PROBECTL_AI_MODEL_ENDPOINT=https://api.anthropic.com
 PROBECTL_AI_MODEL_TOKEN=vault:ai/anthropic#key   # a secret reference (docs/secrets.md)
 PROBECTL_AI_EGRESS_ACK=yes-send-tenant-data-to-the-remote-model
+# optional: an in-house LLM gateway behind a private/corporate CA — validation
+# stays on; the bundle replaces the system roots for the model endpoint only
+PROBECTL_AI_MODEL_CA_FILE=/etc/probectl/trust/llm-gateway-ca.pem
 ```
 
 (Per-provider model wiring, including the local Ollama/vLLM recipes that need
@@ -237,13 +240,15 @@ to set it depending on your edition:
 
   (`GET /v1/governance/policy` reads it back. `probectl governance set-policy` /
   `probectl governance policy` are the CLI equivalents.) A **provider operator**
-  may still set any hosted tenant's consent cross-tenant from the provider plane —
+  can *see* a hosted tenant's consent on the provider plane but can **not** set or
+  weaken it: consent is the tenant's decision (AUD-11), so the provider governance
+  update refuses any `ai_remote_egress` change with `403` and preserves the
+  tenant's value —
 
   ```sh
-  curl -sS --cacert ca.crt -X PUT \
-    -H "Authorization: Bearer $PROVIDER_TOKEN" -H 'Content-Type: application/json' \
-    https://probectl.example.com/provider/v1/tenants/<tenant-uuid>/governance \
-    -d '{"ai_remote_egress": true}'
+  curl -sS --cacert ca.crt \
+    -H "Authorization: Bearer $PROVIDER_TOKEN" \
+    https://probectl.example.com/provider/v1/tenants/<tenant-uuid>/governance
   ```
 
 - **Core / community:** the governance *API and console* are part of the

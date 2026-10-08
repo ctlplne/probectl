@@ -73,6 +73,13 @@
         "F17",
         "F50"
       ]
+    },
+    {
+      "ref": "test:internal/control/ai_egress_consent_integration_test.go#TestRemoteAIEgressIsConsentGatedRedactedAndAuditedRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "CLM-CONSENT-GATED"
+      ]
     }
   ]
 }

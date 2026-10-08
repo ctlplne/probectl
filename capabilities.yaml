@@ -1081,7 +1081,6 @@ capabilities:
   - id: CLM-CONSENT-GATED
     name: Remote AI egress requires explicit tenant consent and redaction; denial is the default.
     status: delivered
-    evidence_status: partial
     owner: release/docs
     engine: {refs: ["file:internal/ai/egressgate.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#rt.srv.AIEgressGate()"]}
@@ -1091,7 +1090,7 @@ capabilities:
     docs: {refs: ["file:docs/claims/register.json#CLM-CONSENT-GATED"]}
     config_keys: {refs: ["config:PROBECTL_AI_EGRESS_ACK", "config:PROBECTL_AI_REDACT_IPS"]}
     telemetry: {refs: ["file:internal/control/ai.go"]}
-    real_stack_proof: {gap: "No real-stack receipt currently proves denied-by-default remote model dispatch, tenant consent, redaction, and the corresponding audit record together."}
+    real_stack_proof: {refs: ["test:internal/control/ai_egress_consent_integration_test.go#TestRemoteAIEgressIsConsentGatedRedactedAndAuditedRealStack"]}
     migration: {refs: ["file:migrations/0037_governance_ai_egress.sql"]}
 
   - id: CLM-BGP-FEEDS
