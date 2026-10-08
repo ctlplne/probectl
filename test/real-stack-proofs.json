@@ -88,6 +88,13 @@
         "F44",
         "CLM-HUMAN-GATED"
       ]
+    },
+    {
+      "ref": "test:ee/provider/breakglass_separation_integration_test.go#TestBreakGlassIsSeparatelyAuditedRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "CLM-SEP-AUDITED"
+      ]
     }
   ]
 }

@@ -1062,7 +1062,6 @@ capabilities:
   - id: CLM-SEP-AUDITED
     name: Provider/break-glass operations are separately audited from tenant streams.
     status: delivered
-    evidence_status: partial
     owner: release/docs
     ui_aliases: {F51: "The provider-audit separation invariant is surfaced in the Provider management plane rather than a duplicate claim-only screen."}
     engine: {refs: ["file:ee/provider", "file:internal/audit"]}
@@ -1073,7 +1072,7 @@ capabilities:
     docs: {refs: ["file:docs/claims/register.json#CLM-SEP-AUDITED"]}
     config_keys: {refs: ["config:PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES"]}
     telemetry: {refs: ["file:ee/provider"]}
-    real_stack_proof: {gap: "Provider configure atomicity and provider-chain tamper checks do not exercise actual break-glass consent, separation from tenant-stream writes, or the public provider workflow."}
+    real_stack_proof: {refs: ["test:ee/provider/breakglass_separation_integration_test.go#TestBreakGlassIsSeparatelyAuditedRealStack"]}
     migration: {refs: ["file:migrations/0005_audit.sql", "file:migrations/0045_audit_provider_least_privilege.sql"]}
 
   - id: CLM-CONSENT-GATED
