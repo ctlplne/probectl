@@ -344,7 +344,7 @@
         "F44"
       ],
       "name": "Guarded remediation",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`ee/remediation` — observe-only/human-gated, dry-run, blast-radius, audited (guardrail intact)"
     },
     {

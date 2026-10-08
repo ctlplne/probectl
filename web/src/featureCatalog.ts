@@ -260,7 +260,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F44',
     name: 'Guarded remediation',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

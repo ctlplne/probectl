@@ -701,7 +701,6 @@ capabilities:
   - id: F44
     name: Guarded remediation
     status: delivered
-    evidence_status: partial
     owner: architecture/release
     engine: {refs: ["file:ee/remediation"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithRemediation("]}
@@ -711,7 +710,7 @@ capabilities:
     docs: {refs: ["file:docs/remediation.md#Guarded agentic remediation"]}
     config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED", "config:PROBECTL_REMEDIATION_MAX_BLAST_RADIUS"]}
     telemetry: {refs: ["file:ee/remediation"]}
-    real_stack_proof: {gap: "The PostgreSQL test calls the internal service with a fake estimator and one tenant; it omits public proposal/approval UI and CLI plus default-off, dry-run, and blast-radius rejection."}
+    real_stack_proof: {refs: ["test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack"]}
     migration: {refs: ["file:migrations/0035_remediation.sql"]}
 
   - id: F45
@@ -1001,7 +1000,6 @@ capabilities:
   - id: CLM-HUMAN-GATED
     name: "Remediation is human-gated: explicit approval, dry-run, blast-radius limits; never autonomous."
     status: delivered
-    evidence_status: partial
     owner: release/docs
     ui_aliases: {F44: "The human-approval invariant is surfaced in the guarded remediation review card rather than a duplicate claim-only screen."}
     engine: {refs: ["file:ee/remediation"]}
@@ -1012,7 +1010,7 @@ capabilities:
     docs: {refs: ["file:docs/claims/register.json#CLM-HUMAN-GATED"]}
     config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED", "config:PROBECTL_REMEDIATION_MAX_BLAST_RADIUS"]}
     telemetry: {refs: ["file:ee/remediation"]}
-    real_stack_proof: {gap: "The PostgreSQL receipt proves separate approval and audit calls but does not yet prove default-off behavior, human-only approval, dry-run, and blast-radius rejection together."}
+    real_stack_proof: {refs: ["test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack"]}
     migration: {refs: ["file:migrations/0035_remediation.sql"]}
 
   - id: CLM-NOT-AN-IPS

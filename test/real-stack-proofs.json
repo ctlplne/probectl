@@ -80,6 +80,14 @@
       "capabilities": [
         "CLM-CONSENT-GATED"
       ]
+    },
+    {
+      "ref": "test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F44",
+        "CLM-HUMAN-GATED"
+      ]
     }
   ]
 }
