@@ -18,13 +18,13 @@ permissions:
   # still looking at the product and not only at the workflows.
   security-events: read
 
-# Exact patch pin, in lockstep with go.work + go.mod (`go 1.26.7` /
-# `toolchain go1.26.7`, SUPPLY-007) and ci.yml's GO_VERSION. govulncheck's
+# Exact patch pin, in lockstep with go.work + go.mod (`go 1.26.9` /
+# `toolchain go1.26.9`, SUPPLY-007) and ci.yml's GO_VERSION. govulncheck's
 # stdlib attribution is only honest when it scans against the SAME patch the
 # release toolchain ships; a bare "1.26" could scan a different stdlib than we
 # build, reporting CVEs we don't ship or hiding ones we do.
 env:
-  GO_VERSION: "1.26.7"
+  GO_VERSION: "1.26.9"
 
 jobs:
   # DPR-245: FIRST, because the rest of this workflow is meaningless if the

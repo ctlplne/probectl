@@ -2,10 +2,10 @@
 # Optional W1 sidecar: Python BGP analyzer + the tenant-bound Go bus bridge.
 # Build context is the repository root.
 
-ARG GO_VERSION=1.26.7
+ARG GO_VERSION=1.26.9
 ARG PYTHON_VERSION=3.12.10
 
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:6ef6e30f0ea5c384f6d111cf856e024e3086bbdcb1779da3f3b3fbba0aea53d2 AS build
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=0.0.0-dev

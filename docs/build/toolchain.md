@@ -15,11 +15,11 @@ custom, forked, or vendored compiler hiding in this repo.
 The version is named in two places that are kept in lockstep:
 
 - [`go.mod`](../../go.mod) — the main module's manifest (the file that names a
-  Go module and pins its dependencies) — `go 1.26.7`. This is the
+  Go module and pins its dependencies) — `go 1.26.9`. This is the
   language/version floor for the main module.
 - [`go.work`](../../go.work) — the workspace file that ties the repo's modules
   together for local builds (see [`development.md`](../development.md)) —
-  `go 1.26.7` **and** an explicit `toolchain go1.26.7` line. (See "Why the
+  `go 1.26.9` **and** an explicit `toolchain go1.26.9` line. (See "Why the
   explicit toolchain line" below — it is not redundant.)
 
 ## How it works
@@ -38,19 +38,19 @@ The version is named in two places that are kept in lockstep:
   man-in-the-middled toolchain fails that checksum and refuses to execute — the
   build stops instead of silently using an untrusted compiler.
 
-- **Pinning.** Because the directive names the *exact patch* (`1.26.7`, not a
+- **Pinning.** Because the directive names the *exact patch* (`1.26.9`, not a
   loose `1.26`), every developer machine resolves to the same compiler. The
   workflows that build and gate shipped artifacts pin their `setup-go` to the
-  same patch (`GO_VERSION: "1.26.7"` in `.github/workflows/ci.yml` and
+  same patch (`GO_VERSION: "1.26.9"` in `.github/workflows/ci.yml` and
   `release.yml`), and the `go` directive is the floor everywhere else — a
-  machine running an older Go fetches and checksum-verifies `1.26.7` before it
+  machine running an older Go fetches and checksum-verifies `1.26.9` before it
   compiles anything.
 
-- **Why this patch level.** `1.26.7` is pinned *forward* deliberately: it carries
+- **Why this patch level.** `1.26.9` is pinned *forward* deliberately: it carries
   every upstream **standard-library security fix** through 1.26.6, including
   fixes in `crypto/tls`, `encoding/asn1`, `encoding/xml`, `html/template`,
-  `net`, `net/http`, and `net/url`, plus the subsequent 1.26.7 `net/http`
-  fixes. These IDs
+  `net`, `net/http`, and `net/url`, the 1.26.7 `net/http` fixes, and the
+  1.26.9 `net/http` fixes for GO-2026-6612, GO-2026-6613 and GO-2026-6617. These IDs
   are Go vulnerability-database advisories that `govulncheck` (Go's official
   scanner, which reports known CVEs in your dependencies *and* in the standard
   library of the Go version you build with) would otherwise flag. Bumps land through the
@@ -60,7 +60,7 @@ The version is named in two places that are kept in lockstep:
 
 - **Exact-patch pinning keeps `govulncheck` honest.** `govulncheck` attributes
   standard-library vulnerabilities by Go version. A bare `go 1.26` scans as
-  `1.26.0` and would false-flag every already-patched stdlib CVE; naming `1.26.7`
+  `1.26.0` and would false-flag every already-patched stdlib CVE; naming `1.26.9`
   makes the scan reflect the real, patched toolchain. (This is also why `go.mod`
   carries the patch version — see the comment at the top of `go.mod`.)
 

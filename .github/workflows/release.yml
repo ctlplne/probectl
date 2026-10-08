@@ -30,7 +30,7 @@ permissions:
   actions: read # require-green-ci reads the ci workflow's runs (U-083)
 
 env:
-  GO_VERSION: "1.26.7"
+  GO_VERSION: "1.26.9"
   IMAGE_PREFIX: ghcr.io/ctlplne
 
 jobs:
