@@ -371,9 +371,8 @@ func newFailClosedStack(t *testing.T) *failClosedStack {
 		WithGroup("fail-closed-proof-views")
 	go func() { _ = fan.Run(runCtx) }()
 
-	sessions := srv.SessionManager()
-	st.alice = st.tenantAdmin(t, srv, sessions, st.tenantA, "alice")
-	st.carol = st.tenantAdmin(t, srv, sessions, st.tenantB, "carol")
+	st.alice = sessionAdmin(t, db, srv, st.h, st.tenantA, "alice")
+	st.carol = sessionAdmin(t, db, srv, st.h, st.tenantB, "carol")
 
 	// The agent mTLS transport, publishing to the same Kafka bus.
 	dir := t.TempDir()
@@ -492,14 +491,15 @@ func (st *failClosedStack) licenseFile(t *testing.T, expires time.Time, tamper b
 	return fcWrite(t, t.TempDir(), "license.json", raw)
 }
 
-// tenantAdmin seeds the tenant's system roles, binds a user to admin, and
-// issues a session the way login does.
-func (st *failClosedStack) tenantAdmin(t *testing.T, srv *Server, sessions *auth.Manager, tenant, name string) *fcUser {
+// sessionAdmin seeds the tenant's system roles, binds a user to admin, and
+// issues a session through the server's production session manager the way
+// login does (carrying the permission fingerprint, so nothing rotates).
+func sessionAdmin(t *testing.T, db *store.DB, srv *Server, h http.Handler, tenant, name string) *fcUser {
 	t.Helper()
 	ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
-	email := name + "-" + tenant[:8] + "@fail-closed.example"
+	email := name + "-" + tenant[:8] + "@realstack.example"
 	var userID string
-	if err := tenancy.InTenant(ctx, st.db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+	if err := tenancy.InTenant(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 		if err := (store.Roles{}).EnsureSystemRoles(ctx, sc); err != nil {
 			return err
 		}
@@ -521,12 +521,12 @@ func (st *failClosedStack) tenantAdmin(t *testing.T, srv *Server, sessions *auth
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := sessions.Issue(context.Background(), auth.Session{TenantID: tenant, UserID: userID, Email: email, DisplayName: name,
+	token, err := srv.SessionManager().Issue(context.Background(), auth.Session{TenantID: tenant, UserID: userID, Email: email, DisplayName: name,
 		AuthorizationHash: auth.PermissionGrantFingerprint(grants)})
 	if err != nil {
 		t.Fatalf("issue session for %s: %v", email, err)
 	}
-	return &fcUser{h: st.h, cookie: &http.Cookie{Name: auth.SessionCookie, Value: token}}
+	return &fcUser{h: h, cookie: &http.Cookie{Name: auth.SessionCookie, Value: token}}
 }
 
 // streamAgentResult registers an agent of tenant over mTLS and streams one

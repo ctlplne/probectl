@@ -102,6 +102,13 @@
       "capabilities": [
         "CLM-FAIL-CLOSED"
       ]
+    },
+    {
+      "ref": "test:internal/control/ingest_scope_integration_test.go#TestSharedFeedsIngestOnceAndBGPIngestsPerTenantRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "CLM-INGEST-SCOPE"
+      ]
     }
   ]
 }

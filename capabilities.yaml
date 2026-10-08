@@ -1126,7 +1126,6 @@ capabilities:
   - id: CLM-INGEST-SCOPE
     name: Open-data/threat feeds ingest once then scope per tenant; BGP collector ingestion runs per tenant by decision of record.
     status: delivered
-    evidence_status: partial
     owner: release/docs
     ui_aliases:
       F7: "Shared open-data ingestion and tenant-scoped enrichment are surfaced on the open-data/outage page."
@@ -1139,5 +1138,5 @@ capabilities:
     docs: {refs: ["file:docs/claims/register.json#CLM-INGEST-SCOPE"]}
     config_keys: {refs: ["config:PROBECTL_BMP_COLLECTOR", "config:PROBECTL_INGEST_STRICT_TENANT_LANES"]}
     telemetry: {refs: ["file:internal/opendata", "file:internal/bgp"]}
-    real_stack_proof: {gap: "Public network access may remain hermetic, but shared ingest followed by per-tenant scoping is positive multi-tenant runtime behavior without a two-tenant real-store receipt."}
+    real_stack_proof: {refs: ["test:internal/control/ingest_scope_integration_test.go#TestSharedFeedsIngestOnceAndBGPIngestsPerTenantRealStack"]}
     migration: *no_migration
