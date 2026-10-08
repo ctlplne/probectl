@@ -1219,8 +1219,12 @@ func identityEqual(a, b string) bool {
 // ListGrants returns all grants (operator console).
 func (s *Service) ListGrants(ctx context.Context) ([]Grant, error) { return s.store.ListGrants(ctx) }
 
-// PendingForTenant lists a tenant's pending grants (the consent surface).
-func (s *Service) PendingForTenant(ctx context.Context, tenantID string) ([]Grant, error) {
+// ActionableForTenant lists the tenant's grants it can still act on (the
+// consent surface): pending ones to approve or deny, and active ones to revoke
+// (AUD-13). Listing pending only left an approved grant invisible to the tenant
+// that consented to it, so the tenant revoke had nothing to point at. Denied,
+// revoked and expired grants are history on the provider stream, not actions.
+func (s *Service) ActionableForTenant(ctx context.Context, tenantID string) ([]Grant, error) {
 	all, err := s.store.ListGrantsForTenant(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -1228,7 +1232,7 @@ func (s *Service) PendingForTenant(ctx context.Context, tenantID string) ([]Gran
 	now := s.now()
 	out := make([]Grant, 0, len(all))
 	for _, g := range all {
-		if g.State(now) == GrantPending {
+		if state := g.State(now); state == GrantPending || state == GrantActive {
 			out = append(out, g)
 		}
 	}

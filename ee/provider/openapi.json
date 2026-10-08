@@ -383,7 +383,7 @@
     },
     "/provider/v1/consent": {
       "get": {
-        "summary": "Pending grants for the caller's tenant (tenant session)",
+        "summary": "Grants the caller's tenant can act on (tenant session): pending requests to approve or deny and active grants to revoke, each with its effective state",
         "responses": {
           "200": {
             "description": "OK"

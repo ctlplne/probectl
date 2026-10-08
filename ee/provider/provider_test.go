@@ -1322,6 +1322,80 @@ func TestConsentListIsTenantScoped(t *testing.T) {
 	}
 }
 
+// TestConsentListShowsTheActiveGrantsATenantCanRevoke (AUD-13): the tenant's
+// consent list is everything it can still act on — pending requests to decide
+// AND the active grants it approved, so the tenant revoke has something to
+// point at. Before, an approved grant vanished from the list the moment it was
+// approved and the tenant could not find what it had consented to. Denied,
+// revoked and expired grants are history, not actions.
+func TestConsentListShowsTheActiveGrantsATenantCanRevoke(t *testing.T) {
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
+	f.svc.WithTenantAudit(&memTenantAudit{})
+	token := f.bootstrapAndLoginFast(t)
+	request := func(reason string, ttlMinutes int) Grant {
+		t.Helper()
+		rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/breakglass",
+			map[string]any{"tenant_id": "tnA", "reason": reason, "ttl_minutes": ttlMinutes})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("request %q: %d %s", reason, rec.Code, rec.Body.String())
+		}
+		var g Grant
+		mustDecode(t, rec, &g)
+		return g
+	}
+	asTenant := func(method, path string, body any) *httptest.ResponseRecorder {
+		t.Helper()
+		req := newReq(method, path, body)
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: "tenant-admin-A"})
+		return doReq(f.h, req)
+	}
+	decide := func(g Grant, decision string) {
+		t.Helper()
+		if rec := asTenant(http.MethodPost, "/provider/v1/consent/"+g.ID, map[string]string{"decision": decision}); rec.Code != http.StatusOK {
+			t.Fatalf("%s %s: %d %s", decision, g.Reason, rec.Code, rec.Body.String())
+		}
+	}
+
+	pending := request("pending", 30)
+	active := request("active", 30)
+	decide(active, "approve")
+	denied := request("denied", 30)
+	decide(denied, "deny")
+	revoked := request("revoked", 30)
+	decide(revoked, "approve")
+	if rec := asTenant(http.MethodPost, "/provider/v1/consent/"+revoked.ID+"/revoke", nil); rec.Code != http.StatusOK {
+		t.Fatalf("tenant revoke: %d %s", rec.Code, rec.Body.String())
+	}
+	expired := request("expired", 5)
+	decide(expired, "approve")
+	*f.now = f.now.Add(10 * time.Minute) // expired's 5-minute TTL has run out; the others' 30 have not
+
+	rec := asTenant(http.MethodGet, "/provider/v1/consent", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("consent list: %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Items []struct {
+			ID    string `json:"id"`
+			State string `json:"state"`
+		} `json:"items"`
+	}
+	mustDecode(t, rec, &out)
+	got := map[string]string{}
+	for _, it := range out.Items {
+		got[it.ID] = it.State
+	}
+	want := map[string]string{pending.ID: GrantPending, active.ID: GrantActive}
+	if len(got) != len(want) {
+		t.Fatalf("consent list = %v, want exactly the pending and active grants %v", got, want)
+	}
+	for id, state := range want {
+		if got[id] != state {
+			t.Fatalf("grant %s listed as %q, want %q (list %v)", id, got[id], state, got)
+		}
+	}
+}
+
 // TestBreakGlassTTLCap: TTLs beyond the configured cap are refused.
 func TestBreakGlassTTLCap(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))

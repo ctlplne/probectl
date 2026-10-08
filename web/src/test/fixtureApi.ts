@@ -1111,8 +1111,10 @@ export function fixtureFetch(
     status: 'active',
     enrolled: true,
   }
-  // DPR-038: one operator request awaiting THIS tenant's decision.
-  let pendingConsent = [
+  // DPR-038: one operator request awaiting THIS tenant's decision. The consent
+  // list is what the tenant can act on (AUD-13): an approved grant stays, as
+  // active, until the tenant revokes it.
+  let tenantGrants: Array<Record<string, unknown> & { id: string }> = [
     {
       id: 'grant-fixture-1',
       operator_id: 'operator-fixture',
@@ -1120,6 +1122,7 @@ export function fixtureFetch(
       tenant_id: TENANT_ID,
       reason: 'INC-4821: cross-plane RCA for the checkout latency incident',
       scope: 'read',
+      state: 'pending',
       granted_by: 'operator@provider.probectl.test',
       granted_at: '2026-06-04T11:40:00Z',
       expires_at: '2026-06-04T12:40:00Z',
@@ -2517,11 +2520,29 @@ export function fixtureFetch(
     if (options.providerPlane && path === '/provider/v1/breakglass')
       return jsonResponse({ items: [] })
     if (options.providerPlane && path === '/provider/v1/consent')
-      return jsonResponse({ items: pendingConsent })
+      return jsonResponse({ items: tenantGrants })
+    if (
+      options.providerPlane &&
+      path.startsWith('/provider/v1/consent/') &&
+      path.endsWith('/revoke') &&
+      method === 'POST'
+    ) {
+      const id = path.slice('/provider/v1/consent/'.length, -'/revoke'.length)
+      const grant = tenantGrants.find((g) => g.id === id)
+      if (!grant)
+        return jsonResponse({ error: { code: 'not_found', message: 'grant not found' } }, 404)
+      tenantGrants = tenantGrants.filter((g) => g.id !== id)
+      return jsonResponse({
+        ...grant,
+        state: 'revoked',
+        revoked_by: 'admin@probectl.test',
+        revoked_at: '2026-06-04T11:50:00Z',
+      })
+    }
     if (options.providerPlane && path.startsWith('/provider/v1/consent/') && method === 'POST') {
       const id = path.slice('/provider/v1/consent/'.length)
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {}
-      const grant = pendingConsent.find((g) => g.id === id)
+      const grant = tenantGrants.find((g) => g.id === id && g.state === 'pending')
       if (!grant)
         return jsonResponse({ error: { code: 'not_found', message: 'grant not found' } }, 404)
       if (body.decision !== 'approve' && body.decision !== 'deny')
@@ -2529,13 +2550,19 @@ export function fixtureFetch(
           { error: { code: 'bad_request', message: 'decision must be approve or deny' } },
           400,
         )
-      pendingConsent = pendingConsent.filter((g) => g.id !== id)
       const decidedAt = '2026-06-04T11:45:00Z'
-      return jsonResponse(
-        body.decision === 'approve'
-          ? { ...grant, consented_by: 'admin@probectl.test', consented_at: decidedAt }
-          : { ...grant, denied_by: 'admin@probectl.test', denied_at: decidedAt },
-      )
+      if (body.decision === 'deny') {
+        tenantGrants = tenantGrants.filter((g) => g.id !== id)
+        return jsonResponse({ ...grant, denied_by: 'admin@probectl.test', denied_at: decidedAt })
+      }
+      const approved = {
+        ...grant,
+        state: 'active',
+        consented_by: 'admin@probectl.test',
+        consented_at: decidedAt,
+      }
+      tenantGrants = tenantGrants.map((g) => (g.id === id ? approved : g))
+      return jsonResponse(approved)
     }
     if (options.providerPlane && path === '/provider/v1/fairness')
       return jsonResponse({ items: [] })

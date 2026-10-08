@@ -613,16 +613,23 @@ func (h *Handler) handleListGrants(w http.ResponseWriter, r *http.Request, _ Ope
 	if err != nil {
 		return err
 	}
+	return h.writeJSON(w, http.StatusOK, map[string]any{"items": h.grantViews(gs)})
+}
+
+// grantView is a grant with its effective state at read time — derived, never
+// stored, so a list can never show an expired grant as active.
+type grantView struct {
+	Grant
+	StateNow string `json:"state"`
+}
+
+func (h *Handler) grantViews(gs []Grant) []grantView {
 	now := h.svc.now()
-	type withState struct {
-		Grant
-		StateNow string `json:"state"`
-	}
-	out := make([]withState, 0, len(gs))
+	out := make([]grantView, 0, len(gs))
 	for _, g := range gs {
-		out = append(out, withState{Grant: g, StateNow: g.State(now)})
+		out = append(out, grantView{Grant: g, StateNow: g.State(now)})
 	}
-	return h.writeJSON(w, http.StatusOK, map[string]any{"items": out})
+	return out
 }
 
 func (h *Handler) handleRequestGrant(w http.ResponseWriter, r *http.Request, op Operator) error {
@@ -715,12 +722,14 @@ func auditQueryInt64(raw string) (int64, error) {
 	return n, nil
 }
 
+// handleConsentList is the tenant's view of break-glass: pending requests to
+// decide and active grants it may revoke, each with its effective state.
 func (h *Handler) handleConsentList(w http.ResponseWriter, r *http.Request, tenantID, _ string) error {
-	gs, err := h.svc.PendingForTenant(r.Context(), tenantID)
+	gs, err := h.svc.ActionableForTenant(r.Context(), tenantID)
 	if err != nil {
 		return err
 	}
-	return h.writeJSON(w, http.StatusOK, map[string]any{"items": gs})
+	return h.writeJSON(w, http.StatusOK, map[string]any{"items": h.grantViews(gs)})
 }
 
 func (h *Handler) handleConsentDecide(w http.ResponseWriter, r *http.Request, tenantID, userEmail string) error {

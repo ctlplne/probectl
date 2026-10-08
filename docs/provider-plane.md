@@ -135,9 +135,11 @@ tenant-consented, operator-bound, and audited on every single access**:
    exactly which file and commands are missing, and nothing is recorded.
 2. **The tenant decides — not the operator.** A tenant admin (holding the
    `directory.write` permission) approves or denies it in the tenant app under
-   **Admin → Break-glass requests** (operator, reason, scope, requested and
-   expiry times, Approve/Deny; the card is absent on deployments without a
-   provider plane) or via the consent endpoints — either way authenticated by
+   **Admin → Break-glass requests** (operator, reason, scope, state, requested
+   and expiry times, audited reads, Approve/Deny; the card is absent on
+   deployments without a provider plane) or via the consent endpoints
+   (`GET /provider/v1/consent` lists the tenant's pending requests and active
+   grants, each with its state) — either way authenticated by
    the **tenant** session, not an operator session. The consent
    check resolves the tenant first, then requires that RBAC permission, then
    applies the tenant's ABAC deny policies to the user's current subject
@@ -156,7 +158,9 @@ tenant-consented, operator-bound, and audited on every single access**:
    an access that cannot be audited is simply not allowed to happen. Revocation,
    denial, or expiry ends access immediately, and the grant's `use_count` shows
    exactly how many audited reads it carried.
-5. **The tenant can revoke what it consented to (AUD-13).** `POST
+5. **The tenant can revoke what it consented to (AUD-13).** An approved grant
+   stays on the tenant's **Break-glass requests** card, marked active, with a
+   **Revoke** action for as long as it is usable. `POST
    /provider/v1/consent/{id}/revoke`, authenticated by the **tenant** session
    (the same `directory.write` tenant admin), ends an active or pending grant
    for that tenant. It is recorded on **both** the provider break-glass stream

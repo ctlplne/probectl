@@ -14,35 +14,54 @@ import { renderApp } from './renderApp'
 const admin = { me: { permissions: ['directory.read', 'directory.write', 'audit.read'] } }
 
 /** DPR-038: the tenant decides break-glass. A tenant administrator sees the
- * operator's pending request in Admin, approves or denies it there, and a
- * deployment without the provider plane shows no such card at all. */
+ * operator's pending request in Admin, approves or denies it there, can revoke
+ * an approved grant while it is active (AUD-13), and a deployment without the
+ * provider plane shows no such card at all. */
 describe('break-glass consent', () => {
-  test('shows the pending request with who, why, and until when, and approves it', async () => {
+  test('shows the pending request with who, why, and until when, approves it, then revokes it', async () => {
     vi.stubGlobal('fetch', providerFetch())
     const { container } = renderApp('/admin', admin)
-    const table = await screen.findByRole('table', { name: 'Pending break-glass requests' })
+    const table = await screen.findByRole('table', {
+      name: 'Break-glass requests and active grants',
+    })
     const row = within(table).getByText('operator@provider.probectl.test').closest('tr')
     expect(row).toHaveTextContent('INC-4821: cross-plane RCA for the checkout latency incident')
     expect(row).toHaveTextContent('read')
+    expect(row).toHaveTextContent('pending')
     expect(await axe(container)).toHaveNoViolations()
 
     await userEvent.click(
       within(table).getByRole('button', { name: 'Approve operator@provider.probectl.test' }),
     )
-    await waitFor(() =>
-      expect(within(table).queryByText('operator@provider.probectl.test')).toBeNull(),
-    )
+    // The approved grant stays listed, active, with the tenant's revoke control.
+    const revoke = await within(table).findByRole('button', {
+      name: 'Revoke operator@provider.probectl.test',
+    })
+    expect(
+      within(table).getByText('operator@provider.probectl.test').closest('tr'),
+    ).toHaveTextContent('active')
     expect(screen.getByText(/Approved: operator@provider.probectl.test/)).toHaveAttribute(
       'role',
       'status',
     )
-    expect(screen.getByText('No pending requests')).toBeInTheDocument()
+
+    await userEvent.click(revoke)
+    await waitFor(() =>
+      expect(within(table).queryByText('operator@provider.probectl.test')).toBeNull(),
+    )
+    expect(screen.getByText(/Revoked: operator@provider.probectl.test/)).toHaveAttribute(
+      'role',
+      'status',
+    )
+    expect(screen.getByText('No requests or active grants')).toBeInTheDocument()
   })
 
   test('denies a request and records the decision', async () => {
     vi.stubGlobal('fetch', providerFetch())
     renderApp('/admin', admin)
-    const table = await screen.findByRole('table', { name: 'Pending break-glass requests' })
+    const table = await screen.findByRole('table', {
+      name: 'Break-glass requests and active grants',
+    })
     await userEvent.click(
       within(table).getByRole('button', { name: 'Deny operator@provider.probectl.test' }),
     )
