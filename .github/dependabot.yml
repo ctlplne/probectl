@@ -59,3 +59,11 @@ updates:
       interval: weekly
     commit-message:
       prefix: "ci(deps)"
+    # CodeQL's init/autobuild/analyze must move together: init writes a config
+    # that analyze refuses across versions ("Loaded a configuration file for
+    # version 3.x, but running version 4.x"), so one-PR-per-sub-action bumps can
+    # never pass CI, and merging one alone breaks code scanning on main.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
