@@ -738,6 +738,36 @@
       "title": "Open-data/threat feeds are ingested once (shared) then scoped per tenant; BGP collector ingestion runs per tenant by decision of record (ADR bgp-ingest-model), with the shared fan-out as a recorded scaling boundary."
     },
     {
+      "id": "CLM-BACKUP-TAMPER-EVIDENT",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "The .pbk backup container is tamper-evident end to end: an authenticated trailer binds the exact chunk count and a DEK-keyed MAC chain over the header and every ordered chunk, so truncation, chunk reordering, or header substitution makes backup-open fail (not merely per-chunk encryption)."
+    },
+    {
+      "id": "CLM-DURABLE-LIGHTWEIGHT-BUS",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "The lightweight bus for small deployments is DURABLE (NATS with JetStream): records are on disk and a consumer's position survives a restart and a rolling upgrade. The in-process memory bus is VOLATILE and is development-only. Both networked transports are held to the same TLS-and-credentials policy."
+    },
+    {
+      "id": "CLM-UNMEASURED-NOT-CLEAN",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "A layer, plane or segment that was NOT measured is reported as unverified, never as healthy. Every verdict surface names what it could not see, in a machine-readable field and in the text a human reads, and lowers its own confidence rather than presenting an unmeasured gap as corroboration. The endpoint attribution names unmeasured layers and drops to a fixed lower confidence; the cross-plane root cause names the cause-bearing planes that contributed nothing and refuses high confidence for a single-plane verdict while others were silent; the topology graph ships its coverage counts and says which planes are missing from an impact answer."
+    },
+    {
+      "id": "CLM-VERDICT-COVERAGE",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Every surface that reports what probectl observed also reports what was observing. Each one carries a provenance declaration — whether the producer behind it exists and is running for this tenant (collector_running, ingest_running, correlation_running, change_ingest_configured, agent_transport_running, coverage, methodology, measurement_fidelity, silent_planes, freshness) — and, where it applies a bound, a completeness declaration (effective_limit, truncated, next_cursor). An empty answer therefore never has to be read as good news: the reader is told whether nothing was wrong or nothing was measuring. Surfaces that return rows the caller created declare nothing, because an empty list there is unambiguous. The web UI turns those fields into what a person sees, and a producer that is not running is shown as blocked rather than as a zero-valued chart."
+    },
+    {
+      "id": "CLM-VERIFIED-DELIVERY",
+      "kind": "capability",
+      "owner": "release/docs",
+      "title": "Delivery observability derives from VERIFIED delivery, never from intent. An asynchronous producer returns before the broker answers, so a count of accepted records is not a count of delivered ones: every transport that can report what it failed to deliver reports it on the producer's own metrics endpoint, and a transport that cannot report it exposes no series rather than a zero that reads as healthy. Where a capability is requested and not delivering, that state is a metric an operator can alert on, not a log line."
+    },
+    {
       "id": "DOCS-S01",
       "kind": "legacy-property",
       "owner": "release/docs",
