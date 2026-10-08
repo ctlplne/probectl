@@ -8,11 +8,13 @@ package control
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/govern"
+	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -159,6 +161,11 @@ func (s *Server) handleGovernancePolicyPut(w http.ResponseWriter, r *http.Reques
 		return e
 	}
 	if err := store.SetTenantPolicy(r.Context(), tid, pol, actor, auditTx); err != nil {
+		if errors.Is(err, license.ErrReadOnly) {
+			// The read-only license degrade (govern.GatePolicyWrites): the
+			// policy stays readable and the consent can still be withdrawn.
+			return apierror.Forbidden(err.Error()).WithCode(string(apierror.CodeLicenseReadOnly))
+		}
 		return apierror.Internal("governance policy update failed").Wrap(err)
 	}
 	writeJSON(w, http.StatusOK, governancePolicyView(pol))

@@ -275,7 +275,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		// operator hand-editing SQL. The store is core (govern.PolicyStore); only
 		// this attach (the Build* seam, under the license Has check) turns the
 		// surface on — unlicensed/core builds never reach here, so it 404s.
-		srv.WithGovernance(govern.NewPolicyStore(pool))
+		// Read-only license degrade, shared with keys/remediation (govern.GatePolicyWrites).
+		srv.WithGovernance(govern.GatePolicyWrites(govern.NewPolicyStore(pool), writeCapability))
 		log.Info("advanced data governance attached (S-EE3; tenant policy management AUD-12)")
 	}
 

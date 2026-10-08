@@ -146,7 +146,13 @@ requires an operator or raw SQL:
   audit chain (`governance.policy_set`) in the same transaction (`governance.write`).
 
 Both routes are unlocked only by the Enterprise `governance` feature and 404
-when unlicensed (hidden, not locked). This is a MANAGEMENT surface for the
+when unlicensed (hidden, not locked). Like key rotation and remediation, the
+`PUT` honors the read-only license degrade: past the grace period the policy
+stays readable but an edit is refused with `403 license_read_only` before it
+reaches the store. One edit always goes through — withdrawing the remote-AI
+egress consent (`ai_remote_egress` true → false) with nothing else changed —
+because refusing it would keep telemetry flowing to a remote model the tenant
+no longer consents to. This is a MANAGEMENT surface for the
 existing consent, not a relaxation: the row stays write-fenced off the tenant
 app role (migration `0111`) — the handler writes it through the provider role in
 a tenant-GUC-bound transaction — and the core AI egress gate still fails closed

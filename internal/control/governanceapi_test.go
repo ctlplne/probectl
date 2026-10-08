@@ -171,6 +171,40 @@ func TestGovernancePolicyRBAC(t *testing.T) {
 	}
 }
 
+// TestGovernancePolicyReadOnlyLicenseRefusesEditsButNotConsentWithdrawal: on a
+// read-only license (the store wrapped in govern.GatePolicyWrites, exactly as
+// the attach seam wires it) the policy stays readable, an edit is a 403
+// license_read_only that never reaches the store, and withdrawing the remote-AI
+// egress consent still goes through.
+func TestGovernancePolicyReadOnlyLicenseRefusesEditsButNotConsentWithdrawal(t *testing.T) {
+	fake := &fakeGovStore{policies: map[string]govern.Policy{tenancy.DefaultTenantID.String(): {AIRemoteEgress: true}}}
+	srv := testServer(nil)
+	srv.WithGovernance(govern.GatePolicyWrites(fake, func() bool { return false }))
+	put := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/v1/governance/policy", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Probectl-Tenant", tenancy.DefaultTenantID.String())
+		srv.Handler().ServeHTTP(rr, req)
+		return rr
+	}
+
+	if rr := put(`{"ai_remote_egress":true,"redact_export":true}`); rr.Code != http.StatusForbidden ||
+		!strings.Contains(rr.Body.String(), "license_read_only") || fake.setN != 0 {
+		t.Fatalf("edit on a read-only license = %d %s (store writes %d), want 403 license_read_only before the store", rr.Code, rr.Body, fake.setN)
+	}
+	if !getEgress(t, srv, tenancy.DefaultTenantID.String()) {
+		t.Fatal("the policy must stay readable on a read-only license")
+	}
+	if rr := put(`{"ai_remote_egress":false}`); rr.Code != http.StatusOK || fake.setN != 1 {
+		t.Fatalf("consent withdrawal on a read-only license = %d %s (store writes %d), want 200", rr.Code, rr.Body, fake.setN)
+	}
+	if getEgress(t, srv, tenancy.DefaultTenantID.String()) {
+		t.Fatal("the withdrawn consent did not take")
+	}
+}
+
 func getEgress(t *testing.T, srv *Server, tenant string) bool {
 	t.Helper()
 	rr := httptest.NewRecorder()

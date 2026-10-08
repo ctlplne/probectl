@@ -81,6 +81,7 @@ func TestLicenseReadOnlyMutationCapabilityInstalledOnceAtEEAttach(t *testing.T) 
 	for _, wiring := range []string{
 		"tenantcrypto.GateKeyManagerWrites(tenantkeys.NewManager(ring), writeCapability)",
 		"remediation.GateServiceWrites(remed, writeCapability)",
+		"govern.GatePolicyWrites(govern.NewPolicyStore(pool), writeCapability)",
 	} {
 		if !strings.Contains(text, wiring) {
 			t.Fatalf("ee attach seam is missing shared read-only mutation wiring %q", wiring)

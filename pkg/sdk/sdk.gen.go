@@ -3720,7 +3720,7 @@ func (c *Client) GetV1GovernancePolicy(ctx context.Context, req GetV1GovernanceP
 	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
 }
 
-// Set the calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature — 404 when unlicensed): classification overrides, the redaction floor (redact_from), redact_export, and the remote-AI egress consent (ai_remote_egress). Tenant comes from the authenticated principal, never the body; audited atomically in the tenant chain (governance.policy_set); governance.write. A management surface for the existing consent, not a relaxation — the AI egress gate still fails closed and redacts.
+// Set the calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature — 404 when unlicensed): classification overrides, the redaction floor (redact_from), redact_export, and the remote-AI egress consent (ai_remote_egress). Tenant comes from the authenticated principal, never the body; audited atomically in the tenant chain (governance.policy_set); governance.write. A management surface for the existing consent, not a relaxation — the AI egress gate still fails closed and redacts. A license past grace denies edits with license_read_only while the policy stays readable; withdrawing ai_remote_egress (and changing nothing else) is always accepted.
 type PutV1GovernancePolicyRequest struct {
 	Body *map[string]any `json:"-"`
 }

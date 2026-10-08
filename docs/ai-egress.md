@@ -239,7 +239,10 @@ to set it depending on your edition:
   ```
 
   (`GET /v1/governance/policy` reads it back. `probectl governance set-policy` /
-  `probectl governance policy` are the CLI equivalents.) A **provider operator**
+  `probectl governance policy` are the CLI equivalents.) Once a license is past
+  its grace period the policy is read-only and granting consent is refused with
+  `license_read_only`, but **withdrawing** it (`{"ai_remote_egress": false}` with
+  the rest of the policy unchanged) is always accepted. A **provider operator**
   can *see* a hosted tenant's consent on the provider plane but can **not** set or
   weaken it: consent is the tenant's decision (AUD-11), so the provider governance
   update refuses any `ai_remote_egress` change with `403` and preserves the
