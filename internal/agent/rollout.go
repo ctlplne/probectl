@@ -83,15 +83,18 @@ var recognizedVerifiers = []string{"cosign"}
 
 // methodVerifies reports whether Method names a real signature verification. It
 // is deliberately a positive allowlist (fail closed): an unrecognized method —
-// crucially "none" — is NOT a verification. Extend the allowlist in one place
+// crucially "none" — is NOT a verification. The method is the command that was
+// run ("cosign verify …", "cosign verify-blob …"), so its FIRST word must be a
+// recognized verifier: a method that merely mentions one ("skipped cosign",
+// "no cosign", "cosign-less") is refused. Extend the allowlist in one place
 // when a new verifier is adopted.
 func methodVerifies(method string) bool {
-	m := strings.ToLower(strings.TrimSpace(method))
-	if m == "" {
+	fields := strings.Fields(strings.ToLower(method))
+	if len(fields) == 0 {
 		return false
 	}
 	for _, v := range recognizedVerifiers {
-		if strings.Contains(m, v) {
+		if fields[0] == v {
 			return true
 		}
 	}
