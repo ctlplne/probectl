@@ -1092,7 +1092,6 @@ capabilities:
   - id: CLM-BGP-FEEDS
     name: The analyzer fetches only RPKI VRP data; MRT is bring-your-own local input; RIS Live reads RIPE's public websocket.
     status: delivered
-    evidence_status: partial
     owner: release/docs
     ui_aliases: {F6: "The BGP feed-boundary invariant is surfaced on the BGP monitoring plane rather than a duplicate claim-only screen."}
     engine: {refs: ["file:analyzer/probectl_analyzer", "file:internal/bgp"]}
@@ -1103,7 +1102,7 @@ capabilities:
     docs: {refs: ["file:docs/claims/register.json#CLM-BGP-FEEDS"]}
     config_keys: {refs: ["config:PROBECTL_BGP_ANALYZER_SOURCE", "config:PROBECTL_BGP_ANALYZER_SOURCE_FILE"]}
     telemetry: {refs: ["file:internal/bgp"]}
-    real_stack_proof: {gap: "The current analyzer receipt consumes a recorded RIS fixture and therefore does not prove the documented live-feed/local-input boundary in a shipping full-stack workflow."}
+    real_stack_proof: {refs: ["test:internal/control/bgp_feeds_boundary_integration_test.go#TestBGPAnalyzerFeedBoundaryRealStack"]}
     migration: *no_migration
 
   - id: CLM-EBPF-INTEGRITY

@@ -109,6 +109,13 @@
       "capabilities": [
         "CLM-INGEST-SCOPE"
       ]
+    },
+    {
+      "ref": "test:internal/control/bgp_feeds_boundary_integration_test.go#TestBGPAnalyzerFeedBoundaryRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "CLM-BGP-FEEDS"
+      ]
     }
   ]
 }
