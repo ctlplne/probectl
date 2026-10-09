@@ -184,12 +184,23 @@ type providerAudit struct {
 	ir   audit.IRStageAppender
 }
 
-// ListAudit (DPR-037) pages the same stream Append writes.
+// ListAudit (DPR-037) pages the same stream Append writes, as the provider
+// role: the serve login may assume it but never inherits it (TEN-01).
 func (a *providerAudit) ListAudit(ctx context.Context, cursor int64, limit int, filter audit.Filter, newestFirst bool) ([]audit.Event, error) {
-	if newestFirst {
-		return audit.ProviderListRecent(ctx, a.pool, cursor, limit, filter)
+	var out []audit.Event
+	err := tenancy.InProvider(ctx, a.pool, func(ctx context.Context, q tenancy.Querier) error {
+		var err error
+		if newestFirst {
+			out, err = audit.ProviderListRecent(ctx, q, cursor, limit, filter)
+		} else {
+			out, err = audit.ProviderListFiltered(ctx, q, cursor, limit, filter)
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
 	}
-	return audit.ProviderListFiltered(ctx, a.pool, cursor, limit, filter)
+	return out, nil
 }
 
 func (a *providerAudit) Append(ctx context.Context, actor, action, target string, data map[string]any) error {
