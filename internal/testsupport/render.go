@@ -52,14 +52,17 @@ type RenderControl struct {
 // RenderStep clicks the one control with Role (default "button") and the exact
 // accessible name Click, then waits for every Expect text and, when Gone is
 // set, for that control to leave the page (the UI re-rendered from the
-// server's answer). An ambiguous or missing control fails the render instead
-// of clicking a guess. A Fill step instead types Value into the one element the
-// CSS selector Fill matches (a third-party form, such as an IdP login page).
+// server's answer); Vanish waits the same way for another control of that role
+// (the row action a confirm dialog completes). An ambiguous or missing control
+// fails the render instead of clicking a guess. A Fill step instead types
+// Value into the one element the CSS selector Fill matches (a third-party
+// form, such as an IdP login page).
 type RenderStep struct {
 	Click  string   `json:"click,omitempty"`
 	Role   string   `json:"role,omitempty"`
 	Expect []string `json:"expect,omitempty"`
 	Gone   bool     `json:"gone,omitempty"`
+	Vanish string   `json:"vanish,omitempty"`
 	Fill   string   `json:"fill,omitempty"`
 	Value  string   `json:"value,omitempty"`
 }

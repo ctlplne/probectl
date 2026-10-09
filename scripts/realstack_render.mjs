@@ -18,7 +18,7 @@
 //     "absent": ["text that must NOT render", ...],
 //     "steps": [{"click": "accessible name", "role": "button",
 //                "expect": ["text that must render after the click"],
-//                "gone": true},
+//                "gone": true, "vanish": "another control's name"},
 //               {"fill": "#css-selector", "value": "typed text"}],
 //     "controls": [{"role": "button", "name": "accessible name"}],
 //     "trustCertFiles": ["/path/to/server-leaf.pem"],
@@ -27,7 +27,9 @@
 // ambiguous or missing control fails the step rather than clicking a guess —
 // then waits for its expected text and, with "gone", for that control to leave
 // the page — the UI re-rendered from the server's answer, so the action took
-// effect. A "fill" step types into the ONE element its CSS selector matches (a
+// effect; "vanish" waits the same way for another control (say, the row
+// action a confirm dialog completes). A "fill" step types into the ONE
+// element its CSS selector matches (a
 // third-party form such as an IdP login page). "controls" must be visible by
 // role and exact accessible name after the last step. The absent texts are
 // checked on the first render and again after the last step.
@@ -147,6 +149,15 @@ async function main() {
           await control.waitFor({ state: "detached", timeout: remaining() });
         } catch {
           result.missing.push(`"${step.click}" was still offered after the click`);
+        }
+      }
+      if (step.vanish) {
+        try {
+          await page
+            .getByRole(step.role ?? "button", { name: step.vanish, exact: true })
+            .waitFor({ state: "detached", timeout: remaining() });
+        } catch {
+          result.missing.push(`"${step.vanish}" was still offered after clicking "${step.click}"`);
         }
       }
     }
