@@ -116,6 +116,13 @@
       "capabilities": [
         "CLM-BGP-FEEDS"
       ]
+    },
+    {
+      "ref": "test:ee/provider/provider_plane_integration_test.go#TestProviderPlaneRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F51"
+      ]
     }
   ]
 }

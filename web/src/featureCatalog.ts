@@ -302,7 +302,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F51',
     name: 'Provider/MSP plane',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

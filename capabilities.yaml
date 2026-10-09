@@ -811,7 +811,6 @@ capabilities:
   - id: F51
     name: Provider/MSP plane
     status: delivered
-    evidence_status: partial
     owner: web/quality
     engine: {refs: ["file:ee/provider"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithProviderPlane(h)"]}
@@ -821,7 +820,7 @@ capabilities:
     docs: {refs: ["file:docs/provider-plane.md#Provider / management plane"]}
     config_keys: {refs: ["config:PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", "config:PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES"]}
     telemetry: {refs: ["file:ee/provider"]}
-    real_stack_proof: {gap: "The PostgreSQL role test denies three raw tables and permits aggregate views; it does not prove provider lifecycle, fleet, break-glass, API, CLI, and rendered-UI behavior."}
+    real_stack_proof: {refs: ["test:ee/provider/provider_plane_integration_test.go#TestProviderPlaneRealStack"]}
     migration: {refs: ["file:migrations/0024_provider_plane.sql", "file:migrations/0087_break_glass_single_active_grant.sql"]}
 
   - id: F52
