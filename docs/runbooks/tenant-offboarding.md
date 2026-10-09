@@ -252,6 +252,13 @@ provider chain stores only the digest, so keep the receipt before leaving.
 - **Backups:** the attested deletion covers the live stores. Your snapshots
   expire on the stated TTL — do not restore an erased tenant's backup except
   under legal hold.
+- **Bus records:** the bus is a transport buffer, not a store, and the erase
+  does not rewrite it. Records the tenant's agents and collectors published
+  stay on their Kafka topics or NATS streams until the broker's retention drops
+  them (the Kafka broker's log retention; `PROBECTL_BUS_STREAM_MAX_AGE` for
+  NATS, 168h by default). They cannot refill a store: every writer behind the
+  bus rechecks the tenant's lifecycle fence first. Size broker retention with
+  that window in mind, as you do the backup TTL.
 - **Custom-domain TLS:** if the tenant had a custom domain, remove its ingress
   certificate and DNS.
 - **Agents:** the agents' mTLS identities die with the registry rows;
