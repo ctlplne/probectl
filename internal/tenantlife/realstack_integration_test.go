@@ -14,13 +14,11 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -345,7 +343,7 @@ canaries:
 	brokers := `["` + strings.Join(testsupport.KafkaBrokers(), `","`) + `"]`
 	bus := fmt.Sprintf("bus:\n  mode: kafka\n  brokers: %s\n  namespace: %q\n", brokers, tn.ns)
 	// NetFlow v5 from a stand-in exporter through the shipped flow agent.
-	udp := freeUDP(t)
+	udp := shipped.FreeUDPAddr(t)
 	st.StartCollector(t, "probectl-flow-agent", "f55-flow-"+tn.id[:8], "PROBECTL_FLOW", fmt.Sprintf(`apiVersion: probectl.io/flow-agent/v1
 tenant_id: %q
 agent_id: %q
@@ -360,7 +358,7 @@ sflow:
 batch_size: 10
 flush_interval: 1s
 `, tn.id, tn.agent, bus, udp))
-	go exportNetFlow(t.Context(), udp)
+	go shipped.ExportNetFlow(t.Context(), udp)
 	// A recorded eBPF capture through the shipped eBPF agent (no kernel).
 	fixture := filepath.Join(t.TempDir(), "flows.json")
 	var flows []map[string]any
@@ -707,46 +705,6 @@ func postOTLP(t *testing.T, st *shipped.Stack, token, service string) {
 	}
 }
 
-// exportNetFlow sends a NetFlow v5 datagram from 127.0.0.1 to addr every
-// second until the test ends, as a router would: records 10.55.0.x ->
-// 192.0.2.10:443 over TCP. Sends before the agent's listener is up are
-// refused and dropped, as a router's are; after the erasure, the stream
-// keeps coming, so nothing may refill the stores.
-func exportNetFlow(ctx context.Context, addr string) {
-	conn, err := net.Dial("udp", addr)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-	for seq := uint32(0); ctx.Err() == nil; seq++ {
-		const records = 5
-		pkt := make([]byte, 24+48*records)
-		be := binary.BigEndian
-		be.PutUint16(pkt[0:], 5)
-		be.PutUint16(pkt[2:], records)
-		be.PutUint32(pkt[4:], 600000) // sysUptime ms
-		be.PutUint32(pkt[8:], uint32(time.Now().Unix()))
-		be.PutUint32(pkt[16:], seq*records) // flow sequence
-		for r := 0; r < records; r++ {
-			rec := pkt[24+48*r:]
-			copy(rec[0:4], []byte{10, 55, 0, byte(r + 1)})
-			copy(rec[4:8], []byte{192, 0, 2, 10})
-			be.PutUint32(rec[16:], 10)     // packets
-			be.PutUint32(rec[20:], 1500)   // bytes
-			be.PutUint32(rec[24:], 599000) // first
-			be.PutUint32(rec[28:], 599900) // last
-			be.PutUint16(rec[32:], uint16(40000+r))
-			be.PutUint16(rec[34:], 443)
-			rec[38] = 6 // TCP
-		}
-		_, _ = conn.Write(pkt)
-		select {
-		case <-ctx.Done():
-		case <-time.After(time.Second):
-		}
-	}
-}
-
 func promSeries(t *testing.T, tenant string) int {
 	t.Helper()
 	u := strings.TrimRight(os.Getenv("PROBECTL_PROM_URL"), "/") + "/api/v1/query?query=" + url.QueryEscape(`count({tenant_id="`+tenant+`"})`)
@@ -826,17 +784,6 @@ func untar(t *testing.T, raw []byte) map[string]string {
 		}
 		files[hdr.Name] = string(body)
 	}
-}
-
-func freeUDP(t *testing.T) string {
-	t.Helper()
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := pc.LocalAddr().String()
-	_ = pc.Close()
-	return addr
 }
 
 func writeJSON(t *testing.T, path string, v any) {

@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/base32"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -493,6 +494,58 @@ func (s *Stack) StartCollector(t *testing.T, binary, name, envPrefix, config str
 		envPrefix + "_METRICS_ADDR=" + freeAddr(t),
 		envPrefix + "_BUS_ALLOW_PLAINTEXT=true",
 	})
+}
+
+// FreeUDPAddr is a loopback UDP address nothing listens on yet, for a
+// collector's NetFlow listener.
+func FreeUDPAddr(t *testing.T) string {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := pc.LocalAddr().String()
+	_ = pc.Close()
+	return addr
+}
+
+// ExportNetFlow is a stand-in router: it sends a NetFlow v5 datagram of five
+// records (10.55.0.x -> 192.0.2.10:443 over TCP) from 127.0.0.1 to addr every
+// second until ctx ends. Datagrams sent before the collector's listener is up
+// are refused and dropped, as a router's are.
+func ExportNetFlow(ctx context.Context, addr string) {
+	conn, err := net.Dial("udp", addr)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	for seq := uint32(0); ctx.Err() == nil; seq++ {
+		const records = 5
+		pkt := make([]byte, 24+48*records)
+		be := binary.BigEndian
+		be.PutUint16(pkt[0:], 5)
+		be.PutUint16(pkt[2:], records)
+		be.PutUint32(pkt[4:], 600000) // sysUptime ms
+		be.PutUint32(pkt[8:], uint32(time.Now().Unix()))
+		be.PutUint32(pkt[16:], seq*records) // flow sequence
+		for r := 0; r < records; r++ {
+			rec := pkt[24+48*r:]
+			copy(rec[0:4], []byte{10, 55, 0, byte(r + 1)})
+			copy(rec[4:8], []byte{192, 0, 2, 10})
+			be.PutUint32(rec[16:], 10)     // packets
+			be.PutUint32(rec[20:], 1500)   // bytes
+			be.PutUint32(rec[24:], 599000) // first
+			be.PutUint32(rec[28:], 599900) // last
+			be.PutUint16(rec[32:], uint16(40000+r))
+			be.PutUint16(rec[34:], 443)
+			rec[38] = 6 // TCP
+		}
+		_, _ = conn.Write(pkt)
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 func (s *Stack) await(t *testing.T, what string, within time.Duration, fn func() bool) {
