@@ -244,3 +244,41 @@ func TestBreakGlassConcurrentConsentsYieldOneActiveGrant(t *testing.T) {
 		t.Fatalf("%d concurrent consents committed for the same (operator, tenant); storage must permit exactly one active grant", accepted)
 	}
 }
+
+// TestBreakGlassExpiredGrantDoesNotBlockTheNextConsent (F51): a grant that
+// simply ran out must not keep its operator out of that tenant. 0087's
+// single-active-grant index cannot see expiry, so an expired grant still held
+// the slot: every later consent for the same operator and tenant failed with a
+// unique violation, and the expired grant could not be revoked to clear it.
+// Migration 0123 releases an expired grant's slot when the next consent takes
+// it — and the single-live-grant invariant still holds.
+func TestBreakGlassExpiredGrantDoesNotBlockTheNextConsent(t *testing.T) {
+	store, pool, op, tn, now := breakGlassRacePair(t)
+	ctx := context.Background()
+
+	first := newPendingGrant(t, store, op, tn, now)
+	if _, err := store.ConsentGrant(ctx, first.ID, "admin@t", now); err != nil {
+		t.Fatal(err)
+	}
+	// The first grant runs out. granted_at moves with expires_at because
+	// 0004 requires expires_at > granted_at.
+	if _, err := pool.Exec(ctx, `UPDATE break_glass_grants
+		    SET granted_at = granted_at - interval '2 hours', expires_at = expires_at - interval '2 hours'
+		  WHERE id = $1`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	second := newPendingGrant(t, store, op, tn, now)
+	if _, err := store.ConsentGrant(ctx, second.ID, "admin@t", now); err != nil {
+		t.Fatalf("consent after the operator's previous grant expired = %v; an expired grant must not block the next one", err)
+	}
+	if g, err := store.GetGrant(ctx, first.ID); err != nil || g.State(now) != GrantExpired {
+		t.Fatalf("the replaced grant = %+v (%v), want it still recorded as expired", g, err)
+	}
+
+	// Still one live grant per operator and tenant.
+	third := newPendingGrant(t, store, op, tn, now)
+	if _, err := store.ConsentGrant(ctx, third.ID, "admin@t", now); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a second simultaneously usable grant = %v, want ErrConflict", err)
+	}
+}

@@ -157,7 +157,9 @@ tenant-consented, operator-bound, and audited on every single access**:
 4. **Every access writes a provider audit record *before* the data is returned** —
    an access that cannot be audited is simply not allowed to happen. Revocation,
    denial, or expiry ends access immediately, and the grant's `use_count` shows
-   exactly how many audited reads it carried.
+   exactly how many audited reads it carried. An operator holds at most one
+   usable grant per tenant; once a grant has expired, a new request can be
+   approved (the expired grant stays on record as expired).
 5. **The tenant can revoke what it consented to (AUD-13).** An approved grant
    stays on the tenant's **Break-glass requests** card, marked active, with a
    **Revoke** action for as long as it is usable. `POST

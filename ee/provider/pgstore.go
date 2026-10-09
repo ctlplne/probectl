@@ -783,6 +783,23 @@ func (s *PGStore) decideGrant(ctx context.Context, id, setSQL, guardSQL string, 
 const pendingGuard = `AND consented_at IS NULL AND denied_at IS NULL AND revoked_at IS NULL AND expires_at > $3`
 
 func (s *PGStore) ConsentGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error) {
+	// An EXPIRED grant for the same operator and tenant still matches the
+	// single-live-grant index (a partial index cannot see now()); retire it so
+	// this consent can take the slot (migration 0123). A grant that is still
+	// usable is never touched, so a second live grant stays impossible.
+	if err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		_, err := q.Exec(ctx,
+			`UPDATE break_glass_grants o
+			    SET superseded_at = $2
+			   FROM break_glass_grants g
+			  WHERE g.id = $1
+			    AND o.operator_id = g.operator_id AND o.tenant_id = g.tenant_id AND o.id <> g.id
+			    AND o.consented_at IS NOT NULL AND o.denied_at IS NULL AND o.revoked_at IS NULL
+			    AND o.superseded_at IS NULL AND o.expires_at <= $2`, id, at)
+		return err
+	}); err != nil {
+		return nil, mapPGErr(err)
+	}
 	return s.decideGrant(ctx, id, `consented_by=$2, consented_at=$3`, pendingGuard, by, at)
 }
 
