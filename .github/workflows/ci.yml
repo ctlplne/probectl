@@ -1026,14 +1026,16 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Start TLS Postgres (verify-full, test CA — OPS-010)
         run: ./scripts/ci_pg_tls.sh
-      - name: Start Prometheus with the remote-write receiver (result-pipeline test)
+      - name: Start Prometheus with the remote-write receiver and the admin API
         # A service container cannot take the required --web.enable-remote-write-receiver
-        # flag, so run it as a step instead.
+        # flag, so run it as a step instead. The admin API is the dev stack's
+        # too: tenant erasure deletes series through delete_series and verifies.
         run: |
           docker run -d --name prometheus -p 9090:9090 \
             prom/prometheus:v3.1.0@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218 \
             --config.file=/etc/prometheus/prometheus.yml \
-            --web.enable-remote-write-receiver
+            --web.enable-remote-write-receiver \
+            --web.enable-admin-api
           for i in $(seq 1 30); do
             curl -fsS http://localhost:9090/-/ready >/dev/null 2>&1 && exit 0
             sleep 1

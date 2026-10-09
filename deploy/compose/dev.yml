@@ -139,6 +139,11 @@ services:
       - --storage.tsdb.path=/prometheus
       # Lets the result pipeline (S6) Prometheus-remote-write into this instance.
       - --web.enable-remote-write-receiver
+      # Tenant erasure deletes the tenant's series through the admin
+      # delete_series API and verifies them gone; without it the attestation
+      # records the manual step (docs/runbooks/tenant-offboarding.md). The admin
+      # API can delete any series: dev only, never on a shared Prometheus.
+      - --web.enable-admin-api
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - promdata:/prometheus
