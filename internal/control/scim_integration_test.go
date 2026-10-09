@@ -193,6 +193,23 @@ func TestSCIMAuthAndTenantIsolation(t *testing.T) {
 	if lr := scimList(t, listB); lr.TotalResults != 0 || len(lr.Resources) != 0 {
 		t.Fatalf("tenant B list saw tenant A users: %+v", lr)
 	}
+
+	// Writing to tenant A's user with B's token, or to an id that never
+	// existed, is a SCIM 404 (RFC 7644 §3.12) — not a 400 "invalid attributes"
+	// an IdP would treat as a permanent schema error — and changes nothing.
+	deactivate := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"active","value":false}]}`
+	for _, c := range []struct{ token, id string }{{tokB, id}, {tokA, "00000000-0000-4000-8000-00000000dead"}} {
+		if rec := scimReq(t, h, http.MethodPatch, "/scim/v2/Users/"+c.id, c.token, deactivate); rec.Code != http.StatusNotFound ||
+			!strings.Contains(rec.Body.String(), `"status":"404"`) {
+			t.Errorf("PATCH unknown user %s = %d %s, want a SCIM 404", c.id, rec.Code, rec.Body)
+		}
+		if rec := scimReq(t, h, http.MethodPut, "/scim/v2/Users/"+c.id, c.token, scimUserBody("only-a@x.com", "a-1", "y")); rec.Code != http.StatusNotFound {
+			t.Errorf("PUT unknown user %s = %d %s, want 404", c.id, rec.Code, rec.Body)
+		}
+	}
+	if rec := scimReq(t, h, http.MethodGet, "/scim/v2/Users/"+id, tokA, ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"active":true`) {
+		t.Fatalf("tenant A's user after B's write attempts = %d %s, want unchanged and active", rec.Code, rec.Body)
+	}
 }
 
 func TestSCIMDirectoryCapsAndSQLPagination(t *testing.T) {

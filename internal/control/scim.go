@@ -683,6 +683,14 @@ func writeSCIMError(w http.ResponseWriter, status int, scimType, detail string) 
 // violation becomes 409). SEC-008: the response is GENERIC — internal store
 // error text is logged server-side only, never echoed to the IdP client.
 func (s *Server) writeSCIMStoreError(w http.ResponseWriter, err error, resource string) {
+	// RFC 7644 §3.12: an id that does not exist in this tenant — never created,
+	// deleted, or another tenant's (row-level security hides it) — is a 404.
+	// An IdP reads a 400 as a permanent schema error and stops syncing; a 404
+	// tells it the resource is gone.
+	if ae, ok := apierror.As(err); ok && ae.Kind == apierror.KindNotFound {
+		writeSCIMError(w, http.StatusNotFound, "", resource+" not found")
+		return
+	}
 	if ae, ok := apierror.As(err); ok && ae.Code == string(apierror.CodeQuotaExceeded) {
 		writeSCIMError(w, http.StatusConflict, "tooMany", resource+" limit reached")
 		return
