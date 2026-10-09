@@ -44,7 +44,7 @@ type TenantStatusSource interface {
 // writes, which are durably fenced once a tenant is absent/offboarded. The
 // storage/query boundary remains RLS; this is an earlier, clearer refusal.
 type tenantStatusCache struct {
-	pool *pgxpool.Pool
+	read func(ctx context.Context, tenantID string) (string, error) // the tenants-table read
 	ttl  time.Duration
 
 	mu      sync.Mutex
@@ -61,16 +61,24 @@ func NewTenantStatusCache(pool *pgxpool.Pool, ttl time.Duration) TenantStatusSou
 	if ttl <= 0 {
 		ttl = 15 * time.Second
 	}
-	return &tenantStatusCache{pool: pool, ttl: ttl, entries: map[string]statusEntry{}}
+	read := func(ctx context.Context, tenantID string) (string, error) {
+		var status string
+		err := pool.QueryRow(ctx, `SELECT status FROM tenants WHERE id = $1`, tenantID).Scan(&status)
+		return status, err
+	}
+	return &tenantStatusCache{read: read, ttl: ttl, entries: map[string]statusEntry{}}
 }
 
-// terminalStatus reports a lifecycle state that only ever tightens access
-// (suspended/offboarding/deleted). AUTHZ-22: once observed, these are cached
-// persistently (not aged out) so a later status-read failure can never let an
-// expired suspended entry degrade back to "active".
+// terminalStatus reports a lifecycle state that never reverses (offboarding,
+// deleted): once observed it is cached for good. Suspended is NOT terminal —
+// resume reverses it — so it is re-read after the TTL like active; caching it
+// for good kept a resumed tenant's users refused on every replica that had
+// seen the suspension. AUTHZ-22 still holds: a failed re-read serves the
+// last-known status, so a status-store blip can never degrade a suspension
+// back to "active".
 func terminalStatus(s string) bool {
 	switch s {
-	case "suspended", "offboarding", "deleted":
+	case "offboarding", "deleted":
 		return true
 	}
 	return false
@@ -84,8 +92,7 @@ func (c *tenantStatusCache) TenantStatus(ctx context.Context, tenantID string) (
 	}
 	c.mu.Unlock()
 
-	var status string
-	err := c.pool.QueryRow(ctx, `SELECT status FROM tenants WHERE id = $1`, tenantID).Scan(&status)
+	status, err := c.read(ctx, tenantID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.mu.Lock()
