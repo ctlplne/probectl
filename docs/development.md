@@ -257,6 +257,15 @@ deploy recipes are `sslmode=require` or stricter.
   needs a real IdP: `scripts/ci_dex.sh <dir>` starts Dex on
   `https://localhost:5556/dex` under a throwaway CA and writes its
   `PROBECTL_TEST_DEX_*` settings to `<dir>/env` (`set -a; . <dir>/env; set +a`).
+  Receipts that must exercise the production wiring itself (the bus lane
+  supervisor, the silo router and provisioner, the OTLP listeners, the
+  least-privilege serve login) boot the shipped binaries with
+  `internal/testsupport/shipped`: it builds `probectl-control`, with a throwaway
+  license key baked in the way a release bakes the real one, and
+  `probectl-agent`; migrates a fresh database with the privileged login and
+  serves it with a least-privilege one; and needs the same IdP, Chromium and web
+  bundle plus the dev stack's Kafka, ClickHouse and Prometheus
+  (`PROBECTL_TEST_KAFKA`, `PROBECTL_TEST_CLICKHOUSE_URL`, `PROBECTL_PROM_URL`).
 - **Fuzz** (`make fuzz-smoke`) — **fuzzing** feeds a parser thousands of
   mutated, adversarial inputs hunting for the one that crashes it. The Go fuzz
   targets cover the untrusted-input parsers and tenant-bound ingest invariants.
