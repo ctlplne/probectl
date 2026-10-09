@@ -13,7 +13,7 @@
     "worker": "node worker.mjs"
   },
   "dependencies": {
-    "playwright": "1.55.1"
+    "playwright": "1.63.0"
   },
   "engines": {
     "node": ">=20"
