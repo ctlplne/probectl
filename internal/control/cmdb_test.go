@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -162,9 +163,16 @@ func TestCMDBLookupOnlyAnswersForKeysTheTenantOwns(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("another tenant's key must be 404, got %d %s", rec.Code, rec.Body.String())
 	}
-	// The refusal must not confirm that the CI exists somewhere.
-	if body := rec.Body.String(); strings.Contains(body, "db01") || strings.Contains(body, "forbidden") {
-		t.Errorf("the refusal leaks whether the key exists: %s", body)
+	// The refusal must not confirm that the CI exists somewhere. Only the code
+	// and message are inspected: the random request id can spell "db01".
+	var refusal struct {
+		Error struct{ Code, Message string } `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &refusal); err != nil {
+		t.Fatalf("refusal body: %v: %s", err, rec.Body.String())
+	}
+	if said := refusal.Error.Code + " " + refusal.Error.Message; strings.Contains(said, "db01") || strings.Contains(said, "forbidden") {
+		t.Errorf("the refusal leaks whether the key exists: %s", rec.Body.String())
 	}
 	// The ownership question is asked with the canonical key, not the raw one.
 	if rec := do(srv, http.MethodGet, "/v1/cmdb/lookup?key=DB.ACME.EXAMPLE:5432"); rec.Code != http.StatusNotFound {
