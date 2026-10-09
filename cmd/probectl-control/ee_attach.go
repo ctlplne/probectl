@@ -206,6 +206,15 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		}
 		prov := silo.NewProvisioner(pool, ch, planes, cfg.FlowRetentionDays, log).
 			WithEndpointRetentionDays(cfg.EndpointRetentionDays)
+		if cfg.MigrateDatabaseURL != "" {
+			// TEN-01: a silo schema is migration-class DDL the least-privilege
+			// serve login cannot run, so it runs as the migration login.
+			ddl, err := store.Open(ctx, cfg.MigrateDatabaseURL, 2, 0, cfg.DatabaseConnTimeout)
+			if err != nil {
+				return fmt.Errorf("open the silo DDL database (PROBECTL_MIGRATE_DATABASE_URL): %w", err)
+			}
+			prov.WithDDLPool(ddl.Pool())
+		}
 		// Startup catch-up is a routing precondition (ARCH-001): a siloed tenant
 		// must not become routable until its storage/query-layer schema is at the
 		// current public shape. Idempotent DDL keeps retries safe; failures keep

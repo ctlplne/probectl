@@ -169,7 +169,11 @@ Provisioning a tenant (`POST /provider/v1/tenants` with `isolation_model` +
 provisioning failure is loud, and because the DDL — the CREATE/ALTER/DROP class
 of SQL statements — is **idempotent** (safe to run twice; a second run finds the
 work already done), the call is simply
-re-runnable. Offboarding is deliberately **status-only** for every isolation
+re-runnable. A siloed tenant's Postgres schema is migration-class DDL, so it
+(and the startup catch-up below) runs as the migration login,
+`PROBECTL_MIGRATE_DATABASE_URL`: the serve login is least-privilege and cannot
+create a schema. Without that login a siloed provisioning is refused with this
+instruction; pooled and hybrid tenants need no Postgres DDL. Offboarding is deliberately **status-only** for every isolation
 model: API access stops and the tenant-band slot is freed, but its isolated
 stores remain available to the separate verifiable-deletion flow. A raw
 `DROP SCHEMA … CASCADE` is not an offboarding operation because it would erase

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
@@ -65,10 +66,12 @@ type CHPlanes struct {
 }
 
 // Provisioner creates, catches up, and tears down per-tenant isolated stores.
-// DDL runs as the pool's migration-capable login role (the same role that
-// applies migrations — schema creation is a migration-class operation).
+// DDL runs as the migration-capable login role (the same role that applies
+// migrations — schema creation is a migration-class operation): the DDL pool
+// when one is attached, since the serve login is least-privilege (TEN-01).
 type Provisioner struct {
 	pool                  *pgxpool.Pool
+	ddl                   *pgxpool.Pool // the migration login; nil = pool
 	ch                    CHPlanes
 	planes                map[string]DataPlane
 	retentionDays         int
@@ -89,6 +92,31 @@ func NewProvisioner(pool *pgxpool.Pool, ch CHPlanes, planes map[string]DataPlane
 		pool: pool, ch: ch, planes: planes, retentionDays: retentionDays,
 		endpointRetentionDays: retentionDays, log: log,
 	}
+}
+
+// WithDDLPool attaches the migration login (PROBECTL_MIGRATE_DATABASE_URL)
+// that silo schemas, their catch-up and the pre-tenant backfill run as. The
+// least-privilege serve login cannot create a schema.
+func (p *Provisioner) WithDDLPool(ddl *pgxpool.Pool) *Provisioner {
+	p.ddl = ddl
+	return p
+}
+
+func (p *Provisioner) ddlPool() *pgxpool.Pool {
+	if p.ddl != nil {
+		return p.ddl
+	}
+	return p.pool
+}
+
+// ddlError names the missing migration login when the serve login was refused
+// a silo DDL statement.
+func (p *Provisioner) ddlError(err error) error {
+	var pgErr *pgconn.PgError
+	if p.ddl == nil && errors.As(err, &pgErr) && pgErr.Code == "42501" {
+		return fmt.Errorf("%w (siloed isolation runs its Postgres DDL as the migration login: set PROBECTL_MIGRATE_DATABASE_URL on the control plane, TEN-01)", err)
+	}
+	return err
 }
 
 // WithEndpointRetentionDays keeps endpoint event retention independent from
@@ -274,7 +302,7 @@ func (p *Provisioner) teardownCH(ctx context.Context, tenantID, residency string
 func (p *Provisioner) readCatalog(ctx context.Context, schema string) (Catalog, error) {
 	cat := Catalog{Columns: map[string][]Column{}, SchemaColumns: map[string][]Column{}}
 
-	rows, err := p.pool.Query(ctx, `
+	rows, err := p.ddlPool().Query(ctx, `
 		SELECT DISTINCT c.table_name
 		  FROM information_schema.columns AS c
 		  JOIN information_schema.tables AS t
@@ -299,7 +327,7 @@ func (p *Provisioner) readCatalog(ctx context.Context, schema string) (Catalog, 
 		return cat, err
 	}
 
-	colRows, err := p.pool.Query(ctx, `
+	colRows, err := p.ddlPool().Query(ctx, `
 		SELECT table_schema, table_name, column_name,
 		       COALESCE(data_type, ''), is_nullable = 'NO', COALESCE(column_default, '')
 		  FROM information_schema.columns
@@ -331,14 +359,14 @@ func (p *Provisioner) readCatalog(ctx context.Context, schema string) (Catalog, 
 
 // execPlan runs an ordered DDL plan in one transaction.
 func (p *Provisioner) execPlan(ctx context.Context, plan []string) error {
-	tx, err := p.pool.Begin(ctx)
+	tx, err := p.ddlPool().Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("silo: begin ddl tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	for _, stmt := range plan {
 		if _, err := tx.Exec(ctx, stmt); err != nil {
-			return fmt.Errorf("silo: %q: %w", firstLine(stmt), err)
+			return fmt.Errorf("silo: %q: %w", firstLine(stmt), p.ddlError(err))
 		}
 	}
 	return tx.Commit(ctx)
@@ -403,7 +431,7 @@ func (p *Provisioner) backfillPreTenantMetadata(
 	ctx context.Context,
 	tenantID, schema string,
 ) error {
-	tx, err := p.pool.Begin(ctx)
+	tx, err := p.ddlPool().Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("silo: begin pre-tenant metadata backfill: %w", err)
 	}
