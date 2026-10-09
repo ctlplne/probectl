@@ -400,7 +400,6 @@ capabilities:
   - id: F25
     name: SCIM, ABAC, and delegated admin
     status: delivered
-    evidence_status: partial
     owner: tenancy/provider
     engine: {refs: ["file:internal/scim", "file:internal/auth/abac.go"]}
     binary: {refs: ["file:cmd/probectl-control/scim.go#func runSCIMToken"]}
@@ -410,7 +409,7 @@ capabilities:
     docs: {refs: ["file:docs/scim-abac.md#Enterprise identity"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/control/scim.go"]}
-    real_stack_proof: {gap: "The public SCIM receipt proves token authentication and two-tenant SCIM isolation only; it does not exercise ABAC or delegated administration through the complete operator workflow."}
+    real_stack_proof: {refs: ["test:internal/control/scim_abac_delegation_integration_test.go#TestSCIMABACAndDelegatedAdminRealStack"]}
     migration: {refs: ["file:migrations/0018_scim_abac.sql"]}
 
   - id: F26

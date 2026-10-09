@@ -65,7 +65,7 @@ import (
 //     the private-address Dex makes B's login fail closed (SSRF guard) while A
 //     keeps signing in; disabling it restores the deployment IdP for B.
 func TestSSOWithARealIdPRealStack(t *testing.T) {
-	st := newSSOStack(t)
+	st := newSSOStack(t, "sso-acme", "sso-globex")
 	A, B := st.tenantA, st.tenantB
 	const adaEmail, aliceEmail, bobEmail, malloryEmail = "ada@acme.example", "alice@acme.example", "bob@globex.example", "mallory@outside.example"
 
@@ -182,7 +182,8 @@ type ssoStack struct {
 	tenantA, tenantB string
 }
 
-func newSSOStack(t *testing.T) *ssoStack {
+// newSSOStack builds the stack for two fresh tenants named nameA and nameB.
+func newSSOStack(t *testing.T, nameA, nameB string) *ssoStack {
 	t.Helper()
 	dex := ssoDex{
 		issuer: os.Getenv("PROBECTL_TEST_DEX_ISSUER"), caFile: os.Getenv("PROBECTL_TEST_DEX_CA_FILE"),
@@ -208,7 +209,7 @@ func newSSOStack(t *testing.T) *ssoStack {
 
 	db := changeDB(t)
 	st := &ssoStack{dex: dex, db: db, binary: binary}
-	st.tenantA, st.tenantB = freshTenant(t, db, "sso-acme"), freshTenant(t, db, "sso-globex")
+	st.tenantA, st.tenantB = freshTenant(t, db, nameA), freshTenant(t, db, nameB)
 
 	// The deployment IdP and the session key go through the production loader.
 	env := map[string]string{
@@ -318,6 +319,13 @@ func (st *ssoStack) signIn(t *testing.T, tenant, email, tenantName string) *ssoU
 // IdP never joins it just in time.
 func (st *ssoStack) signInRefused(t *testing.T, tenant, email string) {
 	t.Helper()
+	st.signInRefusedWith(t, tenant, email, "identity is not provisioned in this tenant")
+}
+
+// signInRefusedWith is a real browser login the control plane must refuse with
+// the given reason.
+func (st *ssoStack) signInRefusedWith(t *testing.T, tenant, email, reason string) {
+	t.Helper()
 	res := testsupport.RenderUI(t, testsupport.RenderSpec{
 		URL:            st.baseURL + "/auth/login?tenant=" + tenant,
 		TrustCertFiles: st.trustCerts, CAFile: st.caFile,
@@ -325,7 +333,7 @@ func (st *ssoStack) signInRefused(t *testing.T, tenant, email string) {
 		Steps: []testsupport.RenderStep{
 			{Fill: "#login", Value: email},
 			{Fill: "#password", Value: st.dex.password},
-			{Click: "Login", Expect: []string{"identity is not provisioned in this tenant"}},
+			{Click: "Login", Expect: []string{reason}},
 		},
 	})
 	if res.Cookie(auth.SessionCookie) != "" {
@@ -468,11 +476,14 @@ func (u *ssoUser) me(t *testing.T, st *ssoStack) ssoMe {
 	return me
 }
 
-// apiToken mints, from the browser-minted session, the API token the CLI uses.
-func (u *ssoUser) apiToken(t *testing.T, st *ssoStack) string {
+// apiToken mints, from the browser-minted session, the API token the CLI uses
+// (by default scoped to the directory).
+func (u *ssoUser) apiToken(t *testing.T, st *ssoStack, scopes ...string) string {
 	t.Helper()
-	code, body := u.do(t, st, http.MethodPost, "/v1/api-tokens", map[string]any{"name": "sso-cli",
-		"scopes": []string{"tenant.read", "directory.read", "directory.write"}})
+	if len(scopes) == 0 {
+		scopes = []string{"tenant.read", "directory.read", "directory.write"}
+	}
+	code, body := u.do(t, st, http.MethodPost, "/v1/api-tokens", map[string]any{"name": "sso-cli", "scopes": scopes})
 	if code != http.StatusCreated {
 		t.Fatalf("%s mints an API token = %d: %s", u.email, code, body)
 	}

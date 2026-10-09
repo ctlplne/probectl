@@ -5,8 +5,9 @@
 # digest-pinned image as deploy/compose/dex-demo.yml — at
 # https://localhost:5556/dex under a THROWAWAY test CA (2-day validity,
 # generated per run, never committed), with one deployment client and
-# password users for the two-tenant SSO receipt
-# (internal/control/sso_real_idp_integration_test.go).
+# password users for the two-tenant SSO and SCIM/ABAC receipts
+# (internal/control/sso_real_idp_integration_test.go,
+# internal/control/scim_abac_delegation_integration_test.go).
 #
 # The client secret is generated per run. The users' password hash is Dex's
 # own published example (bcrypt of the word "password", from Dex's
@@ -65,6 +66,8 @@ YAML
   user alice@acme.example alice 6a1f4f3e-5d64-4f0e-9b1c-2f8f1d0c1a02
   user bob@globex.example bob 6a1f4f3e-5d64-4f0e-9b1c-2f8f1d0c1a03
   user mallory@outside.example mallory 6a1f4f3e-5d64-4f0e-9b1c-2f8f1d0c1a04
+  user carla@acme.example carla 6a1f4f3e-5d64-4f0e-9b1c-2f8f1d0c1a05
+  user dan@acme.example dan 6a1f4f3e-5d64-4f0e-9b1c-2f8f1d0c1a06
 } >"${dir}/config.yaml"
 
 docker rm -f "${name}" >/dev/null 2>&1 || true

@@ -151,7 +151,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F25',
     name: 'SCIM, ABAC, and delegated admin',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

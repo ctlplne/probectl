@@ -130,6 +130,13 @@
       "capabilities": [
         "F22"
       ]
+    },
+    {
+      "ref": "test:internal/control/scim_abac_delegation_integration_test.go#TestSCIMABACAndDelegatedAdminRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F25"
+      ]
     }
   ]
 }

@@ -192,7 +192,7 @@
         "F25"
       ],
       "name": "SCIM/ABAC/delegated admin",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`internal/control/scim.go`; ABAC deny-override in `internal/auth/abac.go` + `internal/control/abac.go`"
     },
     {
