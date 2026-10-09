@@ -145,7 +145,8 @@ type BYOKRefPolicy struct {
 
 // NewBYOKRefPolicy builds the policy from the operator-configured allowed
 // reference prefix (PROBECTL_BYOK_REF_PREFIX), e.g.
-// "vault:secret/data/probectl/byok/{tenant}/". An optional {tenant} token is
+// "vault:secret/probectl/byok/{tenant}/" (the KV path; the resolver adds KV
+// v2's data/ segment itself). An optional {tenant} token is
 // substituted with the tenant id so references are per-tenant namespaced. An
 // empty prefix means BYOK references are refused (fail closed) until an operator
 // configures the namespace.

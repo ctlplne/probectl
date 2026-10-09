@@ -138,7 +138,8 @@ type Config struct {
 	// secret-store credentials, so without this fence a tenant admin could aim
 	// the resolver at any secret it can read (confused deputy) or store literal
 	// key material in the DB. It is the allowed reference prefix, e.g.
-	// "vault:secret/data/probectl/byok/{tenant}/"; an optional {tenant} token is
+	// "vault:secret/probectl/byok/{tenant}/" (the KV path; the resolver adds
+	// KV v2's data/ segment itself); an optional {tenant} token is
 	// replaced with the tenant id so each tenant is pinned to its own namespace.
 	// EMPTY (the default) refuses every tenant BYOK reference (fail closed) —
 	// managed-mode rotation is unaffected. See docs/configuration.md, docs/byok.md.
