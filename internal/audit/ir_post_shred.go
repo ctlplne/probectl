@@ -346,17 +346,7 @@ func (s *IRStagePG) appendIRPostShredRecordTx(
 	}
 	record.ChainPos = head.RecordCount + 1
 	record.PrevHash = head.LastHash
-	record.Hash, err = hashCanonical(irPostShredRecordHash{
-		Domain:           irPostShredRecordDomain,
-		TenantID:         record.TenantID,
-		ChainPos:         record.ChainPos,
-		AttemptAt:        record.AttemptAt,
-		Operator:         record.Operator,
-		Surface:          record.Surface,
-		Outcome:          record.Outcome,
-		ProviderEventRef: record.ProviderEventRef,
-		PrevHash:         record.PrevHash,
-	})
+	record.Hash, err = irPostShredRecordDigest(record)
 	if err != nil {
 		return err
 	}
@@ -525,6 +515,24 @@ func (s *IRStagePG) readIRPostShredHeadTx(
 	return head, true, nil
 }
 
+// irPostShredRecordDigest is a record's chain hash. AttemptAt is hashed in
+// UTC: the writer holds audit time (UTC) while a verifier scans it back from
+// Postgres in the host's zone, and the JSON encoding carries the offset, so
+// any host outside UTC refused its own ledger.
+func irPostShredRecordDigest(record irPostShredRecord) (string, error) {
+	return hashCanonical(irPostShredRecordHash{
+		Domain:           irPostShredRecordDomain,
+		TenantID:         record.TenantID,
+		ChainPos:         record.ChainPos,
+		AttemptAt:        record.AttemptAt.UTC(),
+		Operator:         record.Operator,
+		Surface:          record.Surface,
+		Outcome:          record.Outcome,
+		ProviderEventRef: record.ProviderEventRef,
+		PrevHash:         record.PrevHash,
+	})
+}
+
 func (s *IRStagePG) verifyIRPostShredRecord(
 	record irPostShredRecord,
 ) error {
@@ -540,17 +548,7 @@ func (s *IRStagePG) verifyIRPostShredRecord(
 		!irLowerHex64.MatchString(record.Hash) {
 		return errors.New("audit: post-shred IR attempt is malformed")
 	}
-	want, err := hashCanonical(irPostShredRecordHash{
-		Domain:           irPostShredRecordDomain,
-		TenantID:         record.TenantID,
-		ChainPos:         record.ChainPos,
-		AttemptAt:        record.AttemptAt,
-		Operator:         record.Operator,
-		Surface:          record.Surface,
-		Outcome:          record.Outcome,
-		ProviderEventRef: record.ProviderEventRef,
-		PrevHash:         record.PrevHash,
-	})
+	want, err := irPostShredRecordDigest(record)
 	if err != nil || want != record.Hash {
 		return errors.New("audit: post-shred IR attempt hash is invalid")
 	}
