@@ -526,7 +526,7 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	}
 	if err := attachEE(rt.gctx, rt.srv, rt.cfg, rt.log, rt.lic, rt.db.Pool(), rt.latestResults,
 		rt.flowStore, rt.pathCH, rt.ebpfStore, rt.otelStore, rt.endpointStore, rt.lifeEngine,
-		worm, rt.secretsResolver.ResolveBytes, rt.fairGate, rt.topoStore, rt.singletons); err != nil {
+		worm, rt.secretsResolver, rt.fairGate, rt.topoStore, rt.singletons); err != nil {
 		return err
 	}
 	channelDeps, err := control.BuildAlertChannelDeps(rt.cfg, rt.secretsResolver.Resolve, rt.log)

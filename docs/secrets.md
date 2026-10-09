@@ -155,5 +155,6 @@ flowchart LR
 - Errors and health snapshots never contain secret material; backend HTTP
   response bodies are never echoed into errors (status codes only).
 - The cache key is per-process and ephemeral: a restart re-resolves everything.
-- Per-tenant key management / BYOK builds on this same resolver — see
-  [byok.md](byok.md).
+- Per-tenant key management / BYOK builds on this same resolver, past its lease
+  cache: a tenant's BYOK key resolves on every use, so the customer's revocation
+  applies at once rather than at lease expiry — see [byok.md](byok.md).

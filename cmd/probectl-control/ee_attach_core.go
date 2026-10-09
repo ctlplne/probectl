@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/control"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/secrets"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
 	"github.com/ctlplne/probectl/internal/store/endpointstore"
@@ -38,7 +39,7 @@ func attachEE(context.Context, *control.Server, *config.Config, *slog.Logger,
 	*license.Manager, *pgxpool.Pool, *control.LatestResults, flowstore.Store,
 	*pathstore.ClickHouse, ebpfstore.Store, otelstore.Store, endpointstore.Store,
 	*tenantlife.Engine, *audit.WormExporter,
-	func(context.Context, string) ([]byte, func(), error),
+	*secrets.Resolver,
 	*fairness.Gate, topology.Store,
 	*cluster.Coordinator) error {
 	return nil

@@ -235,6 +235,24 @@ func NewKeyring(store Store, master *crypto.Envelope, resolve RefResolver) (*Key
 		now: time.Now, ttl: 30 * time.Second, byokTTL: 0, cache: map[string]cachedKEK{}}, nil
 }
 
+// NewDeploymentKeyring is the keyring the control plane installs when byok is
+// licensed (the ee attach seam): managed KEKs wrapped under the deployment
+// master; BYOK keys resolved through the deployment's secret backends on every
+// use, past the resolver's lease cache, so a customer's revocation applies on
+// the next seal or open (KEYS-002, docs/byok.md); tenant references fenced to
+// the operator's per-tenant namespace (AUTHZ-10).
+func NewDeploymentKeyring(store Store, master *crypto.Envelope, resolver *secrets.Resolver, refPrefix string, log *slog.Logger) (*Keyring, error) {
+	var resolve RefResolver
+	if resolver != nil {
+		resolve = resolver.ResolveBytesUncached
+	}
+	ring, err := NewKeyring(store, master, resolve)
+	if err != nil {
+		return nil, err
+	}
+	return ring.WithBYOKRefPolicy(NewBYOKRefPolicy(refPrefix)).WithLogger(log), nil
+}
+
 // WithBYOKRefPolicy pins the deployment's allowed tenant BYOK reference
 // namespace (AUTHZ-10). The attach seam wires it from PROBECTL_BYOK_REF_PREFIX;
 // the zero value refuses every BYOK reference (fail closed).

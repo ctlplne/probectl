@@ -45,6 +45,7 @@ import (
 	"github.com/ctlplne/probectl/internal/govern"
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/secrets"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
 	"github.com/ctlplne/probectl/internal/store/endpointstore"
@@ -124,7 +125,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	flowStore flowstore.Store, pathCH *pathstore.ClickHouse, ebpfStore ebpfstore.Store, otelStore otelstore.Store, endpointStore endpointstore.Store,
 	life *tenantlife.Engine,
 	worm *audit.WormExporter,
-	resolveSecret func(context.Context, string) ([]byte, func(), error),
+	secretsResolver *secrets.Resolver,
 	fairGate *fairness.Gate, topoStore topology.Store,
 	singletons *cluster.Coordinator) error {
 	// One dynamic lifecycle capability is shared by every attached commercial
@@ -242,14 +243,13 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		if merr != nil {
 			return merr
 		}
-		ring, err := tenantkeys.NewKeyring(tenantkeys.NewPGStore(pool), master, tenantkeys.RefResolver(resolveSecret))
+		// AUTHZ-10: tenant-supplied BYOK references are fenced to the operator-
+		// configured per-tenant namespace. Empty prefix = BYOK refs refused
+		// (fail closed); managed rotation is unaffected.
+		ring, err := tenantkeys.NewDeploymentKeyring(tenantkeys.NewPGStore(pool), master, secretsResolver, cfg.BYOKRefPrefix, log)
 		if err != nil {
 			return err
 		}
-		// AUTHZ-10: fence tenant-supplied BYOK references to the operator-
-		// configured per-tenant namespace. Empty prefix = BYOK refs refused
-		// (fail closed); managed rotation is unaffected.
-		ring = ring.WithBYOKRefPolicy(tenantkeys.NewBYOKRefPolicy(cfg.BYOKRefPrefix)).WithLogger(log)
 		if cfg.BYOKRefPrefix == "" {
 			log.Warn("byok licensed but PROBECTL_BYOK_REF_PREFIX is unset: tenant BYOK references are refused (fail closed); set the allowed per-tenant reference namespace to enable BYOK (docs/configuration.md, AUTHZ-10)")
 		}

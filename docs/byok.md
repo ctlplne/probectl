@@ -178,11 +178,11 @@ writing new data.
   destroying the old deployment KEK.
 - **Key cache:** managed tenant KEKs are cached in memory for 30 seconds by
   default (rotation and destroy purge the tenant's cache immediately, and TTL
-  eviction wipes the old bytes in place). BYOK defaults to **no key cache**
-  (`resolve-on-every-use`), so a customer revocation is seen by the next seal or
-  open in the same process. If an operator explicitly configures a positive
-  BYOK cache TTL, that TTL is the maximum revocation window and expired entries
-  are zeroized before re-resolve.
+  eviction wipes the old bytes in place). BYOK keys are **never cached** —
+  neither by the keyring nor by the secrets resolver's lease cache
+  ([secrets.md](secrets.md)): every seal and open resolves the reference again,
+  so a customer revocation is seen by the next seal or open. The cost is one
+  secret-manager read per use of a sealed value.
 - **Key-store outage:** if Postgres is unavailable for the `tenant_keys` table,
   seal and open fail with an error (fail safe). Telemetry ingestion is
   unaffected — only sealed-value reads/writes (e.g. using an alert-channel

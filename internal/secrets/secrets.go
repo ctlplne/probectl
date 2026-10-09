@@ -195,6 +195,19 @@ func (r *Resolver) Resolve(ctx context.Context, raw string) (string, error) {
 // ResolveBytes returns caller-owned resolved bytes plus a cleanup function that
 // must be called once the backend/client boundary has consumed them.
 func (r *Resolver) ResolveBytes(ctx context.Context, raw string) ([]byte, func(), error) {
+	return r.resolveBytes(ctx, raw, true)
+}
+
+// ResolveBytesUncached is ResolveBytes without the lease cache: every call
+// asks the backend, and nothing it returns is kept. It is for a value whose
+// owner's revocation must apply on the next use — a tenant's BYOK key
+// (docs/byok.md), which a cached copy would keep answering for up to the lease
+// TTL after the customer deleted it.
+func (r *Resolver) ResolveBytesUncached(ctx context.Context, raw string) ([]byte, func(), error) {
+	return r.resolveBytes(ctx, raw, false)
+}
+
+func (r *Resolver) resolveBytes(ctx context.Context, raw string, cached bool) ([]byte, func(), error) {
 	if !IsRef(raw) {
 		plain := []byte(strings.TrimPrefix(raw, "literal:"))
 		return plain, func() { crypto.Zeroize(plain) }, nil
@@ -210,7 +223,7 @@ func (r *Resolver) ResolveBytes(ctx context.Context, raw string) ([]byte, func()
 		r.mu.Unlock()
 		return nil, nil, fmt.Errorf("secrets: resolver is closed")
 	}
-	if e, ok := r.cache[raw]; ok && now.Before(e.expires) {
+	if e, ok := r.cache[raw]; cached && ok && now.Before(e.expires) {
 		plain, derr := crypto.Default.Decrypt(r.key, e.sealed, []byte(raw))
 		r.mu.Unlock()
 		if derr != nil {
@@ -251,6 +264,9 @@ func (r *Resolver) ResolveBytes(ctx context.Context, raw string) ([]byte, func()
 	}
 	st.Resolves++
 	st.LastOK = now
+	if !cached {
+		return valueBytes, func() { cleanupBytes(valueBytes, valueCleanup) }, nil
+	}
 	sealed, serr := crypto.Default.Encrypt(r.key, valueBytes, []byte(raw))
 	if serr == nil {
 		if old, ok := r.cache[raw]; ok {

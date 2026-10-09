@@ -234,6 +234,38 @@ func TestLeaseCacheSealedAndFailClosedOnRotation(t *testing.T) {
 	}
 }
 
+// A BYOK key the customer deletes must stop answering on the next use, inside
+// the lease: the uncached path asks the backend every time and keeps nothing.
+func TestResolveBytesUncachedSeesRevocationInsideTheLease(t *testing.T) {
+	src := &countingSource{value: "kek-material"}
+	res, err := NewResolver(time.Hour, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "vault:secret/probectl/byok/t1/kek#key"
+	for i := 0; i < 2; i++ {
+		plain, cleanup, err := res.ResolveBytesUncached(ctxT(t), ref)
+		if err != nil || string(plain) != "kek-material" {
+			t.Fatalf("uncached resolve %d: %q %v", i, plain, err)
+		}
+		cleanup()
+	}
+	if src.calls != 2 {
+		t.Fatalf("calls = %d, want 2 (no lease cache on the uncached path)", src.calls)
+	}
+	res.mu.Lock()
+	cached := len(res.cache)
+	res.mu.Unlock()
+	if cached != 0 {
+		t.Fatalf("the uncached path left %d cache entries", cached)
+	}
+
+	src.fail = true // the customer deleted the key
+	if _, _, err := res.ResolveBytesUncached(ctxT(t), ref); err == nil {
+		t.Fatal("a revoked value still resolved inside the lease")
+	}
+}
+
 func TestResolveBytesByteSourceLeaseEvictionAndCleanup(t *testing.T) {
 	src := &byteCountingSource{value: []byte("s3cr3t-A")}
 	res, err := NewResolver(time.Minute, src)
