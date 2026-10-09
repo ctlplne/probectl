@@ -133,7 +133,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F22',
     name: 'SSO and role model',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

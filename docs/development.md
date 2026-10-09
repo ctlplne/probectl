@@ -253,7 +253,10 @@ deploy recipes are `sslmode=require` or stricter.
   embedded — `npm --prefix web run build && cp -R web/dist/. internal/webui/dist/`
   before the run (CI does this) — and browser-worker's Playwright with a
   Chromium (`npx playwright install chromium` there, or point
-  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` at a local one).
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` at a local one). The SSO receipt also
+  needs a real IdP: `scripts/ci_dex.sh <dir>` starts Dex on
+  `https://localhost:5556/dex` under a throwaway CA and writes its
+  `PROBECTL_TEST_DEX_*` settings to `<dir>/env` (`set -a; . <dir>/env; set +a`).
 - **Fuzz** (`make fuzz-smoke`) — **fuzzing** feeds a parser thousands of
   mutated, adversarial inputs hunting for the one that crashes it. The Go fuzz
   targets cover the untrusted-input parsers and tenant-bound ingest invariants.

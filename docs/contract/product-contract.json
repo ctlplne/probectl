@@ -168,7 +168,7 @@
         "F22"
       ],
       "name": "SSO + role model",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`internal/auth` (fail-closed default — U-001)"
     },
     {

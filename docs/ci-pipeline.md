@@ -195,7 +195,9 @@ Verification you ran, not verification you described.
   bundle (as the release does) and installs browser-worker's pinned Chromium,
   because real-stack receipts render the live control plane's UI
   (`internal/testsupport.RenderUI`); the embedded placeholder or a missing
-  browser fails the job rather than skipping a rendered leg.
+  browser fails the job rather than skipping a rendered leg. It also starts
+  Dex, a real OIDC IdP, under a per-run test CA (`scripts/ci_dex.sh`), so the
+  SSO receipt signs people in through a real login.
 - **perf-smoke** — a cheap, repeatable latency/throughput baseline; the first
   place a pooled-cardinality or RLS-cost regression would surface.
 - **backup-drill** — backup → wipe → restore actually runs; nonce-marked rows

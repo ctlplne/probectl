@@ -353,7 +353,6 @@ capabilities:
   - id: F22
     name: SSO and role model
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/auth"]}
     binary: {refs: ["file:internal/control/server.go#s.providers = newOIDCFactory", "file:internal/control/server.go#s.authn = auth.NewAuthenticator"]}
@@ -363,7 +362,7 @@ capabilities:
     docs: {refs: ["file:docs/auth/self-hosted-idp.md#Self-hosted / air-gapped OIDC IdP"]}
     config_keys: {refs: ["config:PROBECTL_AUTH_MODE", "config:PROBECTL_OIDC_CLIENT_ID"]}
     telemetry: {refs: ["file:internal/auth"]}
-    real_stack_proof: {gap: "The current receipt uses a fake OIDC provider and direct API server; no real IdP, complete session/role flow, CLI/UI path, and two-tenant outcome are proven."}
+    real_stack_proof: {refs: ["test:internal/control/sso_real_idp_integration_test.go#TestSSOWithARealIdPRealStack"]}
     migration: {refs: ["file:migrations/0003_rbac.sql", "file:migrations/0013_sessions_rbac_seed.sql", "file:migrations/0055_tenant_idp.sql"]}
 
   - id: F23

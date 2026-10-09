@@ -123,6 +123,13 @@
       "capabilities": [
         "F51"
       ]
+    },
+    {
+      "ref": "test:internal/control/sso_real_idp_integration_test.go#TestSSOWithARealIdPRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F22"
+      ]
     }
   ]
 }

@@ -1108,6 +1108,12 @@ jobs:
           set -euo pipefail
           npm ci --no-audit --no-fund
           npx --no-install playwright install --with-deps chromium
+      - name: Start Dex, a real OIDC IdP, under a per-run test CA (F22 SSO receipt)
+        # TestSSOWithARealIdPRealStack signs people in through a real IdP, not a
+        # fake: Dex, the self-hosted reference of docs/auth/self-hosted-idp.md,
+        # from the same digest-pinned image as the Dex demo stacks, bound to
+        # loopback. The script exports PROBECTL_TEST_DEX_* via $GITHUB_ENV.
+        run: ./scripts/ci_dex.sh .ci-dex
       - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
         # WIRE-005: require services so the mTLS/enroll wire-defense integration
         # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,
