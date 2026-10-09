@@ -326,7 +326,9 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 		}
 		return 0, nil
 	}
-	del := fmt.Sprintf("ALTER TABLE %s DELETE WHERE tenant_id={tenant:String}", sharedEdgesTable)
+	// mutations_sync=2: the mutation returns only once the rows are gone, so
+	// the count below verifies the deletion instead of racing it.
+	del := fmt.Sprintf("ALTER TABLE %s DELETE WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2", sharedEdgesTable)
 	if err := c.execAt(ctx, t.BaseURL, del, url.Values{"param_tenant": {tenantID}}); err != nil {
 		return 0, err
 	}
