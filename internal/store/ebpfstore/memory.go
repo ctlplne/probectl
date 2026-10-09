@@ -8,6 +8,9 @@ package ebpfstore
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -95,6 +98,28 @@ func (m *Memory) DeleteTenant(_ context.Context, tenantID string) (int64, error)
 	defer m.mu.Unlock()
 	delete(m.tenants, tenantID)
 	return 0, nil
+}
+
+// ExportTenant writes every aggregate the tenant owns as JSON Lines, ordered by
+// window (the eBPF plane of the tenant portability bundle).
+func (m *Memory) ExportTenant(_ context.Context, tenantID string, w io.Writer) (int64, error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
+	m.mu.RLock()
+	rows := make([]Edge, 0, len(m.tenants[tenantID]))
+	for _, e := range m.tenants[tenantID] {
+		rows = append(rows, *e)
+	}
+	m.mu.RUnlock()
+	slices.SortFunc(rows, func(a, b Edge) int { return a.WindowStart.Compare(b.WindowStart) })
+	enc := json.NewEncoder(w)
+	for i := range rows {
+		if err := enc.Encode(rows[i]); err != nil {
+			return int64(i), err
+		}
+	}
+	return int64(len(rows)), nil
 }
 
 // Close is a no-op for the in-memory store.

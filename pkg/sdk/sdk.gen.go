@@ -4377,7 +4377,7 @@ func (c *Client) PostV1LifecycleErase(ctx context.Context, req PostV1LifecycleEr
 	return c.doJSON(ctx, http.MethodPost, path, query, req.Body, nil)
 }
 
-// Download the tenant's portability bundle (tar.gz: manifest + postgres/<table>.jsonl + flows.jsonl; S-T5 — export is a compliance right, core)
+// Download the tenant's portability bundle (tar.gz: manifest + postgres/<table>.jsonl + one JSONL file per telemetry plane: flows, endpoint events, OTLP spans and logs, eBPF edges, path hops and links, topology; S-T5 — export is a compliance right, core)
 type GetV1LifecycleExportRequest struct {
 }
 

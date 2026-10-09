@@ -7631,7 +7631,7 @@
     "/v1/lifecycle/export": {
       "get": {
         "x-required-permission": "lifecycle.export",
-        "summary": "Download the tenant's portability bundle (tar.gz: manifest + postgres/<table>.jsonl + flows.jsonl; S-T5 \u2014 export is a compliance right, core)",
+        "summary": "Download the tenant's portability bundle (tar.gz: manifest + postgres/<table>.jsonl + one JSONL file per telemetry plane: flows, endpoint events, OTLP spans and logs, eBPF edges, path hops and links, topology; S-T5 \u2014 export is a compliance right, core)",
         "responses": {
           "200": {
             "description": "OK"

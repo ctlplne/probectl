@@ -199,6 +199,38 @@ func (m *Memory) ExportSubject(_ context.Context, tenant, subject string, spansW
 	return spans, logs, nil
 }
 
+// ExportTenantSpans and ExportTenantLogs write every span or log record the
+// tenant owns as JSON Lines (the OTLP planes of the tenant portability bundle).
+func (m *Memory) ExportTenantSpans(_ context.Context, tenant string, w io.Writer) (int64, error) {
+	if tenant == "" {
+		return 0, ErrNoTenant
+	}
+	m.mu.RLock()
+	rows := append([]Span(nil), m.spans[tenant]...)
+	m.mu.RUnlock()
+	return encodeJSONLines(w, rows)
+}
+
+func (m *Memory) ExportTenantLogs(_ context.Context, tenant string, w io.Writer) (int64, error) {
+	if tenant == "" {
+		return 0, ErrNoTenant
+	}
+	m.mu.RLock()
+	rows := append([]LogRecord(nil), m.logs[tenant]...)
+	m.mu.RUnlock()
+	return encodeJSONLines(w, rows)
+}
+
+func encodeJSONLines[T any](w io.Writer, rows []T) (int64, error) {
+	enc := json.NewEncoder(w)
+	for i := range rows {
+		if err := enc.Encode(rows[i]); err != nil {
+			return int64(i), err
+		}
+	}
+	return int64(len(rows)), nil
+}
+
 func spanDedupKey(s Span) string {
 	if s.TraceID != "" && s.SpanID != "" {
 		return s.TenantID + "|" + s.TraceID + "|" + s.SpanID

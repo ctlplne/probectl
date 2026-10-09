@@ -400,6 +400,42 @@ type linkRow struct {
 	To       string `json:"to_ip"`
 }
 
+// hopRows and linkRows are one discovery round as stored: the rows SaveBatch
+// inserts, and the rows every backend's tenant export emits.
+func hopRows(tenantID, pathID, ts string, p *path.Path) []hopRow {
+	fidelity := path.MeasurementFidelity{}
+	if p.MeasurementFidelity != nil {
+		fidelity = *p.MeasurementFidelity
+	}
+	var rows []hopRow
+	for _, h := range p.Hops {
+		for _, n := range h.Nodes {
+			labels := make([]uint32, 0, len(n.MPLS))
+			for _, l := range n.MPLS {
+				labels = append(labels, l.Label)
+			}
+			rows = append(rows, hopRow{
+				TenantID: tenantID, PathID: pathID, Target: p.Target, TargetIP: p.TargetIP, Mode: p.Mode,
+				FidelityVersion: fidelity.Version, ProbeTransport: fidelity.ProbeTransport,
+				AcquisitionMode: fidelity.AcquisitionMode, TimingSource: fidelity.TimingSource,
+				HopVisibility: fidelity.HopVisibility, KernelTimestamping: boolByte(fidelity.KernelTimestamping),
+				HardwareTimestamping: boolByte(fidelity.HardwareTimestamping),
+				TS:                   ts, TTL: h.TTL, Responder: n.IP, Sent: n.Sent, Received: n.Received, LossRatio: n.LossRatio,
+				RTTMin: n.RTTMinMs, RTTAvg: n.RTTAvgMs, RTTMax: n.RTTMaxMs, MPLS: labels,
+			})
+		}
+	}
+	return rows
+}
+
+func linkRows(tenantID, pathID, ts string, p *path.Path) []linkRow {
+	rows := make([]linkRow, 0, len(p.Links))
+	for _, l := range p.Links {
+		rows = append(rows, linkRow{TenantID: tenantID, PathID: pathID, Target: p.Target, TS: ts, TTL: l.TTL, From: l.From, To: l.To})
+	}
+	return rows
+}
+
 // EnsureReaderRowPolicy installs the SETTING-SCOPED row policy (TENANT-004
 // parity): the readerUser's SELECTs on the path tables are constrained to rows
 // whose tenant_id equals the per-request custom setting SQL_probectl_tenant.
@@ -474,33 +510,13 @@ func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
 		}
 		ts := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 		henc, lenc := json.NewEncoder(&b.hops), json.NewEncoder(&b.links)
-		fidelity := path.MeasurementFidelity{}
-		if it.P.MeasurementFidelity != nil {
-			fidelity = *it.P.MeasurementFidelity
-		}
-		for _, h := range it.P.Hops {
-			for _, n := range h.Nodes {
-				labels := make([]uint32, 0, len(n.MPLS))
-				for _, l := range n.MPLS {
-					labels = append(labels, l.Label)
-				}
-				if err := henc.Encode(hopRow{
-					TenantID: it.TenantID, PathID: pathID, Target: it.P.Target, TargetIP: it.P.TargetIP, Mode: it.P.Mode,
-					FidelityVersion: fidelity.Version, ProbeTransport: fidelity.ProbeTransport,
-					AcquisitionMode: fidelity.AcquisitionMode, TimingSource: fidelity.TimingSource,
-					HopVisibility: fidelity.HopVisibility, KernelTimestamping: boolByte(fidelity.KernelTimestamping),
-					HardwareTimestamping: boolByte(fidelity.HardwareTimestamping),
-					TS:                   ts, TTL: h.TTL, Responder: n.IP, Sent: n.Sent, Received: n.Received, LossRatio: n.LossRatio,
-					RTTMin: n.RTTMinMs, RTTAvg: n.RTTAvgMs, RTTMax: n.RTTMaxMs, MPLS: labels,
-				}); err != nil {
-					return err
-				}
+		for _, row := range hopRows(it.TenantID, pathID, ts, it.P) {
+			if err := henc.Encode(row); err != nil {
+				return err
 			}
 		}
-		for _, l := range it.P.Links {
-			if err := lenc.Encode(linkRow{
-				TenantID: it.TenantID, PathID: pathID, Target: it.P.Target, TS: ts, TTL: l.TTL, From: l.From, To: l.To,
-			}); err != nil {
+		for _, row := range linkRows(it.TenantID, pathID, ts, it.P) {
+			if err := lenc.Encode(row); err != nil {
 				return err
 			}
 		}
@@ -566,6 +582,52 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted
 		remaining += chCount(out)
 	}
 	return deleted, remaining, nil
+}
+
+// ExportTenantHops and ExportTenantLinks stream every hop or link row of the
+// tenant's discovery rounds as JSON Lines from its routed table: the path
+// planes of the tenant portability bundle. The hourly rollups are aggregates
+// of these rows and are not exported. The body is copied through, never
+// buffered.
+func (c *ClickHouse) ExportTenantHops(ctx context.Context, tenantID string, w io.Writer) (int64, error) {
+	return c.exportTenant(ctx, tenantID, hopsTable, "ts, path_id, ttl, responder", w)
+}
+
+func (c *ClickHouse) ExportTenantLinks(ctx context.Context, tenantID string, w io.Writer) (int64, error) {
+	return c.exportTenant(ctx, tenantID, linksTable, "ts, path_id, ttl, from_ip, to_ip", w)
+}
+
+func (c *ClickHouse) exportTenant(ctx context.Context, tenantID, table, orderBy string, w io.Writer) (int64, error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
+	t, err := c.route(ctx, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	qt, err := qualify(t, table)
+	if err != nil {
+		return 0, err
+	}
+	sql := "SELECT * FROM " + qt + " WHERE tenant_id={tenant:String} ORDER BY " + orderBy + " FORMAT JSONEachRow"
+	u := c.baseFor(t.BaseURL) + "/?query=" + url.QueryEscape(sql) + chParams{"tenant": tenantID}.qs()
+	if c.tenantScoping {
+		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenantID)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := c.conn.Do(t.BaseURL, req)
+	if err != nil {
+		return 0, fmt.Errorf("pathstore: export: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return 0, fmt.Errorf("pathstore: export status %d: %s", resp.StatusCode, b)
+	}
+	return chclient.CopyRows(w, resp.Body)
 }
 
 func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path.Path, bool, error) {

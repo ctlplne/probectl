@@ -28,6 +28,7 @@ type lifecycleStore interface {
 	PruneTenantBefore(string, time.Time) int
 	ExportSubject(tenant, subject string, w io.Writer) (nodes, edges, deviceNodes int64, err error)
 	DeleteSubject(tenant, subject string) (deleted, remaining, deviceDeleted, deviceRemaining int64)
+	ExportTenant(tenant string, w io.Writer) (nodes, edges int64, err error)
 }
 
 // Both graph stores carry every lifecycle capability. One that lost a method
@@ -89,6 +90,11 @@ func (s *lifecycleWriteFencedStore) ExportSubject(tenant, subject string, w io.W
 
 func (s *lifecycleWriteFencedStore) DeleteSubject(tenant, subject string) (deleted, remaining, deviceDeleted, deviceRemaining int64) {
 	return s.nextLifecycle.DeleteSubject(tenant, subject)
+}
+
+// ExportTenant is the tenant portability read; the fence guards writes only.
+func (s *lifecycleWriteFencedStore) ExportTenant(tenant string, w io.Writer) (nodes, edges int64, err error) {
+	return s.nextLifecycle.ExportTenant(tenant, w)
 }
 
 type writeFencedTenantStore struct {

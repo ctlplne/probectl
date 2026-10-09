@@ -8,6 +8,8 @@ package pathstore
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"sync"
 	"time"
 
@@ -49,6 +51,55 @@ func (m *Memory) DeleteTenant(_ context.Context, tenantID string) (deleted, rema
 	deleted = len(m.saved[tenantID])
 	delete(m.saved, tenantID)
 	return deleted, 0, nil
+}
+
+// ExportTenantHops and ExportTenantLinks write the hop and link rows of every
+// retained discovery round, in the rows the ClickHouse store holds: the path
+// planes of the tenant portability bundle.
+func (m *Memory) ExportTenantHops(_ context.Context, tenantID string, w io.Writer) (int64, error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
+	enc := json.NewEncoder(w)
+	var n int64
+	for _, round := range m.rounds(tenantID) {
+		for _, row := range hopRows(tenantID, round.ID, formatCHTime(round.ObservedAt), &round.Path) {
+			if err := enc.Encode(row); err != nil {
+				return n, err
+			}
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *Memory) ExportTenantLinks(_ context.Context, tenantID string, w io.Writer) (int64, error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
+	enc := json.NewEncoder(w)
+	var n int64
+	for _, round := range m.rounds(tenantID) {
+		for _, row := range linkRows(tenantID, round.ID, formatCHTime(round.ObservedAt), &round.Path) {
+			if err := enc.Encode(row); err != nil {
+				return n, err
+			}
+			n++
+		}
+	}
+	return n, nil
+}
+
+// rounds copies the tenant's retained discovery rounds, oldest first.
+func (m *Memory) rounds(tenantID string) []Snapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Snapshot, 0, len(m.saved[tenantID]))
+	for _, round := range m.saved[tenantID] {
+		round.Path = clonePath(&round.Path)
+		out = append(out, round)
+	}
+	return out
 }
 
 // Latest returns the most recently saved path to target for the tenant.

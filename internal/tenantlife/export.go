@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/audit"
@@ -28,6 +29,14 @@ import (
 //	postgres/<table>.jsonl   ordinary tenant-owned rows, one JSON object per line
 //	flows.jsonl              every flow record (streamed from the flow store)
 //	endpoint_events.jsonl    every endpoint/DEM event
+//	otel_spans.jsonl         every OTLP span, and every OTLP log record
+//	otel_logs.jsonl
+//	ebpf_edges.jsonl         every eBPF workload aggregate
+//	path_hops.jsonl          every path discovery round's hop and link rows
+//	path_links.jsonl
+//	topology.jsonl           the topology graph's nodes and edges
+//
+// Every store the erasure clears is either bundled here or named in the notes.
 //
 // Provider-only encrypted incident-response attribution is deliberately absent
 // from ordinary portability bundles. Investigation access uses its dedicated,
@@ -47,6 +56,12 @@ type Manifest struct {
 	Tables         map[string]int64 `json:"tables"` // table -> row count
 	Flows          int64            `json:"flows"`
 	EndpointEvents int64            `json:"endpoint_events"`
+	OtelSpans      int64            `json:"otel_spans"`
+	OtelLogs       int64            `json:"otel_logs"`
+	EBPFEdges      int64            `json:"ebpf_edges"`
+	PathHops       int64            `json:"path_hops"`
+	PathLinks      int64            `json:"path_links"`
+	Topology       int64            `json:"topology"` // graph nodes + edges
 	Objects        []ObjectRef      `json:"objects"`
 	Notes          []string         `json:"notes"`
 	Redacted       bool             `json:"redacted"` // S-EE3: PII masked per the governance policy
@@ -97,6 +112,7 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 		Notes: []string{
 			"TSDB metric series are not bundled: export them via the Prometheus-compatible API (federation/PromQL).",
 			"Object-store artifacts are inventoried under objects[]; fetch blobs individually via their API surfaces.",
+			"Hourly flow and path rollups are derived aggregates and are not bundled; the raw rows they summarize are, for as long as those rows are retained.",
 			"Immutable audit rows keep their tenant, sequence, timestamp, and chain fields; erased identities are emitted only through the canonical audit privacy projection.",
 			ordinaryPortabilityIRPolicyNote,
 		},
@@ -198,6 +214,11 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 		man.EndpointEvents = n
 	}
 
+	// 2c) The OTLP, eBPF, path and topology planes.
+	if err := e.exportTelemetryPlanes(ctx, tw, tenantID, &man, redact, pol); err != nil {
+		return man, err
+	}
+
 	// 3) Object inventory (both key namespaces).
 	if e.objects != nil {
 		tenantObjects, err := tenantObjectStores(e.objects, tenantID)
@@ -239,6 +260,88 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 		}
 	}
 	return man, nil
+}
+
+// The planes a full export streams beside flows and endpoint events. Every
+// shipped backend implements them; a deployed store that does not is named in
+// the manifest notes rather than silently left out of the bundle.
+type otelTenantExporter interface {
+	ExportTenantSpans(ctx context.Context, tenantID string, w io.Writer) (int64, error)
+	ExportTenantLogs(ctx context.Context, tenantID string, w io.Writer) (int64, error)
+}
+
+type ebpfTenantExporter interface {
+	ExportTenant(ctx context.Context, tenantID string, w io.Writer) (int64, error)
+}
+
+type pathTenantExporter interface {
+	ExportTenantHops(ctx context.Context, tenantID string, w io.Writer) (int64, error)
+	ExportTenantLinks(ctx context.Context, tenantID string, w io.Writer) (int64, error)
+}
+
+type topologyTenantExporter interface {
+	ExportTenant(tenantID string, w io.Writer) (nodes, edges int64, err error)
+}
+
+// exportTelemetryPlanes streams the OTLP, eBPF, path and topology planes into
+// the bundle, each staged through a temp file like the endpoint history
+// (GAP-05). Erasure clears every one of these stores, so the bundle that comes
+// before it must carry them.
+func (e *Engine) exportTelemetryPlanes(ctx context.Context, tw *tar.Writer, tenantID string, man *Manifest, redact bool, pol govern.Policy) error {
+	type plane struct {
+		file    string
+		count   *int64
+		produce func(io.Writer) (int64, error)
+	}
+	var planes []plane
+	var incapable []string
+	if e.otel != nil {
+		if x, ok := e.otel.(otelTenantExporter); ok {
+			planes = append(planes,
+				plane{"otel_spans.jsonl", &man.OtelSpans, func(w io.Writer) (int64, error) { return x.ExportTenantSpans(ctx, tenantID, w) }},
+				plane{"otel_logs.jsonl", &man.OtelLogs, func(w io.Writer) (int64, error) { return x.ExportTenantLogs(ctx, tenantID, w) }})
+		} else {
+			incapable = append(incapable, "otel")
+		}
+	}
+	if e.ebpf != nil {
+		if x, ok := e.ebpf.(ebpfTenantExporter); ok {
+			planes = append(planes,
+				plane{"ebpf_edges.jsonl", &man.EBPFEdges, func(w io.Writer) (int64, error) { return x.ExportTenant(ctx, tenantID, w) }})
+		} else {
+			incapable = append(incapable, "ebpf")
+		}
+	}
+	if e.paths != nil {
+		if x, ok := e.paths.(pathTenantExporter); ok {
+			planes = append(planes,
+				plane{"path_hops.jsonl", &man.PathHops, func(w io.Writer) (int64, error) { return x.ExportTenantHops(ctx, tenantID, w) }},
+				plane{"path_links.jsonl", &man.PathLinks, func(w io.Writer) (int64, error) { return x.ExportTenantLinks(ctx, tenantID, w) }})
+		} else {
+			incapable = append(incapable, "paths")
+		}
+	}
+	if e.topo != nil {
+		if x, ok := e.topo.(topologyTenantExporter); ok {
+			planes = append(planes, plane{"topology.jsonl", &man.Topology, func(w io.Writer) (int64, error) {
+				nodes, edges, err := x.ExportTenant(tenantID, w)
+				return nodes + edges, err
+			}})
+		} else {
+			incapable = append(incapable, "topology")
+		}
+	}
+	for _, p := range planes {
+		n, err := streamPlaneToTar(tw, p.file, man.ExportedAt, redact, pol, p.produce)
+		if err != nil {
+			return fmt.Errorf("tenantlife: export %s: %w", strings.TrimSuffix(p.file, ".jsonl"), err)
+		}
+		*p.count = n
+	}
+	if len(incapable) > 0 {
+		man.Notes = append(man.Notes, "These deployed stores cannot export, so their rows are not in this bundle: "+strings.Join(incapable, ", ")+".")
+	}
+	return nil
 }
 
 func ordinaryPortabilityExportTables(tables []string) []string {

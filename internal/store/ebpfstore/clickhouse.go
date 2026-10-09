@@ -341,6 +341,43 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 	return int64(num(rows[0]["n"])), nil
 }
 
+// ExportTenant streams every aggregate the tenant owns as JSON Lines from its
+// routed table (the eBPF plane of the tenant portability bundle). FINAL
+// collapses redelivered windows, so the bundle holds what the tenant's own
+// reads return; the body is copied through, never buffered.
+func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Writer) (int64, error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
+	t, err := c.route(ctx, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	table, err := tableFor(t)
+	if err != nil {
+		return 0, err
+	}
+	sql := "SELECT * FROM " + table + " FINAL WHERE tenant_id={tenant:String} ORDER BY window_start, src_workload, dst_workload, dst_port FORMAT JSONEachRow"
+	params := url.Values{"param_tenant": {tenantID}}
+	if c.tenantScoping {
+		params.Set(tenantSettingName, tenantID) // TENANT-004: DB-level scope
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseFor(t.BaseURL)+"/?query="+url.QueryEscape(sql)+"&"+params.Encode(), nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := c.conn.Do(t.BaseURL, req)
+	if err != nil {
+		return 0, fmt.Errorf("ebpfstore: export: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return 0, fmt.Errorf("ebpfstore: export status %d: %s", resp.StatusCode, b)
+	}
+	return chclient.CopyRows(w, resp.Body)
+}
+
 func (c *ClickHouse) Close() error { return nil }
 
 // chUserRe validates a ClickHouse USER identifier in our DDL (identifiers

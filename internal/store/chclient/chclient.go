@@ -24,6 +24,7 @@
 package chclient
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -71,6 +72,29 @@ func ReadResponseBody(r io.Reader) ([]byte, error) {
 		return nil, ErrResponseTooLarge
 	}
 	return body, nil
+}
+
+// CopyRows streams a JSONEachRow response body into w and returns the rows it
+// carried (one per newline). A tenant export can far exceed MaxResponseBytes,
+// so it is copied through, never read into memory.
+func CopyRows(w io.Writer, r io.Reader) (int64, error) {
+	var rows int64
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			rows += int64(bytes.Count(buf[:n], []byte{'\n'}))
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return rows, werr
+			}
+		}
+		if err == io.EOF {
+			return rows, nil
+		}
+		if err != nil {
+			return rows, err
+		}
+	}
 }
 
 // errServerError is the sentinel the breaker callback returns for an

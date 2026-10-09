@@ -813,7 +813,7 @@ func (c *ClickHouse) ExportSubject(ctx context.Context, tenant, subject string, 
 		if err != nil {
 			return spans, logs, err
 		}
-		n, err := c.exportSubjectTable(ctx, t.BaseURL, tenant, qt, spec.predicate, p, spec.w)
+		n, err := c.exportRows(ctx, t.BaseURL, tenant, "SELECT * FROM "+qt+" WHERE "+spec.predicate+" FORMAT JSONEachRow", p, spec.w)
 		if err != nil {
 			return spans, logs, err
 		}
@@ -896,8 +896,38 @@ positionCaseInsensitive(body, {subject:String}) > 0 OR
 arrayExists(kv -> kv.2 = {subject:String}, JSONExtractKeysAndValues(attrs, 'String')))`
 }
 
-func (c *ClickHouse) exportSubjectTable(ctx context.Context, base, tenant, table, predicate string, p chParams, w io.Writer) (int64, error) {
-	sql := "SELECT * FROM " + table + " WHERE " + predicate + " FORMAT JSONEachRow"
+// ExportTenantSpans and ExportTenantLogs stream every span or log record the
+// tenant owns as JSON Lines from its routed table: the OTLP planes of the
+// tenant portability bundle. FINAL collapses redelivered duplicates, so the
+// bundle holds what the tenant's own reads return.
+func (c *ClickHouse) ExportTenantSpans(ctx context.Context, tenant string, w io.Writer) (int64, error) {
+	return c.exportTenant(ctx, tenant, spansTable, "start, trace_id, span_id", w)
+}
+
+func (c *ClickHouse) ExportTenantLogs(ctx context.Context, tenant string, w io.Writer) (int64, error) {
+	return c.exportTenant(ctx, tenant, logsTable, "ts, service", w)
+}
+
+func (c *ClickHouse) exportTenant(ctx context.Context, tenant, table, orderBy string, w io.Writer) (int64, error) {
+	if tenant == "" {
+		return 0, ErrNoTenant
+	}
+	t, err := c.route(ctx, tenant)
+	if err != nil {
+		return 0, err
+	}
+	qt, err := qualify(t, table)
+	if err != nil {
+		return 0, err
+	}
+	return c.exportRows(ctx, t.BaseURL, tenant,
+		"SELECT * FROM "+qt+" FINAL WHERE tenant_id = {tenant:String} ORDER BY "+orderBy+" FORMAT JSONEachRow",
+		chParams{"tenant": tenant}, w)
+}
+
+// exportRows streams one tenant-scoped JSONEachRow query straight from the
+// ClickHouse response into w, returning the rows written.
+func (c *ClickHouse) exportRows(ctx context.Context, base, tenant, sql string, p chParams, w io.Writer) (int64, error) {
 	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql) + p.qs()
 	if c.tenantScoping {
 		u += "&" + url.QueryEscape(tenantSettingName) + "=" + url.QueryEscape(tenant)
@@ -908,39 +938,14 @@ func (c *ClickHouse) exportSubjectTable(ctx context.Context, base, tenant, table
 	}
 	resp, err := c.do(base, req)
 	if err != nil {
-		return 0, fmt.Errorf("otelstore: export subject: %w", err)
+		return 0, fmt.Errorf("otelstore: export: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return 0, fmt.Errorf("otelstore: export subject status %d: %s", resp.StatusCode, b)
+		return 0, fmt.Errorf("otelstore: export status %d: %s", resp.StatusCode, b)
 	}
-	return countLinesCopy(w, resp.Body)
-}
-
-func countLinesCopy(w io.Writer, r io.Reader) (int64, error) {
-	var lines int64
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			chunk := buf[:n]
-			for _, b := range chunk {
-				if b == '\n' {
-					lines++
-				}
-			}
-			if _, werr := w.Write(chunk); werr != nil {
-				return lines, werr
-			}
-		}
-		if err == io.EOF {
-			return lines, nil
-		}
-		if err != nil {
-			return lines, err
-		}
-	}
+	return chclient.CopyRows(w, resp.Body)
 }
 
 // Close is a no-op (stateless HTTP client).

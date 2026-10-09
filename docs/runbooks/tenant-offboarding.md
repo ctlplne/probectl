@@ -36,6 +36,16 @@ Tenant self-service: **Admin → Data lifecycle → Export my data**, or
 - `flows.jsonl` — every flow record, streamed from the flow store.
 - `endpoint_events.jsonl` — every raw endpoint/DEM event, streamed through the
   tenant-scoped event-store boundary.
+- `otel_spans.jsonl` and `otel_logs.jsonl` — every OTLP span and log record.
+- `ebpf_edges.jsonl` — every eBPF workload aggregate (the service map).
+- `path_hops.jsonl` and `path_links.jsonl` — the hop and link rows of every
+  path discovery round.
+- `topology.jsonl` — the topology graph's nodes and edges, as it stands.
+
+Every store the erase in step 3 clears is either in the bundle or named in the
+manifest's notes, with the reason. The manifest counts each file's rows.
+Hourly flow and path rollups are derived aggregates and are not bundled; the
+raw rows they summarize are, for as long as those rows are retained.
 
 Ordinary portability never reads, unseals, or exports the provider-only
 encrypted incident-response attribution sidecar. That evidence is accessible
