@@ -214,3 +214,146 @@ func TestDirectoryUsersAndRolesAreTenantScopedAuditedAndGuarded(t *testing.T) {
 		}
 	}
 }
+
+// TestDirectoryDelegatesARoleToOneBranchOfTheHierarchy: delegated
+// administration is a role bound at an org, team or project scope, which RBAC
+// honors only inside that branch (Principal.HasAt) and never tenant-wide. The
+// model, the hierarchy checks and docs/scim-abac.md all had it, but no
+// operator path could create such a grant. A tenant administrator now grants
+// and revokes one through the directory API, it shows in the listing, it lets
+// its holder administer exactly that branch, it never counts as a tenant
+// administrator, and a foreign tenant's branch cannot be named.
+func TestDirectoryDelegatesARoleToOneBranchOfTheHierarchy(t *testing.T) {
+	srv, db := setupSessionAPI(t, auth.Identity{})
+	h := srv.Handler()
+	tenantA, tenantB := freshTenant(t, db, "deleg-a"), freshTenant(t, db, "deleg-b")
+	for _, tenant := range []string{tenantA, tenantB} {
+		ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
+		if err := tenancy.InTenant(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			return (store.Roles{}).EnsureSystemRoles(ctx, sc)
+		}); err != nil {
+			t.Fatalf("seed system roles: %v", err)
+		}
+	}
+	_, adminTok := directoryPrincipal(t, db, tenantA, "deleg-admin@example.com", permDirectoryRead, permDirectoryWrite, permOrgRead, permOrgWrite)
+	_, adminBTok := directoryPrincipal(t, db, tenantB, "deleg-admin-b@example.com", permDirectoryRead, permDirectoryWrite)
+
+	// The tenant's one tenant-wide administrator, through the same API.
+	created := func(tok, tenant, email, role string) directoryUser {
+		t.Helper()
+		body := map[string]any{"email": email}
+		if role != "" {
+			body["role"] = role
+		}
+		rec := bearerReq(t, h, http.MethodPost, "/v1/directory/users", tenant, tok, body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %s = %d: %s", email, rec.Code, rec.Body)
+		}
+		var u directoryUser
+		if err := json.Unmarshal(rec.Body.Bytes(), &u); err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	owner := created(adminTok, tenantA, "deleg-owner@example.com", "admin")
+	dana := created(adminTok, tenantA, "deleg-dana@example.com", "")
+	org := func(slug, name string) string {
+		t.Helper()
+		rec := bearerReq(t, h, http.MethodPost, "/v1/hierarchy/orgs", tenantA, adminTok, map[string]string{"slug": slug, "name": name})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create org %s = %d: %s", slug, rec.Code, rec.Body)
+		}
+		var o struct{ ID string }
+		if err := json.Unmarshal(rec.Body.Bytes(), &o); err != nil {
+			t.Fatal(err)
+		}
+		return o.ID
+	}
+	alpha, beta := org("alpha", "Alpha"), org("beta", "Beta")
+
+	// Validation: an unknown scope type, a scope id without a branch type, and a
+	// branch that is not this tenant's are all refused.
+	for _, bad := range []struct {
+		body map[string]any
+		code int
+	}{
+		{map[string]any{"role": "admin", "scope_type": "galaxy", "scope_id": alpha}, http.StatusUnprocessableEntity},
+		{map[string]any{"role": "admin", "scope_type": "org"}, http.StatusUnprocessableEntity},
+		{map[string]any{"role": "admin", "scope_id": alpha}, http.StatusUnprocessableEntity},
+	} {
+		if rec := bearerReq(t, h, http.MethodPost, "/v1/directory/users/"+dana.ID+"/roles", tenantA, adminTok, bad.body); rec.Code != bad.code {
+			t.Fatalf("grant %v = %d, want %d: %s", bad.body, rec.Code, bad.code, rec.Body)
+		}
+	}
+
+	// Delegate org Alpha to dana.
+	rec := bearerReq(t, h, http.MethodPost, "/v1/directory/users/"+dana.ID+"/roles", tenantA, adminTok,
+		map[string]any{"role": "admin", "scope_type": "org", "scope_id": alpha})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delegate org alpha = %d: %s", rec.Code, rec.Body)
+	}
+	var granted directoryUser
+	if err := json.Unmarshal(rec.Body.Bytes(), &granted); err != nil {
+		t.Fatal(err)
+	}
+	want := store.ScopedRole{Role: "admin", ScopeType: "org", ScopeID: alpha, ScopeName: "Alpha"}
+	if len(granted.Roles) != 0 || len(granted.ScopedRoles) != 1 || granted.ScopedRoles[0] != want {
+		t.Fatalf("after the delegation dana = roles %v scoped %v, want no tenant role and %+v", granted.Roles, granted.ScopedRoles, want)
+	}
+	rec = bearerReq(t, h, http.MethodGet, "/v1/directory/users", tenantA, adminTok, nil)
+	if !strings.Contains(rec.Body.String(), `"scope_name":"Alpha"`) {
+		t.Fatalf("the directory listing does not show dana's delegation: %s", rec.Body)
+	}
+
+	// Dana administers Alpha and only Alpha, and holds nothing tenant-wide.
+	tok, err := auth.RandomToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.NewMCPTokens(db.Pool()).Create(context.Background(), tenantA, dana.ID, "delegated", crypto.Hash([]byte(tok))); err != nil {
+		t.Fatal(err)
+	}
+	rec = bearerReq(t, h, http.MethodGet, "/v1/hierarchy", tenantA, tok, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), alpha) || strings.Contains(rec.Body.String(), beta) {
+		t.Fatalf("dana's hierarchy = %d, want Alpha and not Beta: %s", rec.Code, rec.Body)
+	}
+	if rec := bearerReq(t, h, http.MethodPost, "/v1/hierarchy/orgs/"+alpha+"/teams", tenantA, tok, map[string]string{"slug": "platform", "name": "Platform"}); rec.Code != http.StatusCreated {
+		t.Fatalf("dana creating a team in Alpha = %d, want 201: %s", rec.Code, rec.Body)
+	}
+	if rec := bearerReq(t, h, http.MethodPost, "/v1/hierarchy/orgs/"+beta+"/teams", tenantA, tok, map[string]string{"slug": "sneak", "name": "Sneak"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("dana creating a team in Beta = %d, want 403: %s", rec.Code, rec.Body)
+	}
+	if rec := bearerReq(t, h, http.MethodGet, "/v1/directory/users", tenantA, tok, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("dana reading the tenant directory = %d, want 403: %s", rec.Code, rec.Body)
+	}
+
+	// A delegated admin is not a tenant administrator: the last tenant-wide one
+	// still cannot be removed.
+	if rec := bearerReq(t, h, http.MethodDelete, "/v1/directory/users/"+owner.ID+"/roles/admin", tenantA, adminTok, nil); rec.Code != http.StatusConflict {
+		t.Fatalf("removing the last tenant administrator while a delegated one exists = %d, want 409: %s", rec.Code, rec.Body)
+	}
+
+	// Tenant B cannot delegate tenant A's branch.
+	carlos := created(adminBTok, tenantB, "deleg-carlos@example.com", "")
+	if rec := bearerReq(t, h, http.MethodPost, "/v1/directory/users/"+carlos.ID+"/roles", tenantB, adminBTok,
+		map[string]any{"role": "admin", "scope_type": "org", "scope_id": alpha}); rec.Code != http.StatusNotFound {
+		t.Fatalf("tenant B delegating tenant A's org = %d, want 404: %s", rec.Code, rec.Body)
+	}
+
+	// Revoking the delegation ends it on dana's next request.
+	if rec := bearerReq(t, h, http.MethodDelete, "/v1/directory/users/"+dana.ID+"/roles/admin?scope_type=org&scope_id="+alpha, tenantA, adminTok, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("revoke the delegation = %d: %s", rec.Code, rec.Body)
+	}
+	if rec := bearerReq(t, h, http.MethodPost, "/v1/hierarchy/orgs/"+alpha+"/teams", tenantA, tok, map[string]string{"slug": "late", "name": "Late"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("dana creating a team after the revoke = %d, want 403: %s", rec.Code, rec.Body)
+	}
+	var scoped int
+	if err := db.Pool().QueryRow(context.Background(),
+		`SELECT count(*) FROM audit_events WHERE tenant_id = $1 AND action IN ('directory.role_bind', 'directory.role_unbind')
+		    AND data->>'scope_type' = 'org' AND data->>'scope_id' = $2`, tenantA, alpha).Scan(&scoped); err != nil {
+		t.Fatal(err)
+	}
+	if scoped != 2 {
+		t.Fatalf("audited delegation grant+revoke naming org Alpha = %d, want 2", scoped)
+	}
+}

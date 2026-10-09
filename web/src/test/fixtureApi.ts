@@ -1028,7 +1028,31 @@ function coldFixture(path: string): Response | null {
  *  surface); everything else falls through to the populated catalog. */
 /** DPR-027: tenant people & roles. Each fixtureFetch instance gets its own copy so a
  * test that adds, grants or revokes never leaks into another test. */
-function seedDirectoryUsers() {
+/** The fixture hierarchy's branch names, by id (the /v1/hierarchy fixture). */
+const fixtureScopeNames: Record<string, string> = {
+  'org-fixture-1': 'Platform Engineering',
+  'team-fixture-1': 'Network Observability',
+  'project-fixture-1': 'Checkout SLO',
+}
+
+interface FixtureDirectoryUser {
+  id: string
+  tenant_id: string
+  email: string
+  display_name: string
+  status: string
+  roles: string[]
+  scoped_roles?: Array<{
+    role: string
+    scope_type: 'org' | 'team' | 'project'
+    scope_id: string
+    scope_name: string
+  }>
+  created_at: string
+  updated_at: string
+}
+
+function seedDirectoryUsers(): FixtureDirectoryUser[] {
   return [
     {
       id: 'fixture-user-operator',
@@ -1272,10 +1296,37 @@ export function fixtureFetch(
     }
     const bindMatch = /^\/v1\/directory\/users\/([^/]+)\/roles$/.exec(path)
     if (bindMatch && method === 'POST') {
-      const body = init?.body ? (JSON.parse(String(init.body)) as { role: string }) : { role: '' }
+      const body = init?.body
+        ? (JSON.parse(String(init.body)) as {
+            role: string
+            scope_type?: 'org' | 'team' | 'project'
+            scope_id?: string
+          })
+        : { role: '' }
       const user = fixtureDirectoryUsers.find((u) => u.id === bindMatch[1])
       if (!user)
         return jsonResponse({ error: { code: 'not_found', message: 'user not found' } }, 404)
+      if (body.scope_type && body.scope_id) {
+        // A delegation to one branch: the fixture hierarchy names it.
+        const scopeName = fixtureScopeNames[body.scope_id]
+        if (!scopeName)
+          return jsonResponse(
+            { error: { code: 'not_found', message: `${body.scope_type} not found` } },
+            404,
+          )
+        const scoped = user.scoped_roles ?? []
+        if (!scoped.some((s) => s.role === body.role && s.scope_id === body.scope_id))
+          user.scoped_roles = [
+            ...scoped,
+            {
+              role: body.role,
+              scope_type: body.scope_type,
+              scope_id: body.scope_id,
+              scope_name: scopeName,
+            },
+          ]
+        return jsonResponse(user)
+      }
       if (!user.roles.includes(body.role)) user.roles = [...user.roles, body.role].sort()
       return jsonResponse(user)
     }
@@ -1284,6 +1335,13 @@ export function fixtureFetch(
       const user = fixtureDirectoryUsers.find((u) => u.id === unbindMatch[1])
       if (!user)
         return jsonResponse({ error: { code: 'not_found', message: 'user not found' } }, 404)
+      const scopeID = urlOf(input).searchParams.get('scope_id')
+      if (scopeID) {
+        user.scoped_roles = (user.scoped_roles ?? []).filter(
+          (s) => !(s.role === unbindMatch[2] && s.scope_id === scopeID),
+        )
+        return new Response(null, { status: 204 })
+      }
       if (
         unbindMatch[2] === 'admin' &&
         fixtureDirectoryUsers.filter((u) => u.roles.includes('admin')).length === 1

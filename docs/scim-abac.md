@@ -169,9 +169,11 @@ policies can express things like:
 
 - "contractors cannot write" — deny `test.write` when `department=contractor`;
 - "step-up MFA for incident changes" — deny `incident.write` when `mfa=false`;
-- "delegated admin within an org" — a resource-scope policy on `org` (role
-  bindings already carry an `org`/`team`/`project` scope; see the `scope_type`
-  column in migration `0003_rbac.sql`).
+- "delegated admin within an org" — a role granted at an `org`, `team` or
+  `project` scope (`POST /v1/directory/users/{id}/roles` with
+  `scope_type`/`scope_id`, or **Scope** in Admin → Identity → People & roles;
+  see [`admin.md`](admin.md#identity-roles-and-access-rbac)) administers only
+  that branch, and a resource-scope policy on `org` can narrow it further.
 
 Hierarchy reads and writes provide the resolved resource attributes to ABAC as
 `tenant`, `org`, `team`, and `project`. Parent resources are resolved inside the
@@ -208,9 +210,10 @@ lifecycle and group sync. No additional connector is needed for these IdPs.
 ## Permissions added
 
 `directory.read` / `directory.write` gate the directory-admin surface — SCIM
-tokens, ABAC policies, and the user/group lifecycle — i.e. delegated admin
-*within* a tenant. They are seeded to the admin role (migration
-`0018_scim_abac.sql`).
+tokens, ABAC policies, and the user/group lifecycle. They are seeded to the
+admin role (migration `0018_scim_abac.sql`) and are only ever honored
+tenant-wide: an administrator delegated one org, team or project administers
+that branch and never the tenant's directory.
 
 ## Security guardrails upheld
 

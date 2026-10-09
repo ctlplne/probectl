@@ -910,25 +910,36 @@ type DirectoryRole struct {
 }
 
 type DirectoryRoleBind struct {
-	Role string `json:"role"`
+	Role      string `json:"role"`
+	ScopeId   string `json:"scope_id,omitempty"`
+	ScopeType string `json:"scope_type,omitempty"`
 }
 
 type DirectoryRoleList struct {
 	Items []DirectoryRole `json:"items"`
 }
 
-// A user of the caller's tenant with the role slugs bound at tenant scope.
+// A role delegated to one org, team or project: RBAC honors it inside that branch only.
+type DirectoryScopedRole struct {
+	Role      string `json:"role"`
+	ScopeId   string `json:"scope_id"`
+	ScopeName string `json:"scope_name"`
+	ScopeType string `json:"scope_type"`
+}
+
+// A user of the caller's tenant with the role slugs bound at tenant scope, and the roles delegated to them at an org, team or project scope.
 type DirectoryUser struct {
-	CreatedAt   string   `json:"created_at"`
-	DisplayName string   `json:"display_name"`
-	Email       string   `json:"email"`
-	ExternalId  string   `json:"external_id,omitempty"`
-	Id          string   `json:"id"`
-	Roles       []string `json:"roles"`
-	Status      string   `json:"status"`
-	TenantId    string   `json:"tenant_id"`
-	UpdatedAt   string   `json:"updated_at"`
-	UserName    string   `json:"user_name,omitempty"`
+	CreatedAt   string                `json:"created_at"`
+	DisplayName string                `json:"display_name"`
+	Email       string                `json:"email"`
+	ExternalId  string                `json:"external_id,omitempty"`
+	Id          string                `json:"id"`
+	Roles       []string              `json:"roles"`
+	ScopedRoles []DirectoryScopedRole `json:"scoped_roles,omitempty"`
+	Status      string                `json:"status"`
+	TenantId    string                `json:"tenant_id"`
+	UpdatedAt   string                `json:"updated_at"`
+	UserName    string                `json:"user_name,omitempty"`
 }
 
 // Create a person before their first SSO login so a role is waiting for them; role is a slug (admin, editor, viewer or a custom role).
@@ -3420,7 +3431,7 @@ func (c *Client) CreateDirectoryUser(ctx context.Context, req CreateDirectoryUse
 	return &out, nil
 }
 
-// Bind a role to a user (idempotent, audited)
+// Bind a role to a user, tenant-wide or delegated to one org, team or project (idempotent, audited)
 type BindDirectoryRoleRequest struct {
 	Id   string             `json:"-"`
 	Body *DirectoryRoleBind `json:"-"`
@@ -3442,8 +3453,10 @@ func (c *Client) BindDirectoryRole(ctx context.Context, req BindDirectoryRoleReq
 
 // Remove a role from a user (the tenant's last administrator is refused)
 type UnbindDirectoryRoleRequest struct {
-	Id   string `json:"-"`
-	Role string `json:"-"`
+	ScopeType *string `json:"-"`
+	ScopeId   *string `json:"-"`
+	Id        string  `json:"-"`
+	Role      string  `json:"-"`
 }
 
 func (c *Client) UnbindDirectoryRole(ctx context.Context, req UnbindDirectoryRoleRequest) error {
@@ -3457,6 +3470,12 @@ func (c *Client) UnbindDirectoryRole(ctx context.Context, req UnbindDirectoryRol
 	}
 	path = strings.ReplaceAll(path, "{role}", url.PathEscape(req.Role))
 	query := url.Values{}
+	if req.ScopeType != nil {
+		query.Set("scope_type", formatQueryValue(*req.ScopeType))
+	}
+	if req.ScopeId != nil {
+		query.Set("scope_id", formatQueryValue(*req.ScopeId))
+	}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 

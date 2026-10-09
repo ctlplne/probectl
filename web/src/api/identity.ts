@@ -41,7 +41,23 @@ export interface CreatedScimToken {
   token: string
 }
 
-/** DPR-027: a tenant user with the role slugs bound at tenant scope. */
+/** A role delegated to one org, team or project: RBAC honors it inside that
+ *  branch only, never tenant-wide. */
+export interface DirectoryScopedRole {
+  role: string
+  scope_type: 'org' | 'team' | 'project'
+  scope_id: string
+  scope_name: string
+}
+
+/** Where a role grant applies: omitted for the whole tenant. */
+export interface DirectoryScope {
+  scope_type: 'org' | 'team' | 'project'
+  scope_id: string
+}
+
+/** DPR-027: a tenant user with the role slugs bound at tenant scope, and the
+ *  roles delegated to one branch of the hierarchy. */
 export interface DirectoryUser {
   id: string
   tenant_id: string
@@ -51,6 +67,7 @@ export interface DirectoryUser {
   external_id?: string
   user_name?: string
   roles: string[]
+  scoped_roles?: DirectoryScopedRole[]
   created_at: string
   updated_at: string
 }
@@ -177,8 +194,11 @@ export function useCreateDirectoryUser() {
 export function useBindDirectoryRole() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, role }: { id: string; role: string }) =>
-      apiFetch<DirectoryUser>(`/directory/users/${id}/roles`, jsonInit('POST', { role })),
+    mutationFn: ({ id, role, scope }: { id: string; role: string; scope?: DirectoryScope }) =>
+      apiFetch<DirectoryUser>(
+        `/directory/users/${id}/roles`,
+        jsonInit('POST', scope ? { role, ...scope } : { role }),
+      ),
     onSuccess: () => invalidateDirectory(qc),
   })
 }
@@ -186,8 +206,12 @@ export function useBindDirectoryRole() {
 export function useUnbindDirectoryRole() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, role }: { id: string; role: string }) =>
-      apiFetch<void>(`/directory/users/${id}/roles/${role}`, { method: 'DELETE' }),
+    mutationFn: ({ id, role, scope }: { id: string; role: string; scope?: DirectoryScope }) => {
+      // A delegation is removed by naming its branch; no scope removes the
+      // tenant-wide binding.
+      const query = scope ? `?${new URLSearchParams({ ...scope })}` : ''
+      return apiFetch<void>(`/directory/users/${id}/roles/${role}${query}`, { method: 'DELETE' })
+    },
     onSuccess: () => invalidateDirectory(qc),
   })
 }

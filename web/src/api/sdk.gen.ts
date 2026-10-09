@@ -827,10 +827,19 @@ export interface DirectoryRole {
 
 export interface DirectoryRoleBind {
   role: string
+  scope_id?: string
+  scope_type?: "tenant" | "org" | "team" | "project"
 }
 
 export interface DirectoryRoleList {
   items: DirectoryRole[]
+}
+
+export interface DirectoryScopedRole {
+  role: string
+  scope_id: string
+  scope_name: string
+  scope_type: "org" | "team" | "project"
 }
 
 export interface DirectoryUser {
@@ -840,6 +849,7 @@ export interface DirectoryUser {
   external_id?: string
   id: string
   roles: string[]
+  scoped_roles?: DirectoryScopedRole[]
   status: string
   tenant_id: string
   updated_at: string
@@ -2424,6 +2434,8 @@ export interface BindDirectoryRoleRequest {
 export type BindDirectoryRoleResponse = DirectoryUser
 
 export interface UnbindDirectoryRoleRequest {
+  scopeType?: "tenant" | "org" | "team" | "project"
+  scopeId?: string
   id: string
   role: string
 }
@@ -3666,6 +3678,8 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     path = path.replace("{role}", encodeURIComponent(String(request.role)))
     const query = new URLSearchParams()
+    if (request.scopeType !== undefined) query.set("scope_type", String(request.scopeType))
+    if (request.scopeId !== undefined) query.set("scope_id", String(request.scopeId))
     await this.request("DELETE", path, query, undefined)
   }
 

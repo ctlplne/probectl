@@ -373,8 +373,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"users":       {Method: http.MethodGet, Path: "/v1/directory/users", Description: "list the tenant's users with their bound roles"},
 		"roles":       {Method: http.MethodGet, Path: "/v1/directory/roles", Description: "list roles with permissions and member counts"},
 		"create-user": {Method: http.MethodPost, Path: "/v1/directory/users", Description: "create a person before first login; --body '{\"email\":\"a@x\",\"role\":\"editor\"}'"},
-		"grant":       {Method: http.MethodPost, Path: "/v1/directory/users/{id}/roles", ArgName: "id", Description: "bind a role: --body '{\"role\":\"editor\"}'"},
-		"revoke":      {Method: http.MethodDelete, Path: "/v1/directory/users/{id}/roles/{role}", ArgName: "id,role", Description: "remove a role from a user (the last administrator is refused)"},
+		"grant":       {Method: http.MethodPost, Path: "/v1/directory/users/{id}/roles", ArgName: "id", Description: "bind a role: --body '{\"role\":\"editor\"}'; delegate it to one branch with \"scope_type\":\"org|team|project\",\"scope_id\":\"<id>\""},
+		"revoke":      {Method: http.MethodDelete, Path: "/v1/directory/users/{id}/roles/{role}", ArgName: "id,role", Description: "remove a role from a user (the last administrator is refused); --query scope_type=org --query scope_id=<id> removes a delegated one"},
 	}},
 	"scim": {Name: "scim", Summary: "SCIM identity-provider tokens", Ops: map[string]apiOp{
 		"tokens":       {Method: http.MethodGet, Path: "/v1/directory/scim-tokens"},

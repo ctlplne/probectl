@@ -58,15 +58,25 @@ roles inside the product** (DPR-027) — no SCIM, no control-host access, no SQL
 
 | Surface | What |
 |---|---|
-| UI | **Admin → Identity → People & roles**: list users with their roles; grant a role to an existing person or to a new email (the person is created before their first login); remove a role |
-| API | `GET/POST /v1/directory/users`, `GET /v1/directory/roles`, `POST /v1/directory/users/{id}/roles`, `DELETE /v1/directory/users/{id}/roles/{role}` |
+| UI | **Admin → Identity → People & roles**: list users with their roles; grant a role to an existing person or to a new email (the person is created before their first login), tenant-wide or delegated to one org, team or project (**Scope**); remove a role |
+| API | `GET/POST /v1/directory/users`, `GET /v1/directory/roles`, `POST /v1/directory/users/{id}/roles` (`scope_type`/`scope_id` delegate it), `DELETE /v1/directory/users/{id}/roles/{role}` (`?scope_type=&scope_id=` removes a delegation) |
 | CLI | `probectl directory users` · `roles` · `create-user` · `grant <id>` · `revoke <id> <role>` |
 
+**Delegated administration.** A role granted with a scope — `{"role":"admin",
+"scope_type":"org","scope_id":"<org id>"}` — applies to that branch of the
+hierarchy only: its holder can administer that org's teams and projects and
+sees no other org, and it never satisfies a tenant-wide permission (the
+directory, SCIM tokens and keys stay with tenant administrators). The branch
+must exist in the caller's tenant. Delegations are listed per person under
+`scoped_roles`, and a delegated administrator does not count as one of the
+tenant's administrators.
+
 Every grant and revocation is written to the tenant audit stream
-(`directory.user_create`, `directory.role_bind`, `directory.role_unbind`), the
-tenant's **last administrator cannot be removed** (a locked-out tenant would
-need the control host to recover), and RBAC stays deny-by-default: a person
-whose last role is removed can read nothing. Manual bindings and SCIM group
+(`directory.user_create`, `directory.role_bind`, `directory.role_unbind`, with
+the scope when there is one), the tenant's **last administrator cannot be
+removed** (a locked-out tenant would need the control host to recover), and
+RBAC stays deny-by-default: a person whose last role is removed can read
+nothing. Manual bindings and SCIM group
 sync coexist — a SCIM group re-add restores a role a SCIM-managed deployment
 removed by hand. Users and roles within a tenant can also be provisioned by
 your IdP over **SCIM 2.0** — the standard

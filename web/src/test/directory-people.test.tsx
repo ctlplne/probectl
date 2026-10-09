@@ -66,4 +66,57 @@ describe('people & roles', () => {
     )
     expect(await screen.findByRole('alert')).toHaveTextContent(/last administrator/i)
   })
+
+  test('delegates a role to one org and removes the delegation', async () => {
+    const fetchMock = vi.fn(defaultFetch())
+    vi.stubGlobal('fetch', fetchMock)
+    renderApp('/admin', {
+      me: { permissions: ['directory.read', 'directory.write', 'org.read', 'audit.read'] },
+    })
+    const table = await screen.findByRole('table', { name: 'People & roles' })
+    const form = screen.getByRole('form', { name: 'Grant a role' })
+    const scope = within(form).getByLabelText('Scope')
+    // The hierarchy's branches are offered alongside the whole tenant.
+    await waitFor(() =>
+      expect(
+        within(scope).getByRole('option', { name: 'Org Platform Engineering' }),
+      ).toBeInTheDocument(),
+    )
+    await userEvent.type(within(form).getByLabelText('Teammate email'), 'dana@example.com')
+    await userEvent.selectOptions(within(form).getByLabelText('Role'), 'admin')
+    await userEvent.selectOptions(scope, 'org:org-fixture-1')
+    await userEvent.click(within(form).getByRole('button', { name: 'Grant' }))
+
+    // A new person is created without a tenant-wide role, then delegated the org.
+    const remove = await within(table).findByRole('button', {
+      name: 'Remove admin on org Platform Engineering from dana@example.com',
+    })
+    const row = remove.closest('tr')
+    expect(row).toHaveTextContent('admin · Org Platform Engineering')
+    expect(row).not.toHaveTextContent('No role yet')
+    const bind = fetchMock.mock.calls.find(
+      ([url, init]) => String(url).endsWith('/roles') && init?.method === 'POST',
+    )
+    expect(JSON.parse(String(bind?.[1]?.body))).toEqual({
+      role: 'admin',
+      scope_type: 'org',
+      scope_id: 'org-fixture-1',
+    })
+
+    await userEvent.click(remove)
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /remove role/i }),
+    )
+    await waitFor(() =>
+      expect(
+        within(table).queryByRole('button', {
+          name: 'Remove admin on org Platform Engineering from dana@example.com',
+        }),
+      ).toBeNull(),
+    )
+    const unbind = fetchMock.mock.calls.find(
+      ([url, init]) => init?.method === 'DELETE' && String(url).includes('/roles/admin'),
+    )
+    expect(String(unbind?.[0])).toContain('scope_type=org&scope_id=org-fixture-1')
+  })
 })

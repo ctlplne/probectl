@@ -3564,7 +3564,7 @@
       "post": {
         "x-required-permission": "directory.write",
         "operationId": "bindDirectoryRole",
-        "summary": "Bind a role to a user (idempotent, audited)",
+        "summary": "Bind a role to a user, tenant-wide or delegated to one org, team or project (idempotent, audited)",
         "tags": [
           "directory"
         ],
@@ -3622,6 +3622,32 @@
         "summary": "Remove a role from a user (the tenant's last administrator is refused)",
         "tags": [
           "directory"
+        ],
+        "parameters": [
+          {
+            "name": "scope_type",
+            "in": "query",
+            "required": false,
+            "description": "org, team or project: remove the role delegated to that branch (with scope_id) instead of the tenant-wide binding.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tenant",
+                "org",
+                "team",
+                "project"
+              ]
+            }
+          },
+          {
+            "name": "scope_id",
+            "in": "query",
+            "required": false,
+            "description": "The id of the org, team or project the role was delegated to.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "204": {
@@ -14882,7 +14908,7 @@
       },
       "DirectoryUser": {
         "type": "object",
-        "description": "A user of the caller's tenant with the role slugs bound at tenant scope.",
+        "description": "A user of the caller's tenant with the role slugs bound at tenant scope, and the roles delegated to them at an org, team or project scope.",
         "properties": {
           "id": {
             "type": "string"
@@ -14909,6 +14935,13 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "scoped_roles": {
+            "type": "array",
+            "description": "Roles delegated to one branch of the hierarchy (never tenant-wide).",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryScopedRole"
             }
           },
           "created_at": {
@@ -15029,12 +15062,55 @@
           "items"
         ]
       },
+      "DirectoryScopedRole": {
+        "type": "object",
+        "description": "A role delegated to one org, team or project: RBAC honors it inside that branch only.",
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "scope_type": {
+            "type": "string",
+            "enum": [
+              "org",
+              "team",
+              "project"
+            ]
+          },
+          "scope_id": {
+            "type": "string"
+          },
+          "scope_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "scope_type",
+          "scope_id",
+          "scope_name"
+        ]
+      },
       "DirectoryRoleBind": {
         "type": "object",
         "properties": {
           "role": {
             "type": "string",
             "description": "role slug"
+          },
+          "scope_type": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "org",
+              "team",
+              "project"
+            ],
+            "description": "Omitted or tenant binds the role tenant-wide. org, team or project delegates it to that branch of the hierarchy only (with scope_id): RBAC honors it for resources inside the branch and never for a tenant-wide permission."
+          },
+          "scope_id": {
+            "type": "string",
+            "description": "The id of the org, team or project the role is delegated to; it must exist in the caller's tenant."
           }
         },
         "required": [

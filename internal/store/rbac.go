@@ -249,11 +249,104 @@ func (RoleBindings) Unbind(ctx context.Context, s tenancy.Scope, subjectType, su
 	return err
 }
 
-// MembersOfRole returns the user ids bound to a role — a SCIM Group's members.
+// BindScoped idempotently binds a subject to a role at an org, team or project
+// scope: delegated administration of that branch of the hierarchy. RBAC honors
+// it only for resources in that branch (auth.Principal.HasAt); it never
+// satisfies a tenant-wide permission check.
+func (RoleBindings) BindScoped(ctx context.Context, s tenancy.Scope, subjectType, subjectID, roleID, scopeType, scopeID string) error {
+	_, err := s.Q.Exec(ctx,
+		`INSERT INTO role_bindings (tenant_id, subject_type, subject_id, role_id, scope_type, scope_id)
+		 VALUES ($1, $2, $3, $4, $5, $6::uuid)
+		 ON CONFLICT (tenant_id, subject_type, subject_id, role_id, scope_type, scope_id) DO NOTHING`,
+		s.Tenant.String(), subjectType, subjectID, roleID, scopeType, scopeID)
+	return err
+}
+
+// UnbindScoped removes one org/team/project-scoped binding.
+func (RoleBindings) UnbindScoped(ctx context.Context, s tenancy.Scope, subjectType, subjectID, roleID, scopeType, scopeID string) error {
+	_, err := s.Q.Exec(ctx,
+		`DELETE FROM role_bindings
+		 WHERE subject_type = $1 AND subject_id = $2 AND role_id = $3
+		   AND scope_type = $4 AND scope_id = $5::uuid`,
+		subjectType, subjectID, roleID, scopeType, scopeID)
+	return err
+}
+
+// ScopedRole is a role bound to a user at an org, team or project scope, with
+// the name of the branch it delegates.
+type ScopedRole struct {
+	Role      string `json:"role"`
+	ScopeType string `json:"scope_type"`
+	ScopeID   string `json:"scope_id"`
+	ScopeName string `json:"scope_name"`
+}
+
+const scopedRoleQuery = `SELECT b.subject_id::text, r.slug, b.scope_type, b.scope_id::text,
+	       coalesce(o.name, t.name, p.name, '')
+	  FROM role_bindings b
+	  JOIN roles r ON r.id = b.role_id
+	  LEFT JOIN organizations o ON b.scope_type = 'org' AND o.id = b.scope_id
+	  LEFT JOIN teams t ON b.scope_type = 'team' AND t.id = b.scope_id
+	  LEFT JOIN projects p ON b.scope_type = 'project' AND p.id = b.scope_id
+	 WHERE b.subject_type = 'user' AND b.scope_type <> 'tenant'`
+
+// ScopedRolesByUser returns, for every user with an org/team/project-scoped
+// binding, those bindings — one query for a directory listing.
+func (RoleBindings) ScopedRolesByUser(ctx context.Context, s tenancy.Scope) (map[string][]ScopedRole, error) {
+	return scanScopedRoles(s.Q.Query(ctx, scopedRoleQuery+` ORDER BY b.subject_id, b.scope_type, r.slug`))
+}
+
+// ScopedRolesOfUser returns one user's org/team/project-scoped bindings.
+func (RoleBindings) ScopedRolesOfUser(ctx context.Context, s tenancy.Scope, userID string) ([]ScopedRole, error) {
+	byUser, err := scanScopedRoles(s.Q.Query(ctx, scopedRoleQuery+` AND b.subject_id = $1 ORDER BY b.scope_type, r.slug`, userID))
+	if err != nil {
+		return nil, err
+	}
+	if roles := byUser[userID]; roles != nil {
+		return roles, nil
+	}
+	return []ScopedRole{}, nil
+}
+
+func scanScopedRoles(rows pgx.Rows, err error) (map[string][]ScopedRole, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]ScopedRole{}
+	for rows.Next() {
+		var userID string
+		var r ScopedRole
+		if err := rows.Scan(&userID, &r.Role, &r.ScopeType, &r.ScopeID, &r.ScopeName); err != nil {
+			return nil, err
+		}
+		out[userID] = append(out[userID], r)
+	}
+	return out, rows.Err()
+}
+
+// ScopeExists reports whether an org, team or project with this id exists in
+// the caller's tenant (row-level security confines the lookup to it).
+func (RoleBindings) ScopeExists(ctx context.Context, s tenancy.Scope, scopeType, scopeID string) (bool, error) {
+	var exists bool
+	err := s.Q.QueryRow(ctx,
+		`SELECT CASE $1
+		          WHEN 'org'     THEN EXISTS (SELECT 1 FROM organizations WHERE id = $2::uuid)
+		          WHEN 'team'    THEN EXISTS (SELECT 1 FROM teams WHERE id = $2::uuid)
+		          WHEN 'project' THEN EXISTS (SELECT 1 FROM projects WHERE id = $2::uuid)
+		          ELSE false
+		        END`, scopeType, scopeID).Scan(&exists)
+	return exists, err
+}
+
+// MembersOfRole returns the user ids bound to a role at TENANT scope — a SCIM
+// Group's members, and who holds a role tenant-wide. Org/team/project-scoped
+// bindings are delegations of one branch: they are not group memberships and
+// must not count as, say, a tenant administrator.
 func (RoleBindings) MembersOfRole(ctx context.Context, s tenancy.Scope, roleID string) ([]string, error) {
 	rows, err := s.Q.Query(ctx,
 		`SELECT subject_id::text FROM role_bindings
-		 WHERE role_id = $1 AND subject_type = 'user' ORDER BY created_at`, roleID)
+		 WHERE role_id = $1 AND subject_type = 'user' AND scope_type = 'tenant' ORDER BY created_at`, roleID)
 	if err != nil {
 		return nil, err
 	}

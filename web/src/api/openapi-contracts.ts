@@ -514,7 +514,7 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/identity.ts',
     method: 'DELETE',
-    path: '`/directory/users/${id}/roles/${role}`',
+    path: '`/directory/users/${id}/roles/${role}${query}`',
     response: 'void',
     generated: 'UnbindDirectoryRoleResponse',
   },

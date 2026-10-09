@@ -37,10 +37,50 @@ import {
   useUnbindDirectoryRole,
   useUpdateTenantIdPSettings,
   type ABACPolicy,
+  type DirectoryScope,
+  type DirectoryScopedRole,
   type DirectoryUser,
   type ScimToken,
 } from '../../api/identity'
+import { useHierarchy, type Hierarchy } from '../../api/hierarchy'
 import { DateTime } from '../../time/DateTime'
+
+/** The branches a role can be delegated to: every org, team and project the
+ *  administrator can see, as "type:id" select values. */
+function scopeOptions(hierarchy: Hierarchy | undefined) {
+  const options = [{ value: '', label: 'Whole tenant' }]
+  for (const org of hierarchy?.items ?? []) {
+    options.push({ value: `org:${org.id}`, label: `Org ${org.name}` })
+    for (const team of org.teams) {
+      options.push({ value: `team:${team.id}`, label: `Team ${org.name} / ${team.name}` })
+      for (const project of team.projects) {
+        options.push({
+          value: `project:${project.id}`,
+          label: `Project ${org.name} / ${team.name} / ${project.name}`,
+        })
+      }
+    }
+  }
+  return options
+}
+
+function parseScope(value: string): DirectoryScope | undefined {
+  const [type, id] = value.split(':')
+  if ((type === 'org' || type === 'team' || type === 'project') && id) {
+    return { scope_type: type, scope_id: id }
+  }
+  return undefined
+}
+
+const scopeTypeLabel: Record<DirectoryScopedRole['scope_type'], string> = {
+  org: 'Org',
+  team: 'Team',
+  project: 'Project',
+}
+
+function scopedRoleLabel(s: DirectoryScopedRole) {
+  return `${s.role} · ${scopeTypeLabel[s.scope_type]} ${s.scope_name || s.scope_id}`
+}
 
 type DirectorySurface = {
   name: string
@@ -106,8 +146,11 @@ export function IdentityCard() {
   const createPerson = useCreateDirectoryUser()
   const bindRole = useBindDirectoryRole()
   const unbindRole = useUnbindDirectoryRole()
+  // Delegation targets: a role can be granted tenant-wide or to one branch.
+  const hierarchy = useHierarchy()
   const [personEmail, setPersonEmail] = useState('')
   const [personRole, setPersonRole] = useState('viewer')
+  const [personScope, setPersonScope] = useState('')
   const [personError, setPersonError] = useState('')
 
   const [tokenName, setTokenName] = useState('okta')
@@ -134,7 +177,7 @@ export function IdentityCard() {
   const [confirm, setConfirm] = useState<
     | { kind: 'token'; id: string; name: string }
     | { kind: 'policy'; id: string; name: string }
-    | { kind: 'role'; user: DirectoryUser; role: string }
+    | { kind: 'role'; user: DirectoryUser; role: string; scope?: DirectoryScopedRole }
     | null
   >(null)
 
@@ -235,17 +278,23 @@ export function IdentityCard() {
   ]
 
   const roleOptions = (roles.data ?? []).map((r) => ({ value: r.slug, label: r.name }))
+  const delegationOptions = scopeOptions(hierarchy.data)
   // One form grants a role to an existing person or creates the person with
-  // that role: fewer controls in the tab order, one obvious action.
+  // that role: fewer controls in the tab order, one obvious action. A scope
+  // delegates the role to one org, team or project instead of the tenant.
   const submitGrant = async (e: FormEvent) => {
     e.preventDefault()
     setPersonError('')
     const email = personEmail.trim().toLowerCase()
     if (!email) return
+    const scope = parseScope(personScope)
     try {
       const existing = (people.data ?? []).find((u) => u.email.toLowerCase() === email)
       if (existing) {
-        await bindRole.mutateAsync({ id: existing.id, role: personRole })
+        await bindRole.mutateAsync({ id: existing.id, role: personRole, scope })
+      } else if (scope) {
+        const created = await createPerson.mutateAsync({ email })
+        await bindRole.mutateAsync({ id: created.id, role: personRole, scope })
       } else {
         await createPerson.mutateAsync({ email, role: personRole })
       }
@@ -254,10 +303,14 @@ export function IdentityCard() {
       setPersonError(err instanceof Error ? err.message : 'Could not grant the role.')
     }
   }
-  const revoke = async (user: DirectoryUser, role: string) => {
+  const revoke = async (user: DirectoryUser, role: string, scope?: DirectoryScopedRole) => {
     setPersonError('')
     try {
-      await unbindRole.mutateAsync({ id: user.id, role })
+      await unbindRole.mutateAsync({
+        id: user.id,
+        role,
+        scope: scope ? { scope_type: scope.scope_type, scope_id: scope.scope_id } : undefined,
+      })
     } catch (err) {
       setPersonError(err instanceof Error ? err.message : 'Could not remove the role.')
     }
@@ -284,7 +337,7 @@ export function IdentityCard() {
       key: 'roles',
       header: 'Roles',
       render: (u) =>
-        u.roles.length === 0 ? (
+        u.roles.length === 0 && (u.scoped_roles ?? []).length === 0 ? (
           <Badge tone="warning">No role yet</Badge>
         ) : (
           <span className={styles.actions}>
@@ -296,6 +349,19 @@ export function IdentityCard() {
                   size="sm"
                   aria-label={`Remove ${r} from ${u.email}`}
                   onClick={() => setConfirm({ kind: 'role', user: u, role: r })}
+                >
+                  Remove
+                </Button>
+              </span>
+            ))}
+            {(u.scoped_roles ?? []).map((s) => (
+              <span key={`${s.role}:${s.scope_type}:${s.scope_id}`}>
+                <Badge tone="info">{scopedRoleLabel(s)}</Badge>{' '}
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-label={`Remove ${s.role} on ${s.scope_type} ${s.scope_name} from ${u.email}`}
+                  onClick={() => setConfirm({ kind: 'role', user: u, role: s.role, scope: s })}
                 >
                   Remove
                 </Button>
@@ -464,6 +530,12 @@ export function IdentityCard() {
             onChange={(e) => setPersonRole(e.target.value)}
             options={roleOptions}
           />
+          <Select
+            label="Scope"
+            value={personScope}
+            onChange={(e) => setPersonScope(e.target.value)}
+            options={delegationOptions}
+          />
           <Button
             type="submit"
             variant="primary"
@@ -475,6 +547,12 @@ export function IdentityCard() {
         {personError ? (
           <p role="alert" className={styles.editionsLede}>
             {personError}
+          </p>
+        ) : null}
+        {hierarchy.isError ? (
+          <p className={styles.editionsLede}>
+            Orgs, teams and projects could not be loaded, so a role can only be granted to the whole
+            tenant until they do.
           </p>
         ) : null}
         {roles.isError ? (
@@ -640,7 +718,7 @@ export function IdentityCard() {
               : confirm?.kind === 'policy'
                 ? `Delete ABAC policy ${confirm.name}`
                 : confirm?.kind === 'role'
-                  ? `Remove ${confirm.role} from ${confirm.user.email}`
+                  ? `Remove ${confirm.scope ? scopedRoleLabel(confirm.scope) : confirm.role} from ${confirm.user.email}`
                   : ''
           }
           confirmLabel={
@@ -659,7 +737,7 @@ export function IdentityCard() {
             } else if (confirm.kind === 'policy') {
               deletePolicy.mutate(confirm.id)
             } else {
-              void revoke(confirm.user, confirm.role)
+              void revoke(confirm.user, confirm.role, confirm.scope)
             }
             setConfirm(null)
           }}
@@ -676,7 +754,8 @@ export function IdentityCard() {
             </>
           ) : confirm?.kind === 'role' ? (
             <>
-              This removes role <strong>{confirm.role}</strong> from{' '}
+              This removes role{' '}
+              <strong>{confirm.scope ? scopedRoleLabel(confirm.scope) : confirm.role}</strong> from{' '}
               <strong>{confirm.user.email}</strong>.
             </>
           ) : null}

@@ -31,6 +31,9 @@ const (
 type directoryUser struct {
 	store.User
 	Roles []string `json:"roles"`
+	// ScopedRoles are roles bound at an org, team or project scope: delegated
+	// administration of that branch, never a tenant-wide grant.
+	ScopedRoles []store.ScopedRole `json:"scoped_roles"`
 }
 
 type directoryRole struct {
@@ -59,7 +62,33 @@ func (s *Server) directoryUserWithRoles(ctx context.Context, sc tenancy.Scope, u
 	for _, r := range roles {
 		slugs = append(slugs, r.Slug)
 	}
-	return directoryUser{User: *u, Roles: slugs}, nil
+	scoped, err := (store.RoleBindings{}).ScopedRolesOfUser(ctx, sc, u.ID)
+	if err != nil {
+		return directoryUser{}, err
+	}
+	return directoryUser{User: *u, Roles: slugs, ScopedRoles: scoped}, nil
+}
+
+// directoryScope reads an optional org/team/project scope for a role grant. An
+// empty or "tenant" type is the tenant-wide grant; anything else must name an
+// existing org, team or project of the caller's tenant.
+func directoryScope(scopeType, scopeID string) (string, string, error) {
+	scopeType = strings.ToLower(strings.TrimSpace(scopeType))
+	scopeID = strings.ToLower(strings.TrimSpace(scopeID))
+	switch scopeType {
+	case "", "tenant":
+		if scopeID != "" {
+			return "", "", apierror.Validation("scope_id is only valid with scope_type org, team or project")
+		}
+		return "", "", nil
+	case "org", "team", "project":
+		if !uuidRe.MatchString(scopeID) {
+			return "", "", apierror.Validation("scope_id must be the id of an org, team or project")
+		}
+		return scopeType, scopeID, nil
+	default:
+		return "", "", apierror.Validation("scope_type must be tenant, org, team or project")
+	}
 }
 
 // handleDirectoryUserList serves GET /v1/directory/users: every user of the
@@ -85,13 +114,21 @@ func (s *Server) handleDirectoryUserList(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return err
 		}
+		scopedByUser, err := (store.RoleBindings{}).ScopedRolesByUser(ctx, sc)
+		if err != nil {
+			return err
+		}
 		total = n
 		for i := range users {
 			slugs := byUser[users[i].ID]
 			if slugs == nil {
 				slugs = []string{}
 			}
-			out = append(out, directoryUser{User: users[i], Roles: slugs})
+			scoped := scopedByUser[users[i].ID]
+			if scoped == nil {
+				scoped = []store.ScopedRole{}
+			}
+			out = append(out, directoryUser{User: users[i], Roles: slugs, ScopedRoles: scoped})
 		}
 		return nil
 	}); err != nil {
@@ -215,7 +252,9 @@ func (s *Server) handleDirectoryUserCreate(w http.ResponseWriter, r *http.Reques
 }
 
 // handleDirectoryRoleBind serves POST /v1/directory/users/{id}/roles: bind one
-// role (by slug) to a user of the caller's tenant. Idempotent.
+// role (by slug) to a user of the caller's tenant, tenant-wide or — with
+// scope_type org/team/project and scope_id — delegated to that branch of the
+// hierarchy. Idempotent.
 func (s *Server) handleDirectoryRoleBind(w http.ResponseWriter, r *http.Request) error {
 	tid, err := s.principalTenant(r)
 	if err != nil {
@@ -229,7 +268,9 @@ func (s *Server) handleDirectoryRoleBind(w http.ResponseWriter, r *http.Request)
 		return apierror.Validation("user id is required")
 	}
 	var in struct {
-		Role string `json:"role"`
+		Role      string `json:"role"`
+		ScopeType string `json:"scope_type"`
+		ScopeID   string `json:"scope_id"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		return err
@@ -237,6 +278,10 @@ func (s *Server) handleDirectoryRoleBind(w http.ResponseWriter, r *http.Request)
 	slug := strings.ToLower(strings.TrimSpace(in.Role))
 	if slug == "" {
 		return apierror.Validation("role is required")
+	}
+	scopeType, scopeID, err := directoryScope(in.ScopeType, in.ScopeID)
+	if err != nil {
+		return err
 	}
 	// AUTHZ-09: ir-investigator is a separation-of-duty group (migration 0081).
 	// It must be populated through the SCIM group-binding surface, never through
@@ -256,16 +301,30 @@ func (s *Server) handleDirectoryRoleBind(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return apierror.NotFound("role not found")
 		}
-		if err := (store.RoleBindings{}).Bind(ctx, sc, "user", u.ID, role.ID); err != nil {
+		audit := map[string]any{"user_id": u.ID, "email": u.Email, "role": role.Slug}
+		if scopeType == "" {
+			err = (store.RoleBindings{}).Bind(ctx, sc, "user", u.ID, role.ID)
+		} else {
+			// The branch must exist in THIS tenant: row-level security makes
+			// another tenant's org/team/project as absent as a made-up id.
+			exists, existsErr := (store.RoleBindings{}).ScopeExists(ctx, sc, scopeType, scopeID)
+			if existsErr != nil {
+				return existsErr
+			}
+			if !exists {
+				return apierror.NotFound(scopeType + " not found")
+			}
+			err = (store.RoleBindings{}).BindScoped(ctx, sc, "user", u.ID, role.ID, scopeType, scopeID)
+			audit["scope_type"], audit["scope_id"] = scopeType, scopeID
+		}
+		if err != nil {
 			return err
 		}
 		updated, err = s.directoryUserWithRoles(ctx, sc, u)
 		if err != nil {
 			return err
 		}
-		return s.recordAudit(ctx, sc, r, "directory.role_bind", tid, map[string]any{
-			"user_id": u.ID, "email": u.Email, "role": role.Slug,
-		})
+		return s.recordAudit(ctx, sc, r, "directory.role_bind", tid, audit)
 	}); err != nil {
 		return s.directoryFailure(tid, "bind role", err)
 	}
@@ -273,9 +332,10 @@ func (s *Server) handleDirectoryRoleBind(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
-// handleDirectoryRoleUnbind serves DELETE /v1/directory/users/{id}/roles/{role}.
-// The tenant's last administrator cannot be removed (a locked-out tenant would
-// need the control host to recover it).
+// handleDirectoryRoleUnbind serves DELETE /v1/directory/users/{id}/roles/{role};
+// ?scope_type=&scope_id= removes an org/team/project-scoped grant instead of
+// the tenant-wide one. The tenant's last administrator cannot be removed (a
+// locked-out tenant would need the control host to recover it).
 func (s *Server) handleDirectoryRoleUnbind(w http.ResponseWriter, r *http.Request) error {
 	tid, err := s.principalTenant(r)
 	if err != nil {
@@ -289,6 +349,10 @@ func (s *Server) handleDirectoryRoleUnbind(w http.ResponseWriter, r *http.Reques
 	if id == "" || slug == "" {
 		return apierror.Validation("user id and role are required")
 	}
+	scopeType, scopeID, err := directoryScope(r.URL.Query().Get("scope_type"), r.URL.Query().Get("scope_id"))
+	if err != nil {
+		return err
+	}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		u, err := (store.Users{}).Get(ctx, sc, id)
 		if err != nil {
@@ -297,6 +361,14 @@ func (s *Server) handleDirectoryRoleUnbind(w http.ResponseWriter, r *http.Reques
 		role, err := (store.Roles{}).GetBySlug(ctx, sc, slug)
 		if err != nil {
 			return apierror.NotFound("role not found")
+		}
+		if scopeType != "" {
+			if err := (store.RoleBindings{}).UnbindScoped(ctx, sc, "user", u.ID, role.ID, scopeType, scopeID); err != nil {
+				return err
+			}
+			return s.recordAudit(ctx, sc, r, "directory.role_unbind", tid, map[string]any{
+				"user_id": u.ID, "email": u.Email, "role": role.Slug, "scope_type": scopeType, "scope_id": scopeID,
+			})
 		}
 		if role.Slug == directoryAdminRole {
 			members, err := (store.RoleBindings{}).MembersOfRole(ctx, sc, role.ID)
