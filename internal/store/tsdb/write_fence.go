@@ -78,6 +78,17 @@ func (w *writeFencedWriter) WritePartitioned(
 		})
 }
 
+// WritePerTenant writes a multi-tenant batch so each tenant's lifecycle fence
+// decides only its own series: through a fenced writer, eligible tenants'
+// series land and an erasing or erased tenant's are refused, named in the
+// returned map. Any other writer takes the batch whole.
+func WritePerTenant(ctx context.Context, w Writer, series []Series) (map[string]error, error) {
+	if pw, ok := w.(partitionedWriter); ok {
+		return pw.WritePartitioned(ctx, series)
+	}
+	return nil, w.Write(ctx, series)
+}
+
 // WriteGlobal preserves the explicit non-tenant self-metrics escape hatch.
 // Global series are validated and forwarded without a tenant lifecycle lease;
 // tenant-owned callers cannot enter this path because tenant_id is forbidden.

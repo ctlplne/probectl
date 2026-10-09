@@ -69,7 +69,7 @@ func attachMetering(ctx context.Context, cfg *config.Config, lic *license.Manage
 		return nil, nil
 	}
 	bstore := billing.NewPGStore(pool)
-	recorder := billing.NewRecorder(bstore, log)
+	recorder := billing.NewRecorder(bstore, log).WithWriterFence(tenancy.NewPostgresWriterFence(pool))
 	usage.SetRecorder(recorder)
 	checker := attachQuotaChecker(lic, pool)
 	collector := billing.NewCollector(bstore, billing.PGTenantLister(pool), billing.PGTenantCounter(pool), log)

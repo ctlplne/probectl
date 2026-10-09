@@ -422,7 +422,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 	registerAgentRegistryGauges(rt.srv.Metrics(), rt.db.Pool())
 	registerClickHouseBreakerGauges(rt.srv.Metrics(), rt.pathCH, rt.flowStore)
 	rt.g.Go(func() error {
-		fairness.RunMetrics(rt.gctx, rt.tsdbWriter, rt.fairGate, 30*time.Second, rt.log)
+		fairness.RunMetrics(rt.gctx, rt.tenantTSDBWriter, rt.fairGate, 30*time.Second, rt.log)
 		return nil
 	})
 	supportStart := time.Now()

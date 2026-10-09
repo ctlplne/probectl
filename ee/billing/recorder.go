@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Recorder is the usage.Recorder implementation: counters buffer in memory
@@ -28,6 +30,11 @@ type Recorder struct {
 	log   *slog.Logger
 	now   func() time.Time
 	newID func() string // batch-id minter; overridable in tests
+	// fence is the tenant lifecycle writer fence. Behind it a flush drops an
+	// erasing or erased tenant's deltas: the erasure deleted that tenant's
+	// usage rows and verified them gone, and a count buffered before it (or
+	// recorded against refused ingest after it) must not write them back.
+	fence tenancy.WriterFence
 
 	mu      sync.Mutex
 	pending map[counterKey]int64
@@ -49,6 +56,12 @@ func NewRecorder(store Store, log *slog.Logger) *Recorder {
 		log = slog.Default()
 	}
 	return &Recorder{store: store, log: log, now: time.Now, newID: uuid.NewString, pending: map[counterKey]int64{}}
+}
+
+// WithWriterFence flushes through the tenant lifecycle writer fence.
+func (r *Recorder) WithWriterFence(f tenancy.WriterFence) *Recorder {
+	r.fence = f
+	return r
 }
 
 // withClock overrides time (tests).
@@ -94,7 +107,7 @@ func (r *Recorder) Flush(ctx context.Context) error {
 	}
 
 	for i, b := range batches {
-		if err := r.store.AddCounters(ctx, b); err != nil {
+		if err := r.add(ctx, b); err != nil {
 			// Re-queue the failed batch and everything after it, preserving
 			// order and each batch's stable id so the retry dedups a batch the
 			// store already durably applied (AUD-21: never double-count).
@@ -105,6 +118,21 @@ func (r *Recorder) Flush(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// add stores one batch, through the writer fence when one is installed: an
+// erasing or erased tenant's deltas are dropped, every other tenant's land.
+func (r *Recorder) add(ctx context.Context, b []CounterDelta) error {
+	if r.fence == nil {
+		return r.store.AddCounters(ctx, b)
+	}
+	fenced, err := tenancy.PartitionedFencedWrite(ctx, r.fence, b,
+		func(d CounterDelta) string { return d.TenantID }, tenancy.ErrNoTenant,
+		func(ctx context.Context, eligible []CounterDelta) error { return r.store.AddCounters(ctx, eligible) })
+	for tenant := range fenced {
+		r.log.Info("metering: dropped usage counted for a tenant under erasure", "tenant_id", tenant)
+	}
+	return err
 }
 
 // Run flushes on the interval until ctx ends, with one final flush on the

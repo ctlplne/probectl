@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // TestWriteSeries: fairness accounting lands in the TSDB as per-tenant,
@@ -56,6 +57,52 @@ func TestWriteSeries(t *testing.T) {
 	if err := WriteSeries(ctx, w, NewGate(Policy{}, nil)); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestWriteSeriesKeepsAnErasedTenantOut: the gate keeps counting a tenant it
+// has seen for the life of the process. Its series used to go to the TSDB
+// unfenced every 30 seconds, so an erased tenant's tenant_id-labeled series
+// came back seconds after the erasure verified the TSDB empty for it. Through
+// the tenant-fenced writer only that tenant's series are refused; the others'
+// still land.
+func TestWriteSeriesKeepsAnErasedTenantOut(t *testing.T) {
+	g := NewGate(Policy{}, nil)
+	ctx := context.Background()
+	g.AdmitN(ctx, "tnA", MeterResults, 1)
+	g.AdmitN(ctx, "tnErased", MeterResults, 1)
+	mem := tsdb.NewMemory()
+	w := tsdb.WithTenantWriteFence(mem, erasedTenantFence{tenant: "tnErased"})
+	if err := WriteSeries(ctx, w, g); err != nil {
+		t.Fatalf("one erased tenant must not fail the other tenants' fairness series: %v", err)
+	}
+	if got := mem.Query("probectl_fairness_admitted_units_total", map[string]string{"tenant_id": "tnA"}); len(got) == 0 {
+		t.Error("the active tenant's fairness series did not land")
+	}
+	if got := mem.Query("probectl_fairness_admitted_units_total", map[string]string{"tenant_id": "tnErased"}); len(got) != 0 {
+		t.Errorf("the erased tenant's fairness series came back: %+v", got)
+	}
+}
+
+// erasedTenantFence is the lifecycle writer fence with one tenant erased.
+type erasedTenantFence struct{ tenant string }
+
+func (f erasedTenantFence) WithTenantWrites(ctx context.Context, tenants []string, write func(context.Context) error) error {
+	for _, id := range tenants {
+		if id == f.tenant {
+			return tenancy.ErrTenantWritesFenced
+		}
+	}
+	return write(ctx)
+}
+
+func (f erasedTenantFence) WithPartitionedTenantWrites(ctx context.Context, tenants []string, write func(context.Context, map[string]error) error) error {
+	fenced := map[string]error{}
+	for _, id := range tenants {
+		if id == f.tenant {
+			fenced[id] = tenancy.ErrTenantWritesFenced
+		}
+	}
+	return write(ctx, fenced)
 }
 
 // TestRunMetricsLoop: the loop writes on its ticker and stops with ctx.

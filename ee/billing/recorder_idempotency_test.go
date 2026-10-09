@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/usage"
 )
 
@@ -97,4 +98,60 @@ func TestFlushNeverDoubleCountsOnCommitThenError(t *testing.T) {
 	if store.calls < 2 {
 		t.Fatalf("expected the recorder to retry the batch; got %d AddCounters calls", store.calls)
 	}
+}
+
+// TestFlushDropsAnErasedTenantsUsage: the recorder buffers counts for a minute.
+// A tenant erased inside that window had its usage rows deleted and verified
+// gone, then the next flush wrote the buffered counts back. Behind the tenant
+// writer fence the erased tenant's deltas are dropped, not retried, and the
+// other tenants' still land.
+func TestFlushDropsAnErasedTenantsUsage(t *testing.T) {
+	store := NewMemStore()
+	r := NewRecorder(store, nil).WithWriterFence(erasedTenantFence{tenant: "tnErased"})
+	r.Record("tnA", usage.MeterResultsIngested, 3)
+	r.Record("tnErased", usage.MeterResultsIngested, 5)
+	if err := r.Flush(context.Background()); err != nil {
+		t.Fatalf("an erased tenant must not fail the flush: %v", err)
+	}
+	if err := r.Flush(context.Background()); err != nil {
+		t.Fatalf("second flush: %v", err)
+	}
+	all, err := store.Query(context.Background(), time.Time{}, time.Now().Add(Period), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept, erased int64
+	for _, rec := range all {
+		switch rec.TenantID {
+		case "tnA":
+			kept += rec.Value
+		case "tnErased":
+			erased += rec.Value
+		}
+	}
+	if kept != 3 || erased != 0 {
+		t.Fatalf("usage after the flushes: tnA=%d, erased tenant=%d; want 3 and 0", kept, erased)
+	}
+}
+
+// erasedTenantFence is the lifecycle writer fence with one tenant erased.
+type erasedTenantFence struct{ tenant string }
+
+func (f erasedTenantFence) WithTenantWrites(ctx context.Context, tenants []string, write func(context.Context) error) error {
+	for _, id := range tenants {
+		if id == f.tenant {
+			return tenancy.ErrTenantWritesFenced
+		}
+	}
+	return write(ctx)
+}
+
+func (f erasedTenantFence) WithPartitionedTenantWrites(ctx context.Context, tenants []string, write func(context.Context, map[string]error) error) error {
+	fenced := map[string]error{}
+	for _, id := range tenants {
+		if id == f.tenant {
+			fenced[id] = tenancy.ErrTenantWritesFenced
+		}
+	}
+	return write(ctx, fenced)
 }

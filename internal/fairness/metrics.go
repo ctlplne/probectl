@@ -19,6 +19,11 @@ import (
 // the same Grafana/federate surfaces as every other probectl metric — the
 // S-T7 "fairness accounting" contract. Counter semantics: cumulative since
 // process start.
+//
+// The series carry tenant_id, so the writer is the tenant-fenced TSDB path:
+// an erasing or erased tenant's counters are refused there, per tenant, or the
+// gate's in-memory accounting would write that tenant's series back after the
+// erasure verified the TSDB empty.
 func WriteSeries(ctx context.Context, w tsdb.Writer, g *Gate) error {
 	if w == nil || g == nil {
 		return nil
@@ -45,7 +50,8 @@ func WriteSeries(ctx context.Context, w tsdb.Writer, g *Gate) error {
 	if len(series) == 0 {
 		return nil
 	}
-	return w.Write(ctx, series)
+	_, err := tsdb.WritePerTenant(ctx, w, series)
+	return err
 }
 
 // RunMetrics writes fairness series every interval until ctx is canceled.
