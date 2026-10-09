@@ -870,7 +870,6 @@ capabilities:
   - id: F55
     name: Export/residency/verifiable deletion
     status: delivered
-    evidence_status: partial
     owner: data/governance
     engine: {refs: ["file:internal/tenantlife", "file:internal/lifecycle"]}
     binary: {refs: ["file:cmd/probectl-control/builders.go#srv.WithTenantLife(lifeEngine)"]}
@@ -880,7 +879,7 @@ capabilities:
     docs: {refs: ["file:docs/lifecycle.md#Zero-downtime lifecycle"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/tenantlife"]}
-    real_stack_proof: {gap: "The PostgreSQL lifecycle test uses memory flow and TSDB stores and calls the engine directly; no all-store export/erase workflow through API, CLI, and UI is proven."}
+    real_stack_proof: {refs: ["test:internal/tenantlife/realstack_integration_test.go#TestTenantExportAndErasureRealStack"]}
     migration: {refs: ["file:migrations/0028_tenant_lifecycle.sql", "file:migrations/0052_tenant_retention_planes.sql", "file:migrations/0077_audit_subject_erasures.sql"]}
 
   - id: F56

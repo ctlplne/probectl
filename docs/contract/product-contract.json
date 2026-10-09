@@ -432,8 +432,8 @@
         "F55"
       ],
       "name": "Export/residency/verifiable deletion",
-      "status": "partial",
-      "evidence": "`internal/lifecycle` (attested erasure — U-027)"
+      "status": "delivered",
+      "evidence": "`internal/tenantlife`, `internal/lifecycle` (every plane exported; attested, count-verified erasure across every store — U-027)"
     },
     {
       "ids": [

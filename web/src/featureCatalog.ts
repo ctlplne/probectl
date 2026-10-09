@@ -326,7 +326,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F55',
     name: 'Export/residency/verifiable deletion',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

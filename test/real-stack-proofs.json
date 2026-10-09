@@ -151,6 +151,13 @@
       "capabilities": [
         "F52"
       ]
+    },
+    {
+      "ref": "test:internal/tenantlife/realstack_integration_test.go#TestTenantExportAndErasureRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F55"
+      ]
     }
   ]
 }
