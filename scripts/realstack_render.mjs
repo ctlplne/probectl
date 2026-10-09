@@ -20,7 +20,9 @@
 //                "expect": ["text that must render after the click"],
 //                "gone": true, "vanish": "another control's name"},
 //               {"fill": "#css-selector", "value": "typed text"},
-//               {"select": "css-selector of a <select>", "value": "option value"}],
+//               {"select": "css-selector of a <select>", "value": "option value"},
+//               {"click": "Export", "role": "link", "download": "/path/to/save"},
+//               {"click": "Erase", "within": "[role=dialog]"}],
 //     "controls": [{"role": "button", "name": "accessible name"}],
 //     "trustCertFiles": ["/path/to/server-leaf.pem"],
 //     "timeoutMs": 30000 }
@@ -32,7 +34,11 @@
 // action a confirm dialog completes). A "fill" step types into the ONE
 // element its CSS selector matches (a
 // third-party form such as an IdP login page); a "select" step chooses the
-// option with that value in the ONE <select> its selector matches. "controls" must be visible by
+// option with that value in the ONE <select> its selector matches. A click
+// step with "download" expects the click to start a download and saves the
+// file at that path; "within" looks for the control only inside the ONE
+// element its CSS selector matches (a dialog whose submit button shares the
+// name of the control that opened it). "controls" must be visible by
 // role and exact accessible name after the last step. The absent texts are
 // checked on the first render and again after the last step.
 // "trustCertFiles" are the leaf certificates of HTTPS servers under a
@@ -150,9 +156,20 @@ async function main() {
         }
         continue;
       }
-      const control = page.getByRole(step.role ?? "button", { name: step.click, exact: true });
+      const scope = step.within ? page.locator(step.within) : page;
+      const control = scope.getByRole(step.role ?? "button", { name: step.click, exact: true });
       try {
-        await control.click({ timeout: remaining() });
+        if (step.download) {
+          const [download] = await Promise.all([
+            page.waitForEvent("download", { timeout: remaining() }),
+            control.click({ timeout: remaining() }),
+          ]);
+          await download.saveAs(step.download);
+          const failure = await download.failure();
+          if (failure) throw new Error(`download failed: ${failure}`);
+        } else {
+          await control.click({ timeout: remaining() });
+        }
       } catch (err) {
         result.missing.push(`click ${step.role ?? "button"} "${step.click}": ${String(err).split("\n")[0]}`);
         break;

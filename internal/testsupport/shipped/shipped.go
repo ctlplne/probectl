@@ -80,6 +80,29 @@ type Stack struct {
 	serveRole      string // the least-privilege serve login
 	env            []string
 	client         *http.Client
+	procs          map[string]*process // started processes by log label
+}
+
+// process is one binary the stack started.
+type process struct {
+	cmd  *exec.Cmd
+	done chan struct{}
+}
+
+// stop terminates the process (SIGTERM, then SIGKILL after 15s) and waits.
+func (p *process) stop() {
+	select {
+	case <-p.done:
+		return
+	default:
+	}
+	_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-p.done:
+	case <-time.After(15 * time.Second):
+		_ = p.cmd.Process.Kill()
+		<-p.done
+	}
 }
 
 // Start builds the binaries, provisions a fresh database with a
@@ -447,6 +470,31 @@ buffer:
 		[]string{"PROBECTL_AGENT_METRICS_ADDR=" + freeAddr(t)})
 }
 
+// Binary builds another shipped binary from this tree, once per stack. The
+// collectors (probectl-flow-agent, probectl-ebpf-agent, probectl-endpoint)
+// are built only for the receipts that run them.
+func (s *Stack) Binary(t *testing.T, name string) string {
+	t.Helper()
+	out := filepath.Join(s.Dir, name)
+	if _, err := os.Stat(out); err != nil {
+		s.build(t, out, "./cmd/"+name, "")
+	}
+	return out
+}
+
+// StartCollector runs a shipped collector that publishes straight to the bus
+// with config as its YAML config file. envPrefix is its environment prefix
+// (PROBECTL_FLOW, PROBECTL_EBPF, PROBECTL_ENDPOINT): its metrics listener gets
+// its own port, and it may use the dev stack's plaintext Kafka.
+func (s *Stack) StartCollector(t *testing.T, binary, name, envPrefix, config string) string {
+	t.Helper()
+	cfg := s.write(t, name+".yaml", []byte(config), 0o600)
+	return s.start(t, name, s.Binary(t, binary), []string{"-config", cfg}, []string{
+		envPrefix + "_METRICS_ADDR=" + freeAddr(t),
+		envPrefix + "_BUS_ALLOW_PLAINTEXT=true",
+	})
+}
+
 func (s *Stack) await(t *testing.T, what string, within time.Duration, fn func() bool) {
 	t.Helper()
 	Await(t, what, within, fn)
@@ -499,19 +547,28 @@ func (s *Stack) start(t *testing.T, label, bin string, args, env []string) strin
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start %s: %v", label, err)
 	}
+	p := &process{cmd: cmd, done: make(chan struct{})}
+	go func() { _ = cmd.Wait(); close(p.done) }()
+	if s.procs == nil {
+		s.procs = map[string]*process{}
+	}
+	s.procs[label] = p
 	t.Cleanup(func() {
-		_ = cmd.Process.Signal(syscall.SIGTERM)
-		done := make(chan struct{})
-		go func() { _ = cmd.Wait(); close(done) }()
-		select {
-		case <-done:
-		case <-time.After(15 * time.Second):
-			_ = cmd.Process.Kill()
-			<-done
-		}
+		p.stop()
 		_ = logFile.Close()
 	})
 	return logPath
+}
+
+// Stop stops one process the stack started, named by its log label
+// ("agent-<name>", or a collector's name), as an operator decommissions it.
+func (s *Stack) Stop(t *testing.T, label string) {
+	t.Helper()
+	p := s.procs[label]
+	if p == nil {
+		t.Fatalf("the stack started no process %q", label)
+	}
+	p.stop()
 }
 
 func (s *Stack) write(t *testing.T, name string, data []byte, mode os.FileMode) string {

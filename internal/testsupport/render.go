@@ -58,15 +58,21 @@ type RenderControl struct {
 // Value into the one element the CSS selector Fill matches (a third-party
 // form, such as an IdP login page), and a Select step chooses the option
 // whose value is Value in the one <select> the CSS selector Select matches.
+// A click step with Download set expects the click to start a download (a
+// link with the download attribute) and saves the file at that path; Within
+// looks for the control only inside the one element that CSS selector matches
+// (a dialog whose button shares the name of the control that opened it).
 type RenderStep struct {
-	Click  string   `json:"click,omitempty"`
-	Role   string   `json:"role,omitempty"`
-	Expect []string `json:"expect,omitempty"`
-	Gone   bool     `json:"gone,omitempty"`
-	Vanish string   `json:"vanish,omitempty"`
-	Fill   string   `json:"fill,omitempty"`
-	Select string   `json:"select,omitempty"`
-	Value  string   `json:"value,omitempty"`
+	Click    string   `json:"click,omitempty"`
+	Role     string   `json:"role,omitempty"`
+	Within   string   `json:"within,omitempty"`
+	Expect   []string `json:"expect,omitempty"`
+	Gone     bool     `json:"gone,omitempty"`
+	Vanish   string   `json:"vanish,omitempty"`
+	Fill     string   `json:"fill,omitempty"`
+	Select   string   `json:"select,omitempty"`
+	Value    string   `json:"value,omitempty"`
+	Download string   `json:"download,omitempty"`
 }
 
 // RenderCookie is a cookie set on the page's origin before it loads, or one
