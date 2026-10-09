@@ -8,6 +8,7 @@ package topology
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"time"
 
@@ -25,7 +26,17 @@ type lifecycleStore interface {
 	Store
 	DeleteTenant(string) int
 	PruneTenantBefore(string, time.Time) int
+	ExportSubject(tenant, subject string, w io.Writer) (nodes, edges, deviceNodes int64, err error)
+	DeleteSubject(tenant, subject string) (deleted, remaining, deviceDeleted, deviceRemaining int64)
 }
+
+// Both graph stores carry every lifecycle capability. One that lost a method
+// would fall back to the write-only wrapper, and the lifecycle engine would
+// then treat the graph as not erasable.
+var (
+	_ lifecycleStore = (*MemoryStore)(nil)
+	_ lifecycleStore = (*IndexedStore)(nil)
+)
 
 type lifecycleWriteFencedStore struct {
 	*writeFencedStore
@@ -68,6 +79,16 @@ func (s *lifecycleWriteFencedStore) DeleteTenant(tenant string) int {
 
 func (s *lifecycleWriteFencedStore) PruneTenantBefore(tenant string, cutoff time.Time) int {
 	return s.nextLifecycle.PruneTenantBefore(tenant, cutoff)
+}
+
+// ExportSubject and DeleteSubject serve a data-subject request: a read and a
+// deletion, neither of which the writer fence guards.
+func (s *lifecycleWriteFencedStore) ExportSubject(tenant, subject string, w io.Writer) (nodes, edges, deviceNodes int64, err error) {
+	return s.nextLifecycle.ExportSubject(tenant, subject, w)
+}
+
+func (s *lifecycleWriteFencedStore) DeleteSubject(tenant, subject string) (deleted, remaining, deviceDeleted, deviceRemaining int64) {
+	return s.nextLifecycle.DeleteSubject(tenant, subject)
 }
 
 type writeFencedTenantStore struct {

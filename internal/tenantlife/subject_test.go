@@ -217,6 +217,61 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	}
 }
 
+// TestSubjectLifecycleReachesTheFencedTopologyStore: the control plane hands
+// the lifecycle engine its topology store behind the tenant write fence. A
+// data-subject request must reach the graph through that wrapper. The wrapper
+// once passed only tenant deletion and retention through, so every production
+// subject receipt reported the topology and device planes "not capable" and
+// left the subject's graph labels in place.
+func TestSubjectLifecycleReachesTheFencedTopologyStore(t *testing.T) {
+	ctx := context.Background()
+	subject := "alice@example.com"
+	topo := topology.WithTenantWriteFence(topology.NewIndexedStore(), openWriterFence{})
+	graph, err := topo.ForTenant("tenant-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph.ObserveDevice(topology.DeviceInput{Address: "198.51.100.44", Name: subject}, time.Now().UTC())
+	td, ok := topo.(TopologyDeleter)
+	if !ok {
+		t.Fatal("the fenced topology store does not offer tenant deletion")
+	}
+	e := New(nil, nil, nil, nil, nil, "backups expire by policy", nil).WithTopology(td)
+
+	var bundle bytes.Buffer
+	man, err := e.ExportSubject(ctx, "tenant-a", subject, &bundle, false)
+	if err != nil {
+		t.Fatalf("subject export: %v", err)
+	}
+	exported := subjectPlanesByName(man.Planes)
+	for _, plane := range []string{"topology", "device"} {
+		if got := exported[plane]; got.Status != SubjectStatusExported || got.Rows == 0 {
+			t.Errorf("subject export %s through the fenced store = %+v, want exported rows", plane, got)
+		}
+	}
+	report, err := e.EraseSubject(ctx, "tenant-a", subject, "privacy-admin", "dsar")
+	if err != nil {
+		t.Fatalf("subject erase: %v", err)
+	}
+	erased := subjectPlanesByName(report.Planes)
+	for _, plane := range []string{"topology", "device"} {
+		if got := erased[plane]; got.Status != SubjectStatusDeleted || got.Deleted == 0 || got.Remaining != 0 {
+			t.Errorf("subject erase %s through the fenced store = %+v, want deleted with none remaining", plane, got)
+		}
+	}
+	if nodes := graph.Latest().Nodes; len(nodes) != 0 {
+		t.Errorf("the subject's device node survived erasure: %+v", nodes)
+	}
+}
+
+// openWriterFence admits every tenant write, as the durable lease does for an
+// active tenant.
+type openWriterFence struct{}
+
+func (openWriterFence) WithTenantWrites(ctx context.Context, _ []string, write func(context.Context) error) error {
+	return write(ctx)
+}
+
 func TestSubjectErasureNotCapablePlanesIncomplete(t *testing.T) {
 	engine := New(nil, nil, nil, subjectEraseIncapableTSDB{}, nil, "backups expire by policy", nil).
 		WithTopology(subjectEraseIncapableTopology{}).
