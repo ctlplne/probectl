@@ -56,7 +56,8 @@ type RenderControl struct {
 // (the row action a confirm dialog completes). An ambiguous or missing control
 // fails the render instead of clicking a guess. A Fill step instead types
 // Value into the one element the CSS selector Fill matches (a third-party
-// form, such as an IdP login page).
+// form, such as an IdP login page), and a Select step chooses the option
+// whose value is Value in the one <select> the CSS selector Select matches.
 type RenderStep struct {
 	Click  string   `json:"click,omitempty"`
 	Role   string   `json:"role,omitempty"`
@@ -64,6 +65,7 @@ type RenderStep struct {
 	Gone   bool     `json:"gone,omitempty"`
 	Vanish string   `json:"vanish,omitempty"`
 	Fill   string   `json:"fill,omitempty"`
+	Select string   `json:"select,omitempty"`
 	Value  string   `json:"value,omitempty"`
 }
 

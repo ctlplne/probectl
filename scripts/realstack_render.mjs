@@ -19,7 +19,8 @@
 //     "steps": [{"click": "accessible name", "role": "button",
 //                "expect": ["text that must render after the click"],
 //                "gone": true, "vanish": "another control's name"},
-//               {"fill": "#css-selector", "value": "typed text"}],
+//               {"fill": "#css-selector", "value": "typed text"},
+//               {"select": "css-selector of a <select>", "value": "option value"}],
 //     "controls": [{"role": "button", "name": "accessible name"}],
 //     "trustCertFiles": ["/path/to/server-leaf.pem"],
 //     "timeoutMs": 30000 }
@@ -30,7 +31,8 @@
 // effect; "vanish" waits the same way for another control (say, the row
 // action a confirm dialog completes). A "fill" step types into the ONE
 // element its CSS selector matches (a
-// third-party form such as an IdP login page). "controls" must be visible by
+// third-party form such as an IdP login page); a "select" step chooses the
+// option with that value in the ONE <select> its selector matches. "controls" must be visible by
 // role and exact accessible name after the last step. The absent texts are
 // checked on the first render and again after the last step.
 // "trustCertFiles" are the leaf certificates of HTTPS servers under a
@@ -93,7 +95,10 @@ async function main() {
     const awaitTexts = async (texts) => {
       for (const want of texts ?? []) {
         try {
-          await page.getByText(want, { exact: false }).first().waitFor({ state: "visible", timeout: remaining() });
+          // Any visible match counts: the first in DOM order may be hidden
+          // (a closed <select>'s option), which is not a missing text.
+          await page.getByText(want, { exact: false }).filter({ visible: true }).first()
+            .waitFor({ state: "visible", timeout: remaining() });
         } catch {
           result.missing.push(want);
         }
@@ -132,6 +137,15 @@ async function main() {
           await page.locator(step.fill).fill(step.value ?? "", { timeout: remaining() });
         } catch (err) {
           result.missing.push(`fill "${step.fill}": ${String(err).split("\n")[0]}`);
+          break;
+        }
+        continue;
+      }
+      if (step.select) {
+        try {
+          await page.locator(step.select).selectOption(step.value ?? "", { timeout: remaining() });
+        } catch (err) {
+          result.missing.push(`select "${step.select}": ${String(err).split("\n")[0]}`);
           break;
         }
         continue;
