@@ -126,7 +126,7 @@ export function TenantsCard({
     <Card>
       <CardHeader
         title="Tenants"
-        description="Lifecycle metadata only. Suspension blocks the tenant's users at the API; data and ingestion are untouched. Offboarding removes a siloed/hybrid tenant's isolated stores; pooled-data export/deletion is the S-T5 compliance flow."
+        description="Lifecycle metadata only. Suspension blocks the tenant's users at the API; data and ingestion are untouched. Offboarding is status-only for every isolation model: access stops and the band slot is freed, while the tenant's stores, siloed or pooled, stay for the verifiable-deletion flow (S-T5)."
       />
       <CardBody>
         {tenants === null ? (
