@@ -7,12 +7,15 @@
 package control
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/tenantlife"
 )
 
 // TestExtendWriteDeadlineSurvivesWriteTimeout is the WEB-04 regression: the
@@ -74,5 +77,57 @@ func TestExtendWriteDeadlineSurvivesWriteTimeout(t *testing.T) {
 	// a read/connection error) — proving the deadline is real.
 	if got, err := get("/plain"); err == nil && strings.Contains(got, body) {
 		t.Fatalf("un-extended long response unexpectedly completed in full (%q); the WriteTimeout is not enforced, so the test proves nothing", got)
+	}
+}
+
+// slowLifecycle is a lifecycle engine whose erasures take longer than the
+// server's write timeout, as a real erasure waiting on every store does.
+type slowLifecycle struct {
+	fakeTenantLifecycle
+	delay time.Duration
+}
+
+func (s *slowLifecycle) Erase(_ context.Context, tenantID, slug, actor string) (tenantlife.Attestation, error) {
+	time.Sleep(s.delay)
+	return tenantlife.Attestation{TenantID: tenantID, TenantSlug: slug, Actor: actor, Complete: true, ReportSHA256: "slow-receipt"}, nil
+}
+
+func (s *slowLifecycle) EraseSubject(_ context.Context, tenantID, _, actor, _ string) (tenantlife.SubjectErasureReport, error) {
+	time.Sleep(s.delay)
+	return tenantlife.SubjectErasureReport{TenantID: tenantID, Actor: actor, Complete: true, ReportSHA256: "slow-receipt"}, nil
+}
+
+// serveWithWriteTimeout serves h on a loopback listener whose server resets
+// any response not written within timeout, and returns its base URL.
+func serveWithWriteTimeout(t *testing.T, h http.Handler, timeout time.Duration) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := &http.Server{Handler: h, WriteTimeout: timeout}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	return "http://" + ln.Addr().String()
+}
+
+// TestSubjectErasureResponseOutlivesTheWriteTimeout (WEB-04): an erasure waits
+// on every store's synchronous delete, so it outlives the server's short global
+// write timeout. Without its own budget the server reset the response while
+// the erasure ran on, and the caller never received the receipt it erased the
+// data for.
+func TestSubjectErasureResponseOutlivesTheWriteTimeout(t *testing.T) {
+	srv := testServer(fakePinger{})
+	srv.tenantLife = &slowLifecycle{delay: 600 * time.Millisecond}
+	base := serveWithWriteTimeout(t, srv.Handler(), 200*time.Millisecond)
+	resp, err := http.Post(base+"/v1/lifecycle/subjects/erase", "application/json",
+		strings.NewReader(`{"subject":"alice@example.com","confirm":"alice@example.com","reason":"dsar"}`))
+	if err != nil {
+		t.Fatalf("the subject erasure's response was reset: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"report_sha256":"slow-receipt"`) {
+		t.Fatalf("the subject erasure's receipt did not arrive: %d %q %v", resp.StatusCode, body, err)
 	}
 }

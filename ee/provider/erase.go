@@ -10,9 +10,26 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/tenantlife"
 )
+
+// Write-deadline budgets for the provider plane's long-running responses
+// (WEB-04). The control server's absolute WriteTimeout (default 15s) would
+// otherwise reset a siloed provisioning, which creates a schema and a
+// database for every plane, or a verified erasure, while the work keeps
+// running server-side and its caller never sees the result.
+const (
+	provisionWriteBudget = 5 * time.Minute
+	eraseWriteBudget     = 15 * time.Minute
+)
+
+// extendWriteDeadline lifts the server's WriteTimeout for one response; it is
+// best-effort, like the core API's.
+func extendWriteDeadline(w http.ResponseWriter, d time.Duration) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(d))
+}
 
 // The S-T5 provider-side erase view: the CORE lifecycle engine does the
 // verifiable deletion (export/erasure is a compliance right, core by the
@@ -35,6 +52,7 @@ func (h *Handler) WithLifecycle(l Lifecycle) *Handler {
 }
 
 func (h *Handler) handleTenantErase(w http.ResponseWriter, r *http.Request, op Operator) error {
+	extendWriteDeadline(w, eraseWriteBudget)
 	if h.lifecycle == nil {
 		return errConsentNotConfigured // 503 not_configured
 	}

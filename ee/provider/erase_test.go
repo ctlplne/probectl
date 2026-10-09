@@ -8,6 +8,9 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/license"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantlife"
 )
 
@@ -99,5 +103,79 @@ func TestProviderErase(t *testing.T) {
 	if rec = bare.doAuthed(t, tok, http.MethodPost, "/provider/v1/tenants/x/erase",
 		map[string]string{"confirm": "x"}); rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("engine-less erase: %d", rec.Code)
+	}
+}
+
+// slowSilo provisions like the real silo provisioner does under load: slower
+// than the control server's global write timeout.
+type slowSilo struct {
+	fakeSilo
+	delay time.Duration
+}
+
+func (s *slowSilo) Provision(ctx context.Context, tenantID, residency string, model tenancy.IsolationModel) error {
+	time.Sleep(s.delay)
+	return s.fakeSilo.Provision(ctx, tenantID, residency, model)
+}
+
+// slowEraseLifecycle erases slower than the global write timeout, as a real
+// erasure waiting on every store's synchronous delete does.
+type slowEraseLifecycle struct {
+	fakeLifecycle
+	delay time.Duration
+}
+
+func (s *slowEraseLifecycle) Erase(ctx context.Context, tenantID, slug, actor string) (tenantlife.Attestation, error) {
+	time.Sleep(s.delay)
+	return s.fakeLifecycle.Erase(ctx, tenantID, slug, actor)
+}
+
+// TestLongProvisionAndEraseResponsesOutliveTheWriteTimeout (WEB-04): a siloed
+// provisioning creates a schema and a database for every plane, and a verified
+// erasure waits on every store, so both outlive the control server's short
+// global write timeout. Without their own budgets the server reset each
+// response while the work finished: the operator saw a failure for a tenant
+// that now existed, or lost the erasure attestation.
+func TestLongProvisionAndEraseResponsesOutliveTheWriteTimeout(t *testing.T) {
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
+	f.svc.WithSilo(&slowSilo{delay: 600 * time.Millisecond}, nil)
+	f.h.WithLifecycle(&slowEraseLifecycle{delay: 600 * time.Millisecond})
+	admin := f.bootstrapAndLoginFast(t)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: f.h, WriteTimeout: 200 * time.Millisecond}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	post := func(path, body string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, "http://"+ln.Addr().String()+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+admin)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("POST %s: the response was reset: %v", path, err)
+		}
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("POST %s: the response was cut off: %v", path, err)
+		}
+		return resp.StatusCode, string(raw)
+	}
+
+	code, body := post("/provider/v1/tenants", `{"slug":"slow-co","name":"Slow Co","isolation_model":"hybrid"}`)
+	var tn Tenant
+	if code != http.StatusCreated || json.Unmarshal([]byte(body), &tn) != nil || tn.ID == "" {
+		t.Fatalf("the slow hybrid provisioning's answer = %d %q", code, body)
+	}
+	if code, body = post("/provider/v1/tenants/"+tn.ID+"/erase", `{"confirm":"slow-co"}`); code != http.StatusOK ||
+		!strings.Contains(body, `"report_sha256":"deadbeef"`) {
+		t.Fatalf("the slow erasure's attestation = %d %q", code, body)
 	}
 }

@@ -11,6 +11,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -144,5 +145,40 @@ func TestLifecycleRetentionRejectsBelowProfileMinimum(t *testing.T) {
 	if rec := lifecycleReq(t, srv, http.MethodPut, "/v1/lifecycle/retention",
 		map[string]any{"audit_retention_days": 30}); rec.Code == http.StatusUnprocessableEntity {
 		t.Fatalf("PUT audit_retention_days=30 (== profile minimum) was rejected: %s", rec.Body.String())
+	}
+}
+
+// TestTenantErasureResponseOutlivesTheWriteTimeout (WEB-04): a full-tenant
+// erasure routinely runs past the server's global write timeout. Without its
+// own budget the server reset the response while the erasure finished, and
+// the tenant admin never received the attestation.
+func TestTenantErasureResponseOutlivesTheWriteTimeout(t *testing.T) {
+	srv, db := setupAPIServerWithLatest(t, nil)
+	ctx := context.Background()
+	slug := fmt.Sprintf("web04-erase-%d", time.Now().UnixNano())
+	tn, err := store.NewTenants(db.Pool()).Create(ctx, slug, slug)
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool().Exec(context.Background(), `DELETE FROM tenants WHERE id = $1`, tn.ID)
+	})
+	srv.tenantLife = &slowLifecycle{delay: 600 * time.Millisecond}
+	base := serveWithWriteTimeout(t, srv.Handler(), 200*time.Millisecond)
+
+	req, err := http.NewRequest(http.MethodPost, base+"/v1/lifecycle/erase", strings.NewReader(`{"confirm":"`+slug+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Probectl-Tenant", tn.ID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("the erasure's response was reset: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"report_sha256":"slow-receipt"`) {
+		t.Fatalf("the erasure's attestation did not arrive: %d %q %v", resp.StatusCode, body, err)
 	}
 }

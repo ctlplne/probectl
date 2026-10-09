@@ -596,6 +596,9 @@ const (
 	pathDiscoveryWriteBudget = 150 * time.Second // 120s discovery budget + margin
 	aiAnswerWriteBudget      = 90 * time.Second  // 60s model timeout + margin
 	exportWriteBudget        = 15 * time.Minute  // large tar.gz over slow WAN/VPN
+	// eraseWriteBudget: a verified erasure waits on every store's synchronous
+	// delete; its attestation is the receipt the caller came for.
+	eraseWriteBudget = 15 * time.Minute
 )
 
 // extendWriteDeadline lifts the server's absolute WriteTimeout for one

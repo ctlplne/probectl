@@ -294,6 +294,8 @@ func validateLifecycleRetentionPolicy(p tenantlife.RetentionPolicy) error {
 // must confirm with the tenant's exact slug — a fat-fingered call cannot
 // erase a deployment.
 func (s *Server) handleLifecycleErase(w http.ResponseWriter, r *http.Request) error {
+	// WEB-04: lift the global WriteTimeout for this long-running response.
+	extendWriteDeadline(w, eraseWriteBudget)
 	e, err := s.lifecycleEngine()
 	if err != nil {
 		return err
@@ -335,6 +337,8 @@ type lifecycleSubjectEraseRequest struct {
 }
 
 func (s *Server) handleLifecycleSubjectErase(w http.ResponseWriter, r *http.Request) error {
+	// WEB-04: lift the global WriteTimeout for this long-running response.
+	extendWriteDeadline(w, eraseWriteBudget)
 	e, err := s.lifecycleEngine()
 	if err != nil {
 		return err

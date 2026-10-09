@@ -545,6 +545,7 @@ func (h *Handler) handleListTenants(w http.ResponseWriter, r *http.Request, _ Op
 }
 
 func (h *Handler) handleProvision(w http.ResponseWriter, r *http.Request, op Operator) error {
+	extendWriteDeadline(w, provisionWriteBudget)
 	var in struct {
 		Slug           string `json:"slug"`
 		Name           string `json:"name"`
