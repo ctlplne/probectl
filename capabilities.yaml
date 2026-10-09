@@ -839,7 +839,6 @@ capabilities:
   - id: F53
     name: Metering/billing export
     status: delivered
-    evidence_status: partial
     owner: product research/MSP
     engine: {refs: ["file:ee/billing", "file:internal/usage"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#usage.SetRecorder(recorder)"]}
@@ -849,7 +848,7 @@ capabilities:
     docs: {refs: ["file:docs/metering.md#Per-tenant metering"]}
     config_keys: *api_config
     telemetry: {refs: ["file:ee/billing/recorder.go"]}
-    real_stack_proof: {gap: "The selected receipt is a one-tenant direct metering-store round trip; it omits two-tenant isolation, runtime counter ingestion, and invoice/export API, CLI, and UI delivery."}
+    real_stack_proof: {refs: ["test:ee/billing/metering_realstack_integration_test.go#TestMeteringAndBillingExportRealStack"]}
     migration: {refs: ["file:migrations/0026_metering.sql"]}
 
   - id: F54

@@ -416,7 +416,7 @@
         "F53"
       ],
       "name": "Metering/billing export",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`ee/billing`, `internal/usage` (operator-run export; never phone-home; MSP consumption basis)"
     },
     {

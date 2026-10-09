@@ -314,7 +314,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F53',
     name: 'Metering/billing export',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

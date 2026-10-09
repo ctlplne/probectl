@@ -158,6 +158,13 @@
       "capabilities": [
         "F55"
       ]
+    },
+    {
+      "ref": "test:ee/billing/metering_realstack_integration_test.go#TestMeteringAndBillingExportRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F53"
+      ]
     }
   ]
 }
