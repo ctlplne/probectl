@@ -1450,6 +1450,14 @@ console shows it — and in other locales the localized message for the `code`.
 When an API error includes `request_id`, the CLI includes it in the
 terminal error output for support/debugging.
 
+A CLI request gives up after 15 seconds, except where the server itself runs
+longer and lifts its write timeout for the route: export and other downloads
+get 15 minutes, a tenant or subject erasure 15 minutes, a tenant provisioning
+(`provider create-tenant`, `tenant create`) 5 minutes, a path discovery
+(`test path <id> --body`) 150 seconds, and `ai ask` 90 seconds.
+`PROBECTL_HTTP_WRITE_TIMEOUT` sets the server's ordinary write timeout; the
+long routes keep their own budgets above it.
+
 The terminal-native product surface is the CLI. There is no separate committed
 TUI mode today; if one is added later it must be declared in the surface catalog
 and backed by its own parity tests. For automation, use `--json`. The OpenAPI

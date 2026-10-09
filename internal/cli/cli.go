@@ -151,8 +151,67 @@ const (
 	maxBufferedErrorResponseBody = httpbody.MaxClientErrorResponseBodyBytes
 )
 
+// Request budgets (WEB-04). Ordinary calls answer well inside the default.
+// The server runs a few routes longer and lifts its own write deadline for
+// them; the CLI gives each the same budget, so it neither abandons work the
+// server is still doing (a verified erasure, a siloed provisioning, a path
+// discovery, a remote-model answer) nor cuts an export download short.
+var defaultRequestTimeout = 15 * time.Second
+
+// downloadTimeout is the server's export budget, given to every download.
+const downloadTimeout = 15 * time.Minute
+
+// longRequests are the routes the server runs past the default, with the
+// budget it gives each.
+var longRequests = []struct {
+	method, template string
+	budget           time.Duration
+}{
+	{http.MethodPost, "/v1/lifecycle/erase", 15 * time.Minute},
+	{http.MethodPost, "/v1/lifecycle/subjects/erase", 15 * time.Minute},
+	{http.MethodPost, "/provider/v1/tenants/{id}/erase", 15 * time.Minute},
+	{http.MethodPost, "/provider/v1/tenants", 5 * time.Minute},
+	{http.MethodPost, "/v1/tests/{id}/path", 150 * time.Second},
+	{http.MethodPost, "/v1/ai/ask", 90 * time.Second},
+}
+
+// requestBudget is the time a request may take: the server's budget for a
+// long-running route, the default for any other.
+func requestBudget(method, path string) time.Duration {
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		path = path[:i]
+	}
+	for _, r := range longRequests {
+		if r.method == method && pathMatchesTemplate(r.template, path) {
+			return r.budget
+		}
+	}
+	return defaultRequestTimeout
+}
+
+// pathMatchesTemplate matches a request path against a route template whose
+// {param} segments match any one non-empty segment.
+func pathMatchesTemplate(template, path string) bool {
+	want, got := strings.Split(template, "/"), strings.Split(path, "/")
+	if len(want) != len(got) {
+		return false
+	}
+	for i := range want {
+		if strings.HasPrefix(want[i], "{") {
+			if got[i] == "" {
+				return false
+			}
+			continue
+		}
+		if want[i] != got[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func newClient(cfg Config) *client {
-	return &client{cfg: cfg, hc: &http.Client{Timeout: 15 * time.Second, Transport: clientTransport(cfg)}}
+	return &client{cfg: cfg, hc: &http.Client{Timeout: defaultRequestTimeout, Transport: clientTransport(cfg)}}
 }
 
 // clientTransport verifies the control plane against the OS trust store, or
@@ -239,7 +298,7 @@ func sameAPIOrigin(left, right *url.URL) bool {
 func (c *client) requestHTTPClient(initial *url.URL, sensitive bool) *http.Client {
 	base := c.hc
 	if base == nil {
-		base = &http.Client{Timeout: 15 * time.Second}
+		base = &http.Client{Timeout: defaultRequestTimeout}
 	}
 	clone := *base
 	previous := clone.CheckRedirect
@@ -304,7 +363,9 @@ func (c *client) do(method, path string, body any, out any) error {
 	_, sensitiveTarget := sensitiveProviderOperationURL(method, target)
 	_, sensitivePath := sensitiveProviderOperationPath(method, path)
 	sensitive := sensitiveTarget || sensitivePath
-	resp, err := c.requestHTTPClient(target, sensitive).Do(req)
+	hc := c.requestHTTPClient(target, sensitive)
+	hc.Timeout = requestBudget(method, path)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -361,7 +422,9 @@ func (c *client) stream(method, path string, body any, w io.Writer) error {
 	_, sensitiveTarget := sensitiveProviderOperationURL(method, target)
 	_, sensitivePath := sensitiveProviderOperationPath(method, path)
 	sensitive := sensitiveTarget || sensitivePath
-	resp, err := c.requestHTTPClient(target, sensitive).Do(req)
+	hc := c.requestHTTPClient(target, sensitive)
+	hc.Timeout = downloadTimeout
+	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
