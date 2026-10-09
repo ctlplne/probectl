@@ -124,7 +124,16 @@ probectl lifecycle subject-erase --subject alice@example.com --confirm alice@exa
 ## 2. Suspend, then offboard (provider console)
 
 Suspend stops the tenant's users from logging in. Offboard then frees the
-licensed tenant-band slot and blocks tenant access. Offboard is deliberately
+licensed tenant-band slot and blocks tenant access.
+
+**Stop the tenant's agents before the erase.** A browser agent writes its
+synthetic artifacts (screenshots, page captures) straight to the object store
+under the tenant's prefix. The control plane cannot fence a write it does not
+make, so an agent still running after the erase puts new artifacts back where
+the erase verified zero. Stop (decommission) the tenant's agents first, or
+revoke their object-store credentials. Flow, eBPF and endpoint collectors
+publish through the bus, where the erase's fence refuses them, but they run on
+the tenant's hosts: stop them too. Offboard is deliberately
 non-destructive for every isolation model: it does not reclaim the silo, so the
 encrypted incident-response sidecar and its signed chain remain available to
 the verified erase plan.
@@ -231,7 +240,12 @@ a restored local artifact, but it cannot claim physical zeroization of storage
 outside the operator-controlled mount.
 
 The tenant registry row is then **tombstoned** (`status=deleted`): the row
-remains as a referent for the attestation, but it holds no telemetry.
+remains as a referent for the attestation, but it holds no telemetry. The rest
+of what stays is provider-global integrity metadata, by design: the tenant's
+audit stream head (`audit_stream_heads`: sequence numbers and hashes, no audit
+payload), the IR key-shred receipts (`ir_key_shred_*`), and the provider audit
+chain carrying the attestation's digest. None of it holds the tenant's
+telemetry or identities.
 
 ## 4. The attestation
 
