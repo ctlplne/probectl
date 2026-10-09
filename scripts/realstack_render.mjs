@@ -18,21 +18,35 @@
 //     "absent": ["text that must NOT render", ...],
 //     "steps": [{"click": "accessible name", "role": "button",
 //                "expect": ["text that must render after the click"],
-//                "gone": true}],
+//                "gone": true},
+//               {"fill": "#css-selector", "value": "typed text"}],
+//     "controls": [{"role": "button", "name": "accessible name"}],
+//     "trustCertFiles": ["/path/to/server-leaf.pem"],
 //     "timeoutMs": 30000 }
 // A step clicks the ONE element with that role and exact accessible name — an
 // ambiguous or missing control fails the step rather than clicking a guess —
 // then waits for its expected text and, with "gone", for that control to leave
 // the page — the UI re-rendered from the server's answer, so the action took
-// effect. The absent texts are checked on the first render and again after the
-// last step.
-// Output (stdout, JSON): { missing, present, title, url, errors, text }.
+// effect. A "fill" step types into the ONE element its CSS selector matches (a
+// third-party form such as an IdP login page). "controls" must be visible by
+// role and exact accessible name after the last step. The absent texts are
+// checked on the first render and again after the last step.
+// "trustCertFiles" are the leaf certificates of HTTPS servers under a
+// throwaway test CA (an HTTPS control plane, an IdP): the browser trusts their
+// public keys outright (--ignore-certificate-errors-spki-list), so every
+// handshake verifies on its first attempt. (Ignoring certificate errors
+// instead makes Chromium fail and retry each new connection, which under load
+// ends in ERR_TOO_MANY_RETRIES.) It never changes what the control plane
+// itself verifies.
+// Output (stdout, JSON): { missing, present, title, url, errors, text, cookies }.
 // The Go side (internal/testsupport.RenderUI) asserts on it.
 //
 // Playwright comes from browser-worker's pinned dependency, as in the a11y
 // gate. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH selects a local Chromium when the
 // pinned browser is not installed (CI installs it).
 
+import { createHash, X509Certificate } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,17 +64,27 @@ async function main() {
   const spec = JSON.parse(await readStdin());
   const timeout = spec.timeoutMs ?? 30000;
   const { chromium } = bwRequire("playwright");
+  const pinned = (spec.trustCertFiles ?? []).map((file) =>
+    createHash("sha256")
+      .update(new X509Certificate(readFileSync(file)).publicKey.export({ type: "spki", format: "der" }))
+      .digest("base64"),
+  );
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+    args: pinned.length > 0 ? [`--ignore-certificate-errors-spki-list=${pinned.join(",")}`] : [],
   });
-  const result = { missing: [], present: [], title: "", url: "", errors: [], text: "" };
+  const result = { missing: [], present: [], title: "", url: "", errors: [], text: "", cookies: [] };
   try {
     const context = await browser.newContext();
     const origin = new URL(spec.url).origin;
     await context.addCookies((spec.cookies ?? []).map((c) => ({ name: c.name, value: c.value, url: origin })));
     const page = await context.newPage();
     page.on("pageerror", (err) => result.errors.push(String(err)));
+    page.on("requestfailed", (req) => result.errors.push(`request failed: ${req.url()} ${req.failure()?.errorText ?? ""}`));
+    page.on("response", (resp) => {
+      if (resp.status() >= 400) result.errors.push(`HTTP ${resp.status()}: ${resp.url()}`);
+    });
     await page.goto(spec.url, { waitUntil: "domcontentloaded", timeout });
     const deadline = Date.now() + timeout;
     const remaining = () => Math.max(1000, deadline - Date.now());
@@ -73,8 +97,25 @@ async function main() {
         }
       }
     };
+    // A login lands through redirects and client-side routing, so a read can
+    // race a navigation ("execution context was destroyed"): retry it briefly.
+    // A read that still fails is recorded and yields the fallback, so the
+    // result (and why it failed) is always reported.
+    const settled = async (read, fallback) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await read();
+        } catch (err) {
+          if (attempt >= 10 || page.isClosed()) {
+            result.errors.push(`page read failed: ${String(err).split("\n")[0]}`);
+            return fallback;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      }
+    };
     const absentNow = async () => {
-      const text = await page.locator("body").innerText();
+      const text = await settled(() => page.locator("body").innerText({ timeout: remaining() }), "");
       for (const t of spec.absent ?? []) {
         if (text.includes(t) && !result.present.includes(t)) result.present.push(t);
       }
@@ -84,6 +125,15 @@ async function main() {
     let body = await absentNow();
     for (const step of spec.steps ?? []) {
       if (result.missing.length > 0) break;
+      if (step.fill) {
+        try {
+          await page.locator(step.fill).fill(step.value ?? "", { timeout: remaining() });
+        } catch (err) {
+          result.missing.push(`fill "${step.fill}": ${String(err).split("\n")[0]}`);
+          break;
+        }
+        continue;
+      }
       const control = page.getByRole(step.role ?? "button", { name: step.click, exact: true });
       try {
         await control.click({ timeout: remaining() });
@@ -100,10 +150,19 @@ async function main() {
         }
       }
     }
-    if ((spec.steps ?? []).length > 0) body = await absentNow();
-    result.title = await page.title();
+    for (const c of spec.controls ?? []) {
+      if (result.missing.length > 0) break;
+      try {
+        await page.getByRole(c.role, { name: c.name, exact: true }).first().waitFor({ state: "visible", timeout: remaining() });
+      } catch {
+        result.missing.push(`${c.role} "${c.name}"`);
+      }
+    }
+    if ((spec.steps ?? []).length > 0 || (spec.controls ?? []).length > 0) body = await absentNow();
+    result.title = await settled(() => page.title(), "");
     result.url = page.url();
     result.text = body.slice(0, 6000);
+    result.cookies = (await settled(() => context.cookies(), [])).map(({ name, value, domain, path }) => ({ name, value, domain, path }));
   } finally {
     await browser.close();
   }

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,41 +26,74 @@ import (
 // RenderSpec is one page of a live control plane to render in a real
 // Chromium as a signed-in user (scripts/realstack_render.mjs).
 type RenderSpec struct {
-	URL       string         `json:"url"`
-	Cookies   []RenderCookie `json:"cookies"`
-	Expect    []string       `json:"expect"`
-	Absent    []string       `json:"absent"`
-	Steps     []RenderStep   `json:"steps,omitempty"`
-	TimeoutMs int            `json:"timeoutMs"`
+	URL      string          `json:"url"`
+	Cookies  []RenderCookie  `json:"cookies"`
+	Expect   []string        `json:"expect"`
+	Absent   []string        `json:"absent"`
+	Steps    []RenderStep    `json:"steps,omitempty"`
+	Controls []RenderControl `json:"controls,omitempty"`
+	// TrustCertFiles are the PEM leaf certificates of HTTPS servers under a
+	// throwaway test CA (an HTTPS control plane, an IdP). The browser trusts
+	// their public keys outright, so every handshake verifies on the first
+	// attempt. It never changes what the control plane itself verifies.
+	TrustCertFiles []string `json:"trustCertFiles,omitempty"`
+	// CAFile verifies an HTTPS control plane for the placeholder check.
+	CAFile    string `json:"-"`
+	TimeoutMs int    `json:"timeoutMs"`
+}
+
+// RenderControl must be visible by role and exact accessible name once the
+// steps have run.
+type RenderControl struct {
+	Role string `json:"role"`
+	Name string `json:"name"`
 }
 
 // RenderStep clicks the one control with Role (default "button") and the exact
 // accessible name Click, then waits for every Expect text and, when Gone is
 // set, for that control to leave the page (the UI re-rendered from the
 // server's answer). An ambiguous or missing control fails the render instead
-// of clicking a guess.
+// of clicking a guess. A Fill step instead types Value into the one element the
+// CSS selector Fill matches (a third-party form, such as an IdP login page).
 type RenderStep struct {
-	Click  string   `json:"click"`
+	Click  string   `json:"click,omitempty"`
 	Role   string   `json:"role,omitempty"`
 	Expect []string `json:"expect,omitempty"`
 	Gone   bool     `json:"gone,omitempty"`
+	Fill   string   `json:"fill,omitempty"`
+	Value  string   `json:"value,omitempty"`
 }
 
-// RenderCookie is a cookie set on the page's origin before it loads.
+// RenderCookie is a cookie set on the page's origin before it loads, or one
+// the browser held when the render ended (RenderResult.Cookies).
 type RenderCookie struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Domain string `json:"domain,omitempty"`
+	Path   string `json:"path,omitempty"`
 }
 
 // RenderResult is what the browser saw: expected text that never rendered,
-// forbidden text that did, and the page's rendered body text.
+// forbidden text that did, the page's rendered body text, and the cookies the
+// browser held at the end (a session minted by a real login, for instance).
 type RenderResult struct {
-	Missing []string `json:"missing"`
-	Present []string `json:"present"`
-	Title   string   `json:"title"`
-	URL     string   `json:"url"`
-	Errors  []string `json:"errors"`
-	Text    string   `json:"text"`
+	Missing []string       `json:"missing"`
+	Present []string       `json:"present"`
+	Title   string         `json:"title"`
+	URL     string         `json:"url"`
+	Errors  []string       `json:"errors"`
+	Text    string         `json:"text"`
+	Cookies []RenderCookie `json:"cookies"`
+}
+
+// Cookie returns the value of the named cookie the browser held at the end.
+func (r RenderResult) Cookie(name string) string {
+	for _, c := range r.Cookies {
+		if c.Name == name {
+			return c.Value
+		}
+	}
+	return ""
 }
 
 // placeholderMarker identifies the ARCH-004 placeholder index.html the control
@@ -75,7 +109,7 @@ const placeholderMarker = "ARCH-004 placeholder"
 // rather than silently skipping a rendered-UI receipt.
 func RenderUI(t testing.TB, spec RenderSpec) RenderResult {
 	t.Helper()
-	if embedsPlaceholderUI(t, spec.URL) {
+	if embedsPlaceholderUI(t, spec.URL, spec.CAFile) {
 		SkipOrFatal(t, "the control plane embeds the placeholder UI: build web/ and overlay web/dist onto internal/webui/dist before compiling (CI does this; locally: npm --prefix web run build && cp -R web/dist/. internal/webui/dist/)")
 	}
 	node, err := exec.LookPath("node")
@@ -117,17 +151,27 @@ func RenderUI(t testing.TB, spec RenderSpec) RenderResult {
 	return res
 }
 
-// embedsPlaceholderUI reports whether the page the receipt is about to render
-// is the placeholder, not the real single-page app.
-func embedsPlaceholderUI(t testing.TB, pageURL string) bool {
+// embedsPlaceholderUI reports whether the control plane serving pageURL embeds
+// the placeholder instead of the real single-page app (it reads the origin's
+// /ui/, so a render that starts at a login redirect is checked too).
+func embedsPlaceholderUI(t testing.TB, pageURL, caFile string) bool {
 	t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, pageURL, nil)
+	page, err := url.Parse(pageURL)
 	if err != nil {
 		t.Fatalf("render url %s: %v", pageURL, err)
 	}
-	resp, err := crypto.HardenedHTTPClient(30 * time.Second).Do(req)
+	ui := page.Scheme + "://" + page.Host + "/ui/"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ui, nil)
 	if err != nil {
-		t.Fatalf("fetch %s: %v", pageURL, err)
+		t.Fatalf("render url %s: %v", ui, err)
+	}
+	client, err := crypto.HardenedHTTPClientWithCAFile(30*time.Second, caFile)
+	if err != nil {
+		t.Fatalf("render CA file: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("fetch %s: %v", ui, err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
