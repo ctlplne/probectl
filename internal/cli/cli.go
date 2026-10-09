@@ -11,11 +11,14 @@ package cli
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -178,9 +181,7 @@ var longRequests = []struct {
 // requestBudget is the time a request may take: the server's budget for a
 // long-running route, the default for any other.
 func requestBudget(method, path string) time.Duration {
-	if i := strings.IndexByte(path, '?'); i >= 0 {
-		path = path[:i]
-	}
+	path = requestPath(path)
 	for _, r := range longRequests {
 		if r.method == method && pathMatchesTemplate(r.template, path) {
 			return r.budget
@@ -382,9 +383,71 @@ func (c *client) do(method, path string, body any, out any) error {
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 	if out != nil && len(data) > 0 {
+		if isDownload(resp) {
+			// A download (a CSV or JSON Lines billing export, for one) goes
+			// out exactly as served, once its signature verifies.
+			if err := verifySignedDownload(method, path, resp.Header, data); err != nil {
+				return err
+			}
+			if raw, ok := out.(*any); ok {
+				*raw = rawBody(data)
+				return nil
+			}
+		}
 		return json.Unmarshal(data, out)
 	}
 	return nil
+}
+
+// rawBody is a non-JSON response printed exactly as served.
+type rawBody []byte
+
+// isDownload reports whether a response is a file the server hands over
+// (Content-Disposition: attachment) rather than a JSON answer.
+func isDownload(resp *http.Response) bool {
+	disposition, _, err := mime.ParseMediaType(resp.Header.Get("Content-Disposition"))
+	return err == nil && disposition == "attachment"
+}
+
+// signedDownloads are the routes whose answer the server always signs: the
+// MSP usage export carries a detached Ed25519 signature over its exact bytes
+// (docs/metering.md).
+var signedDownloads = []string{"/provider/v1/usage/export"}
+
+// verifySignedDownload refuses a signed route's download unless the signature
+// headers are present and consistent (the key matches its fingerprint) and
+// the signature verifies over exactly the body.
+func verifySignedDownload(method, path string, h http.Header, body []byte) error {
+	signed := false
+	for _, route := range signedDownloads {
+		signed = signed || (method == http.MethodGet && requestPath(path) == route)
+	}
+	if !signed {
+		return nil
+	}
+	if alg := h.Get("X-Probectl-Usage-Signature-Alg"); alg != "ed25519" {
+		return fmt.Errorf("the export is not signed with ed25519 (signature algorithm %q); refused", alg)
+	}
+	key, keyErr := base64.StdEncoding.DecodeString(h.Get("X-Probectl-Usage-Signing-Key"))
+	sig, sigErr := base64.StdEncoding.DecodeString(h.Get("X-Probectl-Usage-Signature"))
+	if keyErr != nil || sigErr != nil || len(key) == 0 || len(sig) == 0 {
+		return errors.New("the export's signature or signing key is missing or malformed; refused")
+	}
+	if h.Get("X-Probectl-Usage-Signing-Key-Fingerprint") != "sha256:"+hex.EncodeToString(crypto.Hash(key)) {
+		return errors.New("the export's signing key does not match its fingerprint; refused")
+	}
+	if ok, err := crypto.VerifyEd25519(key, body, sig); err != nil || !ok {
+		return errors.New("the export's signature does not verify over its bytes; refused")
+	}
+	return nil
+}
+
+// requestPath is a request target without its query string.
+func requestPath(path string) string {
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		return path[:i]
+	}
+	return path
 }
 
 func (c *client) stream(method, path string, body any, w io.Writer) error {

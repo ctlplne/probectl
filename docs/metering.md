@@ -121,6 +121,14 @@ verifiable, but the key changes on restart, so a stable key is recommended). An
 export that cannot be signed is **refused**, never served unsigned (fail closed,
 docs/guardrails.md G7-12).
 
+The CLI checks the signature on receipt. `probectl billing export --query
+format=csv` (or `format=jsonl`) writes the feed exactly as served, but only
+after the signature verifies over those bytes and the signing key matches its
+fingerprint. An export that fails either check, or arrives unsigned, is refused
+and nothing is written. Pin the fingerprint by comparing the
+`X-Probectl-Usage-Signing-Key-Fingerprint` header with the one the deployment
+publishes.
+
 Records persist in the `usage_records` table (migration `0026_metering.sql`).
 This is provider-plane billing data *about* tenants: it is written and read by
 the `probectl_provider` database role through an explicit row-level-security

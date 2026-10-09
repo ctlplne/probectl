@@ -413,6 +413,13 @@ func printGeneric(w io.Writer, v any, jsonOut bool, method string) int {
 // printGenericColumns renders a collection with the operation's declared
 // columns (DPR-040) or, without any, the generic ID/NAME/STATUS/SUMMARY table.
 func printGenericColumns(w io.Writer, v any, jsonOut bool, method string, columns []string) int {
+	if raw, ok := v.(rawBody); ok {
+		// A download goes out exactly as served, with or without --json.
+		if _, err := w.Write(raw); err != nil {
+			return 1
+		}
+		return 0
+	}
 	if v == nil {
 		if method == http.MethodDelete {
 			fmt.Fprintln(w, "ok")
