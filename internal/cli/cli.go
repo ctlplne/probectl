@@ -403,7 +403,14 @@ func formatAPIError(data []byte, locale string) (bool, error) {
 	if json.Unmarshal(data, &env) != nil || env.Error.Message == "" {
 		return false, nil
 	}
-	msg := i18n.ErrorMessage(locale, env.Error.Code, env.Error.Message)
+	// The server's message is English and says what to fix ("byok requires
+	// byok_ref ..."); the catalog's is the code's generic label ("Validation
+	// failed"). English gets the server's, as the console shows it; other
+	// locales get their own language, keyed by the stable code.
+	msg := env.Error.Message
+	if i18n.Resolve(locale) != i18n.DefaultLocale {
+		msg = i18n.ErrorMessage(locale, env.Error.Code, env.Error.Message)
+	}
 	if env.Error.RequestID != "" {
 		return true, fmt.Errorf("%s (%s, request_id=%s)", msg, env.Error.Code, env.Error.RequestID)
 	}

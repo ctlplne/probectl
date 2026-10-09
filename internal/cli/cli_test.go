@@ -1487,8 +1487,24 @@ func TestCLILifecycleSubjectErasePostsBody(t *testing.T) {
 func TestCLIErrorStatusExitsNonZero(t *testing.T) {
 	srv := fakeAPI(t)
 	_, errs, code := run(t, srv, "test", "get", "44444444-4444-4444-4444-444444444444")
-	if code != 1 || !strings.Contains(errs, "Not found (not_found)") {
-		t.Errorf("a 404 should exit 1 with the localized API code; code=%d stderr=%s", code, errs)
+	if code != 1 || !strings.Contains(errs, "test not found (not_found)") {
+		t.Errorf("a 404 should exit 1 with the server's message and the API code; code=%d stderr=%s", code, errs)
+	}
+}
+
+// In English the operator sees what the server says to fix, as the console
+// shows it, not the code's generic label: every 422 used to print only
+// "Validation failed".
+func TestCLIAPIErrorKeepsTheServersMessageInEnglish(t *testing.T) {
+	body := []byte(`{"error":{"code":"validation","message":"byok requires byok_ref","request_id":"req-9"}}`)
+	for _, locale := range []string{"", "en", "en-GB"} {
+		_, err := formatAPIError(body, locale)
+		if got := err.Error(); got != "byok requires byok_ref (validation, request_id=req-9)" {
+			t.Errorf("locale %q: formatted error = %q, want the server's message", locale, got)
+		}
+	}
+	if _, err := formatAPIError(body, "es"); !strings.HasPrefix(err.Error(), "Validacion fallida (validation") {
+		t.Errorf("locale es: formatted error = %q, want the localized message for the code", err)
 	}
 }
 

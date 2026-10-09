@@ -1438,7 +1438,9 @@ consent commands `provider consent|decide-consent|revoke-consent`; it takes
 precedence over the bearer token for those requests), and `PROBECTL_LOCALE` (default `en`; accepts
 shipped language tags such as `es`/`es-MX` for CLI help and API error messages). API
 error `code` values stay stable and machine-readable; only the human message is
-localized. When an API error includes `request_id`, the CLI includes it in the
+localized. In `en` the CLI prints the server's own message — what to fix, as the
+console shows it — and in other locales the localized message for the `code`.
+When an API error includes `request_id`, the CLI includes it in the
 terminal error output for support/debugging.
 
 The terminal-native product surface is the CLI. There is no separate committed
