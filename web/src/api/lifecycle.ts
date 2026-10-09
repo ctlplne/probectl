@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch } from './client'
+import { apiFetch, holdLoginRedirect } from './client'
 import type { LifecycleRetentionInput, LifecycleStatus } from './sdk.gen'
 
 export type { LifecycleRetentionInput, LifecycleStatus } from './sdk.gen'
@@ -68,6 +68,12 @@ export function useEraseTenantLifecycle() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['lifecycle'] }),
+    // The erasure took this tenant's users and sessions with its data: every
+    // later call answers 401. Hold the login redirect and stop refetching, or
+    // the login page replaces the receipt before the admin can read or keep it.
+    onSuccess: () => {
+      holdLoginRedirect()
+      void qc.cancelQueries()
+    },
   })
 }

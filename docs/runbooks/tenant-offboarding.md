@@ -241,7 +241,11 @@ verified-zero flags, your backup-TTL statement, and a `complete` flag. **If
 `complete` is false, the notes name exactly what remains** (e.g. the Prometheus
 manual step) — finish it and re-run erase (it is idempotent). Hand the
 attestation JSON to the customer; the SHA-256 on the provider chain is their
-proof it was not edited after the fact.
+proof it was not edited after the fact. The erase removes the tenant's users
+and sessions with its data, so a tenant admin who erases from **Admin → Data
+lifecycle** is signed out by it: the console keeps the receipt on screen with a
+**Download receipt (JSON)** link, and **Done** goes to the login page. The
+provider chain stores only the digest, so keep the receipt before leaving.
 
 ## 5. After
 

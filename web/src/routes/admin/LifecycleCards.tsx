@@ -36,6 +36,7 @@ import {
   type SelfMetricsSnapshot,
   type Version,
 } from '../../api/diagnostics'
+import { redirectToLogin } from '../../api/client'
 import { DateTime } from '../../time/DateTime'
 import { useI18n } from '../../i18n/useI18n'
 import { formatInteger, formatScaledBytes, formatDuration } from '../../i18n/number'
@@ -260,16 +261,28 @@ function EraseTenantDialog({
     { key: 'notes', header: 'Notes', render: (r) => r.notes || '—' },
   ]
 
+  // The erasure ended this session with the tenant's users, so leaving the
+  // receipt goes to the login rather than back to a page that can no longer load.
+  const leave = () => redirectToLogin({ force: true })
+
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={attestation ? leave : onClose}
       title={attestation ? 'Erasure receipt' : 'Erase tenant data'}
       footer={
         attestation ? (
-          <Button variant="primary" onClick={onClose}>
-            Done
-          </Button>
+          <span className={styles.actions}>
+            <a
+              href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(attestation, null, 2))}`}
+              download={`probectl-erasure-receipt-${attestation.tenant_slug || attestation.tenant_id}.json`}
+            >
+              Download receipt (JSON)
+            </a>
+            <Button variant="primary" onClick={leave}>
+              Done
+            </Button>
+          </span>
         ) : null
       }
     >

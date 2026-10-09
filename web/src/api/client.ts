@@ -128,14 +128,29 @@ export async function publicFetch(path: string, init?: RequestInit): Promise<Res
 /** The pre-auth SSO login entry point (outside the /v1 base). */
 export const LOGIN_PATH = '/auth/login'
 
+// A tenant's own erasure removes its users and sessions with its data, so
+// every later call answers 401. The erasure receipt on screen is what the
+// admin erased the data for: while it is held, the shared 401 handler leaves
+// the page alone, and the receipt's own action goes to the login (force).
+let loginRedirectHeld = false
+
+/** holdLoginRedirect keeps the shared 401 handler on the current page. */
+export function holdLoginRedirect(hold = true) {
+  loginRedirectHeld = hold
+}
+
 /**
  * redirectToLogin sends the browser to the SSO login. Used both by the initial
  * auth bootstrap and by the global TanStack Query onError handler so that a
  * session that expires MID-SESSION (a later 401, not just the first /me call)
  * also re-authenticates instead of surfacing a dead per-query error (UX-005).
  */
-export function redirectToLogin({ replace = false }: { replace?: boolean } = {}) {
+export function redirectToLogin({
+  replace = false,
+  force = false,
+}: { replace?: boolean; force?: boolean } = {}) {
   if (typeof window === 'undefined') return
+  if (loginRedirectHeld && !force) return
   if (replace) {
     window.location.replace(LOGIN_PATH)
     return

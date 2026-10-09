@@ -4,9 +4,10 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { holdLoginRedirect } from '../api/client'
 import { renderApp } from './renderApp'
 import { jsonResponse, defaultFetch, pathOf } from './fetchStub'
 
@@ -15,6 +16,8 @@ import { jsonResponse, defaultFetch, pathOf } from './fetchStub'
  *  edition (a compliance right). */
 
 describe('tenant data lifecycle (S-T5)', () => {
+  afterEach(() => holdLoginRedirect(false))
+
   test('the card renders export, isolation visibility, and the retention control', async () => {
     vi.stubGlobal('fetch', defaultFetch())
     renderApp('/admin')
@@ -207,5 +210,67 @@ describe('tenant data lifecycle (S-T5)', () => {
     expect(within(receipt).getByText('flows')).toBeInTheDocument()
     expect(eraseBodies[1]).toEqual({ confirm: 'acme-prod' })
     expect(JSON.stringify(eraseBodies[1])).not.toContain('tenant_id')
+  })
+
+  // The erasure removes the tenant's users and sessions with its data, so every
+  // later call answers 401. The shared 401 handler used to send the browser to
+  // the login page at once, and the receipt the admin erased the data for
+  // vanished before it could be read or kept.
+  test('the erasure receipt outlives the session the erasure ended', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { assign, href: '', pathname: '/' })
+    const base = defaultFetch()
+    let erased = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = pathOf(input)
+        if (erased)
+          return jsonResponse(
+            { error: { code: 'unauthorized', message: 'authentication required' } },
+            401,
+          )
+        if (path === '/v1/lifecycle/erase' && init?.method === 'POST') {
+          erased = true
+          return jsonResponse({
+            format_version: 1,
+            tenant_id: '00000000-0000-0000-0000-000000000001',
+            tenant_slug: 'acme-prod',
+            actor: 'ada@acme.example',
+            started_at: '2026-01-01T00:00:00Z',
+            finished_at: '2026-01-01T00:00:03Z',
+            stores: [{ store: 'postgres', deleted: 12, verified_zero: true }],
+            backup_policy: '30d',
+            complete: true,
+            report_sha256: 'abc123def456',
+          })
+        }
+        return base(input, init)
+      }),
+    )
+
+    renderApp('/admin')
+    await userEvent.click(await screen.findByRole('button', { name: /^erase tenant data$/i }))
+    const dialog = await screen.findByRole('dialog', { name: /erase tenant data/i })
+    await userEvent.type(within(dialog).getByLabelText(/tenant slug confirmation/i), 'acme-prod')
+    await userEvent.click(within(dialog).getByRole('button', { name: /^erase tenant data$/i }))
+    const receipt = await screen.findByRole('dialog', { name: /erasure receipt/i })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(assign).not.toHaveBeenCalled()
+    expect(within(receipt).getByText(/abc123def456/)).toBeInTheDocument()
+
+    const download = within(receipt).getByRole('link', { name: /download receipt/i })
+    expect(download).toHaveAttribute('download', 'probectl-erasure-receipt-acme-prod.json')
+    const href = download.getAttribute('href') ?? ''
+    expect(href.startsWith('data:application/json')).toBe(true)
+    const kept = JSON.parse(decodeURIComponent(href.slice(href.indexOf(',') + 1))) as {
+      report_sha256: string
+      stores: unknown[]
+    }
+    expect(kept.report_sha256).toBe('abc123def456')
+    expect(kept.stores).toHaveLength(1)
+
+    await userEvent.click(within(receipt).getByRole('button', { name: /^done$/i }))
+    expect(assign).toHaveBeenCalledWith('/auth/login')
   })
 })
