@@ -113,9 +113,15 @@ a transient routing blip delays the data instead of mis-routing it.
   handle, so they pass relative paths like `browser/shot.png` and the storage
   adapter prepends the namespace. Siloed/hybrid keys move under
   `silo/<tenant-id>/…` (the pooled layout is `tenant/<id>/…`), and
-  list/delete operations stay inside that bound root. Note the honesty caveat
-  below: in this release that is a key *namespace* on the same backend, not a
-  separate storage system.
+  list/delete operations stay inside that bound root. The artifacts written
+  today come from agents (browser failure artifacts), and an agent cannot learn
+  its tenant's model from the control plane — there is no config push
+  ([adr/config-push.md](adr/config-push.md)) — so a siloed or hybrid tenant's
+  agents declare it locally, `artifact_store.isolation: hybrid` (or `siloed`),
+  the way they are given their bus lane. An agent that declares nothing keeps
+  writing `tenant/<id>/…`; lifecycle export and erase cover both namespaces.
+  Note the honesty caveat below: in this release that is a key *namespace* on
+  the same backend, not a separate storage system.
 - **Topology graph:** API, AI, NDR, what-if, and topology consumers bind the
   store with `ForTenant(tenant_id)` before reading or writing graph data. The
   resulting tenant handle has no tenant argument on `Latest`, `SnapshotAt`,

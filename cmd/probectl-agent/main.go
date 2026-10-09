@@ -32,6 +32,7 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/version"
 )
 
@@ -148,6 +149,13 @@ func run() error {
 		}
 		artifactStore = store
 		log.Info("agent tenant artifact store enabled", "mode", "filesystem", "dir", cfg.ArtifactStore.Dir)
+	}
+	if artifactStore != nil && cfg.ArtifactStore.Isolation != "" {
+		// The browser fleet keys artifacts through the tenancy router; an agent
+		// has no tenant registry, so it answers from the model its operator
+		// declared (a hybrid or siloed tenant's artifacts go under silo/<id>/).
+		tenancy.SetRouter(tenancy.DeclaredRouter{Model: tenancy.IsolationModel(cfg.ArtifactStore.Isolation)})
+		log.Info("agent tenant artifact namespace declared", "isolation", cfg.ArtifactStore.Isolation)
 	}
 
 	// Compiled-in canary plugins.

@@ -223,7 +223,9 @@ router/RLS errors that could reveal another tenant's identifiers.
 - **The object-store split is a namespace today.** A siloed tenant's artifacts
   move under a per-tenant key namespace on the same backend — strong logical
   separation, but not a separate storage system. Stated plainly so it is never a
-  surprise.
+  surprise. Agents write those artifacts and cannot learn the tenant's model from
+  the control plane, so a siloed or hybrid tenant's agents declare it with
+  `artifact_store.isolation`.
 - **The fairness query guards and ingest bounds are on by default.** The shipped
   defaults bound ingest rates and tenant-scoped query paths out of the box. The
   query defaults are generous (`4` in-flight queries and `120` queries/minute per

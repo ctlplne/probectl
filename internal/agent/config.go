@@ -179,6 +179,12 @@ type ArtifactStoreConfig struct {
 	SecretKey    string `yaml:"secret_key"`
 	SessionToken string `yaml:"session_token"`
 	Prefix       string `yaml:"prefix"`
+	// Isolation declares the agent's tenant isolation model as provisioned
+	// (pooled, hybrid or siloed). An agent cannot learn it from the control
+	// plane (no config push, docs/adr/config-push.md), so a hybrid or siloed
+	// tenant's agents declare it here and write artifacts under
+	// silo/<tenant-id>/, the namespace the tenant's isolation status names.
+	Isolation string `yaml:"isolation"`
 }
 
 // BrowserConfig selects the implementation used for browser transaction
@@ -323,6 +329,7 @@ func (c *Config) applyEnv() {
 	override("PROBECTL_AGENT_OBJECTSTORE_S3_SECRET_KEY", &c.ArtifactStore.SecretKey)
 	override("PROBECTL_AGENT_OBJECTSTORE_S3_SESSION_TOKEN", &c.ArtifactStore.SessionToken)
 	override("PROBECTL_AGENT_OBJECTSTORE_S3_PREFIX", &c.ArtifactStore.Prefix)
+	override("PROBECTL_AGENT_OBJECTSTORE_ISOLATION", &c.ArtifactStore.Isolation)
 	override("PROBECTL_AGENT_BROWSER_DRIVER", &c.Browser.Driver)
 	override("PROBECTL_AGENT_BROWSER_WORKER_COMMAND", &c.Browser.Worker.Command)
 	override("PROBECTL_AGENT_BROWSER_WORKER_PATH", &c.Browser.Worker.Path)
@@ -463,6 +470,11 @@ func (c *Config) validate() error {
 		}
 	default:
 		return fmt.Errorf("config: artifact_store.mode must be filesystem or s3 (got %q)", c.ArtifactStore.Mode)
+	}
+	switch c.ArtifactStore.Isolation {
+	case "", "pooled", "hybrid", "siloed":
+	default:
+		return fmt.Errorf("config: artifact_store.isolation must be pooled, hybrid or siloed (got %q)", c.ArtifactStore.Isolation)
 	}
 	testIDs := make(map[string]int, len(c.Canaries))
 	for i, cc := range c.Canaries {

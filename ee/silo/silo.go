@@ -45,7 +45,7 @@ func CHDatabase(tenantID string) string {
 func BusNamespace(slug string) string { return tenancy.BusNamespaceFor(slug) }
 
 // ObjectPrefix returns the tenant's object-store key namespace.
-func ObjectPrefix(tenantID string) string { return "silo/" + strings.ToLower(tenantID) }
+func ObjectPrefix(tenantID string) string { return tenancy.SiloObjectPrefix(tenantID) }
 
 // DataPlane is a named residency target: where a pinned tenant's ClickHouse
 // data lives. The default plane ("") is the deployment's shared endpoints.

@@ -57,6 +57,10 @@ artifact_store:
   # secret_key: ""
   # session_token: ""
   # prefix: probectl
+  # The tenant's isolation model as provisioned. A hybrid or siloed tenant's
+  # agents declare it so artifacts go under silo/<tenant-id>/ (the agent cannot
+  # learn it from the control plane):
+  # isolation: hybrid
 
 # Select exactly one meaning for browser canaries on this agent. "http" runs
 # scripted HTTP transactions without rendering. "browser" requires the

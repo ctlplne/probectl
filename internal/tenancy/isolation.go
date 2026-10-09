@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -147,6 +148,39 @@ func SetPooledNamespaceLister(fn NamespaceLister) {
 // (probectl.<namespace>.<lane>): "t-" + slug, for pooled and siloed tenants
 // alike (DPR-049).
 func BusNamespaceFor(slug string) string { return "t-" + slug }
+
+// SiloObjectPrefix is the one definition of a siloed or hybrid tenant's
+// object-store key namespace, silo/<tenant-id> (a pooled tenant keeps the
+// standard tenant/<id>/ prefix).
+func SiloObjectPrefix(tenantID string) string { return "silo/" + strings.ToLower(tenantID) }
+
+// DeclaredRouter answers from an isolation model declared in local
+// configuration, for a process that serves one tenant and cannot read the
+// tenant registry: an agent, which takes no configuration from the control
+// plane (docs/adr/config-push.md). Only the object namespace follows the
+// model; an agent publishes on the bus lane its own configuration names.
+type DeclaredRouter struct{ Model IsolationModel }
+
+// TargetsFor returns the declared model and, for siloed and hybrid, the
+// tenant's silo object namespace.
+func (r DeclaredRouter) TargetsFor(_ context.Context, tenantID string) (Targets, error) {
+	t := Targets{Model: r.Model}
+	if t.Model == "" {
+		t.Model = IsolationPooled
+	}
+	if t.Model == IsolationSiloed || t.Model == IsolationHybrid {
+		t.ObjectPrefix = SiloObjectPrefix(tenantID)
+	}
+	return t, nil
+}
+
+// BusNamespaces lists no lanes: the declaring process publishes on its own.
+func (DeclaredRouter) BusNamespaces(context.Context) ([]string, error) { return nil, nil }
+
+// BusNamespaceTenants maps no lanes (see BusNamespaces).
+func (DeclaredRouter) BusNamespaceTenants(context.Context) (map[string]string, error) {
+	return nil, nil
+}
 
 var (
 	routerMu sync.RWMutex

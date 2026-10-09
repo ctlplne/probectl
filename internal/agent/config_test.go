@@ -497,6 +497,34 @@ tls:
 	}
 }
 
+func TestConfigArtifactStoreIsolationIsDeclaredAndChecked(t *testing.T) {
+	base := `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+artifact_store:
+  dir: /var/lib/probectl/objects
+  isolation: %s
+`
+	for _, model := range []string{"pooled", "hybrid", "siloed"} {
+		cfg, err := Load(writeAgentConfig(t, fmt.Sprintf(base, model)))
+		if err != nil || cfg.ArtifactStore.Isolation != model {
+			t.Fatalf("isolation %s: %+v %v", model, cfg, err)
+		}
+	}
+	if _, err := Load(writeAgentConfig(t, fmt.Sprintf(base, "silo"))); err == nil || !strings.Contains(err.Error(), "artifact_store.isolation") {
+		t.Fatalf("an unknown isolation model must be refused at startup, got %v", err)
+	}
+	t.Setenv("PROBECTL_AGENT_OBJECTSTORE_ISOLATION", "siloed")
+	cfg, err := Load(writeAgentConfig(t, fmt.Sprintf(base, "pooled")))
+	if err != nil || cfg.ArtifactStore.Isolation != "siloed" {
+		t.Fatalf("PROBECTL_AGENT_OBJECTSTORE_ISOLATION must override the file: %+v %v", cfg, err)
+	}
+}
+
 func TestConfigBrowserDriverDefaultsToHTTP(t *testing.T) {
 	path := writeAgentConfig(t, `
 control_plane:

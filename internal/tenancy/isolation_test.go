@@ -56,6 +56,24 @@ func TestRouterDefaultIsPooled(t *testing.T) {
 	}
 }
 
+// An agent cannot read the tenant registry, so it routes artifacts from the
+// model its operator declared: a hybrid or siloed tenant's go under its silo
+// namespace, everyone else's keep the standard prefix.
+func TestDeclaredRouterRoutesArtifactsByTheDeclaredModel(t *testing.T) {
+	const tenant = "3FA2BC00-0000-4000-8000-0000000000AA"
+	for model, want := range map[IsolationModel]string{
+		IsolationHybrid: "silo/3fa2bc00-0000-4000-8000-0000000000aa",
+		IsolationSiloed: "silo/3fa2bc00-0000-4000-8000-0000000000aa",
+		IsolationPooled: "",
+		"":              "",
+	} {
+		tg, err := DeclaredRouter{Model: model}.TargetsFor(context.Background(), tenant)
+		if err != nil || tg.ObjectPrefix != want || tg.BusNamespace != "" || tg.PGSchema != "" || tg.CHDatabase != "" {
+			t.Errorf("declared %q: targets = %+v (%v), want object prefix %q and nothing else", model, tg, err, want)
+		}
+	}
+}
+
 // TestPGSchemaFailClosed is the S-T2 watch-out as a unit property: a routing
 // ERROR must fail the query — a siloed tenant must never silently fall
 // through to the pooled schema. And a malformed schema name is refused even

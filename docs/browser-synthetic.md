@@ -149,7 +149,9 @@ When `artifact_store.mode: s3` and its S3 fields are set, the agent opens the
 operator's durable S3/MinIO store. `artifact_store.dir` (or
 `PROBECTL_AGENT_OBJECTSTORE_DIR`) selects the filesystem fallback. In both cases
 the agent passes its mTLS tenant into the browser fleet, so failed transaction
-artifacts are written under `tenant/<id>/browser/...`. Point it at the same
+artifacts are written under `tenant/<id>/browser/...` — or under
+`silo/<id>/browser/...` when `artifact_store.isolation` declares the tenant
+`hybrid` or `siloed` ([isolation.md](isolation.md)). Point it at the same
 backend, bucket, and prefix as the control plane when tenant lifecycle
 export/erase must inventory and delete those artifacts. To create one
 from the CLI, either omit `script` and let the agent create a default

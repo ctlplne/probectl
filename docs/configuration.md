@@ -421,6 +421,7 @@ mounting a full file is awkward:
 | `PROBECTL_AGENT_OBJECTSTORE_S3_SECRET_KEY` | `artifact_store.secret_key` | SigV4 secret; inject through a runtime Secret, never commit it. |
 | `PROBECTL_AGENT_OBJECTSTORE_S3_SESSION_TOKEN` | `artifact_store.session_token` | optional temporary-credential token. |
 | `PROBECTL_AGENT_OBJECTSTORE_S3_PREFIX` | `artifact_store.prefix` (`probectl`) | bucket prefix; match the control-plane configuration so lifecycle export/erase sees agent artifacts. |
+| `PROBECTL_AGENT_OBJECTSTORE_ISOLATION` | `artifact_store.isolation` (`pooled`) | the agent's tenant isolation model as provisioned: `pooled`, `hybrid` or `siloed`. A hybrid or siloed tenant's agents write artifacts under `silo/<tenant-id>/`, the namespace the tenant's `GET /v1/isolation/status` names; the agent cannot learn the model from the control plane (no config push). Any other value refuses startup. |
 | `PROBECTL_AGENT_BROWSER_DRIVER` | `browser.driver` | `http` for a non-rendering HTTP transaction or `browser` for rendered Playwright; rendered mode fails startup unless its worker is usable |
 | `PROBECTL_AGENT_BROWSER_WORKER_COMMAND` | `browser.worker.command` | executable used for the listener-free rendered worker (the shipped browser-agent image uses `node`) |
 | `PROBECTL_AGENT_BROWSER_WORKER_PATH` | `browser.worker.path` | worker program passed to the command (the shipped browser-agent image uses `/worker/worker.mjs`) |
