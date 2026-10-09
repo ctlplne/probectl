@@ -1079,6 +1079,35 @@ jobs:
           echo "ping_group_range=$(cat /proc/sys/net/ipv4/ping_group_range) for gid $gid"
       - name: Install hash-locked BGP analyzer runtime dependency
         run: python3 -m pip install --require-hashes -r analyzer/requirements.lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            browser-worker/package-lock.json
+      - name: Build and embed the web UI for the rendered-UI receipts (SUP-06/WEB-18)
+        # Real-stack receipts render the SPA the control plane serves at /ui in a
+        # real Chromium (internal/testsupport.RenderUI), so the integration build
+        # must embed the real bundle, overlaid exactly as the release workflow and
+        # the docker web stage do. RenderUI fails this lane on the ARCH-004
+        # placeholder rather than skipping a rendered receipt.
+        run: |
+          set -euo pipefail
+          npm --prefix web ci
+          npm --prefix web run build
+          cp -R web/dist/. internal/webui/dist/
+          test -d internal/webui/dist/assets
+      - name: Install the lockfile-pinned Playwright Chromium for the rendered-UI receipts
+        # scripts/realstack_render.mjs drives browser-worker's lockfile-pinned
+        # Playwright, the version the digest-pinned image of the a11y and
+        # browser-worker jobs carries. --no-install runs that local CLI, never a
+        # registry fetch, and it installs exactly its own Chromium build.
+        working-directory: browser-worker
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npx --no-install playwright install --with-deps chromium
       - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
         # WIRE-005: require services so the mTLS/enroll wire-defense integration
         # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,

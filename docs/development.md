@@ -248,6 +248,12 @@ deploy recipes are `sslmode=require` or stricter.
   Kafka (in-process kfake), Postgres, ClickHouse, and Prometheus, plus in-process
   HTTPS/DNS servers and loopback sockets for the probes. The DNS/HTTP/TLS canary
   behavior (success / 5xx / slow / expired-cert / DNSSEC-bogus) lives here.
+  Real-stack receipts with a rendered-UI leg render the live control plane in
+  Chromium (`internal/testsupport.RenderUI`), so they need the real web bundle
+  embedded — `npm --prefix web run build && cp -R web/dist/. internal/webui/dist/`
+  before the run (CI does this) — and browser-worker's Playwright with a
+  Chromium (`npx playwright install chromium` there, or point
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` at a local one).
 - **Fuzz** (`make fuzz-smoke`) — **fuzzing** feeds a parser thousands of
   mutated, adversarial inputs hunting for the one that crashes it. The Go fuzz
   targets cover the untrusted-input parsers and tenant-bound ingest invariants.

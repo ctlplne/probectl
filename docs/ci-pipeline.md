@@ -191,7 +191,11 @@ Verification you ran, not verification you described.
 - **integration** — boots the control plane against real Postgres (TLS,
   `verify-full`) plus a remote-write Prometheus; migrations are idempotent,
   `/readyz` passes, the result pipeline round-trips — and `internal/store` must
-  hold its 60% integration-coverage floor.
+  hold its 60% integration-coverage floor. It builds `web/` and embeds the real
+  bundle (as the release does) and installs browser-worker's pinned Chromium,
+  because real-stack receipts render the live control plane's UI
+  (`internal/testsupport.RenderUI`); the embedded placeholder or a missing
+  browser fails the job rather than skipping a rendered leg.
 - **perf-smoke** — a cheap, repeatable latency/throughput baseline; the first
   place a pooled-cardinality or RLS-cost regression would surface.
 - **backup-drill** — backup → wipe → restore actually runs; nonce-marked rows
