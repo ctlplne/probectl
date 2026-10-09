@@ -13,8 +13,10 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -156,8 +158,12 @@ func TestKeyRotationMutationAndAuditAtomicPG(t *testing.T) {
 	pool := itPool(t)
 	defer pool.Close()
 	ctx := context.Background()
-	tnA := itTenant(t, pool, "it-keys-atomic-a")
-	tnB := itTenant(t, pool, "it-keys-atomic-b")
+	// Fresh tenants each run: a reused one keeps the durable audit head of the
+	// previous run while the deletes below empty its stream, so a second run on
+	// the same database failed "tenant audit stream tail missing".
+	run := strconv.FormatInt(time.Now().UnixNano(), 36)
+	tnA := itTenant(t, pool, "it-keys-atomic-a-"+run)
+	tnB := itTenant(t, pool, "it-keys-atomic-b-"+run)
 	if _, err := pool.Exec(ctx,
 		`DELETE FROM tenant_keys WHERE tenant_id IN ($1, $2)`, tnA, tnB); err != nil {
 		t.Fatal(err)
