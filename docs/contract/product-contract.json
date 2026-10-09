@@ -408,7 +408,7 @@
         "F52"
       ],
       "name": "Pooled/siloed/hybrid",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`ee/silo` (per-tenant ClickHouse provisioning/routing delivered across flow, path, eBPF, and OTLP; see `docs/isolation.md`; pinned by `TestProvisionDrivesEveryCHPlane`)"
     },
     {

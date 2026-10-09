@@ -824,7 +824,6 @@ capabilities:
   - id: F52
     name: Pooled/siloed/hybrid isolation
     status: delivered
-    evidence_status: partial
     owner: platform/release
     engine: {refs: ["file:ee/silo"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#tenancy.SetRouter(router)"]}
@@ -834,7 +833,7 @@ capabilities:
     docs: {refs: ["file:docs/isolation.md#Pooled"]}
     config_keys: *api_config
     telemetry: {refs: ["file:ee/silo"]}
-    real_stack_proof: {gap: "The PostgreSQL pooled/silo proof is useful, but its ClickHouse legs are HTTP doubles and it omits real bus/object-store hybrid isolation and the public operator path."}
+    real_stack_proof: {refs: ["test:ee/silo/hybrid_realstack_integration_test.go#TestHybridIsolationRealStack"]}
     migration: {refs: ["file:migrations/0078_silo_schema_tenant_guards.sql"]}
 
   - id: F53

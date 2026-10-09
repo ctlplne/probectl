@@ -308,7 +308,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F52',
     name: 'Pooled/siloed/hybrid isolation modes',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {
