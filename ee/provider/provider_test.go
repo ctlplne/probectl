@@ -726,6 +726,8 @@ func TestProviderLifecycle(t *testing.T) {
 	if rec = f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants", map[string]string{"slug": "globex", "name": "Globex"}); rec.Code != http.StatusCreated {
 		t.Fatalf("provision 2: %d", rec.Code)
 	}
+	var globex Tenant
+	mustDecode(t, rec, &globex)
 	// The third exceeds the band: loud, specific failure.
 	rec = f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants", map[string]string{"slug": "initech", "name": "Initech"})
 	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "tenant_band_exhausted") {
@@ -754,6 +756,20 @@ func TestProviderLifecycle(t *testing.T) {
 		if rec.Code != http.StatusOK || tn.Status != step.want {
 			t.Fatalf("%s: %d status=%s", step.action, rec.Code, tn.Status)
 		}
+	}
+
+	// Offboarding is one-way: an offboarding tenant has left the licensed band
+	// and may be mid-erase, so neither resume nor suspend brings it back. It
+	// used to: resume set "active" from any state, reviving the tenant outside
+	// the band check.
+	for _, action := range []string{"resume", "suspend"} {
+		if rec = f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants/"+acme.ID+"/"+action, nil); rec.Code != http.StatusConflict {
+			t.Fatalf("%s an offboarding tenant: %d %s, want 409", action, rec.Code, rec.Body.String())
+		}
+	}
+	// And a transition the current state does not allow is refused too.
+	if rec = f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants/"+globex.ID+"/resume", nil); rec.Code != http.StatusConflict {
+		t.Fatalf("resume an active tenant: %d %s, want 409", rec.Code, rec.Body.String())
 	}
 
 	// Offboarding freed a band slot: provisioning works again.

@@ -537,13 +537,21 @@ func (s *PGStore) RenameTenant(ctx context.Context, id, name string) (Tenant, er
 	return out, mapPGErr(err)
 }
 
-func (s *PGStore) SetTenantStatus(ctx context.Context, id, status string) (Tenant, error) {
+func (s *PGStore) SetTenantStatus(ctx context.Context, id string, from []string, status string) (Tenant, error) {
 	var out Tenant
 	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
 		var e error
 		out, e = scanTenant(q.QueryRow(ctx,
-			`UPDATE tenants SET status=$2, updated_at=now() WHERE id=$1 RETURNING `+tenantCols, id, status))
-		return e
+			`UPDATE tenants SET status=$2, updated_at=now() WHERE id=$1 AND status = ANY($3) RETURNING `+tenantCols, id, status, from))
+		if !errors.Is(e, pgx.ErrNoRows) {
+			return e
+		}
+		// Not moved: either no such tenant, or its current state forbids it.
+		var current string
+		if err := q.QueryRow(ctx, `SELECT status FROM tenants WHERE id=$1`, id).Scan(&current); err != nil {
+			return err
+		}
+		return tenantTransitionConflict(current, status)
 	})
 	return out, mapPGErr(err)
 }

@@ -968,11 +968,15 @@ func TestPGStoreLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.SetTenantStatus(ctx, tn.ID, "suspended"); err != nil {
+	if _, err := st.SetTenantStatus(ctx, tn.ID, []string{"active"}, "suspended"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.SetTenantStatus(ctx, tn.ID, "offboarding"); err != nil {
+	if _, err := st.SetTenantStatus(ctx, tn.ID, []string{"active", "suspended"}, "offboarding"); err != nil {
 		t.Fatal(err)
+	}
+	// Offboarding is one-way: the storage layer refuses to bring it back.
+	if _, err := st.SetTenantStatus(ctx, tn.ID, []string{"suspended"}, "active"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("resuming an offboarding tenant = %v, want ErrConflict", err)
 	}
 
 	// Grants.

@@ -837,12 +837,13 @@ func (s *Service) Configure(ctx context.Context, actor, id, name string) (Tenant
 // Suspend stops a tenant's users at the API (the core lifecycle gate); data
 // and ingestion are untouched — suspension is reversible, never destructive.
 func (s *Service) Suspend(ctx context.Context, actor, id string) (Tenant, error) {
-	return s.setStatus(ctx, actor, id, "suspended", "provider.tenant_suspend")
+	return s.setStatus(ctx, actor, id, []string{"active"}, "suspended", "provider.tenant_suspend")
 }
 
-// Resume reactivates a suspended tenant.
+// Resume reactivates a suspended tenant — only a suspended one: an offboarding
+// tenant has left the licensed band and may be mid-erase, so it never comes back.
 func (s *Service) Resume(ctx context.Context, actor, id string) (Tenant, error) {
-	return s.setStatus(ctx, actor, id, "active", "provider.tenant_resume")
+	return s.setStatus(ctx, actor, id, []string{"suspended"}, "active", "provider.tenant_resume")
 }
 
 // Offboard marks a tenant offboarding: API access stops and the tenant leaves
@@ -853,17 +854,17 @@ func (s *Service) Resume(ctx context.Context, actor, id string) (Tenant, error) 
 // its retained evidence. Physical container reclamation therefore remains a
 // separate, tombstone-aware maintenance operation.
 func (s *Service) Offboard(ctx context.Context, actor, id string) (Tenant, error) {
-	return s.setStatus(ctx, actor, id, "offboarding", "provider.tenant_offboard")
+	return s.setStatus(ctx, actor, id, []string{"active", "suspended"}, "offboarding", "provider.tenant_offboard")
 }
 
-func (s *Service) setStatus(ctx context.Context, actor, id, status, action string) (Tenant, error) {
+func (s *Service) setStatus(ctx context.Context, actor, id string, from []string, status, action string) (Tenant, error) {
 	if err := s.writable(); err != nil {
 		return Tenant{}, err
 	}
 	var t Tenant
 	err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
 		var err error
-		t, err = store.SetTenantStatus(ctx, id, status)
+		t, err = store.SetTenantStatus(ctx, id, from, status)
 		if err != nil {
 			return err
 		}

@@ -106,9 +106,9 @@ on the provider audit stream with the acting operator's identity. The deployment
 | Configure | Rename the tenant. |
 | (on publication) | Every tenant is published **with its system roles** — `admin` (every permission), `editor` (reads plus test/alert/incident writes) and `viewer` (reads) — so the first administrator can be granted immediately with `probectl-control bootstrap-admin -tenant <uuid> -email …` or through SCIM group mapping (DPR-035). Seeding is idempotent and `bootstrap-admin` repeats it, so tenants created before this rule are healed on their first grant. |
 | (after publication) | Install the tenant's IR public key (`probectl audit ir-keygen <uuid>` offline, then `probectl-control ir-key-install <uuid>` on the control plane) so break-glass into it can be requested; until then a request is refused with `409 ir_key_unavailable` (DPR-036, [`audit.md`](audit.md)). |
-| Suspend | The tenant's **users are rejected at the API** (`tenant_suspended`, via the core lifecycle gate in `requirePermission`). Data, agents, and ingestion are left untouched — suspend is a reversible billing/lifecycle state, never destruction. |
-| Resume | Reactivates a suspended tenant. |
-| Offboard | Marks the tenant `offboarding`: API access stops and the band slot frees. Offboarding **never silently destroys data** — the actual data export and verifiable deletion is a separate compliance flow (deliberately core/free). |
+| Suspend | The tenant's **users are rejected at the API** (`tenant_suspended`, via the core lifecycle gate in `requirePermission`). Data, agents, and ingestion are left untouched — suspend is a reversible billing/lifecycle state, never destruction. Only an `active` tenant can be suspended. |
+| Resume | Reactivates a suspended tenant — only a `suspended` one. |
+| Offboard | Marks the tenant `offboarding`: API access stops and the band slot frees. Offboarding **never silently destroys data** — the actual data export and verifiable deletion is a separate compliance flow (deliberately core/free). It is one-way: an `offboarding` tenant can be neither resumed nor suspended, and a transition the tenant's current state does not allow answers `409 conflict`. |
 
 Provisioning failure audit data is deliberately bounded and phase-aware:
 `silo_provision_failed` means an isolated datastore leg failed before registry

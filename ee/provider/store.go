@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -152,7 +153,10 @@ type MutationStore interface {
 	// other than completion, so an abandoned attempt is always deliberate.
 	AbandonProvision(ctx context.Context, id string) (bool, error)
 	RenameTenant(ctx context.Context, id, name string) (Tenant, error)
-	SetTenantStatus(ctx context.Context, id, status string) (Tenant, error)
+	// SetTenantStatus moves a tenant to status only from one of the allowed
+	// from states; a tenant in any other state is ErrConflict (wrapped with
+	// its current state), a missing one ErrNotFound.
+	SetTenantStatus(ctx context.Context, id string, from []string, status string) (Tenant, error)
 	CreateGrant(ctx context.Context, g Grant) (Grant, error)
 	ConsentGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
 	DenyGrant(ctx context.Context, id, by string, at time.Time) (*Grant, error)
@@ -588,15 +592,25 @@ func (m *MemStore) RenameTenant(_ context.Context, id, name string) (Tenant, err
 	return *t, nil
 }
 
-func (m *MemStore) SetTenantStatus(_ context.Context, id, status string) (Tenant, error) {
+func (m *MemStore) SetTenantStatus(_ context.Context, id string, from []string, status string) (Tenant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tenants[id]
 	if !ok {
 		return Tenant{}, ErrNotFound
 	}
+	if !slices.Contains(from, t.Status) {
+		return Tenant{}, tenantTransitionConflict(t.Status, status)
+	}
 	t.Status = status
 	return *t, nil
+}
+
+// tenantTransitionConflict refuses a lifecycle move the tenant's current state
+// does not allow: resume is only for a suspended tenant, suspend only for an
+// active one, and offboarding is one-way.
+func tenantTransitionConflict(current, to string) error {
+	return fmt.Errorf("%w: the tenant is %s and cannot become %s", ErrConflict, current, to)
 }
 
 func (m *MemStore) ListTenants(_ context.Context) ([]Tenant, error) {
