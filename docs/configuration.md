@@ -208,6 +208,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_OIDC_CLIENT_ID`          | (none)                                                           | OIDC client ID registered with the IdP               |
 | `PROBECTL_OIDC_CLIENT_SECRET`      | (none)                                                           | OIDC client secret (kept out of logs/URLs)            |
 | `PROBECTL_OIDC_REDIRECT_URL`       | (none)                                                           | the control plane's `/auth/callback` URL registered with the IdP |
+| `PROBECTL_OIDC_CA_FILE`            | (none)                                                           | PEM trust bundle for the deployment IdP (`PROBECTL_OIDC_ISSUER`) behind a private CA — a self-hosted IdP on the operator's network. It replaces the system roots for that connection; certificate validation is never disabled, and a missing or certificate-less bundle refuses startup. Unset means the system trust store. Tenant-configured IdPs never use it |
 | `PROBECTL_REQUIRE_MFA`             | `false`                                                         | require multi-factor auth. The session's MFA state comes from the ID token's `amr`/`acr` claims (a second factor like `otp`/`hwk`/`mfa`, or `acr` aal2+/loa2+). When `true`, every authenticated `/v1` request from a single-factor session gets 403 (enforced at request time). Off by default |
 | `PROBECTL_METRICS_SCRAPE_TOKEN`    | (none)                                                         | AUTHZ-25: scrape credential for the control-plane `GET /metrics` exposition. The Prometheus text carries build provenance (`probectl_build_info{version,commit}`) and pipeline counters — a fingerprinting surface — so on the public API listener an anonymous scrape is refused `401`. Set this to a high-entropy secret and have the ServiceMonitor present it as `Authorization: Bearer <token>`; a mismatched or absent credential gets `401`. Empty on a non-dev deployment means `/metrics` fails closed (no anonymous exposition). Kept out of logs and the support bundle. A local `dev`-auth build (loopback-only) serves `/metrics` without it |
 
@@ -1322,7 +1323,13 @@ replay-protection metadata until tenant erasure.
 **Per-tenant IdP.** Providers are resolved per tenant through a provider factory.
 The environment configuration (`PROBECTL_OIDC_*`) is the deployment fallback;
 an enabled row saved through **Admin & Settings → Identity administration** or
-`PUT /v1/identity/settings` overrides it for that tenant. `GET
+`PUT /v1/identity/settings` overrides it for that tenant. The two are reached
+differently on purpose. The deployment IdP is the operator's own
+configuration, so it may live on the operator's network — loopback, RFC1918 or
+in-cluster DNS — behind the CA in `PROBECTL_OIDC_CA_FILE`. A tenant-configured
+issuer is tenant input, so its discovery, keys and code exchange go through the
+SSRF-guarded client (INJ-04): it must resolve to a public address, and one that
+resolves into private, loopback or link-local space is refused. `GET
 /v1/identity/settings` returns public metadata plus
 `client_secret_configured`, never plaintext or ciphertext. Sending an empty
 `client_secret` on an update preserves the existing secret.

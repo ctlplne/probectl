@@ -424,6 +424,11 @@ type Config struct {
 	OIDCClientID     string
 	OIDCClientSecret string
 	OIDCRedirectURL  string
+	// OIDCCAFile is an optional PEM trust bundle for the deployment IdP
+	// (PROBECTL_OIDC_ISSUER) — a self-hosted IdP behind the operator's private
+	// CA. Certificate validation is never disabled; empty means the system
+	// trust store. Tenant-configured IdPs do not use it.
+	OIDCCAFile string
 
 	// Path store (S10/S11): where discovered network paths are persisted and
 	// served. memory (default) or clickhouse (a ClickHouse HTTP URL).
@@ -1183,6 +1188,7 @@ func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.OIDCClientID = l.str("PROBECTL_OIDC_CLIENT_ID", "")
 	cfg.OIDCClientSecret = l.str("PROBECTL_OIDC_CLIENT_SECRET", "")
 	cfg.OIDCRedirectURL = l.str("PROBECTL_OIDC_REDIRECT_URL", "")
+	cfg.OIDCCAFile = l.str("PROBECTL_OIDC_CA_FILE", "")
 	cfg.SecurityContact = l.str("PROBECTL_SECURITY_CONTACT", "")
 	cfg.OTLPExportEndpoint = l.str("PROBECTL_OTLP_EXPORT_ENDPOINT", "")
 	cfg.OTLPExportToken = l.str("PROBECTL_OTLP_EXPORT_TOKEN", "")
@@ -1708,6 +1714,11 @@ func validateExternalEndpoints(l *loader, cfg *Config) {
 	if strings.TrimSpace(cfg.AIModelCAFile) != "" {
 		if _, err := crypto.HardenedClientTLSConfigWithCAFile(cfg.AIModelCAFile); err != nil {
 			l.errf("PROBECTL_AI_MODEL_CA_FILE must be a readable PEM bundle with at least one certificate: %v", err)
+		}
+	}
+	if strings.TrimSpace(cfg.OIDCCAFile) != "" {
+		if _, err := crypto.HardenedClientTLSConfigWithCAFile(cfg.OIDCCAFile); err != nil {
+			l.errf("PROBECTL_OIDC_CA_FILE must be a readable PEM bundle with at least one certificate: %v", err)
 		}
 	}
 	if cfg.MCPHTTPAddr != "" && !cfg.MCPEnabled() {

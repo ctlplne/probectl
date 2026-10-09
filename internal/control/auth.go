@@ -217,6 +217,14 @@ func (f *oidcFactory) resolveConfig(ctx context.Context, tenantID string) (auth.
 	if err := validateOIDCConfig(cfg); err != nil {
 		return auth.OIDCConfig{}, "", apierror.Unavailable("deployment SSO configuration is invalid").Wrap(err)
 	}
+	// The deployment IdP is the operator's own configuration, so it may live on
+	// the operator's network and behind its CA (a tenant issuer above keeps the
+	// SSRF-guarded client: it is tenant input).
+	client, err := auth.DeploymentIDPClient(f.cfg.OIDCCAFile)
+	if err != nil {
+		return auth.OIDCConfig{}, "", apierror.Unavailable("deployment SSO configuration is invalid").Wrap(err)
+	}
+	cfg.HTTPClient = client
 	return cfg, "environment", nil
 }
 

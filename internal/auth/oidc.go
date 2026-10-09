@@ -44,6 +44,23 @@ type OIDCConfig struct {
 	ClientSecret string
 	RedirectURL  string
 	Scopes       []string
+	// HTTPClient carries every outbound call to the IdP (discovery, JWKS, the
+	// code exchange). Nil — always the case for a tenant-configured issuer —
+	// means the SSRF-guarded client. Only the operator's own deployment IdP
+	// sets it, to DeploymentIDPClient (see there).
+	HTTPClient *http.Client
+}
+
+// DeploymentIDPClient is the outbound client for the DEPLOYMENT IdP
+// (PROBECTL_OIDC_ISSUER): hardened, certificate-validating TLS that trusts the
+// operator's optional CA bundle (PROBECTL_OIDC_CA_FILE), without the private-
+// address refusal of the SSRF-guarded client. That guard exists because a
+// tenant-configured issuer is tenant input (INJ-04); the deployment issuer is
+// the operator's own configuration, and a self-hosted, air-gapped IdP lives on
+// the operator's own network — loopback, RFC1918 or in-cluster DNS. Tenant
+// issuers never get this client.
+func DeploymentIDPClient(caFile string) (*http.Client, error) {
+	return crypto.HardenedHTTPClientWithCAFile(oidcDiscoveryTimeout, caFile)
 }
 
 // oidcProvider runs the OIDC authorization-code flow and verifies the ID token.
@@ -52,16 +69,22 @@ type OIDCConfig struct {
 type oidcProvider struct {
 	oauth    *oauth2.Config
 	verifier *oidc.IDTokenVerifier
+	client   *http.Client
 }
 
 // NewOIDCProvider discovers the IdP metadata and builds a provider. It touches the
 // network at construction (fetching the discovery document + JWKS).
 func NewOIDCProvider(ctx context.Context, c OIDCConfig) (Provider, error) {
-	// INJ-04: the issuer is tenant-controlled, so discovery must run through the
+	// INJ-04: a tenant-controlled issuer must be discovered through the
 	// SSRF-guarded, certificate-hardened client — not http.DefaultClient — or an
 	// issuer that resolves to a private/loopback/link-local/metadata address would
 	// let the control plane be driven into SSRF (docs/guardrails.md G7-10, G7-12).
-	ctx = oidc.ClientContext(ctx, discoveryHTTPClient())
+	// Only the operator's deployment IdP arrives with its own client.
+	client := c.HTTPClient
+	if client == nil {
+		client = discoveryHTTPClient()
+	}
+	ctx = oidc.ClientContext(ctx, client)
 	idp, err := oidc.NewProvider(ctx, c.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: discover issuer %q: %w", c.Issuer, err)
@@ -79,6 +102,7 @@ func NewOIDCProvider(ctx context.Context, c OIDCConfig) (Provider, error) {
 			Scopes:       scopes,
 		},
 		verifier: idp.Verifier(&oidc.Config{ClientID: c.ClientID}),
+		client:   client,
 	}, nil
 }
 
@@ -101,9 +125,10 @@ func (p *oidcProvider) Exchange(ctx context.Context, code, codeVerifier string) 
 	}
 	// INJ-04: the token and JWKS endpoints are taken from the (untrusted) discovery
 	// document, so the code exchange and ID-token verification use the same
-	// SSRF-guarded client as discovery (oidc.ClientContext sets the oauth2 HTTP
-	// client, which both the token exchange and the verifier's JWKS fetch read).
-	ctx = oidc.ClientContext(ctx, discoveryHTTPClient())
+	// client as discovery — SSRF-guarded for a tenant issuer (oidc.ClientContext
+	// sets the oauth2 HTTP client, which both the token exchange and the
+	// verifier's JWKS fetch read).
+	ctx = oidc.ClientContext(ctx, p.client)
 	tok, err := p.oauth.Exchange(ctx, code, oauth2.VerifierOption(codeVerifier))
 	if err != nil {
 		return nil, fmt.Errorf("oidc: code exchange: %w", err)

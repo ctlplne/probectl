@@ -77,7 +77,8 @@ To be a valid IdP for probectl, the provider must:
 - expose a discovery document at `${issuer}/.well-known/openid-configuration`
   reachable from the control plane (the discovery document is the IdP's
   self-description — endpoints, keys, capabilities — so nothing else needs
-  hand-configuring; in-cluster DNS is fine);
+  hand-configuring; for the deployment IdP, in-cluster DNS, RFC1918 and
+  loopback addresses are fine — see *Where the IdP may live* below);
 - issue ID tokens for the `openid` scope, including an `email` claim (probectl
   requests `openid`, `email`, `profile` by default and refuses a login with no
   email);
@@ -139,15 +140,31 @@ Run it on an in-network host with its own datastore; nothing crosses the
 air-gap. (If you want Keycloak to drive *roles*, do it via SCIM push, not OIDC
 claims — see [`scim-abac.md`](../scim-abac.md).)
 
+## Where the IdP may live
+
+The **deployment** IdP (`PROBECTL_OIDC_ISSUER`) is the operator's own
+configuration, so the control plane reaches it wherever the operator put it:
+an in-cluster service, an RFC1918 host, or loopback (the Dex demo stacks share
+the control plane's network namespace and use `https://localhost:5556/dex`).
+A **tenant-configured** IdP (Admin → Identity administration, `PUT
+/v1/identity/settings`) is tenant input, so every call to it — discovery, keys,
+the code exchange — goes through the SSRF-guarded client (INJ-04): its issuer
+must resolve to a public address, and one that resolves into private,
+loopback, link-local or metadata space is refused. A sovereign deployment's
+in-network IdP therefore belongs in the deployment configuration.
+
 ## Trust & TLS
 
 The control plane validates the IdP's TLS certificate — outbound certificate
 validation is never disabled anywhere in probectl (a
 [non-negotiable](../../CONTRIBUTING.md#non-negotiables)). For an internal CA,
-mount your CA bundle so the control plane trusts
-the IdP's cert — the same trust store the rest of probectl uses for outbound
-TLS. A self-signed IdP cert from a private CA is fine **as long as that CA is in
-the trust store** — probectl never skips verification. The distinction matters:
+point `PROBECTL_OIDC_CA_FILE` at your CA bundle (PEM) so the control plane
+trusts the deployment IdP's certificate. The bundle replaces the system roots
+for that one connection (the usual `ca_file` contract), and a missing or
+certificate-less bundle refuses startup. Without it the system trust store
+applies — on Linux `SSL_CERT_FILE` can point it at a bundle, as the Dex demo
+stacks do. A self-signed IdP cert from a private CA is fine **as long as that
+CA is trusted** — probectl never skips verification. The distinction matters:
 "trust my private CA" extends the list of who may vouch; "skip verification"
 would accept *anyone*, and login is the worst possible place to accept anyone.
 

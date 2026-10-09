@@ -9,10 +9,14 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -373,6 +377,56 @@ func TestTenantIdPPerTenantResolutionAndEnvironmentFallback(t *testing.T) {
 	}
 	if len(built) != 4 || built[3].Issuer != "https://tenant-a-new.example" {
 		t.Fatalf("updated tenant provider was not rebuilt: %+v", built)
+	}
+}
+
+// TestDeploymentIdPOnTheOperatorsNetworkIsReachable: the deployment IdP
+// (PROBECTL_OIDC_ISSUER) is the operator's own configuration, and a self-hosted,
+// air-gapped IdP lives on the operator's network — here a loopback TLS listener
+// behind a private CA (PROBECTL_OIDC_CA_FILE). INJ-04 put every issuer behind the
+// SSRF guard, so the deployment's own IdP was refused at discovery and no login
+// could complete (the Dex demo and eval-SSO stacks included). A tenant-configured
+// issuer at the same address is still refused: it is tenant input.
+func TestDeploymentIdPOnTheOperatorsNetworkIsReachable(t *testing.T) {
+	var issuer string
+	idp := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/openid-configuration" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer": issuer, "authorization_endpoint": issuer + "/auth", "token_endpoint": issuer + "/token",
+			"jwks_uri": issuer + "/keys", "response_types_supported": []string{"code"},
+			"subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	}))
+	defer idp.Close()
+	issuer = idp.URL
+	caFile := filepath.Join(t.TempDir(), "idp-ca.pem")
+	if err := os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: idp.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := &config.Config{
+		OIDCIssuer: issuer, OIDCClientID: "env-client", OIDCClientSecret: "env-secret",
+		OIDCRedirectURL: "https://probectl.example/auth/callback", OIDCCAFile: caFile,
+	}
+	factory := newOIDCFactory(env, nil)
+	factory.idps = &unitTenantIDPSource{items: map[string]*store.TenantIDP{
+		"tenant-a": {
+			Issuer: issuer, ClientID: "tenant-a-client", ClientSecret: "tenant-a-secret",
+			RedirectURL: "https://a.example/auth/callback", Scopes: []string{"openid"}, Enabled: true,
+		},
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := factory.For(ctx, "tenant-b"); err != nil {
+		t.Fatalf("the deployment IdP on the operator's own network was refused: %v", err)
+	}
+	// Refused by the SSRF guard itself, not merely by an untrusted certificate.
+	if _, err := factory.For(ctx, "tenant-a"); err == nil || !strings.Contains(err.Error(), "reserved address") {
+		t.Fatalf("a tenant-configured issuer on a loopback address = %v, want the SSRF guard's refusal", err)
 	}
 }
 
