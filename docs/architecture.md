@@ -201,7 +201,9 @@ and an airbag: either one catches the crash the other misses.
 `probectl_app` also holds *least-privilege* DML: audit tables grant no
 UPDATE/DELETE, so even buggy code cannot rewrite history. The application's login
 role must be able to assume `probectl_app` (a superuser always can; otherwise
-`GRANT probectl_app TO <login_role>`).
+`GRANT probectl_app TO <login_role>`), and to assume, without inheriting,
+`probectl_provider` (`GRANT probectl_provider TO <login_role> WITH INHERIT FALSE,
+SET TRUE`).
 
 ### Provider plane and break-glass
 

@@ -19,9 +19,10 @@
 //     the S-T2 silo routing) scope every DELETE, so erasing tenant A cannot
 //     touch tenant B even if this code were buggy (defense in depth) — and a
 //     siloed tenant's deletes land inside its own schema.
-//   - The tenant-owned table set derives LIVE from information_schema minus
-//     the shared provider-owned deny list (internal/tenancy) — the same
-//     vocabulary the silo provisioner uses, so the two can never disagree.
+//   - The tenant-owned table set derives LIVE from the catalog (pg_catalog,
+//     whatever the login may read) minus the shared provider-owned deny list
+//     (internal/tenancy) — the same vocabulary the silo provisioner uses, so
+//     the two can never disagree.
 //   - Provider-plane rows ABOUT the tenant (usage, quotas, break-glass, and
 //     compatibility-window rows) are erased through the provider role.
 //   - "Deleted" is verified by counting AFTER deleting: the attestation
@@ -374,18 +375,22 @@ func (e *Engine) WithClock(now func() time.Time) *Engine {
 }
 
 // tenantOwnedTables derives the live tenant-owned table set (public tables
-// with a tenant_id column minus the shared provider-owned deny list).
+// with a tenant_id column minus the shared provider-owned deny list). It reads
+// pg_catalog, not information_schema: the latter lists only tables the login
+// holds a privilege on, so the least-privilege serve login would silently drop
+// the tables only the provider role reads (TEN-01) from the erasure.
 func (e *Engine) tenantOwnedTables(ctx context.Context) ([]string, error) {
 	rows, err := e.pool.Query(ctx, `
-		SELECT DISTINCT c.table_name
-		  FROM information_schema.columns AS c
-		  JOIN information_schema.tables AS t
-		    ON t.table_schema = c.table_schema
-		   AND t.table_name = c.table_name
-		 WHERE c.table_schema = 'public'
-		   AND c.column_name = 'tenant_id'
-		   AND t.table_type = 'BASE TABLE'
-		 ORDER BY c.table_name`)
+		SELECT DISTINCT c.relname
+		  FROM pg_catalog.pg_class AS c
+		  JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+		  JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid
+		 WHERE n.nspname = 'public'
+		   AND c.relkind IN ('r', 'p')
+		   AND a.attname = 'tenant_id'
+		   AND a.attnum > 0
+		   AND NOT a.attisdropped
+		 ORDER BY c.relname`)
 	if err != nil {
 		return nil, fmt.Errorf("tenantlife: read tenant tables: %w", err)
 	}

@@ -453,7 +453,7 @@ func ProviderVerify(ctx context.Context, pool *pgxpool.Pool) error {
 // Unlike MAX(provider_audit_events.seq), it cannot move backward after
 // retention removes every currently stored event row.
 func ProviderHeadSeq(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
-	tx, err := pool.Begin(ctx)
+	tx, err := tenancy.BeginProvider(ctx, pool)
 	if err != nil {
 		return 0, fmt.Errorf("begin provider head read: %w", err)
 	}
@@ -480,7 +480,7 @@ func ProviderVerifyFrom(ctx context.Context, pool *pgxpool.Pool, afterSeq int64)
 	if afterSeq < 0 {
 		return fmt.Errorf("provider audit anchor sequence must be non-negative")
 	}
-	tx, err := pool.Begin(ctx)
+	tx, err := tenancy.BeginProvider(ctx, pool)
 	if err != nil {
 		return fmt.Errorf("begin provider audit verify: %w", err)
 	}

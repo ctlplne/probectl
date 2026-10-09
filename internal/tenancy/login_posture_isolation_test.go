@@ -11,6 +11,7 @@ package tenancy_test
 import (
 	"context"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -58,9 +59,18 @@ func TestAssertLoginRolePosture(t *testing.T) {
 	}
 	defer lp.Close()
 
-	// The least-privilege login passes the posture check...
+	// A login that can assume only probectl_app is refused: the provider plane,
+	// the audit streams, enrollment and lifecycle run as probectl_provider.
+	if err := tenancy.AssertLoginRolePosture(ctx, lp, false); err == nil || !strings.Contains(err.Error(), "cannot assume probectl_provider") {
+		t.Fatalf("TEN-01: a login that cannot assume probectl_provider must be refused at boot, got %v", err)
+	}
+	// Granted assume-only (SET without INHERIT), the least-privilege login
+	// passes the posture check...
+	if _, err := su.Exec(ctx, `GRANT probectl_provider TO `+role+` WITH INHERIT FALSE, SET TRUE`); err != nil {
+		t.Fatalf("grant probectl_provider assume-only: %v", err)
+	}
 	if err := tenancy.AssertLoginRolePosture(ctx, lp, false); err != nil {
-		t.Fatalf("TEN-01: a NOSUPERUSER NOBYPASSRLS login must pass the posture check: %v", err)
+		t.Fatalf("TEN-01: a NOSUPERUSER NOBYPASSRLS login that can assume both roles must pass the posture check: %v", err)
 	}
 	// ...and RLS bites on the bare pool: a predicate-free read with no tenant set
 	// returns zero rows (the full-table escalation path the superuser login had).
@@ -70,5 +80,20 @@ func TestAssertLoginRolePosture(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("TEN-01: a predicate-free read on the raw serve pool must return 0 rows (RLS enforced), got %d", n)
+	}
+	// ...and the provider role stays outside a provider transaction: the bare
+	// pool cannot read the tenant registry.
+	if err := lp.QueryRow(ctx, `SELECT count(*) FROM tenants`).Scan(&n); err == nil {
+		t.Error("TEN-01: the bare serve pool read the tenant registry — the provider role was inherited")
+	}
+
+	// A login that INHERITS probectl_provider is refused: its provider-only
+	// policies would apply on every bare-pool path.
+	if _, err := su.Exec(ctx, `GRANT probectl_provider TO `+role+` WITH INHERIT TRUE, SET TRUE`); err != nil {
+		t.Fatalf("grant probectl_provider inherited: %v", err)
+	}
+	lp.Reset()
+	if err := tenancy.AssertLoginRolePosture(ctx, lp, false); err == nil || !strings.Contains(err.Error(), "inherits probectl_provider") {
+		t.Fatalf("TEN-01: a login that inherits probectl_provider must be refused at boot, got %v", err)
 	}
 }

@@ -324,20 +324,26 @@ func retentionReceiptData(stream, tenantID string, pruned, watermark int64, cuto
 }
 
 func listRetentionTenantIDs(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
-	rows, err := pool.Query(ctx, `SELECT id::text FROM tenants WHERE status <> 'deleted' ORDER BY id`)
+	var out []string
+	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		rows, err := q.Query(ctx, `SELECT id::text FROM tenants WHERE status <> 'deleted' ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			out = append(out, id)
+		}
+		return rows.Err()
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func tenantSIEMWatermark(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int64, error) {
@@ -470,7 +476,7 @@ func pruneProviderWithProofReceipt(
 	if receipt == nil {
 		return 0, fmt.Errorf("prune provider audit: receipt appender is required")
 	}
-	tx, err := pool.Begin(ctx)
+	tx, err := tenancy.BeginProvider(ctx, pool)
 	if err != nil {
 		return 0, fmt.Errorf("begin provider audit prune: %w", err)
 	}

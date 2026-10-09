@@ -6,3 +6,8 @@ SELECT 'CREATE ROLE probectl_runtime LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE 
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'probectl_runtime')\gexec
 ALTER ROLE probectl_runtime WITH PASSWORD :'app_password';
 GRANT probectl_app TO probectl_runtime;
+-- The provider plane, the audit/WORM streams, agent enrollment and tenant
+-- lifecycle run as probectl_provider via SET LOCAL ROLE. The login may ASSUME
+-- it but never INHERITS it, so provider-only policies apply only inside an
+-- explicit provider transaction (the boot posture check refuses otherwise).
+GRANT probectl_provider TO probectl_runtime WITH INHERIT FALSE, SET TRUE;

@@ -1344,7 +1344,7 @@ func ListProvider(ctx context.Context, pool *pgxpool.Pool, afterSeq int64, limit
 	if limit > MaxExportPageSize {
 		limit = MaxExportPageSize
 	}
-	tx, err := pool.Begin(ctx)
+	tx, err := tenancy.BeginProvider(ctx, pool)
 	if err != nil {
 		return nil, fmt.Errorf("begin provider audit list: %w", err)
 	}

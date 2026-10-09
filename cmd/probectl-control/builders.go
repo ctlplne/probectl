@@ -183,7 +183,11 @@ func verifyServePosture(ctx context.Context, cfg *config.Config, db *store.DB, l
 	log.Info("tenant isolation posture verified (RLS forced, serve login + app role non-bypass)")
 
 	chScoped := cfg.TenantScopingComplete()
-	if err := tenancy.AssertDeploymentProfilePosture(ctx, db.Pool(), cfg.DeploymentProfile, chScoped); err != nil {
+	// The tenant registry is readable only as the provider role; the serve
+	// login assumes it (TEN-01 grants it assume-only).
+	if err := tenancy.InProvider(ctx, db.Pool(), func(ctx context.Context, q tenancy.Querier) error {
+		return tenancy.AssertDeploymentProfilePosture(ctx, q, cfg.DeploymentProfile, chScoped)
+	}); err != nil {
 		return fmt.Errorf("deployment profile self-check failed: %w", err)
 	}
 	log.Info("deployment profile posture verified", "profile", cfg.DeploymentProfile, "ch_tenant_scoped", chScoped)

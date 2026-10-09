@@ -1845,7 +1845,8 @@ func isolatedProviderRetentionPool(t *testing.T, admin *pgxpool.Pool) *pgxpool.P
 		`CREATE TABLE ` + quoted + `.provider_audit_stream_head
 			(LIKE public.provider_audit_stream_head INCLUDING ALL)`,
 		`GRANT USAGE ON SCHEMA ` + quoted + ` TO probectl_provider`,
-		`GRANT SELECT, INSERT ON ` + quoted + `.provider_audit_events TO probectl_provider`,
+		// The production grants: 0024, plus 0124's DELETE for the prune.
+		`GRANT SELECT, INSERT, DELETE ON ` + quoted + `.provider_audit_events TO probectl_provider`,
 		`GRANT SELECT, INSERT, UPDATE ON ` + quoted + `.provider_audit_stream_head TO probectl_provider`,
 	} {
 		if _, err := admin.Exec(ctx, stmt); err != nil {

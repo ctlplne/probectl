@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Tenant lifecycle enforcement (S-T1). When the provider plane suspends or
@@ -63,7 +64,9 @@ func NewTenantStatusCache(pool *pgxpool.Pool, ttl time.Duration) TenantStatusSou
 	}
 	read := func(ctx context.Context, tenantID string) (string, error) {
 		var status string
-		err := pool.QueryRow(ctx, `SELECT status FROM tenants WHERE id = $1`, tenantID).Scan(&status)
+		err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+			return q.QueryRow(ctx, `SELECT status FROM tenants WHERE id = $1`, tenantID).Scan(&status)
+		})
 		return status, err
 	}
 	return &tenantStatusCache{read: read, ttl: ttl, entries: map[string]statusEntry{}}

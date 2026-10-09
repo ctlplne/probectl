@@ -65,7 +65,7 @@ func AssertLoginRolePosture(ctx context.Context, pool *pgxpool.Pool, allowSuperu
 		return fmt.Errorf("isolation posture: read login role: %w", err)
 	}
 	if !isSuper && !canBypass {
-		return nil
+		return assertProviderRoleAssumable(ctx, pool, roleName)
 	}
 	if allowSuperuser {
 		return nil
@@ -76,6 +76,29 @@ func AssertLoginRolePosture(ctx context.Context, pool *pgxpool.Pool, allowSuperu
 	}
 	return fmt.Errorf("isolation posture: the control plane's Postgres LOGIN role %q is %s — it bypasses RLS on every bare-pool path, so tenant isolation is OFF (guardrail 1, refusing to start). Point PROBECTL_DATABASE_URL at a NOSUPERUSER NOBYPASSRLS login that is a member of %s, and run migrations with a separate privileged PROBECTL_MIGRATE_DATABASE_URL. To override in a NON-PRODUCTION sandbox only, set PROBECTL_DANGEROUS_ALLOW_SUPERUSER_DB=true",
 		roleName, reason, AppRole)
+}
+
+// assertProviderRoleAssumable checks that a least-privilege login can SET ROLE
+// to the provider role (InProvider: the provider plane, the audit and WORM
+// streams, agent enrollment, tenant lifecycle) without inheriting it. A login
+// that inherited it would carry the provider-only policies (cross-tenant fleet
+// and registry reads) onto every bare-pool path (guardrail 1); one that cannot
+// assume it fails those paths at first use instead of at boot.
+func assertProviderRoleAssumable(ctx context.Context, pool *pgxpool.Pool, login string) error {
+	var canSet, inherits bool
+	if err := pool.QueryRow(ctx,
+		`SELECT pg_has_role(session_user, $1, 'SET'), pg_has_role(session_user, $1, 'USAGE')`, ProviderRole,
+	).Scan(&canSet, &inherits); err != nil {
+		return fmt.Errorf("isolation posture: read the login's %s membership (are migrations applied?): %w", ProviderRole, err)
+	}
+	grant := fmt.Sprintf("GRANT %s TO %s WITH INHERIT FALSE, SET TRUE", ProviderRole, pgx.Identifier{login}.Sanitize())
+	if inherits {
+		return fmt.Errorf("isolation posture: the Postgres LOGIN role %q inherits %s, so its provider-only policies apply on every bare-pool path (guardrail 1, refusing to start); re-grant it as assume-only: %s", login, ProviderRole, grant)
+	}
+	if !canSet {
+		return fmt.Errorf("isolation posture: the Postgres LOGIN role %q cannot assume %s, which the provider plane, the audit streams, agent enrollment and tenant lifecycle run as (refusing to start); grant it as assume-only: %s", login, ProviderRole, grant)
+	}
+	return nil
 }
 
 // postureQuerier is the minimal surface AssertPostureTx needs (a pgx tx).

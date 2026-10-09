@@ -222,7 +222,13 @@ depend on application code getting a `WHERE` clause right. The
 `PROBECTL_DATABASE_URL` role must be able to assume the least-privilege `probectl_app`
 role (a superuser always can; otherwise run `GRANT probectl_app TO <login_role>`),
 which `internal/tenancy` assumes per transaction so isolation holds regardless of
-how the control plane authenticated. See [`architecture.md`](architecture.md).
+how the control plane authenticated. It must also be able to *assume* — never
+inherit — `probectl_provider`, the role the provider plane, the audit and WORM
+streams, agent enrollment and tenant lifecycle run as:
+`GRANT probectl_provider TO <login_role> WITH INHERIT FALSE, SET TRUE`. Boot
+refuses a login that cannot assume it, or that inherits it (its provider-only
+policies would then apply outside a provider transaction). See
+[`architecture.md`](architecture.md).
 
 ### HTTP endpoints
 

@@ -75,18 +75,12 @@ const ProviderRole = "probectl_provider"
 // metadata). No tenant GUC is set: the tenant_isolation policies correctly
 // match nothing, and only the explicit provider policies apply.
 func InProvider(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, Querier) error) error {
-	tx, err := pool.Begin(ctx)
+	tx, err := BeginProvider(ctx, pool)
 	if err != nil {
-		return fmt.Errorf("begin provider tx: %w", err)
+		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
 
-	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{ProviderRole}.Sanitize()); err != nil {
-		return fmt.Errorf("assume provider role: %w", err)
-	}
-	if err := runTxGuard(ctx, tx); err != nil {
-		return err
-	}
 	if err := fn(ctx, tx); err != nil {
 		return err
 	}
@@ -94,6 +88,27 @@ func InProvider(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context
 		return fmt.Errorf("commit provider tx: %w", err)
 	}
 	return nil
+}
+
+// BeginProvider opens a transaction already bound to the provider role, for a
+// provider-domain caller that manages its own commit (multi-step audit-chain
+// work). The serve login can assume the role but never inherits it, so every
+// provider-domain statement runs inside such a transaction (TEN-01). The
+// caller must Commit or Rollback.
+func BeginProvider(ctx context.Context, pool *pgxpool.Pool) (pgx.Tx, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin provider tx: %w", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{ProviderRole}.Sanitize()); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, fmt.Errorf("assume provider role: %w", err)
+	}
+	if err := runTxGuard(ctx, tx); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, err
+	}
+	return tx, nil
 }
 
 // InTenant runs fn inside a transaction bound to the tenant resolved from ctx. It

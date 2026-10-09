@@ -296,8 +296,10 @@ func (b *RegistryBinding) tenantLifecycleStatus(ctx context.Context, tenantID st
 	b.mu.Unlock()
 
 	var status string
-	err := b.pool.QueryRow(ctx,
-		`SELECT status FROM public.tenants WHERE id = $1::uuid`, tenantID).Scan(&status)
+	err := tenancy.InProvider(ctx, b.pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx,
+			`SELECT status FROM public.tenants WHERE id = $1::uuid`, tenantID).Scan(&status)
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			status = "deleted"

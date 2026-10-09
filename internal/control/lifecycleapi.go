@@ -53,15 +53,17 @@ func (s *Server) lifecycleEngine() (tenantLifecycleEngine, error) {
 }
 
 // tenantSlugAndMeta reads the caller's registry row (tenants has no RLS — it
-// is the provider-scoped registry; this read is keyed by the PRINCIPAL'S own
-// tenant id, never caller input).
+// is the provider-scoped registry, read as the provider role; this read is
+// keyed by the PRINCIPAL'S own tenant id, never caller input).
 func (s *Server) tenantSlugAndMeta(ctx context.Context, tenantID string) (slug, isolation, residency string, err error) {
 	if s.pool == nil {
 		return "", "pooled", "", nil
 	}
-	err = s.pool.QueryRow(ctx,
-		`SELECT slug, isolation_model, residency FROM tenants WHERE id = $1`, tenantID).
-		Scan(&slug, &isolation, &residency)
+	err = tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx,
+			`SELECT slug, isolation_model, residency FROM tenants WHERE id = $1`, tenantID).
+			Scan(&slug, &isolation, &residency)
+	})
 	if err != nil {
 		return "", "", "", apierror.Internal("tenant registry read failed").Wrap(err)
 	}
