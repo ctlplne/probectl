@@ -11,7 +11,6 @@ package silo_test
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -36,6 +35,7 @@ import (
 
 	"github.com/ctlplne/probectl/ee/silo"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
@@ -360,9 +360,14 @@ func otlpToken(t *testing.T, st *shipped.Stack, cookie string) string {
 // postTrace sends one span over OTLP/HTTP (protobuf), as a collector would.
 func postTrace(t *testing.T, st *shipped.Stack, token, service string) {
 	t.Helper()
-	traceID, spanID := make([]byte, 16), make([]byte, 8)
-	_, _ = rand.Read(traceID)
-	_, _ = rand.Read(spanID)
+	traceID, err := crypto.Random(16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spanID, err := crypto.Random(8)
+	if err != nil {
+		t.Fatal(err)
+	}
 	now := uint64(time.Now().UnixNano())
 	payload, err := proto.Marshal(&coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{
 		Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{{

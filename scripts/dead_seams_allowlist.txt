@@ -10,13 +10,13 @@
 
 # ---- declared test-support packages -----------------------------------------
 package github.com/ctlplne/probectl/internal/testsupport — its declared role is cross-package test support (CLAUDE.md §5); every consumer is a _test.go by design
+package github.com/ctlplne/probectl/internal/testsupport/shipped — cross-package test support that boots the shipped binaries for real-stack receipts; every consumer is a _test.go by design
 
 # ---- the crypto door's test-fixture surface (§7.3) --------------------------
 symbol github.com/ctlplne/probectl/internal/crypto.CA.IssueClientCert — §7.3 forbids test packages minting their own primitives; dependent suites obtain client SVIDs here
 symbol github.com/ctlplne/probectl/internal/crypto.GenerateRSAKeyPEM — crypto-door test fixture: RSA material for SCIM/JWKS suites, never minted outside internal/crypto
 symbol github.com/ctlplne/probectl/internal/crypto.GenerateTestCert — crypto-door test fixture: TLS certs for listener suites, never minted outside internal/crypto
 symbol github.com/ctlplne/probectl/internal/crypto.NewStaticKeyProvider — crypto-door test fixture: deterministic key provider for envelope suites
-symbol github.com/ctlplne/probectl/internal/crypto.TOTPNow — crypto-door test fixture: provider-console TOTP enrollment tests compute expected codes here
 
 # ---- isolation / migration / DR gate verification surfaces (§7.1) -----------
 symbol github.com/ctlplne/probectl/internal/store/ebpfstore.HasTenantWriteFence — isolation-suite probe: asserts the fence wrapper is present on the shipping store
