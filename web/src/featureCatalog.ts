@@ -332,7 +332,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F56',
     name: 'Per-tenant keys/BYOK',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

@@ -887,7 +887,6 @@ capabilities:
   - id: F56
     name: Per-tenant keys/BYOK
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:ee/tenantkeys", "file:internal/tenantcrypto"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithKeyManager("]}
@@ -897,7 +896,7 @@ capabilities:
     docs: {refs: ["file:docs/byok.md#Per-tenant key isolation / BYOK"]}
     config_keys: {refs: ["config:PROBECTL_ENVELOPE_KEY", "config:PROBECTL_ENVELOPE_KEY_ID"]}
     telemetry: {refs: ["file:ee/tenantkeys"]}
-    real_stack_proof: {gap: "The selected test covers managed-mode static-master rotation only; no BYOK provider or external-key lifecycle through the public keys API, CLI, and UI is proven."}
+    real_stack_proof: {refs: ["test:ee/tenantkeys/byok_realstack_integration_test.go#TestBYOKExternalKeyLifecycleRealStack"]}
     migration: {refs: ["file:migrations/0030_tenant_keys.sql"]}
 
   - id: F57

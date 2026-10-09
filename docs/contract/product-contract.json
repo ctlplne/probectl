@@ -440,7 +440,7 @@
         "F56"
       ],
       "name": "Per-tenant keys/BYOK",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`ee/tenantkeys`, `internal/tenantcrypto`"
     },
     {

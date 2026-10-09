@@ -137,6 +137,13 @@
       "capabilities": [
         "F25"
       ]
+    },
+    {
+      "ref": "test:ee/tenantkeys/byok_realstack_integration_test.go#TestBYOKExternalKeyLifecycleRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F56"
+      ]
     }
   ]
 }
