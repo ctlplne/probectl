@@ -8,6 +8,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -262,6 +263,38 @@ func TestTenantProvisionFailureAuditCategoryMatchesPhase(t *testing.T) {
 				t.Fatalf("failure audit leaked backend detail: %+v", data)
 			}
 		})
+	}
+}
+
+// TEN-01: a control plane without the migration login cannot create a silo
+// schema. The operator gets a distinct 409 that says what to set — not a
+// redacted 500, and never the DDL or the database's reply.
+func TestSiloedProvisionWithoutTheDDLLoginSaysWhatToSet(t *testing.T) {
+	f := newFixture(t, licenseManager(t, license.TierMSP, 2, 90*24*time.Hour))
+	silo := &fakeSilo{failNext: true, failErr: fmt.Errorf("silo: %q: %w", `CREATE SCHEMA IF NOT EXISTS "t_0"`,
+		fmt.Errorf("%w: %w", tenancy.ErrDDLLoginRequired, errors.New("ERROR: permission denied for database probectl (SQLSTATE 42501)")))}
+	f.svc.WithSilo(silo, func() {})
+	token := f.bootstrapAndLoginFast(t)
+
+	rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants",
+		map[string]string{"slug": "ddl-less", "name": "DDL-less Co", "isolation_model": "siloed"})
+	var body struct {
+		Error struct{ Code, Message string } `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode %s: %v", rec.Body.String(), err)
+	}
+	if rec.Code != http.StatusConflict || body.Error.Code != "silo_ddl_login_required" ||
+		body.Error.Message != tenancy.ErrDDLLoginRequired.Error() {
+		t.Fatalf("siloed provisioning without the DDL login = %d %s, want 409 silo_ddl_login_required naming PROBECTL_MIGRATE_DATABASE_URL", rec.Code, rec.Body.String())
+	}
+	for _, leak := range []string{"CREATE SCHEMA", "permission denied", "SQLSTATE"} {
+		if strings.Contains(rec.Body.String(), leak) {
+			t.Errorf("the refusal leaked %q: %s", leak, rec.Body.String())
+		}
+	}
+	if got := f.audit.lastData("provider.tenant_provision_failure")["error_category"]; got != "silo_ddl_login_required" {
+		t.Errorf("failure audit category = %#v, want silo_ddl_login_required", got)
 	}
 }
 

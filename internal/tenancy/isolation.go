@@ -8,6 +8,7 @@ package tenancy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -148,6 +149,12 @@ func SetPooledNamespaceLister(fn NamespaceLister) {
 // (probectl.<namespace>.<lane>): "t-" + slug, for pooled and siloed tenants
 // alike (DPR-049).
 func BusNamespaceFor(slug string) string { return "t-" + slug }
+
+// ErrDDLLoginRequired refuses a siloed tenant's Postgres provisioning on a
+// control plane that has no migration login: the serve login is
+// least-privilege (TEN-01) and cannot create the silo schema. An operator-
+// fixable deployment precondition, not an internal failure.
+var ErrDDLLoginRequired = errors.New("siloed isolation runs its Postgres DDL as the migration login: set PROBECTL_MIGRATE_DATABASE_URL on the control plane (TEN-01)")
 
 // SiloObjectPrefix is the one definition of a siloed or hybrid tenant's
 // object-store key namespace, silo/<tenant-id> (a pooled tenant keeps the

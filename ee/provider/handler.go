@@ -25,6 +25,7 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/httpbody"
 	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // The provider HTTP surface, mounted by core at /provider/ (an opaque
@@ -868,6 +869,10 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "license_read_only", http.StatusForbidden
 	case errors.Is(err, ErrBandExhausted):
 		code, status = "tenant_band_exhausted", http.StatusForbidden
+	case errors.Is(err, tenancy.ErrDDLLoginRequired):
+		// TEN-01: siloed provisioning needs the migration login, which this
+		// control plane was not given — a precondition the operator fixes.
+		code, status = "silo_ddl_login_required", http.StatusConflict
 	case errors.Is(err, ErrSingleProfileTenantCap):
 		// TEN-04 / VER-02: a deployment-posture precondition the operator can fix
 		// (switch the profile or enable tenant scoping), not a permission denial —
@@ -893,6 +898,9 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		}
 	}
 	message := err.Error()
+	if code == "silo_ddl_login_required" {
+		message = tenancy.ErrDDLLoginRequired.Error() // never the DDL or the database's reply
+	}
 	if status >= 500 {
 		h.log.Error("provider request failed", "error", err)
 		message = "internal error"

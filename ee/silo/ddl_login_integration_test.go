@@ -10,6 +10,7 @@ package silo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -63,7 +64,7 @@ func TestSiloDDLRunsAsTheMigrationLogin(t *testing.T) {
 
 	prov := NewProvisioner(serve, CHPlanes{}, nil, 7, nil)
 	err = prov.Provision(ctx, tenantID, "", tenancy.IsolationSiloed)
-	if err == nil || !strings.Contains(err.Error(), "PROBECTL_MIGRATE_DATABASE_URL") {
+	if !errors.Is(err, tenancy.ErrDDLLoginRequired) || !strings.Contains(err.Error(), "PROBECTL_MIGRATE_DATABASE_URL") {
 		t.Fatalf("siloed provisioning on the serve login alone = %v, want a refusal naming PROBECTL_MIGRATE_DATABASE_URL", err)
 	}
 	if schemaExists(t, admin, schema) {

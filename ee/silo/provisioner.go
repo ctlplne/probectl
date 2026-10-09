@@ -109,12 +109,12 @@ func (p *Provisioner) ddlPool() *pgxpool.Pool {
 	return p.pool
 }
 
-// ddlError names the missing migration login when the serve login was refused
-// a silo DDL statement.
+// ddlError names the missing migration login (tenancy.ErrDDLLoginRequired)
+// when the serve login was refused a silo DDL statement.
 func (p *Provisioner) ddlError(err error) error {
 	var pgErr *pgconn.PgError
 	if p.ddl == nil && errors.As(err, &pgErr) && pgErr.Code == "42501" {
-		return fmt.Errorf("%w (siloed isolation runs its Postgres DDL as the migration login: set PROBECTL_MIGRATE_DATABASE_URL on the control plane, TEN-01)", err)
+		return fmt.Errorf("%w: %w", tenancy.ErrDDLLoginRequired, err)
 	}
 	return err
 }

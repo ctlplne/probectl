@@ -790,6 +790,8 @@ func tenantProvisionFailureCategory(phase tenantProvisionFailurePhase, err error
 		return "deadline_exceeded"
 	case phase == tenantProvisionRegistryPhase && errors.Is(err, ErrBandExhausted):
 		return "tenant_band_exhausted"
+	case errors.Is(err, tenancy.ErrDDLLoginRequired):
+		return "silo_ddl_login_required"
 	case phase == tenantProvisionSiloPhase:
 		return "silo_provision_failed"
 	case phase == tenantProvisionRegistryPhase:
