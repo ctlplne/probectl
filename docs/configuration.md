@@ -2600,7 +2600,7 @@ read (confused deputy) or store literal key material in the DB (AUTHZ-10;
 
 | key | default | meaning |
 | --- | --- | --- |
-| `PROBECTL_BYOK_REF_PREFIX` | (none) | the allowed secret-reference prefix for tenant BYOK references, e.g. `vault:secret/data/probectl/byok/{tenant}/`. An optional `{tenant}` token is replaced with the tenant id so each tenant is pinned to its **own** namespace. `env:` and literal/bare values are always refused (they would read the control plane's environment, or persist key material). **Empty (the default) refuses every tenant BYOK reference — fail closed**; set it to the operator-owned per-tenant namespace to enable BYOK. Managed-mode rotation is unaffected. A refused reference returns one generic `422`; the specific reason is logged server-side only. |
+| `PROBECTL_BYOK_REF_PREFIX` | (none) | the allowed secret-reference prefix for tenant BYOK references, e.g. `vault:secret/data/probectl/byok/{tenant}/`. An optional `{tenant}` token is replaced with the tenant id so each tenant is pinned to its **own** namespace. `env:` and literal/bare values are always refused (they would read the control plane's environment, or persist key material), and so is a reference whose path has an empty, `.` or `..` segment (once the path is cleaned it could walk out of the tenant's namespace). **Empty (the default) refuses every tenant BYOK reference — fail closed**; set it to the operator-owned per-tenant namespace to enable BYOK. Managed-mode rotation is unaffected. A refused reference returns one generic `422`; the specific reason is logged server-side only. |
 
 ### Tenant fairness (core)
 

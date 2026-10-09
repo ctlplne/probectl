@@ -931,6 +931,11 @@ func TestBYOKRefPolicyRejectsUntrustedRefs(t *testing.T) {
 		{"literal-escape", "literal:" + bare},
 		{"bare-base64-material", bare},
 		{"out-of-namespace-vault", "vault:secret/probectl/byok/tnOTHER/kek"},
+		// A dot segment walks out of the namespace wherever the path is cleaned
+		// before the lookup (Vault's 301 to the clean path, a normalizing front).
+		{"dot-dot-into-another-tenant", "vault:secret/probectl/byok/" + tenantA + "/../tnOTHER/kek"},
+		{"dot-segment", "vault:secret/probectl/byok/" + tenantA + "/./kek"},
+		{"empty-segment", "vault:secret/probectl/byok/" + tenantA + "//kek"},
 	}
 
 	var messages []string

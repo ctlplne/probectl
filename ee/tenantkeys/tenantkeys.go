@@ -179,6 +179,17 @@ func (p BYOKRefPolicy) reject(tenantID, ref string) string {
 	if want := p.allowedPrefixFor(tenantID); !strings.HasPrefix(r, want) {
 		return "reference is outside the tenant's configured namespace"
 	}
+	// The prefix is a string fence, and a dot segment walks back out of it
+	// wherever the path is cleaned before the lookup: Vault's listener answers
+	// .../byok/<A>/../<B>/kek with a same-origin 301 to .../byok/<B>/kek, which
+	// the resolver follows for a named host, and a normalizing front serves it
+	// outright. A tenant's reference path must already be clean.
+	refPath, _, _ := strings.Cut(r, "#")
+	for _, seg := range strings.Split(refPath, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return "reference path has an empty or dot segment"
+		}
+	}
 	return ""
 }
 
