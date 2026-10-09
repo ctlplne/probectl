@@ -93,25 +93,8 @@ func cmdAudit(
 		fmt.Fprintln(stderr, "audit reveal: "+err.Error())
 		return 2
 	}
-	if strings.TrimSpace(*sessionCookieFile) == "" {
-		fmt.Fprintln(
-			stderr,
-			"audit reveal: --session-cookie-file or PROBECTL_SESSION_COOKIE_FILE is required because bearer tokens do not attest MFA",
-		)
-		return 2
-	}
-	sessionRaw, err := readOwnerOnlyCLIFile(*sessionCookieFile, 4096)
-	if err != nil {
-		fmt.Fprintln(stderr, "audit reveal: read session cookie: "+err.Error())
-		return 2
-	}
-	defer clearBytes(sessionRaw)
-	cfg.SessionCookie = strings.TrimSpace(string(sessionRaw))
-	if cfg.SessionCookie == "" ||
-		strings.IndexFunc(cfg.SessionCookie, func(char rune) bool {
-			return char <= ' ' || char == 0x7f
-		}) >= 0 {
-		fmt.Fprintln(stderr, "audit reveal: session cookie is empty or malformed")
+	if cfg.SessionCookie, err = loadSessionCookie(*sessionCookieFile); err != nil {
+		fmt.Fprintln(stderr, "audit reveal: "+err.Error())
 		return 2
 	}
 	var out any
@@ -169,6 +152,28 @@ func readIRRevealReason(filename string, stdin io.Reader) (string, error) {
 		)
 	}
 	return reason, nil
+}
+
+// loadSessionCookie reads a tenant user's probectl session cookie from an
+// owner-only file, for the routes only an MFA-bearing browser/OIDC session may
+// drive (an IR reveal, a break-glass consent decision). The file keeps the
+// cookie out of argv and shell history.
+func loadSessionCookie(filename string) (string, error) {
+	if strings.TrimSpace(filename) == "" {
+		return "", errors.New("--session-cookie-file or PROBECTL_SESSION_COOKIE_FILE is required because bearer tokens do not attest MFA")
+	}
+	raw, err := readOwnerOnlyCLIFile(filename, 4096)
+	if err != nil {
+		return "", fmt.Errorf("read session cookie: %w", err)
+	}
+	defer clearBytes(raw)
+	cookie := strings.TrimSpace(string(raw))
+	if cookie == "" || strings.IndexFunc(cookie, func(char rune) bool {
+		return char <= ' ' || char == 0x7f
+	}) >= 0 {
+		return "", errors.New("session cookie is empty or malformed")
+	}
+	return cookie, nil
 }
 
 func readOwnerOnlyCLIFile(filename string, maxBytes int64) ([]byte, error) {

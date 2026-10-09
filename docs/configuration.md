@@ -1426,8 +1426,9 @@ when it is issued by a private CA — `--ca-file`; Go on macOS ignores
 `SSL_CERT_FILE`, and verification is never switched off),
 `PROBECTL_API_TOKEN` (sent as Bearer), `PROBECTL_TENANT` (sent as
 `X-Probectl-Tenant`), `PROBECTL_SESSION_COOKIE_FILE` (owner-only file containing
-an MFA-bearing OIDC session for `audit reveal`; it takes precedence over the
-bearer token for that request), and `PROBECTL_LOCALE` (default `en`; accepts
+an MFA-bearing OIDC session for `audit reveal` and the tenant-admin break-glass
+consent commands `provider consent|decide-consent|revoke-consent`; it takes
+precedence over the bearer token for those requests), and `PROBECTL_LOCALE` (default `en`; accepts
 shipped language tags such as `es`/`es-MX` for CLI help and API error messages). API
 error `code` values stay stable and machine-readable; only the human message is
 localized. When an API error includes `request_id`, the CLI includes it in the

@@ -171,3 +171,68 @@ func TestAuditRevealRejectsBearerOnlyBeforeNetwork(t *testing.T) {
 		)
 	}
 }
+
+// TestProviderConsentCommandsUseTheTenantSession: the tenant side of
+// break-glass consent authenticates ONLY with the tenant user's session cookie
+// (AUD-13) — the provider handler never accepts a bearer token there. The
+// consent commands used to send the bearer token like every other command, so
+// `probectl provider consent|decide-consent` could never authenticate. They now
+// send the cookie from --session-cookie-file and refuse to run without one.
+func TestProviderConsentCommandsUseTheTenantSession(t *testing.T) {
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		session, err := request.Cookie(auth.SessionCookie)
+		if err != nil || session.Value != "tenant-admin-session" || request.Header.Get("Authorization") != "" {
+			t.Errorf("%s %s: cookie=%v authorization=%q, want the session cookie and no bearer token",
+				request.Method, request.URL.Path, session, request.Header.Get("Authorization"))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		seen = append(seen, request.Method+" "+request.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"items":[]}`)
+	}))
+	t.Cleanup(server.Close)
+	sessionPath := filepath.Join(t.TempDir(), "session.cookie")
+	if err := os.WriteFile(sessionPath, []byte("tenant-admin-session\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(env map[string]string, args ...string) (int, string) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		code := RunWithStdin(append([]string{"--url", server.URL, "--token", "operator-token", "--json"}, args...),
+			func(k string) string { return env[k] }, strings.NewReader(""), &stdout, &stderr)
+		return code, stderr.String()
+	}
+	for _, args := range [][]string{
+		{"provider", "consent", "--session-cookie-file", sessionPath},
+		{"provider", "decide-consent", "11111111-1111-1111-1111-111111111111", "--body", `{"decision":"approve"}`, "--session-cookie-file", sessionPath},
+		{"provider", "revoke-consent", "11111111-1111-1111-1111-111111111111", "--session-cookie-file", sessionPath},
+	} {
+		if code, stderr := run(nil, args...); code != 0 {
+			t.Fatalf("%v: exit %d stderr=%s", args, code, stderr)
+		}
+	}
+	// The environment variable works the same as the flag.
+	if code, stderr := run(map[string]string{"PROBECTL_SESSION_COOKIE_FILE": sessionPath}, "provider", "consent"); code != 0 {
+		t.Fatalf("PROBECTL_SESSION_COOKIE_FILE: exit %d stderr=%s", code, stderr)
+	}
+	want := []string{
+		"GET /provider/v1/consent",
+		"POST /provider/v1/consent/11111111-1111-1111-1111-111111111111",
+		"POST /provider/v1/consent/11111111-1111-1111-1111-111111111111/revoke",
+		"GET /provider/v1/consent",
+	}
+	if strings.Join(seen, "|") != strings.Join(want, "|") {
+		t.Fatalf("requests = %v, want %v", seen, want)
+	}
+	// Without a session cookie the command refuses before any request: a bearer
+	// token can never satisfy these routes.
+	code, stderr := run(nil, "provider", "consent")
+	if code != 2 || !strings.Contains(stderr, "--session-cookie-file or PROBECTL_SESSION_COOKIE_FILE is required") {
+		t.Fatalf("no session cookie: exit %d stderr=%s", code, stderr)
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("a request was sent without a session cookie: %v", seen)
+	}
+}

@@ -143,8 +143,12 @@ tenant-consented, operator-bound, and audited on every single access**:
    and expiry times, audited reads, Approve/Deny; the card is absent on
    deployments without a provider plane) or via the consent endpoints
    (`GET /provider/v1/consent` lists the tenant's pending requests and active
-   grants, each with its state) — either way authenticated by
-   the **tenant** session, not an operator session. The consent
+   grants, each with its state) or the CLI (`probectl provider consent`,
+   `decide-consent <id> --body '{"decision":"approve"}'`, `revoke-consent <id>`)
+   — always authenticated by the **tenant** session, not an operator session or
+   a bearer token. The CLI reads that session cookie from an owner-only file
+   (`--session-cookie-file`, env `PROBECTL_SESSION_COOKIE_FILE`) and refuses to
+   run without one. The consent
    check resolves the tenant first, then requires that RBAC permission, then
    applies the tenant's ABAC deny policies to the user's current subject
    attributes. A policy/attribute-store failure denies the decision rather than

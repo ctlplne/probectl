@@ -222,6 +222,10 @@ const runRawOperationWithStdinSpine = `{
 	bodyFile := fs.String("body-file", "", "JSON request body path; - reads stdin (sensitive bodies require a 0600 file or stdin)")
 	query := queryFlag{}
 	fs.Var(&query, "query", "query parameter k=v (repeatable)")
+	sessionCookieFile := cfg.SessionCookieFile
+	if op.SessionAuth {
+		fs.StringVar(&sessionCookieFile, "session-cookie-file", cfg.SessionCookieFile, "owner-only file holding the tenant user's probectl session cookie (env PROBECTL_SESSION_COOKIE_FILE)")
+	}
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -256,6 +260,14 @@ const runRawOperationWithStdinSpine = `{
 	if _, err := resolveAPIURL(cfg.BaseURL, path); err != nil {
 		fmt.Fprintln(stderr, "API request target is unsafe: "+err.Error())
 		return 2
+	}
+	if op.SessionAuth {
+		cookie, err := loadSessionCookie(sessionCookieFile)
+		if err != nil {
+			fmt.Fprintln(stderr, op.Path+": "+err.Error())
+			return 2
+		}
+		cfg.SessionCookie = cookie
 	}
 	var (
 		body any

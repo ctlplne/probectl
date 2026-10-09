@@ -31,6 +31,12 @@ type apiOp struct {
 	// printing "audit chain broken at seq 2" tells every cron job and monitoring
 	// check that a compromised audit log is fine.
 	VerdictField string
+	// SessionAuth marks a route that accepts ONLY a tenant user's MFA-bearing
+	// browser/OIDC session cookie, never a bearer token: the tenant side of
+	// break-glass consent (AUD-13). The CLI reads that cookie from an owner-only
+	// --session-cookie-file (env PROBECTL_SESSION_COOKIE_FILE) and refuses to
+	// send the request without one.
+	SessionAuth bool
 }
 
 // auditColumns is the table shape of an audit event (tenant or provider stream).
@@ -328,8 +334,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"revoke-breakglass":  {Method: http.MethodPost, Path: "/provider/v1/breakglass/{id}/revoke", ArgName: "id"},
 		"breakglass-results": {Method: http.MethodGet, Path: "/provider/v1/breakglass/{id}/results", ArgName: "id"},
 		"audit":              {Method: http.MethodGet, Path: "/provider/v1/audit", Description: "page the provider audit stream (admin): every operator action, break-glass step and provisioning outcome; ?order=desc for newest first, after=/before= cursors, actor=/action=/target= filters", Columns: auditColumns},
-		"consent":            {Method: http.MethodGet, Path: "/provider/v1/consent"},
-		"decide-consent":     {Method: http.MethodPost, Path: "/provider/v1/consent/{id}", ArgName: "id"},
+		"consent":            {Method: http.MethodGet, Path: "/provider/v1/consent", Description: "tenant admin: list break-glass requests and active grants (session cookie)", SessionAuth: true},
+		"decide-consent":     {Method: http.MethodPost, Path: "/provider/v1/consent/{id}", ArgName: "id", Description: "tenant admin: approve or deny a break-glass request (session cookie)", SessionAuth: true},
+		"revoke-consent":     {Method: http.MethodPost, Path: "/provider/v1/consent/{id}/revoke", ArgName: "id", Description: "tenant admin: end a break-glass grant the tenant approved (session cookie)", SessionAuth: true},
 		"fairness":           {Method: http.MethodGet, Path: "/provider/v1/fairness"},
 		"set-fairness":       {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/fairness", ArgName: "id"},
 	}},
@@ -411,7 +418,6 @@ var surfaceCommands = map[string]surfaceCommand{
 
 var cliCoverageExceptions = []cliCoverage{
 	{Method: http.MethodPost, Path: "/v1/prometheus/write", Command: "none-by-design", Reason: "Prometheus remote-write is a snappy/protobuf ingest endpoint; use Prometheus remote_write, not the JSON CLI."},
-	{Method: http.MethodPost, Path: "/provider/v1/consent/{id}/revoke", Command: "none-by-design", Reason: "Tenant-admin break-glass revoke (AUD-13): the probectl provider CLI is the operator surface, and this route is authenticated as the tenant admin — tenants revoke via the authenticated API/UI, not the operator CLI."},
 }
 
 func cliImplementedCoverage() []cliCoverage {
