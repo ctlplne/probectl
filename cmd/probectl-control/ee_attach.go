@@ -204,16 +204,9 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 				return endpointstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
 			})
 		}
-		prov := silo.NewProvisioner(pool, ch, planes, cfg.FlowRetentionDays, log).
-			WithEndpointRetentionDays(cfg.EndpointRetentionDays)
-		if cfg.MigrateDatabaseURL != "" {
-			// TEN-01: a silo schema is migration-class DDL the least-privilege
-			// serve login cannot run, so it runs as the migration login.
-			ddl, err := store.Open(ctx, cfg.MigrateDatabaseURL, 2, 0, cfg.DatabaseConnTimeout)
-			if err != nil {
-				return fmt.Errorf("open the silo DDL database (PROBECTL_MIGRATE_DATABASE_URL): %w", err)
-			}
-			prov.WithDDLPool(ddl.Pool())
+		prov, err := newSiloProvisioner(ctx, cfg, pool, ch, planes, log)
+		if err != nil {
+			return err
 		}
 		// Startup catch-up is a routing precondition (ARCH-001): a siloed tenant
 		// must not become routable until its storage/query-layer schema is at the
@@ -401,6 +394,23 @@ func attachProviderIRDurability(
 		)
 	}
 	return nil
+}
+
+// newSiloProvisioner builds the provisioner. A silo schema is migration-class
+// DDL the least-privilege serve login cannot run (TEN-01), so it runs as the
+// migration login when PROBECTL_MIGRATE_DATABASE_URL is set.
+func newSiloProvisioner(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, ch silo.CHPlanes,
+	planes map[string]silo.DataPlane, log *slog.Logger) (*silo.Provisioner, error) {
+	prov := silo.NewProvisioner(pool, ch, planes, cfg.FlowRetentionDays, log).
+		WithEndpointRetentionDays(cfg.EndpointRetentionDays)
+	if cfg.MigrateDatabaseURL == "" {
+		return prov, nil
+	}
+	ddl, err := store.Open(ctx, cfg.MigrateDatabaseURL, 2, 0, cfg.DatabaseConnTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("open the silo DDL database (PROBECTL_MIGRATE_DATABASE_URL): %w", err)
+	}
+	return prov.WithDDLPool(ddl.Pool()), nil
 }
 
 type siloCatchUpper interface {

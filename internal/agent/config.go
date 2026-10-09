@@ -187,6 +187,27 @@ type ArtifactStoreConfig struct {
 	Isolation string `yaml:"isolation"`
 }
 
+func (a ArtifactStoreConfig) validate() error {
+	switch a.Mode {
+	case "filesystem":
+	case "s3":
+		if a.Dir != "" {
+			return fmt.Errorf("config: artifact_store.mode=s3 cannot be combined with dir")
+		}
+		if a.Endpoint == "" || a.Bucket == "" || a.AccessKey == "" || a.SecretKey == "" {
+			return fmt.Errorf("config: artifact_store.mode=s3 requires endpoint, bucket, access_key, and secret_key")
+		}
+	default:
+		return fmt.Errorf("config: artifact_store.mode must be filesystem or s3 (got %q)", a.Mode)
+	}
+	switch a.Isolation {
+	case "", "pooled", "hybrid", "siloed":
+	default:
+		return fmt.Errorf("config: artifact_store.isolation must be pooled, hybrid or siloed (got %q)", a.Isolation)
+	}
+	return nil
+}
+
 // BrowserConfig selects the implementation used for browser transaction
 // canaries. "http" is the lightweight non-rendering driver. "browser" invokes
 // the local Playwright worker through stdin/stdout; the worker is validated at
@@ -459,22 +480,8 @@ func (c *Config) validate() error {
 	default:
 		return fmt.Errorf("config: browser.driver must be http or browser (got %q)", c.Browser.Driver)
 	}
-	switch c.ArtifactStore.Mode {
-	case "filesystem":
-	case "s3":
-		if c.ArtifactStore.Dir != "" {
-			return fmt.Errorf("config: artifact_store.mode=s3 cannot be combined with dir")
-		}
-		if c.ArtifactStore.Endpoint == "" || c.ArtifactStore.Bucket == "" || c.ArtifactStore.AccessKey == "" || c.ArtifactStore.SecretKey == "" {
-			return fmt.Errorf("config: artifact_store.mode=s3 requires endpoint, bucket, access_key, and secret_key")
-		}
-	default:
-		return fmt.Errorf("config: artifact_store.mode must be filesystem or s3 (got %q)", c.ArtifactStore.Mode)
-	}
-	switch c.ArtifactStore.Isolation {
-	case "", "pooled", "hybrid", "siloed":
-	default:
-		return fmt.Errorf("config: artifact_store.isolation must be pooled, hybrid or siloed (got %q)", c.ArtifactStore.Isolation)
+	if err := c.ArtifactStore.validate(); err != nil {
+		return err
 	}
 	testIDs := make(map[string]int, len(c.Canaries))
 	for i, cc := range c.Canaries {
