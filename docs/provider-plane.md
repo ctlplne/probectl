@@ -110,6 +110,10 @@ on the provider audit stream with the acting operator's identity. The deployment
 | Resume | Reactivates a suspended tenant — only a `suspended` one. Each control-plane replica re-reads a suspended tenant's status within its 15-second status cache, so the tenant's users are let back in everywhere without a restart; a failed status read keeps them refused rather than guessing "active". |
 | Offboard | Marks the tenant `offboarding`: API access stops and the band slot frees. Offboarding **never silently destroys data** — the actual data export and verifiable deletion is a separate compliance flow (deliberately core/free). It is one-way: an `offboarding` tenant can be neither resumed nor suspended, and a transition the tenant's current state does not allow answers `409 conflict`. |
 
+A tenant, operator or grant id in a path that is not a well-formed UUID is the
+caller's mistake: it answers `400 bad_request` ("malformed identifier"), never an
+internal error.
+
 Provisioning failure audit data is deliberately bounded and phase-aware:
 `silo_provision_failed` means an isolated datastore leg failed before registry
 publication; `registry_publish_failed` means the final atomic publication failed.

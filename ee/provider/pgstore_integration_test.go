@@ -1002,6 +1002,16 @@ func TestPGStoreLifecycle(t *testing.T) {
 		t.Fatalf("grant readback: %+v %v", back, err)
 	}
 
+	// An id that is not a UUID is the caller's mistake (400), not an
+	// internal failure (500).
+	var bad errValidation
+	if _, err := st.GetGrant(ctx, "not-a-uuid"); !errors.As(err, &bad) {
+		t.Fatalf("malformed grant id = %v, want a validation error", err)
+	}
+	if _, err := st.SetTenantStatus(ctx, "not-a-uuid", []string{"active"}, "suspended"); !errors.As(err, &bad) {
+		t.Fatalf("malformed tenant id = %v, want a validation error", err)
+	}
+
 	// Fleet aggregation runs (rows depend on the shared DB's agents).
 	if _, err := st.FleetSummary(ctx); err != nil {
 		t.Fatalf("fleet: %v", err)

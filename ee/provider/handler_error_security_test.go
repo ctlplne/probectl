@@ -16,6 +16,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestProviderErrorClassificationAndRedaction(t *testing.T) {
@@ -135,5 +137,22 @@ func TestProviderInternalErrorsAreRedacted(t *testing.T) {
 	}
 	if body.Error.Code != "bad_request" || body.Error.Message != errBadDecision.Error() {
 		t.Fatalf("4xx domain detail changed: %+v", body.Error)
+	}
+}
+
+// TestProviderMalformedIdentifierIsABadRequest: a tenant or grant id that is
+// not a UUID reaches PostgreSQL as invalid_text_representation (22P02). It
+// used to fall through mapPGErr as an unmapped error — a redacted 500 and an
+// error log for what is plain bad client input.
+func TestProviderMalformedIdentifierIsABadRequest(t *testing.T) {
+	var logs bytes.Buffer
+	h := &Handler{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	rec := httptest.NewRecorder()
+	h.writeErr(rec, mapPGErr(fmt.Errorf("use grant: %w", &pgconn.PgError{Code: "22P02", Message: `invalid input syntax for type uuid: "nope"`})))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "malformed identifier") {
+		t.Fatalf("malformed id = %d %s, want 400 malformed identifier", rec.Code, rec.Body.String())
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("bad client input was logged as a server error: %s", logs.String())
 	}
 }

@@ -179,6 +179,9 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "400": {
+            "description": "The id is not a well-formed identifier (validation)"
           }
         }
       }
@@ -227,6 +230,9 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "400": {
+            "description": "The id is not a well-formed identifier (validation)"
           }
         }
       }
@@ -238,6 +244,9 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "400": {
+            "description": "The id is not a well-formed identifier (validation)"
           },
           "409": {
             "description": "The tenant's current state does not allow this transition (conflict)"
@@ -253,6 +262,9 @@
           "200": {
             "description": "OK"
           },
+          "400": {
+            "description": "The id is not a well-formed identifier (validation)"
+          },
           "409": {
             "description": "The tenant's current state does not allow this transition (conflict)"
           }
@@ -266,6 +278,9 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "400": {
+            "description": "The id is not a well-formed identifier (validation)"
           },
           "409": {
             "description": "The tenant's current state does not allow this transition (conflict)"
@@ -345,6 +360,9 @@
           "200": {
             "description": "OK"
           },
+          "400": {
+            "description": "The id is not a well-formed identifier (validation)"
+          },
           "409": {
             "description": "The grant is already revoked, denied or expired (breakglass_decided)"
           }
@@ -357,6 +375,9 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "400": {
+            "description": "The id is not a well-formed identifier (validation)"
           }
         }
       }
@@ -426,6 +447,9 @@
           "200": {
             "description": "OK"
           },
+          "400": {
+            "description": "The id is not a well-formed identifier (validation)"
+          },
           "403": {
             "description": "Forbidden by tenant RBAC or ABAC"
           },
@@ -445,6 +469,9 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "400": {
+            "description": "The id is not a well-formed identifier (validation)"
           },
           "403": {
             "description": "Forbidden by tenant RBAC or ABAC, or the grant belongs to another tenant"
