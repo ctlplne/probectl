@@ -257,7 +257,7 @@ jobs:
           set -o pipefail
           make test 2>&1 | tee test-go.log
       # Sprint 1 (DATAROOM-011): the test log is a retained receipt.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: test-go-log
@@ -355,7 +355,7 @@ jobs:
               print("::error::RCA quality regression below the TEST-003 floor")
               sys.exit(1)
           EOF
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: rca-eval-report
@@ -393,7 +393,7 @@ jobs:
           { echo "## Coverage summary ($(git rev-parse --short HEAD))"; echo; echo '```'; \
             go tool cover -func=coverage.out | tail -40 | cut -c1-240; echo '```'; } > coverage-summary.txt
           tail -3 coverage-summary.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: coverage-receipt
@@ -402,7 +402,7 @@ jobs:
             coverage-summary.txt
           retention-days: 90
       - name: Upload bounded PR coverage summary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && github.event_name == 'pull_request' }}
         with:
           name: coverage-pr-summary
@@ -542,7 +542,7 @@ jobs:
         run: make completeness-gate
       - name: Require both nonempty capability ledgers
         run: test -s dist/completeness/ledger.json && test -s dist/completeness/ledger.html
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: capability-completeness-ledger
           path: |
@@ -1219,7 +1219,7 @@ jobs:
             PROBECTL_DRILL_CHECK_DOCS=0 \
             PROBECTL_DRILL_ALLOW_HISTORICAL=1 \
             bash scripts/check_drill_evidence.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backup-restore-results
           path: |
@@ -1265,7 +1265,7 @@ jobs:
             PROBECTL_DRILL_FAILOVER_LOG_GLOB=artifacts/failover-representative.log \
             PROBECTL_DRILL_FAILOVER_PROFILES=ci-dev-compose-sync,ci-dev-compose-async \
             bash scripts/check_drill_evidence.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: failover-results
           path: |
@@ -1450,7 +1450,7 @@ jobs:
           fi
           grep -qaE '/ui/assets/index-' /tmp/probectl-control-ui-check \
             || { echo "::error::control binary references no hashed /ui/assets bundle (SUP-06)"; exit 1; }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: web-bundle-budget-receipt
@@ -1486,7 +1486,7 @@ jobs:
         run: npm run a11y:browser
       - name: J1-J6 LCP and INP budgets
         run: node ../scripts/check_web_perf_budgets.mjs
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: web-route-a11y-performance-receipts
@@ -1538,7 +1538,7 @@ jobs:
         if: always()
         run: cat trivy-fs-report.txt || true
       # Sprint 1 (DATAROOM-011): scan outputs retained as data-room receipts.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: dependency-scan-receipts
@@ -1692,7 +1692,7 @@ jobs:
       - name: Generate CycloneDX SBOM (Go module graph)
         run: cyclonedx-gomod mod -json -licenses -std -output probectl-sbom.cdx.json .
       - name: Upload SBOM (data-room receipt)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-cyclonedx
           path: probectl-sbom.cdx.json
@@ -1834,7 +1834,7 @@ jobs:
               print("::error::verify-all is RED — non-green gates: " + ", ".join(bad))
               raise SystemExit(1)
           PY
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: verify-all-receipt
