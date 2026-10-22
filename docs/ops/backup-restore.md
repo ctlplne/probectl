@@ -109,8 +109,9 @@ PROBECTL_OBJECTSTORE_DIR=/var/lib/probectl/objects \
 PROBECTL_ENVELOPE_KEY=<base64 KEK> \
   ./scripts/backup_objectstore.sh /srv/probectl-backups # → objectstore-<ts>.tar.pbk + .sha256
 
-# Control-state: the evidence-signing key, the KEK id, and the agent-CA public
-# bundle that live on the controldata volume beside the stores. One sealed
+# Control-state: the evidence-signing key, the central test-bundle signing key,
+# the KEK id, and the agent-CA public bundle that live on the controldata
+# volume beside the stores. One sealed
 # artifact; run it against a live control plane (it reads the agent CA from the
 # database). Keep it off-box with the others.
   probectl-control backup-control-state > /srv/probectl-backups/controlstate-<ts>.pcs
@@ -130,6 +131,15 @@ with the same single secret the database and object backups need. A deployment
 that injects `PROBECTL_EVIDENCE_SIGNING_KEY` from a secret manager (rather than
 the file) re-injects it on the restored host and does not need this artifact;
 `backup-control-state` says so and exits.
+
+The artifact also carries the **test-bundle signing key**
+(`PROBECTL_TESTSYNC_SIGNING_KEY_FILE`) when central test distribution is on.
+Every enrolled agent verifies its tenant's test bundles against that key's
+public half (`testsync.pub`), so a restore that let the control plane mint a
+new one would leave every agent refusing every bundle until each was given the
+new public key. A deployment that injects `PROBECTL_TESTSYNC_SIGNING_KEY`
+(Helm's `secrets.testSyncSigningKey`) re-injects the same value instead, and
+the file is not captured.
 
 The database scripts run the dump *inside* the running compose container (so you need
 no Postgres/ClickHouse client on the host), write a SHA-256 manifest next to
@@ -263,15 +273,17 @@ PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 
 # 5. Restore the control-state onto the FRESH controldata volume BEFORE boot.
 #    This verifies the checksum, opens the sealed artifact with the KEK, and
-#    writes the evidence-signing key, the KEK-id sidecar, and the agent-CA
-#    trust bundle into place. The paths default to the deployment's own
-#    PROBECTL_EVIDENCE_SIGNING_KEY_FILE / PROBECTL_AGENT_TLS_CA_FILE /
+#    writes the evidence-signing key, the test-bundle signing key, the KEK-id
+#    sidecar, and the agent-CA trust bundle into place. The paths default to
+#    the deployment's own PROBECTL_EVIDENCE_SIGNING_KEY_FILE /
+#    PROBECTL_TESTSYNC_SIGNING_KEY_FILE / PROBECTL_AGENT_TLS_CA_FILE /
 #    PROBECTL_ENVELOPE_KEY_FILE env, so inside the shipped compose image you
 #    pass nothing but the KEK. It writes NO database — only files — so it runs
 #    before the control plane does, and it refuses to overwrite a live key.
 (cd /srv/probectl-backups && sha256sum -c controlstate-<ts>.pcs.sha256)
 PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 PROBECTL_EVIDENCE_SIGNING_KEY_FILE=/var/lib/probectl/evidence-signing-ed25519.pem \
+PROBECTL_TESTSYNC_SIGNING_KEY_FILE=/var/lib/probectl/testsync-signing-ed25519.pem \
 PROBECTL_AGENT_TLS_CA_FILE=/var/lib/probectl/agent-ca.crt \
 PROBECTL_ENVELOPE_KEY_FILE=/var/lib/probectl/envelope.key \
   probectl-control restore-control-state < /srv/probectl-backups/controlstate-<ts>.pcs
@@ -281,7 +293,9 @@ PROBECTL_ENVELOPE_KEY_FILE=/var/lib/probectl/envelope.key \
 #    ClickHouse schema state consistent with the restored data. It RELOADS the
 #    control-state restored in step 5 — the same evidence-signing key (unchanged
 #    public fingerprint), the same KEK id (restored dv1 values keep opening),
-#    and the agent-CA bundle — instead of generating fresh. No manual step.
+#    the same test-bundle signing key (agents keep verifying their tenant's
+#    tests), and the agent-CA bundle — instead of generating fresh. No manual
+#    step.
 
 # 7. Sanity-check: /readyz is green; a tenant-scoped query returns pre-incident
 #    data; the audit chain verifies (the WORM verify job also re-checks the

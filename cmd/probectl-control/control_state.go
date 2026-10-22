@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/controlstate"
@@ -63,6 +64,7 @@ func backupControlState(ctx context.Context, cfg *config.Config, db *store.DB) e
 
 	st, err := controlstate.Capture(controlstate.Paths{
 		EvidenceSigningKeyFile: cfg.EvidenceSigningKeyFile,
+		TestSyncSigningKeyFile: testSyncKeyFileToCapture(cfg),
 	}, cfg.EnvelopeKeyID, caBundle)
 	if err != nil {
 		return fmt.Errorf("backup-control-state: %w", err)
@@ -71,6 +73,17 @@ func backupControlState(ctx context.Context, cfg *config.Config, db *store.DB) e
 		return fmt.Errorf("backup-control-state: %w", err)
 	}
 	return nil
+}
+
+// testSyncKeyFileToCapture names the test-bundle signing key file to seal (G9).
+// A deployment that injects PROBECTL_TESTSYNC_SIGNING_KEY from a secret manager
+// re-injects it on the restored host — that is the key serve uses, so a stale
+// file beside it is not captured.
+func testSyncKeyFileToCapture(cfg *config.Config) string {
+	if strings.TrimSpace(cfg.TestSyncSigningKey) != "" {
+		return ""
+	}
+	return cfg.TestSyncSigningKeyFile
 }
 
 // restoreControlState opens a sealed control-state artifact from stdin and
@@ -89,6 +102,7 @@ func restoreControlState(args []string, stdin io.Reader) error {
 	keyID := fs.String("key-id", defKeyID, "active KEK id used to build the opener keyring")
 	evidenceOut := fs.String("evidence-key-out", os.Getenv("PROBECTL_EVIDENCE_SIGNING_KEY_FILE"), "where to write the restored evidence-signing key (PROBECTL_EVIDENCE_SIGNING_KEY_FILE)")
 	agentCAOut := fs.String("agent-ca-out", os.Getenv("PROBECTL_AGENT_TLS_CA_FILE"), "where to write the restored agent-CA trust bundle (PROBECTL_AGENT_TLS_CA_FILE)")
+	testSyncOut := fs.String("testsync-key-out", os.Getenv("PROBECTL_TESTSYNC_SIGNING_KEY_FILE"), "where to write the restored test-bundle signing key (PROBECTL_TESTSYNC_SIGNING_KEY_FILE)")
 	sidecarOut := fs.String("key-id-out", "", "where to write the KEK id sidecar (default: <PROBECTL_ENVELOPE_KEY_FILE>.id)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -109,6 +123,7 @@ func restoreControlState(args []string, stdin io.Reader) error {
 		EvidenceSigningKeyFile: *evidenceOut,
 		AgentCABundleFile:      *agentCAOut,
 		EnvelopeKeyIDSidecar:   *sidecarOut,
+		TestSyncSigningKeyFile: *testSyncOut,
 	}); err != nil {
 		return fmt.Errorf("restore-control-state: %w", err)
 	}
@@ -123,6 +138,7 @@ func restoreControlState(args []string, stdin io.Reader) error {
 	if len(st.AgentCABundlePEM) > 0 && *agentCAOut != "" {
 		fmt.Fprintln(os.Stderr, "  agent-CA trust bundle ->", *agentCAOut)
 	}
+	reportRestoredTestSyncKey(st, *testSyncOut)
 	fmt.Fprintln(os.Stderr, "boot the control plane normally — it reloads this material instead of generating fresh.")
 	return nil
 }
@@ -140,4 +156,23 @@ func controlStateKeyProvider(cfg *config.Config) (crypto.KeyProvider, error) {
 		return nil, err
 	}
 	return crypto.NewStaticKeyProviderFromBase64Keyring(cfg.EnvelopeKeyID, cfg.EnvelopeKey, openerKeys)
+}
+
+// reportRestoredTestSyncKey tells the operator where the test-bundle signing
+// key went (G9), or that the artifact carried one with nowhere to put it — a
+// restore that silently dropped it would leave every agent refusing bundles.
+func reportRestoredTestSyncKey(st controlstate.State, out string) {
+	if len(st.TestSyncSigningKeyPEM) == 0 {
+		return
+	}
+	fp, err := controlstate.EvidenceSigningFingerprint(st.TestSyncSigningKeyPEM)
+	if err != nil {
+		fp = "unknown"
+	}
+	if out == "" {
+		fmt.Fprintf(os.Stderr, "  WARNING: the artifact carries the test-bundle signing key (%s) but no -testsync-key-out / "+
+			"PROBECTL_TESTSYNC_SIGNING_KEY_FILE is set; agents will refuse bundles signed by a new key\n", fp)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "  test-bundle signing key (%s) -> %s\n", fp, out)
 }

@@ -10,8 +10,10 @@
 // The shipped backups cover the stores — Postgres, ClickHouse, the object tree
 // (docs/ops/backup-restore.md). They do NOT cover the control-state that lives
 // on the controldata volume beside them: the deployment envelope KEY ID, the
-// incident evidence-signing key, and the agent-CA public trust bundle. Lose
-// those on a fresh host and the control plane still boots — but it boots WRONG:
+// incident evidence-signing key, the central test-bundle signing key, and the
+// agent-CA public trust bundle. Lose those on a fresh host and the control
+// plane still boots — but it boots WRONG (and a new test-bundle key makes every
+// enrolled agent refuse every test bundle):
 // it mints a NEW evidence-signing key (so every previously signed evidence
 // package fails verification, because the public fingerprint changed), it can
 // renumber the KEK id (so the restored dv1 values no longer open), and the
@@ -73,6 +75,13 @@ type State struct {
 	// against (PROBECTL_AGENT_TLS_CA_FILE). Public material only — never the
 	// sealed intermediate key, which rides the restored database.
 	AgentCABundlePEM []byte `json:"agent_ca_bundle_pem,omitempty"`
+	// TestSyncSigningKeyPEM is the PKCS#8 Ed25519 private key that signs each
+	// tenant's central test bundle (G9). Every enrolled agent verifies bundles
+	// against its public half (testsync.pub), so restoring it keeps every agent
+	// verifying after a fresh-host restore; a regenerated key would make each
+	// agent refuse every bundle. Optional: absent when distribution is off or
+	// the key is injected from a secret manager (PROBECTL_TESTSYNC_SIGNING_KEY).
+	TestSyncSigningKeyPEM []byte `json:"testsync_signing_key_pem,omitempty"`
 }
 
 // Paths names where the control-state files live on the controldata volume.
@@ -82,6 +91,8 @@ type Paths struct {
 	EvidenceSigningKeyFile string
 	AgentCABundleFile      string
 	EnvelopeKeyIDSidecar   string
+	// TestSyncSigningKeyFile is PROBECTL_TESTSYNC_SIGNING_KEY_FILE (G9).
+	TestSyncSigningKeyFile string
 }
 
 // Seal writes st to w as a sealed control-state artifact: the manifest is
@@ -138,12 +149,38 @@ func Capture(p Paths, keyID string, agentCABundle []byte) (State, error) {
 	if _, err := crypto.PublicPEMFromPrivate(evPEM); err != nil {
 		return State{}, fmt.Errorf("controlstate: evidence-signing key %s is not a usable Ed25519 private key: %w", p.EvidenceSigningKeyFile, err)
 	}
+	tsPEM, err := captureTestSyncKey(p.TestSyncSigningKeyFile)
+	if err != nil {
+		return State{}, err
+	}
 	return State{
 		Version:               manifestVersion,
 		EnvelopeKeyID:         keyID,
 		EvidenceSigningKeyPEM: evPEM,
 		AgentCABundlePEM:      agentCABundle,
+		TestSyncSigningKeyPEM: tsPEM,
 	}, nil
+}
+
+// captureTestSyncKey reads the test-bundle signing key (G9). Unconfigured, or
+// configured but never generated (distribution never started), there is
+// nothing to preserve; a file that exists but is not a usable key fails the
+// capture rather than sealing an artifact that would restore a broken key.
+func captureTestSyncKey(path string) ([]byte, error) {
+	if path == "" {
+		return nil, nil
+	}
+	pemBytes, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("controlstate: read test-bundle signing key %s: %w", path, err)
+	}
+	if _, err := crypto.PublicPEMFromPrivate(pemBytes); err != nil {
+		return nil, fmt.Errorf("controlstate: test-bundle signing key %s is not a usable Ed25519 private key: %w", path, err)
+	}
+	return pemBytes, nil
 }
 
 // Restore writes the control-state back onto a fresh controldata volume at p.
@@ -160,6 +197,11 @@ func Restore(st State, p Paths) error {
 	if len(st.AgentCABundlePEM) > 0 && p.AgentCABundleFile != "" {
 		if err := writeAtomic(p.AgentCABundleFile, st.AgentCABundlePEM, 0o644); err != nil {
 			return fmt.Errorf("controlstate: restore agent-CA bundle: %w", err)
+		}
+	}
+	if len(st.TestSyncSigningKeyPEM) > 0 && p.TestSyncSigningKeyFile != "" {
+		if err := writeNewFile(p.TestSyncSigningKeyFile, st.TestSyncSigningKeyPEM, 0o600); err != nil {
+			return fmt.Errorf("controlstate: restore test-bundle signing key: %w", err)
 		}
 	}
 	if st.EnvelopeKeyID != "" && p.EnvelopeKeyIDSidecar != "" {
