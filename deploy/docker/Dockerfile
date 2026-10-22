@@ -6,7 +6,7 @@
 # target arch (CGO disabled, pure Go), so multi-arch builds need no emulation.
 # Build context is the repository root.
 
-ARG GO_VERSION=1.26.9
+ARG GO_VERSION=1.26.10
 ARG NODE_VERSION=22
 
 # UX-002: build the web UI FIRST, on the build platform, and hand its bundle to
@@ -39,7 +39,7 @@ RUN npm run build   # → /web/dist (hashed assets)
 
 # Digest-pinned (U-061); bumped manually per docs/dependency-policy.md (no
 # auto-update bot). Tag kept for humans.
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c AS build
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS build
 ARG COMPONENT
 ARG TARGETOS
 ARG TARGETARCH
