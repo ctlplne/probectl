@@ -81,3 +81,44 @@ func matrixComponents(t *testing.T, wf, job string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestEveryImageScanBlocks pins PD-13 (D-49): every image-scan row fails the job
+// on a finding at its severity. The browser-agent row used to be report-only
+// (exit_code "0"), so a fixable CRITICAL in its playwright base could ship; it now
+// blocks on CRITICAL, and every other row on CRITICAL and HIGH.
+func TestEveryImageScanBlocks(t *testing.T) {
+	ci := readWorkflow(t, "ci.yml")
+	lines := strings.Split(ci, "\n")
+	start := -1
+	for i, ln := range lines {
+		if ln == "  image-scan:" {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatal("ci.yml has no image-scan job")
+	}
+	rows := 0
+	for _, ln := range lines[start+1:] {
+		if regexp.MustCompile(`^  [A-Za-z0-9_-]+:\s*$`).MatchString(ln) {
+			break
+		}
+		if !strings.Contains(ln, "- {") {
+			continue
+		}
+		rows++
+		if !strings.Contains(ln, `exit_code: "1"`) {
+			t.Errorf("image-scan row does not block on its findings (PD-13): %s", strings.TrimSpace(ln))
+		}
+		if strings.Contains(ln, "probectl-browser-agent") && !strings.Contains(ln, "severity: CRITICAL") {
+			t.Errorf("the browser-agent scan must block on CRITICAL (PD-13/D-49): %s", strings.TrimSpace(ln))
+		}
+	}
+	if rows < 10 {
+		t.Fatalf("found only %d image-scan rows; the parser likely broke", rows)
+	}
+	if !strings.Contains(ci, "severity: ${{ matrix.severity || 'CRITICAL,HIGH' }}") {
+		t.Error("the Trivy step no longer takes its severity from the row (PD-13)")
+	}
+}

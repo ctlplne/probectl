@@ -1589,10 +1589,11 @@ jobs:
   # matrix mirrors build-images (one entry per published image); the cipolicy
   # gate TestEveryBuiltImageIsScanned fails if a build-images component is ever
   # added without a matching scan here. Distroless Go images + the rebased
-  # bgp-analyzer base block on fixable CRITICAL/HIGH; the browser-agent
-  # (playwright/ubuntu) base is scanned report-only (exit_code 0) because its
-  # distro carries churning fixable HIGHs — whether to block those is a tracked
-  # accepted-CVE policy decision (design-partner-readiness decisions-needed D-35).
+  # bgp-analyzer base block on fixable CRITICAL/HIGH. The browser-agent
+  # (playwright/ubuntu) base blocks on fixable CRITICAL only: its distro carries
+  # fixable HIGHs that churn faster than a base bump can chase, and blocking on
+  # CRITICAL catches the catastrophic class without reddening main on that churn
+  # (D-35 option b, decided as PD-13/D-49). No row is report-only.
   image-scan:
     name: image-scan (${{ matrix.component }})
     runs-on: ubuntu-latest
@@ -1612,7 +1613,7 @@ jobs:
           - { component: terraform-provider-probectl, dockerfile: deploy/docker/Dockerfile, buildComponent: terraform-provider-probectl, exit_code: "1" }
           - { component: probectl, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl, exit_code: "1" }
           - { component: probectl-bgp-analyzer, dockerfile: deploy/docker/Dockerfile.bgp-analyzer, buildComponent: probectl-control, exit_code: "1" }
-          - { component: probectl-browser-agent, dockerfile: deploy/docker/Dockerfile.browser-agent, buildComponent: probectl-agent, exit_code: "0" }
+          - { component: probectl-browser-agent, dockerfile: deploy/docker/Dockerfile.browser-agent, buildComponent: probectl-agent, severity: CRITICAL, exit_code: "1" }
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -1636,7 +1637,7 @@ jobs:
           scan-type: image
           image-ref: probectl/${{ matrix.component }}:scan
           scanners: vuln
-          severity: CRITICAL,HIGH
+          severity: ${{ matrix.severity || 'CRITICAL,HIGH' }}
           ignore-unfixed: true
           exit-code: ${{ matrix.exit_code }}
 
