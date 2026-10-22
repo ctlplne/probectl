@@ -21,6 +21,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/promapi"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
@@ -160,9 +161,26 @@ func alertWriterQueryable(writer any) bool {
 // resolveSecret maps the configured password through the secrets backend; an
 // explicitly configured credential that cannot resolve is a boot error, never
 // a silently credential-less sender (missing credential → fail closed).
+//
+// DPR-290: PROBECTL_ALERT_WEBHOOK_CA_FILE anchors webhook certificate
+// validation on the operator's bundle (still SSRF-guarded), and
+// PROBECTL_ALERT_SMTP_CA_FILE does the same for the relay. Without them an
+// internal receiver or a TLS-inspecting egress proxy could only be trusted by
+// replacing the whole process's system roots.
 func BuildAlertChannelDeps(cfg *config.Config, resolveSecret func(context.Context, string) (string, error), log *slog.Logger) (alert.ChannelDeps, error) {
 	deps := alert.ChannelDeps{}
-	if cfg == nil || cfg.AlertSMTPAddr == "" {
+	if cfg == nil {
+		return deps, nil
+	}
+	if cfg.AlertWebhookCAFile != "" {
+		client, err := crypto.GuardedHTTPClientWithCAFile(10*time.Second, cfg.AlertWebhookCAFile)
+		if err != nil {
+			return deps, fmt.Errorf("alert webhook: PROBECTL_ALERT_WEBHOOK_CA_FILE: %w", err)
+		}
+		deps.HTTPClient = client
+		log.Info("alert webhook channel trusts the configured CA bundle")
+	}
+	if cfg.AlertSMTPAddr == "" {
 		return deps, nil
 	}
 	var auth smtp.Auth
@@ -181,10 +199,14 @@ func BuildAlertChannelDeps(cfg *config.Config, resolveSecret func(context.Contex
 		}
 		auth = smtp.PlainAuth("", cfg.AlertSMTPUsername, password, host)
 	}
+	tlsBase, err := crypto.HardenedClientTLSConfigWithCAFile(cfg.AlertSMTPCAFile)
+	if err != nil {
+		return deps, fmt.Errorf("alert smtp: PROBECTL_ALERT_SMTP_CA_FILE: %w", err)
+	}
 	deps.Mail = alert.NewSMTPSender(cfg.AlertSMTPAddr, cfg.AlertSMTPFrom, auth,
-		alert.SMTPTLSMode(cfg.AlertSMTPTLSMode), nil)
+		alert.SMTPTLSMode(cfg.AlertSMTPTLSMode), tlsBase)
 	log.Info("alert email channel enabled",
-		"tls_mode", cfg.AlertSMTPTLSMode, "authenticated", auth != nil)
+		"tls_mode", cfg.AlertSMTPTLSMode, "authenticated", auth != nil, "custom_ca", cfg.AlertSMTPCAFile != "")
 	return deps, nil
 }
 

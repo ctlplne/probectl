@@ -66,3 +66,47 @@ func TestAIModelCAFileFailsClosed(t *testing.T) {
 		t.Errorf("AIModelCAFile = %q, want %q", cfg.AIModelCAFile, good)
 	}
 }
+
+// TestAlertCAFilesFailClosed pins the DPR-290 trust bundles for alert
+// delivery: a valid bundle loads, a missing or certificate-less one refuses
+// startup, and an SMTP bundle without an SMTP address is a misconfiguration.
+func TestAlertCAFilesFailClosed(t *testing.T) {
+	dir := t.TempDir()
+	ca, err := crypto.GenerateCA("probectl-test-alert-ca", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := filepath.Join(dir, "alert-ca.pem")
+	if err := os.WriteFile(good, ca.CertPEM(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(dir, "empty.pem")
+	if err := os.WriteFile(empty, []byte("not a certificate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	smtp := map[string]string{"PROBECTL_ALERT_SMTP_ADDR": "relay.example.test:587", "PROBECTL_ALERT_SMTP_FROM": "probectl@example.test"}
+	with := func(base map[string]string, k, v string) map[string]string {
+		env := map[string]string{k: v}
+		for bk, bv := range base {
+			env[bk] = bv
+		}
+		return env
+	}
+	for _, key := range []string{"PROBECTL_ALERT_SMTP_CA_FILE", "PROBECTL_ALERT_WEBHOOK_CA_FILE"} {
+		for _, bad := range []string{filepath.Join(dir, "missing.pem"), empty} {
+			if _, err := Load(envFunc(with(smtp, key, bad))); err == nil || !strings.Contains(err.Error(), key) {
+				t.Errorf("%s=%s must refuse startup naming the key, got %v", key, filepath.Base(bad), err)
+			}
+		}
+	}
+	cfg, err := Load(envFunc(with(with(smtp, "PROBECTL_ALERT_SMTP_CA_FILE", good), "PROBECTL_ALERT_WEBHOOK_CA_FILE", good)))
+	if err != nil {
+		t.Fatalf("valid alert CA bundles refused: %v", err)
+	}
+	if cfg.AlertSMTPCAFile != good || cfg.AlertWebhookCAFile != good {
+		t.Fatalf("alert CA bundles not applied: smtp=%q webhook=%q", cfg.AlertSMTPCAFile, cfg.AlertWebhookCAFile)
+	}
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_ALERT_SMTP_CA_FILE": good})); err == nil {
+		t.Error("an SMTP CA bundle without PROBECTL_ALERT_SMTP_ADDR must be refused as a misconfiguration")
+	}
+}

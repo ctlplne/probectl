@@ -388,6 +388,14 @@ type Config struct {
 	AlertSMTPTLSMode  string
 	AlertSMTPUsername string
 	AlertSMTPPassword string
+	// AlertSMTPCAFile and AlertWebhookCAFile are optional PEM trust bundles
+	// that anchor certificate validation for the SMTP relay and for webhook
+	// deliveries instead of the system roots (DPR-290): an internal relay or
+	// receiver behind an enterprise CA, or a TLS-inspecting egress proxy.
+	// Validation is never disabled; an unreadable or certificate-less bundle
+	// refuses startup.
+	AlertSMTPCAFile    string
+	AlertWebhookCAFile string
 
 	// Incidents (S17): the time window within which related signals correlate
 	// into one incident.
@@ -1175,11 +1183,24 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.AlertSMTPTLSMode = l.enum("PROBECTL_ALERT_SMTP_TLS_MODE", "starttls", "starttls", "implicit")
 	cfg.AlertSMTPUsername = l.str("PROBECTL_ALERT_SMTP_USERNAME", "")
 	cfg.AlertSMTPPassword = l.str("PROBECTL_ALERT_SMTP_PASSWORD", "")
+	cfg.AlertSMTPCAFile = l.str("PROBECTL_ALERT_SMTP_CA_FILE", "")
+	cfg.AlertWebhookCAFile = l.str("PROBECTL_ALERT_WEBHOOK_CA_FILE", "")
 	if cfg.AlertSMTPAddr != "" && cfg.AlertSMTPFrom == "" {
 		l.errf("PROBECTL_ALERT_SMTP_ADDR requires PROBECTL_ALERT_SMTP_FROM (the envelope sender)")
 	}
-	if cfg.AlertSMTPAddr == "" && (cfg.AlertSMTPFrom != "" || cfg.AlertSMTPUsername != "" || cfg.AlertSMTPPassword != "") {
-		l.errf("PROBECTL_ALERT_SMTP_FROM/_USERNAME/_PASSWORD are set but PROBECTL_ALERT_SMTP_ADDR is not — the email channel stays off without an address, which is probably not what you meant")
+	if cfg.AlertSMTPAddr == "" && (cfg.AlertSMTPFrom != "" || cfg.AlertSMTPUsername != "" || cfg.AlertSMTPPassword != "" || cfg.AlertSMTPCAFile != "") {
+		l.errf("PROBECTL_ALERT_SMTP_FROM/_USERNAME/_PASSWORD/_CA_FILE are set but PROBECTL_ALERT_SMTP_ADDR is not — the email channel stays off without an address, which is probably not what you meant")
+	}
+	for _, bundle := range [][2]string{
+		{"PROBECTL_ALERT_SMTP_CA_FILE", cfg.AlertSMTPCAFile},
+		{"PROBECTL_ALERT_WEBHOOK_CA_FILE", cfg.AlertWebhookCAFile},
+	} {
+		if strings.TrimSpace(bundle[1]) == "" {
+			continue
+		}
+		if _, err := crypto.HardenedClientTLSConfigWithCAFile(bundle[1]); err != nil {
+			l.errf("%s must be a readable PEM bundle with at least one certificate: %v", bundle[0], err)
+		}
 	}
 	if (cfg.AlertSMTPUsername == "") != (cfg.AlertSMTPPassword == "") {
 		l.errf("PROBECTL_ALERT_SMTP_USERNAME and PROBECTL_ALERT_SMTP_PASSWORD must be set together")

@@ -41,7 +41,10 @@ rule is saved, and again at delivery against the address the name resolves to
 (`HTTPS_PROXY` / `NO_PROXY`). The configured proxy is the operator's own
 infrastructure, so it may sit on a private or loopback address. Only the proxy
 dial skips the SSRF guard; every other dial stays guarded, and what the proxy
-lets through is its own egress policy.
+lets through is its own egress policy. A receiver behind an enterprise CA, or a
+TLS-inspecting proxy, is trusted with `PROBECTL_ALERT_WEBHOOK_CA_FILE`; an SMTP
+relay behind one with `PROBECTL_ALERT_SMTP_CA_FILE`. Certificates are always
+validated.
 And per-rule channels are only half the notification story: incident-level
 paging, chat, and ticketing connectors (PagerDuty, Opsgenie, Slack, Teams,
 ServiceNow, Jira) ride the *incident* pipeline, not alert rules — see
