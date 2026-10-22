@@ -8,13 +8,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { buildContrastPairs, contrastRatioForPair, tokenOverridesPassContrast } from '../api/brand'
+import { escapeForRegExp } from './escapeForRegExp'
 
 // DPR-247: escape EVERY regex metacharacter, not four of them. CodeQL
-// js/incomplete-sanitization is right about the pattern even though the input here
-// is a test literal: `[[\]'.]` misses ( ) * + ? { } | ^ $ - and backslash, so a
-// selector containing any of them would build a regex that silently matches the
-// wrong declaration block — a contrast test that passes while testing nothing.
-const escapeForRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
 
 function themeBlock(css: string, selector: string) {
   const escaped = escapeForRegExp(selector)

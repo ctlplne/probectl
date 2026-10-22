@@ -2289,7 +2289,7 @@ async function dashboardChecks(page) {
       if (!table.tBodies[0]?.querySelector("tr")) {
         problems.push(`${caption}: no body rows rendered`);
       }
-      if (/^No\s|No data/i.test(bodyText)) {
+      if (/^No\s/i.test(bodyText) || /No data/i.test(bodyText)) {
         problems.push(
           `${caption}: rendered an empty/default state (${bodyText})`,
         );

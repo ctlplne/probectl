@@ -7,6 +7,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { basename, join, relative } from 'node:path'
 import { describe, expect, test } from 'vitest'
+import { escapeForRegExp } from './escapeForRegExp'
 
 const repoRoot = join(process.cwd(), '..')
 const tokenPath = join(process.cwd(), 'src/styles/tokens.css')
@@ -22,7 +23,7 @@ function cssFiles(dir: string): string[] {
 }
 
 function declarationBlock(css: string, selector: string): string {
-  const escaped = selector.replace(/[[\]'.]/g, '\\$&')
+  const escaped = escapeForRegExp(selector)
   return new RegExp(`([^}]*${escaped}[^{]*)\\{([^}]*)\\}`).exec(css)?.[2] ?? ''
 }
 

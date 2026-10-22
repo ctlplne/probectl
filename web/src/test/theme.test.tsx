@@ -11,6 +11,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from '../theme/ThemeProvider'
 import { useTheme } from '../theme/useTheme'
+import { escapeForRegExp } from './escapeForRegExp'
 
 function Probe() {
   const { theme, toggleTheme } = useTheme()
@@ -22,11 +23,6 @@ function Probe() {
 }
 
 // DPR-247: escape EVERY regex metacharacter, not four of them. CodeQL
-// js/incomplete-sanitization is right about the pattern even though the input here
-// is a test literal: `[[\]'.]` misses ( ) * + ? { } | ^ $ - and backslash, so a
-// selector containing any of them would build a regex that silently matches the
-// wrong declaration block — a contrast test that passes while testing nothing.
-const escapeForRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
 
 function colorTokensFor(css: string, selector: string): Set<string> {
   // Grab the declaration block whose selector list contains `selector`.
