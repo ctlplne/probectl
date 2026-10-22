@@ -30,7 +30,14 @@ WORKDIR /worker
 # modes, and a 0600 checkout produced a worker the chart's uid could not read
 # (every rendered transaction failed with EACCES).
 COPY --chmod=0644 browser-worker/package.json browser-worker/package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund && chmod -R a+rX /worker
+# The worker runs on plain node; no package manager is needed at runtime. The
+# base image's global npm bundles its own (vulnerable, CVE-2026-59873) tar, and
+# corepack/yarn fetch package managers from the network, so all three leave the
+# runtime image once the worker's dependencies are installed (PD-13).
+RUN npm ci --omit=dev --no-audit --no-fund && chmod -R a+rX /worker && \
+    rm -rf /usr/lib/node_modules/npm /usr/lib/node_modules/corepack /usr/lib/node_modules/yarn \
+      /usr/bin/npm /usr/bin/npx /usr/bin/corepack /usr/bin/yarn /usr/bin/yarnpkg /root/.npm && \
+    sh -c '! command -v npm && ! command -v npx && ! command -v corepack && ! command -v yarn'
 COPY --chown=pwuser:pwuser --chmod=0644 browser-worker/worker.mjs ./worker.mjs
 COPY --from=build --chmod=0755 /out/probectl-agent /usr/local/bin/probectl-agent
 RUN node --check /worker/worker.mjs && test -r /worker/worker.mjs
