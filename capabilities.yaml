@@ -66,7 +66,6 @@ capabilities:
   - id: F4
     name: HTTP tests
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/canary/http.go"]}
     binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"http\", canary.NewHTTP)"]}
@@ -76,13 +75,12 @@ capabilities:
     docs: {refs: ["file:docs/features/active-testing.md#HTTP"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/canary/canary.go"]}
-    real_stack_proof: {gap: "The existing HTTPS loopback test exercises the canary component directly; no full release-stack receipt drives the probe through binary, bus, stores, API, CLI, UI, and two tenant lanes."}
+    real_stack_proof: {refs: ["test:internal/canary/realstack_integration_test.go#TestSyntheticProbesRealStack"]}
     migration: *no_migration
 
   - id: F5
     name: DNS tests
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/canary/dns.go", "file:internal/canary/dnssec.go"]}
     binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"dns\", canary.NewDNS)"]}
@@ -92,7 +90,7 @@ capabilities:
     docs: {refs: ["file:docs/features/active-testing.md#DNS"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/canary/canary.go"]}
-    real_stack_proof: {gap: "The existing DNS loopback test exercises the plugin directly; no full release-stack receipt drives it through binary, bus, stores, API, CLI, UI, and two tenant lanes."}
+    real_stack_proof: {refs: ["test:internal/canary/realstack_integration_test.go#TestSyntheticProbesRealStack"]}
     migration: *no_migration
 
   - id: F6
@@ -337,7 +335,6 @@ capabilities:
   - id: F21
     name: Voice/RTP
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/canary/voice.go"]}
     binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"voice\", canary.NewVoice)"]}
@@ -347,7 +344,7 @@ capabilities:
     docs: {refs: ["file:docs/voice.md#Voice / RTP tests"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/canary/canary.go"]}
-    real_stack_proof: {gap: "The current receipt is a direct local RTP echo canary test; no shipping agent, bus, store, API, CLI, UI, or two-tenant workflow is exercised."}
+    real_stack_proof: {refs: ["test:internal/canary/realstack_integration_test.go#TestSyntheticProbesRealStack"]}
     migration: *no_migration
 
   - id: F22

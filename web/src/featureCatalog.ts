@@ -62,8 +62,8 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     source: 'contract:features',
   },
   { id: 'F3', name: 'Path visualization', status: 'partial', source: 'contract:features' },
-  { id: 'F4', name: 'HTTP tests', status: 'partial', source: 'contract:features' },
-  { id: 'F5', name: 'DNS tests', status: 'partial', source: 'contract:features' },
+  { id: 'F4', name: 'HTTP tests', status: 'delivered', source: 'contract:features' },
+  { id: 'F5', name: 'DNS tests', status: 'delivered', source: 'contract:features' },
   { id: 'F6', name: 'BGP monitoring', status: 'partial', source: 'contract:features' },
   {
     id: 'F7',
@@ -129,7 +129,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     source: 'contract:features',
   },
   { id: 'F20', name: 'RUM', status: 'delivered', source: 'contract:features' },
-  { id: 'F21', name: 'Voice/RTP', status: 'partial', source: 'contract:features' },
+  { id: 'F21', name: 'Voice/RTP', status: 'delivered', source: 'contract:features' },
   {
     id: 'F22',
     name: 'SSO and role model',

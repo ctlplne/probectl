@@ -32,7 +32,7 @@
         "F5"
       ],
       "name": "HTTP / DNS tests",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`internal/canary` (http, dns, dnssec, trace)"
     },
     {
@@ -160,7 +160,7 @@
         "F21"
       ],
       "name": "Voice/RTP",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`internal/canary/voice.go`"
     },
     {

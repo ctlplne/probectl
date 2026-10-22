@@ -165,6 +165,15 @@
       "capabilities": [
         "F53"
       ]
+    },
+    {
+      "ref": "test:internal/canary/realstack_integration_test.go#TestSyntheticProbesRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F4",
+        "F5",
+        "F21"
+      ]
     }
   ]
 }
