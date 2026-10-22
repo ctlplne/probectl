@@ -83,6 +83,15 @@ const (
 //     127.0.0.1 (SSRF guard). Rules read back per tenant through the API and
 //     the CLI with secrets redacted, are sealed at rest, and another
 //     tenant's rule is not found.
+//     2b. Internal destinations stay inside (DPR-292). A webhook on a literal
+//     internal address (10.0.0.5, 169.254.169.254) is refused by
+//     POST /v1/alerts and `probectl alert test-channel` before anything is
+//     stored or sent. A webhook on a name this host resolves to loopback is
+//     accepted when saved, because it is a name, but every delivery to it fails
+//     before the egress proxy is asked: `alert test-channel` reports the
+//     failure, and when A's email rule (which `probectl alert update` gave that
+//     webhook as a second channel) fires, the control plane logs the refused
+//     delivery while the mail still goes out. The proxy never sees the name.
 //  3. Every rule evaluates to "normal" on the real series.
 //  4. A's target goes down: both of A's rules fire and deliver to A's
 //     receiver and A's mailbox; B's receiver and mailbox stay empty. The
@@ -118,14 +127,16 @@ func TestAlertingRealStack(t *testing.T) {
 		"PROBECTL_TESTSYNC_SIGNING_KEY_FILE": filepath.Join(t.TempDir(), "testsync-signing-key.pem"),
 		"PROBECTL_ALERT_EVAL_INTERVAL":       evalInterval.String(),
 		"HTTPS_PROXY":                        "http://" + proxy.addr,
-		"NO_PROXY":                           "localhost,127.0.0.1",
-		"PROBECTL_ALERT_WEBHOOK_CA_FILE":     pki.caFile,
-		"PROBECTL_ALERT_SMTP_ADDR":           "localhost:" + relayPort,
-		"PROBECTL_ALERT_SMTP_FROM":           alertMailFrom,
-		"PROBECTL_ALERT_SMTP_TLS_MODE":       "starttls",
-		"PROBECTL_ALERT_SMTP_USERNAME":       relayUser,
-		"PROBECTL_ALERT_SMTP_PASSWORD":       relayPassword,
-		"PROBECTL_ALERT_SMTP_CA_FILE":        pki.caFile,
+		// Not "localhost": the internal name in step 2b ends in .localhost, and
+		// net/http already sends localhost itself (Dex, the stores) direct.
+		"NO_PROXY":                       "127.0.0.1",
+		"PROBECTL_ALERT_WEBHOOK_CA_FILE": pki.caFile,
+		"PROBECTL_ALERT_SMTP_ADDR":       "localhost:" + relayPort,
+		"PROBECTL_ALERT_SMTP_FROM":       alertMailFrom,
+		"PROBECTL_ALERT_SMTP_TLS_MODE":   "starttls",
+		"PROBECTL_ALERT_SMTP_USERNAME":   relayUser,
+		"PROBECTL_ALERT_SMTP_PASSWORD":   relayPassword,
+		"PROBECTL_ALERT_SMTP_CA_FILE":    pki.caFile,
 	}})
 	op := st.OnboardOperator(t, "root@msp-alerting.example")
 	opEnv := map[string]string{"PROBECTL_API_TOKEN": op}
@@ -178,6 +189,9 @@ func TestAlertingRealStack(t *testing.T) {
 		tn.checkRules(t, st, tn.other(A, B))
 	}
 	checkSecretsSealed(t, st, A.secret, B.secret)
+	A.internalHost = internalName(t)
+	A.refusesInternalDestinations(t, st)
+	proxyNeverAsked(t, proxy, A.internalHost, "after A's channel tests")
 
 	// 3. Every rule evaluates to normal on the real series.
 	for _, tn := range tenants {
@@ -196,6 +210,9 @@ func TestAlertingRealStack(t *testing.T) {
 	A.target.down(t)
 	awaitHook(t, A, "firing", A.hookRule.ID, tenants)
 	awaitMail(t, relay, A.mail, A.mailRule.Name, "firing")
+	time.Sleep(2 * evalInterval) // the rule's webhook is tried right after its mail
+	proxyNeverAsked(t, proxy, A.internalHost, "after A's email rule fired")
+	awaitRefusedDelivery(t, st, A)
 	time.Sleep(4 * evalInterval) // several more passes in which B must stay quiet
 	if got := B.receiver.all(); len(got) != 0 {
 		t.Errorf("B's receiver got %d deliveries while only A's target was down: %s", len(got), deliverySummary(B))
@@ -274,6 +291,7 @@ type alertRuleRef struct {
 type alertTenant struct {
 	slug, name, model, admin string
 	hookHost, mail, secret   string
+	internalHost             string
 	id, mark, cookie, token  string
 	agent, agentName, testID string
 	target                   *flapTarget
@@ -391,6 +409,96 @@ func (tn *alertTenant) refusesPrivateWebhook(t *testing.T, st *shipped.Stack) {
 		t.Errorf("probectl alert create with a webhook on %s as %s = exit %d: %.300s%.300s, want the SSRF refusal",
 			tn.receiver.addr, tn.slug, code, errOut, out)
 	}
+}
+
+// refusesInternalDestinations is step 2b (DPR-292): literal internal
+// addresses are refused when a webhook is saved or tested, and a name that
+// resolves here to loopback is accepted as a name but never delivered to.
+func (tn *alertTenant) refusesInternalDestinations(t *testing.T, st *shipped.Stack) {
+	t.Helper()
+	const refusal = "public, non-internal host"
+	for _, literal := range []string{"https://10.0.0.5/probectl/alerts", "https://169.254.169.254/latest/meta-data/"} {
+		hook := []map[string]any{{"type": "webhook", "url": literal, "secret": tn.secret}}
+		if code, raw := st.Do(t, tn.cookie, http.MethodPost, "/v1/alerts", ruleBody("internal hook "+tn.mark, hook)); code == http.StatusCreated || !strings.Contains(string(raw), refusal) {
+			t.Errorf("POST /v1/alerts with a webhook on %s as %s = %d: %.300s, want the SSRF refusal", literal, tn.slug, code, raw)
+		}
+		out, errOut, code := st.CLI(tn.env(), "alert", "test-channel", "--body-file",
+			st.SecretFile(t, map[string]any{"rule_name": "internal hook " + tn.mark, "channel": hook[0]}))
+		if code == 0 || !strings.Contains(out+errOut, refusal) {
+			t.Errorf("probectl alert test-channel to %s as %s = exit %d: %.300s%.300s, want the SSRF refusal", literal, tn.slug, code, errOut, out)
+		}
+	}
+	internal := map[string]any{"type": "webhook", "url": "https://" + tn.internalHost + "/probectl/alerts", "secret": tn.secret}
+	out, errOut, code := st.CLI(tn.env(), "alert", "test-channel", "--body-file",
+		st.SecretFile(t, map[string]any{"rule_name": "internal hook " + tn.mark, "channel": internal}))
+	if code == 0 || !strings.Contains(out+errOut, "alert channel test delivery failed") {
+		t.Errorf("probectl alert test-channel to %s as %s = exit %d: %.300s%.300s, want a failed delivery",
+			tn.internalHost, tn.slug, code, errOut, out)
+	}
+	var updated alertRuleRef
+	st.MustCLI(t, tn.env(), &updated, "alert", "update", tn.mailRule.ID, "--body-file", st.SecretFile(t,
+		ruleBody(tn.mailRule.Name, []map[string]any{{"type": "email", "recipients": []string{tn.mail}}, internal})))
+	if updated.ID != tn.mailRule.ID {
+		t.Fatalf("probectl alert update %s as %s returned %+v", tn.mailRule.ID, tn.slug, updated)
+	}
+}
+
+// proxyNeverAsked: the egress proxy was never asked for host, and every
+// destination it was asked for is one of the two receivers.
+func proxyNeverAsked(t *testing.T, proxy *egressProxy, host, when string) {
+	t.Helper()
+	for _, h := range proxy.tunneled() {
+		if h == host {
+			t.Errorf("%s the egress proxy tunneled to the internal name %s", when, host)
+		}
+	}
+	if refused := proxy.refusedTargets(); len(refused) != 0 {
+		t.Errorf("%s the egress proxy was asked for %v (internal name %s)", when, refused, host)
+	}
+}
+
+// awaitRefusedDelivery: the firing email rule's internal webhook was refused
+// at delivery, as a reserved destination, and logged.
+func awaitRefusedDelivery(t *testing.T, st *shipped.Stack, tn *alertTenant) {
+	t.Helper()
+	shipped.Await(t, "the control plane refusing "+tn.slug+"'s webhook to "+tn.internalHost, 30*time.Second, func() bool {
+		raw, err := os.ReadFile(st.Log)
+		if err != nil {
+			return false
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if strings.Contains(line, "alert delivery failed") && strings.Contains(line, tn.mailRule.Name) &&
+				strings.Contains(line, tn.internalHost) && strings.Contains(line, "private/link-local/reserved") {
+				t.Logf("refused before the proxy: %s", line)
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// internalName is a name this host resolves to loopback only, which the
+// create-time guard accepts because it is not a literal address: RFC 6761
+// .localhost (macOS, systemd-resolved) or Debian's ip6-localhost.
+func internalName(t *testing.T) string {
+	t.Helper()
+	for _, name := range []string{"hooks.internal-alerts.localhost", "ip6-localhost", "ip6-loopback"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", name)
+		cancel()
+		if err != nil || len(addrs) == 0 {
+			continue
+		}
+		loopback := true
+		for _, a := range addrs {
+			loopback = loopback && a.Unmap().IsLoopback()
+		}
+		if loopback {
+			return name
+		}
+	}
+	t.Fatal("no candidate internal name resolves to loopback on this host (tried *.localhost, ip6-localhost, ip6-loopback)")
+	return ""
 }
 
 func (tn *alertTenant) findRule(t *testing.T, st *shipped.Stack, name string) string {
