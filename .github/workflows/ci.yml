@@ -896,20 +896,33 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      # The qemu .debs are cached: the Azure apt mirror has been slow enough that
+      # downloading them blew the step limit on three runs in one day (39794445141,
+      # 39822884996, 39850696836: an 11 MB package alone took minutes). The key
+      # changes only when this list or the runner image changes.
+      - name: Cache the qemu packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v4 (same pin trivy-action uses)
+        with:
+          path: ~/apt-qemu
+          key: apt-qemu-noble-${{ runner.arch }}-qemu-system-x86-arm-v1
       - name: Runner VM tooling (qemu only)
-        # CI run 39794445141: apt-get update hung on the Azure mirror until the
-        # whole 30-minute job was cancelled. Bound the step and let apt retry.
-        timeout-minutes: 10
+        # A cold cache still downloads; bound it and let apt retry.
+        timeout-minutes: 20
         run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q
+          set -euo pipefail
           # QEMU is test infrastructure for vimto. The compiler path itself
           # runs in deploy/docker/Dockerfile.ebpf's pinned ebpf-toolchain stage.
           # --no-install-recommends: qemu's recommends (GUI, SPICE, OpenGL, Ceph
           # block drivers, OVMF) are 254 of 295 packages on noble and none is
           # used by vimto's direct-kernel boot; seabios/ipxe-qemu stay as hard
-          # depends. The full set made a slow Azure mirror blow the step limit
-          # (run 39822884996).
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y -q --no-install-recommends qemu-system-x86 qemu-system-arm
+          # depends.
+          mkdir -p "$HOME/apt-qemu/partial"
+          apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+                    -o "Dir::Cache::Archives=$HOME/apt-qemu")
+          sudo apt-get "${apt_opts[@]}" update -q
+          sudo apt-get "${apt_opts[@]}" install -y -q --no-install-recommends qemu-system-x86 qemu-system-arm
+          # The cache action saves as the runner user; apt wrote as root.
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/apt-qemu"
       - name: Generate + compile the BPF objects (pinned clang/llvm/bpftool toolchain)
         run: |
           set -euo pipefail
