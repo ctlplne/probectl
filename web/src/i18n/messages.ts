@@ -1285,7 +1285,7 @@ const en = {
   'admin.collectorDialog.register': 'Register collector',
   'admin.secrets.title': 'Secret backends',
   'admin.secrets.description':
-    'Credential resolution (Vault / CyberArk / cloud KMS). Values are sealed in memory with short-lived leases; failures fail closed.',
+    'Credential resolution through Vault or OpenBao (the backends the beta supports). Values are sealed in memory with short-lived leases; failures fail closed.',
   'admin.secrets.column.backend': 'Backend',
   'admin.secrets.column.status': 'Status',
   'admin.secrets.column.resolves': 'Resolves',
@@ -1302,8 +1302,7 @@ const en = {
     'The control plane started without a secrets resolver - credential references cannot resolve.',
   'admin.secrets.table.caption': 'Secret backend health',
   'admin.secrets.empty.title': 'No backends configured',
-  'admin.secrets.empty.description':
-    'Set PROBECTL_SECRETS_VAULT_ADDR (or CyberArk / cloud credentials) to enable secret references.',
+  'admin.secrets.empty.description': 'Set PROBECTL_SECRETS_VAULT_ADDR to enable secret references.',
   'provider.banner.title': 'probectl · PROVIDER PLANE',
   'provider.signOut': 'Sign out',
   'provider.banner.domain': 'operator domain — no tenant context',
@@ -2653,7 +2652,7 @@ const es: Record<MessageKey, string> = {
   'admin.collectorDialog.register': 'Registrar colector',
   'admin.secrets.title': 'Backends de secretos',
   'admin.secrets.description':
-    'Resolucion de credenciales (Vault / CyberArk / cloud KMS). Los valores se sellan en memoria con leases de corta vida; las fallas fallan cerradas.',
+    'Resolucion de credenciales mediante Vault u OpenBao (los backends que admite la beta). Los valores se sellan en memoria con leases de corta vida; las fallas fallan cerradas.',
   'admin.secrets.column.backend': 'Backend',
   'admin.secrets.column.status': 'Estado',
   'admin.secrets.column.resolves': 'Resoluciones',
@@ -2671,7 +2670,7 @@ const es: Record<MessageKey, string> = {
   'admin.secrets.table.caption': 'Salud de backends de secretos',
   'admin.secrets.empty.title': 'No hay backends configurados',
   'admin.secrets.empty.description':
-    'Define PROBECTL_SECRETS_VAULT_ADDR (o credenciales CyberArk / cloud) para habilitar referencias de secretos.',
+    'Define PROBECTL_SECRETS_VAULT_ADDR para habilitar referencias de secretos.',
   'provider.banner.title': 'probectl · PLANO PROVEEDOR',
   'provider.signOut': 'Cerrar sesión',
   'provider.banner.domain': 'dominio de operador — sin contexto de tenant',
@@ -3946,7 +3945,7 @@ const ar: Record<MessageKey, string> = {
   'admin.collectorDialog.register': 'تسجيل مجمع',
   'admin.secrets.title': 'خلفيات الأسرار',
   'admin.secrets.description':
-    'حل الاعتمادات (Vault / CyberArk / cloud KMS). القيم مختومة في الذاكرة بعقود قصيرة العمر؛ الفشل يغلق المسار.',
+    'حل الاعتمادات عبر Vault أو OpenBao (الخلفيات التي يدعمها الإصدار التجريبي). القيم مختومة في الذاكرة بعقود قصيرة العمر؛ الفشل يغلق المسار.',
   'admin.secrets.column.backend': 'الخلفية',
   'admin.secrets.column.status': 'الحالة',
   'admin.secrets.column.resolves': 'عمليات الحل',
@@ -3963,8 +3962,7 @@ const ar: Record<MessageKey, string> = {
     'بدأ مستوى التحكم دون محلل أسرار؛ لا يمكن حل مراجع الاعتمادات.',
   'admin.secrets.table.caption': 'صحة خلفيات الأسرار',
   'admin.secrets.empty.title': 'لا توجد خلفيات مهيأة',
-  'admin.secrets.empty.description':
-    'اضبط PROBECTL_SECRETS_VAULT_ADDR (أو اعتمادات CyberArk / cloud) لتفعيل مراجع الأسرار.',
+  'admin.secrets.empty.description': 'اضبط PROBECTL_SECRETS_VAULT_ADDR لتفعيل مراجع الأسرار.',
   'provider.banner.title': 'probectl · مستوى المزوّد',
   'provider.signOut': 'تسجيل الخروج',
   'provider.banner.domain': 'نطاق المشغل — بلا سياق مستأجر',

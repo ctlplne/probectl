@@ -9,7 +9,8 @@ import { apiFetch } from './client'
 
 /**
  * The secret-backend health API (surface: S41). Operational state of the
- * credential-resolution backends (Vault / CyberArk / AWS / Azure / GCP / env):
+ * credential-resolution backends (Vault/OpenBao and env are supported in the beta;
+ * CyberArk / AWS / Azure / GCP resolvers exist but are unproven, docs/secrets.md):
  * counters, live lease counts, and the last REDACTED error. The payload never
  * contains secret material — the backend guarantees it and the test asserts it.
  * resolver_running=false means the control plane has no resolver wired (the
