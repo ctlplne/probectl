@@ -179,6 +179,21 @@ got="$(openssl dgst -sha256 -r kyverno.tgz | cut -d' ' -f1)"
   --set-string admissionController.initContainer.image.tag="$KYVERNOPRE_TAG" \
   --set-json 'global.caCertificates.volume={"hostPath":{"path":"/etc/probectl-qa-beta/ca-bundle.crt","type":"File"}}' >/dev/null
 "$KUBECTL" -n kyverno rollout status deploy/kyverno-admission-controller --timeout=5m >/dev/null
+# A Ready rollout is not yet a reachable webhook: the Service endpoint and the
+# webhook registration lag the pod (CI run 39794445141 saw "connection
+# refused" on the policy webhook right after rollout). Wait until a server-side
+# dry run of the shipped policy reaches Kyverno; retry ONLY on webhook
+# connectivity errors, so a real rejection still fails P0 below.
+webhook_ready=0
+for _ in $(seq 1 60); do
+  if "$KUBECTL" apply --dry-run=server -f "$repo_root/deploy/admission/probectl-agent-image-integrity.kyverno.yaml" >wh.log 2>&1; then
+    webhook_ready=1
+    break
+  fi
+  grep -qE 'failed calling webhook|connection refused|no endpoints available|context deadline exceeded' wh.log || break
+  sleep 2
+done
+[ "$webhook_ready" -eq 1 ] || { cat wh.log >&2; die "Kyverno's policy webhook never became reachable (or rejected the policy)"; }
 
 "$KUBECTL" create namespace "$NS" >/dev/null
 "$KUBECTL" label namespace "$NS" pod-security.kubernetes.io/enforce=privileged \
