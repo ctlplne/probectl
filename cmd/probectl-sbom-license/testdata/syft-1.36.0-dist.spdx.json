@@ -1,0 +1,138 @@
+{
+ "spdxVersion": "SPDX-2.3",
+ "dataLicense": "CC0-1.0",
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "name": "/dist",
+ "documentNamespace": "https://anchore.com/syft/dir/dist-a85d5f75-d8ef-495d-8f28-77dc53b5e1f0",
+ "creationInfo": {
+  "licenseListVersion": "3.27",
+  "creators": [
+   "Organization: Anchore, Inc",
+   "Tool: syft-1.36.0"
+  ],
+  "created": "2026-10-22T12:21:55Z"
+ },
+ "packages": [
+  {
+   "name": "/dist",
+   "SPDXID": "SPDXRef-DocumentRoot-Directory--dist",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "primaryPackagePurpose": "FILE"
+  },
+  {
+   "name": "github.com/ctlplne/probectl",
+   "SPDXID": "SPDXRef-Package-go-module-github.com-ctlplne-probectl-4b0eba2d7dc05701",
+   "versionInfo": "UNKNOWN",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "sourceInfo": "acquired package info from go module information: /probectl-agent_v0.0.0-rehearsal_linux_arm64",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:ctlplne:probectl:*:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:golang/github.com/ctlplne/probectl"
+    }
+   ]
+  },
+  {
+   "name": "github.com/coreos/go-oidc/v3",
+   "SPDXID": "SPDXRef-Package-go-module-github.com-coreos-go-oidc-v3-9863779b2f694f31",
+   "versionInfo": "v3.18.0",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "sourceInfo": "acquired package info from go module information: /probectl-agent_v0.0.0-rehearsal_linux_arm64",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:coreos:go-oidc\\/v3:v3.18.0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:coreos:go_oidc\\/v3:v3.18.0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:golang/github.com/coreos/go-oidc@v3.18.0#v3"
+    }
+   ]
+  },
+  {
+   "name": "stdlib",
+   "SPDXID": "SPDXRef-Package-go-module-stdlib-ba346eab4d54301d",
+   "versionInfo": "go1.26.10",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "sourceInfo": "acquired package info from go module information: /probectl-agent_v0.0.0-rehearsal_linux_arm64",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "BSD-3-Clause",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:golang:go:1.26.10:-:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:golang/stdlib@1.26.10"
+    }
+   ]
+  }
+ ],
+ "files": [],
+ "relationships": [
+  {
+   "spdxElementId": "SPDXRef-Package-go-module-github.com-coreos-go-oidc-v3-9863779b2f694f31",
+   "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-ctlplne-probectl-4b0eba2d7dc05701",
+   "relationshipType": "DEPENDENCY_OF"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-go-module-stdlib-ba346eab4d54301d",
+   "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-ctlplne-probectl-4b0eba2d7dc05701",
+   "relationshipType": "DEPENDENCY_OF"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Directory--dist",
+   "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-coreos-go-oidc-v3-9863779b2f694f31",
+   "relationshipType": "CONTAINS"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Directory--dist",
+   "relatedSpdxElement": "SPDXRef-Package-go-module-github.com-ctlplne-probectl-4b0eba2d7dc05701",
+   "relationshipType": "CONTAINS"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Directory--dist",
+   "relatedSpdxElement": "SPDXRef-Package-go-module-stdlib-ba346eab4d54301d",
+   "relationshipType": "CONTAINS"
+  },
+  {
+   "spdxElementId": "SPDXRef-DOCUMENT",
+   "relatedSpdxElement": "SPDXRef-DocumentRoot-Directory--dist",
+   "relationshipType": "DESCRIBES"
+  }
+ ]
+}

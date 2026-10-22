@@ -186,7 +186,9 @@ jobs:
     environment: release
     needs: [require-green-ci, completeness-release-gate, components-match-makefile, license-trust-anchor]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 20, not 15: the G3/D-58 SBOM license step adds a Go module download, the
+    # pinned reuse lint and one image pull to every leg.
+    timeout-minutes: 20
     strategy:
       matrix:
         # All Go binaries ship as images + signed downloads; eBPF, BGP, and the
@@ -317,7 +319,18 @@ jobs:
           SYFT: ${{ steps.syft.outputs.cmd }}
         run: |
           set -euo pipefail
-          "${SYFT}" scan "registry:${IMAGE_REF}" -o spdx-json=image-sbom.spdx.json
+          "${SYFT}" scan --platform linux/amd64 "registry:${IMAGE_REF}" -o spdx-json=image-sbom.spdx.json
+      # G3/D-58: syft cannot read a license out of a Go binary, so it declares
+      # NOASSERTION for probectl's own module. Declare the real licenses (from
+      # REUSE.toml and the files each binary links) before the SBOM is attested;
+      # third-party packages stay exactly as syft wrote them.
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Declare probectl's licenses in the image SBOM (G3, D-58)
+        env:
+          IMAGE_REF: ${{ env.IMAGE_PREFIX }}/${{ matrix.component }}@${{ steps.build.outputs.digest }}
+        run: bash scripts/sbom_declare_licenses.sh image-sbom.spdx.json image "${IMAGE_REF}" linux/amd64
       - name: Attest and self-verify the image SBOM (cosign keyless)
         env:
           IMAGE_REF: ${{ env.IMAGE_PREFIX }}/${{ matrix.component }}@${{ steps.build.outputs.digest }}
@@ -442,8 +455,18 @@ jobs:
           path: dist
           format: spdx-json
           output-file: dist/probectl_${{ github.ref_name }}_sbom.spdx.json
-          upload-artifact: true
+          # The signed dist/ copy is the SBOM of record: it is annotated in the
+          # next step, so a workflow-artifact copy here would be the
+          # unannotated one.
+          upload-artifact: false
           upload-release-assets: false # released via the dist/* glob, signed
+      # G3/D-58: declare probectl's own licenses for each shipped binary (syft
+      # writes NOASSERTION for a Go binary's main module), before signing.
+      - name: Declare probectl's licenses in the release SBOM (G3, D-58)
+        run: |
+          set -euo pipefail
+          sbom="dist/probectl_${GITHUB_REF_NAME}_sbom.spdx.json"
+          bash scripts/sbom_declare_licenses.sh "$sbom" dir dist
       # SUP-18: signed build-provenance attestation for every shipped blob
       # (binaries, checksums, SBOM). The container images already carry buildx
       # provenance (see the images job); this extends SLSA provenance to the

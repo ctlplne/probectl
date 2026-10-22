@@ -14,6 +14,7 @@ cmd/        probectl-control · probectl-agent · probectl-ebpf-agent · probect
             probectl-workflow-policy · probectl-chaos-dependency-drill ·
             probectl-delivery-audit (repository-only independent auditor) ·
             probectl-deadseams (zero-call-site gate) ·
+            probectl-sbom-license (first-party SBOM licenses, release-only) ·
             terraform-provider-probectl · probectl (CLI, web-parity)
 internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agent runtime) ·
             agentlabel (placement-metadata validation) · agenttransport (agent gRPC lane, tenant-verifying) ·

@@ -185,6 +185,17 @@ syft at release time. It ships with its own `.sig` and `.pem` and verifies with
 the **same** `cosign verify-blob` invocation as any binary above. Feed it
 straight into your SCA / license tooling.
 
+Each binary's probectl package (`pkg:golang/github.com/ctlplne/probectl`)
+declares its real license in `licenseDeclared`. syft alone would write
+`NOASSERTION` there, because a Go binary carries no license text. The release
+fills in the licenses of the first-party files that binary links, read from
+[`REUSE.toml`](../../REUSE.toml): `BUSL-1.1` for the core, plus
+`LicenseRef-Probectl-Commercial` for an `ee/` build (defined in the SBOM with
+the text of `ee/LICENSE`), plus `Apache-2.0` where the vendored gNMI code is
+linked. The image SBOM attestations declare the same way. Third-party packages
+keep the licenses syft detected; probectl never edits them
+(`cmd/probectl-sbom-license`, `scripts/sbom_declare_licenses.sh`).
+
 The release workflow also signs container images by immutable digest, and every
 image it pushes is verified there before the release publishes. **No image in
 GHCR carries that signature yet** — the images that exist were pushed before

@@ -146,6 +146,12 @@ each of those defects first. Never edit the copies by hand: change `LICENSE` or
 quotes an SPDX tag (a header tool, a gate, this document) wraps the quotation
 in `REUSE-IgnoreStart` / `REUSE-IgnoreEnd`.
 
+Release SBOMs carry the same answer. syft cannot read a license out of a Go
+binary, so the release declares each binary's probectl package from the
+licenses of the files it links (`scripts/sbom_declare_licenses.sh`). Every
+other package keeps what syft detected. See
+[`docs/ops/verify-artifacts.md`](docs/ops/verify-artifacts.md#sbom).
+
 ## Trademarks and legal review
 
 Neither the BSL nor the MPL grants rights to the probectl name, logos, or other
