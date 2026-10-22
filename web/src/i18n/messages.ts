@@ -611,6 +611,8 @@ const en = {
   'alerts.rule.recipients': 'Recipients',
   'alerts.rule.testChannel': 'Test channel',
   'alerts.rule.secretsWriteOnly': 'Secrets stay write-only; responses return redacted state.',
+  'alerts.rule.keptUnshown':
+    'Kept unchanged on save: label match {match}; {channels} more delivery channel(s).',
   'alerts.rule.saveChanges': 'Save changes',
   'alerts.rule.createRule': 'Create rule',
   'alerts.rule.cancel': 'Cancel',
@@ -1976,6 +1978,8 @@ const es: Record<MessageKey, string> = {
   'alerts.rule.testChannel': 'Probar canal',
   'alerts.rule.secretsWriteOnly':
     'Los secretos son solo escritura; las respuestas devuelven estado redactado.',
+  'alerts.rule.keptUnshown':
+    'Se conservan al guardar: filtro de etiquetas {match}; {channels} canal(es) de entrega más.',
   'alerts.rule.saveChanges': 'Guardar cambios',
   'alerts.rule.createRule': 'Crear regla',
   'alerts.rule.cancel': 'Cancelar',
@@ -3303,6 +3307,8 @@ const ar: Record<MessageKey, string> = {
   'alerts.rule.recipients': 'المستلمون',
   'alerts.rule.testChannel': 'اختبار القناة',
   'alerts.rule.secretsWriteOnly': 'الأسرار للكتابة فقط؛ تعيد الاستجابات حالة منقحة.',
+  'alerts.rule.keptUnshown':
+    'تبقى دون تغيير عند الحفظ: مطابقة التسميات {match}؛ {channels} قناة تسليم إضافية.',
   'alerts.rule.saveChanges': 'حفظ التغييرات',
   'alerts.rule.createRule': 'إنشاء قاعدة',
   'alerts.rule.cancel': 'إلغاء',

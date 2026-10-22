@@ -276,7 +276,9 @@ timeline, bounded silence/ack actions, immutable operator receipts,
 connector/ticket delivery status, and the linked incident. An opened detail
 stays open when its state changes even if the table's current filter would hide
 the updated row. The active list polls the engine every 15s; expired silence
-returns visibly to firing. The surface uses only the shared design-system
+returns visibly to firing. The rule form edits one delivery channel and has no
+label-match field; when a rule set through the API or CLI has label matchers or
+more channels, the form names them and saving keeps them unchanged. The surface uses only the shared design-system
 components/tokens and remains under the WCAG 2.2 AA gate.
 
 ## Testing

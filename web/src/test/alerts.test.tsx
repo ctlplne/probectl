@@ -570,6 +570,47 @@ describe('alerting surface (S-FE1)', () => {
     })
   })
 
+  test('editing a rule keeps the label match and the channels the form does not show (DPR-291)', async () => {
+    const { state, fetcher } = alertsBackend()
+    state.rules[0] = {
+      ...state.rules[0],
+      match: { target: 'db' },
+      channels: [
+        { type: 'webhook', url: 'https://hooks.example/alerts', secret: '***' },
+        { type: 'email', recipients: ['noc@example.com'] },
+      ],
+    }
+    const puts: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PUT')
+        puts.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+      return fetcher(input, init)
+    })
+    renderApp('/alerts')
+
+    const rules = await screen.findByRole('table', { name: 'Alert rules' })
+    await userEvent.click(within(rules).getByRole('button', { name: 'Edit' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByText(
+        'Kept unchanged on save: label match target=db; 1 more delivery channel(s).',
+      ),
+    ).toBeInTheDocument()
+    await userEvent.clear(within(dialog).getByLabelText('Threshold'))
+    await userEvent.type(within(dialog).getByLabelText('Threshold'), '150')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(puts.length).toBe(1))
+    expect(puts[0]).toMatchObject({
+      threshold: 150,
+      match: { target: 'db' },
+      channels: [
+        { type: 'webhook', url: 'https://hooks.example/alerts', secret: '***' },
+        { type: 'email', recipients: ['noc@example.com'] },
+      ],
+    })
+  })
+
   test('configures alert-channel delivery and tests tenant-routed incident connectors with redacted secrets', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)

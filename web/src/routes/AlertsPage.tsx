@@ -673,18 +673,26 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
     )
   }
 
+  // DPR-291: the form edits a rule's first channel only and has no field for
+  // label matchers. An update replaces the whole rule, so saving dropped every
+  // other channel and widened a matched rule to every series of its metric.
+  // What the form does not show is carried through unchanged.
+  const keptChannels = rule?.channels?.slice(1) ?? []
+  const keptMatch = rule?.match && Object.keys(rule.match).length > 0 ? rule.match : undefined
+
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const channel = currentChannel()
     const input: AlertRuleInput = {
       name,
       metric,
+      ...(keptMatch ? { match: keptMatch } : {}),
       enabled,
       type,
       severity,
       for_n: Number(forN) || 1,
       renotify_seconds: Number(renotify) || 0,
-      channels: channel ? [channel] : [],
+      channels: [...(channel ? [channel] : []), ...keptChannels],
       ...(type === 'threshold'
         ? { comparison: comparison, threshold: Number(threshold) }
         : { window: Number(windowN) || 20, sensitivity: Number(sensitivity) || 3 }),
@@ -841,6 +849,18 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
               onChange={(e) => setRecipients(e.target.value)}
               placeholder="ops@example.com, noc@example.com"
             />
+          ) : null}
+          {keptMatch || keptChannels.length > 0 ? (
+            <p className={styles.muted}>
+              {t('alerts.rule.keptUnshown', {
+                match: keptMatch
+                  ? Object.entries(keptMatch)
+                      .map(([k, v]) => `${k}=${v}`)
+                      .join(', ')
+                  : '—',
+                channels: String(keptChannels.length),
+              })}
+            </p>
           ) : null}
           {channelType !== 'none' ? (
             <div className={styles.actionsRow}>
