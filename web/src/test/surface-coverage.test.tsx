@@ -708,7 +708,10 @@ describe('frontend-coverage gate (S-FE6)', () => {
     // but 16.3s when the full suite is competing for the same cores — over the
     // 15s default, so the a11y gate failed for load, not for accessibility.
     // Timeout headroom belongs on the sweep; page weight is the performance
-    // gate's job, not this one's.
-    60_000,
+    // gate's job, not this one's. DPR-288: the documented API has grown —
+    // /docs/api now measures 6.2s alone (node:22, 2026-10-22) and took 34s and
+    // then 63s in the same CI web job (run 39778196811), so 60s failed for
+    // load again. The assertion is unchanged; only its time budget is.
+    120_000,
   )
 })
