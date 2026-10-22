@@ -375,6 +375,27 @@ function apiPayload(path, method, pagePath = "") {
       agent_version: "0.1.0",
       status: "online",
       capabilities: ["icmp", "tcp", "flow", "device", "ebpf", "endpoint"],
+      test_set: { applied_version: 5, current_version: 5, in_sync: true },
+    },
+    // G9: the Admin Tests column's other states, so every badge tone and
+    // detail line is audited in both themes (fleetTestSetChecks).
+    {
+      id: "a2",
+      name: "agent-2",
+      hostname: "host-b",
+      agent_version: "0.1.0",
+      status: "online",
+      capabilities: ["icmp", "http"],
+      test_set: { applied_version: 3, current_version: 5, in_sync: false },
+    },
+    {
+      id: "a3",
+      name: "agent-3",
+      hostname: "host-c",
+      agent_version: "0.1.0",
+      status: "online",
+      capabilities: ["icmp"],
+      test_set: { applied_version: 0, current_version: 5, in_sync: false },
     },
   ];
 
@@ -2440,6 +2461,29 @@ async function dashboardScopeGeometryChecks(page, viewportName) {
   }, viewportName);
 }
 
+// G9: the Admin agents table's Tests column renders each central test-set
+// state the fixture carries, so the axe pass above audited those badges and
+// detail lines rather than an empty column.
+async function fleetTestSetChecks(page) {
+  return page.evaluate(() => {
+    const text = document.body.innerText;
+    const problems = [];
+    for (const want of [
+      "In sync",
+      "Running v5 of v5",
+      "Behind",
+      "Running v3 of v5",
+      "None applied",
+      "has not applied a central test set",
+    ]) {
+      if (!text.includes(want)) {
+        problems.push(`Admin Tests column does not render "${want}"`);
+      }
+    }
+    return problems;
+  });
+}
+
 async function deviceCollectionReceiptChecks(page) {
   return page.evaluate(() => {
     const problems = [];
@@ -3500,6 +3544,7 @@ async function main() {
             pathGraph: [],
             explorer: [],
             deviceReceipt: [],
+            fleetTestSet: [],
             flowReceipt: [],
             flowTopTalkers: [],
             deviceConfigDiff: [],
@@ -3614,6 +3659,14 @@ async function main() {
               if (record.deviceReceipt.length > 0) {
                 failures.push(
                   `${viewport.name} ${theme} ${route}: device receipt layout violations\n  ${record.deviceReceipt.join("\n  ")}`,
+                );
+              }
+            }
+            if (route === "/admin") {
+              record.fleetTestSet = await fleetTestSetChecks(page);
+              if (record.fleetTestSet.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: fleet test-set column violations\n  ${record.fleetTestSet.join("\n  ")}`,
                 );
               }
             }
@@ -3735,6 +3788,7 @@ async function main() {
             record.pathGraph.length === 0 &&
             record.explorer.length === 0 &&
             record.deviceReceipt.length === 0 &&
+            record.fleetTestSet.length === 0 &&
             record.flowReceipt.length === 0 &&
             record.flowTopTalkers.length === 0 &&
             record.deviceConfigDiff.length === 0 &&
