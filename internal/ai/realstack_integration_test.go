@@ -1036,6 +1036,24 @@ func (tn *rcaTenant) exploreCLI(t *testing.T, st *shipped.Stack, q map[string]an
 	return out
 }
 
+// awaitRoutingEdge polls the tenant's own Explorer until its routing edge is in
+// its graph, failing after a minute. It only waits; checkExplorer asserts.
+func (tn *rcaTenant) awaitRoutingEdge(t *testing.T, st *shipped.Stack, from, to string) {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		for _, r := range tn.exploreAPI(t, st, topologyQuery()).Rows {
+			if r["from"] == from && r["to"] == to && r["kind"] == "routing" {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s's routing edge %s -> %s never reached its topology graph", tn.slug, from, to)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 // routingEdge is the tenant's routing edge in its topology: its block,
 // originated by the AS its fault left in place.
 func (tn *rcaTenant) routingEdge() (from, to string) {
@@ -1072,6 +1090,11 @@ func (tn *rcaTenant) checkExplorer(t *testing.T, st *shipped.Stack, other *rcaTe
 		}
 	}
 	from, to := tn.routingEdge()
+	// The topology graph is fed by its own bus consumer, separate from the one
+	// that opens incidents, so a tenant's routing edge can land shortly after
+	// its incident does (CI run 39867660346 queried in that gap). Wait for the
+	// edge to reach this tenant's own graph, then assert every surface once.
+	tn.awaitRoutingEdge(t, st, from, to)
 	for surface, res := range map[string]explorerResult{
 		"POST /v1/explorer/query (topology)": tn.exploreAPI(t, st, topologyQuery()),
 		"probectl explorer query (topology)": tn.exploreCLI(t, st, topologyQuery()),
