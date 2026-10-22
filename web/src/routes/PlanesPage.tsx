@@ -15,6 +15,7 @@ import {
   CardBody,
   CardHeader,
   DeviceCollectionOutcomesCard,
+  DeviceTrapsCard,
   EmptyState,
   ErrorState,
   FlowIngestQualityCard,
@@ -1313,6 +1314,7 @@ function DevicePanel({
             ) : null}
           </CardBody>
         </Card>
+        <DeviceTrapsCard />
         <Card>
           <CardHeader title={t('planes.device.syslog.title')} />
           <CardBody>

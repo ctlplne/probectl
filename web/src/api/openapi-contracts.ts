@@ -768,6 +768,13 @@ export const API_CALL_CONTRACTS = [
     generated: 'ListDeviceCollectionOutcomesResponse',
   },
   {
+    file: 'api/planes.ts',
+    method: 'GET',
+    path: '`/device/traps?limit=${limit}`',
+    response: 'DeviceTrapResponse',
+    generated: 'ListDeviceTrapsResponse',
+  },
+  {
     file: 'api/remediation.ts',
     method: 'GET',
     path: '/remediation/proposals',

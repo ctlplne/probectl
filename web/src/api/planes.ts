@@ -388,6 +388,56 @@ export function useDeviceNeighbors(limit = 100) {
   })
 }
 
+export interface DeviceTrapVarBind {
+  oid: string
+  type: string
+  value: string
+}
+
+export interface DeviceTrap {
+  id: string
+  agent_id: string
+  device_address: string
+  source_address?: string
+  auth_principal?: string
+  version: 'snmpv1' | 'snmpv2c' | 'snmpv3'
+  kind: string
+  severity: 'info' | 'warning' | 'critical'
+  trap_oid: string
+  trap_name: string
+  request_id: number
+  uptime_ticks?: number
+  if_index?: number
+  varbinds: DeviceTrapVarBind[]
+  varbinds_truncated?: boolean
+  fingerprint: string
+  observed_at: string
+  received_at: string
+}
+
+export interface DeviceTrapResponse {
+  contract_version: 'probectl.device-traps/v1'
+  items: DeviceTrap[]
+  collection_running: boolean
+  effective_limit: number
+  truncated: boolean
+  as_of: string
+  latest_at?: string
+  retention: {
+    max_per_tenant: number
+    retention_days: number
+    max_varbinds: number
+  }
+}
+
+/** D-60: the tenant's stored, authenticated SNMP traps, newest first. */
+export function useDeviceTraps(limit = 50) {
+  return useQuery({
+    queryKey: ['device', 'traps', limit],
+    queryFn: () => apiFetch<DeviceTrapResponse>(`/device/traps?limit=${limit}`),
+  })
+}
+
 export function useDeviceCollectionOutcomes(limit = 100) {
   return useQuery({
     queryKey: ['device', 'collection-outcomes', limit],

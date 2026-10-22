@@ -999,6 +999,16 @@ function coldFixture(path: string): Response | null {
         as_of: '2026-06-04T12:00:00Z',
         retention: { max_per_tenant: 4096, retention_days: 30 },
       })
+    case '/v1/device/traps':
+      return jsonResponse({
+        contract_version: 'probectl.device-traps/v1',
+        items: [],
+        collection_running: true,
+        effective_limit: 50,
+        truncated: false,
+        as_of: '2026-06-04T12:00:00Z',
+        retention: { max_per_tenant: 10000, retention_days: 30, max_varbinds: 64 },
+      })
     case '/v1/bgp/events':
       return jsonResponse({ items: [], bgp_running: true, effective_limit: 50 })
     case '/v1/device/syslog':
@@ -2033,6 +2043,46 @@ export function fixtureFetch(
         truncated: false,
         as_of: '2026-06-04T12:00:00Z',
         retention: { max_per_tenant: 4096, retention_days: 30 },
+      })
+    if (path === '/v1/device/traps')
+      return jsonResponse({
+        contract_version: 'probectl.device-traps/v1',
+        items: [
+          {
+            id: '7b0c2f4e-1d2a-4c3b-9e8f-0a1b2c3d4e5f',
+            agent_id: 'device-agent-1',
+            device_address: '10.0.0.1',
+            source_address: '10.0.0.1',
+            auth_principal: 'edge-ro',
+            version: 'snmpv3',
+            kind: 'snmp.trap.link_down',
+            severity: 'warning',
+            trap_oid: '.1.3.6.1.6.3.1.1.5.3',
+            trap_name: 'linkDown',
+            request_id: 1201,
+            uptime_ticks: 9378400,
+            if_index: 2,
+            varbinds: [
+              { oid: '.1.3.6.1.2.1.1.3.0', type: 'TimeTicks', value: '9378400' },
+              {
+                oid: '.1.3.6.1.6.3.1.1.4.1.0',
+                type: 'ObjectIdentifier',
+                value: '.1.3.6.1.6.3.1.1.5.3',
+              },
+              { oid: '.1.3.6.1.2.1.2.2.1.1.2', type: 'Integer', value: '2' },
+              { oid: '.1.3.6.1.2.1.2.2.1.8.2', type: 'Integer', value: '2' },
+            ],
+            fingerprint: '00ff00ff00ff00ff',
+            observed_at: '2026-06-04T11:59:58Z',
+            received_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+        collection_running: true,
+        effective_limit: 50,
+        truncated: false,
+        as_of: '2026-06-04T12:00:00Z',
+        latest_at: '2026-06-04T12:00:00Z',
+        retention: { max_per_tenant: 10000, retention_days: 30, max_varbinds: 64 },
       })
     if (path === '/v1/flows/ingest-quality')
       return jsonResponse({

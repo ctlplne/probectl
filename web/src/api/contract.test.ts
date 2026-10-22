@@ -71,6 +71,7 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/device/neighbors' },
   { method: 'GET', path: '/v1/device/collection-outcomes' },
   { method: 'GET', path: '/v1/device/syslog' },
+  { method: 'GET', path: '/v1/device/traps' },
   { method: 'GET', path: '/v1/diagnostics' },
   { method: 'GET', path: '/v1/directory/roles' },
   { method: 'GET', path: '/v1/directory/scim-tokens' },

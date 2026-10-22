@@ -475,6 +475,28 @@ const en = {
   'device.metrics.empty.title': 'No device telemetry yet',
   'device.metrics.empty.description':
     'Samples appear after a registered device agent polls its first configured target.',
+  'device.traps.title': 'SNMP traps',
+  'device.traps.description':
+    'Traps your device agents authenticated (SNMPv2c community or SNMPv3 USM), newest first. A refused trap is counted by the agent and never stored.',
+  'device.traps.caption': 'Authenticated SNMP traps, newest first',
+  'device.traps.loading': 'Loading SNMP traps...',
+  'device.traps.error': 'Could not load SNMP traps.',
+  'device.traps.truncated': 'Bounded result',
+  'device.traps.column.time': 'Received',
+  'device.traps.column.device': 'Device / agent',
+  'device.traps.column.trap': 'Trap',
+  'device.traps.column.varbinds': 'Key varbinds',
+  'device.traps.column.version': 'SNMP version',
+  'device.traps.value.enterprise': 'Enterprise trap',
+  'device.traps.value.noVarbinds': 'None',
+  'device.traps.value.moreVarbinds': '+{count} more',
+  'device.traps.unavailable.title': 'Trap storage unavailable',
+  'device.traps.unavailable.description':
+    'This control plane has no trap store wired. Accepted traps stay on the bus and nothing is inferred.',
+  'device.traps.empty.title': 'No SNMP traps received',
+  'device.traps.empty.description':
+    'Traps appear after a device sends one to a device agent with traps enabled and the agent authenticates it.',
+  'device.traps.retention': 'Traps are kept for {days} days, at most {max} per tenant.',
   'device.outcomes.title': 'Device collection readiness',
   'device.outcomes.description':
     'The last authoritative LLDP/CDP attempt for each explicitly configured target. A failed attempt is never presented as an empty topology result.',
@@ -1903,6 +1925,28 @@ const es: Record<MessageKey, string> = {
   'device.metrics.empty.title': 'Aún no hay telemetría de dispositivos',
   'device.metrics.empty.description':
     'Las muestras aparecen cuando un agente de dispositivos registrado sondea su primer destino configurado.',
+  'device.traps.title': 'Traps SNMP',
+  'device.traps.description':
+    'Traps que tus agentes de dispositivos autenticaron (comunidad SNMPv2c o USM SNMPv3), de la más reciente a la más antigua. El agente cuenta cada trap rechazada y nunca la almacena.',
+  'device.traps.caption': 'Traps SNMP autenticadas, de la más reciente a la más antigua',
+  'device.traps.loading': 'Cargando traps SNMP...',
+  'device.traps.error': 'No se pudieron cargar las traps SNMP.',
+  'device.traps.truncated': 'Resultado acotado',
+  'device.traps.column.time': 'Recibida',
+  'device.traps.column.device': 'Dispositivo / agente',
+  'device.traps.column.trap': 'Trap',
+  'device.traps.column.varbinds': 'Varbinds clave',
+  'device.traps.column.version': 'Versión de SNMP',
+  'device.traps.value.enterprise': 'Trap empresarial',
+  'device.traps.value.noVarbinds': 'Ninguna',
+  'device.traps.value.moreVarbinds': '+{count} más',
+  'device.traps.unavailable.title': 'Almacenamiento de traps no disponible',
+  'device.traps.unavailable.description':
+    'Este plano de control no tiene un almacén de traps conectado. Las traps aceptadas permanecen en el bus y no se infiere nada.',
+  'device.traps.empty.title': 'No se recibieron traps SNMP',
+  'device.traps.empty.description':
+    'Las traps aparecen cuando un dispositivo envía una a un agente de dispositivos con traps habilitadas y el agente la autentica.',
+  'device.traps.retention': 'Las traps se conservan {days} días, como máximo {max} por inquilino.',
   'device.outcomes.title': 'Estado de la recopilación de dispositivos',
   'device.outcomes.description':
     'Último intento autorizado de LLDP/CDP para cada destino configurado explícitamente. Un intento fallido nunca se presenta como un resultado de topología vacío.',
@@ -3307,6 +3351,28 @@ const ar: Record<MessageKey, string> = {
   'device.metrics.empty.title': 'لا توجد قياسات أجهزة بعد',
   'device.metrics.empty.description':
     'تظهر العينات بعد أن يستطلع وكيل أجهزة مسجل أول هدف مكوَّن له.',
+  'device.traps.title': 'تنبيهات SNMP (Traps)',
+  'device.traps.description':
+    'التنبيهات التي وثّقها وكلاء الأجهزة (مجتمع SNMPv2c أو USM في SNMPv3)، الأحدث أولاً. يحصي الوكيل كل تنبيه مرفوض ولا يخزّنه أبداً.',
+  'device.traps.caption': 'تنبيهات SNMP الموثّقة، الأحدث أولاً',
+  'device.traps.loading': 'جارٍ تحميل تنبيهات SNMP...',
+  'device.traps.error': 'تعذّر تحميل تنبيهات SNMP.',
+  'device.traps.truncated': 'نتيجة محدودة',
+  'device.traps.column.time': 'وقت الاستلام',
+  'device.traps.column.device': 'الجهاز / الوكيل',
+  'device.traps.column.trap': 'التنبيه',
+  'device.traps.column.varbinds': 'المتغيرات الرئيسية',
+  'device.traps.column.version': 'إصدار SNMP',
+  'device.traps.value.enterprise': 'تنبيه خاص بالمؤسسة',
+  'device.traps.value.noVarbinds': 'لا يوجد',
+  'device.traps.value.moreVarbinds': '+{count} أخرى',
+  'device.traps.unavailable.title': 'تخزين التنبيهات غير متاح',
+  'device.traps.unavailable.description':
+    'لا يحتوي مستوى التحكم هذا على مخزن تنبيهات موصول. تبقى التنبيهات المقبولة على الناقل ولا يُستنتج أي شيء.',
+  'device.traps.empty.title': 'لم يُستلم أي تنبيه SNMP',
+  'device.traps.empty.description':
+    'تظهر التنبيهات بعد أن يرسل جهاز تنبيهاً إلى وكيل أجهزة مفعّل فيه استقبال التنبيهات ويوثّقه الوكيل.',
+  'device.traps.retention': 'تُحفظ التنبيهات لمدة {days} يوماً، وبحد أقصى {max} لكل مستأجر.',
   'device.outcomes.title': 'جاهزية جمع بيانات الأجهزة',
   'device.outcomes.description':
     'آخر محاولة موثوقة لـ LLDP/CDP لكل هدف مهيأ صراحة. لا تُعرض المحاولة الفاشلة أبدا كنتيجة طوبولوجيا فارغة.',

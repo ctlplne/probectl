@@ -431,6 +431,61 @@ describe('plane workspaces', () => {
     expect(screen.getByText(/vacío explícito/i)).toBeInTheDocument()
   })
 
+  // D-60: the Device page lists the tenant's stored, authenticated SNMP traps.
+  test('lists the SNMP traps the traps API returns', async () => {
+    renderApp('/planes/device')
+
+    const table = await screen.findByRole('table', {
+      name: 'Authenticated SNMP traps, newest first',
+    })
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(1)
+    const trap = within(rows[0])
+    expect(trap.getByText('10.0.0.1')).toBeInTheDocument()
+    expect(trap.getByText('device-agent-1')).toBeInTheDocument()
+    expect(trap.getByText('linkDown')).toBeInTheDocument()
+    expect(trap.getByText('.1.3.6.1.6.3.1.1.5.3')).toBeInTheDocument()
+    expect(trap.getByText('ifIndex.2 = 2')).toBeInTheDocument()
+    expect(trap.getByText('ifOperStatus.2 = 2')).toBeInTheDocument()
+    expect(trap.getByText('SNMPv3')).toBeInTheDocument()
+    // The sysUpTime / snmpTrapOID header varbinds say nothing about the event.
+    expect(trap.queryByText(/9378400/)).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Traps are kept for 30 days, at most 10,000 per tenant.'),
+    ).toBeInTheDocument()
+  })
+
+  test('SNMP trap copy is localized across populated, unavailable, and empty states', async () => {
+    const arabic = renderApp('/planes/device', { locale: 'ar' })
+    expect(await screen.findByRole('heading', { name: 'تنبيهات SNMP (Traps)' })).toBeInTheDocument()
+    arabic.unmount()
+
+    const fallback = defaultFetch()
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      if (pathOf(input) === '/v1/device/traps') {
+        return Promise.resolve(
+          jsonResponse({
+            contract_version: 'probectl.device-traps/v1',
+            items: [],
+            collection_running: false,
+            effective_limit: 50,
+            truncated: false,
+            as_of: '2026-06-04T12:00:00Z',
+            retention: { max_per_tenant: 10000, retention_days: 30, max_varbinds: 64 },
+          }),
+        )
+      }
+      return fallback(input, init)
+    })
+    const unavailable = renderApp('/planes/device', { locale: 'es' })
+    expect(await screen.findByText('Almacenamiento de traps no disponible')).toBeInTheDocument()
+    unavailable.unmount()
+
+    vi.stubGlobal('fetch', coldFetch())
+    renderApp('/planes/device')
+    expect(await screen.findByText('No SNMP traps received')).toBeInTheDocument()
+  })
+
   test('renders BGP AS-path arcs with a table fallback', async () => {
     renderApp('/planes/bgp')
 
