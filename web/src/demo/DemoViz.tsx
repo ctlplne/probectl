@@ -91,6 +91,7 @@ const DEMO_PATH: Path = {
   max_hops: 30,
   trace_count: 12,
   destination_reached: true,
+  vantage: 'control_plane',
   measurement_fidelity: {
     version: 1,
     probe_transport: 'icmp',

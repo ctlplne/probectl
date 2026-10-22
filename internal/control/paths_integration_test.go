@@ -115,6 +115,9 @@ func TestPathAPI(t *testing.T) {
 		p.MeasurementFidelity.HardwareTimestamping {
 		t.Errorf("discovery fidelity = %+v", p.MeasurementFidelity)
 	}
+	if p.Vantage != path.VantageControlPlane {
+		t.Errorf("discovered path vantage = %q, want %q (traces run from the control plane)", p.Vantage, path.VantageControlPlane)
+	}
 	if disc.calls != 1 || disc.lastTarget != "9.9.9.9" {
 		t.Errorf("discoverer calls=%d target=%q", disc.calls, disc.lastTarget)
 	}
@@ -122,6 +125,12 @@ func TestPathAPI(t *testing.T) {
 	// Now it is stored and served.
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path", "", nil); rec.Code != http.StatusOK {
 		t.Errorf("get path after discovery = %d, want 200", rec.Code)
+	} else {
+		var stored path.Path
+		mustJSON(t, rec, &stored)
+		if stored.Vantage != path.VantageControlPlane {
+			t.Errorf("stored path vantage = %q, want %q", stored.Vantage, path.VantageControlPlane)
+		}
 	}
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history?limit=10", "", nil); rec.Code != http.StatusOK {
 		t.Fatalf("get path history = %d: %s", rec.Code, rec.Body)
@@ -136,6 +145,9 @@ func TestPathAPI(t *testing.T) {
 	if history.Items[0].Path.MeasurementFidelity == nil ||
 		history.Items[0].Path.MeasurementFidelity.TimingSource != "application_monotonic" {
 		t.Fatalf("history fidelity = %+v", history.Items[0].Path.MeasurementFidelity)
+	}
+	if history.Items[0].Path.Vantage != path.VantageControlPlane {
+		t.Errorf("history round vantage = %q, want %q", history.Items[0].Path.Vantage, path.VantageControlPlane)
 	}
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history?round_id="+history.Items[0].ID, "", nil); rec.Code != http.StatusOK {
 		t.Fatalf("stable history replay = %d: %s", rec.Code, rec.Body)

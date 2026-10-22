@@ -971,6 +971,10 @@ CI exercises the full raw-socket path in the `path-raw-live` lane with a
 multi-hop Linux namespace fixture, so this path is not merely documented as a
 privileged local option.
 
+Discovery runs on the control-plane host, not on agents: the privilege above is
+the control plane's, and the path is the route from where the control plane runs
+(every path carries `vantage: control_plane`).
+
 Where the discovered hops/links are stored is a control-plane choice:
 
 | Variable | Default | Description |

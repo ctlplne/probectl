@@ -111,6 +111,13 @@ describe('path visualization', () => {
     )
   })
 
+  test('states that the trace ran from the control plane', async () => {
+    stubPathFetch()
+    renderApp('/path')
+    const vantage = await screen.findByText(messages.en['path.vantage.controlPlane'])
+    expect(vantage).toHaveAttribute('data-path-vantage', 'control_plane')
+  })
+
   test('does not infer precision for a legacy path snapshot', async () => {
     stubPathFetch({ ...samplePath, measurement_fidelity: undefined })
     renderApp('/path')

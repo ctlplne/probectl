@@ -59,6 +59,7 @@ func (s *Server) handleGetPath(w http.ResponseWriter, r *http.Request) error {
 		return apierror.NotFound("no path has been discovered for this test yet")
 	}
 	normalizePathCollections(p)
+	stampPathVantage(p)
 	s.hopGeo.Enrich(p)
 	writeJSON(w, http.StatusOK, p)
 	return nil
@@ -87,6 +88,7 @@ func (s *Server) handleGetPathHistory(w http.ResponseWriter, r *http.Request) er
 	}
 	for i := range rounds {
 		normalizePathCollections(&rounds[i].Path)
+		stampPathVantage(&rounds[i].Path)
 		s.hopGeo.Enrich(&rounds[i].Path)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": rounds})
@@ -172,6 +174,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 		return pathDiscoveryError(target, err)
 	}
 	normalizePathCollections(p)
+	stampPathVantage(p)
 	if err := s.pathStore.Save(r.Context(), tid, p); err != nil {
 		return apierror.Internal("path save failed").Wrap(err)
 	}
@@ -204,6 +207,15 @@ func normalizePathCollections(p *path.Path) {
 			p.Hops[i].Nodes = []path.HopNode{}
 		}
 	}
+}
+
+// stampPathVantage states where a path was traced from. Every stored path was
+// traced by this handler's discovery, in the control-plane process: it is the
+// only path writer there has ever been, so a stored round needs no vantage
+// column to be labeled truthfully. When agents trace paths (D7, PD-2/D-45),
+// the vantage must be stored per round and this stamp must go.
+func stampPathVantage(p *path.Path) {
+	p.Vantage = path.VantageControlPlane
 }
 
 // testTarget resolves the path target (the host) of the test named in the route.

@@ -1756,6 +1756,7 @@ type Path struct {
 	Target              string                   `json:"target"`
 	TargetIp            string                   `json:"target_ip,omitempty"`
 	TraceCount          int                      `json:"trace_count,omitempty"`
+	Vantage             string                   `json:"vantage"`
 }
 
 type PathHistory struct {

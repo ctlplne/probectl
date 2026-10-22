@@ -1652,6 +1652,7 @@ export interface Path {
   target: string
   target_ip?: string
   trace_count?: number
+  vantage: "control_plane"
 }
 
 export interface PathHistory {

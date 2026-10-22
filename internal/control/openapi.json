@@ -10929,6 +10929,13 @@
               "null"
             ]
           },
+          "vantage": {
+            "type": "string",
+            "enum": [
+              "control_plane"
+            ],
+            "description": "Where the trace ran from. control_plane: the control plane traced the path from its own host, which can differ from the route an agent's probes take. Path discovery does not run on agents yet."
+          },
           "hops": {
             "type": "array",
             "items": {
@@ -10945,6 +10952,7 @@
         "required": [
           "target",
           "mode",
+          "vantage",
           "hops",
           "links"
         ]

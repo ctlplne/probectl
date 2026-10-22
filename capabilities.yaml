@@ -52,10 +52,14 @@ capabilities:
     real_stack_proof: {refs: ["test:internal/canary/network_realstack_integration_test.go#TestNetworkTestsRealStack"]}
     migration: {none_by_design: "Agent-to-agent tests reuse the existing test and result stores; they introduce no capability-specific relational schema."}
 
+  # F3's real-stack receipt traces from the CONTROL PLANE, the only path
+  # vantage today (RTP-19; agent vantages are D7 under PD-2/D-45), and asserts
+  # that every path surface says so (vantage: control_plane). Unprivileged, the
+  # control plane's trace is destination-only; the multi-hop raw-socket path is
+  # proven by the path-raw-live lane (TestRunRawMultiHop), not this receipt.
   - id: F3
     name: Path visualization
     status: delivered
-    evidence_status: partial
     owner: web/quality
     engine: {refs: ["file:internal/path"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#pathstore.WithTenantWriteFence("]}
@@ -65,7 +69,7 @@ capabilities:
     docs: {refs: ["file:docs/topology.md#Topology graph"]}
     config_keys: {refs: ["config:PROBECTL_HOP_GEO_FILE"]}
     telemetry: {refs: ["file:internal/store/pathstore/batching.go"]}
-    real_stack_proof: {gap: "The raw tracer loopback and path-handler isolation checks are separate component tests; no release binary through bus/store/API/CLI/rendered-UI receipt proves one tenant-scoped path outcome."}
+    real_stack_proof: {refs: ["test:internal/path/realstack_integration_test.go#TestPathVisualizationRealStack"]}
     migration: &no_migration {none_by_design: "Uses an existing shared store or is stateless; no capability-specific relational schema migration is required."}
 
   - id: F4

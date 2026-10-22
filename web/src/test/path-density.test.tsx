@@ -20,6 +20,7 @@ const densePath: Path = {
   max_hops: 40,
   trace_count: 12,
   destination_reached: true,
+  vantage: 'control_plane',
   hops: Array.from({ length: 40 }, (_, hopIndex) => {
     const ttl = hopIndex + 1
     return {

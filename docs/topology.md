@@ -11,7 +11,10 @@ carry interfaces. `internal/topology` is probectl's live model of that shape —
 nodes — the things — and edges — who touches whom) that stitches together
 the signals the other planes already produce:
 
-- **path** discoveries (traceroute) → agent → hop → hop → host adjacency;
+- **path** discoveries (traceroute) → vantage → hop → hop → host adjacency
+  (today the vantage is always the control plane, which the graph records as
+  the agent node `agent:control`: path discovery runs on the control-plane
+  host, not on agents);
 - the **eBPF service map** (eBPF watches connections from inside the kernel) →
   service → service call edges;
 - **BGP routing** events → autonomous-system → prefix origin edges;

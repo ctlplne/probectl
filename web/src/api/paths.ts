@@ -58,6 +58,12 @@ export interface Path {
   destination_reached: boolean
   /** Absent only for snapshots written before the fidelity receipt shipped. */
   measurement_fidelity?: PathMeasurementFidelity
+  /**
+   * Where the trace ran from. Path discovery runs in the control plane today
+   * (RTP-19), so every path is traced from the control-plane host, not from an
+   * agent's vantage.
+   */
+  vantage: 'control_plane'
   hops: Hop[]
   links: Link[]
 }

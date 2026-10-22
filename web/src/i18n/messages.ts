@@ -72,6 +72,8 @@ const en = {
   'path.graph.scrollHint':
     'Scroll horizontally to inspect every hop. Keyboard focus follows each hop.',
   'path.graph.scrollRegion': 'Scrollable network path graph',
+  'path.vantage.controlPlane': 'Traced from the control plane, not from an agent',
+  'path.vantage.unknown': 'Trace vantage not recorded',
   'path.fidelity.title': 'Measurement fidelity',
   'path.fidelity.visibility.full': 'Full-hop acquisition',
   'path.fidelity.visibility.destinationOnly': 'Destination-only fallback',
@@ -1411,6 +1413,8 @@ const es: Record<MessageKey, string> = {
   'path.graph.scrollHint':
     'Desplázate horizontalmente para inspeccionar cada salto. El foco del teclado sigue cada salto.',
   'path.graph.scrollRegion': 'Gráfico desplazable de la ruta de red',
+  'path.vantage.controlPlane': 'Trazada desde el plano de control, no desde un agente',
+  'path.vantage.unknown': 'Punto de trazado no registrado',
   'path.fidelity.title': 'Fidelidad de la medición',
   'path.fidelity.visibility.full': 'Adquisición de todos los saltos',
   'path.fidelity.visibility.destinationOnly': 'Alternativa con solo el destino',
@@ -2771,6 +2775,8 @@ const ar: Record<MessageKey, string> = {
   'coverage.cadence.independentVantage.other': '{count} نقاط رصد مستقلة',
   'path.graph.scrollHint': 'مرّر أفقيا لفحص كل قفزة. يتبع تركيز لوحة المفاتيح كل قفزة.',
   'path.graph.scrollRegion': 'رسم مسار الشبكة القابل للتمرير',
+  'path.vantage.controlPlane': 'تم التتبع من مستوى التحكم، وليس من وكيل',
+  'path.vantage.unknown': 'نقطة التتبع غير مسجلة',
   'path.fidelity.title': 'دقة القياس',
   'path.fidelity.visibility.full': 'التقاط كامل للقفزات',
   'path.fidelity.visibility.destinationOnly': 'وضع احتياطي للوجهة فقط',

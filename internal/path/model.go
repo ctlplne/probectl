@@ -75,6 +75,14 @@ type MeasurementFidelity struct {
 	HardwareTimestamping bool   `json:"hardware_timestamping"` // true only when actually enabled
 }
 
+// VantageControlPlane is the vantage of a path the control plane traced from
+// its own host. It is the only vantage today: path discovery runs in the
+// control-plane process, not on agents (RTP-19; agent vantages are D7 under
+// PD-2/D-45). A path traced from the control plane shows the route from where
+// the control plane runs, which can differ from the route an agent's probes
+// take.
+const VantageControlPlane = "control_plane"
+
 // Path is the merged, multi-path result of a discovery.
 type Path struct {
 	Target              string               `json:"target"`
@@ -84,8 +92,11 @@ type Path struct {
 	TraceCount          int                  `json:"trace_count"`
 	DestinationReached  bool                 `json:"destination_reached"`
 	MeasurementFidelity *MeasurementFidelity `json:"measurement_fidelity,omitempty"`
-	Hops                []Hop                `json:"hops"`
-	Links               []Link               `json:"links"`
+	// Vantage is where the trace ran from (VantageControlPlane). The API sets
+	// it on every path it serves; see internal/control.stampPathVantage.
+	Vantage string `json:"vantage,omitempty"`
+	Hops    []Hop  `json:"hops"`
+	Links   []Link `json:"links"`
 }
 
 // Config is a path-test definition.

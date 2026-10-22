@@ -518,6 +518,13 @@ fallback still finds the destination but not every hop. The checksum trick, the
 MPLS parsing, and the multi-path merge are fixture-tested; a loopback trace is the
 live test.
 
+**Where traces run from.** Path discovery runs in the control-plane process:
+`POST /v1/tests/{id}/path` traces from the control-plane host, not from the
+test's agents. Every path the API returns says so (`vantage: control_plane`),
+and the Path page reads "Traced from the control plane, not from an agent".
+The route from the control plane can differ from the route an agent's probes
+take, so a hop the path shows is a hop on the control plane's route.
+
 Every newly discovered `Path` also carries a versioned
 `measurement_fidelity` receipt. It records the probe transport, the acquisition
 mode actually used (`raw_icmp`, `icmp_datagram`, `tcp_connect_raw_icmp`, or

@@ -189,6 +189,13 @@
       "capabilities": [
         "F2"
       ]
+    },
+    {
+      "ref": "test:internal/path/realstack_integration_test.go#TestPathVisualizationRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F3"
+      ]
     }
   ]
 }
