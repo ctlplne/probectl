@@ -201,7 +201,15 @@ are attached to that deployment:
   tested host), so "why is 10.0.0.5 failing?" cites that host's probe series.
 - **Topology** (the `topology` domain) — direct neighbor/path evidence from the
   topology graph, including prefix-anchored routing topology
-  (`prefix:<cidr>`).
+  (`prefix:<cidr>`). An address subject ("why is 127.0.0.1 failing?") anchors
+  on every node the tenant's graph keys by that address — the eBPF service,
+  the path target, the traceroute hop and the managed device — and on the
+  prefixes whose block holds it (most specific first, at most four), so the
+  answer walks from the failing host to the device carrying it, its LLDP
+  neighbors and the AS originating its prefix. An explicit `node` subject
+  anchors on that node alone. Topology is context, never a cause by itself:
+  when it is the only evidence, the builtin adapter answers "Insufficient
+  evidence" and lists the context as cited findings.
 
 Small deployments still degrade honestly: if one of those stores is not attached,
 that plane simply contributes no evidence. The analyzer still cites only evidence

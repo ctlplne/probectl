@@ -94,6 +94,9 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 	})
 
 	primary := ranked[0]
+	if contextOnly(ranked) {
+		return contextOnlySynthesis(ranked), nil
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Most likely root cause: %s", describe(primary))
 	if primary.Severity != "" {
@@ -141,6 +144,43 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 		Silent:             silent,
 		Findings:           findings,
 	}, nil
+}
+
+// contextOnly reports whether every evidence item is topology context: what
+// the subject connects to, which says nothing about a fault by itself.
+func contextOnly(evidence []Evidence) bool {
+	for _, e := range evidence {
+		if !strings.EqualFold(e.Plane, "topology") {
+			return false
+		}
+	}
+	return true
+}
+
+// contextOnlySynthesis answers a question whose only evidence is topology
+// context (DPR-299: an address now anchors on the graph even when no signal
+// names it). A node's existence is not a root cause, so the verdict is
+// insufficient evidence; the context still reaches the reader as cited
+// findings.
+func contextOnlySynthesis(ranked []Evidence) Synthesis {
+	findings := make([]Finding, 0, min(len(ranked), 6))
+	for _, e := range ranked {
+		if len(findings) >= 6 {
+			break
+		}
+		findings = append(findings, Finding{
+			Statement: fmt.Sprintf("Topology context: %s.", describe(e)),
+			Citations: []Citation{{EvidenceID: e.ID}},
+		})
+	}
+	return Synthesis{
+		RootCause: "Insufficient evidence: only topology context was found for this question (what the subject connects to); " +
+			"no signal in your scope names a fault.",
+		Confidence:           ConfidenceLow,
+		InsufficientEvidence: true,
+		Silent:               silentPlanes(map[string]bool{"topology": true}),
+		Findings:             findings,
+	}
 }
 
 // causeBearingPlanes are the planes a root cause can come FROM, in the order a
