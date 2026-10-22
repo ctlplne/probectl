@@ -10,6 +10,7 @@ package ebpf
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -349,7 +350,9 @@ func TestLiveScopeAllowlistAttach(t *testing.T) {
 	cfg2.L7CaptureEnabled = true
 	cfg2.L7CaptureConsentTenant = "kernel-matrix"
 	cfg2.L7CaptureScope = []string{"exe:" + openssl}
-	src2, err := newLiveL7Source(cfg2, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Phase 2's agent logs go to the test output: an intermittent miss on the
+	// 5.15 matrix kernel (~1 in 10 runs) must say which step failed.
+	src2, err := newLiveL7Source(cfg2, slog.New(slog.NewTextHandler(t.Output(), nil)))
 	if err != nil {
 		t.Fatalf("attach with exe: scope: %v", err)
 	}
@@ -364,9 +367,49 @@ func TestLiveScopeAllowlistAttach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawn openssl: %v", err)
 	}
-	if n := countFrom(events2, pid2, 8*time.Second); n == 0 {
-		t.Fatal("allowlisted (exe:) process produced no events — scope refresher or kernel filter broken")
+	if n, others := countFromAndOthers(events2, pid2, 8*time.Second); n == 0 {
+		t.Fatalf("allowlisted (exe:) process produced no events — scope refresher or kernel filter broken (%s; events from other pids: %d)",
+			scopeDiagnosis(src2, pid2), others)
 	}
+}
+
+// countFromAndOthers counts events from pid and, separately, from any other
+// pid, until window elapses or events closes.
+func countFromAndOthers(events <-chan L7Event, pid int, window time.Duration) (mine, others int) {
+	deadline := time.After(window)
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return mine, others
+			}
+			if int(ev.Source.PID) == pid {
+				mine++
+			} else {
+				others++
+			}
+		case <-deadline:
+			return mine, others
+		}
+	}
+}
+
+// scopeDiagnosis says whether pid reached the kernel allowlist and how the
+// exe: refresher fared, so a failed allowlist leg names the broken step.
+func scopeDiagnosis(src L7Source, pid int) string {
+	live, ok := src.(*liveL7Source)
+	if !ok {
+		return "not a live source"
+	}
+	var v uint8
+	inMap := live.objs.ScopeTgids.Lookup(uint32(pid), &v) == nil
+	failures, lastErr := uint64(0), ""
+	if m := live.scopeRefresh; m != nil {
+		failures = m.failures.Load()
+		lastErr, _ = m.lastErr.Load().(string)
+	}
+	return fmt.Sprintf("pid %d in scope map: %t; scope refresh failures: %d (last: %q); scoped libraries tried: %d",
+		pid, inMap, failures, lastErr, len(live.scopedLibs))
 }
 
 // The agent end-to-end on a live kernel: capability probe, live source, one
