@@ -321,14 +321,18 @@ func (s incidentEntitiesSource) QueryEntities(ctx context.Context, tenant string
 
 // incidentMatches keeps an incident as evidence when it concerns the question's
 // subject (or when there is no subject — then recent incidents are all relevant).
+// It joins the subject to the incident's anchor the way the correlator joined
+// the incident's signals (DPR-298): a question about a host finds the incident
+// opened on the prefix that holds it — a hijack ahead of the outage it caused —
+// and a question about a prefix finds the incident opened on a host inside it.
 func incidentMatches(inc incident.Incident, target, prefix string) bool {
 	if target == "" && prefix == "" {
 		return true
 	}
-	if prefix != "" && inc.Prefix == prefix {
+	if incident.TargetsRelated(inc.Target, inc.Prefix, target, prefix) {
 		return true
 	}
-	if target != "" && (inc.Target == target || strings.Contains(inc.Title, target) || strings.Contains(inc.Target, target)) {
+	if target != "" && (strings.Contains(inc.Title, target) || strings.Contains(inc.Target, target)) {
 		return true
 	}
 	return false

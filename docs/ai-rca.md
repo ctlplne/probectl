@@ -181,7 +181,11 @@ are attached to that deployment:
   record of one problem, already stitched together from signals across planes.
   Each correlated incident contributes itself *plus* its cross-plane signals,
   individually citable. Incidents are the richest RCA evidence because they're
-  already correlated across planes, so the planner always includes them.
+  already correlated across planes, so the planner always includes them. An
+  incident concerns a question's subject the way the correlator joined its
+  signals: the same target, a host inside the incident's prefix, or an
+  overlapping prefix. A question about a host therefore finds the incident a
+  hijack of the prefix holding it opened before the outage alert joined it.
 - **Change / routing events** (the `events` domain) — the "what changed?"
   evidence that lets RCA cite a likely deploy/config/routing change (see
   `docs/change-intel.md`). BGP-style routing rows remain event-plane evidence

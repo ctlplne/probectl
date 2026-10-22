@@ -53,6 +53,15 @@ func targetsRelated(incTarget, incPrefix, sigTarget, sigPrefix string) bool {
 	return false
 }
 
+// TargetsRelated is the correlator's cross-plane join, for readers: whether
+// an incident anchored on incTarget/incPrefix concerns the subject
+// target/prefix. A reader asking about a host must find the incident the
+// correlator grouped under the prefix that holds it, and the reverse
+// (DPR-298).
+func TargetsRelated(incTarget, incPrefix, target, prefix string) bool {
+	return targetsRelated(incTarget, incPrefix, target, prefix)
+}
+
 // asAddr extracts an IP from a target that may be a bare IP, a host:port, or a
 // URL host. A non-IP host (a DNS name) yields ok=false (matched only by exact
 // string equality elsewhere).
