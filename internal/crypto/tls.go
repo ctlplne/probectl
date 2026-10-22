@@ -274,7 +274,7 @@ func reservedAddr(addr netip.Addr) error {
 // re-checked by the hardened policy. Use it for requests to destinations a
 // tenant or other untrusted caller controls (webhooks, notification channels).
 func GuardedHTTPClient(timeout time.Duration) *http.Client {
-	return guardedHTTPClient(timeout, hardenedTLS(), envProxyAddrs(httpproxy.FromEnvironment()))
+	return guardedHTTPClient(timeout, hardenedTLS(), envProxyAddrs(httpproxy.FromEnvironment()), net.DefaultResolver)
 }
 
 // GuardedHTTPClientWithCAFile is GuardedHTTPClient whose server-certificate
@@ -289,7 +289,7 @@ func GuardedHTTPClientWithCAFile(timeout time.Duration, caFile string) (*http.Cl
 	if err != nil {
 		return nil, err
 	}
-	return guardedHTTPClient(timeout, tlsCfg, envProxyAddrs(httpproxy.FromEnvironment())), nil
+	return guardedHTTPClient(timeout, tlsCfg, envProxyAddrs(httpproxy.FromEnvironment()), net.DefaultResolver), nil
 }
 
 // guardedHTTPClient builds the SSRF-guarded client. proxyAddrs are the
@@ -303,7 +303,7 @@ func GuardedHTTPClientWithCAFile(timeout time.Duration, caFile string) (*http.Cl
 // dial, so a guarded client with HTTPS_PROXY set could reach nothing at all:
 // PLAT-07 held for the hardened clients but not for webhook delivery or OIDC
 // discovery.
-func guardedHTTPClient(timeout time.Duration, tlsCfg *tls.Config, proxyAddrs map[string]bool) *http.Client {
+func guardedHTTPClient(timeout time.Duration, tlsCfg *tls.Config, proxyAddrs map[string]bool, res destinationResolver) *http.Client {
 	direct := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	guarded := &net.Dialer{
 		Timeout:   10 * time.Second,
@@ -333,15 +333,67 @@ func guardedHTTPClient(timeout time.Duration, tlsCfg *tls.Config, proxyAddrs map
 			DialContext: dial,
 			// PLAT-07: honor a configured egress proxy. When no proxy is set (the
 			// default) this is a no-op and the dial-time SSRF guard above runs on
-			// the real target; when an operator mandates an egress proxy, egress
-			// policy for caller-supplied destinations is the proxy's to enforce.
-			Proxy:               http.ProxyFromEnvironment,
+			// the real target. When a proxy is set, the transport dials only the
+			// proxy, so guardedProxy checks the destination itself first (DPR-292).
+			Proxy:               guardedProxy(guardedProxySource, res),
 			TLSClientConfig:     tlsCfg,
 			ForceAttemptHTTP2:   true,
 			MaxIdleConns:        10,
 			IdleConnTimeout:     90 * time.Second,
 			TLSHandshakeTimeout: 10 * time.Second,
 		},
+	}
+}
+
+// guardedProxySource is the proxy selection the guarded transport wraps: the
+// environment (HTTPS_PROXY/HTTP_PROXY/NO_PROXY), as for the hardened client
+// (PLAT-07). A package variable so TestHardenedClientsHonorProxyEnv can assert
+// it structurally.
+var guardedProxySource = http.ProxyFromEnvironment
+
+// destinationResolver is the lookup guardedProxy uses (net.Resolver in
+// production; a fixed table in tests).
+type destinationResolver interface {
+	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+}
+
+// guardedProxy wraps the transport's proxy selection so a proxied request is
+// still SSRF-checked. Through a proxy the transport dials only the proxy and
+// the proxy opens the destination, so the dial-time guard never sees the
+// tenant-supplied host. Before a request is handed to a proxy, its host
+// (a literal IP, or every address the name resolves to here) must clear the
+// same reserved-range check; otherwise the request fails closed. A name that
+// does not resolve here is left to the proxy (PLAT-07). Direct requests
+// (no proxy) are left to the dial-time guard. DPR-292: DPR-289 made proxied
+// delivery work, which without this would have let a webhook reach an internal
+// address through the operator's proxy.
+func guardedProxy(proxy func(*http.Request) (*url.URL, error), res destinationResolver) func(*http.Request) (*url.URL, error) {
+	return func(req *http.Request) (*url.URL, error) {
+		u, err := proxy(req)
+		if err != nil || u == nil {
+			return u, err
+		}
+		host := strings.Trim(req.URL.Hostname(), "[]")
+		if a, perr := netip.ParseAddr(host); perr == nil {
+			if rerr := reservedAddr(a); rerr != nil {
+				return nil, rerr
+			}
+			return u, nil
+		}
+		addrs, lerr := res.LookupNetIP(req.Context(), "ip", host)
+		if lerr != nil {
+			// A name this host cannot resolve is the proxy's to resolve: egress
+			// networks often have no local DNS for outside names, and a name that
+			// does not resolve here cannot be one of this host's internal names.
+			// Its policy is the proxy's (PLAT-07).
+			return u, nil
+		}
+		for _, a := range addrs {
+			if rerr := reservedAddr(a); rerr != nil {
+				return nil, rerr
+			}
+		}
+		return u, nil
 	}
 }
 

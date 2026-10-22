@@ -40,6 +40,14 @@ func TestHardenedClientsHonorProxyEnv(t *testing.T) {
 			if tr.Proxy == nil {
 				t.Fatal("transport has no Proxy func: a mandatory egress proxy (HTTPS_PROXY) is ignored (PLAT-07)")
 			}
+			if tc.name == "guarded" {
+				// DPR-292: the guarded transport wraps the environment selection in
+				// guardedProxy, which checks a proxied destination first.
+				if got := reflect.ValueOf(guardedProxySource).Pointer(); got != want {
+					t.Fatal("the guarded transport's proxy source is not http.ProxyFromEnvironment, so HTTPS_PROXY/NO_PROXY are not honored (PLAT-07)")
+				}
+				return
+			}
 			if got := reflect.ValueOf(tr.Proxy).Pointer(); got != want {
 				t.Fatal("transport.Proxy is not http.ProxyFromEnvironment, so HTTPS_PROXY/NO_PROXY are not honored (PLAT-07)")
 			}
