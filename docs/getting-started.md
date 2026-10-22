@@ -499,6 +499,13 @@ agent:
   capabilities: ["http"]
   heartbeat_interval: 30s
 
+test_sync:
+  # This quickstart is a single-tenant install: the operator owns both ends
+  # (this control plane and this agent), so the agent may run central tests
+  # whose audited per-test exception targets private or loopback addresses,
+  # such as First-run setup's 127.0.0.1 test. The agent default is false.
+  allow_private_targets: true
+
 canaries:
   - type: http
     target: "https://example.com/"
@@ -517,7 +524,11 @@ holds: a test you create later in the console, the API or the CLI reaches this
 agent with no edit here. `enroll` wrote the deployment's test-bundle public key
 as `identity/testsync.pub`, so the agent pulls its tenant's tests over the same
 mTLS connection, verifies their signature and runs them next to the canaries
-above (see "Central tests" in [`configuration.md`](configuration.md)).
+above (see "Central tests" in [`configuration.md`](configuration.md)). The
+`test_sync.allow_private_targets: true` line is there because you run both
+ends; leave it out (the default, `false`) on an agent of a control plane
+someone else operates, such as an MSP-hosted one. See "When to set
+`allow_private_targets: true`" in [`configuration.md`](configuration.md).
 
 > **Why `server-ca.pem` and not `ca.pem`.** The gRPC listener presents the
 > control plane's **server** certificate — here the quickstart cert signed by

@@ -1,0 +1,8 @@
+# PLANTED REGRESSION (D-57): the single-tenant evaluation canary flipped back
+# to false, so onboarding's 127.0.0.1 first test is refused.
+apiVersion: probectl.io/agent/v1
+control_plane:
+  grpc_addr: "127.0.0.1:9443"
+test_sync:
+  # D-57: single-tenant install; the operator owns both ends.
+  allow_private_targets: false

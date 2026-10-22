@@ -1,0 +1,7 @@
+# PLANTED REGRESSION (D-57): an MSP-hosted agent config that opts in to private
+# targets. TestAgentPrivateTargetsJudgeCatchesPlantedRegressions must flag it.
+apiVersion: probectl.io/agent/v1
+control_plane:
+  grpc_addr: "control.msp.example:9443"
+test_sync:
+  allow_private_targets: true

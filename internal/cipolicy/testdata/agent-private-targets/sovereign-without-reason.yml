@@ -1,0 +1,7 @@
+# PLANTED REGRESSION (D-57): the opt-in is set but nothing above it says why.
+apiVersion: probectl.io/agent/v1
+control_plane:
+  grpc_addr: "127.0.0.1:9443"
+test_sync:
+  interval: 30s
+  allow_private_targets: true

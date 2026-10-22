@@ -64,7 +64,14 @@ on the agent instead, where the control plane cannot reach:
   its operator allows (`test_sync.allowed_types`);
 - they may not probe private, loopback or link-local targets unless the
   agent's own configuration allows it (`test_sync.allow_private_targets`,
-  default false), the same SSRF guard local tests have;
+  default false), the same SSRF guard local tests have. Shipped agent configs
+  turn it on only for single-tenant (sovereign) installs, where the operator
+  owns both ends: the evaluation canaries, and the `test_sync:` block the
+  First-run setup page hands out when the deployment profile is `single`.
+  MSP-hosted (`multi-tenant`/`regulated`) agent configs keep false, because
+  there this guard is what stops the hosted control plane from making a
+  customer's agent probe that customer's internal network (decision D-57; the
+  control plane never overrides the agent's value);
 - interval and count floors cap the probe rate a bundle can request
   (`test_sync.min_interval`, `test_sync.max_tests`);
 - central tests carry no code, no commands and no agent setting: only the

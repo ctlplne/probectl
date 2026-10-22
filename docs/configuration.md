@@ -514,10 +514,36 @@ canaries only. The control plane needs
 | `test_sync.public_key_file` | `<dir of tls.cert_file>/testsync.pub` | the deployment's test-bundle public key (PEM) every bundle must verify against |
 | `test_sync.interval` | `30s` | pull cadence; a heartbeat that reports a newer set pulls sooner |
 | `test_sync.allowed_types` | every compiled-in canary type | central tests of any other type are refused (`type_not_allowed`) |
-| `test_sync.allow_private_targets` | `false` | when `false`, central tests with a literal private/loopback/link-local/`localhost` target or the per-test `allow_private_targets` override are refused (`private_target`); when `true`, the audited per-test override is honored as for local tests |
+| `test_sync.allow_private_targets` | `false` | when `false`, central tests with a literal private/loopback/link-local/`localhost` target or the per-test `allow_private_targets` override are refused (`private_target`); when `true`, the audited per-test override is honored as for local tests. See "When to set `allow_private_targets: true`" below |
 | `test_sync.min_interval` | `10s` | central tests scheduled more often are refused (`interval_below_floor`) |
 | `test_sync.max_tests` | `200` | a bundle with more tests is refused whole (`over_cap`); the agent keeps its last verified set |
 | `test_sync.state_dir` | `<buffer.dir>/testsync` | where the last verified bundle is kept (0600); it is re-verified at start, so central tests survive restarts and control-plane outages |
+
+#### When to set `allow_private_targets: true`
+
+The agent's default stays `false`, and the control plane can never change it:
+the value is the agent operator's own bound on what a bundle may make the agent
+probe. Set it to `true` only where the operator owns both ends:
+
+- **Single-tenant / sovereign installs** (`PROBECTL_DEPLOYMENT_PROFILE=single`,
+  the default). You run the control plane and the agent, so letting the agent
+  run audited private-target tests (such as onboarding's `127.0.0.1` first test)
+  gives no one else reach into your network. The shipped evaluation canaries
+  (`deploy/compose/eval-agent.yml`, `deploy/compose/eval-browser-agent.yml`)
+  set it, with a comment saying why, and the First-run setup page hands out a
+  `test_sync:` block with `true` when the server reports `deployment_profile:
+  single` in `GET /v1/onboarding/progress`.
+- **MSP-hosted installs** (`multi-tenant` or `regulated`) keep `false` in every
+  agent config probectl hands out: there the agent-side guard is what stops the
+  MSP's control plane from making a customer's agent probe that customer's
+  internal network. First-run setup shows `false` for these profiles, and also
+  whenever the profile is unknown (fail closed). A customer who owns an agent's
+  network may still set `true` in that agent's own config.
+
+The generic agent configs (`deploy/agent/probectl-agent.example.yml`, the
+deb/rpm conffile, cloud-init and the Ansible role) keep the default.
+`internal/cipolicy` fails the build if any shipped agent config outside the two
+evaluation canaries turns it on, or if those lose the value or its comment.
 
 Refusals are counted on the agent's metrics endpoint as
 `probectl_agent_testsync_refused_total{reason}` (`bad_signature`, `malformed`,

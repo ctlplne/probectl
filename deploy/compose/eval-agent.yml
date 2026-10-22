@@ -48,6 +48,20 @@ agent:
     site: local-compose
   heartbeat_interval: 30s
 
+# Central tests (G9): this canary also pulls its tenant's signed test set over
+# the same mTLS connection; enroll-on-boot writes testsync.pub, which turns it
+# on. See docs/configuration.md "Central tests".
+test_sync:
+  # D-57: this evaluation stack is a single-tenant (sovereign) install. Its
+  # control plane runs the default PROBECTL_DEPLOYMENT_PROFILE=single, and the
+  # operator owns both ends (this control plane and this agent), so the agent
+  # may run central tests whose audited per-test exception targets private or
+  # loopback addresses, such as onboarding's 127.0.0.1 first test. The agent
+  # default stays false, and MSP-hosted (multi-tenant/regulated) agent configs
+  # keep false, so a hosted control plane cannot make a customer's agent probe
+  # that customer's internal network.
+  allow_private_targets: true
+
 canaries:
   - type: http
     target: "https://example.com/"
