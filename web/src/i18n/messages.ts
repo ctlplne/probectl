@@ -18,6 +18,8 @@ const en = {
   'nav.targets': 'Targets & Tests',
   'nav.path': 'Path Analysis',
   'targets.exactTestID': 'Exact test ID',
+  'targets.create.allowPrivateHint':
+    'Needed for a private, loopback or link-local target. Admin-only, tenant-scoped and recorded in the audit trail for this test. An enrolled agent runs it only if its own config sets test_sync.allow_private_targets: true.',
   'targets.clearExactTest': 'Clear exact test',
   'coverage.cadence.column': 'Execution cadence',
   'coverage.cadence.state.onCadence': 'On cadence',
@@ -1352,6 +1354,8 @@ const es: Record<MessageKey, string> = {
   'nav.targets': 'Objetivos y pruebas',
   'nav.path': 'Analisis de ruta',
   'targets.exactTestID': 'ID de prueba exacto',
+  'targets.create.allowPrivateHint':
+    'Necesario para un objetivo privado, de loopback o de enlace local. Solo para administradores, limitado al tenant y registrado en la auditoria de esta prueba. Un agente enrolado la ejecuta solo si su propia configuracion define test_sync.allow_private_targets: true.',
   'targets.clearExactTest': 'Quitar la prueba exacta',
   'coverage.cadence.column': 'Cadencia de ejecución',
   'coverage.cadence.state.onCadence': 'En cadencia',
@@ -2720,6 +2724,8 @@ const ar: Record<MessageKey, string> = {
   'nav.targets': 'الأهداف والاختبارات',
   'nav.path': 'تحليل المسار',
   'targets.exactTestID': 'معرّف الاختبار المطابق',
+  'targets.create.allowPrivateHint':
+    'مطلوب لهدف خاص أو استرجاعي أو محلي الارتباط. للمسؤول فقط، ومقيّد بالمستأجر، ومسجل في سجل التدقيق لهذا الاختبار. لا يشغّله الوكيل المسجل إلا إذا ضبط إعداده test_sync.allow_private_targets: true.',
   'targets.clearExactTest': 'أزل الاختبار المطابق',
   'coverage.cadence.column': 'وتيرة التنفيذ',
   'coverage.cadence.state.onCadence': 'ضمن الوتيرة',

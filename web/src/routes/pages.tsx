@@ -74,31 +74,41 @@ function CreateTestModal({
   open,
   onClose,
   canCreate,
+  canAllowPrivate,
 }: {
   open: boolean
   onClose: () => void
   canCreate: boolean
+  canAllowPrivate: boolean
 }) {
   const { push } = useToast()
+  const { t } = useI18n()
   const create = useCreateTest()
   const [name, setName] = useState('')
   const [type, setType] = useState('icmp')
   const [target, setTarget] = useState('')
   const [interval, setInterval] = useState(60)
+  // The SSRF guard refuses private, loopback and link-local targets unless the
+  // test carries the audited allow_private_targets override (test.allow_private).
+  // Off by default: an operator opts one test in, as in onboarding.
+  const [allowPrivate, setAllowPrivate] = useState(false)
 
   function reset() {
     setName('')
     setType('icmp')
     setTarget('')
     setInterval(60)
+    setAllowPrivate(false)
   }
 
   function submit() {
     if (!canCreate) return
     const driver = browserDriver(type)
+    const privateParam =
+      canAllowPrivate && allowPrivate ? { allow_private_targets: 'true' } : undefined
     const params = driver
-      ? { script: defaultBrowserScript(name, target), browser_driver: driver }
-      : undefined
+      ? { script: defaultBrowserScript(name, target), browser_driver: driver, ...privateParam }
+      : privateParam
     create.mutate(
       {
         name,
@@ -180,6 +190,19 @@ function CreateTestModal({
           value={interval}
           onChange={(e) => setInterval(Number(e.target.value))}
         />
+        {canAllowPrivate && type !== 'noop' ? (
+          <div>
+            <label className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={allowPrivate}
+                onChange={(e) => setAllowPrivate(e.target.checked)}
+              />
+              <span>{t('onboarding.test.allowPrivate')}</span>
+            </label>
+            <p className={styles.fieldHint}>{t('targets.create.allowPrivateHint')}</p>
+          </div>
+        ) : null}
       </div>
     </Modal>
   )
@@ -503,6 +526,7 @@ export function TargetsPage() {
         open={creating && canCreateTest}
         onClose={() => setCreating(false)}
         canCreate={canCreateTest}
+        canAllowPrivate={permissions.includes('test.allow_private')}
       />
       {codeFor ? (
         <Modal open onClose={() => setCodeFor(null)} title={`Export as code: ${codeFor.name}`}>

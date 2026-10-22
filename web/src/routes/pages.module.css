@@ -427,3 +427,20 @@
     overflow-wrap: anywhere;
   }
 }
+
+.checkboxLabel {
+  display: flex;
+  gap: var(--space-2);
+  align-items: start;
+  color: hsl(var(--foreground));
+}
+
+.checkboxLabel input {
+  margin-block-start: var(--space-1);
+}
+
+.fieldHint {
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-sm);
+}

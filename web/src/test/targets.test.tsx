@@ -609,6 +609,51 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     )
   })
 
+  test('creates a private-target test only with the audited override permission', async () => {
+    const user = userEvent.setup()
+    const posted: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = pathOf(input)
+        const method = init?.method ?? 'GET'
+        if (path === '/v1/tests' && method === 'GET') return jsonResponse({ items: [] })
+        if (path === '/v1/tests' && method === 'POST') {
+          const body = JSON.parse(String(init?.body))
+          posted.push(body)
+          return jsonResponse({ ...body, id: 'new', created_at: '', updated_at: '' }, 201)
+        }
+        return jsonResponse({ error: { code: 'x', message: 'no route' } }, 404)
+      }),
+    )
+    const allowLabel = messages.en['onboarding.test.allowPrivate']
+
+    // Without test.allow_private the override is not offered.
+    const first = renderApp('/targets', { me: { permissions: ['test.write'] } })
+    await user.click((await screen.findAllByRole('button', { name: /new test/i }))[0])
+    let dialog = await screen.findByRole('dialog', { name: /create test/i })
+    expect(within(dialog).queryByRole('checkbox', { name: allowLabel })).toBeNull()
+    first.unmount()
+
+    renderApp('/targets', { me: { permissions: ['test.write', 'test.allow_private'] } })
+    await user.click((await screen.findAllByRole('button', { name: /new test/i }))[0])
+    dialog = await screen.findByRole('dialog', { name: /create test/i })
+    const allow = within(dialog).getByRole('checkbox', { name: allowLabel })
+    expect(allow).not.toBeChecked()
+    await user.type(within(dialog).getByLabelText('Name'), 'db-port')
+    await user.selectOptions(within(dialog).getByLabelText('Type'), 'tcp')
+    await user.type(within(dialog).getByLabelText('Target'), '127.0.0.1:5432')
+    await user.click(allow)
+    await user.click(within(dialog).getByRole('button', { name: /^create$/i }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      name: 'db-port',
+      type: 'tcp',
+      target: '127.0.0.1:5432',
+      params: { allow_private_targets: 'true' },
+    })
+  })
+
   test('loads additional backend cursor pages', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
