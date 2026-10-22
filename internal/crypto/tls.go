@@ -7,6 +7,7 @@
 package crypto
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -18,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 )
 
 // TLS policy (WIRE-005/WIRE-007), owned HERE so the rest of the codebase
@@ -271,7 +274,38 @@ func reservedAddr(addr netip.Addr) error {
 // re-checked by the hardened policy. Use it for requests to destinations a
 // tenant or other untrusted caller controls (webhooks, notification channels).
 func GuardedHTTPClient(timeout time.Duration) *http.Client {
-	d := &net.Dialer{
+	return guardedHTTPClient(timeout, hardenedTLS(), envProxyAddrs(httpproxy.FromEnvironment()))
+}
+
+// GuardedHTTPClientWithCAFile is GuardedHTTPClient whose server-certificate
+// validation is anchored on an operator-supplied PEM trust bundle instead of
+// the system roots — the same "ca_file" contract as
+// HardenedClientTLSConfigWithCAFile, for tenant-directed deliveries that cross
+// a TLS-inspecting egress proxy or reach receivers behind an enterprise CA. An
+// empty caFile yields exactly GuardedHTTPClient. The SSRF guard is unchanged
+// and certificate validation is never disabled.
+func GuardedHTTPClientWithCAFile(timeout time.Duration, caFile string) (*http.Client, error) {
+	tlsCfg, err := HardenedClientTLSConfigWithCAFile(caFile)
+	if err != nil {
+		return nil, err
+	}
+	return guardedHTTPClient(timeout, tlsCfg, envProxyAddrs(httpproxy.FromEnvironment())), nil
+}
+
+// guardedHTTPClient builds the SSRF-guarded client. proxyAddrs are the
+// operator's configured egress proxies (host:port exactly as the transport
+// dials them): those dials are the operator's own infrastructure, not a
+// caller-supplied destination, so they skip the reserved-range check. Every
+// other dial is guarded.
+//
+// DPR-289: an egress proxy almost always sits on a private or loopback address
+// (a corporate Squid on 10.x, a sidecar on 127.0.0.1). The guard refused that
+// dial, so a guarded client with HTTPS_PROXY set could reach nothing at all:
+// PLAT-07 held for the hardened clients but not for webhook delivery or OIDC
+// discovery.
+func guardedHTTPClient(timeout time.Duration, tlsCfg *tls.Config, proxyAddrs map[string]bool) *http.Client {
+	direct := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	guarded := &net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
 		Control: func(_, address string, _ syscall.RawConn) error {
@@ -286,23 +320,66 @@ func GuardedHTTPClient(timeout time.Duration) *http.Client {
 			return reservedAddr(a)
 		},
 	}
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		if proxyAddrs[address] {
+			return direct.DialContext(ctx, network, address)
+		}
+		return guarded.DialContext(ctx, network, address)
+	}
 	return &http.Client{
 		Timeout:       timeout,
 		CheckRedirect: hardenedHTTPRedirectPolicy,
 		Transport: &http.Transport{
-			DialContext: d.DialContext,
+			DialContext: dial,
 			// PLAT-07: honor a configured egress proxy. When no proxy is set (the
 			// default) this is a no-op and the dial-time SSRF guard above runs on
 			// the real target; when an operator mandates an egress proxy, egress
 			// policy for caller-supplied destinations is the proxy's to enforce.
 			Proxy:               http.ProxyFromEnvironment,
-			TLSClientConfig:     hardenedTLS(),
+			TLSClientConfig:     tlsCfg,
 			ForceAttemptHTTP2:   true,
 			MaxIdleConns:        10,
 			IdleConnTimeout:     90 * time.Second,
 			TLSHandshakeTimeout: 10 * time.Second,
 		},
 	}
+}
+
+// envProxyAddrs is the set of egress-proxy addresses the transport will dial
+// for cfg (HTTP_PROXY / HTTPS_PROXY), canonicalized the way net/http does: a
+// proxy without a scheme is http://, and a missing port takes the scheme's
+// default. A value that does not parse adds nothing, so its dial stays guarded
+// (fail closed).
+func envProxyAddrs(cfg *httpproxy.Config) map[string]bool {
+	out := map[string]bool{}
+	if cfg == nil {
+		return out
+	}
+	for _, raw := range []string{cfg.HTTPProxy, cfg.HTTPSProxy} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			if u, err = url.Parse("http://" + raw); err != nil {
+				continue
+			}
+		}
+		host := u.Hostname()
+		if host == "" {
+			continue
+		}
+		port := u.Port()
+		if port == "" {
+			port = map[string]string{"http": "80", "https": "443", "socks5": "1080", "socks5h": "1080"}[strings.ToLower(u.Scheme)]
+		}
+		if port == "" {
+			continue
+		}
+		out[net.JoinHostPort(host, port)] = true
+	}
+	return out
 }
 
 func redirectMetadataHost(host string) bool {

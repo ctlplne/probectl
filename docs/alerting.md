@@ -34,6 +34,14 @@ channel delivers through the SMTP endpoint configured with
 transport (§7 guardrail 12). With no SMTP address configured, a rule with an
 email channel is skipped with a logged warning, and
 `POST /v1/alerts/test-channel` reports the failure instead of pretending.
+A webhook URL is tenant-supplied, so it must be `https://` on a public host:
+a private, loopback, link-local or metadata destination is refused when the
+rule is saved, and again at delivery against the address the name resolves to
+(the SSRF guard). Webhook delivery honors the control plane's egress proxy
+(`HTTPS_PROXY` / `NO_PROXY`). The configured proxy is the operator's own
+infrastructure, so it may sit on a private or loopback address. Only the proxy
+dial skips the SSRF guard; every other dial stays guarded, and what the proxy
+lets through is its own egress policy.
 And per-rule channels are only half the notification story: incident-level
 paging, chat, and ticketing connectors (PagerDuty, Opsgenie, Slack, Teams,
 ServiceNow, Jira) ride the *incident* pipeline, not alert rules — see
