@@ -87,6 +87,12 @@ type Runtime struct {
 	quarantined *basemetrics.Counter
 	bmpUnsupp   *basemetrics.Counter
 
+	// Central test sync (G9): the applied version, failed pulls, and bundles or
+	// tests refused by reason (fixed reason codes, never tenant data).
+	testSyncVersion  atomic.Uint64
+	testSyncFailures *basemetrics.Counter
+	testSyncRefused  map[string]*basemetrics.Counter
+
 	bufferDepth atomic.Int64
 	active      atomic.Int64
 	latencyBits atomic.Uint64
@@ -117,8 +123,15 @@ func New(component, version, commit string, cfg Config) (*Runtime, error) {
 		rejections:  reg.Counter("probectl_agent_session_rejections_total", "Inbound collector sessions rejected by the process-wide concurrency bound."),
 		quarantined: reg.Counter("probectl_agent_quarantined_total", "Undecodable buffered result frames sidelined to the quarantine sidecar so draining can resume (ING-28)."),
 		bmpUnsupp:   reg.Counter("probectl_agent_bmp_unsupported_updates_total", "BMP updates rejected by the v4-unicast parser (ADD-PATH / IPv6 / withdrawal) instead of fabricating or dropping routes (ING-27)."),
-		ready:       make(chan struct{}),
+		testSyncFailures: reg.Counter("probectl_agent_testsync_fetch_failures_total",
+			"Central test-bundle pulls that failed (transport or control-plane error); the agent kept its last verified set."),
+		testSyncRefused: reg.LabeledCounter("probectl_agent_testsync_refused_total",
+			"Central test bundles (or single tests in a bundle) the agent refused, by reason.", "reason", TestSyncRefusalReasons),
+		ready: make(chan struct{}),
 	}
+	reg.Gauge("probectl_agent_testsync_version", "Central test-set version this agent verified and applied (0 = none).", func() float64 {
+		return float64(r.testSyncVersion.Load())
+	})
 	reg.Gauge("probectl_agent_buffer_depth", "Results currently waiting in this agent process's local buffer or queue.", func() float64 {
 		return float64(r.bufferDepth.Load())
 	})
@@ -276,6 +289,46 @@ func (r *Runtime) SessionAdmissionRejected() {
 func (r *Runtime) UnsupportedUpdate() {
 	if r != nil {
 		r.bmpUnsupp.Inc()
+	}
+}
+
+// TestSyncRefusalReasons is the closed set of reasons a central test bundle or
+// one of its tests can be refused for (G9). Whole-bundle reasons keep the last
+// verified set; per-test reasons drop that test only.
+var TestSyncRefusalReasons = []string{
+	"bad_signature",        // bundle: signature does not verify against testsync.pub
+	"malformed",            // bundle: undecodable
+	"stale_version",        // bundle: version not newer than the applied one (replay/rollback)
+	"foreign_tenant",       // bundle: names a tenant other than the certificate's
+	"over_cap",             // bundle: more tests than test_sync.max_tests
+	"type_not_allowed",     // test: canary type not compiled in or not in test_sync.allowed_types
+	"private_target",       // test: private/loopback/link-local target not allowed by this agent
+	"interval_below_floor", // test: interval under test_sync.min_interval
+	"invalid_test",         // test: the canary refused its definition
+}
+
+// SetTestSyncVersion records the central test-set version now applied.
+func (r *Runtime) SetTestSyncVersion(v uint64) {
+	if r != nil {
+		r.testSyncVersion.Store(v)
+	}
+}
+
+// TestSyncFetchFailure records one failed central test-bundle pull.
+func (r *Runtime) TestSyncFetchFailure() {
+	if r != nil {
+		r.testSyncFailures.Inc()
+	}
+}
+
+// TestSyncRefused records one refusal; an undeclared reason is a programming
+// error and is dropped rather than minted as a new series.
+func (r *Runtime) TestSyncRefused(reason string) {
+	if r == nil {
+		return
+	}
+	if c, ok := r.testSyncRefused[reason]; ok {
+		c.Inc()
 	}
 }
 

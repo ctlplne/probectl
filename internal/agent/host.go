@@ -11,7 +11,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math/rand/v2"
+	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -60,6 +62,11 @@ func newResultID() string {
 // Host schedules canaries and writes their results into the buffer. It runs
 // independently of control-plane connectivity, so results accumulate while the
 // control plane is unreachable.
+//
+// It runs two sets side by side: the static canaries from the local YAML, and
+// the central test set the agent pulled and verified (G9, testsync.go), which
+// applyCentral replaces at runtime by diff — a test whose definition did not
+// change keeps its goroutine and cadence.
 type Host struct {
 	scheduled []scheduled
 	buffer    *Buffer
@@ -67,6 +74,26 @@ type Host struct {
 	agentID   string
 	log       *slog.Logger
 	metrics   *agentmetrics.Runtime
+
+	mu      sync.Mutex
+	runCtx  context.Context // set while Run is active; nil before and after
+	group   *errgroup.Group
+	central map[string]*centralTest // test id -> running (or pending) central test
+}
+
+// centralTest is one central test the host runs. hash identifies its verified
+// definition; cancel stops its goroutine (nil while Run has not started).
+type centralTest struct {
+	sched  scheduled
+	hash   string
+	cancel context.CancelFunc
+}
+
+// centralDef is one admitted central test, ready to schedule.
+type centralDef struct {
+	id    string
+	hash  string
+	sched scheduled
 }
 
 // Run runs each canary on its interval until ctx is canceled.
@@ -85,36 +112,120 @@ const firstProbeJitter = 3 * time.Second
 
 func (h *Host) Run(ctx context.Context) {
 	var g errgroup.Group
+	h.mu.Lock()
+	h.runCtx, h.group = ctx, &g
+	for _, ct := range h.central {
+		h.startCentralLocked(ct)
+	}
+	h.mu.Unlock()
+	// Hold the group open for the whole run, so a central test started later
+	// by applyCentral always joins a live group (never Go on a group whose
+	// Wait may already be returning): the holder detaches the group under the
+	// lock before it exits, and startCentralLocked starts nothing once it has.
+	g.Go(func() error {
+		<-ctx.Done()
+		h.mu.Lock()
+		h.runCtx, h.group = nil, nil
+		for _, ct := range h.central {
+			ct.cancel = nil
+		}
+		h.mu.Unlock()
+		return nil
+	})
 	for _, s := range h.scheduled {
-		g.Go(func() error {
-			// The first probe is immediate, modulo jitter that never exceeds the
-			// interval itself — a 5ms canary must not wait 3s for its first run.
-			jitter := firstProbeJitter
-			if s.interval < jitter {
-				jitter = s.interval
-			}
-			first := time.NewTimer(time.Duration(rand.Int64N(int64(jitter) + 1)))
-			defer first.Stop()
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-first.C:
-				h.probe(ctx, s)
-			}
-
-			t := time.NewTicker(s.interval)
-			defer t.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-t.C:
-					h.probe(ctx, s)
-				}
-			}
-		})
+		g.Go(func() error { h.loop(ctx, s); return nil })
 	}
 	_ = g.Wait() // no schedule goroutine returns an error; ctx is the only exit
+}
+
+// loop runs one canary on its interval until ctx is canceled.
+func (h *Host) loop(ctx context.Context, s scheduled) {
+	// The first probe is immediate, modulo jitter that never exceeds the
+	// interval itself — a 5ms canary must not wait 3s for its first run.
+	jitter := firstProbeJitter
+	if s.interval < jitter {
+		jitter = s.interval
+	}
+	first := time.NewTimer(time.Duration(rand.Int64N(int64(jitter) + 1)))
+	defer first.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-first.C:
+		h.probe(ctx, s)
+	}
+
+	t := time.NewTicker(s.interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			h.probe(ctx, s)
+		}
+	}
+}
+
+// applyCentral replaces the central test set with defs by diff: a test whose
+// id and definition hash are unchanged keeps running untouched; a removed or
+// changed test is stopped; a new or changed test is started. Before Run (the
+// persisted set re-applied at start) the set is only recorded and Run starts
+// it. It returns how many tests were started and stopped.
+func (h *Host) applyCentral(defs []centralDef) (started, stopped int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.central == nil {
+		h.central = map[string]*centralTest{}
+	}
+	want := make(map[string]centralDef, len(defs))
+	for _, d := range defs {
+		want[d.id] = d
+	}
+	for id, ct := range h.central {
+		if d, keep := want[id]; keep && d.hash == ct.hash {
+			continue
+		}
+		if ct.cancel != nil {
+			ct.cancel()
+		}
+		delete(h.central, id)
+		stopped++
+	}
+	for _, d := range defs {
+		if _, running := h.central[d.id]; running {
+			continue
+		}
+		ct := &centralTest{sched: d.sched, hash: d.hash}
+		h.central[d.id] = ct
+		h.startCentralLocked(ct)
+		started++
+	}
+	return started, stopped
+}
+
+// startCentralLocked starts one central test's loop when Run is active.
+// The caller holds h.mu.
+func (h *Host) startCentralLocked(ct *centralTest) {
+	if h.runCtx == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(h.runCtx)
+	ct.cancel = cancel
+	s := ct.sched
+	h.group.Go(func() error { h.loop(ctx, s); return nil })
+}
+
+// centralIDs returns the ids of the central tests the host currently holds.
+func (h *Host) centralIDs() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ids := make([]string, 0, len(h.central))
+	for id := range h.central {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func (h *Host) probe(ctx context.Context, s scheduled) {

@@ -71,3 +71,27 @@ func TestCounterIdempotentAndConcurrent(t *testing.T) {
 		t.Fatalf("counter race lost increments: %d", c2.Value())
 	}
 }
+
+// A labeled counter family exposes one HELP/TYPE header and one series per
+// declared value, zero-initialized, so an alert on a reason sees 0 before the
+// first event.
+func TestLabeledCounterExposesEveryDeclaredValue(t *testing.T) {
+	r := New("1", "c")
+	byReason := r.LabeledCounter("probectl_x_refused_total", "Refusals by reason.", "reason", []string{"b", "a"})
+	byReason["a"].Add(3)
+	rec := httptest.NewRecorder()
+	r.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	body := rec.Body.String()
+	for _, want := range []string{
+		"# TYPE probectl_x_refused_total counter",
+		`probectl_x_refused_total{reason="a"} 3`,
+		`probectl_x_refused_total{reason="b"} 0`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics output missing %q\n---\n%s", want, body)
+		}
+	}
+	if strings.Count(body, "# TYPE probectl_x_refused_total") != 1 {
+		t.Errorf("labeled family must have exactly one TYPE header:\n%s", body)
+	}
+}

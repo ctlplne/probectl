@@ -30,6 +30,7 @@ import (
 type Registry struct {
 	mu         sync.RWMutex
 	counters   map[string]*Counter
+	labeled    map[string]*labeledCounter
 	counterFns map[string]*gaugeFunc
 	gauges     map[string]*gaugeFunc
 	help       map[string]string
@@ -60,6 +61,7 @@ type gaugeFunc struct {
 func New(version, commit string) *Registry {
 	return &Registry{
 		counters:   map[string]*Counter{},
+		labeled:    map[string]*labeledCounter{},
 		counterFns: map[string]*gaugeFunc{},
 		gauges:     map[string]*gaugeFunc{},
 		help:       map[string]string{},
@@ -81,6 +83,34 @@ func (r *Registry) Counter(name, help string) *Counter {
 	r.counters[name] = c
 	r.help[name] = help
 	return c
+}
+
+// labeledCounter is one counter family with a single label over a FIXED,
+// code-declared value set: the bound keeps /metrics cardinality constant and
+// means no runtime value (never a tenant, target or test id) becomes a label.
+type labeledCounter struct {
+	label  string
+	values []string
+	byVal  map[string]*Counter
+}
+
+// LabeledCounter registers a counter family `name{label="<value>"}` with one
+// zero-initialized series per declared value and returns the counters keyed by
+// value. Values must be fixed reason codes, never data.
+func (r *Registry) LabeledCounter(name, help, label string, values []string) map[string]*Counter {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	lc := &labeledCounter{label: label, values: append([]string(nil), values...), byVal: map[string]*Counter{}}
+	sort.Strings(lc.values)
+	out := make(map[string]*Counter, len(values))
+	for _, v := range lc.values {
+		c := &Counter{}
+		lc.byVal[v] = c
+		out[v] = c
+	}
+	r.labeled[name] = lc
+	r.help[name] = help
+	return out
 }
 
 // Gauge registers a sampled gauge backed by fn (evaluated at scrape time).
@@ -145,6 +175,20 @@ func (r *Registry) Handler() http.Handler {
 		for _, n := range names {
 			fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s counter\n", n, r.help[n], n)
 			fmt.Fprintf(w, "%s %d\n", n, r.counters[n].Value())
+		}
+
+		// Labeled counter families (sorted by name, then by declared value).
+		lnames := make([]string, 0, len(r.labeled))
+		for n := range r.labeled {
+			lnames = append(lnames, n)
+		}
+		sort.Strings(lnames)
+		for _, n := range lnames {
+			lc := r.labeled[n]
+			fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s counter\n", n, r.help[n], n)
+			for _, v := range lc.values {
+				fmt.Fprintf(w, "%s{%s=%q} %d\n", n, lc.label, v, lc.byVal[v].Value())
+			}
 		}
 
 		// Sampled counter-funcs (sorted) — cumulative _total values owned by

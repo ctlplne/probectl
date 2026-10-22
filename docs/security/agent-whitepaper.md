@@ -198,7 +198,20 @@ the clear to compensate.
 ## 8. Updates and signing — deliberately boring
 
 **There is no self-update channel.** The agent never fetches or executes code —
-removing the single most dangerous capability a fleet agent can have. Upgrades are
+removing the single most dangerous capability a fleet agent can have.
+
+The one thing an agent does fetch is its tenant's **central test set**
+([ADR](../adr/central-test-distribution.md)): data, not code — test ids,
+compiled-in canary types, targets and intervals, nothing else. The agent pulls
+it over its existing mTLS connection, verifies its Ed25519 signature against the
+deployment key it received at enrollment, refuses a bundle for another tenant or
+one older than the set it runs, and admits each test only within its own local
+policy (`test_sync.allowed_types`, private targets denied unless
+`test_sync.allow_private_targets`, `test_sync.min_interval`,
+`test_sync.max_tests`). A compromised control plane can therefore make an agent
+probe public targets within those bounds, and nothing more; it can never change
+an agent setting, run code, or reach a private network the agent's operator did
+not open. Upgrades are
 operator actions through an external orchestrator (Helm / `install.sh` / config
 management), rolled out in staged waves with registry verification and
 halt-on-error (see [fleet-rollout.md](../ops/fleet-rollout.md)). The rollout

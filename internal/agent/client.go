@@ -48,10 +48,22 @@ func (c *Client) Register(ctx context.Context, req *agentv1.RegisterRequest) (*a
 	return c.svc.Register(ctx, req)
 }
 
-// Heartbeat reports liveness.
-func (c *Client) Heartbeat(ctx context.Context, req *agentv1.HeartbeatRequest) error {
-	_, err := c.svc.Heartbeat(ctx, req)
-	return err
+// Heartbeat reports liveness and the central test-set version the agent runs;
+// the reply's config_stale asks it to pull now (G9).
+func (c *Client) Heartbeat(ctx context.Context, req *agentv1.HeartbeatRequest) (*agentv1.HeartbeatResponse, error) {
+	return c.svc.Heartbeat(ctx, req)
+}
+
+// maxTestBundleBytes bounds a pulled test bundle (the control plane caps a
+// tenant's distributable set well below this).
+const maxTestBundleBytes = 16 << 20
+
+// FetchTestBundle pulls the tenant's signed central test set (G9). The tenant
+// is the one in this client's certificate; the request carries only the
+// version the agent already runs.
+func (c *Client) FetchTestBundle(ctx context.Context, knownVersion uint64) (*agentv1.FetchTestBundleResponse, error) {
+	return c.svc.FetchTestBundle(ctx, &agentv1.FetchTestBundleRequest{KnownVersion: knownVersion},
+		grpc.MaxCallRecvMsgSize(maxTestBundleBytes))
 }
 
 type resultStream interface {

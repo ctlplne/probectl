@@ -700,11 +700,14 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 	case "bgp-analyzer":
 		// W1: optional Python analyzer supervisor + tenant-bound Kafka bridge.
 		return true, runBGPAnalyzer(os.Getenv)
+	case "testsync":
+		// G9: print the test-bundle public key agents verify with.
+		return true, runTestSync(os.Args[2:], os.Getenv, os.Stdout)
 	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "bootstrap-admin", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter", "envelope-rewrap", "backup-control-state":
 		// fall through to the configured path in run()
 		return false, nil
 	default:
-		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | stage-binary | stage-credentials | ir-key-install | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | backup-control-state | restore-control-state | version)", cmd)
+		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | testsync | gen-cert | stage-binary | stage-credentials | ir-key-install | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | backup-control-state | restore-control-state | version)", cmd)
 	}
 }
 

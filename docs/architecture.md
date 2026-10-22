@@ -235,9 +235,11 @@ Agents talk to the control plane over **gRPC with mutual TLS** — gRPC being th
 HTTP/2-based RPC framework both binaries speak, and mutual TLS meaning the agent
 must present a certificate too, not just the server
 (`internal/agenttransport`; the service is `probectl.agent.v1.AgentService` with
-`Register` / `Attest` / `Heartbeat` / `StreamResults`, plus the
+`Register` / `Attest` / `Heartbeat` / `StreamResults`, the
 `PollCoordination` / `ReportEndpoint` pair that brokers agent-to-agent
-measurement — see [Network tests and agent-to-agent](#network-tests-and-agent-to-agent)).
+measurement — see [Network tests and agent-to-agent](#network-tests-and-agent-to-agent) —
+and `FetchTestBundle`, the agent's pull of its tenant's signed central test
+set).
 The server demands and verifies a client certificate, and reads the agent's
 **tenant and id from that certificate's SPIFFE identity** (**SPIFFE** — a
 standard for naming a workload *inside* its certificate as a URI) —
@@ -248,9 +250,22 @@ citizenship. A
 compromised or malicious agent cannot claim to be in a different tenant, because
 it would need that tenant's certificate.
 
+**Central tests are pulled, never pushed.** A test defined in the console, the
+API or the CLI reaches the tenant's agents through `FetchTestBundle`: the agent
+asks for its own tenant's test set (the tenant comes from its certificate), the
+control plane answers with a bundle signed by the deployment's test-bundle key,
+and the agent verifies the signature against the public key it received at
+enrollment, checks the bundle names its own tenant, filters it through its
+local policy (allowed canary types, no private targets by default, interval and
+count floors), and only then runs it. Each bundle carries the tenant's
+test-set version, which only increases, so a replayed or older bundle is
+refused; the heartbeat reports the version the agent runs and flags a newer one
+so the agent pulls at once. See
+[`adr/central-test-distribution.md`](adr/central-test-distribution.md).
+
 One more RPC, `StreamConfig`, exists in the schema but is an **explicit deny**:
-config push is deliberately not a shipped capability (agents load their own
-config), and the stub returns an error rather than silently doing nothing — see
+config push is deliberately not a shipped capability (every agent setting stays
+local), and the stub returns an error rather than silently doing nothing — see
 [`adr/config-push.md`](adr/config-push.md). The proto lives under
 `proto/probectl/agent/v1/` and is versioned, additive-only.
 

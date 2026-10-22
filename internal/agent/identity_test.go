@@ -334,3 +334,50 @@ func TestEnrollPersistsServerTrustFromCAFile(t *testing.T) {
 		t.Fatal("the agent-CA bundle and the server trust are different files with different jobs")
 	}
 }
+
+// G9: enrollment delivers the deployment's test-bundle public key; the agent
+// stores it as testsync.pub (owner-only) beside its certificate, where
+// test_sync looks by default. A key that is not an Ed25519 public key is
+// refused rather than stored.
+func TestEnrollWritesTestSyncPublicKey(t *testing.T) {
+	_, pub, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	serve := func(key string) (*httptest.Server, string) {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"cert_pem":  "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n",
+				"ca_bundle": "-----BEGIN CERTIFICATE-----\nFAKECA\n-----END CERTIFICATE-----\n",
+				"spiffe_id": "spiffe://probectl/tenant/t-1/agent/a-1",
+				"tenant_id": "t-1", "agent_id": "a-1", "serial": "ab12",
+				"not_after":           time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339Nano),
+				"testsync_public_key": key,
+			})
+		}))
+		t.Cleanup(srv.Close)
+		return srv, hex.EncodeToString(crypto.Hash(srv.Certificate().Raw))
+	}
+
+	srv, pin := serve(string(pub))
+	dir := filepath.Join(t.TempDir(), "identity")
+	if _, _, err := Enroll(context.Background(), EnrollOptions{Server: srv.URL, Token: "pjt_x", Dir: dir, CAPin: pin}); err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, TestSyncPublicKeyFileName))
+	if err != nil || !bytes.Equal(got, pub) {
+		t.Fatalf("testsync.pub = %q, %v; want the delivered key", got, err)
+	}
+	if fi, _ := os.Stat(filepath.Join(dir, TestSyncPublicKeyFileName)); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+		t.Fatalf("testsync.pub mode %v, want 0600", fi.Mode().Perm())
+	}
+
+	srv, pin = serve("-----BEGIN PUBLIC KEY-----\nbm90IGEga2V5\n-----END PUBLIC KEY-----\n")
+	dir = filepath.Join(t.TempDir(), "identity")
+	if _, _, err := Enroll(context.Background(), EnrollOptions{Server: srv.URL, Token: "pjt_x", Dir: dir, CAPin: pin}); err == nil {
+		t.Fatal("an unusable test-bundle key must fail enrollment, not be stored")
+	}
+	if _, err := os.Stat(filepath.Join(dir, TestSyncPublicKeyFileName)); err == nil {
+		t.Fatal("an unusable key was written")
+	}
+}

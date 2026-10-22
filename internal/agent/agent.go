@@ -46,6 +46,7 @@ type Agent struct {
 	host        *Host
 	coordinator *Coordinator
 	metrics     *agentmetrics.Runtime
+	sync        *testSyncer // central test sync (G9); nil = local canaries only
 	tenantID    string
 	agentID     string
 }
@@ -74,6 +75,15 @@ func New(cfg *Config, reg *canary.Registry, log *slog.Logger) (*Agent, error) {
 	}
 	host := &Host{scheduled: sched, buffer: buffer, tenantID: id.TenantID, agentID: id.AgentID, log: log}
 	a := &Agent{cfg: cfg, log: log, buffer: buffer, host: host, tenantID: id.TenantID, agentID: id.AgentID}
+	// G9: the tenant from the CERTIFICATE is the only tenant whose bundle the
+	// agent accepts.
+	a.sync, err = newTestSyncer(cfg.TestSync, id.TenantID, reg, host, log)
+	if err != nil {
+		return nil, err
+	}
+	if a.sync != nil {
+		a.sync.restore()
+	}
 	if cfg.A2A.Enabled {
 		a.coordinator = newCoordinator(cfg, buffer, id.TenantID, id.AgentID, log)
 	}
@@ -88,8 +98,12 @@ func (a *Agent) WithMetrics(m *agentmetrics.Runtime) *Agent {
 	}
 	a.metrics = m
 	a.host.metrics = m
+	if a.sync != nil {
+		a.sync.metrics = m
+	}
 	if m != nil {
 		m.SetBufferDepth(a.buffer.Len())
+		m.SetTestSyncVersion(a.sync.appliedVersion())
 	}
 	return a
 }
@@ -97,7 +111,8 @@ func (a *Agent) WithMetrics(m *agentmetrics.Runtime) *Agent {
 // Run starts probing and forwarding until ctx is canceled.
 func (a *Agent) Run(ctx context.Context) error {
 	a.log.Info("agent starting", "tenant", a.tenantID, "agent", a.agentID,
-		"control_plane", a.cfg.ControlPlane.GRPCAddr, "canaries", len(a.cfg.Canaries))
+		"control_plane", a.cfg.ControlPlane.GRPCAddr, "canaries", len(a.cfg.Canaries),
+		"central_tests", a.sync != nil, "central_test_version", a.sync.appliedVersion())
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { a.host.Run(gctx); return nil })
 	g.Go(func() error { return a.forward(gctx) })
@@ -168,9 +183,18 @@ func (a *Agent) session(ctx context.Context, client *Client) error {
 	if s := resp.GetHeartbeatIntervalSeconds(); s > 0 {
 		hbInterval = time.Duration(s) * time.Second
 	}
+	// G9: pull the tenant's central test set at once on every new session
+	// (the control plane may have changed it while we were away), then on
+	// the interval or when a heartbeat says it is newer.
+	a.sync.resetSession()
+	a.syncTests(ctx, client)
 	ticker := time.NewTicker(drainInterval)
 	defer ticker.Stop()
 	lastHB := time.Now()
+	// The version the control plane last heard from us; a newly applied set
+	// is reported at the next tick instead of a full heartbeat interval later,
+	// so the fleet view turns "in sync" promptly.
+	reported := uint64(0)
 	for {
 		select {
 		case <-ctx.Done():
@@ -179,16 +203,29 @@ func (a *Agent) session(ctx context.Context, client *Client) error {
 			dcancel()
 			return nil
 		case <-ticker.C:
-			if time.Since(lastHB) >= hbInterval {
-				if err := client.Heartbeat(ctx, &agentv1.HeartbeatRequest{AgentId: a.agentID}); err != nil {
+			if applied := a.sync.appliedVersion(); time.Since(lastHB) >= hbInterval || applied != reported {
+				hb, err := client.Heartbeat(ctx, &agentv1.HeartbeatRequest{AgentId: a.agentID, ConfigEpoch: applied})
+				if err != nil {
 					return fmt.Errorf("heartbeat: %w", err)
 				}
-				lastHB = time.Now()
+				if hb.GetConfigStale() {
+					a.sync.nudge()
+				}
+				lastHB, reported = time.Now(), applied
 			}
+			a.syncTests(ctx, client)
 			if err := a.drainOnce(ctx, client); err != nil {
 				return fmt.Errorf("drain: %w", err)
 			}
 		}
+	}
+}
+
+// syncTests pulls the central test set when one is owed. A pull never ends
+// the session; its failures are counted and the verified set keeps running.
+func (a *Agent) syncTests(ctx context.Context, client testBundleFetcher) {
+	if a.sync.due(time.Now()) {
+		a.sync.pull(ctx, client)
 	}
 }
 

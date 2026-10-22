@@ -59,6 +59,9 @@ type issuedIdentity struct {
 	AgentID  string    `json:"agent_id"`
 	Serial   string    `json:"serial"`
 	NotAfter time.Time `json:"not_after"`
+	// TestSyncPublicKey is the deployment's test-bundle public key (G9), sent
+	// when central test distribution is configured; written as testsync.pub.
+	TestSyncPublicKey string `json:"testsync_public_key,omitempty"`
 }
 
 // EnrollOptions configures the first-contact bootstrap.
@@ -123,7 +126,26 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 			return "", time.Time{}, err
 		}
 	}
+	// G9: the key every pulled central test bundle must verify against. It
+	// arrives over the same token-authenticated, server-verified exchange as
+	// the SVID; test_sync turns on by default when it is present.
+	if err := writeTestSyncPublicKey(o.Dir, id.TestSyncPublicKey); err != nil {
+		return "", time.Time{}, err
+	}
 	return id.SPIFFEID, id.NotAfter, nil
+}
+
+// writeTestSyncPublicKey persists the enrollment-delivered test-bundle public
+// key as testsync.pub. Absent (distribution off) writes nothing; a value that
+// is not an Ed25519 public-key PEM is refused rather than stored.
+func writeTestSyncPublicKey(dir, pemText string) error {
+	if strings.TrimSpace(pemText) == "" {
+		return nil
+	}
+	if _, err := crypto.VerifyEd25519([]byte(pemText), []byte("probectl-testsync-key-check"), make([]byte, 64)); err != nil {
+		return fmt.Errorf("enroll: control plane sent an unusable test-bundle public key: %w", err)
+	}
+	return writeOwnerOnly(filepath.Join(dir, TestSyncPublicKeyFileName), []byte(pemText))
 }
 
 // EnrollStatusError is returned when the control plane answers an enrollment

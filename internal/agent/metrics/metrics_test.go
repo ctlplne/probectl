@@ -37,6 +37,10 @@ func TestMetricsEveryAgentComponentExposesCoreSeries(t *testing.T) {
 			r.SessionTimeout()
 			r.SessionAdmissionRejected()
 			r.SetActiveSessions(2)
+			r.SetTestSyncVersion(7)
+			r.TestSyncFetchFailure()
+			r.TestSyncRefused("bad_signature")
+			r.TestSyncRefused("not-a-declared-reason")
 
 			ctx, cancel := context.WithCancel(context.Background())
 			errCh := make(chan error, 1)
@@ -59,10 +63,17 @@ func TestMetricsEveryAgentComponentExposesCoreSeries(t *testing.T) {
 				"probectl_agent_session_rejections_total 1",
 				"probectl_agent_active_sessions 2",
 				"probectl_agent_metrics_tls 0",
+				"probectl_agent_testsync_version 7",
+				"probectl_agent_testsync_fetch_failures_total 1",
+				`probectl_agent_testsync_refused_total{reason="bad_signature"} 1`,
+				`probectl_agent_testsync_refused_total{reason="foreign_tenant"} 0`,
 			} {
 				if !strings.Contains(string(body), want) {
 					t.Errorf("/metrics missing %q:\n%s", want, body)
 				}
+			}
+			if strings.Contains(string(body), "not-a-declared-reason") {
+				t.Error("an undeclared refusal reason became a series")
 			}
 			cancel()
 			if err := <-errCh; err != nil {

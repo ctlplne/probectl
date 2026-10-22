@@ -164,3 +164,16 @@ a2a:
   # advertise_host: "10.0.0.12"  # address peers reach this agent on (NAT: set explicitly)
   poll_interval: 2s
   responder_ttl: 15s
+
+# Central tests: tests created in the console, API or CLI are pulled as a
+# signed bundle over the mTLS connection and verified before they run. On by
+# default once `probectl-agent enroll` has written testsync.pub beside the
+# certificate. These keys are YOUR bound on what any bundle may make this agent
+# probe (see docs/configuration.md "Central tests").
+test_sync:
+  # enabled: true
+  interval: 30s
+  # allowed_types: ["icmp", "tcp", "dns", "http"]  # default: every compiled-in type
+  allow_private_targets: false
+  min_interval: 10s
+  max_tests: 200

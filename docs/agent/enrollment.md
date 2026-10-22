@@ -171,6 +171,15 @@ is later replaced by one a pinned enrollment did not see, update `ca_file` to
 the new issuing CA. The worked laptop example is in
 [`getting-started.md`](../getting-started.md).
 
+When the control plane has central test distribution on
+(`PROBECTL_TESTSYNC_SIGNING_KEY_FILE`), the enrollment response also carries
+the deployment's test-bundle public key, and `enroll` writes it as
+`testsync.pub` in the same directory. That is all the agent needs to pull and
+verify the tests your tenant defines in the console, API or CLI; no further
+config. An agent enrolled before the key existed (or provisioned by hand) gets
+it from `probectl-control testsync public-key`. See
+[`configuration.md`](../configuration.md) "Central tests".
+
 ### Enroll on first boot (token-on-boot)
 
 Steps 2–3 can also happen **automatically on startup**, which suits containers

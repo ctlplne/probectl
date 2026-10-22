@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -65,7 +66,43 @@ type Config struct {
 	Browser       BrowserConfig       `yaml:"browser"`
 	Canaries      []CanaryConfig      `yaml:"canaries"`
 	A2A           A2AConfig           `yaml:"a2a"`
+	TestSync      TestSyncConfig      `yaml:"test_sync"`
 	Security      SecurityConfig      `yaml:"security"`
+}
+
+// TestSyncConfig governs central test distribution (G9, D-41,
+// docs/adr/central-test-distribution.md): the agent PULLS its tenant's test set
+// over its mTLS channel, verifies the bundle's signature against PublicKeyFile,
+// checks the bundle names its own certificate's tenant, and admits only tests
+// this policy allows. The policy is the agent operator's bound on what a
+// control plane can make the agent probe; the control plane cannot change it.
+type TestSyncConfig struct {
+	// Enabled defaults to true when PublicKeyFile exists (enrollment writes
+	// it). Explicit true without a key is a configuration error (fail closed);
+	// false keeps the agent on its local canaries only.
+	Enabled *bool `yaml:"enabled"`
+	// PublicKeyFile is the deployment's test-bundle public key (PEM). Default:
+	// testsync.pub beside tls.cert_file, where `probectl-agent enroll` writes it.
+	PublicKeyFile string `yaml:"public_key_file"`
+	// Interval is the pull cadence (default 30s); a heartbeat nudge pulls sooner.
+	Interval Duration `yaml:"interval"`
+	// AllowedTypes limits central tests to these canary types. Default: every
+	// type compiled into this agent.
+	AllowedTypes []string `yaml:"allowed_types"`
+	// AllowPrivateTargets lets central tests that carry the audited per-test
+	// allow_private_targets override probe private/loopback/link-local
+	// targets. Default false: such tests, and literal private targets, are
+	// refused.
+	AllowPrivateTargets bool `yaml:"allow_private_targets"`
+	// MinInterval refuses central tests scheduled more often than this
+	// (default 10s).
+	MinInterval Duration `yaml:"min_interval"`
+	// MaxTests refuses a whole bundle with more tests than this (default 200).
+	MaxTests int `yaml:"max_tests"`
+	// StateDir holds the last verified bundle (0600), re-verified at start so
+	// central tests survive restarts and control-plane outages. Default:
+	// <buffer.dir>/testsync.
+	StateDir string `yaml:"state_dir"`
 }
 
 // SecurityConfig retains legacy safety-key decoding so old configurations fail
@@ -421,6 +458,68 @@ func (c *Config) applyDefaults() {
 	if c.A2A.ResponderTTL == 0 {
 		c.A2A.ResponderTTL = Duration(15 * time.Second)
 	}
+	c.TestSync.applyDefaults(c.TLS.CertFile, c.Buffer.Dir)
+}
+
+// Test-sync defaults (G9).
+const (
+	TestSyncPublicKeyFileName  = "testsync.pub"
+	defaultTestSyncInterval    = 30 * time.Second
+	defaultTestSyncMinInterval = 10 * time.Second
+	defaultTestSyncMaxTests    = 200
+)
+
+func (t *TestSyncConfig) applyDefaults(certFile, bufferDir string) {
+	if t.PublicKeyFile == "" && certFile != "" {
+		t.PublicKeyFile = filepath.Join(filepath.Dir(certFile), TestSyncPublicKeyFileName)
+	}
+	if t.Interval == 0 {
+		t.Interval = Duration(defaultTestSyncInterval)
+	}
+	if t.MinInterval == 0 {
+		t.MinInterval = Duration(defaultTestSyncMinInterval)
+	}
+	if t.MaxTests == 0 {
+		t.MaxTests = defaultTestSyncMaxTests
+	}
+	if t.StateDir == "" {
+		t.StateDir = filepath.Join(bufferDir, "testsync")
+	}
+}
+
+func (t TestSyncConfig) validate() error {
+	if t.Interval < 0 || t.MinInterval < 0 {
+		return fmt.Errorf("config: test_sync.interval and test_sync.min_interval must be positive")
+	}
+	if t.MaxTests < 0 {
+		return fmt.Errorf("config: test_sync.max_tests must be positive")
+	}
+	for i, typ := range t.AllowedTypes {
+		if strings.TrimSpace(typ) == "" {
+			return fmt.Errorf("config: test_sync.allowed_types[%d] is empty", i)
+		}
+	}
+	return nil
+}
+
+// Active reports whether central test sync runs: explicitly enabled, or not
+// configured and the public key is present. Explicitly enabled without a
+// readable key is an error — the agent must never run central tests it cannot
+// verify.
+func (t TestSyncConfig) Active() (bool, error) {
+	_, statErr := os.Stat(t.PublicKeyFile)
+	switch {
+	case t.Enabled != nil && !*t.Enabled:
+		return false, nil
+	case t.Enabled != nil && *t.Enabled:
+		if t.PublicKeyFile == "" || statErr != nil {
+			return false, fmt.Errorf("config: test_sync.enabled is true but the test-bundle public key %q is unavailable "+
+				"(enrollment writes it; or run `probectl-control testsync public-key`)", t.PublicKeyFile)
+		}
+		return true, nil
+	default:
+		return t.PublicKeyFile != "" && statErr == nil, nil
+	}
 }
 
 func (c *Config) validate() error {
@@ -483,6 +582,9 @@ func (c *Config) validate() error {
 	if err := c.ArtifactStore.validate(); err != nil {
 		return err
 	}
+	if err := c.TestSync.validate(); err != nil {
+		return err
+	}
 	testIDs := make(map[string]int, len(c.Canaries))
 	for i, cc := range c.Canaries {
 		if cc.Type == "" {
@@ -491,20 +593,30 @@ func (c *Config) validate() error {
 		if cc.TestID == "" {
 			continue
 		}
-		if strings.TrimSpace(cc.TestID) != cc.TestID || len(cc.TestID) > 128 {
-			return fmt.Errorf("config: canaries[%d].test_id must be 1-128 unpadded characters", i)
-		}
-		for _, r := range cc.TestID {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-				(r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' || r == ':' {
-				continue
-			}
-			return fmt.Errorf("config: canaries[%d].test_id contains unsupported character %q", i, r)
+		if err := checkTestID(cc.TestID); err != nil {
+			return fmt.Errorf("config: canaries[%d].test_id %w", i, err)
 		}
 		if previous, exists := testIDs[cc.TestID]; exists {
 			return fmt.Errorf("config: canaries[%d].test_id duplicates canaries[%d]", i, previous)
 		}
 		testIDs[cc.TestID] = i
+	}
+	return nil
+}
+
+// checkTestID validates a schedule identity stamped on every result as
+// probectl.test.id: 1-128 unpadded characters from a conservative set. Local
+// canaries and central tests (G9) share the rule.
+func checkTestID(id string) error {
+	if id == "" || strings.TrimSpace(id) != id || len(id) > 128 {
+		return fmt.Errorf("must be 1-128 unpadded characters")
+	}
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' || r == ':' {
+			continue
+		}
+		return fmt.Errorf("contains unsupported character %q", r)
 	}
 	return nil
 }

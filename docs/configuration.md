@@ -481,7 +481,48 @@ cadence receipt stays `unknown` rather than guessing from a shared type/target.
 The control plane does not read, push, rebalance, or verify the current local
 YAML. Even after an exact result, the receipt therefore says current assignment
 is unverified. Server-driven config remains deliberately unimplemented under
-[`adr/config-push.md`](adr/config-push.md).
+[`adr/config-push.md`](adr/config-push.md); central tests (below) are pulled by
+the agent and stamp their own `test_id`.
+
+### Central tests (`test_sync`)
+
+Tests created in the console, the API or the CLI reach the tenant's agents
+without editing any YAML: every agent **pulls** its tenant's enabled tests as a
+signed bundle over its existing mTLS connection, verifies the signature against
+the deployment's test-bundle public key, checks that the bundle names its own
+certificate's tenant, filters it through the local policy below, and runs what
+it admits next to its local `canaries:` (which are unaffected). The bundle's
+version only increases; an older or replayed bundle is refused, and a heartbeat
+tells the agent at once when its tenant's set changed. Each central test stamps
+its server `test_id` on every result. See
+[`adr/central-test-distribution.md`](adr/central-test-distribution.md).
+
+`probectl-agent enroll` (and first-boot enrollment) writes the public key as
+`testsync.pub` beside `cert.pem`; for an agent provisioned by hand, write the
+output of `probectl-control testsync public-key` there. With no key the agent
+runs local canaries only. The control plane needs
+`PROBECTL_TESTSYNC_SIGNING_KEY_FILE`.
+
+| YAML key | Default | Meaning |
+| --- | --- | --- |
+| `test_sync.enabled` | on when the public key file exists | `false` keeps the agent on local canaries; `true` without a readable key refuses to start (fail closed) |
+| `test_sync.public_key_file` | `<dir of tls.cert_file>/testsync.pub` | the deployment's test-bundle public key (PEM) every bundle must verify against |
+| `test_sync.interval` | `30s` | pull cadence; a heartbeat that reports a newer set pulls sooner |
+| `test_sync.allowed_types` | every compiled-in canary type | central tests of any other type are refused (`type_not_allowed`) |
+| `test_sync.allow_private_targets` | `false` | when `false`, central tests with a literal private/loopback/link-local/`localhost` target or the per-test `allow_private_targets` override are refused (`private_target`); when `true`, the audited per-test override is honored as for local tests |
+| `test_sync.min_interval` | `10s` | central tests scheduled more often are refused (`interval_below_floor`) |
+| `test_sync.max_tests` | `200` | a bundle with more tests is refused whole (`over_cap`); the agent keeps its last verified set |
+| `test_sync.state_dir` | `<buffer.dir>/testsync` | where the last verified bundle is kept (0600); it is re-verified at start, so central tests survive restarts and control-plane outages |
+
+Refusals are counted on the agent's metrics endpoint as
+`probectl_agent_testsync_refused_total{reason}` (`bad_signature`, `malformed`,
+`stale_version`, `foreign_tenant`, `over_cap`, `type_not_allowed`,
+`private_target`, `interval_below_floor`, `invalid_test`), failed pulls as
+`probectl_agent_testsync_fetch_failures_total`, and the applied version as
+`probectl_agent_testsync_version`. If the control-plane database is restored
+from a backup older than the version an agent runs, the agent refuses the
+older bundles and keeps its set until the version passes it again (or until
+its `test_sync.state_dir` is cleared).
 
 ### Result pipeline
 

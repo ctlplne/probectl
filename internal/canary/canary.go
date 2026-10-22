@@ -9,6 +9,7 @@ package canary
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -109,5 +110,14 @@ func (r *Registry) types() []string {
 	for t := range r.factories {
 		out = append(out, t)
 	}
+	return out
+}
+
+// Types returns the compiled-in canary types, sorted. The agent's central
+// test sync admits only these (G9): a pulled bundle cannot name a plugin the
+// binary does not contain.
+func (r *Registry) Types() []string {
+	out := r.types()
+	sort.Strings(out)
 	return out
 }

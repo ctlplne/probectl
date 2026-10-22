@@ -7,8 +7,9 @@
 package testsync
 
 import (
-	"os"
-	"path/filepath"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"strings"
 	"testing"
 
@@ -16,8 +17,8 @@ import (
 )
 
 // TestVerifyExportedEntryPoint exercises the agent-facing Verify (PLAT-13): the
-// exported verification contract the (not-yet-shipped) agent pull loop will use
-// must accept a correctly-signed, newer bundle and refuse a tampered one.
+// exported verification contract the agent's pull loop uses must accept a
+// correctly-signed, newer bundle and refuse a tampered one.
 func TestVerifyExportedEntryPoint(t *testing.T) {
 	priv, pub, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
@@ -44,40 +45,68 @@ func TestVerifyExportedEntryPoint(t *testing.T) {
 	}
 }
 
-// TestAgentSideBundlePullNotYetWired enforces the ING-20 claim-accuracy fix.
-// The package doc and the handleTestBundle comment now state that the agent-side
-// PULL loop is NOT yet shipped — the signed bundle is served but no shipped
-// agent fetches or applies it, so tests reach agents via their own config. That
-// statement is only honest while no agent binary consumes this package. If the
-// pull loop is ever wired (an agent importing internal/testsync), this test
-// fails, forcing the docs (package doc, handler comment, D-28/PLAT-13) to be
-// updated to describe the now-automatic delivery.
-func TestAgentSideBundlePullNotYetWired(t *testing.T) {
-	const importPath = "github.com/ctlplne/probectl/internal/testsync"
-	for _, dir := range []string{"../../cmd/probectl-agent", "../../cmd/probectl-endpoint", "../../internal/agent"} {
-		if _, err := os.Stat(dir); err != nil {
-			t.Fatalf("expected agent tree at %s: %v", dir, err)
+// TestAgentVerifiesBundleBeforeApplying replaces the ING-20 "pull loop not yet
+// wired" guard now that it is wired (G9, D-41). The shipped agent must import
+// this package, and in its bundle-acceptance path the signature check
+// (testsync.Verify) and the certificate-tenant check must both come BEFORE the
+// first call that changes what the host runs (applyCentral). Reordering them,
+// or dropping either check, fails here; the behavioral proofs live in
+// internal/agent/testsync_test.go (tampered, foreign-tenant, replayed bundles
+// never reach the host).
+func TestAgentVerifiesBundleBeforeApplying(t *testing.T) {
+	const src = "../../internal/agent/testsync.go"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, src, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", src, err)
+	}
+	imported := false
+	for _, imp := range f.Imports {
+		if strings.Trim(imp.Path.Value, `"`) == "github.com/ctlplne/probectl/internal/testsync" {
+			imported = true
 		}
-		err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
-				return nil
-			}
-			b, err := os.ReadFile(p)
-			if err != nil {
-				return err
-			}
-			if strings.Contains(string(b), importPath) {
-				t.Errorf("ING-20: %s imports %s — the agent-side central-test PULL loop is now wired, "+
-					"but the docs (internal/testsync package doc, handleTestBundle comment) and D-28/PLAT-13 "+
-					"still say it is not shipped. Update them to describe the automatic delivery.", p, importPath)
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("walk %s: %v", dir, err)
+	}
+	if !imported {
+		t.Fatal("the agent no longer imports internal/testsync: central test bundles are not verified")
+	}
+	var accept *ast.FuncDecl
+	for _, d := range f.Decls {
+		if fn, ok := d.(*ast.FuncDecl); ok && fn.Name.Name == "accept" && fn.Recv != nil {
+			accept = fn
 		}
+	}
+	if accept == nil {
+		t.Fatal("internal/agent/testsync.go has no accept method: the bundle-acceptance path moved; update this guard")
+	}
+	verifyAt, tenantAt, applyAt := token.NoPos, token.NoPos, token.NoPos
+	ast.Inspect(accept.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.CallExpr:
+			if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
+				if id, ok := sel.X.(*ast.Ident); ok && id.Name == "testsync" && sel.Sel.Name == "Verify" && verifyAt == token.NoPos {
+					verifyAt = x.Pos()
+				}
+				if sel.Sel.Name == "applyCentral" && applyAt == token.NoPos {
+					applyAt = x.Pos()
+				}
+			}
+		case *ast.BinaryExpr:
+			if x.Op == token.NEQ && tenantAt == token.NoPos {
+				l, lok := x.X.(*ast.SelectorExpr)
+				r, rok := x.Y.(*ast.SelectorExpr)
+				if lok && rok && l.Sel.Name == "TenantID" && r.Sel.Name == "tenantID" {
+					tenantAt = x.Pos()
+				}
+			}
+		}
+		return true
+	})
+	if verifyAt == token.NoPos || tenantAt == token.NoPos || applyAt == token.NoPos {
+		t.Fatalf("accept must call testsync.Verify (%v), compare the bundle TenantID with the certificate tenantID (%v), "+
+			"and apply via applyCentral (%v)", verifyAt.IsValid(), tenantAt.IsValid(), applyAt.IsValid())
+	}
+	if verifyAt >= applyAt || tenantAt >= applyAt {
+		t.Fatalf("accept applies the bundle before verifying it: Verify at %s, tenant check at %s, apply at %s",
+			fset.Position(verifyAt), fset.Position(tenantAt), fset.Position(applyAt))
 	}
 }
