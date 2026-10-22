@@ -252,7 +252,7 @@ STATE_KEYS=(
   AUDIT_TEST_B_NAME AUDIT_ITEM AUDIT_CAPABILITY_ID AUDIT_CAPABILITY_DRIVER_PATH
   AUDIT_CAPABILITY_DRIVER_SOURCE_PATH AUDIT_CAPABILITY_DRIVER_SHA256 AUDIT_CAPABILITY_DRIVER_GIT_BLOB_SHA
   AUDIT_BROWSER_DRIVER_SOURCE_PATH AUDIT_BROWSER_DRIVER_GIT_BLOB_SHA POSTGRES_PASSWORD KAFKA_STORE_PASSWORD
-  KAFKA_SASL_PASSWORD CLICKHOUSE_USER CLICKHOUSE_PASSWORD PROMETHEUS_USER PROMETHEUS_PASSWORD DEX_CLIENT_SECRET
+  KAFKA_SASL_PASSWORD CLICKHOUSE_USER CLICKHOUSE_PASSWORD CLICKHOUSE_READER_PASSWORD PROMETHEUS_USER PROMETHEUS_PASSWORD DEX_CLIENT_SECRET
   DEX_AUDIT_PASSWORD DEX_AUDIT_PASSWORD_HASH PROBECTL_SESSION_HMAC_KEY
 )
 
@@ -456,6 +456,8 @@ prepare() {
   KAFKA_STORE_PASSWORD="$(openssl rand -hex 24)"
   KAFKA_SASL_PASSWORD="$(openssl rand -hex 24)"
   CLICKHOUSE_PASSWORD="$(openssl rand -hex 24)"
+  # DPR-285: the SELECT-only reader every tenant read runs as.
+  CLICKHOUSE_READER_PASSWORD="$(openssl rand -hex 24)"
   DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
   PROBECTL_SESSION_HMAC_KEY="$(openssl rand -hex 32)"
 
@@ -465,7 +467,7 @@ prepare() {
     AUDIT_GIT_SHA AUDIT_TREE_SHA AUDIT_STARTED_AT AUDIT_TENANT_A AUDIT_TENANT_B AUDIT_HOST_UID AUDIT_HOST_GID AUDIT_TEST_A_NAME AUDIT_TEST_B_NAME AUDIT_ITEM \
     AUDIT_CAPABILITY_ID AUDIT_CAPABILITY_DRIVER_PATH AUDIT_CAPABILITY_DRIVER_SOURCE_PATH AUDIT_CAPABILITY_DRIVER_SHA256 AUDIT_CAPABILITY_DRIVER_GIT_BLOB_SHA AUDIT_BROWSER_SCRIPT \
     AUDIT_BROWSER_DRIVER_PATH AUDIT_BROWSER_DRIVER_SOURCE_PATH AUDIT_BROWSER_DRIVER_SHA256 AUDIT_BROWSER_DRIVER_GIT_BLOB_SHA POSTGRES_PASSWORD \
-    KAFKA_STORE_PASSWORD KAFKA_SASL_PASSWORD CLICKHOUSE_PASSWORD PROMETHEUS_PASSWORD DEX_CLIENT_SECRET DEX_AUDIT_PASSWORD \
+    KAFKA_STORE_PASSWORD KAFKA_SASL_PASSWORD CLICKHOUSE_PASSWORD CLICKHOUSE_READER_PASSWORD PROMETHEUS_PASSWORD DEX_CLIENT_SECRET DEX_AUDIT_PASSWORD \
     DEX_AUDIT_PASSWORD_HASH PROBECTL_SESSION_HMAC_KEY; do
     require_env_value "$env_name" "${!env_name}"
   done
@@ -511,6 +513,7 @@ prepare() {
     printf "KAFKA_SASL_PASSWORD='%s'\n" "$KAFKA_SASL_PASSWORD"
     printf "CLICKHOUSE_USER='probectl'\n"
     printf "CLICKHOUSE_PASSWORD='%s'\n" "$CLICKHOUSE_PASSWORD"
+    printf "CLICKHOUSE_READER_PASSWORD='%s'\n" "$CLICKHOUSE_READER_PASSWORD"
     printf "PROMETHEUS_USER='audit'\n"
     printf "PROMETHEUS_PASSWORD='%s'\n" "$PROMETHEUS_PASSWORD"
     printf "DEX_CLIENT_SECRET='%s'\n" "$DEX_CLIENT_SECRET"
@@ -522,7 +525,9 @@ prepare() {
 
   jq -n --arg username 'audit' --arg password "$PROMETHEUS_PASSWORD" \
     '{username:$username,password:$password}' >"${PRIVATE_DIR}/prom-probe-basic-auth.json"
-  jq -n --arg username 'probectl' --arg password "$CLICKHOUSE_PASSWORD" \
+  # The probe reads ClickHouse exactly as the product's tenant reads do: as
+  # the policy-bound reader login (DPR-285), never the control login.
+  jq -n --arg username 'probectl_reader' --arg password "$CLICKHOUSE_READER_PASSWORD" \
     '{username:$username,password:$password}' >"${PRIVATE_DIR}/ch-probe-basic-auth.json"
   chmod 0600 "${PRIVATE_DIR}/prom-probe-basic-auth.json" "${PRIVATE_DIR}/ch-probe-basic-auth.json"
 
@@ -925,7 +930,7 @@ run_product_store_probe() {
       (.prometheus_observed_at|type)=="string" and (.prometheus_observed_at|length)>=20 and
       (.clickhouse_observed_at|type)=="string" and (.clickhouse_observed_at|length)>=20) and
     .clickhouse_isolation.database=="default" and .clickhouse_isolation.table=="probectl_otel_spans" and
-    .clickhouse_isolation.reader_user=="probectl" and .clickhouse_isolation.tenant_setting=="SQL_probectl_tenant" and
+    .clickhouse_isolation.reader_user=="probectl_reader" and .clickhouse_isolation.tenant_setting=="SQL_probectl_tenant" and
     .clickhouse_isolation.tenant_a==$a and .clickhouse_isolation.tenant_b==$b and
     .clickhouse_isolation.tenant_a_response=="product/clickhouse-isolation-tenant-a.jsonl" and
     .clickhouse_isolation.tenant_b_response=="product/clickhouse-isolation-tenant-b.jsonl" and
@@ -1033,7 +1038,7 @@ build_clickhouse_isolation_artifact() {
     --arg trace_a "$PRODUCT_TRACE_MARKER_A" --arg trace_b "$PRODUCT_TRACE_MARKER_B" \
     --slurpfile stores "${PRIVATE_DIR}/product-stores.json" '
       ($stores[0].clickhouse_isolation) as $ch |
-      {schema:$schema,user:"probectl",database:"default",table:"probectl_otel_spans",tenant_setting:"SQL_probectl_tenant",
+      {schema:$schema,user:"probectl_reader",database:"default",table:"probectl_otel_spans",tenant_setting:"SQL_probectl_tenant",
        sql:$sql,parameters:{trace_a:$trace_a,trace_b:$trace_b},tenant_a:$ch.tenant_a,tenant_b:$ch.tenant_b,
        tenant_a_observed_at:$ch.tenant_a_observed_at,tenant_b_observed_at:$ch.tenant_b_observed_at,
        unset_observed_at:$ch.unset_observed_at,
@@ -1051,7 +1056,7 @@ build_clickhouse_isolation_artifact() {
     '.tenant_a_response.sha256=$a_sha | .tenant_b_response.sha256=$b_sha | .unset_response.sha256=$unset_sha' \
     "${PRIVATE_DIR}/clickhouse-isolation.unhashed.json" >"$typed"
   jq -e '
-    .schema=="probectl.delivery-audit-clickhouse-isolation/v1" and .user=="probectl" and
+    .schema=="probectl.delivery-audit-clickhouse-isolation/v1" and .user=="probectl_reader" and
     .database=="default" and .table=="probectl_otel_spans" and .tenant_setting=="SQL_probectl_tenant" and
     all(.tenant_a_response,.tenant_b_response,.unset_response; (.sha256|test("^sha256:[0-9a-f]{64}$")))
   ' "$typed" >/dev/null || die "typed product ClickHouse isolation artifact is malformed"
@@ -1115,7 +1120,7 @@ build_product_pipeline_manifest() {
              request:ref($ing.traces.request_path),response:ref($ing.traces.response_path)},
            kafka:{topic:$kt.topic,partition:$kt.partition,offset:$kt.offset,key:ref($kt.key_path),payload:ref($kt.payload_path),group_offset:ref($kt.group_offset_path)},
            control_query:trace_control($tenant;"traces-control-own";$trace),
-           clickhouse_direct:{observed_at:$store.clickhouse_observed_at,user:"probectl",database:"default",table:"probectl_otel_spans",tenant_setting:"SQL_probectl_tenant",
+           clickhouse_direct:{observed_at:$store.clickhouse_observed_at,user:"probectl_reader",database:"default",table:"probectl_otel_spans",tenant_setting:"SQL_probectl_tenant",
              tenant_setting_value:$tenant,sql:$clickhouse_sql,parameters:{trace:$trace},response:ref($store.clickhouse_response)}}};
       (tenant_pipeline($tenant_a;$metric_a;84001;$trace_a;$span_a)) as $a |
       (tenant_pipeline($tenant_b;$metric_b;84002;$trace_b;$span_b)) as $b |
@@ -1996,7 +2001,7 @@ purge_runtime_secrets() {
   if [[ -z "${PROBECTL_AUDIT_SIGNING_KEY:-}" ]]; then
     rm -f "${PRIVATE_DIR}/receipt-signing.pem"
   fi
-  unset POSTGRES_PASSWORD KAFKA_STORE_PASSWORD KAFKA_SASL_PASSWORD CLICKHOUSE_PASSWORD
+  unset POSTGRES_PASSWORD KAFKA_STORE_PASSWORD KAFKA_SASL_PASSWORD CLICKHOUSE_PASSWORD CLICKHOUSE_READER_PASSWORD
   unset PROMETHEUS_PASSWORD
   unset DEX_CLIENT_SECRET DEX_AUDIT_PASSWORD DEX_AUDIT_PASSWORD_HASH PROBECTL_SESSION_HMAC_KEY
 }

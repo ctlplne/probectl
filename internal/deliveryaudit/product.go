@@ -255,7 +255,7 @@ func (c *productLintContext) lintTraceFlow(index int, tenant string, flow Produc
 	directProof := flow.ClickHouseDirect
 	direct, directOK := c.ref(field+".clickhouse_direct.response", directProof.Response, ArtifactStoreObservation)
 	timeOK := c.observationTime(field+".clickhouse_direct.observed_at", directProof.ObservedAt, end)
-	if !directOK || !timeOK || directProof.User != "probectl" || directProof.Database != "default" ||
+	if !directOK || !timeOK || directProof.User != "probectl_reader" || directProof.Database != "default" ||
 		directProof.Table != "probectl_otel_spans" || directProof.TenantSetting != "SQL_probectl_tenant" ||
 		directProof.TenantSettingValue != tenant || directProof.SQL != productClickHouseSQL ||
 		len(directProof.Parameters) != 1 || directProof.Parameters["trace"] != flow.TraceID ||
@@ -367,7 +367,7 @@ func (c *productLintContext) lintClickHouseIsolation(ref ProductArtifactRef, ten
 		unixNanoTime(tenantA.Traces.EndTimeUnixNano), unixNanoTime(tenantB.Traces.EndTimeUnixNano),
 	))
 	storeOK := clickHouseProofMatchesReceipt(c.receipt.Stores.ClickHouse, proof)
-	valid := proofOK && aOK && bOK && unsetOK && proof.User == "probectl" && proof.Database == "default" &&
+	valid := proofOK && aOK && bOK && unsetOK && proof.User == "probectl_reader" && proof.Database == "default" &&
 		proof.Table == "probectl_otel_spans" && proof.TenantSetting == "SQL_probectl_tenant" &&
 		proof.SQL == productClickHouseIsolationSQL && proof.TenantA == tenantA.Tenant && proof.TenantB == tenantB.Tenant &&
 		parametersOK && timeA && timeB && timeUnset && storeOK && validClickHouseMarkerResponse(aRaw, tenantA.Tenant, tenantA.Traces) &&

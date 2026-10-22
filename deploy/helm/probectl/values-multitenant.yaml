@@ -29,9 +29,15 @@
 #     --set-string control.extraEnv.PROBECTL_TSDB_URL=https://prometheus.probectl.svc.cluster.local:9090 \
 #     --set-string control.extraEnv.PROBECTL_TSDB_BASIC_AUTH_FILE=/etc/probectl/credentials/prom-basic-auth.json \
 #     --set-string control.extraEnv.PROBECTL_PATHSTORE_MODE=clickhouse ... (flow/otel/ebpf/endpoint alike) \
-#     --set-string control.extraEnv.PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE=/etc/probectl/credentials/ch-basic-auth.json
-# with PROBECTL_BUS_SASL_PASSWORD in secrets.existingSecret, the two basic-auth
+#     --set-string control.extraEnv.PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE=/etc/probectl/credentials/ch-basic-auth.json \
+#     --set-string control.extraEnv.PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE=/etc/probectl/credentials/ch-reader-basic-auth.json
+# with PROBECTL_BUS_SASL_PASSWORD in secrets.existingSecret, the three basic-auth
 # files in control.credentialFiles and the CA in control.trustBundle (README).
+# The reader file is the SELECT-only probectl_reader login every tenant read
+# runs as (DPR-285): writes and schema use the ClickHouse control login, but a
+# tenant's rows are only ever read as the login the row policy binds, so
+# ClickHouse itself returns only that tenant's rows. The control plane refuses
+# to start without it, or when that login can write or is not policy-bound.
 #
 # PRODUCERS: turn the agent gRPC/mTLS listener on after the one-time
 #     kubectl -n probectl exec deploy/probectl -- /usr/local/bin/app agent-ca init
@@ -106,7 +112,9 @@ control:
     # PROBECTL_SIEM_ENDPOINT: "https://siem.example/ingest"
     # RED-001: every ClickHouse-backed lane needs the scoped reader user whose
     # setting-scoped row policy is installed at boot. Operators may split these
-    # by plane; the reference profile uses one SELECT-only reader account.
+    # by plane; the reference profile uses one SELECT-only reader account, and
+    # every tenant read runs AS it (PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE,
+    # header above; DPR-285), so the file's username must be this same user.
     PROBECTL_PATHSTORE_READER_USER: "probectl_reader"
     PROBECTL_FLOWSTORE_READER_USER: "probectl_reader"
     PROBECTL_OTELSTORE_READER_USER: "probectl_reader"

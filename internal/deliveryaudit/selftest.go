@@ -217,7 +217,7 @@ func newSelfTestReceipt(root string) (Receipt, error) {
 			},
 			ClickHouse: ClickHouseIsolationProbe{
 				ProofKind: ClickHouseProofKind, ProductPathConfigured: &yes, ControlRoundTripObserved: &yes,
-				Database: "default", Table: "probectl_otel_spans", ReaderUser: "probectl",
+				Database: "default", Table: "probectl_otel_spans", ReaderUser: "probectl_reader",
 				TenantSetting: "SQL_probectl_tenant", ReaderPolicyObserved: &yes,
 				TenantA: "tenant-a", TenantB: "tenant-b",
 				SeededTenantARows: &one, SeededTenantBRows: &one,
@@ -631,7 +631,7 @@ func writeSelfTestProductPipeline(root string, receipt Receipt) ([]CLICommandObs
 		}
 		artifacts = append(artifacts, artifact)
 		traceFlow.ClickHouseDirect = ProductClickHouseDirectQuery{
-			ObservedAt: traceEnd.Add(300 * time.Millisecond), User: "probectl", Database: "default", Table: "probectl_otel_spans",
+			ObservedAt: traceEnd.Add(300 * time.Millisecond), User: "probectl_reader", Database: "default", Table: "probectl_otel_spans",
 			TenantSetting: "SQL_probectl_tenant", TenantSettingValue: spec.tenant,
 			SQL: productClickHouseSQL, Parameters: map[string]string{"trace": traceFlow.TraceID}, Response: traceDirectRef,
 		}
@@ -746,7 +746,7 @@ func writeSelfTestClickHouseIsolation(root string, manifest ProductPipelineArtif
 		return ProductArtifactRef{}, nil, err
 	}
 	proof := ClickHouseIsolationArtifact{
-		Schema: ClickHouseIsolationArtifactSchema, User: "probectl", Database: "default", Table: "probectl_otel_spans",
+		Schema: ClickHouseIsolationArtifactSchema, User: "probectl_reader", Database: "default", Table: "probectl_otel_spans",
 		TenantSetting: "SQL_probectl_tenant", SQL: productClickHouseIsolationSQL,
 		Parameters: map[string]string{"trace_a": manifest.Tenants[0].Traces.TraceID, "trace_b": manifest.Tenants[1].Traces.TraceID},
 		TenantA:    manifest.Tenants[0].Tenant, TenantB: manifest.Tenants[1].Tenant,

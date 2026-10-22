@@ -11,4 +11,17 @@
       <SQL_probectl_tenant>''</SQL_probectl_tenant>
     </default>
   </profiles>
+  <!-- DPR-285: the SELECT-only reader every tenant read runs as. The product
+       binds its setting-scoped row policy to this login and proves at boot
+       that it cannot write and that the policy binds it. SELECT on the pooled
+       `default` database only; the password comes from the environment. -->
+  <users>
+    <probectl_reader>
+      <password from_env="CLICKHOUSE_READER_PASSWORD"/>
+      <profile>default</profile>
+      <quota>default</quota>
+      <networks><ip>::/0</ip></networks>
+      <grants><query>GRANT SELECT ON default.*</query></grants>
+    </probectl_reader>
+  </users>
 </clickhouse>

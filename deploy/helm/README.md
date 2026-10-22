@@ -159,7 +159,7 @@ and verified through `control.trustBundle`:
 |---|---|
 | Kafka (SASL_SSL) | `PROBECTL_BUS_MODE=kafka`, `PROBECTL_BUS_BROKERS`, `PROBECTL_BUS_TLS_ENABLED=true`, `PROBECTL_BUS_TLS_CA_FILE=<trust bundle path>`, `PROBECTL_BUS_SASL_MECHANISM`, `PROBECTL_BUS_SASL_USER`, `PROBECTL_BUS_SASL_PASSWORD` (Secret) |
 | Prometheus / VictoriaMetrics | `PROBECTL_TSDB_MODE=prometheus`, `PROBECTL_TSDB_URL=https://…`, `PROBECTL_TSDB_BASIC_AUTH_FILE=<staged credential>` |
-| ClickHouse (HTTPS) | `PROBECTL_{PATHSTORE,FLOWSTORE,OTELSTORE,EBPFSTORE,ENDPOINTSTORE}_MODE=clickhouse`, the matching `…_URL=https://…`, `…_TENANT_SCOPING=true`, `…_READER_USER` (the profile file sets `probectl_reader`), `PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE=<staged credential>` |
+| ClickHouse (HTTPS) | `PROBECTL_{PATHSTORE,FLOWSTORE,OTELSTORE,EBPFSTORE,ENDPOINTSTORE}_MODE=clickhouse`, the matching `…_URL=https://…`, `…_TENANT_SCOPING=true`, `…_READER_USER` (the profile file sets `probectl_reader`), `PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE=<staged credential>`, `PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE=<staged credential of probectl_reader>` (every tenant read runs as that SELECT-only login, the one the row policy binds; DPR-285) |
 | Postgres | `PROBECTL_DATABASE_URL` with `sslmode=verify-full&sslrootcert=<trust bundle path>` in `secrets.existingSecret` |
 
 ```sh
@@ -265,7 +265,8 @@ helm upgrade --install probectl deploy/helm/probectl ... \
 
 The control plane reads datastore credentials from **private, regular,
 mode-0600 files** (`PROBECTL_TSDB_BASIC_AUTH_FILE`,
-`PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE`, `PROBECTL_BUS_TLS_KEY_FILE`); it refuses
+`PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE`, `PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE`,
+`PROBECTL_BUS_TLS_KEY_FILE`); it refuses
 symlinks and group-readable modes, which is exactly what a Kubernetes Secret
 volume looks like from inside a non-root pod. `control.credentialFiles` names a
 Secret whose keys the chart stages into a memory-backed volume with
@@ -276,12 +277,28 @@ has no `cp`) before `migrate` and `control` start; point the file settings at
 ```sh
 kubectl -n probectl create secret generic probectl-store-credentials \
   --from-file=prom-basic-auth.json=./prom-basic-auth.json \
-  --from-file=ch-basic-auth.json=./ch-basic-auth.json
+  --from-file=ch-basic-auth.json=./ch-basic-auth.json \
+  --from-file=ch-reader-basic-auth.json=./ch-reader-basic-auth.json
 helm upgrade --install probectl deploy/helm/probectl ... \
   --set control.credentialFiles.existingSecret=probectl-store-credentials \
   --set-string control.extraEnv.PROBECTL_TSDB_BASIC_AUTH_FILE=/etc/probectl/credentials/prom-basic-auth.json \
-  --set-string control.extraEnv.PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE=/etc/probectl/credentials/ch-basic-auth.json
+  --set-string control.extraEnv.PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE=/etc/probectl/credentials/ch-basic-auth.json \
+  --set-string control.extraEnv.PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE=/etc/probectl/credentials/ch-reader-basic-auth.json
 ```
+
+**Upgrading a tenant-scoped install (DPR-285).** Since DPR-285 every
+tenant-scoped ClickHouse read runs as the reader login, so a ClickHouse lane
+with `…_TENANT_SCOPING=true` (the `values-multitenant.yaml` and
+`values-strict.yaml` default) needs `PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE`.
+An upgraded release without it renders, but the new pods fail config
+validation at start and never become ready; under the default rolling update
+the old pods keep serving until the credential is supplied.
+Before upgrading: create the reader (`CREATE USER probectl_reader IDENTIFIED
+WITH sha256_password BY '...'`, then `GRANT SELECT ON <control login's default
+database>.* TO probectl_reader`, nothing more), add its
+`{"username":"probectl_reader","password":"..."}` file to the
+`control.credentialFiles` Secret, and set the variable as above. At boot the
+control plane proves the login cannot write and that the row policy binds it.
 
 `control.extraEnv` is only for settings without a typed chart value. The chart
 rejects names it already owns—including listener TLS, authentication, HSTS,

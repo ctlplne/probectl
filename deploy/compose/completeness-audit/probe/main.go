@@ -854,7 +854,7 @@ func observeProductClickHouseIsolation(client *http.Client, base, root, a, b str
 	out := productClickHouseIsolation{
 		Database:              "default",
 		Table:                 "probectl_otel_spans",
-		ReaderUser:            "probectl",
+		ReaderUser:            "probectl_reader",
 		TenantSetting:         "SQL_probectl_tenant",
 		SQL:                   productIsolationSQL,
 		TenantA:               a,

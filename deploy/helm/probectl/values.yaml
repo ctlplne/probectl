@@ -172,7 +172,8 @@ control:
   trustedProxies: []
   # Operator credential FILES the control plane must read as private, regular,
   # mode-0600 files (DPR-030): PROBECTL_TSDB_BASIC_AUTH_FILE,
-  # PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE, broker mTLS client keys. A Kubernetes
+  # PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE, the ClickHouse reader login's
+  # PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE (DPR-285), broker mTLS client keys. A Kubernetes
   # Secret volume cannot satisfy that shape (projected symlinks, group-readable
   # under fsGroup), so name a Secret here: the chart stages every key of it
   # into a private in-memory volume with `probectl-control stage-credentials`

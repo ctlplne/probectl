@@ -138,10 +138,13 @@ The audit describes each real store only as strongly as the bytes prove:
   metric through Kafka and the release consumer, then reads the exact marker
   through the tenant-forcing `/v1/grafana/api/v1/query` path.
 - Release control uses the real ClickHouse OTLP store through an origin-pinned
-  Basic Auth file mounted at `/run/secrets/ch-basic-auth.json`. The proof follows
+  Basic Auth file mounted at `/run/secrets/ch-basic-auth.json` for writes and
+  schema, and reads every tenant's rows as the SELECT-only `probectl_reader`
+  (`/run/secrets/ch-reader-basic-auth.json`, the login the row policy binds;
+  DPR-285). The proof follows
   an OTLP trace through Kafka and the release consumer, then reads the exact
   trace/service through tenant-authenticated release CLI/API. The same release
-  reader must also run the canonical tenant-predicate-free two-trace query with
+  reader, `probectl_reader`, must also run the canonical tenant-predicate-free two-trace query with
   `SQL_probectl_tenant` set to tenant A, tenant B, and its empty fail-closed
   default. The typed `clickhouse_isolation` artifact binds the three hashed
   `clickhouse_isolation_raw` responses: exactly A's row, exactly B's row, and

@@ -397,7 +397,7 @@ func invalidPostgresProbe(probe PostgresIsolationProbe) bool {
 func invalidClickHouseProbe(probe ClickHouseIsolationProbe) bool {
 	return probe.ProofKind != ClickHouseProofKind || probe.ProductPathConfigured == nil || !*probe.ProductPathConfigured ||
 		probe.ControlRoundTripObserved == nil || !*probe.ControlRoundTripObserved || probe.Database != "default" ||
-		probe.Table != "probectl_otel_spans" || probe.ReaderUser != "probectl" || probe.TenantSetting != "SQL_probectl_tenant" ||
+		probe.Table != "probectl_otel_spans" || probe.ReaderUser != "probectl_reader" || probe.TenantSetting != "SQL_probectl_tenant" ||
 		probe.ReaderPolicyObserved == nil || !*probe.ReaderPolicyObserved || invalidDirectionalCounts(
 		probe.TenantA, probe.TenantB,
 		probe.SeededTenantARows, probe.SeededTenantBRows,

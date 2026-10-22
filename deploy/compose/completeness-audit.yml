@@ -63,8 +63,9 @@ services:
         install -d -o 65532 -g 65532 -m 0700 /audit/control-secrets
         printf '{"username":"%s","password":"%s"}\n' "$$PROMETHEUS_USER" "$$PROMETHEUS_PASSWORD" > /audit/control-secrets/prom-basic-auth.json
         printf '{"username":"%s","password":"%s"}\n' "$$CLICKHOUSE_USER" "$$CLICKHOUSE_PASSWORD" > /audit/control-secrets/ch-basic-auth.json
-        chown 65532:65532 /audit/control-secrets/prom-basic-auth.json /audit/control-secrets/ch-basic-auth.json
-        chmod 0600 /audit/control-secrets/prom-basic-auth.json /audit/control-secrets/ch-basic-auth.json
+        printf '{"username":"probectl_reader","password":"%s"}\n' "$$CLICKHOUSE_READER_PASSWORD" > /audit/control-secrets/ch-reader-basic-auth.json
+        chown 65532:65532 /audit/control-secrets/prom-basic-auth.json /audit/control-secrets/ch-basic-auth.json /audit/control-secrets/ch-reader-basic-auth.json
+        chmod 0600 /audit/control-secrets/prom-basic-auth.json /audit/control-secrets/ch-basic-auth.json /audit/control-secrets/ch-reader-basic-auth.json
         install -d -o 65532 -g 65532 -m 0700 /audit/dex-data
         find /audit/pki -name tls.key -exec chmod 0600 {} +
     volumes:
@@ -81,6 +82,7 @@ services:
       PROMETHEUS_PASSWORD: ${PROMETHEUS_PASSWORD:?PROMETHEUS_PASSWORD is required}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:?CLICKHOUSE_USER is required}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}
+      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:?CLICKHOUSE_READER_PASSWORD is required}
     restart: "no"
 
   postgres:
@@ -263,6 +265,8 @@ services:
     environment:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:?CLICKHOUSE_USER is required}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}
+      # The users.xml-backed `probectl_reader` (users.xml) reads it from here.
+      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:?CLICKHOUSE_READER_PASSWORD is required}
       # The stock `default` database already exists. Keep CLICKHOUSE_DB unset:
       # the 24.8 entrypoint initializes a named database through plaintext 9000,
       # which is deliberately absent from this TLS-only service.
@@ -435,7 +439,10 @@ services:
       PROBECTL_OTELSTORE_URL: https://clickhouse:8443
       PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE: /run/secrets/ch-basic-auth.json
       PROBECTL_OTELSTORE_TENANT_SCOPING: "true"
-      PROBECTL_OTELSTORE_READER_USER: probectl
+      # DPR-285: every tenant read runs as the SELECT-only reader the row
+      # policy binds, never as the control login above.
+      PROBECTL_OTELSTORE_READER_USER: probectl_reader
+      PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE: /run/secrets/ch-reader-basic-auth.json
       PROBECTL_EBPFSTORE_MODE: memory
       PROBECTL_ENDPOINTSTORE_MODE: memory
       PROBECTL_OTLP_HTTP_ADDR: :4318
