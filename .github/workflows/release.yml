@@ -490,6 +490,13 @@ jobs:
             echo "$chart appVersion matches tag $tag"
           done
       - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+      # G1: the chart is packaged and pushed by the same pinned helm the helm-gate
+      # renders with, and the one the publish rehearsal ran (DPR-258's digest read
+      # was proven against helm 3.16.2 and a real registry). The runner's
+      # preinstalled helm floats with the image.
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: v3.16.2
       - name: Helm login + push (OCI to GHCR)
         run: |
           set -euo pipefail
