@@ -897,11 +897,14 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Runner VM tooling (qemu only)
+        # CI run 39794445141: apt-get update hung on the Azure mirror until the
+        # whole 30-minute job was cancelled. Bound the step and let apt retry.
+        timeout-minutes: 10
         run: |
-          sudo apt-get update -q
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q
           # QEMU is test infrastructure for vimto. The compiler path itself
           # runs in deploy/docker/Dockerfile.ebpf's pinned ebpf-toolchain stage.
-          sudo apt-get install -y -q qemu-system-x86 qemu-system-arm
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y -q qemu-system-x86 qemu-system-arm
       - name: Generate + compile the BPF objects (pinned clang/llvm/bpftool toolchain)
         run: |
           set -euo pipefail
@@ -1048,7 +1051,7 @@ jobs:
     # idempotent and /readyz passes (S1 Done-when). Uses a service container
     # rather than the full compose stack — only Postgres is needed yet.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45 # the real-stack receipts (G4) took the lane from ~19 to ~30 minutes (run 39794445141 hit 30)
     # Postgres runs as a docker step so it serves TLS under a per-run test CA;
     # the client connects sslmode=verify-full like production (OPS-010).
     env:
