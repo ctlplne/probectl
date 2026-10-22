@@ -904,7 +904,12 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q
           # QEMU is test infrastructure for vimto. The compiler path itself
           # runs in deploy/docker/Dockerfile.ebpf's pinned ebpf-toolchain stage.
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y -q qemu-system-x86 qemu-system-arm
+          # --no-install-recommends: qemu's recommends (GUI, SPICE, OpenGL, Ceph
+          # block drivers, OVMF) are 254 of 295 packages on noble and none is
+          # used by vimto's direct-kernel boot; seabios/ipxe-qemu stay as hard
+          # depends. The full set made a slow Azure mirror blow the step limit
+          # (run 39822884996).
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y -q --no-install-recommends qemu-system-x86 qemu-system-arm
       - name: Generate + compile the BPF objects (pinned clang/llvm/bpftool toolchain)
         run: |
           set -euo pipefail
