@@ -749,6 +749,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/planes.ts',
     method: 'GET',
+    path: '`/device/metrics?limit=${limit}`',
+    response: 'DeviceMetricsResponse',
+    generated: 'ListDeviceMetricSummariesResponse',
+  },
+  {
+    file: 'api/planes.ts',
+    method: 'GET',
     path: '`/device/neighbors?limit=${limit}`',
     response: 'DeviceNeighborResponse',
     generated: 'ListDeviceNeighborsResponse',

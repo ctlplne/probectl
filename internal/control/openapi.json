@@ -14140,6 +14140,13 @@
           },
           "effective_limit": {
             "type": "integer"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "tsdb"
+            ],
+            "description": "Present when the samples were read back from the production TSDB (Prometheus remote write); absent for the in-memory snapshot."
           }
         }
       },

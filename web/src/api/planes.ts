@@ -351,6 +351,36 @@ export function useDeviceConfigs(limit = 5, enabled = true) {
   })
 }
 
+/** One device series' newest sample (GET /v1/device/metrics). */
+export interface DeviceMetricSummary {
+  id: string
+  device: string
+  device_name?: string
+  agent_id?: string
+  source?: string
+  if_index?: string
+  if_name?: string
+  name?: string
+  summary?: string
+  metric: string
+  value: number
+  last_seen: string
+}
+
+export interface DeviceMetricsResponse {
+  items: DeviceMetricSummary[]
+  metrics_running: boolean
+  effective_limit: number
+  source?: string
+}
+
+export function useDeviceMetrics(limit = 200) {
+  return useQuery({
+    queryKey: ['device', 'metrics', limit],
+    queryFn: () => apiFetch<DeviceMetricsResponse>(`/device/metrics?limit=${limit}`),
+  })
+}
+
 export function useDeviceNeighbors(limit = 100) {
   return useQuery({
     queryKey: ['device', 'neighbors', limit],

@@ -61,6 +61,7 @@ import {
 } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import { IdentityConflictsCard } from './IdentityConflictsCard'
+import { DeviceMetricsCard } from '../components/DeviceMetricsCard'
 import { ConfigDiffDialog, type ConfigComparison } from './ConfigDiffDialog'
 import { findPreviousConfig } from './configDiff'
 
@@ -1251,6 +1252,7 @@ function DevicePanel({
             )}
           </CardBody>
         </Card>
+        <DeviceMetricsCard />
         <Card>
           <CardHeader title={t('planes.device.endpoints.title')} />
           <CardBody>

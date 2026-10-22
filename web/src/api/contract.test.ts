@@ -67,6 +67,7 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/dashboards' },
   { method: 'GET', path: '/v1/device/configs' },
   { method: 'GET', path: '/v1/device/identity-conflicts' },
+  { method: 'GET', path: '/v1/device/metrics' },
   { method: 'GET', path: '/v1/device/neighbors' },
   { method: 'GET', path: '/v1/device/collection-outcomes' },
   { method: 'GET', path: '/v1/device/syslog' },

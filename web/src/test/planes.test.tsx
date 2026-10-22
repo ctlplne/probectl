@@ -98,6 +98,19 @@ describe('plane workspaces', () => {
     expect(within(physicalNeighbors).getByText('leaf-1')).toBeInTheDocument()
     expect(within(physicalNeighbors).getByText('LLDP')).toBeInTheDocument()
     expect(within(physicalNeighbors).getByText('95%')).toBeInTheDocument()
+    // DPR-295: the page shows what the devices report, not only their names.
+    const ports = await screen.findByRole('table', { name: /interface counters/i })
+    const port = within(ports).getByText('Gi0/1').closest('tr')
+    if (!port) throw new Error('missing Gi0/1 row')
+    expect(within(port).getByText('edge-r1')).toBeInTheDocument()
+    expect(within(port).getByText('up')).toBeInTheDocument()
+    expect(within(port).getByText('123,456,789')).toBeInTheDocument()
+    expect(within(port).getAllByText('Not reported').length).toBeGreaterThan(0)
+    const health = screen.getByRole('table', { name: /device health samples/i })
+    const deviceHealth = within(health).getByText('edge-r1').closest('tr')
+    if (!deviceHealth) throw new Error('missing edge-r1 health row')
+    expect(within(deviceHealth).getByText('SNMP')).toBeInTheDocument()
+    expect(within(deviceHealth).queryByText(/93784/)).not.toBeInTheDocument()
     const collectionOutcomes = await screen.findByRole('list', {
       name: /per-target device collection outcome receipts/i,
     })
@@ -171,6 +184,7 @@ describe('plane workspaces', () => {
 
     expect(await screen.findByText('No physical neighbors observed')).toBeInTheDocument()
     expect(await screen.findByText('No collection receipts yet')).toBeInTheDocument()
+    expect(await screen.findByText('No device telemetry yet')).toBeInTheDocument()
     expect(screen.queryByText('leaf-1')).not.toBeInTheDocument()
     const deviceCoverage = screen
       .getByRole('heading', { name: /device coverage/i })

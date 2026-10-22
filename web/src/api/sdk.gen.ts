@@ -746,6 +746,7 @@ export interface DeviceMetricSummaryList {
   effective_limit?: number
   items?: DeviceMetricSummary[]
   metrics_running?: boolean
+  source?: "tsdb"
 }
 
 export interface DeviceNeighborEvidence {

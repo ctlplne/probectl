@@ -830,6 +830,7 @@ type DeviceMetricSummaryList struct {
 	EffectiveLimit int                   `json:"effective_limit,omitempty"`
 	Items          []DeviceMetricSummary `json:"items,omitempty"`
 	MetricsRunning bool                  `json:"metrics_running,omitempty"`
+	Source         string                `json:"source,omitempty"`
 }
 
 type DeviceNeighborEvidence struct {

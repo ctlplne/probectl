@@ -982,6 +982,13 @@ function coldFixture(path: string): Response | null {
         as_of: '2026-06-04T12:00:00Z',
         retention: { max_per_device: 256, max_per_tenant: 16384, stale_retention_hours: 24 },
       })
+    case '/v1/device/metrics':
+      return jsonResponse({
+        items: [],
+        metrics_running: true,
+        effective_limit: 200,
+        source: 'tsdb',
+      })
     case '/v1/device/collection-outcomes':
       return jsonResponse({
         contract_version: 'probectl.device-collection-outcomes/v1',
@@ -1951,6 +1958,48 @@ export function fixtureFetch(
         as_of: '2026-06-04T12:00:00Z',
         latest_at: '2026-06-04T12:00:00Z',
         retention: { max_per_device: 256, max_per_tenant: 16384, stale_retention_hours: 24 },
+      })
+    if (path === '/v1/device/metrics')
+      return jsonResponse({
+        items: [
+          {
+            id: 'device-agent-1|10.0.0.1|1|Gi0/1|probectl_device_if_out_octets',
+            device: '10.0.0.1',
+            device_name: 'edge-r1',
+            agent_id: 'device-agent-1',
+            source: 'snmp',
+            if_index: '1',
+            if_name: 'Gi0/1',
+            metric: 'probectl_device_if_out_octets',
+            value: 123456789,
+            last_seen: '2026-06-04T12:00:00Z',
+          },
+          {
+            id: 'device-agent-1|10.0.0.1|1|Gi0/1|probectl_device_if_oper_status',
+            device: '10.0.0.1',
+            device_name: 'edge-r1',
+            agent_id: 'device-agent-1',
+            source: 'snmp',
+            if_index: '1',
+            if_name: 'Gi0/1',
+            metric: 'probectl_device_if_oper_status',
+            value: 1,
+            last_seen: '2026-06-04T12:00:00Z',
+          },
+          {
+            id: 'device-agent-1|10.0.0.1|||probectl_device_uptime_seconds',
+            device: '10.0.0.1',
+            device_name: 'edge-r1',
+            agent_id: 'device-agent-1',
+            source: 'snmp',
+            metric: 'probectl_device_uptime_seconds',
+            value: 93784,
+            last_seen: '2026-06-04T12:00:00Z',
+          },
+        ],
+        metrics_running: true,
+        effective_limit: 200,
+        source: 'tsdb',
       })
     if (path === '/v1/device/collection-outcomes')
       return jsonResponse({

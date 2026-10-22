@@ -97,6 +97,17 @@ their normalized interface addresses in the tenant-keyed protobuf bus payload.
 Those addresses rebuild local topology/correlation evidence during replay; they
 do not become high-cardinality TSDB labels.
 
+**Planes › Device** reads the newest sample of every one of the tenant's
+series back (`GET /v1/device/metrics`, also `probectl device metrics`) and
+lays it out the way an operator reads a device, in its **Device telemetry**
+card: one health row per device (source, uptime, CPU, memory used / total) and
+one row per interface (link status, speed, octets in and out, errors and
+discards in / out), with temperature sensors in their own table when the
+target reports them. Counters are shown exact and cumulative, as the device
+reports them; rate them in an alert rule or the Explorer with the
+`probectl_device_*` series name. The read is bounded (500 series); a fleet past
+that shows a "Bounded result" badge rather than a silently partial table.
+
 The agent also keeps a tiny in-process correlation cache so a path hop or flow
 exporter can be explained as "this device/interface." That cache is not the
 source of metric history; it is a derived identity read model. Stale sysName and
