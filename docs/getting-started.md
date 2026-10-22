@@ -277,6 +277,7 @@ PROBECTL_AGENT_GRPC_ADDR=127.0.0.1:9443 \
 PROBECTL_AGENT_TLS_CERT_FILE=./certs/tls.crt \
 PROBECTL_AGENT_TLS_KEY_FILE=./certs/tls.key \
 PROBECTL_AGENT_TLS_CA_FILE=./certs/agent-ca.crt \
+PROBECTL_TESTSYNC_SIGNING_KEY_FILE=./certs/testsync-signing.pem \
   ./bin/probectl-control-devauth
 ```
 
@@ -286,7 +287,10 @@ agent **gRPC/mTLS listener** on `127.0.0.1:9443` (Path 1 needs it), and has the
 all-or-nothing: all four `PROBECTL_AGENT_*` values must be set, and it reads the
 cert files **at startup** — which is exactly why `gen-cert` and `agent-ca export`
 ran first. One process now serves all three producer paths; if you only want
-Path 2, the agent lines are harmless.
+Path 2, the agent lines are harmless. `PROBECTL_TESTSYNC_SIGNING_KEY_FILE`
+turns on central test distribution: the key is generated on first start, and
+every agent you enroll receives its public half, so tests you create in the
+console, API or CLI reach your agents without editing their config.
 
 > ### ⚠️ `PROBECTL_AUTH_MODE=dev` is evaluation-only, and it is strict
 >
@@ -508,7 +512,12 @@ canaries:
 The full set of probe types and per-probe parameters is in
 [`deploy/agent/probectl-agent.example.yml`](../deploy/agent/probectl-agent.example.yml)
 and [`configuration.md`](configuration.md). **Probes run straight from this config
-— you do not have to create anything server-side first.**
+— you do not have to create anything server-side first.** The reverse also
+holds: a test you create later in the console, the API or the CLI reaches this
+agent with no edit here. `enroll` wrote the deployment's test-bundle public key
+as `identity/testsync.pub`, so the agent pulls its tenant's tests over the same
+mTLS connection, verifies their signature and runs them next to the canaries
+above (see "Central tests" in [`configuration.md`](configuration.md)).
 
 > **Why `server-ca.pem` and not `ca.pem`.** The gRPC listener presents the
 > control plane's **server** certificate — here the quickstart cert signed by

@@ -233,13 +233,18 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     const firstTest = cardByHeading(/create the first test/i)
     expect(await within(firstTest).findByDisplayValue('127.0.0.1')).toBeInTheDocument()
     expect(within(firstTest).getByText(/admin-only, tenant-scoped/i)).toBeInTheDocument()
+    // G9: the agent's own policy still gates private targets; say so up front.
+    expect(
+      within(firstTest).getByText(/test_sync\.allow_private_targets: true/i),
+    ).toBeInTheDocument()
 
     await user.click(within(firstTest).getByRole('button', { name: /create first test/i }))
 
     expect(await screen.findByText(/first-loopback-check is enabled/i)).toBeInTheDocument()
     expect(screen.getByText(/test_id: "test_onboarding"/i)).toBeInTheDocument()
+    // G9: enrolled agents pull the test; the YAML block is only the hand-configured fallback.
     expect(
-      screen.getByText(/creating a server definition does not silently change/i),
+      screen.getByText(/enrolled agents of this tenant pull this test automatically/i),
     ).toBeInTheDocument()
     expect(screen.getByText('probectl-agent -config /etc/probectl/agent.yml')).toBeInTheDocument()
     expect(capture.test).toMatchObject({

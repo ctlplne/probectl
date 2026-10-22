@@ -312,10 +312,11 @@ func (s *Server) handleListTests(w http.ResponseWriter, r *http.Request) error {
 }
 
 // testReceipt (DPR-065): registering a test hands back the exact canaries:
-// entry — including the server test_id that ties results to this definition —
-// for the operator to add to the enrolled agent's config, as the onboarding
-// journey promises (the control plane never edits an agent host). The stored
-// test alone left operators to reconstruct the block by hand.
+// entry — including the server test_id that ties results to this definition.
+// Enrolled agents pull the test themselves as part of their tenant's signed
+// central test set (G9, docs/adr/central-test-distribution.md); the block is
+// the fallback for an agent configured by hand without the test-bundle key
+// (the control plane never edits an agent host).
 type testReceipt struct {
 	*store.Test
 	Config testConfigHint `json:"config"`

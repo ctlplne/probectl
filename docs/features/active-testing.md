@@ -101,9 +101,12 @@ The states are intentionally closed and cautious:
   insufficient, future-dated, definition-mismatched, truncated, or the bounded
   window crosses the current control-plane process start.
 
-Every receipt says the **current local assignment is unverified**. Agents load
-local YAML; the control plane neither reads nor pushes that file. This feature
-does not schedule, assign, rebalance, update, disable, or retarget an agent.
+Every receipt says the **current local assignment is unverified**. Agents run
+their local YAML canaries plus the tenant's central test set, which they pull
+and verify themselves
+([central test distribution](../adr/central-test-distribution.md)); the
+control plane neither reads nor pushes the YAML. This feature does not
+schedule, assign, rebalance, update, disable, or retarget an agent.
 Every non-healthy receipt provides a read-only **Inspect test** action. The
 action carries the exact server `test_id` to Targets, where a tenant-scoped
 `GET /v1/tests/{id}` selects one definition even when human-readable names are

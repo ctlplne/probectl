@@ -848,9 +848,9 @@ const en = {
   'onboarding.test.intervalHint': 'Minimum 10 seconds. Shorter values will not submit.',
   'onboarding.test.allowPrivate': 'Allow this test to probe private or loopback addresses',
   'onboarding.test.allowPrivateHint':
-    'Required for the default 127.0.0.1 target. Admin-only, tenant-scoped, and recorded in the audit trail for this test.',
+    'Required for the default 127.0.0.1 target. Admin-only, tenant-scoped, and recorded in the audit trail for this test. An enrolled agent runs a private-target test only if its own config sets test_sync.allow_private_targets: true.',
   'onboarding.test.configHint':
-    'Add this exact canary block to the enrolled agent configuration, then start the agent. Creating a server definition does not silently change an agent host.',
+    'Enrolled agents of this tenant pull this test automatically, verify its signature and start it within about a minute; Admin → Agents shows when each one is in sync. The block below is only for an agent configured by hand without the test-bundle key.',
   'onboarding.test.copyConfig': 'Copy agent config',
   'onboarding.test.creating': 'Creating...',
   'onboarding.test.create': 'Create first test',
@@ -2205,9 +2205,9 @@ const es: Record<MessageKey, string> = {
   'onboarding.test.allowPrivate':
     'Permitir que esta prueba consulte direcciones privadas o de bucle local',
   'onboarding.test.allowPrivateHint':
-    'Obligatorio para el objetivo 127.0.0.1 predeterminado. Solo para administradores, limitado al tenant y registrado en la auditoria de esta prueba.',
+    'Obligatorio para el objetivo 127.0.0.1 predeterminado. Solo para administradores, limitado al tenant y registrado en la auditoria de esta prueba. Un agente enrolado ejecuta una prueba con objetivo privado solo si su propia configuracion define test_sync.allow_private_targets: true.',
   'onboarding.test.configHint':
-    'Agrega este bloque canary exacto a la configuracion del agente enrolado y luego inicia el agente. Crear una definicion en el servidor no cambia silenciosamente un host de agente.',
+    'Los agentes enrolados de este tenant descargan esta prueba automaticamente, verifican su firma y la inician en aproximadamente un minuto; Administracion → Agentes muestra cuando cada uno esta sincronizado. El bloque siguiente es solo para un agente configurado a mano sin la clave de paquetes de prueba.',
   'onboarding.test.copyConfig': 'Copiar configuracion del agente',
   'onboarding.test.creating': 'Creando...',
   'onboarding.test.create': 'Crear primera prueba',
@@ -3510,9 +3510,9 @@ const ar: Record<MessageKey, string> = {
   'onboarding.test.intervalHint': 'الحد الأدنى 10 ثوانٍ. لن تُرسل القيم الأقصر.',
   'onboarding.test.allowPrivate': 'السماح لهذا الاختبار بفحص عناوين خاصة أو محلية',
   'onboarding.test.allowPrivateHint':
-    'مطلوب للهدف الافتراضي 127.0.0.1. للمسؤول فقط، ومقيّد بالمستأجر، ومسجل في سجل التدقيق لهذا الاختبار.',
+    'مطلوب للهدف الافتراضي 127.0.0.1. للمسؤول فقط، ومقيّد بالمستأجر، ومسجل في سجل التدقيق لهذا الاختبار. لا يشغّل الوكيل المسجل اختبارًا لهدف خاص إلا إذا ضبط إعداده test_sync.allow_private_targets: true.',
   'onboarding.test.configHint':
-    'أضف كتلة canary هذه إلى إعداد الوكيل المسجل ثم شغّل الوكيل. إنشاء تعريف على الخادم لا يغيّر مضيف الوكيل بصمت.',
+    'يسحب الوكلاء المسجلون لهذا المستأجر هذا الاختبار تلقائيًا ويتحققون من توقيعه ويبدؤونه خلال دقيقة تقريبًا؛ وتعرض صفحة الإدارة ← الوكلاء متى يصبح كل وكيل متزامنًا. الكتلة أدناه مخصصة فقط لوكيل مُعَدّ يدويًا بدون مفتاح حزم الاختبارات.',
   'onboarding.test.copyConfig': 'نسخ إعداد الوكيل',
   'onboarding.test.creating': 'جار الإنشاء...',
   'onboarding.test.create': 'إنشاء الاختبار الأول',
