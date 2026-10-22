@@ -32,11 +32,15 @@ operator-owned paths:
 - **SNMP traps** — the agent *listens* for device-pushed events such as link
   up/down and cold start. Traps are off by default and accepted only from
   configured sources with a matching v2c community or authenticated v3 USM user.
-  Each accepted trap is normalized into a tenant-scoped event + alert row,
-  deduplicated by fingerprint against retransmits, and published to the bus on
-  `probectl.device.trap-events` (tenant-keyed) so it leaves the agent and is
-  ingested like every other device signal. The tenant comes from the agent's
-  enrolled identity, never the trap payload.
+  Each accepted trap is normalized into a tenant-scoped event, deduplicated by
+  fingerprint against retransmits, and published once to the tenant's
+  `probectl.device.trap-events` bus lane (tenant-keyed). The tenant comes from
+  the agent's registered identity, never the trap payload. **What the control
+  plane does with it today: nothing.** No API, CLI command or page lists
+  traps, and a trap raises no alert or incident; refused traps are counted in
+  the agent's payload-free `live ingestion record failed` log line. Consume
+  the lane yourself (a SIEM forwarder, for instance) until a trap read model
+  ships.
 - **Syslog and config archive** — authenticated control-plane APIs let an
   operator or owned collector submit device syslog lines and versioned network
   configs. Rows are tenant-bound at write/read time; configs are redacted before
@@ -58,8 +62,7 @@ flowchart LR
   D -- "gNMI Subscribe (stream, TLS)" --> A
   A -- "probectl.device.metrics (DeviceMetricBatch, tenant-keyed)" --> B[(bus)]
   A -- "probectl.device.neighbors (bounded LLDP/CDP snapshot)" --> B
-  A -- "probectl.device.trap-events (DeviceTrapEventBatch, tenant-keyed; deduped)" --> B
-  A -- "accepted traps recorded + fingerprint-deduped" --> E[(agent trap store)]
+  A -- "probectl.device.trap-events (DeviceTrapEventBatch, tenant-keyed; deduped; no control-plane consumer yet)" --> B
   A -- "syslog + config snapshots (tenant-scoped)" --> O[(device ops store)]
   B --> P[control plane DeviceConsumer]
   P --> T[(TSDB: probectl_device_* series)]

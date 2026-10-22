@@ -221,8 +221,9 @@ export PROBECTL_DEVICE_CRED_CORE_TRAPS_USERNAME=trap-user
 export PROBECTL_DEVICE_CRED_CORE_TRAPS_AUTH_PROTO=sha256
 export PROBECTL_DEVICE_CRED_CORE_TRAPS_AUTH_PASS='from-your-secret-store'
 ./bin/probectl-device-agent -config device-traps.yml
-# Observe: accepted traps create tenant-scoped event and alert rows; duplicate
-# replays are deduplicated by trap fingerprint.
+# Observe: each accepted trap is published once (replays are deduplicated by
+# fingerprint) on the tenant's probectl.<lane>.device.trap-events bus lane. The
+# control plane does not list or alert on traps yet; consume the lane directly.
 ```
 
 Turn on eBPF L7 plaintext capture only for a named workload (it refuses to start

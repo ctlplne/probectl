@@ -1831,8 +1831,9 @@ with `neighbors: true` also publishes a bounded LLDP/CDP snapshot to
 `probectl.device.neighbors`; it never scans for devices or opens a follow-up
 session. Each LLDP/CDP attempt separately publishes a stable, non-secret
 readiness receipt to `probectl.device.collection-outcomes`, so failure,
-successful-empty, unsupported, and never-observed cannot be confused. Accepted
-traps become tenant-scoped event and alert rows. The full
+successful-empty, unsupported, and never-observed cannot be confused. Each
+accepted trap is published once to `probectl.device.trap-events` (tenant-keyed);
+the control plane does not consume that topic yet. The full
 device list and optional trap listener live in a YAML config, bounded to 1 MiB
 before YAML decoding (see `deploy/agent/probectl-device-agent.example.yml`); the
 env vars below override it and give a **single-device quick start** for trying
@@ -1926,8 +1927,8 @@ traps:
 ```
 
 For SNMPv3 trap sources, `USERNAME` and `AUTH_PASS` are required; NoAuthNoPriv
-traps are rejected. Accepted rows store the source name / v3 username and never
-store the community or passphrase.
+traps are rejected. A published trap event names the source / v3 username and
+never carries the community or passphrase.
 
 gNMI connections always use **TLS with certificate verification** (system roots
 or a per-device `ca_file`); there is no skip-verify or plaintext mode. A legacy
