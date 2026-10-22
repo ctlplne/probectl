@@ -568,7 +568,7 @@ jobs:
             probectl-*.chart-digest.txt
 
   packages:
-    name: deb/rpm packages (${{ matrix.agent }})
+    name: deb/rpm packages (${{ matrix.agent }}, ${{ matrix.arch }})
     environment: release # SUP-03: environment-gated publish (see images job)
     # OPS-004: build a signed deb + rpm per agent type via nfpm and attach them
     # to the release. The binaries job produces the cross-compiled static
@@ -581,6 +581,11 @@ jobs:
       contents: write
       id-token: write
     strategy:
+      # G1: one failing leg must not cancel the other nine. v0.6.5's ebpf-agent
+      # failure cancelled seven legs and left 12 of 20 packages on the release,
+      # and the air-gap bundle requires all 20; a failure is now reported per leg
+      # and the release still carries every package that built.
+      fail-fast: false
       matrix:
         agent: [agent, ebpf-agent, flow-agent, device-agent, endpoint]
         arch: [amd64, arm64]
