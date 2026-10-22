@@ -68,22 +68,33 @@ func TestE2E(t *testing.T) {
 	composeFile := filepath.Join(root, composeF)
 	composeIsoFile := filepath.Join(root, composeIsoF)
 	composeProject := fmt.Sprintf("probectl-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())
-	composeEnv := []string{"PROBECTL_ISOLATED_NETWORK=" + composeProject + "-network"}
+	// The disposable stack publishes on free loopback ports, never on a LAN
+	// interface and never on the dev stack's fixed ports, so it runs beside a
+	// developer's own probectl-dev stack (DPR-094).
+	pgPort, kafkaPort := freeTCPPort(t), freeTCPPort(t)
+	composeEnv := []string{
+		"PROBECTL_ISOLATED_NETWORK=" + composeProject + "-network",
+		"PROBECTL_DEV_POSTGRES_PORT=" + pgPort,
+		"PROBECTL_DEV_KAFKA_PORT=" + kafkaPort,
+	}
+	composeLoopbackFile := filepath.Join(work, "loopback.yml")
+	writeFile(t, composeLoopbackFile, loopbackPortsOverride)
+	kafkaBroker := "localhost:" + kafkaPort
 
 	// ── stack up ────────────────────────────────────────────────────────
 	// The black-box receipt must be repeatable on a developer workstation where
 	// the shared dev stack may already have data. A unique Compose project gives
 	// this run empty, disposable volumes without ever targeting the developer's
 	// probectl-dev project during setup or teardown.
-	runCmd(t, root, composeEnv, "docker", composeArgs(composeProject, composeFile, composeIsoFile,
-		"up", "-d", "--wait", "postgres", "kafka")...)
+	stack := composeStack{env: composeEnv, project: composeProject,
+		files: []string{composeFile, composeIsoFile, composeLoopbackFile}}
+	runCmd(t, root, stack.env, "docker", stack.args("up", "-d", "--wait", "postgres", "kafka")...)
 	t.Cleanup(func() {
-		cmd := exec.Command("docker", composeArgs(composeProject, composeFile, composeIsoFile,
-			"down", "-v", "--remove-orphans")...)
-		cmd.Env = append(os.Environ(), composeEnv...)
+		cmd := exec.Command("docker", stack.args("down", "-v", "--remove-orphans")...)
+		cmd.Env = append(os.Environ(), stack.env...)
 		_ = cmd.Run()
 	})
-	createKafkaTopics(t, root, composeEnv, composeProject, composeFile, composeIsoFile,
+	createKafkaTopics(t, root, stack,
 		"probectl."+laneA+".ebpf.flows",
 		"probectl."+laneB+".ebpf.flows",
 		"probectl."+laneA+".network.results",
@@ -133,8 +144,15 @@ func TestE2E(t *testing.T) {
 	}
 	wormSigningKey := filepath.Join(wormDir, "signing-key.pem")
 
+	// TEN-01: the control plane serves as a least-privilege login, as every
+	// shipped deployment does; a superuser login bypasses row-level security
+	// and the serve path refuses to start on one. Migrations keep the
+	// privileged owner login, which is what PROBECTL_MIGRATE_DATABASE_URL is for.
+	adminDSN := "postgres://probectl:probectl@localhost:" + pgPort + "/probectl?sslmode=disable"
+	runtimeDSN := "postgres://probectl_runtime:" + e2eRuntimePassword + "@localhost:" + pgPort + "/probectl?sslmode=disable"
 	controlEnv := []string{
-		"PROBECTL_DATABASE_URL=postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable",
+		"PROBECTL_DATABASE_URL=" + runtimeDSN,
+		"PROBECTL_MIGRATE_DATABASE_URL=" + adminDSN,
 		"PROBECTL_HTTP_ADDR=127.0.0.1:0", // loopback posture for offline CLI subcommands
 		"PROBECTL_AUTH_MODE=dev",
 		"PROBECTL_DEV_AUTH_ACK=i-understand",
@@ -151,13 +169,14 @@ func TestE2E(t *testing.T) {
 		"PROBECTL_ENDPOINTSTORE_TENANT_SCOPING=true",
 		"PROBECTL_INGEST_STRICT_TENANT_LANES=true",
 		"PROBECTL_BUS_MODE=kafka",
-		"PROBECTL_BUS_BROKERS=localhost:9092",
+		"PROBECTL_BUS_BROKERS=" + kafkaBroker,
 		"PROBECTL_BUS_ALLOW_PLAINTEXT=true", // dev compose kafka is plaintext (U-010 dev override)
 	}
 
 	// ── schema: the serve path checks DB-level tenant isolation before listen ─
 	runCmd(t, root, controlEnv, control, "migrate")
-	seedE2ETenants(t, root, composeEnv, composeProject, composeFile, composeIsoFile)
+	provisionRuntimeLogin(t, root, stack)
+	seedE2ETenants(t, root, stack)
 	// DPR-121 hardened `agent-ca init` to refuse printing the root CA private key
 	// to a non-terminal, because a Job log or a CI artifact is exactly where
 	// docs/guardrails.md G7-6 says a private key must never land — and `go test`
@@ -186,8 +205,11 @@ func TestE2E(t *testing.T) {
 	apiClient := newAPIClient(t, serverCA)
 
 	// ── control plane: public configuration surface only ────────────────
-	controlLog, _ := startProc(t, work, "control", control, nil, serveEnv)
+	controlLog, _, controlExited := startProc(t, work, "control", control, nil, serveEnv)
 	waitFor(t, "control plane /readyz", 90*time.Second, func() bool {
+		if err := controlExited(); err != nil {
+			t.Fatalf("control plane exited before /readyz (%v); its log tail follows", err)
+		}
 		resp, err := apiClient.Get(apiBase + "/readyz")
 		if err != nil {
 			return false
@@ -257,7 +279,7 @@ canaries:
 		serverCA,
 		filepath.Join(work, "canary-buffer"),
 		canaryTarget))
-	_, stopCanary := startProc(t, work, "canary-agent", canaryAgent, []string{"-config", canaryConfig}, nil)
+	_, stopCanary, _ := startProc(t, work, "canary-agent", canaryAgent, []string{"-config", canaryConfig}, nil)
 
 	var firstObserved time.Time
 	waitFor(t, "tenant A's mTLS canary in /v1/results/latest", 90*time.Second, func() bool {
@@ -279,7 +301,7 @@ canaries:
 		t.Fatalf("rotation identity mismatch: before=(%s,%s) after=(%s,%s)",
 			beforeSerial, beforeSPIFFE, afterSerial, afterSPIFFE)
 	}
-	_, stopRotated := startProc(t, work, "canary-agent-rotated", canaryAgent, []string{"-config", canaryConfig}, nil)
+	_, stopRotated, _ := startProc(t, work, "canary-agent-rotated", canaryAgent, []string{"-config", canaryConfig}, nil)
 	var rotatedObserved time.Time
 	waitFor(t, "rotated mTLS identity to publish a newer result", 30*time.Second, func() bool {
 		var ok bool
@@ -323,15 +345,15 @@ canaries:
 		fixture := writeFixture(t, work, a.name, a.tenant, a.agentID, a.ip)
 		cfg := filepath.Join(work, a.name+".yaml")
 		writeFile(t, cfg, fmt.Sprintf(
-			"apiVersion: probectl.io/ebpf-agent/v1\ntenant_id: %q\nhost: %q\nfixture_path: %q\nbus:\n  mode: kafka\n  brokers: [\"localhost:9092\"]\n  namespace: %q\n",
-			a.tenant, a.agentID, fixture, a.lane))
+			"apiVersion: probectl.io/ebpf-agent/v1\ntenant_id: %q\nhost: %q\nfixture_path: %q\nbus:\n  mode: kafka\n  brokers: [%q]\n  namespace: %q\n",
+			a.tenant, a.agentID, fixture, kafkaBroker, a.lane))
 		startProc(t, work, a.name, ebpfAgent, []string{"--config", cfg}, []string{
 			"PROBECTL_EBPF_BUS_ALLOW_PLAINTEXT=true",
 		})
 	}
 	t.Cleanup(func() {
 		if t.Failed() {
-			dumpKafkaDiagnostics(t, root, composeEnv, composeProject, composeFile, composeIsoFile)
+			dumpKafkaDiagnostics(t, root, stack)
 		}
 	})
 
@@ -395,6 +417,16 @@ func freeTCPAddr(t *testing.T) string {
 	return addr
 }
 
+// freeTCPPort returns a free loopback port number for a published container port.
+func freeTCPPort(t *testing.T) string {
+	t.Helper()
+	_, port, err := net.SplitHostPort(freeTCPAddr(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
 func setEnv(env []string, key, value string) []string {
 	result := append([]string(nil), env...)
 	prefix := key + "="
@@ -456,23 +488,76 @@ func redactCommandOutput(out []byte, args []string) []byte {
 	return redacted
 }
 
-func composeArgs(project, file, isolatedFile string, args ...string) []string {
-	base := []string{"compose", "--project-name", project, "-f", file, "-f", isolatedFile}
+// composeStack is the run's disposable Compose project: its name, the files
+// that define it and the environment they interpolate.
+type composeStack struct {
+	project string
+	files   []string
+	env     []string
+}
+
+func (c composeStack) args(args ...string) []string {
+	base := []string{"compose", "--project-name", c.project}
+	for _, f := range c.files {
+		base = append(base, "-f", f)
+	}
 	return append(base, args...)
 }
 
+// loopbackPortsOverride pins the two published ports to loopback: the stack's
+// credentials are throwaway dev values, so it never listens on a LAN interface.
+const loopbackPortsOverride = `services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:${PROBECTL_DEV_POSTGRES_PORT}:5432"
+  kafka:
+    ports: !override
+      - "127.0.0.1:${PROBECTL_DEV_KAFKA_PORT}:9092"
+`
+
+// kafkaInternalBroker is the broker's in-network listener. Admin tools run
+// inside the kafka container must use it: the host-facing listener advertises
+// the run's free loopback port, which does not exist inside the container.
+const kafkaInternalBroker = "kafka:19092"
+
+// e2eRuntimePassword is the disposable serve login's password: a throwaway
+// value on a loopback-only, per-run database, deliberately not key-shaped.
+const e2eRuntimePassword = "e2e-runtime-login-throwaway"
+
 func TestComposeArgsScopesDisposableProject(t *testing.T) {
 	t.Parallel()
-	got := composeArgs("probectl-e2e-123", "/tmp/dev.yml", "/tmp/isolated.yml", "down", "-v")
+	stack := composeStack{project: "probectl-e2e-123", files: []string{"/tmp/dev.yml", "/tmp/isolated.yml", "/tmp/loopback.yml"}}
+	got := stack.args("down", "-v")
 	want := []string{
-		"compose", "--project-name", "probectl-e2e-123", "-f", "/tmp/dev.yml", "-f", "/tmp/isolated.yml", "down", "-v",
+		"compose", "--project-name", "probectl-e2e-123",
+		"-f", "/tmp/dev.yml", "-f", "/tmp/isolated.yml", "-f", "/tmp/loopback.yml", "down", "-v",
 	}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("compose args = %q, want %q", got, want)
 	}
 }
 
-func seedE2ETenants(t *testing.T, root string, composeEnv []string, composeProject, composeFile, composeIsoFile string) {
+// provisionRuntimeLogin creates the least-privilege serve login with the
+// shipped deploy/compose/provision-app-login.sql, exactly as the Compose
+// stack's pg-appuser one-shot does, after the migrations created its roles.
+func provisionRuntimeLogin(t *testing.T, root string, stack composeStack) {
+	t.Helper()
+	sql, err := os.ReadFile(filepath.Join(root, "deploy", "compose", "provision-app-login.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("docker", stack.args("exec", "-T", "postgres",
+		"psql", "-U", "probectl", "-d", "probectl", "-v", "ON_ERROR_STOP=1",
+		"-v", "app_password="+e2eRuntimePassword, "-f", "-")...)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), stack.env...)
+	cmd.Stdin = strings.NewReader(string(sql))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("provision the least-privilege serve login: %v\n%s", err, out)
+	}
+}
+
+func seedE2ETenants(t *testing.T, root string, stack composeStack) {
 	t.Helper()
 	sql := fmt.Sprintf(`INSERT INTO tenants (id, slug, name, status, isolation_model)
 VALUES
@@ -484,7 +569,7 @@ SET slug = EXCLUDED.slug,
     status = EXCLUDED.status,
     isolation_model = EXCLUDED.isolation_model,
     updated_at = now()`, tenantA, tenantB)
-	runCmd(t, root, composeEnv, "docker", composeArgs(composeProject, composeFile, composeIsoFile, "exec", "-T",
+	runCmd(t, root, stack.env, "docker", stack.args("exec", "-T",
 		"postgres", "psql", "-U", "probectl", "-d", "probectl",
 		"-v", "ON_ERROR_STOP=1", "-c", sql)...)
 }
@@ -520,12 +605,12 @@ func mintEnrollTokenTTL(t *testing.T, root, control string, env []string, tenant
 	return token
 }
 
-func createKafkaTopics(t *testing.T, root string, composeEnv []string, composeProject, composeFile, composeIsoFile string, topics ...string) {
+func createKafkaTopics(t *testing.T, root string, stack composeStack, topics ...string) {
 	t.Helper()
 	for _, topic := range topics {
-		runCmd(t, root, composeEnv, "docker", composeArgs(composeProject, composeFile, composeIsoFile, "exec", "-T", "kafka",
+		runCmd(t, root, stack.env, "docker", stack.args("exec", "-T", "kafka",
 			"/opt/kafka/bin/kafka-topics.sh",
-			"--bootstrap-server", "localhost:9092",
+			"--bootstrap-server", kafkaInternalBroker,
 			"--create",
 			"--if-not-exists",
 			"--topic", topic,
@@ -534,23 +619,23 @@ func createKafkaTopics(t *testing.T, root string, composeEnv []string, composePr
 	}
 }
 
-func dumpKafkaDiagnostics(t *testing.T, root string, composeEnv []string, composeProject, composeFile, composeIsoFile string) {
+func dumpKafkaDiagnostics(t *testing.T, root string, stack composeStack) {
 	t.Helper()
 	for _, tc := range []struct {
 		name string
 		args []string
 	}{
-		{name: "topics", args: []string{"/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"}},
-		{name: "consumer-groups", args: []string{"/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "localhost:9092", "--all-groups", "--describe"}},
-		{name: "tenant-a-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneA + ".ebpf.flows"}},
-		{name: "tenant-b-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneB + ".ebpf.flows"}},
-		{name: "tenant-a-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneA + ".network.results"}},
-		{name: "tenant-b-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneB + ".network.results"}},
+		{name: "topics", args: []string{"/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", kafkaInternalBroker, "--list"}},
+		{name: "consumer-groups", args: []string{"/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", kafkaInternalBroker, "--all-groups", "--describe"}},
+		{name: "tenant-a-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", kafkaInternalBroker, "--topic", "probectl." + laneA + ".ebpf.flows"}},
+		{name: "tenant-b-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", kafkaInternalBroker, "--topic", "probectl." + laneB + ".ebpf.flows"}},
+		{name: "tenant-a-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", kafkaInternalBroker, "--topic", "probectl." + laneA + ".network.results"}},
+		{name: "tenant-b-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", kafkaInternalBroker, "--topic", "probectl." + laneB + ".network.results"}},
 	} {
-		args := composeArgs(composeProject, composeFile, composeIsoFile, append([]string{"exec", "-T", "kafka"}, tc.args...)...)
+		args := stack.args(append([]string{"exec", "-T", "kafka"}, tc.args...)...)
 		cmd := exec.Command("docker", args...)
 		cmd.Dir = root
-		cmd.Env = append(os.Environ(), composeEnv...)
+		cmd.Env = append(os.Environ(), stack.env...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Logf("---- kafka %s failed ----\n%v\n%s", tc.name, err, out)
@@ -561,8 +646,11 @@ func dumpKafkaDiagnostics(t *testing.T, root string, composeEnv []string, compos
 }
 
 // startProc launches a long-running binary, captures its output to a log
-// file, and guarantees teardown. Returns the log path for diagnostics.
-func startProc(t *testing.T, work, name, bin string, args, env []string) (string, func()) {
+// file, and guarantees teardown. It returns the log path for diagnostics, a
+// stop func, and exited, which is nil while the process runs and its exit
+// error once it has ended, so a wait can stop at once instead of spending its
+// whole budget on a process that is already gone.
+func startProc(t *testing.T, work, name, bin string, args, env []string) (string, func(), func() error) {
 	t.Helper()
 	logPath := filepath.Join(work, name+".log")
 	logf, err := os.Create(logPath)
@@ -575,11 +663,28 @@ func startProc(t *testing.T, work, name, bin string, args, env []string) (string
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start %s: %v", name, err)
 	}
+	done := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = cmd.Wait()
+		close(done)
+	}()
+	exited := func() error {
+		select {
+		case <-done:
+			if waitErr == nil {
+				return fmt.Errorf("%s exited with status 0", name)
+			}
+			return waitErr
+		default:
+			return nil
+		}
+	}
 	var stopOnce sync.Once
 	stop := func() {
 		stopOnce.Do(func() {
 			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
+			<-done
 			_ = logf.Close()
 		})
 	}
@@ -605,7 +710,7 @@ func startProc(t *testing.T, work, name, bin string, args, env []string) (string
 			}
 		}
 	})
-	return logPath, stop
+	return logPath, stop, exited
 }
 
 func waitFor(t *testing.T, what string, timeout time.Duration, ok func() bool) {
