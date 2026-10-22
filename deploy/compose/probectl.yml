@@ -232,6 +232,12 @@ services:
       # Stable Ed25519 identity for immutable incident evidence packages. The
       # key is generated once at 0600 on the persistent control volume.
       PROBECTL_EVIDENCE_SIGNING_KEY_FILE: ${PROBECTL_EVIDENCE_SIGNING_KEY_FILE:-/var/lib/probectl/evidence-signing-ed25519.pem}
+      # Central test distribution (G9): tests created in the console/API/CLI
+      # reach the tenant's agents as a bundle signed with this key, generated
+      # once at 0600 on the persistent control volume. Enrolled agents receive
+      # its public half. Back it up like key material: a new key means every
+      # agent must be given the new public key.
+      PROBECTL_TESTSYNC_SIGNING_KEY_FILE: ${PROBECTL_TESTSYNC_SIGNING_KEY_FILE:-/var/lib/probectl/testsync-signing-ed25519.pem}
       # Fail closed (TENANT-106): refuse to start rather than silently write
       # plaintext if no key resolves.
       PROBECTL_REQUIRE_AT_REST_ENCRYPTION: ${PROBECTL_REQUIRE_AT_REST_ENCRYPTION:-true}
