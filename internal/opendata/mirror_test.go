@@ -9,6 +9,7 @@ package opendata
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -73,5 +74,87 @@ func TestMirrorResolveAndClient(t *testing.T) {
 	h := NewMirror("https://mirror.internal/feeds")
 	if got := h.Resolve("urlhaus", urlURLhaus); got != "https://mirror.internal/feeds/urlhaus" {
 		t.Fatalf("https Resolve = %q", got)
+	}
+}
+
+// A file:// mirror serves only files inside its configured directory (CodeQL
+// #37). The request path comes from an outgoing request URL; one that resolves
+// outside the mirror, by ".." or by naming another location on the host, must
+// be refused before anything is opened, while every feed file inside the
+// mirror still serves and the network client is never reached.
+func TestFileMirrorRefusesPathsOutsideItsDirectory(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "mirror")
+	for path, body := range map[string]string{
+		filepath.Join(root, "feodo_tracker"):  "192.0.2.66\n",
+		filepath.Join(root, "outage", "ioda"): "{}",
+		filepath.Join(parent, "secret"):       "outside the mirror\n",
+		// A sibling whose name starts with the mirror's is still outside it.
+		filepath.Join(root+"-evil", "feodo_tracker"): "203.0.113.9\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	blocked := &fakeDoer{fn: func(req *http.Request) (*http.Response, error) {
+		t.Errorf("file request reached the network client: %s", req.URL)
+		return nil, errors.New("blocked: no network in this test")
+	}}
+	mirror := NewMirror("file://" + root).Client(blocked)
+
+	for _, tc := range []struct {
+		name string
+		url  string
+		want string // the served body; "" = must be refused
+	}{
+		{name: "feed in the mirror", url: "file://" + root + "/feodo_tracker?since=0", want: "192.0.2.66\n"},
+		{name: "nested feed", url: "file://" + root + "/outage/ioda", want: "{}"},
+		{name: "dot segments that stay inside", url: "file://" + root + "/outage/../feodo_tracker", want: "192.0.2.66\n"},
+		{name: "dot-dot escape", url: "file://" + root + "/../secret"},
+		{name: "encoded dot-dot escape", url: "file://" + root + "/%2e%2e/secret"},
+		{name: "deep escape", url: "file://" + root + "/outage/../../secret"},
+		{name: "absolute path elsewhere", url: "file://" + filepath.Join(parent, "secret")},
+		{name: "sibling sharing the prefix", url: "file://" + root + "-evil/feodo_tracker"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, tc.url, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := mirror.Do(req)
+			if tc.want == "" {
+				if err == nil {
+					body, _ := io.ReadAll(resp.Body)
+					_ = resp.Body.Close()
+					t.Fatalf("%s served %q from outside the mirror", tc.url, body)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("%s refused inside the mirror: %v", tc.url, err)
+			}
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if err != nil || string(body) != tc.want {
+				t.Fatalf("%s served %q (%v), want %q", tc.url, body, err, tc.want)
+			}
+		})
+	}
+
+	// An https mirror has no local directory, so a file:// request is refused.
+	https := NewMirror("https://mirror.internal/feeds").Client(blocked)
+	req, err := http.NewRequest(http.MethodGet, "file://"+root+"/feodo_tracker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := https.Do(req); err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("an https mirror served a local file")
+	}
+	if blocked.calls != 0 {
+		t.Fatalf("%d file request(s) reached the network client", blocked.calls)
 	}
 }

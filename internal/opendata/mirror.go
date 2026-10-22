@@ -9,7 +9,9 @@ package opendata
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -66,29 +68,49 @@ func (m Mirror) Client(net Doer) Doer {
 	if net == nil {
 		net = defaultIntelClient()
 	}
-	return mirrorDoer{net: net}
+	return mirrorDoer{net: net, root: m.fileRoot()}
 }
 
-// mirrorDoer serves file:// requests from the local filesystem and delegates
+// fileRoot is the local directory a file:// mirror serves, cleaned, or "" when
+// the mirror is an http(s) base and so has no local files.
+func (m Mirror) fileRoot() string {
+	u, err := url.Parse(m.base)
+	if err != nil || !strings.EqualFold(u.Scheme, "file") || u.Path == "" {
+		return ""
+	}
+	return filepath.Clean(filepath.FromSlash(u.Path))
+}
+
+// mirrorDoer serves file:// requests from the mirror directory and delegates
 // everything else to a hardened HTTP Doer. It holds no bare http.Client — the
 // network side is the injected hardened client (U-036 egress ratchet).
-type mirrorDoer struct{ net Doer }
+type mirrorDoer struct {
+	net  Doer
+	root string // the file:// mirror directory; "" for an http(s) mirror
+}
 
 func (d mirrorDoer) Do(req *http.Request) (*http.Response, error) {
 	if req != nil && req.URL != nil && strings.EqualFold(req.URL.Scheme, "file") {
-		return readFileResponse(req)
+		return readFileResponse(d.root, req)
 	}
 	return d.net.Do(req)
 }
 
-// readFileResponse serves a file:// request from the local filesystem. Any
-// query string (the feed adapters append one) is ignored — a static mirror
-// file holds the whole dataset. The body stays UNTRUSTED and is size-capped by
-// the caller's LimitReader; a missing file returns a transport-shaped error so
-// the refresher records the failure and keeps last-good (graceful degradation,
+// readFileResponse serves a file:// request from the mirror directory root.
+// Any query string (the feed adapters append one) is ignored — a static mirror
+// file holds the whole dataset. The request path must resolve inside root: a
+// path that climbs out with "..", or names a file elsewhere on the host, is
+// refused before anything is opened, so a mirror request reads only the
+// operator's mirror. The body stays UNTRUSTED and is size-capped by the
+// caller's LimitReader; a missing file returns a transport-shaped error so the
+// refresher records the failure and keeps last-good (graceful degradation,
 // docs/guardrails.md G7-10).
-func readFileResponse(req *http.Request) (*http.Response, error) {
-	f, err := os.Open(req.URL.Path)
+func readFileResponse(root string, req *http.Request) (*http.Response, error) {
+	rel, err := mirrorRelPath(root, req.URL.Path)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(filepath.Join(root, rel))
 	if err != nil {
 		return nil, fmt.Errorf("opendata mirror: open %q: %w", req.URL.Path, err)
 	}
@@ -98,4 +120,20 @@ func readFileResponse(req *http.Request) (*http.Response, error) {
 		Header:     make(http.Header),
 		Request:    req,
 	}, nil
+}
+
+// mirrorRelPath resolves a file:// request path against the mirror directory
+// and returns it relative to that directory. The cleaned path is made relative
+// with filepath.Rel, so anything outside root comes back as a ".." path (or an
+// error) and fails filepath.IsLocal, which also refuses absolute and empty
+// paths. Without a local directory every file:// request is refused.
+func mirrorRelPath(root, reqPath string) (string, error) {
+	if root == "" {
+		return "", fmt.Errorf("opendata mirror: refusing %q: the mirror has no local directory", reqPath)
+	}
+	rel, err := filepath.Rel(root, filepath.Clean(filepath.FromSlash(reqPath)))
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("opendata mirror: refusing %q: outside the mirror directory", reqPath)
+	}
+	return rel, nil
 }
