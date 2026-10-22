@@ -120,10 +120,23 @@ services:
       # network cannot impersonate Postgres. The cert carries a `postgres` SAN.
       PROBECTL_DATABASE_URL: postgres://probectl:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (no default ships — SEC-006)}@postgres:5432/probectl?sslmode=verify-full&sslrootcert=/certs/ca.crt
       PROBECTL_LOG_FORMAT: json
+      # `migrate` runs the control binary's configured path, which validates the
+      # whole configuration: under the default session auth mode it refuses to
+      # start without the session HMAC key (AUTHZ-31), even though migrations
+      # never mint a session. Same .env value as the control service below.
+      PROBECTL_SESSION_HMAC_KEY: ${PROBECTL_SESSION_HMAC_KEY:?PROBECTL_SESSION_HMAC_KEY must be set in .env (openssl rand -hex 32)}
+      # At-rest encryption fails closed (TENANT-106) on this path too, so the
+      # one-shot resolves the SAME envelope key as the control service: the
+      # same settings and the same controldata volume. On a first boot it is the
+      # one that generates the key file; the control service then loads it.
+      PROBECTL_ENVELOPE_KEY: ${PROBECTL_ENVELOPE_KEY:-}
+      PROBECTL_ENVELOPE_KEY_FILE: ${PROBECTL_ENVELOPE_KEY_FILE:-/var/lib/probectl/envelope.key}
+      PROBECTL_REQUIRE_AT_REST_ENCRYPTION: ${PROBECTL_REQUIRE_AT_REST_ENCRYPTION:-true}
     networks: [probectl]
     volumes:
       # Read-only CA bundle for the verify-full DB hop above.
       - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+      - controldata:/var/lib/probectl
     # RTO-03 container hardening (docs/guardrails.md G7-12): the migration
     # one-shot runs the distroless control image with an immutable root
     # filesystem, no capabilities, and no privilege escalation. It writes

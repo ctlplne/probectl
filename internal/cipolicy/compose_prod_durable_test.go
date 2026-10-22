@@ -326,6 +326,34 @@ func TestDurableComposeControlEnvPassesConfigValidation(t *testing.T) {
 	}
 }
 
+// TestComposeMigrateOneShotPassesConfigValidation: the migrate one-shot runs the
+// control binary's configured path, so the real config loader must accept its
+// environment, in the shipped stack and under the durable overlay. Since TEN-01
+// split migrations out of the serving container, the one-shot carried no session
+// HMAC key, the default session auth mode then refused to load, and the shipped
+// quickstart stopped at its first one-shot.
+func TestComposeMigrateOneShotPassesConfigValidation(t *testing.T) {
+	for name, m := range map[string]composeModel{
+		"probectl.yml":                     loadComposeModel(t, composeBase),
+		"probectl.yml + probectl.prod.yml": loadComposeModel(t, composeBase, composeDurable),
+	} {
+		if _, err := config.Load(composeServiceGetenv(t, m, "migrate")); err != nil {
+			t.Errorf("%s: the migrate one-shot's environment fails config validation, so the stack cannot migrate:\n%v", name, err)
+		}
+		// The envelope key is resolved after config load and fails closed, so
+		// the one-shot must name the control service's key and mount its volume.
+		migrate, control := m.services["migrate"], m.services["control"]
+		for _, k := range []string{"PROBECTL_ENVELOPE_KEY", "PROBECTL_ENVELOPE_KEY_FILE", "PROBECTL_REQUIRE_AT_REST_ENCRYPTION"} {
+			if migrate.env[k] != control.env[k] {
+				t.Errorf("%s: migrate's %s = %q, control's = %q; the one-shot cannot resolve the envelope key", name, k, migrate.env[k], control.env[k])
+			}
+		}
+		if migrate.mounts["/var/lib/probectl"] != control.mounts["/var/lib/probectl"] {
+			t.Errorf("%s: migrate does not mount the control service's /var/lib/probectl volume, where the envelope key lives", name)
+		}
+	}
+}
+
 // TestDurableComposeOverlayStaysRendered keeps the CI render gate and the
 // make target pointed at the overlay, so a rename cannot drop it silently.
 func TestDurableComposeOverlayStaysRendered(t *testing.T) {
@@ -349,9 +377,15 @@ var composeInterpolation = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)(?::?([-?])([^
 // ${VAR:?...} takes a render-only placeholder (never a real secret).
 func composeControlGetenv(t *testing.T, m composeModel) func(string) string {
 	t.Helper()
-	control := m.services["control"]
+	return composeServiceGetenv(t, m, "control")
+}
+
+// composeServiceGetenv is composeControlGetenv for any service of the stack.
+func composeServiceGetenv(t *testing.T, m composeModel, svc string) func(string) string {
+	t.Helper()
+	control := m.services[svc]
 	if control == nil {
-		t.Fatal("no control service")
+		t.Fatalf("no %s service", svc)
 	}
 	placeholder := map[string]string{
 		// A 32-byte key the loader can parse, built at run time so no
