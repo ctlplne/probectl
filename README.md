@@ -16,7 +16,7 @@ and an AI assistant that explains root cause <em>across</em> them. Telemetry nev
 <a href="https://goreportcard.com/report/github.com/ctlplne/probectl"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/ctlplne/probectl"></a>
 <img alt="Go" src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white">
 <img alt="status" src="https://img.shields.io/badge/status-alpha-orange">
-<a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/core%20license-BUSL--1.1%20(source--available)-blue"></a>
+<a href="LICENSING.md"><img alt="license: BUSL-1.1 core · MPL-2.0 client · commercial ee/" src="docs/assets/badges/license.svg"></a>
 </p>
 
 <p align="center">
@@ -483,3 +483,10 @@ commercial terms in `ee/LICENSE`; a valid offline-signed license enables
 Enterprise or MSP capabilities at runtime. See
 [`LICENSING.md`](LICENSING.md) for the boundary, contribution rules, trademark
 note, and counsel-owned documents that remain.
+
+Every file's license is also machine-readable: [`REUSE.toml`](REUSE.toml) and
+[`LICENSES/`](LICENSES/) follow the REUSE Specification 3.3, so a license
+scanner reads BUSL-1.1, MPL-2.0 or the commercial identifier per file even
+though GitHub's repository header shows `NOASSERTION` for any BSL project. The
+SBOMs published with each release declare the same licenses for probectl's own
+packages.
