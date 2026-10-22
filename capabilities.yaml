@@ -222,10 +222,20 @@ capabilities:
     real_stack_proof: {gap: "No real-stack receipt currently sends OTLP over the shipped HTTP and gRPC listeners, persists it, and reads the listed tenant-scoped APIs; the write-fence test is not substituted."}
     migration: {refs: ["file:migrations/0046_otlp_tokens.sql"]}
 
+  # F13's real-stack receipt gives two tenants genuinely different faults in
+  # the shipped stores: A's prefix hijacked (shipped BGP analyzer sidecar over
+  # the lab collector's MRT) and then its TCP service down (shipped agent ->
+  # Prometheus -> alert evaluator), correlated into one incident; B's prefix
+  # leaked. Each asks "why?" through the API, the CLI and the rendered Ask
+  # page; the builtin adapter answers locally, every citation resolves to the
+  # tenant's own incident signal, BGP event, Prometheus series or topology
+  # node, and nothing of the other tenant's appears. The Explorer reads the
+  # ClickHouse path round and the topology graph per tenant; tokens without
+  # ai.query (or a source permission) are refused; a remote adapter without
+  # tenant consent is refused before anything leaves.
   - id: F13
     name: AI RCA and natural-language query
     status: delivered
-    evidence_status: partial
     owner: incident/API
     engine: {refs: ["file:internal/ai"]}
     binary: {refs: ["file:internal/control/server.go#s.analyzer = buildAnalyzerWithPolicyLoader"]}
@@ -235,7 +245,7 @@ capabilities:
     docs: {refs: ["file:docs/ai-rca.md#AI root-cause analysis"]}
     config_keys: {refs: ["config:PROBECTL_AI_MODEL_PROVIDER", "config:PROBECTL_AI_MAX_EVIDENCE"]}
     telemetry: {refs: ["file:internal/ai"]}
-    real_stack_proof: {gap: "The PostgreSQL/API test seeds an incident directly while cross-store RCA sources remain memory-backed; no real multi-plane, two-tenant CLI/UI receipt proves the promised analysis."}
+    real_stack_proof: {refs: ["test:internal/ai/realstack_integration_test.go#TestAIRootCauseRealStack"]}
     migration: {refs: ["file:migrations/0015_ai_feedback.sql", "file:migrations/0039_ai_answers.sql"]}
 
   - id: F14

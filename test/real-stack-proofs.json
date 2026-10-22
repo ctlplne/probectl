@@ -217,6 +217,13 @@
       "capabilities": [
         "F18"
       ]
+    },
+    {
+      "ref": "test:internal/ai/realstack_integration_test.go#TestAIRootCauseRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F13"
+      ]
     }
   ]
 }

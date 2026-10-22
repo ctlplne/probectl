@@ -99,6 +99,15 @@ const DEVICE_LIVE_RECEIPT: SurfaceLiveReceipt = {
   note: 'The device-live CI job drives the real gosnmp wire path against loopback snmpd; the integration lane runs each tenant’s shipped device agent against its own net-snmp agent (SNMPv3 and v2c) and proves live counters, LLDP neighbors and traps reach only that tenant’s API, CLI and Device page. gNMI stays mock-proven.',
 }
 
+const AI_LIVE_RECEIPT: SurfaceLiveReceipt = {
+  status: 'live-green',
+  evidence: [
+    'ci:.github/workflows/ci.yml:make test-integration',
+    'test:internal/ai/realstack_integration_test.go:TestAIRootCauseRealStack',
+  ],
+  note: 'The integration lane gives two tenants different faults in the shipped stores (a BGP hijack plus a service outage correlated into one incident; a route leak) and asks why through the API, CLI and Ask page: the builtin adapter answers locally, every citation resolves to the tenant’s own incident signal, BGP event, Prometheus series or topology node, and the Explorer reads only the caller’s path and topology rows.',
+}
+
 const EBPF_LIVE_RECEIPT: SurfaceLiveReceipt = {
   status: 'live-green',
   evidence: [
@@ -323,7 +332,7 @@ export const SURFACES: SurfaceDecl[] = [
       'file:test/fixtures/ai-handoff/answer.json',
       'file:docs/ai-rca.md',
     ],
-    liveReceipt: STATIC_NATIVE_RECEIPT,
+    liveReceipt: AI_LIVE_RECEIPT,
   },
   {
     capability: 'Structured telemetry Explorer + logical execution receipts',
@@ -337,7 +346,7 @@ export const SURFACES: SurfaceDecl[] = [
       'cli:probectl explorer query',
       'cli:probectl explorer compare',
     ],
-    liveReceipt: STATIC_NATIVE_RECEIPT,
+    liveReceipt: AI_LIVE_RECEIPT,
   },
   {
     capability: 'Curated dashboards + tenant-safe PDF/CSV reporting',

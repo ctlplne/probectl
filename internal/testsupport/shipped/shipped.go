@@ -88,6 +88,8 @@ type Stack struct {
 	Log            string // the control plane's log file
 	serveRole      string // the least-privilege serve login
 	env            []string
+	serveEnv       []string // env plus the agent listener: what serve runs with
+	controlLabel   string   // the log label of the running control plane
 	client         *http.Client
 	procs          map[string]*process // started processes by log label
 }
@@ -247,6 +249,7 @@ func Start(t *testing.T, o Options) *Stack {
 		"PROBECTL_AGENT_TLS_CA_FILE="+agentCA)
 
 	s.BaseURL = "https://localhost:" + redirect.Port()
+	s.serveEnv, s.controlLabel = serveEnv, "control"
 	s.Log = s.start(t, "control", s.Control, []string{"serve"}, serveEnv)
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -257,6 +260,12 @@ func Start(t *testing.T, o Options) *Stack {
 			t.Logf("log tail (%s):\n%s", filepath.Base(l), tail(l, 40))
 		}
 	})
+	s.awaitReady(t)
+	return s
+}
+
+func (s *Stack) awaitReady(t *testing.T) {
+	t.Helper()
 	s.await(t, "the control plane's /readyz", 90*time.Second, func() bool {
 		resp, err := s.client.Get(s.BaseURL + "/readyz")
 		if err != nil {
@@ -265,7 +274,24 @@ func Start(t *testing.T, o Options) *Stack {
 		_ = resp.Body.Close()
 		return resp.StatusCode == http.StatusOK
 	})
-	return s
+}
+
+// RestartControl stops the control plane and serves it again on the same
+// database, stores, listeners and keys with env added to (or overriding) its
+// environment, as an operator redeploys with a changed configuration. The
+// new process logs to <label>.log, which Log then names. Sessions minted
+// before the restart stay valid: the session key and the database are the
+// same.
+func (s *Stack) RestartControl(t *testing.T, label string, env map[string]string) {
+	t.Helper()
+	s.Stop(t, s.controlLabel)
+	full := append([]string(nil), s.serveEnv...)
+	for k, v := range env {
+		full = append(full, k+"="+v) // the last value of a key wins
+	}
+	s.controlLabel = label
+	s.Log = s.start(t, label, s.Control, []string{"serve"}, full)
+	s.awaitReady(t)
 }
 
 // Subcommand runs `probectl-control <args>` in the stack's environment.

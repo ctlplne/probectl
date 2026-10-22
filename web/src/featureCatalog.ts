@@ -99,7 +99,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F13',
     name: 'AI RCA and natural-language query',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   { id: 'F14', name: 'MCP server', status: 'partial', source: 'contract:features' },
