@@ -192,7 +192,9 @@ are attached to that deployment:
 - **Metrics** (the `metrics` domain) — anchored reads from the attached TSDB
   writer, either the in-memory lightweight store or a Prometheus/VictoriaMetrics
   upstream. Unanchored metric questions return no metric rows instead of scanning
-  a tenant's whole TSDB.
+  a tenant's whole TSDB. A target subject matches the `server_address` label
+  every synthetic probe series carries (the OTel `server.address` of the
+  tested host), so "why is 10.0.0.5 failing?" cites that host's probe series.
 - **Topology** (the `topology` domain) — direct neighbor/path evidence from the
   topology graph, including prefix-anchored routing topology
   (`prefix:<cidr>`).

@@ -98,10 +98,27 @@ func metricsSelector(sel map[string]string, tenant string) promapi.Selector {
 	}
 	for _, key := range []string{"target", "prefix", "node", "service", "agent_id", "instance", "job"} {
 		if v := sel[key]; v != "" {
-			out.Matchers = append(out.Matchers, promapi.Matcher{Name: key, Op: "=", Value: v})
+			out.Matchers = append(out.Matchers, promapi.Matcher{Name: metricSubjectLabel(key), Op: "=", Value: v})
 		}
 	}
 	return promapi.ForceTenant(out, tenant)
+}
+
+// targetLabel is the label a probe series names its target host with: the
+// OTel server.address attribute, promoted to a Prometheus label by the result
+// pipeline (internal/pipeline). No shipped series carries a "target" label.
+const targetLabel = "server_address"
+
+// metricSubjectLabel maps a question's subject key to the label the shipped
+// series carry it under. A subject's target is the host a test probes, which
+// every probe series labels server_address; matching a "target" label instead
+// found no series on a real TSDB, so no metric ever reached an answer
+// (DPR-297).
+func metricSubjectLabel(key string) string {
+	if key == "target" {
+		return targetLabel
+	}
+	return key
 }
 
 func metricSampleRow(metric string, labels map[string]string, value float64, at time.Time) ai.Row {
@@ -119,6 +136,9 @@ func metricSampleRow(metric string, labels map[string]string, value float64, at 
 		if v := labels[key]; v != "" {
 			row[key] = v
 		}
+	}
+	if v := labels[targetLabel]; v != "" && row["target"] == nil {
+		row["target"] = v
 	}
 	if row["target"] == nil {
 		if v := labels["instance"]; v != "" {
