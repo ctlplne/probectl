@@ -121,10 +121,7 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) error
 		return apierror.Internal("enrollment failed")
 	}
 	s.recordIdentityAudit(r, agentEnrolledAuditAction, id, nil)
-	if s.testSync != nil {
-		// G9 (D-41): the agent verifies every pulled test bundle with this key.
-		id.TestSyncPublicKey = string(s.testSync.PublicKeyPEM())
-	}
+	s.attachTestSyncKey(id)
 	writeJSON(w, http.StatusOK, id)
 	return nil
 }
@@ -408,6 +405,21 @@ func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) error
 		return apierror.Internal("rotation failed")
 	}
 	s.recordIdentityAudit(r, agentIdentityRotatedAuditAction, id, nil)
+	// G9: rotation delivers the key too, so an agent enrolled before central
+	// test distribution was on (or before this release) gets it at its next
+	// renewal instead of needing a manual copy.
+	s.attachTestSyncKey(id)
 	writeJSON(w, http.StatusOK, id)
 	return nil
+}
+
+// attachTestSyncKey adds the deployment's test-bundle public key to an issued
+// identity (G9, D-41) when central test distribution is configured: the agent
+// verifies every pulled test bundle with it. It rides the enrollment and the
+// rotation responses, both of which the agent receives over a CA-verified,
+// token- or possession-authenticated exchange.
+func (s *Server) attachTestSyncKey(id *enroll.Identity) {
+	if s.testSync != nil && id != nil {
+		id.TestSyncPublicKey = string(s.testSync.PublicKeyPEM())
+	}
 }

@@ -145,6 +145,18 @@ upgrading the control plane never strands an agent that's one version behind.
 | --------------- | --- | - | --- | --- |
 | **N** | yes | yes | yes | no (upgrade) |
 
+### Upgrading into central tests
+
+Central test distribution (`PROBECTL_TESTSYNC_SIGNING_KEY_FILE` or
+`PROBECTL_TESTSYNC_SIGNING_KEY`, [ADR](adr/central-test-distribution.md)) needs
+agents of this release or later: an older agent never calls `FetchTestBundle`
+and keeps running its local canaries, and the fleet view shows its tests as
+"none applied". Agents that were enrolled before the key existed receive it at
+their next identity rotation (written beside `cert.pem` as `testsync.pub`) and
+start pulling within 30 seconds; run `probectl-agent rotate` to do it now, or,
+for an agent that never rotates, copy the output of
+`probectl-control testsync public-key` into its identity directory.
+
 ## Staged fleet rollout (cohorts + pace)
 
 You don't push a new agent version to the whole fleet at once — you promote it

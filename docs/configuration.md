@@ -499,9 +499,13 @@ its server `test_id` on every result. See
 [`adr/central-test-distribution.md`](adr/central-test-distribution.md).
 
 `probectl-agent enroll` (and first-boot enrollment) writes the public key as
-`testsync.pub` beside `cert.pem`; for an agent provisioned by hand, write the
-output of `probectl-control testsync public-key` there. With no key the agent
-runs local canaries only. The control plane needs
+`testsync.pub` beside `cert.pem`, and so does every identity rotation: an agent
+enrolled before central test distribution was on receives the key at its next
+renewal (automatic when `identity.server` is set, or `probectl-agent rotate`)
+and turns central tests on within 30 seconds, without a restart. For an agent
+provisioned by hand (no rotation), write the output of
+`probectl-control testsync public-key` there. With no key the agent runs local
+canaries only. The control plane needs
 `PROBECTL_TESTSYNC_SIGNING_KEY_FILE`.
 
 | YAML key | Default | Meaning |

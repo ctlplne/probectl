@@ -28,8 +28,9 @@ plane never pushes; the agent pulls, verifies, and can always refuse.
   key (`PROBECTL_TESTSYNC_SIGNING_KEY_FILE`), separate from every TLS and CA
   key, through `internal/crypto` (G7-3). The agent verifies with
   `testsync.Verify` against the deployment's public key, which it receives at
-  enrollment over the token-authenticated, CA-verified enrollment exchange and
-  stores beside its certificate as `testsync.pub`
+  enrollment over the token-authenticated, CA-verified enrollment exchange (and
+  again at every possession-proven identity rotation, which is how agents
+  enrolled earlier get it) and stores beside its certificate as `testsync.pub`
   (`probectl-control testsync public-key` prints it for agents provisioned by
   hand). Every replica of a deployment loads the same key.
 - **Replay:** each bundle's epoch is the tenant's test-set version

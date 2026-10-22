@@ -142,10 +142,22 @@ func writeTestSyncPublicKey(dir, pemText string) error {
 	if strings.TrimSpace(pemText) == "" {
 		return nil
 	}
+	if err := checkTestSyncPublicKey(pemText); err != nil {
+		return err
+	}
+	return writeOwnerOnly(filepath.Join(dir, TestSyncPublicKeyFileName), []byte(pemText))
+}
+
+// checkTestSyncPublicKey accepts an absent key (distribution off) or an
+// Ed25519 public-key PEM; anything else is refused.
+func checkTestSyncPublicKey(pemText string) error {
+	if strings.TrimSpace(pemText) == "" {
+		return nil
+	}
 	if _, err := crypto.VerifyEd25519([]byte(pemText), []byte("probectl-testsync-key-check"), make([]byte, 64)); err != nil {
 		return fmt.Errorf("enroll: control plane sent an unusable test-bundle public key: %w", err)
 	}
-	return writeOwnerOnly(filepath.Join(dir, TestSyncPublicKeyFileName), []byte(pemText))
+	return nil
 }
 
 // EnrollStatusError is returned when the control plane answers an enrollment
@@ -280,8 +292,18 @@ func Rotate(ctx context.Context, server, certFile, keyFile, caFile string) (time
 	if err != nil {
 		return time.Time{}, err
 	}
+	// G9: validate the test-bundle key BEFORE replacing the identity, so an
+	// unusable key refuses the whole rotation instead of half-applying it.
+	if err := checkTestSyncPublicKey(id.TestSyncPublicKey); err != nil {
+		return time.Time{}, err
+	}
 	dir := filepath.Dir(certFile)
 	if err := writeIdentityDir(dir, []byte(id.CertPEM), newKeyPEM, []byte(id.CABundle)); err != nil {
+		return time.Time{}, err
+	}
+	// The renewal delivers the key to agents enrolled before central test
+	// distribution was on; the running agent picks it up without a restart.
+	if err := writeTestSyncPublicKey(dir, id.TestSyncPublicKey); err != nil {
 		return time.Time{}, err
 	}
 	return id.NotAfter, nil

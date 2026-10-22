@@ -8227,7 +8227,7 @@
         },
         "responses": {
           "200": {
-            "description": "Fresh identity for the SAME tenant+agent"
+            "description": "Fresh identity for the SAME tenant+agent, and (when central test distribution is configured) testsync_public_key, the PEM the agent verifies pulled test bundles with, so agents enrolled before it existed receive it at renewal"
           },
           "401": {
             "description": "Rotation refused (foreign cert, bad proof, unknown serial)"

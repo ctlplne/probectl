@@ -47,8 +47,12 @@ type Agent struct {
 	coordinator *Coordinator
 	metrics     *agentmetrics.Runtime
 	sync        *testSyncer // central test sync (G9); nil = local canaries only
-	tenantID    string
-	agentID     string
+	reg         *canary.Registry
+	// nextSyncProbe rate-limits looking for a test-bundle key that arrives
+	// after start (delivered by an identity rotation); forward goroutine only.
+	nextSyncProbe time.Time
+	tenantID      string
+	agentID       string
 }
 
 // New builds an agent. Its identity (tenant + id) comes from its client
@@ -74,7 +78,7 @@ func New(cfg *Config, reg *canary.Registry, log *slog.Logger) (*Agent, error) {
 		sched = append(sched, scheduled{canary: c, interval: cc.Interval.Std(), testID: cc.TestID})
 	}
 	host := &Host{scheduled: sched, buffer: buffer, tenantID: id.TenantID, agentID: id.AgentID, log: log}
-	a := &Agent{cfg: cfg, log: log, buffer: buffer, host: host, tenantID: id.TenantID, agentID: id.AgentID}
+	a := &Agent{cfg: cfg, log: log, buffer: buffer, host: host, reg: reg, tenantID: id.TenantID, agentID: id.AgentID}
 	// G9: the tenant from the CERTIFICATE is the only tenant whose bundle the
 	// agent accepts.
 	a.sync, err = newTestSyncer(cfg.TestSync, id.TenantID, reg, host, log)
@@ -224,9 +228,40 @@ func (a *Agent) session(ctx context.Context, client *Client) error {
 // syncTests pulls the central test set when one is owed. A pull never ends
 // the session; its failures are counted and the verified set keeps running.
 func (a *Agent) syncTests(ctx context.Context, client testBundleFetcher) {
-	if a.sync.due(time.Now()) {
+	now := time.Now()
+	if a.maybeStartSync(now) {
+		a.sync.resetSession()
+	}
+	if a.sync.due(now) {
 		a.sync.pull(ctx, client)
 	}
+}
+
+// testSyncProbeInterval is how often an agent without central tests looks for
+// a test-bundle public key that arrived after start.
+const testSyncProbeInterval = 30 * time.Second
+
+// maybeStartSync turns central test sync on when testsync.pub appears after
+// start — an agent enrolled before distribution was on receives the key at its
+// next identity rotation and starts pulling without a restart. It never
+// overrides test_sync.enabled: false. Reports whether it just started.
+func (a *Agent) maybeStartSync(now time.Time) bool {
+	if a.sync != nil || a.reg == nil || now.Before(a.nextSyncProbe) {
+		return false
+	}
+	a.nextSyncProbe = now.Add(testSyncProbeInterval)
+	s, err := newTestSyncer(a.cfg.TestSync, a.tenantID, a.reg, a.host, a.log)
+	if err != nil {
+		a.log.Warn("test sync: a test-bundle key is present but unusable; central tests stay off", "error", err.Error())
+		return false
+	}
+	if s == nil {
+		return false
+	}
+	s.metrics = a.metrics
+	a.sync = s
+	a.log.Info("test sync: test-bundle public key is now present; central tests on", "public_key_file", a.cfg.TestSync.PublicKeyFile)
+	return true
 }
 
 // drainOnce forwards one bounded FIFO chunk of buffered results in one client

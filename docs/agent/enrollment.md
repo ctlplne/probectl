@@ -176,8 +176,11 @@ When the control plane has central test distribution on
 the deployment's test-bundle public key, and `enroll` writes it as
 `testsync.pub` in the same directory. That is all the agent needs to pull and
 verify the tests your tenant defines in the console, API or CLI; no further
-config. An agent enrolled before the key existed (or provisioned by hand) gets
-it from `probectl-control testsync public-key`. See
+config. Identity rotation delivers the same key, so an agent enrolled before
+the key existed receives it at its next renewal (or at once with
+`probectl-agent rotate`) and starts pulling within 30 seconds, no restart. An
+agent provisioned by hand, with no rotation, gets it from
+`probectl-control testsync public-key`. See
 [`configuration.md`](../configuration.md) "Central tests".
 
 ### Enroll on first boot (token-on-boot)
