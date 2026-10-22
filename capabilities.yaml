@@ -134,10 +134,14 @@ capabilities:
     real_stack_proof: {gap: "External network access may remain hermetic, but no real-stack receipt currently proves cached enrichment through the public API and UI with two-tenant scoping."}
     migration: *no_migration
 
+  # F8's real-stack receipt evaluates threshold rules on real probe results
+  # in Prometheus and delivers through a webhook (via the deployment's egress
+  # proxy) and an authenticated STARTTLS relay, two tenants (pooled + hybrid).
+  # Baseline rules, silences, acks and maintenance windows are proven by the
+  # engine, store and control tests, not this receipt.
   - id: F8
     name: Alerting
     status: delivered
-    evidence_status: partial
     owner: platform/release
     engine: {refs: ["file:internal/alert"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildAlertEvaluatorSupervisor("]}
@@ -147,7 +151,7 @@ capabilities:
     docs: {refs: ["file:docs/alerting.md#Alerting"]}
     config_keys: {refs: ["config:PROBECTL_ALERT_EVAL_INTERVAL"]}
     telemetry: {refs: ["file:internal/alert"]}
-    real_stack_proof: {gap: "The selected test disables the query backend and proves alert CRUD/RLS only; it does not execute evaluation and delivery through the shipping API, CLI, UI, and two tenant lanes."}
+    real_stack_proof: {refs: ["test:internal/alert/realstack_integration_test.go#TestAlertingRealStack"]}
     migration: {refs: ["file:migrations/0011_alert_rules.sql", "file:migrations/0043_alert_ops.sql", "file:migrations/0065_alert_evaluation_receipts.sql"]}
 
   - id: F9

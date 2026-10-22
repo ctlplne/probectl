@@ -196,6 +196,13 @@
       "capabilities": [
         "F3"
       ]
+    },
+    {
+      "ref": "test:internal/alert/realstack_integration_test.go#TestAlertingRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
     }
   ]
 }

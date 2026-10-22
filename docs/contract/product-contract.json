@@ -56,7 +56,7 @@
         "F8"
       ],
       "name": "Alerting",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`internal/alert`; silences/acks persist through `migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`"
     },
     {

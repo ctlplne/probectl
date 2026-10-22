@@ -71,7 +71,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     status: 'partial',
     source: 'contract:features',
   },
-  { id: 'F8', name: 'Alerting', status: 'partial', source: 'contract:features' },
+  { id: 'F8', name: 'Alerting', status: 'delivered', source: 'contract:features' },
   {
     id: 'F9',
     name: 'Dashboards and incident timeline',
