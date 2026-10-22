@@ -19,3 +19,14 @@ renders this policy unless `admission.imageIntegrity.enabled=false` is paired
 with an `acceptedRisk` note. This policy is the cluster-side second lock: it
 catches retags or registry mirrors that serve a different image than the
 digest/signature the operator approved.
+
+The verifyImages rule enforces per rule (`failureAction: Enforce`; Kyverno's
+spec-level `validationFailureAction` is deprecated) and the policy uses
+`failurePolicy: Fail`, so an unreachable Kyverno refuses rather than admits.
+This static copy only matches `ghcr.io/ctlplne/probectl-ebpf-agent*` and
+`*/ctlplne/probectl-ebpf-agent*`; the chart's copy derives its reference from
+`image.repository`. For a mirror with a different path, render the policy from
+the chart (`helm template ... --show-only templates/image-integrity-policy.yaml`)
+or add the mirror's pattern — an unmatched image is not verified at all. Apply
+it and wait for `Ready` before the agent DaemonSet exists:
+[Image-integrity admission](../../docs/deploying-agents.md#image-integrity-admission-kubernetes).

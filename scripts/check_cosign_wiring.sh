@@ -12,7 +12,8 @@
 #   - the air-gap bundle or Ansible air-gap package path can bypass cosign,
 #   - release images are not signed by immutable digest,
 #   - the shipped privileged-agent admission policy no longer verifies digest
-#     and keyless release-workflow signatures.
+#     and keyless release-workflow signatures, or stops enforcing per rule /
+#     failing closed (RTO-12).
 #   - a shipped default identity regex trusts a same-named repository fork.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -228,6 +229,11 @@ grep -q 'keyless:' "$ADMISSION" || { echo "admission: keyless release identity v
 grep -q 'token.actions.githubusercontent.com' "$ADMISSION" || { echo "admission: GitHub OIDC issuer pin missing"; fail=1; }
 grep -q 'release\\.yml@refs/tags' "$ADMISSION" || { echo "admission: release workflow tag identity pin missing"; fail=1; }
 grep -q 'probectl-ebpf-agent' "$ADMISSION" || { echo "admission: policy does not target the privileged eBPF agent"; fail=1; }
+# RTO-12: per-rule Enforce (the spec-level validationFailureAction is deprecated
+# in Kyverno) and an unreachable Kyverno refuses rather than admits.
+grep -Eq '^ +failureAction: Enforce$' "$ADMISSION" || { echo "admission: verifyImages rule is not failureAction: Enforce"; fail=1; }
+grep -Eq '^ +failurePolicy: Fail$' "$ADMISSION" || { echo "admission: policy does not fail closed (failurePolicy: Fail)"; fail=1; }
+if grep -Eq '^[^#]*validationFailureAction:' "$ADMISSION"; then echo "admission: deprecated spec-level validationFailureAction is back"; fail=1; fi
 
 # 2) functional fail-closed checks on install.sh (no real cosign needed).
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT

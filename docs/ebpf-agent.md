@@ -627,8 +627,11 @@ The chart also renders the cluster-side Kyverno image-integrity policy by
 default. Think of it as the second lock on this privileged pod: Helm requires a
 digest-pinned image reference, and admission then requires that digest plus the
 keyless cosign signature from the `release.yml` tag workflow. Kyverno must
-already be installed. If a dev cluster uses a replacement admission controller,
-set `admission.imageIntegrity.enabled=false` only with a non-empty
+already be installed, and the policy goes in before the agent (a two-step
+install the chart enforces; a mirrored `image.repository` is verified too):
+[Image-integrity admission](deploying-agents.md#image-integrity-admission-kubernetes).
+If a dev cluster uses a replacement admission controller, set
+`admission.imageIntegrity.enabled=false` only with a non-empty
 `admission.imageIntegrity.acceptedRisk` note.
 
 The chart also renders `probectl-agent-capability-posture` (EBPF-007), a

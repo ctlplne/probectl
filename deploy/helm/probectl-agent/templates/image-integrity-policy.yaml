@@ -5,10 +5,95 @@
 {{- if and (not $policy.enabled) (not $policy.acceptedRisk) -}}
 {{- fail "admission.imageIntegrity.enabled=false requires admission.imageIntegrity.acceptedRisk describing the replacement image-signature control or approved dev exception" -}}
 {{- end -}}
-{{- if and $policy.enabled (ne $policy.validationFailureAction "Enforce") (not $policy.acceptedRisk) -}}
-{{- fail "admission.imageIntegrity.validationFailureAction must be Enforce for this privileged agent unless admission.imageIntegrity.acceptedRisk names the replacement control or approved dev exception" -}}
+{{- /* RTO-12: renamed keys fail loudly instead of being ignored. */ -}}
+{{- if hasKey $policy "validationFailureAction" -}}
+{{- fail "admission.imageIntegrity.validationFailureAction was renamed to admission.imageIntegrity.failureAction (RTO-12): Kyverno's spec-level validationFailureAction is deprecated, so the chart sets failureAction on the verifyImages rule itself" -}}
+{{- end -}}
+{{- if hasKey $policy "imageReferences" -}}
+{{- fail "admission.imageIntegrity.imageReferences was removed (RTO-12): the policy now derives its image reference from image.repository, so a mirrored repository is verified too; put any extra patterns in admission.imageIntegrity.additionalImageReferences" -}}
+{{- end -}}
+{{- if not (has $policy.failureAction (list "Enforce" "Audit")) -}}
+{{- fail "admission.imageIntegrity.failureAction must be Enforce or Audit" -}}
+{{- end -}}
+{{- if and $policy.enabled (ne $policy.failureAction "Enforce") (not $policy.acceptedRisk) -}}
+{{- fail "admission.imageIntegrity.failureAction must be Enforce for this privileged agent unless admission.imageIntegrity.acceptedRisk names the replacement control or approved dev exception" -}}
 {{- end -}}
 {{- if $policy.enabled }}
+{{- $repo := .Values.image.repository -}}
+{{- /*
+RTO-12: the verified reference is derived from image.repository. Kyverno
+matches the NORMALIZED reference (docker.io/ is implied for a bare path), so a
+repository without an explicit registry host would never match its own derived
+pattern and would be admitted unverified. Refuse it, and refuse wildcard or
+tag/digest characters that would widen or break the pattern.
+*/ -}}
+{{- if not (regexMatch "^(localhost|[a-z0-9-]+(\\.[a-z0-9-]+)+|[a-z0-9-]+:[0-9]+|[a-z0-9-]+(\\.[a-z0-9-]+)+:[0-9]+)(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)+$" $repo) -}}
+{{- fail (printf "image.repository %q must be a lowercase repository with an explicit registry host (e.g. ghcr.io/ctlplne/probectl-ebpf-agent or registry.corp.example:5443/mirror/probectl-ebpf-agent) and no tag, digest or wildcard: the image-integrity policy derives its imageReferences from it (RTO-12)" $repo) -}}
+{{- end -}}
+{{- if and $policy.ignoreTlog (not $policy.publicKey) -}}
+{{- fail "admission.imageIntegrity.ignoreTlog is only valid with admission.imageIntegrity.publicKey: a keyless signature is only verifiable through the transparency log" -}}
+{{- end -}}
+{{- if and $policy.publicKey (not (contains "-----BEGIN PUBLIC KEY-----" $policy.publicKey)) -}}
+{{- fail "admission.imageIntegrity.publicKey must be a PEM public key (-----BEGIN PUBLIC KEY-----); never a private key" -}}
+{{- end -}}
+{{- if not (has $policy.readinessGate (list "lookup" "external")) -}}
+{{- fail "admission.imageIntegrity.readinessGate must be lookup or external" -}}
+{{- end -}}
+{{- if and (eq $policy.readinessGate "external") (not $policy.externalOrdering) -}}
+{{- fail "admission.imageIntegrity.readinessGate=external requires admission.imageIntegrity.externalOrdering naming what applies the policy and waits for Ready before the DaemonSet (e.g. Argo CD sync-wave -1 with a ClusterPolicy health check)" -}}
+{{- end -}}
+{{- $refs := prepend ($policy.additionalImageReferences | default list) (printf "%s*" $repo) | uniq -}}
+{{- $spec := include "probectl-agent.imageIntegritySpec" (dict "policy" $policy "refs" $refs) -}}
+{{- $sum := sha256sum $spec -}}
+{{- /*
+RTO-12 ordering gate. Helm creates kinds it does not know (ClusterPolicy) AFTER
+the DaemonSet and never waits for Kyverno to load a policy, so a one-step
+install admits the first agent pods before the verifier exists. On a real
+install/upgrade against a cluster serving kyverno.io/v1, require the exact
+policy this release renders to be live and Ready first (docs/deploying-agents.md
+"Image-integrity admission", step 1). `helm template` and client dry-runs do not
+advertise kyverno.io/v1, so offline rendering is unaffected.
+*/ -}}
+{{- if and (eq $policy.readinessGate "lookup") (.Capabilities.APIVersions.Has "kyverno.io/v1/ClusterPolicy") -}}
+{{- $live := lookup "kyverno.io/v1" "ClusterPolicy" "" $policy.policyName -}}
+{{- $step1 := printf "apply it first and wait for Ready: helm template %s <chart> -n %s <same values> --show-only templates/image-integrity-policy.yaml | kubectl apply --server-side --force-conflicts --field-manager=helm -f - && kubectl wait --for=condition=Ready clusterpolicy/%s (RTO-12)" .Release.Name .Release.Namespace $policy.policyName -}}
+{{- if not $live -}}
+{{- fail (printf "image-integrity ClusterPolicy %s is not in the cluster, so the agent's first pods would be admitted unverified; %s" $policy.policyName $step1) -}}
+{{- end -}}
+{{- $liveSum := dig "metadata" "annotations" "probectl.dev/policy-sha256" "" $live -}}
+{{- if ne $liveSum $sum -}}
+{{- fail (printf "image-integrity ClusterPolicy %s in the cluster is not the policy this release renders (policy-sha256 %q, want %q), so pods would be admitted under the old rules; %s" $policy.policyName $liveSum $sum $step1) -}}
+{{- end -}}
+{{- $ready := false -}}
+{{- range (dig "status" "conditions" (list) $live) -}}
+{{- if and (eq (toString .type) "Ready") (eq (toString .status) "True") -}}
+{{- $ready = true -}}
+{{- end -}}
+{{- end -}}
+{{- if not $ready -}}
+{{- fail (printf "image-integrity ClusterPolicy %s is not Ready in Kyverno yet, so it is not enforcing; %s" $policy.policyName $step1) -}}
+{{- end -}}
+{{- /*
+A Ready condition is only as fresh as the last Kyverno that wrote it. A Kyverno
+admission controller scaled to zero DELETES its resource webhooks on the way
+out (and nothing is verified cluster-wide), while the policy still reads Ready.
+verifyImages is served by both resource webhooks (signature: mutating; digest:
+validating); require each to be registered with a failurePolicy=Fail entry.
+*/ -}}
+{{- range $kind := list "MutatingWebhookConfiguration" "ValidatingWebhookConfiguration" -}}
+{{- $name := printf "kyverno-resource-%s-webhook-cfg" (ternary "mutating" "validating" (eq $kind "MutatingWebhookConfiguration")) -}}
+{{- $cfg := lookup "admissionregistration.k8s.io/v1" $kind "" $name -}}
+{{- $failClosed := false -}}
+{{- range (dig "webhooks" (list) $cfg) -}}
+{{- if eq (toString .failurePolicy) "Fail" -}}
+{{- $failClosed = true -}}
+{{- end -}}
+{{- end -}}
+{{- if not $failClosed -}}
+{{- fail (printf "Kyverno's %s %s has no failurePolicy=Fail webhook registered, so admission is not verifying images (Kyverno removes its webhooks when its admission controller is scaled to zero); restore Kyverno (kubectl -n <kyverno-namespace> get deploy) before installing the agent (RTO-12)" $kind $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -20,32 +105,14 @@ metadata:
     policies.kyverno.io/category: Supply Chain Security
     policies.kyverno.io/severity: high
     probectl.dev/finding: SUPPLY-001
+    # RTO-12: the readiness gate compares this with the live policy.
+    probectl.dev/policy-sha256: {{ $sum | quote }}
+    # RTO-12: step 1 applies this object before `helm install`; these let the
+    # release adopt it in place (never delete + re-create, never a gap).
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+    # GitOps ordering (readinessGate=external): before the DaemonSet's wave.
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
-  validationFailureAction: {{ $policy.validationFailureAction }}
-  background: {{ $policy.background }}
-  rules:
-    - name: verify-probectl-ebpf-agent-signature-and-digest
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-      verifyImages:
-        - imageReferences:
-            {{- range $policy.imageReferences }}
-            - {{ . | quote }}
-            {{- end }}
-          required: true
-          mutateDigest: false
-          verifyDigest: true
-          attestors:
-            - count: 1
-              entries:
-                - keyless:
-                    issuer: {{ $policy.issuer | quote }}
-                    subjectRegExp: {{ $policy.subjectRegExp | quote }}
-                    {{- if $policy.rekorURL }}
-                    rekor:
-                      url: {{ $policy.rekorURL | quote }}
-                    {{- end }}
+{{ $spec | indent 2 }}
 {{- end }}

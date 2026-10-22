@@ -256,3 +256,29 @@ apply the standalone GitOps form at
 `deploy/admission/probectl-agent-image-integrity.kyverno.yaml`. Either path
 enforces digest references plus the same keyless release workflow identity for
 the privileged eBPF-agent image at admission time.
+
+Exactly what the chart's policy enforces (RTO-12), for every pod whose image
+matches `<image.repository>*` or `*/ctlplne/probectl-ebpf-agent*`:
+
+| Pod image | Admission |
+| --- | --- |
+| `<repo>:<tag>@sha256:<d>`, `<d>` signed by the attestor | admitted |
+| a digest with no signature | denied: `no signatures found` |
+| a digest signed by another key / identity | denied: `no matching signatures` |
+| a tag with no digest | denied: `missing digest` |
+| any of the above while Kyverno cannot answer | denied: `failed calling webhook` (`failurePolicy: Fail`) |
+
+The attestor is the `release.yml` tag workflow's keyless identity (`issuer`,
+`subjectRegExp`, Rekor at `rekorURL`) unless `admission.imageIntegrity.publicKey`
+replaces it. **A mirrored registry** needs no policy edit: set
+`image.repository` to the mirror (with its registry host, e.g.
+`registry.corp.example:5443/mirror/probectl-ebpf-agent`) and the chart derives
+the verified reference from it. Copy the signatures along with the image
+(`cosign copy ghcr.io/ctlplne/probectl-ebpf-agent@sha256:<d> <mirror>/probectl-ebpf-agent@sha256:<d>`)
+to keep the keyless identity, or — if the mirror re-signs after verifying
+upstream, or cannot reach Rekor — set `admission.imageIntegrity.publicKey` to the
+mirror's PEM public key (and `ignoreTlog: true` only for a signer with no
+transparency log). The standalone manifest is static: render it from the chart
+(`--show-only templates/image-integrity-policy.yaml`) for a mirror with a
+different path. Install order, GitOps and the Kyverno caveats:
+[Image-integrity admission](../deploying-agents.md#image-integrity-admission-kubernetes).

@@ -1069,11 +1069,14 @@ need "probectl-agent-image-integrity"   "$agent" "agent: image-integrity policy 
 need "verifyImages:"                    "$agent" "agent: Kyverno verifyImages rule missing (SUPPLY-001)"
 need "required: true"                   "$agent" "agent: image signature verification is not required (SUPPLY-001)"
 need "verifyDigest: true"              "$agent" "agent: image digest verification is not enforced (SUPPLY-001)"
-need "validationFailureAction: Enforce" "$agent" "agent: image-integrity policy is not enforcing (SUPPLY-001)"
+need "failureAction: Enforce"           "$agent" "agent: image-integrity verifyImages rule is not enforcing (SUPPLY-001/RTO-12)"
+need "failurePolicy: Fail"              "$agent" "agent: image-integrity policy does not fail closed when Kyverno is unreachable (RTO-12)"
+grep -q "validationFailureAction" <<<"$agent" && fail "agent: a policy renders Kyverno's deprecated spec-level validationFailureAction (RTO-12)"
+need_fixed '"ghcr.io/ctlplne/probectl-ebpf-agent*"' "$agent" "agent: imageReferences not derived from image.repository (RTO-12)"
 need_fixed 'release\\.yml@refs/tags'  "$agent" "agent: release workflow OIDC subject is not pinned (SUPPLY-001)"
 need "probectl-agent-capability-posture" "$agent" "agent: capability posture ClusterPolicy missing (EBPF-007)"
 need "probectl.dev/finding: EBPF-007"    "$agent" "agent: capability posture policy is not tied to EBPF-007"
-need "validationFailureAction: Audit"    "$agent" "agent: capability posture policy must report, not hide, legacy/extra capabilities (EBPF-007)"
+need "failureAction: Audit"              "$agent" "agent: capability posture policy must report, not hide, legacy/extra capabilities (EBPF-007)"
 need "background: true"                  "$agent" "agent: capability posture policy must scan existing pods (EBPF-007)"
 need "AnyNotIn"                          "$agent" "agent: capability posture policy does not check added/dropped capabilities (EBPF-007)"
 need "SYS_ADMIN is legacy break-glass"   "$agent" "agent: capability posture policy does not report legacy SYS_ADMIN (EBPF-007)"
@@ -1160,7 +1163,7 @@ fi
 legacy="$(arender --set capabilityMode=legacy --set legacyKernelRingBufferAck=i-confirm-runtime-ring-buffer-support)"
 need "SYS_ADMIN" "$legacy" "agent: acknowledged legacy mode missing SYS_ADMIN"
 need "probectl-agent-capability-posture" "$legacy" "agent: acknowledged legacy mode lost capability posture audit policy (EBPF-007)"
-need "validationFailureAction: Audit" "$legacy" "agent: acknowledged legacy mode must still report capability posture (EBPF-007)"
+need "failureAction: Audit" "$legacy" "agent: acknowledged legacy mode must still report capability posture (EBPF-007)"
 
 # fail-closed rendering: no tenant, or plaintext kafka without the explicit
 # dev override, must refuse (guardrail 1 / U-010).
@@ -1184,7 +1187,7 @@ if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brok
   fail "agent chart disabled image-integrity admission without admission.imageIntegrity.acceptedRisk (SUPPLY-001)"
 fi
 if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9093}' \
-     --set admission.imageIntegrity.validationFailureAction=Audit \
+     --set admission.imageIntegrity.failureAction=Audit \
      --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
   fail "agent chart rendered non-enforcing image-integrity admission without admission.imageIntegrity.acceptedRisk (RED-003)"
 fi
@@ -1197,9 +1200,9 @@ need "probectl-ebpf-agent:0.4.0" "$tag_break_glass" "agent: tag-only break-glass
 grep -q "probectl-agent-image-integrity" <<<"$tag_break_glass" && fail "agent: accepted tag-only break-glass still rendered the image-integrity Kyverno verifier"
 need "probectl-agent-capability-posture" "$tag_break_glass" "agent: tag-only break-glass lost capability posture audit policy (EBPF-007)"
 audit_break_glass="$(arender \
-  --set admission.imageIntegrity.validationFailureAction=Audit \
+  --set admission.imageIntegrity.failureAction=Audit \
   --set-string admission.imageIntegrity.acceptedRisk=dev-registry-has-equivalent-admission-control)"
-need "validationFailureAction: Audit" "$audit_break_glass" "agent: accepted non-enforcing image-integrity render failed"
+need "failureAction: Audit" "$(awk '/name: "probectl-agent-image-integrity"/,0' <<<"$audit_break_glass")" "agent: accepted non-enforcing image-integrity render failed"
 if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9092}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" --set bus.tls.enabled=false >/dev/null 2>&1; then
   fail "agent chart rendered plaintext kafka without bus.allowPlaintext"

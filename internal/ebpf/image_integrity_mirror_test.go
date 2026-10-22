@@ -11,36 +11,40 @@ import (
 	"testing"
 )
 
-// TestAgentImageIntegrityCoversMirrorsAndPinsRekor is the RTO-12 gate. Kyverno
-// verifyImages only verifies image references that MATCH imageReferences;
-// anything unmatched is skipped and admitted UNVERIFIED. The policy previously
-// listed only `ghcr.io/ctlplne/probectl-ebpf-agent*`, so the privileged eBPF
-// DaemonSet pulled from a mirror registry bypassed signature verification
-// entirely — and keyless verification never pinned a transparency log. The
-// older TestAgentHelmImageIntegrityAdmissionIsFailClosed checked neither, so it
-// passed on the defective policy; this gate catches both, in every policy copy.
-//
-// (The live admission e2e — chart installs, policy Ready, unsigned/mirror image
-// denied, signed digest admitted — needs a kind + Kyverno + cosign cluster and
-// is parked to D-28; this is the static-policy correctness half.)
+// TestAgentImageIntegrityCoversMirrorsAndPinsRekor is the RTO-12 static gate.
+// Kyverno verifyImages only verifies image references that MATCH
+// imageReferences; anything unmatched is skipped and admitted UNVERIFIED. The
+// policy once listed only `ghcr.io/ctlplne/probectl-ebpf-agent*`, then fixed
+// globs that still missed a mirror with a different path; the chart now DERIVES
+// its reference from image.repository (so whatever the DaemonSet pulls is what
+// the policy verifies) and pins the transparency log.
 func TestAgentImageIntegrityCoversMirrorsAndPinsRekor(t *testing.T) {
 	const mirrorGlob = "*/ctlplne/probectl-ebpf-agent*"
 	const rekorURL = "rekor.sigstore.dev"
 
-	// values.yaml feeds the Helm template; it must carry the mirror glob and the
-	// rekor URL the template renders.
 	values := readDeployContractFile(t, "deploy/helm/probectl-agent/values.yaml")
-	for _, want := range []string{mirrorGlob, "rekorURL: https://" + rekorURL} {
+	for _, want := range []string{mirrorGlob, "rekorURL: https://" + rekorURL, "additionalImageReferences:"} {
 		if !strings.Contains(values, want) {
 			t.Errorf("RTO-12: agent values.yaml must carry %q so verifyImages covers mirrors / pins the tlog", want)
 		}
 	}
 
-	// The Helm template must render the rekor block when rekorURL is set.
+	// The template derives the reference from image.repository and refuses a
+	// repository Kyverno would normalize away from it (no explicit registry).
 	tmpl := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/image-integrity-policy.yaml")
-	for _, want := range []string{"$policy.rekorURL", "rekor:", "url: {{ $policy.rekorURL"} {
+	for _, want := range []string{
+		`$repo := .Values.image.repository`,
+		`printf "%s*" $repo`,
+		"must be a lowercase repository with an explicit registry host",
+	} {
 		if !strings.Contains(tmpl, want) {
-			t.Errorf("RTO-12: image-integrity template must render the rekor.url pin (%q)", want)
+			t.Errorf("RTO-12: image-integrity template must derive imageReferences from image.repository (%q)", want)
+		}
+	}
+	helpers := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/_helpers.tpl")
+	for _, want := range []string{"$policy.rekorURL", "rekor:", "url: {{ $policy.rekorURL"} {
+		if !strings.Contains(helpers, want) {
+			t.Errorf("RTO-12: image-integrity spec must render the rekor.url pin (%q)", want)
 		}
 	}
 

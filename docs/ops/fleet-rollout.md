@@ -196,7 +196,10 @@ probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
   image.tag="<version>@sha256:<digest>"`. Scope a wave to a set of nodes with
   `nodeSelector` or a separate release per ring. The chart renders the Kyverno
   image-integrity policy by default, so admission also enforces the
-  release-workflow cosign signature on that digest. Use
+  release-workflow cosign signature on that digest. A version bump leaves the
+  policy unchanged; a wave that changes `image.repository` (a new mirror) or the
+  attestor must re-apply the policy first — the chart refuses the upgrade until
+  it is live and Ready ([Image-integrity admission](../deploying-agents.md#image-integrity-admission-kubernetes)). Use
   `deploy/admission/probectl-agent-image-integrity.kyverno.yaml` only when your
   GitOps flow manages admission policy separately from the workload chart.
 - **VMs**: `sudo deploy/agent/install.sh ./probectl-ebpf-agent-<version>` on the

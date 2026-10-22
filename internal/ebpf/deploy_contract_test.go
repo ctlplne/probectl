@@ -212,7 +212,7 @@ func TestAgentCapabilityPostureAdmissionAuditsLegacyAndExtraCaps(t *testing.T) {
 		"capabilityPosture:",
 		"enabled: true",
 		"policyName: probectl-agent-capability-posture",
-		"validationFailureAction: Audit",
+		"failureAction: Audit",
 		"background: true",
 	} {
 		if !strings.Contains(values, want) {
@@ -221,7 +221,7 @@ func TestAgentCapabilityPostureAdmissionAuditsLegacyAndExtraCaps(t *testing.T) {
 	}
 	for _, want := range []string{
 		"\"capabilityPosture\"",
-		"\"validationFailureAction\"",
+		"\"failureAction\"",
 		"\"Enforce\"",
 		"\"Audit\"",
 		"\"background\"",
@@ -234,7 +234,7 @@ func TestAgentCapabilityPostureAdmissionAuditsLegacyAndExtraCaps(t *testing.T) {
 		"kind: ClusterPolicy",
 		"probectl.dev/finding: EBPF-007",
 		"report-legacy-or-extra-ebpf-capabilities",
-		"validationFailureAction:",
+		"failureAction: {{ $policy.failureAction }}",
 		"background:",
 		"SYS_ADMIN is legacy break-glass",
 		"AnyNotIn",
@@ -245,6 +245,10 @@ func TestAgentCapabilityPostureAdmissionAuditsLegacyAndExtraCaps(t *testing.T) {
 		if !strings.Contains(policy, want) {
 			t.Errorf("agent capability posture policy missing %q (EBPF-007)", want)
 		}
+	}
+	// RTO-12: Kyverno deprecated the spec-level field; the action is per rule.
+	if strings.Contains(policy, "validationFailureAction:") {
+		t.Error("agent capability posture policy still renders the deprecated spec-level validationFailureAction (RTO-12)")
 	}
 	for _, want := range []string{
 		"capability posture ClusterPolicy missing",
@@ -277,7 +281,9 @@ func TestAgentCapabilityPostureAdmissionAuditsLegacyAndExtraCaps(t *testing.T) {
 
 func TestAgentHelmImageIntegrityAdmissionIsFailClosed(t *testing.T) {
 	values := readDeployContractFile(t, "deploy/helm/probectl-agent/values.yaml")
-	policy := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/image-integrity-policy.yaml")
+	// The object template carries the gates; the shared spec lives in _helpers.tpl.
+	policy := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/image-integrity-policy.yaml") +
+		readDeployContractFile(t, "deploy/helm/probectl-agent/templates/_helpers.tpl")
 	standalone := readDeployContractFile(t, "deploy/admission/probectl-agent-image-integrity.kyverno.yaml")
 	hardening := readDeployContractFile(t, "scripts/check_helm_hardening.sh")
 	helmDoc := readDeployContractFile(t, "deploy/helm/README.md")
@@ -287,16 +293,18 @@ func TestAgentHelmImageIntegrityAdmissionIsFailClosed(t *testing.T) {
 		"imageIntegrity:",
 		"enabled: true",
 		"acceptedRisk: \"\"",
-		"validationFailureAction: Enforce",
-		"Audit is allowed only when",
+		"failureAction: Enforce",
+		"the chart allows it only when acceptedRisk",
 	} {
 		if !strings.Contains(values, want) {
 			t.Errorf("agent values.yaml missing image-integrity admission contract %q (RED-003)", want)
 		}
 	}
 	for _, want := range []string{
-		"validationFailureAction must be Enforce",
+		"failureAction must be Enforce",
 		"acceptedRisk names the replacement control",
+		"failureAction: {{ $policy.failureAction }}",
+		"failurePolicy: Fail",
 		"apiVersion: kyverno.io/v1",
 		"kind: ClusterPolicy",
 		"verifyImages:",
@@ -313,18 +321,26 @@ func TestAgentHelmImageIntegrityAdmissionIsFailClosed(t *testing.T) {
 		"verifyImages:",
 		"required: true",
 		"verifyDigest: true",
+		"failureAction: Enforce",
+		"failurePolicy: Fail",
 		"release\\.yml@refs/tags",
 	} {
 		if !strings.Contains(standalone, want) {
 			t.Errorf("standalone admission policy missing verifier contract %q (RED-003)", want)
 		}
 	}
+	// RTO-12: neither copy may fall back to the deprecated spec-level action.
+	for name, body := range map[string]string{"chart": policy, "standalone": standalone} {
+		if strings.Contains(body, "validationFailureAction:") {
+			t.Errorf("%s image-integrity policy renders the deprecated spec-level validationFailureAction (RTO-12)", name)
+		}
+	}
 	for _, want := range []string{
 		"non-enforcing image-integrity admission",
-		"validationFailureAction=Audit",
+		"failureAction=Audit",
 		"admission.imageIntegrity.acceptedRisk",
 		"kind: ClusterPolicy",
-		"validationFailureAction: Enforce",
+		"failureAction: Enforce",
 	} {
 		if !strings.Contains(hardening, want) {
 			t.Errorf("helm hardening gate missing image-integrity admission proof %q (RED-003)", want)

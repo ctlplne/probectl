@@ -20,6 +20,15 @@ NOTE: seccomp.type=RuntimeDefault — the portable baseline. For this privileged
 agent the hardened default is the strict Localhost profile (set seccomp.type=Localhost).
 {{- end }}
 
+{{- if .Values.admission.imageIntegrity.enabled }}
+Image integrity (RTO-12): ClusterPolicy {{ .Values.admission.imageIntegrity.policyName }} ({{ .Values.admission.imageIntegrity.failureAction }})
+  admits only digest-pinned, signed images matching {{ .Values.image.repository }}*. Before an
+  upgrade that changes image.repository or the attestor, re-apply the policy first
+  (helm template ... --show-only templates/image-integrity-policy.yaml | kubectl apply
+  --server-side --force-conflicts --field-manager=helm -f -) and wait for Ready;
+  docs/deploying-agents.md "Image-integrity admission".
+{{- end }}
+
 Check rollout:   kubectl rollout status ds/{{ include "probectl-agent.fullname" . }}
 Agent logs:      kubectl logs ds/{{ include "probectl-agent.fullname" . }} -f
 Kernel matrix + the strict Localhost seccomp profile: deploy/agent/README.md.

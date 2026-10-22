@@ -1,6 +1,12 @@
 {{- $policy := .Values.admission.capabilityPosture -}}
 {{- $agentAdds := "{{ request.object.spec.containers[?name=='agent'].securityContext.capabilities.add[] || `[]` }}" -}}
 {{- $agentDrops := "{{ request.object.spec.containers[?name=='agent'].securityContext.capabilities.drop[] || `[]` }}" -}}
+{{- if hasKey $policy "validationFailureAction" -}}
+{{- fail "admission.capabilityPosture.validationFailureAction was renamed to admission.capabilityPosture.failureAction (RTO-12): Kyverno's spec-level validationFailureAction is deprecated, so the chart sets failureAction on the validate rule itself" -}}
+{{- end -}}
+{{- if not (has $policy.failureAction (list "Enforce" "Audit")) -}}
+{{- fail "admission.capabilityPosture.failureAction must be Enforce or Audit" -}}
+{{- end -}}
 {{- if $policy.enabled }}
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
@@ -14,7 +20,6 @@ metadata:
     policies.kyverno.io/severity: medium
     probectl.dev/finding: EBPF-007
 spec:
-  validationFailureAction: {{ $policy.validationFailureAction }}
   background: {{ $policy.background }}
   rules:
     - name: report-legacy-or-extra-ebpf-capabilities
@@ -28,6 +33,7 @@ spec:
                   app.kubernetes.io/name: {{ include "probectl-agent.name" . | quote }}
                   app.kubernetes.io/instance: {{ .Release.Name | quote }}
       validate:
+        failureAction: {{ $policy.failureAction }}
         message: >-
           probectl eBPF agent pods must drop ALL and add only BPF+PERFMON.
           SYS_ADMIN is legacy break-glass, and any extra capability must surface

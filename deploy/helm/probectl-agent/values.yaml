@@ -11,30 +11,72 @@ image:
   allowTagOnly: false
   pullPolicy: IfNotPresent
 
-# SUPPLY-001: privileged eBPF-agent installs render the cluster-side verifier by
-# default, not as a separate optional manifest the operator may forget. Kyverno
-# must already be installed in the cluster; disabling this policy requires an
-# explicit accepted-risk note and is intended only for dev or a replacement
-# admission controller with equivalent keyless cosign checks.
+# SUPPLY-001 / RTO-12: privileged eBPF-agent installs render the cluster-side
+# image verifier by default, not as a separate optional manifest the operator
+# may forget. Kyverno must already be installed in the cluster; disabling this
+# policy requires an explicit accepted-risk note and is intended only for dev or
+# a replacement admission controller with equivalent cosign checks.
+#
+# What the policy enforces (ClusterPolicy, verifyImages, failurePolicy Fail):
+# every Pod (and, through Kyverno's autogen rules, every DaemonSet/Deployment/
+# ... template) whose image matches `<image.repository>*` or one of
+# additionalImageReferences is admitted only if the reference carries a digest
+# (verifyDigest) AND that digest carries a signature from the attestor below.
+# An unsigned image, a signature from another key or identity, or a tag-only
+# reference is refused at admission.
+#
+# Install order (RTO-12): the policy must be live and Ready BEFORE the
+# DaemonSet's first pod is admitted, so a chart install is two steps — apply
+# this release's policy, wait for Kyverno to report it Ready, then install. See
+# docs/deploying-agents.md "Image-integrity admission". Helm hooks are NOT used:
+# Helm re-creates a hook object on every upgrade (delete, then create), which
+# opens a window with no enforcing policy, and it never waits for a hook
+# ClusterPolicy to become Ready.
 admission:
   imageIntegrity:
     enabled: true
     acceptedRisk: ""
     policyName: probectl-agent-image-integrity
-    # Enforce is the regulated/default posture. Audit is allowed only when the
-    # template also receives acceptedRisk naming the replacement control or
-    # approved dev exception.
-    validationFailureAction: Enforce
+    # Per-rule Kyverno failureAction for the verifyImages rule (the spec-level
+    # validationFailureAction is deprecated in Kyverno and is not rendered).
+    # Enforce is the default and the regulated posture. Audit admits and only
+    # reports; the chart allows it only when acceptedRisk also names the
+    # replacement control or approved dev exception.
+    failureAction: Enforce
     background: false
-    # RTO-12: match the agent image under ANY registry (the second glob covers
-    # registry-swapped mirrors), else a mirror pull is admitted unverified.
-    imageReferences:
-      - ghcr.io/ctlplne/probectl-ebpf-agent*
+    # The policy always verifies `<image.repository>*`, derived from the image
+    # this chart deploys, so a mirrored or air-gapped repository
+    # (registry.corp.example/mirror/probectl-ebpf-agent) is checked exactly
+    # like ghcr.io. image.repository must therefore name its registry host
+    # explicitly. These patterns are verified IN ADDITION (Kyverno wildcards):
+    # the default catches the agent image pulled from any registry that keeps
+    # the upstream path.
+    additionalImageReferences:
       - "*/ctlplne/probectl-ebpf-agent*"
+    # Keyless attestor (default): the tagged release.yml workflow's GitHub OIDC
+    # identity, logged in the Rekor transparency log.
     issuer: https://token.actions.githubusercontent.com
     subjectRegExp: ^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/.*
-    # RTO-12: pin the transparency log so keyless verification is deterministic.
+    # Pin the transparency log so verification is deterministic.
     rekorURL: https://rekor.sigstore.dev
+    # Key attestor: a PEM cosign public key. When set it REPLACES the keyless
+    # attestor — for a mirror that verifies upstream, then re-signs the digest
+    # with its own key (pass it with --set-file). Never a private key.
+    publicKey: ""
+    # Only with publicKey: accept signatures that were not uploaded to a
+    # transparency log (an air-gapped signer that cannot reach Rekor). The
+    # signature itself is still verified against publicKey.
+    ignoreTlog: false
+    # Ordering gate. lookup (default): on a real `helm install`/`helm upgrade`
+    # against a cluster that serves kyverno.io/v1, rendering refuses unless the
+    # policy this release renders (matched by its probectl.dev/policy-sha256
+    # annotation) is already in the cluster and Kyverno reports it Ready.
+    # external: your deploy tool orders it instead (Argo CD sync-wave -1 plus a
+    # ClusterPolicy health check, Flux dependsOn + healthChecks); name that
+    # mechanism in externalOrdering. Needed for renderers that never contact
+    # the cluster but advertise its API versions (Argo CD).
+    readinessGate: lookup
+    externalOrdering: ""
   # EBPF-007: background/admission audit for the agent's capability posture.
   # This does not block the explicit legacy SYS_ADMIN break-glass by default;
   # it creates Kyverno policy reports when a pod runs legacy or gains any
@@ -42,7 +84,8 @@ admission:
   capabilityPosture:
     enabled: true
     policyName: probectl-agent-capability-posture
-    validationFailureAction: Audit
+    # Per-rule failureAction on the validate rule: Audit reports, never blocks.
+    failureAction: Audit
     background: true
 
 # REQUIRED: the tenant every flow from these nodes belongs to (guardrail 1).

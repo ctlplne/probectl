@@ -57,7 +57,7 @@
               "type": "string",
               "minLength": 1
             },
-            "validationFailureAction": {
+            "failureAction": {
               "type": "string",
               "enum": [
                 "Enforce",
@@ -67,9 +67,8 @@
             "background": {
               "type": "boolean"
             },
-            "imageReferences": {
+            "additionalImageReferences": {
               "type": "array",
-              "minItems": 1,
               "items": {
                 "type": "string",
                 "minLength": 1
@@ -82,6 +81,25 @@
             "subjectRegExp": {
               "type": "string",
               "minLength": 1
+            },
+            "rekorURL": {
+              "type": "string"
+            },
+            "publicKey": {
+              "type": "string"
+            },
+            "ignoreTlog": {
+              "type": "boolean"
+            },
+            "readinessGate": {
+              "type": "string",
+              "enum": [
+                "lookup",
+                "external"
+              ]
+            },
+            "externalOrdering": {
+              "type": "string"
             }
           }
         },
@@ -95,7 +113,7 @@
               "type": "string",
               "minLength": 1
             },
-            "validationFailureAction": {
+            "failureAction": {
               "type": "string",
               "enum": [
                 "Enforce",

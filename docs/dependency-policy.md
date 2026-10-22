@@ -246,6 +246,8 @@ The repo pins what *it* controls; operators should pin what *they* deploy:
   signature against the probectl release workflow identity. `image.allowTagOnly=true`
   is an explicit break-glass for already-verified private registries, and
   disabling the policy requires an `admission.imageIntegrity.acceptedRisk` note.
+  The policy verifies whatever `image.repository` the chart deploys (mirrors
+  included) and is installed before the DaemonSet (RTO-12).
   The standalone `deploy/admission/probectl-agent-image-integrity.kyverno.yaml`
   manifest is the GitOps form for clusters that manage admission policy
   separately from the workload chart.

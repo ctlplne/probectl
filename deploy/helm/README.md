@@ -480,14 +480,22 @@ words, the documented break-glass path stays available, but it cannot be
 invisible.
 
 ```sh
-helm install probectl-agent deploy/helm/probectl-agent \
-  --set tenantID=<tenant> \
-  --set agentID=<collector-id> \
-  --set bus.namespace=t-<tenant-slug> \
-  --set 'bus.brokers={kafka.internal.example:9093}' \
-  --set bus.tls.existingSecret=probectl-bus-tls \
-  --set bus.sasl.mechanism=scram-sha-512 --set bus.sasl.existingSecret=probectl-bus-sasl \
+AGENT_FLAGS=(
+  --set tenantID=<tenant>
+  --set agentID=<collector-id>
+  --set bus.namespace=t-<tenant-slug>
+  --set 'bus.brokers={kafka.internal.example:9093}'
+  --set bus.tls.existingSecret=probectl-bus-tls
+  --set bus.sasl.mechanism=scram-sha-512 --set bus.sasl.existingSecret=probectl-bus-sasl
   --set-string image.tag='0.6.5@sha256:<digest>'
+)
+# 1. the image-integrity policy first, until Kyverno reports it Ready (RTO-12)
+helm template probectl-agent deploy/helm/probectl-agent -n probectl "${AGENT_FLAGS[@]}" \
+  --show-only templates/image-integrity-policy.yaml \
+  | kubectl apply --server-side --force-conflicts --field-manager=helm -f -
+kubectl wait --for=condition=Ready clusterpolicy/probectl-agent-image-integrity --timeout=2m
+# 2. the agent; the chart refuses this step until step 1's policy is live and Ready
+helm install probectl-agent deploy/helm/probectl-agent -n probectl "${AGENT_FLAGS[@]}"
 ```
 
 `agentID` is the collector identity the tenant registered for these nodes and
@@ -501,7 +509,11 @@ Because this is a privileged node agent, the chart also renders the Kyverno
 signature from the `release.yml` tag workflow before Kubernetes admits a pod.
 Kyverno must already be installed in the cluster; regulated installs fail closed
 unless that rendered policy is enforcing or an equivalent admission control is
-named. Disabling the verifier requires both
+named. The policy's `imageReferences` are derived from `image.repository`, so a
+mirrored registry is verified too, and the install is two steps (policy, then
+agent) so the first pod is verified as well — what it enforces, why hooks are
+not used, mirror/air-gap keys and GitOps ordering:
+[`docs/deploying-agents.md` → Image-integrity admission](../../docs/deploying-agents.md#image-integrity-admission-kubernetes). Disabling the verifier requires both
 `admission.imageIntegrity.enabled=false` and a non-empty
 `admission.imageIntegrity.acceptedRisk` note so a tag-only/dev path leaves an
 audit-visible footprint in values.
