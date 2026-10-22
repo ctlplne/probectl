@@ -854,7 +854,17 @@ const en = {
   'onboarding.test.allowPrivateHint':
     'Required for the default 127.0.0.1 target. Admin-only, tenant-scoped, and recorded in the audit trail for this test. An enrolled agent runs a private-target test only if its own config sets test_sync.allow_private_targets: true.',
   'onboarding.test.configHint':
-    'Enrolled agents of this tenant pull this test automatically, verify its signature and start it within about a minute; Admin → Agents shows when each one is in sync. The block below is only for an agent configured by hand without the test-bundle key.',
+    'Enrolled agents of this tenant pull this test automatically, verify its signature and start it within about a minute; Admin → Agents shows when each one is in sync. What stays in the agent config is its own bound on what a test may probe: add the test_sync block below to the agent config and restart the agent.',
+  'onboarding.test.privateTargets.single':
+    'Single-tenant install: you operate both this control plane and the agent, so the block allows private targets and the 127.0.0.1 test runs. The agent default stays false; this config opts in visibly.',
+  'onboarding.test.privateTargets.hosted':
+    'Hosted multi-tenant install: agent configs keep private targets refused, so the agent refuses a test against 127.0.0.1 or another private address (refused_total{reason="private_target"}). Use a public target, or set allow_private_targets: true only in the config of an agent whose network you own.',
+  'onboarding.test.privateTargets.unknown':
+    'The deployment profile is not known, so the block keeps private targets refused and the agent refuses a test against 127.0.0.1. Set allow_private_targets: true only in the config of an agent you operate together with this control plane.',
+  'onboarding.test.yamlReason.single':
+    'Single-tenant install: the operator owns both ends (this control plane and this agent), so audited private-target tests such as the 127.0.0.1 first test may run here.',
+  'onboarding.test.yamlReason.hosted':
+    'Hosted control plane: refuse central tests that target private, loopback or link-local addresses. Only the operator of this agent may set true, for a network they own.',
   'onboarding.test.copyConfig': 'Copy agent config',
   'onboarding.test.creating': 'Creating...',
   'onboarding.test.create': 'Create first test',
@@ -2214,7 +2224,17 @@ const es: Record<MessageKey, string> = {
   'onboarding.test.allowPrivateHint':
     'Obligatorio para el objetivo 127.0.0.1 predeterminado. Solo para administradores, limitado al tenant y registrado en la auditoria de esta prueba. Un agente enrolado ejecuta una prueba con objetivo privado solo si su propia configuracion define test_sync.allow_private_targets: true.',
   'onboarding.test.configHint':
-    'Los agentes enrolados de este tenant descargan esta prueba automaticamente, verifican su firma y la inician en aproximadamente un minuto; Administracion → Agentes muestra cuando cada uno esta sincronizado. El bloque siguiente es solo para un agente configurado a mano sin la clave de paquetes de prueba.',
+    'Los agentes enrolados de este tenant descargan esta prueba automaticamente, verifican su firma y la inician en aproximadamente un minuto; Administracion → Agentes muestra cuando cada uno esta sincronizado. Lo que queda en la configuracion del agente es su propio limite sobre lo que una prueba puede consultar: agregue el bloque test_sync siguiente a la configuracion del agente y reinicie el agente.',
+  'onboarding.test.privateTargets.single':
+    'Instalacion de un solo tenant: usted opera este plano de control y el agente, asi que el bloque permite objetivos privados y la prueba 127.0.0.1 se ejecuta. El valor predeterminado del agente sigue siendo false; esta configuracion lo activa de forma visible.',
+  'onboarding.test.privateTargets.hosted':
+    'Instalacion alojada multi-tenant: las configuraciones de agente mantienen rechazados los objetivos privados, asi que el agente rechaza una prueba contra 127.0.0.1 u otra direccion privada (refused_total{reason="private_target"}). Use un objetivo publico, o defina allow_private_targets: true solo en la configuracion de un agente cuya red sea suya.',
+  'onboarding.test.privateTargets.unknown':
+    'No se conoce el perfil de despliegue, asi que el bloque mantiene rechazados los objetivos privados y el agente rechaza una prueba contra 127.0.0.1. Defina allow_private_targets: true solo en la configuracion de un agente que usted opere junto con este plano de control.',
+  'onboarding.test.yamlReason.single':
+    'Instalacion de un solo tenant: el operador controla ambos extremos (este plano de control y este agente), asi que aqui pueden ejecutarse pruebas auditadas con objetivo privado, como la primera prueba contra 127.0.0.1.',
+  'onboarding.test.yamlReason.hosted':
+    'Plano de control alojado: rechazar pruebas centrales con objetivos privados, de bucle local o de enlace local. Solo el operador de este agente puede definir true, para una red que sea suya.',
   'onboarding.test.copyConfig': 'Copiar configuracion del agente',
   'onboarding.test.creating': 'Creando...',
   'onboarding.test.create': 'Crear primera prueba',
@@ -3523,7 +3543,17 @@ const ar: Record<MessageKey, string> = {
   'onboarding.test.allowPrivateHint':
     'مطلوب للهدف الافتراضي 127.0.0.1. للمسؤول فقط، ومقيّد بالمستأجر، ومسجل في سجل التدقيق لهذا الاختبار. لا يشغّل الوكيل المسجل اختبارًا لهدف خاص إلا إذا ضبط إعداده test_sync.allow_private_targets: true.',
   'onboarding.test.configHint':
-    'يسحب الوكلاء المسجلون لهذا المستأجر هذا الاختبار تلقائيًا ويتحققون من توقيعه ويبدؤونه خلال دقيقة تقريبًا؛ وتعرض صفحة الإدارة ← الوكلاء متى يصبح كل وكيل متزامنًا. الكتلة أدناه مخصصة فقط لوكيل مُعَدّ يدويًا بدون مفتاح حزم الاختبارات.',
+    'يسحب الوكلاء المسجلون لهذا المستأجر هذا الاختبار تلقائيًا ويتحققون من توقيعه ويبدؤونه خلال دقيقة تقريبًا؛ وتعرض صفحة الإدارة ← الوكلاء متى يصبح كل وكيل متزامنًا. ما يبقى في إعداد الوكيل هو حدّه الخاص لما يمكن أن يفحصه أي اختبار: أضف كتلة test_sync أدناه إلى إعداد الوكيل ثم أعد تشغيل الوكيل.',
+  'onboarding.test.privateTargets.single':
+    'تثبيت لمستأجر واحد: أنت تشغّل مستوى التحكم هذا والوكيل معًا، لذا تسمح الكتلة بالأهداف الخاصة ويعمل اختبار 127.0.0.1. تبقى القيمة الافتراضية للوكيل false؛ وهذا الإعداد يفعّلها بشكل ظاهر.',
+  'onboarding.test.privateTargets.hosted':
+    'تثبيت مستضاف متعدد المستأجرين: تُبقي إعدادات الوكلاء الأهداف الخاصة مرفوضة، لذا يرفض الوكيل اختبارًا على 127.0.0.1 أو أي عنوان خاص آخر (refused_total{reason="private_target"}). استخدم هدفًا عامًا، أو اضبط allow_private_targets: true فقط في إعداد وكيل تملك شبكته.',
+  'onboarding.test.privateTargets.unknown':
+    'ملف النشر غير معروف، لذا تُبقي الكتلة الأهداف الخاصة مرفوضة ويرفض الوكيل اختبارًا على 127.0.0.1. اضبط allow_private_targets: true فقط في إعداد وكيل تشغّله مع مستوى التحكم هذا.',
+  'onboarding.test.yamlReason.single':
+    'تثبيت لمستأجر واحد: يملك المشغّل الطرفين (مستوى التحكم هذا وهذا الوكيل)، لذا يمكن أن تعمل هنا اختبارات الأهداف الخاصة المدقَّقة مثل الاختبار الأول على 127.0.0.1.',
+  'onboarding.test.yamlReason.hosted':
+    'مستوى تحكم مستضاف: ارفض الاختبارات المركزية التي تستهدف عناوين خاصة أو محلية أو ربط محلي. لا يضبط true إلا مشغّل هذا الوكيل، ولشبكة يملكها.',
   'onboarding.test.copyConfig': 'نسخ إعداد الوكيل',
   'onboarding.test.creating': 'جار الإنشاء...',
   'onboarding.test.create': 'إنشاء الاختبار الأول',

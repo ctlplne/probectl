@@ -1593,6 +1593,7 @@ export interface OnboardingProgress {
   agent_connected: boolean
   agent_enroll_token_created: boolean
   agent_registered: boolean
+  deployment_profile?: "single" | "multi-tenant" | "regulated"
   engines: OnboardingReadiness[]
   first_finding?: OnboardingFinding
   first_finding_visible: boolean

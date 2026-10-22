@@ -8,6 +8,8 @@ package control
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,5 +128,38 @@ func TestOnboardingProgressPermissionGateFailsClosed(t *testing.T) {
 		if item.State != onboardingBlocked || item.NextAction != "/onboarding" {
 			t.Fatalf("unauthorized engine %s leaked readiness/action: %+v", item.ID, item)
 		}
+	}
+}
+
+// D-57: onboarding hands out allow_private_targets: true only for a
+// single-tenant install, so the profile it reports must be exactly the
+// configured one of the three documented values, and nothing (the UI then
+// suggests false) when the server has no config or an unknown value.
+func TestOnboardingDeploymentProfileReportsOnlyKnownProfiles(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *config.Config
+		want string
+	}{
+		{"no config", nil, ""},
+		{"single", &config.Config{DeploymentProfile: "single"}, "single"},
+		{"multi-tenant", &config.Config{DeploymentProfile: "multi-tenant"}, "multi-tenant"},
+		{"regulated", &config.Config{DeploymentProfile: "regulated"}, "regulated"},
+		{"empty", &config.Config{}, ""},
+		{"unknown", &config.Config{DeploymentProfile: "Single"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := (&Server{cfg: tc.cfg}).onboardingDeploymentProfile(); got != tc.want {
+				t.Fatalf("profile = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	b, err := json.Marshal(onboardingProgressResponse{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "deployment_profile") {
+		t.Fatalf("an unknown profile must be omitted, not reported: %s", b)
 	}
 }

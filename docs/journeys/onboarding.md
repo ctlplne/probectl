@@ -93,13 +93,31 @@ trust its self-signed certificate by passing `--cacert ./certs/ca.crt` to `curl`
      -d '{"name": "homepage", "type": "http", "target": "https://example.com/", "interval_seconds": 30, "params": {"method": "GET", "expect_status": "2xx,3xx"}}'
    ```
 
-   You observe the test registered. The receipt provides the exact `canaries:`
-   entry (`config.canary` in the JSON receipt, in the agent's own keys),
-   including this server definition's `test_id`, to add to the enrolled agent
-   configuration. This explicit local step is intentional: the
-   control plane never silently changes an agent host. Start the agent with the
-   shown config command; within one interval it runs the probe and streams a
-   result back. The test types and their parameters are detailed in
+   You observe the test registered. Enrolled agents of the tenant pull it as
+   part of their signed central test set and start it within about a minute
+   ([central tests](../configuration.md#central-tests-test_sync)); the control
+   plane never edits an agent host. What stays in the agent's own config is its
+   bound on what any test may make it probe, so the receipt hands out the agent
+   `test_sync:` block, and its `allow_private_targets` value follows the
+   deployment profile (`deployment_profile` in `GET /v1/onboarding/progress`):
+
+   - **`single`** (single-tenant / sovereign): `allow_private_targets: true`,
+     with a comment saying why. You operate both the control plane and the
+     agent, so the agent may run the audited loopback default above.
+   - **`multi-tenant`, `regulated`, or unknown**: `allow_private_targets: false`,
+     with a note. In an MSP-hosted install this agent-side guard is what stops
+     the hosted control plane from making a customer's agent probe that
+     customer's internal network, so the agent refuses the `127.0.0.1` test
+     (`probectl_agent_testsync_refused_total{reason="private_target"}`). Use a
+     public target, or set `true` only in the config of an agent whose network
+     you own.
+
+   The agent's own default stays `false`, and nothing the control plane sends
+   can change it. Add the block, start (or restart) the agent with the shown
+   config command, and within one interval it runs the probe and streams a
+   result back. The API receipt still carries a `canaries:` entry
+   (`config.canary`) for an agent configured by hand without the test-bundle
+   key. The test types and their parameters are detailed in
    [active / synthetic testing](../features/active-testing.md).
 
 4. **Read the first finding receipt, then see the path map.** First-run setup

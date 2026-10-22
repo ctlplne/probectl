@@ -5,19 +5,25 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
+import { messages, type Locale } from '../i18n/messages'
 import { assertNoDoublePrefix, defaultFetch, jsonResponse, pathOf } from './fetchStub'
 
-function onboardingFetch(capture: {
-  enroll?: Record<string, unknown>
-  register?: Record<string, unknown>
-  test?: Record<string, unknown>
-  invite?: Record<string, unknown>
-}) {
+function onboardingFetch(
+  capture: {
+    enroll?: Record<string, unknown>
+    register?: Record<string, unknown>
+    test?: Record<string, unknown>
+    invite?: Record<string, unknown>
+  },
+  // null: the server omits the profile (unknown).
+  deploymentProfile: string | null = 'single',
+) {
   const base = defaultFetch()
   const progress = {
+    ...(deploymentProfile ? { deployment_profile: deploymentProfile } : {}),
     agent_enroll_token_created: false,
     agent_registered: false,
     agent_connected: false,
@@ -241,11 +247,13 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     await user.click(within(firstTest).getByRole('button', { name: /create first test/i }))
 
     expect(await screen.findByText(/first-loopback-check is enabled/i)).toBeInTheDocument()
-    expect(screen.getByText(/test_id: "test_onboarding"/i)).toBeInTheDocument()
-    // G9: enrolled agents pull the test; the YAML block is only the hand-configured fallback.
+    // G9: enrolled agents pull the test; the handout is the agent's own bound.
     expect(
       screen.getByText(/enrolled agents of this tenant pull this test automatically/i),
     ).toBeInTheDocument()
+    // D-57: the pre-G9 local canaries block is gone; the handout is test_sync.
+    expect(screen.queryByText(/canaries:/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/test_id: "test_onboarding"/i)).not.toBeInTheDocument()
     expect(screen.getByText('probectl-agent -config /etc/probectl/agent.yml')).toBeInTheDocument()
     expect(capture.test).toMatchObject({
       target: '127.0.0.1',
@@ -320,5 +328,78 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     })
     expect(capture.enroll).not.toHaveProperty('tenant_id')
     expect(capture.register).not.toHaveProperty('tenant_id')
+  })
+})
+
+// D-57 (decision of record 2026-10-22, option a): the agent config onboarding
+// hands out opts in to private targets only for a single-tenant install, where
+// the operator owns both ends. multi-tenant, regulated and an unknown profile
+// keep false: there the agent-side guard is what stops a hosted control plane
+// from making a customer's agent probe that customer's internal network.
+describe('first-test agent handout follows the deployment profile (D-57)', () => {
+  async function createFirstTest(profile: string | undefined, locale: Locale = 'en') {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', onboardingFetch({}, profile ?? null))
+    renderApp('/', { me: onboardingWriter, locale })
+    const create = await screen.findByRole('button', {
+      name: messages[locale]['onboarding.test.create'],
+    })
+    await waitFor(() => expect(create).toBeEnabled())
+    await user.click(create)
+    const snippet = await screen.findByText(/^test_sync:/)
+    return snippet.textContent ?? ''
+  }
+
+  test.each([
+    ['single', 'true'],
+    ['multi-tenant', 'false'],
+    ['regulated', 'false'],
+    [undefined, 'false'],
+  ])('profile %s hands out allow_private_targets: %s', async (profile, want) => {
+    const yaml = await createFirstTest(profile)
+    const values = [...yaml.matchAll(/^\s*allow_private_targets:\s*(\S+)\s*$/gm)].map((m) => m[1])
+    expect(values).toEqual([want])
+    // The YAML says why, in a comment right above the value.
+    const lines = yaml.split('\n')
+    const at = lines.findIndex((line) => /^\s*allow_private_targets:/.test(line))
+    expect(lines[at - 1]).toMatch(/^\s*#/)
+    if (want === 'true') {
+      expect(yaml).toMatch(/operator owns both ends/)
+    } else {
+      expect(yaml).not.toMatch(/operator owns both ends/)
+      expect(yaml).toMatch(/Only the operator of this agent may set true/)
+    }
+    const note = document.querySelector('[data-private-targets-handout]')
+    expect(note?.getAttribute('data-private-targets-handout')).toBe(String(want === 'true'))
+    const key =
+      profile === 'single'
+        ? 'onboarding.test.privateTargets.single'
+        : profile
+          ? 'onboarding.test.privateTargets.hosted'
+          : 'onboarding.test.privateTargets.unknown'
+    expect(note?.textContent).toBe(messages.en[key])
+  })
+
+  test.each([
+    ['en', 'single', 'true'],
+    ['es', 'single', 'true'],
+    ['ar', 'single', 'true'],
+    ['en', 'multi-tenant', 'false'],
+    ['es', 'multi-tenant', 'false'],
+    ['ar', 'multi-tenant', 'false'],
+  ] as const)('%s renders the %s handout with %s', async (locale, profile, want) => {
+    const yaml = await createFirstTest(profile, locale)
+    expect(yaml).toMatch(new RegExp(`^  allow_private_targets: ${want}$`, 'm'))
+    const reason =
+      want === 'true'
+        ? messages[locale]['onboarding.test.yamlReason.single']
+        : messages[locale]['onboarding.test.yamlReason.hosted']
+    const commentText = yaml
+      .split('\n')
+      .filter((line) => line.startsWith('  # ') && !line.includes('testsync.pub'))
+      .map((line) => line.slice(4))
+      .join(' ')
+    expect(commentText).toBe(reason)
+    expect(screen.getByText(messages[locale]['onboarding.test.configHint'])).toBeInTheDocument()
   })
 })

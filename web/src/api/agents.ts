@@ -133,7 +133,14 @@ export interface OnboardingProgress {
   }
   producers: OnboardingReadiness[]
   engines: OnboardingReadiness[]
+  /**
+   * The deployment-wide PROBECTL_DEPLOYMENT_PROFILE (D-57). Omitted when the
+   * server does not know it; onboarding then treats the install as hosted.
+   */
+  deployment_profile?: DeploymentProfile
 }
+
+export type DeploymentProfile = 'single' | 'multi-tenant' | 'regulated'
 
 export interface OnboardingReadiness {
   id: string

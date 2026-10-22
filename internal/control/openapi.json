@@ -10711,6 +10711,11 @@
             "items": {
               "$ref": "#/components/schemas/OnboardingReadiness"
             }
+          },
+          "deployment_profile": {
+            "type": "string",
+            "enum": ["single", "multi-tenant", "regulated"],
+            "description": "The deployment-wide PROBECTL_DEPLOYMENT_PROFILE. Not tenant data and not a secret. Onboarding hands out the agent test_sync block that fits it: only single (the operator owns the control plane and the agent) suggests allow_private_targets: true. Omitted when unknown; clients then suggest false (fail closed)."
           }
         },
         "required": [

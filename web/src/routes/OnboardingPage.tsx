@@ -29,6 +29,7 @@ import { useCreateScimToken, type CreatedScimToken } from '../api/identity'
 import { useCreateTest, type Test } from '../api/tests'
 import { Page } from './RoutePage'
 import { agentEnrollCommand, defaultControlPlaneURL } from './enrollment'
+import { agentTestSyncYAML, handoutAllowsPrivateTargets } from './agentTestSync'
 import styles from './onboarding.module.css'
 import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
@@ -111,25 +112,6 @@ function firstTestTargetPlaceholder(type: string): string {
   }
 }
 
-function agentCanaryYAML(test: Test): string {
-  const lines = [
-    'canaries:',
-    `  - test_id: ${JSON.stringify(test.id)}`,
-    `    type: ${JSON.stringify(test.type)}`,
-    `    target: ${JSON.stringify(test.target)}`,
-    `    interval: ${test.interval_seconds}s`,
-    `    timeout: ${test.timeout_seconds}s`,
-  ]
-  const params = Object.entries(test.params ?? {}).sort(([left], [right]) =>
-    left.localeCompare(right),
-  )
-  if (params.length > 0) {
-    lines.push('    params:')
-    for (const [key, value] of params) lines.push(`      ${key}: ${JSON.stringify(value)}`)
-  }
-  return lines.join('\n')
-}
-
 type ReadinessStepID = 'credential' | 'connected' | 'healthy' | 'result' | 'finding'
 
 interface ReadinessStep {
@@ -207,6 +189,23 @@ export function OnboardingPage() {
   const canInvite = permissions.includes('directory.write')
 
   const persistedProgress = onboardingProgress.data
+  // D-57: the agent test_sync block opts in to private targets only for a
+  // single-tenant install; multi-tenant, regulated and unknown keep false.
+  const deploymentProfile = persistedProgress?.deployment_profile
+  const handoutAllowsPrivate = handoutAllowsPrivateTargets(deploymentProfile)
+  const testSyncYAML = agentTestSyncYAML(
+    deploymentProfile,
+    t(
+      handoutAllowsPrivate
+        ? 'onboarding.test.yamlReason.single'
+        : 'onboarding.test.yamlReason.hosted',
+    ),
+  )
+  const privateTargetsNote: MessageKey = handoutAllowsPrivate
+    ? 'onboarding.test.privateTargets.single'
+    : deploymentProfile
+      ? 'onboarding.test.privateTargets.hosted'
+      : 'onboarding.test.privateTargets.unknown'
   const command = agentToken
     ? agentEnrollCommand(agentToken, controlURL.trim() || defaultControlPlaneURL())
     : ''
@@ -638,12 +637,15 @@ export function OnboardingPage() {
                 />
                 <code>{createdTest.target}</code>
                 <p className={styles.configIntro}>{t('onboarding.test.configHint')}</p>
+                <p className={styles.fieldHint} data-private-targets-handout={handoutAllowsPrivate}>
+                  {t(privateTargetsNote)}
+                </p>
                 <pre className={styles.configSnippet}>
-                  <code>{agentCanaryYAML(createdTest)}</code>
+                  <code>{testSyncYAML}</code>
                 </pre>
                 <Button
                   variant="secondary"
-                  onClick={() => void navigator.clipboard?.writeText(agentCanaryYAML(createdTest))}
+                  onClick={() => void navigator.clipboard?.writeText(testSyncYAML)}
                 >
                   <Icon name="check" /> {t('onboarding.test.copyConfig')}
                 </Button>

@@ -63,6 +63,13 @@ type onboardingProgressResponse struct {
 	FirstFinding            *onboardingFinding    `json:"first_finding,omitempty"`
 	Producers               []onboardingReadiness `json:"producers"`
 	Engines                 []onboardingReadiness `json:"engines"`
+	// DeploymentProfile is the deployment-wide PROBECTL_DEPLOYMENT_PROFILE
+	// (single | multi-tenant | regulated). It is not tenant data and not a
+	// secret; onboarding uses it to hand out the agent test_sync block that fits
+	// the install (D-57): only a single-tenant install, where the operator owns
+	// the control plane and the agent, suggests allow_private_targets: true.
+	// Empty when the server has no config; the UI then suggests false.
+	DeploymentProfile string `json:"deployment_profile,omitempty"`
 }
 
 // handleOnboardingProgress serves the first-run checklist from persisted,
@@ -137,8 +144,25 @@ func (s *Server) handleOnboardingProgress(w http.ResponseWriter, r *http.Request
 		return err
 	}
 	setOnboardingReadinessCount(&out)
+	out.DeploymentProfile = s.onboardingDeploymentProfile()
 	writeJSON(w, http.StatusOK, out)
 	return nil
+}
+
+// onboardingDeploymentProfile reports the deployment profile for the
+// onboarding handout. Only the three documented profiles are reported; any
+// other value (or no config) is omitted so the UI falls back to the hosted,
+// allow_private_targets: false handout (fail closed).
+func (s *Server) onboardingDeploymentProfile() string {
+	if s.cfg == nil {
+		return ""
+	}
+	switch s.cfg.DeploymentProfile {
+	case "single", "multi-tenant", "regulated":
+		return s.cfg.DeploymentProfile
+	default:
+		return ""
+	}
 }
 
 func onboardingProducerReadiness(rows []store.ProducerReadiness, allowed func(string) bool) []onboardingReadiness {

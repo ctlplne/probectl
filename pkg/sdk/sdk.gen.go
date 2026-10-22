@@ -1695,6 +1695,7 @@ type OnboardingProgress struct {
 	AgentConnected          bool                  `json:"agent_connected"`
 	AgentEnrollTokenCreated bool                  `json:"agent_enroll_token_created"`
 	AgentRegistered         bool                  `json:"agent_registered"`
+	DeploymentProfile       string                `json:"deployment_profile,omitempty"`
 	Engines                 []OnboardingReadiness `json:"engines"`
 	FirstFinding            OnboardingFinding     `json:"first_finding,omitempty"`
 	FirstFindingVisible     bool                  `json:"first_finding_visible"`
