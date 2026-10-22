@@ -22,6 +22,16 @@ discover() {
   done | sort -u -k1,1 -k2,2
 }
 
+# The nightly count budget for a target ("<N>x"), or empty when the target is
+# not calibrated in docs/fuzz/nightly_budget.tsv (the workflow then falls back
+# to its duration budget).
+budget_for() {
+  local budgets
+  budgets="$(dirname "$0")/../docs/fuzz/nightly_budget.tsv"
+  [ -f "$budgets" ] || return 0
+  awk -F'\t' -v n="$1" '!/^#/ && $1 == n { print $3 "x"; exit }' "$budgets"
+}
+
 emit_matrix() {
   local first=1
   printf '['
@@ -30,7 +40,7 @@ emit_matrix() {
       printf ','
     fi
     first=0
-    printf '{"pkg":"%s","name":"%s"}' "$pkg" "$name"
+    printf '{"pkg":"%s","name":"%s","fuzztime":"%s"}' "$pkg" "$name" "$(budget_for "$name")"
   done
   printf ']\n'
 }

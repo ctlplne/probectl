@@ -1,0 +1,49 @@
+# Nightly fuzz count budgets (G6). One row per calibrated target:
+#   name <TAB> measured_execs_10m <TAB> budget_execs
+# measured_execs_10m is what the target reached in a 10-minute nightly run on
+# ubuntu-latest (nightly run 39570511158, 2026-10-21); budget_execs is 80% of
+# it, so a target spends about 8 minutes inside its 15-minute job.
+# A count budget (-fuzztime <N>x) has no wall-clock deadline, so it avoids the
+# Go fuzz engine's deadline race (golang/go#76901: a duration budget that runs
+# out mid-worker reports "context deadline exceeded" as a failure).
+# A target with no row falls back to FUZZ_NIGHTLY_FUZZTIME. check_fuzz_policy.sh
+# refuses a row for an undiscovered target or a budget above its measurement.
+FuzzApplyUserPatch	67833795	54267000
+FuzzBGPASPath	7818037	6254000
+FuzzBMPFraming	7405650	5924000
+FuzzBMPRouteMonitoring	7956690	6365000
+FuzzBackupOpen	23554567	18843000
+FuzzChangeNormalize	30652173	24521000
+FuzzDNSDoHResponseSummary	7232301	5785000
+FuzzDecode	6991396	5593000
+FuzzDecodeRemoteWrite	11953035	9562000
+FuzzDecodeSCIM	2780368	2224000
+FuzzDeviceSyslogLine	5837153	4669000
+FuzzEmbeddedEcho	54078219	43262000
+FuzzGNMINormalize	4333372	3466000
+FuzzHTTP1Scan	58466670	46773000
+FuzzHTTP2Frame	29134032	23307000
+FuzzHTTPExpectAndDrain	6171862	4937000
+FuzzIngest	16372372	13097000
+FuzzKafkaScan	48059763	38447000
+FuzzL4DecodeFlowSample	5538931	4431000
+FuzzL7Detect	40837884	32670000
+FuzzL7Manager	51384730	41107000
+FuzzMCPHandle	11004277	8803000
+FuzzNDRObservationDecode	3986182	3188000
+FuzzOTLPLogPayload	6764914	5411000
+FuzzOTLPPayload	10319853	8255000
+FuzzOTLPTracePayload	10059956	8047000
+FuzzParseBeacon	11817244	9453000
+FuzzParseGroupPatch	36768734	29414000
+FuzzParseICMPv4	34337652	27470000
+FuzzParseInbound	11601972	9281000
+FuzzParseSyslog	12887831	10310000
+FuzzParseTimeExceeded	32384067	25907000
+FuzzParseTraceHops	11151206	8920000
+FuzzProviderDecode	4047323	3237000
+FuzzSNMPPoll	9569442	7655000
+FuzzSNMPTrapDatagram	6713808	5371000
+FuzzTopologyChangeEventIngest	1825179	1460000
+FuzzVerifyBatchTenant	2663125	2130000
+FuzzWiFiParsers	7446390	5957000

@@ -275,7 +275,10 @@ deploy recipes are `sslmode=require` or stricter.
   and tenant-sensitive paths must additionally never publish a tenant-less event
   under fuzzing — the fail-closed tenancy rule (see the
   [non-negotiables](../CONTRIBUTING.md#non-negotiables)). CI runs a short smoke;
-  nightly runs each target in its own long-budget shard.
+  nightly runs each target in its own long-budget shard. A target calibrated in
+  `docs/fuzz/nightly_budget.tsv` runs an execution-count budget (about 8 minutes)
+  rather than a wall-clock one, which avoids the Go fuzz engine's deadline race;
+  a new target runs 10 minutes until it is measured and given a row.
 - **Property** (Hypothesis, in the analyzer suite) — where fuzzing asks "does it
   crash?", a **property test** asserts a stated invariant holds for every
   generated input: the MRT parser and RPKI
