@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -234,7 +236,7 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	}
 	if len(samples) == 0 {
 		en.recordNoData(ctx, rule)
-		return nil, nil
+		return en.resolveRestoredTraps(ctx, rule), nil
 	}
 	en.mu.Lock()
 	en.noDataRules[rule.ID] = false
@@ -245,12 +247,7 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 		alert, notify, receipt, pending := en.evalSample(rule, s)
 		en.recordEvaluation(ctx, receipt)
 		if notify {
-			if en.notifier != nil {
-				en.notifier.Deliver(ctx, rule, alert)
-			}
-			if en.sink != nil {
-				en.sink(ctx, alert)
-			}
+			en.deliver(ctx, rule, alert)
 			// RTO-20: persist the notification bookkeeping after delivery, on the
 			// evaluation goroutine (ticks are serialized per engine), so the write
 			// order matches the notify order and a failover rehydrates the latest.
@@ -260,7 +257,101 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 			acted = append(acted, alert)
 		}
 	}
-	return acted, nil
+	return append(acted, en.resolveRestoredTraps(ctx, rule)...), nil
+}
+
+// deliver sends one acted alert to the rule's channels and the alert sink.
+func (en *Engine) deliver(ctx context.Context, rule Rule, alert Alert) {
+	if en.notifier != nil {
+		en.notifier.Deliver(ctx, rule, alert)
+	}
+	if en.sink != nil {
+		en.sink(ctx, alert)
+	}
+}
+
+// staleTrapReason explains a restart resolution whose series the trap source
+// no longer returns: its newest matching trap is older than the rule's hold
+// plus the source's read window, so the hold ran out while no evaluator ran.
+const staleTrapReason = "no matching trap within the hold; it ran out while the evaluator was not running"
+
+// resolveRestoredTraps closes the trap-rule episodes a previous evaluator
+// notified as firing but that are not firing now (D-61). A fresh engine
+// (start-up, or a newly elected singleton leader) rehydrates those episodes'
+// notification state, but the ordinary state machine only resolves a series it
+// saw fire: a trap series whose hold ran out while no evaluator was running —
+// whether the trap source still returns it at 0 or, past its read window, not
+// at all — would otherwise stay firing at the receiver forever. Run after the
+// rule's first pass on this engine: every restored series of the rule that is
+// not firing and not mid-debounce is resolved, delivered and cleaned up.
+func (en *Engine) resolveRestoredTraps(ctx context.Context, rule Rule) []Alert {
+	if rule.Type != Trap {
+		return nil
+	}
+	type stale struct {
+		key    string
+		labels map[string]string
+		reason string
+	}
+	var due []stale
+	prefix := rule.ID + "|"
+	en.mu.Lock()
+	for key := range en.restoredNotify {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		st, live := en.states[key]
+		if live && (st.firing || st.breachCount > 0) {
+			continue // still held (or still debouncing): the state machine owns it
+		}
+		item := stale{key: key, labels: labelsFromStateKey(key, prefix), reason: staleTrapReason}
+		if live {
+			item.labels = st.labels
+			if st.lastReason != "" {
+				item.reason = st.lastReason // the clear trap, or the hold that ran out
+			}
+		}
+		delete(en.restoredNotify, key)
+		delete(en.restored, key) // a silence/ack of the closed episode ends with it
+		due = append(due, item)
+	}
+	en.mu.Unlock()
+	sort.Slice(due, func(i, j int) bool { return due[i].key < due[j].key })
+	acted := make([]Alert, 0, len(due))
+	for _, d := range due {
+		a := en.alert(rule, Sample{Labels: d.labels}, StateResolved, d.reason)
+		en.recordEvaluation(ctx, &EvaluationReceipt{
+			ContractVersion:  EvaluationReceiptVersion,
+			Fingerprint:      evaluationFingerprint(rule.ID, d.labels),
+			RuleID:           rule.ID,
+			RuleRevision:     ruleRevision(rule),
+			State:            EvaluationResolved,
+			ObservedAt:       a.At,
+			Expectation:      EvaluationExpectation{Kind: Threshold, Comparison: GTE, Threshold: floatRef(1)},
+			RequiredBreaches: requiredBreaches(rule),
+			Reason:           d.reason,
+			Labels:           receiptLabels(d.labels),
+		})
+		en.deliver(ctx, rule, a)
+		if en.onResolve != nil {
+			en.onResolve(d.key) // drop the persisted notification + op rows
+		}
+		acted = append(acted, a)
+	}
+	return acted
+}
+
+// labelsFromStateKey recovers a series' labels from its state key
+// (rule|k=v;k=v;). Trap series labels (device, trap OID, trap name) never
+// contain the separators.
+func labelsFromStateKey(key, prefix string) map[string]string {
+	out := map[string]string{}
+	for _, pair := range strings.Split(strings.TrimPrefix(key, prefix), ";") {
+		if k, v, ok := strings.Cut(pair, "="); ok && k != "" {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // samples reads a rule's current samples from the source its type names.

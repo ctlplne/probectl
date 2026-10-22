@@ -142,8 +142,13 @@ tenant's rules and that tenant's traps through its tenant-scoped transaction
 under forced row security, so one tenant's trap can never fire another
 tenant's rule, even when their devices share an address. The evaluator reads a
 device's newest match for 24 hours past the hold, so a fired series still
-resolves after its hold; a series whose last trap is older than that is no
-longer read. Trap rules evaluate on the alert interval
+resolves after its hold. An evaluator that starts fresh (a restart, or a new
+singleton leader) rehydrates the episodes its predecessor notified as firing;
+on each trap rule's first pass it resolves every one of them that is no longer
+firing — the trap was cleared, or the hold ran out while no evaluator was
+running, including past that 24-hour read window — delivers the resolution
+through the rule's channels and drops the persisted state, so no trap alert
+stays firing at a receiver because the evaluator was down. Trap rules evaluate on the alert interval
 (`PROBECTL_ALERT_EVAL_INTERVAL`), so a trap is noticed within one interval of
 its arrival, not instantly.
 
@@ -337,6 +342,11 @@ on devices sharing an address and proves a trap stored for one tenant never
 fires the other's rule, that the tenant's own trap fires its rules, that a
 clear trap and an expired hold each resolve, and nothing else; the engine and
 `trapSource` unit tests pin the per-device samples, reasons and bounds.
+`TestTrapEpisodeResolvesAfterEvaluatorDowntime` and
+`TestTrapAlertResolvesAfterEvaluatorDownPastTheReadWindow` (real Postgres,
+the evaluator down for 30 hours) prove the restart resolution, that a
+still-held or debouncing series is left alone, and that metric rules are
+unchanged.
 
 `go test ./internal/alert ./internal/control` covers the engine state machine
 (episode start, silence suppression including renotify windows + expiry, resolve

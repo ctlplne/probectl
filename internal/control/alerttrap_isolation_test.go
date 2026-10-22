@@ -197,3 +197,94 @@ func TestTrapAlertRulesAreTenantIsolated(t *testing.T) {
 		t.Fatalf("tenant B's rule should still be firing, active = %+v", active)
 	}
 }
+
+// TestTrapAlertResolvesAfterEvaluatorDownPastTheReadWindow is the regression
+// for a fired trap series whose evaluator was down longer than the trap
+// source's read window (hold + 24 h): the next evaluator — built the way the
+// supervisor builds one at start-up or leader acquisition — rehydrates the
+// persisted firing state, resolves the series on its first pass, delivers
+// the resolution, and drops the persisted notification row.
+func TestTrapAlertResolvesAfterEvaluatorDownPastTheReadWindow(t *testing.T) {
+	ctx := context.Background()
+	db := trapIsolationDB(t)
+	tn, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("trap-downtime-%d", time.Now().UnixNano()), "Trap downtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const linkDown = ".1.3.6.1.6.3.1.1.5.3"
+	rule := alert.Rule{Name: "uplink down", Enabled: true, Type: alert.Trap, Severity: alert.SeverityCritical,
+		Trap: &alert.TrapMatch{TrapOID: linkDown, HoldSeconds: 3600}}
+	alert.NormalizeTrapRule(&rule)
+	scoped := tenancy.WithTenant(ctx, tenancy.ID(tn.ID))
+	var ruleID string
+	if err := tenancy.InTenant(scoped, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+		created, err := store.AlertRules{}.Create(ctx, sc, rule)
+		if err == nil {
+			ruleID = created.ID
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := store.NewDeviceTraps(db.Pool()).RecordTrapEvent(ctx, tn.ID, device.TrapRecord{
+		TenantID: tn.ID, AgentID: "agent-1", DeviceAddress: "10.0.0.1", Version: "snmpv2c", Kind: "snmp.trap.link_down",
+		Severity: "warning", TrapOID: linkDown, Fingerprint: "fp-downtime", ObservedAt: now, ReceivedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	notificationRows := func() int {
+		t.Helper()
+		var n int
+		if err := tenancy.InTenant(scoped, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			rows, err := store.AlertNotifications{}.List(ctx, sc)
+			n = len(rows)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	log := logging.New(io.Discard, "error", "json")
+
+	first := &trapAlertCapture{}
+	ev, ok := BuildAlertEvaluator(db.Pool(), tsdb.NewMemory(), alert.ChannelDeps{}, time.Second, tenancy.ID(tn.ID), first.sink, log)
+	if !ok {
+		t.Fatal("BuildAlertEvaluator refused the in-memory TSDB")
+	}
+	if err := ev.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := first.take(); len(got) != 1 || got[0].State != alert.StateFiring || got[0].RuleID != ruleID {
+		t.Fatalf("the first evaluator acted %+v, want the rule firing", got)
+	}
+	if n := notificationRows(); n != 1 {
+		t.Fatalf("the firing episode persisted %d notification rows, want 1", n)
+	}
+
+	// The evaluator is down for 30 hours: the trap now sits past hold + 24 h.
+	if _, err := db.Pool().Exec(ctx, `UPDATE device_traps SET received_at = received_at - interval '30 hours' WHERE tenant_id = $1`, tn.ID); err != nil {
+		t.Fatal(err)
+	}
+	second := &trapAlertCapture{}
+	ev2, ok := BuildAlertEvaluator(db.Pool(), tsdb.NewMemory(), alert.ChannelDeps{}, time.Second, tenancy.ID(tn.ID), second.sink, log)
+	if !ok {
+		t.Fatal("BuildAlertEvaluator refused the in-memory TSDB")
+	}
+	if err := ev2.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := second.take()
+	if len(got) != 1 || got[0].State != alert.StateResolved || got[0].RuleID != ruleID || got[0].Labels["device"] != "10.0.0.1" {
+		t.Fatalf("after the downtime the next evaluator acted %+v, want the series resolved", got)
+	}
+	if n := notificationRows(); n != 0 {
+		t.Fatalf("%d persisted notification rows survive the resolution", n)
+	}
+	if err := ev2.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if again := second.take(); len(again) != 0 {
+		t.Fatalf("the resolution repeated: %+v", again)
+	}
+}

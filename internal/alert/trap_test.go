@@ -151,3 +151,84 @@ func TestTrapRuleEvaluationReceiptReadsAsAThreshold(t *testing.T) {
 		t.Fatalf("receipts = %+v", receipts)
 	}
 }
+
+// TestTrapEpisodeResolvesAfterEvaluatorDowntime is the regression for a trap
+// series that fired, then had its hold run out while no evaluator was
+// running: the fresh engine (restart or new leader) must deliver the
+// resolution and drop the persisted state, whether the trap source still
+// returns the series at 0 (inside its read window) or not at all (past it).
+func TestTrapEpisodeResolvesAfterEvaluatorDowntime(t *testing.T) {
+	rule := trapRule()
+	labels := map[string]string{"device": "10.0.0.1", "trap_oid": rule.Trap.TrapOID, "trap_name": "linkDown"}
+	key := stateKey(rule.ID, labels)
+
+	// The first evaluator fires and persists its notification state.
+	persisted := map[string]NotifyState{}
+	first := NewEngine(nil, nil, discard(), WithTrapSource(&fakeTrapSource{samples: []Sample{{Labels: labels, Value: 1, Reason: "linkDown trap"}}}))
+	first.SetNotifyHook(func(k string, ns NotifyState) { persisted[k] = ns })
+	if acted, err := first.Evaluate(context.Background(), rule); err != nil || len(acted) != 1 || acted[0].State != StateFiring {
+		t.Fatalf("first evaluator acted %v err=%v", acted, err)
+	}
+	if _, ok := persisted[key]; !ok {
+		t.Fatalf("firing state was not persisted under %q: %v", key, persisted)
+	}
+
+	cases := map[string]struct {
+		samples []Sample
+		reason  string
+	}{
+		"past the read window": {samples: nil, reason: staleTrapReason},
+		"inside the read window": {
+			samples: []Sample{{Labels: labels, Value: 0, Reason: "no linkDown trap from 10.0.0.1 since T; the 15m0s hold ran out"}},
+			reason:  "the 15m0s hold ran out",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var delivered []Alert
+			var resolvedKeys []string
+			restarted := NewEngine(nil, nil, discard(), WithTrapSource(&fakeTrapSource{samples: tc.samples}),
+				WithAlertSink(func(_ context.Context, a Alert) { delivered = append(delivered, a) }))
+			restarted.RestoreNotifications(persisted)
+			restarted.SetResolveHook(func(k string) { resolvedKeys = append(resolvedKeys, k) })
+			acted, err := restarted.Evaluate(context.Background(), rule)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(acted) != 1 || acted[0].State != StateResolved || len(delivered) != 1 ||
+				delivered[0].Labels["device"] != "10.0.0.1" || !strings.Contains(delivered[0].Reason, tc.reason) {
+				t.Fatalf("restarted engine acted %+v delivered %+v, want one resolution of the 10.0.0.1 series", acted, delivered)
+			}
+			if len(resolvedKeys) != 1 || resolvedKeys[0] != key {
+				t.Fatalf("resolve hook got %v, want the persisted row %q dropped", resolvedKeys, key)
+			}
+			if again, _ := restarted.Evaluate(context.Background(), rule); len(again) != 0 {
+				t.Fatalf("the resolution repeated on the next pass: %+v", again)
+			}
+		})
+	}
+
+	// Still held after the restart: no re-notify and no resolution.
+	held := NewEngine(nil, nil, discard(), WithTrapSource(&fakeTrapSource{samples: []Sample{{Labels: labels, Value: 1, Reason: "linkDown trap"}}}))
+	held.RestoreNotifications(persisted)
+	if acted, _ := held.Evaluate(context.Background(), rule); len(acted) != 0 {
+		t.Fatalf("a still-held restored trap acted %+v", acted)
+	}
+
+	// Mid-debounce (for_n = 2, first breach after the restart): left alone.
+	debounced := rule
+	debounced.ForN = 2
+	pending := NewEngine(nil, nil, discard(), WithTrapSource(&fakeTrapSource{samples: []Sample{{Labels: labels, Value: 1}}}))
+	pending.RestoreNotifications(persisted)
+	if acted, _ := pending.Evaluate(context.Background(), debounced); len(acted) != 0 {
+		t.Fatalf("a debouncing restored trap acted %+v", acted)
+	}
+
+	// Metric rules keep their existing semantics: nothing is resolved for them.
+	metric := thresholdRule()
+	other := NewEngine(&fakeSource{}, nil, discard())
+	other.RestoreNotifications(map[string]NotifyState{stateKey(metric.ID, map[string]string{"target": "db"}): {LastNotified: time.Now()}})
+	if acted, _ := other.Evaluate(context.Background(), metric); len(acted) != 0 {
+		t.Fatalf("a metric rule's restored series was resolved: %+v", acted)
+	}
+}
