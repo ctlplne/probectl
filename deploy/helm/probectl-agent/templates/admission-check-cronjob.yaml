@@ -1,0 +1,137 @@
+{{- $policy := .Values.admission.imageIntegrity -}}
+{{- $check := $policy.webhookCheck -}}
+{{- if and $policy.enabled $check.enabled }}
+{{- /*
+RTO-12: continuous, observe-only detection that Kyverno stopped verifying the
+agent image. Kyverno DELETES its own resource webhooks when its admission
+controller is scaled to zero, after which nothing is verified while the
+ImageValidatingPolicy still reads Ready; the chart's install-time gate only
+looks at rollout time. This CronJob runs `probectl-ebpf-agent admission-check`
+from the SAME signed, digest-pinned agent image (so the policy verifies it, and
+no other image is needed): it GETs the policy and Kyverno's validating webhook
+configuration and exits non-zero, with one ERROR log line naming every problem,
+when the policy is missing, stale or not Ready, or no failurePolicy=Fail
+webhook serves it. A failed Job is the signal (kubectl get jobs, the
+kube-state-metrics kube_job_status_failed series, events). It never repairs
+anything (docs/guardrails.md G7-8): read-only RBAC on exactly two named objects.
+*/ -}}
+{{- $name := printf "%s-admission-check" (include "probectl-agent.fullname" . | trunc 46 | trimSuffix "-") -}}
+{{- $sum := sha256sum (include "probectl-agent.imageIntegrityRendered" .) -}}
+{{- $imageTag := (.Values.image.tag | default .Chart.AppVersion) -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "probectl-agent.admissionCheckLabels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "probectl-agent.admissionCheckLabels" . | nindent 4 }}
+rules:
+  # Read-only, and only the two objects the check inspects.
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["imagevalidatingpolicies"]
+    resourceNames: [{{ $policy.policyName | quote }}]
+    verbs: ["get"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    resourceNames: [{{ $check.kyvernoWebhookConfiguration | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "probectl-agent.admissionCheckLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "probectl-agent.admissionCheckLabels" . | nindent 4 }}
+spec:
+  schedule: {{ $check.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  # Failed Jobs ARE the alert: keep the last few for kubectl and kube-state-metrics.
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "probectl-agent.admissionCheckLabels" . | nindent 8 }}
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            {{- include "probectl-agent.admissionCheckLabels" . | nindent 12 }}
+        spec:
+          serviceAccountName: {{ $name }}
+          # No automounted token: the check reads the API server with a
+          # short-lived (10 min) projected token, mounted only into this
+          # read-only pod, never into the agent.
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: admission-check
+              image: "{{ .Values.image.repository }}:{{ $imageTag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args:
+                - admission-check
+                - --policy={{ $policy.policyName }}
+                - --policy-sha256={{ $sum }}
+                - --webhook-configuration={{ $check.kyvernoWebhookConfiguration }}
+              env:
+                - name: PROBECTL_EBPF_LOG_FORMAT
+                  value: {{ .Values.logFormat | quote }}
+              resources:
+                {{- toYaml $check.resources | nindent 16 }}
+              securityContext:
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: api-access
+                  mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  readOnly: true
+          volumes:
+            - name: api-access
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      path: token
+                      expirationSeconds: 600
+                  - configMap:
+                      name: kube-root-ca.crt
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+{{- end }}

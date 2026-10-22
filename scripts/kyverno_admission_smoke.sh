@@ -22,6 +22,9 @@
 #     generated for this run (no transparency-log upload: the run is offline
 #     from Sigstore's point of view, so the policy is rendered with
 #     publicKey + ignoreTlog — the air-gapped-mirror configuration);
+#   - one RUNNABLE agent image: the real probectl-ebpf-agent binary built in a
+#     pinned golang container, signed the same way (the chart runs it for its
+#     admission-check CronJob);
 #   - Kyverno from a pinned chart (version + sha256) with digest-pinned images.
 #
 # Legs (each asserts the admission result AND the policy's message):
@@ -35,7 +38,9 @@
 #   G1  upgrade to a mirror repository, policy stale  -> chart refuses (policy-sha256 differs)
 #   D5  mirror repository, unsigned digest            -> denied (derived imageReferences)
 #   A2  mirror repository, signed digest              -> admitted
+#   W0  admission-check CronJob, Kyverno verifying     -> Job Complete (observe-only check passes)
 #   D6  Kyverno not answering, signed digest          -> denied (failurePolicy Fail)
+#   W1  Kyverno scaled to zero (webhooks gone)        -> admission-check Job FAILED, names the webhook
 #   G2  Kyverno scaled to zero (webhooks gone)        -> chart refuses (policy alone is not enough)
 #
 # Not proven here: admitting a REAL keyless-signed release digest from GHCR —
@@ -55,6 +60,8 @@ REGHOST="$REG:5000"
 NS="probectl-qa-beta-agent"
 REL="probectl-agent"
 POLICY="probectl-agent-image-integrity"
+AGENT_PODS="app.kubernetes.io/name=probectl-agent,app.kubernetes.io/instance=$REL"
+CHECK_CRONJOB="$REL-probectl-agent-admission-check"
 # The ImageValidatingPolicy's denial for an unsigned / other-key image (it
 # names the image; Kyverno does not tell the two apart in its answer).
 NOTSIGNED="image signature not verified by the configured attestor"
@@ -65,7 +72,8 @@ KYVERNO_CHART_URL="https://kyverno.github.io/kyverno/kyverno-3.9.1.tgz"         
 KYVERNO_CHART_SHA256="7b7fe51a431b5b133b0ce7eb9dcb222b6a37fb967c163223cf480054ad14d752"                            # = index.yaml digest
 KYVERNO_TAG="v1.19.1@sha256:b31d8511ae5fd6010e2a01ea72ebae08eb82fa51d91af14a1d9fe989949b4edb"
 KYVERNOPRE_TAG="v1.19.1@sha256:c25c47461f06f2845a48c319ae86fbbc1730a7b9ed5b701889c9dc1f9ee94b09"
-# registry:2, cosign v2.5.3 and crane v0.22.1 are pinned by digest as literals
+# registry:2, cosign v2.5.3, crane v0.22.1 and golang 1.26.10 (the toolchain
+# go.mod pins; same digest as deploy/docker/Dockerfile.ebpf) are pinned by digest as literals
 # in their `docker run` lines below (the supply-pins gate reads those lines).
 
 for tool in docker "$KIND" "$KUBECTL" "$HELM" openssl; do
@@ -165,6 +173,26 @@ sign_ref trusted "$signed"
 sign_ref other "$otherkey"
 sign_ref trusted "$m_signed"
 tagof() { local r="${1#"$REGHOST"/}"; printf '%s' "${r#*:}"; }   # "<tag>@sha256:<d>"
+
+# A RUNNABLE agent image for the legs that execute the chart's own use of the
+# agent binary (the admission-check CronJob): the real probectl-ebpf-agent,
+# default build (no eBPF objects; nothing here loads a program), static, on an
+# empty base, in the mirror repository, signed with the trusted key.
+arch="$(docker exec "$CLUSTER-control-plane" uname -m)"
+case "$arch" in x86_64) arch=amd64 ;; aarch64 | arm64) arch=arm64 ;; *) die "unsupported node arch $arch" ;; esac
+mkdir -p agentroot/usr/local/bin gocache gomod
+docker run --rm -v "$repo_root:/src:ro" -v "$work:$work" -w /src --user "$(id -u):$(id -g)" \
+  -e HOME="$work/home" -e GOCACHE="$work/gocache" -e GOMODCACHE="$work/gomod" -e GOWORK=off -e GOTOOLCHAIN=local \
+  -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH="$arch" -e GOFLAGS=-buildvcs=false \
+  golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af \
+  go build -trimpath -o "$work/agentroot/usr/local/bin/app" ./cmd/probectl-ebpf-agent > build.log 2>&1 \
+  || { cat build.log >&2; die "build the probectl-ebpf-agent binary"; }
+tar -C agentroot -cf agent.tar usr
+crane append --oci-empty-base -f "$work/agent.tar" -t "$REGHOST/$MIRROR:smoke-agent-layer" >/dev/null 2>&1 || die "crane append agent"
+crane mutate --set-platform "linux/$arch" --entrypoint /usr/local/bin/app -t "$REGHOST/$MIRROR:smoke-agent" \
+  "$REGHOST/$MIRROR:smoke-agent-layer" >/dev/null 2>&1 || die "crane mutate agent"
+m_agent="$REGHOST/$MIRROR:smoke-agent@$(crane digest "$REGHOST/$MIRROR:smoke-agent")"
+sign_ref trusted "$m_agent"
 
 # ── 3. Kyverno (pinned chart, digest-pinned images, trusts the run-time CA) ──
 echo "== Kyverno $KYVERNO_TAG (chart sha256-verified)"
@@ -285,7 +313,7 @@ ok G0 "install before the policy -> REFUSED by the chart, no DaemonSet: $(grep -
 apply_policy "$UP" "$(tagof "$signed")"
 run_helm install "$UP" "$(tagof "$signed")" > a1.log 2>&1 || { cat a1.log >&2; die "A1 signed install was refused"; }
 for _ in $(seq 1 60); do
-  img="$("$KUBECTL" -n "$NS" get pods -l "app.kubernetes.io/instance=$REL" -o jsonpath='{.items[0].spec.containers[?(@.name=="agent")].image}' 2>/dev/null || true)"
+  img="$("$KUBECTL" -n "$NS" get pods -l "$AGENT_PODS" -o jsonpath='{.items[0].spec.containers[?(@.name=="agent")].image}' 2>/dev/null || true)"
   [ -n "$img" ] && break; sleep 1
 done
 [ "$img" = "$signed" ] || die "A1: no agent pod admitted with $signed (got '$img')"
@@ -318,11 +346,30 @@ want_denied D5 "mirror repository $MIRROR, unsigned digest" d5.log "$MIRROR@sha2
 
 run_helm upgrade "$MIRROR" "$(tagof "$m_signed")" > a2.log 2>&1 || { cat a2.log >&2; die "A2 signed mirror digest refused"; }
 for _ in $(seq 1 60); do
-  imgs="$("$KUBECTL" -n "$NS" get pods -l "app.kubernetes.io/instance=$REL" -o jsonpath='{range .items[*]}{.spec.containers[0].image}{"\n"}{end}' 2>/dev/null || true)"
+  imgs="$("$KUBECTL" -n "$NS" get pods -l "$AGENT_PODS" -o jsonpath='{range .items[*]}{.spec.containers[0].image}{"\n"}{end}' 2>/dev/null || true)"
   grep -qxF "$m_signed" <<<"$imgs" && break; sleep 1
 done
 grep -qxF "$m_signed" <<<"$imgs" || die "A2: no agent pod admitted with $m_signed"
 ok A2 "mirror repository, signed digest -> ADMITTED: pod runs $m_signed"
+
+# The release now runs the RUNNABLE signed agent image (same repository, so the
+# policy is unchanged), which its admission-check CronJob uses too.
+run_helm upgrade "$MIRROR" "$(tagof "$m_agent")" > up-agent.log 2>&1 || { cat up-agent.log >&2; die "upgrade to the runnable agent image refused"; }
+# run_check JOB -> the Job's final condition (Complete|Failed); its log in JOB.log.
+run_check() {
+  "$KUBECTL" -n "$NS" create job "$1" --from="cronjob/$CHECK_CRONJOB" >/dev/null || die "$1: create a Job from cronjob/$CHECK_CRONJOB"
+  local cond=""
+  for _ in $(seq 1 120); do
+    cond="$("$KUBECTL" -n "$NS" get job "$1" -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type}{"\n"}{end}' 2>/dev/null | grep -Ex 'Complete|Failed' | head -1 || true)"
+    [ -n "$cond" ] && break; sleep 1
+  done
+  "$KUBECTL" -n "$NS" logs "job/$1" > "$1.log" 2>&1 || true
+  printf '%s' "$cond"
+}
+# W0: while Kyverno verifies, the observe-only check passes.
+[ "$(run_check w0)" = Complete ] || { cat w0.log >&2; die "W0: the admission check did not pass while Kyverno was verifying"; }
+grep -q '"msg":"kyverno admission check ok"' w0.log || { cat w0.log >&2; die "W0: no ok line in the check's log"; }
+ok W0 "admission-check CronJob (signed agent image, get-only RBAC) while Kyverno verifies -> Job Complete"
 
 # failurePolicy Fail: a registered Kyverno that cannot answer (hung, crashed
 # without a graceful shutdown, partitioned) refuses even the SIGNED image —
@@ -348,9 +395,14 @@ done
 [ "$(ivpol_webhooks)" -eq 0 ] || die "G2: Kyverno at zero replicas still has its ImageValidatingPolicy webhook"
 [ "$("$KUBECTL" get imagevalidatingpolicy "$POLICY" -o jsonpath='{.status.conditionStatus.ready}')" = true ] \
   || die "G2: expected the policy to still read Ready with no webhook (the state the gate exists for)"
-if run_helm upgrade "$MIRROR" "$(tagof "$m_signed")" > g2.log 2>&1; then cat g2.log >&2; die "G2 chart rolled out while Kyverno had no webhooks"; fi
+# W1: the continuous detection fires — the next check FAILS, naming the gap.
+[ "$(run_check w1)" = Failed ] || { cat w1.log >&2; die "W1: the admission check did not fail with Kyverno's webhooks gone"; }
+grep -q 'kyverno admission check FAILED' w1.log && grep -Eq "ValidatingWebhookConfiguration kyverno-resource-validating-webhook-cfg (is missing|has no failurePolicy=Fail webhook serving ImageValidatingPolicy $POLICY)" w1.log \
+  || { cat w1.log >&2; die "W1: the failed check does not name the missing webhook"; }
+ok W1 "Kyverno scaled to zero -> admission-check Job FAILED: $(grep -Eo "Kyverno's ValidatingWebhookConfiguration [^\"]*" w1.log | head -1 | cut -c1-160)"
+if run_helm upgrade "$MIRROR" "$(tagof "$m_agent")" > g2.log 2>&1; then cat g2.log >&2; die "G2 chart rolled out while Kyverno had no webhooks"; fi
 grep -q "has no failurePolicy=Fail webhook serving ImageValidatingPolicy $POLICY" g2.log || { cat g2.log >&2; die "G2: refused for the wrong reason"; }
 ok G2 "Kyverno scaled to zero (webhooks removed, policy still Ready) -> REFUSED by the chart"
 
-[ "$pass" -eq 12 ] || die "only $pass of 12 legs asserted"
+[ "$pass" -eq 14 ] || die "only $pass of 14 legs asserted"
 echo "KYVERNO ADMISSION SMOKE: OK ($pass legs; Kyverno $KYVERNO_TAG on kind $KIND_NODE_IMAGE)"

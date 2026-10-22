@@ -1092,6 +1092,17 @@ agent_kyverno_checks() {
   return 0
 }
 why="$(agent_kyverno_checks "$agent")" || fail "$why"
+# RTO-12: Kyverno deletes its webhooks when scaled to zero, while the policy
+# still reads Ready. The observe-only admission-check CronJob detects it: the
+# agent image, get-only RBAC on two named objects, no automounted token.
+agent_cronjob="$(awk '/^kind: CronJob$/,/^---/' <<<"$agent")"
+agent_check_role="$(awk '/^kind: ClusterRole$/,/^---/' <<<"$agent")"
+need "- admission-check" "$agent_cronjob" "agent: no observe-only admission-check CronJob for vanished Kyverno webhooks (RTO-12)"
+need "automountServiceAccountToken: false" "$agent_cronjob" "agent: admission-check pod automounts a long-lived SA token (RTO-12)"
+need "expirationSeconds: 600" "$agent_cronjob" "agent: admission-check pod token is not short-lived (RTO-12)"
+need "runAsNonRoot: true" "$agent_cronjob" "agent: admission-check pod is not non-root (RTO-12)"
+[ "$(grep -c '^    verbs:' <<<"$agent_check_role")" -eq 2 ] && [ -z "$(grep '^    verbs:' <<<"$agent_check_role" | grep -vx '    verbs: \["get"\]')" ] \
+  || fail "agent: admission-check ClusterRole can do more than get two named objects (observe-only, G7-8)"
 # Non-vacuity: each planted regression of the rendered policies must be caught.
 for plant in 's/^    - Deny$/    - Audit/' 's/^  failurePolicy: Fail$/  failurePolicy: Ignore/' \
     's/^kind: ImageValidatingPolicy$/kind: ClusterPolicy/' 's/^    verifyDigest: true$/    verifyDigest: false/' \

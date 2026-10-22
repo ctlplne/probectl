@@ -18,8 +18,10 @@
 #      whenever the cluster serves policies.kyverno.io/v1; a Kyverno too old to
 #      serve it is refused; the standalone deploy/admission manifest is the
 #      chart's default spec; the capability-posture policy is a ValidatingPolicy
-#      that audits. SELFTEST plants each defect in a copy of the chart and
-#      requires the check to catch it.
+#      that audits; the observe-only admission-check CronJob (vanished Kyverno
+#      webhooks) runs the signed agent image with get-only RBAC on the two named
+#      objects and a short-lived token. SELFTEST plants each defect in a copy of
+#      the chart and requires the check to catch it.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -120,6 +122,39 @@ placeholder
   grep -Fq 'data: "-----BEGIN PUBLIC KEY-----' <<<"$ivp" && grep -qx '          insecureIgnoreTlog: true' <<<"$ivp" \
     || { echo "publicKey attestor (with insecureIgnoreTlog) not rendered"; return 1; }
   if grep -q 'keyless:' <<<"$ivp"; then echo "publicKey did not replace the keyless attestor"; return 1; fi
+  webhook_check_checks "$chart" || return 1
+  return 0
+}
+
+# RTO-12 (vanished webhooks): the observe-only admission-check CronJob.
+webhook_check_checks() {
+  local chart="$1" out cj role sum
+  local base=(template agent "$chart" --set-string image.tag="0.6.6@${DIGEST}"
+    --set tenantID=00000000-0000-0000-0000-000000000001 --set agentID=ci
+    --set 'bus.brokers={bus.probectl.svc:9093}')
+  out="$("$HELM" "${base[@]}" 2>&1)" || { echo "default render failed: $out"; return 1; }
+  cj="$(doc_of CronJob <<<"$out")"
+  [ -n "$cj" ] || { echo "no admission-check CronJob rendered by default (vanished Kyverno webhooks would go unnoticed)"; return 1; }
+  grep -Fqx "              image: \"ghcr.io/ctlplne/probectl-ebpf-agent:0.6.6@${DIGEST}\"" <<<"$cj" \
+    || { echo "the admission check does not run the signed, digest-pinned agent image"; return 1; }
+  grep -qx '                - admission-check' <<<"$cj" || { echo "the CronJob does not run admission-check"; return 1; }
+  sum="$(doc_of ImageValidatingPolicy <<<"$out" | sed -n 's/^    probectl.dev\/policy-sha256: "\(.*\)"$/\1/p')"
+  grep -Fqx "                - --policy-sha256=$sum" <<<"$cj" || { echo "the admission check does not compare the live policy with this release's policy-sha256"; return 1; }
+  grep -qx '          automountServiceAccountToken: false' <<<"$cj" && grep -qx '                      expirationSeconds: 600' <<<"$cj" \
+    || { echo "the admission check pod does not use a short-lived projected token (automount must stay off)"; return 1; }
+  grep -qx '            runAsNonRoot: true' <<<"$cj" && grep -qx '                readOnlyRootFilesystem: true' <<<"$cj" \
+    || { echo "the admission check pod is not non-root/read-only"; return 1; }
+  role="$(doc_of ClusterRole <<<"$out")"
+  [ "$(grep -c '    verbs: \["get"\]' <<<"$role")" -eq 2 ] && [ "$(grep -c '    verbs:' <<<"$role")" -eq 2 ] \
+    || { echo "the admission check ClusterRole is not get-only (observe-only, G7-8)"; return 1; }
+  grep -Fqx '    resourceNames: ["probectl-agent-image-integrity"]' <<<"$role" \
+    && grep -Fqx '    resourceNames: ["kyverno-resource-validating-webhook-cfg"]' <<<"$role" \
+    && [ "$(grep -c '    resourceNames: ' <<<"$role")" -eq 2 ] \
+    || { echo "the admission check ClusterRole is not limited to the two named objects"; return 1; }
+  if grep -q 'app.kubernetes.io/name: probectl-agent$' <<<"$cj"; then echo "the admission check carries the agent's name label (the capability-posture policy would report it)"; return 1; fi
+  if "$HELM" "${base[@]}" --set admission.imageIntegrity.webhookCheck.enabled=false | grep -qx 'kind: CronJob'; then
+    echo "webhookCheck.enabled=false still renders the CronJob"; return 1
+  fi
   return 0
 }
 
@@ -128,7 +163,7 @@ plant() {
   local dir; dir="$(mktemp -d)"
   cp -R "$AGENT" "$dir/chart"
   sed -i.bak -e "$1" "$dir/chart/templates/$2" && rm -f "$dir/chart/templates/$2.bak"
-  if cmp -s "$AGENT/templates/$2" "$dir/chart/templates/$2"; then echo "SELFTEST broken: planting '$1' changed nothing"; exit 1; fi
+  if cmp -s "$AGENT/templates/$2" "$dir/chart/templates/$2"; then echo "SELFTEST broken: planting '$1' changed nothing" >&2; exit 1; fi
   printf '%s' "$dir/chart"
 }
 
@@ -145,7 +180,7 @@ if [ "${1:-}" = "SELFTEST" ]; then
     echo "  planted '$label' -> caught: $why"
     rm -rf "$(dirname "$planted")"
   done <<'PLANTS'
-image-integrity-policy.yaml	s/(printf "%s\*" $repo)/"ghcr.io\/ctlplne\/probectl-ebpf-agent*"/	fixed matchImageReferences (the pre-RTO-12 mirror bypass)
+_helpers.tpl	s/(printf "%s\*" .Values.image.repository)/"ghcr.io\/ctlplne\/probectl-ebpf-agent*"/	fixed matchImageReferences (the pre-RTO-12 mirror bypass)
 image-integrity-policy.yaml	s/(\.Capabilities\.APIVersions\.Has "policies\.kyverno\.io\/v1\/ImageValidatingPolicy") -}}$/false -}}/	readiness gate removed (the pre-RTO-12 install order)
 image-integrity-policy.yaml	s/(not (\.Capabilities\.APIVersions\.Has "policies\.kyverno\.io\/v1\/ImageValidatingPolicy"))/false/	a Kyverno too old for ImageValidatingPolicy accepted
 image-integrity-policy.yaml	s/{{- if not (regexMatch /{{- if and false (regexMatch /	registry-host check removed
@@ -157,6 +192,11 @@ _helpers.tpl	s/images.containers + images.initContainers + images.ephemeralConta
 _helpers.tpl	s/^  - expression: {{ include "probectl-agent.imageIntegrityRefMatch" . | quote }}$/  - glob: "unused"/	normalized-reference match removed
 capability-posture-policy.yaml	s/^kind: ValidatingPolicy$/kind: ClusterPolicy/	capability-posture back on the deprecated kind
 image-integrity-policy.yaml	s/{{- if hasKey $policy "imageReferences" -}}/{{- if false -}}/	removed imageReferences key silently accepted
+admission-check-cronjob.yaml	s/{{- if and $policy.enabled $check.enabled }}/{{- if false }}/	vanished-webhook CronJob dropped
+admission-check-cronjob.yaml	s/    verbs: \["get"\]/    verbs: ["get", "patch"]/	admission check allowed to write (remediation)
+admission-check-cronjob.yaml	s/          automountServiceAccountToken: false/          automountServiceAccountToken: true/	long-lived automounted token
+admission-check-cronjob.yaml	s/--policy-sha256={{ $sum }}/--policy-sha256=/	live policy-sha256 not compared
+admission-check-cronjob.yaml	s/    resourceNames: \[{{ $policy.policyName | quote }}\]/    resourceNames: ["*"]/	RBAC not limited to the named policy
 PLANTS
 
   # A standalone manifest that drifts from the chart's spec must be detected.
@@ -205,4 +245,4 @@ fi
 # (5) RTO-12 image-integrity render contract.
 why="$(rto12_checks "$AGENT")" || { echo "::error::agent chart image-integrity policy: $why (RTO-12)"; exit 1; }
 
-echo "check_agent_chart OK (appVersion in sync; Kyverno-free install renders no Kyverno policy; release publishes the agent chart; image-integrity ImageValidatingPolicy derived, denying, fail-closed, ordering-gated; capability posture ValidatingPolicy audits) (SUP-20/RTO-12)"
+echo "check_agent_chart OK (appVersion in sync; Kyverno-free install renders no Kyverno policy; release publishes the agent chart; image-integrity ImageValidatingPolicy derived, denying, fail-closed, ordering-gated; capability posture ValidatingPolicy audits; observe-only webhook check) (SUP-20/RTO-12)"

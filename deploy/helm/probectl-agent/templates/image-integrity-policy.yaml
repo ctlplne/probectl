@@ -42,8 +42,7 @@ tag/digest characters that would widen or break the pattern.
 {{- if and (eq $policy.readinessGate "external") (not $policy.externalOrdering) -}}
 {{- fail "admission.imageIntegrity.readinessGate=external requires admission.imageIntegrity.externalOrdering naming what applies the policy and waits for Ready before the DaemonSet (e.g. Argo CD sync-wave -1 with an ImageValidatingPolicy health check)" -}}
 {{- end -}}
-{{- $refs := prepend ($policy.additionalImageReferences | default list) (printf "%s*" $repo) | uniq -}}
-{{- $spec := include "probectl-agent.imageIntegritySpec" (dict "policy" $policy "refs" $refs) -}}
+{{- $spec := include "probectl-agent.imageIntegrityRendered" . -}}
 {{- $sum := sha256sum $spec -}}
 {{- /*
 RTO-12: the policy is a policies.kyverno.io/v1 ImageValidatingPolicy (GA since
@@ -97,7 +96,7 @@ resource webhook alone (ivpol.validate.kyverno.svc-fail*, path
 /ivpol/validate/<policy names>); require an entry with failurePolicy=Fail whose
 path names THIS policy.
 */ -}}
-{{- $cfgName := "kyverno-resource-validating-webhook-cfg" -}}
+{{- $cfgName := $policy.webhookCheck.kyvernoWebhookConfiguration -}}
 {{- $cfg := lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" "" $cfgName -}}
 {{- $failClosed := false -}}
 {{- range (dig "webhooks" (list) $cfg) -}}

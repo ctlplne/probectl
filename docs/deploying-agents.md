@@ -606,11 +606,35 @@ a real install, so the default gate works once the policy is applied first
 **Know your Kyverno.** Kyverno *removes its own webhooks* when its admission
 controller is scaled to zero; from then on nothing in the cluster is verified,
 while the policy still reads `Ready`. The chart's gate refuses to roll out in
-that state, but between rollouts it is yours to watch: run Kyverno with several
-replicas and alert when `kyverno-resource-mutating-webhook-cfg` or
-`kyverno-resource-validating-webhook-cfg` disappears. Kyverno accepts both
-shipped policies (`ImageValidatingPolicy`, `ValidatingPolicy`) without a
-deprecation warning.
+that state, and between rollouts the chart watches for it too:
+
+- **The admission-check CronJob** (`admission.imageIntegrity.webhookCheck`, on
+  by default; every 5 minutes) runs `probectl-ebpf-agent admission-check` from
+  the agent image itself — the same signed, digest-pinned image, so the policy
+  verifies it and no other image is pulled. It reads the
+  `ImageValidatingPolicy` and Kyverno's
+  `kyverno-resource-validating-webhook-cfg`, and **fails** when the policy is
+  missing, is not the one this release renders (`policy-sha256`), is not
+  ready, or no `failurePolicy: Fail` webhook serves it. A failure leaves a
+  Failed Job (the last three are kept) and one `ERROR` log line naming every
+  problem:
+
+  ```sh
+  kubectl -n probectl get jobs -l app.kubernetes.io/component=admission-check
+  kubectl -n probectl logs job/<failed-job>
+  ```
+
+  Alert on it with kube-state-metrics:
+  `kube_job_status_failed{namespace="probectl", job_name=~"probectl-agent-probectl-agent-admission-check-.*"} > 0`.
+  The check is **observe-only**: its ClusterRole is `get` on exactly those two
+  objects, it uses a 10-minute projected token (no automounted one), and it
+  never repairs anything — restoring Kyverno stays a human decision. An
+  unreadable state (API error, RBAC removed) fails the Job too.
+- Run Kyverno with several replicas, so a single eviction does not remove the
+  webhooks in the first place.
+
+Kyverno accepts the shipped policies (`ImageValidatingPolicy`,
+`ValidatingPolicy`) without a deprecation warning.
 
 **Proof.** `scripts/kyverno_admission_smoke.sh` (CI job `kyverno-admission`)
 runs all of this on a real kind cluster with a pinned Kyverno: Kyverno accepts
@@ -619,8 +643,9 @@ the two-step install is admitted; an unsigned digest, a digest signed by another
 key, a tag-only reference, an unsigned pod outside the chart, and an unsigned
 image in a mirror with a different path are each denied with the policy's
 message; the signed mirror image is admitted; a Kyverno that cannot answer
-refuses a signed image; and the chart refuses to roll out while Kyverno's
-webhooks are gone. It signs with a cosign key pair generated for the run (the
+refuses a signed image; the admission-check CronJob passes while Kyverno
+verifies and fails, naming the missing webhook, once Kyverno is scaled to zero;
+and the chart refuses to roll out while Kyverno's webhooks are gone. It signs with a cosign key pair generated for the run (the
 `publicKey` + `ignoreTlog` configuration above); admitting a real keyless-signed
 release digest pulled from GHCR waits on the release packages being publicly
 readable.

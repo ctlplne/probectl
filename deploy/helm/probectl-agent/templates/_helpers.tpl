@@ -53,6 +53,18 @@ Docker Hub path is verified exactly as before.
 {{- printf "[%s].exists(p, ((ref.contains('/') && (ref.split('/')[0].contains('.') || ref.split('/')[0].contains(':') || ref.split('/')[0] == 'localhost')) ? ref : 'docker.io/' + (ref.contains('/') ? '' : 'library/') + ref).matches(p))" (join ", " $patterns) -}}
 {{- end -}}
 
+{{/*
+The release's rendered image-integrity spec: matchImageReferences derived from
+image.repository (+ additionalImageReferences). Its sha256 is the policy's
+probectl.dev/policy-sha256 annotation, which the readiness gate and the
+admission-check CronJob compare with the live policy.
+*/}}
+{{- define "probectl-agent.imageIntegrityRendered" -}}
+{{- $policy := .Values.admission.imageIntegrity -}}
+{{- $refs := prepend ($policy.additionalImageReferences | default list) (printf "%s*" .Values.image.repository) | uniq -}}
+{{- include "probectl-agent.imageIntegritySpec" (dict "policy" $policy "refs" $refs) -}}
+{{- end -}}
+
 {{- define "probectl-agent.imageIntegritySpec" -}}
 {{- $policy := .policy -}}
 validationActions:
@@ -105,4 +117,19 @@ validations:
       (images.containers + images.initContainers + images.ephemeralContainers).all(i, verifyImageSignatures(i, [attestors.probectl]) > 0)
     messageExpression: >-
       'probectl agent image signature not verified by the configured attestor (SUPPLY-001): ' + (images.containers + images.initContainers + images.ephemeralContainers).filter(i, verifyImageSignatures(i, [attestors.probectl]) == 0).join(', ')
+{{- end -}}
+
+{{/*
+RTO-12: labels for the admission-check CronJob and its RBAC. Deliberately NOT
+the agent's app.kubernetes.io/name, so the capability-posture policy (which
+selects the agent pods by name + instance) does not report this unprivileged
+pod.
+*/}}
+{{- define "probectl-agent.admissionCheckLabels" -}}
+app.kubernetes.io/name: {{ include "probectl-agent.name" . }}-admission-check
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/part-of: probectl
+app.kubernetes.io/component: admission-check
+app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}

@@ -46,6 +46,8 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "admission-check":
+			os.Exit(runAdmissionCheck(os.Args[2:], os.Getenv))
 		}
 	}
 	if err := run(); err != nil {
@@ -178,6 +180,56 @@ func runHealthcheck(args []string) error {
 		name = "ready"
 	}
 	return ebpf.CheckHealthState(*stateDir, name, *maxAge)
+}
+
+// runAdmissionCheck is the observe-only Kyverno admission check the agent
+// chart runs as a CronJob (RTO-12): exit 0 when the image-integrity
+// ImageValidatingPolicy is live and Ready and Kyverno's validating webhook
+// serves it with failurePolicy=Fail; exit 1 (with one ERROR line naming every
+// problem) otherwise, including when the state cannot be read. It only reads.
+func runAdmissionCheck(args []string, getenv func(string) string) int {
+	log := logging.New(os.Stdout, envOr("PROBECTL_EBPF_LOG_LEVEL", "info"), envOr("PROBECTL_EBPF_LOG_FORMAT", "json"))
+	fs := flag.NewFlagSet("admission-check", flag.ContinueOnError)
+	policy := fs.String("policy", "", "image-integrity ImageValidatingPolicy name")
+	sum := fs.String("policy-sha256", "", "expected probectl.dev/policy-sha256 annotation (empty: any)")
+	cfgName := fs.String("webhook-configuration", ebpf.DefaultKyvernoWebhookConfiguration, "Kyverno's ValidatingWebhookConfiguration")
+	api := fs.String("api-server", "", "API server URL (default: the in-cluster service)")
+	tokenFile := fs.String("token-file", ebpf.DefaultServiceAccountTokenFile, "service-account token file")
+	caFile := fs.String("ca-file", ebpf.DefaultServiceAccountCAFile, "API server CA bundle")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	problems, err := admissionCheck(*policy, *sum, *cfgName, *api, *tokenFile, *caFile, getenv, log)
+	if err != nil {
+		log.Error("kyverno admission check could not read the cluster state", "policy", *policy, "error", err.Error())
+		return 1
+	}
+	if len(problems) > 0 {
+		log.Error("kyverno admission check FAILED: the agent image is not being verified at admission", "policy", *policy, "problems", problems)
+		return 1
+	}
+	log.Info("kyverno admission check ok", "policy", *policy, "webhook_configuration", *cfgName)
+	return 0
+}
+
+func admissionCheck(policy, sum, cfgName, api, tokenFile, caFile string, getenv func(string) string, log *slog.Logger) ([]string, error) {
+	if err := crypto.RunPowerOnSelfTest(log); err != nil {
+		return nil, err
+	}
+	if api == "" {
+		var err error
+		if api, err = ebpf.InClusterAPIServer(getenv); err != nil {
+			return nil, err
+		}
+	}
+	client, err := ebpf.NewAdmissionCheckClient(caFile)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return ebpf.AdmissionCheck{APIServer: api, TokenFile: tokenFile, Policy: policy, PolicySHA256: sum,
+		WebhookConfiguration: cfgName, Client: client}.Run(ctx)
 }
 
 func envOr(key, def string) string {

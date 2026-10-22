@@ -100,6 +100,25 @@
             },
             "externalOrdering": {
               "type": "string"
+            },
+            "webhookCheck": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "schedule": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kyvernoWebhookConfiguration": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "resources": {
+                  "type": "object"
+                }
+              }
             }
           }
         },

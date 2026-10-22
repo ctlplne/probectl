@@ -43,10 +43,15 @@ func TestAgentImageIntegrityCoversMirrorsAndPinsRekor(t *testing.T) {
 	helpers := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/_helpers.tpl")
 	for _, want := range []string{
 		`$repo := .Values.image.repository`,
-		`printf "%s*" $repo`,
 		"must be a lowercase repository with an explicit registry host",
+		`include "probectl-agent.imageIntegrityRendered"`,
 	} {
 		if !strings.Contains(tmpl, want) {
+			t.Errorf("RTO-12: image-integrity template must derive matchImageReferences from image.repository (%q)", want)
+		}
+	}
+	for _, want := range []string{`printf "%s*" .Values.image.repository`} {
+		if !strings.Contains(helpers, want) {
 			t.Errorf("RTO-12: image-integrity template must derive imageReferences from image.repository (%q)", want)
 		}
 	}

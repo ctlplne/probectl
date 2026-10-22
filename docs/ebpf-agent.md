@@ -630,6 +630,10 @@ keyless cosign signature from the `release.yml` tag workflow. Kyverno must
 already be installed, and the policy goes in before the agent (a two-step
 install the chart enforces; a mirrored `image.repository` is verified too):
 [Image-integrity admission](deploying-agents.md#image-integrity-admission-kubernetes).
+Because Kyverno deletes its own webhooks when it is scaled to zero, the chart
+also ships a read-only CronJob that runs `/usr/local/bin/app admission-check`
+from the same agent image and fails when the policy or the webhook serving it
+is gone (`admission.imageIntegrity.webhookCheck`).
 If a dev cluster uses a replacement admission controller, set
 `admission.imageIntegrity.enabled=false` only with a non-empty
 `admission.imageIntegrity.acceptedRisk` note.

@@ -792,8 +792,10 @@ jobs:
     # run-time cosign keys: the two-step install is admitted, an unsigned /
     # other-key / tag-only / mirrored-unsigned image is DENIED at admission with
     # the policy's message, a Kyverno that cannot answer refuses (failurePolicy
-    # Fail), and the chart refuses to roll out before its policy is live and
-    # Ready. Keys are generated in the job and never leave it.
+    # Fail), the chart refuses to roll out before its policy is live and
+    # Ready, and its observe-only admission-check CronJob (the real agent
+    # binary, built in a pinned golang container) fails once Kyverno's
+    # webhooks are gone. Keys are generated in the job and never leave it.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

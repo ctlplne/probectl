@@ -83,6 +83,26 @@ admission:
     # the cluster but advertise its API versions (Argo CD).
     readinessGate: lookup
     externalOrdering: ""
+    # RTO-12 continuous detection, observe-only. Kyverno DELETES its own
+    # resource webhooks when its admission controller is scaled to zero; from
+    # then on nothing is verified while the policy still reads Ready, and the
+    # readiness gate above only looks at rollout time. This CronJob runs
+    # `probectl-ebpf-agent admission-check` from the agent image itself (signed,
+    # digest-pinned, verified by the policy) and FAILS — a failed Job, plus one
+    # ERROR log line naming the problem — when the policy is missing, stale or
+    # not Ready, or no failurePolicy=Fail Kyverno webhook serves it. Alert on
+    # kube_job_status_failed{job_name=~"<release>-probectl-agent-admission-check.*"}
+    # (kube-state-metrics). Read-only RBAC on exactly the policy and the webhook
+    # configuration; it never repairs anything.
+    webhookCheck:
+      enabled: true
+      schedule: "*/5 * * * *"
+      # Kyverno's validating resource webhook configuration (also read by the
+      # readiness gate).
+      kyvernoWebhookConfiguration: kyverno-resource-validating-webhook-cfg
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits: { cpu: 100m, memory: 64Mi }
   # EBPF-007: background/admission audit for the agent's capability posture.
   # This does not block the explicit legacy SYS_ADMIN break-glass by default;
   # it creates Kyverno policy reports when a pod runs legacy or gains any
