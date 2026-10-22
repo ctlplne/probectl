@@ -62,6 +62,7 @@ type alertRequest struct {
 	RenotifySeconds int                 `json:"renotify_seconds"`
 	Severity        string              `json:"severity"`
 	Channels        []alert.ChannelSpec `json:"channels"`
+	Trap            *alert.TrapMatch    `json:"trap"`
 }
 
 func (req alertRequest) toRule() (alert.Rule, error) {
@@ -87,10 +88,12 @@ func (req alertRequest) toRule() (alert.Rule, error) {
 		RenotifySeconds: req.RenotifySeconds,
 		Severity:        severity,
 		Channels:        req.Channels,
+		Trap:            req.Trap,
 	}
 	if err := r.Validate(); err != nil {
 		return alert.Rule{}, apierror.Validation(err.Error())
 	}
+	alert.NormalizeTrapRule(&r) // D-61: fixed metric, >= 1 condition, canonical OIDs
 	// AUTHZ-16: a webhook channel's URL is tenant-supplied and drives an outbound
 	// request from the control plane, so it must clear the same deny-by-default
 	// SSRF + HTTPS guard the channel-test path applies — a private/link-local/

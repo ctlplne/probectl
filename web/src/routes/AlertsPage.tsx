@@ -48,6 +48,7 @@ import {
   type AlertEvaluationState,
   type AlertRule,
   type AlertRuleInput,
+  type AlertTrapMatch,
   type AlertWorkflowOperation,
   type ChannelSpec,
   type MaintenanceRecurrence,
@@ -124,6 +125,17 @@ function splitCSV(value: string): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+/** trapCondition summarizes a trap rule's match for the rule list (D-61). */
+function trapCondition(m?: AlertTrapMatch | null): string {
+  if (!m) return 'trap'
+  const parts = [`trap ${m.trap_oid}`]
+  if (m.varbind_oid) parts.push(`${m.varbind_oid} = ${m.varbind_value ?? ''}`)
+  if (m.device) parts.push(`@ ${m.device}`)
+  if (m.clear_trap_oid) parts.push(`clear ${m.clear_trap_oid}`)
+  parts.push(`hold ${m.hold_seconds ?? 900}s`)
+  return parts.join(' · ')
 }
 
 function formatMatch(match?: Record<string, string>): string {
@@ -624,7 +636,13 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
   const initialChannel = rule?.channels?.[0]
   const [name, setName] = useState(rule?.name ?? '')
   const [metric, setMetric] = useState(rule?.metric ?? '')
-  const [type, setType] = useState<'threshold' | 'baseline'>(rule?.type ?? 'threshold')
+  const [type, setType] = useState<AlertRule['type']>(rule?.type ?? 'threshold')
+  const [trapOID, setTrapOID] = useState(rule?.trap?.trap_oid ?? '')
+  const [clearTrapOID, setClearTrapOID] = useState(rule?.trap?.clear_trap_oid ?? '')
+  const [trapDevice, setTrapDevice] = useState(rule?.trap?.device ?? '')
+  const [varbindOID, setVarbindOID] = useState(rule?.trap?.varbind_oid ?? '')
+  const [varbindValue, setVarbindValue] = useState(rule?.trap?.varbind_value ?? '')
+  const [holdSeconds, setHoldSeconds] = useState(String(rule?.trap?.hold_seconds ?? '900'))
   const [comparison, setComparison] = useState(rule?.comparison ?? 'gt')
   const [threshold, setThreshold] = useState(String(rule?.threshold ?? '100'))
   const [windowN, setWindowN] = useState(String(rule?.window ?? '20'))
@@ -680,6 +698,16 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
   const keptChannels = rule?.channels?.slice(1) ?? []
   const keptMatch = rule?.match && Object.keys(rule.match).length > 0 ? rule.match : undefined
 
+  // D-61: a trap rule watches the tenant's stored SNMP traps; empty optional
+  // fields are omitted so the server applies its defaults.
+  const trapMatch = (): AlertTrapMatch => ({
+    trap_oid: trapOID.trim(),
+    ...(clearTrapOID.trim() ? { clear_trap_oid: clearTrapOID.trim() } : {}),
+    ...(trapDevice.trim() ? { device: trapDevice.trim() } : {}),
+    ...(varbindOID.trim() ? { varbind_oid: varbindOID.trim(), varbind_value: varbindValue } : {}),
+    hold_seconds: Number(holdSeconds) || 900,
+  })
+
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const channel = currentChannel()
@@ -695,7 +723,9 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
       channels: [...(channel ? [channel] : []), ...keptChannels],
       ...(type === 'threshold'
         ? { comparison: comparison, threshold: Number(threshold) }
-        : { window: Number(windowN) || 20, sensitivity: Number(sensitivity) || 3 }),
+        : type === 'baseline'
+          ? { window: Number(windowN) || 20, sensitivity: Number(sensitivity) || 3 }
+          : { metric: '', match: undefined, trap: trapMatch() }),
     }
     save.mutate(
       { id: rule?.id, input },
@@ -727,23 +757,67 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
           onChange={(e) => setName(e.target.value)}
           required
         />
-        <Field
-          label={t('alerts.rule.metric')}
-          value={metric}
-          onChange={(e) => setMetric(e.target.value)}
-          required
-          hint={t('alerts.rule.metricHint')}
-        />
         <Select
           label={t('alerts.rule.type')}
           value={type}
-          onChange={(e) => setType(e.target.value as 'threshold' | 'baseline')}
+          onChange={(e) => setType(e.target.value as AlertRule['type'])}
           options={[
             { value: 'threshold', label: t('alerts.rule.typeThreshold') },
             { value: 'baseline', label: t('alerts.rule.typeBaseline') },
+            { value: 'trap', label: t('alerts.rule.typeTrap') },
           ]}
         />
-        {type === 'threshold' ? (
+        {type !== 'trap' ? (
+          <Field
+            label={t('alerts.rule.metric')}
+            value={metric}
+            onChange={(e) => setMetric(e.target.value)}
+            required
+            hint={t('alerts.rule.metricHint')}
+          />
+        ) : null}
+        {type === 'trap' ? (
+          <>
+            <Field
+              label={t('alerts.rule.trapOid')}
+              value={trapOID}
+              onChange={(e) => setTrapOID(e.target.value)}
+              required
+              hint={t('alerts.rule.trapOidHint')}
+            />
+            <Field
+              label={t('alerts.rule.clearTrapOid')}
+              value={clearTrapOID}
+              onChange={(e) => setClearTrapOID(e.target.value)}
+              hint={t('alerts.rule.clearTrapOidHint')}
+            />
+            <Field
+              label={t('alerts.rule.trapDevice')}
+              value={trapDevice}
+              onChange={(e) => setTrapDevice(e.target.value)}
+              hint={t('alerts.rule.trapDeviceHint')}
+            />
+            <Field
+              label={t('alerts.rule.varbindOid')}
+              value={varbindOID}
+              onChange={(e) => setVarbindOID(e.target.value)}
+              hint={t('alerts.rule.varbindOidHint')}
+            />
+            <Field
+              label={t('alerts.rule.varbindValue')}
+              value={varbindValue}
+              onChange={(e) => setVarbindValue(e.target.value)}
+              hint={t('alerts.rule.varbindValueHint')}
+            />
+            <Field
+              label={t('alerts.rule.holdSeconds')}
+              type="number"
+              value={holdSeconds}
+              onChange={(e) => setHoldSeconds(e.target.value)}
+              hint={t('alerts.rule.holdSecondsHint')}
+            />
+          </>
+        ) : type === 'threshold' ? (
           <>
             <Select
               label={t('alerts.rule.comparison')}
@@ -1194,9 +1268,11 @@ export function AlertsPage() {
       key: 'condition',
       header: 'Condition',
       render: (r) =>
-        r.type === 'threshold'
-          ? `${r.comparison ?? 'gt'} ${r.threshold ?? 0}`
-          : `baseline ±${r.sensitivity ?? 3}σ`,
+        r.type === 'trap'
+          ? trapCondition(r.trap)
+          : r.type === 'threshold'
+            ? `${r.comparison ?? 'gt'} ${r.threshold ?? 0}`
+            : `baseline ±${r.sensitivity ?? 3}σ`,
     },
     {
       key: 'severity',

@@ -18,6 +18,18 @@ import (
 type Sample struct {
 	Labels map[string]string
 	Value  float64
+	// Reason, when set, is the source's own explanation of the value (a trap
+	// source names the trap that set it); metric sources leave it empty.
+	Reason string
+}
+
+// TrapSource yields a trap rule's current per-device state (D-61): one sample
+// per device that sent a matching trap or clear trap recently, Value 1 while a
+// matching trap is within the rule's hold and not cleared, 0 otherwise.
+// Implementations are bound to exactly one tenant by the caller, the way a
+// MetricSource is.
+type TrapSource interface {
+	ActiveTraps(ctx context.Context, rule Rule, now time.Time) ([]Sample, error)
 }
 
 // MetricSource yields the current samples of a metric matching the given labels
@@ -30,6 +42,7 @@ type MetricSource interface {
 // can debounce (ForN), dedupe/renotify, and emit resolved transitions.
 type Engine struct {
 	source   MetricSource
+	traps    TrapSource // trap rules (D-61); nil = trap rules cannot evaluate
 	notifier *Notifier
 	log      *slog.Logger
 	clock    func() time.Time
@@ -178,6 +191,12 @@ func WithAlertSink(fn func(context.Context, Alert)) EngineOption {
 	return func(e *Engine) { e.sink = fn }
 }
 
+// WithTrapSource wires the tenant-bound stored-trap reader trap rules
+// evaluate against (D-61). Without it a trap rule's evaluation fails loudly.
+func WithTrapSource(src TrapSource) EngineOption {
+	return func(e *Engine) { e.traps = src }
+}
+
 // WithEvaluationSink records deterministic evaluation receipts. The caller
 // binds this sink to exactly one tenant before constructing the engine.
 func WithEvaluationSink(fn EvaluationSink) EngineOption {
@@ -209,9 +228,9 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	if !rule.Enabled {
 		return nil, nil
 	}
-	samples, err := en.source.Current(ctx, rule.Metric, rule.Match)
+	samples, err := en.samples(ctx, rule)
 	if err != nil {
-		return nil, fmt.Errorf("alert: query %q: %w", rule.Metric, err)
+		return nil, err
 	}
 	if len(samples) == 0 {
 		en.recordNoData(ctx, rule)
@@ -244,6 +263,28 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	return acted, nil
 }
 
+// samples reads a rule's current samples from the source its type names.
+func (en *Engine) samples(ctx context.Context, rule Rule) ([]Sample, error) {
+	if rule.Type == Trap {
+		if en.traps == nil || rule.Trap == nil {
+			return nil, fmt.Errorf("alert: trap rule %q cannot evaluate: no trap source is wired", rule.Name)
+		}
+		samples, err := en.traps.ActiveTraps(ctx, rule, en.clock())
+		if err != nil {
+			return nil, fmt.Errorf("alert: read traps for %q: %w", rule.Name, err)
+		}
+		return samples, nil
+	}
+	if en.source == nil {
+		return nil, fmt.Errorf("alert: rule %q cannot evaluate: no metric source is wired", rule.Name)
+	}
+	samples, err := en.source.Current(ctx, rule.Metric, rule.Match)
+	if err != nil {
+		return nil, fmt.Errorf("alert: query %q: %w", rule.Metric, err)
+	}
+	return samples, nil
+}
+
 // pendingNotify carries one series' notification state out of the locked
 // evaluation so Evaluate can persist it after delivery, never under the engine
 // lock (RTO-20).
@@ -260,7 +301,7 @@ func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool, *EvaluationRecei
 	defer en.mu.Unlock()
 	key := stateKey(rule.ID, s.Labels)
 	st := en.stateForLocked(rule, s.Labels)
-	decision := en.breached(rule, st, s.Value)
+	decision := en.breached(rule, st, s)
 
 	// Capture the rendered state the surface serves (engine truth).
 	st.ruleID, st.ruleName = rule.ID, rule.Name
@@ -316,8 +357,24 @@ func (en *Engine) stateForLocked(rule Rule, labels map[string]string) *seriesSta
 }
 
 // breached decides whether the value breaches the rule, returning a reason.
-func (en *Engine) breached(rule Rule, st *seriesState, value float64) evaluationDecision {
+func (en *Engine) breached(rule Rule, st *seriesState, s Sample) evaluationDecision {
+	value := s.Value
 	switch rule.Type {
+	case Trap:
+		// The trap source reports 1 while a matching trap holds and 0 once it is
+		// cleared or expired; the receipt reads as the ">= 1" condition
+		// NormalizeTrapRule gives the rule (no schema change to the ledger).
+		reason := s.Reason
+		if reason == "" {
+			reason = fmt.Sprintf("active matching traps = %g", value)
+		}
+		return evaluationDecision{
+			breached: value >= 1,
+			reason:   reason,
+			expectation: EvaluationExpectation{
+				Kind: Threshold, Comparison: GTE, Threshold: floatRef(1),
+			},
+		}
 	case Baseline:
 		if st.base == nil {
 			st.base = newBaseline(rule.Window)
@@ -462,7 +519,11 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, d
 			// starts clean.
 			go en.onResolve(key)
 		}
-		return en.alert(rule, s, StateResolved, "value recovered"), true, EvaluationResolved
+		reason := "value recovered"
+		if rule.Type == Trap {
+			reason = decision.reason // the clear trap, or the hold that ran out
+		}
+		return en.alert(rule, s, StateResolved, reason), true, EvaluationResolved
 	}
 	return Alert{}, false, EvaluationNormal
 }

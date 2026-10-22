@@ -158,7 +158,7 @@ capabilities:
     config_keys: {refs: ["config:PROBECTL_ALERT_EVAL_INTERVAL"]}
     telemetry: {refs: ["file:internal/alert"]}
     real_stack_proof: {refs: ["test:internal/alert/realstack_integration_test.go#TestAlertingRealStack"]}
-    migration: {refs: ["file:migrations/0011_alert_rules.sql", "file:migrations/0043_alert_ops.sql", "file:migrations/0065_alert_evaluation_receipts.sql"]}
+    migration: {refs: ["file:migrations/0011_alert_rules.sql", "file:migrations/0043_alert_ops.sql", "file:migrations/0065_alert_evaluation_receipts.sql", "file:migrations/0127_alert_rules_trap_match.sql"]}
 
   - id: F9
     name: Dashboards and incident timeline

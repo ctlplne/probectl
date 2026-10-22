@@ -11348,7 +11348,6 @@
         "type": "object",
         "required": [
           "name",
-          "metric",
           "type"
         ],
         "properties": {
@@ -11360,7 +11359,7 @@
           },
           "metric": {
             "type": "string",
-            "description": "TSDB metric, e.g. probectl_probe_loss_ratio."
+            "description": "TSDB metric, e.g. probectl_probe_loss_ratio. Required for threshold and baseline rules; a trap rule's metric is always probectl_device_trap (set by the server)."
           },
           "match": {
             "type": "object",
@@ -11373,7 +11372,8 @@
             "type": "string",
             "enum": [
               "threshold",
-              "baseline"
+              "baseline",
+              "trap"
             ]
           },
           "comparison": {
@@ -11419,6 +11419,14 @@
             "items": {
               "$ref": "#/components/schemas/ChannelSpec"
             }
+          },
+          "trap": {
+            "$ref": "#/components/schemas/AlertTrapMatch",
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Trap rules only (type trap): the trap match. Absent or null for threshold and baseline rules."
           }
         }
       },
@@ -11450,7 +11458,8 @@
             "type": "string",
             "enum": [
               "threshold",
-              "baseline"
+              "baseline",
+              "trap"
             ]
           },
           "comparison": {
@@ -11480,6 +11489,14 @@
               "$ref": "#/components/schemas/ChannelSpec"
             }
           },
+          "trap": {
+            "$ref": "#/components/schemas/AlertTrapMatch",
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Trap rules only (type trap): the trap match. Absent or null for threshold and baseline rules."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -11487,6 +11504,48 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "AlertTrapMatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a trap rule (type trap) matches in the tenant's stored, authenticated SNMP traps (GET /v1/device/traps). The rule fires per device while a matching trap is within hold_seconds and resolves on a matching clear trap or when the hold runs out. OIDs are dotted decimal; a missing leading dot is added.",
+        "required": [
+          "trap_oid"
+        ],
+        "properties": {
+          "trap_oid": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "The trap OID that fires the rule, e.g. .1.3.6.1.6.3.1.1.5.3 (linkDown)."
+          },
+          "clear_trap_oid": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Optional trap OID that resolves the alert, e.g. .1.3.6.1.6.3.1.1.5.4 (linkUp); it must match the same device and varbind."
+          },
+          "device": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Optional exact device address; empty matches every device of the tenant."
+          },
+          "varbind_oid": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Optional varbind OID the trap must carry with exactly varbind_value, e.g. .1.3.6.1.2.1.2.2.1.1.3 (ifIndex.3)."
+          },
+          "varbind_value": {
+            "type": "string",
+            "maxLength": 512,
+            "description": "The exact stored value varbind_oid must have; requires varbind_oid."
+          },
+          "hold_seconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 604800,
+            "default": 900,
+            "description": "How long a matching trap keeps the alert firing without a newer match or a clear trap."
           }
         }
       },

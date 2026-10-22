@@ -246,3 +246,57 @@ func TestDeviceTrapStoreRefusesFencedTenantWrites(t *testing.T) {
 		t.Fatalf("device_traps carries %d enabled-always tenant_write_fence triggers, want 1", triggers)
 	}
 }
+
+// TestDeviceTrapMatchesForAlertRules pins the read a trap alert rule
+// evaluates (D-61): the newest fire-or-clear trap per device, the varbind
+// equality and device filters, the since bound, and the tenant scope.
+func TestDeviceTrapMatchesForAlertRules(t *testing.T) {
+	ctx := context.Background()
+	tt := setupTrapTenants(t)
+	now := tt.stamps
+	const down, up = ".1.3.6.1.6.3.1.1.5.3", ".1.3.6.1.6.3.1.1.5.4"
+	put := func(tenant, addr, oid, ifIndex, fp string, at time.Time) {
+		t.Helper()
+		rec := tt.record(tenant, "agent", addr, fp, at)
+		rec.TrapOID = oid
+		rec.VarBinds = []device.TrapVarBind{{OID: ".1.3.6.1.2.1.2.2.1.1." + ifIndex, Type: "Integer", Value: ifIndex}}
+		tt.mustRecord(t, rec)
+	}
+	put(tt.a, "10.0.0.1", down, "2", "a1", now.Add(-3*time.Minute))
+	put(tt.a, "10.0.0.1", up, "2", "a2", now.Add(-2*time.Minute)) // newest on .1: the clear
+	put(tt.a, "10.0.0.2", down, "2", "a3", now.Add(-time.Minute))
+	put(tt.a, "10.0.0.3", down, "7", "a4", now.Add(-time.Minute)) // another interface
+	put(tt.a, "10.0.0.4", down, "2", "a5", now.Add(-2*time.Hour)) // before since
+	put(tt.b, "10.0.0.5", down, "2", "b1", now.Add(-time.Minute)) // another tenant
+	q := device.TrapMatchQuery{TrapOID: down, ClearTrapOID: up, VarBindOID: ".1.3.6.1.2.1.2.2.1.1.2", VarBindValue: "2", Since: now.Add(-time.Hour)}
+	got, err := tt.traps.LatestTrapMatches(ctx, tt.a, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"10.0.0.1": up, "10.0.0.2": down}
+	if len(got) != len(want) {
+		t.Fatalf("matches = %+v, want %v", got, want)
+	}
+	for _, m := range got {
+		if want[m.DeviceAddress] != m.TrapOID {
+			t.Fatalf("match %+v, want %v", m, want)
+		}
+	}
+	q.Device = "10.0.0.2"
+	if got, err := tt.traps.LatestTrapMatches(ctx, tt.a, q); err != nil || len(got) != 1 || got[0].DeviceAddress != "10.0.0.2" {
+		t.Fatalf("device filter = %+v err=%v", got, err)
+	}
+	q.Device, q.ClearTrapOID = "", ""
+	got, err = tt.traps.LatestTrapMatches(ctx, tt.a, q)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("without a clear OID the newest fire trap per device = %+v err=%v", got, err)
+	}
+	for _, m := range got {
+		if m.TrapOID != down {
+			t.Fatalf("a clear trap matched a rule with no clear OID: %+v", m)
+		}
+	}
+	if got, err := tt.traps.LatestTrapMatches(ctx, tt.b, device.TrapMatchQuery{TrapOID: down, Since: now.Add(-time.Hour)}); err != nil || len(got) != 1 || got[0].DeviceAddress != "10.0.0.5" {
+		t.Fatalf("tenant B matches = %+v err=%v, want only its own device", got, err)
+	}
+}

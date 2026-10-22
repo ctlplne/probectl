@@ -6,7 +6,8 @@ something is wrong. It has two halves that together form one truth:
 - **Alert rules** — durable config in Postgres. A rule is a **threshold**
   condition (value crosses a fixed line) or a **baseline** condition (value
   deviates from its own learned normal) over any metric in the TSDB (the
-  time-series database), with **debounce** (`for_n` — the condition must hold
+  time-series database), or a **trap** condition over the tenant's stored,
+  authenticated SNMP traps (see [Trap rules](#trap-rules)), with **debounce** (`for_n` — the condition must hold
   for N consecutive evaluations before firing, so one noisy sample can't page
   anyone), a **renotify cadence** (how often a still-firing alert may repeat its
   notification), a severity, and delivery channels (HMAC-signed webhook — a
@@ -67,6 +68,7 @@ proof-of-value receipt in this repository currently measures either one.
 flowchart LR
   R[(alert rules\nPostgres)] --> E[evaluator engine\nper tenant]
   T[(TSDB)] --> E
+  D[(device_traps\nstored SNMP traps · forced RLS)] -- trap rules --> E
   O[(alert_ops\nsilences/acks · RLS)] -. restore on boot .-> E
   N[(alert_notifications\nfiring-since · last-notified · RLS)] -. restore on leader acquisition .-> E
   M[(alert_maintenance_windows\nplanned work · RLS)] -. restore on boot .-> E
@@ -98,6 +100,52 @@ every `probectl alert ...` command warns on stderr, `/readyz` reports
 `/v1/diagnostics` includes a degraded `alert_evaluator` check. Readiness remains
 HTTP 200 because the API can still serve and preserve rule configuration; the
 explicit degraded field is the automation signal.
+
+## Trap rules
+
+A rule of `type: "trap"` watches the SNMP traps the tenant's device agents
+authenticated and the control plane stored (`GET /v1/device/traps`, see
+[`device-telemetry.md`](device-telemetry.md#snmp-traps--the-read-model))
+instead of a metric. Its `trap` object says what to match:
+
+| Field | Meaning |
+|-------|---------|
+| `trap_oid` (required) | The trap that fires the rule, e.g. `.1.3.6.1.6.3.1.1.5.3` (linkDown). |
+| `clear_trap_oid` | Optional trap that resolves the alert, e.g. `.1.3.6.1.6.3.1.1.5.4` (linkUp). It must come from the same device and carry the same varbind. |
+| `device` | Optional exact device address; empty matches every device of the tenant. |
+| `varbind_oid` + `varbind_value` | Optional: the trap must carry this varbind with exactly this value, e.g. `.1.3.6.1.2.1.2.2.1.1.3` = `3` to watch ifIndex 3 only. |
+| `hold_seconds` | How long a matching trap keeps the alert firing without a newer match or a clear trap: 60 to 604800, default 900. |
+
+One alert series exists per device (labels `device`, `trap_oid`,
+`trap_name`). On each pass the evaluator reads, for each device, the newest
+stored trap matching either OID: a firing trap inside the hold means the series
+is breaching; a newer clear trap, or a hold that ran out, means it is not, and
+a firing alert resolves with that reason ("clear trap linkUp from 10.0.0.1 at
+…", or "… the 15m0s hold ran out"). Everything else is the ordinary engine:
+`for_n` debounce, `renotify_seconds`, silences, acknowledgements, maintenance
+windows, the evaluation ledger, the incident sink and the same webhook and email
+channels. A trap rule's `metric` is always `probectl_device_trap` and its
+condition reads as `gte 1` on the per-device active-trap indicator, in the
+webhook payload (`probectl.alert.v1`) and the evaluation receipts alike; `match`
+labels, `comparison` and `threshold` are not accepted from the request.
+
+```bash
+probectl alert create --body '{"name":"uplink down","type":"trap","severity":"critical",
+  "trap":{"trap_oid":".1.3.6.1.6.3.1.1.5.3","clear_trap_oid":".1.3.6.1.6.3.1.1.5.4",
+          "varbind_oid":".1.3.6.1.2.1.2.2.1.1.3","varbind_value":"3","hold_seconds":900},
+  "channels":[{"type":"webhook","url":"https://hooks.example/alerts","secret":"…"}]}'
+```
+
+The rule form on the Alerts page offers the same fields under **Type → SNMP
+trap**. Tenancy is the evaluator's own: each tenant's engine reads that
+tenant's rules and that tenant's traps through its tenant-scoped transaction
+under forced row security, so one tenant's trap can never fire another
+tenant's rule, even when their devices share an address. The evaluator reads a
+device's newest match for 24 hours past the hold, so a fired series still
+resolves after its hold; a series whose last trap is older than that is no
+longer read. Trap rules evaluate on the alert interval
+(`PROBECTL_ALERT_EVAL_INTERVAL`), so a trap is noticed within one interval of
+its arrival, not instantly.
 
 ## Active-alert API
 
@@ -282,6 +330,13 @@ more channels, the form names them and saving keeps them unchanged. The surface 
 components/tokens and remains under the WCAG 2.2 AA gate.
 
 ## Testing
+
+`TestTrapAlertRulesAreTenantIsolated` (`-tags isolation`, real Postgres, the
+production `BuildAlertEvaluator` wiring) gives two tenants the same trap rule
+on devices sharing an address and proves a trap stored for one tenant never
+fires the other's rule, that the tenant's own trap fires its rules, that a
+clear trap and an expired hold each resolve, and nothing else; the engine and
+`trapSource` unit tests pin the per-device samples, reasons and bounds.
 
 `go test ./internal/alert ./internal/control` covers the engine state machine
 (episode start, silence suppression including renotify windows + expiry, resolve

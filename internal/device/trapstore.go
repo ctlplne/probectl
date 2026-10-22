@@ -98,6 +98,34 @@ type TrapEventStore interface {
 	ListTrapEvents(ctx context.Context, tenant string, filter TrapFilter) ([]TrapRecord, bool, error)
 }
 
+// TrapMatchQuery asks for each device's newest trap that matches a trap alert
+// rule (D-61): its trap OID or its clear-trap OID, optionally one device and
+// one exact varbind value, received at or after Since.
+type TrapMatchQuery struct {
+	TrapOID      string
+	ClearTrapOID string
+	Device       string
+	VarBindOID   string
+	VarBindValue string
+	Since        time.Time
+	Limit        int
+}
+
+// TrapMatch is one device's newest matching trap.
+type TrapMatch struct {
+	DeviceAddress string
+	TrapOID       string
+	ReceivedAt    time.Time
+}
+
+// MaxTrapMatchDevices bounds the devices one trap rule evaluates per pass.
+const MaxTrapMatchDevices = 500
+
+// TrapMatchReader is the tenant-scoped read a trap alert rule evaluates.
+type TrapMatchReader interface {
+	LatestTrapMatches(ctx context.Context, tenant string, q TrapMatchQuery) ([]TrapMatch, error)
+}
+
 // TrapRecordFromProto maps one bus trap event onto a record. The tenant on the
 // wire is copied as-is; the consumer overwrites it with the verified lane
 // tenant before validation (the payload is never authoritative).

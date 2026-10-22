@@ -22,6 +22,7 @@ import (
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/promapi"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
@@ -127,6 +128,68 @@ func labelFingerprint(labels map[string]string) string {
 		b.WriteByte(';')
 	}
 	return b.String()
+}
+
+// trapResolveLookback is how far past a trap rule's hold the evaluator keeps
+// reading a device's newest matching trap, so a series that fired keeps
+// reporting 0 (and resolves) after its hold runs out instead of vanishing.
+const trapResolveLookback = 24 * time.Hour
+
+// trapSource adapts the stored-trap read model to alert.TrapSource for one
+// tenant (D-61): every read runs in that tenant's scoped transaction under
+// forced row security, so a rule can only ever see its own tenant's traps.
+type trapSource struct {
+	traps  device.TrapMatchReader
+	tenant string
+}
+
+func (s trapSource) ActiveTraps(ctx context.Context, rule alert.Rule, now time.Time) ([]alert.Sample, error) {
+	if rule.Trap == nil {
+		return nil, fmt.Errorf("alert: rule %q has no trap match", rule.Name)
+	}
+	m := *rule.Trap
+	hold := m.Hold()
+	rows, err := s.traps.LatestTrapMatches(ctx, s.tenant, device.TrapMatchQuery{
+		TrapOID: m.TrapOID, ClearTrapOID: m.ClearTrapOID, Device: m.Device,
+		VarBindOID: m.VarBindOID, VarBindValue: m.VarBindValue,
+		Since: now.Add(-(hold + trapResolveLookback)), Limit: device.MaxTrapMatchDevices,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]alert.Sample, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, trapSample(m, row, hold, now))
+	}
+	return out, nil
+}
+
+// trapSample turns one device's newest matching trap into the rule's sample:
+// 1 while a fire trap is inside the hold, 0 once a clear trap is newest or the
+// hold has run out. The labels name the series (device + watched trap) and
+// never carry a time, so one device is one alert across repeated traps.
+func trapSample(m alert.TrapMatch, row device.TrapMatch, hold time.Duration, now time.Time) alert.Sample {
+	name := device.TrapName(m.TrapOID)
+	if name == "" {
+		name = m.TrapOID
+	}
+	labels := map[string]string{"device": row.DeviceAddress, "trap_oid": m.TrapOID, "trap_name": name}
+	at := row.ReceivedAt.UTC().Format(time.RFC3339)
+	switch {
+	case row.TrapOID != m.TrapOID:
+		clearName := device.TrapName(row.TrapOID)
+		if clearName == "" {
+			clearName = row.TrapOID
+		}
+		return alert.Sample{Labels: labels, Value: 0,
+			Reason: fmt.Sprintf("clear trap %s from %s at %s", clearName, row.DeviceAddress, at)}
+	case now.Sub(row.ReceivedAt) >= hold:
+		return alert.Sample{Labels: labels, Value: 0,
+			Reason: fmt.Sprintf("no %s trap from %s since %s; the %s hold ran out", name, row.DeviceAddress, at, hold)}
+	default:
+		return alert.Sample{Labels: labels, Value: 1,
+			Reason: fmt.Sprintf("%s trap from %s at %s (holds %s without a newer trap or a clear)", name, row.DeviceAddress, at, hold)}
+	}
 }
 
 // tenantRuleProvider loads a tenant's enabled rules through the RLS choke point.
@@ -237,7 +300,9 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	default:
 		return nil, false
 	}
-	var opts []alert.EngineOption
+	// D-61: trap rules read the tenant's stored traps through the same
+	// tenant-bound pool; the source is bound to this evaluator's tenant.
+	opts := []alert.EngineOption{alert.WithTrapSource(trapSource{traps: store.NewDeviceTraps(pool), tenant: tenant.String()})}
 	if sink != nil {
 		opts = append(opts, alert.WithAlertSink(sink))
 	}

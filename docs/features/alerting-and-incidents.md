@@ -51,12 +51,16 @@ every evaluation pass, so the screen can never show a stale "firing" badge — t
 displayed state is always the engine's current truth, never a guess made in your
 browser.
 
-A rule is one of two kinds:
+A rule is one of three kinds:
 
 - a **threshold** rule — a value crosses a fixed line (for example, packet loss
-  above 2%); or
+  above 2%);
 - a **baseline** rule — a value deviates from its own learned normal, which
-  catches "this is weird for *this* metric" without you hand-picking a number.
+  catches "this is weird for *this* metric" without you hand-picking a number; or
+- a **trap** rule — a device sent a matching authenticated SNMP trap (for
+  example linkDown on ifIndex 3), resolved by a clear trap (linkUp) or when a
+  hold time runs out with no newer match. See
+  [`docs/alerting.md`](../alerting.md#trap-rules).
 
 Each rule adds a debounce window (the condition must hold for N consecutive
 evaluations before firing), a renotify cadence (how often a still-firing alert

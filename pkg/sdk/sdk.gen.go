@@ -288,12 +288,13 @@ type AlertRequest struct {
 	Enabled         bool              `json:"enabled,omitempty"`
 	ForN            int               `json:"for_n,omitempty"`
 	Match           map[string]string `json:"match,omitempty"`
-	Metric          string            `json:"metric"`
+	Metric          string            `json:"metric,omitempty"`
 	Name            string            `json:"name"`
 	RenotifySeconds int               `json:"renotify_seconds,omitempty"`
 	Sensitivity     float64           `json:"sensitivity,omitempty"`
 	Severity        string            `json:"severity,omitempty"`
 	Threshold       float64           `json:"threshold,omitempty"`
+	Trap            *AlertTrapMatch   `json:"trap,omitempty"`
 	Type            string            `json:"type"`
 	Window          int               `json:"window,omitempty"`
 }
@@ -313,9 +314,20 @@ type AlertRule struct {
 	Severity        string            `json:"severity,omitempty"`
 	TenantId        string            `json:"tenant_id,omitempty"`
 	Threshold       float64           `json:"threshold,omitempty"`
+	Trap            *AlertTrapMatch   `json:"trap,omitempty"`
 	Type            string            `json:"type,omitempty"`
 	UpdatedAt       string            `json:"updated_at,omitempty"`
 	Window          int               `json:"window,omitempty"`
+}
+
+// What a trap rule (type trap) matches in the tenant's stored, authenticated SNMP traps (GET /v1/device/traps). The rule fires per device while a matching trap is within hold_seconds and resolves on a matching clear trap or when the hold runs out. OIDs are dotted decimal; a missing leading dot is added.
+type AlertTrapMatch struct {
+	ClearTrapOid string `json:"clear_trap_oid,omitempty"`
+	Device       string `json:"device,omitempty"`
+	HoldSeconds  int    `json:"hold_seconds,omitempty"`
+	TrapOid      string `json:"trap_oid"`
+	VarbindOid   string `json:"varbind_oid,omitempty"`
+	VarbindValue string `json:"varbind_value,omitempty"`
 }
 
 type AnomalyCitation struct {

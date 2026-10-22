@@ -133,6 +133,7 @@ export function alertRuleAsCode(rule: AlertRule): string {
       renotify_seconds: rule.renotify_seconds,
       severity: rule.severity,
       channels: rule.channels,
+      trap: rule.trap ?? undefined,
     }),
   })
 }

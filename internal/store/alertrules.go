@@ -22,7 +22,7 @@ type AlertRules struct{}
 
 const alertRuleCols = `id::text, tenant_id::text, name, enabled, metric, match_labels,
 	type, comparison, threshold, window_n, sensitivity, for_n, renotify_seconds,
-	severity, channels, created_at, updated_at`
+	severity, channels, created_at, updated_at, trap_match`
 
 // channelSecretAAD binds sealed channel secrets to their column (the tenant
 // binding rides tenantcrypto.BindAAD inside the sealer).
@@ -69,12 +69,19 @@ func openChannelSecrets(ctx context.Context, tenantID string, channels []alert.C
 }
 
 func scanAlertRule(row interface{ Scan(...any) error }, r *alert.Rule) error {
-	var match, channels []byte
+	var match, channels, trap []byte
 	var typ, cmp, sev string
 	if err := row.Scan(&r.ID, &r.TenantID, &r.Name, &r.Enabled, &r.Metric, &match,
 		&typ, &cmp, &r.Threshold, &r.Window, &r.Sensitivity, &r.ForN, &r.RenotifySeconds,
-		&sev, &channels, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		&sev, &channels, &r.CreatedAt, &r.UpdatedAt, &trap); err != nil {
 		return err
+	}
+	r.Trap = nil
+	if len(trap) > 0 && string(trap) != "null" {
+		r.Trap = &alert.TrapMatch{}
+		if err := json.Unmarshal(trap, r.Trap); err != nil {
+			return err
+		}
 	}
 	r.Type = alert.RuleType(typ)
 	r.Comparison = alert.Comparison(cmp)
@@ -102,6 +109,17 @@ func marshalMatch(m map[string]string) string {
 	return string(b)
 }
 
+// marshalTrapMatch encodes a trap rule's match; nil (every other rule type)
+// stores SQL NULL.
+func marshalTrapMatch(m *alert.TrapMatch) *string {
+	if m == nil {
+		return nil
+	}
+	b, _ := json.Marshal(m)
+	out := string(b)
+	return &out
+}
+
 func marshalChannels(c []alert.ChannelSpec) string {
 	if c == nil {
 		return "[]"
@@ -121,12 +139,13 @@ func (AlertRules) Create(ctx context.Context, s tenancy.Scope, in alert.Rule) (*
 	err = scanAlertRule(s.Q.QueryRow(ctx,
 		`INSERT INTO alert_rules
 		   (tenant_id, name, enabled, metric, match_labels, type, comparison, threshold,
-		    window_n, sensitivity, for_n, renotify_seconds, severity, channels)
-		 VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
+		    window_n, sensitivity, for_n, renotify_seconds, severity, channels, trap_match)
+		 VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb)
 		 RETURNING `+alertRuleCols,
 		s.Tenant.String(), in.Name, in.Enabled, in.Metric, marshalMatch(in.Match),
 		string(in.Type), string(in.Comparison), in.Threshold, in.Window, in.Sensitivity,
-		in.ForN, in.RenotifySeconds, string(in.Severity), marshalChannels(in.Channels)), &r)
+		in.ForN, in.RenotifySeconds, string(in.Severity), marshalChannels(in.Channels),
+		marshalTrapMatch(in.Trap)), &r)
 	if err != nil {
 		return nil, mapWriteErr("alert rule", err)
 	}
@@ -202,12 +221,14 @@ func (AlertRules) Update(ctx context.Context, s tenancy.Scope, id string, in ale
 	err = scanAlertRule(s.Q.QueryRow(ctx,
 		`UPDATE alert_rules SET name=$2, enabled=$3, metric=$4, match_labels=$5::jsonb,
 		   type=$6, comparison=$7, threshold=$8, window_n=$9, sensitivity=$10, for_n=$11,
-		   renotify_seconds=$12, severity=$13, channels=$14::jsonb, updated_at=now()
+		   renotify_seconds=$12, severity=$13, channels=$14::jsonb, trap_match=$15::jsonb,
+		   updated_at=now()
 		 WHERE id = $1
 		 RETURNING `+alertRuleCols,
 		id, in.Name, in.Enabled, in.Metric, marshalMatch(in.Match), string(in.Type),
 		string(in.Comparison), in.Threshold, in.Window, in.Sensitivity, in.ForN,
-		in.RenotifySeconds, string(in.Severity), marshalChannels(in.Channels)), &r)
+		in.RenotifySeconds, string(in.Severity), marshalChannels(in.Channels),
+		marshalTrapMatch(in.Trap)), &r)
 	if err != nil {
 		return nil, mapWriteErr("alert rule", err)
 	}

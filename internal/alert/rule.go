@@ -30,6 +30,11 @@ const (
 	// Baseline fires when a value deviates from its recent statistical baseline
 	// (anomaly detection); it needs history and warms up on cold start.
 	Baseline RuleType = "baseline"
+	// Trap fires when the tenant's device agents deliver a matching
+	// authenticated SNMP trap, and resolves on a matching clear trap or when
+	// the hold time passes with no new match (D-61). It reads the tenant's
+	// stored traps, not a metric series.
+	Trap RuleType = "trap"
 )
 
 // Comparison is a threshold operator.
@@ -62,6 +67,46 @@ type ChannelSpec struct {
 	Recipients []string `json:"recipients,omitempty"`
 }
 
+// TrapMetric is the series name a trap rule carries in its metric field and
+// in every alert it raises: trap rules watch stored traps, not a TSDB series,
+// and no TSDB series is ever written under this name.
+const TrapMetric = "probectl_device_trap"
+
+// Trap-rule hold bounds: how long a matching trap keeps the rule firing when
+// no clear trap arrives.
+const (
+	DefaultTrapHoldSeconds = 900
+	MinTrapHoldSeconds     = 60
+	MaxTrapHoldSeconds     = 7 * 24 * 3600
+	maxTrapOIDLength       = 255
+	maxTrapDeviceLength    = 255
+	maxTrapVarBindValue    = 512
+)
+
+// TrapMatch is what a trap rule matches. TrapOID is required; Device narrows
+// the rule to one device address; VarBindOID + VarBindValue require one
+// varbind of the trap to carry exactly that value (for example ifIndex.3 = 3
+// to watch one interface). ClearTrapOID, when set, names the trap that
+// resolves the alert (linkUp for linkDown); the clear trap must match the same
+// device and varbind. HoldSeconds is how long a match keeps firing without a
+// newer match or a clear trap.
+type TrapMatch struct {
+	TrapOID      string `json:"trap_oid"`
+	ClearTrapOID string `json:"clear_trap_oid,omitempty"`
+	Device       string `json:"device,omitempty"`
+	VarBindOID   string `json:"varbind_oid,omitempty"`
+	VarBindValue string `json:"varbind_value,omitempty"`
+	HoldSeconds  int    `json:"hold_seconds,omitempty"`
+}
+
+// Hold returns the effective hold duration.
+func (m TrapMatch) Hold() time.Duration {
+	if m.HoldSeconds <= 0 {
+		return DefaultTrapHoldSeconds * time.Second
+	}
+	return time.Duration(m.HoldSeconds) * time.Second
+}
+
 // Rule is an alert rule definition.
 type Rule struct {
 	ID       string `json:"id"`
@@ -74,6 +119,9 @@ type Rule struct {
 	Match  map[string]string `json:"match,omitempty"`
 
 	Type RuleType `json:"type"`
+
+	// Trap parameters (Type == Trap only).
+	Trap *TrapMatch `json:"trap,omitempty"`
 
 	// Threshold parameters.
 	Comparison Comparison `json:"comparison,omitempty"`
@@ -99,6 +147,12 @@ var validComparisons = map[Comparison]bool{GT: true, LT: true, GTE: true, LTE: t
 func (r Rule) Validate() error {
 	if strings.TrimSpace(r.Name) == "" || len(r.Name) > 200 {
 		return fmt.Errorf("alert: name is required (1-200 chars)")
+	}
+	if r.Type == Trap {
+		return r.validateTrap()
+	}
+	if r.Trap != nil {
+		return fmt.Errorf("alert: trap parameters are only valid on a trap rule")
 	}
 	if strings.TrimSpace(r.Metric) == "" {
 		return fmt.Errorf("alert: metric is required")
@@ -132,8 +186,13 @@ func (r Rule) Validate() error {
 			return fmt.Errorf("alert: baseline sensitivity must be > 0")
 		}
 	default:
-		return fmt.Errorf("alert: type must be threshold or baseline")
+		return fmt.Errorf("alert: type must be threshold, baseline or trap")
 	}
+	return r.validateDelivery()
+}
+
+// validateDelivery checks the firing behavior and channels every type shares.
+func (r Rule) validateDelivery() error {
 	if r.ForN < 0 || r.RenotifySeconds < 0 {
 		return fmt.Errorf("alert: for_n and renotify_seconds must be non-negative")
 	}
@@ -172,4 +231,93 @@ func breaches(cmp Comparison, value, threshold float64) bool {
 	default:
 		return false
 	}
+}
+
+// validateTrap checks a trap rule: the match is required and bounded, and the
+// metric-rule fields that do not apply are empty (a trap rule's metric is
+// TrapMetric, set by NormalizeTrapRule).
+func (r Rule) validateTrap() error {
+	if r.Trap == nil {
+		return fmt.Errorf("alert: a trap rule requires trap.trap_oid")
+	}
+	m := *r.Trap
+	if !validOID(m.TrapOID) {
+		return fmt.Errorf("alert: trap.trap_oid must be a dotted-decimal OID (at most %d characters)", maxTrapOIDLength)
+	}
+	if m.ClearTrapOID != "" {
+		if !validOID(m.ClearTrapOID) {
+			return fmt.Errorf("alert: trap.clear_trap_oid must be a dotted-decimal OID")
+		}
+		if normalizeOID(m.ClearTrapOID) == normalizeOID(m.TrapOID) {
+			return fmt.Errorf("alert: trap.clear_trap_oid must differ from trap.trap_oid")
+		}
+	}
+	if len(m.Device) > maxTrapDeviceLength || strings.TrimSpace(m.Device) != m.Device {
+		return fmt.Errorf("alert: trap.device must be an exact device address (at most %d characters)", maxTrapDeviceLength)
+	}
+	if m.VarBindOID == "" && m.VarBindValue != "" {
+		return fmt.Errorf("alert: trap.varbind_value requires trap.varbind_oid")
+	}
+	if m.VarBindOID != "" && !validOID(m.VarBindOID) {
+		return fmt.Errorf("alert: trap.varbind_oid must be a dotted-decimal OID")
+	}
+	if len(m.VarBindValue) > maxTrapVarBindValue {
+		return fmt.Errorf("alert: trap.varbind_value must be at most %d bytes", maxTrapVarBindValue)
+	}
+	if m.HoldSeconds != 0 && (m.HoldSeconds < MinTrapHoldSeconds || m.HoldSeconds > MaxTrapHoldSeconds) {
+		return fmt.Errorf("alert: trap.hold_seconds must be between %d and %d", MinTrapHoldSeconds, MaxTrapHoldSeconds)
+	}
+	if r.Metric != "" && r.Metric != TrapMetric {
+		return fmt.Errorf("alert: a trap rule watches stored traps; metric must be empty or %s", TrapMetric)
+	}
+	if len(r.Match) > 0 {
+		return fmt.Errorf("alert: a trap rule matches through trap.device and trap.varbind_oid, not match labels")
+	}
+	return r.validateDelivery()
+}
+
+// NormalizeTrapRule gives a validated trap rule its canonical form: the fixed
+// TrapMetric, a ">= 1" condition on the rule's active-trap indicator (what the
+// evaluation receipts and webhook payloads report), leading-dot OIDs and the
+// default hold. It is a no-op for other rule types.
+func NormalizeTrapRule(r *Rule) {
+	if r == nil || r.Type != Trap || r.Trap == nil {
+		return
+	}
+	r.Metric = TrapMetric
+	r.Match = nil
+	r.Comparison, r.Threshold = GTE, 1
+	r.Window, r.Sensitivity = 0, 0
+	m := *r.Trap
+	m.TrapOID = normalizeOID(m.TrapOID)
+	m.ClearTrapOID = normalizeOID(m.ClearTrapOID)
+	m.VarBindOID = normalizeOID(m.VarBindOID)
+	if m.HoldSeconds == 0 {
+		m.HoldSeconds = DefaultTrapHoldSeconds
+	}
+	r.Trap = &m
+}
+
+func normalizeOID(oid string) string {
+	oid = strings.TrimSpace(oid)
+	if oid == "" {
+		return ""
+	}
+	return "." + strings.TrimPrefix(oid, ".")
+}
+
+func validOID(oid string) bool {
+	if oid == "" || len(oid) > maxTrapOIDLength {
+		return false
+	}
+	s := strings.TrimPrefix(oid, ".")
+	if s == "" {
+		return false
+	}
+	for _, part := range strings.Split(s, ".") {
+		if part == "" || strings.Trim(part, "0123456789") != "" {
+			return false
+		}
+	}
+	return true
 }

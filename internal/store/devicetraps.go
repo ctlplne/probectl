@@ -197,4 +197,57 @@ func scanDeviceTrap(row pgx.Row, tenant string) (device.TrapRecord, error) {
 	return rec, nil
 }
 
-var _ device.TrapEventStore = (*DeviceTraps)(nil)
+// LatestTrapMatches returns, per device, tenant's newest stored trap whose OID
+// is q.TrapOID or q.ClearTrapOID (and, when set, from q.Device and carrying the
+// varbind q.VarBindOID = q.VarBindValue), received at or after q.Since — the
+// read a trap alert rule evaluates (D-61). Bounded to
+// device.MaxTrapMatchDevices devices; scoped by the tenant transaction.
+func (s *DeviceTraps) LatestTrapMatches(ctx context.Context, tenant string, q device.TrapMatchQuery) ([]device.TrapMatch, error) {
+	if s == nil || s.pool == nil {
+		return nil, apierror.Unavailable("device traps are not available in this deployment")
+	}
+	if tenant == "" || q.TrapOID == "" || q.Since.IsZero() {
+		return nil, apierror.Validation("tenant_id, trap_oid and since are required")
+	}
+	limit := q.Limit
+	if limit < 1 || limit > device.MaxTrapMatchDevices {
+		limit = device.MaxTrapMatchDevices
+	}
+	var out []device.TrapMatch
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		rows, err := sc.Q.Query(ctx, `
+			SELECT DISTINCT ON (device_address) device_address, trap_oid, received_at
+			  FROM device_traps
+			 WHERE tenant_id = $1
+			   AND (trap_oid = $2 OR ($3 <> '' AND trap_oid = $3))
+			   AND ($4 = '' OR device_address = $4)
+			   AND ($5 = '' OR varbinds @> jsonb_build_array(jsonb_build_object('oid', $5::text, 'value', $6::text)))
+			   AND received_at >= $7
+			 ORDER BY device_address, received_at DESC, id DESC
+			 LIMIT $8`,
+			sc.Tenant.String(), q.TrapOID, q.ClearTrapOID, q.Device, q.VarBindOID, q.VarBindValue,
+			q.Since.UTC(), limit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var m device.TrapMatch
+			if err := rows.Scan(&m.DeviceAddress, &m.TrapOID, &m.ReceivedAt); err != nil {
+				return err
+			}
+			m.ReceivedAt = m.ReceivedAt.UTC()
+			out = append(out, m)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+var (
+	_ device.TrapEventStore  = (*DeviceTraps)(nil)
+	_ device.TrapMatchReader = (*DeviceTraps)(nil)
+)

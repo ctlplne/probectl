@@ -457,6 +457,11 @@ probectl device traps --query device=10.0.0.1 --query since=2026-10-22T00:00:00Z
 }
 ```
 
+To be told when a trap arrives, create an alert rule of type `trap` (match a
+trap OID, optionally a device and one varbind value, resolve on a clear trap or
+after a hold time); it fires through the ordinary alert channels — see
+[Trap rules](alerting.md#trap-rules).
+
 `collection_running: false` means this deployment has no trap store wired;
 the list is then empty and nothing is inferred. The Device page's **Traps**
 card shows the same rows: time, device and agent, trap name and OID, the key

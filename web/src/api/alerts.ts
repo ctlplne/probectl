@@ -65,6 +65,16 @@ export interface OncallStatus {
   supported_providers: string[]
 }
 
+/** D-61: what a trap rule matches in the tenant's stored SNMP traps. */
+export interface AlertTrapMatch {
+  trap_oid: string
+  clear_trap_oid?: string
+  device?: string
+  varbind_oid?: string
+  varbind_value?: string
+  hold_seconds?: number
+}
+
 export interface AlertRule {
   id: string
   tenant_id: string
@@ -72,8 +82,9 @@ export interface AlertRule {
   enabled: boolean
   metric: string
   match?: Record<string, string>
-  type: 'threshold' | 'baseline'
+  type: 'threshold' | 'baseline' | 'trap'
   comparison?: 'gt' | 'lt' | 'gte' | 'lte'
+  trap?: AlertTrapMatch | null
   threshold?: number
   window?: number
   sensitivity?: number

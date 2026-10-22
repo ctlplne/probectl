@@ -211,13 +211,14 @@ export interface AlertRequest {
   enabled?: boolean
   for_n?: number
   match?: { [key: string]: string }
-  metric: string
+  metric?: string
   name: string
   renotify_seconds?: number
   sensitivity?: number
   severity?: "info" | "warning" | "critical"
   threshold?: number
-  type: "threshold" | "baseline"
+  trap?: AlertTrapMatch | null
+  type: "threshold" | "baseline" | "trap"
   window?: number
 }
 
@@ -236,9 +237,19 @@ export interface AlertRule {
   severity?: string
   tenant_id?: string
   threshold?: number
-  type?: "threshold" | "baseline"
+  trap?: AlertTrapMatch | null
+  type?: "threshold" | "baseline" | "trap"
   updated_at?: string
   window?: number
+}
+
+export interface AlertTrapMatch {
+  clear_trap_oid?: string
+  device?: string
+  hold_seconds?: number
+  trap_oid: string
+  varbind_oid?: string
+  varbind_value?: string
 }
 
 export interface AnomalyCitation {

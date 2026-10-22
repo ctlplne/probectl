@@ -570,6 +570,55 @@ describe('alerting surface (S-FE1)', () => {
     })
   })
 
+  // D-61: a trap rule is made in the same form; it has no metric and posts
+  // its trap match.
+  test('creates an SNMP trap alert rule through the form', async () => {
+    const { state, fetcher } = alertsBackend()
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/alerts')
+
+    await screen.findByRole('table', { name: 'Active alerts' })
+    await userEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.type(within(dialog).getByLabelText('Name'), 'uplink down')
+    await userEvent.selectOptions(within(dialog).getByLabelText('Type'), 'trap')
+    expect(within(dialog).queryByLabelText('Metric')).not.toBeInTheDocument()
+    await userEvent.type(within(dialog).getByLabelText('Trap OID'), '.1.3.6.1.6.3.1.1.5.3')
+    await userEvent.type(
+      within(dialog).getByLabelText('Clear trap OID (optional)'),
+      '.1.3.6.1.6.3.1.1.5.4',
+    )
+    await userEvent.type(within(dialog).getByLabelText('Device address (optional)'), '10.0.0.1')
+    await userEvent.type(
+      within(dialog).getByLabelText('Varbind OID (optional)'),
+      '.1.3.6.1.2.1.2.2.1.1.2',
+    )
+    await userEvent.type(within(dialog).getByLabelText('Varbind value'), '2')
+    await userEvent.clear(within(dialog).getByLabelText('Hold (seconds)'))
+    await userEvent.type(within(dialog).getByLabelText('Hold (seconds)'), '600')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create rule' }))
+
+    await waitFor(() => expect(state.rules.length).toBe(2))
+    const posted = state.rules[1]
+    expect(posted.type).toBe('trap')
+    expect(posted.trap).toEqual({
+      trap_oid: '.1.3.6.1.6.3.1.1.5.3',
+      clear_trap_oid: '.1.3.6.1.6.3.1.1.5.4',
+      device: '10.0.0.1',
+      varbind_oid: '.1.3.6.1.2.1.2.2.1.1.2',
+      varbind_value: '2',
+      hold_seconds: 600,
+    })
+    expect(posted.comparison).toBeUndefined()
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole('table', { name: 'Alert rules' })).getByText(
+          /trap \.1\.3\.6\.1\.6\.3\.1\.1\.5\.3 .* clear \.1\.3\.6\.1\.6\.3\.1\.1\.5\.4 · hold 600s/,
+        ),
+      ).toBeDefined()
+    })
+  })
+
   test('editing a rule keeps the label match and the channels the form does not show (DPR-291)', async () => {
     const { state, fetcher } = alertsBackend()
     state.rules[0] = {

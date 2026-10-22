@@ -108,3 +108,28 @@ func TestRedactRuleBlanksSecretsButKeepsOriginal(t *testing.T) {
 		t.Error("redaction must not mutate the original rule")
 	}
 }
+
+func TestAlertRequestTrapRuleIsNormalized(t *testing.T) {
+	req := alertRequest{
+		Name: "uplink down", Type: "trap", Severity: "critical",
+		Trap: &alert.TrapMatch{TrapOID: "1.3.6.1.6.3.1.1.5.3", ClearTrapOID: "1.3.6.1.6.3.1.1.5.4", Device: "10.0.0.1"},
+	}
+	r, err := req.toRule()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Type != alert.Trap || r.Metric != alert.TrapMetric || r.Comparison != alert.GTE || r.Threshold != 1 ||
+		r.Trap.TrapOID != ".1.3.6.1.6.3.1.1.5.3" || r.Trap.ClearTrapOID != ".1.3.6.1.6.3.1.1.5.4" ||
+		r.Trap.HoldSeconds != alert.DefaultTrapHoldSeconds {
+		t.Fatalf("trap rule = %+v trap=%+v", r, r.Trap)
+	}
+	for _, bad := range []alertRequest{
+		{Name: "n", Type: "trap"},
+		{Name: "n", Type: "trap", Trap: &alert.TrapMatch{TrapOID: "linkDown"}},
+		{Name: "n", Type: "threshold", Metric: "m", Comparison: "gt", Trap: &alert.TrapMatch{TrapOID: "1.3"}},
+	} {
+		if _, err := bad.toRule(); err == nil {
+			t.Errorf("request %+v should fail validation", bad)
+		}
+	}
+}
