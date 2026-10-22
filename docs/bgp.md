@@ -70,7 +70,9 @@ What probectl guarantees you:
   and a failed fetch degrades that run to RPKI *unknown*
   instead of stopping analysis. Collector archives (RouteViews / RIS MRT dumps) are
   bring-your-own artifacts you download and decompress yourself; RIS Live streaming
-  reads RIPE's public websocket. A flaky upstream never takes your monitoring down.
+  reads RIPE's public websocket, and each live event names the RIS collector that
+  recorded the update (`collector`, e.g. `rrc12.ripe.net`; DPR-294). A flaky upstream
+  never takes your monitoring down.
 - **Your data stays yours.** The feeds are public, but which prefixes you care about and
   what probectl finds are scoped to your tenant and never leave your network.
 - **Direct router feeds are tenant-authenticated.** A BMP peer's tenant comes from

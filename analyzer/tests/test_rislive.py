@@ -45,6 +45,13 @@ def test_parse_ris_message_yields_one_route_per_prefix():
     assert r.peer_asn == 64511
     assert r.peer_address == "192.0.2.1"
     assert r.event_time_unix_nano == 1_700_000_000_000_000_000
+    assert r.collector == "rrc00"
+
+
+def test_oversized_ris_host_is_refused():
+    msg = json.loads(json.dumps(RIS_MESSAGE))
+    msg["data"]["host"] = "r" * 254
+    assert parse_ris_message(msg) == []
 
 
 def test_flattens_as_set_in_path():

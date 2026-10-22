@@ -74,6 +74,10 @@ class BGPRoute:
     peer_address: str = ""
     collector_id: int = 0
     event_time_unix_nano: int = 0
+    # The route collector that recorded this route, when the source names it
+    # (RIS Live's ``host``, e.g. "rrc12.ripe.net"). Empty for MRT, whose
+    # collector is the operator-configured one (DPR-294).
+    collector: str = ""
 
     @property
     def origin_asn(self) -> int:

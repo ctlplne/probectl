@@ -54,6 +54,18 @@ def test_detects_origin_change_with_old_and_new_path():
     assert e.collector == "rrc00"
 
 
+# DPR-294: a live RIS update names the collector that saw it; the event keeps
+# that provenance instead of the configured subscription filter.
+def test_event_names_the_collector_the_source_reported():
+    mon = make_monitor()
+    events = mon.observe(
+        BGPRoute(prefix="192.0.2.0/24", as_path=[64511, 64502], collector="rrc12.ripe.net")
+    )
+    assert events and all(e.collector == "rrc12.ripe.net" for e in events)
+    configured = mon.observe(BGPRoute(prefix="192.0.2.0/25", as_path=[64511, 64503]))
+    assert configured and all(e.collector == "rrc00" for e in configured)
+
+
 def test_detects_possible_hijack_by_unexpected_origin():
     mon = make_monitor()
     events = mon.observe(BGPRoute(prefix="192.0.2.0/24", as_path=[64511, 64502]))

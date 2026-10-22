@@ -28,6 +28,8 @@ RIS_LIVE_URL = "wss://ris-live.ripe.net/v1/ws/"
 MAX_RIS_PATH_HOPS = 1024
 MAX_RIS_ANNOUNCEMENTS = 1024
 MAX_RIS_PREFIXES = 4096
+# A RIS collector name is "rrcNN.ripe.net"; anything longer is hostile input.
+MAX_RIS_HOST_LENGTH = 253
 
 
 class RISMessageError(ValueError):
@@ -123,6 +125,11 @@ def _parse_ris_message(obj: object) -> list[BGPRoute]:
     as_path = _flatten_path(data.get("path", []))
     peer_addr = _string(data.get("peer", ""), "data.peer")
     peer_asn = _asn(data.get("peer_asn"), "data.peer_asn")
+    # DPR-294: keep which RIS collector saw the update, so a live event says
+    # where it came from instead of only what the config filtered on.
+    host = _string(data.get("host", ""), "data.host")
+    if len(host) > MAX_RIS_HOST_LENGTH:
+        raise RISMessageError(f"data.host is longer than {MAX_RIS_HOST_LENGTH} characters")
     event_time_unix_nano = _timestamp_unix_nano(
         data.get("timestamp", msg.get("timestamp")), "data.timestamp"
     )
@@ -148,6 +155,7 @@ def _parse_ris_message(obj: object) -> list[BGPRoute]:
                     peer_asn=peer_asn,
                     peer_address=peer_addr,
                     event_time_unix_nano=event_time_unix_nano,
+                    collector=host,
                 )
             )
     return routes

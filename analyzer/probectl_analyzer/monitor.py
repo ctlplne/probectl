@@ -225,7 +225,9 @@ class PrefixMonitor:
             rpki_status=rpki,
             severity=severity,
             confidence=confidence,
-            collector=self._config.collector,
+            # DPR-294: the collector the source named (RIS Live) wins over the
+            # configured label, which for RIS Live is only a subscription filter.
+            collector=route.collector or self._config.collector,
             peer_asn=route.peer_asn,
             peer_address=route.peer_address,
             message=message,
