@@ -541,23 +541,41 @@ func materializeRepositoryTree(repo, gitSHA string) (string, func(), error) {
 		cleanup()
 		return "", func() {}, err
 	}
-	reader := tar.NewReader(stdout)
+	if err := extractTar(stdout, root); err != nil {
+		// Stop git on any refusal, not only a read error: it would otherwise
+		// block writing the rest of the archive into a pipe nobody reads.
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := command.Wait(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("delivery audit: materialize source archive: %w", err)
+	}
+	return root, cleanup, nil
+}
+
+// extractTar materializes a `git archive` tar stream under root. Every entry
+// name is cleaned and must stay inside root: "." / "..", absolute names and
+// ".." escapes are refused, and so is every entry that is neither a regular
+// file nor a directory (symlinks and hard links included), so nothing is
+// written or linked outside root. Files are created O_EXCL, so no entry
+// overwrites one already on disk, and the extracted total is capped.
+func extractTar(r io.Reader, root string) error {
+	reader := tar.NewReader(r)
 	var total int64
 	for {
 		header, nextErr := reader.Next()
 		if errors.Is(nextErr, io.EOF) {
-			break
+			return nil
 		}
 		if nextErr != nil {
-			_ = command.Process.Kill()
-			_ = command.Wait()
-			cleanup()
-			return "", func() {}, fmt.Errorf("delivery audit: read source archive: %w", nextErr)
+			return fmt.Errorf("delivery audit: read source archive: %w", nextErr)
 		}
 		clean := filepath.Clean(header.Name)
 		if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-			cleanup()
-			return "", func() {}, errors.New("delivery audit: Git archive contains unsafe path")
+			return errors.New("delivery audit: Git archive contains unsafe path")
 		}
 		target := filepath.Join(root, clean)
 		switch header.Typeflag {
@@ -568,40 +586,29 @@ func materializeRepositoryTree(repo, gitSHA string) (string, func(), error) {
 			continue
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
-				cleanup()
-				return "", func() {}, err
+				return err
 			}
 		case tar.TypeReg, 0: // NUL is the legacy regular-file type emitted by old tar writers.
 			total += header.Size
 			if header.Size < 0 || total > 2<<30 {
-				cleanup()
-				return "", func() {}, errors.New("delivery audit: Git archive exceeds bounded size")
+				return errors.New("delivery audit: Git archive exceeds bounded size")
 			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				cleanup()
-				return "", func() {}, err
+				return err
 			}
 			file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 			if err != nil {
-				cleanup()
-				return "", func() {}, err
+				return err
 			}
 			written, copyErr := io.CopyN(file, reader, header.Size)
 			closeErr := file.Close()
 			if copyErr != nil || closeErr != nil || written != header.Size {
-				cleanup()
-				return "", func() {}, errors.New("delivery audit: incomplete Git archive entry")
+				return errors.New("delivery audit: incomplete Git archive entry")
 			}
 		default:
-			cleanup()
-			return "", func() {}, fmt.Errorf("delivery audit: unsupported Git archive entry type %d", header.Typeflag)
+			return fmt.Errorf("delivery audit: unsupported Git archive entry type %d", header.Typeflag)
 		}
 	}
-	if err := command.Wait(); err != nil {
-		cleanup()
-		return "", func() {}, fmt.Errorf("delivery audit: materialize source archive: %w", err)
-	}
-	return root, cleanup, nil
 }
 
 func summarizeDiagnostics(diagnostics []Diagnostic) string {
