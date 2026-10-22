@@ -86,7 +86,7 @@ func ensureBusTopics(ctx context.Context, b bus.Bus, cfg *config.Config, log *sl
 		}
 		return nil
 	}
-	created, err := ensurer.EnsureTopics(ctx, topics, int32(cfg.BusTopicPartitions), int16(cfg.BusTopicReplication))
+	created, err := ensurer.EnsureTopics(ctx, topics, cfg.BusTopicPartitions, cfg.BusTopicReplication)
 	if err != nil {
 		return fmt.Errorf("bus topics: %w — grant the bus user CREATE on probectl.*, or pre-create the lanes and set PROBECTL_BUS_CREATE_TOPICS=false (docs/deploying-agents.md#bus-topics)", err)
 	}

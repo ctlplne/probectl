@@ -645,7 +645,7 @@ LIMIT {lim:UInt32}`
 		out = append(out, LogRecord{
 			TenantID:     str(r["tenant_id"]),
 			TS:           time.UnixMicro(i64(r["ts_us"])).UTC(),
-			SeverityNum:  int32(i64(r["severity_num"])),
+			SeverityNum:  i32(r["severity_num"]),
 			SeverityText: str(r["severity_text"]),
 			Service:      str(r["service"]),
 			Body:         str(r["body"]),
@@ -840,7 +840,7 @@ func (c *ClickHouse) countTenant(ctx context.Context, t Target, table, tenant st
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	return int(i64(rows[0]["n"])), nil
+	return countOf(rows[0]["n"]), nil
 }
 
 func (c *ClickHouse) countSubject(ctx context.Context, t Target, table, tenant, predicate string, p chParams) (int, error) {
@@ -856,7 +856,7 @@ func (c *ClickHouse) countSubject(ctx context.Context, t Target, table, tenant, 
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	return int(i64(rows[0]["n"])), nil
+	return countOf(rows[0]["n"]), nil
 }
 
 // otelSpanSubjectPredicate / otelLogSubjectPredicate match one tenant's spans
@@ -1104,6 +1104,35 @@ func i64(v any) int64 {
 		return i
 	case float64:
 		return int64(n)
+	default:
+		return 0
+	}
+}
+
+// i32 is i64 for an Int32 column (severity_num): numeric text is parsed at 32
+// bits, so the value already fits the int32 it lands in.
+func i32(v any) int32 {
+	switch n := v.(type) {
+	case string:
+		i, _ := strconv.ParseInt(n, 10, 32)
+		return int32(i)
+	case float64:
+		return int32(int64(n))
+	default:
+		return 0
+	}
+}
+
+// countOf reads a count() cell as an int. ClickHouse renders the UInt64 count
+// as a decimal string, parsed here at the platform int size (strconv.Atoi), so
+// no 64-bit value is narrowed to int on the way out.
+func countOf(v any) int {
+	switch n := v.(type) {
+	case string:
+		i, _ := strconv.Atoi(n)
+		return i
+	case float64:
+		return int(n)
 	default:
 		return 0
 	}

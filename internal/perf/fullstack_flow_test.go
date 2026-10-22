@@ -8,6 +8,7 @@ package perf
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -145,5 +146,25 @@ func TestTimedFlowStoreAndConfirmFlowTenants(t *testing.T) {
 	}
 	if len(mismatches) == 0 || !strings.Contains(mismatches[0], "want exactly") {
 		t.Fatalf("missing completeness mismatch: %v", mismatches)
+	}
+}
+
+// overflowingFlowStore answers every TopTalkers query with a flow count no int
+// can hold.
+type overflowingFlowStore struct{ flowstore.Store }
+
+func (overflowingFlowStore) TopTalkers(context.Context, flowstore.TopQuery) ([]flowstore.TopRow, error) {
+	return []flowstore.TopRow{{Key: "198.51.100.7", Flows: math.MaxUint64}}, nil
+}
+
+// TestConfirmFlowTenantsRefusesAnOverflowingCount pins the bound on the flow
+// count: one past math.MaxInt is refused instead of wrapping into a negative
+// total.
+func TestConfirmFlowTenantsRefusesAnOverflowingCount(t *testing.T) {
+	tenants := buildFlowTenantLoad("lfoverflow", 1, 1)
+	st := overflowingFlowStore{Store: flowstore.NewMemory()}
+	total, _, err := confirmFlowTenants(context.Background(), st, tenants, time.Now().UTC(), time.Minute, nil)
+	if err == nil || !strings.Contains(err.Error(), "overflows int") {
+		t.Fatalf("a flow count past math.MaxInt must be refused, got total %d, err %v", total, err)
 	}
 }

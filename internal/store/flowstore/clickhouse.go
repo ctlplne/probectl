@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -1078,7 +1079,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 			return -1, err
 		}
 		if len(rows) > 0 {
-			remaining += int64(chToUint64(rows[0]["n"]))
+			remaining += chCount(rows[0]["n"])
 		}
 	}
 	return remaining, nil
@@ -1208,7 +1209,7 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if qerr != nil || len(rows) == 0 {
 		return -1, nil // streamed fine; count unavailable
 	}
-	return int64(chToUint64(rows[0]["n"])), nil
+	return chCount(rows[0]["n"]), nil
 }
 
 func (c *ClickHouse) countSubject(ctx context.Context, baseURL, tenantID, table string, p chParams) (int64, error) {
@@ -1220,7 +1221,7 @@ func (c *ClickHouse) countSubject(ctx context.Context, baseURL, tenantID, table 
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	return int64(chToUint64(rows[0]["n"])), nil
+	return chCount(rows[0]["n"]), nil
 }
 
 // flowSubjectPredicate matches one tenant's flow rows whose identity-bearing
@@ -1388,3 +1389,14 @@ func chParseTime(s string) time.Time {
 func chToString(v any) string { return chclient.String(v) }
 func chToFloat(v any) float64 { return chclient.Float(v) }
 func chToUint64(v any) uint64 { return chclient.Uint64(v) }
+
+// chCount reads a count() cell as int64. A UInt64 count above math.MaxInt64 is
+// capped there instead of wrapping negative; no real count gets near it, but
+// the bound is what makes the narrowing safe.
+func chCount(v any) int64 {
+	n := chToUint64(v)
+	if n > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(n)
+}

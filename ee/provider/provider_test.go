@@ -37,6 +37,8 @@ import (
 type memAudit struct {
 	mu     sync.Mutex
 	events []auditEvent
+	// pageSizes records the limit each ListAudit call received.
+	pageSizes []int
 }
 
 var errAuditUnavailable = errors.New("provider audit unavailable")
@@ -94,6 +96,7 @@ func (a *memAudit) AppendBreakGlass(
 func (a *memAudit) ListAudit(_ context.Context, cursor int64, limit int, filter coreaudit.Filter, newestFirst bool) ([]coreaudit.Event, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.pageSizes = append(a.pageSizes, limit)
 	match := func(value, want string) bool {
 		return want == "" || strings.Contains(strings.ToLower(value), strings.ToLower(want))
 	}

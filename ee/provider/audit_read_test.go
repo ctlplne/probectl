@@ -117,6 +117,36 @@ func TestProviderAuditStreamIsReadableByAdmins(t *testing.T) {
 	}
 }
 
+// TestProviderAuditPageSizeIsCapped pins the page size handed to the audit
+// reader: 50 when no limit is given, the requested limit below
+// MaxExportPageSize, and MaxExportPageSize for anything at or above it.
+func TestProviderAuditPageSizeIsCapped(t *testing.T) {
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
+	token := f.bootstrapAndLoginFast(t)
+	for _, tc := range []struct {
+		query string
+		want  int
+	}{
+		{query: "", want: 50},
+		{query: "?limit=1", want: 1},
+		{query: "?limit=999", want: 999},
+		{query: "?limit=1000", want: coreaudit.MaxExportPageSize},
+		{query: "?limit=1001", want: coreaudit.MaxExportPageSize},
+		{query: "?limit=9223372036854775807", want: coreaudit.MaxExportPageSize},
+	} {
+		rec := f.doAuthed(t, token, http.MethodGet, "/provider/v1/audit"+tc.query, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("audit%s: %d %s", tc.query, rec.Code, rec.Body.String())
+		}
+		f.audit.mu.Lock()
+		got := f.audit.pageSizes[len(f.audit.pageSizes)-1]
+		f.audit.mu.Unlock()
+		if got != tc.want {
+			t.Errorf("audit%s: page size %d, want %d", tc.query, got, tc.want)
+		}
+	}
+}
+
 // TestProviderAuditReadWithoutAReaderIsAnHonest503 keeps a sink without a
 // read side (failingAudit) from masquerading as an empty stream.
 func TestProviderAuditReadWithoutAReaderIsAnHonest503(t *testing.T) {

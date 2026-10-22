@@ -242,10 +242,11 @@ type Config struct {
 	// siloed tenants appear) instead of relying on broker auto-creation,
 	// which production brokers disable and which the client never asked for.
 	// false = the operator pre-creates them; startup then only verifies and
-	// fails closed on a missing topic.
+	// fails closed on a missing topic. Partitions and replication carry the
+	// Kafka admin API's int32/int16 widths, parsed at those widths.
 	BusCreateTopics     bool
-	BusTopicPartitions  int
-	BusTopicReplication int
+	BusTopicPartitions  int32
+	BusTopicReplication int16
 	// BusMaxBuffered bounds the async producer's in-flight buffer (U-004);
 	// 0 = the bus default (65536). Full buffer = shed + counted, never block.
 	BusMaxBuffered int
@@ -1007,8 +1008,8 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	// SCALE-009: warmer pool defaults for high fan-in API + consumers.
 	// One session is reserved for the cluster singleton advisory lock; at least
 	// one more must remain for the singleton tasks and request path.
-	cfg.DatabaseMaxConns = int32(l.intRange("PROBECTL_DATABASE_MAX_CONNS", 25, 2, 1000))
-	cfg.DatabaseMinConns = int32(l.intRange("PROBECTL_DATABASE_MIN_CONNS", 2, 0, 1000))
+	cfg.DatabaseMaxConns = l.int32Range("PROBECTL_DATABASE_MAX_CONNS", 25, 2, 1000)
+	cfg.DatabaseMinConns = l.int32Range("PROBECTL_DATABASE_MIN_CONNS", 2, 0, 1000)
 	cfg.Region = l.str("PROBECTL_REGION", "")
 	cfg.Regions = l.list("PROBECTL_REGIONS")
 	cfg.Residency = l.str("PROBECTL_RESIDENCY", "")
@@ -1059,8 +1060,8 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.BusSASLUser = l.str("PROBECTL_BUS_SASL_USER", "")
 	cfg.BusSASLPassword = l.str("PROBECTL_BUS_SASL_PASSWORD", "")
 	cfg.BusCreateTopics = l.boolean("PROBECTL_BUS_CREATE_TOPICS", true)
-	cfg.BusTopicPartitions = l.intRange("PROBECTL_BUS_TOPIC_PARTITIONS", 3, 1, 1024)
-	cfg.BusTopicReplication = l.intRange("PROBECTL_BUS_TOPIC_REPLICATION", -1, -1, 32)
+	cfg.BusTopicPartitions = l.int32Range("PROBECTL_BUS_TOPIC_PARTITIONS", 3, 1, 1024)
+	cfg.BusTopicReplication = l.int16Range("PROBECTL_BUS_TOPIC_REPLICATION", -1, -1, 32)
 	cfg.BusAllowPlaintext = l.boolean("PROBECTL_BUS_ALLOW_PLAINTEXT", false)
 	cfg.BusMaxBuffered = l.intRange("PROBECTL_BUS_MAX_BUFFERED", 0, 0, 10_000_000)
 	cfg.BusMaxMessageBytes = l.intRange("PROBECTL_BUS_MAX_MESSAGE_BYTES", 1<<20, 0, 1<<30)
@@ -2367,6 +2368,52 @@ func (l *loader) intRange(key string, def, lo, hi int) int {
 		return def
 	}
 	return n
+}
+
+// int32Range is intRange for an int32 field. The value is parsed at 32 bits, so
+// it already fits the field when the [lo,hi] check runs and the conversion
+// below cannot truncate.
+func (l *loader) int32Range(key string, def, lo, hi int32) int32 {
+	v := l.getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(v, 10, 32)
+	if !l.sizedIntInRange(key, v, n, err, int64(lo), int64(hi)) {
+		return def
+	}
+	return int32(n)
+}
+
+// int16Range is int32Range for an int16 field, parsed at 16 bits.
+func (l *loader) int16Range(key string, def, lo, hi int16) int16 {
+	v := l.getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(v, 10, 16)
+	if !l.sizedIntInRange(key, v, n, err, int64(lo), int64(hi)) {
+		return def
+	}
+	return int16(n)
+}
+
+// sizedIntInRange records intRange's errors for a value parsed at a fixed
+// width. A value too wide for the field (strconv.ErrRange) lies outside
+// [lo,hi] too, so it is reported as out of range, the same message intRange
+// gives it.
+func (l *loader) sizedIntInRange(key, v string, n int64, err error, lo, hi int64) bool {
+	switch {
+	case errors.Is(err, strconv.ErrRange):
+		l.errf("%s: %s out of range [%d,%d]", key, v, lo, hi)
+	case err != nil:
+		l.errf("%s: invalid integer %q", key, v)
+	case n < lo || n > hi:
+		l.errf("%s: %d out of range [%d,%d]", key, n, lo, hi)
+	default:
+		return true
+	}
+	return false
 }
 
 // list parses a comma-separated value into a trimmed, non-empty slice.

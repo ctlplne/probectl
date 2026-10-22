@@ -15,6 +15,7 @@ package perf
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -398,7 +399,11 @@ func confirmFlowTenants(ctx context.Context, st flowstore.Store, tenants []flowT
 		got := 0
 		key := ""
 		if len(rows) > 0 {
-			got = int(rows[0].Flows)
+			flows := rows[0].Flows
+			if flows > math.MaxInt {
+				return total, nil, fmt.Errorf("perf: flow TopTalkers tenant %s: flow count %d overflows int", tenant.ID, flows)
+			}
+			got = int(flows)
 			key = rows[0].Key
 		}
 		total += got

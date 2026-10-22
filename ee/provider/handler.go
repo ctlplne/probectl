@@ -698,7 +698,13 @@ func (h *Handler) handleListAudit(w http.ResponseWriter, r *http.Request, _ Oper
 		Action: q.Get("action"),
 		Target: q.Get("target"),
 	}
-	events, err := h.svc.ListAudit(r.Context(), cursor, int(min(limit, coreaudit.MaxExportPageSize)), filter, newestFirst)
+	// Cap the page at MaxExportPageSize, converting limit only below that bound
+	// (auditQueryInt64 has already refused a negative limit).
+	pageSize := coreaudit.MaxExportPageSize
+	if limit < coreaudit.MaxExportPageSize {
+		pageSize = int(limit)
+	}
+	events, err := h.svc.ListAudit(r.Context(), cursor, pageSize, filter, newestFirst)
 	if err != nil {
 		return err
 	}

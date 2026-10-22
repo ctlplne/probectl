@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -94,6 +95,24 @@ func String(v any) string {
 // Int coerces a cell to int (via Float).
 func Int(v any) int { return int(Float(v)) }
 
+// Uint32 coerces a UInt32 cell (an mpls_labels element) to uint32. Integer
+// text is parsed at 32 bits, so the value already fits the type it lands in.
+// Any other form (a value wider than UInt32, a float, a Go integer) keeps
+// Uint64's reading, truncated to its low 32 bits.
+func Uint32(v any) uint32 {
+	var text string
+	switch n := v.(type) {
+	case json.Number:
+		text = n.String()
+	case string:
+		text = n
+	}
+	if u, err := strconv.ParseUint(text, 10, 32); err == nil {
+		return uint32(u)
+	}
+	return uint32(Uint64(v) & math.MaxUint32)
+}
+
 // UintSlice coerces a ClickHouse array cell to []uint32.
 func UintSlice(v any) []uint32 {
 	arr, ok := v.([]any)
@@ -102,7 +121,7 @@ func UintSlice(v any) []uint32 {
 	}
 	out := make([]uint32, 0, len(arr))
 	for _, e := range arr {
-		out = append(out, uint32(Uint64(e)))
+		out = append(out, Uint32(e))
 	}
 	return out
 }
