@@ -77,6 +77,8 @@ type Stack struct {
 	BaseURL        string // https://localhost:<the IdP's registered callback port>
 	CAFile         string // the CA behind every control-plane listener
 	ServerCert     string // the listeners' leaf certificate
+	ServerKey      string // its private key
+	AgentCAFile    string // the registry CA that signs agent and router SVIDs
 	AgentAddr      string // the agent gRPC/mTLS listener
 	OTLPURL        string // the OTLP/HTTP listener
 	ObjectDir      string // the filesystem object store
@@ -171,6 +173,7 @@ func Start(t *testing.T, o Options) *Stack {
 	tlsDir := filepath.Join(s.Dir, "tls")
 	s.run(t, nil, s.Control, "gen-cert", tlsDir)
 	s.CAFile, s.ServerCert = filepath.Join(tlsDir, "ca.crt"), filepath.Join(tlsDir, "tls.crt")
+	s.ServerKey = filepath.Join(tlsDir, "tls.key")
 	if s.client, err = crypto.HardenedHTTPClientWithCAFile(30*time.Second, s.CAFile); err != nil {
 		t.Fatal(err)
 	}
@@ -234,6 +237,7 @@ func Start(t *testing.T, o Options) *Stack {
 	s.Subcommand(t, "migrate")
 	s.grantServeLogin(t)
 	agentCA := filepath.Join(s.Dir, "agent-ca.crt")
+	s.AgentCAFile = agentCA
 	s.Subcommand(t, "agent-ca", "init", "-key-out", filepath.Join(s.Dir, "agent-ca-root.key"))
 	s.Subcommand(t, "agent-ca", "export", agentCA)
 	serveEnv := append(append([]string(nil), s.env...),
@@ -503,6 +507,22 @@ func (s *Stack) StartCollector(t *testing.T, binary, name, envPrefix, config str
 		envPrefix + "_METRICS_ADDR=" + freeAddr(t),
 		envPrefix + "_BUS_ALLOW_PLAINTEXT=true",
 	})
+}
+
+// StartProcess runs a shipped binary in the background with env added to
+// the test's environment, logging to <label>.log in the stack's directory, and
+// stops it at cleanup (or earlier through Stop). It is for collectors that take
+// their configuration from flags and the environment rather than a YAML file
+// (probectl-bmp-listener, the probectl-control bgp-analyzer sidecar).
+func (s *Stack) StartProcess(t *testing.T, label, bin string, args, env []string) string {
+	t.Helper()
+	return s.start(t, label, bin, args, env)
+}
+
+// FreeAddr is a loopback TCP address nothing listens on yet.
+func FreeAddr(t *testing.T) string {
+	t.Helper()
+	return freeAddr(t)
 }
 
 // FreeUDPAddr is a loopback UDP address nothing listens on yet, for a

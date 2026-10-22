@@ -102,10 +102,16 @@ capabilities:
     real_stack_proof: {refs: ["test:internal/canary/realstack_integration_test.go#TestSyntheticProbesRealStack"]}
     migration: *no_migration
 
+  # F6's real-stack receipt feeds the shipped collectors from real BGP
+  # speakers (FRRouting: MRT to each tenant's analyzer sidecar with its own
+  # watch config, BMP from each tenant's router to its listener) and, when
+  # RIPE RIS Live is reachable, live RIS input; two tenants (pooled + hybrid)
+  # plus the live one, through the API, the CLI and the rendered BGP page.
+  # The live leg stands down with a stated reason when RIS Live is
+  # unreachable; the deterministic leg is the binding proof.
   - id: F6
     name: BGP monitoring
     status: delivered
-    evidence_status: partial
     owner: incident/API
     engine: {refs: ["file:internal/bgp", "file:analyzer/probectl_analyzer"]}
     binary: {refs: ["file:cmd/probectl-bmp-listener/main.go#func run", "file:cmd/probectl-control/bgp_analyzer.go#func runBGPAnalyzer"]}
@@ -115,7 +121,7 @@ capabilities:
     docs: {refs: ["file:docs/bgp.md#BGP & routing monitoring"]}
     config_keys: {refs: ["config:PROBECTL_BGP_ANALYZER_CONFIG", "config:PROBECTL_BMP_LISTEN_ADDR"]}
     telemetry: {refs: ["file:internal/bgp"]}
-    real_stack_proof: {gap: "The current analyzer receipt uses a recorded RIS fixture and an in-process server path; it does not prove the shipping full-stack BGP workflow with live input and two-tenant user-visible isolation."}
+    real_stack_proof: {refs: ["test:internal/bgp/realstack_integration_test.go#TestBGPMonitoringRealStack"]}
     migration: *no_migration
 
   - id: F7

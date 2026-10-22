@@ -64,7 +64,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   { id: 'F3', name: 'Path visualization', status: 'delivered', source: 'contract:features' },
   { id: 'F4', name: 'HTTP tests', status: 'delivered', source: 'contract:features' },
   { id: 'F5', name: 'DNS tests', status: 'delivered', source: 'contract:features' },
-  { id: 'F6', name: 'BGP monitoring', status: 'partial', source: 'contract:features' },
+  { id: 'F6', name: 'BGP monitoring', status: 'delivered', source: 'contract:features' },
   {
     id: 'F7',
     name: 'Open-data enrichment',

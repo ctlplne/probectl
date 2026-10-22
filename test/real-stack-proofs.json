@@ -203,6 +203,13 @@
       "capabilities": [
         "F8"
       ]
+    },
+    {
+      "ref": "test:internal/bgp/realstack_integration_test.go#TestBGPMonitoringRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F6"
+      ]
     }
   ]
 }

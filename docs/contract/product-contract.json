@@ -40,7 +40,7 @@
         "F6"
       ],
       "name": "BGP monitoring",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`analyzer/`, `internal/bgp`"
     },
     {
