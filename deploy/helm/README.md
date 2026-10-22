@@ -513,7 +513,9 @@ named. The policy's `imageReferences` are derived from `image.repository`, so a
 mirrored registry is verified too, and the install is two steps (policy, then
 agent) so the first pod is verified as well — what it enforces, why hooks are
 not used, mirror/air-gap keys and GitOps ordering:
-[`docs/deploying-agents.md` → Image-integrity admission](../../docs/deploying-agents.md#image-integrity-admission-kubernetes). Disabling the verifier requires both
+[`docs/deploying-agents.md` → Image-integrity admission](../../docs/deploying-agents.md#image-integrity-admission-kubernetes).
+`scripts/kyverno_admission_smoke.sh` (CI job `kyverno-admission`) proves it on a
+real kind + Kyverno cluster. Disabling the verifier requires both
 `admission.imageIntegrity.enabled=false` and a non-empty
 `admission.imageIntegrity.acceptedRisk` note so a tag-only/dev path leaves an
 audit-visible footprint in values.

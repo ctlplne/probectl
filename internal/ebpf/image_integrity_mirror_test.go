@@ -18,6 +18,11 @@ import (
 // globs that still missed a mirror with a different path; the chart now DERIVES
 // its reference from image.repository (so whatever the DaemonSet pulls is what
 // the policy verifies) and pins the transparency log.
+//
+// The live half — two-step install, unsigned / other-key / tag-only / mirror
+// images denied at admission, signed digests admitted, Kyverno down refuses —
+// is scripts/kyverno_admission_smoke.sh on a kind + Kyverno cluster (ci.yml
+// job kyverno-admission).
 func TestAgentImageIntegrityCoversMirrorsAndPinsRekor(t *testing.T) {
 	const mirrorGlob = "*/ctlplne/probectl-ebpf-agent*"
 	const rekorURL = "rekor.sigstore.dev"

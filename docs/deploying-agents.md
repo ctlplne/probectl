@@ -596,6 +596,19 @@ replicas and alert when `kyverno-resource-mutating-webhook-cfg` or
 `kyverno.io/v1 ClusterPolicy` deprecated in favour of `ImageValidatingPolicy`;
 the chart's policy is accepted without other warnings.
 
+**Proof.** `scripts/kyverno_admission_smoke.sh` (CI job `kyverno-admission`)
+runs all of this on a real kind cluster with a pinned Kyverno: Kyverno accepts
+both shipped policies; the chart refuses to install before its policy exists;
+the two-step install is admitted; an unsigned digest, a digest signed by another
+key, a tag-only reference, an unsigned pod outside the chart, and an unsigned
+image in a mirror with a different path are each denied with the policy's
+message; the signed mirror image is admitted; a Kyverno that cannot answer
+refuses a signed image; and the chart refuses to roll out while Kyverno's
+webhooks are gone. It signs with a cosign key pair generated for the run (the
+`publicKey` + `ignoreTlog` configuration above); admitting a real keyless-signed
+release digest pulled from GHCR waits on the release packages being publicly
+readable.
+
 ## See also
 
 - [Getting started](getting-started.md) — zero to your first probe result, the

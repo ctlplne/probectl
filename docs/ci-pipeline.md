@@ -224,6 +224,14 @@ Verification you ran, not verification you described.
   certificate Secret, HSTS, and no default credentials); the manifests are
   schema-validated with `kubeconform`, the GitOps (ArgoCD/Flux) manifests are
   checked, and the shipped compose file must pass `docker compose config`.
+- **kyverno-admission** (RTO-12) — the agent chart's Kyverno image-integrity
+  policy on a real cluster (`scripts/kyverno_admission_smoke.sh`): a kind node
+  image and Kyverno chart pinned by digest/sha256, a run-time TLS registry and
+  cosign keys. The two-step install is admitted; an unsigned digest, a digest
+  signed by another key, a tag-only reference and an unsigned image in a
+  mirror are denied at admission with the policy's message; a Kyverno that
+  cannot answer refuses; the chart refuses to roll out before its policy is
+  live and Ready, or while Kyverno's webhooks are gone.
 - **terraform-gate** — the Terraform module is `fmt`-clean and `terraform
 validate`s via an example root that consumes it.
 

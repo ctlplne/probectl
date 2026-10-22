@@ -110,6 +110,7 @@ jobs is below — 42 specialist jobs plus the `verify-all` umbrella, for
 | `sdk-gate`               | generated REST SDKs are in sync with OpenAPI                                                                                                       |
 | `migration-gate`         | expand/contract (zero-downtime) migrations                                                                                                         |
 | `helm-gate`              | Helm chart lints + hardening invariants; GitOps manifests + compose config valid                                                                   |
+| `kyverno-admission`      | the agent chart's Kyverno image-integrity policy on a real kind cluster: unsigned / other-key / tag-only / mirrored images denied, signed admitted |
 | `terraform-gate`         | `terraform fmt` + `validate`                                                                                                                       |
 | `ebpf-kernel-matrix`     | eBPF programs load across the supported kernel matrix                                                                                              |
 | `ebpf-image-live`        | the shipped eBPF-agent image is the live (not fixture-replay) build                                                                                |
