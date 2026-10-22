@@ -2,8 +2,11 @@
 
 ## What it is
 
-`probectl-endpoint` is a lightweight, cross-OS (Linux / macOS / Windows) agent
-that runs **on a user's own device** and measures the **last mile** — the final
+> **Beta: Linux only.** The endpoint agent is supported on Linux in the beta.
+> macOS and Windows builds compile but are not supported until signed builds
+> and their Wi-Fi paths are proven on real hosts.
+
+`probectl-endpoint` is a lightweight agent that runs **on a user's own device** and measures the **last mile** — the final
 stretch between that device and the wider internet (its Wi-Fi link, the home
 router, the ISP's access line): the part of the path that probectl's server-side
 canaries physically cannot see. Your data-center probes can tell you the service

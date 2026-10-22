@@ -22,7 +22,8 @@ Five capabilities live here:
 - **Hardened cryptographic mode** — a build that operates a government-validated
   cryptographic module (the Federal Information Processing Standards mode, FIPS).
 - **Multi-region high availability (HA)** — survive a region failure with no data
-  corruption.
+  corruption. *Provisional in the beta: the design and its tests ship, but the
+  beta makes no HA claim until it is measured on stated hardware.*
 - **Governance and supportability** — control data retention, masking, erasure,
   and per-customer keys; produce a secret-free support bundle on demand.
 
@@ -111,6 +112,10 @@ in the FIPS build the self-test also asserts the validated module is actually
 active.
 
 ### Multi-region high availability
+
+> **Beta: provisional.** The beta claims no high availability and no capacity
+> tier. What follows is the shipped design; the claim waits for a measured
+> reference deployment.
 
 probectl runs **active-active** across regions for the parts that can: every
 region runs stateless control-plane and ingest replicas, all serving at once.

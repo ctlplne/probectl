@@ -246,8 +246,9 @@ flag distinguishes an unwired pipeline from a genuinely empty fleet.
 
 - **Browser synthetic:** create with `probectl test create --type browser`; the
   default driver runs the transaction as HTTP and reports a request waterfall.
-- **Endpoint agent (DEM):** runs unprivileged on Linux/macOS/Windows; deploy via
-  your mobile-device-management tool; fleet at `GET /v1/endpoints`; attribution
+- **Endpoint agent (DEM):** runs unprivileged on Linux (the beta supports Linux
+  only; macOS and Windows return once signed builds are proven); deploy via
+  your device-management tool; fleet at `GET /v1/endpoints`; attribution
   verdicts `wifi` / `local` / `isp` / `network` / `none` / `unknown`.
 - **RUM:** opt-in via `PROBECTL_RUM_ENABLED`; public app keys mapped in
   `PROBECTL_RUM_APPS` (origins required under multi-tenant / regulated); beacon

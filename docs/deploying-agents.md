@@ -439,7 +439,7 @@ The privacy model, the attribution engine, the per-OS collection matrix, and the
 | Flow | `probectl-flow-agent` | mgmt network (UDP `:2055/:4739/:6343`) | **bus** (`probectl.flow.events`) | Kafka + ClickHouse | `probectl-flow-agent -config flow-agent.yml` |
 | Device | `probectl-device-agent` | reaches device mgmt | **bus** (`probectl.device.metrics`) | Kafka (+ TSDB) | `probectl-device-agent -config device-agent.yml` |
 | eBPF host | `probectl-ebpf-agent` | **Linux**, `CAP_BPF`+`CAP_PERFMON`, BTF ≥5.8 | **bus** (`probectl.ebpf.flows`) | Kafka (+ ClickHouse) | `sudo deploy/agent/install.sh ./probectl-ebpf-agent` (cosign verification is default) |
-| Endpoint / DEM | `probectl-endpoint` | Linux / macOS / Windows, unprivileged | **bus** (`probectl.endpoint.results`) | Kafka (or in-memory) | `probectl-endpoint -config endpoint.yml` |
+| Endpoint / DEM | `probectl-endpoint` | Linux (beta), unprivileged | **bus** (`probectl.endpoint.results`) | Kafka (or in-memory) | `probectl-endpoint -config endpoint.yml` |
 
 ## At scale
 

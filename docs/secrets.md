@@ -8,8 +8,11 @@ enterprise secret store at the moment it is needed. A reference works like a
 library call number: the config file holds the catalog card, not the book —
 stealing the card tells a thief which shelf to look at, but the library still
 checks *probectl's* credentials at the desk before handing anything over.
-Supported backends: HashiCorp Vault, CyberArk CCP, AWS Secrets Manager, Azure
-Key Vault, and GCP Secret Manager.
+Supported backend in the beta: **HashiCorp Vault** (and OpenBao, its API-compatible
+fork), proven end to end and fail-closed. Resolvers for CyberArk CCP, AWS Secrets
+Manager, Azure Key Vault and GCP Secret Manager exist but are **not yet proven
+against a real backend**, so the beta does not support them; they return when
+each has a real-backend proof.
 
 The same machinery closes the loop with **trustctl** (the sibling
 certificate/identity product): agents present trustctl-issued machine identities
@@ -45,15 +48,15 @@ no hardcoded or logged secrets, and TLS on every channel.
 
 Anywhere probectl accepts a credential value, that value may be a reference:
 
-| Form | Backend |
-|---|---|
-| `env:NAME` | process environment |
-| `vault:<mount>/<path>#<field>` | Vault KV v2 |
-| `cyberark:<query>` (e.g. `Safe=NetOps;Object=snmp-core`; `#username` selects UserName) | CyberArk CCP |
-| `aws:<secret-id>[#<json-field>]` | AWS Secrets Manager |
-| `azure:<vault-name>/<secret-name>` | Azure Key Vault |
-| `gcp:<project>/<secret>[/<version>]` | GCP Secret Manager |
-| `literal:<value>` | escape hatch for a literal that happens to start with a scheme |
+| Form | Backend | Beta |
+|---|---|---|
+| `env:NAME` | process environment | supported |
+| `vault:<mount>/<path>#<field>` | Vault KV v2 (or OpenBao) | supported |
+| `cyberark:<query>` (e.g. `Safe=NetOps;Object=snmp-core`; `#username` selects UserName) | CyberArk CCP | not supported: no real-backend proof yet |
+| `aws:<secret-id>[#<json-field>]` | AWS Secrets Manager | not supported: no real-backend proof yet |
+| `azure:<vault-name>/<secret-name>` | Azure Key Vault | not supported: no real-backend proof yet |
+| `gcp:<project>/<secret>[/<version>]` | GCP Secret Manager | not supported: no real-backend proof yet |
+| `literal:<value>` | escape hatch for a literal that happens to start with a scheme | supported |
 
 Anything that does not match a scheme is treated as a literal and passes through
 unchanged — so existing plaintext configurations keep working while you migrate.

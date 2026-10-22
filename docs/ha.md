@@ -1,5 +1,9 @@
 # High availability and read-view coherence (RESIL-004)
 
+> **Beta: provisional.** The beta claims no high availability and no capacity
+> tier. This page describes the shipped design and what its tests check; the
+> claim waits for a measured reference deployment.
+
 This page explains, in plain terms, why the shipped production references can
 run more than one control-plane replica without serving split-brain read views.
 

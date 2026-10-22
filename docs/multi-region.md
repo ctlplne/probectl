@@ -1,5 +1,9 @@
 # Multi-region / active-active HA
 
+> **Beta: provisional.** The beta claims no high availability and no capacity
+> tier. This page describes the shipped design; the claim waits for a measured
+> reference deployment.
+
 probectl runs **active-active across regions** — but it's worth being precise
 about what that phrase does and does not mean here, because it's the source of
 most confusion about HA databases. (**HA** — high availability: the property
