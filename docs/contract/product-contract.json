@@ -312,7 +312,7 @@
         "F40"
       ],
       "name": "Live topology graph",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`internal/topology` (versioned, what-if; ADR U-047)"
     },
     {

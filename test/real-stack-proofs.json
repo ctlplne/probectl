@@ -224,6 +224,13 @@
       "capabilities": [
         "F13"
       ]
+    },
+    {
+      "ref": "test:internal/topology/realstack_integration_test.go#TestTopologyGraphRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F40"
+      ]
     }
   ]
 }

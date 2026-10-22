@@ -79,6 +79,15 @@ const FULL_STACK_TOPOLOGY_RECEIPT: SurfaceLiveReceipt = {
   note: 'Black-box e2e boots compose plus real binaries, ingests tenant-separated eBPF fixture flows through Kafka, and reads the tenant-scoped /v1/topology API.',
 }
 
+const TOPOLOGY_LIVE_RECEIPT: SurfaceLiveReceipt = {
+  status: 'live-green',
+  evidence: [
+    'ci:.github/workflows/ci.yml:make test-integration',
+    'test:internal/topology/realstack_integration_test.go:TestTopologyGraphRealStack',
+  ],
+  note: 'The integration lane builds two tenants’ graphs on the same address from real SNMP/LLDP (shipped device agent against net-snmp), control-plane path discovery and the shipped BGP analyzer, and proves through the API, CLI and Topology page that each graph, what-if blast radius and RCA topology walk is the tenant’s own, and that a moved LLDP neighbor updates the live graph. No eBPF input (ING-24).',
+}
+
 const CROSS_PLANE_INCIDENT_RECEIPT: SurfaceLiveReceipt = {
   status: 'live-green',
   evidence: [
@@ -380,7 +389,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S43',
     kind: 'native',
     route: '/topology',
-    liveReceipt: FULL_STACK_TOPOLOGY_RECEIPT,
+    liveReceipt: TOPOLOGY_LIVE_RECEIPT,
   },
   {
     capability: 'Network egress cost summary + budgets (FinOps showback)',

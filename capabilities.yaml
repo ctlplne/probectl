@@ -666,10 +666,20 @@ capabilities:
     real_stack_proof: {refs: ["test:internal/control/change_integration_test.go#TestChangeWebhookTenantIsolation"]}
     migration: {refs: ["file:migrations/0017_change_events.sql"]}
 
+  # F40's real-stack receipt builds each of an MSP's two tenants a graph from
+  # its own real telemetry on the same address: the shipped device agent
+  # against a net-snmp device (device node, interface hops, LLDP adjacency),
+  # control-plane path discovery to 127.0.0.1, and the shipped BGP analyzer
+  # sidecar's origin events. Each graph is exactly the tenant's own on the
+  # API, the CLI and the rendered Topology page; what-if on the shared hop and
+  # on the origin AS lists only the tenant's own downstream nodes and tests;
+  # the BGP incident's prefix and origin are nodes of its graph and RCA walks
+  # from the address to the device, its neighbor and the hijacking AS; a moved
+  # LLDP neighbor updates the live graph while ?at= keeps the old one. No eBPF
+  # input (ING-24 keeps it out); NetFlow is not a topology input.
   - id: F40
     name: Live topology graph
     status: delivered
-    evidence_status: partial
     owner: platform/release
     engine: {refs: ["file:internal/topology"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#WithTopology(rt.topoStore)"]}
@@ -679,7 +689,7 @@ capabilities:
     docs: {refs: ["file:docs/topology.md#Topology graph"]}
     config_keys: {refs: ["config:PROBECTL_TOPOLOGY_ENGINE", "config:PROBECTL_TOPOLOGY_WHATIF_TIMEOUT"]}
     telemetry: {refs: ["file:internal/control/topologyapi.go"]}
-    real_stack_proof: {gap: "The black-box E2E builds topology from fixture-mode eBPF flows and omits the full four-store and human CLI/UI path, so it is not live topology delivery proof."}
+    real_stack_proof: {refs: ["test:internal/topology/realstack_integration_test.go#TestTopologyGraphRealStack"]}
     migration: *no_migration
 
   - id: F41

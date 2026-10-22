@@ -130,9 +130,11 @@ as a false empty. Missing neighbor evidence leaves the live edge absent.
 
 Device → hop linkage depends on the telemetry exposing interface IPs. When it
 does (`ObserveDevice` with `InterfaceIPs`), the device node links to the hops it
-carries. When it does not — which is the case for the SNMP/gNMI device telemetry
-today — the device node still exists, but **without** links, and that gap is
-**reported** as a coverage note (below), never silently treated as "complete."
+carries: SNMP collection reads them from `ipAddrTable`, so a polled device links
+to a `hop:<ip>` for each IPv4 address it holds (loopback included). When it does
+not — which is the case for gNMI device telemetry today — the device node still
+exists, but **without** links, and that gap is **reported** as a coverage note
+(below), never silently treated as "complete."
 
 A neighbor known only from LLDP/CDP leaves the live graph together with its
 last adjacency: when a device stops reporting it (the uplink moved to another
@@ -242,6 +244,26 @@ a deployment outgrows a single process.
   The receipt is stored independently, so a failed attempt never clears
   last-known-good physical edges. The same contract appears in Device, Admin,
   generated SDKs, and `probectl device outcomes`.
+
+## Real-stack receipt
+
+`TestTopologyGraphRealStack` (`internal/topology/realstack_integration_test.go`,
+the F40 receipt in CI's integration lane) builds two tenants' graphs on the
+shipped control plane from real inputs that all sit on 127.0.0.1, so a lost
+tenant scope shows: each tenant's shipped device agent polls its own net-snmp
+device (device node, `device` edges to its loopback and eth0 hops, a `physical`
+LLDP edge to its neighbor), each traces 127.0.0.1 from the control plane
+(`agent:control → hop → host`), and each tenant's shipped BGP analyzer sidecar
+publishes its own origin event (`as → prefix`). It requires each graph to be
+exactly the tenant's nodes and directed edges on `GET /v1/topology`,
+`probectl topology show` and the rendered Topology page; what-if on the shared
+hop and on the origin AS to list only the tenant's own downstream nodes and
+path test (the other tenant's elements are a 404); the BGP incident's prefix
+and origin to be nodes of the tenant's graph, and RCA to walk from the address
+to the tenant's device, neighbor and originating AS; and a moved LLDP neighbor
+to update the live graph while `?at=` keeps the earlier adjacency. eBPF service
+edges are not an input of this receipt (ING-24: inbound flow direction is
+reversed); NetFlow/IPFIX records are not a topology input.
 
 ## Out of scope (by design)
 

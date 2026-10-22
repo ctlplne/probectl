@@ -231,7 +231,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F40',
     name: 'Live topology graph',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {
