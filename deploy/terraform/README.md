@@ -177,7 +177,12 @@ development overrides at a local `bin/` directory.
 Resources:
 
 - `probectl_test` -> `/v1/tests`
-- `probectl_alert_route` -> `/v1/alerts`
+- `probectl_alert_route` -> `/v1/alerts` (threshold, baseline and trap rules;
+  a `type = "trap"` rule takes one `trap` block — `trap_oid`, optional
+  `clear_trap_oid`, `device`, `varbind_oid` + `varbind_value`, `hold_seconds`
+  (default 900) — and no `metric`; see
+  [`examples/trap-alert-rules`](examples/trap-alert-rules/main.tf) and
+  [`docs/alerting.md`](../../docs/alerting.md#trap-rules))
 - `probectl_provider_tenant` -> `/provider/v1/tenants`
 - `probectl_api_resource` -> advanced arbitrary served API operations, such as
   early SLO or integration endpoints before a typed Terraform resource exists
@@ -220,6 +225,26 @@ resource "probectl_alert_route" "loss" {
   channel {
     type = "webhook"
     url  = "https://hooks.internal.example/probectl"
+  }
+}
+
+# D-61: a trap rule matches the tenant's stored, authenticated SNMP traps
+# instead of a metric (no metric/comparison/threshold). It resolves on the
+# clear trap or when hold_seconds pass without a newer match.
+resource "probectl_alert_route" "uplink_down" {
+  name     = "core uplink down"
+  type     = "trap"
+  severity = "critical"
+  trap {
+    trap_oid       = ".1.3.6.1.6.3.1.1.5.3" # linkDown
+    clear_trap_oid = ".1.3.6.1.6.3.1.1.5.4" # linkUp
+    varbind_oid    = ".1.3.6.1.2.1.2.2.1.1.3"
+    varbind_value  = "3"
+    hold_seconds   = 900
+  }
+  channel {
+    type = "webhook"
+    url  = "https://hooks.internal.example/probectl/traps"
   }
 }
 

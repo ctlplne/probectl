@@ -234,8 +234,10 @@ func resourceAlertRoute() *schema.Resource {
 		UpdateContext: updateAlertRoute,
 		DeleteContext: deleteByPath("/v1/alerts/{id}"),
 		Schema: map[string]*schema.Schema{
-			"name":             {Type: schema.TypeString, Required: true},
-			"metric":           {Type: schema.TypeString, Required: true},
+			"name": {Type: schema.TypeString, Required: true},
+			// metric is required for threshold and baseline rules (the server
+			// says so); a trap rule's metric is fixed server-side.
+			"metric":           {Type: schema.TypeString, Optional: true},
 			"type":             {Type: schema.TypeString, Optional: true, Default: "threshold"},
 			"comparison":       {Type: schema.TypeString, Optional: true, Default: "gt"},
 			"threshold":        {Type: schema.TypeFloat, Optional: true},
@@ -247,6 +249,8 @@ func resourceAlertRoute() *schema.Resource {
 			"enabled":          {Type: schema.TypeBool, Optional: true, Default: true},
 			"match":            {Type: schema.TypeMap, Optional: true, Elem: &schema.Schema{Type: schema.TypeString}},
 			"channel":          {Type: schema.TypeList, Optional: true, Elem: channelSchema()},
+			// D-61: what a type = "trap" rule matches in the tenant's stored SNMP traps.
+			"trap":             {Type: schema.TypeList, Optional: true, MaxItems: 1, Elem: trapMatchSchema()},
 			"alerting_active":  {Type: schema.TypeBool, Computed: true},
 			"inactive_warning": {Type: schema.TypeString, Computed: true},
 		},
@@ -262,7 +266,31 @@ func channelSchema() *schema.Resource {
 	}}
 }
 
+// trapMatchSchema is the alert rule's trap block (D-61). OIDs compare with
+// and without their leading dot, so "1.3.6.1.6.3.1.1.5.3" in configuration
+// matches the ".1.3.6.1.6.3.1.1.5.3" the server stores without a diff.
+func trapMatchSchema() *schema.Resource {
+	oid := func(required bool) *schema.Schema {
+		return &schema.Schema{Type: schema.TypeString, Required: required, Optional: !required, DiffSuppressFunc: sameOID}
+	}
+	return &schema.Resource{Schema: map[string]*schema.Schema{
+		"trap_oid":       oid(true),
+		"clear_trap_oid": oid(false),
+		"device":         {Type: schema.TypeString, Optional: true},
+		"varbind_oid":    oid(false),
+		"varbind_value":  {Type: schema.TypeString, Optional: true},
+		"hold_seconds":   {Type: schema.TypeInt, Optional: true, Default: 900},
+	}}
+}
+
+func sameOID(_, stored, configured string, _ *schema.ResourceData) bool {
+	return strings.TrimPrefix(strings.TrimSpace(stored), ".") == strings.TrimPrefix(strings.TrimSpace(configured), ".")
+}
+
 func alertBody(d *schema.ResourceData) map[string]any {
+	if d.Get("type").(string) == "trap" {
+		return trapAlertBody(d)
+	}
 	return map[string]any{
 		"name":             d.Get("name").(string),
 		"metric":           d.Get("metric").(string),
@@ -278,6 +306,56 @@ func alertBody(d *schema.ResourceData) map[string]any {
 		"match":            stringMap(d.Get("match").(map[string]any)),
 		"channels":         channels(d.Get("channel").([]any)),
 	}
+}
+
+// trapAlertBody is a trap rule's request: the trap match plus the delivery
+// fields every rule shares; the metric-rule fields do not apply and are not sent.
+func trapAlertBody(d *schema.ResourceData) map[string]any {
+	body := map[string]any{
+		"name":             d.Get("name").(string),
+		"type":             "trap",
+		"for_n":            d.Get("for_n").(int),
+		"renotify_seconds": d.Get("renotify_seconds").(int),
+		"severity":         d.Get("severity").(string),
+		"enabled":          d.Get("enabled").(bool),
+		"channels":         channels(d.Get("channel").([]any)),
+	}
+	if list, ok := d.Get("trap").([]any); ok && len(list) == 1 {
+		if m, ok := list[0].(map[string]any); ok {
+			trap := map[string]any{"trap_oid": m["trap_oid"], "hold_seconds": m["hold_seconds"]}
+			for _, k := range []string{"clear_trap_oid", "device", "varbind_oid", "varbind_value"} {
+				if v, ok := m[k].(string); ok && v != "" {
+					trap[k] = v
+				}
+			}
+			body["trap"] = trap
+		}
+	}
+	return body
+}
+
+// setTrap copies the server's trap match into state (absent for other types).
+func setTrap(d *schema.ResourceData, value any) {
+	m, ok := value.(map[string]any)
+	if !ok {
+		_ = d.Set("trap", nil)
+		return
+	}
+	block := map[string]any{}
+	for _, k := range []string{"trap_oid", "clear_trap_oid", "device", "varbind_oid", "varbind_value"} {
+		if v, ok := m[k].(string); ok {
+			block[k] = v
+		}
+	}
+	switch v := m["hold_seconds"].(type) {
+	case float64:
+		block["hold_seconds"] = int(v)
+	case json.Number:
+		if n, err := strconv.Atoi(v.String()); err == nil {
+			block["hold_seconds"] = n
+		}
+	}
+	_ = d.Set("trap", []any{block})
 }
 
 func channels(raw []any) []map[string]any {
@@ -325,13 +403,19 @@ func readAlertRoute(ctx context.Context, d *schema.ResourceData, meta any) diag.
 		return diag.FromErr(err)
 	}
 	setString(d, "name", out["name"])
-	setString(d, "metric", out["metric"])
 	setString(d, "type", out["type"])
+	setString(d, "severity", out["severity"])
+	setBool(d, "enabled", out["enabled"])
+	if out["type"] == "trap" {
+		// The server fixes a trap rule's metric and gte-1 condition; reading
+		// them back would fight the configuration on every plan.
+		setTrap(d, out["trap"])
+		return nil
+	}
+	setString(d, "metric", out["metric"])
 	setString(d, "comparison", out["comparison"])
 	setFloat(d, "threshold", out["threshold"])
 	setInt(d, "window", out["window"])
-	setString(d, "severity", out["severity"])
-	setBool(d, "enabled", out["enabled"])
 	return nil
 }
 

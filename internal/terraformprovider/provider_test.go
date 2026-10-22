@@ -239,3 +239,97 @@ func assertNoDiagnostics(t *testing.T, diags interface{ HasError() bool }) {
 		t.Fatalf("unexpected diagnostics: %v", diags)
 	}
 }
+
+// TestAlertRouteTrapRuleCRUD: a type = "trap" rule (D-61) posts its trap
+// block and none of the metric-rule fields, reads the stored match back, and
+// the server's leading-dot OIDs do not diff against configuration without one.
+func TestAlertRouteTrapRuleCRUD(t *testing.T) {
+	var created, updated map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuthHeaders(t, r, "tenant-a", "token-a")
+		w.Header().Set("Content-Type", "application/json")
+		decode := func() map[string]any {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			return body
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/alerts":
+			created = decode()
+			_, _ = w.Write([]byte(`{"id":"rule-1","type":"trap"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/alerts/rule-1":
+			_, _ = w.Write([]byte(`{"id":"rule-1","name":"uplink down","type":"trap","metric":"probectl_device_trap",
+				"comparison":"gte","threshold":1,"severity":"critical","enabled":true,
+				"trap":{"trap_oid":".1.3.6.1.6.3.1.1.5.3","clear_trap_oid":".1.3.6.1.6.3.1.1.5.4",
+				        "varbind_oid":".1.3.6.1.2.1.2.2.1.1.3","varbind_value":"3","hold_seconds":600}}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/v1/alerts/rule-1":
+			updated = decode()
+			_, _ = w.Write([]byte(`{"id":"rule-1"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v1/alerts/rule-1":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	res := resourceAlertRoute()
+	d := schema.TestResourceDataRaw(t, res.Schema, map[string]any{
+		"name": "uplink down", "type": "trap", "severity": "critical",
+		"trap": []any{map[string]any{
+			"trap_oid": "1.3.6.1.6.3.1.1.5.3", "clear_trap_oid": "1.3.6.1.6.3.1.1.5.4",
+			"varbind_oid": "1.3.6.1.2.1.2.2.1.1.3", "varbind_value": "3", "hold_seconds": 600,
+		}},
+		"channel": []any{map[string]any{"type": "webhook", "url": "https://hooks.example/traps", "secret": "s"}},
+	})
+	meta := testClient(srv.URL, "tenant-a", "token-a")
+	assertNoDiagnostics(t, createAlertRoute(context.Background(), d, meta))
+	if d.Id() != "rule-1" {
+		t.Fatalf("create set id %q", d.Id())
+	}
+	trap, _ := created["trap"].(map[string]any)
+	if created["type"] != "trap" || trap["trap_oid"] != "1.3.6.1.6.3.1.1.5.3" || trap["clear_trap_oid"] != "1.3.6.1.6.3.1.1.5.4" ||
+		trap["varbind_value"] != "3" || trap["hold_seconds"] != float64(600) || trap["device"] != nil {
+		t.Fatalf("wrong trap create body: %#v", created)
+	}
+	for _, k := range []string{"metric", "comparison", "threshold", "window", "sensitivity", "match"} {
+		if _, ok := created[k]; ok {
+			t.Fatalf("a trap rule body carries the metric-rule field %q: %#v", k, created)
+		}
+	}
+	assertNoDiagnostics(t, readAlertRoute(context.Background(), d, meta))
+	if got := d.Get("trap.0.trap_oid"); got != ".1.3.6.1.6.3.1.1.5.3" {
+		t.Fatalf("read trap_oid = %v", got)
+	}
+	if d.Get("trap.0.hold_seconds") != 600 || d.Get("trap.0.varbind_oid") != ".1.3.6.1.2.1.2.2.1.1.3" {
+		t.Fatalf("read trap block = %v", d.Get("trap"))
+	}
+	if d.Get("metric") != "" || d.Get("comparison") != "gt" {
+		t.Fatalf("read copied the server-fixed metric/comparison into state: metric=%v comparison=%v", d.Get("metric"), d.Get("comparison"))
+	}
+	oidSchema := trapMatchSchema().Schema["trap_oid"]
+	if !oidSchema.DiffSuppressFunc("trap.0.trap_oid", ".1.3.6.1.6.3.1.1.5.3", "1.3.6.1.6.3.1.1.5.3", d) ||
+		oidSchema.DiffSuppressFunc("trap.0.trap_oid", ".1.3.6.1.6.3.1.1.5.3", ".1.3.6.1.6.3.1.1.5.4", d) {
+		t.Fatal("trap OIDs must compare with and without the leading dot, and only then")
+	}
+	assertNoDiagnostics(t, updateAlertRoute(context.Background(), d, meta))
+	if updated["type"] != "trap" || updated["trap"] == nil {
+		t.Fatalf("wrong trap update body: %#v", updated)
+	}
+	assertNoDiagnostics(t, deleteByPath("/v1/alerts/{id}")(context.Background(), d, meta))
+}
+
+func TestAlertRouteMetricRuleBodyUnchanged(t *testing.T) {
+	d := schema.TestResourceDataRaw(t, resourceAlertRoute().Schema, map[string]any{
+		"name": "packet loss", "metric": "probectl_probe_loss_ratio", "comparison": "gt", "threshold": 0.05,
+	})
+	body := alertBody(d)
+	if body["metric"] != "probectl_probe_loss_ratio" || body["type"] != "threshold" || body["comparison"] != "gt" {
+		t.Fatalf("threshold body = %#v", body)
+	}
+	if _, ok := body["trap"]; ok {
+		t.Fatalf("a threshold rule body carries a trap match: %#v", body)
+	}
+}
