@@ -1252,18 +1252,10 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return 0, fmt.Errorf("flowstore: export status %d: %s", resp.StatusCode, b)
 	}
-	n, err := io.Copy(&lineCounter{w: w}, resp.Body)
-	_ = n
-	if err != nil {
-		return 0, err
-	}
-	// Count exported lines for the manifest.
-	rows, qerr := c.queryScoped(ctx, t, tenantID,
-		"SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", chParams{"tenant": tenantID})
-	if qerr != nil || len(rows) == 0 {
-		return -1, nil // streamed fine; count unavailable
-	}
-	return chCount(rows[0]["n"]), nil
+	// The manifest counts the rows this stream carried. A second count()
+	// query after the stream raced live ingest: flows that landed in between
+	// made the manifest claim rows the export did not contain (DPR-287).
+	return chclient.CopyRows(w, resp.Body)
 }
 
 // countSubject is DSAR erasure verification: the control connection, for the
@@ -1310,12 +1302,6 @@ func flowRollupSubjectPredicate() string {
 	// that over-matched neighboring addresses (TEN-05).
 	return `tenant_id={tenant:String} AND has(subject_keys, {subject:String})`
 }
-
-// lineCounter passes bytes through (kept simple; counting via the follow-up
-// count query keeps the stream zero-copy).
-type lineCounter struct{ w io.Writer }
-
-func (l *lineCounter) Write(p []byte) (int, error) { return l.w.Write(p) }
 
 // Anomalies fetches the capacity series and applies the shared detector, so
 // ClickHouse and Memory flag identically.
