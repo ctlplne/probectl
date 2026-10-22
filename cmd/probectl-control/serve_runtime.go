@@ -105,6 +105,7 @@ type serveRuntime struct {
 	topoStore     topology.Store
 	neighborStore device.NeighborStore
 	outcomeStore  device.CollectionOutcomeStore
+	trapStore     device.TrapEventStore
 
 	costEngine       *cost.Engine
 	carbonEngine     *carbon.Engine
@@ -230,6 +231,7 @@ func (rt *serveRuntime) buildServeEngines() error {
 	rt.tenantBinding = pipeline.NewRegistryBinding(rt.db.Pool())
 	rt.neighborStore = store.NewDeviceNeighbors(rt.db.Pool())
 	rt.outcomeStore = store.NewDeviceCollectionOutcomes(rt.db.Pool())
+	rt.trapStore = store.NewDeviceTraps(rt.db.Pool())
 	rt.flowQualityStore = store.NewFlowQualityReceipts(rt.db.Pool())
 
 	var corrOpts []incident.Option
@@ -662,6 +664,17 @@ func (rt *serveRuntime) startIngestConsumers() {
 	rt.g.Go(func() error {
 		return superviseBusLaneRestart(rt.gctx, "flow-quality-pipeline", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return pipeline.NewFlowQualityConsumer(rt.resultBus, rt.flowQualityStore, rt.log).
+				WithTenantBinding(rt.tenantBinding).
+				WithNamespaceTenants(snap.tenants).
+				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
+				WithMetrics(rt.srv.Metrics()).
+				Run(ctx)
+		})
+	})
+	rt.g.Go(func() error {
+		// D-60: the durable SNMP trap read model (GET /v1/device/traps).
+		return superviseBusLaneRestart(rt.gctx, "device-traps", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
+			return pipeline.NewDeviceTrapConsumer(rt.resultBus, rt.trapStore, rt.log).
 				WithTenantBinding(rt.tenantBinding).
 				WithNamespaceTenants(snap.tenants).
 				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).

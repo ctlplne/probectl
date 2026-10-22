@@ -256,6 +256,17 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 			"remote_management_address", "remote_platform",
 		},
 	},
+	// D-60: the control plane's SNMP trap read model (migration 0126). Each row
+	// names the tenant's device and its trap sender (addresses, the configured
+	// source name or USM user — never a credential) and carries the device's own
+	// varbind values, which can name a subject (an interface description, a
+	// logged-in user). Subject erasure therefore deletes matching rows like the
+	// neighbor evidence above; full-tenant erasure cascades.
+	"device_traps": {
+		plane: "postgres:device_traps", disposition: subjectTableDeleteMatches,
+		exact:    []string{"agent_id", "device_address", "source_address", "auth_principal"},
+		contains: []string{"varbinds"},
+	},
 	// WEB-26: migrations 0104/0105 added three durable tenant-owned device tables
 	// that subject erasure was failing closed on because they were unclassified.
 	// device_configs is a per-device configuration archive (device target, source,

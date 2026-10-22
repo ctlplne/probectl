@@ -28,6 +28,7 @@ func TestConsumersFanOutAcrossLanes(t *testing.T) {
 		(*pipeline.Consumer)(nil),
 		(*pipeline.FlowConsumer)(nil),
 		(*pipeline.FlowQualityConsumer)(nil),
+		(*pipeline.DeviceTrapConsumer)(nil),
 		(*pipeline.DeviceConsumer)(nil),
 		(*pipeline.OTLPConsumer)(nil),
 		(*pipeline.OTLPTraceConsumer)(nil),
@@ -107,6 +108,15 @@ func laneConsumerRegistry() []laneConsumerSpec {
 			topics: []string{bus.FlowIngestQualityTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
 				return pipeline.NewFlowQualityConsumer(b, nil, log).
+					WithNamespaceTenants(ns).
+					Run(ctx)
+			},
+		},
+		{
+			name:   "device-traps",
+			topics: []string{bus.DeviceTrapEventsTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return pipeline.NewDeviceTrapConsumer(b, nil, log).
 					WithNamespaceTenants(ns).
 					Run(ctx)
 			},
