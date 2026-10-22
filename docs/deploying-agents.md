@@ -473,7 +473,7 @@ with your tooling.
     tls: {existingSecret: probectl-bus-tls}
     sasl: {mechanism: scram-sha-512, existingSecret: probectl-bus-sasl}
   image:
-    tag: "0.6.5@sha256:<digest>"
+    tag: "0.6.6@sha256:<digest>"
   EOF
   # 1. the image-integrity policy, alone; wait until Kyverno enforces it
   helm template probectl-agent deploy/helm/probectl-agent -n probectl -f agent-values.yaml \
@@ -568,7 +568,7 @@ give the chart the mirror's public key instead of the keyless identity:
 ```yaml
 image:
   repository: registry.corp.example:5443/mirror/probectl-ebpf-agent
-  tag: "0.6.5@sha256:<digest>"
+  tag: "0.6.6@sha256:<digest>"
 admission:
   imageIntegrity:
     publicKey: |            # or: --set-file admission.imageIntegrity.publicKey=mirror-cosign.pub

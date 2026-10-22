@@ -28,7 +28,7 @@ render_no_kyverno() {
   # The agent chart pins the privileged image as tag@sha256:<digest> (it has no
   # separate image.digest field); any valid digest form satisfies the schema.
   "$HELM" template agent "$AGENT" \
-    --set-string image.tag="${av_main:-0.6.5}@${DIGEST}" \
+    --set-string image.tag="${av_main:-0.6.6}@${DIGEST}" \
     --set tenantID=00000000-0000-0000-0000-000000000001 --set agentID=ci \
     --set 'bus.brokers={bus.probectl.svc:9093}' \
     --set admission.imageIntegrity.enabled=false \
@@ -41,7 +41,7 @@ render_no_kyverno() {
 # returns 1, so SELFTEST can assert each planted defect is caught.
 rto12_checks() {
   local chart="$1" out mirror
-  local base=(template agent "$chart" --set-string image.tag="0.6.5@${DIGEST}"
+  local base=(template agent "$chart" --set-string image.tag="0.6.6@${DIGEST}"
     --set tenantID=00000000-0000-0000-0000-000000000001 --set agentID=ci
     --set 'bus.brokers={bus.probectl.svc:9093}')
   out="$("$HELM" "${base[@]}" 2>&1)" || { echo "default render failed: $out"; return 1; }

@@ -13,7 +13,7 @@ spec:
   ref:
     # Pin an immutable release. A digest is strongest; a tag is acceptable only
     # when the registry enforces tag immutability. Bump this deliberately.
-    tag: "0.6.5"
+    tag: "0.6.6"
     # digest: sha256:REPLACE_WITH_64_HEX_CHART_DIGEST
   # Refuse any chart whose keyless cosign signature was not produced by THIS
   # repository's tagged release workflow (docs/ops/verify-artifacts.md).

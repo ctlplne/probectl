@@ -184,6 +184,54 @@ version-skew enforcement that makes a staged roll safe to attempt. Actually
 *delivering* a self-update to the agent (advertising the desired version down to
 it) is a separate follow-up.
 
+## Release upgrade notes
+
+Most releases upgrade by the rules above and nothing else. A release that needs
+an operator step before its pods can start is listed here, newest first.
+
+### 0.6.6: the ClickHouse reader credential (DPR-285)
+
+**Who this affects:** any install where a ClickHouse lane has
+`PROBECTL_*STORE_TENANT_SCOPING=true` — the default under
+`PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` or `regulated`, and therefore under
+the Helm `values-multitenant.yaml` and `values-strict.yaml` profiles. A `single`
+profile install without tenant scoping is unaffected.
+
+**What changed:** before 0.6.6 every ClickHouse read authenticated as the
+control login, which no row policy filtered, so only the application's
+`WHERE tenant_id = …` kept tenants apart. From 0.6.6 every tenant-scoped read
+runs as the SELECT-only reader login the row policy binds, so the database
+itself refuses another tenant's rows. Think of it as the difference between a
+librarian promising to fetch only your books and a reading room whose door
+only opens onto your shelf.
+
+**What happens if you skip it:** the 0.6.6 control plane fails config
+validation at start and never becomes ready; it does not fall back to reading
+as the control login. Under the Helm chart's default rolling
+update the 0.6.5 pods keep serving until the credential is supplied.
+
+**Before upgrading:**
+
+1. Create the reader in ClickHouse and grant it `SELECT` on the control login's
+   default database only:
+   `CREATE USER probectl_reader IDENTIFIED WITH sha256_password BY '…'`, then
+   `GRANT SELECT ON <database>.* TO probectl_reader`.
+2. Stage its owner-only (`0600`) credential file,
+   `{"username":"probectl_reader","password":"…"}` — in Helm, add it to the
+   `control.credentialFiles` Secret.
+3. Set `PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE` to that file's path. Its
+   username must equal every scoped lane's `PROBECTL_*STORE_READER_USER`.
+
+At boot the control plane refuses to start unless that login is not the
+control login, resolves the same default database, is denied `INSERT` and
+`CREATE`, and sees no row outside the tenant it is scoped to. The Helm commands
+are in [`deploy/helm/README.md`](../deploy/helm/README.md) ("Upgrading a
+tenant-scoped install"); the key is documented in
+[`configuration.md`](configuration.md). The durable Compose profile
+(`deploy/compose/probectl.prod.yml`, new in 0.6.6) provisions the reader from
+`CLICKHOUSE_READER_PASSWORD` in `.env`, so a fresh Compose install needs no
+extra step.
+
 ## Configuration
 
 See [`configuration.md`](configuration.md) for the `PROBECTL_AGENT_SKEW_WINDOW`

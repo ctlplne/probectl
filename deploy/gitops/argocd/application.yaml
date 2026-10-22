@@ -20,7 +20,7 @@ spec:
   source:
     repoURL: ghcr.io/ctlplne/charts
     chart: probectl
-    targetRevision: 0.6.5
+    targetRevision: 0.6.6
     helm:
       # Pick the sizing profile (small | medium | large), and/or the provider one.
       valueFiles:

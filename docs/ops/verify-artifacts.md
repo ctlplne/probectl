@@ -43,6 +43,7 @@ against.
 | v0.5.0 | published and **cosign-signed** — 48 assets: 16 artifacts, 16 `.sig`, 16 `.pem` | not published | published, **no cosign signature** |
 | v0.6.0 … v0.6.4 | **not published** | not published | not published |
 | **v0.6.5** | published and **cosign-signed** — 99 assets: 33 artifacts, 33 `.sig`, 33 `.pem`. Flagged a **pre-release**, with its 58-gap count in the notes | pushed to `ghcr.io/ctlplne/charts/probectl:0.6.5`, **not signed by digest and not attached to the release** | published; carry buildx SLSA provenance + SBOM attestations, **not cosign-signed** (pushed before image signing was wired — see "Images"). Verify by digest; do not assume a cosign signature |
+| v0.6.6 | **not published** | not published | not published |
 
 **v0.6.5 is a partial release, and the gaps are specific.** Its binaries,
 checksums and SBOM are signed and verifiable exactly as described below. Its

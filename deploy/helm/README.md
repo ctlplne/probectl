@@ -504,7 +504,7 @@ AGENT_FLAGS=(
   --set 'bus.brokers={kafka.internal.example:9093}'
   --set bus.tls.existingSecret=probectl-bus-tls
   --set bus.sasl.mechanism=scram-sha-512 --set bus.sasl.existingSecret=probectl-bus-sasl
-  --set-string image.tag='0.6.5@sha256:<digest>'
+  --set-string image.tag='0.6.6@sha256:<digest>'
 )
 # 1. the image-integrity policy first, until Kyverno reports it Ready (RTO-12)
 helm template probectl-agent deploy/helm/probectl-agent -n probectl "${AGENT_FLAGS[@]}" \
