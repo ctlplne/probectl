@@ -51,16 +51,20 @@ DIST=dist make airgap-bundle VERSION="${version}"
 
 The bundle contains:
 
-- `images/` — every component image, `docker save`d from the cosign-verified
-  immutable digest.
+- `images/` — every public component image of the release (the core-only
+  edition; the partner-only `probectl-control-ee` image is not in the public
+  kit), `docker save`d from the cosign-verified immutable digest.
 - `IMAGE-VERIFICATION.txt` — the component → digest ledger verified before the
   image tarballs were written.
-- `charts/` — the signed, packaged, versioned Helm chart plus `.sig`/`.pem`
+- `charts/` — both signed, packaged, versioned Helm charts (`probectl` and
+  `probectl-agent`) plus `.sig`/`.pem`
   evidence (appVersion == the release tag, OPS-001). When present, the
   `*.chart-digest.txt` file records the cosign-verified OCI chart digest that was
   pushed by the release workflow.
 - `bin/` — the cross-compiled static agent/control binaries plus their `.sig`
   and `.pem` files.
+- `checksums.txt` (+ `.sig`/`.pem`) — the signed SHA-256 ledger; the builder
+  refuses to write the kit unless it lists every bundled binary.
 - `packages/` — signed `.deb`/`.rpm` packages plus their `.sig` and `.pem`
   files.
 - `packaging/` — the deb/rpm, systemd units, and Ansible role (OPS-004) for

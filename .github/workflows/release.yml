@@ -756,6 +756,7 @@ jobs:
     # own signing/self-verification job. The builder re-verifies each blob and
     # immutable image digest before it writes the offline archive.
     needs: [images, binaries, publish-chart, packages]
+    environment: release # SUP-03/G1: it signs and attaches to the release like every other publish job
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

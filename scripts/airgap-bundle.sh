@@ -17,8 +17,12 @@ TAG="${TAG:-v${VERSION#v}}"
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/ctlplne}"
 OUT="${OUT:-probectl-airgap-${VERSION}}"
 DIST="${DIST:-dist}"
-COMPONENTS="probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics probectl-bgp-analyzer probectl-browser-agent terraform-provider-probectl probectl"
-BINARY_COMPONENTS="probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl"
+COMPONENTS="probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics probectl-bgp-analyzer probectl-browser-agent probectl-bmp-listener terraform-provider-probectl probectl"
+BINARY_COMPONENTS="probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl probectl-bmp-listener"
+# Both lists track the release: check_airgap_bundle.sh compares COMPONENTS with
+# release.yml's images matrix (less partner-only images) and BINARY_COMPONENTS
+# with build-release-binaries.sh, so a new component cannot be left out again.
+CHARTS="probectl probectl-agent"
 RELEASE_ARCHES="amd64 arm64"
 EXPECTED_PACKAGE_COUNT=20 # 5 packaged agents × 2 architectures × deb+rpm.
 VERIFY_COSIGN="${PROBECTL_AIRGAP_VERIFY_COSIGN:-1}"
@@ -113,10 +117,12 @@ fi
 #    signing, and pushed as a cosign-signed OCI artifact. The air-gap bundle
 #    carries the same signed package bytes; it never re-packages an unsigned chart
 #    locally because that would bypass the release identity proof.
-chart_pkg="${DIST}/probectl-${VERSION_NO_V}.tgz"
-copy_signed "$chart_pkg" "$OUT/charts"
-chart_digest="${DIST}/probectl-${VERSION_NO_V}.chart-digest.txt"
-[ -f "$chart_digest" ] && cp "$chart_digest" "$OUT/charts/"
+for chart in $CHARTS; do
+  chart_pkg="${DIST}/${chart}-${VERSION_NO_V}.tgz"
+  copy_signed "$chart_pkg" "$OUT/charts"
+  chart_digest="${DIST}/${chart}-${VERSION_NO_V}.chart-digest.txt"
+  [ -f "$chart_digest" ] && cp "$chart_digest" "$OUT/charts/"
+done
 
 # 4. Binaries and packages. Check the complete release matrix, not merely "at
 # least one": a partial air-gap kit is worse than a loud release failure because
@@ -140,10 +146,19 @@ done
   exit 1
 }
 
-if [ -f "${DIST}/checksums.txt" ]; then
-  copy_signed "${DIST}/checksums.txt" "$OUT"
-  (cd "$DIST" && sha256sum --ignore-missing -c checksums.txt >/dev/null)
-fi
+# The signed checksums are required, and every bundled binary must be listed in
+# them: an artifact the far side cannot check against the signed ledger fails
+# here, before the gap, not after it.
+copy_signed "${DIST}/checksums.txt" "$OUT"
+(cd "$DIST" && sha256sum --ignore-missing -c checksums.txt >/dev/null)
+for arch in $RELEASE_ARCHES; do
+  for component in $BINARY_COMPONENTS; do
+    grep -q "  ${component}_${TAG}_linux_${arch}\$" "${DIST}/checksums.txt" || {
+      echo "airgap: signed checksums.txt does not list ${component}_${TAG}_linux_${arch}" >&2
+      exit 1
+    }
+  done
+done
 
 # 5. Human-readable third-party license inventory. This travels with the
 #    air-gap bundle beside the signed artifacts so an offline operator can

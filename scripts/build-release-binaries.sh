@@ -144,5 +144,15 @@ for arch in $ARCHES; do
 	done
 done
 
-(cd "$DIST_DIR" && sha256sum probectl* > checksums.txt)
+# Every shipped binary is in checksums.txt, not only the probectl* ones: the
+# terraform-provider-probectl binaries fell outside the old `probectl*` glob (G1).
+(cd "$DIST_DIR" && sha256sum probectl* terraform-provider-probectl_* > checksums.txt)
+for arch in $ARCHES; do
+	for component in $BINARIES; do
+		grep -q "  ${component}_${VERSION}_linux_${arch}\$" "$DIST_DIR/checksums.txt" || {
+			echo "checksums.txt is missing ${component}_${VERSION}_linux_${arch}" >&2
+			exit 1
+		}
+	done
+done
 ls -la "$DIST_DIR"

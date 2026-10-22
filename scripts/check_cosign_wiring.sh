@@ -186,7 +186,8 @@ grep -q 'cosign verify' "$AIRGAP" || { echo "airgap: missing image signature ver
 grep -q 'IMAGE-VERIFICATION.txt' "$AIRGAP" || { echo "airgap: missing image verification manifest"; fail=1; }
 grep -q 'OUT/packages' "$AIRGAP" || { echo "airgap: signed deb/rpm packages are not bundled"; fail=1; }
 grep -q 'DIST="${DIST:-dist}"' "$AIRGAP" || { echo "airgap: release artifact directory is not overridable for self-tests"; fail=1; }
-grep -q 'chart_pkg="${DIST}/probectl-${VERSION_NO_V}.tgz"' "$AIRGAP" || { echo "airgap: signed chart package is not sourced from release artifacts"; fail=1; }
+grep -q 'chart_pkg="${DIST}/${chart}-${VERSION_NO_V}.tgz"' "$AIRGAP" || { echo "airgap: signed chart package is not sourced from release artifacts"; fail=1; }
+grep -q '^CHARTS="probectl probectl-agent"$' "$AIRGAP" || { echo "airgap: both release charts (probectl, probectl-agent) must be bundled"; fail=1; }
 grep -q 'copy_signed "$chart_pkg" "$OUT/charts"' "$AIRGAP" || { echo "airgap: chart package does not use the signed-artifact copy path"; fail=1; }
 grep -q 'chart-digest.txt' "$AIRGAP" || { echo "airgap: chart OCI digest evidence is not bundled when present"; fail=1; }
 if grep -q 'helm package deploy/helm/probectl' "$AIRGAP"; then
