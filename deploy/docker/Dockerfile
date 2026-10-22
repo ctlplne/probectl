@@ -15,6 +15,11 @@ ARG NODE_VERSION=22
 # ever running `npm run build`, so every shipped binary served the stub. Building
 # it here makes the default production image serve the real UI.
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752 AS web
+# EDITION (PD-5, AUD-20): `core` (the default) builds the core-only image, with
+# no ee/ code in the binary and no commercial UI in the bundle; `ee` builds the
+# separate partner image line. Anything else fails the build.
+ARG EDITION=core
+RUN case "${EDITION}" in core|ee) ;; *) echo "EDITION must be core or ee, not '${EDITION}'"; exit 1 ;; esac
 WORKDIR /web
 # Cache npm deps on the lockfile only.
 COPY web/package.json web/package-lock.json ./
@@ -35,7 +40,7 @@ COPY docs/ux/journey-baseline.json /docs/ux/journey-baseline.json
 # repository-relative paths inside this isolated stage.
 COPY scripts/web_rendered_a11y.mjs /scripts/web_rendered_a11y.mjs
 COPY internal/control/openapi.json /internal/control/openapi.json
-RUN npm run build   # → /web/dist (hashed assets)
+RUN PROBECTL_WEB_EDITION="${EDITION}" npm run build   # → /web/dist (hashed assets)
 
 # Digest-pinned (U-061); bumped manually per docs/dependency-policy.md (no
 # auto-update bot). Tag kept for humans.
@@ -51,6 +56,9 @@ ARG DATE=unknown
 # (deploy/compose/eval.yml) passes GO_TAGS=devauth to compile the LOCAL-ONLY
 # dev-auth control plane (RED-001) — release pipelines must never set it.
 ARG GO_TAGS=""
+# EDITION: see the web stage. `core` adds the probectl_core build tag, which
+# leaves cmd/probectl-control's ee/ attach file out of the binary.
+ARG EDITION=core
 # GOFIPS140: EMPTY for the standard build. Set to the validated Go Cryptographic
 # Module version (e.g. v1.0.0) together with GO_TAGS=probectl_fips to produce
 # the FIPS 140-3 artifact from this Dockerfile — the same pair `make build-fips`
@@ -86,14 +94,22 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     if [ "${version}" = "0.0.0-dev" ] && [ -s VERSION ]; then version="$(tr -d '[:space:]' < VERSION)-local"; fi; \
     if [ "${build_date}" = "unknown" ]; then build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; fi; \
     if [ -n "${GOFIPS140}" ]; then export GOFIPS140; fi; \
+    tags="${GO_TAGS}"; \
+    case "${EDITION}" in core) tags="${tags:+${tags},}probectl_core" ;; ee) ;; *) echo "EDITION must be core or ee"; exit 1 ;; esac; \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 GOTOOLCHAIN=local \
-    go build -trimpath ${GO_TAGS:+-tags ${GO_TAGS}} \
+    go build -trimpath ${tags:+-tags ${tags}} \
       -ldflags "-s -w \
         -X github.com/ctlplne/probectl/internal/version.Version=${version} \
         -X github.com/ctlplne/probectl/internal/version.Commit=${COMMIT} \
         -X github.com/ctlplne/probectl/internal/version.Date=${build_date} \
         ${LICENSE_PUBKEYS_B64:+-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=${LICENSE_PUBKEYS_B64}}" \
       -o /out/app ./cmd/${COMPONENT}
+# PD-5: a core image's binary must record the probectl_core tag, and an ee
+# image's must not, so the edition an image claims is the edition it carries.
+RUN tags="$(go version -m /out/app | sed -n 's/^[[:space:]]*build[[:space:]]*-tags=//p')"; \
+    case ",${tags}," in *,probectl_core,*) has_core=yes ;; *) has_core=no ;; esac; \
+    if [ "${EDITION}" = core ] && [ "${has_core}" != yes ]; then echo "PD-5: core image built without probectl_core (tags: ${tags})"; exit 1; fi; \
+    if [ "${EDITION}" = ee ] && [ "${has_core}" = yes ]; then echo "PD-5: ee image built with probectl_core"; exit 1; fi
 # DPR-001: a requested link-time trust anchor must actually be in the binary.
 # The -X payload is stored verbatim as string data, so a silent drop (a typo'd
 # variable path, a stripped flag) is caught here for any target architecture.

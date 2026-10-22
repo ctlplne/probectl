@@ -542,11 +542,11 @@ prepare() {
 
   log "building exact-SHA release images (empty GO_TAGS, real embedded Vite UI)"
   docker build -f "${SOURCE_DIR}/deploy/docker/Dockerfile" "$SOURCE_DIR" \
-    --build-arg COMPONENT=probectl-control --build-arg GO_TAGS= \
+    --build-arg COMPONENT=probectl-control --build-arg GO_TAGS= --build-arg EDITION=ee \
     --build-arg VERSION="audit-${SHA12}" --build-arg COMMIT="$GIT_SHA" --build-arg DATE="$COMMIT_DATE" \
     -t "$AUDIT_CONTROL_IMAGE"
   docker build -f "${SOURCE_DIR}/deploy/docker/Dockerfile" "$SOURCE_DIR" \
-    --build-arg COMPONENT=probectl --build-arg GO_TAGS= \
+    --build-arg COMPONENT=probectl --build-arg GO_TAGS= --build-arg EDITION=ee \
     --build-arg VERSION="audit-${SHA12}" --build-arg COMMIT="$GIT_SHA" --build-arg DATE="$COMMIT_DATE" \
     -t "$AUDIT_CLI_IMAGE"
   docker build -f "${SOURCE_DIR}/browser-worker/Dockerfile" "${SOURCE_DIR}/browser-worker" -t "$AUDIT_BROWSER_IMAGE"

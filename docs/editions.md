@@ -303,7 +303,21 @@ nothing. The core-only build (`-tags probectl_core`, which is what `make
 editions-gate` compiles) links that twin and therefore pulls in **zero** `ee/`
 packages — you can verify it directly with `go list -tags probectl_core -deps
 ./cmd/probectl-control | grep /ee` (the output is empty). One binary lineage, two
-link sets; in the default build, activation stays license-gated.
+link sets.
+
+**Which image is which (PD-5).** The published default images are the **core
+edition**: `deploy/docker/Dockerfile` builds with `EDITION=core` unless told
+otherwise, which adds the `probectl_core` tag to the Go build and points the web
+bundle's `@ee` seam at `web/src/edition-core`, so a default image carries no
+`ee/` code and no commercial UI at all. The build step refuses an image whose
+binary records the wrong tag for its edition. The `ee/` control plane ships as a
+separate image line, `ghcr.io/ctlplne/probectl-control-ee` (`EDITION=ee`), for
+partners under written evaluation or commercial terms; in that image activation
+stays license-gated exactly as described above. Each image's
+`org.opencontainers.image.licenses` label states its edition: `BUSL-1.1` for
+core, `BUSL-1.1 AND LicenseRef-Probectl-Commercial` for the `ee/` line. A source
+build of the web bundle on its own (`npm run build`) still includes the `ee/` UI
+unless `PROBECTL_WEB_EDITION=core` is set.
 
 Scattering `if licensed` checks through business logic is a review-blocking
 defect, because every such check is one more place a bug could become a licensing

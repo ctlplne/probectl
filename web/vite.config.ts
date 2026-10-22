@@ -9,6 +9,16 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { fixtureApiPlugin } from './dev/fixtureApiPlugin'
 
+// PD-5: which edition this bundle is for. Anything other than `core`, `ee` or
+// unset is a typo that would silently ship the wrong UI, so it fails the build.
+function webEdition(): 'core' | 'ee' {
+  const edition = process.env.PROBECTL_WEB_EDITION ?? 'ee'
+  if (edition !== 'core' && edition !== 'ee') {
+    throw new Error(`PROBECTL_WEB_EDITION must be core or ee, not ${JSON.stringify(edition)}`)
+  }
+  return edition
+}
+
 // HTTPS/CSP/HSTS are enforced by the serving ingress (docs/guardrails.md G7-12),
 // not by Vite's dev server. No external origins are referenced anywhere in the
 // build (sovereignty — guardrail 11).
@@ -28,10 +38,13 @@ export default defineConfig({
   },
   resolve: {
     // The ee/ web seam (S-T1): commercial UI source lives in ee/web (the
-    // editions boundary applies to the frontend too); the bundle always
-    // includes it — visibility is runtime-gated (the API 404s unlicensed).
+    // editions boundary applies to the frontend too). The default image is
+    // core-only (PD-5): PROBECTL_WEB_EDITION=core points the seam at
+    // src/edition-core, so a core bundle carries no commercial UI at all. An
+    // ee build (the default for `npm run build` here) includes it, and its
+    // visibility stays runtime-gated (the API 404s unlicensed).
     alias: {
-      '@ee': resolve(__dirname, '../ee/web'),
+      '@ee': resolve(__dirname, webEdition() === 'core' ? 'src/edition-core' : '../ee/web'),
       // ee/web sources import react-query for the provider data layer; bare
       // specifiers don't node-resolve upward from ee/, so pin it to web's copy
       // (tsconfig `paths` carries the matching type resolution).

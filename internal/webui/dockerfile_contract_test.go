@@ -32,7 +32,7 @@ func TestDockerWebStageCarriesPrebuildInputs(t *testing.T) {
 	for _, want := range []string{
 		"COPY scripts/web_rendered_a11y.mjs /scripts/web_rendered_a11y.mjs",
 		"COPY internal/control/openapi.json /internal/control/openapi.json",
-		"RUN npm run build",
+		"RUN PROBECTL_WEB_EDITION=\"${EDITION}\" npm run build",
 	} {
 		if !strings.Contains(string(dockerfile), want) {
 			t.Fatalf("Docker web stage is missing prebuild contract %q", want)

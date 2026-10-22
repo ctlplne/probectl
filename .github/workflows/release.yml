@@ -213,6 +213,15 @@ jobs:
             dockerfile: deploy/docker/Dockerfile.bgp-analyzer
           - component: probectl-browser-agent
             dockerfile: deploy/docker/Dockerfile.browser-agent
+          # PD-5/AUD-20: every leg above is the core edition (the Dockerfile's
+          # EDITION default). The ee/ control plane is a separate image line for
+          # partners under written evaluation terms; it has its own component
+          # name because an include that matched the probectl-control leg would
+          # be merged into it instead of adding a leg.
+          - component: probectl-control-ee
+            dockerfile: deploy/docker/Dockerfile
+            build_component: probectl-control
+            edition: ee
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -236,6 +245,8 @@ jobs:
           # gated entry the ONLY route, which is the whole point of naming it.
           flavor: |
             latest=false
+          labels: |
+            org.opencontainers.image.licenses=${{ matrix.edition == 'ee' && 'BUSL-1.1 AND LicenseRef-Probectl-Commercial' || 'BUSL-1.1' }}
           tags: |
             type=semver,pattern={{version}}
             # D-15: a pre-release must not become the image everyone pulls by
@@ -266,7 +277,8 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           build-args: |
-            COMPONENT=${{ matrix.component }}
+            COMPONENT=${{ matrix.build_component || matrix.component }}
+            EDITION=${{ matrix.edition || 'core' }}
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
             LICENSE_PUBKEYS_B64=${{ vars.PROBECTL_LICENSE_PUBKEYS_B64 }}

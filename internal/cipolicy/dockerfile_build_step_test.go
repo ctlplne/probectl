@@ -46,6 +46,10 @@ func dockerfileBuildScript(t *testing.T, dockerfile string) string {
 // PATH that records its environment and arguments, exactly as the builder
 // would invoke it, and returns what the fake saw.
 func runDockerBuildScript(t *testing.T, script, gofips string) (seen string, err error) {
+	return runDockerBuildScriptEdition(t, script, gofips, "core")
+}
+
+func runDockerBuildScriptEdition(t *testing.T, script, gofips, edition string) (seen string, err error) {
 	t.Helper()
 	dir := t.TempDir()
 	record := filepath.Join(dir, "seen")
@@ -57,7 +61,7 @@ func runDockerBuildScript(t *testing.T, script, gofips string) (seen string, err
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"PATH="+dir+":"+os.Getenv("PATH"),
-		"GOFIPS140="+gofips, "GO_TAGS=probectl_fips",
+		"GOFIPS140="+gofips, "GO_TAGS=probectl_fips", "EDITION="+edition,
 		"TARGETOS=linux", "TARGETARCH=arm64", "COMPONENT=probectl-control",
 		"VERSION=1.2.3", "DATE=2026-09-17T00:00:00Z", "COMMIT=abc", "LICENSE_PUBKEYS_B64=")
 	out, err := cmd.CombinedOutput()
@@ -96,6 +100,25 @@ func TestDockerfileBuildStepHonoursGOFIPS140(t *testing.T) {
 	}
 	if strings.Contains(seen, "\nGOFIPS140=") && !strings.Contains(seen, "\nGOFIPS140=\n") {
 		t.Fatalf("an empty GOFIPS140 must not turn FIPS on:\n%s", seen)
+	}
+}
+
+// TestDockerfileBuildStepTagsTheEdition pins PD-5 (AUD-20): the default core
+// edition adds probectl_core to the build tags, which leaves the ee/ attach file
+// out of the control plane; the ee edition keeps the tags it was given; any
+// other edition fails the build instead of shipping an unlabeled binary.
+func TestDockerfileBuildStepTagsTheEdition(t *testing.T) {
+	script := dockerfileBuildScript(t, readRepoFile(t, "deploy", "docker", "Dockerfile"))
+	seen, err := runDockerBuildScriptEdition(t, script, "", "core")
+	if err != nil || !strings.Contains(seen, "-tags probectl_fips,probectl_core ") {
+		t.Fatalf("a core build must add probectl_core to the tags (err %v):\n%s", err, seen)
+	}
+	seen, err = runDockerBuildScriptEdition(t, script, "", "ee")
+	if err != nil || strings.Contains(seen, "probectl_core") || !strings.Contains(seen, "-tags probectl_fips ") {
+		t.Fatalf("an ee build must keep its tags and never add probectl_core (err %v):\n%s", err, seen)
+	}
+	if out, err := runDockerBuildScriptEdition(t, script, "", "enterprise"); err == nil {
+		t.Fatalf("an unknown edition must fail the build step, got success:\n%s", out)
 	}
 }
 
