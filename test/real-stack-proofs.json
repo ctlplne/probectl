@@ -210,6 +210,13 @@
       "capabilities": [
         "F6"
       ]
+    },
+    {
+      "ref": "test:internal/device/realstack_integration_test.go#TestDeviceTelemetryRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
     }
   ]
 }

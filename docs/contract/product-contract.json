@@ -136,7 +136,7 @@
         "F18"
       ],
       "name": "Device telemetry",
-      "status": "partial",
+      "status": "delivered",
       "evidence": "`internal/device` (SNMP + gNMI)"
     },
     {

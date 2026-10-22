@@ -116,12 +116,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     source: 'contract:features',
   },
   { id: 'F17', name: 'Flow analytics', status: 'delivered', source: 'contract:features' },
-  {
-    id: 'F18',
-    name: 'Device telemetry',
-    status: 'partial',
-    source: 'contract:features',
-  },
+  { id: 'F18', name: 'Device telemetry', status: 'delivered', source: 'contract:features' },
   {
     id: 'F19',
     name: 'Internet-outage view',

@@ -302,10 +302,17 @@ capabilities:
     real_stack_proof: {refs: ["test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution"]}
     migration: *no_migration
 
+  # F18's real-stack receipt runs each tenant's shipped probectl-device-agent
+  # against its own real SNMP agent (net-snmp snmpd, one per tenant: SNMPv3
+  # authPriv with secret-referenced passphrases, and v2c), on the YAML its
+  # collector registration hands back: live counters moved between polls,
+  # LLDP neighbors and collection receipts in the forced-RLS tables, and
+  # authenticated traps on each tenant's lane; two tenants (pooled + hybrid),
+  # through the API, the CLI and the rendered Device page. gNMI stays
+  # mock-proven (D-07): this receipt proves the SNMP transport only.
   - id: F18
     name: Device telemetry
     status: delivered
-    evidence_status: partial
     owner: product research/MSP
     engine: {refs: ["file:internal/device"]}
     binary: {refs: ["file:cmd/probectl-device-agent/main.go#func run"]}
@@ -315,7 +322,7 @@ capabilities:
     docs: {refs: ["file:docs/device-telemetry.md#Device / streaming telemetry"]}
     config_keys: {refs: ["config:PROBECTL_DEVICE_CONFIG", "config:PROBECTL_DEVICE_TARGET"]}
     telemetry: {refs: ["file:internal/device"]}
-    real_stack_proof: {gap: "The live SNMP test polls loopback snmpd directly but does not start the shipping device agent or prove tenant-bound bus, storage, API, CLI, and rendered UI delivery."}
+    real_stack_proof: {refs: ["test:internal/device/realstack_integration_test.go#TestDeviceTelemetryRealStack"]}
     migration: {refs: ["file:migrations/0066_device_neighbor_evidence.sql", "file:migrations/0067_device_collection_outcomes.sql"]}
 
   - id: F19

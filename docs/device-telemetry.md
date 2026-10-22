@@ -489,6 +489,17 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
   for it, exports `PROBECTL_TEST_REQUIRE_SERVICES=1`, and fails rather than
   skips if that target is absent. Local runs can point at lab gear or another
   simulator, or skip cleanly when the target is unset.
+- `TestDeviceTelemetryRealStack` (the F18 real-stack receipt, CI's
+  integration lane) runs two tenants' **shipped** device agents against their
+  own net-snmp `snmpd` containers (SNMPv3 authPriv with secret-referenced
+  passphrases, and v2c, both answering at 127.0.0.1), on the YAML their
+  collector registrations return. It moves each device's eth0 counter between
+  polls and requires the API, the CLI and the rendered Device page to show the
+  rise for that tenant only; checks LLDP neighbors and collection receipts
+  under forced RLS; sends authenticated and refused traps and reads each
+  tenant's trap lane; and byte-searches logs, responses, the page and every
+  lane record for the credentials. gNMI is not part of it: it stays proven
+  against the in-process mock only.
 - The correlation contract (hop IP ↔ interface, flow exporter+ifIndex ↔
   interface) is pinned by `TestCorrelatorHopToInterface` and
   `TestCorrelatorFlowToInterface`. `TestPollSNMPHealthyDevice`,

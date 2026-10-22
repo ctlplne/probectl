@@ -93,8 +93,10 @@ const DEVICE_LIVE_RECEIPT: SurfaceLiveReceipt = {
   evidence: [
     'ci:.github/workflows/ci.yml:device-live',
     'test:internal/device/snmp_test.go:TestSNMPIntegration',
+    'ci:.github/workflows/ci.yml:make test-integration',
+    'test:internal/device/realstack_integration_test.go:TestDeviceTelemetryRealStack',
   ],
-  note: 'The device-live CI job starts loopback snmpd and requires the real gosnmp wire path to return live metrics and inventory.',
+  note: 'The device-live CI job drives the real gosnmp wire path against loopback snmpd; the integration lane runs each tenant’s shipped device agent against its own net-snmp agent (SNMPv3 and v2c) and proves live counters, LLDP neighbors and traps reach only that tenant’s API, CLI and Device page. gNMI stays mock-proven.',
 }
 
 const EBPF_LIVE_RECEIPT: SurfaceLiveReceipt = {
