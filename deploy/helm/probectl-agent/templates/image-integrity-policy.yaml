@@ -7,7 +7,7 @@
 {{- end -}}
 {{- /* RTO-12: renamed keys fail loudly instead of being ignored. */ -}}
 {{- if hasKey $policy "validationFailureAction" -}}
-{{- fail "admission.imageIntegrity.validationFailureAction was renamed to admission.imageIntegrity.failureAction (RTO-12): Kyverno's spec-level validationFailureAction is deprecated, so the chart sets failureAction on the verifyImages rule itself" -}}
+{{- fail "admission.imageIntegrity.validationFailureAction was renamed to admission.imageIntegrity.failureAction (RTO-12): Kyverno's spec-level validationFailureAction is deprecated, so the chart maps failureAction onto the ImageValidatingPolicy validationActions" -}}
 {{- end -}}
 {{- if hasKey $policy "imageReferences" -}}
 {{- fail "admission.imageIntegrity.imageReferences was removed (RTO-12): the policy now derives its image reference from image.repository, so a mirrored repository is verified too; put any extra patterns in admission.imageIntegrity.additionalImageReferences" -}}
@@ -40,62 +40,78 @@ tag/digest characters that would widen or break the pattern.
 {{- fail "admission.imageIntegrity.readinessGate must be lookup or external" -}}
 {{- end -}}
 {{- if and (eq $policy.readinessGate "external") (not $policy.externalOrdering) -}}
-{{- fail "admission.imageIntegrity.readinessGate=external requires admission.imageIntegrity.externalOrdering naming what applies the policy and waits for Ready before the DaemonSet (e.g. Argo CD sync-wave -1 with a ClusterPolicy health check)" -}}
+{{- fail "admission.imageIntegrity.readinessGate=external requires admission.imageIntegrity.externalOrdering naming what applies the policy and waits for Ready before the DaemonSet (e.g. Argo CD sync-wave -1 with an ImageValidatingPolicy health check)" -}}
 {{- end -}}
 {{- $refs := prepend ($policy.additionalImageReferences | default list) (printf "%s*" $repo) | uniq -}}
 {{- $spec := include "probectl-agent.imageIntegritySpec" (dict "policy" $policy "refs" $refs) -}}
 {{- $sum := sha256sum $spec -}}
 {{- /*
-RTO-12 ordering gate. Helm creates kinds it does not know (ClusterPolicy) AFTER
-the DaemonSet and never waits for Kyverno to load a policy, so a one-step
-install admits the first agent pods before the verifier exists. On a real
-install/upgrade against a cluster serving kyverno.io/v1, require the exact
-policy this release renders to be live and Ready first (docs/deploying-agents.md
-"Image-integrity admission", step 1). `helm template` and client dry-runs do not
-advertise kyverno.io/v1, so offline rendering is unaffected.
+RTO-12: the policy is a policies.kyverno.io/v1 ImageValidatingPolicy (GA since
+Kyverno 1.17; Kyverno 1.19 deprecates the kyverno.io/v1 ClusterPolicy this
+chart used to render). A cluster whose Kyverno serves ClusterPolicy but not
+ImageValidatingPolicy is too old: refuse instead of rendering a kind it cannot
+enforce.
 */ -}}
-{{- if and (eq $policy.readinessGate "lookup") (.Capabilities.APIVersions.Has "kyverno.io/v1/ClusterPolicy") -}}
-{{- $live := lookup "kyverno.io/v1" "ClusterPolicy" "" $policy.policyName -}}
-{{- $step1 := printf "apply it first and wait for Ready: helm template %s <chart> -n %s <same values> --show-only templates/image-integrity-policy.yaml | kubectl apply --server-side --force-conflicts --field-manager=helm -f - && kubectl wait --for=condition=Ready clusterpolicy/%s (RTO-12)" .Release.Name .Release.Namespace $policy.policyName -}}
+{{- if and (.Capabilities.APIVersions.Has "kyverno.io/v1/ClusterPolicy") (not (.Capabilities.APIVersions.Has "policies.kyverno.io/v1/ImageValidatingPolicy")) -}}
+{{- fail "this cluster's Kyverno serves kyverno.io/v1 ClusterPolicy but not policies.kyverno.io/v1 ImageValidatingPolicy: the agent's image-integrity policy needs Kyverno 1.17 or later (RTO-12); upgrade Kyverno before installing the agent" -}}
+{{- end -}}
+{{- /*
+RTO-12 ordering gate. Helm creates kinds it does not know (ImageValidatingPolicy)
+AFTER the DaemonSet and never waits for Kyverno to load a policy, so a one-step
+install admits the first agent pods before the verifier exists. On a real
+install/upgrade against a cluster serving policies.kyverno.io/v1, require the
+exact policy this release renders to be live and Ready first
+(docs/deploying-agents.md "Image-integrity admission", step 1). `helm template`
+and client dry-runs do not advertise the API, so offline rendering is
+unaffected.
+*/ -}}
+{{- if and (eq $policy.readinessGate "lookup") (.Capabilities.APIVersions.Has "policies.kyverno.io/v1/ImageValidatingPolicy") -}}
+{{- $live := lookup "policies.kyverno.io/v1" "ImageValidatingPolicy" "" $policy.policyName -}}
+{{- $step1 := printf "apply it first and wait for Ready: helm template %s <chart> -n %s <same values> --show-only templates/image-integrity-policy.yaml | kubectl apply --server-side --force-conflicts --field-manager=helm -f - && kubectl wait --for=jsonpath='{.status.conditionStatus.ready}'=true imagevalidatingpolicy/%s (RTO-12)" .Release.Name .Release.Namespace $policy.policyName -}}
 {{- if not $live -}}
-{{- fail (printf "image-integrity ClusterPolicy %s is not in the cluster, so the agent's first pods would be admitted unverified; %s" $policy.policyName $step1) -}}
+{{- fail (printf "image-integrity ImageValidatingPolicy %s is not in the cluster, so the agent's first pods would be admitted unverified; %s" $policy.policyName $step1) -}}
 {{- end -}}
 {{- $liveSum := dig "metadata" "annotations" "probectl.dev/policy-sha256" "" $live -}}
 {{- if ne $liveSum $sum -}}
-{{- fail (printf "image-integrity ClusterPolicy %s in the cluster is not the policy this release renders (policy-sha256 %q, want %q), so pods would be admitted under the old rules; %s" $policy.policyName $liveSum $sum $step1) -}}
+{{- fail (printf "image-integrity ImageValidatingPolicy %s in the cluster is not the policy this release renders (policy-sha256 %q, want %q), so pods would be admitted under the old rules; %s" $policy.policyName $liveSum $sum $step1) -}}
 {{- end -}}
-{{- $ready := false -}}
-{{- range (dig "status" "conditions" (list) $live) -}}
-{{- if and (eq (toString .type) "Ready") (eq (toString .status) "True") -}}
-{{- $ready = true -}}
+{{- /*
+Ready = Kyverno's conditionStatus.ready AND its WebhookConfigured condition
+True (Kyverno has put this policy into its admission webhook).
+*/ -}}
+{{- $webhookConfigured := false -}}
+{{- range (dig "status" "conditionStatus" "conditions" (list) $live) -}}
+{{- if and (eq (toString .type) "WebhookConfigured") (eq (toString .status) "True") -}}
+{{- $webhookConfigured = true -}}
 {{- end -}}
 {{- end -}}
-{{- if not $ready -}}
-{{- fail (printf "image-integrity ClusterPolicy %s is not Ready in Kyverno yet, so it is not enforcing; %s" $policy.policyName $step1) -}}
+{{- if not (and (eq (toString (dig "status" "conditionStatus" "ready" false $live)) "true") $webhookConfigured) -}}
+{{- fail (printf "image-integrity ImageValidatingPolicy %s is not Ready in Kyverno yet (conditionStatus.ready and WebhookConfigured), so it is not enforcing; %s" $policy.policyName $step1) -}}
 {{- end -}}
 {{- /*
 A Ready condition is only as fresh as the last Kyverno that wrote it. A Kyverno
 admission controller scaled to zero DELETES its resource webhooks on the way
 out (and nothing is verified cluster-wide), while the policy still reads Ready.
-verifyImages is served by both resource webhooks (signature: mutating; digest:
-validating); require each to be registered with a failurePolicy=Fail entry.
+An ImageValidatingPolicy with mutateDigest=false is served by the validating
+resource webhook alone (ivpol.validate.kyverno.svc-fail*, path
+/ivpol/validate/<policy names>); require an entry with failurePolicy=Fail whose
+path names THIS policy.
 */ -}}
-{{- range $kind := list "MutatingWebhookConfiguration" "ValidatingWebhookConfiguration" -}}
-{{- $name := printf "kyverno-resource-%s-webhook-cfg" (ternary "mutating" "validating" (eq $kind "MutatingWebhookConfiguration")) -}}
-{{- $cfg := lookup "admissionregistration.k8s.io/v1" $kind "" $name -}}
+{{- $cfgName := "kyverno-resource-validating-webhook-cfg" -}}
+{{- $cfg := lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" "" $cfgName -}}
 {{- $failClosed := false -}}
 {{- range (dig "webhooks" (list) $cfg) -}}
-{{- if eq (toString .failurePolicy) "Fail" -}}
+{{- $path := default (toString (dig "clientConfig" "url" "" .)) (toString (dig "clientConfig" "service" "path" "" .)) -}}
+{{- if and (eq (toString .failurePolicy) "Fail") (contains "/ivpol/validate/" $path) (has $policy.policyName (splitList "/" (regexReplaceAll "[?#].*$" $path ""))) -}}
 {{- $failClosed = true -}}
 {{- end -}}
 {{- end -}}
 {{- if not $failClosed -}}
-{{- fail (printf "Kyverno's %s %s has no failurePolicy=Fail webhook registered, so admission is not verifying images (Kyverno removes its webhooks when its admission controller is scaled to zero); restore Kyverno (kubectl -n <kyverno-namespace> get deploy) before installing the agent (RTO-12)" $kind $name) -}}
-{{- end -}}
+{{- fail (printf "Kyverno's ValidatingWebhookConfiguration %s has no failurePolicy=Fail webhook serving ImageValidatingPolicy %s, so admission is not verifying images (Kyverno removes its webhooks when its admission controller is scaled to zero); restore Kyverno (kubectl -n <kyverno-namespace> get deploy) before installing the agent (RTO-12)" $cfgName $policy.policyName) -}}
 {{- end -}}
 {{- end }}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
 metadata:
   name: {{ $policy.policyName | quote }}
   labels:

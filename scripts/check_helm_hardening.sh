@@ -1062,24 +1062,42 @@ need "kind: DaemonSet"                  "$agent" "agent: not a DaemonSet"
 need "@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$agent" "agent: digest-pinned image did not render"
 # SUPPLY-001: this privileged chart must render the deployment-time signature
 # verifier by default. Digest pinning alone is not provenance; the Kyverno
-# ClusterPolicy requires the image digest and the keyless release-workflow
-# signature before a Pod is admitted.
-need "kind: ClusterPolicy"              "$agent" "agent: image-integrity ClusterPolicy missing (SUPPLY-001)"
-need "probectl-agent-image-integrity"   "$agent" "agent: image-integrity policy name missing (SUPPLY-001)"
-need "verifyImages:"                    "$agent" "agent: Kyverno verifyImages rule missing (SUPPLY-001)"
-need "required: true"                   "$agent" "agent: image signature verification is not required (SUPPLY-001)"
-need "verifyDigest: true"              "$agent" "agent: image digest verification is not enforced (SUPPLY-001)"
-need "failureAction: Enforce"           "$agent" "agent: image-integrity verifyImages rule is not enforcing (SUPPLY-001/RTO-12)"
-need "failurePolicy: Fail"              "$agent" "agent: image-integrity policy does not fail closed when Kyverno is unreachable (RTO-12)"
-grep -q "validationFailureAction" <<<"$agent" && fail "agent: a policy renders Kyverno's deprecated spec-level validationFailureAction (RTO-12)"
-need_fixed '"ghcr.io/ctlplne/probectl-ebpf-agent*"' "$agent" "agent: imageReferences not derived from image.repository (RTO-12)"
-need_fixed 'release\\.yml@refs/tags'  "$agent" "agent: release workflow OIDC subject is not pinned (SUPPLY-001)"
-need "probectl-agent-capability-posture" "$agent" "agent: capability posture ClusterPolicy missing (EBPF-007)"
-need "probectl.dev/finding: EBPF-007"    "$agent" "agent: capability posture policy is not tied to EBPF-007"
-need "failureAction: Audit"              "$agent" "agent: capability posture policy must report, not hide, legacy/extra capabilities (EBPF-007)"
-need "background: true"                  "$agent" "agent: capability posture policy must scan existing pods (EBPF-007)"
-need "AnyNotIn"                          "$agent" "agent: capability posture policy does not check added/dropped capabilities (EBPF-007)"
-need "SYS_ADMIN is legacy break-glass"   "$agent" "agent: capability posture policy does not report legacy SYS_ADMIN (EBPF-007)"
+# ImageValidatingPolicy (policies.kyverno.io/v1; Kyverno 1.19 deprecates the
+# kyverno.io/v1 ClusterPolicy verifyImages form) requires the image digest and
+# the keyless release-workflow signature before a Pod is admitted.
+# agent_kyverno_checks <render> — prints the first violation, returns 1.
+agent_kyverno_checks() {
+  local r="$1" ivp vp
+  ivp="$(awk '/^---/{ if (keep) printf "%s", buf; buf=""; keep=0; next } { buf = buf $0 "\n" } $0 == "kind: ImageValidatingPolicy" { keep=1 } END { if (keep) printf "%s", buf }' <<<"$r")"
+  vp="$(awk '/^---/{ if (keep) printf "%s", buf; buf=""; keep=0; next } { buf = buf $0 "\n" } $0 == "kind: ValidatingPolicy" { keep=1 } END { if (keep) printf "%s", buf }' <<<"$r")"
+  [ -n "$ivp" ] || { echo "agent: image-integrity ImageValidatingPolicy missing (SUPPLY-001)"; return 1; }
+  grep -qx "apiVersion: policies.kyverno.io/v1" <<<"$ivp" || { echo "agent: image-integrity policy is not policies.kyverno.io/v1 (RTO-12)"; return 1; }
+  grep -Eq "^kind: ClusterPolicy$" <<<"$r" && { echo "agent: a deprecated kyverno.io/v1 ClusterPolicy is rendered (RTO-12)"; return 1; }
+  grep -q "probectl-agent-image-integrity" <<<"$ivp" || { echo "agent: image-integrity policy name missing (SUPPLY-001)"; return 1; }
+  grep -q "verifyImageSignatures(i, \[attestors.probectl\]) > 0" <<<"$ivp" || { echo "agent: Kyverno image signature validation missing (SUPPLY-001)"; return 1; }
+  grep -qx "    required: true" <<<"$ivp" || { echo "agent: image signature verification is not required (SUPPLY-001)"; return 1; }
+  grep -qx "    verifyDigest: true" <<<"$ivp" || { echo "agent: image digest verification is not enforced (SUPPLY-001)"; return 1; }
+  [ "$(grep -A1 -x "  validationActions:" <<<"$ivp" | tail -1)" = "    - Deny" ] || { echo "agent: image-integrity policy is not enforcing (validationActions [Deny]) (SUPPLY-001/RTO-12)"; return 1; }
+  grep -qx "  failurePolicy: Fail" <<<"$ivp" || { echo "agent: image-integrity policy does not fail closed when Kyverno is unreachable (RTO-12)"; return 1; }
+  grep -q "validationFailureAction" <<<"$r" && { echo "agent: a policy renders Kyverno's deprecated validationFailureAction (RTO-12)"; return 1; }
+  grep -Fq -- '- glob: "ghcr.io/ctlplne/probectl-ebpf-agent*"' <<<"$ivp" || { echo "agent: matchImageReferences not derived from image.repository (RTO-12)"; return 1; }
+  grep -Fq 'release\\.yml@refs/tags' <<<"$ivp" || { echo "agent: release workflow OIDC subject is not pinned (SUPPLY-001)"; return 1; }
+  grep -q "probectl-agent-capability-posture" <<<"$vp" || { echo "agent: capability posture ValidatingPolicy missing (EBPF-007)"; return 1; }
+  grep -q "probectl.dev/finding: EBPF-007" <<<"$vp" || { echo "agent: capability posture policy is not tied to EBPF-007"; return 1; }
+  [ "$(grep -A1 -x "  validationActions:" <<<"$vp" | tail -1)" = "    - Audit" ] || { echo "agent: capability posture policy must report, not hide, legacy/extra capabilities (EBPF-007)"; return 1; }
+  [ "$(grep -A2 -x "  evaluation:" <<<"$vp" | tail -1)" = "      enabled: true" ] || { echo "agent: capability posture policy must scan existing pods (EBPF-007)"; return 1; }
+  grep -Fq "'ALL' in caps.?drop.orValue([])" <<<"$vp" && grep -Fq "caps.?add.orValue([]).all(k, k in ['BPF', 'PERFMON'])" <<<"$vp" \
+    || { echo "agent: capability posture policy does not check added/dropped capabilities (EBPF-007)"; return 1; }
+  grep -q "SYS_ADMIN is legacy break-glass" <<<"$vp" || { echo "agent: capability posture policy does not report legacy SYS_ADMIN (EBPF-007)"; return 1; }
+  return 0
+}
+why="$(agent_kyverno_checks "$agent")" || fail "$why"
+# Non-vacuity: each planted regression of the rendered policies must be caught.
+for plant in 's/^    - Deny$/    - Audit/' 's/^  failurePolicy: Fail$/  failurePolicy: Ignore/' \
+    's/^kind: ImageValidatingPolicy$/kind: ClusterPolicy/' 's/^    verifyDigest: true$/    verifyDigest: false/' \
+    "s/'ALL' in caps/'NONE' in caps/" 's/^      enabled: true$/      enabled: false/'; do
+  agent_kyverno_checks "$(sed "$plant" <<<"$agent")" >/dev/null && fail "agent: planted policy regression '$plant' was not caught (gate is vacuous)"
+done
 need 'drop: \["ALL"\]'                  "$agent" "agent: capabilities not dropped to ALL"
 need '"BPF", "PERFMON"'                 "$agent" "agent: minimal capability pair not declared"
 need "seccompProfile"                   "$agent" "agent: no seccomp profile"
@@ -1163,7 +1181,9 @@ fi
 legacy="$(arender --set capabilityMode=legacy --set legacyKernelRingBufferAck=i-confirm-runtime-ring-buffer-support)"
 need "SYS_ADMIN" "$legacy" "agent: acknowledged legacy mode missing SYS_ADMIN"
 need "probectl-agent-capability-posture" "$legacy" "agent: acknowledged legacy mode lost capability posture audit policy (EBPF-007)"
-need "failureAction: Audit" "$legacy" "agent: acknowledged legacy mode must still report capability posture (EBPF-007)"
+need "kind: ValidatingPolicy" "$legacy" "agent: acknowledged legacy mode must still report capability posture (EBPF-007)"
+[ "$(grep -A1 -x "  validationActions:" <<<"$(awk '/^kind: ValidatingPolicy$/,0' <<<"$legacy")" | sed -n 2p)" = "    - Audit" ] \
+  || fail "agent: acknowledged legacy mode must still report capability posture (EBPF-007)"
 
 # fail-closed rendering: no tenant, or plaintext kafka without the explicit
 # dev override, must refuse (guardrail 1 / U-010).
@@ -1202,7 +1222,8 @@ need "probectl-agent-capability-posture" "$tag_break_glass" "agent: tag-only bre
 audit_break_glass="$(arender \
   --set admission.imageIntegrity.failureAction=Audit \
   --set-string admission.imageIntegrity.acceptedRisk=dev-registry-has-equivalent-admission-control)"
-need "failureAction: Audit" "$(awk '/name: "probectl-agent-image-integrity"/,0' <<<"$audit_break_glass")" "agent: accepted non-enforcing image-integrity render failed"
+[ "$(grep -A1 -x "  validationActions:" <<<"$(awk '/name: "probectl-agent-image-integrity"/,0' <<<"$audit_break_glass")" | sed -n 2p)" = "    - Audit" ] \
+  || fail "agent: accepted non-enforcing image-integrity render failed"
 if helm template agent "$AGENT" --set tenantID=t --set agentID=t --set 'bus.brokers={k:9092}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" --set bus.tls.enabled=false >/dev/null 2>&1; then
   fail "agent chart rendered plaintext kafka without bus.allowPlaintext"

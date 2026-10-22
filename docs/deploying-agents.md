@@ -479,7 +479,8 @@ with your tooling.
   helm template probectl-agent deploy/helm/probectl-agent -n probectl -f agent-values.yaml \
     --show-only templates/image-integrity-policy.yaml \
     | kubectl apply --server-side --force-conflicts --field-manager=helm -f -
-  kubectl wait --for=condition=Ready clusterpolicy/probectl-agent-image-integrity --timeout=2m
+  kubectl wait --for=jsonpath='{.status.conditionStatus.ready}'=true \
+    imagevalidatingpolicy/probectl-agent-image-integrity --timeout=2m
   # 2. the agent (the release adopts the policy from step 1)
   helm install probectl-agent deploy/helm/probectl-agent -n probectl -f agent-values.yaml
   ```
@@ -514,53 +515,67 @@ with your tooling.
 ## Image-integrity admission (Kubernetes)
 
 The eBPF agent is privileged, so the agent chart does not stop at pinning a
-digest: it renders a Kyverno `ClusterPolicy`,
+digest: it renders a Kyverno `ImageValidatingPolicy`,
 `probectl-agent-image-integrity`, that checks the image again at admission time,
-in the cluster, every time a pod is created (RTO-12). Kyverno must already be
-installed. In ELI5 terms: the chart writes down which photo is allowed in, and a
+in the cluster, every time a pod is created (RTO-12). Kyverno 1.17 or later must
+already be installed: the policy is `policies.kyverno.io/v1`, which Kyverno
+serves from 1.17, and Kyverno 1.19 deprecates the `kyverno.io/v1`
+`ClusterPolicy` (`verifyImages`) form the chart used to render. Against an
+older Kyverno the chart refuses to install rather than render a kind nothing
+enforces. In ELI5 terms: the chart writes down which photo is allowed in, and a
 bouncer (Kyverno) checks every pod's photo against it at the door.
 
 **What it enforces.** For every Pod in every namespace Kyverno watches (and,
 through Kyverno's autogen rules, every DaemonSet, Deployment, Job, … template)
-whose image matches `<image.repository>*`, or one of
+whose container, initContainer or ephemeral-container image matches
+`<image.repository>*`, or one of
 `admission.imageIntegrity.additionalImageReferences` (default
-`*/ctlplne/probectl-ebpf-agent*`):
+`*/ctlplne/probectl-ebpf-agent*`) — each pattern compared with the raw image
+string and with its Docker-normalized form (`ctlplne/x` is
+`docker.io/ctlplne/x`), as the `ClusterPolicy` did:
 
 - the reference must carry a **digest** — a tag-only reference is refused
-  (`missing digest`);
+  (`does not have a digest`);
 - that digest must carry a cosign **signature from the configured attestor** —
-  unsigned is refused (`no signatures found`), signed by any other key or
-  identity is refused (`no matching signatures`). The default attestor is
-  keyless: the tagged `ctlplne/probectl` `release.yml` workflow's GitHub OIDC
-  identity, verified through the Rekor transparency log;
-- the rule's action is `failureAction: Enforce` (per rule; Kyverno's spec-level
-  `validationFailureAction` is deprecated and not rendered). `Audit` reports
-  without blocking and is accepted only with an
-  `admission.imageIntegrity.acceptedRisk` note;
+  unsigned, or signed by any other key or identity, is refused
+  (`image signature not verified by the configured attestor`, naming each
+  image; Kyverno's `ImageValidatingPolicy` does not tell the two apart in its
+  answer). The default attestor is keyless: the tagged `ctlplne/probectl`
+  `release.yml` workflow's GitHub OIDC identity, verified through the Rekor
+  transparency log;
+- `admission.imageIntegrity.failureAction: Enforce` renders
+  `validationActions: [Deny]`. `Audit` reports without blocking and is
+  accepted only with an `admission.imageIntegrity.acceptedRisk` note;
 - `failurePolicy: Fail`: a Kyverno that cannot answer (hung, crashed,
   partitioned) **refuses** the pod — even a correctly signed one.
 
-**Why two steps.** Helm creates object kinds it does not know (a
-`ClusterPolicy`) *after* the DaemonSet and never waits for Kyverno to load a
-policy, so a one-step install admits the first agent pods before their verifier
-exists. Helm hooks are not the fix: Helm deletes and re-creates a hook object on
-every upgrade — a window with no enforcing policy — and does not wait for a hook
-`ClusterPolicy` to become Ready either. So the policy is applied first (step 1
+**Why two steps.** Helm creates object kinds it does not know (an
+`ImageValidatingPolicy`) *after* the DaemonSet and never waits for Kyverno to
+load a policy, so a one-step install admits the first agent pods before their
+verifier exists. Helm hooks are not the fix: Helm deletes and re-creates a hook
+object on every upgrade — a window with no enforcing policy — and does not wait
+for a hook policy to become Ready either. So the policy is applied first (step 1
 above), and the chart **refuses** to install or upgrade (`readinessGate:
 lookup`, the default) unless the exact policy that release renders — matched by
 its `probectl.dev/policy-sha256` annotation — is already in the cluster,
-Kyverno reports it `Ready`, and Kyverno's resource webhooks are registered with
-`failurePolicy: Fail`. Step 1 is idempotent: re-run it before any upgrade that
+Kyverno reports it ready (`status.conditionStatus.ready` and its
+`WebhookConfigured` condition), and Kyverno's validating resource webhook
+serves that policy (`/ivpol/validate/<policy>`) with `failurePolicy: Fail`. Step 1 is idempotent: re-run it before any upgrade that
 changes `image.repository` or the attestor (the chart tells you when it has to).
 A plain image-version upgrade does not change the policy.
+
+**Upgrading from a chart that rendered the `ClusterPolicy`.** Run step 1 as
+usual: it creates the `ImageValidatingPolicy` beside the old `ClusterPolicy`
+(different kinds, same name), so both verify until `helm upgrade` removes the
+`ClusterPolicy` the release no longer renders. There is no moment with neither.
 
 **A mirrored or air-gapped registry.** The verified reference is *derived* from
 `image.repository`, so pointing the chart at your mirror also points the policy
 at it — a mirror can no longer bypass the check by having a different path.
 `image.repository` must name its registry host explicitly
 (`registry.corp.example:5443/mirror/probectl-ebpf-agent`, not
-`mirror/probectl-ebpf-agent`), because Kyverno compares normalized references
-and a bare path would silently become `docker.io/…`. If the mirror keeps the
+`mirror/probectl-ebpf-agent`), because the reference a bare path normalizes to
+is `docker.io/…`, which the derived pattern would never match. If the mirror keeps the
 upstream signatures (copy them with `cosign copy`), nothing else changes.
 If it cannot reach Rekor, or re-signs what it mirrors after verifying upstream,
 give the chart the mirror's public key instead of the keyless identity:
@@ -582,8 +597,9 @@ admission:
 so the lookup gate cannot see the live policy there: set
 `admission.imageIntegrity.readinessGate=external` and name the mechanism in
 `externalOrdering`. The policy carries `argocd.argoproj.io/sync-wave: "-1"`;
-give Argo CD a health check for `kyverno.io/ClusterPolicy` (its `Ready`
-condition) so the DaemonSet's wave waits for it. Flux's helm-controller performs
+give Argo CD a health check for `policies.kyverno.io/ImageValidatingPolicy`
+(`status.conditionStatus.ready` and `WebhookConfigured`) so the DaemonSet's
+wave waits for it. Flux's helm-controller performs
 a real install, so the default gate works once the policy is applied first
 (a separate Kustomization the HelmRelease `dependsOn`, with a health check).
 
@@ -592,13 +608,13 @@ controller is scaled to zero; from then on nothing in the cluster is verified,
 while the policy still reads `Ready`. The chart's gate refuses to roll out in
 that state, but between rollouts it is yours to watch: run Kyverno with several
 replicas and alert when `kyverno-resource-mutating-webhook-cfg` or
-`kyverno-resource-validating-webhook-cfg` disappears. Kyverno 1.19 also marks
-`kyverno.io/v1 ClusterPolicy` deprecated in favour of `ImageValidatingPolicy`;
-the chart's policy is accepted without other warnings.
+`kyverno-resource-validating-webhook-cfg` disappears. Kyverno accepts both
+shipped policies (`ImageValidatingPolicy`, `ValidatingPolicy`) without a
+deprecation warning.
 
 **Proof.** `scripts/kyverno_admission_smoke.sh` (CI job `kyverno-admission`)
 runs all of this on a real kind cluster with a pinned Kyverno: Kyverno accepts
-both shipped policies; the chart refuses to install before its policy exists;
+the shipped policies with no deprecation warning; the chart refuses to install before its policy exists;
 the two-step install is admitted; an unsigned digest, a digest signed by another
 key, a tag-only reference, an unsigned pod outside the chart, and an unsigned
 image in a mirror with a different path are each denied with the policy's

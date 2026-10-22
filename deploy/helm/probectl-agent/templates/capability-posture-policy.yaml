@@ -1,15 +1,22 @@
 {{- $policy := .Values.admission.capabilityPosture -}}
-{{- $agentAdds := "{{ request.object.spec.containers[?name=='agent'].securityContext.capabilities.add[] || `[]` }}" -}}
-{{- $agentDrops := "{{ request.object.spec.containers[?name=='agent'].securityContext.capabilities.drop[] || `[]` }}" -}}
 {{- if hasKey $policy "validationFailureAction" -}}
-{{- fail "admission.capabilityPosture.validationFailureAction was renamed to admission.capabilityPosture.failureAction (RTO-12): Kyverno's spec-level validationFailureAction is deprecated, so the chart sets failureAction on the validate rule itself" -}}
+{{- fail "admission.capabilityPosture.validationFailureAction was renamed to admission.capabilityPosture.failureAction (RTO-12): Kyverno's spec-level validationFailureAction is deprecated, so the chart maps failureAction onto the ValidatingPolicy validationActions" -}}
 {{- end -}}
 {{- if not (has $policy.failureAction (list "Enforce" "Audit")) -}}
 {{- fail "admission.capabilityPosture.failureAction must be Enforce or Audit" -}}
 {{- end -}}
 {{- if $policy.enabled }}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+{{- /*
+EBPF-007 / RTO-12: a policies.kyverno.io/v1 ValidatingPolicy (GA since Kyverno
+1.17; Kyverno 1.19 deprecates the kyverno.io/v1 ClusterPolicy this chart used
+to render). Same semantics as the ClusterPolicy deny conditions it replaces:
+the agent container must drop ALL, add BPF and PERFMON, and add nothing else; a
+pod with no agent container is reported too. Audit (the default) only reports,
+through Kyverno policy reports; Kyverno's autogen applies it to the DaemonSet
+template as well (object.spec -> object.spec.template.spec).
+*/ -}}
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: {{ $policy.policyName | quote }}
   labels:
@@ -20,39 +27,34 @@ metadata:
     policies.kyverno.io/severity: medium
     probectl.dev/finding: EBPF-007
 spec:
-  background: {{ $policy.background }}
-  rules:
-    - name: report-legacy-or-extra-ebpf-capabilities
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              selector:
-                matchLabels:
-                  app.kubernetes.io/name: {{ include "probectl-agent.name" . | quote }}
-                  app.kubernetes.io/instance: {{ .Release.Name | quote }}
-      validate:
-        failureAction: {{ $policy.failureAction }}
-        message: >-
-          probectl eBPF agent pods must drop ALL and add only BPF+PERFMON.
-          SYS_ADMIN is legacy break-glass, and any extra capability must surface
-          as an EBPF-007 capability-posture policy report.
-        deny:
-          conditions:
-            any:
-              - key:
-                  - ALL
-                operator: AnyNotIn
-                value: {{ $agentDrops | quote }}
-              - key:
-                  - BPF
-                  - PERFMON
-                operator: AnyNotIn
-                value: {{ $agentAdds | quote }}
-              - key: {{ $agentAdds | quote }}
-                operator: AnyNotIn
-                value:
-                  - BPF
-                  - PERFMON
+  validationActions:
+    - {{ ternary "Deny" "Audit" (eq $policy.failureAction "Enforce") }}
+  evaluation:
+    background:
+      enabled: {{ $policy.background }}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+    objectSelector:
+      matchLabels:
+        app.kubernetes.io/name: {{ include "probectl-agent.name" . | quote }}
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  variables:
+    - name: agentCapabilities
+      expression: >-
+        object.spec.containers.filter(c, c.name == 'agent').map(c, c.?securityContext.?capabilities.orValue({}))
+  validations:
+    - expression: >-
+        size(variables.agentCapabilities) > 0 &&
+        variables.agentCapabilities.all(caps,
+          'ALL' in caps.?drop.orValue([]) &&
+          ['BPF', 'PERFMON'].all(k, k in caps.?add.orValue([])) &&
+          caps.?add.orValue([]).all(k, k in ['BPF', 'PERFMON']))
+      message: >-
+        probectl eBPF agent pods must drop ALL and add only BPF+PERFMON.
+        SYS_ADMIN is legacy break-glass, and any extra capability must surface
+        as an EBPF-007 capability-posture policy report.
 {{- end }}

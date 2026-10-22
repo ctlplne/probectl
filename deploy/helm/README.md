@@ -510,7 +510,8 @@ AGENT_FLAGS=(
 helm template probectl-agent deploy/helm/probectl-agent -n probectl "${AGENT_FLAGS[@]}" \
   --show-only templates/image-integrity-policy.yaml \
   | kubectl apply --server-side --force-conflicts --field-manager=helm -f -
-kubectl wait --for=condition=Ready clusterpolicy/probectl-agent-image-integrity --timeout=2m
+kubectl wait --for=jsonpath='{.status.conditionStatus.ready}'=true \
+  imagevalidatingpolicy/probectl-agent-image-integrity --timeout=2m
 # 2. the agent; the chart refuses this step until step 1's policy is live and Ready
 helm install probectl-agent deploy/helm/probectl-agent -n probectl "${AGENT_FLAGS[@]}"
 ```
@@ -522,11 +523,13 @@ unregistered one (TENANT-101, DPR-051). Bus client auth is read from a Secret
 (`bus.sasl.*`, or `bus.tls.clientAuth=true` for broker mTLS).
 
 Because this is a privileged node agent, the chart also renders the Kyverno
-`ClusterPolicy` that verifies the eBPF-agent image digest and keyless cosign
+`ImageValidatingPolicy` (`policies.kyverno.io/v1`, Kyverno 1.17 or later; Kyverno
+1.19 deprecates the `kyverno.io/v1` `ClusterPolicy` it replaces) that verifies
+the eBPF-agent image digest and keyless cosign
 signature from the `release.yml` tag workflow before Kubernetes admits a pod.
 Kyverno must already be installed in the cluster; regulated installs fail closed
 unless that rendered policy is enforcing or an equivalent admission control is
-named. The policy's `imageReferences` are derived from `image.repository`, so a
+named. The policy's `matchImageReferences` are derived from `image.repository`, so a
 mirrored registry is verified too, and the install is two steps (policy, then
 agent) so the first pod is verified as well — what it enforces, why hooks are
 not used, mirror/air-gap keys and GitOps ordering:

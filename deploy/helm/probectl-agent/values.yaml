@@ -17,9 +17,12 @@ image:
 # policy requires an explicit accepted-risk note and is intended only for dev or
 # a replacement admission controller with equivalent cosign checks.
 #
-# What the policy enforces (ClusterPolicy, verifyImages, failurePolicy Fail):
-# every Pod (and, through Kyverno's autogen rules, every DaemonSet/Deployment/
-# ... template) whose image matches `<image.repository>*` or one of
+# What the policy enforces (a policies.kyverno.io/v1 ImageValidatingPolicy —
+# Kyverno 1.17 or later; Kyverno 1.19 deprecates the kyverno.io/v1
+# ClusterPolicy verifyImages form this chart used to render — with
+# failurePolicy Fail): every Pod (and, through Kyverno's autogen, every
+# DaemonSet/Deployment/... template) whose container, initContainer or
+# ephemeral-container image matches `<image.repository>*` or one of
 # additionalImageReferences is admitted only if the reference carries a digest
 # (verifyDigest) AND that digest carries a signature from the attestor below.
 # An unsigned image, a signature from another key or identity, or a tag-only
@@ -31,14 +34,14 @@ image:
 # docs/deploying-agents.md "Image-integrity admission". Helm hooks are NOT used:
 # Helm re-creates a hook object on every upgrade (delete, then create), which
 # opens a window with no enforcing policy, and it never waits for a hook
-# ClusterPolicy to become Ready.
+# policy to become Ready.
 admission:
   imageIntegrity:
     enabled: true
     acceptedRisk: ""
     policyName: probectl-agent-image-integrity
-    # Per-rule Kyverno failureAction for the verifyImages rule (the spec-level
-    # validationFailureAction is deprecated in Kyverno and is not rendered).
+    # Enforce renders validationActions [Deny]; Audit renders [Audit] (the
+    # deprecated ClusterPolicy validationFailureAction is never rendered).
     # Enforce is the default and the regulated posture. Audit admits and only
     # reports; the chart allows it only when acceptedRisk also names the
     # replacement control or approved dev exception.
@@ -48,9 +51,10 @@ admission:
     # this chart deploys, so a mirrored or air-gapped repository
     # (registry.corp.example/mirror/probectl-ebpf-agent) is checked exactly
     # like ghcr.io. image.repository must therefore name its registry host
-    # explicitly. These patterns are verified IN ADDITION (Kyverno wildcards):
-    # the default catches the agent image pulled from any registry that keeps
-    # the upstream path.
+    # explicitly. These patterns are verified IN ADDITION (`*` matches any
+    # characters, `/` included; each pattern is matched against both the raw
+    # image string and its Docker-normalized form): the default catches the
+    # agent image pulled from any registry that keeps the upstream path.
     additionalImageReferences:
       - "*/ctlplne/probectl-ebpf-agent*"
     # Keyless attestor (default): the tagged release.yml workflow's GitHub OIDC
@@ -68,11 +72,13 @@ admission:
     # signature itself is still verified against publicKey.
     ignoreTlog: false
     # Ordering gate. lookup (default): on a real `helm install`/`helm upgrade`
-    # against a cluster that serves kyverno.io/v1, rendering refuses unless the
-    # policy this release renders (matched by its probectl.dev/policy-sha256
-    # annotation) is already in the cluster and Kyverno reports it Ready.
-    # external: your deploy tool orders it instead (Argo CD sync-wave -1 plus a
-    # ClusterPolicy health check, Flux dependsOn + healthChecks); name that
+    # against a cluster that serves policies.kyverno.io/v1, rendering refuses
+    # unless the policy this release renders (matched by its
+    # probectl.dev/policy-sha256 annotation) is already in the cluster, Kyverno
+    # reports it Ready (conditionStatus.ready + WebhookConfigured), and
+    # Kyverno's validating webhook serves it with failurePolicy Fail.
+    # external: your deploy tool orders it instead (Argo CD sync-wave -1 plus an
+    # ImageValidatingPolicy health check, Flux dependsOn + healthChecks); name that
     # mechanism in externalOrdering. Needed for renderers that never contact
     # the cluster but advertise its API versions (Argo CD).
     readinessGate: lookup

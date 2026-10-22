@@ -269,15 +269,16 @@ apply the standalone GitOps form at
 enforces digest references plus the same keyless release workflow identity for
 the privileged eBPF-agent image at admission time.
 
-Exactly what the chart's policy enforces (RTO-12), for every pod whose image
-matches `<image.repository>*` or `*/ctlplne/probectl-ebpf-agent*`:
+Exactly what the chart's `ImageValidatingPolicy` enforces (RTO-12), for every
+pod whose container, initContainer or ephemeral-container image matches
+`<image.repository>*` or `*/ctlplne/probectl-ebpf-agent*`:
 
 | Pod image | Admission |
 | --- | --- |
 | `<repo>:<tag>@sha256:<d>`, `<d>` signed by the attestor | admitted |
-| a digest with no signature | denied: `no signatures found` |
-| a digest signed by another key / identity | denied: `no matching signatures` |
-| a tag with no digest | denied: `missing digest` |
+| a digest with no signature | denied: `image signature not verified by the configured attestor`, naming the image |
+| a digest signed by another key / identity | denied: the same message, naming the image |
+| a tag with no digest | denied: `does not have a digest` |
 | any of the above while Kyverno cannot answer | denied: `failed calling webhook` (`failurePolicy: Fail`) |
 
 The attestor is the `release.yml` tag workflow's keyless identity (`issuer`,

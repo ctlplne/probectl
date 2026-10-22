@@ -786,7 +786,7 @@ jobs:
 
   kyverno-admission:
     name: kyverno-admission (RTO-12)
-    # RTO-12: the agent chart's image-integrity ClusterPolicy, proven on a REAL
+    # RTO-12: the agent chart's image-integrity ImageValidatingPolicy, proven on a REAL
     # cluster instead of by grep. kind (node image pinned by digest) + Kyverno
     # (chart version + sha256, images by digest) + a run-time TLS registry and
     # run-time cosign keys: the two-step install is admitted, an unsigned /

@@ -12,12 +12,15 @@ import (
 )
 
 // TestAgentImageIntegrityCoversMirrorsAndPinsRekor is the RTO-12 static gate.
-// Kyverno verifyImages only verifies image references that MATCH
-// imageReferences; anything unmatched is skipped and admitted UNVERIFIED. The
+// Kyverno only verifies image references that MATCH the policy's references
+// (ImageValidatingPolicy matchImageReferences, formerly ClusterPolicy
+// imageReferences); anything unmatched is skipped and admitted UNVERIFIED. The
 // policy once listed only `ghcr.io/ctlplne/probectl-ebpf-agent*`, then fixed
 // globs that still missed a mirror with a different path; the chart now DERIVES
 // its reference from image.repository (so whatever the DaemonSet pulls is what
-// the policy verifies) and pins the transparency log.
+// the policy verifies), matches it against the Docker-normalized reference too
+// (an ImageValidatingPolicy glob sees only the raw string), and pins the
+// transparency log.
 //
 // The live half — two-step install, unsigned / other-key / tag-only / mirror
 // images denied at admission, signed digests admitted, Kyverno down refuses —
@@ -37,6 +40,7 @@ func TestAgentImageIntegrityCoversMirrorsAndPinsRekor(t *testing.T) {
 	// The template derives the reference from image.repository and refuses a
 	// repository Kyverno would normalize away from it (no explicit registry).
 	tmpl := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/image-integrity-policy.yaml")
+	helpers := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/_helpers.tpl")
 	for _, want := range []string{
 		`$repo := .Values.image.repository`,
 		`printf "%s*" $repo`,
@@ -46,16 +50,24 @@ func TestAgentImageIntegrityCoversMirrorsAndPinsRekor(t *testing.T) {
 			t.Errorf("RTO-12: image-integrity template must derive imageReferences from image.repository (%q)", want)
 		}
 	}
-	helpers := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/_helpers.tpl")
-	for _, want := range []string{"$policy.rekorURL", "rekor:", "url: {{ $policy.rekorURL"} {
+	for _, want := range []string{"$policy.rekorURL", "ctlog:", "url: {{ $policy.rekorURL"} {
 		if !strings.Contains(helpers, want) {
-			t.Errorf("RTO-12: image-integrity spec must render the rekor.url pin (%q)", want)
+			t.Errorf("RTO-12: image-integrity spec must render the ctlog.url (Rekor) pin (%q)", want)
+		}
+	}
+	for _, want := range []string{
+		"- glob: {{ . | quote }}",
+		`include "probectl-agent.imageIntegrityRefMatch"`,
+		"'docker.io/' + (ref.contains('/') ? '' : 'library/') + ref",
+	} {
+		if !strings.Contains(helpers, want) {
+			t.Errorf("RTO-12: image-integrity spec must match the derived patterns on raw AND normalized references (%q)", want)
 		}
 	}
 
 	// The standalone GitOps manifest must carry both directly.
 	standalone := readDeployContractFile(t, "deploy/admission/probectl-agent-image-integrity.kyverno.yaml")
-	for _, want := range []string{mirrorGlob, "rekor:", rekorURL} {
+	for _, want := range []string{mirrorGlob, "ctlog:", rekorURL, "'docker.io/' +"} {
 		if !strings.Contains(standalone, want) {
 			t.Errorf("RTO-12: standalone admission policy must carry %q (mirror coverage + pinned tlog)", want)
 		}

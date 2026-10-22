@@ -230,28 +230,32 @@ func TestAgentCapabilityPostureAdmissionAuditsLegacyAndExtraCaps(t *testing.T) {
 			t.Errorf("agent values.schema.json missing capability posture schema term %q (EBPF-007)", want)
 		}
 	}
+	// RTO-12: a policies.kyverno.io/v1 ValidatingPolicy (Kyverno 1.19
+	// deprecates kyverno.io/v1 ClusterPolicy) with the same deny conditions:
+	// the agent container drops ALL, adds BPF and PERFMON, and nothing else.
 	for _, want := range []string{
-		"kind: ClusterPolicy",
+		"apiVersion: policies.kyverno.io/v1",
+		"kind: ValidatingPolicy",
 		"probectl.dev/finding: EBPF-007",
-		"report-legacy-or-extra-ebpf-capabilities",
-		"failureAction: {{ $policy.failureAction }}",
-		"background:",
+		`{{ ternary "Deny" "Audit" (eq $policy.failureAction "Enforce") }}`,
+		"enabled: {{ $policy.background }}",
 		"SYS_ADMIN is legacy break-glass",
-		"AnyNotIn",
-		"ALL",
-		"BPF",
-		"PERFMON",
+		"size(variables.agentCapabilities) > 0",
+		"'ALL' in caps.?drop.orValue([])",
+		"['BPF', 'PERFMON'].all(k, k in caps.?add.orValue([]))",
+		"caps.?add.orValue([]).all(k, k in ['BPF', 'PERFMON'])",
 	} {
 		if !strings.Contains(policy, want) {
 			t.Errorf("agent capability posture policy missing %q (EBPF-007)", want)
 		}
 	}
-	// RTO-12: Kyverno deprecated the spec-level field; the action is per rule.
-	if strings.Contains(policy, "validationFailureAction:") {
-		t.Error("agent capability posture policy still renders the deprecated spec-level validationFailureAction (RTO-12)")
+	for _, banned := range []string{"validationFailureAction:", "kind: ClusterPolicy", "apiVersion: kyverno.io/v1"} {
+		if strings.Contains(policy, banned) {
+			t.Errorf("agent capability posture policy still renders the deprecated %q (RTO-12)", banned)
+		}
 	}
 	for _, want := range []string{
-		"capability posture ClusterPolicy missing",
+		"capability posture ValidatingPolicy missing",
 		"capability posture policy must scan existing pods",
 		"acknowledged legacy mode lost capability posture audit policy",
 		"SYS_ADMIN is legacy break-glass",
@@ -303,44 +307,52 @@ func TestAgentHelmImageIntegrityAdmissionIsFailClosed(t *testing.T) {
 	for _, want := range []string{
 		"failureAction must be Enforce",
 		"acceptedRisk names the replacement control",
-		"failureAction: {{ $policy.failureAction }}",
+		`{{ ternary "Deny" "Audit" (eq $policy.failureAction "Enforce") }}`,
 		"failurePolicy: Fail",
-		"apiVersion: kyverno.io/v1",
-		"kind: ClusterPolicy",
-		"verifyImages:",
+		"apiVersion: policies.kyverno.io/v1",
+		"kind: ImageValidatingPolicy",
+		"verifyImageSignatures(i, [attestors.probectl]) > 0",
+		"images.containers + images.initContainers + images.ephemeralContainers",
 		"required: true",
 		"verifyDigest: true",
 		"subjectRegExp:",
+		`lookup "policies.kyverno.io/v1" "ImageValidatingPolicy"`,
+		"WebhookConfigured",
+		"/ivpol/validate/",
 	} {
 		if !strings.Contains(policy, want) {
 			t.Errorf("agent image-integrity template missing fail-closed contract %q (RED-003)", want)
 		}
 	}
 	for _, want := range []string{
-		"kind: ClusterPolicy",
-		"verifyImages:",
+		"apiVersion: policies.kyverno.io/v1",
+		"kind: ImageValidatingPolicy",
+		"verifyImageSignatures(i, [attestors.probectl]) > 0",
+		"images.containers + images.initContainers + images.ephemeralContainers",
 		"required: true",
 		"verifyDigest: true",
-		"failureAction: Enforce",
+		"- Deny",
 		"failurePolicy: Fail",
-		"release\\.yml@refs/tags",
+		"release\\\\.yml@refs/tags",
 	} {
 		if !strings.Contains(standalone, want) {
 			t.Errorf("standalone admission policy missing verifier contract %q (RED-003)", want)
 		}
 	}
-	// RTO-12: neither copy may fall back to the deprecated spec-level action.
+	// RTO-12: neither copy may fall back to the deprecated ClusterPolicy form.
 	for name, body := range map[string]string{"chart": policy, "standalone": standalone} {
-		if strings.Contains(body, "validationFailureAction:") {
-			t.Errorf("%s image-integrity policy renders the deprecated spec-level validationFailureAction (RTO-12)", name)
+		for _, banned := range []string{"validationFailureAction:", "\nkind: ClusterPolicy", "verifyImages:"} {
+			if strings.Contains(body, banned) {
+				t.Errorf("%s image-integrity policy renders the deprecated %q (RTO-12)", name, banned)
+			}
 		}
 	}
 	for _, want := range []string{
 		"non-enforcing image-integrity admission",
 		"failureAction=Audit",
 		"admission.imageIntegrity.acceptedRisk",
-		"kind: ClusterPolicy",
-		"failureAction: Enforce",
+		"image-integrity ImageValidatingPolicy missing",
+		"validationActions [Deny]",
 	} {
 		if !strings.Contains(hardening, want) {
 			t.Errorf("helm hardening gate missing image-integrity admission proof %q (RED-003)", want)
@@ -355,7 +367,7 @@ func TestAgentHelmImageIntegrityAdmissionIsFailClosed(t *testing.T) {
 	} {
 		for _, want := range []string{
 			"Kyverno",
-			"ClusterPolicy",
+			"ImageValidatingPolicy",
 			"acceptedRisk",
 			"fail closed",
 		} {

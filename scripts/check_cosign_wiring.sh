@@ -11,9 +11,10 @@
 #   - install.sh allows --no-verify without the explicit privileged-code ack.
 #   - the air-gap bundle or Ansible air-gap package path can bypass cosign,
 #   - release images are not signed by immutable digest,
-#   - the shipped privileged-agent admission policy no longer verifies digest
-#     and keyless release-workflow signatures, or stops enforcing per rule /
-#     failing closed (RTO-12).
+#   - the shipped privileged-agent admission policy is no longer a
+#     policies.kyverno.io/v1 ImageValidatingPolicy that verifies the digest and
+#     the keyless release-workflow signature of every matching image, denies,
+#     and fails closed (RTO-12).
 #   - a shipped default identity regex trusts a same-named repository fork.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -78,6 +79,31 @@ check_package_binary_verification() {
   [[ "$section_failed" -eq 0 ]]
 }
 
+# check_admission FILE (RTO-12) — the standalone policy is a policies.kyverno.io/v1
+# ImageValidatingPolicy (Kyverno 1.19 deprecates the kyverno.io/v1 ClusterPolicy
+# verifyImages form) that requires a digest and the keyless release-workflow
+# signature on every matching image, denies, and fails closed.
+check_admission() {
+  local f="$1" bad=0
+  grep -qx 'apiVersion: policies.kyverno.io/v1' "$f" && grep -qx 'kind: ImageValidatingPolicy' "$f" \
+    || { echo "admission: not a policies.kyverno.io/v1 ImageValidatingPolicy"; bad=1; }
+  if grep -Eq '^kind: ClusterPolicy$|^[^#]*verifyImages:' "$f"; then echo "admission: the deprecated ClusterPolicy verifyImages form is back"; bad=1; fi
+  grep -Fq 'verifyImageSignatures(i, [attestors.probectl]) > 0' "$f" || { echo "admission: Kyverno image signature validation missing"; bad=1; }
+  grep -Fq 'images.containers + images.initContainers + images.ephemeralContainers' "$f" || { echo "admission: not every container image (initContainers included) is verified"; bad=1; }
+  grep -Eq '^ +verifyDigest: true$' "$f" || { echo "admission: digest verification is not enforced"; bad=1; }
+  grep -Eq '^ +required: true$' "$f" || { echo "admission: signature verification is not required"; bad=1; }
+  grep -q 'keyless:' "$f" || { echo "admission: keyless release identity verifier missing"; bad=1; }
+  grep -q 'token.actions.githubusercontent.com' "$f" || { echo "admission: GitHub OIDC issuer pin missing"; bad=1; }
+  grep -Fq 'release\\.yml@refs/tags' "$f" || { echo "admission: release workflow tag identity pin missing"; bad=1; }
+  grep -q 'probectl-ebpf-agent' "$f" || { echo "admission: policy does not target the privileged eBPF agent"; bad=1; }
+  # Deny (enforce) and an unreachable Kyverno refuses rather than admits.
+  [ "$(grep -A1 -E '^ +validationActions:$' "$f" | grep -Ev '^ *#' | sed -n 2p | tr -d ' ')" = '-Deny' ] \
+    || { echo "admission: policy does not deny (validationActions [Deny])"; bad=1; }
+  grep -Eq '^ +failurePolicy: Fail$' "$f" || { echo "admission: policy does not fail closed (failurePolicy: Fail)"; bad=1; }
+  if grep -Eq '^[^#]*validationFailureAction:' "$f"; then echo "admission: deprecated validationFailureAction is back"; bad=1; fi
+  return "$bad"
+}
+
 if [[ "${1:-}" == "SELFTEST" ]]; then
   if ! check_identity_regexp \
     '^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/' \
@@ -133,6 +159,19 @@ YAML
     echo "cosign-wiring SELFTEST: package input verification after nfpm installation was accepted" >&2
     exit 1
   fi
+  # RTO-12: the shipped admission policy passes, and each planted regression fails.
+  check_admission "$ADMISSION" >/dev/null || { echo "cosign-wiring SELFTEST: the shipped admission policy is rejected" >&2; exit 1; }
+  admission_plant="$(mktemp)"
+  for plant in 's/^    - Deny$/    - Audit/' 's/^  failurePolicy: Fail$/  failurePolicy: Ignore/' \
+      's/^kind: ImageValidatingPolicy$/kind: ClusterPolicy/' 's/^    verifyDigest: true$/    verifyDigest: false/' \
+      's/images.containers + images.initContainers + images.ephemeralContainers/images.containers/g' \
+      's/^    required: true$/    required: false/'; do
+    sed "$plant" "$ADMISSION" > "$admission_plant"
+    if check_admission "$admission_plant" >/dev/null 2>&1; then
+      echo "cosign-wiring SELFTEST: planted admission regression '$plant' was accepted" >&2; rm -f "$admission_plant"; exit 1
+    fi
+  done
+  rm -f "$admission_plant"
   echo "cosign-wiring SELFTEST: OK"
   exit 0
 fi
@@ -222,18 +261,7 @@ grep -q 'cosign sign-blob --yes' <<<"$airgap_release_section" || { echo "release
 grep -q 'cosign verify-blob' <<<"$airgap_release_section" || { echo "release: outer air-gap archive signature is not self-verified"; fail=1; }
 grep -Fq 'probectl-airgap-*.tar.gz' <<<"$airgap_release_section" || { echo "release: air-gap archive is not attached to the GitHub release"; fail=1; }
 
-grep -q 'verifyImages:' "$ADMISSION" || { echo "admission: Kyverno verifyImages policy missing"; fail=1; }
-grep -q 'verifyDigest: true' "$ADMISSION" || { echo "admission: digest verification is not enforced"; fail=1; }
-grep -q 'required: true' "$ADMISSION" || { echo "admission: signature verification is not required"; fail=1; }
-grep -q 'keyless:' "$ADMISSION" || { echo "admission: keyless release identity verifier missing"; fail=1; }
-grep -q 'token.actions.githubusercontent.com' "$ADMISSION" || { echo "admission: GitHub OIDC issuer pin missing"; fail=1; }
-grep -q 'release\\.yml@refs/tags' "$ADMISSION" || { echo "admission: release workflow tag identity pin missing"; fail=1; }
-grep -q 'probectl-ebpf-agent' "$ADMISSION" || { echo "admission: policy does not target the privileged eBPF agent"; fail=1; }
-# RTO-12: per-rule Enforce (the spec-level validationFailureAction is deprecated
-# in Kyverno) and an unreachable Kyverno refuses rather than admits.
-grep -Eq '^ +failureAction: Enforce$' "$ADMISSION" || { echo "admission: verifyImages rule is not failureAction: Enforce"; fail=1; }
-grep -Eq '^ +failurePolicy: Fail$' "$ADMISSION" || { echo "admission: policy does not fail closed (failurePolicy: Fail)"; fail=1; }
-if grep -Eq '^[^#]*validationFailureAction:' "$ADMISSION"; then echo "admission: deprecated spec-level validationFailureAction is back"; fail=1; fi
+check_admission "$ADMISSION" || fail=1
 
 # 2) functional fail-closed checks on install.sh (no real cosign needed).
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT

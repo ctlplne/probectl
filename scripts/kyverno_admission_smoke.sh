@@ -6,9 +6,11 @@
 # each version converts to the Mozilla Public License 2.0.
 
 # kyverno_admission_smoke.sh (RTO-12) — prove on a REAL Kubernetes cluster that
-# the probectl-agent chart's image-integrity ClusterPolicy admits only a
-# digest-pinned, correctly signed agent image, and that the chart refuses to
-# install its DaemonSet before that policy is live and Ready.
+# the probectl-agent chart's image-integrity ImageValidatingPolicy
+# (policies.kyverno.io/v1; Kyverno 1.19 deprecates the kyverno.io/v1
+# ClusterPolicy the chart used to render) admits only a digest-pinned,
+# correctly signed agent image, and that the chart refuses to install its
+# DaemonSet before that policy is live and Ready.
 #
 #   scripts/kyverno_admission_smoke.sh            # local or CI; needs docker, kind, kubectl, helm, openssl
 #   KYVERNO_SMOKE_KEEP=1 scripts/kyverno_admission_smoke.sh   # keep the cluster for debugging
@@ -23,7 +25,7 @@
 #   - Kyverno from a pinned chart (version + sha256) with digest-pinned images.
 #
 # Legs (each asserts the admission result AND the policy's message):
-#   P0  Kyverno accepts the shipped policies          -> no deprecated-field warning
+#   P0  Kyverno accepts the shipped policies          -> no deprecation warning
 #   G0  helm install before the policy exists         -> chart refuses, nothing created
 #   A1  two-step install, signed digest               -> DaemonSet + pod admitted
 #   D1  upgrade to an unsigned digest                 -> denied (no signature)
@@ -53,6 +55,9 @@ REGHOST="$REG:5000"
 NS="probectl-qa-beta-agent"
 REL="probectl-agent"
 POLICY="probectl-agent-image-integrity"
+# The ImageValidatingPolicy's denial for an unsigned / other-key image (it
+# names the image; Kyverno does not tell the two apart in its answer).
+NOTSIGNED="image signature not verified by the configured attestor"
 
 # ── pins (bump together; every image by digest, every download by sha256) ──
 KIND_NODE_IMAGE="kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5" # kind v0.33.0 release notes
@@ -91,12 +96,12 @@ die() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
 # output must carry the policy name and every PATTERN (the denial's reason).
 want_denied() {
   local leg="$1" what="$2" log="$3"; shift 3
-  grep -q "$POLICY" "$log" || { cat "$log" >&2; die "$leg $what: refused, but not by $POLICY"; }
+  grep -q "Policy $POLICY failed: " "$log" || { cat "$log" >&2; die "$leg $what: refused, but not by $POLICY"; }
   local p
   for p in "$@"; do
     grep -Eq "$p" "$log" || { cat "$log" >&2; die "$leg $what: denial does not say /$p/"; }
   done
-  ok "$leg" "$what -> DENIED by $POLICY: $(sed -n "/^$POLICY:/{n;p;}" "$log" | head -1 | sed 's/^ *//' | cut -c1-240)"
+  ok "$leg" "$what -> DENIED: $(grep -o "Policy $POLICY failed: .*" "$log" | head -1 | cut -c1-240)"
 }
 
 # ── 1. cluster + TLS registry ──────────────────────────────────────────────
@@ -224,7 +229,7 @@ run_helm() { # verb repo tag  (bash 3.2: no mapfile)
   while IFS= read -r a; do args+=("$a"); done < <(chartargs "$repo" "$tag")
   "$HELM" "$verb" "$REL" "$AGENT_CHART" "${args[@]}"
 }
-run_template() { # repo tag -> the release's two ClusterPolicies, as rendered
+run_template() { # repo tag -> the release's two policies, as rendered
   local args=() a
   while IFS= read -r a; do args+=("$a"); done < <(chartargs "$1" "$2")
   "$HELM" template "$REL" "$AGENT_CHART" "${args[@]}" \
@@ -234,16 +239,16 @@ run_template() { # repo tag -> the release's two ClusterPolicies, as rendered
 # Server-side apply as field manager "helm", so Helm 4's own server-side apply
 # owns the fields it then adopts (another manager would conflict on
 # .spec.rules, which Kyverno defaults); Helm 3 patches it in place either way.
-# (Kyverno's Ready condition carries no observedGeneration; a re-applied policy
-# with changed imageReferences needs no new webhook rules, and the legs below
-# prove the updated rules are what admission enforces.)
+# (a re-applied policy with changed matchImageReferences needs no new webhook
+# rules, and the legs below prove the updated rules are what admission
+# enforces.)
 apply_policy() { # repo tag
   local args=() a
   while IFS= read -r a; do args+=("$a"); done < <(chartargs "$1" "$2")
   "$HELM" template "$REL" "$AGENT_CHART" "${args[@]}" --show-only templates/image-integrity-policy.yaml \
     | "$KUBECTL" apply --server-side --force-conflicts --field-manager=helm -f - >/dev/null
-  "$KUBECTL" wait --for=condition=Ready "clusterpolicy/$POLICY" --timeout=120s >/dev/null \
-    || { "$KUBECTL" get clusterpolicy "$POLICY" -o yaml >&2; die "policy $POLICY never became Ready"; }
+  "$KUBECTL" wait --for=jsonpath='{.status.conditionStatus.ready}'=true "imagevalidatingpolicy/$POLICY" --timeout=120s >/dev/null \
+    || { "$KUBECTL" get imagevalidatingpolicy "$POLICY" -o yaml >&2; die "policy $POLICY never became Ready"; }
 }
 pod_yaml() { # name namespace image
   cat <<EOF
@@ -259,20 +264,23 @@ EOF
 
 # ── 4. the legs ────────────────────────────────────────────────────────────
 echo "== legs"
-# P0: Kyverno ACCEPTS both shipped policy forms (server-side dry run through its
-# policy webhook) with no warning about the deprecated spec-level action.
+# P0: Kyverno ACCEPTS the shipped policies (server-side dry run through its
+# policy webhook) with no deprecation warning — the kyverno.io/v1 ClusterPolicy
+# warning is gone with the kind.
 { cat "$repo_root/deploy/admission/probectl-agent-image-integrity.kyverno.yaml"; echo "---"
   run_template "$UP" "$(tagof "$signed")"; } | "$KUBECTL" apply --dry-run=server -f - > p0.log 2>&1 \
   || { cat p0.log >&2; die "P0 Kyverno rejected a shipped policy"; }
-if grep -qi 'validationFailureAction' p0.log; then cat p0.log >&2; die "P0 Kyverno warned about validationFailureAction"; fi
-[ "$(grep -c 'clusterpolicy.kyverno.io/.* created (server dry run)' p0.log)" -eq 3 ] || { cat p0.log >&2; die "P0 expected 3 policies accepted"; }
-ok P0 "standalone + chart policies (image-integrity, capability-posture) -> ACCEPTED by Kyverno, no validationFailureAction warning"
+if grep -Eqi 'deprecat|validationFailureAction' p0.log; then cat p0.log >&2; die "P0 Kyverno warned about a deprecated kind or field"; fi
+[ "$(grep -c '^imagevalidatingpolicy.policies.kyverno.io/.* created (server dry run)' p0.log)" -eq 2 ] \
+  && [ "$(grep -c '^validatingpolicy.policies.kyverno.io/.* created (server dry run)' p0.log)" -eq 1 ] \
+  || { cat p0.log >&2; die "P0 expected 2 ImageValidatingPolicies + 1 ValidatingPolicy accepted"; }
+ok P0 "standalone + chart policies (2 ImageValidatingPolicy, 1 ValidatingPolicy) -> ACCEPTED by Kyverno, no deprecation warning"
 if run_helm install "$UP" "$(tagof "$signed")" > g0.log 2>&1; then
   cat g0.log >&2; die "G0 helm install succeeded with no image-integrity policy in the cluster"
 fi
 grep -q "is not in the cluster, so the agent's first pods would be admitted unverified" g0.log || { cat g0.log >&2; die "G0: refused for the wrong reason"; }
 "$KUBECTL" -n "$NS" get daemonset -o name | grep -q . && die "G0: a DaemonSet was created despite the refusal"
-ok G0 "install before the policy -> REFUSED by the chart, no DaemonSet: $(grep -o 'image-integrity ClusterPolicy.*unverified' g0.log | head -1)"
+ok G0 "install before the policy -> REFUSED by the chart, no DaemonSet: $(grep -o 'image-integrity ImageValidatingPolicy.*unverified' g0.log | head -1)"
 
 apply_policy "$UP" "$(tagof "$signed")"
 run_helm install "$UP" "$(tagof "$signed")" > a1.log 2>&1 || { cat a1.log >&2; die "A1 signed install was refused"; }
@@ -281,24 +289,24 @@ for _ in $(seq 1 60); do
   [ -n "$img" ] && break; sleep 1
 done
 [ "$img" = "$signed" ] || die "A1: no agent pod admitted with $signed (got '$img')"
-owner="$("$KUBECTL" get clusterpolicy "$POLICY" -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}')"
+owner="$("$KUBECTL" get imagevalidatingpolicy "$POLICY" -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}')"
 [ "$owner" = "$REL" ] || die "A1: the release did not adopt the step-1 policy"
 ok A1 "two-step install, signed digest -> ADMITTED: pod runs $signed"
 
 if run_helm upgrade "$UP" "$(tagof "$unsigned")" > d1.log 2>&1; then cat d1.log >&2; die "D1 unsigned digest admitted"; fi
-want_denied D1 "upgrade to an unsigned digest" d1.log 'no signatures found'
+want_denied D1 "upgrade to an unsigned digest" d1.log "$NOTSIGNED" "${unsigned#*@}"
 [ "$("$KUBECTL" -n "$NS" get ds -l "app.kubernetes.io/instance=$REL" -o jsonpath='{.items[0].spec.template.spec.containers[0].image}')" = "$signed" ] \
   || die "D1: the DaemonSet template changed despite the denial"
 
 if run_helm upgrade "$UP" "$(tagof "$otherkey")" > d2.log 2>&1; then cat d2.log >&2; die "D2 other-key digest admitted"; fi
-want_denied D2 "upgrade to a digest signed by another key" d2.log 'no matching signatures'
+want_denied D2 "upgrade to a digest signed by another key" d2.log "$NOTSIGNED" "${otherkey#*@}"
 
 tag_only="${signed%@*}"
 if pod_yaml d3 probectl-qa-beta-other "$tag_only" | "$KUBECTL" apply -f - > d3.log 2>&1; then cat d3.log >&2; die "D3 mutable tag admitted"; fi
-want_denied D3 "pod with a mutable tag of the signed image" d3.log 'missing digest'
+want_denied D3 "pod with a mutable tag of the signed image" d3.log 'does not have a digest'
 
 if pod_yaml d4 probectl-qa-beta-other "$unsigned" | "$KUBECTL" apply -f - > d4.log 2>&1; then cat d4.log >&2; die "D4 unsigned pod outside the chart admitted"; fi
-want_denied D4 "pod outside the chart, unsigned digest" d4.log 'no signatures found'
+want_denied D4 "pod outside the chart, unsigned digest" d4.log "$NOTSIGNED" "${unsigned#*@}"
 
 if run_helm upgrade "$MIRROR" "$(tagof "$m_signed")" > g1.log 2>&1; then cat g1.log >&2; die "G1 upgrade to a new repository ran under the stale policy"; fi
 grep -q "is not the policy this release renders" g1.log || { cat g1.log >&2; die "G1: refused for the wrong reason"; }
@@ -306,7 +314,7 @@ ok G1 "upgrade to a mirror repository before re-applying the policy -> REFUSED b
 
 apply_policy "$MIRROR" "$(tagof "$m_signed")"
 if run_helm upgrade "$MIRROR" "$(tagof "$m_unsigned")" > d5.log 2>&1; then cat d5.log >&2; die "D5 unsigned mirror digest admitted"; fi
-want_denied D5 "mirror repository $MIRROR, unsigned digest" d5.log "$MIRROR@sha256" 'no signatures found'
+want_denied D5 "mirror repository $MIRROR, unsigned digest" d5.log "$MIRROR@sha256" "$NOTSIGNED"
 
 run_helm upgrade "$MIRROR" "$(tagof "$m_signed")" > a2.log 2>&1 || { cat a2.log >&2; die "A2 signed mirror digest refused"; }
 for _ in $(seq 1 60); do
@@ -324,19 +332,24 @@ kyv() { docker exec "$CLUSTER-control-plane" sh -c "kill -$1 \$(pgrep -f '^/ko-a
 kyv STOP
 if pod_yaml d6 probectl-qa-beta-other "$signed" | "$KUBECTL" apply -f - > d6.log 2>&1; then kyv CONT; cat d6.log >&2; die "D6 pod admitted while Kyverno could not answer"; fi
 kyv CONT
-grep -Eq 'failed calling webhook "[a-z]+\.kyverno\.svc-fail"' d6.log || { cat d6.log >&2; die "D6: refused, but not by the unanswered Kyverno webhook"; }
+grep -Eq 'failed calling webhook "ivpol\.validate\.kyverno\.svc-fail' d6.log || { cat d6.log >&2; die "D6: refused, but not by the unanswered Kyverno ImageValidatingPolicy webhook"; }
 ok D6 "Kyverno not answering, signed digest -> DENIED (failurePolicy Fail): $(grep -Eo 'failed calling webhook "[^"]+".*' d6.log | head -1 | cut -c1-160)"
 
 # Kyverno scaled to zero DELETES its webhooks (Kyverno's design: nothing is
 # verified cluster-wide after that) while the policy still reads Ready. The
 # chart's readiness gate checks the webhooks too, so it refuses to roll out.
 "$KUBECTL" -n kyverno scale deploy/kyverno-admission-controller --replicas=0 >/dev/null
+ivpol_webhooks() { "$KUBECTL" get validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg \
+  -o jsonpath='{.webhooks[*].name}' 2>/dev/null | tr ' ' '\n' | grep -c '^ivpol\.validate\.kyverno\.svc-fail' || true; }
 for _ in $(seq 1 120); do
-  "$KUBECTL" get mutatingwebhookconfiguration kyverno-resource-mutating-webhook-cfg >/dev/null 2>&1 || break
+  [ "$(ivpol_webhooks)" -eq 0 ] && break
   sleep 1
 done
+[ "$(ivpol_webhooks)" -eq 0 ] || die "G2: Kyverno at zero replicas still has its ImageValidatingPolicy webhook"
+[ "$("$KUBECTL" get imagevalidatingpolicy "$POLICY" -o jsonpath='{.status.conditionStatus.ready}')" = true ] \
+  || die "G2: expected the policy to still read Ready with no webhook (the state the gate exists for)"
 if run_helm upgrade "$MIRROR" "$(tagof "$m_signed")" > g2.log 2>&1; then cat g2.log >&2; die "G2 chart rolled out while Kyverno had no webhooks"; fi
-grep -q "has no failurePolicy=Fail webhook registered" g2.log || { cat g2.log >&2; die "G2: refused for the wrong reason"; }
+grep -q "has no failurePolicy=Fail webhook serving ImageValidatingPolicy $POLICY" g2.log || { cat g2.log >&2; die "G2: refused for the wrong reason"; }
 ok G2 "Kyverno scaled to zero (webhooks removed, policy still Ready) -> REFUSED by the chart"
 
 [ "$pass" -eq 12 ] || die "only $pass of 12 legs asserted"

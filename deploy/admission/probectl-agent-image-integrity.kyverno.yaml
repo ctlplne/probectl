@@ -1,16 +1,24 @@
 # Standalone (GitOps) form of the probectl-agent chart's image-integrity policy.
-# The chart renders the same verifier with imageReferences DERIVED from its
+# Its spec is the chart's DEFAULT render, line for line (comments aside):
+# scripts/check_agent_chart.sh fails if the two drift.
+# The chart renders the same verifier with matchImageReferences DERIVED from its
 # image.repository; this static copy only knows the upstream path. If you pull
-# the agent from a mirror whose path differs (anything not matching the two
+# the agent from a mirror whose path differs (anything not matching the
 # patterns below), render the policy from the chart instead
 #   helm template <release> deploy/helm/probectl-agent -n <ns> <your values> \
 #     --show-only templates/image-integrity-policy.yaml
-# or add your mirror's `<registry>/<path>/probectl-ebpf-agent*` here — an
-# unmatched reference is NOT verified (RTO-12). Apply it, and wait for
-# `kubectl wait --for=condition=Ready clusterpolicy/probectl-agent-image-integrity`,
+# or add your mirror's `<registry>/<path>/probectl-ebpf-agent*` here (as a glob
+# AND in the expression's list) — an unmatched reference is NOT verified
+# (RTO-12). Apply it, and wait for
+#   kubectl wait --for=jsonpath='{.status.conditionStatus.ready}'=true \
+#     imagevalidatingpolicy/probectl-agent-image-integrity
 # BEFORE the agent DaemonSet exists.
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+#
+# Kind: policies.kyverno.io/v1 ImageValidatingPolicy, served by Kyverno 1.17 and
+# later. Kyverno 1.19 deprecates the kyverno.io/v1 ClusterPolicy (verifyImages)
+# form this file used to carry; the semantics are unchanged (RTO-12).
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
 metadata:
   name: probectl-agent-image-integrity
   annotations:
@@ -19,38 +27,52 @@ metadata:
     policies.kyverno.io/severity: high
     probectl.dev/finding: SUPPLY-001
 spec:
-  background: false
+  # Deny = enforce: a pod whose agent image fails verification is refused.
+  validationActions:
+    - Deny
   # An unreachable Kyverno refuses admission; it never admits unverified.
   failurePolicy: Fail
-  rules:
-    - name: verify-probectl-ebpf-agent-signature-and-digest
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-      verifyImages:
-        # RTO-12: match the agent image under ANY registry that keeps the
-        # upstream path, not just ghcr.io. verifyImages only verifies refs that
-        # MATCH imageReferences; anything unmatched is skipped and admitted
-        # UNVERIFIED.
-        - imageReferences:
-            - ghcr.io/ctlplne/probectl-ebpf-agent*
-            - "*/ctlplne/probectl-ebpf-agent*"
-          # RTO-12: per-rule action; Kyverno deprecated the spec-level
-          # validationFailureAction.
-          failureAction: Enforce
-          required: true
-          mutateDigest: false
-          verifyDigest: true
-          attestors:
-            - count: 1
-              entries:
-                - keyless:
-                    issuer: https://token.actions.githubusercontent.com
-                    subjectRegExp: ^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/.*
-                    # RTO-12: pin the transparency log so keyless verification is
-                    # deterministic (the GitHub Actions keyless signature is
-                    # Rekor-logged); without this the tlog endpoint is implicit.
-                    rekor:
-                      url: https://rekor.sigstore.dev
+  evaluation:
+    background:
+      enabled: false
+  # Pods; Kyverno's autogen extends it to every pod controller template
+  # (DaemonSet, Deployment, Job, CronJob, ...).
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  # RTO-12: match the agent image under ANY registry that keeps the upstream
+  # path, not just ghcr.io. Only MATCHING images are verified; anything
+  # unmatched is skipped and admitted UNVERIFIED. Globs compare the raw image
+  # string; the expression compares the Docker-normalized reference (a bare
+  # `ctlplne/...` is `docker.io/ctlplne/...`), as the ClusterPolicy form did.
+  matchImageReferences:
+    - glob: "ghcr.io/ctlplne/probectl-ebpf-agent*"
+    - glob: "*/ctlplne/probectl-ebpf-agent*"
+    - expression: "[r'^ghcr\\.io/ctlplne/probectl-ebpf-agent.*$', r'^.*/ctlplne/probectl-ebpf-agent.*$'].exists(p, ((ref.contains('/') && (ref.split('/')[0].contains('.') || ref.split('/')[0].contains(':') || ref.split('/')[0] == 'localhost')) ? ref : 'docker.io/' + (ref.contains('/') ? '' : 'library/') + ref).matches(p))"
+  validationConfigurations:
+    # A signature check must have passed for every matching image.
+    required: true
+    mutateDigest: false
+    # A tag-only reference is refused.
+    verifyDigest: true
+  attestors:
+    - name: probectl
+      cosign:
+        keyless:
+          identities:
+            - issuer: "https://token.actions.githubusercontent.com"
+              subjectRegExp: "^https://github.com/ctlplne/probectl/\\.github/workflows/release\\.yml@refs/tags/.*"
+        # RTO-12: pin the transparency log so keyless verification is
+        # deterministic (the GitHub Actions keyless signature is Rekor-logged).
+        ctlog:
+          url: "https://rekor.sigstore.dev"
+  # Every matching container, initContainer and ephemeral-container image
+  # must carry a signature from the attestor.
+  validations:
+    - expression: >-
+        (images.containers + images.initContainers + images.ephemeralContainers).all(i, verifyImageSignatures(i, [attestors.probectl]) > 0)
+      messageExpression: >-
+        'probectl agent image signature not verified by the configured attestor (SUPPLY-001): ' + (images.containers + images.initContainers + images.ephemeralContainers).filter(i, verifyImageSignatures(i, [attestors.probectl]) == 0).join(', ')

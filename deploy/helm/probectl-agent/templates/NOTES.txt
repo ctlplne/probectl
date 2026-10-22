@@ -21,11 +21,13 @@ agent the hardened default is the strict Localhost profile (set seccomp.type=Loc
 {{- end }}
 
 {{- if .Values.admission.imageIntegrity.enabled }}
-Image integrity (RTO-12): ClusterPolicy {{ .Values.admission.imageIntegrity.policyName }} ({{ .Values.admission.imageIntegrity.failureAction }})
+Image integrity (RTO-12): ImageValidatingPolicy {{ .Values.admission.imageIntegrity.policyName }} ({{ .Values.admission.imageIntegrity.failureAction }}; Kyverno 1.17+)
   admits only digest-pinned, signed images matching {{ .Values.image.repository }}*. Before an
   upgrade that changes image.repository or the attestor, re-apply the policy first
   (helm template ... --show-only templates/image-integrity-policy.yaml | kubectl apply
-  --server-side --force-conflicts --field-manager=helm -f -) and wait for Ready;
+  --server-side --force-conflicts --field-manager=helm -f -) and wait for Ready
+  (kubectl wait --for=jsonpath='{.status.conditionStatus.ready}'=true
+  imagevalidatingpolicy/{{ .Values.admission.imageIntegrity.policyName }});
   docs/deploying-agents.md "Image-integrity admission".
 {{- end }}
 
