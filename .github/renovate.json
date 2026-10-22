@@ -10,7 +10,8 @@
       "managerFilePatterns": [
         "/^deploy/compose/.*\\.ya?ml$/",
         "/^deploy/helm/.*/values.*\\.yaml$/",
-        "/^deploy/docker/Dockerfile.*$/"
+        "/^deploy/docker/Dockerfile.*$/",
+        "/^scripts/check_reuse_licensing\\.sh$/"
       ],
       "matchStrings": [
         "(?<depName>[a-z0-9][a-z0-9./_-]*(?:\\.[a-z]{2,}(?::[0-9]+)?)?/[a-z0-9./_-]+|[a-z0-9][a-z0-9./_-]*)(?::(?<currentValue>[\\w][\\w.+-]*))?@(?<currentDigest>sha256:[a-f0-9]{64})",

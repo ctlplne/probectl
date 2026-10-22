@@ -94,12 +94,14 @@ Agreement is required today.
 
 For new first-party source, use these machine-readable identifiers:
 
+<!-- REUSE-IgnoreStart -->
 - core: `SPDX-License-Identifier: BUSL-1.1`, together with the three-line BSL
   notice;
 - `pkg/`, `proto/`, `examples/`: `SPDX-License-Identifier: MPL-2.0`, together
   with the MPL Exhibit A notice; do **not** add Exhibit B;
 - `ee/`: `SPDX-License-Identifier: LicenseRef-Probectl-Commercial`, together
   with a pointer to `ee/LICENSE`.
+<!-- REUSE-IgnoreEnd -->
 
 Generated files and third-party material keep generator/upstream notices. The
 tree-wide replacement of the historical pre-MPL placeholder identifier is

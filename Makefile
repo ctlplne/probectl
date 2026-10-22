@@ -436,6 +436,13 @@ web-supply-policy-gate: ## Offline self-tests + applicability proof for exact ad
 license-header-gate: ## Require MPL-2.0 SPDX + Exhibit A on hand-maintained core Go/TS/TSX/Python source.
 	./scripts/apply_license_headers.sh --check
 
+# G3/D-58: machine-readable per-file licensing (REUSE.toml + LICENSES/). Needs
+# docker (the digest-pinned fsfe/reuse image) and python3 >= 3.11.
+.PHONY: reuse-gate
+reuse-gate: ## REUSE layout: LICENSES/ copies byte-identical to LICENSE + ee/LICENSE, pinned `reuse lint`, every file under its tree's license (self-tested).
+	./scripts/check_reuse_licensing.sh SELFTEST
+	./scripts/check_reuse_licensing.sh
+
 # The gofmt scope excludes generated code (*/gen/*). (The throwaway spike/
 # tree was removed from main in U-080 — git history preserves it.)
 .PHONY: lint-go

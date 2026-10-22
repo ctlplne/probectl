@@ -66,6 +66,7 @@ EOF2
   printf '%s' "${out}"
 }
 
+# REUSE-IgnoreStart
 check_license_headers() {
   local out="" f
   while IFS= read -r f; do
@@ -120,6 +121,7 @@ check_license_headers() {
   fi
   printf '%b' "${out}"
 }
+# REUSE-IgnoreEnd
 
 if [ "${SELFTEST:-0}" = "1" ]; then
   # (a) A non-allowlisted core file importing ee/ must be detected.
@@ -170,7 +172,9 @@ EOF
 
   core_header_tmp="internal/editions_license_header_selftest_tmp.go"
   trap 'rm -f "${core_header_tmp}"' EXIT
+  # REUSE-IgnoreStart
   printf '%s\n' '// SPDX-License-Identifier: LicenseRef-Probectl-Commercial' 'package internal' > "${core_header_tmp}"
+  # REUSE-IgnoreEnd
   if ! check_license_headers | grep -Fq 'core source carries the ee-only commercial SPDX identifier'; then
     echo "editions-guard SELF-TEST FAILED: commercial SPDX header in core was not detected" >&2
     exit 1

@@ -1,4 +1,5 @@
-<!-- SPDX-License-Identifier: LicenseRef-Probectl-Commercial; see ee/LICENSE -->
+<!-- SPDX-License-Identifier: LicenseRef-Probectl-Commercial -->
+<!-- Terms: see ee/LICENSE. -->
 
 # `ee/` — the probectl commercial tree
 

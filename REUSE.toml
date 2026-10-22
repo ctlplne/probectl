@@ -1,0 +1,116 @@
+# SPDX-FileCopyrightText: 2026 certctl LLC
+# SPDX-License-Identifier: BUSL-1.1
+#
+# Machine-readable licensing for every file in this repository (REUSE
+# Specification 3.3, https://reuse.software/spec-3.3/). It encodes the
+# "SCOPE OF THIS LICENSE" preamble of LICENSE and nothing else; LICENSE and
+# ee/LICENSE stay the legal texts, and LICENSES/ holds byte-identical copies of
+# their sections so a scanner finds each license by its SPDX identifier.
+# scripts/check_reuse_licensing.sh (make reuse-gate) keeps the copies identical
+# to LICENSE, runs the pinned `reuse lint`, and checks that every file's
+# resulting license is the one its tree carries.
+#
+# How a file's license is chosen (REUSE: the LAST matching annotation wins):
+#
+#   1. The four tree annotations below use precedence "closest": a file that
+#      carries its own SPDX-License-Identifier keeps it (hand-maintained core
+#      Go/TS/Python carries BUSL-1.1, the client tree MPL-2.0, ee/ the commercial
+#      identifier), and only the missing part comes from here. Most files carry
+#      no copyright line, so the copyright comes from here; files without a
+#      license header (docs, configs, generated code) take the license of their
+#      tree, exactly as LICENSE says "every other core file takes this license
+#      from its location".
+#   2. Third-party and separately licensed files come after the trees and use
+#      precedence "override": they keep their upstream license and copyright no
+#      matter which tree they sit in. LICENSE: "Third-party code and assets keep
+#      their own licenses, listed in NOTICE and docs/third-party-licenses.md."
+#      The gate allows a file to differ from its tree's license ONLY through one
+#      of these override annotations, and none may reach into ee/.
+#
+# Files whose text merely quotes an SPDX tag (header tools, gates, licensing
+# docs) wrap the quotation in REUSE-IgnoreStart / REUSE-IgnoreEnd.
+
+version = 1
+
+# --- 1. The license trees (LICENSE, "SCOPE OF THIS LICENSE") ---------------
+
+# The probectl core: everything outside ee/, pkg/, proto/ and examples/.
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 certctl LLC"
+SPDX-License-Identifier = "BUSL-1.1"
+
+# The client tree: the public Go SDK, the wire contracts and the examples.
+[[annotations]]
+path = ["pkg/**", "proto/**", "examples/**"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 certctl LLC"
+SPDX-License-Identifier = "MPL-2.0"
+
+# Proprietary probectl Enterprise and Provider (MSP) material; terms in ee/LICENSE.
+[[annotations]]
+path = "ee/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "the probectl contributors and applicable rights holders"
+SPDX-License-Identifier = "LicenseRef-Probectl-Commercial"
+
+# --- 2. Third-party and separately licensed files ---------------------------
+
+# Vendored openconfig/gNMI schemas (v0.14.1) and the Go generated from them.
+[[annotations]]
+path = ["proto/gnmi/gnmi.proto", "internal/gen/gnmi/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "2016 Google Inc."
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["proto/gnmi_ext/gnmi_ext.proto", "internal/gen/gnmi_ext/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "2018 Google Inc."
+SPDX-License-Identifier = "Apache-2.0"
+
+# Vendored libbpf v1.5.0 BPF-program headers (internal/ebpf/bpf/headers/VENDOR.md).
+# Upstream writes the deprecated "LGPL-2.1"; SPDX names the same license
+# LGPL-2.1-only.
+[[annotations]]
+path = "internal/ebpf/bpf/headers/bpf/**"
+precedence = "override"
+SPDX-FileCopyrightText = "the libbpf authors (https://github.com/libbpf/libbpf)"
+SPDX-License-Identifier = "LGPL-2.1-only OR BSD-2-Clause"
+
+# probectl's own eBPF programs. The kernel requires a GPL-compatible license on
+# a BPF object, so these carry "(GPL-2.0 OR BSD-3-Clause)" in their headers;
+# SPDX names the deprecated "GPL-2.0" GPL-2.0-only.
+[[annotations]]
+path = ["internal/ebpf/bpf/*.bpf.c", "internal/ebpf/bpf/arch_compat.h"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 certctl LLC"
+SPDX-License-Identifier = "GPL-2.0-only OR BSD-3-Clause"
+
+# Vendored web assets (third_party/vendored-assets.json).
+[[annotations]]
+path = "web/src/viz/geo/land-110m.json"
+precedence = "override"
+# world-atlas 2.0.2 (ISC); the underlying Natural Earth 1:110m data is in the
+# public domain.
+SPDX-FileCopyrightText = "2013-2019 Michael Bostock"
+SPDX-License-Identifier = "ISC"
+
+[[annotations]]
+path = "web/src/styles/fonts/dm-mono-*.woff2"
+precedence = "override"
+SPDX-FileCopyrightText = "2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono)"
+SPDX-License-Identifier = "OFL-1.1"
+
+[[annotations]]
+path = "web/src/styles/fonts/sora-*.woff2"
+precedence = "override"
+SPDX-FileCopyrightText = "2019 The Sora Project Authors (https://github.com/sora-xor/sora-font)"
+SPDX-License-Identifier = "OFL-1.1"
+
+[[annotations]]
+path = "web/src/styles/fonts/syne-*.woff2"
+precedence = "override"
+SPDX-FileCopyrightText = "2019 The Syne Project Authors (https://gitlab.com/bonjour-monde/fonderie/syne-typeface)"
+SPDX-License-Identifier = "OFL-1.1"

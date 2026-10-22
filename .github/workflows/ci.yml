@@ -145,6 +145,8 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Source header gate, BUSL-1.1 core and MPL-2.0 client tree (L2)
         run: make license-header-gate
+      - name: REUSE per-file licensing gate, self-tested (G3, D-58)
+        run: make reuse-gate
       - name: Install pinned tools (golangci-lint)
         run: |
           make tools

@@ -42,6 +42,7 @@ counsel review; do not add Exhibit B to source headers.
 
 ## Commercial source: `ee/`
 
+<!-- REUSE-IgnoreStart -->
 Files under [`ee/`](ee/) are **not** offered under the BSL or the MPL. They
 carry `SPDX-License-Identifier: LicenseRef-Probectl-Commercial` and point to
 the separate [`ee/LICENSE`](ee/LICENSE). That file is currently a
@@ -51,6 +52,7 @@ The source may be visible in this repository, but visibility alone does not
 grant production, resale, or trademark rights. Production requires a valid
 Enterprise/MSP agreement; resale additionally requires an MSP entitlement and
 signed reseller agreement.
+<!-- REUSE-IgnoreEnd -->
 
 Commercial capabilities are also runtime-gated by an offline-verifiable signed
 license. Runtime gating and source licensing are different layers: removing a
@@ -83,6 +85,7 @@ you submit the change under that file's license:
 - files under `pkg/`, `proto/` and `examples/`: `MPL-2.0`;
 - files under `ee/`: the commercial terms referenced by `ee/LICENSE`.
 
+<!-- REUSE-IgnoreStart -->
 New core source should carry `SPDX-License-Identifier: BUSL-1.1` plus the
 three-line BSL notice. New client-tree source should carry
 `SPDX-License-Identifier: MPL-2.0` plus the MPL Exhibit A notice. New
@@ -91,6 +94,7 @@ commercial source should carry
 `ee/LICENSE`. Generated and third-party files follow their generator or upstream
 license; third-party notices are inventoried in [`NOTICE`](NOTICE) and
 [`docs/third-party-licenses.md`](docs/third-party-licenses.md).
+<!-- REUSE-IgnoreEnd -->
 
 The reproducible header tool is `scripts/apply_license_headers.sh`; run it
 with no argument to update the tree or with `--check` for the read-only CI
@@ -109,6 +113,38 @@ jobs, so a new hand-maintained source file without the notice of its zone
 fails CI. `make editions-gate` separately checks every `ee/` file for its
 commercial identifier + `ee/LICENSE` pointer and rejects that identifier from
 core source. Its self-test plants a violation on each side of the boundary.
+
+## Machine-readable licensing (REUSE)
+
+GitHub's license detector does not recognise BUSL-1.1, so the repository
+header shows `NOASSERTION`; that is expected for every BSL repository and is
+not a defect. Scanners that read the [REUSE](https://reuse.software/spec-3.3/)
+layout get the real answer for every file:
+
+- [`LICENSES/`](LICENSES/) holds each license under its SPDX identifier.
+  `BUSL-1.1.txt` and `MPL-2.0.txt` are byte-identical copies of their sections
+  of [`LICENSE`](LICENSE) (the BSL with its parameters, the MPL with both
+  Exhibits), and `LicenseRef-Probectl-Commercial.txt` is a byte-identical copy
+  of [`ee/LICENSE`](ee/LICENSE). The other texts there are the unmodified SPDX
+  texts of the third-party files listed below.
+- [`REUSE.toml`](REUSE.toml) maps the trees exactly as `LICENSE` states them:
+  `ee/**` to `LicenseRef-Probectl-Commercial`; `pkg/**`, `proto/**` and
+  `examples/**` to `MPL-2.0`; everything else to `BUSL-1.1`. A file that
+  carries its own SPDX header keeps it. The vendored gNMI schemas and the Go
+  generated from them (Apache-2.0), the vendored libbpf headers
+  (LGPL-2.1-only OR BSD-2-Clause), probectl's own eBPF programs (GPL-2.0-only
+  OR BSD-3-Clause, which the kernel requires), the vendored fonts (OFL-1.1) and
+  the world-atlas land data (ISC) keep their own licenses.
+
+`make reuse-gate` (`scripts/check_reuse_licensing.sh`, a step of the lint-go
+CI job) fails if a `LICENSES/` copy drifts from `LICENSE` or `ee/LICENSE` by a
+single byte, if the digest-pinned `reuse lint` fails, or if any file resolves
+to a license other than its tree's without an explicit third-party override;
+nothing may move an `ee/` file off the commercial license. Its self-test plants
+each of those defects first. Never edit the copies by hand: change `LICENSE` or
+`ee/LICENSE`, then run `scripts/check_reuse_licensing.sh sync`. A file that only
+quotes an SPDX tag (a header tool, a gate, this document) wraps the quotation
+in `REUSE-IgnoreStart` / `REUSE-IgnoreEnd`.
 
 ## Trademarks and legal review
 

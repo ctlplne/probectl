@@ -47,6 +47,7 @@ zone_of() {
   esac
 }
 
+# REUSE-IgnoreStart
 has_header() {
   local file="$1" prefix="$2" zone="$3"
   if [ "${zone}" = "client" ]; then
@@ -115,6 +116,7 @@ apply_one() {
   cat "${tmp}" > "${file}"
   rm -f "${tmp}" "${tmp}.body"
 }
+# REUSE-IgnoreEnd
 
 checked=0
 changed=0
