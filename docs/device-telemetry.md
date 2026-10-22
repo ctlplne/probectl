@@ -579,9 +579,11 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
   rise for that tenant only; checks LLDP neighbors and collection receipts
   under forced RLS; sends authenticated and refused traps and requires each
   tenant's own trap — and neither refused one — on its lane, through `GET
-  /v1/device/traps`, `probectl device traps` and the rendered Traps card;
-  and byte-searches logs, responses, the page and every lane record for the
-  credentials. gNMI is not part of it: it stays proven
+  /v1/device/traps`, `probectl device traps` and the rendered Traps card,
+  and each tenant's trap alert rule to fire to that tenant's own webhook
+  receiver only (B's trap first, so a rule that lost its tenant scope would
+  fire A's rule before A sent anything); and byte-searches logs, responses,
+  the page, the webhook bodies and every lane record for the credentials. gNMI is not part of it: it stays proven
   against the in-process mock only.
 - The correlation contract (hop IP ↔ interface, flow exporter+ifIndex ↔
   interface) is pinned by `TestCorrelatorHopToInterface` and

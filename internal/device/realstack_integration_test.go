@@ -104,31 +104,60 @@ const pollInterval = 15 * time.Second
 //     LLDP ok_with_rows with one row and CDP healthy_empty. As the app role, a
 //     predicate-free count of either table scoped to a tenant is exactly the
 //     tenant's: PostgreSQL row security isolates.
-//  5. Traps: each agent listens for traps from its device only. Each device
-//     sends one authenticated linkDown (A: SNMPv3 authPriv, B: v2c); a trap
-//     with the wrong credential and B's trap sent to A's listener are refused.
-//     The control plane has no trap read model yet (docs/device-telemetry.md),
-//     so the trap leg asserts the bus: each tenant's trap-events lane holds
-//     exactly its own trap, attributed to its tenant and agent, and nothing
-//     else; the shared lane holds none of this run's.
-//  6. The rendered Device page shows each tenant its device, its neighbor
-//     and its live interface telemetry, and never the other's.
+//  5. Traps: each agent listens for traps from its device only. Each tenant
+//     first defines a trap alert rule (D-61: linkDown fires, linkUp clears),
+//     A through POST /v1/alerts, B with `probectl alert create` (B's also
+//     requires its device's ifIndex varbind), each delivering to the tenant's
+//     own signed webhook through the deployment's egress proxy. Neither rule
+//     names a device, so only the tenant scope keeps the other tenant's trap
+//     out. B's device sends its authenticated linkDown (v2c) first: B's rule
+//     fires to B's receiver and A's receiver stays empty; then A's (SNMPv3
+//     authPriv) fires A's rule to A's receiver only. A trap with the wrong
+//     credential and B's trap sent to A's listener are refused and fire
+//     nothing. Each tenant's trap-events lane holds exactly its own trap; the
+//     shared lane holds none of this run's. The control plane stored each
+//     tenant's trap (D-60): GET /v1/device/traps and `probectl device traps`
+//     show each tenant exactly its own authenticated trap and neither refused
+//     one, and a predicate-free count of device_traps as the app role scoped
+//     to a tenant is exactly the tenant's.
+//  6. The rendered Device page shows each tenant its device, its neighbor,
+//     its live interface telemetry and its trap in the Traps card, and never
+//     the other's.
 //  7. No passphrase or community appears in a log, an API or CLI response,
-//     the rendered page or any record on either tenant's device lanes.
+//     the rendered page, a trap-alert webhook body or any record on either
+//     tenant's device lanes.
 func TestDeviceTelemetryRealStack(t *testing.T) {
 	lab := startSNMPLab(t)
-	st := shipped.Start(t, shipped.Options{Name: "devicetel", TenantBand: 4})
+	run := strconv.FormatInt(time.Now().UnixNano(), 36)
+	// Trap-alert delivery the way an MSP deploys it (the F8 shape): each
+	// tenant's webhook names a public host only the egress proxy can resolve,
+	// behind the receipt's own CA.
+	pki := newReceiptPKI(t)
+	hooks := map[string]*hookReceiver{}
+	routes := map[string]string{}
+	for _, host := range []string{"hooks.acme-traps.example", "hooks.globex-traps.example"} {
+		hooks[host] = startHookReceiver(t, pki, host)
+		routes[net.JoinHostPort(host, "443")] = hooks[host].addr
+	}
+	proxy := startEgressProxy(t, routes)
+	st := shipped.Start(t, shipped.Options{Name: "devicetel", TenantBand: 4, Env: map[string]string{
+		"PROBECTL_ALERT_EVAL_INTERVAL":   trapEval.String(),
+		"HTTPS_PROXY":                    "http://" + proxy.addr,
+		"NO_PROXY":                       "127.0.0.1",
+		"PROBECTL_ALERT_WEBHOOK_CA_FILE": pki.caFile,
+	}})
 	op := st.OnboardOperator(t, "root@msp-device.example")
 	opEnv := map[string]string{"PROBECTL_API_TOKEN": op}
-	run := strconv.FormatInt(time.Now().UnixNano(), 36)
 
 	A := &deviceTenant{slug: "dev-acme-" + run, name: "Device Acme", model: "pooled", admin: "ada@acme.example",
 		profile: "topology-rich", sysName: "acme-core-sw1", neighbor: "acme-dist-sw2", neighborPort: "Gi0/48",
 		transport: "snmpv3", credential: "acme-core-ro", user: "acme-ro",
-		authPass: "acme-auth-words-" + run, privPass: "acme-priv-words-" + run}
+		authPass: "acme-auth-words-" + run, privPass: "acme-priv-words-" + run,
+		hookHost: "hooks.acme-traps.example", hookSecret: "acme-trap-hook-word-" + run}
 	B := &deviceTenant{slug: "dev-globex-" + run, name: "Device Globex", model: "hybrid", admin: "bob@globex.example",
 		profile: "standard", sysName: "globex-edge-r1", neighbor: "globex-core-r9", neighborPort: "xe-0/0/1",
-		transport: "snmpv2c", credential: "globex-edge-ro", community: "globex-community-words-" + run}
+		transport: "snmpv2c", credential: "globex-edge-ro", community: "globex-community-words-" + run,
+		hookHost: "hooks.globex-traps.example", hookSecret: "globex-trap-hook-word-" + run}
 	tenants := []*deviceTenant{A, B}
 	for _, tn := range tenants {
 		var row struct{ ID string }
@@ -136,7 +165,8 @@ func TestDeviceTelemetryRealStack(t *testing.T) {
 			fmt.Sprintf(`{"slug":%q,"name":%q,"isolation_model":%q}`, tn.slug, tn.name, tn.model))
 		tn.id = row.ID
 		tn.cookie = st.SignIn(t, tn.id, tn.admin, tn.name)
-		tn.token = st.APIToken(t, tn.cookie, "tenant.read", "agent.write", "metrics.read", "topology.read")
+		tn.token = st.APIToken(t, tn.cookie, "tenant.read", "agent.write", "metrics.read", "topology.read", "alert.read", "alert.write")
+		tn.receiver = hooks[tn.hookHost]
 		tn.device = lab.startDevice(t, tn)
 	}
 
@@ -170,7 +200,23 @@ func TestDeviceTelemetryRealStack(t *testing.T) {
 		tn.checkNeighborSurfaces(t, st, tenants)
 		tn.checkOutcomeSurfaces(t, st, tenants)
 	}
-	for _, table := range []string{"device_neighbor_evidence", "device_collection_outcomes"} {
+
+	// 5. Traps: each tenant's trap alert rule, then the traps themselves.
+	A.createTrapRuleAPI(t, st)
+	B.createTrapRuleCLI(t, st)
+	for _, tn := range tenants {
+		tn.awaitTrapRuleEvaluated(t, st)
+	}
+	checkTraps(t, st, tenants)
+	for _, tn := range tenants {
+		tn.checkTrapSurfaces(t, st, tenants)
+		tn.checkTrapDeliveries(t, tenants)
+	}
+	if got := proxy.tunneled(); strings.Join(got, ",") != "hooks.acme-traps.example,hooks.globex-traps.example" {
+		t.Errorf("the egress proxy tunneled %v, want exactly the two tenants' receivers", got)
+	}
+
+	for _, table := range []string{"device_neighbor_evidence", "device_collection_outcomes", "device_traps"} {
 		for _, tn := range tenants {
 			own, seen, total := rlsCounts(t, st, table, tn.id)
 			if own == 0 || seen != own || own >= total {
@@ -179,9 +225,6 @@ func TestDeviceTelemetryRealStack(t *testing.T) {
 			}
 		}
 	}
-
-	// 5. Traps, on each tenant's lane.
-	checkTraps(t, tenants)
 
 	// 6. The rendered Device page, as each tenant's admin.
 	for _, tn := range tenants {
@@ -207,6 +250,9 @@ type deviceTenant struct {
 	device                   *snmpDevice
 	agentLog                 string
 	trapListen, trapSource   string
+	hookHost, hookSecret     string
+	receiver                 *hookReceiver
+	trapRuleID               string
 	hint                     map[string]any
 	seen                     [][]byte // every API/CLI body and rendered page text, for the secret check
 	mu                       sync.Mutex
@@ -765,15 +811,26 @@ func rlsCounts(t *testing.T, st *shipped.Stack, table, tenant string) (own, seen
 
 // --- traps ---
 
-// checkTraps sends each device's authenticated linkDown, plus two traps
-// that must be refused, and asserts each tenant's trap-events lane holds
-// exactly its own.
-func checkTraps(t *testing.T, tenants []*deviceTenant) {
+// checkTraps sends each device's authenticated linkDown — B's first, so a
+// trap rule that loses its tenant scope fires A's rule on B's trap before A
+// has sent one — plus two traps that must be refused, and asserts each
+// tenant's rule fired to its own receiver only, the trap reached the control
+// plane's store, and each tenant's trap-events lane holds exactly its own.
+func checkTraps(t *testing.T, st *shipped.Stack, tenants []*deviceTenant) {
 	t.Helper()
 	A, B := tenants[0], tenants[1]
-	for _, tn := range tenants {
-		tn.device.trap(t, tn.trapListen, "")
+	B.device.trap(t, B.trapListen, "")
+	B.awaitStoredTrap(t, st, 60*time.Second)
+	B.awaitTrapAlert(t)
+	// Give A's engine the same passes it would need to fire on B's trap.
+	time.Sleep(3 * trapEval)
+	if got := A.receiver.all(); len(got) != 0 {
+		t.Errorf("CROSS-TENANT TRAP ALERT: %s's receiver got deliveries after only %s's device sent a trap: %s",
+			A.slug, B.slug, describeDeliveries(got))
 	}
+	A.device.trap(t, A.trapListen, "")
+	A.awaitStoredTrap(t, st, 60*time.Second)
+	A.awaitTrapAlert(t)
 	// Refused: A's own device with the wrong auth passphrase, and B's device
 	// (B's credential and address) sending to A's listener.
 	A.device.trap(t, A.trapListen, "not-the-acme-passphrase")
@@ -826,6 +883,9 @@ func checkTraps(t *testing.T, tenants []*deviceTenant) {
 		})
 		t.Logf("%s's trap listener refused %d trap(s)", tn.slug, got)
 	}
+	// The refused traps fired nothing: a few more evaluation passes deliver
+	// no second alert to either receiver (checkTrapDeliveries counts them).
+	time.Sleep(3 * trapEval)
 }
 
 // refusedTraps sums the trap listener's failure counters from the agent's log
@@ -936,7 +996,10 @@ func (tn *deviceTenant) renderPage(t *testing.T, st *shipped.Stack, tenants []*d
 		Cookies:        []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: tn.cookie}},
 		TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile,
 		Expect: []string{tn.sysName, "device:127.0.0.1", tn.neighbor, tn.neighborPort, "LLDP",
-			"Device telemetry", "Device health samples", "Interface counters", "probectl_device_*", "eth0"},
+			"Device telemetry", "Device health samples", "Interface counters", "probectl_device_*", "eth0",
+			// D-60: the Traps card shows the tenant's own stored trap.
+			"SNMP traps", "linkDown", oidLinkDown, tn.collectorID, map[string]string{"snmpv3": "SNMPv3", "snmpv2c": "SNMPv2c"}[tn.transport],
+			fmt.Sprintf("ifIndex.%d = %d", tn.device.eth0, tn.device.eth0)},
 	}
 	for _, other := range tenants {
 		if other != tn {

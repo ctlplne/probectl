@@ -317,8 +317,10 @@ capabilities:
   # authPriv with secret-referenced passphrases, and v2c), on the YAML its
   # collector registration hands back: live counters moved between polls,
   # LLDP neighbors and collection receipts in the forced-RLS tables, and
-  # authenticated traps on each tenant's lane; two tenants (pooled + hybrid),
-  # through the API, the CLI and the rendered Device page. gNMI stays
+  # authenticated traps on each tenant's lane, in the forced-RLS trap store
+  # (GET /v1/device/traps, `probectl device traps`, the Traps card) and firing
+  # each tenant's trap alert rule to its own receiver only; two tenants
+  # (pooled + hybrid), through the API, the CLI and the rendered Device page. gNMI stays
   # mock-proven (D-07): this receipt proves the SNMP transport only.
   - id: F18
     name: Device telemetry
