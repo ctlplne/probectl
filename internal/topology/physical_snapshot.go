@@ -39,8 +39,14 @@ func (g *Graph) ReplacePhysicalAdjacencies(snapshot PhysicalAdjacencySnapshot, a
 	previous := g.physicalSources[source]
 
 	for edgeID, element := range desired {
+		_, known := g.nodes[element.remote.ID]
+		_, remoteOnly := g.physicalRemoteOnly[element.remote.ID]
 		g.upsertNodeLocked(element.local, at)
+		delete(g.physicalRemoteOnly, element.local.ID)
 		g.upsertNodeLocked(element.remote, at)
+		if !known || remoteOnly {
+			g.physicalRemoteOnly[element.remote.ID] = struct{}{}
+		}
 		g.upsertEdgeLocked(element.edge, at)
 		if g.physicalOwners[edgeID] == nil {
 			g.physicalOwners[edgeID] = map[physicalSource]struct{}{}

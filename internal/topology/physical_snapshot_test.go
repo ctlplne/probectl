@@ -107,3 +107,78 @@ func snapshotHasEdge(snapshot Snapshot, from, to string) bool {
 	}
 	return false
 }
+
+// TestPhysicalSnapshotRetiresTheNeighborItOnlyEvidenced is DPR-300's
+// regression: when a device stops reporting an LLDP neighbor (the uplink is
+// moved to another switch), the live graph dropped the old adjacency but
+// kept the old neighbor's node for the whole staleness horizon, so the
+// Topology page and every what-if still showed a switch the device no longer
+// reported. A neighbor node evidenced only by retired adjacencies must leave
+// Latest() with them, stay in SnapshotAt at its observed times, and a node
+// with other evidence (a managed device, another source's current edge)
+// must stay.
+func TestPhysicalSnapshotRetiresTheNeighborItOnlyEvidenced(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		store Store
+	}{
+		{name: "memory", store: NewMemoryStore()},
+		{name: "indexed", store: NewIndexedStore()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			graph, err := tc.store.ForTenant("tenant-a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t1 := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+			t2 := t1.Add(15 * time.Second)
+			nbr := func(agent, chassis, name string) PhysicalAdjacencyInput {
+				return PhysicalAdjacencyInput{LocalName: "core-1", LocalPort: "eth0", RemoteIdentity: chassis,
+					RemoteName: name, RemotePort: "Gi0/48", Protocol: "lldp", SourceAgent: agent}
+			}
+			replace := func(agent, local string, at time.Time, adjacencies ...PhysicalAdjacencyInput) {
+				graph.ReplacePhysicalAdjacencies(PhysicalAdjacencySnapshot{SourceAgent: agent, LocalAddress: local, Adjacencies: adjacencies}, at)
+			}
+			// core-1 sees dist-2 and the managed device 10.0.0.9; core-2
+			// (another agent) also sees shared-5.
+			graph.ObserveDevice(DeviceInput{Address: "10.0.0.9", Name: "managed-9"}, t1)
+			managed := nbr("agent-a", "", "managed-9")
+			managed.RemoteAddress = "10.0.0.9"
+			replace("agent-a", "10.0.0.1", t1, nbr("agent-a", "aa:02", "dist-2"), managed, nbr("agent-a", "aa:05", "shared-5"))
+			replace("agent-b", "10.0.0.2", t1, nbr("agent-b", "aa:05", "shared-5"))
+
+			// The uplink moves: core-1 now reports dist-3 only.
+			replace("agent-a", "10.0.0.1", t2, nbr("agent-a", "aa:03", "dist-3"))
+			live := graph.Latest()
+			if snapshotHasNode(live, "device:lldp:aa:02") {
+				t.Errorf("the live graph still holds dist-2, which core-1 no longer reports: %+v", live.Nodes)
+			}
+			for _, id := range []string{"device:lldp:aa:03", "device:10.0.0.9", "device:lldp:aa:05", "device:10.0.0.1", "device:10.0.0.2"} {
+				if !snapshotHasNode(live, id) {
+					t.Errorf("the live graph lost %s, which other evidence keeps current: %+v", id, live.Nodes)
+				}
+			}
+			if !snapshotHasEdge(live, "device:10.0.0.1", "device:lldp:aa:03") || snapshotHasEdge(live, "device:10.0.0.1", "device:lldp:aa:02") {
+				t.Errorf("live physical edges = %+v, want core-1 -> dist-3 only", live.Edges)
+			}
+			if past := graph.SnapshotAt(t1); !snapshotHasNode(past, "device:lldp:aa:02") || !snapshotHasEdge(past, "device:10.0.0.1", "device:lldp:aa:02") {
+				t.Errorf("the graph as it was at %s lost dist-2: %+v", t1, past.Nodes)
+			}
+
+			// The neighbor coming back makes it current again.
+			replace("agent-a", "10.0.0.1", t2.Add(15*time.Second), nbr("agent-a", "aa:02", "dist-2"))
+			if live := graph.Latest(); !snapshotHasNode(live, "device:lldp:aa:02") || snapshotHasNode(live, "device:lldp:aa:03") {
+				t.Errorf("after dist-2 returns the live nodes are %+v, want dist-2 back and dist-3 gone", live.Nodes)
+			}
+		})
+	}
+}
+
+func snapshotHasNode(snapshot Snapshot, id string) bool {
+	for _, node := range snapshot.Nodes {
+		if node.ID == id {
+			return true
+		}
+	}
+	return false
+}

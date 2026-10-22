@@ -35,6 +35,14 @@ type Graph struct {
 	physicalSources map[physicalSource]physicalSourceState
 	physicalOwners  map[string]map[physicalSource]struct{}
 	physicalRetired map[string]time.Time
+	// physicalRemoteOnly marks nodes whose only evidence is being the remote
+	// end of an authoritative LLDP/CDP snapshot. Latest() shows such a node
+	// only while a current edge still names it, so a neighbor the device
+	// stopped reporting leaves the live graph together with its adjacency
+	// (DPR-300); SnapshotAt keeps it at its historical times. Any other
+	// observation of the node (a managed device, a snapshot's local end)
+	// clears the mark.
+	physicalRemoteOnly map[string]struct{}
 
 	// Bounds (SCALE-004 / CORRECT-014). maxNodes/maxEdges cap per-tenant memory:
 	// when an upsert of a NEW element would exceed the cap, the least-recently-
@@ -100,14 +108,15 @@ func NewGraph(tenant string) *Graph {
 func NewGraphWithBounds(tenant string, b Bounds) *Graph {
 	return &Graph{
 		tenant: tenant, nodes: map[string]*Node{}, edges: map[string]*Edge{},
-		identityClaims:  map[string]*identityClaimSet{},
-		physicalSources: map[physicalSource]physicalSourceState{},
-		physicalOwners:  map[string]map[physicalSource]struct{}{},
-		physicalRetired: map[string]time.Time{},
-		now:             time.Now,
-		maxNodes:        b.MaxNodes,
-		maxEdges:        b.MaxEdges,
-		staleness:       b.Staleness,
+		identityClaims:     map[string]*identityClaimSet{},
+		physicalSources:    map[physicalSource]physicalSourceState{},
+		physicalOwners:     map[string]map[physicalSource]struct{}{},
+		physicalRetired:    map[string]time.Time{},
+		physicalRemoteOnly: map[string]struct{}{},
+		now:                time.Now,
+		maxNodes:           b.MaxNodes,
+		maxEdges:           b.MaxEdges,
+		staleness:          b.Staleness,
 	}
 }
 
@@ -141,6 +150,7 @@ func (g *Graph) evictOldestNodeLocked() {
 	}
 	if oldestID != "" {
 		delete(g.nodes, oldestID)
+		delete(g.physicalRemoteOnly, oldestID)
 	}
 }
 
@@ -164,6 +174,7 @@ func (g *Graph) UpsertNode(n Node, at time.Time) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.upsertNodeLocked(n, at)
+	delete(g.physicalRemoteOnly, n.ID)
 }
 
 func (g *Graph) upsertNodeLocked(n Node, at time.Time) {
@@ -274,15 +285,7 @@ func (g *Graph) Latest() Snapshot {
 	// reflects current reality instead of every node/edge ever seen.
 	cutoff := g.stalenessCutoffLocked()
 	fresh := func(lastSeen time.Time) bool { return cutoff.IsZero() || !lastSeen.Before(cutoff) }
-	for _, n := range g.nodes {
-		if !fresh(n.LastSeen) {
-			continue
-		}
-		s.Nodes = append(s.Nodes, *n)
-		if n.LastSeen.After(s.At) {
-			s.At = n.LastSeen
-		}
-	}
+	named := map[string]bool{}
 	for id, e := range g.edges {
 		if e.Kind == EdgePhysical {
 			if _, retired := g.physicalRetired[id]; retired {
@@ -293,6 +296,19 @@ func (g *Graph) Latest() Snapshot {
 			continue
 		}
 		s.Edges = append(s.Edges, *e)
+		named[e.From], named[e.To] = true, true
+	}
+	for id, n := range g.nodes {
+		if !fresh(n.LastSeen) {
+			continue
+		}
+		if _, remoteOnly := g.physicalRemoteOnly[id]; remoteOnly && !named[id] {
+			continue // DPR-300: no current adjacency evidences this neighbor any more
+		}
+		s.Nodes = append(s.Nodes, *n)
+		if n.LastSeen.After(s.At) {
+			s.At = n.LastSeen
+		}
 	}
 	sortSnapshot(&s)
 	return s
@@ -432,6 +448,7 @@ func (g *Graph) PruneBefore(cutoff time.Time) (nodesDeleted, edgesDeleted int) {
 	for id, n := range g.nodes {
 		if n.LastSeen.Before(cutoff) {
 			delete(g.nodes, id)
+			delete(g.physicalRemoteOnly, id)
 			nodesDeleted++
 		}
 	}

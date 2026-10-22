@@ -134,6 +134,12 @@ carries. When it does not — which is the case for the SNMP/gNMI device telemet
 today — the device node still exists, but **without** links, and that gap is
 **reported** as a coverage note (below), never silently treated as "complete."
 
+A neighbor known only from LLDP/CDP leaves the live graph together with its
+last adjacency: when a device stops reporting it (the uplink moved to another
+switch), `Latest()` drops both the edge and the neighbor's node, while
+`SnapshotAt` still shows them at the times they were observed. A node with any
+other evidence (a managed device, the local end of another snapshot) stays.
+
 Before a device observation updates the graph's visible label, the graph also
 retains its normalized source claim. Distinct management-address, device-name,
 interface-address, interface-name, or interface-index values become stable
