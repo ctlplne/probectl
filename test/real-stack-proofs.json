@@ -182,6 +182,13 @@
         "F1",
         "F10"
       ]
+    },
+    {
+      "ref": "test:internal/canary/network_realstack_integration_test.go#TestNetworkTestsRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F2"
+      ]
     }
   ]
 }

@@ -30,10 +30,16 @@ capabilities:
     real_stack_proof: {refs: ["test:internal/testsync/realstack_integration_test.go#TestCentralTestsReachAgentsRealStack"]}
     migration: {refs: ["file:migrations/0009_agents_registry.sql", "file:migrations/0010_tests_definition.sql"]}
 
+  # F2's real-stack receipt is agent-to-service only (BETA_PLAN F2): ICMP and
+  # TCP tests from the API, CLI and Targets & Tests UI, pulled by the shipped
+  # agent and read back for the owning tenant only. The agent-to-agent mesh
+  # refs below (internal/a2a, POST /v1/a2a/mesh, probectl a2a start-mesh) are
+  # wired but NOT driven by that receipt: mesh results do not reach a user
+  # surface yet (AI-11; PD-7, D-46). product-contract.json therefore keeps F2
+  # "partial" until the mesh result path ships with its own receipt.
   - id: F2
     name: Network tests (agent-to-service and agent-to-agent)
     status: delivered
-    evidence_status: partial
     owner: agent/security
     engine: {refs: ["file:internal/canary", "file:internal/a2a"]}
     binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"icmp\", canary.NewICMP)"]}
@@ -43,7 +49,7 @@ capabilities:
     docs: {refs: ["file:docs/features/active-testing.md#Agent-to-agent"]}
     config_keys: &api_config {none_by_design: "Configured through tenant-scoped API state or shared platform settings; no capability-specific environment key exists."}
     telemetry: {refs: ["file:internal/a2a"]}
-    real_stack_proof: {gap: "The current agent-to-agent test uses an in-process memory bus and memory TSDB rather than release binaries with Kafka, persistent stores, API, CLI, UI, and a two-tenant boundary."}
+    real_stack_proof: {refs: ["test:internal/canary/network_realstack_integration_test.go#TestNetworkTestsRealStack"]}
     migration: {none_by_design: "Agent-to-agent tests reuse the existing test and result stores; they introduce no capability-specific relational schema."}
 
   - id: F3
