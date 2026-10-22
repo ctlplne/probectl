@@ -43,6 +43,13 @@ export interface Agent {
   rollout_halted?: boolean
   rollout_halt_reason?: string
   last_failure?: string
+  // G9: whether the agent runs its tenant's current central test set. Absent
+  // when central test distribution is off and for bus collectors.
+  test_set?: {
+    applied_version: number
+    current_version: number
+    in_sync: boolean
+  }
   next_safe_action?: {
     kind:
       | 'inspect_heartbeat'

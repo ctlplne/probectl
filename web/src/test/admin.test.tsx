@@ -25,6 +25,7 @@ const staleAgent = {
   version_reason: 'Agent v1.3.0 is inside the supported N/N-1 window.',
   readiness_state: 'stale' as const,
   readiness_reason: 'Last authenticated heartbeat is older than the 5m0s health gate.',
+  test_set: { applied_version: 3, current_version: 5, in_sync: false },
   rollout_id: 'rollout-7',
   rollout_target: 'v1.4.0',
   rollout_cohort: 'canary' as const,
@@ -194,6 +195,30 @@ describe('Admin fleet identity lifetime', () => {
     await userEvent.click(action)
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(/mint a join token/i)).toBeInTheDocument()
+  })
+
+  // G9: an operator can see whether each agent runs the tests the tenant defined.
+  test('says whether each agent runs its tenant current central test set', async () => {
+    vi.stubGlobal('fetch', fleetFetch(true))
+    renderApp('/admin')
+
+    const behind = (await screen.findByText('edge-stale')).closest('tr')
+    if (!behind) throw new Error('the fleet row for the lagging agent is missing')
+    expect(within(behind).getByText('Behind')).toBeInTheDocument()
+    expect(within(behind).getByText('Running v3 of v5')).toBeInTheDocument()
+    const off = (await screen.findByText('browser-1')).closest('tr')
+    if (!off) throw new Error('the fleet row for the agent without a test set is missing')
+    expect(within(off).getByText('Central tests off')).toBeInTheDocument()
+  })
+
+  test('a healthy agent shows its tests in sync', async () => {
+    vi.stubGlobal('fetch', defaultFetch())
+    renderApp('/admin')
+
+    const row = (await screen.findByText('agent-1')).closest('tr')
+    if (!row) throw new Error('the fleet row for the healthy agent is missing')
+    expect(within(row).getByText('In sync')).toBeInTheDocument()
+    expect(within(row).getByText('Running v4 of v4')).toBeInTheDocument()
   })
 
   test('a healthy agent shows its identity as valid rather than saying nothing', async () => {

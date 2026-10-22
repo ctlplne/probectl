@@ -10512,6 +10512,9 @@
               },
               "next_safe_action": {
                 "$ref": "#/components/schemas/FleetSafeAction"
+              },
+              "test_set": {
+                "$ref": "#/components/schemas/FleetTestSet"
               }
             },
             "required": [
@@ -10526,6 +10529,28 @@
               "next_safe_action"
             ]
           }
+        ]
+      },
+      "FleetTestSet": {
+        "type": "object",
+        "description": "Whether an agent runs its tenant's current central test set (G9): the version it last reported as verified and applied, against the tenant's current version (bumped by every test create, update and delete). Absent from FleetAgent when central test distribution is off and for bus collectors. applied_version 0 means the agent has applied no central set (no testsync.pub, or it refused every bundle).",
+        "properties": {
+          "applied_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "current_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "in_sync": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "applied_version",
+          "current_version",
+          "in_sync"
         ]
       },
       "AgentList": {

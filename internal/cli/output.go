@@ -104,10 +104,11 @@ func printAgents(w io.Writer, agents []Agent) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tHOSTNAME\tSTATUS\tIDENTITY\tCAPABILITIES")
+	fmt.Fprintln(tw, "ID\tNAME\tHOSTNAME\tSTATUS\tIDENTITY\tTESTS\tCAPABILITIES")
 	for _, a := range agents {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			clean(short(a.ID)), clean(a.Name), clean(a.Hostname), clean(a.Status), identityCell(a), strings.Join(cleanAll(a.Capabilities), ","))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			clean(short(a.ID)), clean(a.Name), clean(a.Hostname), clean(a.Status), identityCell(a), testSetCell(a),
+			strings.Join(cleanAll(a.Capabilities), ","))
 	}
 	_ = tw.Flush()
 }
@@ -135,6 +136,22 @@ func identityCell(a Agent) string {
 	}
 }
 
+// testSetCell says whether the agent runs its tenant's current central test
+// set (G9): "-" when distribution is off, otherwise in sync / behind / none.
+func testSetCell(a Agent) string {
+	ts := a.TestSet
+	switch {
+	case ts == nil:
+		return "-"
+	case ts.InSync:
+		return fmt.Sprintf("in sync (v%d)", ts.CurrentVersion)
+	case ts.AppliedVersion == 0:
+		return fmt.Sprintf("none applied (current v%d)", ts.CurrentVersion)
+	default:
+		return fmt.Sprintf("behind (v%d of v%d)", ts.AppliedVersion, ts.CurrentVersion)
+	}
+}
+
 func printAgent(w io.Writer, a Agent) {
 	fmt.Fprintf(w, "id:            %s\n", clean(a.ID))
 	fmt.Fprintf(w, "name:          %s\n", clean(a.Name))
@@ -143,6 +160,7 @@ func printAgent(w io.Writer, a Agent) {
 	fmt.Fprintf(w, "status:        %s\n", clean(a.Status))
 	fmt.Fprintf(w, "capabilities:  %s\n", strings.Join(cleanAll(a.Capabilities), ", "))
 	fmt.Fprintf(w, "identity:      %s\n", identityCell(a))
+	fmt.Fprintf(w, "tests:         %s\n", testSetCell(a))
 	if a.IdentityReason != "" {
 		fmt.Fprintf(w, "identity_note: %s\n", clean(a.IdentityReason))
 	}

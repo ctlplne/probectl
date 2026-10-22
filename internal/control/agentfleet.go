@@ -84,6 +84,34 @@ type fleetAgentView struct {
 	RolloutHaltReason   string          `json:"rollout_halt_reason,omitempty"`
 	LastFailure         string          `json:"last_failure"`
 	NextSafeAction      fleetSafeAction `json:"next_safe_action"`
+	// TestSet says whether the agent runs its tenant's current central test
+	// set (G9). Absent when central test distribution is off, and for bus
+	// collectors, which run no synthetic tests.
+	TestSet *fleetTestSet `json:"test_set,omitempty"`
+}
+
+// fleetTestSet compares the central test-set version an agent last reported
+// as verified and applied with its tenant's current version (G9). Both
+// numbers come from the caller's tenant transaction.
+type fleetTestSet struct {
+	AppliedVersion uint64 `json:"applied_version"`
+	CurrentVersion uint64 `json:"current_version"`
+	InSync         bool   `json:"in_sync"`
+}
+
+// applyFleetTestSet attaches the test-set comparison to every view that can
+// run central tests. current is nil when distribution is off.
+func applyFleetTestSet(views []fleetAgentView, current *uint64) {
+	if current == nil {
+		return
+	}
+	for i := range views {
+		if busCollector(views[i].Capabilities) {
+			continue
+		}
+		applied := views[i].TestSetVersion
+		views[i].TestSet = &fleetTestSet{AppliedVersion: applied, CurrentVersion: *current, InSync: applied == *current}
+	}
 }
 
 // buildFleetAgentViews joins only rows already selected inside the caller's

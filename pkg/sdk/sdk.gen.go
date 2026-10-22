@@ -1185,6 +1185,7 @@ type FleetAgent struct {
 	SpiffeId            string            `json:"spiffe_id,omitempty"`
 	Status              string            `json:"status"`
 	TenantId            string            `json:"tenant_id"`
+	TestSet             FleetTestSet      `json:"test_set,omitempty"`
 	VersionReason       string            `json:"version_reason"`
 	VersionState        string            `json:"version_state"`
 }
@@ -1195,6 +1196,13 @@ type FleetSafeAction struct {
 	Kind   string `json:"kind"`
 	Label  string `json:"label"`
 	Reason string `json:"reason"`
+}
+
+// Whether an agent runs its tenant's current central test set (G9): the version it last reported as verified and applied, against the tenant's current version (bumped by every test create, update and delete). Absent from FleetAgent when central test distribution is off and for bus collectors. applied_version 0 means the agent has applied no central set (no testsync.pub, or it refused every bundle).
+type FleetTestSet struct {
+	AppliedVersion int  `json:"applied_version"`
+	CurrentVersion int  `json:"current_version"`
+	InSync         bool `json:"in_sync"`
 }
 
 type FlowAnomaly struct {
@@ -5049,7 +5057,7 @@ func (c *Client) CreateTest(ctx context.Context, req CreateTestRequest) (*Test, 
 	return &out, nil
 }
 
-// Signed, pull-able bundle of the tenant's enabled tests (ARCH-001)
+// Signed bundle of the tenant's enabled tests, as its agents pull it (G9)
 type GetTestBundleRequest struct {
 }
 

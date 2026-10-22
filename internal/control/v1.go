@@ -494,9 +494,14 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) error 
 	after := r.URL.Query().Get("after")
 	limit := intQuery(r, "limit", store.DefaultAgentPageSize)
 	var agents []store.Agent
+	var testSet *uint64
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		a, e := (store.Agents{}).ListPage(ctx, sc, after, limit)
+		if e != nil {
+			return e
+		}
 		agents = a
+		testSet, e = s.currentTestSetVersion(ctx, sc)
 		return e
 	}); err != nil {
 		return err
@@ -539,6 +544,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) error 
 		s.log.Warn("fleet rollout evidence invalid", "tenant_id", tenantID, "error", err)
 		views, _ = buildFleetAgentViews(agents, nil, identities, version.Get().Version, time.Now())
 	}
+	applyFleetTestSet(views, testSet)
 	resp := map[string]any{
 		"items":           views,
 		"control_version": version.Get().Version,
@@ -562,6 +568,7 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	var a *store.Agent
 	var rollouts []store.RolloutRecord
+	var testSet *uint64
 	identities := map[string]store.AgentIdentityWindow{}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		x, e := store.Agents{}.Get(ctx, sc, id)
@@ -569,6 +576,9 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) error {
 			return e
 		}
 		a = x
+		if testSet, e = s.currentTestSetVersion(ctx, sc); e != nil {
+			return e
+		}
 		// DPR-176: the detail view used to return the bare registry row, so an
 		// operator who clicked into an agent — or ran `probectl agent get` —
 		// saw LESS than the list they came from: no heartbeat verdict, no
@@ -589,8 +599,22 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) error {
 		// back to the health that does not depend on it, exactly as the list does.
 		views, _ = buildFleetAgentViews([]store.Agent{*a}, nil, identities, version.Get().Version, time.Now())
 	}
+	applyFleetTestSet(views, testSet)
 	writeJSON(w, http.StatusOK, views[0])
 	return nil
+}
+
+// currentTestSetVersion reads the caller's tenant's central test-set version
+// inside its RLS transaction (G9); nil when central distribution is off.
+func (s *Server) currentTestSetVersion(ctx context.Context, sc tenancy.Scope) (*uint64, error) {
+	if s.testSync == nil {
+		return nil, nil
+	}
+	v, err := (store.TestSets{}).Version(ctx, sc)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
 }
 
 type agentPatch struct {

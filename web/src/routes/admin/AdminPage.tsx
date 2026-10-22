@@ -121,6 +121,18 @@ function identityTone(agent: Agent): 'success' | 'warning' | 'danger' | 'neutral
   return 'neutral'
 }
 
+// G9: the agent's central test set against its tenant's current one.
+function testSetBadge(
+  agent: Agent,
+  t: TFn,
+): { tone: 'success' | 'warning' | 'neutral'; label: string } {
+  const ts = agent.test_set
+  if (!ts) return { tone: 'neutral', label: t('admin.fleet.tests.off') }
+  if (ts.in_sync) return { tone: 'success', label: t('admin.fleet.tests.inSync') }
+  if (ts.applied_version === 0) return { tone: 'neutral', label: t('admin.fleet.tests.none') }
+  return { tone: 'warning', label: t('admin.fleet.tests.behind') }
+}
+
 function versionLabel(agent: Agent, t: TFn) {
   const labels: Record<NonNullable<Agent['version_state']> | 'unknown', MessageKey> = {
     current: 'admin.fleet.version.current',
@@ -833,6 +845,28 @@ export function AdminPage() {
           <small>{a.identity_reason || t('admin.fleet.evidenceUnavailable')}</small>
         </span>
       ),
+    },
+    {
+      key: 'tests',
+      header: t('admin.fleet.column.tests'),
+      render: (a) => {
+        const badge = testSetBadge(a, t)
+        return (
+          <span className={styles.fleetCell}>
+            <Badge tone={badge.tone}>{badge.label}</Badge>
+            {a.test_set ? (
+              <small>
+                {a.test_set.applied_version === 0
+                  ? t('admin.fleet.tests.noneReason')
+                  : t('admin.fleet.tests.version', {
+                      applied: a.test_set.applied_version,
+                      current: a.test_set.current_version,
+                    })}
+              </small>
+            ) : null}
+          </span>
+        )
+      },
     },
     {
       key: 'caps',

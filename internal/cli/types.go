@@ -52,6 +52,16 @@ type Agent struct {
 	IdentityState     string     `json:"identity_state,omitempty"`
 	IdentityExpiresAt *time.Time `json:"identity_expires_at,omitempty"`
 	IdentityReason    string     `json:"identity_reason,omitempty"`
+	// G9: whether the agent runs its tenant's current central test set.
+	// Absent when central test distribution is off.
+	TestSet *AgentTestSet `json:"test_set,omitempty"`
+}
+
+// AgentTestSet is the fleet view's central test-set comparison (G9).
+type AgentTestSet struct {
+	AppliedVersion uint64 `json:"applied_version"`
+	CurrentVersion uint64 `json:"current_version"`
+	InSync         bool   `json:"in_sync"`
 }
 
 // list is the standard list envelope.

@@ -34,6 +34,10 @@ type Agent struct {
 	RegisteredAt time.Time         `json:"registered_at"`
 	LastSeenAt   *time.Time        `json:"last_seen_at,omitempty"`
 	CreatedAt    time.Time         `json:"created_at"`
+	// TestSetVersion is the central test-set version the agent last reported
+	// as verified and applied (G9; 0 = none). Surfaced by the fleet view as
+	// test_set, next to the tenant's current version.
+	TestSetVersion uint64 `json:"-"`
 }
 
 // Agents is the tenant-scoped agent registry.
@@ -51,7 +55,8 @@ type ProducerReadiness struct {
 }
 
 const agentCols = `id::text, tenant_id::text, name, hostname, agent_version, status,
-	capabilities, labels, spiffe_id, registered_at, last_seen_at, created_at`
+	capabilities, labels, spiffe_id, registered_at, last_seen_at, created_at,
+	COALESCE(test_set_version, 0)`
 
 // AgentOnlineWindow is how long after its last heartbeat or verified batch an
 // agent still reads "online" (DPR-082). gRPC agents heartbeat every 30 s and a
@@ -83,9 +88,13 @@ func deriveStatus(stored string, lastSeen *time.Time, now time.Time) string {
 
 func scanAgent(row interface{ Scan(...any) error }, a *Agent) error {
 	var caps, labels []byte
+	var testSet int64
 	if err := row.Scan(&a.ID, &a.TenantID, &a.Name, &a.Hostname, &a.AgentVersion, &a.Status,
-		&caps, &labels, &a.SPIFFEID, &a.RegisteredAt, &a.LastSeenAt, &a.CreatedAt); err != nil {
+		&caps, &labels, &a.SPIFFEID, &a.RegisteredAt, &a.LastSeenAt, &a.CreatedAt, &testSet); err != nil {
 		return err
+	}
+	if testSet > 0 {
+		a.TestSetVersion = uint64(testSet)
 	}
 	a.Status = deriveStatus(a.Status, a.LastSeenAt, agentNow())
 	a.Capabilities = []string{}

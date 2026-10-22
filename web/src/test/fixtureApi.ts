@@ -68,6 +68,7 @@ const sampleAgents = [
     identity_expires_at: '2026-06-05T08:00:00Z',
     identity_state: 'current',
     identity_reason: 'Agent identity is valid until 2026-06-05T08:00:00Z.',
+    test_set: { applied_version: 4, current_version: 4, in_sync: true },
     readiness_state: 'ready',
     readiness_reason:
       'Heartbeat, version policy, reported capabilities, and identity lifetime are ready.',

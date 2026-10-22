@@ -1089,6 +1089,7 @@ export interface FleetAgent {
   spiffe_id?: string
   status: "registered" | "online" | "offline"
   tenant_id: string
+  test_set?: FleetTestSet
   version_reason: string
   version_state: "current" | "supported_skew" | "unsupported" | "unknown"
 }
@@ -1098,6 +1099,12 @@ export interface FleetSafeAction {
   kind: "inspect_heartbeat" | "inspect_collector_input" | "inspect_identity" | "reenroll_identity" | "review_capabilities" | "review_staged_rollout" | "verify_rollout_wave" | "review_halted_rollout" | "inspect_evidence"
   label: string
   reason: string
+}
+
+export interface FleetTestSet {
+  applied_version: number
+  current_version: number
+  in_sync: boolean
 }
 
 export interface FlowAnomaly {
