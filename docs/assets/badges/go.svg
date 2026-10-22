@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="76" height="20" role="img" aria-label="Go: 1.26+">
+  <title>Go: 1.26+</title>
+  <!-- A static, self-contained badge: no external fonts, images or links. The toolchain floor is go.mod's go directive. -->
+  <linearGradient id="shine" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="round">
+    <rect width="76" height="20" rx="3" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#round)">
+    <rect width="30" height="20" fill="#555"/>
+    <rect x="30" width="46" height="20" fill="#00758f"/>
+    <rect width="76" height="20" fill="url(#shine)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+    <text x="15.0" y="14" textLength="20" lengthAdjust="spacingAndGlyphs">Go</text>
+    <text x="53.0" y="14" textLength="36" lengthAdjust="spacingAndGlyphs">1.26+</text>
+  </g>
+</svg>

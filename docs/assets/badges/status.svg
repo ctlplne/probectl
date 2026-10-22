@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="94" height="20" role="img" aria-label="status: alpha">
+  <title>status: alpha</title>
+  <!-- A static, self-contained badge: no external fonts, images or links. The release-maturity label (alpha until the beta tag). -->
+  <linearGradient id="shine" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="round">
+    <rect width="94" height="20" rx="3" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#round)">
+    <rect width="48" height="20" fill="#555"/>
+    <rect x="48" width="46" height="20" fill="#b35900"/>
+    <rect width="94" height="20" fill="url(#shine)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+    <text x="24.0" y="14" textLength="38" lengthAdjust="spacingAndGlyphs">status</text>
+    <text x="71.0" y="14" textLength="36" lengthAdjust="spacingAndGlyphs">alpha</text>
+  </g>
+</svg>

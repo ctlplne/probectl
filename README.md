@@ -12,10 +12,8 @@ and an AI assistant that explains root cause <em>across</em> them. Telemetry nev
 
 <p align="center">
 <a href="https://github.com/ctlplne/probectl/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ctlplne/probectl/actions/workflows/ci.yml/badge.svg"></a>
-<a href="https://github.com/ctlplne/probectl/tags"><img alt="tag" src="https://img.shields.io/github/v/tag/ctlplne/probectl?label=tag&sort=semver"></a>
-<a href="https://goreportcard.com/report/github.com/ctlplne/probectl"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/ctlplne/probectl"></a>
-<img alt="Go" src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white">
-<img alt="status" src="https://img.shields.io/badge/status-alpha-orange">
+<img alt="Go: 1.26+" src="docs/assets/badges/go.svg">
+<img alt="status: alpha" src="docs/assets/badges/status.svg">
 <a href="LICENSING.md"><img alt="license: BUSL-1.1 core · MPL-2.0 client · commercial ee/" src="docs/assets/badges/license.svg"></a>
 </p>
 
