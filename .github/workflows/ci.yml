@@ -1400,7 +1400,8 @@ jobs:
           node ../scripts/check_web_router_mode.mjs --selftest
           node ../scripts/check_web_router_mode.mjs --root ..
           node ../scripts/check_web_no_danger.mjs
-          npm audit --json > ../npm-audit-web.json || true
+          bash ../scripts/npm_audit_report.sh --selftest
+          bash ../scripts/npm_audit_report.sh ../npm-audit-web.json
           node ../scripts/check_npm_audit_policy.mjs \
             --workspace web \
             --audit ../npm-audit-web.json \

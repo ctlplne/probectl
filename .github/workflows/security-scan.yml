@@ -109,7 +109,7 @@ jobs:
         working-directory: web
         run: |
           node ../scripts/check_web_router_mode.mjs --root ..
-          npm audit --json > ../npm-audit-web.json || true
+          bash ../scripts/npm_audit_report.sh ../npm-audit-web.json
           node ../scripts/check_npm_audit_policy.mjs \
             --workspace web \
             --audit ../npm-audit-web.json \
@@ -119,7 +119,7 @@ jobs:
         if: always()
         working-directory: browser-worker
         run: |
-          npm audit --json > ../npm-audit-browser-worker.json || true
+          bash ../scripts/npm_audit_report.sh ../npm-audit-browser-worker.json
           node ../scripts/check_npm_audit_policy.mjs \
             --workspace browser-worker \
             --audit ../npm-audit-browser-worker.json \
