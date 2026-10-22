@@ -12,7 +12,7 @@ import (
 )
 
 // v0.6.5's ebpf-agent package leg failed, the matrix's default fail-fast
-// cancelled seven of the other legs, and the release went out with 12 of its 20
+// canceled seven of the other legs, and the release went out with 12 of its 20
 // packages while the air-gap bundle requires all 20. Each package leg must stand
 // on its own, and its name must say which architecture failed.
 func TestPackagesMatrixDoesNotFailFast(t *testing.T) {

@@ -596,7 +596,7 @@ jobs:
       id-token: write
     strategy:
       # G1: one failing leg must not cancel the other nine. v0.6.5's ebpf-agent
-      # failure cancelled seven legs and left 12 of 20 packages on the release,
+      # failure canceled seven legs and left 12 of 20 packages on the release,
       # and the air-gap bundle requires all 20; a failure is now reported per leg
       # and the release still carries every package that built.
       fail-fast: false
