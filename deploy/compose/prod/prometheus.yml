@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: BUSL-1.1
+#
+# Prometheus for the durable production Compose profile
+# (deploy/compose/probectl.prod.yml, beta gate G2). The control plane writes
+# tenant-labeled samples here over authenticated HTTPS remote write
+# (--web.enable-remote-write-receiver) and queries them back over the same
+# channel. Nothing is scraped: the stack makes no outbound scrape connections.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs: []

@@ -1,0 +1,333 @@
+# SPDX-License-Identifier: BUSL-1.1
+#
+# probectl — DURABLE production profile for the shipped Compose stack (beta
+# gate G2, decision of record D-26). An overlay on probectl.yml that replaces
+# every volatile in-memory plane with a real, durable backing service:
+#
+#   bus    NATS + JetStream    tls://nats:4222        natsdata volume
+#   TSDB   Prometheus          https://prometheus:9090 promdata volume
+#   stores ClickHouse          https://clickhouse:8443 chdata volume
+#          (path, flow, OTLP, eBPF and endpoint telemetry)
+#
+# and runs the control plane under PROBECTL_DEPLOYMENT_PROFILE=multi-tenant (the
+# MSP persona): strict tenant lanes, ClickHouse tenant scoping with a reader
+# row policy on every lane, verified TLS to every datastore, signed WORM audit
+# export and a SIEM export watermark. A restart, upgrade or host reboot keeps
+# all telemetry. The volatile-store acknowledgment is never set here (the
+# structural gate in internal/cipolicy refuses it): this profile refuses memory
+# modes outright.
+#
+#   cp deploy/compose/.env.example deploy/compose/.env   # fill in the durable-profile section too
+#   make compose-prod-durable-up
+#   # equivalent after the preflight:
+#   docker compose --env-file deploy/compose/.env \
+#     -f deploy/compose/probectl.yml -f deploy/compose/probectl.prod.yml up -d
+#
+# TLS everywhere (docs/guardrails.md G7-12): every backing service serves TLS
+# from the certgen bundle, which this overlay extends with the nats, clickhouse
+# and prometheus SANs. The control plane verifies each one against /certs/ca.crt
+# (SSL_CERT_FILE adds it to the system roots; the public roots stay trusted for
+# OIDC and the SIEM). No backing service publishes a host port; only the
+# control plane's HTTPS API is published, exactly as in probectl.yml.
+#
+# Upgrading from the plain stack: certgen keeps an existing complete bundle,
+# so a self-signed certificate minted before this overlay lacks the new SANs.
+# Remove the certs volume once (docker volume rm probectl_certs) so certgen
+# re-issues it, or add nats, clickhouse and prometheus to your own certificate
+# in PROBECTL_TLS_DIR.
+
+services:
+  certgen:
+    environment:
+      # The backing services' hostnames join the SANs so every in-network hop
+      # is hostname-verified, the way `postgres` already is.
+      PROBECTL_CERT_HOSTS: ${PROBECTL_TLS_HOSTS:-localhost,127.0.0.1},postgres,nats,clickhouse,prometheus
+
+  # One-shot (root, upstream Postgres image — bash, coreutils and a bcrypt-capable
+  # libc): per-service TLS key copies readable only by each service's uid, the
+  # Prometheus web config, the control plane's 0600 datastore credentials and
+  # the WORM volume's ownership. See prod/secrets-init.sh.
+  secrets-init:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
+    user: "0:0"
+    depends_on:
+      certgen:
+        condition: service_completed_successfully
+    entrypoint: ["bash", "/prod/secrets-init.sh"]
+    environment:
+      NATS_PASSWORD: ${NATS_PASSWORD:?NATS_PASSWORD must be set in .env (openssl rand -hex 24)}
+      CLICKHOUSE_CONTROL_PASSWORD: ${CLICKHOUSE_CONTROL_PASSWORD:?CLICKHOUSE_CONTROL_PASSWORD must be set in .env (openssl rand -hex 24)}
+      PROMETHEUS_CONTROL_PASSWORD: ${PROMETHEUS_CONTROL_PASSWORD:?PROMETHEUS_CONTROL_PASSWORD must be set in .env (openssl rand -hex 24)}
+    volumes:
+      - ./prod/secrets-init.sh:/prod/secrets-init.sh:ro
+      - ${PROBECTL_TLS_DIR:-certs}:/certs:ro
+      - natssecrets:/out/nats
+      - chsecrets:/out/clickhouse
+      - promsecrets:/out/prometheus
+      - controlsecrets:/out/control
+      - auditworm:/out/audit-worm
+    networks: [probectl]
+    # docs/guardrails.md G7-12 hardening: immutable root filesystem and only the
+    # three capabilities a root installer needs to read the certgen key and hand
+    # files to another uid (CHOWN, DAC_OVERRIDE, FOWNER).
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    pids_limit: 64
+    restart: "no"
+
+  # Durable bus: NATS with JetStream (DPR-119), TLS-only client port, user and
+  # password auth. The server config lives in-repo (prod/nats.conf) and reads
+  # the password from the environment, never a literal.
+  nats:
+    image: nats:2.11-alpine@sha256:e4bf19f15fd3218814a4e3c9e0064e1334bd8aa20d5984b9f1a0afd084f8cc00 # digest-pinned (U-061)
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    command: ["--config", "/etc/nats/probectl.conf"]
+    environment:
+      # Wrapped in double quotes so the NATS config parser reads the value as a
+      # string whatever its characters (secrets-init enforces the charset).
+      NATS_AUTH_PASSWORD: '"${NATS_PASSWORD:?NATS_PASSWORD must be set in .env (openssl rand -hex 24)}"'
+    volumes:
+      - ./prod/nats.conf:/etc/nats/probectl.conf:ro
+      - natsdata:/data
+      - natssecrets:/run/probectl-nats:ro
+    healthcheck:
+      # The health endpoint binds loopback inside this container only.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8222/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [probectl]
+    # docs/guardrails.md G7-12 hardening: NATS needs no capabilities and writes
+    # only to its JetStream volume.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${PROBECTL_NATS_MEM_LIMIT:-1g}
+    pids_limit: 512
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # No host port: only the control plane reaches the bus (in-network).
+    restart: unless-stopped
+
+  # Durable telemetry stores: ClickHouse, HTTPS (8443) + secure native (9440)
+  # only — prod/clickhouse/tls.xml removes every plaintext listener.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    environment:
+      # The bootstrap/admin account (users.xml-backed, access management on).
+      # Only the healthcheck and the clickhouse-init one-shot use it; the
+      # control plane serves as the least-privilege `probectl` login.
+      CLICKHOUSE_USER: probectl_admin
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD:?CLICKHOUSE_ADMIN_PASSWORD must be set in .env (openssl rand -hex 24)}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      # CLICKHOUSE_DB stays unset: the 24.8 entrypoint would initialize a named
+      # database over plaintext 9000, which this TLS-only service does not run.
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - chdata:/var/lib/clickhouse
+      - chsecrets:/run/probectl-clickhouse:ro
+      - ./prod/clickhouse/tls.xml:/etc/clickhouse-server/config.d/probectl-tls.xml:ro
+      - ./prod/clickhouse/users.xml:/etc/clickhouse-server/users.d/probectl-tenant-setting.xml:ro
+      - ./prod/clickhouse/client.xml:/etc/clickhouse-client/config.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --secure --host clickhouse --port 9440 --user probectl_admin --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1' >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+    networks: [probectl]
+    # docs/guardrails.md G7-12 hardening: like Postgres, the upstream entrypoint
+    # starts as root, writes its generated admin user file and drops to the
+    # clickhouse user, so it keeps its root filesystem and default capabilities
+    # — but it can never escalate, and memory/PID ceilings bound it.
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${PROBECTL_CLICKHOUSE_MEM_LIMIT:-4g}
+    pids_limit: 4096
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # No host port: only the control plane reaches ClickHouse (in-network).
+    restart: unless-stopped
+
+  # One-shot: the control plane's `probectl` login and the SELECT-only
+  # `probectl_reader` every lane's row policy binds to, then a proof that the
+  # fail-closed tenant-setting default reaches both. See prod/clickhouse-init.sh.
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
+    user: "101:101"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    entrypoint: ["bash", "/prod/clickhouse-init.sh"]
+    environment:
+      CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD:?CLICKHOUSE_ADMIN_PASSWORD must be set in .env (openssl rand -hex 24)}
+      CLICKHOUSE_CONTROL_PASSWORD: ${CLICKHOUSE_CONTROL_PASSWORD:?CLICKHOUSE_CONTROL_PASSWORD must be set in .env (openssl rand -hex 24)}
+      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:?CLICKHOUSE_READER_PASSWORD must be set in .env (openssl rand -hex 24)}
+    volumes:
+      - ./prod/clickhouse-init.sh:/prod/clickhouse-init.sh:ro
+      - ./prod/clickhouse/client.xml:/etc/clickhouse-client/config.xml:ro
+      - chsecrets:/run/probectl-clickhouse:ro
+    networks: [probectl]
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: "no"
+
+  # Durable TSDB: Prometheus with the remote-write receiver, TLS + basic auth
+  # through --web.config.file (generated by secrets-init with a bcrypt hash).
+  prometheus:
+    image: prom/prometheus:v3.1.0@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218 # digest-pinned (U-061)
+    user: "65534:65534"
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROBECTL_PROMETHEUS_RETENTION:-30d}
+      - --web.config.file=/run/probectl-prometheus/web.yml
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./prod/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+      - promsecrets:/run/probectl-prometheus:ro
+    healthcheck:
+      test: ["CMD", "/bin/promtool", "check", "healthy", "--url=https://prometheus:9090", "--http.config.file=/run/probectl-prometheus/health-client.yml"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [probectl]
+    # docs/guardrails.md G7-12 hardening: Prometheus runs as nobody, needs no
+    # capabilities and writes only to its TSDB volume.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${PROBECTL_PROMETHEUS_MEM_LIMIT:-2g}
+    pids_limit: 512
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # No host port: only the control plane reaches Prometheus (in-network).
+    restart: unless-stopped
+
+  control:
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
+      prometheus:
+        condition: service_healthy
+    environment:
+      # The MSP persona's production profile: strict tenant lanes, ClickHouse
+      # tenant scoping, verified datastore TLS, finite audit retention with WORM
+      # and SIEM watermarks — and memory modes refused at config load.
+      PROBECTL_DEPLOYMENT_PROFILE: multi-tenant
+      PROBECTL_INGEST_STRICT_TENANT_LANES: "true"
+      # Adds the certgen CA to the system roots (which stay trusted) so the
+      # HTTPS ClickHouse and Prometheus hops verify CA + hostname.
+      SSL_CERT_FILE: /certs/ca.crt
+
+      # Bus: NATS JetStream over TLS with user/password auth (DPR-119, U-010).
+      PROBECTL_BUS_MODE: nats
+      PROBECTL_BUS_BROKERS: tls://nats:4222
+      PROBECTL_BUS_TLS_ENABLED: "true"
+      PROBECTL_BUS_TLS_CA_FILE: /certs/ca.crt
+      PROBECTL_BUS_SASL_MECHANISM: plain
+      PROBECTL_BUS_SASL_USER: probectl
+      PROBECTL_BUS_SASL_PASSWORD: ${NATS_PASSWORD:?NATS_PASSWORD must be set in .env (openssl rand -hex 24)}
+
+      # TSDB: Prometheus over HTTPS with an owner-only credential file.
+      PROBECTL_TSDB_MODE: prometheus
+      PROBECTL_TSDB_URL: https://prometheus:9090
+      PROBECTL_TSDB_BASIC_AUTH_FILE: /run/probectl-secrets/prometheus-basic-auth.json
+
+      # Every telemetry store on ClickHouse over HTTPS, each lane tenant-scoped
+      # with the reader row policy (docs/guardrails.md G7-1).
+      PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE: /run/probectl-secrets/clickhouse-basic-auth.json
+      PROBECTL_PATHSTORE_MODE: clickhouse
+      PROBECTL_PATHSTORE_URL: https://clickhouse:8443
+      PROBECTL_PATHSTORE_TENANT_SCOPING: "true"
+      PROBECTL_PATHSTORE_READER_USER: probectl_reader
+      PROBECTL_FLOWSTORE_MODE: clickhouse
+      PROBECTL_FLOWSTORE_URL: https://clickhouse:8443
+      PROBECTL_FLOWSTORE_TENANT_SCOPING: "true"
+      PROBECTL_FLOWSTORE_READER_USER: probectl_reader
+      PROBECTL_OTELSTORE_MODE: clickhouse
+      PROBECTL_OTELSTORE_URL: https://clickhouse:8443
+      PROBECTL_OTELSTORE_TENANT_SCOPING: "true"
+      PROBECTL_OTELSTORE_READER_USER: probectl_reader
+      PROBECTL_EBPFSTORE_MODE: clickhouse
+      PROBECTL_EBPFSTORE_URL: https://clickhouse:8443
+      PROBECTL_EBPFSTORE_TENANT_SCOPING: "true"
+      PROBECTL_EBPFSTORE_READER_USER: probectl_reader
+      PROBECTL_ENDPOINTSTORE_MODE: clickhouse
+      PROBECTL_ENDPOINTSTORE_URL: https://clickhouse:8443
+      PROBECTL_ENDPOINTSTORE_TENANT_SCOPING: "true"
+      PROBECTL_ENDPOINTSTORE_READER_USER: probectl_reader
+
+      # PRIVACY-001: multi-tenant audit retention prunes raw rows only below
+      # durable export watermarks — signed WORM segments for provider rows (on
+      # their own volume; same paths as provider.yml so the overlays compose)
+      # and the operator's SIEM for tenant rows.
+      PROBECTL_AUDIT_WORM_DIR: /var/lib/probectl/audit-worm
+      PROBECTL_WORM_SIGNING_KEY_FILE: /var/lib/probectl/worm-signing-ed25519.pem
+      PROBECTL_SIEM_ENABLED: "true"
+      PROBECTL_SIEM_ENDPOINT: ${PROBECTL_SIEM_ENDPOINT:?PROBECTL_SIEM_ENDPOINT must be set in .env (the HTTPS ingest URL of your SIEM; the multi-tenant profile requires it)}
+      PROBECTL_SIEM_PRESET: ${PROBECTL_SIEM_PRESET:-generic}
+      PROBECTL_SIEM_TOKEN: ${PROBECTL_SIEM_TOKEN:-}
+    volumes:
+      - controlsecrets:/run/probectl-secrets:ro
+      - auditworm:/var/lib/probectl/audit-worm
+
+volumes:
+  natsdata: {}
+  chdata: {}
+  promdata: {}
+  # Signed WORM audit segments. Back it with object-lock / write-once storage
+  # (a volume driver or bind mount) for true WORM; a plain volume is durable,
+  # not immutable.
+  auditworm: {}
+  # Per-service secret material written by secrets-init (TLS key copies, the
+  # Prometheus web config, the control plane's datastore credentials).
+  natssecrets: {}
+  chsecrets: {}
+  promsecrets: {}
+  controlsecrets: {}

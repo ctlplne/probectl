@@ -62,6 +62,18 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
 
 ## Option A — Docker Compose (all-in-one)
 
+> **Production = `probectl.yml` + `probectl.prod.yml`
+> (`make compose-prod-durable-up`).** On its own, `probectl.yml` is the
+> **evaluation** shape: it keeps the bus, the TSDB and every telemetry store in
+> memory, so a restart erases all telemetry (see the warning at the end of this
+> section). The durable production overlay
+> [`deploy/compose/probectl.prod.yml`](../deploy/compose/probectl.prod.yml)
+> adds NATS JetStream, ClickHouse and Prometheus on named volumes, over verified
+> TLS, under the `multi-tenant` profile — see
+> [Production: the durable profile](#production-the-durable-profile) below. The
+> steps that follow apply to both; production adds one `.env` section and swaps
+> the start command.
+
 [`deploy/compose/probectl.yml`](../deploy/compose/probectl.yml) runs the control
 plane behind TLS with a bundled Postgres. On first boot a one-shot `certgen`
 service generates a **self-signed certificate** (`probectl-control gen-cert
@@ -185,7 +197,70 @@ also drop the database and certs).
 > see [`configuration.md`](configuration.md)) or set
 > `PROBECTL_ALLOW_VOLATILE=i-understand-data-is-not-durable` to acknowledge the
 > tradeoff. Production-like `PROBECTL_DEPLOYMENT_PROFILE`s refuse memory modes
-> outright.
+> outright. The durable production profile below configures all of it.
+
+### Production: the durable profile
+
+`deploy/compose/probectl.prod.yml` is an overlay on `probectl.yml` and the
+production Compose path (beta gate G2). It replaces every volatile plane:
+
+| Plane | Service | Data volume | Transport |
+| --- | --- | --- | --- |
+| Bus | NATS + JetStream | `natsdata` | `tls://nats:4222`, user/password |
+| TSDB | Prometheus (remote-write receiver) | `promdata` | `https://prometheus:9090`, bcrypt basic auth |
+| Path, flow, OTLP, eBPF, endpoint stores | ClickHouse | `chdata` | `https://clickhouse:8443`, service login + tenant-scoped reader |
+
+The control plane runs `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` (the MSP
+persona): strict tenant lanes, a ClickHouse row policy on every telemetry
+lane, certificate-verified TLS to every datastore, and finite audit retention
+backed by signed WORM export (its own `auditworm` volume) and your SIEM. The
+backing services publish no host port; only the HTTPS API does, as before.
+
+```sh
+# 1. Fill in the durable-profile section of deploy/compose/.env as well as the
+#    base keys above. Each password is required and URL/SQL-safe — generate
+#    each one separately:
+#      NATS_PASSWORD, CLICKHOUSE_ADMIN_PASSWORD, CLICKHOUSE_CONTROL_PASSWORD,
+#      CLICKHOUSE_READER_PASSWORD, PROMETHEUS_CONTROL_PASSWORD
+#        openssl rand -hex 24
+#    and PROBECTL_SIEM_ENDPOINT — your SIEM's HTTPS ingest URL; the multi-tenant
+#    profile prunes tenant audit rows only below the SIEM delivery watermark
+#    (plus PROBECTL_SIEM_PRESET / PROBECTL_SIEM_TOKEN as your SIEM needs).
+# 2. Preflight + start (same preflights as compose-prod-up).
+make compose-prod-durable-up
+# Equivalent after the preflight passes:
+# docker compose --env-file deploy/compose/.env \
+#   -f deploy/compose/probectl.yml -f deploy/compose/probectl.prod.yml up -d
+# Layer license.yml / provider.yml / agents.yml after it exactly as above:
+# make compose-prod-durable-up PROBECTL_COMPOSE_OVERLAYS='-f deploy/compose/license.yml -f deploy/compose/provider.yml'
+```
+
+Two one-shots run before the control plane on every `up`: `secrets-init`
+installs a copy of the TLS bundle per service that only that service's user can
+read, the Prometheus web config (TLS + bcrypt hash) and the control plane's
+owner-only (0600) ClickHouse/Prometheus credential files; `clickhouse-init`
+creates the control plane's `probectl` login and the SELECT-only
+`probectl_reader` and proves the tenant setting fails closed. Both refuse a
+missing or unsafe password before any service starts.
+
+Things to know:
+
+- **Upgrading from the plain stack:** `certgen` keeps an existing certificate,
+  and one minted without this overlay lacks the `nats`, `clickhouse` and
+  `prometheus` SANs. Remove the `certs` volume once
+  (`docker volume rm probectl_certs`) so it is re-issued — or, with
+  `PROBECTL_TLS_DIR`, add those three names to your own certificate.
+- **First sign-in:** under `multi-tenant`, a first-time SSO user is created
+  automatically only when they sign in through their tenant's own IdP; a user
+  of the deployment-wide IdP must be pre-provisioned (SCIM, or
+  `docker compose exec control /usr/local/bin/app bootstrap-admin -email <you> -tenant <tenant-uuid>`).
+- **Back up** `chdata`, `promdata`, `natsdata` and `auditworm` with `pgdata`
+  and `controldata`. A plain Docker volume is durable, not immutable: for true
+  write-once audit segments, back `auditworm` with object-lock storage.
+- **Not boot-verified in CI.** The overlay is rendered and structurally gated on
+  every build (`internal/cipolicy/compose_prod_durable_test.go`), and its
+  control-plane environment passes the real config loader; a full boot and
+  restart on your host is the acceptance test.
 
 ## Option B — Kubernetes (Helm)
 

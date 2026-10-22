@@ -8,6 +8,13 @@ interchangeable: think the road car (`probectl.yml`), a fenced-off test track
 with a crash dummy (`eval.yml` — sample data, never public roads), and the
 garage with the engine out (`dev.yml` — backing services, no control plane).
 
+**Production is `probectl.yml` + `probectl.prod.yml`** (`make
+compose-prod-durable-up`). The road car on its own still keeps its telemetry in
+memory — fine for evaluating the production shape, but a restart erases every
+result, metric, flow and trace. The durable overlay gives it a real fuel tank:
+NATS JetStream, ClickHouse and Prometheus on named volumes, over verified TLS,
+under the `multi-tenant` profile ([below](#durable-production-profile-probectlprodyml)).
+
 One rule applies to all of them: the control plane is a **consumer** — it stores
 and serves, but observes nothing on its own. A stack with no producer (agent /
 collector) attached answers `/readyz` and shows empty dashboards. Only the eval
@@ -17,6 +24,7 @@ stack bundles a producer; for the others, attach one next
 | File                             | Purpose                                                                                                                                                                            |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `probectl.yml`                   | **Shipped all-in-one deploy** — control plane (HTTPS-only) + Postgres, with a one-shot self-signed-cert generator                                                                  |
+| `probectl.prod.yml` + `prod/`    | **Durable production overlay (the production path)** — NATS JetStream, ClickHouse and Prometheus on named volumes over verified TLS, `multi-tenant` profile, `secrets-init` + `clickhouse-init` one-shots; `make compose-prod-durable-up` |
 | `.env.example`                   | template for the `.env` `probectl.yml` reads (Postgres password, envelope key, session-HMAC key, TLS hosts, OIDC)                                                                  |
 | `dex-demo.yml` + `dex-demo.yaml` | **Local demo-only OIDC overlay** — digest-pinned Dex, HTTPS-only, one generated-password user; never use as a production directory                                                 |
 | `control.env.example`            | template for the optional `control.env` the control service loads when present — any other `PROBECTL_*` key from `docs/configuration.md` (provider bootstrap token, deployment profile, log level, …); never committed |
@@ -85,6 +93,46 @@ firewall/load balancer). Resource ceilings are tunable via
 (default `512`) and `PROBECTL_POSTGRES_MEM_LIMIT` (default `1g`); raise them for
 larger deployments. All four are documented in `.env.example` and
 [`docs/configuration.md`](../../docs/configuration.md).
+
+### Durable production profile (`probectl.prod.yml`)
+
+`probectl.yml` alone runs the bus, the TSDB and every telemetry store in
+process memory — the control plane says so loudly (boot `WARN`, `/readyz`
+`volatile_stores`, `/v1/diagnostics` degraded) — so use it to evaluate, not to
+keep history. The production path layers the durable overlay:
+
+```sh
+# deploy/compose/.env: the base keys above, plus the durable-profile section —
+# NATS_PASSWORD, CLICKHOUSE_ADMIN_PASSWORD, CLICKHOUSE_CONTROL_PASSWORD,
+# CLICKHOUSE_READER_PASSWORD, PROMETHEUS_CONTROL_PASSWORD (each: openssl rand -hex 24)
+# and PROBECTL_SIEM_ENDPOINT (your SIEM's HTTPS ingest URL).
+make compose-prod-durable-up
+# = the same preflights, then
+# docker compose --env-file deploy/compose/.env \
+#   -f deploy/compose/probectl.yml -f deploy/compose/probectl.prod.yml up -d
+```
+
+| Service | Role | Data | Listener |
+| --- | --- | --- | --- |
+| `nats` | durable bus (JetStream) | `natsdata` | TLS client port 4222, user/password; health endpoint on in-container loopback only |
+| `clickhouse` | path, flow, OTLP, eBPF and endpoint stores | `chdata` | HTTPS 8443 + secure native 9440; every plaintext port removed |
+| `prometheus` | TSDB (remote-write receiver) | `promdata` | HTTPS 9090 with bcrypt basic auth |
+| `secrets-init` | one-shot (root, `CHOWN`/`DAC_OVERRIDE`/`FOWNER` only): per-service TLS key copies, Prometheus web config, the control plane's 0600 credential files, WORM volume ownership | — | — |
+| `clickhouse-init` | one-shot: the `probectl` service login and SELECT-only `probectl_reader`, plus a fail-closed tenant-setting proof | — | — |
+
+None of the backing services publishes a host port. The control plane runs
+`PROBECTL_DEPLOYMENT_PROFILE=multi-tenant`: strict tenant lanes, a ClickHouse
+reader row policy on every lane, verified TLS to every datastore, and audit
+retention that prunes only below the signed WORM (`auditworm` volume) and SIEM
+watermarks — which is why `PROBECTL_SIEM_ENDPOINT` is required. A certificate
+minted by `certgen` before this overlay lacks the `nats`, `clickhouse` and
+`prometheus` SANs: remove the `certs` volume once so it is re-issued, or add
+those names to your own certificate in `PROBECTL_TLS_DIR`. The structural gate
+`internal/cipolicy/compose_prod_durable_test.go` fails the build if the merged
+stack ever regains a memory mode, a non-TLS backing-service URL, a backing
+service without a named data volume or with a host port, or the volatile
+acknowledgment. Full walkthrough:
+[`docs/install.md`](../../docs/install.md#production-the-durable-profile).
 
 ### Local demo login (Dex overlay)
 

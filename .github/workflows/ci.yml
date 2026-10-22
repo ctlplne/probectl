@@ -1750,11 +1750,18 @@ jobs:
           export DEX_AUDIT_PASSWORD=ci-render-only DEX_AUDIT_PASSWORD_HASH=ci-render-only
           export KAFKA_SASL_PASSWORD=ci-render-only KAFKA_STORE_PASSWORD=ci-render-only
           export PROMETHEUS_USER=ci PROMETHEUS_PASSWORD=ci-render-only
+          # probectl.prod.yml (beta gate G2, the durable production profile)
+          # requires its backing-service credentials and the SIEM endpoint the
+          # multi-tenant profile prunes audit rows against.
+          export NATS_PASSWORD=ci-render-only PROMETHEUS_CONTROL_PASSWORD=ci-render-only
+          export CLICKHOUSE_ADMIN_PASSWORD=ci-render-only CLICKHOUSE_CONTROL_PASSWORD=ci-render-only
+          export CLICKHOUSE_READER_PASSWORD=ci-render-only
+          export PROBECTL_SIEM_ENDPOINT="https://siem.ci-render-only.example/ingest"
           cd deploy/compose
           # Overlays are validated MERGED with the base they extend (each file's
           # header documents the `-f <base> -f <overlay>` invocation): they
           # reference the base's networks/services and CANNOT render standalone.
-          declare -A OVERLAY_BASE=( [dr-drill.yml]=dev.yml [eval-synthetic.yml]=eval.yml [eval-sso.yml]=eval.yml [license.yml]=probectl.yml [dex-demo.yml]=probectl.yml [provider.yml]=probectl.yml [agents.yml]=probectl.yml )
+          declare -A OVERLAY_BASE=( [dr-drill.yml]=dev.yml [eval-synthetic.yml]=eval.yml [eval-sso.yml]=eval.yml [license.yml]=probectl.yml [dex-demo.yml]=probectl.yml [provider.yml]=probectl.yml [agents.yml]=probectl.yml [probectl.prod.yml]=probectl.yml )
           for f in *.yml; do
             # Only real docker-compose files have a top-level `services:` key.
             # eval-agent.yml (agent canary config) and prometheus.yml (prometheus

@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: BUSL-1.1
+#
+# PLANTED REGRESSION — not a deploy file. compose_prod_durable_test.go layers
+# this over deploy/compose/probectl.yml + probectl.prod.yml to prove the
+# durable-profile judge still catches each way an overlay could make the
+# production stack volatile or expose a backing service (fail-before).
+services:
+  control:
+    environment:
+      PROBECTL_ALLOW_VOLATILE: i-understand-data-is-not-durable
+      PROBECTL_PATHSTORE_MODE: memory
+      PROBECTL_OTELSTORE_MODE: ""
+      PROBECTL_TSDB_URL: http://prometheus:9090
+      PROBECTL_FLOWSTORE_URL: http://clickhouse:8123
+      PROBECTL_BUS_BROKERS: nats://nats:4222
+  nats:
+    volumes:
+      - ./nats-data:/data
+  prometheus:
+    volumes:
+      - type: tmpfs
+        target: /prometheus
+  clickhouse:
+    ports:
+      - "8443:8443"

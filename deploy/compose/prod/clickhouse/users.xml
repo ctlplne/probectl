@@ -1,0 +1,15 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+<clickhouse>
+  <!-- Every user inherits the `default` profile, including the SQL-created
+       probectl (control) and probectl_reader users. Defining the custom
+       tenant setting here makes getSetting() resolve to an EMPTY tenant until a
+       request supplies its own value, so a dropped or omitted tenant setting
+       matches no rows under the reader row policy: fail closed
+       (docs/guardrails.md G7-1). Two single quotes are the typed String form
+       of an empty value; an empty XML node makes 24.8 fail startup. -->
+  <profiles>
+    <default>
+      <SQL_probectl_tenant>''</SQL_probectl_tenant>
+    </default>
+  </profiles>
+</clickhouse>

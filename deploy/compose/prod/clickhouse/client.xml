@@ -1,0 +1,13 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+<!-- clickhouse-client trust for the durable production profile: the secure
+     native port is verified strictly (CA + hostname) against the certgen CA,
+     never accepted blind (docs/guardrails.md G7-12). -->
+<clickhouse>
+  <openSSL>
+    <client>
+      <caConfig>/run/probectl-clickhouse/ca.crt</caConfig>
+      <verificationMode>strict</verificationMode>
+      <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+    </client>
+  </openSSL>
+</clickhouse>

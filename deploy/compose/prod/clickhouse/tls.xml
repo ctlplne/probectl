@@ -1,0 +1,30 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+<!-- Durable production Compose profile (probectl.prod.yml, beta gate G2):
+     ClickHouse serves HTTPS (8443, the control plane's stores) and the secure
+     native protocol (9440, the healthcheck and the clickhouse-init one-shot)
+     ONLY. Every stock plaintext listener is removed first
+     (docs/guardrails.md G7-12). The certificate is the certgen bundle with a
+     `clickhouse` SAN, installed 101:101 0600 by the secrets-init one-shot. -->
+<clickhouse>
+  <http_port remove="remove"/>
+  <tcp_port remove="remove"/>
+  <interserver_http_port remove="remove"/>
+  <mysql_port remove="remove"/>
+  <postgresql_port remove="remove"/>
+  <https_port>8443</https_port>
+  <tcp_port_secure>9440</tcp_port_secure>
+  <listen_host>0.0.0.0</listen_host>
+  <!-- The setting-scoped reader row policies call getSetting('SQL_probectl_tenant'). -->
+  <custom_settings_prefixes>SQL_</custom_settings_prefixes>
+  <openSSL>
+    <server>
+      <certificateFile>/run/probectl-clickhouse/tls.crt</certificateFile>
+      <privateKeyFile>/run/probectl-clickhouse/tls.key</privateKeyFile>
+      <caConfig>/run/probectl-clickhouse/ca.crt</caConfig>
+      <verificationMode>none</verificationMode>
+      <cacheSessions>true</cacheSessions>
+      <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+      <preferServerCiphers>true</preferServerCiphers>
+    </server>
+  </openSSL>
+</clickhouse>

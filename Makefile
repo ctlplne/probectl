@@ -557,6 +557,10 @@ PROBECTL_COMPOSE_OVERLAYS ?=
 compose-prod-up: compose-prod-preflight ## OPS-001: start the shipped all-in-one compose stack after image preflight (PROBECTL_COMPOSE_OVERLAYS adds -f overlays).
 	docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml $(PROBECTL_COMPOSE_OVERLAYS) up -d
 
+.PHONY: compose-prod-durable-up
+compose-prod-durable-up: compose-prod-preflight ## G2: start the DURABLE production compose profile (NATS JetStream, ClickHouse, Prometheus over TLS; multi-tenant) after image preflight (PROBECTL_COMPOSE_OVERLAYS adds -f overlays).
+	docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml -f deploy/compose/probectl.prod.yml $(PROBECTL_COMPOSE_OVERLAYS) up -d
+
 .PHONY: compose-image-gate
 compose-image-gate: ## OPS-001: shipped compose image, preflight, GHCR auth docs, and optional anonymous-pull smoke stay in lockstep.
 	bash scripts/compose_env_preflight.sh SELFTEST

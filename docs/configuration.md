@@ -1726,7 +1726,7 @@ deletion removes them.
 
 `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` and `regulated` are production-like
 profiles, so startup refuses volatile raw-ingest/serving defaults. Set
-`PROBECTL_BUS_MODE=kafka`, `PROBECTL_TSDB_MODE=prometheus`, and
+`PROBECTL_BUS_MODE=kafka` (or `nats`, the durable JetStream bus), `PROBECTL_TSDB_MODE=prometheus`, and
 `PROBECTL_PATHSTORE_MODE`, `PROBECTL_FLOWSTORE_MODE`, `PROBECTL_OTELSTORE_MODE`,
 `PROBECTL_EBPFSTORE_MODE`, and `PROBECTL_ENDPOINTSTORE_MODE` to `clickhouse` with their required `https://`
 URLs before using those profiles. Postgres writer/read-replica URLs must verify the
@@ -2783,6 +2783,10 @@ resource ceilings. They are **Compose-file interpolation variables** (consumed b
 | `PROBECTL_CONTROL_MEM_LIMIT` | `2g` | Memory ceiling (`mem_limit`) for the control service. Accepts Docker byte suffixes (`512m`, `2g`). Raise for larger deployments. |
 | `PROBECTL_CONTROL_PIDS_LIMIT` | `512` | Process/thread ceiling (`pids_limit`) for the control service. |
 | `PROBECTL_POSTGRES_MEM_LIMIT` | `1g` | Memory ceiling for the bundled Postgres. Raise for a large database. |
+| `PROBECTL_NATS_MEM_LIMIT` | `1g` | Durable profile (`probectl.prod.yml`) only: memory ceiling for the NATS JetStream bus. |
+| `PROBECTL_CLICKHOUSE_MEM_LIMIT` | `4g` | Durable profile only: memory ceiling for ClickHouse (the telemetry stores). Raise for larger ingest volumes. |
+| `PROBECTL_PROMETHEUS_MEM_LIMIT` | `2g` | Durable profile only: memory ceiling for Prometheus (the TSDB). |
+| `PROBECTL_PROMETHEUS_RETENTION` | `30d` | Durable profile only: Prometheus `--storage.tsdb.retention.time`, how long metric series are kept on the `promdata` volume. |
 
 Every service in this stack ships hardened (RTO-03): the control plane and the
 `certgen`/`migrate` one-shots run the distroless control image with a read-only
@@ -2791,6 +2795,42 @@ root filesystem (writable paths limited to an in-memory `/tmp` and the
 `no-new-privileges`. The upstream Postgres image keeps its own root filesystem
 and capabilities (its entrypoint chowns the data dir and drops to the `postgres`
 user) but still runs with `no-new-privileges`. See `deploy/compose/README.md`.
+
+### Durable production profile (`deploy/compose/probectl.prod.yml`)
+
+`probectl.yml` alone keeps the bus, the TSDB and every telemetry store in
+memory — an evaluation posture (see *Volatile stores lose all telemetry on
+restart* above). The production path layers the durable overlay on it
+(`make compose-prod-durable-up`, beta gate G2):
+
+| Plane | Backing service | Control-plane keys the overlay sets |
+| --- | --- | --- |
+| Bus | NATS + JetStream, `natsdata` volume, TLS client port, user/password | `PROBECTL_BUS_MODE=nats`, `PROBECTL_BUS_BROKERS=tls://nats:4222`, `PROBECTL_BUS_TLS_ENABLED=true`, `PROBECTL_BUS_TLS_CA_FILE`, `PROBECTL_BUS_SASL_MECHANISM=plain`, `PROBECTL_BUS_SASL_USER` / `_PASSWORD` |
+| TSDB | Prometheus with the remote-write receiver, `promdata` volume, TLS + bcrypt basic auth (`--web.config.file`) | `PROBECTL_TSDB_MODE=prometheus`, `PROBECTL_TSDB_URL=https://prometheus:9090`, `PROBECTL_TSDB_BASIC_AUTH_FILE` |
+| Path, flow, OTLP, eBPF, endpoint stores | ClickHouse, `chdata` volume, HTTPS (8443) and secure native (9440) only | `PROBECTL_*STORE_MODE=clickhouse`, `PROBECTL_*STORE_URL=https://clickhouse:8443`, `PROBECTL_*STORE_TENANT_SCOPING=true`, `PROBECTL_*STORE_READER_USER=probectl_reader`, `PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE` |
+
+It runs `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` (the MSP persona), so the
+config loader refuses any memory mode, plaintext datastore URL or missing
+reader user at boot, and the overlay never sets `PROBECTL_ALLOW_VOLATILE`. That
+profile also needs `PROBECTL_AUDIT_WORM_DIR` (the overlay mounts the `auditworm`
+volume there), a WORM signing key (generated once on `controldata`) and a SIEM
+export: set `PROBECTL_SIEM_ENDPOINT` (and `PROBECTL_SIEM_PRESET` /
+`PROBECTL_SIEM_TOKEN`) in `.env`. `certgen` adds the `nats`, `clickhouse` and
+`prometheus` SANs; the control plane trusts the certgen CA through
+`SSL_CERT_FILE=/certs/ca.crt`, which adds it to (never replaces) the system
+roots. Two one-shots run before the control plane on every `up`:
+`secrets-init` installs per-service TLS key copies readable only by each
+service's uid, the Prometheus web config and the control plane's 0600 JSON
+credentials; `clickhouse-init` creates the `probectl` service login and the
+SELECT-only `probectl_reader`, then proves the fail-closed
+`SQL_probectl_tenant` default reaches both. The overlay's passwords
+(`NATS_PASSWORD`, `CLICKHOUSE_ADMIN_PASSWORD`, `CLICKHOUSE_CONTROL_PASSWORD`,
+`CLICKHOUSE_READER_PASSWORD`, `PROMETHEUS_CONTROL_PASSWORD`) are Compose
+variables documented in `deploy/compose/.env.example`. A structural gate
+(`internal/cipolicy/compose_prod_durable_test.go`) fails the build if the
+merged stack regains a memory mode, a non-TLS backing-service URL, a backing
+service without a named data volume or with a host port, or the volatile
+acknowledgment.
 
 ## Local dev stack (`deploy/compose/dev.yml`)
 
