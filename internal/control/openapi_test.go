@@ -537,6 +537,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/device/collection-outcomes": "bounded",
 	"/v1/device/metrics":             "bounded",
 	"/v1/device/syslog":              "bounded",
+	"/v1/device/traps":               "bounded",
 	"/v1/device/configs":             "bounded",
 	"/v1/ebpf/service-map":           "bounded",
 	"/v1/incidents/{id}/changes":     "bounded",

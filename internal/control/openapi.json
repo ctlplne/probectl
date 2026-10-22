@@ -2824,6 +2824,84 @@
         }
       }
     },
+    "/v1/device/traps": {
+      "get": {
+        "x-required-permission": "metrics.read",
+        "operationId": "listDeviceTraps",
+        "summary": "List authenticated SNMP traps",
+        "description": "Returns the caller tenant's stored SNMP traps, newest first. Each was authenticated by the tenant's device agent (SNMPv2c community or SNMPv3 USM; refused traps are counted by the agent and never stored), published on the tenant's trap-events bus lane, and persisted by the control plane under forced row security. Records carry no credential material: auth_principal is the configured source name or USM user name. Stored varbinds are capped at 64 per trap and 512 bytes per value; binary octet strings are hex-encoded.",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "required": false,
+            "description": "Optional exact device-address filter (the configured trap source address).",
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "Optional inclusive lower bound on received_at (RFC 3339).",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "description": "Optional exclusive upper bound on received_at (RFC 3339); must be after since.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum traps to return; values above 500 are clamped to 500.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded trap records or an explicit unwired state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceTrapResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 500,
+          "reason": "Each tenant keeps at most 10000 traps for 30 days; reads return the newest 500 at most, narrowed by device and a received-at window."
+        }
+      }
+    },
     "/v1/device/collection-outcomes": {
       "get": {
         "x-required-permission": "topology.read",
@@ -14309,6 +14387,204 @@
               "max_per_device",
               "max_per_tenant",
               "stale_retention_hours"
+            ]
+          }
+        },
+        "required": [
+          "contract_version",
+          "items",
+          "collection_running",
+          "effective_limit",
+          "truncated",
+          "as_of",
+          "retention"
+        ]
+      },
+      "DeviceTrapVarBind": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "oid": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "type": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "oid",
+          "type",
+          "value"
+        ]
+      },
+      "DeviceTrap": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One stored, authenticated SNMP trap. No credential material is ever stored or returned.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "device_address": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "source_address": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "auth_principal": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "The matched configured source name (SNMPv2c) or USM user name (SNMPv3); never a community or passphrase."
+          },
+          "version": {
+            "type": "string",
+            "enum": [
+              "snmpv1",
+              "snmpv2c",
+              "snmpv3"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "trap_oid": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "trap_name": {
+            "type": "string",
+            "description": "RFC 3418 name of a well-known trap OID (coldStart, warmStart, linkDown, linkUp, authenticationFailure); empty for enterprise traps."
+          },
+          "request_id": {
+            "type": "integer"
+          },
+          "uptime_ticks": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "if_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "varbinds": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/DeviceTrapVarBind"
+            }
+          },
+          "varbinds_truncated": {
+            "type": "boolean"
+          },
+          "fingerprint": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "device_address",
+          "version",
+          "kind",
+          "severity",
+          "trap_oid",
+          "trap_name",
+          "request_id",
+          "varbinds",
+          "fingerprint",
+          "observed_at",
+          "received_at"
+        ]
+      },
+      "DeviceTrapResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "probectl.device-traps/v1"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/DeviceTrap"
+            }
+          },
+          "collection_running": {
+            "type": "boolean",
+            "description": "False when this deployment has no trap store wired; items is then empty."
+          },
+          "effective_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "latest_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retention": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "max_per_tenant": {
+                "type": "integer",
+                "const": 10000
+              },
+              "retention_days": {
+                "type": "integer",
+                "const": 30
+              },
+              "max_varbinds": {
+                "type": "integer",
+                "const": 64
+              }
+            },
+            "required": [
+              "max_per_tenant",
+              "retention_days",
+              "max_varbinds"
             ]
           }
         },

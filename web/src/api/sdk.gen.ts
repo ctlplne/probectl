@@ -813,6 +813,44 @@ export interface DeviceSyslogRequest {
   source_address?: string
 }
 
+export interface DeviceTrap {
+  agent_id: string
+  auth_principal?: string
+  device_address: string
+  fingerprint: string
+  id: string
+  if_index?: number
+  kind: string
+  observed_at: string
+  received_at: string
+  request_id: number
+  severity: "info" | "warning" | "critical"
+  source_address?: string
+  trap_name: string
+  trap_oid: string
+  uptime_ticks?: number
+  varbinds: DeviceTrapVarBind[]
+  varbinds_truncated?: boolean
+  version: "snmpv1" | "snmpv2c" | "snmpv3"
+}
+
+export interface DeviceTrapResponse {
+  as_of: string
+  collection_running: boolean
+  contract_version: string
+  effective_limit: number
+  items: DeviceTrap[]
+  latest_at?: string
+  retention: JsonObject
+  truncated: boolean
+}
+
+export interface DeviceTrapVarBind {
+  oid: string
+  type: string
+  value: string
+}
+
 export interface DirectoryRole {
   created_at?: string
   description?: string
@@ -2387,6 +2425,15 @@ export interface IngestDeviceSyslogRequest {
 
 export type IngestDeviceSyslogResponse = DeviceSyslogEvent
 
+export interface ListDeviceTrapsRequest {
+  device?: string
+  since?: string
+  until?: string
+  limit?: number
+}
+
+export type ListDeviceTrapsResponse = DeviceTrapResponse
+
 export interface ListDevicesRequest {
   limit?: number
 }
@@ -3618,6 +3665,16 @@ export class ProbectlSDKClient {
     let path = "/v1/device/syslog"
     const query = new URLSearchParams()
     return this.requestJSON<IngestDeviceSyslogResponse>("POST", path, query, request.body)
+  }
+
+  async listDeviceTraps(request: ListDeviceTrapsRequest = {}): Promise<ListDeviceTrapsResponse> {
+    let path = "/v1/device/traps"
+    const query = new URLSearchParams()
+    if (request.device !== undefined) query.set("device", String(request.device))
+    if (request.since !== undefined) query.set("since", String(request.since))
+    if (request.until !== undefined) query.set("until", String(request.until))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListDeviceTrapsResponse>("GET", path, query, undefined)
   }
 
   async listDevices(request: ListDevicesRequest = {}): Promise<ListDevicesResponse> {

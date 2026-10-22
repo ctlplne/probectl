@@ -61,6 +61,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/device/metrics":             verdictSurface,
 	"GET /v1/device/neighbors":           verdictSurface,
 	"GET /v1/device/syslog":              verdictSurface,
+	"GET /v1/device/traps":               verdictSurface,
 	"GET /v1/devices":                    verdictSurface,
 	"GET /v1/ebpf/service-map":           verdictSurface,
 	"GET /v1/endpoints":                  verdictSurface,

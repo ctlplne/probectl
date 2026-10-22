@@ -135,6 +135,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"outcomes":       {Method: http.MethodGet, Path: "/v1/device/collection-outcomes", Description: "list bounded per-target LLDP/CDP collection outcome receipts"},
 		"conflicts":      {Method: http.MethodGet, Path: "/v1/device/identity-conflicts", Description: "list bounded read-only cross-source device identity conflicts"},
 		"syslog":         {Method: http.MethodGet, Path: "/v1/device/syslog", Description: "list bounded tenant device syslog events"},
+		"traps":          {Method: http.MethodGet, Path: "/v1/device/traps", Description: "list the tenant's stored, authenticated SNMP traps; --query device=, since=, until= (RFC 3339), limit= (<=500)"},
 		"ingest-syslog":  {Method: http.MethodPost, Path: "/v1/device/syslog", Description: "ingest one authenticated device syslog event"},
 		"configs":        {Method: http.MethodGet, Path: "/v1/device/configs", Description: "list bounded tenant device config versions"},
 		"archive-config": {Method: http.MethodPost, Path: "/v1/device/configs", Description: "archive one redacted device config version"},

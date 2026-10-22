@@ -349,6 +349,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithTopology(rt.topoStore).
 		WithDeviceNeighbors(rt.neighborStore).
 		WithDeviceCollectionOutcomes(rt.outcomeStore).
+		WithDeviceTraps(rt.trapStore).
 		WithEBPFStore(rt.ebpfStore).
 		// PLAT-06/RTP-08/WEB-26: durable device syslog + config archive + inventory
 		// saved views (survive restart, shared across replicas) instead of the

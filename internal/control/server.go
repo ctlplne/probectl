@@ -142,6 +142,7 @@ type Server struct {
 	deviceOps       device.OpsStore
 	deviceNeighbors device.NeighborStore
 	deviceOutcomes  device.CollectionOutcomeStore
+	deviceTraps     device.TrapEventStore
 
 	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
 	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
@@ -478,6 +479,16 @@ func (s *Server) WithDeviceNeighbors(st device.NeighborStore) *Server {
 func (s *Server) WithDeviceCollectionOutcomes(st device.CollectionOutcomeStore) *Server {
 	if st != nil {
 		s.deviceOutcomes = st
+	}
+	return s
+}
+
+// WithDeviceTraps attaches the durable SNMP trap read model (D-60) backing
+// GET /v1/device/traps. nil keeps the endpoint honest with
+// collection_running=false.
+func (s *Server) WithDeviceTraps(st device.TrapEventStore) *Server {
+	if st != nil {
+		s.deviceTraps = st
 	}
 	return s
 }

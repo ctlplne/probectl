@@ -326,14 +326,14 @@ capabilities:
     owner: product research/MSP
     engine: {refs: ["file:internal/device"]}
     binary: {refs: ["file:cmd/probectl-device-agent/main.go#func run"]}
-    api: {refs: ["api:GET /v1/devices", "api:GET /v1/device/metrics"]}
-    cli: {refs: ["cli:probectl device list", "cli:probectl device metrics"]}
+    api: {refs: ["api:GET /v1/devices", "api:GET /v1/device/metrics", "api:GET /v1/device/traps"]}
+    cli: {refs: ["cli:probectl device list", "cli:probectl device metrics", "cli:probectl device traps"]}
     ui: {refs: ["ui:F18@/planes/device"]}
     docs: {refs: ["file:docs/device-telemetry.md#Device / streaming telemetry"]}
     config_keys: {refs: ["config:PROBECTL_DEVICE_CONFIG", "config:PROBECTL_DEVICE_TARGET"]}
     telemetry: {refs: ["file:internal/device"]}
     real_stack_proof: {refs: ["test:internal/device/realstack_integration_test.go#TestDeviceTelemetryRealStack"]}
-    migration: {refs: ["file:migrations/0066_device_neighbor_evidence.sql", "file:migrations/0067_device_collection_outcomes.sql"]}
+    migration: {refs: ["file:migrations/0066_device_neighbor_evidence.sql", "file:migrations/0067_device_collection_outcomes.sql", "file:migrations/0126_device_traps.sql"]}
 
   - id: F19
     name: Internet-outage view

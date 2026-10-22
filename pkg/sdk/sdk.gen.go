@@ -897,6 +897,45 @@ type DeviceSyslogRequest struct {
 	SourceAddress string            `json:"source_address,omitempty"`
 }
 
+// One stored, authenticated SNMP trap. No credential material is ever stored or returned.
+type DeviceTrap struct {
+	AgentId           string              `json:"agent_id"`
+	AuthPrincipal     string              `json:"auth_principal,omitempty"`
+	DeviceAddress     string              `json:"device_address"`
+	Fingerprint       string              `json:"fingerprint"`
+	Id                string              `json:"id"`
+	IfIndex           int                 `json:"if_index,omitempty"`
+	Kind              string              `json:"kind"`
+	ObservedAt        string              `json:"observed_at"`
+	ReceivedAt        string              `json:"received_at"`
+	RequestId         int                 `json:"request_id"`
+	Severity          string              `json:"severity"`
+	SourceAddress     string              `json:"source_address,omitempty"`
+	TrapName          string              `json:"trap_name"`
+	TrapOid           string              `json:"trap_oid"`
+	UptimeTicks       int                 `json:"uptime_ticks,omitempty"`
+	Varbinds          []DeviceTrapVarBind `json:"varbinds"`
+	VarbindsTruncated bool                `json:"varbinds_truncated,omitempty"`
+	Version           string              `json:"version"`
+}
+
+type DeviceTrapResponse struct {
+	AsOf              string         `json:"as_of"`
+	CollectionRunning bool           `json:"collection_running"`
+	ContractVersion   string         `json:"contract_version"`
+	EffectiveLimit    int            `json:"effective_limit"`
+	Items             []DeviceTrap   `json:"items"`
+	LatestAt          string         `json:"latest_at,omitempty"`
+	Retention         map[string]any `json:"retention"`
+	Truncated         bool           `json:"truncated"`
+}
+
+type DeviceTrapVarBind struct {
+	Oid   string `json:"oid"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
 type DirectoryRole struct {
 	CreatedAt   string   `json:"created_at,omitempty"`
 	Description string   `json:"description,omitempty"`
@@ -3308,6 +3347,36 @@ func (c *Client) IngestDeviceSyslog(ctx context.Context, req IngestDeviceSyslogR
 	query := url.Values{}
 	var out DeviceSyslogEvent
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List authenticated SNMP traps
+type ListDeviceTrapsRequest struct {
+	Device *string `json:"-"`
+	Since  *string `json:"-"`
+	Until  *string `json:"-"`
+	Limit  *int    `json:"-"`
+}
+
+func (c *Client) ListDeviceTraps(ctx context.Context, req ListDeviceTrapsRequest) (*DeviceTrapResponse, error) {
+	path := "/v1/device/traps"
+	query := url.Values{}
+	if req.Device != nil {
+		query.Set("device", formatQueryValue(*req.Device))
+	}
+	if req.Since != nil {
+		query.Set("since", formatQueryValue(*req.Since))
+	}
+	if req.Until != nil {
+		query.Set("until", formatQueryValue(*req.Until))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out DeviceTrapResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

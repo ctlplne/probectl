@@ -325,3 +325,103 @@ func TestDeviceMetricsAPIReadsBackFromPrometheus(t *testing.T) {
 		t.Fatalf("selector injection must be a 400, got %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// memTrapEvents is a tenant-partitioned fake of the trap read model.
+type memTrapEvents struct {
+	rows map[string][]devicepkg.TrapRecord
+}
+
+func (m memTrapEvents) RecordTrapEvent(context.Context, string, devicepkg.TrapRecord) (bool, error) {
+	return false, nil
+}
+
+func (m memTrapEvents) ListTrapEvents(_ context.Context, tenant string, f devicepkg.TrapFilter) ([]devicepkg.TrapRecord, bool, error) {
+	var out []devicepkg.TrapRecord
+	for _, r := range m.rows[tenant] {
+		if (f.Device == "" || r.DeviceAddress == f.Device) &&
+			(f.Since.IsZero() || !r.ReceivedAt.Before(f.Since)) && (f.Until.IsZero() || r.ReceivedAt.Before(f.Until)) {
+			out = append(out, r)
+		}
+	}
+	truncated := len(out) > f.Limit
+	if truncated {
+		out = out[:f.Limit]
+	}
+	return out, truncated, nil
+}
+
+func TestDeviceTrapAPITenantScopedFilteredAndBounded(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	def := tenancy.DefaultTenantID.String()
+	trap := func(tenant, addr, principal string, at time.Time) devicepkg.TrapRecord {
+		return devicepkg.TrapRecord{
+			ID: "id-" + addr, TenantID: tenant, AgentID: "agent-1", DeviceAddress: addr, AuthPrincipal: principal,
+			Version: "snmpv3", Kind: "snmp.trap.link_down", Severity: "warning", TrapOID: ".1.3.6.1.6.3.1.1.5.3",
+			TrapName: "linkDown", IfIndex: 2, Fingerprint: "fp-" + addr, ObservedAt: at, ReceivedAt: at,
+			VarBinds: []devicepkg.TrapVarBind{{OID: ".1.3.6.1.2.1.2.2.1.1.2", Type: "Integer", Value: "2"}},
+		}
+	}
+	st := memTrapEvents{rows: map[string][]devicepkg.TrapRecord{
+		def:         {trap(def, "10.0.0.1", "acme-ro", now), trap(def, "10.0.0.2", "acme-ro", now.Add(-time.Hour))},
+		otherTenant: {trap(otherTenant, "10.0.0.99", "secret-globex-ro", now)},
+	}}
+	srv := testServer(fakePinger{}).WithDeviceTraps(st)
+
+	rec := do(srv, http.MethodGet, "/v1/device/traps")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp deviceTrapResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.ContractVersion != "probectl.device-traps/v1" || !resp.CollectionRunning || len(resp.Items) != 2 ||
+		resp.EffectiveLimit != devicepkg.DefaultTrapRead || resp.LatestAt == nil || !resp.LatestAt.Equal(now) ||
+		resp.Retention.MaxPerTenant != devicepkg.MaxTrapsPerTenant || resp.Retention.RetentionDays != 30 {
+		t.Fatalf("response = %+v", resp)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "10.0.0.99") || strings.Contains(body, "secret-globex-ro") {
+		t.Fatalf("CROSS-TENANT TRAP LEAK: %s", body)
+	}
+	if strings.Contains(rec.Body.String(), `"tenant_id"`) {
+		t.Fatalf("trap rows serialize the tenant id: %s", rec.Body.String())
+	}
+
+	for query, want := range map[string]int{
+		"?device=10.0.0.2":  1,
+		"?device=10.0.0.99": 0, // the other tenant's device
+		"?limit=1":          1,
+		"?limit=100000":     2,
+		"?since=" + now.Add(-30*time.Minute).Format(time.RFC3339): 1,
+		"?until=" + now.Add(-30*time.Minute).Format(time.RFC3339): 1,
+	} {
+		rec := do(srv, http.MethodGet, "/v1/device/traps"+query)
+		var got deviceTrapResponse
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil || len(got.Items) != want {
+			t.Errorf("GET /v1/device/traps%s = %d %s, want %d items", query, rec.Code, rec.Body.String(), want)
+		}
+		if query == "?limit=100000" && got.EffectiveLimit != devicepkg.MaxTrapRead {
+			t.Errorf("limit above the cap reported effective_limit %d, want %d", got.EffectiveLimit, devicepkg.MaxTrapRead)
+		}
+		if query == "?limit=1" && !got.Truncated {
+			t.Errorf("limit=1 over two traps was not marked truncated")
+		}
+	}
+	for _, bad := range []string{
+		"?since=yesterday", "?until=2026-13-01", "?limit=0", "?limit=-3",
+		"?since=" + now.Format(time.RFC3339) + "&until=" + now.Add(-time.Hour).Format(time.RFC3339),
+		"?device=" + strings.Repeat("d", 256),
+	} {
+		if rec := do(srv, http.MethodGet, "/v1/device/traps"+bad); rec.Code != http.StatusBadRequest {
+			t.Errorf("GET /v1/device/traps%s = %d, want 400", bad, rec.Code)
+		}
+	}
+}
+
+func TestDeviceTrapAPIReportsUnwiredHonestly(t *testing.T) {
+	rec := do(testServer(fakePinger{}), http.MethodGet, "/v1/device/traps")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"collection_running":false`) ||
+		!strings.Contains(rec.Body.String(), `"items":[]`) {
+		t.Fatalf("unwired response status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
