@@ -241,7 +241,7 @@ describe('i18n catalog', () => {
     const planesBanned = [
       'First-class workspaces for routing, flow, device, and host/L7 telemetry.',
       'Telemetry planes',
-      'BGP routing events',
+      'BGP routing graph',
       'BGP routing edges',
       'Origin AS to prefix evidence folded into the tenant graph.',
       'BGP events appear here after the analyzer publishes tenant-scoped routing events.',
