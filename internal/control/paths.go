@@ -166,7 +166,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	cfg := path.Config{Target: traceTarget, Mode: "icmp", MaxHops: 30, TraceCount: 3, PerHopTimeout: 2 * time.Second}
+	cfg := pathDiscoveryConfig(traceTarget)
 	dctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 	p, err := s.discover(dctx, cfg)
@@ -314,4 +314,15 @@ func pathHost(target string) string {
 		return h
 	}
 	return target
+}
+
+// pathDiscoveryConfig is the trace an API path discovery runs. It prefers a
+// raw ICMP socket (DPR-286): with CAP_NET_RAW that receives the Time Exceeded
+// replies a per-hop trace needs, and without it the tracer falls back to the
+// unprivileged datagram socket, which sees only the destination. Leaving
+// Privileged unset made every discovery destination-only even where the
+// operator had granted CAP_NET_RAW as the docs describe.
+func pathDiscoveryConfig(target string) path.Config {
+	return path.Config{Target: target, Mode: "icmp", MaxHops: 30, TraceCount: 3,
+		PerHopTimeout: 2 * time.Second, Privileged: true}
 }
