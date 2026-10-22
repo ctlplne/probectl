@@ -148,6 +148,11 @@ type service struct {
 	// nil (minimal/test servers with no deny-list) = no recheck; the hot path
 	// also short-circuits on an empty list.
 	revocations *crypto.RevocationList
+
+	// testBundles serves the tenant's signed central test set (G9, D-41).
+	// nil = central test distribution off (FetchTestBundle refuses with
+	// FailedPrecondition; heartbeats never report config_stale).
+	testBundles TestBundles
 }
 
 // Register upserts the agent into its tenant's registry. The id and tenant are
@@ -210,15 +215,20 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 		return nil, status.Error(codes.Internal, "register failed")
 	}
 	svc.log.Info("agent registered", "tenant", id.TenantID, "agent", id.AgentID, "hostname", req.GetHostname())
+	serverCaps := copyServerCapabilities()
+	if svc.testBundles != nil {
+		serverCaps = append(serverCaps, fetchTestBundleCapability)
+		sort.Strings(serverCaps)
+	}
 	return &agentv1.RegisterResponse{
 		AgentId:                  agent.ID,
 		TenantId:                 agent.TenantID,
-		ConfigEpoch:              0,
+		ConfigEpoch:              svc.currentTestSetVersion(ctx, id.TenantID),
 		HeartbeatIntervalSeconds: heartbeatIntervalSeconds,
 		ControlVersion:           svc.controlVersion,
 		ProtocolVersion:          agentProtocolVersion,
 		AcceptedCapabilities:     acceptedCapabilities(req.GetCapabilities()),
-		ServerCapabilities:       copyServerCapabilities(),
+		ServerCapabilities:       serverCaps,
 	}, nil
 }
 
@@ -261,27 +271,36 @@ func (svc *service) Attest(ctx context.Context, _ *agentv1.AttestRequest) (*agen
 	return &agentv1.AttestResponse{Ok: true, Message: "attested " + id.String()}, nil
 }
 
-// Heartbeat marks the agent online.
-func (svc *service) Heartbeat(ctx context.Context, _ *agentv1.HeartbeatRequest) (*agentv1.HeartbeatResponse, error) {
+// Heartbeat marks the agent online and records the central test-set version
+// it reports (config_epoch). The reply's config_stale is the G9 nudge: true
+// when the tenant's test set is newer than what the agent runs, so the agent
+// pulls at once instead of waiting for its poll interval.
+func (svc *service) Heartbeat(ctx context.Context, req *agentv1.HeartbeatRequest) (*agentv1.HeartbeatResponse, error) {
 	id, err := svc.authenticate(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
+	applied := req.GetConfigEpoch()
 	if svc.hb != nil {
 		// SCALE-012: coalesced — one multi-row UPDATE per tenant per window
 		// instead of one UPDATE per heartbeat RPC.
-		svc.hb.record(id.TenantID, id.AgentID)
-		return &agentv1.HeartbeatResponse{ConfigStale: false, HeartbeatIntervalSeconds: heartbeatIntervalSeconds}, nil
+		svc.hb.record(id.TenantID, id.AgentID, applied)
+	} else {
+		err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool,
+			func(ctx context.Context, s tenancy.Scope) error {
+				if _, e := svc.agents.Heartbeat(ctx, s, id.AgentID); e != nil {
+					return e
+				}
+				return svc.agents.HeartbeatBatchVersions(ctx, s, []string{id.AgentID}, []uint64{applied})
+			})
+		if err != nil {
+			return nil, status.Error(codes.Internal, "heartbeat failed")
+		}
 	}
-	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool,
-		func(ctx context.Context, s tenancy.Scope) error {
-			_, e := svc.agents.Heartbeat(ctx, s, id.AgentID)
-			return e
-		})
-	if err != nil {
-		return nil, status.Error(codes.Internal, "heartbeat failed")
-	}
-	return &agentv1.HeartbeatResponse{ConfigStale: false, HeartbeatIntervalSeconds: heartbeatIntervalSeconds}, nil
+	return &agentv1.HeartbeatResponse{
+		ConfigStale:              svc.testSetStale(ctx, id.TenantID, applied),
+		HeartbeatIntervalSeconds: heartbeatIntervalSeconds,
+	}, nil
 }
 
 // StreamConfig is an EXPLICIT DENY (Sprint 13, ARCH-003; ADR

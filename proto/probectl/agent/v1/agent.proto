@@ -37,6 +37,14 @@ service AgentService {
   // ReportEndpoint lets a responder announce where it is listening for a
   // session, so the control plane can hand the address to the initiator.
   rpc ReportEndpoint(ReportEndpointRequest) returns (ReportEndpointResponse);
+  // FetchTestBundle is the agent PULL of its tenant's central synthetic test
+  // set (docs/adr/central-test-distribution.md, D-41). The tenant comes from the
+  // client certificate only. The bundle is signed with the deployment's
+  // test-bundle key; the agent verifies it against the public key it received at
+  // enrollment and refuses an unverifiable, foreign-tenant or non-newer bundle.
+  // The server answers FailedPrecondition when central test distribution is not
+  // configured. This is not config push: StreamConfig stays an explicit deny.
+  rpc FetchTestBundle(FetchTestBundleRequest) returns (FetchTestBundleResponse);
 }
 
 message RegisterRequest {
@@ -49,7 +57,7 @@ message RegisterRequest {
 message RegisterResponse {
   string agent_id = 1;  // authoritative, from the verified certificate
   string tenant_id = 2; // authoritative, from the verified certificate
-  uint64 config_epoch = 3;
+  uint64 config_epoch = 3; // the tenant's current central test-set version (0 = distribution off)
   uint32 heartbeat_interval_seconds = 4;
   string control_version = 5; // control-plane version used for the skew check
   string protocol_version = 6; // agent wire protocol revision, e.g. "probectl.agent.v1"
@@ -69,11 +77,17 @@ message AttestResponse {
 
 message HeartbeatRequest {
   string agent_id = 1;     // cross-check only; the certificate is authoritative
-  uint64 config_epoch = 2; // the epoch the agent currently holds
+  // The epoch the agent currently holds: the version of the central test set
+  // it has verified and applied (0 = none). Recorded per agent and compared
+  // with the tenant's current version.
+  uint64 config_epoch = 2;
 }
 
 message HeartbeatResponse {
-  bool config_stale = 1; // the agent should re-pull config
+  // The agent should re-pull: its tenant's central test set is newer than the
+  // config_epoch it reported, so it calls FetchTestBundle now instead of waiting
+  // for its poll interval.
+  bool config_stale = 1;
   uint32 heartbeat_interval_seconds = 2;
 }
 
@@ -136,4 +150,20 @@ message ReportEndpointRequest {
 
 message ReportEndpointResponse {
   bool accepted = 1;
+}
+
+message FetchTestBundleRequest {
+  // The test-set version the agent has verified and applied (0 = none). When
+  // the tenant's current version equals it, the server answers not_modified
+  // without signing or sending a bundle.
+  uint64 known_version = 1;
+}
+
+message FetchTestBundleResponse {
+  bool not_modified = 1;
+  // The tenant's current test-set version (the bundle's epoch). Advisory: the
+  // agent trusts only the epoch inside the verified bundle.
+  uint64 version = 2;
+  // The signed bundle (internal/testsync Signed JSON); empty when not_modified.
+  bytes signed_bundle = 3;
 }

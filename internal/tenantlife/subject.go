@@ -344,7 +344,10 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	"siem_delivery": {plane: "postgres:siem_delivery", disposition: subjectTableNoSubject},
 	"teams":         {plane: "postgres:teams", disposition: subjectTableNoSubject},
 	"tenant_idp":    {plane: "postgres:tenant_idp", disposition: subjectTableNoSubject},
-	"tests":         {plane: "postgres:tests", disposition: subjectTableNoSubject},
+	// G9: the tenant's central test-set version — tenant_id, a counter and a
+	// timestamp; no subject-bearing column. Erased with the tenant.
+	"tenant_test_set_versions": {plane: "postgres:tenant_test_set_versions", disposition: subjectTableNoSubject},
+	"tests":                    {plane: "postgres:tests", disposition: subjectTableNoSubject},
 	"users": {
 		plane: "identity", disposition: subjectTableDeleteMatches,
 		exact: []string{"id", "email", "user_name", "external_id"},

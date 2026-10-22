@@ -45,7 +45,9 @@ type TestInput struct {
 	Enabled         bool
 }
 
-// Tests is the tenant-scoped synthetic-test repository.
+// Tests is the tenant-scoped synthetic-test repository. Every write bumps the
+// tenant's central test-set version in the same transaction (TestSets, G9), so
+// agents pulling the signed bundle see each change.
 type Tests struct{}
 
 const testCols = `id::text, tenant_id::text, name, type, target,
@@ -88,6 +90,9 @@ func (Tests) Create(ctx context.Context, s tenancy.Scope, in TestInput) (*Test, 
 		s.Tenant.String(), in.Name, in.Type, in.Target, in.IntervalSeconds, in.TimeoutSeconds, params, in.Enabled), &t)
 	if err != nil {
 		return nil, mapWriteErr("test", err)
+	}
+	if err := (TestSets{}).bump(ctx, s); err != nil {
+		return nil, err
 	}
 	return &t, nil
 }
@@ -212,6 +217,9 @@ func (Tests) Update(ctx context.Context, s tenancy.Scope, id string, in TestInpu
 	if err != nil {
 		return nil, mapWriteErr("test", err)
 	}
+	if err := (TestSets{}).bump(ctx, s); err != nil {
+		return nil, err
+	}
 	return &t, nil
 }
 
@@ -224,7 +232,7 @@ func (Tests) Delete(ctx context.Context, s tenancy.Scope, id string) error {
 	if tag.RowsAffected() == 0 {
 		return apierror.NotFound("test not found")
 	}
-	return nil
+	return (TestSets{}).bump(ctx, s)
 }
 
 // mapWriteErr maps a unique-violation to Conflict and a no-rows to NotFound;

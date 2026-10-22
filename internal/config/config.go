@@ -322,13 +322,14 @@ type Config struct {
 	ObjectStoreS3Region, ObjectStoreS3AccessKey       string
 	ObjectStoreS3SecretKey, ObjectStoreS3SessionToken string
 	ObjectStoreS3Prefix                               string
-	// TestSyncSigningKeyFile (ARCH-001) is the Ed25519 PKCS#8 PEM the control
-	// plane signs pull-able test bundles with (generated + persisted on first
-	// boot, like the WORM key). Empty = central test distribution is off
-	// (GET /v1/tests/bundle reports 503). An agent is MEANT to verify a pulled
-	// bundle against the build-baked public half (testsync.Verify); the
-	// agent-side pull loop is not yet shipped (ING-20/PLAT-13), so today this
-	// key only governs whether the bundle endpoint serves.
+	// TestSyncSigningKeyFile (G9, D-41) is the Ed25519 PKCS#8 PEM the control
+	// plane signs each tenant's central test set with (generated + persisted on
+	// first boot, like the WORM key). Agents pull the signed bundle over their
+	// mTLS channel (FetchTestBundle) and verify it with the public half, which
+	// they receive at enrollment (testsync.pub). Empty = central test
+	// distribution is off: the pull answers FailedPrecondition, agents run only
+	// their local tests, and GET /v1/tests/bundle reports 503. Every replica of
+	// one deployment must load the SAME key.
 	TestSyncSigningKeyFile string
 	// EvidenceSigningKey is a base64-encoded PKCS#8 Ed25519 private key shared
 	// by every control-plane replica. EvidenceSigningKeyFile is the single-node

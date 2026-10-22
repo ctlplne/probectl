@@ -150,9 +150,9 @@ func (x *RegisterRequest) GetLabels() map[string]string {
 
 type RegisterResponse struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
-	AgentId                  string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`    // authoritative, from the verified certificate
-	TenantId                 string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"` // authoritative, from the verified certificate
-	ConfigEpoch              uint64                 `protobuf:"varint,3,opt,name=config_epoch,json=configEpoch,proto3" json:"config_epoch,omitempty"`
+	AgentId                  string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`              // authoritative, from the verified certificate
+	TenantId                 string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`           // authoritative, from the verified certificate
+	ConfigEpoch              uint64                 `protobuf:"varint,3,opt,name=config_epoch,json=configEpoch,proto3" json:"config_epoch,omitempty"` // the tenant's current central test-set version (0 = distribution off)
 	HeartbeatIntervalSeconds uint32                 `protobuf:"varint,4,opt,name=heartbeat_interval_seconds,json=heartbeatIntervalSeconds,proto3" json:"heartbeat_interval_seconds,omitempty"`
 	ControlVersion           string                 `protobuf:"bytes,5,opt,name=control_version,json=controlVersion,proto3" json:"control_version,omitempty"`                   // control-plane version used for the skew check
 	ProtocolVersion          string                 `protobuf:"bytes,6,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`                // agent wire protocol revision, e.g. "probectl.agent.v1"
@@ -353,9 +353,12 @@ func (x *AttestResponse) GetMessage() string {
 }
 
 type HeartbeatRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`              // cross-check only; the certificate is authoritative
-	ConfigEpoch   uint64                 `protobuf:"varint,2,opt,name=config_epoch,json=configEpoch,proto3" json:"config_epoch,omitempty"` // the epoch the agent currently holds
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	AgentId string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"` // cross-check only; the certificate is authoritative
+	// The epoch the agent currently holds: the version of the central test set
+	// it has verified and applied (0 = none). Recorded per agent and compared
+	// with the tenant's current version.
+	ConfigEpoch   uint64 `protobuf:"varint,2,opt,name=config_epoch,json=configEpoch,proto3" json:"config_epoch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -405,9 +408,12 @@ func (x *HeartbeatRequest) GetConfigEpoch() uint64 {
 }
 
 type HeartbeatResponse struct {
-	state                    protoimpl.MessageState `protogen:"open.v1"`
-	ConfigStale              bool                   `protobuf:"varint,1,opt,name=config_stale,json=configStale,proto3" json:"config_stale,omitempty"` // the agent should re-pull config
-	HeartbeatIntervalSeconds uint32                 `protobuf:"varint,2,opt,name=heartbeat_interval_seconds,json=heartbeatIntervalSeconds,proto3" json:"heartbeat_interval_seconds,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The agent should re-pull: its tenant's central test set is newer than the
+	// config_epoch it reported, so it calls FetchTestBundle now instead of waiting
+	// for its poll interval.
+	ConfigStale              bool   `protobuf:"varint,1,opt,name=config_stale,json=configStale,proto3" json:"config_stale,omitempty"`
+	HeartbeatIntervalSeconds uint32 `protobuf:"varint,2,opt,name=heartbeat_interval_seconds,json=heartbeatIntervalSeconds,proto3" json:"heartbeat_interval_seconds,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -948,6 +954,116 @@ func (x *ReportEndpointResponse) GetAccepted() bool {
 	return false
 }
 
+type FetchTestBundleRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The test-set version the agent has verified and applied (0 = none). When
+	// the tenant's current version equals it, the server answers not_modified
+	// without signing or sending a bundle.
+	KnownVersion  uint64 `protobuf:"varint,1,opt,name=known_version,json=knownVersion,proto3" json:"known_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchTestBundleRequest) Reset() {
+	*x = FetchTestBundleRequest{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchTestBundleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchTestBundleRequest) ProtoMessage() {}
+
+func (x *FetchTestBundleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchTestBundleRequest.ProtoReflect.Descriptor instead.
+func (*FetchTestBundleRequest) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *FetchTestBundleRequest) GetKnownVersion() uint64 {
+	if x != nil {
+		return x.KnownVersion
+	}
+	return 0
+}
+
+type FetchTestBundleResponse struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	NotModified bool                   `protobuf:"varint,1,opt,name=not_modified,json=notModified,proto3" json:"not_modified,omitempty"`
+	// The tenant's current test-set version (the bundle's epoch). Advisory: the
+	// agent trusts only the epoch inside the verified bundle.
+	Version uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	// The signed bundle (internal/testsync Signed JSON); empty when not_modified.
+	SignedBundle  []byte `protobuf:"bytes,3,opt,name=signed_bundle,json=signedBundle,proto3" json:"signed_bundle,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchTestBundleResponse) Reset() {
+	*x = FetchTestBundleResponse{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchTestBundleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchTestBundleResponse) ProtoMessage() {}
+
+func (x *FetchTestBundleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchTestBundleResponse.ProtoReflect.Descriptor instead.
+func (*FetchTestBundleResponse) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *FetchTestBundleResponse) GetNotModified() bool {
+	if x != nil {
+		return x.NotModified
+	}
+	return false
+}
+
+func (x *FetchTestBundleResponse) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *FetchTestBundleResponse) GetSignedBundle() []byte {
+	if x != nil {
+		return x.SignedBundle
+	}
+	return nil
+}
+
 var File_probectl_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_probectl_agent_v1_agent_proto_rawDesc = "" +
@@ -1016,11 +1132,17 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\rR\x04port\"4\n" +
 	"\x16ReportEndpointResponse\x12\x1a\n" +
-	"\baccepted\x18\x01 \x01(\bR\baccepted*S\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\"=\n" +
+	"\x16FetchTestBundleRequest\x12#\n" +
+	"\rknown_version\x18\x01 \x01(\x04R\fknownVersion\"{\n" +
+	"\x17FetchTestBundleResponse\x12!\n" +
+	"\fnot_modified\x18\x01 \x01(\bR\vnotModified\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\x04R\aversion\x12#\n" +
+	"\rsigned_bundle\x18\x03 \x01(\fR\fsignedBundle*S\n" +
 	"\aA2ARole\x12\x18\n" +
 	"\x14A2A_ROLE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12A2A_ROLE_RESPONDER\x10\x01\x12\x16\n" +
-	"\x12A2A_ROLE_INITIATOR\x10\x022\xa7\x05\n" +
+	"\x12A2A_ROLE_INITIATOR\x10\x022\x91\x06\n" +
 	"\fAgentService\x12S\n" +
 	"\bRegister\x12\".probectl.agent.v1.RegisterRequest\x1a#.probectl.agent.v1.RegisterResponse\x12M\n" +
 	"\x06Attest\x12 .probectl.agent.v1.AttestRequest\x1a!.probectl.agent.v1.AttestResponse\x12V\n" +
@@ -1028,7 +1150,8 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\fStreamConfig\x12&.probectl.agent.v1.StreamConfigRequest\x1a'.probectl.agent.v1.StreamConfigResponse0\x01\x12d\n" +
 	"\rStreamResults\x12'.probectl.agent.v1.StreamResultsRequest\x1a(.probectl.agent.v1.StreamResultsResponse(\x01\x12k\n" +
 	"\x10PollCoordination\x12*.probectl.agent.v1.PollCoordinationRequest\x1a+.probectl.agent.v1.PollCoordinationResponse\x12e\n" +
-	"\x0eReportEndpoint\x12(.probectl.agent.v1.ReportEndpointRequest\x1a).probectl.agent.v1.ReportEndpointResponseBDZBgithub.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1b\x06proto3"
+	"\x0eReportEndpoint\x12(.probectl.agent.v1.ReportEndpointRequest\x1a).probectl.agent.v1.ReportEndpointResponse\x12h\n" +
+	"\x0fFetchTestBundle\x12).probectl.agent.v1.FetchTestBundleRequest\x1a*.probectl.agent.v1.FetchTestBundleResponseBDZBgithub.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_probectl_agent_v1_agent_proto_rawDescOnce sync.Once
@@ -1043,7 +1166,7 @@ func file_probectl_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_probectl_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_probectl_agent_v1_agent_proto_goTypes = []any{
 	(A2ARole)(0),                     // 0: probectl.agent.v1.A2ARole
 	(*RegisterRequest)(nil),          // 1: probectl.agent.v1.RegisterRequest
@@ -1061,12 +1184,14 @@ var file_probectl_agent_v1_agent_proto_goTypes = []any{
 	(*A2ATask)(nil),                  // 13: probectl.agent.v1.A2ATask
 	(*ReportEndpointRequest)(nil),    // 14: probectl.agent.v1.ReportEndpointRequest
 	(*ReportEndpointResponse)(nil),   // 15: probectl.agent.v1.ReportEndpointResponse
-	nil,                              // 16: probectl.agent.v1.RegisterRequest.LabelsEntry
-	nil,                              // 17: probectl.agent.v1.AttestRequest.PlatformEntry
+	(*FetchTestBundleRequest)(nil),   // 16: probectl.agent.v1.FetchTestBundleRequest
+	(*FetchTestBundleResponse)(nil),  // 17: probectl.agent.v1.FetchTestBundleResponse
+	nil,                              // 18: probectl.agent.v1.RegisterRequest.LabelsEntry
+	nil,                              // 19: probectl.agent.v1.AttestRequest.PlatformEntry
 }
 var file_probectl_agent_v1_agent_proto_depIdxs = []int32{
-	16, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
-	17, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
+	18, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
+	19, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
 	13, // 2: probectl.agent.v1.PollCoordinationResponse.task:type_name -> probectl.agent.v1.A2ATask
 	0,  // 3: probectl.agent.v1.A2ATask.role:type_name -> probectl.agent.v1.A2ARole
 	1,  // 4: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
@@ -1076,15 +1201,17 @@ var file_probectl_agent_v1_agent_proto_depIdxs = []int32{
 	9,  // 8: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
 	11, // 9: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
 	14, // 10: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
-	2,  // 11: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
-	4,  // 12: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
-	6,  // 13: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
-	8,  // 14: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
-	10, // 15: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
-	12, // 16: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
-	15, // 17: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
-	11, // [11:18] is the sub-list for method output_type
-	4,  // [4:11] is the sub-list for method input_type
+	16, // 11: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
+	2,  // 12: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
+	4,  // 13: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
+	6,  // 14: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
+	8,  // 15: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
+	10, // 16: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
+	12, // 17: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
+	15, // 18: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
+	17, // 19: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
+	12, // [12:20] is the sub-list for method output_type
+	4,  // [4:12] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name
@@ -1101,7 +1228,7 @@ func file_probectl_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_agent_v1_agent_proto_rawDesc), len(file_probectl_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

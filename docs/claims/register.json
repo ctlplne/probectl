@@ -161,6 +161,7 @@
     "analyzer/README.md",
     "docs/adr/bgp-ingest-model.md",
     "docs/adr/browser-artifact-storage.md",
+    "docs/adr/central-test-distribution.md",
     "docs/adr/config-push.md",
     "docs/agent/enrollment.md",
     "docs/ai-egress.md",

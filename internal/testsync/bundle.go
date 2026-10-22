@@ -4,34 +4,27 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-// Package testsync is the SIGNED central test-distribution mechanism from the
-// config-push ADR (ARCH-001). The intended flagship loop — define a test
-// centrally, have the fleet execute it — works WITHOUT reintroducing config
-// push (StreamConfig stays an explicit deny): the control plane serves a
-// tenant's test set as a bundle SIGNED with an Ed25519 key, and an agent is
-// meant to PULL the bundle and Verify the signature against a build-baked
-// public key before applying it, so distribution authority stays OUTSIDE the
-// data plane (a compromised bus or API path cannot forge a bundle without the
-// signing key).
+// Package testsync is the SIGNED central test distribution (decision D-41,
+// docs/adr/central-test-distribution.md; closes PLAT-13). A test defined in the
+// console, the API or the CLI reaches the tenant's agents WITHOUT config push
+// (StreamConfig stays an explicit deny): each agent PULLS its tenant's test set
+// over the mTLS channel it already has (the FetchTestBundle RPC), Verifies the
+// bundle's Ed25519 signature against the deployment's test-bundle public key it
+// received at enrollment, checks the bundle names its own certificate's tenant,
+// filters it through its local policy, and only then applies it.
 //
-// SHIPPED SCOPE (ING-20/PLAT-13): the control-plane HALF is implemented — Sign,
-// and GET /v1/tests/bundle serving the signed tenant-scoped bundle — and this
-// package's Verify is the agent-facing verification entry point. The agent-side
-// PULL loop (fetch the bundle on an interval, Verify, and apply it to the
-// schedule) is NOT yet wired into any shipped agent: no cmd/probectl-agent or
-// internal/agent code imports this package (asserted by
-// TestAgentSideBundlePullNotYetWired). Until it is, tests reach agents through
-// the agent's own configuration, not through this bundle. Wiring the pull loop
-// requires choosing the agent transport (the agent speaks gRPC/mTLS while the
-// bundle is a REST resource) — a design + operational decision tracked in
-// design-partner-readiness/decisions-needed.md (D-28, PLAT-13).
+// The control-plane half is Source: it reads the tenant's enabled tests and its
+// test-set version under the tenant's RLS scope and signs them (Sign). The
+// bundle epoch is that per-tenant version, a counter bumped in the same
+// transaction as every test write, so an agent refuses a replayed or older
+// bundle without trusting any clock. The agent half is internal/agent's
+// test-sync loop, which calls Verify.
 package testsync
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 )
@@ -52,7 +45,7 @@ type Test struct {
 // the one it is running (replay/rollback protection).
 type Bundle struct {
 	TenantID string `json:"tenant_id"`
-	Epoch    int64  `json:"epoch"` // unix-nanos of issuance; strictly increasing
+	Epoch    int64  `json:"epoch"` // the tenant's test-set version; strictly increasing
 	Tests    []Test `json:"tests"`
 }
 
@@ -69,7 +62,8 @@ func canonical(b Bundle) ([]byte, error) { return json.Marshal(b) }
 
 // Sign builds the signed wire form of a bundle using the PKCS#8 Ed25519
 // private-key PEM (the same key kind as the license/WORM signer). The control
-// plane holds the private half; agents hold only the build-baked public half.
+// plane holds the private half; agents hold only the public half, delivered at
+// enrollment.
 func Sign(b Bundle, privPEM []byte) ([]byte, error) {
 	raw, err := canonical(b)
 	if err != nil {
@@ -89,18 +83,21 @@ func Sign(b Bundle, privPEM []byte) ([]byte, error) {
 // keep running the last verified test set rather than apply an unsigned one).
 var ErrBadSignature = errors.New("testsync: bundle signature does not verify (refusing)")
 
+// ErrStaleEpoch is returned for a correctly signed bundle whose epoch is not
+// newer than the one the agent runs (a replay or a rollback).
+var ErrStaleEpoch = errors.New("testsync: bundle epoch not newer than current (refusing rollback/replay)")
+
 // Verify is the agent-facing verification entry point (PLAT-13): it checks a
-// signed bundle against the build-baked Ed25519 public-key PEM and returns the
-// bundle only if the signature is valid. currentEpoch (the one the agent is
+// signed bundle against the deployment's Ed25519 public-key PEM and returns the
+// bundle only if the signature is valid. currentEpoch (the version the agent is
 // already running) is passed so a replayed OLDER bundle is refused even if
-// correctly signed. The agent-side pull loop that will call this is not yet
-// shipped (see the package doc); exporting it fixes the verification contract
-// in place for that loop.
+// correctly signed. The caller must still check the bundle's tenant against its
+// own certificate's tenant before applying it.
 func Verify(signed []byte, pubPEM []byte, currentEpoch int64) (*Bundle, error) {
 	return verify(signed, pubPEM, currentEpoch)
 }
 
-// verify checks a signed bundle against the build-baked Ed25519 public-key PEM
+// verify checks a signed bundle against the Ed25519 public-key PEM
 // and returns the bundle only if the signature is valid. A current epoch (the
 // one the agent is already running) is passed so a replayed OLDER bundle is
 // refused even if correctly signed.
@@ -122,11 +119,7 @@ func verify(signed []byte, pubPEM []byte, currentEpoch int64) (*Bundle, error) {
 		return nil, fmt.Errorf("testsync: malformed bundle body: %w", err)
 	}
 	if b.Epoch <= currentEpoch {
-		return nil, fmt.Errorf("testsync: bundle epoch %d not newer than current %d (refusing rollback/replay)", b.Epoch, currentEpoch)
+		return nil, fmt.Errorf("%w: epoch %d, current %d", ErrStaleEpoch, b.Epoch, currentEpoch)
 	}
 	return &b, nil
 }
-
-// NewEpoch returns a fresh monotonically-increasing epoch (issuance time in
-// unix-nanos).
-func NewEpoch() int64 { return time.Now().UnixNano() }

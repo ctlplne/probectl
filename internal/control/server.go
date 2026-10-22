@@ -56,6 +56,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/testsync"
 	"github.com/ctlplne/probectl/internal/threat"
 	"github.com/ctlplne/probectl/internal/topology"
 	"github.com/ctlplne/probectl/internal/version"
@@ -232,10 +233,11 @@ type Server struct {
 	a2aBroker *a2a.Broker
 	a2aMesh   *a2a.MeshScheduler
 
-	// testSyncKey is the Ed25519 private-key PEM used to sign pull-able test
-	// bundles (ARCH-001). Set via WithTestSyncKey; empty leaves
-	// GET /v1/tests/bundle reporting 503.
-	testSyncKey []byte
+	// testSync signs the tenant's central test set (G9, D-41). Set via
+	// WithTestSync; nil leaves GET /v1/tests/bundle reporting 503, the
+	// enrollment response without a test-bundle public key, and GET /v1/agents
+	// without a test_set block.
+	testSync *testsync.Source
 	// evidenceSigningKey signs immutable probectl-evidence/v1 packages. It is
 	// injected at the runtime build seam from a stable operator-owned key;
 	// empty means the export route fails closed rather than self-signing with an

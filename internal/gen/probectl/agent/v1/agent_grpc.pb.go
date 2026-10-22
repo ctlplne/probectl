@@ -35,6 +35,7 @@ const (
 	AgentService_StreamResults_FullMethodName    = "/probectl.agent.v1.AgentService/StreamResults"
 	AgentService_PollCoordination_FullMethodName = "/probectl.agent.v1.AgentService/PollCoordination"
 	AgentService_ReportEndpoint_FullMethodName   = "/probectl.agent.v1.AgentService/ReportEndpoint"
+	AgentService_FetchTestBundle_FullMethodName  = "/probectl.agent.v1.AgentService/FetchTestBundle"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -65,6 +66,14 @@ type AgentServiceClient interface {
 	// ReportEndpoint lets a responder announce where it is listening for a
 	// session, so the control plane can hand the address to the initiator.
 	ReportEndpoint(ctx context.Context, in *ReportEndpointRequest, opts ...grpc.CallOption) (*ReportEndpointResponse, error)
+	// FetchTestBundle is the agent PULL of its tenant's central synthetic test
+	// set (docs/adr/central-test-distribution.md, D-41). The tenant comes from the
+	// client certificate only. The bundle is signed with the deployment's
+	// test-bundle key; the agent verifies it against the public key it received at
+	// enrollment and refuses an unverifiable, foreign-tenant or non-newer bundle.
+	// The server answers FailedPrecondition when central test distribution is not
+	// configured. This is not config push: StreamConfig stays an explicit deny.
+	FetchTestBundle(ctx context.Context, in *FetchTestBundleRequest, opts ...grpc.CallOption) (*FetchTestBundleResponse, error)
 }
 
 type agentServiceClient struct {
@@ -157,6 +166,16 @@ func (c *agentServiceClient) ReportEndpoint(ctx context.Context, in *ReportEndpo
 	return out, nil
 }
 
+func (c *agentServiceClient) FetchTestBundle(ctx context.Context, in *FetchTestBundleRequest, opts ...grpc.CallOption) (*FetchTestBundleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FetchTestBundleResponse)
+	err := c.cc.Invoke(ctx, AgentService_FetchTestBundle_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -185,6 +204,14 @@ type AgentServiceServer interface {
 	// ReportEndpoint lets a responder announce where it is listening for a
 	// session, so the control plane can hand the address to the initiator.
 	ReportEndpoint(context.Context, *ReportEndpointRequest) (*ReportEndpointResponse, error)
+	// FetchTestBundle is the agent PULL of its tenant's central synthetic test
+	// set (docs/adr/central-test-distribution.md, D-41). The tenant comes from the
+	// client certificate only. The bundle is signed with the deployment's
+	// test-bundle key; the agent verifies it against the public key it received at
+	// enrollment and refuses an unverifiable, foreign-tenant or non-newer bundle.
+	// The server answers FailedPrecondition when central test distribution is not
+	// configured. This is not config push: StreamConfig stays an explicit deny.
+	FetchTestBundle(context.Context, *FetchTestBundleRequest) (*FetchTestBundleResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -215,6 +242,9 @@ func (UnimplementedAgentServiceServer) PollCoordination(context.Context, *PollCo
 }
 func (UnimplementedAgentServiceServer) ReportEndpoint(context.Context, *ReportEndpointRequest) (*ReportEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReportEndpoint not implemented")
+}
+func (UnimplementedAgentServiceServer) FetchTestBundle(context.Context, *FetchTestBundleRequest) (*FetchTestBundleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FetchTestBundle not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -345,6 +375,24 @@ func _AgentService_ReportEndpoint_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_FetchTestBundle_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchTestBundleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).FetchTestBundle(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_FetchTestBundle_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).FetchTestBundle(ctx, req.(*FetchTestBundleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -371,6 +419,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportEndpoint",
 			Handler:    _AgentService_ReportEndpoint_Handler,
+		},
+		{
+			MethodName: "FetchTestBundle",
+			Handler:    _AgentService_FetchTestBundle_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

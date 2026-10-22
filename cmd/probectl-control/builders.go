@@ -905,6 +905,7 @@ func startAgentTransport(
 	srv *control.Server,
 	enrollSvc *enroll.Service,
 	writerFence tenancy.WriterFence,
+	testBundles agenttransport.TestBundles,
 	log *slog.Logger,
 ) error {
 	if !cfg.AgentTransportEnabled() {
@@ -915,6 +916,9 @@ func startAgentTransport(
 		return fmt.Errorf("agent transport: %w", err)
 	}
 	grpcSrv.WithWriterFence(writerFence)
+	// G9 (D-41): agents pull their tenant's signed test set over this mTLS
+	// listener; nil keeps central test distribution off.
+	grpcSrv.WithTestBundles(testBundles)
 	grpcSrv.WithVersionPolicy(lifecycle.Policy{Window: cfg.AgentSkewWindow, Min: cfg.AgentMinVersion})
 
 	if enrollSvc != nil {

@@ -121,6 +121,10 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) error
 		return apierror.Internal("enrollment failed")
 	}
 	s.recordIdentityAudit(r, agentEnrolledAuditAction, id, nil)
+	if s.testSync != nil {
+		// G9 (D-41): the agent verifies every pulled test bundle with this key.
+		id.TestSyncPublicKey = string(s.testSync.PublicKeyPEM())
+	}
 	writeJSON(w, http.StatusOK, id)
 	return nil
 }

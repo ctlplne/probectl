@@ -409,15 +409,27 @@ func (Agents) ListPage(ctx context.Context, s tenancy.Scope, afterID string, lim
 	return out, rows.Err()
 }
 
-// HeartbeatBatch marks a WINDOW of agents online in one statement (Sprint 14,
-// SCALE-012): the per-RPC UPDATE scaled linearly with fleet size; the
-// transport now coalesces heartbeats and flushes per tenant. Within-window
-// heartbeats collapse (same now()) — exactly the wanted semantics.
-func (Agents) HeartbeatBatch(ctx context.Context, s tenancy.Scope, ids []string) error {
+// HeartbeatBatchVersions marks a WINDOW of agents online in one statement
+// (Sprint 14, SCALE-012): the per-RPC UPDATE scaled linearly with fleet size;
+// the transport now coalesces heartbeats and flushes per tenant. Within-window
+// heartbeats collapse (same now()) — exactly the wanted semantics. It also
+// records the central test-set version each agent reported as verified and
+// applied (G9), so GET /v1/agents can say whether the agent runs the tenant's
+// current tests. ids and versions are parallel slices.
+func (Agents) HeartbeatBatchVersions(ctx context.Context, s tenancy.Scope, ids []string, versions []uint64) error {
 	if len(ids) == 0 {
 		return nil
 	}
+	if len(ids) != len(versions) {
+		return apierror.Internal("heartbeat batch ids and versions differ in length")
+	}
+	vs := make([]int64, len(versions))
+	for i, v := range versions {
+		vs[i] = int64(v)
+	}
 	_, err := s.Q.Exec(ctx,
-		`UPDATE agents SET status = 'online', last_seen_at = now() WHERE id = ANY($1)`, ids)
+		`UPDATE agents AS a SET status = 'online', last_seen_at = now(), test_set_version = v.ver
+		   FROM unnest($1::uuid[], $2::bigint[]) AS v(id, ver)
+		  WHERE a.id = v.id`, ids, vs)
 	return err
 }

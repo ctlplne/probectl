@@ -486,6 +486,12 @@ type Identity struct {
 	Plane    string    `json:"plane"`
 	Serial   string    `json:"serial"`
 	NotAfter time.Time `json:"not_after"`
+	// TestSyncPublicKey is the deployment's test-bundle public key (PEM), set
+	// by the enrollment handler when central test distribution is configured
+	// (G9, D-41). The agent stores it as testsync.pub and verifies every pulled
+	// test bundle with it. It travels over the same token-authenticated,
+	// CA-verified exchange as the SVID.
+	TestSyncPublicKey string `json:"testsync_public_key,omitempty"`
 }
 
 // Enroll consumes a join token and issues the first SVID. The tenant comes

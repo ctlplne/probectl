@@ -29,7 +29,7 @@ type heartbeatBatcher struct {
 	window time.Duration
 
 	mu      sync.Mutex
-	pending map[string]map[string]struct{} // tenant -> agent ids
+	pending map[string]map[string]uint64 // tenant -> agent id -> applied test-set version
 
 	flushed func(n int) // test seam (optional)
 }
@@ -40,18 +40,20 @@ func newHeartbeatBatcher(pool *pgxpool.Pool, log *slog.Logger, window time.Durat
 	if window <= 0 {
 		window = defaultHeartbeatWindow
 	}
-	return &heartbeatBatcher{pool: pool, log: log, window: window, pending: map[string]map[string]struct{}{}}
+	return &heartbeatBatcher{pool: pool, log: log, window: window, pending: map[string]map[string]uint64{}}
 }
 
-// record buffers one heartbeat (cheap; the RPC path).
-func (h *heartbeatBatcher) record(tenantID, agentID string) {
+// record buffers one heartbeat (cheap; the RPC path) with the central
+// test-set version the agent reported (G9). Within a window the latest beat
+// wins.
+func (h *heartbeatBatcher) record(tenantID, agentID string, testSetVersion uint64) {
 	h.mu.Lock()
 	m := h.pending[tenantID]
 	if m == nil {
-		m = map[string]struct{}{}
+		m = map[string]uint64{}
 		h.pending[tenantID] = m
 	}
-	m[agentID] = struct{}{}
+	m[agentID] = testSetVersion
 	h.mu.Unlock()
 }
 
@@ -75,18 +77,20 @@ func (h *heartbeatBatcher) run(ctx context.Context) {
 func (h *heartbeatBatcher) flush(ctx context.Context) {
 	h.mu.Lock()
 	batch := h.pending
-	h.pending = map[string]map[string]struct{}{}
+	h.pending = map[string]map[string]uint64{}
 	h.mu.Unlock()
 
 	total := 0
 	for tenantID, agents := range batch {
 		ids := make([]string, 0, len(agents))
-		for id := range agents {
+		versions := make([]uint64, 0, len(agents))
+		for id, v := range agents {
 			ids = append(ids, id)
+			versions = append(versions, v)
 		}
 		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), h.pool,
 			func(ctx context.Context, s tenancy.Scope) error {
-				return (store.Agents{}).HeartbeatBatch(ctx, s, ids)
+				return (store.Agents{}).HeartbeatBatchVersions(ctx, s, ids, versions)
 			})
 		if err != nil {
 			h.log.Warn("heartbeat batch flush failed (re-buffering)",
@@ -94,11 +98,13 @@ func (h *heartbeatBatcher) flush(ctx context.Context) {
 			h.mu.Lock()
 			m := h.pending[tenantID]
 			if m == nil {
-				m = map[string]struct{}{}
+				m = map[string]uint64{}
 				h.pending[tenantID] = m
 			}
-			for _, id := range ids {
-				m[id] = struct{}{}
+			for i, id := range ids {
+				if _, newer := m[id]; !newer {
+					m[id] = versions[i]
+				}
 			}
 			h.mu.Unlock()
 			continue

@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/ctlplne/probectl/internal/a2a"
+	"github.com/ctlplne/probectl/internal/agenttransport"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/carbon"
@@ -60,6 +61,7 @@ import (
 	"github.com/ctlplne/probectl/internal/support"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/testsync"
 	"github.com/ctlplne/probectl/internal/threat"
 	"github.com/ctlplne/probectl/internal/topology"
 )
@@ -94,6 +96,7 @@ type serveRuntime struct {
 	flowEnricher pipeline.FlowEnricher
 	ipEnricher   *opendata.Enricher
 	a2aBroker    *a2a.Broker
+	testSync     *testsync.Source
 
 	dispatcher    *notify.Dispatcher
 	cmdbResolver  *cmdb.Resolver
@@ -470,13 +473,34 @@ func (rt *serveRuntime) configureTestSync() error {
 	if rt.cfg.TestSyncSigningKeyFile == "" {
 		return nil
 	}
-	tsPriv, _, _, err := crypto.LoadOrGenerateEd25519KeyFile(rt.cfg.TestSyncSigningKeyFile)
+	tsPriv, tsPub, generated, err := crypto.LoadOrGenerateEd25519KeyFile(rt.cfg.TestSyncSigningKeyFile)
 	if err != nil {
 		return fmt.Errorf("testsync signing key: %w", err)
 	}
-	rt.srv.WithTestSyncKey(tsPriv)
-	rt.log.Info("central test distribution enabled (signed bundles)", "key_file", rt.cfg.TestSyncSigningKeyFile)
+	src, err := testsync.NewSource(rt.db.Pool(), tsPriv)
+	if err != nil {
+		return err
+	}
+	rt.testSync = src
+	rt.srv.WithTestSync(src)
+	if generated {
+		rt.log.Warn("generated the test-bundle signing key; back it up — agents enrolled against it verify bundles with its public half",
+			"key_file", rt.cfg.TestSyncSigningKeyFile)
+	}
+	rt.log.Info("central test distribution enabled (signed bundles, agent pull over mTLS)",
+		"key_file", rt.cfg.TestSyncSigningKeyFile,
+		"public_key_fingerprint", fmt.Sprintf("sha256:%x", crypto.Hash(tsPub)))
 	return nil
+}
+
+// testBundles is the agent transport's view of the test-sync source; a typed
+// nil must not become a non-nil interface (that would turn "distribution off"
+// into a nil-pointer panic on the first pull).
+func (rt *serveRuntime) testBundles() agenttransport.TestBundles {
+	if rt.testSync == nil {
+		return nil
+	}
+	return rt.testSync
 }
 
 func (rt *serveRuntime) configureEvidenceSigning() error {
@@ -850,7 +874,7 @@ func (rt *serveRuntime) startTLSPostureSinks() {
 }
 
 func (rt *serveRuntime) startEdgeTransports() error {
-	if err := startAgentTransport(rt.gctx, rt.g, rt.cfg, rt.db, rt.resultBus, rt.a2aBroker, rt.srv, rt.enrollSvc, rt.writerFence, rt.log); err != nil {
+	if err := startAgentTransport(rt.gctx, rt.g, rt.cfg, rt.db, rt.resultBus, rt.a2aBroker, rt.srv, rt.enrollSvc, rt.writerFence, rt.testBundles(), rt.log); err != nil {
 		return err
 	}
 	if err := startOTLPSubsystems(rt.gctx, rt.g, rt.cfg, rt.db, rt.resultBus, rt.ingestWriter, rt.otelStore, rt.fairGate, rt.srv, rt.log); err != nil {

@@ -845,7 +845,7 @@ func TestTenantsList(t *testing.T) {
 	}
 }
 
-// Agents.HeartbeatBatch (bulk liveness update).
+// Agents.HeartbeatBatchVersions (bulk liveness + applied test-set version).
 func TestAgentsHeartbeatBatch(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
@@ -865,8 +865,11 @@ func TestAgentsHeartbeatBatch(t *testing.T) {
 			}
 			ids = append(ids, id)
 		}
-		if err := (Agents{}).HeartbeatBatch(ctx, s, ids); err != nil {
+		if err := (Agents{}).HeartbeatBatchVersions(ctx, s, ids, []uint64{3, 4}); err != nil {
 			t.Fatalf("heartbeatBatch: %v", err)
+		}
+		if err := (Agents{}).HeartbeatBatchVersions(ctx, s, ids, []uint64{3}); err == nil {
+			t.Fatal("mismatched ids/versions must be refused")
 		}
 		return nil
 	})

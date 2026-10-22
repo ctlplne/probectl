@@ -16,7 +16,7 @@ import (
 // AgentService must expose exactly these RPCs. A removed or renamed RPC fails
 // here, complementing the `buf breaking` check in CI.
 func TestServiceDescriptorMethods(t *testing.T) {
-	want := []string{"Register", "Attest", "Heartbeat", "StreamConfig", "StreamResults", "PollCoordination", "ReportEndpoint"}
+	want := []string{"Register", "Attest", "Heartbeat", "StreamConfig", "StreamResults", "PollCoordination", "ReportEndpoint", "FetchTestBundle"}
 
 	got := map[string]bool{}
 	for _, m := range agentv1.AgentService_ServiceDesc.Methods {

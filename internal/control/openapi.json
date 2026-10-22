@@ -8179,7 +8179,7 @@
         },
         "responses": {
           "200": {
-            "description": "Issued identity: leaf+intermediate chain, CA bundle, SPIFFE id, serial, expiry"
+            "description": "Issued identity: leaf+intermediate chain, CA bundle, SPIFFE id, serial, expiry, and (when central test distribution is configured) testsync_public_key, the PEM the agent verifies pulled test bundles with"
           },
           "401": {
             "description": "Invalid/replayed/expired token (uninformative by design)"
@@ -8811,8 +8811,8 @@
       "get": {
         "x-required-permission": "test.read",
         "operationId": "getTestBundle",
-        "summary": "Signed, pull-able bundle of the tenant's enabled tests (ARCH-001)",
-        "description": "Returns the caller's tenant's enabled tests as an Ed25519-SIGNED bundle. Agents poll this and verify the signature against a build-baked public key before applying \u2014 central test distribution without config push (StreamConfig stays denied). 503 when no signing key is configured.",
+        "summary": "Signed bundle of the tenant's enabled tests, as its agents pull it (G9)",
+        "description": "Returns the caller's tenant's enabled tests as the same Ed25519-SIGNED bundle the tenant's agents pull over mTLS (FetchTestBundle) and verify against the deployment's test-bundle public key (delivered at enrollment; `probectl-control testsync public-key`) before applying \u2014 central test distribution without config push (StreamConfig stays denied). The bundle epoch is the tenant's test-set version, bumped by every test create, update and delete. 503 when no signing key is configured; 413 when the enabled tests exceed the distributable maximum.",
         "tags": [
           "tests"
         ],
@@ -8840,6 +8840,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "503": {
             "$ref": "#/components/responses/ErrorResponse"

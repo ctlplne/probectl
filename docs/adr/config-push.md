@@ -1,6 +1,9 @@
 # ADR: agent config push stays unimplemented (de-documented)
 
-**Status:** accepted (2026-06)
+**Status:** accepted (2026-06). Superseded for synthetic test definitions only
+by [`central-test-distribution.md`](central-test-distribution.md) (D-41):
+agents now PULL their tenant's signed test set; `StreamConfig` stays an
+explicit deny and every other agent setting stays local.
 
 **Context:** `StreamConfig` was a *documented stub* — a stub is a declared
 call with no real behavior behind it, and the docs implied a config-push
