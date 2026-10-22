@@ -62,8 +62,8 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
   `probectl-endpoint`, `probectl-flow-agent`, `probectl-device-agent`,
   `probectl-cloud-metrics`, `terraform-provider-probectl`, and `probectl` (the
   CLI) — to
-  `ghcr.io/ctlplne/<component>`, tagged with the exact version and
-  `latest`. Each image is **cosign-keyless signed by immutable digest** and
+  `ghcr.io/ctlplne/<component>`, tagged with the exact version, and with
+  `latest` only for a full release (never a pre-release; step 5 below). Each image is **cosign-keyless signed by immutable digest** and
   carries **SLSA provenance and an SBOM** attestation (Buildx
   `provenance: true` + `sbom: true`). **SLSA provenance** is a signed build
   receipt — *which* workflow, on *which* commit, with *which* inputs, produced
@@ -169,7 +169,10 @@ tree is refused before any artifact is built.
    nothing silently recommends an incomplete build to a `docker pull` without a
    tag. The first tag outside 0.x is refused until the ledger reaches 100%, and
    any *other* failure of that gate — an invalid registry, a broken toolchain —
-   refuses every tag including 0.x. See `capabilities.yaml`.
+   refuses every tag including 0.x. A semver pre-release tag (`v1.0.0-rc.1`,
+   `v0.7.0-beta.1`) is a pre-release even with a complete ledger, so a release
+   candidate never becomes `latest` either; the images job refuses to push if a
+   pre-release ever computes the `latest` tag. See `capabilities.yaml`.
 
 ## Provenance & supply chain
 

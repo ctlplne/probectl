@@ -82,6 +82,19 @@ func TestGappedReleasesArePublishedAsPrereleases(t *testing.T) {
 		}
 	}
 
+	// G1/INV-02: the gated entry is the only route to `latest`, and a step
+	// before the push proves it held on the run itself. It must stay ahead of
+	// the push and keyed to the same prerelease output.
+	guard := strings.Index(images, "name: Refuse latest on a pre-release")
+	push := strings.Index(images, "id: build")
+	if guard < 0 || push < 0 || guard > push {
+		t.Error("release.yml's images job no longer refuses `latest` on a pre-release before the push " +
+			"(G1, INV-02)")
+	} else if !strings.Contains(images[guard:push], "needs.completeness-release-gate.outputs.prerelease == 'true'") {
+		t.Error("the pre-release latest guard is not keyed to the capability-ledger gate's prerelease output " +
+			"(G1, INV-02)")
+	}
+
 	binaries := jobBlock(t, release, "binaries")
 	if !strings.Contains(binaries, "prerelease: ${{ needs.completeness-release-gate.outputs.prerelease == 'true' }}") {
 		t.Error("the GitHub release is no longer flagged from the capability-ledger gate's prerelease output — " +

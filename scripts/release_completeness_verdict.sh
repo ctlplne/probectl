@@ -10,6 +10,11 @@
 #   gaps on any other tag  -> refused        exit = the gate's own status
 #   any other gate failure -> refused always exit = the gate's own status
 #
+# A semver pre-release tag (vX.Y.Z-<suffix>: -rc.1, -beta.2) is a pre-release
+# whatever the ledger says (G1, INV-02): `prerelease` is what keeps an image off
+# `latest`, and a release candidate with a complete ledger must not become the
+# default pull either.
+#
 # The oracle is untouched. This runs `make completeness-release-gate`, the same
 # command with the same verdict, prints every blocking row it named (DPR-251),
 # and never reinterprets a failure it cannot attribute to declared gaps. 0.x is
@@ -58,10 +63,19 @@ verdict() {
     fi
   fi
 
+  local suffixed=false
+  case "$tag" in
+    v*-*) suffixed=true ;;
+  esac
+
   emit "gaps=${gaps}"
-  if [ "$gaps" -gt 0 ]; then emit "prerelease=true"; else emit "prerelease=false"; fi
+  if [ "$gaps" -gt 0 ] || [ "$suffixed" = true ]; then emit "prerelease=true"; else emit "prerelease=false"; fi
 
   if [ "$rc" -eq 0 ]; then
+    if [ "$suffixed" = true ]; then
+      echo "capability ledger is 100% complete; ${tag} is a semver pre-release, so it publishes as a PRE-RELEASE and never moves latest"
+      return 0
+    fi
     echo "capability ledger is 100% complete; ${tag} publishes a full release"
     return 0
   fi
@@ -160,6 +174,12 @@ M
   case_run "complete ledger is a full 1.x release"       v1.0.0 clean  0       "gaps=0 prerelease=false"
   case_run "a non-gap gate failure refuses even on 0.x"  v0.6.4 broken nonzero ""
   case_run "a non-gap gate failure refuses on 1.x too"   v1.0.0 broken nonzero ""
+  # G1/INV-02: a semver pre-release suffix is a pre-release on its own, so a
+  # release candidate with a complete ledger still cannot move `latest`.
+  case_run "1.0.0-rc.1 + complete ledger is a pre-release" v1.0.0-rc.1   clean 0       "gaps=0 prerelease=true"
+  case_run "0.7.0-beta.1 + complete ledger is a pre-release" v0.7.0-beta.1 clean 0     "gaps=0 prerelease=true"
+  case_run "0.7.0-rc.1 + gaps publishes a pre-release"   v0.7.0-rc.1   gaps   0       "gaps=60 prerelease=true"
+  case_run "1.0.0-beta.1 + gaps is refused"              v1.0.0-beta.1 gaps   nonzero "gaps=60 prerelease=true"
 
   # An unset tag must not be guessed at.
   plant clean
@@ -173,7 +193,7 @@ M
     echo "release_completeness_verdict SELFTEST: FAILED" >&2
     return 1
   fi
-  echo "release_completeness_verdict SELFTEST: OK (0.x gaps publish a pre-release; every other tag and every non-gap failure is refused)"
+  echo "release_completeness_verdict SELFTEST: OK (0.x gaps and every vX.Y.Z-suffix tag publish a pre-release; every other gapped tag and every non-gap failure is refused)"
 }
 
 if [ "${SELFTEST:-0}" = "1" ]; then

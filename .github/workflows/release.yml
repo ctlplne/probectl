@@ -244,6 +244,20 @@ jobs:
             # immutable {{version}} tag, so `docs/install.md`'s digest pin works
             # exactly as documented, and nothing silently recommends it.
             type=raw,value=latest,enable=${{ needs.completeness-release-gate.outputs.prerelease != 'true' }}
+      # G1/INV-02: the enable expression above is the gate; this step proves it
+      # held for THIS run before anything is pushed. A pre-release (a gapped
+      # 0.x tag or any vX.Y.Z-suffix tag) must never carry `latest`.
+      - name: Refuse latest on a pre-release
+        if: needs.completeness-release-gate.outputs.prerelease == 'true'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          if printf '%s\n' "${TAGS}" | grep -qE ':latest$'; then
+            echo "::error::this pre-release computed the latest tag; refusing to push (G1, INV-02)" >&2
+            exit 1
+          fi
+          echo "pre-release: latest is not among the tags to push"
       - id: build
         name: Build + push multi-arch image (with provenance + SBOM)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
