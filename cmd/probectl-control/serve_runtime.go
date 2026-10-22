@@ -470,12 +470,9 @@ func (rt *serveRuntime) configureFairness() {
 }
 
 func (rt *serveRuntime) configureTestSync() error {
-	if rt.cfg.TestSyncSigningKeyFile == "" {
-		return nil
-	}
-	tsPriv, tsPub, generated, err := crypto.LoadOrGenerateEd25519KeyFile(rt.cfg.TestSyncSigningKeyFile)
-	if err != nil {
-		return fmt.Errorf("testsync signing key: %w", err)
+	tsPriv, tsPub, generated, from, err := loadTestSyncSigningKey(rt.cfg)
+	if err != nil || tsPriv == nil {
+		return err
 	}
 	src, err := testsync.NewSource(rt.db.Pool(), tsPriv)
 	if err != nil {
@@ -488,9 +485,38 @@ func (rt *serveRuntime) configureTestSync() error {
 			"key_file", rt.cfg.TestSyncSigningKeyFile)
 	}
 	rt.log.Info("central test distribution enabled (signed bundles, agent pull over mTLS)",
-		"key_file", rt.cfg.TestSyncSigningKeyFile,
+		"key_source", from,
 		"public_key_fingerprint", fmt.Sprintf("sha256:%x", crypto.Hash(tsPub)))
 	return nil
+}
+
+// loadTestSyncSigningKey resolves the test-bundle signing key (G9): the
+// inline, secret-injected PROBECTL_TESTSYNC_SIGNING_KEY (base64 PKCS#8 PEM, one
+// identity for every HA replica) wins over the single-node
+// PROBECTL_TESTSYNC_SIGNING_KEY_FILE, which is generated on first boot. Neither
+// set returns a nil key: central test distribution stays off. from names the
+// source for the startup log, never the key.
+func loadTestSyncSigningKey(cfg *config.Config) (priv, pub []byte, generated bool, from string, err error) {
+	switch {
+	case strings.TrimSpace(cfg.TestSyncSigningKey) != "":
+		priv, err = base64.StdEncoding.DecodeString(strings.TrimSpace(cfg.TestSyncSigningKey))
+		if err != nil {
+			return nil, nil, false, "", fmt.Errorf("testsync signing key (PROBECTL_TESTSYNC_SIGNING_KEY) is not valid base64: %w", err)
+		}
+		pub, err = crypto.PublicPEMFromPrivate(priv)
+		if err != nil {
+			return nil, nil, false, "", fmt.Errorf("testsync signing key (PROBECTL_TESTSYNC_SIGNING_KEY): %w", err)
+		}
+		return priv, pub, false, "PROBECTL_TESTSYNC_SIGNING_KEY", nil
+	case cfg.TestSyncSigningKeyFile != "":
+		priv, pub, generated, err = crypto.LoadOrGenerateEd25519KeyFile(cfg.TestSyncSigningKeyFile)
+		if err != nil {
+			return nil, nil, false, "", fmt.Errorf("testsync signing key: %w", err)
+		}
+		return priv, pub, generated, cfg.TestSyncSigningKeyFile, nil
+	default:
+		return nil, nil, false, "", nil
+	}
 }
 
 // testBundles is the agent transport's view of the test-sync source; a typed

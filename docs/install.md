@@ -286,12 +286,21 @@ helm install probectl deploy/helm/probectl \
   --set database.url='postgres://probectl:...@db:5432/probectl?sslmode=require' \
   --set secrets.envelopeKey="$(openssl rand -base64 32)" \
   --set secrets.sessionHMACKey="$(openssl rand -hex 32)" \
+  --set secrets.testSyncSigningKey="$(openssl genpkey -algorithm ed25519 | base64 | tr -d '\n')" \
   --set control.authMode=session \
   --set oidc.issuer=https://idp.example.com \
   --set oidc.clientId=probectl \
   --set oidc.clientSecret=REPLACE \
   --set oidc.redirectUrl=https://probectl.example.com/auth/callback
 ```
+
+`secrets.testSyncSigningKey` turns on central test distribution: tests created
+in the console, API or CLI reach every enrolled agent of the tenant, signed with
+this one key and verified by the agent. Every replica reads it from the same
+Secret, and the chart refuses a per-pod key file once more than one replica can
+run. Generate it once and keep it (back it up with the other Secret values); a
+new key means every agent needs the new public key (`probectl-control testsync
+public-key`). Without it the chart renders with central tests off.
 
 Provide the TLS Secret via cert-manager (add the issuer to `ingress.annotations`)
 or create it first. It must contain `tls.crt` and `tls.key`; the example reuses

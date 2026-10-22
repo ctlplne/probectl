@@ -331,6 +331,12 @@ type Config struct {
 	// their local tests, and GET /v1/tests/bundle reports 503. Every replica of
 	// one deployment must load the SAME key.
 	TestSyncSigningKeyFile string
+	// TestSyncSigningKey is the same key as a base64-encoded PKCS#8 PEM, injected
+	// from a secret manager or a Kubernetes Secret so every HA replica signs with
+	// ONE identity (a per-pod generated file would give each replica its own
+	// key, and agents would refuse the bundles of all but one). It wins over
+	// TestSyncSigningKeyFile. Secret material: never logged or bundled.
+	TestSyncSigningKey string
 	// EvidenceSigningKey is a base64-encoded PKCS#8 Ed25519 private key shared
 	// by every control-plane replica. EvidenceSigningKeyFile is the single-node
 	// generated+persistent alternative. They sign immutable
@@ -1092,6 +1098,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.ObjectStoreS3SessionToken = l.str("PROBECTL_OBJECTSTORE_S3_SESSION_TOKEN", "")
 	cfg.ObjectStoreS3Prefix = l.str("PROBECTL_OBJECTSTORE_S3_PREFIX", "probectl")
 	cfg.TestSyncSigningKeyFile = l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", "")
+	cfg.TestSyncSigningKey = l.str("PROBECTL_TESTSYNC_SIGNING_KEY", "")
 	cfg.EvidenceSigningKey = l.str("PROBECTL_EVIDENCE_SIGNING_KEY", "")
 	cfg.EvidenceSigningKeyFile = l.str("PROBECTL_EVIDENCE_SIGNING_KEY_FILE", "")
 	cfg.TSDBMode = l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus")

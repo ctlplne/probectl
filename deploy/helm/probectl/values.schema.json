@@ -474,6 +474,7 @@
         "envelopeKey": { "type": "string" },
         "sessionHMACKey": { "type": "string", "pattern": "^(|[0-9a-fA-F]{64})$" },
         "evidenceSigningKey": { "type": "string" },
+        "testSyncSigningKey": { "type": "string", "pattern": "^[A-Za-z0-9+/=]*$" },
         "objectStoreS3SecretKey": { "type": "string" },
         "objectStoreS3SessionToken": { "type": "string" }
       }

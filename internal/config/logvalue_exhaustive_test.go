@@ -114,7 +114,7 @@ func TestRedactedEmitsNoSecretMaterial(t *testing.T) {
 	secretMaterial := []string{
 		"EnvelopeKey", "EnvelopeOpenerKeys", "BusSASLPassword", "WormSigningKey",
 		"IRUnlockKey", "ObjectStoreS3AccessKey", "ObjectStoreS3SecretKey",
-		"ObjectStoreS3SessionToken", "EvidenceSigningKey", "AlertSMTPPassword",
+		"ObjectStoreS3SessionToken", "EvidenceSigningKey", "TestSyncSigningKey", "AlertSMTPPassword",
 		"SessionHMACKey", "OIDCClientSecret", "CMDBSecret", "OTLPFreshnessHMACKey",
 		"OTLPExportToken", "AIModelToken", "OutageRadarToken",
 		"ProviderBootstrapToken", "SIEMToken", "MetricsScrapeToken",

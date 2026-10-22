@@ -89,7 +89,7 @@ func supportBundle(args []string) error {
 
 // offlineSecrets gathers sensitive config values to scrub from the bundle.
 func offlineSecrets(c *config.Config) []string {
-	cand := []string{c.EnvelopeKey, c.OIDCClientSecret, c.CMDBSecret, c.AIModelToken, c.EvidenceSigningKey,
+	cand := []string{c.EnvelopeKey, c.OIDCClientSecret, c.CMDBSecret, c.AIModelToken, c.EvidenceSigningKey, c.TestSyncSigningKey,
 		c.OutageRadarToken, c.ProviderBootstrapToken, c.SIEMToken, c.ObjectStoreS3SecretKey, c.ObjectStoreS3SessionToken}
 	cand = append(cand, c.DatabaseCredentialValues()...)
 	out := cand[:0]

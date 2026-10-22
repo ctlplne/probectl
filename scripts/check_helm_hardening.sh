@@ -883,6 +883,42 @@ fi
 if render --set replicaCount=3 "${HA_DURABLE[@]}" --set-string secrets.existingSecret= >/dev/null 2>&1; then
   fail "chart rendered multi-replica WORM without secrets.existingSecret (CONFIG-09e06212)"
 fi
+# 3d. G9: every replica signs central test bundles with ONE key, or agents
+# refuse the bundles of all but one pod. The shared key comes from the Secret;
+# a per-pod key file is refused whenever more than one replica can run, the
+# inline key cannot ride the plaintext ConfigMap, a value the chart would
+# silently ignore (existingSecret) is refused, and a malformed key fails closed.
+# The throwaway PEM is shape-only (the chart checks the PEM header, the control
+# plane checks the key) and deliberately not key-shaped.
+TESTSYNC_PEM_B64="$(printf -- '-----BEGIN PRIVATE KEY-----\nshape-only\n-----END PRIVATE KEY-----\n' | base64 | tr -d '\n')"
+if render --set replicaCount=3 "${HA_DURABLE[@]}" \
+    --set-string control.extraEnv.PROBECTL_TESTSYNC_SIGNING_KEY_FILE=/var/lib/probectl/testsync-ed25519.pem >/dev/null 2>&1; then
+  fail "chart rendered a multi-replica control plane with a per-pod test-bundle signing-key file (G9)"
+fi
+if render --set replicaCount=1 --set autoscaling.enabled=true "${HA_DURABLE[@]}" \
+    --set autoscaling.minReplicas=1 --set autoscaling.maxReplicas=3 \
+    --set-string control.extraEnv.PROBECTL_TESTSYNC_SIGNING_KEY_FILE=/var/lib/probectl/testsync-ed25519.pem >/dev/null 2>&1; then
+  fail "chart rendered an autoscaled control plane with a per-pod test-bundle signing-key file (G9)"
+fi
+if render --set-string control.extraEnv.PROBECTL_TESTSYNC_SIGNING_KEY="$TESTSYNC_PEM_B64" >/dev/null 2>&1; then
+  fail "chart accepted the test-bundle signing key in the plaintext ConfigMap (G9)"
+fi
+if render --set-string secrets.testSyncSigningKey="$TESTSYNC_PEM_B64" >/dev/null 2>&1; then
+  fail "chart accepted secrets.testSyncSigningKey alongside secrets.existingSecret, where it would be silently ignored (G9)"
+fi
+testsync_inline=(--set-string secrets.existingSecret= --set audit.worm.enabled=false \
+  --set secrets.envelopeKey="$KEY" --set secrets.sessionHMACKey="$SESSION_KEY")
+if render "${testsync_inline[@]}" --set-string secrets.testSyncSigningKey="c2hhcGUtb25seQ==" >/dev/null 2>&1; then
+  fail "chart rendered a secrets.testSyncSigningKey that is not a base64 PKCS#8 PEM (G9)"
+fi
+testsync_ha="$(render "${testsync_inline[@]}" --set replicaCount=3 "${HA_DURABLE[@]}" \
+  --set-string secrets.testSyncSigningKey="$TESTSYNC_PEM_B64")" || fail "chart refused a multi-replica control plane with one shared test-bundle signing key (G9)"
+testsync_secret="$(awk '/kind: Secret$/,/^---/' <<<"$testsync_ha")"
+need_fixed "PROBECTL_TESTSYNC_SIGNING_KEY: \"$TESTSYNC_PEM_B64\"" "$testsync_secret" \
+  "the shared test-bundle signing key must ride the chart Secret every replica reads (G9)"
+if grep -Fq "PROBECTL_TESTSYNC_SIGNING_KEY" <<<"$(awk '/kind: ConfigMap$/,/^---/' <<<"$testsync_ha")"; then
+  fail "the test-bundle signing key leaked into the plaintext ConfigMap (G9)"
+fi
 if render --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/audit-worm >/dev/null 2>&1; then
   fail "chart accepted a hand-set PROBECTL_AUDIT_WORM_DIR (DPR-116: audit.worm.* owns it)"
 fi

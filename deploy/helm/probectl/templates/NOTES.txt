@@ -10,6 +10,14 @@ The API is served over HTTPS only, through the TLS-terminating ingress:
            Set control.authMode=session and configure oidc.* before production.
 {{- end }}
 
+{{- if and (not .Values.secrets.testSyncSigningKey) (not .Values.secrets.existingSecret) }}
+
+  NOTE: secrets.testSyncSigningKey is unset, so central test distribution is
+        OFF: tests created in the console, API or CLI will not reach agents.
+        Set it to one shared key (openssl genpkey -algorithm ed25519 | base64)
+        and upgrade; enrolled agents then pull and verify their tenant's tests.
+{{- end }}
+
 Quick checks (from a pod or your network):
 
   curl https://{{ .Values.ingress.host }}/readyz

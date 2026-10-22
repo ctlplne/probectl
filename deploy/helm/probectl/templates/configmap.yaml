@@ -47,6 +47,7 @@
   "PROBECTL_WORM_SIGNING_KEY"
   "PROBECTL_EVIDENCE_SIGNING_KEY"
   "PROBECTL_EVIDENCE_SIGNING_KEY_FILE"
+  "PROBECTL_TESTSYNC_SIGNING_KEY"
   "PROBECTL_IR_UNLOCK_KEY"
   "PROBECTL_LICENSE_FILE"
   "PROBECTL_OTLP_GRPC_ADDR"
@@ -76,6 +77,21 @@
 {{- fail (printf "control.extraEnv.%s looks like a secret (its name matches token/password/secret/key): control.extraEnv is written verbatim into a plaintext ConfigMap, so the value would sit unencrypted at rest. Inject it through secrets.existingSecret (a Secret projected as env), or pass a *_FILE path to a mounted Secret, instead of control.extraEnv (AUTHZ-27, guardrail 7.6)" $k) -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- /* G9: every replica must sign test bundles with ONE key, or agents refuse
+       the bundles of all but one pod. A key file is per pod (each generates its
+       own on first boot), so it is refused whenever more than one replica can
+       run; the shared key comes from the Secret (secrets.testSyncSigningKey or
+       PROBECTL_TESTSYNC_SIGNING_KEY in secrets.existingSecret). */ -}}
+{{- $haTestSync := gt (int .Values.replicaCount) 1 -}}
+{{- if and .Values.autoscaling.enabled (gt (int (.Values.autoscaling.maxReplicas | default 1)) 1) -}}
+{{- $haTestSync = true -}}
+{{- end -}}
+{{- if and $haTestSync (get $extraEnv "PROBECTL_TESTSYNC_SIGNING_KEY_FILE") -}}
+{{- fail "multi-replica control planes forbid control.extraEnv.PROBECTL_TESTSYNC_SIGNING_KEY_FILE: each pod would generate its own test-bundle signing key and agents would refuse the bundles of every other replica. Inject one shared key as secrets.testSyncSigningKey (or PROBECTL_TESTSYNC_SIGNING_KEY in secrets.existingSecret) instead (G9)" -}}
+{{- end -}}
+{{- if and .Values.secrets.existingSecret .Values.secrets.testSyncSigningKey -}}
+{{- fail "secrets.testSyncSigningKey is ignored when secrets.existingSecret is set: put PROBECTL_TESTSYNC_SIGNING_KEY in that Secret instead (G9)" -}}
 {{- end -}}
 {{- if get $extraEnv "PROBECTL_AUDIT_WORM_DIR" -}}
 {{- fail "control.extraEnv.PROBECTL_AUDIT_WORM_DIR is reserved; set audit.worm.enabled=true with audit.worm.existingClaim (DPR-116) — signed audit segments have their own object-lock volume and no longer ride on the tenant artifact store" -}}
