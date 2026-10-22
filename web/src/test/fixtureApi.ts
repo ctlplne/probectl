@@ -992,6 +992,8 @@ function coldFixture(path: string): Response | null {
         as_of: '2026-06-04T12:00:00Z',
         retention: { max_per_tenant: 4096, retention_days: 30 },
       })
+    case '/v1/bgp/events':
+      return jsonResponse({ items: [], bgp_running: true, effective_limit: 50 })
     case '/v1/device/syslog':
       return jsonResponse({ items: [], syslog_running: true })
     case '/v1/device/configs':
@@ -2035,6 +2037,49 @@ export function fixtureFetch(
         as_of: '2026-06-04T12:00:00Z',
         stale_after_seconds: 180,
         retention: { max_per_tenant: 4096, retention_days: 30 },
+      })
+    if (path === '/v1/bgp/events')
+      return jsonResponse({
+        items: [
+          {
+            id: 'inc-bgp-1',
+            incident_id: 'inc-bgp-1',
+            kind: 'bgp.possible_hijack',
+            severity: 'critical',
+            title: '203.0.113.0/24 announced by unexpected AS65021 (expected [64500])',
+            target: '203.0.113.0/24',
+            prefix: '203.0.113.0/24',
+            attributes: {
+              collector: 'rrc00',
+              new_origin_asn: '65021',
+              expected_origins: '64500',
+              new_as_path: '64511,65021',
+              rpki_status: 'RPKI_STATUS_INVALID',
+              confidence: '0.85',
+            },
+            occurred_at: '2026-06-04T12:00:00Z',
+          },
+          {
+            id: 'inc-bgp-1',
+            incident_id: 'inc-bgp-1',
+            kind: 'bgp.origin_change',
+            severity: 'warning',
+            title: 'origin for 203.0.113.0/24 changed AS64500 -> AS65021',
+            target: '203.0.113.0/24',
+            prefix: '203.0.113.0/24',
+            attributes: {
+              collector: 'rrc00',
+              new_origin_asn: '65021',
+              old_origin_asn: '64500',
+              expected_origins: '64500',
+              rpki_status: 'RPKI_STATUS_UNKNOWN',
+              confidence: '0.70',
+            },
+            occurred_at: '2026-06-04T11:59:00Z',
+          },
+        ],
+        bgp_running: true,
+        effective_limit: 50,
       })
     if (path === '/v1/device/syslog')
       return jsonResponse({

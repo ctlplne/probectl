@@ -26,12 +26,14 @@ import {
 } from '../components'
 import { useEndpoints, type EndpointView } from '../api/endpoints'
 import {
+  useBgpEvents,
   useDeviceConfigs,
   useDeviceNeighbors,
   useDeviceSyslog,
   useFlowAnomalies,
   useFlowCapacity,
   useFlowTop,
+  type BgpEvent,
   type DeviceConfigVersion,
   type DeviceNeighborEvidence,
   type DeviceSyslogEvent,
@@ -80,6 +82,7 @@ function isPlaneID(value: string | undefined): value is PlaneID {
 
 const EMPTY_TOPO_NODES: TopoNode[] = []
 const EMPTY_TOPO_EDGES: TopoEdge[] = []
+const EMPTY_BGP_EVENTS: BgpEvent[] = []
 
 function compact(n: number, locale: string): string {
   return formatInteger(n, locale)
@@ -122,6 +125,7 @@ export function PlanesPage() {
   const [flowBy, setFlowBy] = useState<FlowGroupBy>('src')
   const [flowFilters, setFlowFilters] = useState<FlowFilter[]>([])
   const topology = useTopology()
+  const bgpEvents = useBgpEvents(50)
   const endpoints = useEndpoints()
   const topTalkers = useFlowTop(flowBy, '1h', 8, flowFilters)
   const capacity = useFlowCapacity('1h', '5m')
@@ -243,6 +247,9 @@ export function PlanesPage() {
 
         {active === 'bgp' ? (
           <BGPPanel
+            events={bgpEvents.data?.items ?? EMPTY_BGP_EVENTS}
+            eventsLoading={bgpEvents.isLoading}
+            eventsError={bgpEvents.isError}
             isLoading={topology.isLoading}
             isError={topology.isError}
             nodes={nodes}
@@ -382,12 +389,18 @@ function PlaneStat({
 }
 
 function BGPPanel({
+  events,
+  eventsLoading,
+  eventsError,
   isLoading,
   isError,
   nodes,
   routingEdges,
   coverage,
 }: {
+  events: BgpEvent[]
+  eventsLoading: boolean
+  eventsError: boolean
   isLoading: boolean
   isError: boolean
   nodes: TopoNode[]
@@ -414,6 +427,7 @@ function BGPPanel({
   ]
   return (
     <section id="plane-panel-bgp" role="tabpanel" className={styles.panelGrid}>
+      <BGPEventsCard events={events} isLoading={eventsLoading} isError={eventsError} />
       <Card>
         <CardHeader
           title={t('planes.bgp.card.title')}
@@ -460,6 +474,133 @@ function BGPPanel({
         ]}
       />
     </section>
+  )
+}
+
+// BGP_EVENT_KINDS maps the read model's kinds to their labels; an unknown kind
+// shows as-is rather than disappearing.
+const BGP_EVENT_KINDS: Record<string, MessageKey> = {
+  'bgp.possible_hijack': 'planes.bgp.events.kind.possibleHijack',
+  'bgp.possible_leak': 'planes.bgp.events.kind.possibleLeak',
+  'bgp.origin_change': 'planes.bgp.events.kind.originChange',
+  'bgp.rpki_invalid': 'planes.bgp.events.kind.rpkiInvalid',
+}
+
+const BGP_RPKI_STATUS: Record<string, MessageKey> = {
+  RPKI_STATUS_VALID: 'planes.bgp.events.rpki.valid',
+  RPKI_STATUS_INVALID: 'planes.bgp.events.rpki.invalid',
+  RPKI_STATUS_NOT_FOUND: 'planes.bgp.events.rpki.notFound',
+}
+
+function bgpEventTone(severity: string) {
+  return severity === 'critical' ? 'danger' : severity === 'warning' ? 'warning' : 'neutral'
+}
+
+function asnList(raw: string | undefined, format: (asn: string) => string) {
+  const asns = (raw ?? '')
+    .split(',')
+    .map((a) => a.trim())
+    .filter((a) => a !== '' && a !== '0')
+  return asns.length > 0 ? asns.map(format).join(', ') : undefined
+}
+
+// BGPEventsCard is the plane's answer to "us or the internet?": the routing
+// anomalies (hijacks, leaks, origin changes, RPKI-invalid announcements) seen
+// for the tenant's own prefixes, from GET /v1/bgp/events (DPR-293). They are
+// signals for a person to act on; probectl never touches routing.
+function BGPEventsCard({
+  events,
+  isLoading,
+  isError,
+}: {
+  events: BgpEvent[]
+  isLoading: boolean
+  isError: boolean
+}) {
+  const { t } = useI18n()
+  const asn = (a: string) => t('planes.bgp.events.asn', { asn: a })
+  const none = t('planes.bgp.events.notSet')
+  const rows = events.map((e, index) => ({ ...e, rowID: `${e.id}-${index}` }))
+  const columns: Column<(typeof rows)[number]>[] = [
+    {
+      key: 'kind',
+      header: t('planes.bgp.events.column.detection'),
+      render: (e) => (
+        <Badge tone={bgpEventTone(e.severity)}>
+          {BGP_EVENT_KINDS[e.kind] ? t(BGP_EVENT_KINDS[e.kind]) : e.kind}
+        </Badge>
+      ),
+    },
+    {
+      key: 'prefix',
+      header: t('planes.bgp.column.prefix'),
+      render: (e) => <strong>{e.prefix || e.target}</strong>,
+    },
+    {
+      key: 'origin',
+      header: t('planes.bgp.events.column.origin'),
+      render: (e) => {
+        const now = asnList(e.attributes?.new_origin_asn, asn) ?? none
+        const before = asnList(e.attributes?.old_origin_asn, asn)
+        return before ? t('planes.bgp.events.originChanged', { before, now }) : now
+      },
+    },
+    {
+      key: 'expected',
+      header: t('planes.bgp.events.column.expected'),
+      render: (e) => asnList(e.attributes?.expected_origins, asn) ?? none,
+    },
+    {
+      key: 'path',
+      header: t('planes.bgp.events.column.path'),
+      render: (e) => e.attributes?.new_as_path?.split(',').join(' ') || none,
+    },
+    {
+      key: 'source',
+      header: t('planes.bgp.events.column.source'),
+      render: (e) => e.attributes?.collector || none,
+    },
+    {
+      key: 'rpki',
+      header: t('planes.bgp.events.column.rpki'),
+      render: (e) => {
+        const key = BGP_RPKI_STATUS[e.attributes?.rpki_status ?? '']
+        return key ? t(key) : t('planes.bgp.events.rpki.unknown')
+      },
+    },
+    {
+      key: 'when',
+      header: t('planes.bgp.events.column.when'),
+      render: (e) => <DateTime value={e.occurred_at} />,
+    },
+  ]
+  return (
+    <Card>
+      <CardHeader
+        title={t('planes.bgp.events.title')}
+        description={t('planes.bgp.events.description')}
+      />
+      <CardBody>
+        {isLoading ? (
+          <LoadingState label={t('planes.bgp.events.loading')} />
+        ) : isError ? (
+          <ErrorState description={t('planes.bgp.events.error')} />
+        ) : (
+          <Table
+            caption={t('planes.bgp.events.caption')}
+            columns={columns}
+            rows={rows}
+            rowKey={(r) => r.rowID}
+            empty={
+              <EmptyState
+                title={t('planes.bgp.events.empty.title')}
+                description={t('planes.bgp.events.empty.description')}
+              />
+            }
+          />
+        )}
+      </CardBody>
+    </Card>
   )
 }
 

@@ -55,6 +55,7 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
     method: 'GET',
     path: '/v1/alerts/40000000-0000-4000-8000-000000000001/evaluations',
   },
+  { method: 'GET', path: '/v1/bgp/events' },
   { method: 'GET', path: '/v1/carbon' },
   { method: 'GET', path: '/v1/compliance' },
   { method: 'GET', path: '/v1/cost/summary' },

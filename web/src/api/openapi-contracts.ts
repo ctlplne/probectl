@@ -724,6 +724,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/planes.ts',
     method: 'GET',
+    path: '`/bgp/events?limit=${limit}`',
+    response: 'BgpEventsResponse',
+    generated: 'ListBgpEventsResponse',
+  },
+  {
+    file: 'api/planes.ts',
+    method: 'GET',
     path: '`/device/syslog?limit=${limit}`',
     response: 'DeviceSyslogResponse',
     generated: 'JsonObject',
@@ -948,6 +955,8 @@ export const OPENAPI_TYPE_CONTRACTS = {
   hop: true,
   hopNode: true,
   pathLink: true,
+  bgpEvent: true,
+  bgpEventList: true,
   flowTopRow: true,
   flowTopList: true,
   flowIngestQualityReceipt: true,
@@ -1021,6 +1030,8 @@ export const OPENAPI_TYPE_CONTRACTS = {
   hop: GeneratedHasViewKeys<SDK.Hop, Paths.Hop>
   hopNode: GeneratedHasViewKeys<SDK.HopNode, Paths.HopNode>
   pathLink: GeneratedHasViewKeys<SDK.Link, Paths.Link>
+  bgpEvent: GeneratedHasViewKeys<SDK.BGPEvent, Planes.BgpEvent>
+  bgpEventList: GeneratedHasViewKeys<SDK.BGPEventList, Planes.BgpEventsResponse>
   flowTopRow: GeneratedHasViewKeys<SDK.FlowTopRow, Planes.FlowTopRow>
   flowTopList: GeneratedHasViewKeys<SDK.FlowTopList, Planes.FlowTopResponse>
   flowIngestQualityReceipt: GeneratedHasViewKeys<

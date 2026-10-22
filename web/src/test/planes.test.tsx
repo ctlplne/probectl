@@ -429,6 +429,36 @@ describe('plane workspaces', () => {
     expect(within(table).getByText('203.0.113.0/24')).toBeInTheDocument()
   })
 
+  // DPR-293: the BGP page answers "us or the internet?" with the tenant's
+  // routing anomalies from GET /v1/bgp/events, not only the routing graph.
+  test('lists the routing anomalies the BGP events API returns', async () => {
+    renderApp('/planes/bgp')
+
+    const anomalies = await screen.findByRole('table', { name: 'BGP routing anomalies' })
+    const rows = within(anomalies).getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(2)
+    const hijack = within(rows[0])
+    expect(hijack.getByText('Possible hijack')).toBeInTheDocument()
+    expect(hijack.getByText('203.0.113.0/24')).toBeInTheDocument()
+    expect(hijack.getByText('AS65021')).toBeInTheDocument()
+    expect(hijack.getByText('AS64500')).toBeInTheDocument()
+    expect(hijack.getByText('64511 65021')).toBeInTheDocument()
+    expect(hijack.getByText('rrc00')).toBeInTheDocument()
+    expect(hijack.getByText('Invalid')).toBeInTheDocument()
+    const change = within(rows[1])
+    expect(change.getByText('Origin change')).toBeInTheDocument()
+    expect(change.getByText('AS64500 → AS65021')).toBeInTheDocument()
+    expect(change.getByText('Unknown')).toBeInTheDocument()
+  })
+
+  test('a tenant with no routing anomalies is told so', async () => {
+    vi.stubGlobal('fetch', coldFetch())
+    renderApp('/planes/bgp')
+
+    expect(await screen.findByText('No routing anomalies')).toBeInTheDocument()
+    expect(screen.queryByText('Possible hijack')).not.toBeInTheDocument()
+  })
+
   test('renders flow Sankey lanes with a table fallback', async () => {
     renderApp('/planes/flow')
 

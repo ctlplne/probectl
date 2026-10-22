@@ -131,6 +131,11 @@ incident id and the correlation verdict next to the detection context (DPR-057):
 You see the prefix, the AS that *should* originate it versus the one that *did*, and
 the RPKI verdict — enough to act in seconds.
 
+The console shows the same list: **Planes > BGP > Routing anomalies** gives each
+event's detection, prefix, announcing AS (and the origin it replaced), expected
+origin, AS path, the collector that saw it and the RPKI verdict, newest first,
+above the routing graph (DPR-293). `probectl bgp events` prints it for scripts.
+
 Run the public-collector analyzer through its shipped tenant-bound bridge (the
 sidecar is opt-in and needs the same TLS Kafka settings as the control plane):
 

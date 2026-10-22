@@ -150,6 +150,27 @@ export interface FlowIngestQualityResponse {
   }
 }
 
+/** One routing anomaly from GET /v1/bgp/events: a scored signal the analyzer or
+ *  a tenant BMP router raised for the tenant's prefixes (never an action). */
+export interface BgpEvent {
+  id: string
+  incident_id: string
+  kind: string
+  severity: string
+  title: string
+  summary?: string
+  target?: string
+  prefix?: string
+  attributes?: Record<string, string>
+  occurred_at: string
+}
+
+export interface BgpEventsResponse {
+  items: BgpEvent[]
+  bgp_running?: boolean
+  effective_limit?: number
+}
+
 export interface DeviceSyslogEvent {
   id: string
   device: string
@@ -305,6 +326,13 @@ export function useFlowIngestQuality(limit = 100) {
   return useQuery({
     queryKey: ['flows', 'ingest-quality', limit],
     queryFn: () => apiFetch<FlowIngestQualityResponse>(`/flows/ingest-quality?limit=${limit}`),
+  })
+}
+
+export function useBgpEvents(limit = 50) {
+  return useQuery({
+    queryKey: ['bgp', 'events', limit],
+    queryFn: () => apiFetch<BgpEventsResponse>(`/bgp/events?limit=${limit}`),
   })
 }
 
