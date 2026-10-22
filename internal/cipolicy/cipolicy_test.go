@@ -116,7 +116,7 @@ func TestReleasePublishingGraphRequiresCompletenessGate(t *testing.T) {
 	// These jobs execute before, or in parallel with, the completeness gate and
 	// do not produce release output. Every other job belongs to the guarded
 	// release graph. Today images and binaries depend on the gate directly;
-	// chart, package, compose-pull, and air-gap jobs inherit it transitively.
+	// chart, package, anonymous-pull, and air-gap jobs inherit it transitively.
 	allowedBeforeCompleteness := map[string]bool{
 		"require-green-ci":          true,
 		"components-match-makefile": true,
@@ -124,7 +124,7 @@ func TestReleasePublishingGraphRequiresCompletenessGate(t *testing.T) {
 		gate:                        true,
 	}
 	for _, job := range []string{
-		"images", "compose-image-anonymous-pull", "binaries",
+		"images", "anonymous-pull-smoke", "binaries",
 		"publish-chart", "packages", "airgap-bundle",
 	} {
 		if _, ok := needsByJob[job]; !ok {

@@ -110,10 +110,14 @@ requires digest-pinned `PROBECTL_IMAGE`, and Helm requires the signed digest in
 GHCR package visibility is an operator-facing install contract, not something
 Compose can repair at startup: if a release image is not public, the install docs
 must say to authenticate (`docker login ghcr.io` with `read:packages`) or use a
-mirrored `PROBECTL_IMAGE`. If the repository setting
-`PROBECTL_COMPOSE_IMAGE_PUBLIC=true` is enabled, `release.yml` runs an
-anonymous-pull smoke against the exact image pinned in
-[`deploy/compose/probectl.yml`](../deploy/compose/probectl.yml) after publishing.
+mirrored `PROBECTL_IMAGE`. After publishing, every release runs the
+`anonymous pull + verify smoke` job
+([`scripts/release_anonymous_pull_smoke.sh`](../scripts/release_anonymous_pull_smoke.sh)):
+with an empty credential store it pulls every image in the release's images
+matrix (layers included) and both charts, and verifies each cosign signature
+against the release workflow's identity. Partner-only images are skipped. A
+package GitHub creates private on its first push fails the job until its
+visibility is set to public; re-run the failed job after changing it.
 
 ## Cutting a release
 
