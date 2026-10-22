@@ -8,7 +8,8 @@
 # release_anonymous_pull_smoke.sh (G1, RTO-27) — prove that a published
 # release can be pulled and verified by someone holding no credentials at all:
 # every image the release workflow publishes and both charts, each read
-# anonymously and each signature verified against the release identity.
+# anonymously and each signature (and each image's SPDX SBOM attestation)
+# verified against the release identity.
 #
 #   scripts/release_anonymous_pull_smoke.sh <registry/owner> <version>
 #   scripts/release_anonymous_pull_smoke.sh ghcr.io/ctlplne 0.6.6
@@ -88,7 +89,15 @@ for image in $images; do
     fail=1
     continue
   fi
-  echo "ok  ${image}@${digest}: pulled and verified anonymously"
+  # The SPDX SBOM attestation verifies too (G1, TQ-07), anonymously and against
+  # the same identity as the image signature.
+  # shellcheck disable=SC2086 # flags are a word list by design
+  if ! cosign verify-attestation --type spdxjson $COSIGN_VERIFY_FLAGS "${prefix}/${image}@${digest}" >/dev/null 2>"$anon/err"; then
+    echo "::error::anonymous SBOM attestation verification of ${prefix}/${image}@${digest} failed: $(tr '\n' ' ' < "$anon/err")" >&2
+    fail=1
+    continue
+  fi
+  echo "ok  ${image}@${digest}: pulled, signature and SBOM attestation verified anonymously"
   checked=$((checked + 1))
 done
 

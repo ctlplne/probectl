@@ -65,7 +65,9 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
   `ghcr.io/ctlplne/<component>`, tagged with the exact version, and with
   `latest` only for a full release (never a pre-release; step 5 below). Each image is **cosign-keyless signed by immutable digest** and
   carries **SLSA provenance and an SBOM** attestation (Buildx
-  `provenance: true` + `sbom: true`). **SLSA provenance** is a signed build
+  `provenance: true` + `sbom: true`), and each image digest also carries an SPDX SBOM as a cosign
+  attestation under the same keyless identity, so `cosign verify-attestation --type spdxjson`
+  checks it without knowing BuildKit's layout. **SLSA provenance** is a signed build
   receipt — *which* workflow, on *which* commit, with *which* inputs, produced
   these bytes — and an **attestation** is such a statement cryptographically
   attached to the image, so a cluster or auditor can demand it before trusting

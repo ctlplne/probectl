@@ -289,6 +289,30 @@ jobs:
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
             "${IMAGE_REF}"
+      # G1/TQ-07: the BuildKit SBOM rides inside the image index, where only a
+      # tool that knows BuildKit's layout finds it. Attach an SPDX SBOM to the
+      # signed digest as a cosign attestation too, so `cosign verify-attestation
+      # --type spdxjson` (or an admission controller) can check it with the same
+      # keyless identity as the image signature.
+      - name: Generate the image SBOM (SPDX)
+        uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84 # v0.20.9
+        with:
+          image: ${{ env.IMAGE_PREFIX }}/${{ matrix.component }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: image-sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest and self-verify the image SBOM (cosign keyless)
+        env:
+          IMAGE_REF: ${{ env.IMAGE_PREFIX }}/${{ matrix.component }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign attest --yes --type spdxjson --predicate image-sbom.spdx.json "${IMAGE_REF}"
+          cosign verify-attestation --type spdxjson \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
+            "${IMAGE_REF}" >/dev/null
+          echo "SBOM attestation verifies for ${IMAGE_REF}"
 
   anonymous-pull-smoke:
     permissions:
