@@ -35,12 +35,13 @@ operator-owned paths:
   Each accepted trap is normalized into a tenant-scoped event, deduplicated by
   fingerprint against retransmits, and published once to the tenant's
   `probectl.device.trap-events` bus lane (tenant-keyed). The tenant comes from
-  the agent's registered identity, never the trap payload. **What the control
-  plane does with it today: nothing.** No API, CLI command or page lists
-  traps, and a trap raises no alert or incident; refused traps are counted in
-  the agent's payload-free `live ingestion record failed` log line. Consume
-  the lane yourself (a SIEM forwarder, for instance) until a trap read model
-  ships.
+  the agent's registered identity, never the trap payload. The control plane
+  stores every accepted trap in the tenant's forced-RLS trap table, and the
+  tenant reads it back through `GET /v1/device/traps`, `probectl device
+  traps` and the **Traps** card on the Device page (see
+  [SNMP traps — the read model](#snmp-traps--the-read-model)). Refused traps
+  never get that far: the agent counts them in its payload-free `live
+  ingestion record failed` log line and drops them.
 - **Syslog and config archive** — authenticated control-plane APIs let an
   operator or owned collector submit device syslog lines and versioned network
   configs. Rows are tenant-bound at write/read time; configs are redacted before
@@ -62,11 +63,13 @@ flowchart LR
   D -- "gNMI Subscribe (stream, TLS)" --> A
   A -- "probectl.device.metrics (DeviceMetricBatch, tenant-keyed)" --> B[(bus)]
   A -- "probectl.device.neighbors (bounded LLDP/CDP snapshot)" --> B
-  A -- "probectl.device.trap-events (DeviceTrapEventBatch, tenant-keyed; deduped; no control-plane consumer yet)" --> B
+  A -- "probectl.device.trap-events (DeviceTrapEventBatch, tenant-keyed; deduped)" --> B
   A -- "syslog + config snapshots (tenant-scoped)" --> O[(device ops store)]
   B --> P[control plane DeviceConsumer]
   P --> T[(TSDB: probectl_device_* series)]
   P --> N[(forced-RLS current-neighbor store)]
+  B --> Q[control plane DeviceTrapConsumer]
+  Q --> R[(forced-RLS trap store: GET /v1/device/traps)]
   P --> I[(tenant-local topology + identity conflicts)]
   A -- "interface inventory (ifIndex, ifName, addresses)" --> C[Correlator]
   C -. "hop IP -> device/interface" .-> PathPlane[path plane]
@@ -394,6 +397,71 @@ to start instead. The named-credential seam is also the integration point for a
 real secrets backend (Vault, CyberArk, a cloud KMS) plugging in later without
 touching any device config.
 
+## SNMP traps — the read model
+
+An accepted trap travels agent → the tenant's `trap-events` lane → the control
+plane's `DeviceTrapConsumer` → the `device_traps` table → the API, the CLI and
+the Device page. Each hop keeps the tenant boundary:
+
+- **The tenant is the lane's, never the payload's.** On a tenant-namespaced
+  lane (every tenant has one, hybrid and siloed tenants included) the lane
+  names the tenant and overwrites whatever the record claims; the claimed agent
+  must still be registered in that tenant. On the shared pooled lane the
+  claimed (tenant, agent) pair must be registered, and strict-lane mode
+  (`PROBECTL_INGEST_STRICT_TENANT_LANES`) refuses the shared lane outright.
+  A batch with no identity, mixed identities or an unregistered pair is
+  dropped and counted, never stored.
+- **Untrusted input is bounded before storage.** At most 64 events per bus
+  record and 64 varbinds per trap (the first 64 are kept and the record is
+  marked `varbinds_truncated`), values capped at 512 bytes, OIDs dotted-decimal
+  only; a binary octet string (a MAC address, an engine id) is stored as
+  `0x…` hex. A device clock in the future is clamped to the receive time.
+- **Idempotent on redelivery.** The agent's dedup fingerprint is unique per
+  (tenant, agent), so a redelivered bus record inserts nothing. A storage
+  failure is not acknowledged, so the bus redelivers it.
+- **Storage is the tenant boundary.** `device_traps` (migration 0126) carries
+  a non-null `tenant_id`, FORCE ROW LEVEL SECURITY and the tenant write fence
+  from its first migration. Pooled and hybrid tenants' rows live in the shared
+  table under row security; a siloed tenant's live in its own schema.
+- **Retention.** Rows older than 30 days, and rows past the newest 10,000 per
+  tenant, are pruned on write. Tenant erasure removes them all; subject
+  erasure removes the rows whose sender, device address or varbind values
+  match the subject. Nothing here is a configuration key.
+- **No credential material, anywhere.** A record names the matched source
+  (`auth_principal`: the configured source name for SNMPv2c, the USM user name
+  for SNMPv3) and never the community or a passphrase.
+
+`GET /v1/device/traps` (permission `metrics.read`) returns the caller tenant's
+traps newest first, with `device` (exact address), `since`/`until` (RFC 3339,
+on the receive clock) and `limit` (default 100, hard cap 500) filters:
+
+```bash
+probectl device traps --query device=10.0.0.1 --query since=2026-10-22T00:00:00Z --json
+```
+
+```json
+{
+  "contract_version": "probectl.device-traps/v1",
+  "items": [{
+    "id": "…", "agent_id": "device-agent-1",
+    "device_address": "10.0.0.1", "source_address": "10.0.0.1",
+    "auth_principal": "core-ro", "version": "snmpv3",
+    "kind": "snmp.trap.link_down", "severity": "warning",
+    "trap_oid": ".1.3.6.1.6.3.1.1.5.3", "trap_name": "linkDown",
+    "if_index": 2,
+    "varbinds": [{"oid": ".1.3.6.1.2.1.2.2.1.1.2", "type": "Integer", "value": "2"}],
+    "observed_at": "2026-10-22T12:00:00Z", "received_at": "2026-10-22T12:00:00Z"
+  }],
+  "collection_running": true, "effective_limit": 100, "truncated": false,
+  "retention": {"max_per_tenant": 10000, "retention_days": 30, "max_varbinds": 64}
+}
+```
+
+`collection_running: false` means this deployment has no trap store wired;
+the list is then empty and nothing is inferred. The Device page's **Traps**
+card shows the same rows: time, device and agent, trap name and OID, the key
+varbinds (the sysUpTime/snmpTrapOID header is skipped) and the SNMP version.
+
 ## Syslog and config archive
 
 The device operations surface covers two NMS/NCM table-stakes workflows without
@@ -489,6 +557,14 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
   for it, exports `PROBECTL_TEST_REQUIRE_SERVICES=1`, and fails rather than
   skips if that target is absent. Local runs can point at lab gear or another
   simulator, or skip cleanly when the target is unset.
+- `TestDeviceTrapStoreIsTenantIsolated`, `TestDeviceTrapStoreIsIdempotentFilteredAndBounded`
+  and `TestDeviceTrapReadIsTenantIsolatedThroughAPIAndCLI` (`-tags isolation`,
+  real Postgres) prove the trap table's row security for a pooled and a hybrid
+  tenant whose devices share an address, idempotent redelivery, the retention
+  and count bounds, and that the API and the CLI return each tenant only its
+  own traps; the `DeviceTrapConsumer` unit tests prove the lane tenant
+  overrides the payload, strict-lane and unregistered-pair rejection, and the
+  bounds.
 - `TestDeviceTelemetryRealStack` (the F18 real-stack receipt, CI's
   integration lane) runs two tenants' **shipped** device agents against their
   own net-snmp `snmpd` containers (SNMPv3 authPriv with secret-referenced
@@ -496,9 +572,11 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
   collector registrations return. It moves each device's eth0 counter between
   polls and requires the API, the CLI and the rendered Device page to show the
   rise for that tenant only; checks LLDP neighbors and collection receipts
-  under forced RLS; sends authenticated and refused traps and reads each
-  tenant's trap lane; and byte-searches logs, responses, the page and every
-  lane record for the credentials. gNMI is not part of it: it stays proven
+  under forced RLS; sends authenticated and refused traps and requires each
+  tenant's own trap — and neither refused one — on its lane, through `GET
+  /v1/device/traps`, `probectl device traps` and the rendered Traps card;
+  and byte-searches logs, responses, the page and every lane record for the
+  credentials. gNMI is not part of it: it stays proven
   against the in-process mock only.
 - The correlation contract (hop IP ↔ interface, flow exporter+ifIndex ↔
   interface) is pinned by `TestCorrelatorHopToInterface` and
