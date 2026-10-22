@@ -50,6 +50,26 @@
       "path": "web/src/styles/fonts/syne-latin-wght-normal.woff2",
       "source": "@fontsource-variable/syne@5.2.7 latin wght WOFF2",
       "sha256": "68b623f0e45b905041b2edb9b2e4f563a505f13db1cd06b5f1946eb2e1f47048"
+    },
+    {
+      "ecosystem": "proto:gnmi",
+      "name": "openconfig gNMI gnmi.proto",
+      "version": "0.14.1",
+      "scope": "runtime (vendored)",
+      "license": "Apache-2.0",
+      "path": "proto/gnmi/gnmi.proto",
+      "source": "openconfig/gnmi v0.14.1, Copyright 2016 Google Inc.; internal/gen holds the Go generated from it",
+      "sha256": "1ef8c2035d5b9e01153d22b93f83c7060e69bd153180aee1d0973c808cdc5929"
+    },
+    {
+      "ecosystem": "proto:gnmi",
+      "name": "openconfig gNMI gnmi_ext.proto",
+      "version": "0.14.1",
+      "scope": "runtime (vendored)",
+      "license": "Apache-2.0",
+      "path": "proto/gnmi_ext/gnmi_ext.proto",
+      "source": "openconfig/gnmi v0.14.1, Copyright 2018 Google Inc.; internal/gen holds the Go generated from it",
+      "sha256": "dd102b5eb4c92c6892aaaa82a225359a25910171bc5f08c9e86c5b1854eec461"
     }
   ]
 }
