@@ -54,7 +54,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     status: 'delivered',
     source: 'contract:planes',
   },
-  { id: 'F1', name: 'Canary agent', status: 'partial', source: 'contract:features' },
+  { id: 'F1', name: 'Canary agent', status: 'delivered', source: 'contract:features' },
   {
     id: 'F2',
     name: 'Network tests (agent-to-service and agent-to-agent)',
@@ -81,7 +81,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F10',
     name: 'Control plane, REST/gRPC, CLI',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

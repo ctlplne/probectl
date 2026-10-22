@@ -18,7 +18,6 @@ capabilities:
   - id: F1
     name: Canary agent
     status: delivered
-    evidence_status: partial
     owner: agent/security
     engine: {refs: ["file:internal/canary"]}
     binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"noop\", canary.NewNoop)"]}
@@ -28,7 +27,7 @@ capabilities:
     docs: {refs: ["file:docs/features/active-testing.md#Active / synthetic network testing"]}
     config_keys: {refs: ["config:PROBECTL_AGENT_CONFIG"]}
     telemetry: {refs: ["file:internal/agent"]}
-    real_stack_proof: {gap: "The black-box E2E starts real control and agent binaries over PostgreSQL and Kafka, but it does not exercise the full four-store profile or drive this capability through both CLI and rendered UI."}
+    real_stack_proof: {refs: ["test:internal/testsync/realstack_integration_test.go#TestCentralTestsReachAgentsRealStack"]}
     migration: {refs: ["file:migrations/0009_agents_registry.sql", "file:migrations/0010_tests_definition.sql"]}
 
   - id: F2
@@ -159,7 +158,6 @@ capabilities:
   - id: F10
     name: Control plane, REST/gRPC, and CLI
     status: delivered
-    evidence_status: partial
     owner: agent/security
     engine: {refs: ["file:internal/control", "file:internal/agenttransport"]}
     binary: {refs: ["file:cmd/probectl-control/main.go#func run", "file:cmd/probectl/main.go#cli.RunWithStdin("]}
@@ -169,7 +167,7 @@ capabilities:
     docs: {refs: ["file:docs/features/control-plane.md#Control plane"]}
     config_keys: {refs: ["config:PROBECTL_HTTP_ADDR", "config:PROBECTL_AGENT_GRPC_ADDR"]}
     telemetry: {refs: ["file:internal/control/server.go"]}
-    real_stack_proof: {gap: "The black-box E2E omits ClickHouse and Prometheus plus the actual CLI and rendered UI, so it does not yet prove the complete shipping control-plane workflow."}
+    real_stack_proof: {refs: ["test:internal/testsync/realstack_integration_test.go#TestCentralTestsReachAgentsRealStack"]}
     migration: {refs: ["file:migrations/0001_baseline.sql"]}
 
   - id: F11
