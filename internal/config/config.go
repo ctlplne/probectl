@@ -448,6 +448,13 @@ type Config struct {
 	// store URL. Empty preserves deployments whose data plane authenticates by
 	// another mechanism.
 	ClickHouseBasicAuthFile string
+	// ClickHouseReaderBasicAuthFile (DPR-285) is the reader login's mode-0600
+	// JSON credential, same shape as ClickHouseBasicAuthFile. Every
+	// tenant-scoped pooled ClickHouse read authenticates with it, so the
+	// setting-scoped row policy bound to *_READER_USER filters the reads that
+	// serve tenants. Required by every ClickHouse lane with tenant scoping on;
+	// its username must equal that lane's reader user.
+	ClickHouseReaderBasicAuthFile string
 
 	// Flow store (S38): where device/cloud flow records land and the flow
 	// analytics are served from. memory (default) or clickhouse.
@@ -1113,6 +1120,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.PathStoreMode = l.enum("PROBECTL_PATHSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.PathStoreURL = l.str("PROBECTL_PATHSTORE_URL", "")
 	cfg.ClickHouseBasicAuthFile = l.str("PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE", "")
+	cfg.ClickHouseReaderBasicAuthFile = l.str("PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE", "")
 	cfg.FlowStoreMode = l.enum("PROBECTL_FLOWSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.FlowStoreURL = l.str("PROBECTL_FLOWSTORE_URL", "")
 	cfg.OTelStoreMode = l.enum("PROBECTL_OTELSTORE_MODE", "memory", "memory", "clickhouse")
@@ -1415,6 +1423,7 @@ func validateConfig(l *loader, cfg *Config) {
 	}
 	validateDatastoreTLS(l, cfg)
 	validateClickHouseTenantReaders(l, cfg)
+	validateClickHouseReaderCredential(l, cfg)
 	if cfg.DeploymentProfile != "single" && !cfg.IngestStrictTenantLanes {
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_INGEST_STRICT_TENANT_LANES=true; production-like profiles must refuse shared pooled collector lanes (WIRE-001, guardrail 7.1)", cfg.DeploymentProfile)
 	}
@@ -1963,6 +1972,38 @@ func validateClickHouseTenantReaders(l *loader, c *Config) {
 		if strings.TrimSpace(lane.readerUser) == "" {
 			l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s when %s=clickhouse and %s=true", c.DeploymentProfile, lane.readerEnv, lane.modeEnv, lane.scopingEnv)
 		}
+	}
+}
+
+// validateClickHouseReaderCredential (DPR-285) fails closed at config load:
+// a ClickHouse lane with tenant scoping on reads tenants' rows only as the
+// reader login, so it needs that login's credential. Whether the file's
+// username matches each lane's reader user is checked at boot, when the file
+// is read.
+func validateClickHouseReaderCredential(l *loader, c *Config) {
+	file := strings.TrimSpace(c.ClickHouseReaderBasicAuthFile)
+	scoped := ""
+	for _, lane := range []struct {
+		mode, scopingEnv string
+		scoping          bool
+	}{
+		{c.PathStoreMode, "PROBECTL_PATHSTORE_TENANT_SCOPING", c.PathCHTenantScoping},
+		{c.FlowStoreMode, "PROBECTL_FLOWSTORE_TENANT_SCOPING", c.FlowCHTenantScoping},
+		{c.OTelStoreMode, "PROBECTL_OTELSTORE_TENANT_SCOPING", c.OTelCHTenantScoping},
+		{c.EBPFStoreMode, "PROBECTL_EBPFSTORE_TENANT_SCOPING", c.EBPFCHTenantScoping},
+		{c.EndpointStoreMode, "PROBECTL_ENDPOINTSTORE_TENANT_SCOPING", c.EndpointCHTenantScoping},
+	} {
+		if lane.mode == "clickhouse" && lane.scoping && scoped == "" {
+			scoped = lane.scopingEnv
+		}
+	}
+	switch {
+	case scoped != "" && file == "":
+		l.errf("%s=true requires PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE: tenant-scoped ClickHouse reads run only as the reader login the row policy binds, never as the control login (DPR-285)", scoped)
+	case file != "" && scoped == "":
+		l.errf("PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE requires a ClickHouse-backed store with *_TENANT_SCOPING=true")
+	case file != "" && strings.TrimSpace(c.ClickHouseBasicAuthFile) != "" && filepath.Clean(file) == filepath.Clean(c.ClickHouseBasicAuthFile):
+		l.errf("PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE must not be PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE: the reader is a separate least-privilege login (DPR-285)")
 	}
 }
 

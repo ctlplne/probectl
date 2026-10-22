@@ -302,6 +302,46 @@ type ClickHouse struct {
 	// docs/security/tenant-isolation.md). When off, app-layer WHERE scoping
 	// (always present) is the boundary.
 	tenantScoping bool
+	// reader (DPR-285) is the tenant-read lane: every tenant-scoped pooled
+	// read runs on it as the reader login the setting-scoped row policy
+	// binds, never as the control login (chclient.RouteRead).
+	reader *chclient.Reader
+}
+
+// WithReader attaches the reader lane (DPR-285): client must authenticate as
+// the reader login EnsureReaderRowPolicy binds. With tenant scoping on and no
+// reader, tenant reads fail closed (chclient.ErrReaderRequired).
+func (c *ClickHouse) WithReader(client *http.Client) *ClickHouse {
+	c.reader = chclient.NewReader(client, c.base)
+	return c
+}
+
+// readerPolicyTables are the pooled tables the reader row policy covers: the
+// live flows and rollups, plus the retained pre-dedup copy when a v2 dedup
+// migration left one (it holds the same tenants' rows and the reader's
+// default-database grant reaches it).
+func (c *ClickHouse) readerPolicyTables(ctx context.Context) ([]string, error) {
+	tables := []string{sharedFlowsTable, sharedFlowRollupsTable}
+	ok, err := c.tableExists(ctx, "", preDedupName(sharedFlowsTable))
+	if err != nil {
+		return nil, fmt.Errorf("flowstore: pre-dedup probe: %w", err)
+	}
+	if ok {
+		tables = append(tables, preDedupName(sharedFlowsTable))
+	}
+	return tables, nil
+}
+
+// VerifyReaderIsolation is the boot proof that the reader lane is DB-enforced
+// (chclient.VerifyReader). It runs after EnsureReaderRowPolicy.
+func (c *ClickHouse) VerifyReaderIsolation(ctx context.Context, readerUser string) error {
+	tables, err := c.readerPolicyTables(ctx)
+	if err != nil {
+		return err
+	}
+	return chclient.VerifyReader(ctx, c.conn, c.base, c.reader, chclient.ReaderCheck{
+		Plane: "flowstore", ReaderUser: readerUser, TenantSetting: tenantSettingName, Tables: tables,
+	})
 }
 
 // tenantSettingName is the ClickHouse custom setting carrying the request
@@ -311,6 +351,8 @@ const tenantSettingName = "SQL_probectl_tenant"
 // WithTenantScoping enables per-request custom-setting tenant scoping on reads
 // (TENANT-102). Call EnsureReaderRowPolicy on the reader user to make it
 // enforcing.
+// Tenant reads then run only on the reader lane (WithReader, DPR-285); without
+// one they fail closed rather than run as the control login.
 func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = on; return c }
 
 // NewClickHouse connects, ensures the shared schema, and (when retentionDays
@@ -546,7 +588,11 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	if err := chValidUser(readerUser); err != nil {
 		return fmt.Errorf("flowstore: reader user: %w", err)
 	}
-	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
+	tables, err := c.readerPolicyTables(ctx)
+	if err != nil {
+		return err
+	}
+	for _, table := range tables {
 		// OR REPLACE is intentional: a fixed policy name with IF NOT EXISTS
 		// retains the old TO user after credential rotation, leaving the new
 		// reader without a database filter.
@@ -709,7 +755,7 @@ func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, erro
 		return nil, err
 	}
 	sql, params := topSQL(q, table)
-	rows, err := c.queryScoped(ctx, t.BaseURL, q.TenantID, sql, params)
+	rows, err := c.queryScoped(ctx, t, q.TenantID, sql, params)
 	if err != nil {
 		return nil, err
 	}
@@ -780,7 +826,7 @@ func (c *ClickHouse) TopSeries(ctx context.Context, q TopQuery, top []TopRow) ([
 		return nil, err
 	}
 	sql, params := topSeriesSQL(q, table, top)
-	rows, err := c.queryScoped(ctx, t.BaseURL, q.TenantID, sql, params)
+	rows, err := c.queryScoped(ctx, t, q.TenantID, sql, params)
 	if err != nil {
 		return nil, err
 	}
@@ -891,7 +937,7 @@ func (c *ClickHouse) hourlyRollups(ctx context.Context, tenantID string, from, t
 	if err != nil {
 		return nil, err
 	}
-	rows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+	rows, err := c.queryScoped(ctx, t, tenantID,
 		`SELECT bucket, protocol, exporter, transport,
   sum(bytes_scaled) AS bytes_scaled,
   sum(packets_scaled) AS packets_scaled,
@@ -997,7 +1043,7 @@ func (c *ClickHouse) Capacity(ctx context.Context, q CapacityQuery) ([]CapacityP
 		return nil, err
 	}
 	sql, params := capacitySQL(q, table)
-	rows, err := c.queryScoped(ctx, t.BaseURL, q.TenantID, sql, params)
+	rows, err := c.queryScoped(ctx, t, q.TenantID, sql, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1070,9 +1116,12 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 			return -1, fmt.Errorf("flowstore: delete tenant: %w", err)
 		}
 	}
+	// DPR-285: erasure verification stays on the control connection, so the
+	// count sees every row the control login wrote, independent of the reader
+	// policy (a policy that hid rows could never fake a verified zero).
 	var remaining int64
 	for _, table := range tables {
-		rows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+		rows, err := c.query(ctx, t.BaseURL,
 			"SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}",
 			chParams{"tenant": tenantID})
 		if err != nil {
@@ -1118,7 +1167,7 @@ func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string
 	}
 	var before int64
 	for _, tb := range subjectTables {
-		n, err := c.countSubject(ctx, t.BaseURL, tenantID, tb, p)
+		n, err := c.countSubject(ctx, t.BaseURL, tb, p)
 		if err != nil {
 			return 0, -1, err
 		}
@@ -1138,7 +1187,7 @@ func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string
 	}
 	remaining = 0
 	for _, tb := range subjectTables {
-		n, err := c.countSubject(ctx, t.BaseURL, tenantID, tb, p)
+		n, err := c.countSubject(ctx, t.BaseURL, tb, p)
 		if err != nil {
 			return 0, -1, err
 		}
@@ -1180,8 +1229,13 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if err != nil {
 		return 0, err
 	}
+	// DPR-285: a tenant export is a tenant read, so it rides the reader lane.
+	lane, err := c.readLane(t, tenantID)
+	if err != nil {
+		return 0, err
+	}
 	sql := "SELECT * FROM " + table + " WHERE tenant_id={tenant:String} ORDER BY ts FORMAT JSONEachRow"
-	u := c.baseFor(t.BaseURL) + "/?query=" + url.QueryEscape(sql) + chParams{"tenant": tenantID}.qs()
+	u := c.laneBase(lane, t.BaseURL) + "/?query=" + url.QueryEscape(sql) + chParams{"tenant": tenantID}.qs()
 	if c.tenantScoping {
 		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenantID)
 	}
@@ -1189,7 +1243,7 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if err != nil {
 		return 0, err
 	}
-	resp, err := c.conn.Do(t.BaseURL, req)
+	resp, err := lane.Conn.Do(lane.Key, req)
 	if err != nil {
 		return 0, fmt.Errorf("flowstore: export: %w", err)
 	}
@@ -1204,7 +1258,7 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 		return 0, err
 	}
 	// Count exported lines for the manifest.
-	rows, qerr := c.queryScoped(ctx, t.BaseURL, tenantID,
+	rows, qerr := c.queryScoped(ctx, t, tenantID,
 		"SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", chParams{"tenant": tenantID})
 	if qerr != nil || len(rows) == 0 {
 		return -1, nil // streamed fine; count unavailable
@@ -1212,8 +1266,10 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	return chCount(rows[0]["n"]), nil
 }
 
-func (c *ClickHouse) countSubject(ctx context.Context, baseURL, tenantID, table string, p chParams) (int64, error) {
-	rows, err := c.queryScoped(ctx, baseURL, tenantID,
+// countSubject is DSAR erasure verification: the control connection, for the
+// same reason as DeleteTenant's count (DPR-285).
+func (c *ClickHouse) countSubject(ctx context.Context, baseURL, table string, p chParams) (int64, error) {
+	rows, err := c.query(ctx, baseURL,
 		"SELECT count() AS n FROM "+table+" WHERE "+flowSubjectPredicate(), p)
 	if err != nil {
 		return -1, err
@@ -1316,27 +1372,47 @@ func (p chParams) qs() string {
 // chTimeParam renders a time for a {x:DateTime64(3)} bound parameter.
 func chTimeParam(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05.000") }
 
-// queryScoped is query with the per-request tenant custom setting attached
-// (TENANT-102) when scoping is enabled. tenantID "" means an admin/cross-tenant
-// read (migrations, totals) — no setting is attached.
-func (c *ClickHouse) queryScoped(ctx context.Context, base, tenantID, sql string, p chParams) ([]map[string]any, error) {
-	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs()
+// queryScoped runs one tenant read (TENANT-102, DPR-285). With scoping on, a
+// pooled read runs on the reader lane as the reader login, carrying the
+// per-request tenant setting the reader row policy filters on; a routed
+// per-tenant database is read on the control connection, its database being
+// the boundary (chclient.RouteRead).
+func (c *ClickHouse) queryScoped(ctx context.Context, t Target, tenantID, sql string, p chParams) ([]map[string]any, error) {
+	lane, err := c.readLane(t, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	u := c.laneBase(lane, t.BaseURL) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs()
 	if c.tenantScoping && tenantID != "" {
 		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenantID)
 	}
-	return c.doQuery(ctx, base, u)
+	return c.doQuery(ctx, lane.Conn, lane.Key, u)
 }
 
+// query runs an operational read as the control login (migration ledger,
+// table probes, part pressure, erasure verification) — never a read whose
+// rows are served to a tenant.
 func (c *ClickHouse) query(ctx context.Context, base, sql string, p chParams) ([]map[string]any, error) {
-	return c.doQuery(ctx, base, c.baseFor(base)+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
+	return c.doQuery(ctx, c.conn, base, c.baseFor(base)+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
 }
 
-func (c *ClickHouse) doQuery(ctx context.Context, base, u string) ([]map[string]any, error) {
+func (c *ClickHouse) readLane(t Target, tenant string) (chclient.ReadLane, error) {
+	return chclient.RouteRead(c.tenantScoping, tenant, t.Database != "", t.BaseURL, c.conn, c.reader)
+}
+
+func (c *ClickHouse) laneBase(lane chclient.ReadLane, routed string) string {
+	if lane.Base != "" {
+		return lane.Base
+	}
+	return c.baseFor(routed)
+}
+
+func (c *ClickHouse) doQuery(ctx context.Context, conn *chclient.Conn, base, u string) ([]map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.conn.Do(base, req)
+	resp, err := conn.Do(base, req)
 	if err != nil {
 		return nil, fmt.Errorf("flowstore: clickhouse query: %w", err)
 	}

@@ -161,24 +161,48 @@ path entirely:
    reader user's setting **defaults to `''`** server-side, an unset or dropped
    setting matches **no rows** — **fail closed** (when the scope is missing,
    the answer is nothing, never everything).
-3. Production routes tenant data reads through the reader user; the
-   write/service user keeps full access for inserts and migrations only. A
-   compromised query path that omits the `WHERE` still cannot cross tenants — the
-   reader policy constrains it at the database.
+3. Every tenant-scoped pooled **read** — queries, tenant exports and DSAR
+   subject exports — is sent **as the reader user**, over its own connection
+   authenticated with the reader's credential
+   (`PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE`; DPR-285). The write/service
+   (control) login keeps inserts, migrations, row-policy DDL, retention TTLs and
+   erasure, with erasure's verification counts, so a policy can never hide
+   surviving rows from a deletion attestation. A query path that omits the
+   `WHERE` still cannot cross tenants: ClickHouse returns only the rows the
+   reader policy admits. With scoping on and no reader credential, the read
+   fails; it never falls back to the control login.
+4. At boot, the control plane proves the reader against the live server and
+   refuses to start otherwise: the credential authenticates as the configured
+   `*_READER_USER`, is not the control login, resolves the control login's
+   default database, is refused `INSERT` and `CREATE` (`ACCESS_DENIED`), and,
+   on every policy table that holds rows, sees none of them under a tenant that
+   owns none (so the policy really binds it).
+
+Before DPR-285 step 3 was not true: the control plane sent every read as its
+single control login, the policy bound a reader user it never logged in as,
+and ClickHouse's default `users_without_row_policies_can_read_rows=true` let the
+control login read every row. The `WHERE` clause was the only thing scoping
+reads, whatever the profile said. A siloed or hybrid tenant's own database is
+read with its data plane's control credential: it holds only that tenant's
+rows, so the database is the storage-layer boundary there, and the reader
+holds no grant on it.
 
 Operator prerequisites (documented, not auto-configured): allow the custom
 setting prefix (`<custom_settings_prefixes>SQL_</custom_settings_prefixes>`),
-create the reader user with a default `SQL_probectl_tenant = ''`, and grant it
-`SELECT` only. Under `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` or `regulated`,
-the control plane refuses to start unless every ClickHouse-backed lane keeps
-tenant scoping on and names its scoped reader user; the serve path then refuses
-to start if row-policy installation fails. In the `single` profile, not enabling
+create the reader user with a default `SQL_probectl_tenant = ''`, grant it
+`SELECT` on the control login's default database only, and give the control
+plane its credential file. Under `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` or
+`regulated`, the control plane refuses to start unless every ClickHouse-backed
+lane keeps tenant scoping on, names its scoped reader user and has the reader
+credential; the serve path then refuses to start if row-policy installation or
+the reader proof fails. In the `single` profile, not enabling
 this means Layer 1 is the boundary and the service account remains read-capable
 across tenants.
 
 **What the service/write account can still do (residual, by design):** insert
-into any tenant's partition, run cross-tenant counts, and — without the reader
-split — read across tenants. This is required for ingest, migrations, and
+into any tenant's partition, run cross-tenant counts (erasure verification,
+part pressure), and — without the reader split, that is with tenant scoping
+off — read across tenants. This is required for ingest, migrations, and
 retention. It is bounded by three things: the application never issuing an
 unscoped read, the secret-management of that one credential, and — when enabled —
 the reader split taking it off the read path entirely.

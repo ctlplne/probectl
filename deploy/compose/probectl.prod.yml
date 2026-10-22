@@ -57,6 +57,7 @@ services:
     environment:
       NATS_PASSWORD: ${NATS_PASSWORD:?NATS_PASSWORD must be set in .env (openssl rand -hex 24)}
       CLICKHOUSE_CONTROL_PASSWORD: ${CLICKHOUSE_CONTROL_PASSWORD:?CLICKHOUSE_CONTROL_PASSWORD must be set in .env (openssl rand -hex 24)}
+      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:?CLICKHOUSE_READER_PASSWORD must be set in .env (openssl rand -hex 24)}
       PROMETHEUS_CONTROL_PASSWORD: ${PROMETHEUS_CONTROL_PASSWORD:?PROMETHEUS_CONTROL_PASSWORD must be set in .env (openssl rand -hex 24)}
     volumes:
       - ./prod/secrets-init.sh:/prod/secrets-init.sh:ro
@@ -280,8 +281,12 @@ services:
       PROBECTL_TSDB_BASIC_AUTH_FILE: /run/probectl-secrets/prometheus-basic-auth.json
 
       # Every telemetry store on ClickHouse over HTTPS, each lane tenant-scoped
-      # with the reader row policy (docs/guardrails.md G7-1).
+      # with the reader row policy (docs/guardrails.md G7-1). Writes, schema
+      # and erasure run as the `probectl` control login; every tenant read runs
+      # as `probectl_reader`, the login the row policy binds, so ClickHouse
+      # itself returns only the scoped tenant's rows (DPR-285).
       PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE: /run/probectl-secrets/clickhouse-basic-auth.json
+      PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE: /run/probectl-secrets/clickhouse-reader-basic-auth.json
       PROBECTL_PATHSTORE_MODE: clickhouse
       PROBECTL_PATHSTORE_URL: https://clickhouse:8443
       PROBECTL_PATHSTORE_TENANT_SCOPING: "true"

@@ -87,10 +87,12 @@ The high-volume telemetry store gets a layered defense too. Every query leads
 with a tenant filter and an unscoped query is refused in code; every value travels
 as a server-bound parameter (so a tenant identifier shaped like an injection
 attack arrives as *data*, never as syntax); and a database-level row policy
-constrains any per-tenant credential used directly against the store. Where one
-shared service credential must remain powerful for ingest and maintenance, an
-opt-in reader split takes that account off the read path entirely, so a
-compromised query path that omits the filter still cannot cross tenants.
+filters every tenant read. The one service credential stays powerful for ingest
+and maintenance, so it is kept off the read path: with tenant scoping on
+(required in the multi-tenant and regulated profiles) every tenant read is sent
+as a separate SELECT-only reader login the policy binds, and a compromised
+query path that omits the filter still cannot cross tenants. The control plane
+proves that reader at boot and refuses to start without it.
 
 ### Physical separation stacks on top, never instead
 

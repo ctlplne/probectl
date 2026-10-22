@@ -190,6 +190,48 @@ type ClickHouse struct {
 	// tenantScoping (TENANT-102 parity): attach the per-request custom
 	// setting so the reader row policy can constrain reads at the DB.
 	tenantScoping bool
+	// reader (DPR-285) is the tenant-read lane: every tenant-scoped pooled
+	// read runs on it as the reader login the setting-scoped row policy
+	// binds, never as the control login (chclient.RouteRead).
+	reader *chclient.Reader
+}
+
+// WithReader attaches the reader lane (DPR-285): client must authenticate as
+// the reader login EnsureReaderRowPolicy binds. With tenant scoping on and no
+// reader, tenant reads fail closed (chclient.ErrReaderRequired).
+func (c *ClickHouse) WithReader(client *http.Client) *ClickHouse {
+	c.reader = chclient.NewReader(client, c.base)
+	return c
+}
+
+// readerPolicyTables are the pooled tables the reader row policy covers: the
+// live spans and logs, plus each retained pre-dedup copy a v2 dedup migration
+// left (they hold the same tenants' rows and the reader's default-database
+// grant reaches them).
+func (c *ClickHouse) readerPolicyTables(ctx context.Context) ([]string, error) {
+	tables := []string{spansTable, logsTable}
+	for _, live := range []string{spansTable, logsTable} {
+		ok, err := c.tableExists(ctx, "", preDedupName(live))
+		if err != nil {
+			return nil, fmt.Errorf("otelstore: pre-dedup probe: %w", err)
+		}
+		if ok {
+			tables = append(tables, preDedupName(live))
+		}
+	}
+	return tables, nil
+}
+
+// VerifyReaderIsolation is the boot proof that the reader lane is DB-enforced
+// (chclient.VerifyReader). It runs after EnsureReaderRowPolicy.
+func (c *ClickHouse) VerifyReaderIsolation(ctx context.Context, readerUser string) error {
+	tables, err := c.readerPolicyTables(ctx)
+	if err != nil {
+		return err
+	}
+	return chclient.VerifyReader(ctx, c.conn, c.base, c.reader, chclient.ReaderCheck{
+		Plane: "otelstore", ReaderUser: readerUser, TenantSetting: tenantSettingName, Tables: tables,
+	})
 }
 
 const tenantSettingName = "SQL_probectl_tenant"
@@ -253,6 +295,8 @@ func (c *ClickHouse) WithMetrics(reg *metrics.Registry) *ClickHouse {
 
 // WithTenantScoping enables per-request custom-setting tenant scoping on
 // reads (pair with the reader row policy; see docs/security/tenant-isolation.md).
+// Tenant reads then run only on the reader lane (WithReader, DPR-285); without
+// one they fail closed rather than run as the control login.
 func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = on; return c }
 
 // WithRouter installs the silo/residency isolation router (TENANT-001; the
@@ -581,7 +625,7 @@ LIMIT {lim:UInt32}`
 		"since": msOrZero(q.Since), "until": msOrZero(q.Until),
 		"lim": strconv.Itoa(clampLimit(q.Limit)),
 	}
-	rows, err := c.queryScoped(ctx, t.BaseURL, tenant, sql, p)
+	rows, err := c.queryScoped(ctx, t, tenant, sql, p)
 	if err != nil {
 		return nil, err
 	}
@@ -636,7 +680,7 @@ LIMIT {lim:UInt32}`
 		"since":  msOrZero(q.Since), "until": msOrZero(q.Until),
 		"lim": strconv.Itoa(clampLimit(q.Limit)),
 	}
-	rows, err := c.queryScoped(ctx, t.BaseURL, tenant, sql, p)
+	rows, err := c.queryScoped(ctx, t, tenant, sql, p)
 	if err != nil {
 		return nil, err
 	}
@@ -764,7 +808,7 @@ func (c *ClickHouse) EraseSubject(ctx context.Context, tenant, subject string) (
 			tables = append(tables, preDedupName(spec.table))
 		}
 		for _, tb := range tables {
-			before, err := c.countSubject(ctx, t, tb, tenant, spec.predicate, p)
+			before, err := c.countSubject(ctx, t, tb, spec.predicate, p)
 			if err != nil {
 				return deleted, -1, err
 			}
@@ -775,7 +819,7 @@ func (c *ClickHouse) EraseSubject(ctx context.Context, tenant, subject string) (
 			if err := c.execAt(ctx, t.BaseURL, "ALTER TABLE "+qt+" DELETE WHERE "+spec.predicate+" SETTINGS mutations_sync = 2", p, nil); err != nil {
 				return deleted, -1, err
 			}
-			after, err := c.countSubject(ctx, t, tb, tenant, spec.predicate, p)
+			after, err := c.countSubject(ctx, t, tb, spec.predicate, p)
 			if err != nil {
 				return deleted, -1, err
 			}
@@ -813,7 +857,7 @@ func (c *ClickHouse) ExportSubject(ctx context.Context, tenant, subject string, 
 		if err != nil {
 			return spans, logs, err
 		}
-		n, err := c.exportRows(ctx, t.BaseURL, tenant, "SELECT * FROM "+qt+" WHERE "+spec.predicate+" FORMAT JSONEachRow", p, spec.w)
+		n, err := c.exportRows(ctx, t, tenant, "SELECT * FROM "+qt+" WHERE "+spec.predicate+" FORMAT JSONEachRow", p, spec.w)
 		if err != nil {
 			return spans, logs, err
 		}
@@ -822,8 +866,10 @@ func (c *ClickHouse) ExportSubject(ctx context.Context, tenant, subject string, 
 	return spans, logs, nil
 }
 
-// countTenant counts one tenant's rows in a routed table (erase verification),
-// tenant-scoped like every other read.
+// countTenant counts one tenant's rows in a routed table (erase verification).
+// DPR-285: erasure verification runs as the control login, so the count sees
+// every row the control login wrote, independent of the reader policy (a
+// policy that hid rows could never fake a verified zero).
 func (c *ClickHouse) countTenant(ctx context.Context, t Target, table, tenant string) (int, error) {
 	if tenant == "" {
 		return 0, ErrNoTenant // TENANT-003: never count across all tenants
@@ -832,7 +878,7 @@ func (c *ClickHouse) countTenant(ctx context.Context, t Target, table, tenant st
 	if err != nil {
 		return 0, err
 	}
-	rows, err := c.queryScoped(ctx, t.BaseURL, tenant,
+	rows, err := c.query(ctx, t.BaseURL, "",
 		"SELECT count() AS n FROM "+qt+" WHERE tenant_id = {tenant:String}", chParams{"tenant": tenant})
 	if err != nil {
 		return 0, err
@@ -843,12 +889,14 @@ func (c *ClickHouse) countTenant(ctx context.Context, t Target, table, tenant st
 	return countOf(rows[0]["n"]), nil
 }
 
-func (c *ClickHouse) countSubject(ctx context.Context, t Target, table, tenant, predicate string, p chParams) (int, error) {
+// countSubject is DSAR erasure verification: the control login, for the same
+// reason as countTenant (DPR-285).
+func (c *ClickHouse) countSubject(ctx context.Context, t Target, table, predicate string, p chParams) (int, error) {
 	qt, err := qualify(t, table)
 	if err != nil {
 		return 0, err
 	}
-	rows, err := c.queryScoped(ctx, t.BaseURL, tenant,
+	rows, err := c.query(ctx, t.BaseURL, "",
 		"SELECT count() AS n FROM "+qt+" WHERE "+predicate, p)
 	if err != nil {
 		return 0, err
@@ -920,15 +968,20 @@ func (c *ClickHouse) exportTenant(ctx context.Context, tenant, table, orderBy st
 	if err != nil {
 		return 0, err
 	}
-	return c.exportRows(ctx, t.BaseURL, tenant,
+	return c.exportRows(ctx, t, tenant,
 		"SELECT * FROM "+qt+" FINAL WHERE tenant_id = {tenant:String} ORDER BY "+orderBy+" FORMAT JSONEachRow",
 		chParams{"tenant": tenant}, w)
 }
 
 // exportRows streams one tenant-scoped JSONEachRow query straight from the
 // ClickHouse response into w, returning the rows written.
-func (c *ClickHouse) exportRows(ctx context.Context, base, tenant, sql string, p chParams, w io.Writer) (int64, error) {
-	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql) + p.qs()
+// DPR-285: an export is a tenant read, so it rides the reader lane.
+func (c *ClickHouse) exportRows(ctx context.Context, t Target, tenant, sql string, p chParams, w io.Writer) (int64, error) {
+	lane, err := c.readLane(t, tenant)
+	if err != nil {
+		return 0, err
+	}
+	u := c.laneBase(lane, t.BaseURL) + "/?query=" + url.QueryEscape(sql) + p.qs()
 	if c.tenantScoping {
 		u += "&" + url.QueryEscape(tenantSettingName) + "=" + url.QueryEscape(tenant)
 	}
@@ -936,7 +989,7 @@ func (c *ClickHouse) exportRows(ctx context.Context, base, tenant, sql string, p
 	if err != nil {
 		return 0, err
 	}
-	resp, err := c.do(base, req)
+	resp, err := lane.Conn.Do(lane.Key, req)
 	if err != nil {
 		return 0, fmt.Errorf("otelstore: export: %w", err)
 	}
@@ -974,7 +1027,11 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	if err := chValidUser(readerUser); err != nil {
 		return fmt.Errorf("otelstore: reader user: %w", err)
 	}
-	for _, table := range []string{spansTable, logsTable} {
+	tables, err := c.readerPolicyTables(ctx)
+	if err != nil {
+		return err
+	}
+	for _, table := range tables {
 		ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", table, tenantSettingName, readerUser)
 		if err := c.exec(ctx, ddl, nil, nil); err != nil {
 			return fmt.Errorf("otelstore: reader row policy: %w", err)
@@ -1025,21 +1082,48 @@ func (p chParams) qs() string {
 	return b.String()
 }
 
-func (c *ClickHouse) queryScoped(ctx context.Context, base, tenant, sql string, p chParams) ([]map[string]any, error) {
+// queryScoped runs one tenant read (TENANT-003, DPR-285). With scoping on, a
+// pooled read runs on the reader lane as the reader login, carrying the
+// per-request tenant setting the reader row policy filters on; a routed
+// per-tenant database is read on the control connection, its database being
+// the boundary (chclient.RouteRead).
+func (c *ClickHouse) queryScoped(ctx context.Context, t Target, tenant, sql string, p chParams) ([]map[string]any, error) {
+	lane, err := c.readLane(t, tenant)
+	if err != nil {
+		return nil, err
+	}
 	scope := ""
 	if c.tenantScoping {
 		scope = "&" + url.QueryEscape(tenantSettingName) + "=" + url.QueryEscape(tenant)
 	}
-	return c.query(ctx, base, scope, sql, p)
+	return c.queryOn(ctx, lane.Conn, lane.Key, c.laneBase(lane, t.BaseURL), scope, sql, p)
 }
 
+func (c *ClickHouse) readLane(t Target, tenant string) (chclient.ReadLane, error) {
+	return chclient.RouteRead(c.tenantScoping, tenant, t.Database != "", t.BaseURL, c.conn, c.reader)
+}
+
+func (c *ClickHouse) laneBase(lane chclient.ReadLane, routed string) string {
+	if lane.Base != "" {
+		return lane.Base
+	}
+	return c.baseFor(routed)
+}
+
+// query runs an operational read as the control login (migration ledger,
+// table probes, erasure verification) — never a read whose rows are served to
+// a tenant.
 func (c *ClickHouse) query(ctx context.Context, base, extraQS, sql string, p chParams) ([]map[string]any, error) {
-	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSON") + p.qs() + extraQS
+	return c.queryOn(ctx, c.conn, base, c.baseFor(base), extraQS, sql, p)
+}
+
+func (c *ClickHouse) queryOn(ctx context.Context, conn *chclient.Conn, key, endpoint, extraQS, sql string, p chParams) ([]map[string]any, error) {
+	u := endpoint + "/?query=" + url.QueryEscape(sql+" FORMAT JSON") + p.qs() + extraQS
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.do(base, req)
+	resp, err := conn.Do(key, req)
 	if err != nil {
 		return nil, fmt.Errorf("otelstore: clickhouse request: %w", err)
 	}

@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+package endpointstore
+
+import (
+	"context"
+	"errors"
+	"io"
+	"testing"
+	"time"
+
+	"github.com/ctlplne/probectl/internal/store/chclient"
+	"github.com/ctlplne/probectl/internal/testsupport/chtest"
+)
+
+func newReaderLaneStore(t *testing.T) (*ClickHouse, *chtest.Server) {
+	t.Helper()
+	srv := chtest.New(t)
+	c, err := NewClickHouseWithClient(srv.URL, 0, chtest.Client("control"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Reset()
+	return c, srv
+}
+
+// DPR-285: with tenant scoping on, every tenant read the store serves runs as
+// the reader login with the tenant setting (the streaming export included);
+// retention and erasure counts run as the control login.
+func TestEndpointTenantReadsRunAsTheReaderLogin(t *testing.T) {
+	c, srv := newReaderLaneStore(t)
+	c.WithTenantScoping(true).WithReader(chtest.Client("reader"))
+	ctx := context.Background()
+	if _, err := c.Latest(ctx, "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExportTenant(ctx, "tenant-a", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExportSubject(ctx, "tenant-a", "alice", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	chtest.AssertAll(t, srv.Requests("FROM "+eventsTable), "endpoint tenant read", "reader", "tenant-a")
+
+	srv.Reset()
+	if _, err := c.DeleteTenant(ctx, "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.DeleteSubject(ctx, "tenant-a", "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.PruneTenantBefore(ctx, "tenant-a", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	chtest.AssertAll(t, srv.Requests("SELECT count()"), "endpoint erasure count", "control", "")
+	chtest.AssertAll(t, srv.Requests("DELETE WHERE"), "endpoint erasure", "control", "")
+}
+
+// DPR-285: scoping on without a reader fails closed; it never falls back to
+// the control login.
+func TestEndpointTenantReadWithoutReaderFailsClosed(t *testing.T) {
+	c, srv := newReaderLaneStore(t)
+	c.WithTenantScoping(true)
+	ctx := context.Background()
+	if _, err := c.Latest(ctx, "tenant-a"); !errors.Is(err, chclient.ErrReaderRequired) {
+		t.Fatalf("Latest err = %v, want ErrReaderRequired", err)
+	}
+	if _, err := c.ExportTenant(ctx, "tenant-a", io.Discard); !errors.Is(err, chclient.ErrReaderRequired) {
+		t.Fatalf("export err = %v, want ErrReaderRequired", err)
+	}
+	if reqs := srv.Requests("SELECT"); len(reqs) != 0 {
+		t.Fatalf("a refused read still reached ClickHouse: %+v", reqs)
+	}
+}
+
+// DPR-285: a routed per-tenant database is read on the control connection.
+func TestEndpointSiloedTenantReadsUseTheControlConnection(t *testing.T) {
+	c, srv := newReaderLaneStore(t)
+	c.WithTenantScoping(true).WithReader(chtest.Client("reader"))
+	c.WithRouter(func(context.Context, string) (Target, error) { return Target{Database: "t_silo"}, nil })
+	if _, err := c.Latest(context.Background(), "tenant-s"); err != nil {
+		t.Fatal(err)
+	}
+	chtest.AssertAll(t, srv.Requests("FROM t_silo."), "siloed endpoint read", "control", "tenant-s")
+}

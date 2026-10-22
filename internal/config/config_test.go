@@ -85,10 +85,12 @@ func durableTenantProfileEnv(profile string) map[string]string {
 		"PROBECTL_ENDPOINTSTORE_MODE":        "clickhouse",
 		"PROBECTL_ENDPOINTSTORE_URL":         "https://clickhouse.example:8443",
 		"PROBECTL_ENDPOINTSTORE_READER_USER": "probectl_endpoint_reader",
-		"PROBECTL_AUDIT_WORM_DIR":            "/var/lib/probectl/audit-worm",
-		"PROBECTL_WORM_SIGNING_KEY_FILE":     "/var/lib/probectl/keys/audit-worm-ed25519.pem",
-		"PROBECTL_SIEM_ENABLED":              "true",
-		"PROBECTL_SIEM_ENDPOINT":             "https://siem.example/ingest",
+		// DPR-285: every scoped lane reads tenants' rows as the reader login.
+		"PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE": "/run/secrets/clickhouse-reader-basic-auth.json",
+		"PROBECTL_AUDIT_WORM_DIR":                    "/var/lib/probectl/audit-worm",
+		"PROBECTL_WORM_SIGNING_KEY_FILE":             "/var/lib/probectl/keys/audit-worm-ed25519.pem",
+		"PROBECTL_SIEM_ENABLED":                      "true",
+		"PROBECTL_SIEM_ENDPOINT":                     "https://siem.example/ingest",
 	}
 }
 
@@ -714,6 +716,8 @@ func TestDatastoreBasicAuthFileConfig(t *testing.T) {
 		"PROBECTL_OTELSTORE_TENANT_SCOPING":   "true",
 		"PROBECTL_OTELSTORE_READER_USER":      "probectl_otel_reader",
 		"PROBECTL_INGEST_STRICT_TENANT_LANES": "true",
+		// DPR-285: the scoped lane's reader credential.
+		"PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE": "/run/secrets/clickhouse-reader-basic-auth.json",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -1788,5 +1792,60 @@ func TestTrustctlURLRejectsPlaintextRemote(t *testing.T) {
 		"PROBECTL_TRUSTCTL_URL": "http://localhost:9999",
 	})); err != nil {
 		t.Fatalf("loopback plaintext trustctl fixture should be allowed: %v", err)
+	}
+}
+
+// DPR-285: a ClickHouse lane with tenant scoping on reads tenants' rows only
+// as the reader login, so its credential is required at config load; the
+// reader credential is never the control credential, and never configured
+// without a scoped lane to use it.
+func TestClickHouseReaderCredentialConfig(t *testing.T) {
+	scoped := func(extra map[string]string) map[string]string {
+		env := map[string]string{
+			"PROBECTL_OTELSTORE_MODE":           "clickhouse",
+			"PROBECTL_OTELSTORE_URL":            "https://clickhouse.example:8443",
+			"PROBECTL_OTELSTORE_TENANT_SCOPING": "true",
+			"PROBECTL_OTELSTORE_READER_USER":    "probectl_reader",
+		}
+		for k, v := range extra {
+			env[k] = v
+		}
+		return env
+	}
+	for _, tc := range []struct {
+		name    string
+		env     map[string]string
+		wantErr string
+	}{
+		{name: "scoped lane without the reader credential refuses", env: scoped(nil),
+			wantErr: "requires PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE"},
+		{name: "scoped lane with the reader credential loads", env: scoped(map[string]string{
+			"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE":        "/run/secrets/ch.json",
+			"PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE": "/run/secrets/ch-reader.json",
+		})},
+		{name: "the reader credential cannot be the control credential", env: scoped(map[string]string{
+			"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE":        "/run/secrets/ch.json",
+			"PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE": "/run/secrets/./ch.json",
+		}), wantErr: "must not be PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE"},
+		{name: "a reader credential with no scoped lane refuses", env: map[string]string{
+			"PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE": "/run/secrets/ch-reader.json",
+		}, wantErr: "requires a ClickHouse-backed store with *_TENANT_SCOPING=true"},
+		{name: "scoping on a memory lane needs no reader credential", env: map[string]string{
+			"PROBECTL_FLOWSTORE_TENANT_SCOPING": "true",
+			"PROBECTL_FLOWSTORE_READER_USER":    "probectl_reader",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(envFunc(tc.env))
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("load: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want it to contain %q", err, tc.wantErr)
+			}
+		})
 	}
 }

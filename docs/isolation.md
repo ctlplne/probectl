@@ -155,17 +155,21 @@ capability ([`byok.md`](byok.md)).
 ## ClickHouse database-level tenancy
 
 Code-level scoping is the first line of defense — every flow/path query pins a
-`tenant_id`, and an unscoped call refuses with `ErrNoTenant`. But that only
-protects access *through probectl*. To also protect a tenant credential used
-*directly* against ClickHouse, `EnsureRowPolicies` installs **database-level row
-policies** (a **row policy** is ClickHouse's analog of Postgres RLS — a
-server-side filter attached to the table itself): per shared table, a policy
-filtering every user to `tenant_id =
-currentUser()` (by convention each per-tenant ClickHouse user is named exactly the
-tenant id), plus a permissive policy for probectl's own service account. So even
-someone holding a tenant's raw ClickHouse credentials cannot read another tenant's
-rows — the guarantee holds independently of this codebase. The cross-tenant CI
-gate exercises flowstore + pathstore against a *real* ClickHouse to prove it.
+`tenant_id`, and an unscoped call refuses with `ErrNoTenant`. A `WHERE` clause
+is still handler-adjacent code, so with tenant scoping on (required in the
+`multi-tenant` and `regulated` profiles) the database enforces it too: a
+**row policy** (ClickHouse's analog of Postgres RLS — a server-side filter
+attached to the table itself) on every shared telemetry table admits only rows
+whose `tenant_id` equals the per-request `SQL_probectl_tenant` setting, and it
+binds the SELECT-only reader login that every tenant read is sent as
+(`PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE`, DPR-285). A read that loses its
+`WHERE` returns only the scoped tenant's rows. The control login, which writes,
+migrates and erases, serves no tenant read. Until DPR-285 every read ran as the
+control login, which no policy filtered, so only the `WHERE` scoped reads. The
+mechanism, its boot-time proof and the operator prerequisites are in
+[`docs/security/tenant-isolation.md`](security/tenant-isolation.md). The
+cross-tenant CI gate exercises every ClickHouse plane against a *real*
+ClickHouse with the `WHERE` removed from the read to prove it.
 
 ## Lifecycle
 

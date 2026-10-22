@@ -44,9 +44,15 @@ import (
 )
 
 // ReaderUser is the ClickHouse user every telemetry plane's setting-scoped
-// row policy is installed on (PROBECTL_*_READER_USER): with tenant scoping on,
-// the control plane refuses to start without one.
+// row policy is installed on (PROBECTL_*_READER_USER), and the login every
+// tenant read runs as (PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE, DPR-285):
+// with tenant scoping on, the control plane refuses to start without both.
 const ReaderUser = "probectl_it_reader"
+
+// readerPassword is the reader's throwaway dev-stack password. It is fixed,
+// not random, so stacks sharing the dev ClickHouse never rotate it under one
+// another, and deliberately not key-shaped.
+const readerPassword = "probectl-it-reader-ci-only"
 
 // Dex is the real OIDC IdP scripts/ci_dex.sh starts (PROBECTL_TEST_DEX_*).
 type Dex struct {
@@ -170,6 +176,8 @@ func Start(t *testing.T, o Options) *Stack {
 	}
 	s.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	ensureCHReader(t, chURL)
+	readerFile := s.write(t, "clickhouse-reader-basic-auth.json",
+		[]byte(`{"username":"`+ReaderUser+`","password":"`+readerPassword+`"}`), 0o600)
 
 	irDir, wormDir := s.mkdir(t, "ir"), s.mkdir(t, "worm")
 	s.ObjectDir = s.mkdir(t, "objects")
@@ -213,6 +221,7 @@ func Start(t *testing.T, o Options) *Stack {
 		env["PROBECTL_"+plane+"_TENANT_SCOPING"] = "true"
 		env["PROBECTL_"+plane+"_READER_USER"] = ReaderUser
 	}
+	env["PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE"] = readerFile
 	for k, v := range o.Env {
 		env[k] = v
 	}
@@ -712,12 +721,55 @@ func base32Decode(secret string) ([]byte, error) {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
 }
 
+// ensureCHReader provisions the least-privilege reader login the way the
+// shipped deployments do (deploy/compose/prod/clickhouse-init.sh): SELECT on
+// the control login's default database and nothing else.
 func ensureCHReader(t *testing.T, chURL string) {
 	t.Helper()
-	q := `CREATE USER IF NOT EXISTS ` + ReaderUser + ` IDENTIFIED WITH sha256_password BY '` + hex.EncodeToString(random(t)) + `'`
-	if _, err := CHQuery(chURL, q); err != nil {
-		t.Fatalf("ensure the ClickHouse reader user: %v", err)
+	db, err := CHQuery(chURL, "SELECT currentDatabase()")
+	if err != nil {
+		t.Fatalf("the ClickHouse control database: %v", err)
 	}
+	for _, q := range []string{
+		`CREATE USER IF NOT EXISTS ` + ReaderUser + ` IDENTIFIED WITH sha256_password BY '` + readerPassword + `'`,
+		`ALTER USER ` + ReaderUser + ` IDENTIFIED WITH sha256_password BY '` + readerPassword + `'`,
+		`GRANT SELECT ON ` + strings.TrimSpace(db) + `.* TO ` + ReaderUser,
+	} {
+		if _, err := CHQuery(chURL, q); err != nil {
+			t.Fatalf("ensure the ClickHouse reader user: %v", err)
+		}
+	}
+}
+
+// ReaderCount counts rows of table as the reader login, scoped to tenant by
+// the per-request setting and with NO tenant_id predicate of its own: what
+// ClickHouse itself lets a tenant read see (DPR-285).
+func ReaderCount(t *testing.T, table, tenant string) int {
+	t.Helper()
+	u, err := url.Parse(CHURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := url.Values{"query": {"SELECT count() FROM " + table}, "SQL_probectl_tenant": {tenant}}
+	req, err := http.NewRequest(http.MethodGet, u.Scheme+"://"+u.Host+"/?"+q.Encode(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetBasicAuth(ReaderUser, readerPassword)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("reader count: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reader count %d: %s", resp.StatusCode, body)
+	}
+	var n int
+	if _, err := fmt.Sscan(strings.TrimSpace(string(body)), &n); err != nil {
+		t.Fatalf("reader count %q: %v", body, err)
+	}
+	return n
 }
 
 // CHQuery runs one statement against ClickHouse over HTTP and returns the

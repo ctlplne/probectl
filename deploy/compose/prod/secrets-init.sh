@@ -16,7 +16,8 @@
 #     the plaintext password never lands in Prometheus's config) and the
 #     promtool healthcheck client config;
 #   * writes the control plane's ClickHouse and Prometheus credentials as
-#     owner-only 0600 JSON files (PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE,
+#     owner-only 0600 JSON files (PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE, the
+#     reader login's PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE, and
 #     PROBECTL_TSDB_BASIC_AUTH_FILE) owned by the control image user (65532);
 #   * hands the WORM audit-export volume to the control image user.
 #
@@ -45,7 +46,7 @@ require_secret() { # require_secret <ENV_NAME>
   esac
 }
 
-for name in NATS_PASSWORD CLICKHOUSE_CONTROL_PASSWORD PROMETHEUS_CONTROL_PASSWORD; do
+for name in NATS_PASSWORD CLICKHOUSE_CONTROL_PASSWORD CLICKHOUSE_READER_PASSWORD PROMETHEUS_CONTROL_PASSWORD; do
   require_secret "$name"
 done
 
@@ -122,6 +123,10 @@ EOF
 own_dir "$OUT/control" "$CONTROL_UID" "$CONTROL_UID"
 printf '{"username":"probectl","password":"%s"}\n' "$CLICKHOUSE_CONTROL_PASSWORD" |
   write_private "$OUT/control/clickhouse-basic-auth.json" "$CONTROL_UID" "$CONTROL_UID"
+# DPR-285: every tenant read runs as the SELECT-only reader the row policy
+# binds (clickhouse-init.sh provisions it with the same password).
+printf '{"username":"probectl_reader","password":"%s"}\n' "$CLICKHOUSE_READER_PASSWORD" |
+  write_private "$OUT/control/clickhouse-reader-basic-auth.json" "$CONTROL_UID" "$CONTROL_UID"
 printf '{"username":"probectl","password":"%s"}\n' "$PROMETHEUS_CONTROL_PASSWORD" |
   write_private "$OUT/control/prometheus-basic-auth.json" "$CONTROL_UID" "$CONTROL_UID"
 

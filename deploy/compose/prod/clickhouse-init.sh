@@ -14,12 +14,17 @@
 #   probectl         the control plane's service login (its credential is the
 #                    0600 JSON file secrets-init wrote). It owns the telemetry
 #                    schema: DDL, inserts, tenant erasure and the setting-scoped
-#                    reader row policies it installs at boot.
+#                    reader row policies it installs at boot. It serves no
+#                    tenant read.
 #   probectl_reader  the SELECT-only reader every ClickHouse lane names in
 #                    PROBECTL_*STORE_READER_USER. The control plane binds the
 #                    row policy `tenant_id = getSetting('SQL_probectl_tenant')`
-#                    to it (docs/guardrails.md G7-1), so it can only ever read
-#                    the one tenant its query names.
+#                    to it (docs/guardrails.md G7-1) and sends every tenant read
+#                    as it (PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE, written
+#                    by secrets-init; DPR-285), so ClickHouse returns only the
+#                    one tenant each query names. At boot the control plane
+#                    proves this login cannot write and that the policy binds
+#                    it, and refuses to start otherwise.
 #
 # Idempotent: CREATE ... IF NOT EXISTS, then ALTER USER so a password rotated in
 # .env takes effect on the next `up`. Passwords are validated to

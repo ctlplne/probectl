@@ -263,7 +263,7 @@ func TestClickHouseSubjectEraseIsTenantScoped(t *testing.T) {
 	}
 	rollupSubjectCount := func(tenant, value string) int64 {
 		t.Helper()
-		rows, err := c.queryScoped(ctx, "", tenant,
+		rows, err := c.queryScoped(ctx, Target{}, tenant,
 			"SELECT count() AS n FROM "+sharedFlowRollupsTable+" FINAL WHERE "+flowRollupSubjectPredicate(),
 			chParams{"tenant": tenant, "subject": value})
 		if err != nil {

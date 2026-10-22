@@ -72,10 +72,44 @@ type ClickHouse struct {
 	// path at the DB even if app-layer WHERE scoping is bypassed. Off by
 	// default; defaulted on by the multi-tenant/regulated profile.
 	tenantScoping bool
+	// reader (DPR-285) is the tenant-read lane: every tenant-scoped pooled
+	// read runs on it as the reader login the setting-scoped row policy
+	// binds, never as the control login (chclient.RouteRead).
+	reader *chclient.Reader
+}
+
+// WithReader attaches the reader lane (DPR-285): client must authenticate as
+// the reader login EnsureReaderRowPolicy binds. With tenant scoping on and no
+// reader, tenant reads fail closed (chclient.ErrReaderRequired).
+func (c *ClickHouse) WithReader(client *http.Client) *ClickHouse {
+	c.reader = chclient.NewReader(client, c.base)
+	return c
+}
+
+// VerifyReaderIsolation is the boot proof that the reader lane is DB-enforced
+// (chclient.VerifyReader). It runs after EnsureReaderRowPolicy.
+func (c *ClickHouse) VerifyReaderIsolation(ctx context.Context, readerUser string) error {
+	return chclient.VerifyReader(ctx, c.conn, c.base, c.reader, chclient.ReaderCheck{
+		Plane: "ebpfstore", ReaderUser: readerUser, TenantSetting: tenantSettingName, Tables: []string{edgesTable},
+	})
+}
+
+// readLane picks the connection for one tenant read (chclient.RouteRead).
+func (c *ClickHouse) readLane(t Target, tenant string) (chclient.ReadLane, error) {
+	return chclient.RouteRead(c.tenantScoping, tenant, t.Database != "", t.BaseURL, c.conn, c.reader)
+}
+
+func (c *ClickHouse) laneBase(lane chclient.ReadLane, routed string) string {
+	if lane.Base != "" {
+		return lane.Base
+	}
+	return c.baseFor(routed)
 }
 
 // WithTenantScoping enables per-request custom-setting tenant scoping on reads
 // (pair with EnsureReaderRowPolicy on the reader user).
+// Tenant reads then run only on the reader lane (WithReader, DPR-285); without
+// one they fail closed rather than run as the control login.
 func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = on; return c }
 
 // WithRouter installs the silo/residency isolation router (TENANT-001; the
@@ -292,7 +326,12 @@ func (c *ClickHouse) TopEdges(ctx context.Context, tenantID string, q EdgeQuery)
 	// timestamp, so the alias name is free to change.
 	sql := fmt.Sprintf("SELECT tenant_id, agent_id, toString(window_start) AS window_start_text, src_workload, dst_workload, dst_port, l7_protocol, sum(bytes) AS bytes, sum(packets) AS packets, sum(connections) AS connections FROM %s FINAL WHERE %s GROUP BY tenant_id, agent_id, window_start, src_workload, dst_workload, dst_port, l7_protocol ORDER BY bytes DESC LIMIT %d FORMAT JSONEachRow",
 		table, where, clampLimit(q.Limit))
-	rows, err := c.queryAt(ctx, t.BaseURL, sql, params)
+	// DPR-285: the tenant read rides the reader lane.
+	lane, err := c.readLane(t, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.queryOn(ctx, lane.Conn, lane.Key, c.laneBase(lane, t.BaseURL), sql, params)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +366,9 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 		return 0, nil
 	}
 	// mutations_sync=2: the mutation returns only once the rows are gone, so
-	// the count below verifies the deletion instead of racing it.
+	// the count below verifies the deletion instead of racing it. DPR-285: the
+	// verification count runs as the control login (queryAt), so it sees every
+	// row the control login wrote, independent of the reader policy.
 	del := fmt.Sprintf("ALTER TABLE %s DELETE WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2", sharedEdgesTable)
 	if err := c.execAt(ctx, t.BaseURL, del, url.Values{"param_tenant": {tenantID}}); err != nil {
 		return 0, err
@@ -357,16 +398,21 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if err != nil {
 		return 0, err
 	}
+	// DPR-285: a tenant export is a tenant read, so it rides the reader lane.
+	lane, err := c.readLane(t, tenantID)
+	if err != nil {
+		return 0, err
+	}
 	sql := "SELECT * FROM " + table + " FINAL WHERE tenant_id={tenant:String} ORDER BY window_start, src_workload, dst_workload, dst_port FORMAT JSONEachRow"
 	params := url.Values{"param_tenant": {tenantID}}
 	if c.tenantScoping {
 		params.Set(tenantSettingName, tenantID) // TENANT-004: DB-level scope
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseFor(t.BaseURL)+"/?query="+url.QueryEscape(sql)+"&"+params.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.laneBase(lane, t.BaseURL)+"/?query="+url.QueryEscape(sql)+"&"+params.Encode(), nil)
 	if err != nil {
 		return 0, err
 	}
-	resp, err := c.conn.Do(t.BaseURL, req)
+	resp, err := lane.Conn.Do(lane.Key, req)
 	if err != nil {
 		return 0, fmt.Errorf("ebpfstore: export: %w", err)
 	}
@@ -440,8 +486,14 @@ func (c *ClickHouse) execAt(ctx context.Context, base, query string, params url.
 	return nil
 }
 
+// queryAt runs an operational read as the control login (migration ledger,
+// erasure verification) — never a read whose rows are served to a tenant.
 func (c *ClickHouse) queryAt(ctx context.Context, base, sql string, params url.Values) ([]map[string]any, error) {
-	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql)
+	return c.queryOn(ctx, c.conn, base, c.baseFor(base), sql, params)
+}
+
+func (c *ClickHouse) queryOn(ctx context.Context, conn *chclient.Conn, key, endpoint, sql string, params url.Values) ([]map[string]any, error) {
+	u := endpoint + "/?query=" + url.QueryEscape(sql)
 	if len(params) > 0 {
 		u += "&" + params.Encode()
 	}
@@ -449,7 +501,7 @@ func (c *ClickHouse) queryAt(ctx context.Context, base, sql string, params url.V
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.conn.Do(base, req)
+	resp, err := conn.Do(key, req)
 	if err != nil {
 		return nil, fmt.Errorf("ebpfstore: query: %w", err)
 	}

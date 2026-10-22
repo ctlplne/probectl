@@ -162,6 +162,31 @@ type ClickHouse struct {
 	// constrain the query path at the DB. Off by default; defaulted on by the
 	// multi-tenant/regulated profile.
 	tenantScoping bool
+	// reader (DPR-285) is the tenant-read lane: every tenant-scoped pooled
+	// read runs on it as the reader login the setting-scoped row policy
+	// binds, never as the control login (chclient.RouteRead).
+	reader *chclient.Reader
+}
+
+// WithReader attaches the reader lane (DPR-285): client must authenticate as
+// the reader login EnsureReaderRowPolicy binds. With tenant scoping on and no
+// reader, tenant reads fail closed (chclient.ErrReaderRequired).
+func (c *ClickHouse) WithReader(client *http.Client) *ClickHouse {
+	c.reader = chclient.NewReader(client, c.base)
+	return c
+}
+
+// readerPolicyTables are the pooled tables the reader row policy covers.
+func readerPolicyTables() []string {
+	return []string{hopsTable, linksTable, hopsRollupsTable, linksRollupsTable}
+}
+
+// VerifyReaderIsolation is the boot proof that the reader lane is DB-enforced
+// (chclient.VerifyReader). It runs after EnsureReaderRowPolicy.
+func (c *ClickHouse) VerifyReaderIsolation(ctx context.Context, readerUser string) error {
+	return chclient.VerifyReader(ctx, c.conn, c.base, c.reader, chclient.ReaderCheck{
+		Plane: "pathstore", ReaderUser: readerUser, TenantSetting: tenantSettingName, Tables: readerPolicyTables(),
+	})
 }
 
 // WithRouter installs the silo/residency isolation router (TENANT-001; the
@@ -243,6 +268,8 @@ const tenantSettingName = "SQL_probectl_tenant"
 
 // WithTenantScoping enables per-request custom-setting tenant scoping on reads
 // (pair with EnsureReaderRowPolicy on the reader user).
+// Tenant reads then run only on the reader lane (WithReader, DPR-285); without
+// one they fail closed rather than run as the control login.
 func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = on; return c }
 
 // chMigrations is the pathstore's versioned ClickHouse schema (U-046),
@@ -329,8 +356,7 @@ func (e chExec) Exec(ctx context.Context, sql string, p chmigrate.Params) error 
 	return e.c.execAt(ctx, e.base, sql, chParams(p), nil)
 }
 func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]map[string]any, error) {
-	u := e.c.baseFor(e.base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + chParams(p).qs()
-	return e.c.doQuery(ctx, e.base, u)
+	return e.c.queryControl(ctx, e.base, sql, chParams(p))
 }
 
 // newClickHouse connects to a ClickHouse HTTP endpoint and ensures the schema
@@ -444,7 +470,7 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	if !chUserRe.MatchString(readerUser) {
 		return fmt.Errorf("pathstore: refusing malformed ClickHouse user identifier %q", readerUser)
 	}
-	for _, table := range []string{hopsTable, linksTable, hopsRollupsTable, linksRollupsTable} {
+	for _, table := range readerPolicyTables() {
 		ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", table, tenantSettingName, readerUser)
 		if err := c.exec(ctx, ddl, nil, nil); err != nil {
 			return fmt.Errorf("pathstore: reader row policy: %w", err)
@@ -566,8 +592,12 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted
 		return 0, 0, nil
 	}
 	tp := chParams{"tenant": tenantID}
+	// DPR-285: erasure stays on the control connection. The DELETE needs the
+	// control login's ALTER privilege, and the before/after counts must see
+	// every row the control login wrote, independent of the reader policy, so
+	// a policy that hid rows could never produce a false verified-zero.
 	for _, table := range []string{hopsTable, linksTable, hopsRollupsTable, linksRollupsTable} {
-		out, qerr := c.queryScoped(ctx, t.BaseURL, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
+		out, qerr := c.queryControl(ctx, t.BaseURL, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
 		if qerr != nil {
 			return deleted, -1, qerr
 		}
@@ -575,7 +605,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted
 		if eerr := c.execAt(ctx, t.BaseURL, "DELETE FROM "+table+" WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2", tp, nil); eerr != nil {
 			return deleted, -1, eerr
 		}
-		out, qerr = c.queryScoped(ctx, t.BaseURL, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
+		out, qerr = c.queryControl(ctx, t.BaseURL, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
 		if qerr != nil {
 			return deleted, -1, qerr
 		}
@@ -609,8 +639,13 @@ func (c *ClickHouse) exportTenant(ctx context.Context, tenantID, table, orderBy 
 	if err != nil {
 		return 0, err
 	}
+	// DPR-285: a tenant export is a tenant read, so it rides the reader lane.
+	lane, err := c.readLane(t, tenantID)
+	if err != nil {
+		return 0, err
+	}
 	sql := "SELECT * FROM " + qt + " WHERE tenant_id={tenant:String} ORDER BY " + orderBy + " FORMAT JSONEachRow"
-	u := c.baseFor(t.BaseURL) + "/?query=" + url.QueryEscape(sql) + chParams{"tenant": tenantID}.qs()
+	u := c.laneBase(lane, t.BaseURL) + "/?query=" + url.QueryEscape(sql) + chParams{"tenant": tenantID}.qs()
 	if c.tenantScoping {
 		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenantID)
 	}
@@ -618,7 +653,7 @@ func (c *ClickHouse) exportTenant(ctx context.Context, tenantID, table, orderBy 
 	if err != nil {
 		return 0, err
 	}
-	resp, err := c.conn.Do(t.BaseURL, req)
+	resp, err := lane.Conn.Do(lane.Key, req)
 	if err != nil {
 		return 0, fmt.Errorf("pathstore: export: %w", err)
 	}
@@ -651,7 +686,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	// what makes a redelivered duplicate save harmless — it is never aggregated
 	// across snapshots, so no dedup engine is needed (see doc.go). Do not widen
 	// this to a cross-snapshot scan.
-	meta, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+	meta, err := c.queryScoped(ctx, t, tenantID,
 		"SELECT path_id, target_ip, mode, fidelity_version, probe_transport, acquisition_mode, timing_source, hop_visibility, kernel_timestamping, hardware_timestamping FROM "+hopsT+" WHERE tenant_id={tenant:String} AND target={target:String} ORDER BY ts DESC LIMIT 1",
 		chParams{"tenant": tenantID, "target": target})
 	if err != nil {
@@ -666,7 +701,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 		MeasurementFidelity: fidelityFromRow(meta[0]),
 	}
 
-	hopRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+	hopRows, err := c.queryScoped(ctx, t, tenantID,
 		"SELECT ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels FROM "+hopsT+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, responder",
 		chParams{"tenant": tenantID, "path": pathID})
 	if err != nil {
@@ -705,7 +740,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	}
 	p.MaxHops = maxTTL
 
-	linkRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+	linkRows, err := c.queryScoped(ctx, t, tenantID,
 		"SELECT ttl, from_ip, to_ip FROM "+linksT+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, from_ip, to_ip",
 		chParams{"tenant": tenantID, "path": pathID})
 	if err != nil {
@@ -765,7 +800,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 			where += " AND ts<={to:DateTime64(3)}"
 		}
 	}
-	metaRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+	metaRows, err := c.queryScoped(ctx, t, tenantID,
 		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, max(ts) AS observed_at FROM "+hopsT+
 			" WHERE "+where+" GROUP BY path_id ORDER BY observed_at DESC, path_id DESC LIMIT {limit:UInt32}",
 		params)
@@ -806,7 +841,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 	}
 	selectedWhere := "tenant_id={tenant:String} AND target={target:String} AND (" +
 		strings.Join(predicates, " OR ") + ")"
-	hopRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+	hopRows, err := c.queryScoped(ctx, t, tenantID,
 		"SELECT path_id, ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels FROM "+hopsT+
 			" WHERE "+selectedWhere+" ORDER BY path_id, ttl, responder", selectedParams)
 	if err != nil {
@@ -866,7 +901,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		}
 	}
 
-	linkRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+	linkRows, err := c.queryScoped(ctx, t, tenantID,
 		"SELECT path_id, ttl, from_ip, to_ip FROM "+linksT+" WHERE "+selectedWhere+
 			" ORDER BY path_id, ttl, from_ip, to_ip", selectedParams)
 	if err != nil {
@@ -941,24 +976,47 @@ func (p chParams) qs() string {
 	return sb.String()
 }
 
-// queryScoped is query against a routed data-plane endpoint with the
-// per-request tenant custom setting attached (TENANT-004) when scoping is
-// enabled, so the reader row policy can constrain the result at the DB. tenant
-// "" means an admin/cross-tenant read.
-func (c *ClickHouse) queryScoped(ctx context.Context, base, tenant, sql string, p chParams) ([]map[string]any, error) {
-	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs()
+// queryScoped runs one tenant read (TENANT-004, DPR-285). With scoping on, a
+// pooled read runs on the reader lane as the reader login, carrying the
+// per-request tenant setting the reader row policy filters on; a routed
+// per-tenant database is read on the control connection, its database being
+// the boundary (chclient.RouteRead).
+func (c *ClickHouse) queryScoped(ctx context.Context, t Target, tenant, sql string, p chParams) ([]map[string]any, error) {
+	lane, err := c.readLane(t, tenant)
+	if err != nil {
+		return nil, err
+	}
+	u := c.laneBase(lane, t.BaseURL) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs()
 	if c.tenantScoping && tenant != "" {
 		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenant)
 	}
-	return c.doQuery(ctx, base, u)
+	return c.doQuery(ctx, lane.Conn, lane.Key, u)
 }
 
-func (c *ClickHouse) doQuery(ctx context.Context, base, u string) ([]map[string]any, error) {
+// queryControl runs an operational read as the control login: erasure
+// verification counts and schema probes, never a read whose rows are served
+// to a tenant.
+func (c *ClickHouse) queryControl(ctx context.Context, base, sql string, p chParams) ([]map[string]any, error) {
+	return c.doQuery(ctx, c.conn, base, c.baseFor(base)+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
+}
+
+func (c *ClickHouse) readLane(t Target, tenant string) (chclient.ReadLane, error) {
+	return chclient.RouteRead(c.tenantScoping, tenant, t.Database != "", t.BaseURL, c.conn, c.reader)
+}
+
+func (c *ClickHouse) laneBase(lane chclient.ReadLane, routed string) string {
+	if lane.Base != "" {
+		return lane.Base
+	}
+	return c.baseFor(routed)
+}
+
+func (c *ClickHouse) doQuery(ctx context.Context, conn *chclient.Conn, base, u string) ([]map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.conn.Do(base, req)
+	resp, err := conn.Do(base, req)
 	if err != nil {
 		return nil, fmt.Errorf("pathstore: clickhouse query: %w", err)
 	}

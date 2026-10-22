@@ -122,7 +122,8 @@ make compose-prod-durable-up
 
 None of the backing services publishes a host port. The control plane runs
 `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant`: strict tenant lanes, a ClickHouse
-reader row policy on every lane, verified TLS to every datastore, and audit
+reader row policy on every lane with every tenant read sent as the
+policy-bound `probectl_reader` login (DPR-285), verified TLS to every datastore, and audit
 retention that prunes only below the signed WORM (`auditworm` volume) and SIEM
 watermarks — which is why `PROBECTL_SIEM_ENDPOINT` is required. A certificate
 minted by `certgen` before this overlay lacks the `nats`, `clickhouse` and

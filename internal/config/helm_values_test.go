@@ -129,6 +129,8 @@ func strictRuntimeEnv(t *testing.T) map[string]string {
 		"PROBECTL_EBPFSTORE_URL":      "https://clickhouse.probectl.svc:8443",
 		"PROBECTL_ENDPOINTSTORE_MODE": "clickhouse",
 		"PROBECTL_ENDPOINTSTORE_URL":  "https://clickhouse.probectl.svc:8443",
+		// DPR-285: the reader login's credential, staged by control.credentialFiles.
+		"PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE": "/etc/probectl/credentials/ch-reader-basic-auth.json",
 	} {
 		env[k] = v
 	}

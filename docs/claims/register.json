@@ -262,7 +262,6 @@
     "docs/features/tenancy.md",
     "docs/features/topology-and-change.md",
     "docs/hardening.md",
-    "docs/isolation.md",
     "docs/lifecycle.md",
     "docs/mcp.md",
     "docs/multi-region.md",

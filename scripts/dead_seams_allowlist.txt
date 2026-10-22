@@ -11,6 +11,7 @@
 # ---- declared test-support packages -----------------------------------------
 package github.com/ctlplne/probectl/internal/testsupport — its declared role is cross-package test support (CLAUDE.md §5); every consumer is a _test.go by design
 package github.com/ctlplne/probectl/internal/testsupport/shipped — cross-package test support that boots the shipped binaries for real-stack receipts; every consumer is a _test.go by design
+package github.com/ctlplne/probectl/internal/testsupport/chtest — cross-package ClickHouse test support for the reader-lane isolation suites (DPR-285): a recording fake and real reader provisioning; every consumer is a _test.go by design
 
 # ---- the crypto door's test-fixture surface (§7.3) --------------------------
 symbol github.com/ctlplne/probectl/internal/crypto.CA.IssueClientCert — §7.3 forbids test packages minting their own primitives; dependent suites obtain client SVIDs here

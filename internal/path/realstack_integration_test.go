@@ -69,7 +69,10 @@ const pathVantageText = "Traced from the control plane, not from an agent"
 //     exactly the tenant's own number of rounds (2, 1, 3), each from the
 //     control plane. Another tenant's test is not found on any path route.
 //     Another tenant's round id selects nothing. The pooled path table holds
-//     rows for A and C and none for the hybrid tenant B.
+//     rows for A and C and none for the hybrid tenant B. As the reader login
+//     every tenant read runs as, a predicate-free count of the shared table
+//     scoped to A (or C) sees exactly that tenant's rows: ClickHouse, not the
+//     query's WHERE, enforces the isolation (DPR-285).
 //  4. Each tenant's Path page shows its test and path, says it was traced
 //     from the control plane with destination-only visibility, and never
 //     shows another tenant's test.
@@ -187,6 +190,20 @@ func TestPathVisualizationRealStack(t *testing.T) {
 			t.Errorf("the pooled path table holds %d rows of hybrid tenant %s, whose paths belong in its own database", n, tn.slug)
 		}
 	}
+	// DPR-285: the isolation of those reads is ClickHouse's, not the query's.
+	// As the reader login every tenant read runs as, a count with NO tenant_id
+	// predicate, scoped only by the per-request tenant setting, sees exactly
+	// the tenant's own rows of the shared table, never the other tenant's.
+	total := pooledPathRows(t, "")
+	for _, tn := range tenants {
+		if tn.model != "pooled" {
+			continue
+		}
+		own, seen := pooledPathRows(t, tn.id), shipped.ReaderCount(t, "probectl_path_hops2", tn.id)
+		if seen != own || own >= total {
+			t.Errorf("as the reader scoped to %s, a predicate-free read of the shared hop table counted %d rows; the tenant owns %d of %d: ClickHouse is not enforcing tenant isolation", tn.slug, seen, own, total)
+		}
+	}
 
 	// 4. The Path page, as each tenant's admin.
 	for _, tn := range tenants {
@@ -263,10 +280,15 @@ func (tn *pathTenant) checkPath(t *testing.T, surface string, p *path.Path) {
 	}
 }
 
-// pooledPathRows counts the tenant's rows in the pooled hop table.
+// pooledPathRows counts the tenant's rows in the pooled hop table ("" counts
+// every tenant's).
 func pooledPathRows(t *testing.T, tenant string) int {
 	t.Helper()
-	out, err := shipped.CHQuery(shipped.CHURL(), fmt.Sprintf("SELECT count() FROM probectl_path_hops2 WHERE tenant_id = '%s'", tenant))
+	query := "SELECT count() FROM probectl_path_hops2"
+	if tenant != "" {
+		query += fmt.Sprintf(" WHERE tenant_id = '%s'", tenant)
+	}
+	out, err := shipped.CHQuery(shipped.CHURL(), query)
 	if err != nil {
 		t.Fatalf("count the pooled path rows of %s: %v", tenant, err)
 	}

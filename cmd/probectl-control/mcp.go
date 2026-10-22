@@ -77,6 +77,11 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 		return fmt.Errorf("path store: %w", err)
 	}
 	defer pathStore.Close()
+	// DPR-285: the stdio transport serves the same tenant path reads as the
+	// HTTP listener, so they run as the policy-bound reader login too.
+	if err := scopeMCPPathReads(cfg, log, pathAuth, pathStore); err != nil {
+		return err
+	}
 
 	// remediation is nil on the lightweight stdio transport: the propose tool
 	// is inert here (the full proposal workflow rides the HTTP transport wired
@@ -86,6 +91,24 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	defer stop()
 	log.Info("mcp stdio session", "tenant", p.TenantID, "user", p.UserID)
 	return runtime.server.ServeStdio(ctx, os.Stdin, os.Stdout, p)
+}
+
+// scopeMCPPathReads attaches the reader lane and its boot proof to the stdio
+// transport's path store, exactly as buildServeStores does (DPR-285).
+func scopeMCPPathReads(cfg *config.Config, log *slog.Logger, control *crypto.BasicAuthClientFactory, store pathstore.Store) error {
+	readerAuth, err := clickHouseReaderFactory(cfg, control)
+	if err != nil {
+		return fmt.Errorf("mcp path store reader credentials: %w", err)
+	}
+	return installCHReaderPolicy(chReaderSpec{scopingOn: cfg.PathCHTenantScoping, readerUser: cfg.PathCHReaderUser,
+		storeURL: cfg.PathStoreURL, plane: "pathstore", finding: "TENANT-004", readerAuth: readerAuth}, log,
+		func(reader *http.Client) (chReaderLane, bool) {
+			ch, ok := store.(*pathstore.ClickHouse)
+			if !ok {
+				return nil, false
+			}
+			return ch.WithTenantScoping(true).WithReader(reader), true
+		})
 }
 
 // runMCPToken mints an MCP bearer token for a user and prints it once to stdout.

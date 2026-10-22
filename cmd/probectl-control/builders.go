@@ -246,6 +246,10 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	if err != nil {
 		return fail(fmt.Errorf("clickhouse credentials: %w", err))
 	}
+	readerAuth, err := clickHouseReaderFactory(cfg, clickHouseAuth)
+	if err != nil {
+		return fail(fmt.Errorf("clickhouse reader credentials: %w", err))
+	}
 
 	// Result pipeline: a message bus that the control plane consumes and writes
 	// to the TSDB. The bus is shared with the agent transport (the publisher).
@@ -313,13 +317,13 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	pathCH := s.pathCH
 	// TENANT-004: DB-level reader scoping on the path plane (applied before the
 	// batching wrapper). Defaults ON under multi-tenant/regulated.
-	if err := installCHReaderPolicy(cfg.PathCHTenantScoping, cfg.PathCHReaderUser, "pathstore", "TENANT-004", log,
-		func() (func(context.Context, string) error, bool) {
+	if err := installCHReaderPolicy(chReaderSpec{scopingOn: cfg.PathCHTenantScoping, readerUser: cfg.PathCHReaderUser,
+		storeURL: cfg.PathStoreURL, plane: "pathstore", finding: "TENANT-004", readerAuth: readerAuth}, log,
+		func(reader *http.Client) (chReaderLane, bool) {
 			if pathCH == nil {
 				return nil, false
 			}
-			pathCH.WithTenantScoping(true)
-			return pathCH.EnsureReaderRowPolicy, true
+			return pathCH.WithTenantScoping(true).WithReader(reader), true
 		}); err != nil {
 		_ = pathStore.Close()
 		return fail(err)
@@ -349,14 +353,14 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	// above app WHERE scoping). EnsureReaderRowPolicy installs the
 	// setting-scoped policy on the reader user so the query path cannot cross
 	// tenants even if the WHERE is bypassed.
-	if err := installCHReaderPolicy(cfg.OTelCHTenantScoping, cfg.OTelCHReaderUser, "otelstore", "TENANT-003", log,
-		func() (func(context.Context, string) error, bool) {
+	if err := installCHReaderPolicy(chReaderSpec{scopingOn: cfg.OTelCHTenantScoping, readerUser: cfg.OTelCHReaderUser,
+		storeURL: cfg.OTelStoreURL, plane: "otelstore", finding: "TENANT-003", readerAuth: readerAuth}, log,
+		func(reader *http.Client) (chReaderLane, bool) {
 			ch, ok := otelStore.(*otelstore.ClickHouse)
 			if !ok {
 				return nil, false
 			}
-			ch.WithTenantScoping(true)
-			return ch.EnsureReaderRowPolicy, true
+			return ch.WithTenantScoping(true).WithReader(reader), true
 		}); err != nil {
 		return fail(err)
 	}
@@ -380,14 +384,14 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	// TENANT-102: DB-level reader scoping. When enabled, reads attach the
 	// per-request tenant custom setting and the reader row policy constrains
 	// the query path even if app-layer WHERE scoping is bypassed.
-	if err := installCHReaderPolicy(cfg.FlowCHTenantScoping, cfg.FlowCHReaderUser, "flowstore", "TENANT-102", log,
-		func() (func(context.Context, string) error, bool) {
+	if err := installCHReaderPolicy(chReaderSpec{scopingOn: cfg.FlowCHTenantScoping, readerUser: cfg.FlowCHReaderUser,
+		storeURL: cfg.FlowStoreURL, plane: "flowstore", finding: "TENANT-102", readerAuth: readerAuth}, log,
+		func(reader *http.Client) (chReaderLane, bool) {
 			ch, ok := flowStore.(*flowstore.ClickHouse)
 			if !ok {
 				return nil, false
 			}
-			ch.WithTenantScoping(true)
-			return ch.EnsureReaderRowPolicy, true
+			return ch.WithTenantScoping(true).WithReader(reader), true
 		}); err != nil {
 		return fail(err)
 	}
@@ -406,14 +410,14 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	closers = append(closers, func() { _ = ebpfStore.Close() })
 	// TENANT-004: DB-level reader scoping on the eBPF L7 edge plane. Defaults ON
 	// under multi-tenant/regulated.
-	if err := installCHReaderPolicy(cfg.EBPFCHTenantScoping, cfg.EBPFCHReaderUser, "ebpfstore", "TENANT-004", log,
-		func() (func(context.Context, string) error, bool) {
+	if err := installCHReaderPolicy(chReaderSpec{scopingOn: cfg.EBPFCHTenantScoping, readerUser: cfg.EBPFCHReaderUser,
+		storeURL: cfg.EBPFStoreURL, plane: "ebpfstore", finding: "TENANT-004", readerAuth: readerAuth}, log,
+		func(reader *http.Client) (chReaderLane, bool) {
 			ch, ok := ebpfStore.(*ebpfstore.ClickHouse)
 			if !ok {
 				return nil, false
 			}
-			ch.WithTenantScoping(true)
-			return ch.EnsureReaderRowPolicy, true
+			return ch.WithTenantScoping(true).WithReader(reader), true
 		}); err != nil {
 		return fail(err)
 	}
@@ -431,14 +435,14 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	}
 	s.endpointStore = endpointStore
 	closers = append(closers, func() { _ = endpointStore.Close() })
-	if err := installCHReaderPolicy(cfg.EndpointCHTenantScoping, cfg.EndpointCHReaderUser, "endpointstore", "TENANT-004", log,
-		func() (func(context.Context, string) error, bool) {
+	if err := installCHReaderPolicy(chReaderSpec{scopingOn: cfg.EndpointCHTenantScoping, readerUser: cfg.EndpointCHReaderUser,
+		storeURL: cfg.EndpointStoreURL, plane: "endpointstore", finding: "TENANT-004", readerAuth: readerAuth}, log,
+		func(reader *http.Client) (chReaderLane, bool) {
 			ch, ok := endpointStore.(*endpointstore.ClickHouse)
 			if !ok {
 				return nil, false
 			}
-			ch.WithTenantScoping(true)
-			return ch.EnsureReaderRowPolicy, true
+			return ch.WithTenantScoping(true).WithReader(reader), true
 		}); err != nil {
 		return fail(err)
 	}
@@ -612,39 +616,97 @@ func clickHouseStoreEnabled(cfg *config.Config) bool {
 		cfg.OTelStoreMode == "clickhouse" || cfg.EBPFStoreMode == "clickhouse" || cfg.EndpointStoreMode == "clickhouse"
 }
 
+// chReaderLane is the reader-scoping surface of a ClickHouse-backed store.
+type chReaderLane interface {
+	EnsureReaderRowPolicy(ctx context.Context, readerUser string) error
+	VerifyReaderIsolation(ctx context.Context, readerUser string) error
+}
+
+// chReaderSpec is one telemetry plane's reader-scoping configuration.
+type chReaderSpec struct {
+	scopingOn                            bool
+	readerUser, storeURL, plane, finding string
+	// readerAuth is the reader login's credential snapshot
+	// (PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE, DPR-285).
+	readerAuth *crypto.BasicAuthClientFactory
+}
+
 // installCHReaderPolicy applies DB-level tenant reader scoping to a
-// ClickHouse-backed store when the plane's scoping flag is on: it turns on
-// per-request tenant settings and installs the setting-scoped row policy on the
-// configured reader user (defense-in-depth above app WHERE scoping). When the
-// store isn't ClickHouse-backed (memory mode) it is a no-op. Extracted from the
-// four identical blocks in run() (CODE-001).
+// ClickHouse-backed store when the plane's scoping flag is on (DPR-285):
 //
-// store is taken as `any` because each plane's concrete type differs; the
-// WithTenantScoping/EnsureReaderRowPolicy method set is asserted via the typed
-// callback the caller supplies (so the concrete *ClickHouse keeps its fluent
-// return). plane is the log label (e.g. "pathstore"); finding is the tag.
-func installCHReaderPolicy(
-	scopingOn bool,
-	readerUser, plane, finding string,
-	log *slog.Logger,
-	enable func() (ensure func(context.Context, string) error, ok bool),
-) error {
-	if !scopingOn {
+//  1. it attaches the reader lane, an origin-pinned client authenticated as
+//     the reader login, so every tenant-scoped pooled read runs as that
+//     login with the per-request tenant setting, never as the control login;
+//  2. it installs the setting-scoped row policy on that reader user;
+//  3. it proves, against the live server, that the reader credential is
+//     that user, cannot write, and sees no rows outside the tenant it is
+//     scoped to (VerifyReaderIsolation) — and refuses to start otherwise.
+//
+// A store that is not ClickHouse-backed (memory mode) is a no-op. enable
+// receives the reader client (nil when no reader credential is configured,
+// which the verification then refuses) and returns the store's lane.
+func installCHReaderPolicy(spec chReaderSpec, log *slog.Logger, enable func(readerClient *http.Client) (chReaderLane, bool)) error {
+	if !spec.scopingOn {
 		return nil
 	}
-	ensure, ok := enable()
+	readerClient, clientErr := clickHouseReaderClient(spec.readerAuth, spec.storeURL)
+	lane, ok := enable(readerClient)
 	if !ok {
 		return nil // not ClickHouse-backed (e.g. memory mode) — nothing to scope
 	}
-	readerUser = strings.TrimSpace(readerUser)
+	if clientErr != nil {
+		return fmt.Errorf("%s reader credential: %w", spec.plane, clientErr)
+	}
+	readerUser := strings.TrimSpace(spec.readerUser)
 	if readerUser == "" {
-		return fmt.Errorf("%s reader policy: tenant scoping is on but reader user is unset (refusing to start; %s)", plane, finding)
+		return fmt.Errorf("%s reader policy: tenant scoping is on but reader user is unset (refusing to start; %s)", spec.plane, spec.finding)
 	}
-	if err := ensure(context.Background(), readerUser); err != nil {
-		return fmt.Errorf("%s reader policy: %w", plane, err)
+	if spec.readerAuth != nil && spec.readerAuth.Username() != readerUser {
+		return fmt.Errorf("%s reader policy: PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE authenticates as %q but the row policy binds %q; they must name the same ClickHouse user (refusing to start; DPR-285)",
+			spec.plane, spec.readerAuth.Username(), readerUser)
 	}
-	log.Info(plane+": ClickHouse reader row policy installed", "finding", finding, "reader_user", readerUser)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := lane.EnsureReaderRowPolicy(ctx, readerUser); err != nil {
+		return fmt.Errorf("%s reader policy: %w", spec.plane, err)
+	}
+	if err := lane.VerifyReaderIsolation(ctx, readerUser); err != nil {
+		return fmt.Errorf("%s reader isolation (refusing to start; DPR-285): %w", spec.plane, err)
+	}
+	log.Info(spec.plane+": ClickHouse tenant reads run as the policy-bound reader login", "finding", spec.finding, "dpr", "DPR-285", "reader_user", readerUser)
 	return nil
+}
+
+// clickHouseReaderFactory (DPR-285) loads the reader login's credential once
+// per process start. The reader must be a separate login from the control
+// credential: the row policy binds only the reader, so tenant reads sent as
+// the control login would not be filtered at all.
+func clickHouseReaderFactory(cfg *config.Config, control *crypto.BasicAuthClientFactory) (*crypto.BasicAuthClientFactory, error) {
+	if !clickHouseStoreEnabled(cfg) || strings.TrimSpace(cfg.ClickHouseReaderBasicAuthFile) == "" {
+		return nil, nil
+	}
+	reader, err := crypto.LoadBasicAuthClientFactory(cfg.ClickHouseReaderBasicAuthFile)
+	if err != nil {
+		return nil, err
+	}
+	if control != nil && control.Username() == reader.Username() {
+		return nil, fmt.Errorf("PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE authenticates as the control login %q; the reader must be a separate least-privilege login (DPR-285)", reader.Username())
+	}
+	return reader, nil
+}
+
+// clickHouseReaderClient derives the reader lane's client for one store URL.
+// URL userinfo is dropped first: the reader credential comes from its own file,
+// never from a control-login URL. A nil factory yields no client, so a scoped
+// store's reads fail closed instead of running unauthenticated.
+func clickHouseReaderClient(factory *crypto.BasicAuthClientFactory, storeURL string) (*http.Client, error) {
+	if factory == nil {
+		return nil, nil
+	}
+	if strings.TrimSpace(storeURL) == "" {
+		return nil, fmt.Errorf("reader credential configured without a datastore endpoint")
+	}
+	return factory.HTTPClient(30*time.Second, chclient.StripUserinfo(storeURL))
 }
 
 // dispatchEarlyCommand handles the subcommands that need NO database or config

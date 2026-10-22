@@ -101,6 +101,50 @@ type ClickHouse struct {
 	exportConn   *chclient.Conn // GAP-05: streaming export, no overall-duration cap
 	router       TargetRouter
 	tenantScoped bool
+	// reader / readerExport (DPR-285) are the tenant-read lanes: every
+	// tenant-scoped pooled read runs on them as the reader login the
+	// setting-scoped row policy binds, never as the control login
+	// (chclient.RouteRead). readerExport drops the overall deadline like
+	// exportConn (GAP-05).
+	reader       *chclient.Reader
+	readerExport *chclient.Reader
+}
+
+// WithReader attaches the reader lanes (DPR-285): client must authenticate as
+// the reader login EnsureReaderRowPolicy binds. With tenant scoping on and no
+// reader, tenant reads fail closed (chclient.ErrReaderRequired).
+func (c *ClickHouse) WithReader(client *http.Client) *ClickHouse {
+	c.reader = chclient.NewReader(client, c.base)
+	c.readerExport = nil
+	if client != nil {
+		c.readerExport = chclient.NewReader(crypto.StreamingHTTPClientFrom(client), c.base)
+	}
+	return c
+}
+
+// VerifyReaderIsolation is the boot proof that the reader lane is DB-enforced
+// (chclient.VerifyReader). It runs after EnsureReaderRowPolicy.
+func (c *ClickHouse) VerifyReaderIsolation(ctx context.Context, readerUser string) error {
+	return chclient.VerifyReader(ctx, c.conn, c.base, c.reader, chclient.ReaderCheck{
+		Plane: "endpointstore", ReaderUser: readerUser, TenantSetting: tenantSetting, Tables: []string{eventsTable},
+	})
+}
+
+// readLane picks the connection for one tenant read (chclient.RouteRead);
+// export selects the deadline-free lanes.
+func (c *ClickHouse) readLane(target Target, tenantID string, export bool) (chclient.ReadLane, error) {
+	control, reader := c.conn, c.reader
+	if export {
+		control, reader = c.exportConn, c.readerExport
+	}
+	return chclient.RouteRead(c.tenantScoped, tenantID, target.Database != "", target.BaseURL, control, reader)
+}
+
+func (c *ClickHouse) laneBase(lane chclient.ReadLane, routed string) string {
+	if lane.Base != "" {
+		return lane.Base
+	}
+	return c.baseFor(routed)
 }
 
 // NewClickHouseWithClient uses a caller-supplied hardened transport when the
@@ -134,6 +178,8 @@ func NewClickHouseWithClient(rawURL string, retentionDays int, client *http.Clie
 func (c *ClickHouse) WithRouter(router TargetRouter) *ClickHouse { c.router = router; return c }
 
 // WithTenantScoping enables the custom-setting used by the reader row policy.
+// Tenant reads then run only on the reader lane (WithReader, DPR-285); without
+// one they fail closed rather than run as the control login.
 func (c *ClickHouse) WithTenantScoping(enabled bool) *ClickHouse { c.tenantScoped = enabled; return c }
 
 func (c *ClickHouse) route(ctx context.Context, tenantID string) (Target, error) {
@@ -264,7 +310,12 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID string) ([]Event, erro
 		params.Set(tenantSetting, tenantID)
 	}
 	query := fmt.Sprintf("SELECT tenant_id, agent_id, signal_type, signal_key, target, success, error, metrics_json, attributes_json, toString(observed_at) AS observed_at FROM %s FINAL WHERE tenant_id={tenant:String} ORDER BY observed_at DESC LIMIT 1 BY agent_id, signal_type, signal_key LIMIT %d FORMAT JSONEachRow", table, maxLatestResults)
-	rows, err := c.queryAt(ctx, target.BaseURL, query, params)
+	// DPR-285: the tenant read rides the reader lane.
+	lane, err := c.readLane(target, tenantID, false)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.queryOn(ctx, lane.Conn, lane.Key, c.laneBase(lane, target.BaseURL), query, params)
 	if err != nil {
 		return nil, err
 	}
@@ -334,9 +385,9 @@ func (c *ClickHouse) PruneTenantBefore(ctx context.Context, tenantID string, cut
 		return 0, err
 	}
 	params := boundParams(map[string]string{"tenant": tenantID, "cutoff": cutoff.UTC().Format("2006-01-02 15:04:05.000000")})
-	// GAP-04: the pruned-count SELECT must carry the per-request tenant setting so
-	// the reader row policy (tenant_id = getSetting(tenantSetting)) does not hide
-	// the rows and report a count of 0 while rows exist. Mirrors Latest/ExportTenant.
+	// GAP-04: the pruned-count SELECT carries the per-request tenant setting.
+	// DPR-285: it runs as the control login (queryAt) like every erasure count,
+	// so the reader row policy can never hide rows from it.
 	if c.tenantScoped {
 		params.Set(tenantSetting, tenantID)
 	}
@@ -366,9 +417,10 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 		return 0, nil
 	}
 	params := boundParams(map[string]string{"tenant": tenantID})
-	// GAP-04: the post-delete verify-count SELECT must carry the per-request
-	// tenant setting so the reader row policy does not hide surviving rows and
-	// falsely attest verified-zero. Mirrors Latest/ExportTenant.
+	// GAP-04: the post-delete verify-count SELECT carries the per-request
+	// tenant setting. DPR-285: it runs as the control login (queryAt), so the
+	// reader row policy can never hide surviving rows and falsely attest
+	// verified-zero.
 	if c.tenantScoped {
 		params.Set(tenantSetting, tenantID)
 	}
@@ -407,9 +459,9 @@ func (c *ClickHouse) countEndpointSubject(ctx context.Context, base, table strin
 
 // DeleteSubject erases one tenant's durable events about the subject, then
 // count-verifies the same tenant+subject predicate reads zero (ING-15). The
-// verify count carries the per-request tenant setting so the reader row policy
-// does not hide the surviving rows and falsely attest verified-zero (the GAP-04
-// lesson, applied here from the start).
+// verify count runs as the control login (DPR-285), so the reader row policy
+// can never hide the surviving rows and falsely attest verified-zero (the
+// GAP-04 lesson).
 func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string) (deleted, remaining int64, err error) {
 	if tenantID == "" {
 		return 0, -1, ErrNoTenant
@@ -468,8 +520,13 @@ func (c *ClickHouse) ExportSubject(ctx context.Context, tenantID, subject string
 	if c.tenantScoped {
 		params.Set(tenantSetting, tenantID)
 	}
+	// DPR-285: a subject export is a tenant read, so it rides the reader lane.
+	lane, err := c.readLane(target, tenantID, false)
+	if err != nil {
+		return 0, err
+	}
 	query := "SELECT tenant_id, agent_id, signal_type, signal_key, target, success, error, metrics_json, attributes_json, toString(observed_at) AS observed_at FROM " + table + " FINAL WHERE " + endpointSubjectPredicate() + " ORDER BY observed_at FORMAT JSONEachRow"
-	endpoint := c.baseFor(target.BaseURL) + "/?query=" + url.QueryEscape(query)
+	endpoint := c.laneBase(lane, target.BaseURL) + "/?query=" + url.QueryEscape(query)
 	if len(params) > 0 {
 		endpoint += "&" + params.Encode()
 	}
@@ -477,7 +534,7 @@ func (c *ClickHouse) ExportSubject(ctx context.Context, tenantID, subject string
 	if err != nil {
 		return 0, err
 	}
-	resp, err := c.conn.Do(target.BaseURL, req)
+	resp, err := lane.Conn.Do(lane.Key, req)
 	if err != nil {
 		return 0, fmt.Errorf("endpointstore: export subject: %w", err)
 	}
@@ -509,8 +566,13 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if c.tenantScoped {
 		params.Set(tenantSetting, tenantID)
 	}
+	// DPR-285: a tenant export is a tenant read, so it rides the reader lane.
+	lane, err := c.readLane(target, tenantID, true)
+	if err != nil {
+		return 0, err
+	}
 	query := "SELECT tenant_id, agent_id, signal_type, signal_key, target, success, error, metrics_json, attributes_json, toString(observed_at) AS observed_at FROM " + table + " FINAL WHERE tenant_id={tenant:String} ORDER BY observed_at FORMAT JSONEachRow"
-	endpoint := c.baseFor(target.BaseURL) + "/?query=" + url.QueryEscape(query)
+	endpoint := c.laneBase(lane, target.BaseURL) + "/?query=" + url.QueryEscape(query)
 	if len(params) > 0 {
 		endpoint += "&" + params.Encode()
 	}
@@ -518,7 +580,7 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if err != nil {
 		return 0, err
 	}
-	resp, err := c.exportConn.Do(target.BaseURL, req)
+	resp, err := lane.Conn.Do(lane.Key, req)
 	if err != nil {
 		return 0, fmt.Errorf("endpointstore: export: %w", err)
 	}
@@ -642,8 +704,14 @@ func (c *ClickHouse) execAt(ctx context.Context, routed, query string, params ur
 	return nil
 }
 
+// queryAt runs an operational read as the control login (migration ledger,
+// erasure verification) — never a read whose rows are served to a tenant.
 func (c *ClickHouse) queryAt(ctx context.Context, routed, query string, params url.Values) ([]map[string]any, error) {
-	endpoint := c.baseFor(routed) + "/?query=" + url.QueryEscape(query)
+	return c.queryOn(ctx, c.conn, routed, c.baseFor(routed), query, params)
+}
+
+func (c *ClickHouse) queryOn(ctx context.Context, conn *chclient.Conn, key, base, query string, params url.Values) ([]map[string]any, error) {
+	endpoint := base + "/?query=" + url.QueryEscape(query)
 	if len(params) > 0 {
 		endpoint += "&" + params.Encode()
 	}
@@ -651,7 +719,7 @@ func (c *ClickHouse) queryAt(ctx context.Context, routed, query string, params u
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.conn.Do(routed, req)
+	resp, err := conn.Do(key, req)
 	if err != nil {
 		return nil, fmt.Errorf("endpointstore: query: %w", err)
 	}

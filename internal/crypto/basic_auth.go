@@ -113,6 +113,16 @@ func LoadBasicAuthClientFactory(credentialFile string) (*BasicAuthClientFactory,
 	return &BasicAuthClientFactory{username: credential.Username, password: credential.Password}, nil
 }
 
+// Username is the login the snapshot authenticates as ("" for a nil factory).
+// It is not secret: callers compare it with configured identities, such as
+// the ClickHouse reader login a row policy binds (DPR-285).
+func (f *BasicAuthClientFactory) Username() string {
+	if f == nil {
+		return ""
+	}
+	return f.username
+}
+
 // BasicAuthHTTPClient builds the normal certificate-verifying hardened client
 // and adds HTTP Basic authentication for exactly one configured origin. The
 // origin pin is important: redirects and routed requests cannot carry the
