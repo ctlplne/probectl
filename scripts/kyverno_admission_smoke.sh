@@ -95,6 +95,9 @@ cleanup() {
   "$KIND" delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
   docker rm -f "$REG" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
+  # The go module cache under $work is read-only by design; make it writable
+  # so the cleanup really removes it.
+  chmod -R u+w "$work" 2>/dev/null || true
   rm -rf "$work"
   exit "$rc"
 }
@@ -356,7 +359,9 @@ ok G1 "upgrade to a mirror repository before re-applying the policy -> REFUSED b
 
 apply_policy "$MIRROR" "$(tagof "$m_signed")"
 if run_helm upgrade "$MIRROR" "$(tagof "$m_unsigned")" > d5.log 2>&1; then cat d5.log >&2; die "D5 unsigned mirror digest admitted"; fi
-want_denied D5 "mirror repository $MIRROR, unsigned digest" d5.log "$MIRROR@sha256" "$NOTSIGNED"
+# ImageValidatingPolicy names the image as written (repository:tag@digest), so
+# the repository may be followed by a tag before the digest.
+want_denied D5 "mirror repository $MIRROR, unsigned digest" d5.log "$MIRROR(:[^@ ]+)?@sha256" "${m_unsigned#*@}" "$NOTSIGNED"
 
 run_helm upgrade "$MIRROR" "$(tagof "$m_signed")" > a2.log 2>&1 || { cat a2.log >&2; die "A2 signed mirror digest refused"; }
 for _ in $(seq 1 60); do
