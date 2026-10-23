@@ -31,6 +31,7 @@
 #   P0  Kyverno accepts the shipped policies          -> no deprecation warning
 #   G0  helm install before the policy exists         -> chart refuses, nothing created
 #   A1  two-step install, signed digest               -> DaemonSet + pod admitted
+#   H1  live policy status                            -> the fields the Argo CD health check reads
 #   D1  upgrade to an unsigned digest                 -> denied (no signature)
 #   D2  upgrade to a digest signed by another key     -> denied (signature mismatch)
 #   D3  pod with a mutable tag of the SIGNED image     -> denied (missing digest)
@@ -324,6 +325,16 @@ owner="$("$KUBECTL" get imagevalidatingpolicy "$POLICY" -o jsonpath='{.metadata.
 [ "$owner" = "$REL" ] || die "A1: the release did not adopt the step-1 policy"
 ok A1 "two-step install, signed digest -> ADMITTED: pod runs $signed"
 
+# H1: the live policy's status carries exactly what the shipped Argo CD health
+# check (deploy/gitops/argocd/argocd-cm-kyverno-health.yaml) reads: it is
+# Healthy only for conditionStatus.ready=true AND WebhookConfigured=True.
+"$KUBECTL" get imagevalidatingpolicy "$POLICY" -o yaml > live-ivpol.yaml
+h1="$("$KUBECTL" get imagevalidatingpolicy "$POLICY" -o jsonpath='{.status.conditionStatus.ready}{" "}{.status.conditionStatus.conditions[?(@.type=="WebhookConfigured")].status}')"
+[ "$h1" = "true True" ] || { cat live-ivpol.yaml >&2; die "H1: live status is '$h1', not the 'ready WebhookConfigured' pair the Argo CD health check reads"; }
+grep -Fq 'if cs.ready == true and webhookConfigured then' "$repo_root/deploy/gitops/argocd/argocd-cm-kyverno-health.yaml" \
+  || die "H1: the shipped Argo CD health check no longer requires both"
+ok H1 "live ImageValidatingPolicy status: conditionStatus.ready=true, WebhookConfigured=True -> what the Argo CD health check requires"
+
 if run_helm upgrade "$UP" "$(tagof "$unsigned")" > d1.log 2>&1; then cat d1.log >&2; die "D1 unsigned digest admitted"; fi
 want_denied D1 "upgrade to an unsigned digest" d1.log "$NOTSIGNED" "${unsigned#*@}"
 [ "$("$KUBECTL" -n "$NS" get ds -l "app.kubernetes.io/instance=$REL" -o jsonpath='{.items[0].spec.template.spec.containers[0].image}')" = "$signed" ] \
@@ -435,5 +446,5 @@ if run_helm upgrade "$MIRROR" "$(tagof "$m_agent")" "${SECCOMP_ON[@]}" > g2.log 
 grep -q "has no failurePolicy=Fail webhook serving ImageValidatingPolicy $POLICY" g2.log || { cat g2.log >&2; die "G2: refused for the wrong reason"; }
 ok G2 "Kyverno scaled to zero (webhooks removed, policy still Ready) -> REFUSED by the chart"
 
-[ "$pass" -eq 16 ] || die "only $pass of 16 legs asserted"
+[ "$pass" -eq 17 ] || die "only $pass of 17 legs asserted"
 echo "KYVERNO ADMISSION SMOKE: OK ($pass legs; Kyverno $KYVERNO_TAG on kind $KIND_NODE_IMAGE)"

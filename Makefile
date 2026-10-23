@@ -275,7 +275,8 @@ helm-gate: ## Helm chart lint + secure-by-default hardening assertions (S35). Ne
 	SELFTEST=1 bash scripts/helm_push_digest.sh
 
 .PHONY: gitops-gate
-gitops-gate: ## GitOps (ArgoCD/Flux) manifest structural validation (S35). Uses the existing Go YAML dependency.
+gitops-gate: ## GitOps (ArgoCD/Flux) manifest structural validation (S35) + the Argo CD Kyverno health checks (RTO-12, SELFTEST). Uses the existing Go YAML dependency.
+	bash scripts/check_gitops_manifests.sh SELFTEST
 	bash scripts/check_gitops_manifests.sh
 
 .PHONY: terraform-gate

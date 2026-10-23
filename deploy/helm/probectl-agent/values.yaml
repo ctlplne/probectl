@@ -77,8 +77,10 @@ admission:
     # probectl.dev/policy-sha256 annotation) is already in the cluster, Kyverno
     # reports it Ready (conditionStatus.ready + WebhookConfigured), and
     # Kyverno's validating webhook serves it with failurePolicy Fail.
-    # external: your deploy tool orders it instead (Argo CD sync-wave -1 plus an
-    # ImageValidatingPolicy health check, Flux dependsOn + healthChecks); name that
+    # external: your deploy tool orders it instead (Argo CD sync-wave -1 plus the
+    # ImageValidatingPolicy health check shipped in
+    # deploy/gitops/argocd/argocd-cm-kyverno-health.yaml, Flux dependsOn +
+    # healthChecks); name that
     # mechanism in externalOrdering. Needed for renderers that never contact
     # the cluster but advertise its API versions (Argo CD).
     readinessGate: lookup

@@ -19,6 +19,7 @@ your platform already runs) so a `git push` is the only deploy action — no
 deploy/gitops/
 ├── argocd/application.yaml                 # ArgoCD Application
 ├── argocd/applicationset-multiregion.yaml  # exact two-region fleet template
+├── argocd/argocd-cm-kyverno-health.yaml    # health checks for the agent chart's Kyverno policies
 └── flux/{gitrepository,helmrelease}.yaml   # Flux source + HelmRelease
 ```
 
@@ -106,3 +107,26 @@ A converged sync is a running control plane, not yet a useful one — data appea
 once agents are deployed and reporting. Continue with
 [`docs/getting-started.md`](../../docs/getting-started.md) and
 [`docs/deploying-agents.md`](../../docs/deploying-agents.md).
+
+## Argo CD health checks for the agent chart's Kyverno policies
+
+The `probectl-agent` chart's image-integrity `ImageValidatingPolicy` must be
+enforcing **before** the agent DaemonSet's first pod is admitted. Under Argo CD
+that means `admission.imageIntegrity.readinessGate=external`, with the policy
+in sync-wave `-1`, plus a health check, so the next wave waits. Without one,
+Argo CD treats the custom resource as Healthy as soon as it exists.
+`argocd/argocd-cm-kyverno-health.yaml` is a merge patch for `argocd-cm` that
+adds Lua health checks for `policies.kyverno.io/ImageValidatingPolicy` and
+`ValidatingPolicy`. Each is Healthy only when Kyverno reports
+`status.conditionStatus.ready: true` and a `True` `WebhookConfigured` condition
+(the policy is registered in Kyverno's admission webhook), and Progressing
+otherwise:
+
+```bash
+kubectl -n argocd patch configmap argocd-cm --type merge \
+  --patch-file deploy/gitops/argocd/argocd-cm-kyverno-health.yaml
+```
+
+`make gitops-gate` checks that both checks exist and keep that rule, and its
+SELFTEST plants weakened copies to prove the check catches them. Details:
+[`docs/deploying-agents.md` → Image-integrity admission](../../docs/deploying-agents.md#image-integrity-admission-kubernetes).

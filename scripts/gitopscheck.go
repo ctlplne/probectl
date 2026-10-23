@@ -24,8 +24,10 @@ type manifest struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
 	Metadata   struct {
-		Name string `yaml:"name"`
+		Name      string `yaml:"name"`
+		Namespace string `yaml:"namespace"`
 	} `yaml:"metadata"`
+	Data map[string]string `yaml:"data"`
 	Spec struct {
 		Generators []struct {
 			List struct {
@@ -132,11 +134,61 @@ func checkGitOps(root string) (int, int, []error) {
 			multi = append(multi, candidate)
 		}
 	}
+	problems = append(problems, checkKyvernoHealth(parsed)...)
 	if len(multi) != 1 {
 		problems = append(problems, errors.New("expected exactly one ApplicationSet metadata.name=probectl-two-region"))
 		return checked, len(paths), problems
 	}
 	return checked, len(paths), append(problems, checkTwoRegion(multi[0])...)
+}
+
+// kyvernoHealthKinds are the probectl-agent chart's Kyverno policy kinds; each
+// needs an Argo CD health check so a sync wave waits for Kyverno to enforce it
+// (RTO-12).
+var kyvernoHealthKinds = []string{"ImageValidatingPolicy", "ValidatingPolicy"}
+
+// checkKyvernoHealth requires the argocd-cm merge patch with one Lua health
+// check per kind that is Healthy ONLY when conditionStatus.ready is true AND
+// the WebhookConfigured condition is True, and Progressing otherwise.
+func checkKyvernoHealth(parsed []parsedManifest) []error {
+	var cms []parsedManifest
+	for _, candidate := range parsed {
+		if candidate.doc.Kind == "ConfigMap" && candidate.doc.Metadata.Name == "argocd-cm" {
+			cms = append(cms, candidate)
+		}
+	}
+	if len(cms) != 1 || cms[0].doc.Metadata.Namespace != "argocd" {
+		return []error{errors.New("expected exactly one argocd/argocd-cm ConfigMap carrying the Kyverno policy health checks (RTO-12)")}
+	}
+	var problems []error
+	for _, kind := range kyvernoHealthKinds {
+		key := "resource.customizations.health.policies.kyverno.io_" + kind
+		lua, ok := cms[0].doc.Data[key]
+		if !ok {
+			problems = append(problems, fmt.Errorf("%s: missing %s (RTO-12)", cms[0].path, key))
+			continue
+		}
+		problems = append(problems, checkHealthLua(cms[0].path, key, lua)...)
+	}
+	return problems
+}
+
+func checkHealthLua(path, key, lua string) []error {
+	var problems []error
+	for _, want := range []string{
+		`hs.status = "Progressing"`,
+		`if c.type == "WebhookConfigured" and c.status == "True" then`,
+		`if cs.ready == true and webhookConfigured then`,
+		"return hs",
+	} {
+		if !strings.Contains(lua, want) {
+			problems = append(problems, fmt.Errorf("%s: %s must contain %q (Healthy only when ready AND registered in the webhook)", path, key, want))
+		}
+	}
+	if strings.Count(lua, `hs.status = "Healthy"`) != 1 || strings.Index(lua, `hs.status = "Progressing"`) > strings.Index(lua, `hs.status = "Healthy"`) {
+		problems = append(problems, fmt.Errorf("%s: %s must default to Progressing and set Healthy in exactly one place", path, key))
+	}
+	return problems
 }
 
 func checkTwoRegion(candidate parsedManifest) []error {

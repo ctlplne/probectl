@@ -1,0 +1,84 @@
+# Argo CD health checks for the probectl-agent chart's Kyverno policies (RTO-12).
+#
+# Argo CD only orders a sync wave behind resources it can assess. The agent
+# chart's image-integrity ImageValidatingPolicy carries
+# argocd.argoproj.io/sync-wave: "-1", and with readinessGate=external the
+# DaemonSet's wave must wait until Kyverno actually enforces that policy.
+# Without a health check Argo CD treats the custom resource as Healthy the
+# moment it exists, so the first agent pods could be admitted unverified.
+#
+# These Lua checks are Healthy ONLY when Kyverno reports the policy ready
+# (status.conditionStatus.ready) AND its WebhookConfigured condition is True,
+# meaning Kyverno has registered the policy in its admission webhook.
+# Everything else stays Progressing, so the next wave waits and fails closed.
+#
+# Limit: a health check sees only this object. If Kyverno is later scaled to
+# zero it deletes its webhooks and nobody rewrites this status, so the check
+# keeps reporting the last assessment. The chart's admission-check CronJob
+# (admission.imageIntegrity.webhookCheck) is what detects that afterwards.
+#
+# Install: this is a MERGE PATCH for the existing argocd-cm. It adds two keys
+# and leaves the rest of your settings alone:
+#   kubectl -n argocd patch configmap argocd-cm --type merge \
+#     --patch-file deploy/gitops/argocd/argocd-cm-kyverno-health.yaml
+# With the argo-cd Helm chart, put the same two keys under `configs.cm`.
+# Then render the agent chart with
+#   admission.imageIntegrity.readinessGate=external
+#   admission.imageIntegrity.externalOrdering="Argo CD sync-wave -1 + ImageValidatingPolicy health check"
+# (docs/deploying-agents.md "Image-integrity admission" → GitOps).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+data:
+  resource.customizations.health.policies.kyverno.io_ImageValidatingPolicy: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "Waiting for Kyverno to report the policy ready and registered in its admission webhook"
+    if obj.status ~= nil and obj.status.conditionStatus ~= nil then
+      local cs = obj.status.conditionStatus
+      local webhookConfigured = false
+      local notes = {}
+      if cs.conditions ~= nil then
+        for _, c in ipairs(cs.conditions) do
+          if c.type == "WebhookConfigured" and c.status == "True" then
+            webhookConfigured = true
+          elseif c.status ~= "True" then
+            table.insert(notes, (c.type or "condition") .. ": " .. (c.message or c.status or ""))
+          end
+        end
+      end
+      if cs.ready == true and webhookConfigured then
+        hs.status = "Healthy"
+        hs.message = "Kyverno reports the policy ready and registered in its admission webhook"
+      elseif #notes > 0 then
+        hs.message = hs.message .. " (" .. table.concat(notes, "; ") .. ")"
+      end
+    end
+    return hs
+  resource.customizations.health.policies.kyverno.io_ValidatingPolicy: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "Waiting for Kyverno to report the policy ready and registered in its admission webhook"
+    if obj.status ~= nil and obj.status.conditionStatus ~= nil then
+      local cs = obj.status.conditionStatus
+      local webhookConfigured = false
+      local notes = {}
+      if cs.conditions ~= nil then
+        for _, c in ipairs(cs.conditions) do
+          if c.type == "WebhookConfigured" and c.status == "True" then
+            webhookConfigured = true
+          elseif c.status ~= "True" then
+            table.insert(notes, (c.type or "condition") .. ": " .. (c.message or c.status or ""))
+          end
+        end
+      end
+      if cs.ready == true and webhookConfigured then
+        hs.status = "Healthy"
+        hs.message = "Kyverno reports the policy ready and registered in its admission webhook"
+      elseif #notes > 0 then
+        hs.message = hs.message .. " (" .. table.concat(notes, "; ") .. ")"
+      end
+    end
+    return hs

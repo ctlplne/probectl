@@ -596,10 +596,26 @@ admission:
 **GitOps.** Argo CD renders offline but advertises the cluster's API versions,
 so the lookup gate cannot see the live policy there: set
 `admission.imageIntegrity.readinessGate=external` and name the mechanism in
-`externalOrdering`. The policy carries `argocd.argoproj.io/sync-wave: "-1"`;
-give Argo CD a health check for `policies.kyverno.io/ImageValidatingPolicy`
-(`status.conditionStatus.ready` and `WebhookConfigured`) so the DaemonSet's
-wave waits for it. Flux's helm-controller performs
+`externalOrdering`. The policy carries `argocd.argoproj.io/sync-wave: "-1"`,
+and Argo CD needs a health check for the policy kind, or it calls the policy
+Healthy the moment it exists and the DaemonSet's wave goes ahead.
+[`deploy/gitops/argocd/argocd-cm-kyverno-health.yaml`](../deploy/gitops/argocd/argocd-cm-kyverno-health.yaml)
+ships one for `policies.kyverno.io/ImageValidatingPolicy` (and the
+capability-posture `ValidatingPolicy`). It is Healthy **only** when Kyverno
+reports `status.conditionStatus.ready: true` **and** a `WebhookConfigured`
+condition that is `True`, meaning Kyverno has registered the policy in its
+admission webhook. Anything else is Progressing, so the wave waits. Merge it
+into `argocd-cm`:
+
+```sh
+kubectl -n argocd patch configmap argocd-cm --type merge \
+  --patch-file deploy/gitops/argocd/argocd-cm-kyverno-health.yaml
+```
+
+With the argo-cd Helm chart, put the same two keys under `configs.cm`. A health
+check sees only its own object, so it cannot notice Kyverno being scaled to
+zero later: the status keeps its last value. The admission-check CronJob below
+covers that. Flux's helm-controller performs
 a real install, so the default gate works once the policy is applied first
 (a separate Kustomization the HelmRelease `dependsOn`, with a health check).
 

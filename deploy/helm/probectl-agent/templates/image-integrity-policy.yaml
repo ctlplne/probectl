@@ -40,7 +40,7 @@ tag/digest characters that would widen or break the pattern.
 {{- fail "admission.imageIntegrity.readinessGate must be lookup or external" -}}
 {{- end -}}
 {{- if and (eq $policy.readinessGate "external") (not $policy.externalOrdering) -}}
-{{- fail "admission.imageIntegrity.readinessGate=external requires admission.imageIntegrity.externalOrdering naming what applies the policy and waits for Ready before the DaemonSet (e.g. Argo CD sync-wave -1 with an ImageValidatingPolicy health check)" -}}
+{{- fail "admission.imageIntegrity.readinessGate=external requires admission.imageIntegrity.externalOrdering naming what applies the policy and waits for Ready before the DaemonSet (e.g. Argo CD sync-wave -1 with the ImageValidatingPolicy health check in deploy/gitops/argocd/argocd-cm-kyverno-health.yaml)" -}}
 {{- end -}}
 {{- $spec := include "probectl-agent.imageIntegrityRendered" . -}}
 {{- $sum := sha256sum $spec -}}
