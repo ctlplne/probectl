@@ -14,7 +14,9 @@
 #   - the shipped privileged-agent admission policy is no longer a
 #     policies.kyverno.io/v1 ImageValidatingPolicy that verifies the digest and
 #     the keyless release-workflow signature of every matching image, denies,
-#     and fails closed (RTO-12).
+#     and fails closed (RTO-12),
+#   - the privileged agent chart renders any image other than the verified
+#     agent image (the former busybox seccomp installer is unsigned) (RTO-12).
 #   - a shipped default identity regex trusts a same-named repository fork.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -104,6 +106,23 @@ check_admission() {
   return "$bad"
 }
 
+# check_agent_chart_images DIR (RTO-12) — every container the privileged agent
+# chart renders runs the agent image (image.repository, digest-pinned), which
+# the image-integrity policy verifies. A separate image — the former busybox
+# seccomp installer has no cosign signature — would run unverified.
+AGENT_TEMPLATES=deploy/helm/probectl-agent/templates
+check_agent_chart_images() {
+  local dir="$1" bad=0 line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    echo "agent chart: ${line%%:*} renders an image the image-integrity policy does not verify: ${line#*:}"; bad=1
+  done < <(grep -HE '^ +image: ' "$dir"/*.yaml | grep -vE '^[^:]+: +image: "\{\{ \.Values\.image\.repository \}\}:\{\{ \$imageTag \}\}"$' | sed -E 's/:[[:space:]]+image:/: image:/' || true)
+  if grep -Eq '^ +[a-zA-Z]+Image:' deploy/helm/probectl-agent/values.yaml 2>/dev/null && [ "$dir" = "$AGENT_TEMPLATES" ]; then
+    echo "agent chart: values.yaml carries a separate *Image: value"; bad=1
+  fi
+  return "$bad"
+}
+
 if [[ "${1:-}" == "SELFTEST" ]]; then
   if ! check_identity_regexp \
     '^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/' \
@@ -172,6 +191,16 @@ YAML
     fi
   done
   rm -f "$admission_plant"
+  # RTO-12: the agent chart renders only the verified agent image; a planted
+  # busybox installer is caught.
+  check_agent_chart_images "$AGENT_TEMPLATES" >/dev/null || { echo "cosign-wiring SELFTEST: the shipped agent chart is rejected" >&2; exit 1; }
+  images_plant="$(mktemp -d)"
+  cp "$AGENT_TEMPLATES"/*.yaml "$images_plant/"
+  printf '      initContainers:\n        - name: install-seccomp-profile\n          image: "busybox:1.36@sha256:%s"\n' "$(printf '0%.0s' $(seq 1 64))" >> "$images_plant/daemonset.yaml"
+  if check_agent_chart_images "$images_plant" >/dev/null 2>&1; then
+    echo "cosign-wiring SELFTEST: a planted unsigned busybox installer image was accepted" >&2; rm -rf "$images_plant"; exit 1
+  fi
+  rm -rf "$images_plant"
   echo "cosign-wiring SELFTEST: OK"
   exit 0
 fi
@@ -262,6 +291,7 @@ grep -q 'cosign verify-blob' <<<"$airgap_release_section" || { echo "release: ou
 grep -Fq 'probectl-airgap-*.tar.gz' <<<"$airgap_release_section" || { echo "release: air-gap archive is not attached to the GitHub release"; fail=1; }
 
 check_admission "$ADMISSION" || fail=1
+check_agent_chart_images "$AGENT_TEMPLATES" || fail=1
 
 # 2) functional fail-closed checks on install.sh (no real cosign needed).
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT

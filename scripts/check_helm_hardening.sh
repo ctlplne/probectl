@@ -1270,6 +1270,12 @@ agent_ctr="$(awk '/- name: agent$/,/volumeMounts:/' <<<"$agent")"
 need "type: Localhost"                   "$agent_ctr" "agent: the agent container does not carry the strict Localhost seccomp profile (EBPF-003/DPR-052)"
 installer_ctr="$(awk '/- name: install-seccomp-profile$/,/volumeMounts:/' <<<"$agent")"
 need "type: RuntimeDefault"              "$installer_ctr" "agent: the seccomp installer initContainer runs under the profile it installs (DPR-052)"
+# RTO-12: the installer is the signed agent image (install-seccomp-profile),
+# which the image-integrity policy verifies — never a separate unsigned image.
+need_fixed "image: \"ghcr.io/ctlplne/probectl-ebpf-agent:$AGENT_IMAGE_TAG\"" "$installer_ctr" "agent: the seccomp installer initContainer does not run the verified agent image (RTO-12)"
+need "- install-seccomp-profile"         "$installer_ctr" "agent: the seccomp installer does not run the agent's install-seccomp-profile (RTO-12)"
+[ -z "$(grep -E '^ +image: ' <<<"$agent" | grep -vF "image: \"ghcr.io/ctlplne/probectl-ebpf-agent:$AGENT_IMAGE_TAG\"")" ] \
+  || fail "agent: the chart renders an image other than the verified agent image (RTO-12)"
 grep -q "type: Localhost" <<<"$installer_ctr" && fail "agent: installer initContainer carries the Localhost profile it has not written yet (DPR-052)"
 pod_sc="$(awk '/^    spec:$/,/initContainers:|containers:/' <<<"$(awk '/kind: DaemonSet$/,/^---/' <<<"$agent")")"
 grep -q "seccompProfile" <<<"$pod_sc" && fail "agent: pod-level seccompProfile would govern the installer initContainer too (DPR-052)"

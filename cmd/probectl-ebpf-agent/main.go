@@ -48,6 +48,12 @@ func main() {
 			return
 		case "admission-check":
 			os.Exit(runAdmissionCheck(os.Args[2:], os.Getenv))
+		case "install-seccomp-profile":
+			if err := runInstallSeccompProfile(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "probectl-ebpf-agent install-seccomp-profile:", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 	if err := run(); err != nil {
@@ -180,6 +186,25 @@ func runHealthcheck(args []string) error {
 		name = "ready"
 	}
 	return ebpf.CheckHealthState(*stateDir, name, *maxAge)
+}
+
+// runInstallSeccompProfile is the chart's install-seccomp-profile
+// initContainer (EBPF-003): it copies the bundled strict profile onto the
+// node's kubelet seccomp root. The agent image does it itself, so the
+// privileged DaemonSet carries no image the policy does not verify (RTO-12).
+func runInstallSeccompProfile(args []string) error {
+	fs := flag.NewFlagSet("install-seccomp-profile", flag.ContinueOnError)
+	src := fs.String("src", "/profile/seccomp.json", "bundled seccomp profile")
+	dest := fs.String("dest", "", "destination under the mounted kubelet seccomp root")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := ebpf.InstallSeccompProfile(*src, *dest); err != nil {
+		return err
+	}
+	log := logging.New(os.Stdout, envOr("PROBECTL_EBPF_LOG_LEVEL", "info"), envOr("PROBECTL_EBPF_LOG_FORMAT", "json"))
+	log.Info("installed strict seccomp profile", "dest", *dest)
+	return nil
 }
 
 // runAdmissionCheck is the observe-only Kyverno admission check the agent

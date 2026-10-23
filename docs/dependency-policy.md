@@ -67,8 +67,8 @@ reissued on different goods; the serial number can't.
 The supply-pins gate (`scripts/check_supply_pins.sh`, run by the `action-pins`
 job) is the backstop that mechanically fails the build on a floating reference:
 a `:latest` image ref anywhere under `deploy/`, a tag-only (non-digest) `image:`
-or camelCase `<name>Image:` value under `deploy/helm` (e.g. the privileged agent
-`installerImage:`), a mutable scalar or nested job container, service, or matrix
+or camelCase `<name>Image:` value under `deploy/helm` (e.g. a sidecar's
+`fooImage:`), a mutable scalar or nested job container, service, or matrix
 `image:` value in `.github/workflows` (unresolved image expressions fail closed),
 a tag-only Dockerfile `# syntax=docker/dockerfile` frontend, a `go install` in
 CI or the `Makefile` without an exact `@vX.Y.Z`, or a

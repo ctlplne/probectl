@@ -667,7 +667,14 @@ The seccomp profile is declared on the agent container, and the
 `install-seccomp-profile` initContainer runs under `RuntimeDefault`: a
 pod-level `Localhost` profile would have governed the installer too, and a
 fresh node that did not have the profile yet could never start the pod
-(DPR-052).
+(DPR-052). The installer runs the agent image itself
+(`/usr/local/bin/app install-seccomp-profile`, which writes the profile
+atomically and refuses anything that is not a seccomp profile), not a separate
+busybox: busybox publishes no cosign signature, so the image-integrity policy
+could never verify it, and an unverified image does not belong in a privileged
+DaemonSet (RTO-12). Every container the chart renders is the one signed,
+digest-pinned agent image; `seccomp.installerImage` is gone and fails the
+render if set.
 
 ```sh
 helm install probectl-agent deploy/helm/probectl-agent \

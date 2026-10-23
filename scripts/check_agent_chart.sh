@@ -20,8 +20,10 @@
 #      chart's default spec; the capability-posture policy is a ValidatingPolicy
 #      that audits; the observe-only admission-check CronJob (vanished Kyverno
 #      webhooks) runs the signed agent image with get-only RBAC on the two named
-#      objects and a short-lived token. SELFTEST plants each defect in a copy of
-#      the chart and requires the check to catch it.
+#      objects and a short-lived token; the seccomp installer initContainer
+#      runs the agent image, so every image the chart renders is the verified
+#      one (no unsigned busybox). SELFTEST plants each defect in a copy of the
+#      chart and requires the check to catch it.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -123,6 +125,30 @@ placeholder
     || { echo "publicKey attestor (with insecureIgnoreTlog) not rendered"; return 1; }
   if grep -q 'keyless:' <<<"$ivp"; then echo "publicKey did not replace the keyless attestor"; return 1; fi
   webhook_check_checks "$chart" || return 1
+  seccomp_installer_checks "$chart" || return 1
+  return 0
+}
+
+# RTO-12 (seccomp installer): the privileged DaemonSet's initContainer runs the
+# agent image (install-seccomp-profile), never a separate unsigned image.
+seccomp_installer_checks() {
+  local chart="$1" out init agent_img
+  local base=(template agent "$chart" --set-string image.tag="0.6.6@${DIGEST}"
+    --set tenantID=00000000-0000-0000-0000-000000000001 --set agentID=ci
+    --set 'bus.brokers={bus.probectl.svc:9093}')
+  agent_img="\"ghcr.io/ctlplne/probectl-ebpf-agent:0.6.6@${DIGEST}\""
+  out="$("$HELM" "${base[@]}" 2>&1)" || { echo "default render failed: $out"; return 1; }
+  init="$(awk '/^        - name: install-seccomp-profile$/,/volumeMounts:/' <<<"$out")"
+  [ -n "$init" ] || { echo "no install-seccomp-profile initContainer in the default (Localhost) render"; return 1; }
+  grep -Fqx "          image: $agent_img" <<<"$init" || { echo "the seccomp installer does not run the signed agent image (an unverified image in the privileged DaemonSet)"; return 1; }
+  grep -qx '            - install-seccomp-profile' <<<"$init" || { echo "the seccomp installer does not run install-seccomp-profile"; return 1; }
+  if grep -v '^ *#' <<<"$out" | grep -qi 'busybox\|/bin/sh'; then echo "the render still references busybox or a shell"; return 1; fi
+  # Every image the chart renders is the agent image the policy verifies.
+  [ -z "$(grep -E '^ +image: ' <<<"$out" | grep -vxF -- "          image: $agent_img" | grep -vxF -- "              image: $agent_img")" ] \
+    || { echo "the chart renders an image other than the verified agent image: $(grep -E '^ +image: ' <<<"$out" | grep -vF "$agent_img" | head -1)"; return 1; }
+  if "$HELM" "${base[@]}" --set-string seccomp.installerImage=busybox:1.36 >/dev/null 2>&1; then
+    echo "the removed seccomp.installerImage key was silently accepted"; return 1
+  fi
   return 0
 }
 
@@ -197,6 +223,9 @@ admission-check-cronjob.yaml	s/    verbs: \["get"\]/    verbs: ["get", "patch"]/
 admission-check-cronjob.yaml	s/          automountServiceAccountToken: false/          automountServiceAccountToken: true/	long-lived automounted token
 admission-check-cronjob.yaml	s/--policy-sha256={{ $sum }}/--policy-sha256=/	live policy-sha256 not compared
 admission-check-cronjob.yaml	s/    resourceNames: \[{{ $policy.policyName | quote }}\]/    resourceNames: ["*"]/	RBAC not limited to the named policy
+daemonset.yaml	/^        - name: install-seccomp-profile$/{n;s/^.*$/          image: "busybox:1.36"/;}	seccomp installer back on an unsigned busybox image
+daemonset.yaml	s/^            - install-seccomp-profile$/            - cp/	seccomp installer no longer the agent subcommand
+daemonset.yaml	s/{{- if hasKey .Values.seccomp "installerImage" -}}/{{- if false -}}/	removed seccomp.installerImage key silently accepted
 PLANTS
 
   # A standalone manifest that drifts from the chart's spec must be detected.
@@ -245,4 +274,4 @@ fi
 # (5) RTO-12 image-integrity render contract.
 why="$(rto12_checks "$AGENT")" || { echo "::error::agent chart image-integrity policy: $why (RTO-12)"; exit 1; }
 
-echo "check_agent_chart OK (appVersion in sync; Kyverno-free install renders no Kyverno policy; release publishes the agent chart; image-integrity ImageValidatingPolicy derived, denying, fail-closed, ordering-gated; capability posture ValidatingPolicy audits; observe-only webhook check) (SUP-20/RTO-12)"
+echo "check_agent_chart OK (appVersion in sync; Kyverno-free install renders no Kyverno policy; release publishes the agent chart; image-integrity ImageValidatingPolicy derived, denying, fail-closed, ordering-gated; capability posture ValidatingPolicy audits; observe-only webhook check; only the verified agent image) (SUP-20/RTO-12)"

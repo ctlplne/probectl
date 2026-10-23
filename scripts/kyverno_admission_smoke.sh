@@ -24,7 +24,7 @@
 #     publicKey + ignoreTlog — the air-gapped-mirror configuration);
 #   - one RUNNABLE agent image: the real probectl-ebpf-agent binary built in a
 #     pinned golang container, signed the same way (the chart runs it for its
-#     admission-check CronJob);
+#     seccomp installer initContainer and its admission-check CronJob);
 #   - Kyverno from a pinned chart (version + sha256) with digest-pinned images.
 #
 # Legs (each asserts the admission result AND the policy's message):
@@ -38,6 +38,8 @@
 #   G1  upgrade to a mirror repository, policy stale  -> chart refuses (policy-sha256 differs)
 #   D5  mirror repository, unsigned digest            -> denied (derived imageReferences)
 #   A2  mirror repository, signed digest              -> admitted
+#   S1  seccomp installer, runnable signed agent image -> initContainer exit 0, profile on the node
+#   S2  unsigned image as the installer initContainer  -> denied (initContainers are verified)
 #   W0  admission-check CronJob, Kyverno verifying     -> Job Complete (observe-only check passes)
 #   D6  Kyverno not answering, signed digest          -> denied (failurePolicy Fail)
 #   W1  Kyverno scaled to zero (webhooks gone)        -> admission-check Job FAILED, names the webhook
@@ -239,8 +241,8 @@ tenantID: probectl-qa-beta-kyverno
 agentID: probectl-qa-beta-kyverno
 bus:
   brokers: ["kafka.probectl-qa-beta.invalid:9093"]
-# The stand-in image is not an agent; skip the seccomp installer so the smoke
-# pulls nothing from Docker Hub. Admission, not runtime, is under test.
+# The stand-in images are not runnable; the seccomp installer (which runs the
+# agent image itself) is switched on for the RUNNABLE agent image only (S1).
 seccomp:
   type: RuntimeDefault
   installProfile: false
@@ -252,10 +254,11 @@ chartargs() { # repo tag
   printf '%s\n' -n "$NS" -f "$work/values.yaml" --set-file "admission.imageIntegrity.publicKey=$work/trusted.pub" \
     --set-string "image.repository=$REGHOST/$1" --set-string "image.tag=$2"
 }
-run_helm() { # verb repo tag  (bash 3.2: no mapfile)
+run_helm() { # verb repo tag [extra helm args...]  (bash 3.2: no mapfile)
   local verb="$1" repo="$2" tag="$3" args=() a
+  shift 3
   while IFS= read -r a; do args+=("$a"); done < <(chartargs "$repo" "$tag")
-  "$HELM" "$verb" "$REL" "$AGENT_CHART" "${args[@]}"
+  "$HELM" "$verb" "$REL" "$AGENT_CHART" "${args[@]}" "$@"
 }
 run_template() { # repo tag -> the release's two policies, as rendered
   local args=() a
@@ -353,8 +356,36 @@ grep -qxF "$m_signed" <<<"$imgs" || die "A2: no agent pod admitted with $m_signe
 ok A2 "mirror repository, signed digest -> ADMITTED: pod runs $m_signed"
 
 # The release now runs the RUNNABLE signed agent image (same repository, so the
-# policy is unchanged), which its admission-check CronJob uses too.
-run_helm upgrade "$MIRROR" "$(tagof "$m_agent")" > up-agent.log 2>&1 || { cat up-agent.log >&2; die "upgrade to the runnable agent image refused"; }
+# policy is unchanged), with the chart's default strict Localhost seccomp
+# profile and its installer initContainer — which, since RTO-12, runs the agent
+# image itself (no busybox). The admission-check CronJob uses it too.
+SECCOMP_ON=(--set seccomp.type=Localhost --set seccomp.installProfile=true)
+run_helm upgrade "$MIRROR" "$(tagof "$m_agent")" "${SECCOMP_ON[@]}" > up-agent.log 2>&1 || { cat up-agent.log >&2; die "upgrade to the runnable agent image refused"; }
+# S1: the installer ran the verified agent image and put the chart's profile on the node.
+init_state=""
+for _ in $(seq 1 120); do
+  init_state="$("$KUBECTL" -n "$NS" get pods -l "$AGENT_PODS" -o jsonpath='{range .items[*]}{.spec.initContainers[0].image}{" rc="}{.status.initContainerStatuses[0].state.terminated.exitCode}{.status.initContainerStatuses[0].lastState.terminated.exitCode}{"\n"}{end}' 2>/dev/null | grep -F "$m_agent rc=" | head -1 || true)"
+  [ "$init_state" = "$m_agent rc=0" ] && break; sleep 1
+done
+[ "$init_state" = "$m_agent rc=0" ] || { "$KUBECTL" -n "$NS" get pods -l "$AGENT_PODS" -o yaml >&2; die "S1: the install-seccomp-profile initContainer did not complete from $m_agent (got '$init_state')"; }
+docker exec "$CLUSTER-control-plane" cat /var/lib/kubelet/seccomp/probectl/seccomp.json > node-seccomp.json || die "S1: no profile on the node"
+cmp -s node-seccomp.json "$AGENT_CHART/files/seccomp.json" || die "S1: the node's profile differs from the chart's bundled profile"
+ok S1 "seccomp installer initContainer runs the signed agent image ($m_agent), exit 0 -> the chart's strict profile is on the node"
+# S2: an unsigned image in the initContainer slot is denied, even beside a signed agent.
+cat > s2.yaml <<S2POD
+apiVersion: v1
+kind: Pod
+metadata: {name: s2, namespace: probectl-qa-beta-other}
+spec:
+  initContainers:
+    - name: install-seccomp-profile
+      image: $unsigned
+  containers:
+    - name: agent
+      image: $signed
+S2POD
+if "$KUBECTL" apply -f s2.yaml > s2.log 2>&1; then cat s2.log >&2; die "S2 an unsigned installer initContainer was admitted"; fi
+want_denied S2 "unsigned image as the seccomp installer initContainer (signed agent beside it)" s2.log "$NOTSIGNED" "${unsigned#*@}"
 # run_check JOB -> the Job's final condition (Complete|Failed); its log in JOB.log.
 run_check() {
   "$KUBECTL" -n "$NS" create job "$1" --from="cronjob/$CHECK_CRONJOB" >/dev/null || die "$1: create a Job from cronjob/$CHECK_CRONJOB"
@@ -400,9 +431,9 @@ done
 grep -q 'kyverno admission check FAILED' w1.log && grep -Eq "ValidatingWebhookConfiguration kyverno-resource-validating-webhook-cfg (is missing|has no failurePolicy=Fail webhook serving ImageValidatingPolicy $POLICY)" w1.log \
   || { cat w1.log >&2; die "W1: the failed check does not name the missing webhook"; }
 ok W1 "Kyverno scaled to zero -> admission-check Job FAILED: $(grep -Eo "Kyverno's ValidatingWebhookConfiguration [^\"]*" w1.log | head -1 | cut -c1-160)"
-if run_helm upgrade "$MIRROR" "$(tagof "$m_agent")" > g2.log 2>&1; then cat g2.log >&2; die "G2 chart rolled out while Kyverno had no webhooks"; fi
+if run_helm upgrade "$MIRROR" "$(tagof "$m_agent")" "${SECCOMP_ON[@]}" > g2.log 2>&1; then cat g2.log >&2; die "G2 chart rolled out while Kyverno had no webhooks"; fi
 grep -q "has no failurePolicy=Fail webhook serving ImageValidatingPolicy $POLICY" g2.log || { cat g2.log >&2; die "G2: refused for the wrong reason"; }
 ok G2 "Kyverno scaled to zero (webhooks removed, policy still Ready) -> REFUSED by the chart"
 
-[ "$pass" -eq 14 ] || die "only $pass of 14 legs asserted"
+[ "$pass" -eq 16 ] || die "only $pass of 16 legs asserted"
 echo "KYVERNO ADMISSION SMOKE: OK ($pass legs; Kyverno $KYVERNO_TAG on kind $KIND_NODE_IMAGE)"

@@ -19,6 +19,12 @@
 {{- fail "metrics.enabled exposes the agent listener on the pod network and requires metrics.tls.existingSecret (keys tls.crt and tls.key)" -}}
 {{- end -}}
 {{- $agentID := include "probectl-agent.agentID" . -}}
+{{- if hasKey .Values.seccomp "installerImage" -}}
+{{- fail "seccomp.installerImage was removed (RTO-12): the seccomp profile installer now runs the agent image itself (install-seccomp-profile), which the image-integrity policy verifies; a separate image (the former busybox has no cosign signature) would run unverified in the privileged DaemonSet" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$" .Values.seccomp.localhostProfile) -}}
+{{- fail "seccomp.localhostProfile must be a relative path under the kubelet seccomp root (letters, digits, . _ - and /)" -}}
+{{- end -}}
 {{- $sasl := .Values.bus.sasl | default dict -}}
 {{- if and $sasl.mechanism (not $sasl.existingSecret) -}}
 {{- fail "bus.sasl.mechanism is set but bus.sasl.existingSecret is empty: SASL credentials come from a Secret (keys bus.sasl.userKey / bus.sasl.passwordKey), never from values" -}}
@@ -93,20 +99,21 @@ spec:
       # kubelet seccomp root BEFORE the agent starts, so the Localhost profile
       # resolves with no manual node bootstrap. The initContainer is the only
       # thing that needs the hostPath write; the agent itself does not mount it.
+      #
+      # RTO-12: the installer is the agent image itself (its
+      # install-seccomp-profile subcommand), so the image-integrity policy
+      # verifies it like the agent; the privileged DaemonSet carries no
+      # unsigned image (the former busybox has no cosign signature).
       initContainers:
         - name: install-seccomp-profile
-          image: {{ .Values.seccomp.installerImage | quote }}
+          image: "{{ .Values.image.repository }}:{{ $imageTag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           resources:
             {{- toYaml .Values.initResources | nindent 12 }}
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -eu
-              dest="$(dirname "/host-seccomp/{{ .Values.seccomp.localhostProfile }}")"
-              mkdir -p "$dest"
-              cp /profile/seccomp.json "/host-seccomp/{{ .Values.seccomp.localhostProfile }}"
-              echo "installed strict seccomp profile to {{ .Values.seccomp.kubeletSeccompRoot }}/{{ .Values.seccomp.localhostProfile }}"
+          args:
+            - install-seccomp-profile
+            - --src=/profile/seccomp.json
+            - --dest=/host-seccomp/{{ .Values.seccomp.localhostProfile }}
           securityContext:
             runAsUser: 0
             readOnlyRootFilesystem: true
