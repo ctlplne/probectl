@@ -4,7 +4,15 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { cn } from '../lib/cn'
 import { Icon, type IconName } from './Icon'
 
@@ -33,11 +41,27 @@ const toneIcon: Record<ToastTone, IconName> = {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
   const idRef = useRef(0)
+  // Each toast's auto-dismiss timer, so an unmounted provider never sets state
+  // from a timer that outlived it (CI run 40126593272: a dismiss fired after
+  // the test's window was gone).
+  const timers = useRef(new Set<number>())
+
+  useEffect(() => {
+    const pending = timers.current
+    return () => {
+      pending.forEach((timer) => window.clearTimeout(timer))
+      pending.clear()
+    }
+  }, [])
 
   const push = useCallback((toast: Omit<Toast, 'id'>) => {
     const id = ++idRef.current
     setToasts((cur) => [...cur, { ...toast, id }])
-    window.setTimeout(() => setToasts((cur) => cur.filter((t) => t.id !== id)), 4500)
+    const timer = window.setTimeout(() => {
+      timers.current.delete(timer)
+      setToasts((cur) => cur.filter((t) => t.id !== id))
+    }, 4500)
+    timers.current.add(timer)
   }, [])
 
   return (
