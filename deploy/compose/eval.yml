@@ -278,6 +278,12 @@ services:
       eval-registry: { condition: service_completed_successfully }
     environment:
       PROBECTL_EBPF_TENANT_ID: "00000000-0000-0000-0000-000000000001"  # built-in default tenant
+      # DPR-304: the collector identity eval-registry registers above. Since
+      # RTP-17 the agent stamps ITS OWN agent_id on every fixture flow (default:
+      # the container hostname), and the control plane verifies the (tenant,
+      # agent) pair against the registry, so without this every batch was
+      # REJECTED (TENANT-101) and the sample topology stayed empty.
+      PROBECTL_EBPF_AGENT_ID: "00000000-0000-0000-0000-000000000101"
       PROBECTL_EBPF_FIXTURE_PATH: "/flows.json"      # SAMPLE data, mounted below
       PROBECTL_EBPF_BUS_MODE: "kafka"
       PROBECTL_EBPF_BUS_BROKERS: "kafka:19092"

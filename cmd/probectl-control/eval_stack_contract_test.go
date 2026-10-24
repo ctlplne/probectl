@@ -205,3 +205,32 @@ func TestEvalStackServesAsLeastPrivilegeLogin(t *testing.T) {
 		t.Error("eval.yml has no migrate one-shot on the control image")
 	}
 }
+
+// TestEvalFixtureAgentRunsAsRegisteredCollector (DPR-304): the fixture eBPF
+// agent stamps its own agent_id on every flow (RTP-17) and the control plane
+// verifies (tenant, agent) against the registry, so the agent must run as the
+// identity eval-registry inserts. Before the fix it defaulted to its container
+// hostname and every batch was rejected (TENANT-101): an empty sample graph.
+func TestEvalFixtureAgentRunsAsRegisteredCollector(t *testing.T) {
+	stack := loadEvalStack(t)
+	agent, registry := stack["ebpf-agent"], stack["eval-registry"]
+	if agent == nil || registry == nil {
+		t.Fatal("eval stack has no ebpf-agent or eval-registry service")
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", "compose", "eval.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?s)INSERT INTO agents.*?VALUES\s*\(\s*'([0-9a-f-]{36})',\s*'([0-9a-f-]{36})'`).FindSubmatch(raw)
+	if m == nil {
+		t.Fatal("eval-registry no longer inserts a sample collector row")
+	}
+	registeredAgent, registeredTenant := string(m[1]), string(m[2])
+	env := envOf(agent, nil)
+	if got := env["PROBECTL_EBPF_AGENT_ID"]; got != registeredAgent {
+		t.Errorf("eval ebpf-agent runs as agent %q; eval-registry registers %q, so every fixture batch is rejected", got, registeredAgent)
+	}
+	if got := env["PROBECTL_EBPF_TENANT_ID"]; got != registeredTenant {
+		t.Errorf("eval ebpf-agent claims tenant %q; eval-registry registers its collector under %q", got, registeredTenant)
+	}
+}
