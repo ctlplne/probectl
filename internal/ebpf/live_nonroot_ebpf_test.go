@@ -170,7 +170,7 @@ func runNonRootL4Child(t *testing.T) {
 	}
 	defer src.Close()
 	seeded := src.(*liveSource).ListenersSeeded()
-	t.Logf("non-root attach ok; task_file listener seed ran: %t", seeded)
+	t.Logf("non-root attach ok; task_file listener seed ran: %t; seed [files sockets tcp-listeners recorded] = %v", seeded, src.(*liveSource).SeedStats())
 	if !seeded {
 		t.Error("the task_file listener iterator did not run as the unit's identity (ING-24 seed)")
 	}

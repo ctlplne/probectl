@@ -173,7 +173,8 @@ func TestLiveInboundEdgeOrientation(t *testing.T) {
 			}
 		}
 		if len(onPort) != 1 {
-			t.Fatalf("%s: %d edges keyed on listen port %d, want exactly 1 (all edges: %+v)", srv.name, len(onPort), srv.port, em.edges)
+			t.Fatalf("%s: %d edges keyed on listen port %d, want exactly 1 (all edges: %+v)\nlistener seed [files sockets tcp-listeners recorded] = %v\nraw flows on that port:\n%s",
+				srv.name, len(onPort), srv.port, em.edges, src.(*liveSource).SeedStats(), flowsOnPort(em.flows, srv.port))
 		}
 		e := onPort[0]
 		if e.Destination != server {
@@ -203,4 +204,21 @@ func TestLiveInboundEdgeOrientation(t *testing.T) {
 			t.Errorf("%s: %d server-side (ingress) flows, want at least %d", srv.name, serverSide, conns)
 		}
 	}
+}
+
+// flowsOnPort lists the raw flows touching port, with the kernel-learned role
+// and connection key, so a failed orientation names the mechanism (which end
+// lost its owner, or which pair did not join).
+func flowsOnPort(flows []Flow, port int) string {
+	var b strings.Builder
+	for _, f := range flows {
+		if f.Source.Port != uint32(port) && f.Destination.Port != uint32(port) {
+			continue
+		}
+		fmt.Fprintf(&b, "  role=%d conn=%#x state=%s %s pid=%d proc=%q :%d -> %s pid=%d proc=%q :%d bytes=%d observed=%s\n",
+			f.role, f.connKey, f.State, f.Source.Address, f.Source.PID, f.Source.Process, f.Source.Port,
+			f.Destination.Address, f.Destination.PID, f.Destination.Process, f.Destination.Port, f.Bytes,
+			f.Observed.Format("15:04:05.000000"))
+	}
+	return b.String()
 }

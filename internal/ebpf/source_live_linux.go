@@ -104,6 +104,17 @@ func seedListeners(prog *cebpf.Program) bool {
 // ListenersSeeded reports whether pre-existing listeners were attributed.
 func (s *liveSource) ListenersSeeded() bool { return s.listenersSeeded }
 
+// SeedStats is what the listener seed saw at start, stage by stage (files
+// visited, socket files, TCP listeners, owners recorded), so a start that
+// attributes no pre-existing listener names the stage that dropped them.
+func (s *liveSource) SeedStats() [4]uint64 {
+	var out [4]uint64
+	for i := range out {
+		out[i] = percpuCounter(s.objs.SeedStats, uint32(i))
+	}
+	return out
+}
+
 // newLiveSource loads and attaches the eBPF program. This is the only place that
 // calls the bpf() syscall, and it loads only observation programs (a raw
 // tracepoint and a read-only iterator).

@@ -191,7 +191,12 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	if ls, ok := src.(interface{ ListenersSeeded() bool }); ok {
 		// ING-24: say whether servers that started before the agent will be
 		// attributed to their process, or only ones that start after it.
-		log.Info("ebpf listener ownership seeded", "preexisting_listeners_attributed", ls.ListenersSeeded())
+		attrs := []any{"preexisting_listeners_attributed", ls.ListenersSeeded()}
+		if ss, ok := src.(interface{ SeedStats() [4]uint64 }); ok {
+			st := ss.SeedStats()
+			attrs = append(attrs, "files_visited", st[0], "socket_files", st[1], "tcp_listeners", st[2], "owners_recorded", st[3])
+		}
+		log.Info("ebpf listener ownership seeded", attrs...)
 	}
 
 	agg := NewAggregator()

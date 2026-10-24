@@ -137,6 +137,27 @@ struct {
 	__type(value, __u64);
 } drop_counters SEC(".maps");
 
+// seed_stats counts each stage of the listener seed (ING-24), so a start that
+// attributes no pre-existing listener says which filter dropped them:
+// files visited, socket files, TCP listeners, owners recorded.
+#define SEED_FILES 0
+#define SEED_SOCKETS 1
+#define SEED_TCP_LISTENERS 2
+#define SEED_RECORDED 3
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 4);
+	__type(key, __u32);
+	__type(value, __u64);
+} seed_stats SEC(".maps");
+
+static __always_inline void count_seed(__u32 stage)
+{
+	__u64 *cnt = bpf_map_lookup_elem(&seed_stats, &stage);
+	if (cnt)
+		__sync_fetch_and_add(cnt, 1);
+}
+
 static __always_inline void count_drop(__u32 reason)
 {
 	__u64 *cnt = bpf_map_lookup_elem(&drop_counters, &reason);
@@ -397,22 +418,26 @@ int seed_listeners(struct bpf_iter__task_file *ctx)
 	struct task_struct *task = ctx->task;
 	if (!file || !task)
 		return 0;
+	count_seed(SEED_FILES);
 	struct socket *sock = bpf_sock_from_file(file);
 	if (!sock)
 		return 0;
 	struct sock *sk = BPF_CORE_READ(sock, sk);
 	if (!sk)
 		return 0;
+	count_seed(SEED_SOCKETS);
 	if (BPF_CORE_READ(sk, sk_protocol) != IPPROTO_TCP)
 		return 0;
 	if (BPF_CORE_READ(sk, __sk_common.skc_state) != PROBECTL_TCP_LISTEN)
 		return 0;
+	count_seed(SEED_TCP_LISTENERS);
 	struct listen_key lk;
 	listen_key_for(&lk, sk, BPF_CORE_READ(sk, __sk_common.skc_num));
 	struct listen_owner o = {};
 	o.pid = BPF_CORE_READ(task, tgid);
 	BPF_CORE_READ_STR_INTO(&o.comm, task, comm);
-	bpf_map_update_elem(&listeners, &lk, &o, BPF_NOEXIST);
+	if (bpf_map_update_elem(&listeners, &lk, &o, BPF_NOEXIST) == 0)
+		count_seed(SEED_RECORDED);
 	return 0;
 }
 
