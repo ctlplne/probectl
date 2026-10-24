@@ -34,6 +34,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -388,10 +389,13 @@ canaries:
 		})
 		ebpfExited[f.name] = exited
 	}
-	// A wait for an agent's edge stops at once when that agent has exited.
+	// A wait for an agent's edge stops at once when that agent has FAILED. A
+	// fixture agent replays its fixture and exits with status 0, which is
+	// normal; an exit with an error status (the bind failure of DPR-321) is not.
 	agentAlive := func(name string) {
-		if err := ebpfExited[name](); err != nil {
-			t.Fatalf("%s exited before its edge appeared: %v", name, err)
+		var failed *exec.ExitError
+		if err := ebpfExited[name](); errors.As(err, &failed) {
+			t.Fatalf("%s failed before its edge appeared: %v", name, err)
 		}
 	}
 	t.Cleanup(func() {
