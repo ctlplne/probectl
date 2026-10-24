@@ -1016,7 +1016,9 @@ jobs:
     # signs two tenants' admins in through Dex's own password form, writes and
     # reads tests and alert rules over HTTPS with the API tokens those
     # sessions mint, and fails on any cross-tenant visibility; then it drives
-    # the enroll -> SVID -> mTLS canary and two-tenant Kafka flow lanes.
+    # the enroll -> SVID -> mTLS canary and two-tenant Kafka flow lanes. Kafka
+    # serves SASL_SSL and every telemetry store is HTTPS ClickHouse read as the
+    # least-privilege reader login, the production shape (G6, G7-12).
     # Inside verify-all because the nightly copy alone went red for 19 nights
     # with nobody looking (G6 root cause, bucket C).
     runs-on: ubuntu-latest

@@ -45,9 +45,18 @@ the API tokens those sessions mint: any cross-tenant visibility, or a by-id
 read, update or delete of the other tenant's object that is not refused,
 fails the run. It then redeems a one-time join token for a tenant-bound SVID, sends
 a noop canary result through the agent's mTLS gRPC transport, reads that result
-through the HTTPS API, and then checks two tenants' Kafka flow lanes. Both the
-synthetic result and topology assertions include **cross-tenant negative
-checks** (no bleed in either direction). The test is skipped unless
+through the HTTPS API, and then checks two tenants' Kafka flow lanes. Every
+backing service runs the production shape (`docs/guardrails.md` G7-12): Kafka
+serves SASL_SSL on every client listener (no `*_ALLOW_PLAINTEXT` flag exists in
+`test/e2e`), and every telemetry store is ClickHouse over HTTPS, configured from
+the shipped `deploy/compose/prod/clickhouse/` files and provisioned by the
+shipped `clickhouse-init.sh`, with each tenant read running as the
+least-privilege reader login (DPR-285). The test reads each tenant's
+ClickHouse-backed `/v1/ebpf/service-map`, then restarts the control plane so its
+reader self-check runs over tables that hold both tenants' rows.
+`internal/cipolicy`'s `TestE2EStoresRunTheProductionTLSShape` keeps that wiring.
+The synthetic result, topology and service-map assertions all include
+**cross-tenant negative checks** (no bleed in either direction). The test is skipped unless
 `PROBECTL_E2E=1` is set.
 
 The unit-level **cross-tenant isolation** gate is separate — `make

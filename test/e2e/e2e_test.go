@@ -14,17 +14,23 @@
 //
 // The happy paths + tenancy boundary:
 //
-//	build the release image → certgen (localhost, postgres SANs) → compose up
-//	Postgres (TLS) + Kafka → migrate as the owner login, serve as the
-//	least-privilege login over sslmode=verify-full → start Dex (real OIDC) →
+//	build the release image → certgen (localhost, postgres, kafka, clickhouse
+//	SANs) → compose up Postgres (TLS), Kafka (SASL_SSL on every listener) and
+//	ClickHouse (HTTPS only) → provision the ClickHouse control + reader logins
+//	with the shipped clickhouse-init.sh → migrate as the owner login, serve as
+//	the least-privilege login over sslmode=verify-full, the bus over verified
+//	TLS + SASL and every telemetry store on ClickHouse with tenant reads as the
+//	reader login (boot self-check) → start Dex (real OIDC) →
 //	sign tenant A's and tenant B's admins in through Dex's password form and
 //	mint API tokens from those sessions → each tenant writes tests and alert
 //	rules over HTTPS → each sees only its own; the other tenant's object ids
 //	answer 404 for read, update and delete → redeem a one-time join token for
 //	a tenant-bound SVID → run a real noop canary over mTLS → assert its result
 //	through /v1/results/latest → rotate, revoke → run TWO fixture-mode eBPF
-//	agents (disjoint traffic) → flows ride Kafka → query /v1/topology per
-//	tenant → any cross-tenant visibility fails the test → teardown.
+//	agents (disjoint traffic) → flows ride TLS Kafka → query /v1/topology and
+//	the ClickHouse-backed /v1/ebpf/service-map per tenant → restart the control
+//	plane so its reader self-check runs over non-empty tables → any
+//	cross-tenant visibility fails the test → teardown.
 //
 // Gated on PROBECTL_E2E=1 (ci.yml's e2e job and the nightly set it; `go test
 // ./test/...` stays a no-op skip everywhere else).
@@ -93,21 +99,22 @@ func TestE2E(t *testing.T) {
 	// ── the release image, and its certgen ──────────────────────────────
 	ctl := &controlImage{image: releaseImage(t, root, project), network: network, work: work, project: project}
 	tlsDir := mkdir(t, work, "tls")
-	ctl.oneShot(t, "none", nil, []string{"PROBECTL_CERT_HOSTS=localhost,127.0.0.1,postgres"},
+	ctl.oneShot(t, "none", nil, []string{"PROBECTL_CERT_HOSTS=localhost,127.0.0.1,postgres,kafka,clickhouse"},
 		"gen-cert", ctl.path(t, tlsDir))
 	serverCA := filepath.Join(tlsDir, "ca.crt")
 
 	// ── stack up ────────────────────────────────────────────────────────
 	// A unique Compose project gives this run empty, disposable volumes and its
-	// own network, never the developer's probectl-dev project. Postgres serves
-	// TLS with the certgen bundle, exactly as deploy/compose/probectl.yml does.
+	// own network, never the developer's probectl-dev project. Every backing
+	// service serves TLS from the certgen bundle (composeOverride).
 	pgPort, kafkaPort := freeTCPPort(t), freeTCPPort(t)
-	stack := composeStack{project: project, env: []string{
+	secrets := newStoreSecrets(t)
+	stack := composeStack{project: project, env: append([]string{
 		"PROBECTL_ISOLATED_NETWORK=" + network,
 		"PROBECTL_DEV_POSTGRES_PORT=" + pgPort,
 		"PROBECTL_DEV_KAFKA_PORT=" + kafkaPort,
 		"PROBECTL_E2E_TLS_DIR=" + tlsDir,
-	}}
+	}, secrets.composeEnv()...)}
 	overrideFile := filepath.Join(work, "e2e-override.yml")
 	writeFile(t, overrideFile, composeOverride)
 	stack.files = []string{filepath.Join(root, composeF), filepath.Join(root, composeIsoF), overrideFile}
@@ -116,7 +123,8 @@ func TestE2E(t *testing.T) {
 		cmd.Env = append(os.Environ(), stack.env...)
 		_ = cmd.Run()
 	})
-	runCmd(t, root, stack.env, "docker", stack.args("up", "-d", "--wait", "postgres", "kafka")...)
+	runCmd(t, root, stack.env, "docker", stack.args("up", "-d", "--wait", "postgres", "kafka", "clickhouse")...)
+	provisionClickHouseLogins(t, root, stack)
 	createKafkaTopics(t, root, stack,
 		"probectl."+laneA+".ebpf.flows",
 		"probectl."+laneB+".ebpf.flows",
@@ -159,13 +167,10 @@ func TestE2E(t *testing.T) {
 		"PROBECTL_WORM_SIGNING_KEY_FILE":      ctl.path(t, filepath.Join(wormDir, "signing-key.pem")),
 		"PROBECTL_IR_PUBLIC_KEY_DIR":          ctl.path(t, mkdir(t, work, "ir-public")),
 		"PROBECTL_INGEST_STRICT_TENANT_LANES": "true",
-		"PROBECTL_BUS_MODE":                   "kafka",
-		"PROBECTL_BUS_BROKERS":                kafkaInternalBroker,
-		"PROBECTL_BUS_ALLOW_PLAINTEXT":        "true", // dev compose kafka is plaintext, in-network only (U-010 dev override)
 		"PROBECTL_LOG_FORMAT":                 "json",
 	}
-	for _, plane := range []string{"PATHSTORE", "FLOWSTORE", "OTELSTORE", "EBPFSTORE", "ENDPOINTSTORE"} {
-		base["PROBECTL_"+plane+"_TENANT_SCOPING"] = "true"
+	for k, v := range storeEnv(t, ctl, state, serverCA, secrets) {
+		base[k] = v
 	}
 	baseEnv := writeEnvFile(t, filepath.Join(work, "control.env"), base)
 	cli := func(args ...string) string {
@@ -232,17 +237,26 @@ func TestE2E(t *testing.T) {
 	assertOwnOnly(t, b, objB, objA, a)
 	assertUnauthenticated(t, anon, b, tenantA, objA.mark)
 
-	agentAndFlows(t, root, work, stack, cli, a, b, apiPort, agentPort, serverCA, canaryToken)
+	agentAndFlows(t, root, work, stack, secrets, cli, a, b, apiPort, agentPort, serverCA, canaryToken)
+
+	// The ClickHouse-backed read works per tenant through the reader login and
+	// shows nothing of the other tenant; then a restart re-runs the boot
+	// self-check over tables that now hold both tenants' rows, and the durable
+	// rows still answer each tenant alone.
+	assertClickHouseReads(t, a, b)
+	restartAndReverify(t, ctl, anon, controlRunning)
+	assertClickHouseReads(t, a, b)
 
 	t.Logf("e2e PASS: release image %s in session auth (Dex OIDC) over HTTPS + verify-full Postgres; "+
 		"two tenants' writes and reads stay their own both ways; join token -> SVID -> mTLS canary -> result API; "+
-		"flow ingest is tenant-scoped", ctl.image)
+		"flow ingest over SASL_SSL Kafka is tenant-scoped; ClickHouse-backed reads over HTTPS run as the reader login, "+
+		"verified at boot over non-empty tables", ctl.image)
 }
 
 // agentAndFlows drives the agent planes against the running release image:
 // enrollment refusals, the mTLS canary with rotation and revocation, and the
 // two tenants' Kafka flow lanes, each read back through the public API.
-func agentAndFlows(t *testing.T, root, work string, stack composeStack,
+func agentAndFlows(t *testing.T, root, work string, stack composeStack, secrets storeSecrets,
 	cli func(...string) string, a, b api, apiPort, agentPort, serverCA, canaryToken string) {
 	t.Helper()
 	ebpfAgent := filepath.Join(work, "probectl-ebpf-agent")
@@ -372,7 +386,8 @@ canaries:
 		"--dir", filepath.Join(work, "expired-identity"), "--ca-file", serverCA,
 		"--hostname", "expired-token")
 
-	// Two fixture-mode agents exercise tenant-namespaced flow ingestion.
+	// Two fixture-mode agents exercise tenant-namespaced flow ingestion, each
+	// publishing to the broker's host listener over verified TLS + SASL.
 	kafkaBroker := "localhost:" + stack.envValue("PROBECTL_DEV_KAFKA_PORT")
 	ebpfExited := map[string]func() error{}
 	for _, f := range []struct{ tenant, ip, name, agentID, lane string }{
@@ -384,9 +399,8 @@ canaries:
 		writeFile(t, cfg, fmt.Sprintf(
 			"apiVersion: probectl.io/ebpf-agent/v1\ntenant_id: %q\nhost: %q\nfixture_path: %q\nbus:\n  mode: kafka\n  brokers: [%q]\n  namespace: %q\n",
 			f.tenant, f.agentID, fixture, kafkaBroker, f.lane))
-		_, _, exited := startProc(t, work, f.name, ebpfAgent, []string{"--config", cfg}, []string{
-			"PROBECTL_EBPF_BUS_ALLOW_PLAINTEXT=true",
-		})
+		_, _, exited := startProc(t, work, f.name, ebpfAgent, []string{"--config", cfg},
+			collectorBusEnv("PROBECTL_EBPF", serverCA, secrets))
 		ebpfExited[f.name] = exited
 	}
 	// A wait for an agent's edge stops at once when that agent has FAILED. A
@@ -521,37 +535,6 @@ func (c composeStack) args(args ...string) []string {
 	return append(base, args...)
 }
 
-// composeOverride pins the published ports to loopback (the stack's
-// credentials are throwaway dev values, so it never listens on a LAN
-// interface) and serves Postgres over TLS with the run's certgen bundle, the
-// way deploy/compose/probectl.yml does: the key is installed postgres-owned
-// 0600 as the server requires.
-const composeOverride = `services:
-  postgres:
-    ports: !override
-      - "127.0.0.1:${PROBECTL_DEV_POSTGRES_PORT}:5432"
-    command: >
-      bash -c "install -o postgres -g postgres -m 600 /certs/tls.key /var/lib/postgresql/server.key
-      && install -o postgres -g postgres -m 644 /certs/tls.crt /var/lib/postgresql/server.crt
-      && exec docker-entrypoint.sh postgres -c ssl=on
-      -c ssl_cert_file=/var/lib/postgresql/server.crt
-      -c ssl_key_file=/var/lib/postgresql/server.key"
-    volumes:
-      - ${PROBECTL_E2E_TLS_DIR}:/certs:ro
-  kafka:
-    ports: !override
-      - "127.0.0.1:${PROBECTL_DEV_KAFKA_PORT}:9092"
-`
-
-// kafkaInternalBroker is the broker's in-network listener. Admin tools run
-// inside the kafka container must use it: the host-facing listener advertises
-// the run's free loopback port, which does not exist inside the container.
-const kafkaInternalBroker = "kafka:19092"
-
-// e2eRuntimePassword is the disposable serve login's password: a throwaway
-// value on a loopback-only, per-run database, deliberately not key-shaped.
-const e2eRuntimePassword = "e2e-runtime-login-throwaway"
-
 func TestComposeArgsScopesDisposableProject(t *testing.T) {
 	t.Parallel()
 	stack := composeStack{project: "probectl-e2e-123", files: []string{"/tmp/dev.yml", "/tmp/isolated.yml", "/tmp/loopback.yml"}}
@@ -623,46 +606,6 @@ func mintEnrollTokenTTL(t *testing.T, cli func(...string) string, tenant, agentI
 	}
 	t.Fatal("enroll-token did not print a display token")
 	return ""
-}
-
-func createKafkaTopics(t *testing.T, root string, stack composeStack, topics ...string) {
-	t.Helper()
-	for _, topic := range topics {
-		runCmd(t, root, stack.env, "docker", stack.args("exec", "-T", "kafka",
-			"/opt/kafka/bin/kafka-topics.sh",
-			"--bootstrap-server", kafkaInternalBroker,
-			"--create",
-			"--if-not-exists",
-			"--topic", topic,
-			"--partitions", "3",
-			"--replication-factor", "1")...)
-	}
-}
-
-func dumpKafkaDiagnostics(t *testing.T, root string, stack composeStack) {
-	t.Helper()
-	for _, tc := range []struct {
-		name string
-		args []string
-	}{
-		{name: "topics", args: []string{"/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", kafkaInternalBroker, "--list"}},
-		{name: "consumer-groups", args: []string{"/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", kafkaInternalBroker, "--all-groups", "--describe"}},
-		{name: "tenant-a-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", kafkaInternalBroker, "--topic", "probectl." + laneA + ".ebpf.flows"}},
-		{name: "tenant-b-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", kafkaInternalBroker, "--topic", "probectl." + laneB + ".ebpf.flows"}},
-		{name: "tenant-a-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", kafkaInternalBroker, "--topic", "probectl." + laneA + ".network.results"}},
-		{name: "tenant-b-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", kafkaInternalBroker, "--topic", "probectl." + laneB + ".network.results"}},
-	} {
-		args := stack.args(append([]string{"exec", "-T", "kafka"}, tc.args...)...)
-		cmd := exec.Command("docker", args...)
-		cmd.Dir = root
-		cmd.Env = append(os.Environ(), stack.env...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Logf("---- kafka %s failed ----\n%v\n%s", tc.name, err, out)
-			continue
-		}
-		t.Logf("---- kafka %s ----\n%s", tc.name, out)
-	}
 }
 
 // startProc launches a long-running binary, captures its output to a log
