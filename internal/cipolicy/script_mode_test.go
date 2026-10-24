@@ -7,7 +7,9 @@
 package cipolicy
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -41,6 +43,61 @@ func TestWorkflowInvokedScriptsAreExecutable(t *testing.T) {
 		t.Fatalf("found only %d ./scripts/*.sh workflow invocations; the guard has stopped checking anything", len(wanted))
 	}
 
+	assertTrackedExecutable(t, wanted, "a workflow")
+}
+
+// TestMakefileAndDocInvokedScriptsAreExecutable (DPR-301): the same rule for
+// the scripts a USER runs. docs/getting-started.md opens with `make
+// first-data`, whose recipe is `./scripts/first_data.sh`; that script was
+// committed 100644, so the first command of the documented first hour died on
+// a fresh clone with "Permission denied" (make: Error 126) before it built
+// anything. The workflow guard above never saw it, because no workflow runs
+// that target. The Makefile and every Markdown page a user follows are now
+// scanned too.
+func TestMakefileAndDocInvokedScriptsAreExecutable(t *testing.T) {
+	// A leading "./" that is not the tail of "../" — a relative Markdown link
+	// such as ../scripts/x.sh is a link, not an invocation.
+	refs := regexp.MustCompile(`(?:^|[^A-Za-z0-9_./-])\./(scripts/[A-Za-z0-9_.-]+\.sh)`)
+	root := repoRoot(t)
+	sources := []string{"Makefile", "README.md", "CONTRIBUTING.md"}
+	if err := filepath.WalkDir(filepath.Join(root, "docs"), func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".md") {
+			rel, _ := filepath.Rel(root, path)
+			sources = append(sources, rel)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk docs: %v", err)
+	}
+	wanted := map[string]bool{}
+	for _, src := range sources {
+		b, err := os.ReadFile(filepath.Join(root, src))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			t.Fatalf("read %s: %v", src, err)
+		}
+		for _, m := range refs.FindAllStringSubmatch(string(b), -1) {
+			wanted[m[1]] = true
+		}
+	}
+	if !wanted["scripts/first_data.sh"] {
+		t.Fatal("the Makefile no longer invokes ./scripts/first_data.sh; the guard has stopped checking the first-hour path")
+	}
+	if len(wanted) < 20 {
+		t.Fatalf("found only %d ./scripts/*.sh Makefile/doc invocations; the guard has stopped checking anything", len(wanted))
+	}
+	assertTrackedExecutable(t, wanted, "the Makefile or a doc")
+}
+
+// assertTrackedExecutable fails for every path git does not track at mode
+// 100755. The index is the authority, not the filesystem (see above).
+func assertTrackedExecutable(t *testing.T, wanted map[string]bool, invoker string) {
+	t.Helper()
 	paths := make([]string, 0, len(wanted))
 	for p := range wanted {
 		paths = append(paths, p)
@@ -64,13 +121,13 @@ func TestWorkflowInvokedScriptsAreExecutable(t *testing.T) {
 	for _, p := range paths {
 		mode, tracked := modes[p]
 		if !tracked {
-			t.Errorf("%s is invoked as ./%s by a workflow but is not tracked by git", p, p)
+			t.Errorf("%s is invoked as ./%s by %s but is not tracked by git", p, p, invoker)
 			continue
 		}
 		if mode != "100755" {
-			t.Errorf("%s is invoked as ./%s by a workflow but git records mode %s — the step will fail "+
+			t.Errorf("%s is invoked as ./%s by %s but git records mode %s — the step will fail "+
 				"with \"Permission denied\" (exit 126). Fix with: git update-index --chmod=+x %s "+
-				"(core.fileMode is false here, so chmod alone does nothing git records)", p, p, mode, p)
+				"(core.fileMode is false here, so chmod alone does nothing git records)", p, p, invoker, mode, p)
 		}
 	}
 }
