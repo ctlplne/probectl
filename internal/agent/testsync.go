@@ -47,6 +47,14 @@ import (
 // Anything refused is counted by reason and the agent keeps its last verified
 // set; it is never "applied a little". The verified bundle is persisted (0600)
 // and re-verified at start, so central tests survive restarts and outages.
+//
+// The version check in (1) holds while the agent runs. At start there is no
+// running version to compare with, so the persisted bundle is checked for
+// signature and tenant only: a correctly signed OLDER bundle placed in the
+// state directory is applied until the first successful pull replaces it with
+// the control plane's current set. Writing that directory is therefore as
+// sensitive as reading the agent's key, and it is protected the same way
+// (owner-only files under the agent's own state directory).
 
 const (
 	testSyncStateFile   = "bundle.json"
