@@ -1016,6 +1016,9 @@ func startAgentTransport(
 	// G9 (D-41): agents pull their tenant's signed test set over this mTLS
 	// listener; nil keeps central test distribution off.
 	grpcSrv.WithTestBundles(testBundles)
+	// D-43: eBPF agents fetch their tenant's L7 capture redaction floor and
+	// report their capture posture over this same listener (no new one).
+	grpcSrv.WithL7Policy(agenttransport.NewL7Policy(db.Pool(), cfg.DeploymentProfile == "regulated"))
 	grpcSrv.WithVersionPolicy(lifecycle.Policy{Window: cfg.AgentSkewWindow, Min: cfg.AgentMinVersion})
 
 	if enrollSvc != nil {

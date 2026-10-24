@@ -26,6 +26,17 @@ const staleAgent = {
   readiness_state: 'stale' as const,
   readiness_reason: 'Last authenticated heartbeat is older than the 5m0s health gate.',
   test_set: { applied_version: 3, current_version: 5, in_sync: false },
+  l7_capture_posture: {
+    enabled: true,
+    consent_tenant: 'tenant-a',
+    scope: ['exe:/usr/sbin/nginx', 'cgroup:/kubepods/pod-a'],
+    redaction_mode: 'headers' as const,
+    effective_mode: '' as const,
+    redaction_floor: 'metadata' as const,
+    active: false,
+    state: 'refused_floor' as const,
+    reported_at: '2026-07-14T11:40:00Z',
+  },
   rollout_id: 'rollout-7',
   rollout_target: 'v1.4.0',
   rollout_cohort: 'canary' as const,
@@ -157,6 +168,12 @@ describe('Admin fleet health action center', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Safe action for edge-stale' })
     expect(within(dialog).getByText(/probectl never updates an agent/i)).toBeInTheDocument()
     expect(within(dialog).getByText(/human-approved/i)).toBeInTheDocument()
+    // D-43: the agent detail view shows the reported L7 capture posture.
+    expect(
+      within(dialog).getByText(
+        'Refused: looser than the tenant floor · redaction headers (effective —, tenant floor metadata) · 2 scoped workloads',
+      ),
+    ).toBeInTheDocument()
     expect(
       within(dialog).getByRole('link', { name: /open rollout api and runbook/i }),
     ).toHaveAttribute('href', '/docs/api#rollouts')

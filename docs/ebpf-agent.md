@@ -485,7 +485,7 @@ publishing into the void.
 
 ### The metrics endpoint
 
-`metrics.enabled` serves a tenant-labeled Prometheus endpoint. Four gauges say
+`metrics.enabled` serves a tenant-labeled Prometheus endpoint. These gauges say
 whether the agent is *delivering* rather than merely running:
 
 | Metric | Meaning |
@@ -495,6 +495,7 @@ whether the agent is *delivering* rather than merely running:
 | `probectl_ebpf_l7_capture_requested` | 1 while TLS-plaintext capture is enabled **and** consented for this agent's tenant |
 | `probectl_ebpf_l7_capture_active` | 1 while the TLS uprobes are actually attached |
 | `probectl_ebpf_l7_attach_failures_total` | TLS-uprobe attach failures (U-015) |
+| `probectl_ebpf_l7_capture_floor_refused` | 1 while consented capture is refused because `l7_capture_redaction` is looser than the tenant's redaction floor (D-43) |
 
 **Alert on `probectl_ebpf_l7_capture_requested == 1 and
 probectl_ebpf_l7_capture_active == 0`.** That is a consented, scoped capture
@@ -502,6 +503,55 @@ delivering nothing — the state every attach limit above lands in — and until
 DPR-128 it was visible only as one `WARN` at startup, with the pod Ready and L4
 flows emitting normally. A fixture replay never sets `_active`: recorded L7 is
 not encrypted-traffic visibility.
+
+## The tenant's redaction floor (D-43)
+
+Redaction is enforced at the source, with the control plane's ingest strip as
+the second layer. Agents publish to the bus before anything reaches a store,
+and Kafka and NATS JetStream retain messages, so the agent itself must never
+emit looser data than its tenant allows.
+
+- **The floor.** Each tenant has an L7 capture redaction floor — the loosest
+  mode its agents may capture under. With no statement it is `metadata`. A
+  tenant admin can opt the tenant into `headers` or `full` through the
+  governance policy (`PUT /v1/governance/policy`, field
+  `l7_capture_redaction`; audited on the tenant's chain as
+  `governance.policy_set`). The regulated deployment profile refuses both
+  opt-ins and never delivers a floor looser than `metadata`. The provider plane
+  cannot change it.
+- **Delivery.** The agent fetches the floor over the existing agent gRPC
+  service (`FetchL7Policy`) on the control plane's agent listener, over mTLS:
+  set `control_plane.grpc_addr`, `cert_file`, `key_file` and `ca_file` (the
+  identity directory an enrollment writes — `cert.pem`, `key.pem`,
+  `server-ca.pem`; enroll with a join token pinned to this collector's
+  `agent_id`, `probectl-control enroll-token -agent <agent_id>`). The tenant
+  the control plane answers for is the one in the certificate, never anything
+  the agent sends. The floor is re-read every `control_plane.policy_interval`
+  (5 minutes).
+- **Enforcement.** The agent refuses to start capture when its local
+  `l7_capture_redaction` is looser than the floor (ERROR log, posture
+  `refused_floor`, `probectl_ebpf_l7_capture_floor_refused` = 1). It never
+  silently tightens a stated mode under a received floor — an operator who
+  asked for `headers` must see that the tenant does not allow it. When **no**
+  floor was received (no channel configured, or the call failed) it applies
+  the stricter of its local mode and `metadata`. A floor that tightens while
+  the agent runs stops capture at once; a loosened floor never widens a
+  running agent.
+- **Posture.** At start and on every policy tick the agent reports its capture
+  posture (`ReportL7Posture`: enabled, consent tenant, scope, local and
+  effective mode, the floor it applied, whether capture is attached, and a
+  state: `off`, `refused_consent`, `refused_floor`, `attach_failed`,
+  `capturing`, `replaying`). The control plane stores it on the agent's
+  registry row — the agent detail view shows it — and appends
+  `agent.l7_capture.posture` to the tenant's hash-chained audit stream when an
+  agent first reports consented capture and whenever its mode, scope, floor or
+  state changes. A consent tenant naming another tenant is never stored, only
+  the mismatch.
+
+What `metadata` cannot see: a route segment that is an identifier but is
+shaped like a word (a username such as `/users/alice`). Templating works on
+shape, so routes of that kind need the application to template them, or the
+`length` mode.
 
 ## Tuning and kernel lockdown
 

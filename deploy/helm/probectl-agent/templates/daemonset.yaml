@@ -337,6 +337,12 @@ spec:
               mountPath: /etc/probectl/bus-tls
               readOnly: true
             {{- end }}
+            {{- if and .Values.controlPlane.grpcAddr .Values.controlPlane.identity.existingSecret }}
+            # D-43: the agent's mTLS identity for the policy channel, read-only.
+            - name: control-plane-identity
+              mountPath: /etc/probectl/identity
+              readOnly: true
+            {{- end }}
             {{- if and .Values.health.enabled (eq .Values.health.mode "exec") }}
             - name: health-state
               mountPath: {{ required "health.stateDir is required when health.mode=exec" .Values.health.stateDir | quote }}
@@ -401,6 +407,12 @@ spec:
         - name: bus-tls
           secret:
             secretName: {{ .Values.bus.tls.existingSecret }}
+        {{- end }}
+        {{- if and .Values.controlPlane.grpcAddr .Values.controlPlane.identity.existingSecret }}
+        - name: control-plane-identity
+          secret:
+            secretName: {{ .Values.controlPlane.identity.existingSecret }}
+            defaultMode: 0400
         {{- end }}
         {{- if .Values.metrics.enabled }}
         - name: metrics-tls

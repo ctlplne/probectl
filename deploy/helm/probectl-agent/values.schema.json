@@ -219,6 +219,30 @@
         }
       }
     },
+    "controlPlane": {
+      "type": "object",
+      "description": "D-43 mTLS policy channel: the tenant's L7 capture redaction floor in, the capture posture out.",
+      "properties": {
+        "grpcAddr": {
+          "type": "string"
+        },
+        "serverName": {
+          "type": "string"
+        },
+        "policyInterval": {
+          "type": "string",
+          "pattern": "^(|[0-9]+(ms|s|m|h))$"
+        },
+        "identity": {
+          "type": "object",
+          "properties": {
+            "existingSecret": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
     "l7Capture": {
       "type": "object",
       "properties": {

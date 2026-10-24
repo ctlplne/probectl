@@ -1200,6 +1200,20 @@ need "SYS_PTRACE"                         "$l7_default" "agent: consented L7 ren
 need "l7_capture_redaction: \"metadata\"" "$l7_default" "agent: consented L7 capture must default to metadata redaction (D-43)"
 need "name: hostcgroup"                   "$l7_default" "agent: consented L7 render lost the node cgroupfs mount (DPR-127)"
 need "name: node-lib-0"                   "$l7_default" "agent: consented L7 render lost the node library mount (DPR-124)"
+# D-43 refinement 3: the policy channel to the control plane is mTLS-only — an
+# address without the identity Secret refuses to render; with it, the identity
+# is mounted read-only and the agent config names it.
+if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \
+     --set-string image.tag="$AGENT_IMAGE_TAG" --set controlPlane.grpcAddr=control:9443 >/dev/null 2>&1; then
+  fail "agent chart rendered the control-plane policy channel without an mTLS identity Secret (D-43)"
+fi
+cp_render="$(arender --set controlPlane.grpcAddr=control:9443 --set controlPlane.identity.existingSecret=ebpf-identity)"
+need 'grpc_addr: "control:9443"'           "$cp_render" "agent: control-plane policy channel not rendered (D-43)"
+need "ca_file: /etc/probectl/identity/server-ca.pem" "$cp_render" "agent: control-plane channel does not verify the server (D-43)"
+need "secretName: ebpf-identity"           "$cp_render" "agent: control-plane identity Secret not mounted (D-43)"
+grep -A2 "name: control-plane-identity$" <<<"$cp_render" | grep -q "readOnly: true" \
+  || fail "agent: control-plane identity must be mounted read-only (D-43)"
+grep -q "control_plane:" <<<"$agent" && fail "agent: default render opened a control-plane channel nobody configured (D-43)"
 
 # EBPF-004: legacy SYS_ADMIN is fenced behind an explicit acknowledgment.
 agent_ds="$(awk '/kind: DaemonSet$/,/^---/' <<<"$agent")"

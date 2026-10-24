@@ -34,6 +34,7 @@ import {
   flattenAgents,
   type Agent,
   type AgentEnrollToken,
+  type AgentL7CapturePosture,
   type CollectorPlane,
   type CollectorRegistration,
   type DeviceCollectionProfile,
@@ -170,6 +171,30 @@ function safeActionLabel(agent: Agent, t: TFn) {
     : t('admin.fleet.action.inspect')
 }
 
+// D-43: what the agent says about its L7 capture — whether it captures, under
+// which redaction mode, against which tenant floor, and for how many scoped
+// workloads. The scope entries themselves stay in the API (and the audit
+// receipt); the dialog shows the count.
+function l7PostureLabel(agent: Agent, t: TFn) {
+  const p = agent.l7_capture_posture
+  if (!p) return t('admin.fleet.l7.none')
+  const states: Record<AgentL7CapturePosture['state'], MessageKey> = {
+    off: 'admin.fleet.l7.state.off',
+    refused_consent: 'admin.fleet.l7.state.refusedConsent',
+    refused_floor: 'admin.fleet.l7.state.refusedFloor',
+    attach_failed: 'admin.fleet.l7.state.attachFailed',
+    capturing: 'admin.fleet.l7.state.capturing',
+    replaying: 'admin.fleet.l7.state.replaying',
+  }
+  return t('admin.fleet.l7.detail', {
+    state: t(states[p.state]),
+    mode: p.redaction_mode,
+    effective: p.effective_mode || '—',
+    floor: p.redaction_floor || t('admin.fleet.l7.noFloor'),
+    scope: p.scope.length,
+  })
+}
+
 function FleetActionDialog({
   agent,
   rolloutsAvailable,
@@ -227,6 +252,10 @@ function FleetActionDialog({
           <div>
             <dt>{t('admin.fleet.dialog.lastFailure')}</dt>
             <dd>{agent.last_failure || t('admin.fleet.failure.none')}</dd>
+          </div>
+          <div>
+            <dt>{t('admin.fleet.dialog.l7Capture')}</dt>
+            <dd>{l7PostureLabel(agent, t)}</dd>
           </div>
         </dl>
         <div>

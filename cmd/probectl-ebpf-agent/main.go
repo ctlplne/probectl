@@ -137,6 +137,17 @@ func run() error {
 			}
 			return 0
 		})
+	// D-43: consented capture refused because the local redaction is looser
+	// than the tenant's floor (or a tightened floor stopped it). requested == 1
+	// with active == 0 already alerts; this says why.
+	metricsRuntime.WatchGauge("probectl_ebpf_l7_capture_floor_refused",
+		"1 while consented L7 capture is refused because l7_capture_redaction is looser than the tenant's redaction floor (D-43).",
+		func() float64 {
+			if agent.L7CaptureRefusedByFloor() {
+				return 1
+			}
+			return 0
+		})
 	metricsRuntime.WatchGauge("probectl_ebpf_l7_attach_failures_total",
 		"TLS-uprobe attach failures (U-015): an encrypted-traffic visibility gap, never a silent no-op.",
 		func() float64 { return float64(agent.L7AttachFailures()) })

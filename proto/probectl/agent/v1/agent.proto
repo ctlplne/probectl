@@ -45,6 +45,19 @@ service AgentService {
   // The server answers FailedPrecondition when central test distribution is not
   // configured. This is not config push: StreamConfig stays an explicit deny.
   rpc FetchTestBundle(FetchTestBundleRequest) returns (FetchTestBundleResponse);
+  // FetchL7Policy returns the calling agent's tenant's L7 capture redaction
+  // floor (D-43, refinement 3): the loosest redaction mode the tenant allows.
+  // The tenant comes from the client certificate only; the request carries
+  // nothing. The eBPF agent refuses to start capture when its local
+  // l7_capture_redaction is looser than the floor, and applies metadata when
+  // it received none. Policy only — not config push (StreamConfig stays an
+  // explicit deny): nothing here can turn capture on or widen its scope.
+  rpc FetchL7Policy(FetchL7PolicyRequest) returns (FetchL7PolicyResponse);
+  // ReportL7Posture records the calling agent's L7 capture posture (enabled,
+  // consent tenant, scope, redaction mode) on its registry row. The control
+  // plane appends agent.l7_capture.posture to the tenant's hash-chained audit
+  // stream when an agent first reports consented capture or changes mode.
+  rpc ReportL7Posture(ReportL7PostureRequest) returns (ReportL7PostureResponse);
 }
 
 message RegisterRequest {
@@ -166,4 +179,38 @@ message FetchTestBundleResponse {
   uint64 version = 2;
   // The signed bundle (internal/testsync Signed JSON); empty when not_modified.
   bytes signed_bundle = 3;
+}
+
+message FetchL7PolicyRequest {}
+
+message FetchL7PolicyResponse {
+  // The tenant's floor: length | metadata | headers | full. metadata when the
+  // tenant made no statement; never looser than metadata under the regulated
+  // deployment profile.
+  string redaction_floor = 1;
+}
+
+// L7CapturePosture is an agent's L7 capture state as it reports it. Every
+// field is untrusted agent input: the control plane bounds and validates it,
+// and keeps the consent tenant only when it equals the certificate's tenant.
+message L7CapturePosture {
+  bool enabled = 1;               // l7_capture_enabled
+  string consent_tenant = 2;      // l7_capture_consent_tenant
+  repeated string scope = 3;      // l7_capture_scope (pid:/exe:/cgroup:)
+  string redaction_mode = 4;      // the agent's local l7_capture_redaction
+  string effective_mode = 5;      // the mode capture runs under ("" when not capturing)
+  string redaction_floor = 6;     // the floor the agent applied ("" = none received)
+  bool active = 7;                // a capture source is attached
+  // off | refused_consent | refused_floor | attach_failed | capturing | replaying
+  string state = 8;
+}
+
+message ReportL7PostureRequest {
+  L7CapturePosture posture = 1;
+}
+
+message ReportL7PostureResponse {
+  // true when the report changed the recorded posture (and, when material,
+  // appended agent.l7_capture.posture to the tenant's audit chain).
+  bool changed = 1;
 }

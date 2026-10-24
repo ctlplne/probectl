@@ -1064,6 +1064,283 @@ func (x *FetchTestBundleResponse) GetSignedBundle() []byte {
 	return nil
 }
 
+type FetchL7PolicyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchL7PolicyRequest) Reset() {
+	*x = FetchL7PolicyRequest{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchL7PolicyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchL7PolicyRequest) ProtoMessage() {}
+
+func (x *FetchL7PolicyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchL7PolicyRequest.ProtoReflect.Descriptor instead.
+func (*FetchL7PolicyRequest) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{17}
+}
+
+type FetchL7PolicyResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The tenant's floor: length | metadata | headers | full. metadata when the
+	// tenant made no statement; never looser than metadata under the regulated
+	// deployment profile.
+	RedactionFloor string `protobuf:"bytes,1,opt,name=redaction_floor,json=redactionFloor,proto3" json:"redaction_floor,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *FetchL7PolicyResponse) Reset() {
+	*x = FetchL7PolicyResponse{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchL7PolicyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchL7PolicyResponse) ProtoMessage() {}
+
+func (x *FetchL7PolicyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchL7PolicyResponse.ProtoReflect.Descriptor instead.
+func (*FetchL7PolicyResponse) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *FetchL7PolicyResponse) GetRedactionFloor() string {
+	if x != nil {
+		return x.RedactionFloor
+	}
+	return ""
+}
+
+// L7CapturePosture is an agent's L7 capture state as it reports it. Every
+// field is untrusted agent input: the control plane bounds and validates it,
+// and keeps the consent tenant only when it equals the certificate's tenant.
+type L7CapturePosture struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Enabled        bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`                                    // l7_capture_enabled
+	ConsentTenant  string                 `protobuf:"bytes,2,opt,name=consent_tenant,json=consentTenant,proto3" json:"consent_tenant,omitempty"`    // l7_capture_consent_tenant
+	Scope          []string               `protobuf:"bytes,3,rep,name=scope,proto3" json:"scope,omitempty"`                                         // l7_capture_scope (pid:/exe:/cgroup:)
+	RedactionMode  string                 `protobuf:"bytes,4,opt,name=redaction_mode,json=redactionMode,proto3" json:"redaction_mode,omitempty"`    // the agent's local l7_capture_redaction
+	EffectiveMode  string                 `protobuf:"bytes,5,opt,name=effective_mode,json=effectiveMode,proto3" json:"effective_mode,omitempty"`    // the mode capture runs under ("" when not capturing)
+	RedactionFloor string                 `protobuf:"bytes,6,opt,name=redaction_floor,json=redactionFloor,proto3" json:"redaction_floor,omitempty"` // the floor the agent applied ("" = none received)
+	Active         bool                   `protobuf:"varint,7,opt,name=active,proto3" json:"active,omitempty"`                                      // a capture source is attached
+	// off | refused_consent | refused_floor | attach_failed | capturing | replaying
+	State         string `protobuf:"bytes,8,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *L7CapturePosture) Reset() {
+	*x = L7CapturePosture{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *L7CapturePosture) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*L7CapturePosture) ProtoMessage() {}
+
+func (x *L7CapturePosture) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use L7CapturePosture.ProtoReflect.Descriptor instead.
+func (*L7CapturePosture) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *L7CapturePosture) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *L7CapturePosture) GetConsentTenant() string {
+	if x != nil {
+		return x.ConsentTenant
+	}
+	return ""
+}
+
+func (x *L7CapturePosture) GetScope() []string {
+	if x != nil {
+		return x.Scope
+	}
+	return nil
+}
+
+func (x *L7CapturePosture) GetRedactionMode() string {
+	if x != nil {
+		return x.RedactionMode
+	}
+	return ""
+}
+
+func (x *L7CapturePosture) GetEffectiveMode() string {
+	if x != nil {
+		return x.EffectiveMode
+	}
+	return ""
+}
+
+func (x *L7CapturePosture) GetRedactionFloor() string {
+	if x != nil {
+		return x.RedactionFloor
+	}
+	return ""
+}
+
+func (x *L7CapturePosture) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *L7CapturePosture) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+type ReportL7PostureRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Posture       *L7CapturePosture      `protobuf:"bytes,1,opt,name=posture,proto3" json:"posture,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportL7PostureRequest) Reset() {
+	*x = ReportL7PostureRequest{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportL7PostureRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportL7PostureRequest) ProtoMessage() {}
+
+func (x *ReportL7PostureRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportL7PostureRequest.ProtoReflect.Descriptor instead.
+func (*ReportL7PostureRequest) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ReportL7PostureRequest) GetPosture() *L7CapturePosture {
+	if x != nil {
+		return x.Posture
+	}
+	return nil
+}
+
+type ReportL7PostureResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// true when the report changed the recorded posture (and, when material,
+	// appended agent.l7_capture.posture to the tenant's audit chain).
+	Changed       bool `protobuf:"varint,1,opt,name=changed,proto3" json:"changed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportL7PostureResponse) Reset() {
+	*x = ReportL7PostureResponse{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportL7PostureResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportL7PostureResponse) ProtoMessage() {}
+
+func (x *ReportL7PostureResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportL7PostureResponse.ProtoReflect.Descriptor instead.
+func (*ReportL7PostureResponse) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ReportL7PostureResponse) GetChanged() bool {
+	if x != nil {
+		return x.Changed
+	}
+	return false
+}
+
 var File_probectl_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_probectl_agent_v1_agent_proto_rawDesc = "" +
@@ -1138,11 +1415,27 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x17FetchTestBundleResponse\x12!\n" +
 	"\fnot_modified\x18\x01 \x01(\bR\vnotModified\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x04R\aversion\x12#\n" +
-	"\rsigned_bundle\x18\x03 \x01(\fR\fsignedBundle*S\n" +
+	"\rsigned_bundle\x18\x03 \x01(\fR\fsignedBundle\"\x16\n" +
+	"\x14FetchL7PolicyRequest\"@\n" +
+	"\x15FetchL7PolicyResponse\x12'\n" +
+	"\x0fredaction_floor\x18\x01 \x01(\tR\x0eredactionFloor\"\x8e\x02\n" +
+	"\x10L7CapturePosture\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12%\n" +
+	"\x0econsent_tenant\x18\x02 \x01(\tR\rconsentTenant\x12\x14\n" +
+	"\x05scope\x18\x03 \x03(\tR\x05scope\x12%\n" +
+	"\x0eredaction_mode\x18\x04 \x01(\tR\rredactionMode\x12%\n" +
+	"\x0eeffective_mode\x18\x05 \x01(\tR\reffectiveMode\x12'\n" +
+	"\x0fredaction_floor\x18\x06 \x01(\tR\x0eredactionFloor\x12\x16\n" +
+	"\x06active\x18\a \x01(\bR\x06active\x12\x14\n" +
+	"\x05state\x18\b \x01(\tR\x05state\"W\n" +
+	"\x16ReportL7PostureRequest\x12=\n" +
+	"\aposture\x18\x01 \x01(\v2#.probectl.agent.v1.L7CapturePostureR\aposture\"3\n" +
+	"\x17ReportL7PostureResponse\x12\x18\n" +
+	"\achanged\x18\x01 \x01(\bR\achanged*S\n" +
 	"\aA2ARole\x12\x18\n" +
 	"\x14A2A_ROLE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12A2A_ROLE_RESPONDER\x10\x01\x12\x16\n" +
-	"\x12A2A_ROLE_INITIATOR\x10\x022\x91\x06\n" +
+	"\x12A2A_ROLE_INITIATOR\x10\x022\xdf\a\n" +
 	"\fAgentService\x12S\n" +
 	"\bRegister\x12\".probectl.agent.v1.RegisterRequest\x1a#.probectl.agent.v1.RegisterResponse\x12M\n" +
 	"\x06Attest\x12 .probectl.agent.v1.AttestRequest\x1a!.probectl.agent.v1.AttestResponse\x12V\n" +
@@ -1151,7 +1444,9 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\rStreamResults\x12'.probectl.agent.v1.StreamResultsRequest\x1a(.probectl.agent.v1.StreamResultsResponse(\x01\x12k\n" +
 	"\x10PollCoordination\x12*.probectl.agent.v1.PollCoordinationRequest\x1a+.probectl.agent.v1.PollCoordinationResponse\x12e\n" +
 	"\x0eReportEndpoint\x12(.probectl.agent.v1.ReportEndpointRequest\x1a).probectl.agent.v1.ReportEndpointResponse\x12h\n" +
-	"\x0fFetchTestBundle\x12).probectl.agent.v1.FetchTestBundleRequest\x1a*.probectl.agent.v1.FetchTestBundleResponseBDZBgithub.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1b\x06proto3"
+	"\x0fFetchTestBundle\x12).probectl.agent.v1.FetchTestBundleRequest\x1a*.probectl.agent.v1.FetchTestBundleResponse\x12b\n" +
+	"\rFetchL7Policy\x12'.probectl.agent.v1.FetchL7PolicyRequest\x1a(.probectl.agent.v1.FetchL7PolicyResponse\x12h\n" +
+	"\x0fReportL7Posture\x12).probectl.agent.v1.ReportL7PostureRequest\x1a*.probectl.agent.v1.ReportL7PostureResponseBDZBgithub.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_probectl_agent_v1_agent_proto_rawDescOnce sync.Once
@@ -1166,7 +1461,7 @@ func file_probectl_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_probectl_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_probectl_agent_v1_agent_proto_goTypes = []any{
 	(A2ARole)(0),                     // 0: probectl.agent.v1.A2ARole
 	(*RegisterRequest)(nil),          // 1: probectl.agent.v1.RegisterRequest
@@ -1186,35 +1481,45 @@ var file_probectl_agent_v1_agent_proto_goTypes = []any{
 	(*ReportEndpointResponse)(nil),   // 15: probectl.agent.v1.ReportEndpointResponse
 	(*FetchTestBundleRequest)(nil),   // 16: probectl.agent.v1.FetchTestBundleRequest
 	(*FetchTestBundleResponse)(nil),  // 17: probectl.agent.v1.FetchTestBundleResponse
-	nil,                              // 18: probectl.agent.v1.RegisterRequest.LabelsEntry
-	nil,                              // 19: probectl.agent.v1.AttestRequest.PlatformEntry
+	(*FetchL7PolicyRequest)(nil),     // 18: probectl.agent.v1.FetchL7PolicyRequest
+	(*FetchL7PolicyResponse)(nil),    // 19: probectl.agent.v1.FetchL7PolicyResponse
+	(*L7CapturePosture)(nil),         // 20: probectl.agent.v1.L7CapturePosture
+	(*ReportL7PostureRequest)(nil),   // 21: probectl.agent.v1.ReportL7PostureRequest
+	(*ReportL7PostureResponse)(nil),  // 22: probectl.agent.v1.ReportL7PostureResponse
+	nil,                              // 23: probectl.agent.v1.RegisterRequest.LabelsEntry
+	nil,                              // 24: probectl.agent.v1.AttestRequest.PlatformEntry
 }
 var file_probectl_agent_v1_agent_proto_depIdxs = []int32{
-	18, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
-	19, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
+	23, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
+	24, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
 	13, // 2: probectl.agent.v1.PollCoordinationResponse.task:type_name -> probectl.agent.v1.A2ATask
 	0,  // 3: probectl.agent.v1.A2ATask.role:type_name -> probectl.agent.v1.A2ARole
-	1,  // 4: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
-	3,  // 5: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
-	5,  // 6: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
-	7,  // 7: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
-	9,  // 8: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
-	11, // 9: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
-	14, // 10: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
-	16, // 11: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
-	2,  // 12: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
-	4,  // 13: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
-	6,  // 14: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
-	8,  // 15: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
-	10, // 16: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
-	12, // 17: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
-	15, // 18: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
-	17, // 19: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
-	12, // [12:20] is the sub-list for method output_type
-	4,  // [4:12] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	20, // 4: probectl.agent.v1.ReportL7PostureRequest.posture:type_name -> probectl.agent.v1.L7CapturePosture
+	1,  // 5: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
+	3,  // 6: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
+	5,  // 7: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
+	7,  // 8: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
+	9,  // 9: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
+	11, // 10: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
+	14, // 11: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
+	16, // 12: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
+	18, // 13: probectl.agent.v1.AgentService.FetchL7Policy:input_type -> probectl.agent.v1.FetchL7PolicyRequest
+	21, // 14: probectl.agent.v1.AgentService.ReportL7Posture:input_type -> probectl.agent.v1.ReportL7PostureRequest
+	2,  // 15: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
+	4,  // 16: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
+	6,  // 17: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
+	8,  // 18: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
+	10, // 19: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
+	12, // 20: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
+	15, // 21: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
+	17, // 22: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
+	19, // 23: probectl.agent.v1.AgentService.FetchL7Policy:output_type -> probectl.agent.v1.FetchL7PolicyResponse
+	22, // 24: probectl.agent.v1.AgentService.ReportL7Posture:output_type -> probectl.agent.v1.ReportL7PostureResponse
+	15, // [15:25] is the sub-list for method output_type
+	5,  // [5:15] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_probectl_agent_v1_agent_proto_init() }
@@ -1228,7 +1533,7 @@ func file_probectl_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_agent_v1_agent_proto_rawDesc), len(file_probectl_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   19,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

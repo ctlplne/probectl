@@ -153,6 +153,11 @@ type service struct {
 	// nil = central test distribution off (FetchTestBundle refuses with
 	// FailedPrecondition; heartbeats never report config_stale).
 	testBundles TestBundles
+
+	// l7policy serves the tenant's L7 capture redaction floor and records
+	// each agent's capture posture (D-43). nil = both RPCs FailedPrecondition;
+	// an agent that receives no floor applies metadata.
+	l7policy L7Policy
 }
 
 // Register upserts the agent into its tenant's registry. The id and tenant are
@@ -218,8 +223,11 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 	serverCaps := copyServerCapabilities()
 	if svc.testBundles != nil {
 		serverCaps = append(serverCaps, fetchTestBundleCapability)
-		sort.Strings(serverCaps)
 	}
+	if svc.l7policy != nil {
+		serverCaps = append(serverCaps, l7PolicyCapability)
+	}
+	sort.Strings(serverCaps)
 	return &agentv1.RegisterResponse{
 		AgentId:                  agent.ID,
 		TenantId:                 agent.TenantID,

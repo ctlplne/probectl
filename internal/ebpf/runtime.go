@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,9 +35,17 @@ type Agent struct {
 	// l7mode is the redaction mode this agent applies to every L7 call it
 	// emits (D-43): its local l7_capture_redaction, never looser than the
 	// tenant's floor.
-	l7mode  string
-	l7man   *l7.Manager
-	l7conns map[uint64]l7conn
+	l7mode string
+	// policy is the mTLS channel to the control plane that delivers the
+	// tenant's redaction floor and takes the capture posture (D-43); nil when
+	// no control_plane.grpc_addr is configured.
+	policy   L7PolicyClient
+	l7mu     sync.Mutex
+	l7state  postureState
+	l7live   atomic.Bool
+	l7closed atomic.Bool
+	l7man    *l7.Manager
+	l7conns  map[uint64]l7conn
 	// l7seen tracks last-activity per connID so idle entries are swept on flush
 	// (FUZZ-001) — connID is the SSL* pointer with no socket-close signal yet,
 	// so without a TTL sweep l7conns + l7man.conns grow without bound.
@@ -117,12 +126,14 @@ func (a *Agent) L7CaptureRequested() bool {
 
 // L7CaptureActive reports whether a live L7 source is attached and can deliver
 // encrypted-traffic visibility. A recorded fixture replay is not live capture.
-func (a *Agent) L7CaptureActive() bool {
-	if a.l7source == nil {
-		return false
-	}
-	_, fixture := a.l7source.(*FixtureL7Source)
-	return !fixture
+func (a *Agent) L7CaptureActive() bool { return a.l7live.Load() }
+
+// L7CaptureRefusedByFloor reports whether consented capture is refused because
+// the agent's local redaction is looser than its tenant's floor (D-43).
+func (a *Agent) L7CaptureRefusedByFloor() bool {
+	a.l7mu.Lock()
+	defer a.l7mu.Unlock()
+	return a.l7state.state == l7StateRefusedFloor
 }
 
 // L7AttachFailures counts TLS-uprobe attach failures (U-015).
@@ -195,34 +206,35 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	}
 	logListenerSeed(log, src)
 
+	policy, err := dialL7Policy(cfg.ControlPlane)
+	if err != nil {
+		return nil, err // a half-working policy channel refuses start (fail closed)
+	}
+	return newAgent(cfg, b, log, src, policy)
+}
+
+// newAgent finishes construction with the flow source and the policy channel
+// (nil = none). It is the seam the D-43 regression tests drive with a fake
+// control plane.
+func newAgent(cfg *Config, b bus.Bus, log *slog.Logger, src Source, policy L7PolicyClient) (*Agent, error) {
 	agg := NewAggregator()
-	var l7src L7Source
-	if cfg.L7FixturePath != "" {
-		// Recorded replay (CI/demos) — not live plaintext capture; exempt
-		// from the U-003 consent gate.
-		fixture, ferr := NewFixtureL7Source(cfg.L7FixturePath)
-		if ferr != nil {
-			return nil, ferr
+	floor, floorErr := fetchFloor(context.Background(), policy)
+	l7src, l7st, err := setupL7(cfg, log, agg, floor, floorErr)
+	if err != nil {
+		if policy != nil {
+			_ = policy.Close()
 		}
-		fixture.applyBoundary(cfg.L7CaptureRedaction, captureHeaderPolicy(cfg))
-		l7src = fixture
-	} else if ok, reason := l7CaptureAuthorized(cfg); !ok {
-		// U-003: live TLS-plaintext capture is OFF unless explicitly enabled
-		// AND consented for this agent's tenant. Off is the default posture.
-		log.Info("ebpf L7 TLS capture off", "reason", reason)
-	} else if live, lerr := newLiveL7Source(cfg, log); lerr == nil {
-		l7src = live
-	} else {
-		// U-015: a missing TLS uprobe is an encrypted-traffic VISIBILITY GAP —
-		// warn loudly and count it (l7_attach_failures in the agent's stats);
-		// it must never pass as a silent no-op.
-		log.Warn("ebpf L7 TLS capture NOT attached — encrypted-traffic (HTTPS/gRPC) visibility is OFF on this host",
-			"reason", lerr.Error())
-		agg.RecordL7AttachFailure()
+		return nil, err
 	}
 
 	emitter, eerr := NewNamespacedBusEmitter(b, cfg.TenantID, cfg.Bus.Namespace)
 	if eerr != nil {
+		if policy != nil {
+			_ = policy.Close()
+		}
+		if l7src != nil {
+			_ = l7src.Close()
+		}
 		return nil, eerr // RED-006: malformed silo namespace refuses start
 	}
 	emitter.WithMaxBatchBytes(cfg.MaxBatchBytes) // DPR-071: bounded records
@@ -237,7 +249,8 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 		log:        log,
 		source:     src,
 		l7source:   l7src,
-		l7mode:     l7redact.Normalize(cfg.L7CaptureRedaction),
+		l7mode:     l7st.mode,
+		policy:     policy,
 		enricher:   NewProcEnricher(cfg.ProcRoot),
 		emitter:    emitter,
 		agg:        agg,
@@ -248,7 +261,65 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 		l7connsTTL: cfg.L7ConnIdleTTL,
 		join:       newHostLocalJoin(),
 	}
+	a.setL7State(l7st)
 	return a.withPublishVerification(b, publishVerifyTimeout(cfg.FlushInterval)), nil
+}
+
+// startLiveL7 builds the live TLS/plaintext capture source. It is reached only
+// after all three consent statements and the redaction floor have passed; the
+// D-43 regression test (a) replaces it to prove exactly that.
+var startLiveL7 = newLiveL7Source
+
+// setupL7 decides whether L7 capture starts, and under which redaction mode:
+// the consent gate first (U-003: enable + exact-tenant consent + scope; the
+// recorded fixture replay is exempt — it is not live capture), then the
+// tenant's redaction floor (D-43 refinement 3), which applies to the fixture
+// replay too. A refusal is a posture, never an error: the flow plane runs on.
+func setupL7(cfg *Config, log *slog.Logger, agg *Aggregator, floor string, floorErr error) (L7Source, postureState, error) {
+	if cfg.L7FixturePath == "" {
+		if ok, reason := l7CaptureAuthorized(cfg); !ok {
+			state := l7StateOff
+			if cfg.L7CaptureEnabled || cfg.L7CaptureConsentTenant != "" || len(cfg.L7CaptureScope) > 0 {
+				state = l7StateRefusedConsent
+			}
+			// U-003: live TLS-plaintext capture is OFF unless explicitly
+			// enabled AND consented for this agent's tenant. Off is the
+			// default posture.
+			log.Info("ebpf L7 TLS capture off", "reason", reason)
+			return nil, postureState{state: state, floor: floor}, nil
+		}
+	}
+	d := decideL7Floor(cfg.L7CaptureRedaction, floor, floorErr)
+	if d.refuse != "" {
+		log.Error("ebpf L7 capture REFUSED by the tenant's redaction floor", "reason", d.refuse,
+			"local_redaction", l7redact.Normalize(cfg.L7CaptureRedaction), "floor", d.floor)
+		return nil, postureState{state: l7StateRefusedFloor, floor: d.floor}, nil
+	}
+	if d.clamped {
+		log.Warn("ebpf L7 capture: no redaction floor received from the control plane — applying metadata (D-43)",
+			"local_redaction", l7redact.Normalize(cfg.L7CaptureRedaction), "applied", d.mode, "reason", errString(floorErr))
+	}
+	if cfg.L7FixturePath != "" {
+		fixture, err := NewFixtureL7Source(cfg.L7FixturePath)
+		if err != nil {
+			return nil, postureState{}, err
+		}
+		fixture.applyBoundary(d.mode, captureHeaderPolicy(cfg))
+		return fixture, postureState{state: l7StateReplaying, mode: d.mode, floor: d.floor}, nil
+	}
+	liveCfg := *cfg
+	liveCfg.L7CaptureRedaction = d.mode
+	live, err := startLiveL7(&liveCfg, log)
+	if err != nil {
+		// U-015: a missing TLS uprobe is an encrypted-traffic VISIBILITY GAP —
+		// warn loudly and count it (l7_attach_failures in the agent's stats);
+		// it must never pass as a silent no-op.
+		log.Warn("ebpf L7 TLS capture NOT attached — encrypted-traffic (HTTPS/gRPC) visibility is OFF on this host",
+			"reason", err.Error())
+		agg.RecordL7AttachFailure()
+		return nil, postureState{state: l7StateAttachFailed, mode: d.mode, floor: d.floor}, nil
+	}
+	return live, postureState{state: l7StateCapturing, mode: d.mode, floor: d.floor, active: true}, nil
 }
 
 // newAgentWith is a test seam: build an Agent from explicit collaborators. It
@@ -294,14 +365,27 @@ func (a *Agent) Run(ctx context.Context) error {
 		if l7events, err = a.l7source.L7Events(ctx); err != nil {
 			return err
 		}
-		defer func() { _ = a.l7source.Close() }()
 	}
+	defer a.closeL7()
+	if a.policy != nil {
+		defer func() { _ = a.policy.Close() }()
+	}
+	// D-43: report the capture posture at registration with the control
+	// plane, then on every policy tick (which also re-reads the floor).
+	a.reportPosture(ctx)
+	policyTick, stopPolicy := a.policyTicker()
+	defer stopPolicy()
 
 	ticker := time.NewTicker(a.cfg.FlushInterval)
 	defer ticker.Stop()
 
 	for flows != nil || l7events != nil {
 		select {
+		case <-policyTick:
+			if a.refreshL7Floor(ctx) {
+				a.closeL7()
+				l7events = nil
+			}
 		case <-ctx.Done():
 			a.flushFinal(context.WithoutCancel(ctx)) // best-effort final flush
 			return nil
@@ -323,6 +407,30 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	a.flushFinal(context.WithoutCancel(ctx))
 	return nil
+}
+
+// closeL7 closes the L7 source once (on shutdown, or when a tightened floor
+// stops capture).
+func (a *Agent) closeL7() {
+	// The field is never reassigned after construction (the health probe
+	// reads it from another goroutine); closed records that it was closed.
+	if a.l7source != nil && a.l7closed.CompareAndSwap(false, true) {
+		_ = a.l7source.Close()
+	}
+}
+
+// policyTicker returns the policy-refresh channel (nil, never firing, when
+// there is no control-plane channel) and its stop function.
+func (a *Agent) policyTicker() (<-chan time.Time, func()) {
+	if a.policy == nil {
+		return nil, func() {}
+	}
+	every := a.cfg.ControlPlane.PolicyInterval
+	if every <= 0 {
+		every = defaultL7PolicyInterval
+	}
+	t := time.NewTicker(every)
+	return t.C, t.Stop
 }
 
 // observe stamps identity, enriches, and folds the flow into the aggregator.

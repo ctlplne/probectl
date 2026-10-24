@@ -124,6 +124,7 @@ export interface Agent {
   created_at?: string
   hostname?: string
   id: string
+  l7_capture_posture?: AgentL7CapturePosture
   labels: { [key: string]: string }
   last_seen_at?: string
   name: string
@@ -131,6 +132,19 @@ export interface Agent {
   spiffe_id?: string
   status: "registered" | "online" | "offline"
   tenant_id: string
+}
+
+export interface AgentL7CapturePosture {
+  active: boolean
+  consent_mismatch?: boolean
+  consent_tenant?: string
+  effective_mode?: "" | "length" | "metadata" | "headers" | "full"
+  enabled: boolean
+  redaction_floor?: "" | "length" | "metadata" | "headers" | "full"
+  redaction_mode: "length" | "metadata" | "headers" | "full"
+  reported_at: string
+  scope: string[]
+  state: "off" | "refused_consent" | "refused_floor" | "attach_failed" | "capturing" | "replaying"
 }
 
 export interface AgentList {
@@ -1122,6 +1136,7 @@ export interface FleetAgent {
   identity_expires_at?: string
   identity_reason?: string
   identity_state?: "current" | "renewal_overdue" | "expired" | "unknown"
+  l7_capture_posture?: AgentL7CapturePosture
   labels: { [key: string]: string }
   last_failure: string
   last_seen_at?: string

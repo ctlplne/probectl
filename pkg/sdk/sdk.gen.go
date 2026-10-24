@@ -196,18 +196,33 @@ type APITokenList struct {
 }
 
 type Agent struct {
-	AgentVersion string            `json:"agent_version,omitempty"`
-	Capabilities []string          `json:"capabilities"`
-	CreatedAt    string            `json:"created_at,omitempty"`
-	Hostname     string            `json:"hostname,omitempty"`
-	Id           string            `json:"id"`
-	Labels       map[string]string `json:"labels"`
-	LastSeenAt   string            `json:"last_seen_at,omitempty"`
-	Name         string            `json:"name"`
-	RegisteredAt string            `json:"registered_at,omitempty"`
-	SpiffeId     string            `json:"spiffe_id,omitempty"`
-	Status       string            `json:"status"`
-	TenantId     string            `json:"tenant_id"`
+	AgentVersion     string                `json:"agent_version,omitempty"`
+	Capabilities     []string              `json:"capabilities"`
+	CreatedAt        string                `json:"created_at,omitempty"`
+	Hostname         string                `json:"hostname,omitempty"`
+	Id               string                `json:"id"`
+	L7CapturePosture AgentL7CapturePosture `json:"l7_capture_posture,omitempty"`
+	Labels           map[string]string     `json:"labels"`
+	LastSeenAt       string                `json:"last_seen_at,omitempty"`
+	Name             string                `json:"name"`
+	RegisteredAt     string                `json:"registered_at,omitempty"`
+	SpiffeId         string                `json:"spiffe_id,omitempty"`
+	Status           string                `json:"status"`
+	TenantId         string                `json:"tenant_id"`
+}
+
+// The L7 capture posture an eBPF agent last reported over its mTLS channel (D-43). Absent for agents that never reported one. Every string came from the agent and was validated by the transport; consent_tenant is kept only when it equals the agent's own tenant (consent_mismatch records that it did not). The first consented report and every later mode change are in the tenant's audit chain as agent.l7_capture.posture.
+type AgentL7CapturePosture struct {
+	Active          bool     `json:"active"`
+	ConsentMismatch bool     `json:"consent_mismatch,omitempty"`
+	ConsentTenant   string   `json:"consent_tenant,omitempty"`
+	EffectiveMode   string   `json:"effective_mode,omitempty"`
+	Enabled         bool     `json:"enabled"`
+	RedactionFloor  string   `json:"redaction_floor,omitempty"`
+	RedactionMode   string   `json:"redaction_mode"`
+	ReportedAt      string   `json:"reported_at"`
+	Scope           []string `json:"scope"`
+	State           string   `json:"state"`
 }
 
 type AgentList struct {
@@ -1209,37 +1224,38 @@ type ExplorerTemplate struct {
 }
 
 type FleetAgent struct {
-	AgentVersion        string            `json:"agent_version,omitempty"`
-	Capabilities        []string          `json:"capabilities"`
-	CreatedAt           string            `json:"created_at,omitempty"`
-	HeartbeatAgeSeconds int               `json:"heartbeat_age_seconds,omitempty"`
-	HeartbeatReason     string            `json:"heartbeat_reason"`
-	HeartbeatState      string            `json:"heartbeat_state"`
-	Hostname            string            `json:"hostname,omitempty"`
-	Id                  string            `json:"id"`
-	IdentityExpiresAt   string            `json:"identity_expires_at,omitempty"`
-	IdentityReason      string            `json:"identity_reason,omitempty"`
-	IdentityState       string            `json:"identity_state,omitempty"`
-	Labels              map[string]string `json:"labels"`
-	LastFailure         string            `json:"last_failure"`
-	LastSeenAt          string            `json:"last_seen_at,omitempty"`
-	Name                string            `json:"name"`
-	NextSafeAction      FleetSafeAction   `json:"next_safe_action"`
-	ReadinessReason     string            `json:"readiness_reason"`
-	ReadinessState      string            `json:"readiness_state"`
-	RegisteredAt        string            `json:"registered_at,omitempty"`
-	RolloutCohort       string            `json:"rollout_cohort,omitempty"`
-	RolloutHaltReason   string            `json:"rollout_halt_reason,omitempty"`
-	RolloutHalted       bool              `json:"rollout_halted"`
-	RolloutId           string            `json:"rollout_id,omitempty"`
-	RolloutState        string            `json:"rollout_state,omitempty"`
-	RolloutTarget       string            `json:"rollout_target,omitempty"`
-	SpiffeId            string            `json:"spiffe_id,omitempty"`
-	Status              string            `json:"status"`
-	TenantId            string            `json:"tenant_id"`
-	TestSet             FleetTestSet      `json:"test_set,omitempty"`
-	VersionReason       string            `json:"version_reason"`
-	VersionState        string            `json:"version_state"`
+	AgentVersion        string                `json:"agent_version,omitempty"`
+	Capabilities        []string              `json:"capabilities"`
+	CreatedAt           string                `json:"created_at,omitempty"`
+	HeartbeatAgeSeconds int                   `json:"heartbeat_age_seconds,omitempty"`
+	HeartbeatReason     string                `json:"heartbeat_reason"`
+	HeartbeatState      string                `json:"heartbeat_state"`
+	Hostname            string                `json:"hostname,omitempty"`
+	Id                  string                `json:"id"`
+	IdentityExpiresAt   string                `json:"identity_expires_at,omitempty"`
+	IdentityReason      string                `json:"identity_reason,omitempty"`
+	IdentityState       string                `json:"identity_state,omitempty"`
+	L7CapturePosture    AgentL7CapturePosture `json:"l7_capture_posture,omitempty"`
+	Labels              map[string]string     `json:"labels"`
+	LastFailure         string                `json:"last_failure"`
+	LastSeenAt          string                `json:"last_seen_at,omitempty"`
+	Name                string                `json:"name"`
+	NextSafeAction      FleetSafeAction       `json:"next_safe_action"`
+	ReadinessReason     string                `json:"readiness_reason"`
+	ReadinessState      string                `json:"readiness_state"`
+	RegisteredAt        string                `json:"registered_at,omitempty"`
+	RolloutCohort       string                `json:"rollout_cohort,omitempty"`
+	RolloutHaltReason   string                `json:"rollout_halt_reason,omitempty"`
+	RolloutHalted       bool                  `json:"rollout_halted"`
+	RolloutId           string                `json:"rollout_id,omitempty"`
+	RolloutState        string                `json:"rollout_state,omitempty"`
+	RolloutTarget       string                `json:"rollout_target,omitempty"`
+	SpiffeId            string                `json:"spiffe_id,omitempty"`
+	Status              string                `json:"status"`
+	TenantId            string                `json:"tenant_id"`
+	TestSet             FleetTestSet          `json:"test_set,omitempty"`
+	VersionReason       string                `json:"version_reason"`
+	VersionState        string                `json:"version_state"`
 }
 
 // Exactly one read-only, authorized next step. The action opens tenant-scoped evidence or the human-gated rollout runbook; it never updates an agent.

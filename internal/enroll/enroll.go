@@ -647,6 +647,9 @@ func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostn
 			SVID:     svid,
 		}, nil
 	}
+	if plane == "ebpf" && strings.TrimSpace(csrPEM) != "" {
+		return s.registerEBPFCollectorWithSVID(ctx, tenantID, agentID, hostname, csrPEM)
+	}
 	spiffe := crypto.AgentSPIFFEID(tenantID, agentID)
 	name := hostname
 	if name == "" {
@@ -670,6 +673,26 @@ func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostn
 	s.log.Info("bus collector registered",
 		"tenant_id", tenantID, "agent_id", agentID, "plane", plane, "hostname", hostname)
 	return &CollectorIdentity{TenantID: tenantID, AgentID: agentID, Plane: plane}, nil
+}
+
+// registerEBPFCollectorWithSVID registers an eBPF collector that also wants
+// the mTLS agent channel (D-43 refinement 3: the tenant's L7 redaction floor is
+// delivered over the agent gRPC service, and the collector reports its capture
+// posture there). The SVID is an agent-plane identity bound to the collector's
+// own agent_id, so the records it publishes and the policy it fetches name the
+// same registry row; the private key never leaves the collector host (the CSR
+// is signed, the key is not sent). Metered like every collector (DPR-081).
+func (s *Service) registerEBPFCollectorWithSVID(ctx context.Context, tenantID, agentID, hostname, csrPEM string) (*CollectorIdentity, error) {
+	if qerr := usage.AllowCreate(ctx, tenantID, usage.MeterAgents); qerr != nil {
+		return nil, fmt.Errorf("%w: %v", ErrQuotaExceeded, qerr)
+	}
+	svid, err := s.issue(ctx, tenantID, agentID, hostname, "", csrPEM, "agent", []string{"collector", "ebpf"}, "")
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("ebpf collector registered with an agent-channel SVID",
+		"tenant_id", tenantID, "agent_id", agentID, "hostname", hostname)
+	return &CollectorIdentity{TenantID: tenantID, AgentID: agentID, Plane: "ebpf", SVID: svid}, nil
 }
 
 // newAgentID mints a random v4 UUID for an agent. The agents registry keys on

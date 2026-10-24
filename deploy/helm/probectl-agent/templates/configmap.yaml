@@ -23,6 +23,24 @@ data:
       {{- with .Values.bus.namespace }}
       namespace: {{ . | quote }} # DPR-049: the tenant's bus lane
       {{- end }}
+    {{- if .Values.controlPlane.grpcAddr }}
+    {{- if not .Values.controlPlane.identity.existingSecret }}
+    {{- fail "controlPlane.grpcAddr requires controlPlane.identity.existingSecret (keys cert.pem, key.pem, server-ca.pem): the agent's mTLS identity; there is no plaintext agent channel" }}
+    {{- end }}
+    # D-43: the mTLS policy channel — the tenant's L7 redaction floor in, the
+    # agent's capture posture out (the tenant comes from the certificate).
+    control_plane:
+      grpc_addr: {{ .Values.controlPlane.grpcAddr | quote }}
+      cert_file: /etc/probectl/identity/cert.pem
+      key_file: /etc/probectl/identity/key.pem
+      ca_file: /etc/probectl/identity/server-ca.pem
+      {{- with .Values.controlPlane.serverName }}
+      server_name: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.controlPlane.policyInterval }}
+      policy_interval: {{ . | quote }}
+      {{- end }}
+    {{- end }}
     ring_buffer_bytes: {{ .Values.ringBufferBytes }}
     {{- if hasKey .Values "maxBatchBytes" }}
     max_batch_bytes: {{ .Values.maxBatchBytes }} # DPR-071: one flush never outgrows the bus record limit

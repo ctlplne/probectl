@@ -50,6 +50,9 @@ export interface Agent {
     current_version: number
     in_sync: boolean
   }
+  // D-43: the L7 capture posture an eBPF agent last reported over its mTLS
+  // channel. Absent for agents that never reported one.
+  l7_capture_posture?: AgentL7CapturePosture
   next_safe_action?: {
     kind:
       | 'inspect_heartbeat'
@@ -65,6 +68,19 @@ export interface Agent {
     reason: string
     href: string
   }
+}
+
+export interface AgentL7CapturePosture {
+  enabled: boolean
+  consent_tenant?: string
+  consent_mismatch?: boolean
+  scope: string[]
+  redaction_mode: 'length' | 'metadata' | 'headers' | 'full'
+  effective_mode?: '' | 'length' | 'metadata' | 'headers' | 'full'
+  redaction_floor?: '' | 'length' | 'metadata' | 'headers' | 'full'
+  active: boolean
+  state: 'off' | 'refused_consent' | 'refused_floor' | 'attach_failed' | 'capturing' | 'replaying'
+  reported_at: string
 }
 
 export interface AgentsPage {

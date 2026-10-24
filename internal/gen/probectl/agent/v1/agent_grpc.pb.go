@@ -36,6 +36,8 @@ const (
 	AgentService_PollCoordination_FullMethodName = "/probectl.agent.v1.AgentService/PollCoordination"
 	AgentService_ReportEndpoint_FullMethodName   = "/probectl.agent.v1.AgentService/ReportEndpoint"
 	AgentService_FetchTestBundle_FullMethodName  = "/probectl.agent.v1.AgentService/FetchTestBundle"
+	AgentService_FetchL7Policy_FullMethodName    = "/probectl.agent.v1.AgentService/FetchL7Policy"
+	AgentService_ReportL7Posture_FullMethodName  = "/probectl.agent.v1.AgentService/ReportL7Posture"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -74,6 +76,19 @@ type AgentServiceClient interface {
 	// The server answers FailedPrecondition when central test distribution is not
 	// configured. This is not config push: StreamConfig stays an explicit deny.
 	FetchTestBundle(ctx context.Context, in *FetchTestBundleRequest, opts ...grpc.CallOption) (*FetchTestBundleResponse, error)
+	// FetchL7Policy returns the calling agent's tenant's L7 capture redaction
+	// floor (D-43, refinement 3): the loosest redaction mode the tenant allows.
+	// The tenant comes from the client certificate only; the request carries
+	// nothing. The eBPF agent refuses to start capture when its local
+	// l7_capture_redaction is looser than the floor, and applies metadata when
+	// it received none. Policy only — not config push (StreamConfig stays an
+	// explicit deny): nothing here can turn capture on or widen its scope.
+	FetchL7Policy(ctx context.Context, in *FetchL7PolicyRequest, opts ...grpc.CallOption) (*FetchL7PolicyResponse, error)
+	// ReportL7Posture records the calling agent's L7 capture posture (enabled,
+	// consent tenant, scope, redaction mode) on its registry row. The control
+	// plane appends agent.l7_capture.posture to the tenant's hash-chained audit
+	// stream when an agent first reports consented capture or changes mode.
+	ReportL7Posture(ctx context.Context, in *ReportL7PostureRequest, opts ...grpc.CallOption) (*ReportL7PostureResponse, error)
 }
 
 type agentServiceClient struct {
@@ -176,6 +191,26 @@ func (c *agentServiceClient) FetchTestBundle(ctx context.Context, in *FetchTestB
 	return out, nil
 }
 
+func (c *agentServiceClient) FetchL7Policy(ctx context.Context, in *FetchL7PolicyRequest, opts ...grpc.CallOption) (*FetchL7PolicyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FetchL7PolicyResponse)
+	err := c.cc.Invoke(ctx, AgentService_FetchL7Policy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ReportL7Posture(ctx context.Context, in *ReportL7PostureRequest, opts ...grpc.CallOption) (*ReportL7PostureResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReportL7PostureResponse)
+	err := c.cc.Invoke(ctx, AgentService_ReportL7Posture_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -212,6 +247,19 @@ type AgentServiceServer interface {
 	// The server answers FailedPrecondition when central test distribution is not
 	// configured. This is not config push: StreamConfig stays an explicit deny.
 	FetchTestBundle(context.Context, *FetchTestBundleRequest) (*FetchTestBundleResponse, error)
+	// FetchL7Policy returns the calling agent's tenant's L7 capture redaction
+	// floor (D-43, refinement 3): the loosest redaction mode the tenant allows.
+	// The tenant comes from the client certificate only; the request carries
+	// nothing. The eBPF agent refuses to start capture when its local
+	// l7_capture_redaction is looser than the floor, and applies metadata when
+	// it received none. Policy only — not config push (StreamConfig stays an
+	// explicit deny): nothing here can turn capture on or widen its scope.
+	FetchL7Policy(context.Context, *FetchL7PolicyRequest) (*FetchL7PolicyResponse, error)
+	// ReportL7Posture records the calling agent's L7 capture posture (enabled,
+	// consent tenant, scope, redaction mode) on its registry row. The control
+	// plane appends agent.l7_capture.posture to the tenant's hash-chained audit
+	// stream when an agent first reports consented capture or changes mode.
+	ReportL7Posture(context.Context, *ReportL7PostureRequest) (*ReportL7PostureResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -245,6 +293,12 @@ func (UnimplementedAgentServiceServer) ReportEndpoint(context.Context, *ReportEn
 }
 func (UnimplementedAgentServiceServer) FetchTestBundle(context.Context, *FetchTestBundleRequest) (*FetchTestBundleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FetchTestBundle not implemented")
+}
+func (UnimplementedAgentServiceServer) FetchL7Policy(context.Context, *FetchL7PolicyRequest) (*FetchL7PolicyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FetchL7Policy not implemented")
+}
+func (UnimplementedAgentServiceServer) ReportL7Posture(context.Context, *ReportL7PostureRequest) (*ReportL7PostureResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReportL7Posture not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -393,6 +447,42 @@ func _AgentService_FetchTestBundle_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_FetchL7Policy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchL7PolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).FetchL7Policy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_FetchL7Policy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).FetchL7Policy(ctx, req.(*FetchL7PolicyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ReportL7Posture_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportL7PostureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ReportL7Posture(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ReportL7Posture_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ReportL7Posture(ctx, req.(*ReportL7PostureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -423,6 +513,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FetchTestBundle",
 			Handler:    _AgentService_FetchTestBundle_Handler,
+		},
+		{
+			MethodName: "FetchL7Policy",
+			Handler:    _AgentService_FetchL7Policy_Handler,
+		},
+		{
+			MethodName: "ReportL7Posture",
+			Handler:    _AgentService_ReportL7Posture_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

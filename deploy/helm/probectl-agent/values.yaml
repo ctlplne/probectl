@@ -157,6 +157,21 @@ bus:
   # EXPLICITLY; production kafka requires TLS.
   allowPlaintext: false
 
+# D-43: the mTLS policy channel to the control plane's agent gRPC listener.
+# The agent fetches its tenant's L7 capture redaction floor and reports its
+# capture posture here (flows still go to the bus). Without it no floor is
+# received and consented L7 capture applies the metadata default. The identity
+# Secret holds the collector's SVID: cert.pem, key.pem (generated on the host
+# that made the CSR) and server-ca.pem (the CA the control plane's listener
+# certificate chains to) — from POST /v1/collectors/register with plane=ebpf and
+# a csr_pem. Never put key material in values.
+controlPlane:
+  grpcAddr: ""        # e.g. probectl-control.probectl.svc:9443
+  serverName: ""      # when it differs from the grpcAddr host
+  policyInterval: ""  # "" = 5m
+  identity:
+    existingSecret: ""
+
 # The node's tracefs, mounted read-only at the same path: attaching the
 # sock:inet_sock_set_state tracepoint reads its event id there, and a container
 # does not see the host's tracefs on its own (DPR-054). The legacy

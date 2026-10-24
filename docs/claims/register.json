@@ -560,6 +560,7 @@
     "docs/compliance.md",
     "docs/compliance/control-evidence.md",
     "docs/configuration.md",
+    "docs/ebpf-agent.md",
     "docs/features/ai-assistant.md",
     "docs/features/alerting-and-incidents.md",
     "docs/features/commercial-plane.md",

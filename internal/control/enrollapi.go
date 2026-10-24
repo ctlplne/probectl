@@ -252,7 +252,7 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			return apierror.BadRequest("collector plane must be one of: bgp, bmp, flow, device, ebpf, endpoint")
 		case errors.Is(err, enroll.ErrBadCSR):
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCSR, enrollmentSurfaceCollector, tenantID)
-			return apierror.BadRequest("bmp registration requires a valid csr_pem")
+			return apierror.BadRequest("collector registration requires a valid csr_pem (required for bmp; optional for ebpf, which then receives an agent-channel SVID)")
 		case errors.Is(err, enroll.ErrRevoked):
 			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceCollector, tenantID)

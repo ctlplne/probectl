@@ -9467,7 +9467,7 @@
         "x-required-permission": "agent.write",
         "operationId": "registerCollector",
         "summary": "Register a tenant-scoped bus collector from a one-time enrollment token",
-        "description": "Consumes a tenant-scoped one-time token inside the caller tenant. Bus-collector planes receive a registry identity to stamp on records; plane=bmp additionally requires csr_pem and returns a registry-issued /bmp/<router-id> SVID for router mTLS.",
+        "description": "Consumes a tenant-scoped one-time token inside the caller tenant. Bus-collector planes receive a registry identity to stamp on records; plane=bmp additionally requires csr_pem and returns a registry-issued /bmp/<router-id> SVID for router mTLS. plane=ebpf accepts an optional csr_pem and then returns an agent-plane SVID bound to the collector's own agent_id, for the mTLS agent channel that delivers the tenant's L7 capture redaction floor and takes the capture posture (D-43); the private key never leaves the collector host.",
         "tags": [
           "agents"
         ],
@@ -10471,6 +10471,9 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "l7_capture_posture": {
+            "$ref": "#/components/schemas/AgentL7CapturePosture"
           }
         },
         "required": [
@@ -10481,6 +10484,54 @@
           "capabilities",
           "labels"
         ]
+      },
+      "AgentL7CapturePosture": {
+        "type": "object",
+        "description": "The L7 capture posture an eBPF agent last reported over its mTLS channel (D-43). Absent for agents that never reported one. Every string came from the agent and was validated by the transport; consent_tenant is kept only when it equals the agent's own tenant (consent_mismatch records that it did not). The first consented report and every later mode change are in the tenant's audit chain as agent.l7_capture.posture.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "consent_tenant": {
+            "type": "string"
+          },
+          "consent_mismatch": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "redaction_mode": {
+            "type": "string",
+            "enum": ["length", "metadata", "headers", "full"],
+            "description": "The agent's local l7_capture_redaction."
+          },
+          "effective_mode": {
+            "type": "string",
+            "enum": ["", "length", "metadata", "headers", "full"],
+            "description": "The mode capture runs under; empty when the agent is not capturing."
+          },
+          "redaction_floor": {
+            "type": "string",
+            "enum": ["", "length", "metadata", "headers", "full"],
+            "description": "The tenant floor the agent applied; empty when it received none (it then applies metadata)."
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["off", "refused_consent", "refused_floor", "attach_failed", "capturing", "replaying"]
+          },
+          "reported_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["enabled", "scope", "redaction_mode", "active", "state", "reported_at"]
       },
       "AgentPatch": {
         "type": "object",
@@ -16774,7 +16825,7 @@
           },
           "csr_pem": {
             "type": "string",
-            "description": "Router-owned PKCS#10 CSR PEM. Required only for plane=bmp; the private key never leaves the router."
+            "description": "Collector-owned PKCS#10 CSR PEM. Required for plane=bmp; optional for plane=ebpf, which then receives an agent-channel SVID (D-43). The private key never leaves the collector host."
           },
           "collection_profile": {
             "type": "string",

@@ -38,6 +38,76 @@ type Agent struct {
 	// as verified and applied (G9; 0 = none). Surfaced by the fleet view as
 	// test_set, next to the tenant's current version.
 	TestSetVersion uint64 `json:"-"`
+	// L7CapturePosture is the L7 capture posture the agent last reported
+	// over its mTLS channel (D-43); nil for agents that never reported one.
+	L7CapturePosture *L7CapturePosture `json:"l7_capture_posture,omitempty"`
+}
+
+// L7CapturePosture is an eBPF agent's reported L7 capture state (D-43). Every
+// string in it came from the agent and was bounded and validated by the
+// transport before it was stored; the consent tenant is kept only when it
+// equals the agent's own (certificate) tenant.
+type L7CapturePosture struct {
+	Enabled         bool      `json:"enabled"`
+	ConsentTenant   string    `json:"consent_tenant,omitempty"`
+	ConsentMismatch bool      `json:"consent_mismatch,omitempty"`
+	Scope           []string  `json:"scope"`
+	RedactionMode   string    `json:"redaction_mode"`
+	EffectiveMode   string    `json:"effective_mode,omitempty"`
+	RedactionFloor  string    `json:"redaction_floor,omitempty"`
+	Active          bool      `json:"active"`
+	State           string    `json:"state"`
+	ReportedAt      time.Time `json:"reported_at"`
+}
+
+// Consented reports whether the posture states all three consent statements
+// (enable, a consent tenant equal to the agent's, a non-empty scope).
+func (p L7CapturePosture) Consented() bool {
+	return p.Enabled && p.ConsentTenant != "" && len(p.Scope) > 0
+}
+
+// SameMaterial reports whether two postures agree on everything an audit
+// receipt records: consent, scope, the local and effective modes, the floor
+// and the state. ReportedAt and Active alone never make a change material.
+func (p L7CapturePosture) SameMaterial(o L7CapturePosture) bool {
+	if p.Enabled != o.Enabled || p.ConsentTenant != o.ConsentTenant || p.ConsentMismatch != o.ConsentMismatch ||
+		p.RedactionMode != o.RedactionMode || p.EffectiveMode != o.EffectiveMode ||
+		p.RedactionFloor != o.RedactionFloor || p.State != o.State || len(p.Scope) != len(o.Scope) {
+		return false
+	}
+	for i := range p.Scope {
+		if p.Scope[i] != o.Scope[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// RecordL7CapturePosture stores an agent's reported L7 capture posture and
+// returns the one it replaces (nil when none was recorded). The row is locked
+// for the read-compare-write so two concurrent reports cannot both see the
+// same prior; RLS confines it to s.Tenant. An apierror NotFound means no such
+// agent is registered in this tenant.
+func (Agents) RecordL7CapturePosture(ctx context.Context, s tenancy.Scope, id string, p L7CapturePosture) (*L7CapturePosture, error) {
+	var raw []byte
+	if err := s.Q.QueryRow(ctx, `SELECT l7_capture_posture FROM agents WHERE id = $1 FOR UPDATE`, id).Scan(&raw); err != nil {
+		return nil, notFound("agent", err)
+	}
+	var prior *L7CapturePosture
+	if len(raw) > 0 {
+		prior = &L7CapturePosture{}
+		if err := json.Unmarshal(raw, prior); err != nil {
+			prior = nil // an unreadable prior is replaced, and the change is treated as new
+		}
+	}
+	next, err := json.Marshal(p)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.Q.Exec(ctx, `UPDATE agents SET l7_capture_posture = $2::jsonb WHERE id = $1`, id, string(next)); err != nil {
+		return nil, err
+	}
+	return prior, nil
 }
 
 // Agents is the tenant-scoped agent registry.
@@ -56,7 +126,7 @@ type ProducerReadiness struct {
 
 const agentCols = `id::text, tenant_id::text, name, hostname, agent_version, status,
 	capabilities, labels, spiffe_id, registered_at, last_seen_at, created_at,
-	COALESCE(test_set_version, 0)`
+	COALESCE(test_set_version, 0), l7_capture_posture`
 
 // AgentOnlineWindow is how long after its last heartbeat or verified batch an
 // agent still reads "online" (DPR-082). gRPC agents heartbeat every 30 s and a
@@ -87,11 +157,17 @@ func deriveStatus(stored string, lastSeen *time.Time, now time.Time) string {
 }
 
 func scanAgent(row interface{ Scan(...any) error }, a *Agent) error {
-	var caps, labels []byte
+	var caps, labels, posture []byte
 	var testSet int64
 	if err := row.Scan(&a.ID, &a.TenantID, &a.Name, &a.Hostname, &a.AgentVersion, &a.Status,
-		&caps, &labels, &a.SPIFFEID, &a.RegisteredAt, &a.LastSeenAt, &a.CreatedAt, &testSet); err != nil {
+		&caps, &labels, &a.SPIFFEID, &a.RegisteredAt, &a.LastSeenAt, &a.CreatedAt, &testSet, &posture); err != nil {
 		return err
+	}
+	if len(posture) > 0 {
+		var p L7CapturePosture
+		if json.Unmarshal(posture, &p) == nil {
+			a.L7CapturePosture = &p
+		}
 	}
 	if testSet > 0 {
 		a.TestSetVersion = uint64(testSet)

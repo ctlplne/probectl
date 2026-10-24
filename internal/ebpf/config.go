@@ -52,6 +52,13 @@ type Config struct {
 	// Bus is where flow + service-edge batches are published (probectl.ebpf.flows).
 	Bus BusConfig `yaml:"bus"`
 
+	// ControlPlane is the agent's mTLS channel to the control plane's agent
+	// gRPC service (D-43 refinement 3). It carries policy only: the tenant's
+	// L7 capture redaction floor in, the agent's capture posture out. Flows
+	// still go to the bus. Empty grpc_addr = no channel: no floor is received
+	// and L7 capture applies the metadata default.
+	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
+
 	// FixturePath, when set, replays recorded flows instead of loading eBPF —
 	// the no-kernel path used by CI, macOS, and unprivileged containers.
 	FixturePath string `yaml:"fixture_path"`
@@ -146,6 +153,22 @@ type Config struct {
 	// 0 = default (1024). Bounds: 128..4095. "length" forces 0; "full"
 	// forces 4095.
 	L7CaptureKernelWindow int `yaml:"l7_capture_kernel_window"`
+}
+
+// ControlPlaneConfig is the agent's mTLS policy channel (D-43). The client
+// certificate is the agent's registered identity: its SPIFFE id names the
+// tenant and the collector agent_id, and the control plane reads the tenant
+// from it, never from a request.
+type ControlPlaneConfig struct {
+	GRPCAddr   string `yaml:"grpc_addr"`
+	CertFile   string `yaml:"cert_file"`
+	KeyFile    string `yaml:"key_file"`
+	CAFile     string `yaml:"ca_file"`
+	ServerName string `yaml:"server_name"`
+	// PolicyInterval is how often the agent re-reads the floor and
+	// re-reports its posture; a floor that tightened past the running mode
+	// stops capture at once. 0 = 5m.
+	PolicyInterval time.Duration `yaml:"policy_interval"`
 }
 
 // BusConfig selects the bus backend for emission.
@@ -251,6 +274,7 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	if v := getenv("PROBECTL_EBPF_BUS_NAMESPACE"); v != "" {
 		c.Bus.Namespace = v
 	}
+	c.applyControlPlaneEnv(getenv)
 	if v := getenv("PROBECTL_EBPF_FIXTURE_PATH"); v != "" {
 		c.FixturePath = v
 	}
@@ -329,6 +353,48 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 }
 
+// applyControlPlaneEnv applies the PROBECTL_EBPF_CONTROL_PLANE_* overrides.
+func (c *Config) applyControlPlaneEnv(getenv func(string) string) {
+	cp := &c.ControlPlane
+	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_GRPC_ADDR"); v != "" {
+		cp.GRPCAddr = v
+	}
+	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_CERT_FILE"); v != "" {
+		cp.CertFile = v
+	}
+	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_KEY_FILE"); v != "" {
+		cp.KeyFile = v
+	}
+	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_CA_FILE"); v != "" {
+		cp.CAFile = v
+	}
+	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_SERVER_NAME"); v != "" {
+		cp.ServerName = v
+	}
+	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_POLICY_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cp.PolicyInterval = d
+		}
+	}
+}
+
+// validateControlPlane refuses a half-configured policy channel: an address
+// without the full mTLS identity would otherwise fail at the first call, and
+// the agent would quietly run without a floor (D-43, docs/guardrails.md G7-4).
+func (c *Config) validateControlPlane() error {
+	cp := c.ControlPlane
+	if cp.GRPCAddr == "" {
+		return nil
+	}
+	if cp.CertFile == "" || cp.KeyFile == "" || cp.CAFile == "" {
+		return fmt.Errorf("ebpf: control_plane.grpc_addr requires control_plane.cert_file, key_file and ca_file (the agent's mTLS identity; no plaintext agent channel)")
+	}
+	if cp.PolicyInterval < 0 {
+		return fmt.Errorf("ebpf: control_plane.policy_interval must be >= 0")
+	}
+	return nil
+}
+
 // identity is the agent_id stamped on every emitted record: the registered
 // collector id when configured, else the host name (DPR-051).
 func (c *Config) identity() string {
@@ -370,6 +436,9 @@ func (c *Config) validate() error {
 		return fmt.Errorf("ebpf: l7_capture_enabled requires l7_capture_scope — name the opted-in workloads (pid:<n>|exe:/path|cgroup:/path); host-wide capture is not expressible (EBPF-001)")
 	}
 	if _, err := ParseScopeEntries(c.L7CaptureScope); err != nil {
+		return err
+	}
+	if err := c.validateControlPlane(); err != nil {
 		return err
 	}
 	if r := c.L7CaptureHostRoot; r != "" && !strings.HasPrefix(r, "/") {
