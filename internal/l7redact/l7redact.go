@@ -131,6 +131,60 @@ const (
 	ProtoOther = "other"
 )
 
+// knownProtocols is the L7 protocol vocabulary (the eBPF parsers' ids).
+var knownProtocols = map[string]bool{
+	"": true, protoHTTP1: true, protoHTTP2: true, protoGRPC: true, protoDNS: true,
+	protoKafka: true, protoPostgres: true, protoMySQL: true, ProtoOther: true,
+}
+
+// Protocol clamps an L7 protocol value to the vocabulary ("other" otherwise).
+// It applies under every mode: a protocol is an enum, never free text.
+func Protocol(p string) (string, Strip) {
+	if knownProtocols[p] {
+		return p, 0
+	}
+	return ProtoOther, StripEnum
+}
+
+// Enum clamps v to vocab ("other" otherwise; "" is always allowed).
+func Enum(v string, vocab ...string) (string, Strip) {
+	if v == "" {
+		return v, 0
+	}
+	for _, w := range vocab {
+		if v == w {
+			return v, 0
+		}
+	}
+	return ProtoOther, StripEnum
+}
+
+// maxLabelBytes bounds an identifier-valued field (a DNS name's limit).
+const maxLabelBytes = 253
+
+// InvalidLabel replaces an identifier-valued field that cannot be one.
+const InvalidLabel = "_invalid"
+
+// Label validates an identifier-valued field — a workload, process name,
+// container id, host or address: at most 253 bytes of letters, digits, space
+// and . _ : / @ + - ( ) [ ] # ~ , (kernel thread and process names use the
+// brackets and parentheses). Anything else (quotes, braces, '?', '=', '&', control or
+// non-ASCII bytes — the shape of a body, header or query) is not an identifier
+// and is replaced by InvalidLabel. An identifier-shaped value cannot be
+// content-checked: this bounds shape, not meaning.
+func Label(v string) (string, Strip) {
+	if len(v) > maxLabelBytes {
+		return InvalidLabel, StripLabel
+	}
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if !isAlnum(c) && !strings.ContainsRune(" ._:/@+-()[]#~,", rune(c)) {
+			return InvalidLabel, StripLabel
+		}
+	}
+	return v, 0
+}
+
 // Call is the protocol-neutral view of one L7 call's free-text fields: the only
 // fields of an L7 call that can carry application data. Everything else on the
 // wire record is numeric or an enum.
@@ -163,6 +217,12 @@ const (
 	StripProtocol
 	// StripTruncated: a route was cut to its length or segment bound.
 	StripTruncated
+	// StripEnum: an enum-valued field (a protocol, transport, direction)
+	// carried a value outside its vocabulary.
+	StripEnum
+	// StripLabel: an identifier-valued field (a workload, process, host or
+	// address) carried bytes no identifier has, or exceeded its bound.
+	StripLabel
 )
 
 // stripNames is the fixed label set the counters expose (never a value from the
@@ -180,6 +240,8 @@ var stripNames = []struct {
 	{StripStatus, "status"},
 	{StripProtocol, "protocol"},
 	{StripTruncated, "truncated"},
+	{StripEnum, "enum_field"},
+	{StripLabel, "label_field"},
 }
 
 // StripFields lists every strip label, in a fixed order.

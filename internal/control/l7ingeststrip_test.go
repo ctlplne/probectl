@@ -144,3 +144,30 @@ func TestL7IngestDoorUsesTheLaneTenantsFloor(t *testing.T) {
 		t.Fatalf("door applied the payload tenant's floor: %+v", c)
 	}
 }
+
+// D-43 S4: the free-text fields a consumer persists besides the call itself —
+// the edge's l7_protocol (eBPF store, topology graph), transports, workload and
+// process labels — are enums or identifiers at the door, never payload.
+func TestL7IngestStripClampsEdgeAndFlowFields(t *testing.T) {
+	batch := &ebpfv1.FlowBatch{
+		Edges: []*ebpfv1.ServiceEdge{{TenantId: "t", Source: "portal", Destination: `{"diagnosis":"BODYSECRET"}`,
+			L7Protocol: "BODYSECRET /patients/48213?ssn=1", NetworkTransport: "tcp"}},
+		Flows: []*ebpfv1.Flow{{TenantId: "t", AgentId: "a1", ProcessName: "curl --data ssn=BODYSECRET", Workload: "nginx",
+			NetworkTransport: "tcp", NetworkType: "ipv4", Direction: "egress", State: "BODYSECRET"}},
+	}
+	st := newL7IngestStrip(nil, false, nil)
+	st.Apply(context.Background(), batch)
+	out, _ := proto.Marshal(batch)
+	if bytes.Contains(out, []byte("BODYSECRET")) {
+		t.Fatalf("edge/flow free text survived the door: %s", batch.String())
+	}
+	if e := batch.Edges[0]; e.GetL7Protocol() != "other" || e.GetSource() != "portal" || e.GetNetworkTransport() != "tcp" {
+		t.Fatalf("edge = %+v", e)
+	}
+	if f := batch.Flows[0]; f.GetWorkload() != "nginx" || f.GetDirection() != "egress" || f.GetState() != "other" {
+		t.Fatalf("flow = %+v", f)
+	}
+	if st.Counts()["enum_field"] == 0 || st.Counts()["label_field"] == 0 {
+		t.Fatalf("field strips not counted: %v", st.Counts())
+	}
+}

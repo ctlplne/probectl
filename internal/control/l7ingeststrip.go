@@ -176,6 +176,13 @@ func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, coun
 		return
 	}
 	unknown := dropUnknownFields(batch)
+	var fieldStrips l7redact.Strip
+	fieldStrips |= clampRecordFields(batch)
+	if count && fieldStrips != 0 {
+		for _, f := range fieldStrips.Fields() {
+			s.add(f, 1)
+		}
+	}
 	for _, c := range batch.GetL7Calls() {
 		mode := s.floor(ctx, c.GetTenantId())
 		m, strip := l7redact.Minimize(l7redact.Call{
@@ -200,6 +207,41 @@ func (s *L7IngestStrip) add(field string, n uint64) {
 	if c, ok := s.counters[field]; ok {
 		c.Add(n)
 	}
+}
+
+// clampRecordFields validates every non-call free-text field of the batch that
+// a consumer persists or projects (D-43 S4): enum fields to their vocabulary,
+// identifier fields to an identifier's shape and bound. The edge's l7_protocol
+// lands in the eBPF store and the topology graph, so it is an enum here like
+// the call's protocol.
+func clampRecordFields(batch *ebpfv1.FlowBatch) l7redact.Strip {
+	var strip l7redact.Strip
+	clamp := func(dst *string, fn func(string) (string, l7redact.Strip)) {
+		v, st := fn(*dst)
+		*dst, strip = v, strip|st
+	}
+	transport := func(v string) (string, l7redact.Strip) { return l7redact.Enum(v, "tcp", "udp") }
+	for _, e := range batch.GetEdges() {
+		clamp(&e.L7Protocol, l7redact.Protocol)
+		clamp(&e.NetworkTransport, transport)
+		clamp(&e.Source, l7redact.Label)
+		clamp(&e.Destination, l7redact.Label)
+	}
+	for _, f := range batch.GetFlows() {
+		clamp(&f.NetworkTransport, transport)
+		clamp(&f.NetworkType, func(v string) (string, l7redact.Strip) { return l7redact.Enum(v, "ipv4", "ipv6") })
+		clamp(&f.Direction, func(v string) (string, l7redact.Strip) { return l7redact.Enum(v, "ingress", "egress") })
+		clamp(&f.State, func(v string) (string, l7redact.Strip) { return l7redact.Enum(v, "established", "close") })
+		for _, p := range []*string{&f.Host, &f.SourceAddress, &f.DestinationAddress, &f.ProcessName, &f.ContainerId, &f.Workload} {
+			clamp(p, l7redact.Label)
+		}
+	}
+	for _, c := range batch.GetL7Calls() {
+		clamp(&c.Protocol, l7redact.Protocol)
+		clamp(&c.Source, l7redact.Label)
+		clamp(&c.Destination, l7redact.Label)
+	}
+	return strip
 }
 
 // dropUnknownFields clears the unknown-field bytes of every message in the

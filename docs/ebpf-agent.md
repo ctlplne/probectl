@@ -575,7 +575,14 @@ emit looser data than its tenant allows.
   (`internal/l7redact`): query strings always; under `metadata` (and the
   regulated profile) identifier route segments, non-token methods and
   statuses, SQL statement text and unknown protocols' free text too, plus any
-  field the schema does not know. Each strip is counted on
+  field the schema does not know. The other fields a consumer persists are
+  validated too (D-43 S4): protocols, transports, directions and TCP states
+  are clamped to their vocabulary (`other` otherwise) — the service edge's
+  `l7_protocol` lands in the eBPF store and the topology graph — and
+  workload, process, container, host and address fields must have an
+  identifier's shape (≤ 253 bytes of letters, digits, space and
+  `. _ : / @ + - ( ) [ ] # ~ ,`) or become `_invalid`. An identifier-shaped
+  value cannot be content-checked; this bounds shape, not meaning. Each strip is counted on
   `probectl_ebpf_l7_ingest_stripped_total{field}`.
 
 What `metadata` cannot see: a route segment that is an identifier but is

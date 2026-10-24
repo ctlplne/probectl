@@ -222,3 +222,30 @@ func FuzzTemplateRoute(f *testing.F) {
 		}
 	})
 }
+
+func TestProtocolEnumAndLabel(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"http1", "http1"}, {"", ""}, {"other", "other"},
+		{"BODYCUI-CONTROLLED-7731 /patients/48213?ssn=1", ProtoOther},
+	} {
+		if got, _ := Protocol(tc.in); got != tc.want {
+			t.Errorf("Protocol(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	for _, ok := range []string{"nginx", "k8s-pod:0123456789ab/nginx@abcdef012345", "10.0.2.9", "2001:db8::1", "kworker/0:1", "(sd-pam)", "Web Content", "nginx.service"} {
+		if got, st := Label(ok); got != ok || st != 0 {
+			t.Errorf("Label(%q) = %q, want it kept", ok, got)
+		}
+	}
+	for _, bad := range []string{`{"diagnosis":"x"}`, "/search?q=1", "a=b&c=d", "line\nbreak", strings.Repeat("a", 254), "café"} {
+		if got, st := Label(bad); got != InvalidLabel || st != StripLabel {
+			t.Errorf("Label(%q) = %q, want %q", bad, got, InvalidLabel)
+		}
+	}
+	if got, _ := Enum("tcp", "tcp", "udp"); got != "tcp" {
+		t.Errorf("Enum kept the vocabulary value as %q", got)
+	}
+	if got, st := Enum("tcp; DROP", "tcp", "udp"); got != ProtoOther || st != StripEnum {
+		t.Errorf("Enum = %q", got)
+	}
+}
