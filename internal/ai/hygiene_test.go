@@ -79,7 +79,7 @@ func TestAnalyzerHasDefaultConcurrencyCap(t *testing.T) {
 func TestSanitizeEvidenceFields(t *testing.T) {
 	evs := []Evidence{
 		{Domain: DomainEntities, Fields: Row{
-			"id": "i1", "kind": "incident", "severity": "high", "title": "t",
+			"id": "i1:s1", "incident_id": "i1", "signal_id": "s1", "kind": "incident", "severity": "high", "title": "t",
 			"raw_payload": "SECRET-ROW-DATA", "db_ctid": "(0,1)",
 		}},
 		{Domain: Domain("future-plane"), Fields: Row{
@@ -96,7 +96,7 @@ func TestSanitizeEvidenceFields(t *testing.T) {
 	if _, leaked := f0["db_ctid"]; leaked {
 		t.Fatal("db_ctid leaked through the allow-list")
 	}
-	for _, k := range []string{"id", "kind", "severity", "title"} {
+	for _, k := range []string{"id", "incident_id", "signal_id", "kind", "severity", "title"} {
 		if _, ok := f0[k]; !ok {
 			t.Fatalf("allow-listed key %q was dropped", k)
 		}

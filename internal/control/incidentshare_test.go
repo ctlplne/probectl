@@ -91,6 +91,14 @@ func TestIncidentShareSelectionRequiresAuthorizedArtifactEvidence(t *testing.T) 
 	if got := authorizedShareSelection(&incidentShareSelection{Kind: "evidence", ID: "inc-1:0"}, inc, answer); got == nil {
 		t.Fatal("authorized incident signal selection was removed")
 	}
+
+	stored := incident.Incident{ID: "inc-1", Signals: []incident.Signal{{ID: "sig-a", Title: "one"}}}
+	if got := authorizedShareSelection(&incidentShareSelection{Kind: "evidence", ID: "inc-1:sig-a"}, stored, ai.Answer{}); got == nil {
+		t.Fatal("a selection naming the incident's stored signal was removed")
+	}
+	if got := authorizedShareSelection(&incidentShareSelection{Kind: "evidence", ID: "inc-1:sig-other"}, stored, ai.Answer{}); got != nil {
+		t.Fatalf("a selection naming a signal not on the incident survived: %+v", got)
+	}
 }
 
 func TestIncidentShareABAC(t *testing.T) {

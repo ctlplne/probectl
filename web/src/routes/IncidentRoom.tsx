@@ -102,10 +102,13 @@ function planeGroupID(plane: string): string {
   return match?.id ?? 'other'
 }
 
-function signalID(incidentID: string, index: number): string {
+function signalID(incidentID: string, index: number, signal: Signal): string {
   // This is the same source row id emitted by incidentEntitiesSource for AI
-  // evidence, so one X3 selection coordinates the timeline and citations.
-  return `${incidentID}:${index}`
+  // evidence, so one X3 selection coordinates the timeline and citations. It
+  // names the stored signal, so a citation still selects the same signal when
+  // the timeline is read in another order; the position is only for a signal
+  // with no stored id.
+  return `${incidentID}:${signal.id || index}`
 }
 
 function sourceIDForSelection(context: PivotContext): string | undefined {
@@ -173,7 +176,7 @@ export function IncidentRoom({
   const signalRows = useMemo<SignalRow[]>(
     () =>
       (inc?.signals ?? []).map((signal, index) => ({
-        id: signalID(incidentId, index),
+        id: signalID(incidentId, index, signal),
         index,
         signal,
       })),

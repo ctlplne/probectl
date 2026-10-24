@@ -7,6 +7,7 @@
 package control
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/incident"
@@ -39,5 +40,38 @@ func TestIncidentMatchesJoinsHostsAndPrefixesLikeTheCorrelator(t *testing.T) {
 			t.Errorf("%s: incidentMatches(%q/%q, target %q, prefix %q) = %v, want %v",
 				tc.name, tc.inc.Target, tc.inc.Prefix, tc.target, tc.prefix, got, tc.want)
 		}
+	}
+}
+
+// An RCA citation of an incident signal names the signal's stored row, not its
+// place in the timeline: the same signal read in another order (or after the
+// timeline is cut to MaxSignalsPerRead) keeps its id, and the citation can be
+// followed to that row. Only a signal with no stored id falls back to its
+// position.
+func TestIncidentSignalRowCitesTheStoredSignal(t *testing.T) {
+	hijack := incident.Signal{ID: "6f1e0c3a-sig-hijack", Plane: "bgp", Kind: "bgp.possible_hijack", Title: "hijack"}
+	outage := incident.Signal{ID: "9a2b7d4e-sig-outage", Plane: "network", Kind: "alert.firing", Title: "service down"}
+	ids := func(sigs ...incident.Signal) []string {
+		var out []string
+		for j, sig := range sigs {
+			out = append(out, incidentSignalRow("inc-1", j, sig)["id"].(string))
+		}
+		return out
+	}
+	first, reordered := ids(hijack, outage), ids(outage, hijack)
+	want := []string{"inc-1:6f1e0c3a-sig-hijack", "inc-1:9a2b7d4e-sig-outage"}
+	if !slices.Equal(first, want) {
+		t.Fatalf("signal citations = %v, want %v", first, want)
+	}
+	slices.Reverse(reordered)
+	if !slices.Equal(first, reordered) {
+		t.Fatalf("a signal's citation moved when the timeline was read in another order: %v vs %v", first, reordered)
+	}
+	row := incidentSignalRow("inc-1", 0, hijack)
+	if row["incident_id"] != "inc-1" || row["signal_id"] != hijack.ID || row["kind"] != hijack.Kind || row["plane"] != hijack.Plane {
+		t.Fatalf("signal row does not name its incident and stored signal: %v", row)
+	}
+	if got := incidentSignalRow("inc-1", 3, incident.Signal{Kind: "alert.firing"})["id"]; got != "inc-1:3" {
+		t.Fatalf("a signal with no stored id is cited as %v, want its position inc-1:3", got)
 	}
 }

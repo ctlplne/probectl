@@ -307,16 +307,30 @@ func (s incidentEntitiesSource) QueryEntities(ctx context.Context, tenant string
 				if len(rows) >= limit {
 					break
 				}
-				rows = append(rows, ai.Row{
-					"id": inc.ID + ":" + strconv.Itoa(j), "kind": sig.Kind, "plane": sig.Plane,
-					"severity": string(sig.Severity), "title": sig.Title, "summary": sig.Summary,
-					"occurred_at": sig.OccurredAt,
-				})
+				rows = append(rows, incidentSignalRow(inc.ID, j, sig))
 			}
 		}
 		return nil
 	})
 	return rows, err
+}
+
+// incidentSignalRow makes one incident signal citable. Its id names the
+// signal's stored row (<incident>:<signal id>), so a citation keeps pointing
+// at the same signal however the incident's timeline is later ordered or cut
+// to MaxSignalsPerRead; a list position would silently move to a neighbor.
+// The position stays only for a signal with no stored id.
+func incidentSignalRow(incidentID string, position int, sig incident.Signal) ai.Row {
+	signalID := sig.ID
+	if signalID == "" {
+		signalID = strconv.Itoa(position)
+	}
+	return ai.Row{
+		"id": incidentID + ":" + signalID, "incident_id": incidentID, "signal_id": sig.ID,
+		"kind": sig.Kind, "plane": sig.Plane,
+		"severity": string(sig.Severity), "title": sig.Title, "summary": sig.Summary,
+		"occurred_at": sig.OccurredAt,
+	}
 }
 
 // incidentMatches keeps an incident as evidence when it concerns the question's

@@ -160,6 +160,65 @@ describe('native cross-plane pivots', () => {
     )
   })
 
+  test('a citation selects the stored signal it names, wherever the timeline lists it', async () => {
+    const stored = {
+      ...incident,
+      id: 'inc-stored',
+      title: 'stored-signal incident',
+      signal_count: 2,
+      signals: [
+        {
+          id: 'sig-outage',
+          plane: 'network',
+          kind: 'alert.firing',
+          severity: 'critical',
+          title: 'service down',
+          occurred_at: '2026-07-14T10:01:00Z',
+        },
+        {
+          id: 'sig-hijack',
+          plane: 'bgp',
+          kind: 'bgp.possible_hijack',
+          severity: 'critical',
+          title: 'route hijacked',
+          occurred_at: '2026-07-14T10:02:00Z',
+        },
+      ],
+    }
+    const cited = {
+      ...answer,
+      evidence: [{ ...answer.evidence[0], fields: { id: 'inc-stored:sig-hijack' } }],
+    }
+    const fallback = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = pathOf(input)
+        if (path === '/v1/incidents') return jsonResponse({ items: [stored] })
+        if (path === '/v1/incidents/inc-stored') return jsonResponse(stored)
+        if (path === '/v1/ai/ask' && init?.method === 'POST') return jsonResponse(cited)
+        return fallback(input, init)
+      }),
+    )
+
+    renderWithNavigation('/incidents?incident_status=open')
+    await userEvent.click(await screen.findByRole('button', { name: /stored-signal incident/i }))
+    await userEvent.click(screen.getByRole('button', { name: /explain this view/i }))
+    await screen.findByText('The BGP route changed.')
+    await userEvent.click(screen.getAllByRole('link', { name: 'E-BGP-1' })[0])
+
+    expect(parsePivotContext(currentURL().searchParams).context.selection).toEqual({
+      kind: 'evidence',
+      id: 'inc-stored:sig-hijack',
+    })
+    const pressed = (name: string) =>
+      screen
+        .getAllByRole('button', { name })
+        .some((button) => button.getAttribute('aria-pressed') === 'true')
+    await waitFor(() => expect(pressed('route hijacked')).toBe(true))
+    expect(pressed('service down')).toBe(false)
+  })
+
   test('plane tabs preserve the shared contract across every registered workspace', async () => {
     vi.stubGlobal('fetch', defaultFetch())
     const context: PivotContext = {

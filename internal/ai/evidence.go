@@ -42,7 +42,7 @@ type Evidence struct {
 var evidenceFieldAllowList = map[Domain]map[string]bool{
 	DomainMetrics:  setOf("metric", "value", "unit", "target", "prefix", "node", "service", "agent_id", "test_id", "instance", "job", "plane", "severity", "title", "summary", "occurred_at", "timestamp", "at", "time"),
 	DomainEvents:   setOf("id", "kind", "plane", "source", "change_kind", "title", "summary", "target", "prefix", "actor", "ref", "occurred_at", "bytes", "packets", "flows", "detail"),
-	DomainEntities: setOf("id", "kind", "plane", "severity", "title", "summary", "target", "prefix", "occurred_at"),
+	DomainEntities: setOf("id", "incident_id", "signal_id", "kind", "plane", "severity", "title", "summary", "target", "prefix", "occurred_at"),
 	DomainTopology: setOf("hop", "node", "neighbor", "kind", "label", "plane", "title"),
 }
 

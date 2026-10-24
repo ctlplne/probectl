@@ -929,11 +929,13 @@ func (s *tenantStores) resolve(t *testing.T, e rcaEvidence) error {
 			}
 			return nil
 		}
-		incID, idx, ok := strings.Cut(id, ":")
+		// A signal is cited by its stored id (<incident>:<signal id>), never by
+		// its place in the timeline.
+		incID, sigID, ok := strings.Cut(id, ":")
 		inc, found := s.incidents[incID]
-		j, err := strconv.Atoi(idx)
-		if !ok || !found || err != nil || j < 0 || j >= len(inc.Signals) {
-			return fmt.Errorf("signal %q names no signal of the tenant's incidents", id)
+		j := slices.IndexFunc(inc.Signals, func(sig incidentSignal) bool { return sig.ID == sigID })
+		if !ok || !found || sigID == "" || j < 0 || field(e, "signal_id") != sigID || field(e, "incident_id") != incID {
+			return fmt.Errorf("signal %q names no stored signal of the tenant's incidents", id)
 		}
 		sig := inc.Signals[j]
 		if sig.Kind != field(e, "kind") || sig.Title != e.Title || sig.Plane != e.Plane {

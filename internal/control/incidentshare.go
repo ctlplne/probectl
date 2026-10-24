@@ -259,8 +259,11 @@ func authorizedShareSelection(selection *incidentShareSelection, inc incident.In
 		return nil
 	}
 	allowed := map[string]bool{inc.ID: true}
-	for i := range inc.Signals {
-		allowed[fmt.Sprintf("%s:%d", inc.ID, i)] = true
+	for i, signal := range inc.Signals {
+		allowed[fmt.Sprintf("%s:%d", inc.ID, i)] = true // shares made before citations named the stored signal
+		if signal.ID != "" {
+			allowed[inc.ID+":"+signal.ID] = true
+		}
 	}
 	for _, evidence := range answer.Evidence {
 		allowed[evidence.ID] = true
