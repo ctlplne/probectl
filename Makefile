@@ -145,6 +145,10 @@ ebpf-agent: ## Build probectl-ebpf-agent WITH the live CO-RE loader (-tags ebpf;
 	CGO_ENABLED=0 $(GO) build -tags ebpf -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/probectl-ebpf-agent ./cmd/probectl-ebpf-agent
 	@echo "built $(BIN_DIR)/probectl-ebpf-agent (eBPF loader enabled)"
 
+.PHONY: ebpf-kernel-lane
+ebpf-kernel-lane: ## Reproduce an ebpf-kernel-matrix row locally WITHOUT KVM (QEMU TCG in Docker; works on macOS): make ebpf-kernel-lane KERNEL=5.15 [RUN=TestLive].
+	bash scripts/ebpf-kernel-lane.sh "$(or $(KERNEL),5.15)" "$(or $(RUN),TestLive)"
+
 # ---- test ----------------------------------------------------------------
 .PHONY: test
 test: ## Run unit tests across all workspace modules.

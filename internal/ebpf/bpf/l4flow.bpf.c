@@ -46,6 +46,7 @@
 #define AF_INET 2
 #define AF_INET6 10
 #define IPPROTO_TCP 6
+#define IPPROTO_MPTCP 262
 #ifndef BPF_TCP_ESTABLISHED
 #define BPF_TCP_ESTABLISHED 1
 #endif
@@ -139,7 +140,7 @@ struct {
 
 // seed_stats counts each stage of the listener seed (ING-24), so a start that
 // attributes no pre-existing listener says which filter dropped them:
-// files visited, socket files, TCP listeners, owners recorded.
+// files visited, socket files, TCP/MPTCP listeners, owners recorded.
 #define SEED_FILES 0
 #define SEED_SOCKETS 1
 #define SEED_TCP_LISTENERS 2
@@ -411,6 +412,19 @@ int handle_set_state(struct bpf_raw_tracepoint_args *ctx)
 // task's open files): a TCP socket in LISTEN is recorded with the task that
 // holds it, so a server whose listen() predates the agent is still attributed.
 // BPF_NOEXIST keeps the tracepoint's (newer) record when both exist.
+//
+// The descriptor a server holds can be an MPTCP socket: Go (>= 1.24) listens
+// with MPTCP by default wherever the kernel enables it, and mptcpize does the
+// same for any binary. Its sk_protocol is IPPROTO_MPTCP, not IPPROTO_TCP — the
+// TCP listener that accepts is an in-kernel subflow socket no task holds a
+// descriptor for — yet it binds the same port in the same netns, which is all
+// the listen key needs. A TCP-only filter dropped every such server
+// (ING-24 on the 5.15/6.6 matrix kernels, which enable MPTCP).
+static __always_inline bool is_stream_listener_proto(__u16 proto)
+{
+	return proto == IPPROTO_TCP || proto == IPPROTO_MPTCP;
+}
+
 SEC("iter/task_file")
 int seed_listeners(struct bpf_iter__task_file *ctx)
 {
@@ -426,7 +440,7 @@ int seed_listeners(struct bpf_iter__task_file *ctx)
 	if (!sk)
 		return 0;
 	count_seed(SEED_SOCKETS);
-	if (BPF_CORE_READ(sk, sk_protocol) != IPPROTO_TCP)
+	if (!is_stream_listener_proto(BPF_CORE_READ(sk, sk_protocol)))
 		return 0;
 	if (BPF_CORE_READ(sk, __sk_common.skc_state) != PROBECTL_TCP_LISTEN)
 		return 0;

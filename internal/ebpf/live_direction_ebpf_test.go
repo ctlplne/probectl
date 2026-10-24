@@ -151,8 +151,8 @@ func TestLiveInboundEdgeOrientation(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("agent run: %v", err)
 	}
-	if !src.(*liveSource).ListenersSeeded() {
-		t.Logf("listener iterator unavailable on this kernel; the pre-existing listener is attributed at close instead")
+	if seed := src.(*liveSource).ListenerSeedReport(); !seed.Attributed() {
+		t.Logf("pre-existing listeners not seeded (%s); the pre-existing listener is attributed at close instead", seed.Reason)
 	}
 
 	client := workloadOf(os.Getpid())

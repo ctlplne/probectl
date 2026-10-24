@@ -104,6 +104,19 @@ Intentional artifact downloads remain streaming and do not use this helper.
 > `e2e`, `journey-e2e`, `test-integration-isolated`, `evidence-receipt-gate`, `release-claim-gate`
 > (the last four are release/nightly or `make lint` bundles run locally, not per-PR CI jobs).
 
+### Reproducing an `ebpf-kernel-matrix` failure locally
+
+The matrix boots real kernels under QEMU with KVM, which a Mac does not have.
+`make ebpf-kernel-lane KERNEL=<5.15|6.6|image-ref> [RUN=<go test -run regex>]`
+runs the same `go test -tags ebpf -exec vimto` step in a Docker container with
+QEMU's software emulation instead (`VIMTO_DISABLE_KVM=1`). It generates the BPF
+objects with the pinned toolchain first when they are missing (`GEN=1` forces
+it); they are gitignored, so delete them before committing. On an arm64 host the
+row maps to the arm64 build of the same ci-kernels series, since the CI pins are
+amd64-only. Expect seconds per boot and about two minutes for the whole
+`TestLive` set; the run keeps one core busy while it lasts. See
+[eBPF agent → Kernel-matrix CI](ebpf-agent.md#kernel-matrix-ci).
+
 ## CI jobs (`.github/workflows/ci.yml`)
 
 The CI job names are a **contract** — every pull request runs them, and they are

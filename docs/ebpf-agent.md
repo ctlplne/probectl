@@ -84,7 +84,27 @@ flowchart LR
    process serves a port, and a socket born from it (`LISTEN` → `SYN_RECV`) is a
    **server** owned by that process. A BPF **iterator** (a read-only walk over
    kernel objects) runs once at start and records the listeners that already
-   existed, so a server started before the agent is attributed too. Userspace
+   existed, so a server started before the agent is attributed too. It records
+   **MPTCP** listeners as well as TCP ones: Go 1.24+ listens with Multipath TCP
+   by default wherever the kernel enables it (the 5.15/6.6 matrix kernels and
+   most distro kernels do), and so does any binary run under `mptcpize`. Such a
+   server holds an MPTCP socket (`sk_protocol` = `IPPROTO_MPTCP`, 262) while
+   the TCP socket that accepts is an in-kernel subflow nobody holds a
+   descriptor for; both bind the same port in the same network namespace,
+   which is all the listener record is keyed on. A TCP-only filter dropped
+   every such server, which is why pre-existing Go servers went unattributed on
+   5.15 and 6.6 while a kernel without `CONFIG_MPTCP` passed (`ING-24`). The
+   agent's start log says plainly how listeners were seeded: `ebpf pre-existing
+   listeners seeded` with `method="bpf task_file iterator"` and the per-stage
+   counts (`files_visited`, `socket_files`, `tcp_listeners`, `owners_recorded`),
+   or, at WARN, `ebpf pre-existing listeners NOT seeded` with `method=none` and
+   the `reason` — a kernel that refuses the iterator (it needs
+   `bpf_sock_from_file`, kernel 5.11+), an iterator that failed, or one that
+   read to the end without ever being handed a file. Only an iterator that
+   actually walked open files counts as seeded. When nothing was seeded, a
+   server started before the agent is attributed only when one of its
+   connections closes (`close()` runs in the owner's context); servers started
+   after the agent are unaffected. Userspace
    then orients every flow **client → server**: an inbound connection becomes
    one edge keyed on the **listening** port with the server's process on the
    destination (`network.io.direction` = `ingress`), never one edge per
@@ -547,6 +567,19 @@ ephemeral VM (`TestLiveHardenedLockdownIntegrity`, gated on
 while the probe reports the mode truthfully (confidentiality is the blocking mode;
 the test skips loudly if the CI kernel lacks the lockdown LSM — a secure-boot
 distro-kernel image is the remaining infrastructure gap).
+
+**Reproducing a matrix row locally, without KVM.** `make ebpf-kernel-lane
+KERNEL=5.15 RUN=TestLiveInboundEdgeOrientation` (`scripts/ebpf-kernel-lane.sh`)
+boots the row's kernel with the same vimto, under QEMU's software emulation
+(TCG, `VIMTO_DISABLE_KVM=1`) inside a Docker container, so a matrix failure can
+be debugged on a laptop — macOS Docker Desktop included. On an amd64 host it uses
+the row's digest-pinned image from `ci.yml`; on an arm64 host it uses the same
+ci-kernels series' arm64 build, pinned in the script, because the CI digests are
+amd64-only manifests. The guest gets 256M by default (the arm64 6.6 guest has
+too little free in CI's 128M for the ring buffer; `PROBECTL_EBPF_LANE_MEMORY`
+overrides it). A boot takes seconds and the full `TestLive` set about two
+minutes on an arm64 Mac. It is a reproduction lane, not evidence: the CI job
+still requires KVM, and it does not change the arm64 claim below.
 
 One arch nuance worth knowing: the live QEMU boot needs KVM (the kernel's
 hardware-assisted virtualization, which lets the VM run at near-native speed

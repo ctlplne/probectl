@@ -39,9 +39,10 @@ type liveSource struct {
 	tp    link.Link
 	rd    *ringbuf.Reader
 	drops atomic.Uint64
-	// listenersSeeded reports whether the task_file iterator recorded the
-	// listeners that predate the agent (ING-24); false on kernels without it.
-	listenersSeeded bool
+	// seed is what the start-time listener seed did (ING-24), captured once
+	// at start: the counters cannot change afterwards, and a snapshot stays
+	// readable after Close.
+	seed ListenerSeed
 }
 
 // l4AttachHook is the tracepoint the L4 program attaches to, by name, as a raw
@@ -82,38 +83,47 @@ func loadL4Collection(spec *cebpf.CollectionSpec, objs *l4flowObjects) error {
 
 // seedListeners runs the listener iterator to completion once. Its only effect
 // is map writes inside the kernel; a missing program or a refused iterator is
-// a degraded start, never a failed one.
-func seedListeners(prog *cebpf.Program) bool {
+// a degraded start, never a failed one — and is reported as not seeded.
+func seedListeners(prog *cebpf.Program, stats *cebpf.Map) ListenerSeed {
 	if prog == nil {
-		return false
+		return judgeListenerSeed(false, nil, [4]uint64{})
 	}
+	err := runIterator(prog)
+	var st [4]uint64
+	for i := range st {
+		st[i] = percpuCounter(stats, uint32(i))
+	}
+	return judgeListenerSeed(true, err, st)
+}
+
+func runIterator(prog *cebpf.Program) error {
 	it, err := link.AttachIter(link.IterOptions{Program: prog})
 	if err != nil {
-		return false
+		return fmt.Errorf("attach: %w", err)
 	}
 	defer it.Close()
 	rd, err := it.Open()
 	if err != nil {
-		return false
+		return fmt.Errorf("open: %w", err)
 	}
 	defer rd.Close()
-	_, err = io.Copy(io.Discard, rd)
-	return err == nil
+	if _, err := io.Copy(io.Discard, rd); err != nil {
+		return fmt.Errorf("read: %w", err)
+	}
+	return nil
 }
 
-// ListenersSeeded reports whether pre-existing listeners were attributed.
-func (s *liveSource) ListenersSeeded() bool { return s.listenersSeeded }
+// ListenersSeeded reports whether pre-existing listeners are attributed: the
+// iterator ran AND was handed files to inspect.
+func (s *liveSource) ListenersSeeded() bool { return s.seed.Attributed() }
+
+// ListenerSeedReport is the start-time seed: which way listeners were seeded,
+// why not when they were not, and what each stage saw.
+func (s *liveSource) ListenerSeedReport() ListenerSeed { return s.seed }
 
 // SeedStats is what the listener seed saw at start, stage by stage (files
-// visited, socket files, TCP listeners, owners recorded), so a start that
-// attributes no pre-existing listener names the stage that dropped them.
-func (s *liveSource) SeedStats() [4]uint64 {
-	var out [4]uint64
-	for i := range out {
-		out[i] = percpuCounter(s.objs.SeedStats, uint32(i))
-	}
-	return out
-}
+// visited, socket files, TCP/MPTCP listeners, owners recorded).
+func (s *liveSource) SeedStats() [4]uint64 { return s.seed.stats() }
 
 // newLiveSource loads and attaches the eBPF program. This is the only place that
 // calls the bpf() syscall, and it loads only observation programs (a raw
@@ -150,7 +160,7 @@ func newLiveSource(cfg *Config) (Source, error) {
 	// ING-24: listeners opened before the agent are recorded once, AFTER the
 	// tracepoint is live, so a listen() racing the start is caught by one or
 	// the other. A kernel without the iterator keeps the tracepoint-only view.
-	s.listenersSeeded = seedListeners(s.objs.SeedListeners)
+	s.seed = seedListeners(s.objs.SeedListeners, s.objs.SeedStats)
 	rd, err := ringbuf.NewReader(s.objs.Events)
 	if err != nil {
 		_ = tp.Close()

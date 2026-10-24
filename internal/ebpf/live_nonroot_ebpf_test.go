@@ -169,10 +169,10 @@ func runNonRootL4Child(t *testing.T) {
 		t.Fatalf("l4flow load+attach as uid %d with CAP_BPF+CAP_PERFMON: %v", os.Getuid(), err)
 	}
 	defer src.Close()
-	seeded := src.(*liveSource).ListenersSeeded()
-	t.Logf("non-root attach ok; task_file listener seed ran: %t; seed [files sockets tcp-listeners recorded] = %v", seeded, src.(*liveSource).SeedStats())
-	if !seeded {
-		t.Error("the task_file listener iterator did not run as the unit's identity (ING-24 seed)")
+	seed := src.(*liveSource).ListenerSeedReport()
+	t.Logf("non-root attach ok; listener seed: %+v", seed)
+	if !seed.Attributed() {
+		t.Errorf("the task_file listener iterator did not seed as the unit's identity (ING-24 seed): %s", seed.Reason)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
