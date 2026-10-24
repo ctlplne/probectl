@@ -107,12 +107,7 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(tn.identity, "testsync.pub")); err != nil {
 			t.Fatalf("enrollment did not hand %s's agent the test-bundle key: %v", tn.slug, err)
 		}
-		st.StartAgent(t, tn.identity, tn.agentName, []string{"http"}, `test_sync:
-  enabled: true
-  interval: 2s
-  allowed_types: [http]
-  allow_private_targets: true
-`)
+		st.StartAgent(t, tn.identity, tn.agentName, []string{"http"}, g9AgentTestSync)
 	}
 	for _, tn := range tenants {
 		shipped.Await(t, tn.slug+"'s agent applying its tenant's test set", 90*time.Second, func() bool {
@@ -332,6 +327,86 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 		TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile,
 		Expect: []string{"API docs", "probectl control-plane API"},
 	})
+
+	// 7. A tampered bundle is refused end to end (PLAT-13 acceptance).
+	checkTamperedBundleRefused(t, st, A, page, "g9tamper-"+run)
+}
+
+// g9AgentTestSync is each agent's test_sync block: no local tests, central
+// tests on, and private targets allowed because the target is a loopback
+// page the operator owns.
+const g9AgentTestSync = `test_sync:
+  enabled: true
+  interval: 2s
+  allowed_types: [http]
+  allow_private_targets: true
+`
+
+// checkTamperedBundleRefused stops tn's agent, rewrites the signed bundle it
+// persisted so its test probes a different page under the original
+// signature, and restarts the shipped agent. The agent must refuse the
+// tampered bundle at start, fetch and verify the control plane's bundle
+// again, and go on running only the verified test: the tampered target is
+// never probed, the real one is.
+func checkTamperedBundleRefused(t *testing.T, st *shipped.Stack, tn *g9Tenant, page *markedPage, tamperMark string) {
+	t.Helper()
+	legit := tn.persistedBundle(t, st)
+	st.Stop(t, "agent-"+tn.agentName)
+	path := filepath.Join(st.Dir, "buffer-"+tn.agentName, "testsync", "bundle.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signed testsync.Signed
+	if err := json.Unmarshal(raw, &signed); err != nil {
+		t.Fatal(err)
+	}
+	var b testsync.Bundle
+	if err := json.Unmarshal(signed.Bundle, &b); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Tests) != 1 {
+		t.Fatalf("agent %s persisted %d tests, want its one", tn.agentName, len(b.Tests))
+	}
+	b.Tests[0].Target = page.URL(tamperMark) // the same signature now covers different bytes
+	if signed.Bundle, err = json.Marshal(b); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err = json.Marshal(signed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	before := page.hits(tn.mark)
+	logPath := st.StartAgent(t, tn.identity, tn.agentName, []string{"http"}, g9AgentTestSync)
+	refused := func() bool {
+		out, _ := os.ReadFile(logPath)
+		return strings.Contains(string(out), "persisted bundle refused")
+	}
+	shipped.Await(t, tn.agentName+" refusing (or, if broken, running) its tampered persisted bundle", 30*time.Second, func() bool {
+		return refused() || page.hits(tamperMark) > 0
+	})
+	if n := page.hits(tamperMark); n != 0 || !refused() {
+		t.Fatalf("TAMPER ACCEPTED: agent %s did not refuse its tampered persisted bundle (refusal logged: %t) and probed the tampered target %d times",
+			tn.agentName, refused(), n)
+	}
+	shipped.Await(t, tn.agentName+" back in sync on the verified bundle", 60*time.Second, func() bool {
+		ts := tn.agentTestSet(t, st)
+		return ts != nil && ts.InSync && ts.AppliedVersion == uint64(legit.Epoch)
+	})
+	shipped.Await(t, tn.agentName+" probing its verified target again", 60*time.Second, func() bool {
+		return page.hits(tn.mark) > before
+	})
+	if again := tn.persistedBundle(t, st); len(again.Tests) != 1 || again.Tests[0].Target != tn.target {
+		t.Errorf("agent %s re-persisted %+v, want the verified bundle's test on %s", tn.agentName, again.Tests, tn.target)
+	}
+	if n := page.hits(tamperMark); n != 0 {
+		t.Errorf("TAMPER ACCEPTED: agent %s probed the tampered bundle's target %d times", tn.agentName, n)
+	}
+	t.Logf("agent %s refused its tampered persisted bundle, re-synced to v%d and probes only %s (tampered target hit %d times)",
+		tn.agentName, legit.Epoch, tn.target, page.hits(tamperMark))
 }
 
 type g9Tenant struct {
