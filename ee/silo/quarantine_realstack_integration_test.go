@@ -210,8 +210,12 @@ func TestTenantQuarantineRealStack(t *testing.T) {
 		return metricValue(t, st, scrape, `probectl_tenant_quarantined{reason="residency_plane_unreachable"}`) == 0
 	})
 	shipped.Await(t, "the provider view clears", 30*time.Second, func() bool { return len(quarantineView(t, st, opEnv)) == 0 })
-	if !providerAudited(t, st, opEnv, silo.AuditTenantReleased, X) {
-		t.Errorf("the provider stream has no %s for %s", silo.AuditTenantReleased, X)
+	// DPR-381: one transition each, however many processes held it.
+	if n := providerAuditCount(t, st, opEnv, silo.AuditTenantQuarantined, X); n != 1 {
+		t.Errorf("the provider stream has %d %s events for %s, want exactly 1", n, silo.AuditTenantQuarantined, X)
+	}
+	if n := providerAuditCount(t, st, opEnv, silo.AuditTenantReleased, X); n != 1 {
+		t.Errorf("the provider stream has %d %s events for %s, want exactly 1", n, silo.AuditTenantReleased, X)
 	}
 	var chain struct {
 		Items []struct{ Action, Actor string }
@@ -244,7 +248,8 @@ func assertQuarantined(t *testing.T, what string, code int, body []byte) {
 	}
 	_ = json.Unmarshal(body, &envelope)
 	if code != http.StatusServiceUnavailable || envelope.Error.Code != "tenant_quarantined" ||
-		!strings.Contains(envelope.Error.Message, `"eu" is unreachable`) || !strings.Contains(envelope.Error.Message, "operator") {
+		!strings.Contains(envelope.Error.Message, `"eu" is unreachable`) || !strings.Contains(envelope.Error.Message, "operator") ||
+		strings.Contains(envelope.Error.Message, "PROBECTL_") {
 		t.Fatalf("%s = %d %s; want 503 tenant_quarantined naming the plane", what, code, body)
 	}
 	if strings.Contains(string(body), "connection refused") || strings.Contains(string(body), "127.0.0.1") {
@@ -329,16 +334,22 @@ func quarantineView(t *testing.T, st *shipped.Stack, opEnv map[string]string) []
 
 func providerAudited(t *testing.T, st *shipped.Stack, opEnv map[string]string, action, target string) bool {
 	t.Helper()
+	return providerAuditCount(t, st, opEnv, action, target) > 0
+}
+
+func providerAuditCount(t *testing.T, st *shipped.Stack, opEnv map[string]string, action, target string) int {
+	t.Helper()
 	var out struct {
 		Items []struct{ Action, Target string }
 	}
 	st.MustCLI(t, opEnv, &out, "provider", "audit", "--query", "action="+action)
+	n := 0
 	for _, ev := range out.Items {
 		if ev.Action == action && ev.Target == target {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 // metricValue scrapes /metrics and returns the sample of series (-1 if absent).
