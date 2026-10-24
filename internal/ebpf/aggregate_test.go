@@ -11,8 +11,10 @@ import "testing"
 func TestAggregatorDrainAndDrops(t *testing.T) {
 	a := NewAggregator()
 	flow := Flow{TenantID: "t1", Source: Endpoint{Workload: "api"}, Destination: Endpoint{Workload: "db", Port: 443}, Transport: "tcp"}
-	a.Observe(flow)
-	a.Observe(flow)
+	a.Record(flow)
+	a.ObserveEdge(flow)
+	a.Record(flow)
+	a.ObserveEdge(flow)
 	a.recordDrops(3)
 	a.RecordDropStats(DropStats{L4RingBufferFull: 2, L7ActiveReadFailures: 1, L7ScopeSyncFailures: 1})
 

@@ -56,16 +56,6 @@ func NewAggregator() *Aggregator {
 	return &Aggregator{smap: NewServiceMap()}
 }
 
-// Observe records one flow: it updates the service map and queues the flow for
-// the next emission batch.
-func (a *Aggregator) Observe(f Flow) {
-	a.smap.Observe(f)
-	a.mu.Lock()
-	a.pending = append(a.pending, f)
-	a.mu.Unlock()
-	a.observed.Add(1)
-}
-
 // Record queues one flow for the next emission batch WITHOUT folding it into
 // the service map — the caller decides the edge view separately (ING-24: the
 // two sockets of a host-local connection publish two raw flows but draw one

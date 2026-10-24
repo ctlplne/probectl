@@ -76,7 +76,8 @@ func BenchmarkAggregatorObserve(b *testing.B) {
 	a := NewAggregator()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		a.Observe(trafficProfile(i))
+		a.Record(trafficProfile(i))
+		a.ObserveEdge(trafficProfile(i))
 		if i%drainEvery == drainEvery-1 {
 			a.Drain()
 		}
@@ -91,7 +92,8 @@ func BenchmarkPipelineObserveDrainEmit(b *testing.B) {
 	ctx := context.Background()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		a.Observe(trafficProfile(i))
+		a.Record(trafficProfile(i))
+		a.ObserveEdge(trafficProfile(i))
 		if i%drainEvery == drainEvery-1 {
 			flows, edges := a.Drain()
 			if err := em.Emit(ctx, flows, edges, nil); err != nil {
@@ -132,7 +134,8 @@ func TestAgentOverheadReport(t *testing.T) {
 	}
 	start := time.Now()
 	for i := 0; i < events; i++ {
-		a.Observe(trafficProfile(i))
+		a.Record(trafficProfile(i))
+		a.ObserveEdge(trafficProfile(i))
 		if i%drainEvery == drainEvery-1 {
 			flows, edges := a.Drain()
 			if err := em.Emit(ctx, flows, edges, nil); err != nil {

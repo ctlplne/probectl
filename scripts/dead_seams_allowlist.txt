@@ -144,7 +144,6 @@ symbol github.com/ctlplne/probectl/internal/topology.MemoryStore.Latest — pre-
 
 # ---- wire-vocabulary completeness ------------------------------------------
 symbol github.com/ctlplne/probectl/internal/ebpf.TransportUDP — OTel network.transport wire vocabulary: documents the value set result.proto carries; the TCP sibling is produced today
-symbol github.com/ctlplne/probectl/internal/ebpf.DirectionIngress — OTel network.io.direction wire vocabulary: documents the value set; the egress sibling is produced today
 
 # ---- test seams -------------------------------------------------------------
 symbol github.com/ctlplne/probectl/internal/control.Server.WithListener — DPR-103 drain seam: lets a test hand the server a listener on a known port so the drain window can be observed deterministically; production always binds from config
