@@ -180,6 +180,14 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 			items[i] = PathItem{TenantID: q.tenantID, P: q.p}
 		}
 		fenced, err := pbs.SaveBatchPartitioned(ctx, items)
+		var partial *PartialBatchError
+		if errors.As(err, &partial) {
+			b.saved.Add(uint64(len(batch) - partial.Refused))
+			b.lost.Add(uint64(partial.Refused))
+			b.log.Warn("PATH BATCH PARTIAL: refused the paths of tenants the router refuses (e.g. quarantined, D-62) and stored the rest",
+				"refused", partial.Refused, "stored", len(batch)-partial.Refused, "error", err.Error())
+			return
+		}
 		if err != nil {
 			b.lost.Add(uint64(len(batch)))
 			b.log.Error("PATH BATCH LOST: combined insert failed (paths are re-discoverable; investigate the store)",
@@ -213,6 +221,15 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 			items[i] = PathItem{TenantID: q.tenantID, P: q.p}
 		}
 		if err := bs.SaveBatch(ctx, items); err != nil {
+			var partial *PartialBatchError
+			if errors.As(err, &partial) {
+				// DPR-362: only the refused tenants' paths are lost.
+				b.saved.Add(uint64(len(batch) - partial.Refused))
+				b.lost.Add(uint64(partial.Refused))
+				b.log.Warn("PATH BATCH PARTIAL: refused the paths of tenants the router refuses (e.g. quarantined, D-62) and stored the rest",
+					"refused", partial.Refused, "stored", len(batch)-partial.Refused, "error", err.Error())
+				return
+			}
 			b.lost.Add(uint64(len(batch)))
 			b.log.Error("PATH BATCH LOST: combined insert failed (paths are re-discoverable; investigate the store)",
 				"paths", len(batch), "error", err.Error())

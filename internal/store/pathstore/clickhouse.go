@@ -533,13 +533,18 @@ func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
 	// land in its own database/data-plane. Buffers are per target.
 	type buf struct{ hops, links bytes.Buffer }
 	bufs := map[Target]*buf{}
+	var refused *PartialBatchError
 	for _, it := range items {
 		if it.TenantID == "" {
 			return ErrNoTenant
 		}
 		t, err := c.route(ctx, it.TenantID)
 		if err != nil {
-			return fmt.Errorf("pathstore: route tenant %s: %w", it.TenantID, err)
+			// D-62 (DPR-362): a tenant the router refuses (a quarantined
+			// tenant) loses only its own paths; the co-batched tenants'
+			// paths are still stored.
+			refused = refused.add(it.TenantID, fmt.Errorf("pathstore: route tenant %s: %w", it.TenantID, err))
+			continue
 		}
 		b := bufs[t]
 		if b == nil {
@@ -583,7 +588,51 @@ func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
 			}
 		}
 	}
+	if refused != nil {
+		return refused
+	}
 	return nil
+}
+
+// PartialBatchError is a SaveBatch that stored every item it could route and
+// refused the items of tenants whose routing failed — a quarantined tenant
+// (D-62) or an unknown one. One tenant's refusal never drops another
+// tenant's co-batched paths (DPR-362); the batcher counts only the refused
+// items as lost.
+type PartialBatchError struct {
+	Refused  int
+	ByTenant map[string]error
+}
+
+func (e *PartialBatchError) add(tenantID string, err error) *PartialBatchError {
+	if e == nil {
+		e = &PartialBatchError{ByTenant: map[string]error{}}
+	}
+	e.Refused++
+	if _, seen := e.ByTenant[tenantID]; !seen {
+		e.ByTenant[tenantID] = err
+	}
+	return e
+}
+
+func (e *PartialBatchError) Error() string {
+	ids := make([]string, 0, len(e.ByTenant))
+	for id := range e.ByTenant {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	first := e.ByTenant[ids[0]]
+	return fmt.Sprintf("pathstore: %d path(s) of %d tenant(s) refused at routing (the rest were stored): %v", e.Refused, len(ids), first)
+}
+
+// Unwrap exposes each refused tenant's error (errors.Is matches
+// tenancy.ErrTenantQuarantined through it).
+func (e *PartialBatchError) Unwrap() []error {
+	out := make([]error, 0, len(e.ByTenant))
+	for _, err := range e.ByTenant {
+		out = append(out, err)
+	}
+	return out
 }
 
 // Latest reconstructs the most recently saved path to target for a tenant from
