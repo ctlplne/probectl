@@ -17,7 +17,10 @@ import (
 // cite it and a reader can trace the claim back to the underlying signal. Fields
 // is the row from the tenant-and-RBAC/ABAC-scoped query layer, reduced to the
 // per-domain allow-list before the answer is serialized (U-092); Ref is a
-// stable pointer back to the source signal for the UI to link.
+// stable pointer back to the source signal for the UI to link. OccurredAt is
+// omitzero, not omitempty (DPR-309): omitempty never omits a struct, so a
+// timeless record (a topology node) serialized as 0001-01-01T00:00:00Z and the
+// Ask page rendered that date instead of "not recorded".
 type Evidence struct {
 	ID         string    `json:"id"`
 	Domain     Domain    `json:"domain"`
@@ -26,7 +29,7 @@ type Evidence struct {
 	Title      string    `json:"title,omitempty"`
 	Summary    string    `json:"summary,omitempty"`
 	Ref        string    `json:"ref,omitempty"`
-	OccurredAt time.Time `json:"occurred_at,omitempty"`
+	OccurredAt time.Time `json:"occurred_at,omitzero"`
 	Fields     Row       `json:"fields,omitempty"`
 }
 

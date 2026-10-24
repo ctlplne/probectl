@@ -8,9 +8,12 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/auth"
 )
@@ -142,4 +145,25 @@ func (s stubEntities) QueryEntities(_ context.Context, _ string, _ map[string]st
 		return s.rows[:limit], nil
 	}
 	return s.rows, nil
+}
+
+// DPR-309: a timeless evidence item (a topology node has no event time) must
+// leave occurred_at out of the answer rather than serialize Go's zero time,
+// which the Ask page rendered as a 0001-01-01 date. A timed item keeps it.
+func TestEvidenceOmitsAZeroOccurredAt(t *testing.T) {
+	timeless, err := json.Marshal(Evidence{ID: "E1", Domain: DomainTopology, Title: "topology node prefix:127.0.0.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(timeless), "occurred_at") {
+		t.Errorf("timeless evidence serialized an occurred_at: %s", timeless)
+	}
+	at := time.Date(2026, 10, 24, 13, 54, 58, 0, time.UTC)
+	timed, err := json.Marshal(Evidence{ID: "E2", Domain: DomainEntities, OccurredAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(timed), `"occurred_at":"2026-10-24T13:54:58Z"`) {
+		t.Errorf("timed evidence lost its occurred_at: %s", timed)
+	}
 }
