@@ -474,7 +474,12 @@ func (s *AlertEvaluatorSupervisor) Sync(ctx context.Context) error {
 	}
 	active := make(map[string]tenancy.ID, len(tenants))
 	for _, t := range tenants {
-		if t.Status == "active" {
+		// D-62 (DPR-363): a quarantined tenant gets no evaluator. Its rules,
+		// silences and notification state cannot be read while it is
+		// quarantined, so an evaluator built now would start with none of it
+		// restored and re-page every still-firing alert once released. It is
+		// built, with its state restored, on the first Sync after release.
+		if t.Status == "active" && tenancy.CheckQuarantine(t.ID) == nil {
 			active[t.ID] = tenancy.ID(t.ID)
 		}
 	}

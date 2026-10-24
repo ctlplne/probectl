@@ -1280,6 +1280,12 @@ func (s *Service) BreakGlassResults(ctx context.Context, op Operator, grantID st
 		if err != nil {
 			return err
 		}
+		// D-62: a quarantined tenant's data is served through no path, the
+		// break-glass one included; the refusal rolls back the use and its
+		// access record (nothing was accessed).
+		if err := tenancy.CheckQuarantine(g.TenantID); err != nil {
+			return err
+		}
 		return audit.AppendBreakGlass(
 			ctx,
 			op.Email,

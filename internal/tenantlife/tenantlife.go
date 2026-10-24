@@ -454,6 +454,14 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		FormatVersion: 1, TenantID: tenantID, TenantSlug: slug, Actor: actor,
 		StartedAt: e.now().UTC(), BackupPolicy: e.backupNote, Complete: true,
 	}
+	// D-62: a quarantined tenant's isolated stores cannot be reached or
+	// proven, so an erasure would destroy what it can reach (objects, series,
+	// keys) and fail on the rest. Refuse it whole, before anything is touched;
+	// it can run once the quarantine is released.
+	if err := tenancy.CheckQuarantine(tenantID); err != nil {
+		att.Complete = false
+		return att, fmt.Errorf("tenantlife: erasure refused while the tenant is quarantined; fix the cause and retry once it is released: %w", err)
+	}
 	irPlanID, err := e.prepareErasure(ctx, tenantID, actor)
 	if err != nil {
 		att.Complete = false

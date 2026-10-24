@@ -8,9 +8,13 @@ package pipeline
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // LaneHandler processes one bus message known to belong to laneTenant. On the
@@ -34,6 +38,7 @@ type LaneHandler func(ctx context.Context, msg bus.Message, laneTenant string) e
 // tenant the router sends to its own lane is refused (refuseMisroutedShared).
 // It blocks until ctx is canceled or a subscription fails.
 func RunLanes(ctx context.Context, b bus.Bus, base, group string, nsTenants map[string]string, handler LaneHandler) error {
+	handler = guardQuarantined(group, handler)
 	subs := []laneSub{{topic: base, group: group}}
 	for ns, tid := range nsTenants {
 		t, err := bus.TopicFor(ns, base)
@@ -122,3 +127,44 @@ func (*OTLPLogExportConsumer) LaneFanoutEnabled() bool { return true }
 
 // LaneFanoutEnabled satisfies LaneFanout for the probe-result OTLP exporter.
 func (*ResultOTLPExportConsumer) LaneFanoutEnabled() bool { return true }
+
+var quarantineDropped atomic.Uint64
+
+// QuarantineDroppedTotal reports the records of quarantined tenants (D-62)
+// that reached a consumer on a SHARED lane and were acknowledged without being
+// processed. A quarantined tenant's own lanes are not consumed at all (the
+// router leaves them out), so its records wait on the bus there; this counts
+// only the shared-lane remainder. Exposed on /metrics.
+func QuarantineDroppedTotal() uint64 { return quarantineDropped.Load() }
+
+// guardQuarantined (D-62) keeps a quarantined tenant's record from being
+// processed — no write, no SIEM forward, no export — and from stalling the
+// lane: it is acknowledged and counted instead of returned as an error, which
+// would hold back every co-partitioned tenant's offsets behind it. The tenant
+// is the lane's, or on the shared lane the record key (records are keyed by
+// tenant); a handler error that is a quarantine refusal is treated the same.
+func guardQuarantined(group string, handler LaneHandler) LaneHandler {
+	return func(ctx context.Context, m bus.Message, laneTenant string) error {
+		tenant := laneTenant
+		if tenant == "" {
+			tenant = string(m.Key)
+		}
+		if tenant != "" && tenancy.CheckQuarantine(tenant) != nil {
+			noteQuarantineDrop(group, tenant)
+			return nil
+		}
+		err := handler(ctx, m, laneTenant)
+		if err != nil && errors.Is(err, tenancy.ErrTenantQuarantined) {
+			noteQuarantineDrop(group, tenant)
+			return nil
+		}
+		return err
+	}
+}
+
+func noteQuarantineDrop(group, tenant string) {
+	if n := quarantineDropped.Add(1); n == 1 || n%1000 == 0 {
+		slog.Default().Warn("pipeline: acknowledged a quarantined tenant's record without processing it (D-62)",
+			"group", group, "tenant_id", tenant, "dropped_total", n)
+	}
+}
