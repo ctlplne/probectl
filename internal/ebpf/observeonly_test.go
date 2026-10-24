@@ -30,8 +30,10 @@ func TestBPFProgramsAreObserveOnly(t *testing.T) {
 
 	secRe := regexp.MustCompile(`SEC\("([a-zA-Z0-9_./]+)"\)`)
 	// uprobe/uretprobe are observation hooks too (they read args / return values
-	// and the plaintext buffer); they alter nothing.
-	allowed := []string{"tracepoint/", "kprobe/", "kretprobe/", "uprobe/", "uretprobe/", "raw_tracepoint/", "fentry/", "fexit/", "license", ".maps"}
+	// and the plaintext buffer); they alter nothing. iter/ is a BPF iterator: it
+	// walks kernel objects (l4flow's seed_listeners reads each task's open
+	// sockets once at start, ING-24) and can only emit to its own seq file.
+	allowed := []string{"tracepoint/", "kprobe/", "kretprobe/", "uprobe/", "uretprobe/", "raw_tracepoint/", "fentry/", "fexit/", "iter/", "license", ".maps"}
 	// Re-audited against bpf-helpers(7) (EBPF-006, Sprint 0): beyond the
 	// redirect/enforce family, every helper that MUTATES state outside the
 	// program — user memory, socket state, packet bytes, or headers — is

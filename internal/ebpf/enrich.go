@@ -41,27 +41,37 @@ func NewProcEnricher(procRoot string) *ProcEnricher {
 	return &ProcEnricher{ProcRoot: procRoot}
 }
 
-// Enrich fills Source.Process / Source.Container / Source.Workload from the
-// source PID, leaving any already-set field untouched.
+// Enrich fills Process / Container / Workload on every endpoint that carries a
+// PID, leaving any already-set field untouched. Usually that is one endpoint —
+// the source of an outbound flow, the destination (the server) of an inbound
+// one (ING-24) — and both when the agent joined the two ends of a host-local
+// connection.
 func (p *ProcEnricher) Enrich(f *Flow) {
-	if f.Source.PID == 0 {
+	p.EnrichEndpoint(&f.Source)
+	p.EnrichEndpoint(&f.Destination)
+}
+
+// EnrichEndpoint resolves one endpoint's PID to its process, container and
+// workload. An endpoint without a PID is left alone.
+func (p *ProcEnricher) EnrichEndpoint(e *Endpoint) {
+	if e.PID == 0 {
 		return
 	}
-	pid := strconv.FormatUint(uint64(f.Source.PID), 10)
-	if f.Source.Process == "" {
+	pid := strconv.FormatUint(uint64(e.PID), 10)
+	if e.Process == "" {
 		if comm, err := os.ReadFile(filepath.Join(p.ProcRoot, pid, "comm")); err == nil {
-			f.Source.Process = strings.TrimSpace(string(comm))
+			e.Process = strings.TrimSpace(string(comm))
 		}
 	}
 	var cgroup string
 	if cg, err := os.ReadFile(filepath.Join(p.ProcRoot, pid, "cgroup")); err == nil {
 		cgroup = string(cg)
 	}
-	if f.Source.Container == "" {
-		f.Source.Container = containerIDFromCgroup(cgroup)
+	if e.Container == "" {
+		e.Container = containerIDFromCgroup(cgroup)
 	}
-	if f.Source.Workload == "" {
-		f.Source.Workload = resolveWorkloadFromCgroup(f.Source, cgroup)
+	if e.Workload == "" {
+		e.Workload = resolveWorkloadFromCgroup(*e, cgroup)
 	}
 }
 

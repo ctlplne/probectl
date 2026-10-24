@@ -13,6 +13,7 @@ package ebpf
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync/atomic"
 
 	cebpf "github.com/cilium/ebpf"
@@ -37,7 +38,64 @@ type liveSource struct {
 	tp    link.Link
 	rd    *ringbuf.Reader
 	drops atomic.Uint64
+	// listenersSeeded reports whether the task_file iterator recorded the
+	// listeners that predate the agent (ING-24); false on kernels without it.
+	listenersSeeded bool
 }
+
+// seedListenersProgram is the l4flow iterator that records pre-existing
+// listening sockets with their owning task (ING-24).
+const seedListenersProgram = "seed_listeners"
+
+// loadL4Collection loads l4flow. The listener-seeding iterator needs
+// bpf_sock_from_file (kernel >= 5.11); on an older kernel the collection is
+// loaded without it, so the documented >= 5.8 floor still captures flows and
+// only a listener that predates the agent goes unattributed.
+func loadL4Collection(spec *cebpf.CollectionSpec, objs *l4flowObjects) error {
+	err := spec.LoadAndAssign(objs, nil)
+	if err == nil {
+		return nil
+	}
+	if _, ok := spec.Programs[seedListenersProgram]; !ok {
+		return err
+	}
+	trimmed := spec.Copy()
+	delete(trimmed.Programs, seedListenersProgram)
+	var partial struct {
+		l4flowMaps
+		HandleSetState *cebpf.Program `ebpf:"handle_set_state"`
+	}
+	if err2 := trimmed.LoadAndAssign(&partial, nil); err2 != nil {
+		return err // the full-collection error is the informative one
+	}
+	objs.l4flowMaps = partial.l4flowMaps
+	objs.HandleSetState = partial.HandleSetState
+	return nil
+}
+
+// seedListeners runs the listener iterator to completion once. Its only effect
+// is map writes inside the kernel; a missing program or a refused iterator is
+// a degraded start, never a failed one.
+func seedListeners(prog *cebpf.Program) bool {
+	if prog == nil {
+		return false
+	}
+	it, err := link.AttachIter(link.IterOptions{Program: prog})
+	if err != nil {
+		return false
+	}
+	defer it.Close()
+	rd, err := it.Open()
+	if err != nil {
+		return false
+	}
+	defer rd.Close()
+	_, err = io.Copy(io.Discard, rd)
+	return err == nil
+}
+
+// ListenersSeeded reports whether pre-existing listeners were attributed.
+func (s *liveSource) ListenersSeeded() bool { return s.listenersSeeded }
 
 // newLiveSource loads and attaches the eBPF program. This is the only place that
 // calls the bpf() syscall, and it loads only an observation (tracepoint) program.
@@ -59,7 +117,7 @@ func newLiveSource(cfg *Config) (Source, error) {
 		return nil, fmt.Errorf("ebpf: load collection spec: %w", err)
 	}
 	applyL4RingBufferSpec(spec, cfg)
-	if err := spec.LoadAndAssign(&s.objs, nil); err != nil {
+	if err := loadL4Collection(spec, &s.objs); err != nil {
 		// U-075: a kernel-lockdown confidentiality failure is explained, not
 		// surfaced as a bare EPERM.
 		return nil, explainBPFLoadError(fmt.Errorf("ebpf: load objects (need a BTF kernel + CAP_BPF): %w", err))
@@ -74,6 +132,10 @@ func newLiveSource(cfg *Config) (Source, error) {
 		return nil, fmt.Errorf("ebpf: attach tracepoint: %w", err)
 	}
 	s.tp = tp
+	// ING-24: listeners opened before the agent are recorded once, AFTER the
+	// tracepoint is live, so a listen() racing the start is caught by one or
+	// the other. A kernel without the iterator keeps the tracepoint-only view.
+	s.listenersSeeded = seedListeners(s.objs.SeedListeners)
 	rd, err := ringbuf.NewReader(s.objs.Events)
 	if err != nil {
 		_ = tp.Close()

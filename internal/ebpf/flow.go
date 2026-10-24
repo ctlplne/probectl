@@ -65,6 +65,25 @@ type Flow struct {
 	Packets   uint64
 	Direction string // ingress | egress
 	State     string // established | close
+
+	// role is the kernel-learned connection role (roleClient/roleServer;
+	// roleUnknown for fixtures and sockets the role cache never saw), and
+	// connKey the agent-internal connection identity. Neither is published:
+	// they let the agent join both ends of a host-local connection into one
+	// edge and close the matching L7 tracker (ING-24/ING-22).
+	role    uint8
+	connKey uint64
+}
+
+// LocalEndpoint returns the endpoint on the observing host: the destination of
+// a server-side flow, the source otherwise (client-side, fixture and
+// unknown-role flows keep the process on the source). It is the endpoint the
+// published process/workload fields describe.
+func (f Flow) LocalEndpoint() Endpoint {
+	if f.role == roleServer {
+		return f.Destination
+	}
+	return f.Source
 }
 
 // ServiceEdge is a directed aggregate of flows between two endpoints — the unit

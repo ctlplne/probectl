@@ -22,6 +22,9 @@ func FuzzL4DecodeFlowSample(f *testing.F) {
 	f.Add([]byte{0, 1, 2, 3})
 	f.Add(rawL4FuzzEvent(l4FamilyIPv4, netip.MustParseAddr("10.0.0.10"), netip.MustParseAddr("10.0.0.20")))
 	f.Add(rawL4FuzzEvent(l4FamilyIPv6, netip.MustParseAddr("2001:db8::10"), netip.MustParseAddr("2001:db8::20")))
+	server := rawL4FuzzEvent(l4FamilyIPv4, netip.MustParseAddr("10.0.0.20"), netip.MustParseAddr("10.0.0.10"))
+	server[43] = roleServer // l4eventC.Role offset (after bytes,packets,sock,born_ns,pid,sport,dport,family,newstate)
+	f.Add(server)
 
 	f.Fuzz(func(t *testing.T, sample []byte) {
 		cfg := Default()
@@ -35,8 +38,16 @@ func FuzzL4DecodeFlowSample(f *testing.F) {
 		if flow.TenantID != cfg.TenantID || flow.AgentID != cfg.Host || flow.Host != cfg.Host {
 			t.Fatalf("flow identity = tenant=%q agent=%q host=%q", flow.TenantID, flow.AgentID, flow.Host)
 		}
-		if flow.Transport != TransportTCP || flow.Direction != DirectionEgress {
-			t.Fatalf("flow transport/direction = %q/%q", flow.Transport, flow.Direction)
+		// ING-24: direction follows the kernel-learned role, never a constant.
+		wantDir := ""
+		switch flow.role {
+		case roleClient:
+			wantDir = DirectionEgress
+		case roleServer:
+			wantDir = DirectionIngress
+		}
+		if flow.Transport != TransportTCP || flow.Direction != wantDir {
+			t.Fatalf("flow transport/direction = %q/%q for role %d", flow.Transport, flow.Direction, flow.role)
 		}
 		if flow.State != StateEstablished && flow.State != StateClose {
 			t.Fatalf("flow state = %q", flow.State)

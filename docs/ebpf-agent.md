@@ -66,6 +66,27 @@ flowchart LR
    lost (`internal/ebpf/bpf/l4flow.bpf.c`). Using a *tracepoint* (whose arguments
    carry the tuple directly) instead of fishing fields out of kernel structs is
    deliberate — it sidesteps per-kernel struct-layout drift for the common path.
+
+   **Which end is the client, and whose process is it (`ING-24`).** The kernel
+   always reports a socket's *own* address first, so a server's socket reads
+   "server → client" — and the server-side transitions run in **softirq**
+   context (the kernel handling a packet on whatever CPU it landed, on behalf of
+   no particular process), where "the current process" is a bystander, often
+   `swapper`. So the program learns the role and the owner where they are
+   knowable and caches them per socket: `connect()` (→ `SYN_SENT`) marks a
+   **client** and records its caller; `listen()` (→ `LISTEN`) records which
+   process serves a port, and a socket born from it (`LISTEN` → `SYN_RECV`) is a
+   **server** owned by that process. A BPF **iterator** (a read-only walk over
+   kernel objects) runs once at start and records the listeners that already
+   existed, so a server started before the agent is attributed too. Userspace
+   then orients every flow **client → server**: an inbound connection becomes
+   one edge keyed on the **listening** port with the server's process on the
+   destination (`network.io.direction` = `ingress`), never one edge per
+   ephemeral client port. An owner the agent could not learn is reported as
+   unknown, not guessed from the softirq context. When both ends of a
+   connection run on the same host the agent sees both sockets and joins them
+   into a single client-process → server-process edge (both raw flows are
+   still published).
 2. **Userspace read.** The Go **`liveSource`** (built on `cilium/ebpf`) drains the
    ring buffer.
 3. **Aggregate.** The `Aggregator` folds raw connection events into directed

@@ -228,6 +228,9 @@ func chunkFlowBatches(flows []*ebpfv1.Flow, edges []*ebpfv1.ServiceEdge, l7 []*e
 }
 
 func (f Flow) toProto() *ebpfv1.Flow {
+	// pid/process/container/workload describe the observing host's process:
+	// the server endpoint of an inbound flow, the source otherwise (ING-24).
+	local := f.LocalEndpoint()
 	return &ebpfv1.Flow{
 		TenantId:           f.TenantID,
 		AgentId:            f.AgentID,
@@ -239,10 +242,10 @@ func (f Flow) toProto() *ebpfv1.Flow {
 		DestinationPort:    f.Destination.Port,
 		NetworkTransport:   f.Transport,
 		NetworkType:        f.NetworkType,
-		Pid:                f.Source.PID,
-		ProcessName:        f.Source.Process,
-		ContainerId:        f.Source.Container,
-		Workload:           f.Source.Workload,
+		Pid:                local.PID,
+		ProcessName:        local.Process,
+		ContainerId:        local.Container,
+		Workload:           local.Workload,
 		Bytes:              f.Bytes,
 		Packets:            f.Packets,
 		Direction:          f.Direction,

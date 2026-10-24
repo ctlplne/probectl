@@ -66,6 +66,20 @@ func (a *Aggregator) Observe(f Flow) {
 	a.observed.Add(1)
 }
 
+// Record queues one flow for the next emission batch WITHOUT folding it into
+// the service map — the caller decides the edge view separately (ING-24: the
+// two sockets of a host-local connection publish two raw flows but draw one
+// edge).
+func (a *Aggregator) Record(f Flow) {
+	a.mu.Lock()
+	a.pending = append(a.pending, f)
+	a.mu.Unlock()
+	a.observed.Add(1)
+}
+
+// ObserveEdge folds one flow into the service map only.
+func (a *Aggregator) ObserveEdge(f Flow) { a.smap.Observe(f) }
+
 // recordDrops adds n to the dropped counter when only a legacy/fixture total is
 // available.
 func (a *Aggregator) recordDrops(n uint64) { a.RecordDropStats(DropStats{Other: n}) }

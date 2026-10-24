@@ -20,38 +20,73 @@ const (
 	l4TCPStateClose       = uint8(7)
 )
 
-// l4eventC mirrors struct l4_event in bpf/l4flow.bpf.c (80 bytes,
-// little-endian). Keep field order and explicit padding in sync.
+// Connection roles, mirroring PROBECTL_ROLE_* in bpf/conn_role.h (ING-24).
+const (
+	roleUnknown = uint8(0)
+	roleClient  = uint8(1)
+	roleServer  = uint8(2)
+)
+
+// l4eventC mirrors struct l4_event in bpf/l4flow.bpf.c (96 bytes,
+// little-endian). Keep field order and explicit padding in sync. Saddr/Sport
+// are the LOCAL side and Daddr/Dport the peer; Role says which is the client.
 type l4eventC struct {
 	Bytes    uint64
 	Packets  uint64
-	PID      uint32
+	Sock     uint64 // kernel socket identity (agent-internal, never published)
+	BornNS   uint64 // connection birth from the in-kernel role cache (0 = unknown)
+	PID      uint32 // owning process (0 = unknown)
 	Sport    uint16
 	Dport    uint16
 	Family   uint16
 	NewState uint8
-	Pad      uint8
+	Role     uint8
 	Comm     [16]byte
 	Saddr    [16]byte
 	Daddr    [16]byte
 	Pad2     [4]byte
 }
 
+// toFlow orients the local-first kernel tuple as client -> server (ING-24).
+// A client socket's local side is the source; a server socket's local side is
+// the DESTINATION, so the edge is keyed on the listening port and the owning
+// process sits on the server endpoint. A socket of unknown role keeps the
+// legacy local-first orientation without a direction claim.
 func (e l4eventC) toFlow(cfg *Config) Flow {
 	src, dst, networkType := e.addresses()
-	return Flow{
+	local := Endpoint{Address: src, Port: uint32(e.Sport), PID: e.PID, Process: nullTerm(e.Comm[:])}
+	peer := Endpoint{Address: dst, Port: uint32(e.Dport)}
+	f := Flow{
 		TenantID:    cfg.TenantID,
 		AgentID:     cfg.identity(),
 		Host:        cfg.Host,
-		Source:      Endpoint{Address: src, Port: uint32(e.Sport), PID: e.PID, Process: nullTerm(e.Comm[:])},
-		Destination: Endpoint{Address: dst, Port: uint32(e.Dport)},
 		Transport:   TransportTCP,
 		NetworkType: networkType,
 		Bytes:       e.Bytes,
 		Packets:     e.Packets,
-		Direction:   DirectionEgress,
 		State:       e.state(),
+		role:        e.Role,
+		connKey:     connIdentity(e.Sock, e.BornNS),
 	}
+	switch e.Role {
+	case roleServer:
+		f.Source, f.Destination, f.Direction = peer, local, DirectionIngress
+	case roleClient:
+		f.Source, f.Destination, f.Direction = local, peer, DirectionEgress
+	default:
+		f.Source, f.Destination = local, peer
+	}
+	return f
+}
+
+// connIdentity names one connection inside the agent: the kernel socket plus
+// its birth time, so a socket address the kernel reuses for a later
+// connection is a different identity. Zero sock = no identity.
+func connIdentity(sock, bornNS uint64) uint64 {
+	if sock == 0 {
+		return 0
+	}
+	return sock ^ (bornNS * 0x9e3779b97f4a7c15)
 }
 
 func decodeL4FlowSample(sample []byte, cfg *Config) (Flow, error) {
@@ -80,7 +115,13 @@ func (e l4eventC) addresses() (string, string, string) {
 		var src, dst [16]byte
 		copy(src[:], e.Saddr[:])
 		copy(dst[:], e.Daddr[:])
-		return netip.AddrFrom16(src).String(), netip.AddrFrom16(dst).String(), NetworkIPv6
+		s, d := netip.AddrFrom16(src), netip.AddrFrom16(dst)
+		if s.Is4In6() && d.Is4In6() {
+			// An IPv4 client on a dual-stack listener: report the IPv4 tuple,
+			// so the edge matches the one the client's own socket produces.
+			return s.Unmap().String(), d.Unmap().String(), NetworkIPv4
+		}
+		return s.String(), d.String(), NetworkIPv6
 	default:
 		return "", "", ""
 	}

@@ -40,6 +40,10 @@ type Agent struct {
 	l7connsTTL time.Duration
 	l7Evicted  atomic.Uint64
 
+	// join pairs the two sockets of a host-local connection into one edge
+	// (ING-24); held client-side flows are folded in on the flush tick.
+	join *hostLocalJoin
+
 	lastDropStats  DropStats
 	lastFilteredV6 uint64
 
@@ -184,6 +188,11 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	if ls, ok := src.(interface{ ListenersSeeded() bool }); ok {
+		// ING-24: say whether servers that started before the agent will be
+		// attributed to their process, or only ones that start after it.
+		log.Info("ebpf listener ownership seeded", "preexisting_listeners_attributed", ls.ListenersSeeded())
+	}
 
 	agg := NewAggregator()
 	var l7src L7Source
@@ -232,6 +241,7 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 		l7seen:     map[uint64]time.Time{},
 		l7connsCap: cfg.MaxL7Conns,
 		l7connsTTL: cfg.L7ConnIdleTTL,
+		join:       newHostLocalJoin(),
 	}
 	return a.withPublishVerification(b, publishVerifyTimeout(cfg.FlushInterval)), nil
 }
@@ -248,6 +258,7 @@ func newAgentWith(cfg *Config, log *slog.Logger, src Source, enr Enricher, em Em
 		cfg: cfg, log: log, source: src, enricher: enr, emitter: em,
 		agg: agg, l7man: l7man, l7conns: map[uint64]l7conn{},
 		l7seen: map[uint64]time.Time{}, l7connsCap: cfg.MaxL7Conns, l7connsTTL: cfg.L7ConnIdleTTL,
+		join: newHostLocalJoin(),
 	}
 }
 
@@ -286,7 +297,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	for flows != nil || l7events != nil {
 		select {
 		case <-ctx.Done():
-			a.flush(context.WithoutCancel(ctx)) // best-effort final flush
+			a.flushFinal(context.WithoutCancel(ctx)) // best-effort final flush
 			return nil
 		case f, ok := <-flows:
 			if !ok {
@@ -304,7 +315,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.flush(ctx)
 		}
 	}
-	a.flush(context.WithoutCancel(ctx))
+	a.flushFinal(context.WithoutCancel(ctx))
 	return nil
 }
 
@@ -338,7 +349,21 @@ func (a *Agent) observe(f Flow) {
 		f.Observed = time.Now()
 	}
 	a.enricher.Enrich(&f)
-	a.agg.Observe(f)
+	// Every observation is published as a raw flow; the service map gets the
+	// client -> server view, with a host-local connection's two sockets
+	// joined into one edge (ING-24).
+	a.agg.Record(f)
+	if edge, ok := a.join.admit(f, time.Now(), a.agg.ObserveEdge); ok {
+		a.agg.ObserveEdge(edge)
+	}
+}
+
+// releaseHeldFlows folds the client-side flows whose join hold expired into
+// the service map (all of them on the final flush).
+func (a *Agent) releaseHeldFlows(now time.Time, final bool) {
+	for _, f := range a.join.release(now, final) {
+		a.agg.ObserveEdge(f)
+	}
 }
 
 // observeL7 routes a captured plaintext chunk to its connection's parser and
@@ -441,6 +466,16 @@ func (a *Agent) pruneL7(now time.Time) {
 }
 
 func (a *Agent) flush(ctx context.Context) {
+	a.flushWith(ctx, false)
+}
+
+// flushFinal is the shutdown flush: every held flow is folded in first.
+func (a *Agent) flushFinal(ctx context.Context) {
+	a.flushWith(ctx, true)
+}
+
+func (a *Agent) flushWith(ctx context.Context, final bool) {
+	a.releaseHeldFlows(time.Now(), final)
 	a.pruneL7(time.Now())
 	countersChanged := a.syncDrops()
 	countersChanged = a.syncFilteredNonIPv4() || countersChanged
