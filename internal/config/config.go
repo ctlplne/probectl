@@ -2929,11 +2929,13 @@ func pooledClickHouseOrigins(cfg *Config) map[string]bool {
 	return origins
 }
 
-// validateDataPlaneReaderCredentials (DPR-323) is the reader-login twin of
-// validateDataPlaneCredentials. With tenant scoping on (the reader credential
-// is set), a siloed or hybrid tenant's reads run as the reader on its
-// residency plane, so each plane off the pooled origin names the reader's
-// credential for that plane, and it is never a control credential.
+// validateDataPlaneReaderCredentials (DPR-323) checks the reader-login twin
+// of PROBECTL_DATAPLANE_BASIC_AUTH_FILES for well-formedness: known planes, an
+// absolute path, never a control credential, the reader's own file on the
+// pooled origin. Whether a plane NEEDS an entry depends on whether a siloed or
+// hybrid tenant lives there, which only the tenant registry knows, so that is
+// checked at boot and at provisioning (DataPlaneReaderGap, DPR-327): an
+// install with residency planes but no tenants on them needs nothing new.
 func validateDataPlaneReaderCredentials(l *loader, cfg *Config) {
 	planes := parseNamedValues(cfg.DataPlanes)
 	readerFile := strings.TrimSpace(cfg.ClickHouseReaderBasicAuthFile)
@@ -2957,10 +2959,8 @@ func validateDataPlaneReaderCredentials(l *loader, cfg *Config) {
 		file, ok := cfg.DataPlaneReaderBasicAuthFiles[name]
 		onPooled := pooledOrigins[strings.ToLower(u.Scheme)+"://"+strings.ToLower(u.Host)]
 		switch {
-		case !ok && !onPooled:
-			l.errf("PROBECTL_DATAPLANES plane %q has no reader credential file: add %s=/path/to/reader-credential.json to PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES (with tenant scoping on, a siloed or hybrid tenant's reads on that plane run as the reader login; DPR-323)", name, name)
 		case !ok:
-			// On the pooled origin the reader's own credential applies.
+			// Required only where a tenant lives (DataPlaneReaderGap).
 		case !filepath.IsAbs(file):
 			l.errf("PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES entry %q must be an absolute path", name)
 		case onPooled && filepath.Clean(file) != filepath.Clean(readerFile):
@@ -2969,6 +2969,52 @@ func validateDataPlaneReaderCredentials(l *loader, cfg *Config) {
 			l.errf("PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES entry %q names a control credential file; the reader is a separate least-privilege login (DPR-323)", name)
 		}
 	}
+}
+
+// DataPlaneReaderGap (DPR-327) reports why the reader login cannot reach data
+// plane name, or nil when it can or need not. With tenant scoping on (the
+// reader credential set), a siloed or hybrid tenant's reads on that plane run
+// as the reader, through each tenant-scoped ClickHouse store's reader client.
+// That client sends the reader's credential only to its own store's origin
+// and to planes pinned in PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES, so a
+// plane with no entry is reachable only if it shares every scoped store's
+// origin. The boot catch-up and provisioning call this for the planes that
+// actually host a tenant, and refuse with this error.
+func (c *Config) DataPlaneReaderGap(name string) error {
+	if strings.TrimSpace(c.ClickHouseReaderBasicAuthFile) == "" {
+		return nil // no scoped lane: no read runs as the reader
+	}
+	raw, ok := parseNamedValues(c.DataPlanes)[name]
+	if !ok {
+		return fmt.Errorf("data plane %q is not in PROBECTL_DATAPLANES", name)
+	}
+	if _, ok := c.DataPlaneReaderBasicAuthFiles[name]; ok {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("data plane %q has a malformed URL", name)
+	}
+	origin := strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host)
+	for _, lane := range []struct {
+		env, mode, url string
+		scoped         bool
+	}{
+		{"PROBECTL_FLOWSTORE_URL", c.FlowStoreMode, c.FlowStoreURL, c.FlowCHTenantScoping},
+		{"PROBECTL_PATHSTORE_URL", c.PathStoreMode, c.PathStoreURL, c.PathCHTenantScoping},
+		{"PROBECTL_OTELSTORE_URL", c.OTelStoreMode, c.OTelStoreURL, c.OTelCHTenantScoping},
+		{"PROBECTL_EBPFSTORE_URL", c.EBPFStoreMode, c.EBPFStoreURL, c.EBPFCHTenantScoping},
+		{"PROBECTL_ENDPOINTSTORE_URL", c.EndpointStoreMode, c.EndpointStoreURL, c.EndpointCHTenantScoping},
+	} {
+		if lane.mode != "clickhouse" || !lane.scoped {
+			continue
+		}
+		su, err := url.Parse(strings.TrimSpace(lane.url))
+		if err != nil || strings.ToLower(su.Scheme)+"://"+strings.ToLower(su.Host) != origin {
+			return fmt.Errorf("a siloed or hybrid tenant lives on data plane %q, whose reads run as the reader login, but the reader has no credential there: add %s=/path/to/reader-credential.json to PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES (the %s store's reader reaches only its own origin and pinned planes; DPR-327)", name, name, lane.env)
+		}
+	}
+	return nil
 }
 
 func sameFile(a, b string) bool {

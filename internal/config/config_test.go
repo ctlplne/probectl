@@ -835,11 +835,48 @@ func TestDataPlaneReaderCredentialConfig(t *testing.T) {
 	if got := cfg.DataPlaneReaderBasicAuthFiles["east"]; got != "/run/secrets/ch-east-reader.json" {
 		t.Fatalf("DataPlaneReaderBasicAuthFiles[east] = %q", got)
 	}
-	// A plane on the pooled origin uses the reader's own credential.
-	if _, err := Load(envFunc(scoped(map[string]string{
+	// DPR-327: a residency plane without a reader credential loads. Only a
+	// plane that hosts a siloed or hybrid tenant needs one, and that is known
+	// at boot, where DataPlaneReaderGap names the missing entry.
+	cfg, err = Load(envFunc(scoped(nil)))
+	if err != nil {
+		t.Fatalf("an install with a residency plane but no tenant on it must need nothing new: %v", err)
+	}
+	if err := cfg.DataPlaneReaderGap("east"); err == nil || !strings.Contains(err.Error(), "east=/path/to/reader-credential.json to PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES") {
+		t.Fatalf("DataPlaneReaderGap(east) = %v, want the missing entry named", err)
+	}
+	if err := cfg.DataPlaneReaderGap("west"); err == nil {
+		t.Fatal("an unconfigured plane must not be reported reachable")
+	}
+	cfg, err = Load(envFunc(scoped(map[string]string{"PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES": "east=/run/secrets/ch-east-reader.json"})))
+	if err != nil || cfg.DataPlaneReaderGap("east") != nil {
+		t.Fatalf("a pinned plane reader must be reachable: load %v, gap %v", err, cfg.DataPlaneReaderGap("east"))
+	}
+	unscoped := scoped(map[string]string{"PROBECTL_OTELSTORE_TENANT_SCOPING": "false", "PROBECTL_OTELSTORE_READER_USER": "", "PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE": ""})
+	if cfg, err := Load(envFunc(unscoped)); err != nil || cfg.DataPlaneReaderGap("east") != nil {
+		t.Fatalf("without tenant scoping no read runs as the reader: load %v", err)
+	}
+	// Per store: a plane on the flow store's origin is not on the otel
+	// store's, so the otel reader cannot reach it without an entry.
+	split := scoped(map[string]string{
 		"PROBECTL_DATAPLANES":                 "lab=https://clickhouse.example:8443",
 		"PROBECTL_DATAPLANE_BASIC_AUTH_FILES": "lab=/run/secrets/ch.json",
-	}))); err != nil {
+		"PROBECTL_FLOWSTORE_MODE":             "clickhouse",
+		"PROBECTL_FLOWSTORE_URL":              "https://clickhouse.example:8443",
+		"PROBECTL_FLOWSTORE_TENANT_SCOPING":   "true",
+		"PROBECTL_FLOWSTORE_READER_USER":      "probectl_reader",
+		"PROBECTL_OTELSTORE_URL":              "https://clickhouse-otel.example:8443",
+	})
+	if cfg, err := Load(envFunc(split)); err != nil {
+		t.Fatalf("split stores: %v", err)
+	} else if err := cfg.DataPlaneReaderGap("lab"); err == nil || !strings.Contains(err.Error(), "PROBECTL_OTELSTORE_URL") {
+		t.Fatalf("DataPlaneReaderGap(lab) = %v, want the otel store's reader named", err)
+	}
+	// A plane on the pooled origin uses the reader's own credential.
+	if cfg, err := Load(envFunc(scoped(map[string]string{
+		"PROBECTL_DATAPLANES":                 "lab=https://clickhouse.example:8443",
+		"PROBECTL_DATAPLANE_BASIC_AUTH_FILES": "lab=/run/secrets/ch.json",
+	}))); err != nil || cfg.DataPlaneReaderGap("lab") != nil {
 		t.Fatalf("a plane on the pooled origin needs no separate reader file: %v", err)
 	}
 	for _, tc := range []struct {
@@ -847,8 +884,6 @@ func TestDataPlaneReaderCredentialConfig(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{name: "a residency plane without a reader credential", env: scoped(nil),
-			want: `plane "east" has no reader credential file`},
 		{name: "a reader credential for an unknown plane", env: scoped(map[string]string{
 			"PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES": "east=/run/secrets/r-east.json;west=/run/secrets/r-west.json"}),
 			want: `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES names data plane "west"`},

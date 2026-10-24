@@ -96,6 +96,19 @@ type Provisioner struct {
 	retentionDays         int
 	endpointRetentionDays int
 	log                   *slog.Logger
+	// readerPlaneCheck (DPR-327) reports whether the reader login can reach
+	// a residency plane; nil = every plane is assumed reachable.
+	readerPlaneCheck func(residency string) error
+}
+
+// WithReaderPlaneCheck installs the check that the reader login has a
+// credential for a residency plane (DPR-327). It runs before a tenant's reader
+// scope is installed or proven on that plane, at provisioning and at the boot
+// catch-up, so a plane needs a reader credential exactly when a siloed or
+// hybrid tenant lives on it, and the refusal names the missing entry.
+func (p *Provisioner) WithReaderPlaneCheck(check func(residency string) error) *Provisioner {
+	p.readerPlaneCheck = check
+	return p
 }
 
 // NewProvisioner wires the silo provisioner across every ClickHouse plane
@@ -262,8 +275,15 @@ func (p *Provisioner) readerSteps(tenantID, residency string) []provisionStep {
 	var steps []provisionStep
 	for _, r := range p.distinctReaders(base) {
 		steps = append(steps, provisionStep{
-			plane:          "reader scope",
-			ensure:         func(ctx context.Context) error { return ensureReaderScope(ctx, r, base, db) },
+			plane: "reader scope",
+			ensure: func(ctx context.Context) error {
+				if p.readerPlaneCheck != nil && residency != "" {
+					if err := p.readerPlaneCheck(residency); err != nil {
+						return err
+					}
+				}
+				return ensureReaderScope(ctx, r, base, db)
+			},
 			compensate:     func(ctx context.Context) error { return r.Revoke(ctx, base, db) },
 			undoOwnFailure: true,
 		})

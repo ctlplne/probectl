@@ -252,10 +252,11 @@ just the room's door.
   refuses at the silo reader-scope catch-up (the error names
   `SELECT ON *.* WITH GRANT OPTION`), and new siloed/hybrid provisioning is
   refused the same way. It never falls back to reading as the control login.
-- If `PROBECTL_DATAPLANES` names a residency plane off the pooled ClickHouse
-  origin and `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` has no entry for it,
-  the 0.6.6 control plane fails config validation at start, whether or not any
-  tenant uses that plane yet.
+- If a siloed or hybrid tenant lives on a residency plane off the pooled
+  ClickHouse origin and `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` has no
+  entry for that plane, startup refuses at the reader-scope catch-up, naming
+  the entry, and provisioning onto that plane is refused the same way. A plane
+  that hosts no siloed or hybrid tenant needs nothing new.
 
 Under the Helm chart's default rolling update the 0.6.5 pods keep serving
 until the steps below are done.
@@ -272,9 +273,11 @@ until the steps below are done.
    the control plane grants it each per-tenant table. The reader must be a
    SQL-created user (`CREATE USER`), not one defined in `users.xml`, whose
    read-only storage refuses grants.
-3. Stage that plane reader's owner-only credential file and list it in
+3. For each plane that hosts a siloed or hybrid tenant, stage that plane
+   reader's owner-only credential file and list it in
    `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` (`eu=/etc/probectl/credentials/ch-eu-reader.json`).
-   A plane on the pooled ClickHouse origin needs no entry.
+   A plane on the pooled ClickHouse origin, or one with no such tenant, needs
+   no entry.
 
 At boot, before the silo router is published, the control plane installs the
 reader scope on every existing siloed and hybrid tenant's database and proves

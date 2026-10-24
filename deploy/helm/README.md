@@ -200,8 +200,10 @@ pooled ClickHouse names the pooled file (DPR-044). With tenant scoping on (the
 multi-tenant and strict profiles), a siloed or hybrid tenant's reads run as the
 reader login on its plane too (DPR-323), so each plane off the pooled origin
 also needs the reader's credential for that plane, named with
-`control.extraEnv.PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES=eu=/etc/probectl/credentials/ch-eu-reader.json`;
-without it the pods fail config validation at start. On every ClickHouse
+`control.extraEnv.PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES=eu=/etc/probectl/credentials/ch-eu-reader.json`
+once a siloed or hybrid tenant lives on that plane; without it startup and
+provisioning on that plane refuse, naming the entry (a plane with no tenant on
+it needs nothing). On every ClickHouse
 server that hosts per-tenant databases, give the control login
 `GRANT SELECT ON *.* TO <control login> WITH GRANT OPTION` (it grants the
 reader each per-tenant table after installing that table's row policy), and on

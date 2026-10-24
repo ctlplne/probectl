@@ -245,7 +245,7 @@ to another tenant.
 |---|---|---|
 | `PROBECTL_DATAPLANES` | (none) | named residency planes: `name=clickhouseURL[;…]` |
 | `PROBECTL_DATAPLANE_BASIC_AUTH_FILES` | (none) | one owner-only credential file per plane: `name=/abs/file[;…]`; required for every non-loopback plane, pinned to that plane's origin only (DPR-044) |
-| `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` | (none) | the reader login's credential file per plane: `name=/abs/file[;…]`; with tenant scoping on, required for every plane off the pooled origin, pinned to that plane's origin only; a silo's reads there run as this login (DPR-323) |
+| `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` | (none) | the reader login's credential file per plane: `name=/abs/file[;…]`, pinned to that plane's origin only; a silo's reads there run as this login (DPR-323). With tenant scoping on, required for a plane off the pooled origin once a siloed or hybrid tenant lives on it: startup and provisioning there refuse without it (DPR-327) |
 
 Everything else rides existing keys (`PROBECTL_FLOWSTORE_*`, and
 `PROBECTL_FLOW_RETENTION_DAYS` applies to per-tenant databases too). Siloed and

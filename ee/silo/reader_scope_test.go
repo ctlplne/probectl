@@ -192,3 +192,38 @@ func TestCatchUpWithdrawsTheScopeOnlyOnADefinitiveUnsafeResult(t *testing.T) {
 		})
 	}
 }
+
+// DPR-327: a residency plane needs a reader credential exactly when a tenant
+// lives on it. Provisioning or catching up a tenant there without one is
+// refused before any reader scope is touched, and the refusal is the check's.
+func TestReaderScopeRefusesAPlaneTheReaderCannotReach(t *testing.T) {
+	planes := map[string]DataPlane{"eu": {Name: "eu", CHURL: "https://ch-eu:8443"}}
+	gap := errors.New("add eu=/path to PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES")
+	checked := map[string]int{}
+	check := func(residency string) error {
+		checked[residency]++
+		if residency == "eu" {
+			return gap
+		}
+		return nil
+	}
+	ch := newCompCH()
+	r := &fakeReaderScope{server: "https://ch:8443"}
+	p := readerProvisioner(ch, planes, r).WithReaderPlaneCheck(check)
+	if err := p.CatchUpReaderScope(context.Background(), "tenant-eu", "eu"); !errors.Is(err, gap) {
+		t.Fatalf("catch-up on an unreachable plane = %v, want the check's refusal", err)
+	}
+	if len(r.calls) != 0 {
+		t.Fatalf("the reader scope was touched on a plane the reader cannot reach: %q", r.calls)
+	}
+	if err := p.provisionCH(context.Background(), "tenant-eu", "eu"); !errors.Is(err, gap) {
+		t.Fatalf("provisioning on an unreachable plane = %v, want the check's refusal", err)
+	}
+	if live := ch.live(); len(live) != 0 {
+		t.Fatalf("a refused provisioning left %v", live)
+	}
+	// The default plane is the reader's own: never checked, never refused.
+	if err := p.CatchUpReaderScope(context.Background(), "tenant-home", ""); err != nil || checked[""] != 0 {
+		t.Fatalf("default-plane catch-up = %v (checked %d times)", err, checked[""])
+	}
+}

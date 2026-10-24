@@ -452,7 +452,8 @@ func attachProviderIRDurability(
 func newSiloProvisioner(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, ch silo.CHPlanes,
 	planes map[string]silo.DataPlane, log *slog.Logger) (*silo.Provisioner, error) {
 	prov := silo.NewProvisioner(pool, ch, planes, cfg.FlowRetentionDays, log).
-		WithEndpointRetentionDays(cfg.EndpointRetentionDays)
+		WithEndpointRetentionDays(cfg.EndpointRetentionDays).
+		WithReaderPlaneCheck(cfg.DataPlaneReaderGap) // DPR-327
 	if cfg.MigrateDatabaseURL == "" {
 		return prov, nil
 	}
