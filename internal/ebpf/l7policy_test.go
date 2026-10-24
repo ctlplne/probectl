@@ -95,8 +95,8 @@ func TestL7CaptureConfigValidation(t *testing.T) {
 	if Default().L7CaptureEnabled {
 		t.Fatal("L7 capture must default OFF")
 	}
-	if Default().L7CaptureRedaction != RedactHeaders {
-		t.Fatal("redaction must default to headers mode")
+	if Default().L7CaptureRedaction != RedactMetadata {
+		t.Fatal("redaction must default to metadata mode (D-43 refinement 2)")
 	}
 	if len(Default().L7CaptureScope) != 0 {
 		t.Fatal("scope must default EMPTY — workloads opt in explicitly (EBPF-001)")

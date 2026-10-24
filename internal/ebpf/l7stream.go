@@ -71,10 +71,11 @@ func startsHTTP1Message(p []byte) bool {
 }
 
 // redact applies the capture boundary to p (the caller's private copy) with
-// the stream's history, and returns it. Modes other than "headers" are
-// stream-independent and go straight to redactPayloadWithPolicy.
+// the stream's history, and returns it. Modes without a header window
+// ("length", "full") are stream-independent and go straight to
+// redactPayloadWithPolicy.
 func (r *streamRedactor) redact(key streamKey, p []byte, mode string, policy headerValuePolicy) []byte {
-	if r == nil || mode != RedactHeaders {
+	if r == nil || !parsesHeaders(mode) {
 		return redactPayloadWithPolicy(p, mode, policy)
 	}
 	r.mu.Lock()

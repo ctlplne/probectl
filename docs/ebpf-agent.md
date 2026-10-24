@@ -247,9 +247,11 @@ Even for an allowlisted workload, payload bodies are redacted by default
   leave kernel space**. The BPF policy map's zero default is length-only, so an
   unprogrammed kernel ships **no** plaintext: it fails closed.
 - **At the ring-buffer → userspace boundary**, on the only surviving copy, payload
-  bodies are zeroed in place. This is `l7_capture_redaction: headers` (the
-  default): protocol metadata (request line, headers) survives, the body is
-  killed. The boundary remembers, per direction of each HTTP/1 connection,
+  bodies are zeroed in place. Under `l7_capture_redaction: metadata` (the
+  default, D-43) the request line and the two framing header values
+  (`Content-Length`, `Transfer-Encoding`) survive for the in-memory parse; every
+  other header value and the body are killed. Under `headers` the header values
+  that are not credential- or identity-like survive too. The boundary remembers, per direction of each HTTP/1 connection,
   whether a message's headers have ended (DPR-340): a chunk that continues a
   message past its headers is body and is zeroed **whole**, even when it holds
   bytes that look like a header terminator. A chunk on a stream the agent is not
@@ -259,19 +261,21 @@ Even for an allowlisted workload, payload bodies are redacted by default
   under `headers` redaction, by design — the HPACK frames, HTTP/2's compressed
   header encoding, live in the zeroed region.)
 
-The three redaction modes:
+The four redaction modes:
 
 | Mode | What transits | What you can parse |
 |---|---|---|
-| `headers` (default) | metadata up to the header terminator; the body is zeroed (credential and identity-like header **values** — Authorization/Cookie/Set-Cookie/Proxy-Authorization, common `api-key`/`token`/`secret`/`credential`/`x-amz-*` headers, and user/email/subject/employee/account/customer/session/person families — are also zeroed, names survive) | full L7 calls; HTTP/2-gRPC bodies degraded |
+| `metadata` (default) | the request/status line and the framing header values; every other header value and the body are zeroed. The emitted call carries only method, the templated route, status, latency, byte counts, protocol and the 5-tuple | L7 calls with templated routes (`/patients/{id}`); no SQL statement text; HTTP/2-gRPC degraded as under `headers` |
+| `headers` (opt-in) | metadata up to the header terminator; the body is zeroed (credential and identity-like header **values** — Authorization/Cookie/Set-Cookie/Proxy-Authorization, common `api-key`/`token`/`secret`/`credential`/`x-amz-*` headers, and user/email/subject/employee/account/customer/session/person families — are also zeroed, names survive) | full L7 calls; HTTP/2-gRPC bodies degraded |
 | `length` | **no payload bytes** — kernel window forced to 0; only chunk direction + true size (`DataEvent.Size`) | traffic *shape* only; no parsed L7 calls |
 | `full` | everything (consented debugging only — still behind the enable+consent+scope gates) | full L7 calls including bodies |
 
 Parser byte-counts reflect the *captured* window; `DataEvent.Size` always carries
 the *true* chunk size, so loss-to-redaction is visible rather than silent.
 
-> **Header secrecy vs. header metadata (EBPF-006).** Under the default `headers`
-> mode, the **values** of credential-bearing headers (`Authorization`,
+> **Header secrecy vs. header metadata (EBPF-006).** Under the `headers`
+> opt-in (and under the `metadata` default, which zeroes every
+> non-framing header value), the **values** of credential-bearing headers (`Authorization`,
 > `Cookie`, `Set-Cookie`, `Proxy-Authorization`) and common non-standard secret
 > families (`X-API-Key`, `Api-Key`, `X-Amz-Security-Token`, custom `*Token*`,
 > `*Secret*`, and `*Credential*` headers) are zeroed in place. Non-secret

@@ -44,6 +44,7 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             govern (data-governance core) · httpbody (bounded HTTP body readers) ·
             i18n (server/CLI message catalog) · incident (cross-plane incident correlation) ·
             ingesthealth (payload-free ingest observability) · inventory (operator-list primitives) ·
+            l7redact (shared L7 data-minimisation rules: modes, route templating) ·
             license (offline edition gating) · lifecycle (zero-downtime upgrade) ·
             logging (structured slog setup) · metrics (self-observability) ·
             notify (on-call/notification wiring) · objectstore (per-tenant blob store) ·

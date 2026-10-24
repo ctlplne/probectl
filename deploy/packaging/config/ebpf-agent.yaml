@@ -39,5 +39,5 @@ l7_ring_buffer_bytes: 16777216    # 16 MiB L7 chunk ring
 #   - exe:/usr/sbin/nginx         #   every process of this binary (re-resolved every 10s)
 #   - cgroup:/sys/fs/cgroup/system.slice/myapp.service # a container or pod IS a cgroup
 #   - pid:1234                    #   one exact process
-# l7_capture_redaction: headers   # headers (bodies zeroed) | length (no payload bytes) | full (consented debugging only)
+# l7_capture_redaction: metadata  # metadata (default: method, templated route, status, sizes) | headers (opt-in; tenant floor must allow) | length (no payload bytes) | full (consented debugging only)
 # l7_capture_kernel_window: 1024  # max plaintext bytes per chunk crossing the kernel ring (128-4095)

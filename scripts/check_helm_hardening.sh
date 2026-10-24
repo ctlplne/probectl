@@ -1182,6 +1182,25 @@ need "exe:/usr/bin/nginx"               "$l7" "agent: L7 scoped workload not ren
 need "l7_capture_redaction: \"length\"" "$l7" "agent: L7 redaction not rendered (EBPF-002)"
 need "l7_capture_kernel_window: 0"      "$l7" "agent: L7 kernel window not rendered (EBPF-002)"
 
+# D-43 regression test (a), helm half: the DEFAULT render grants no capture
+# privilege and states no capture. hostPID, the node cgroupfs mount, the node
+# library mount and CAP_SYS_PTRACE exist only on the consented L7 path
+# (D-02/D-02a); a default install must carry none of them.
+agent_default_ds="$(awk '/kind: DaemonSet$/,/^---/' <<<"$agent")"
+for priv in "hostPID: true" "SYS_PTRACE" "name: hostcgroup" "name: node-lib-" "l7_capture_enabled: true" "l7_capture_consent_tenant"; do
+  grep -qF "$priv" <<<"$agent_default_ds$(awk '/kind: ConfigMap$/,/^---/' <<<"$agent")" \
+    && fail "agent: default render carries L7 capture privilege or consent '$priv' (D-43 (a), D-02/D-02a)"
+done
+# The consented render carries them (so the absence above is not vacuous) and
+# defaults its redaction to metadata (D-43 refinement 2).
+l7_default="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate \
+       --set-json 'l7Capture.scope=["exe:/usr/bin/nginx"]')"
+need "hostPID: true"                      "$l7_default" "agent: consented L7 render lost hostPID (D-02a)"
+need "SYS_PTRACE"                         "$l7_default" "agent: consented L7 render lost CAP_SYS_PTRACE (D-02a)"
+need "l7_capture_redaction: \"metadata\"" "$l7_default" "agent: consented L7 capture must default to metadata redaction (D-43)"
+need "name: hostcgroup"                   "$l7_default" "agent: consented L7 render lost the node cgroupfs mount (DPR-127)"
+need "name: node-lib-0"                   "$l7_default" "agent: consented L7 render lost the node library mount (DPR-124)"
+
 # EBPF-004: legacy SYS_ADMIN is fenced behind an explicit acknowledgment.
 agent_ds="$(awk '/kind: DaemonSet$/,/^---/' <<<"$agent")"
 grep -q "SYS_ADMIN" <<<"$agent_ds" && fail "agent: SYS_ADMIN in the DEFAULT DaemonSet (legacy mode only)"

@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/ebpf/l7"
+	"github.com/ctlplne/probectl/internal/l7redact"
 )
 
 // Agent is the eBPF host agent runtime: it reads flows from a Source, enriches
@@ -30,8 +31,12 @@ type Agent struct {
 	agg      *Aggregator
 
 	l7source L7Source
-	l7man    *l7.Manager
-	l7conns  map[uint64]l7conn
+	// l7mode is the redaction mode this agent applies to every L7 call it
+	// emits (D-43): its local l7_capture_redaction, never looser than the
+	// tenant's floor.
+	l7mode  string
+	l7man   *l7.Manager
+	l7conns map[uint64]l7conn
 	// l7seen tracks last-activity per connID so idle entries are swept on flush
 	// (FUZZ-001) — connID is the SSL* pointer with no socket-close signal yet,
 	// so without a TTL sweep l7conns + l7man.conns grow without bound.
@@ -195,9 +200,12 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	if cfg.L7FixturePath != "" {
 		// Recorded replay (CI/demos) — not live plaintext capture; exempt
 		// from the U-003 consent gate.
-		if l7src, err = NewFixtureL7Source(cfg.L7FixturePath); err != nil {
-			return nil, err
+		fixture, ferr := NewFixtureL7Source(cfg.L7FixturePath)
+		if ferr != nil {
+			return nil, ferr
 		}
+		fixture.applyBoundary(cfg.L7CaptureRedaction, captureHeaderPolicy(cfg))
+		l7src = fixture
 	} else if ok, reason := l7CaptureAuthorized(cfg); !ok {
 		// U-003: live TLS-plaintext capture is OFF unless explicitly enabled
 		// AND consented for this agent's tenant. Off is the default posture.
@@ -229,6 +237,7 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 		log:        log,
 		source:     src,
 		l7source:   l7src,
+		l7mode:     l7redact.Normalize(cfg.L7CaptureRedaction),
 		enricher:   NewProcEnricher(cfg.ProcRoot),
 		emitter:    emitter,
 		agg:        agg,
@@ -252,7 +261,8 @@ func newAgentWith(cfg *Config, log *slog.Logger, src Source, enr Enricher, em Em
 	l7man.SetBounds(cfg.MaxL7Conns, cfg.L7ConnIdleTTL)
 	return &Agent{
 		cfg: cfg, log: log, source: src, enricher: enr, emitter: em,
-		agg: agg, l7man: l7man, l7conns: map[uint64]l7conn{},
+		l7mode: l7redact.Normalize(cfg.L7CaptureRedaction),
+		agg:    agg, l7man: l7man, l7conns: map[uint64]l7conn{},
 		l7seen: map[uint64]time.Time{}, l7connsCap: cfg.MaxL7Conns, l7connsTTL: cfg.L7ConnIdleTTL,
 		join: newHostLocalJoin(),
 	}
@@ -398,6 +408,10 @@ func (a *Agent) observeL7(ev L7Event) {
 		port = ev.Destination.Port
 	}
 	for _, c := range a.l7man.OnData(ev.ConnID, port, ev.Data) {
+		// D-43: the shared persistence rule runs here, before the call is
+		// rolled up or published — nothing beyond the mode's fields leaves
+		// the agent.
+		c = minimizeCall(c, a.l7mode)
 		a.agg.ObserveL7(L7Record{
 			TenantID:    meta.tenant,
 			AgentID:     a.cfg.identity(),

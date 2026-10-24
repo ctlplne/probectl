@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/configschema"
+	"github.com/ctlplne/probectl/internal/l7redact"
 )
 
 const (
@@ -107,9 +108,12 @@ type Config struct {
 	// enable flag, a per-tenant consent naming this agent's tenant, and a
 	// process-scope allowlist naming the opted-in workloads (host-wide
 	// capture is not expressible). L7CaptureRedaction selects the boundary
-	// policy ("headers" default — bodies zeroed before any retention;
-	// "length" — no payload bytes at all; "full" only for consented
-	// debugging).
+	// policy (D-43): "metadata" (the default) — only method, templated route,
+	// status, latency, byte counts, protocol and the 5-tuple leave the agent;
+	// "headers" — non-sensitive header values survive in the parse window and
+	// routes keep their literal segments (an opt-in the tenant's redaction
+	// floor must allow); "length" — no payload bytes at all; "full" only for
+	// consented debugging, refused under the regulated profile.
 	L7CaptureEnabled       bool   `yaml:"l7_capture_enabled"`
 	L7CaptureConsentTenant string `yaml:"l7_capture_consent_tenant"`
 	L7CaptureRedaction     string `yaml:"l7_capture_redaction"`
@@ -137,7 +141,8 @@ type Config struct {
 	L7CaptureHostRoot string `yaml:"l7_capture_host_root"`
 
 	// L7CaptureKernelWindow bounds plaintext bytes per chunk that may
-	// transit the kernel ring under "headers" redaction (EBPF-002).
+	// transit the kernel ring under "metadata" and "headers" redaction
+	// (EBPF-002).
 	// 0 = default (1024). Bounds: 128..4095. "length" forces 0; "full"
 	// forces 4095.
 	L7CaptureKernelWindow int `yaml:"l7_capture_kernel_window"`
@@ -163,7 +168,7 @@ func Default() *Config {
 		FlushInterval:      10 * time.Second,
 		RingBufferBytes:    1 << 24,
 		L7RingBufferBytes:  1 << 24,
-		L7CaptureRedaction: RedactHeaders, // U-003: capture off by default; bodies zeroed when on
+		L7CaptureRedaction: RedactMetadata, // U-003 + D-43: capture off by default; metadata only when on
 		// EBPF-001/SCALE-003/FUZZ-001: bound the live maps by default so the
 		// shipped production agent enforces the cap (not just tests).
 		MaxServiceEdges: 50_000,
@@ -187,6 +192,9 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	cfg.applyEnv(os.Getenv)
+	// D-43: an explicitly empty l7_capture_redaction means the default, never
+	// a mode looser than it.
+	cfg.L7CaptureRedaction = l7redact.Normalize(cfg.L7CaptureRedaction)
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -353,7 +361,7 @@ func (c *Config) validate() error {
 		return fmt.Errorf("ebpf: flush_interval must be > 0")
 	}
 	if c.L7CaptureRedaction != "" && !validRedactionMode(c.L7CaptureRedaction) {
-		return fmt.Errorf("ebpf: l7_capture_redaction %q (want %s|%s|%s)", c.L7CaptureRedaction, RedactHeaders, RedactLengthOnly, RedactFull)
+		return fmt.Errorf("ebpf: l7_capture_redaction %q (want %s)", c.L7CaptureRedaction, strings.Join(l7redact.Modes(), "|"))
 	}
 	if c.L7CaptureEnabled && c.L7CaptureConsentTenant == "" {
 		return fmt.Errorf("ebpf: l7_capture_enabled requires l7_capture_consent_tenant (the EXPLICIT per-tenant consent, U-003)")

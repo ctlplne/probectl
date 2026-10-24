@@ -202,10 +202,15 @@ l7Capture:
   hostLibraryPaths:
     - /usr/lib
     - /lib
-  # headers = keep protocol metadata but zero bodies + secret-bearing header
-  # values and identity-like header values; length = no payload bytes; full =
-  # consented debugging only.
-  redaction: headers
+  # D-43: metadata (the default) = only method, the templated route (query
+  # string removed, identifier segments as {id}), status, latency, byte counts,
+  # protocol and the 5-tuple leave the agent; headers = keep header names and
+  # non-sensitive header values in the parse window (bodies + secret-bearing
+  # and identity-like header values still zeroed) — an opt-in the tenant's
+  # redaction floor must allow; length = no payload bytes; full = consented
+  # debugging only, refused under the regulated profile. The agent refuses to
+  # start capture when this is looser than the tenant's floor.
+  redaction: metadata
   # Max plaintext bytes/chunk that may transit the kernel ring in headers mode.
   # 0 lets the agent default to 1024; valid explicit range is 128..4095.
   kernelWindow: 1024

@@ -249,6 +249,7 @@
         "redaction": {
           "type": "string",
           "enum": [
+            "metadata",
             "headers",
             "length",
             "full"

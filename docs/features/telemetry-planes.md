@@ -235,7 +235,7 @@ l7_capture_enabled: true
 l7_capture_consent_tenant: t-acme   # must equal this agent's bound tenant exactly
 l7_capture_scope:
   - cgroup:/sys/fs/cgroup/system.slice/nginx.service
-l7_capture_redaction: headers       # bodies and credential header values zeroed
+l7_capture_redaction: metadata      # the default: method, templated route (/orders/{id}), status, sizes only
 # Observe: HTTP/gRPC/DNS calls roll onto service edges for nginx only; every other
 # process is dropped in the kernel before a byte is copied.
 ```

@@ -48,7 +48,7 @@ func TestAgentHelmL7CaptureRendersRequiredScope(t *testing.T) {
 
 	for _, want := range []string{
 		"scope: []",
-		"redaction: headers",
+		"redaction: metadata",
 		"kernelWindow: 1024",
 		"ringBufferBytes: 16777216",
 		"identityHeaderFragments: []",

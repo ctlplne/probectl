@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/l7redact"
 )
 
 // TLS-plaintext capture policy (U-003, C13; path map in
@@ -32,21 +33,34 @@ import (
 // The FixtureL7Source (recorded replay for CI/demos) is not live capture
 // and is exempt. The L4 flow plane (no payloads) is unaffected.
 
-// Redaction modes for the capture boundary.
+// Redaction modes for the capture boundary. The names and their strictness
+// order are owned by internal/l7redact, the package the control-plane ingest
+// strip shares with this agent (D-43), so the two layers never disagree.
 const (
-	// RedactHeaders (the default) keeps protocol metadata: for HTTP-framed
-	// chunks everything through the header terminator survives and the body
-	// is zeroed in place; for non-HTTP chunks only the protocol-detection
-	// window (first redactKeepPrefix bytes) survives.
-	RedactHeaders = "headers"
+	// RedactMetadata (the default whenever capture is consented, on every
+	// profile — D-43 refinement 2) is the strictest mode that still yields
+	// parsed calls: the request line and the framing headers survive in the
+	// agent's parse window, every other header VALUE and the whole body are
+	// zeroed, and the emitted call is minimized by l7redact.Minimize — method,
+	// templated route (no query, identifier segments as {id}), status,
+	// latency, byte counts, protocol and the 5-tuple, nothing else.
+	RedactMetadata = l7redact.ModeMetadata
+	// RedactHeaders keeps protocol metadata: for HTTP-framed chunks everything
+	// through the header terminator survives and the body is zeroed in place;
+	// for non-HTTP chunks only the protocol-detection window (first
+	// redactKeepPrefix bytes) survives. Credential and identity header values
+	// are still zeroed. An explicit opt-in: the tenant's redaction floor must
+	// allow it (governance policy l7_capture_redaction: headers).
+	RedactHeaders = l7redact.ModeHeaders
 	// RedactLengthOnly captures NO payload bytes: the kernel window is 0, so
 	// only chunk metadata (direction, true size, connection key) transits the
 	// ring — traffic shape without any plaintext. Parsed L7 calls are
 	// unavailable in this mode (there is nothing to parse), by design.
-	RedactLengthOnly = "length"
+	RedactLengthOnly = l7redact.ModeLength
 	// RedactFull disables payload redaction (consented debugging only —
-	// still behind the same enable+consent+scope gates).
-	RedactFull = "full"
+	// still behind the same enable+consent+scope gates, refused under the
+	// regulated profile, and only when the tenant's floor is full).
+	RedactFull = l7redact.ModeFull
 )
 
 // Kernel capture-window bounds (EBPF-002): the window is how many plaintext
@@ -72,7 +86,7 @@ func kernelWindowFor(mode string, configured int) uint32 {
 		return 0
 	case RedactFull:
 		return maxKernelWindow
-	default: // RedactHeaders
+	default: // RedactHeaders, RedactMetadata: the request line + headers frame the parse
 		if configured == 0 {
 			return defaultKernelWindow
 		}
@@ -138,6 +152,18 @@ var (
 type headerValuePolicy struct {
 	identityFragments []string
 	hashAllValues     bool
+	// metadataOnly (RedactMetadata) zeroes EVERY header value except the
+	// framing headers the HTTP/1 parser needs to find the end of a message.
+	metadataOnly bool
+}
+
+// framingHeaders are the only header values that survive metadata redaction:
+// without them the in-memory parse cannot frame a message (ING-22). They are
+// lengths and codings, never application data, and they never leave the agent
+// either — the emitted call carries no header at all.
+var framingHeaders = [][]byte{
+	[]byte("content-length"),
+	[]byte("transfer-encoding"),
 }
 
 // asciiToLower lowercases an ASCII byte for case-insensitive header-name
@@ -190,6 +216,14 @@ func headerValueAction(line []byte, policy headerValuePolicy) (int, headerValueR
 		return 0, headerValueKeep, false
 	}
 	name := line[:colon]
+	if policy.metadataOnly {
+		for _, h := range framingHeaders {
+			if headerNameEquals(bytes.TrimSpace(name), h) {
+				return 0, headerValueKeep, false
+			}
+		}
+		return colon + 1, headerValueZero, true
+	}
 	for _, h := range sensitiveHeadersExact {
 		if headerNameEquals(name, h) {
 			return colon + 1, headerValueZero, true
@@ -226,7 +260,7 @@ const (
 
 // redactHeaderValues rewrites protected header VALUE bytes within region (the
 // kept header bytes), in place. Header names and CRLF line framing are
-// preserved. Runs only in "headers" mode.
+// preserved. Runs in "headers" and "metadata" modes.
 func redactHeaderValues(region []byte, policy headerValuePolicy) {
 	start := 0
 	for start < len(region) {
@@ -256,7 +290,7 @@ func redactHeaderValues(region []byte, policy headerValuePolicy) {
 // line framing survive so topology/RED attribution and the HTTP/1 parse stay
 // intact; everything after the first '?' in TARGET is zeroed. A line that is
 // not a well-formed HTTP/1 request line (status lines, non-HTTP detection
-// windows) is left untouched. Runs only in "headers" mode.
+// windows) is left untouched. Runs in "headers" and "metadata" modes.
 func redactRequestTargetQuery(region []byte) {
 	line := region
 	if eol := bytes.Index(region, []byte("\r\n")); eol >= 0 {
@@ -343,6 +377,9 @@ func redactPayload(p []byte, mode string) []byte {
 // identity fragments and optional hash-all-header-values behavior.
 func redactPayloadWithPolicy(p []byte, mode string, policy headerValuePolicy) []byte {
 	policy.identityFragments = normalizeHeaderFragments(policy.identityFragments)
+	if mode == RedactMetadata {
+		policy.metadataOnly, policy.hashAllValues = true, false
+	}
 	if mode == RedactFull {
 		return p
 	}
@@ -386,6 +423,8 @@ func redactPayloadWithPolicy(p []byte, mode string, policy headerValuePolicy) []
 }
 
 // validRedactionMode reports whether mode is a known capture-boundary policy.
-func validRedactionMode(mode string) bool {
-	return mode == RedactHeaders || mode == RedactLengthOnly || mode == RedactFull
-}
+func validRedactionMode(mode string) bool { return l7redact.ValidMode(mode) }
+
+// parsesHeaders reports whether mode keeps an HTTP header window for the
+// in-memory parse (and so needs the per-stream DPR-340 state).
+func parsesHeaders(mode string) bool { return mode == RedactHeaders || mode == RedactMetadata }
