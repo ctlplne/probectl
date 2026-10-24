@@ -219,6 +219,14 @@ func TestTestSyncPolicyFiltersTests(t *testing.T) {
 		IntervalSeconds: 60, Params: map[string]string{canary.AllowPrivateParam: "true"}}, map[string]bool{}); reason != "" {
 		t.Fatalf("allow_private_targets agent refused an overridden private test: %s", reason)
 	}
+	// DPR-306: ...but a private test WITHOUT the exception is refused as
+	// private_target (the canary guard's refusal), never as invalid_test.
+	for _, target := range []string{"http://10.0.0.5/", "https://127.0.0.1:8443/readyz", "http://localhost:8080/"} {
+		if reason, _ := g.sync.admitOne(testsync.Test{ID: "lab-no-exception", Type: "http", Target: target,
+			IntervalSeconds: 60}, map[string]bool{}); reason != "private_target" {
+			t.Errorf("allow_private_targets agent refused %s without the per-test exception as %q, want private_target", target, reason)
+		}
+	}
 }
 
 // Diff apply: an unchanged test keeps its goroutine; a changed test restarts;

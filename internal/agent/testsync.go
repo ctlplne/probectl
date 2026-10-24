@@ -315,6 +315,14 @@ func (s *testSyncer) admitOne(t testsync.Test, seen map[string]bool) (string, ce
 	if !s.cfg.AllowPrivateTargets && (t.Params[canary.AllowPrivateParam] == "true" || privateTarget(t.Target)) {
 		return "private_target", centralDef{}
 	}
+	// DPR-306: an agent that allows private targets still runs one only when
+	// the test carries the audited per-test exception; without it the canary's
+	// own SSRF guard refuses the target below. Name that private_target too —
+	// it used to surface as invalid_test, which sent the operator looking for a
+	// malformed test instead of the missing exception.
+	if privateTarget(t.Target) && t.Params[canary.AllowPrivateParam] != "true" {
+		return "private_target", centralDef{}
+	}
 	c, err := s.reg.New(canary.Config{
 		Type: t.Type, Target: t.Target, Interval: interval,
 		Timeout: time.Duration(t.TimeoutSeconds) * time.Second,

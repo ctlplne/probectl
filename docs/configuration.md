@@ -516,7 +516,7 @@ canaries only. The control plane needs
 | `test_sync.public_key_file` | `<dir of tls.cert_file>/testsync.pub` | the deployment's test-bundle public key (PEM) every bundle must verify against |
 | `test_sync.interval` | `30s` | pull cadence; a heartbeat that reports a newer set pulls sooner |
 | `test_sync.allowed_types` | every compiled-in canary type | central tests of any other type are refused (`type_not_allowed`) |
-| `test_sync.allow_private_targets` | `false` | when `false`, central tests with a literal private/loopback/link-local/`localhost` target or the per-test `allow_private_targets` override are refused (`private_target`); when `true`, the audited per-test override is honored as for local tests. See "When to set `allow_private_targets: true`" below |
+| `test_sync.allow_private_targets` | `false` | when `false`, central tests with a literal private/loopback/link-local/`localhost` target or the per-test `allow_private_targets` override are refused (`private_target`); when `true`, the audited per-test override is honored as for local tests, and a private target without it is still refused (`private_target`). See "When to set `allow_private_targets: true`" below |
 | `test_sync.min_interval` | `10s` | central tests scheduled more often are refused (`interval_below_floor`) |
 | `test_sync.max_tests` | `200` | a bundle with more tests is refused whole (`over_cap`); the agent keeps its last verified set |
 | `test_sync.state_dir` | `<buffer.dir>/testsync` | where the last verified bundle is kept (0600); it is re-verified at start, so central tests survive restarts and control-plane outages |
