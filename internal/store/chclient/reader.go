@@ -272,12 +272,14 @@ func verifyReaderLogin(ctx context.Context, ctl, rdr ReadLane, check ReaderCheck
 
 func verifyReaderCannotWrite(ctx context.Context, rdr ReadLane, check ReaderCheck) error {
 	table := check.Tables[0]
-	for _, probe := range []struct{ what, sql string }{
+	for _, probe := range []struct{ what, sql, pastPrivilege string }{
 		// An empty INSERT and a CREATE of an existing name: both are refused
 		// on privileges before they could do anything, and neither changes
-		// data when a login does hold the privilege.
-		{"INSERT", "INSERT INTO " + table + " FORMAT JSONEachRow"},
-		{"CREATE TABLE", "CREATE TABLE " + table + " (probectl_reader_selfcheck UInt8) ENGINE = Memory"},
+		// data when a login does hold the privilege. pastPrivilege is the one
+		// error a login that HOLDS the privilege gets instead (NO_DATA_TO_INSERT,
+		// TABLE_ALREADY_EXISTS).
+		{"INSERT", "INSERT INTO " + table + " FORMAT JSONEachRow", "108"},
+		{"CREATE TABLE", "CREATE TABLE " + table + " (probectl_reader_selfcheck UInt8) ENGINE = Memory", "57"},
 	} {
 		status, code, body, err := selfCheckDo(ctx, rdr, http.MethodPost, probe.sql, "")
 		if err != nil {
@@ -286,15 +288,20 @@ func verifyReaderCannotWrite(ctx context.Context, rdr ReadLane, check ReaderChec
 		switch {
 		case code == accessDeniedCode && status/100 != 2:
 			// refused on privileges: least-privilege, as required
-		case status/100 == 2 || code != "":
-			// It ran, or ClickHouse got past the privilege check to another
-			// error: the login holds the privilege.
+		case status/100 == 2 || code == probe.pastPrivilege:
+			// It ran, or ClickHouse got past the privilege check to the error
+			// only a privileged login sees: the login holds the privilege.
 			return unsafeReader("%s: the reader login %q is not least-privilege: %s on %s was not refused with ACCESS_DENIED (status %d, code %q: %s) (DPR-285)",
 				check.Plane, check.ReaderUser, probe.what, table, status, code, snippet(body))
 		default:
-			// No ClickHouse answer at all (a proxy or transport failure):
-			// the probe could not run, which proves nothing either way.
-			return fmt.Errorf("%s: reader %s probe got no ClickHouse answer (status %d: %s)", check.Plane, probe.what, status, snippet(body))
+			// Any other answer proves nothing either way: ClickHouse checks
+			// concurrency limits, quotas and memory before privileges (a busy
+			// server answers TOO_MANY_SIMULTANEOUS_QUERIES, 202), and a proxy
+			// or transport failure carries no ClickHouse code at all. Unproven
+			// refuses this pod's start; it never withdraws a live tenant's
+			// scope (DPR-326).
+			return fmt.Errorf("%s: reader %s probe could not prove the privilege either way (status %d, code %q: %s)",
+				check.Plane, probe.what, status, code, snippet(body))
 		}
 	}
 	return nil

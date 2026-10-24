@@ -81,7 +81,8 @@ type fakeServer struct {
 	readerSeesRows  bool
 	controlHasRows  bool
 	readerWasScoped bool
-	grants          []string // the reader's SHOW GRANTS; nil = the documented pooled grant
+	grants          []string          // the reader's SHOW GRANTS; nil = the documented pooled grant
+	writeCode       map[string]string // write probe ("INSERT", "CREATE TABLE") -> the ClickHouse error code it answers
 }
 
 func (f *fakeServer) handler(t *testing.T) http.HandlerFunc {
@@ -108,6 +109,14 @@ func (f *fakeServer) handler(t *testing.T) http.HandlerFunc {
 		case strings.HasPrefix(q, "INSERT"), strings.HasPrefix(q, "CREATE TABLE"):
 			if !reader {
 				t.Fatalf("write probe sent as %q", user)
+			}
+			for prefix, code := range f.writeCode {
+				if strings.HasPrefix(q, prefix) {
+					w.Header().Set("X-ClickHouse-Exception-Code", code)
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = w.Write([]byte("Code: " + code + ". DB::Exception: probe answer"))
+					return
+				}
 			}
 			if !f.readerCanWrite {
 				w.Header().Set("X-ClickHouse-Exception-Code", "497")
@@ -245,6 +254,12 @@ func TestVerifyReaderSeparatesUnsafeFromUnproven(t *testing.T) {
 		{name: "a write-capable reader is unsafe", mutate: func(f *fakeServer) { f.readerCanWrite = true }, wantUnsafe: true},
 		{name: "the wrong login is unsafe", mutate: func(f *fakeServer) { f.readerName = "someone_else" }, wantUnsafe: true},
 		{name: "a too-broad grant is unsafe", mutate: func(f *fakeServer) { f.grants = []string{"GRANT SELECT ON *.* TO probectl_reader"} }, wantUnsafe: true},
+		{name: "an empty INSERT that got past the privilege check is unsafe", mutate: func(f *fakeServer) { f.writeCode = map[string]string{"INSERT": "108"} }, wantUnsafe: true},
+		{name: "a CREATE that got past the privilege check is unsafe", mutate: func(f *fakeServer) { f.writeCode = map[string]string{"CREATE TABLE": "57"} }, wantUnsafe: true},
+		// R1 (DPR-326 re-verification): limits are checked before privileges.
+		{name: "a busy server (too many simultaneous queries) is unproven, not unsafe", mutate: func(f *fakeServer) { f.writeCode = map[string]string{"INSERT": "202"} }},
+		{name: "an exceeded quota is unproven, not unsafe", mutate: func(f *fakeServer) { f.writeCode = map[string]string{"CREATE TABLE": "201"} }},
+		{name: "a memory limit is unproven, not unsafe", mutate: func(f *fakeServer) { f.writeCode = map[string]string{"INSERT": "241"} }},
 		{name: "an unreachable server is unproven, not unsafe", down: true},
 		{name: "a proxy error on the write probe is unproven, not unsafe", proxy503: true},
 	} {
