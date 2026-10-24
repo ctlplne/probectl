@@ -58,6 +58,16 @@ x-eval-oneshot-env: &eval-oneshot-env
   # yourself if you drive these files by hand. Empty means agent-ca init stops
   # with the KEYS-003 refusal and nothing downstream runs.
   PROBECTL_ENVELOPE_KEY: "${PROBECTL_EVAL_ENVELOPE_KEY:-}"
+  # DPR-302: the same auth posture as `control`. Config load is shared by every
+  # subcommand, and since AUTHZ-31 the default session mode refuses to load
+  # without a 32-byte PROBECTL_SESSION_HMAC_KEY, so `migrate` exited 1 and the
+  # whole overlay (and `make first-data`) stopped at its first one-shot. These
+  # one-shots open no listener; dev auth here only selects the mode `control`
+  # already runs, held to the same three locks (devauth build, ack, loopback).
+  PROBECTL_AUTH_MODE: "dev"
+  PROBECTL_DEV_AUTH_ACK: "i-understand"
+  PROBECTL_HTTP_ADDR: "127.0.0.1:8443"
+
 
 services:
   # ---- one-shots that provision the agent CA before `control` starts --------

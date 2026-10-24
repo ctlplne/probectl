@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+package main
+
+import (
+	"encoding/base64"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
+)
+
+// The evaluation stack is the documented first hour (docs/getting-started.md:
+// `make first-data`, deploy/compose/eval.yml + eval-synthetic.yml). Beta gate
+// G4(a) ran it on a Docker daemon with no cached images or volumes and it did
+// not get past its first one-shot: the stack had silently drifted from later
+// fail-closed changes, because nothing in CI starts it. These tests hold the
+// merged compose model (and the script that drives it) to those contracts
+// without needing Docker; each test names the finding it pins.
+
+const evalControlImage = "probectl-control-eval:dev"
+
+type evalService struct {
+	Image       string         `yaml:"image"`
+	Command     []string       `yaml:"command"`
+	Entrypoint  []string       `yaml:"entrypoint"`
+	Environment map[string]any `yaml:"environment"`
+	DependsOn   map[string]any `yaml:"-"`
+	RawDepends  any            `yaml:"depends_on"` // a list or a map in Compose
+}
+
+// dependsOn normalizes Compose's two depends_on forms to a set.
+func (s evalService) dependsOn() map[string]any {
+	out := map[string]any{}
+	switch d := s.RawDepends.(type) {
+	case []any:
+		for _, name := range d {
+			out[fmt.Sprint(name)] = nil
+		}
+	case map[string]any:
+		for name, cond := range d {
+			out[name] = cond
+		}
+	}
+	return out
+}
+
+// loadEvalStack merges eval.yml and the eval-synthetic.yml overlay the way
+// `docker compose -f eval.yml -f eval-synthetic.yml` does for the keys these
+// contracts read: scalars and lists replace, environment and depends_on merge.
+func loadEvalStack(t *testing.T) map[string]*evalService {
+	t.Helper()
+	merged := map[string]*evalService{}
+	for _, name := range []string{"eval.yml", "eval-synthetic.yml"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", "compose", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Services map[string]evalService `yaml:"services"`
+		}
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for svcName, svc := range doc.Services {
+			cur, ok := merged[svcName]
+			if !ok {
+				cur = &evalService{Environment: map[string]any{}, DependsOn: map[string]any{}}
+				merged[svcName] = cur
+			}
+			if svc.Image != "" {
+				cur.Image = svc.Image
+			}
+			if svc.Command != nil {
+				cur.Command = svc.Command
+			}
+			if svc.Entrypoint != nil {
+				cur.Entrypoint = svc.Entrypoint
+			}
+			for k, v := range svc.Environment {
+				cur.Environment[k] = v
+			}
+			for k, v := range svc.dependsOn() {
+				cur.DependsOn[k] = v
+			}
+		}
+	}
+	if len(merged) < 8 {
+		t.Fatalf("parsed only %d eval services; the contract has stopped reading the stack", len(merged))
+	}
+	return merged
+}
+
+var composeDefaultRe = regexp.MustCompile(`\$\{([A-Z0-9_]+):-([^}]*)\}`)
+
+// envOf resolves a service's environment as Compose would, with interp
+// standing in for the --env-file `make first-data` passes.
+func envOf(svc *evalService, interp map[string]string) map[string]string {
+	out := make(map[string]string, len(svc.Environment))
+	for k, v := range svc.Environment {
+		s, ok := v.(string)
+		if !ok && v != nil {
+			s = fmt.Sprint(v)
+		}
+		out[k] = composeDefaultRe.ReplaceAllStringFunc(s, func(m string) string {
+			sub := composeDefaultRe.FindStringSubmatch(m)
+			if val, ok := interp[sub[1]]; ok && val != "" {
+				return val
+			}
+			return sub[2]
+		})
+	}
+	return out
+}
+
+// firstDataEnvFile is what scripts/first_data.sh writes into
+// deploy/compose/.env.eval: one random 32-byte envelope key.
+func firstDataEnvFile(t *testing.T) map[string]string {
+	t.Helper()
+	key, err := crypto.Random(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]string{"PROBECTL_EVAL_ENVELOPE_KEY": base64.StdEncoding.EncodeToString(key)}
+}
+
+// TestEvalStackControlOneShotsLoadConfig (DPR-302): each one-shot that runs
+// the control binary's configured path (everything but gen-cert) must load
+// the shared configuration, and if it asks for dev auth it must hold the same
+// two runtime locks the binary checks (the ack and a loopback bind). Before
+// the fix `migrate` exited 1 on "PROBECTL_SESSION_HMAC_KEY is required" and
+// the overlay never started.
+func TestEvalStackControlOneShotsLoadConfig(t *testing.T) {
+	stack := loadEvalStack(t)
+	interp := firstDataEnvFile(t)
+	checked := 0
+	for name, svc := range stack {
+		if svc.Image != evalControlImage || len(svc.Command) == 0 || svc.Command[0] == "gen-cert" {
+			continue
+		}
+		checked++
+		env := envOf(svc, interp)
+		cfg, err := config.Load(func(k string) string { return env[k] })
+		if err != nil {
+			t.Errorf("eval one-shot %q (%s) cannot load the control-plane config: %v", name, strings.Join(svc.Command, " "), err)
+			continue
+		}
+		if cfg.AuthMode == "dev" {
+			if env["PROBECTL_DEV_AUTH_ACK"] != "i-understand" || !loopbackOnly(cfg.HTTPAddr) {
+				t.Errorf("eval one-shot %q selects dev auth without the ack and a loopback bind (validateDevAuthMode would refuse it)", name)
+			}
+		}
+	}
+	if checked < 3 {
+		t.Fatalf("checked only %d control-image one-shots (want migrate, agent-ca init, agent-ca export)", checked)
+	}
+}
