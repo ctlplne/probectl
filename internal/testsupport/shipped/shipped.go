@@ -407,6 +407,7 @@ func (s *Stack) SignIn(t *testing.T, tenant, email string, expect ...string) str
 			{Fill: "#password", Value: s.Dex.Password},
 			{Click: "Login", Expect: expect},
 		},
+		RetrySafe: true, // signing in again from a fresh browser changes nothing
 	})
 	cookie := res.Cookie(auth.SessionCookie)
 	if cookie == "" {

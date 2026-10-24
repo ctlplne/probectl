@@ -40,6 +40,11 @@ type RenderSpec struct {
 	// CAFile verifies an HTTPS control plane for the placeholder check.
 	CAFile    string `json:"-"`
 	TimeoutMs int    `json:"timeoutMs"`
+	// RetrySafe declares that re-running the whole render from a fresh
+	// browser cannot act twice (a sign-in: the IdP accepts a second login), so
+	// a network-change abort may retry a render WITH Steps too. Never set it
+	// on steps that change server state.
+	RetrySafe bool `json:"-"`
 }
 
 // RenderControl must be visible by role and exact accessible name once the
@@ -131,10 +136,11 @@ func RenderUI(t testing.TB, spec RenderSpec) RenderResult {
 	// Chromium abort the page's requests with net::ERR_NETWORK_CHANGED, and the
 	// SPA then shows its unavailable screen (CI run 40098433056, F18). That is a
 	// transport abort, not an application result, so a read-only render (no
-	// Steps, which could act twice) is retried once. The retry's own result is
-	// judged exactly like the first.
+	// Steps, which could act twice) or a RetrySafe one (a sign-in, CI run
+	// 40111139005, F40) is retried once from a fresh browser. The retry's own
+	// result is judged exactly like the first.
 	if shouldRetryRender(spec, res) {
-		t.Logf("render %s: Chromium reported net::ERR_NETWORK_CHANGED; retrying the read-only render once", spec.URL)
+		t.Logf("render %s: Chromium reported net::ERR_NETWORK_CHANGED; retrying the render once", spec.URL)
 		res = renderOnce(t, spec)
 	}
 	if failedRender(res) {
@@ -146,12 +152,12 @@ func RenderUI(t testing.TB, spec RenderSpec) RenderResult {
 
 func failedRender(res RenderResult) bool { return len(res.Missing) > 0 || len(res.Present) > 0 }
 
-// shouldRetryRender: only a read-only render that is MISSING expected text,
-// shows nothing it must not (a must-not-render hit, e.g. another tenant's
-// data, is never retried away), and whose page errors include a Chromium
-// network-change abort.
+// shouldRetryRender: only a render that is MISSING expected text, shows
+// nothing it must not (a must-not-render hit, e.g. another tenant's data, is
+// never retried away), cannot act twice (no Steps, or RetrySafe), and whose
+// page errors include a Chromium network-change abort.
 func shouldRetryRender(spec RenderSpec, res RenderResult) bool {
-	return len(res.Missing) > 0 && len(res.Present) == 0 && len(spec.Steps) == 0 && networkChanged(res.Errors)
+	return len(res.Missing) > 0 && len(res.Present) == 0 && (len(spec.Steps) == 0 || spec.RetrySafe) && networkChanged(res.Errors)
 }
 
 func networkChanged(errs []string) bool {

@@ -9,8 +9,8 @@ package testsupport
 import "testing"
 
 // A render is retried only when expected text is missing, nothing forbidden
-// rendered, it performed no Steps (a retry must not act twice), and Chromium
-// reported net::ERR_NETWORK_CHANGED.
+// rendered, it cannot act twice (no Steps, or a RetrySafe sign-in), and
+// Chromium reported net::ERR_NETWORK_CHANGED.
 func TestShouldRetryRenderOnlyReadOnlyNetworkChange(t *testing.T) {
 	changed := []string{"request failed: https://localhost:18443/v1/me net::ERR_NETWORK_CHANGED"}
 	other := []string{"request failed: https://localhost:18443/v1/me net::ERR_CONNECTION_REFUSED"}
@@ -24,6 +24,8 @@ func TestShouldRetryRenderOnlyReadOnlyNetworkChange(t *testing.T) {
 		{"read-only, network changed", RenderSpec{}, RenderResult{Missing: failed.Missing, Errors: changed}, true},
 		{"read-only, other error", RenderSpec{}, RenderResult{Missing: failed.Missing, Errors: other}, false},
 		{"steps, network changed", RenderSpec{Steps: []RenderStep{{}}}, RenderResult{Missing: failed.Missing, Errors: changed}, false},
+		{"retry-safe sign-in steps, network changed", RenderSpec{Steps: []RenderStep{{}}, RetrySafe: true}, RenderResult{Missing: failed.Missing, Errors: changed}, true},
+		{"retry-safe sign-in, forbidden text present", RenderSpec{Steps: []RenderStep{{}}, RetrySafe: true}, RenderResult{Missing: failed.Missing, Present: []string{"other tenant"}, Errors: changed}, false},
 		{"passed, network changed", RenderSpec{}, RenderResult{Errors: changed}, false},
 		{"forbidden text present is never retried", RenderSpec{}, RenderResult{Missing: failed.Missing, Present: []string{"other tenant"}, Errors: changed}, false},
 	} {
