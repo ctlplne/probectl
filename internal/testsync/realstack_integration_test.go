@@ -9,11 +9,13 @@
 package testsync_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,6 +23,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/testsupport"
@@ -30,8 +36,9 @@ import (
 
 // TestCentralTestsReachAgentsRealStack is the real-stack receipt for central
 // test distribution (beta gate G9, PLAT-13, docs/adr/central-test-distribution.md):
-// a test a user creates in the rendered console reaches only its own tenant's
-// agent, which verifies the signed bundle and runs it. It is also the canary
+// a test a user creates in the rendered console, the CLI or the REST API
+// reaches only its own tenant's agent, which verifies the signed bundle and
+// runs it, for every isolation model: a pooled, a hybrid and a siloed tenant. It is also the canary
 // agent's (F1) and the control plane's REST/gRPC/CLI (F10) receipt, now that
 // the agent takes its tests from the control plane.
 //
@@ -45,20 +52,32 @@ import (
 // central tests to probe private targets, because the target is a loopback
 // page (the operator owns both ends).
 //
-//  1. Both agents start and apply their tenant's (empty) test set.
+// Tenant A is pooled, B hybrid and C siloed (its control state in its own
+// Postgres schema, provisioned by the shipped silo provisioner and routed by
+// the installed tenancy router; its bus lane namespaced).
+//
+//  1. Every agent starts and applies its tenant's (empty) test set; each
+//     tenant's `probectl isolation status` names its model's routing.
 //  2. Tenant A's admin, signed in through the IdP in Chromium, creates an HTTP
 //     test in the onboarding "Create the first test" form. Tenant B's admin
-//     creates one with `probectl test create`.
+//     creates one with `probectl test create`, tenant C's with POST /v1/tests.
 //  3. Each agent pulls, verifies and runs exactly its own tenant's test:
-//     results for A's test come from agent A and appear in tenant A only;
-//     tenant B's API, CLI and console hold none of A's tests or results.
+//     results for a tenant's test come from its agent and appear in that
+//     tenant only; no other tenant's API, CLI or console holds them. The
+//     namespaced tenants' results ride their own bus lane, never the shared
+//     one, which carries the pooled tenant's; the result pipeline consuming
+//     each lane writes the tenant's probe series to Prometheus, and the
+//     tenant's own PromQL endpoint answers for its tests only.
 //  4. Each agent's persisted bundle verifies against the deployment key,
-//     names its own tenant and holds only that tenant's test: agent B never
-//     received A's test, nor agent A B's.
+//     names its own tenant and holds only that tenant's test.
 //  5. GET /v1/agents and `probectl agent list` report each agent in sync, and
 //     the rendered Admin agents table says "In sync" for the tenant's agent
 //     only. /v1/me, `probectl me show` and the API docs page answer as the
 //     caller (F10).
+//  6. Storage placement, read with the privileged login RLS does not filter:
+//     the siloed tenant's test, test-set version and agent (with the version
+//     it applied) live in its own schema and nowhere in the shared one, and
+//     its schema holds no other tenant's rows; the others' live in public.
 func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 	st := shipped.Start(t, shipped.Options{Name: "testsync", TenantBand: 4, Env: map[string]string{
 		"PROBECTL_TESTSYNC_SIGNING_KEY_FILE": filepath.Join(t.TempDir(), "testsync-signing-key.pem"),
@@ -70,7 +89,8 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 
 	A := &g9Tenant{slug: "g9-acme-" + run, name: "Central Acme", model: "pooled", admin: "ada@acme.example"}
 	B := &g9Tenant{slug: "g9-globex-" + run, name: "Central Globex", model: "hybrid", admin: "bob@globex.example"}
-	tenants := []*g9Tenant{A, B}
+	C := &g9Tenant{slug: "g9-initech-" + run, name: "Central Initech", model: "siloed", admin: "carla@acme.example"}
+	tenants := []*g9Tenant{A, B, C}
 
 	// 1. Agents with no local tests, enrolled while distribution is on.
 	for i, tn := range tenants {
@@ -80,6 +100,7 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 		tn.id, tn.mark = row.ID, fmt.Sprintf("g9%d-%s", i, run)
 		tn.cookie = st.SignIn(t, tn.id, tn.admin, tn.name)
 		tn.token = st.APIToken(t, tn.cookie, "tenant.read", "test.read", "test.write", "test.allow_private", "agent.read")
+		tn.readPosture(t, st)
 		tn.agent = uuid(t)
 		tn.agentName = "g9-agent-" + tn.id[:8]
 		tn.identity = st.EnrollAgent(t, tn.id, tn.agent, tn.agentName)
@@ -130,6 +151,17 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 	if B.testID == "" {
 		t.Fatal("probectl test create as tenant B returned no id")
 	}
+	// Tenant C's test, through the REST API.
+	C.testName = "g9 api " + C.mark
+	C.target = page.URL(C.mark)
+	code, raw := st.Do(t, C.cookie, http.MethodPost, "/v1/tests", map[string]any{
+		"name": C.testName, "type": "http", "target": C.target, "interval_seconds": 10, "timeout_seconds": 5,
+		"params": map[string]string{"allow_private_targets": "true"}, "enabled": true,
+	})
+	if code != http.StatusCreated || json.Unmarshal(raw, &created) != nil || created.ID == "" || created.ID == B.testID {
+		t.Fatalf("POST /v1/tests as tenant C = %d: %s", code, raw)
+	}
+	C.testID = created.ID
 
 	// 3. Each agent runs its own tenant's test; results stay in their tenant.
 	// A missing result is reported, not fatal, so the cross-tenant checks
@@ -150,21 +182,22 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 		}
 	}
 	for _, tn := range tenants {
-		other := tn.other(A, B)
 		latest := tn.latest(t, st)
-		if _, leaked := latest[other.testID]; leaked {
-			t.Errorf("tenant %s's latest results hold %s's test %s", tn.slug, other.slug, other.testID)
-		}
 		var history g9Results
 		tn.get(t, st, "/v1/results/history?window=1h", &history)
-		foreign := 0
-		for _, r := range history.Items {
-			if r.Attributes["probectl.test.id"] == other.testID || r.AgentID == other.agent {
-				foreign++
+		for _, other := range tn.others(tenants) {
+			if _, leaked := latest[other.testID]; leaked {
+				t.Errorf("tenant %s's latest results hold %s's test %s", tn.slug, other.slug, other.testID)
 			}
-		}
-		if foreign > 0 {
-			t.Errorf("tenant %s's result history holds %d results of %s's test or agent", tn.slug, foreign, other.slug)
+			foreign := 0
+			for _, r := range history.Items {
+				if r.Attributes["probectl.test.id"] == other.testID || r.AgentID == other.agent {
+					foreign++
+				}
+			}
+			if foreign > 0 {
+				t.Errorf("tenant %s's result history holds %d results of %s's test or agent", tn.slug, foreign, other.slug)
+			}
 		}
 		var tests struct{ Items []struct{ ID, Name string } }
 		tn.get(t, st, "/v1/tests", &tests)
@@ -177,17 +210,59 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 			t.Errorf("probectl test list as %s = %+v, want only its test %s", tn.slug, cliTests, tn.testID)
 		}
 	}
+	// The bus: a namespaced tenant's results ride its own lane only; the
+	// shared lane carries the pooled tenant's (so its zero is not vacuous).
+	for _, tn := range tenants {
+		shared := laneCount(t, "probectl.network.results", tn.id)
+		t.Logf("tenant %s (%s): %d results on the shared lane", tn.slug, tn.model, shared)
+		if tn.ns == "" {
+			if shared == 0 {
+				t.Errorf("no result of the pooled tenant %s on the shared lane probectl.network.results", tn.slug)
+			}
+			continue
+		}
+		if shared != 0 {
+			t.Errorf("the %s tenant %s's results rode the shared lane (%d records)", tn.model, tn.slug, shared)
+		}
+		own := laneCount(t, "probectl."+tn.ns+".network.results", tn.id)
+		t.Logf("tenant %s (%s): %d results on its lane probectl.%s.network.results", tn.slug, tn.model, own, tn.ns)
+		if own == 0 {
+			t.Errorf("no result of the %s tenant %s on its lane probectl.%s.network.results", tn.model, tn.slug, tn.ns)
+		}
+	}
+	// The TSDB: the pipeline consuming each lane writes the tenant's probe
+	// series, labeled with it; its PromQL endpoint answers for its own tests
+	// and for no other tenant's (whose series exist, asserted in their turn).
+	for _, tn := range tenants {
+		if !eventually(90*time.Second, func() bool { return len(tn.series(t, st, tn.testID)) > 0 }) {
+			t.Errorf("no probectl_probe_success series of %s's test %s through its PromQL endpoint within 90s", tn.slug, tn.testID)
+			continue
+		}
+		own := tn.series(t, st, tn.testID)
+		t.Logf("tenant %s (%s): %d probe series of its test in Prometheus", tn.slug, tn.model, len(own))
+		for _, labels := range own {
+			if labels["tenant_id"] != tn.id || labels["agent_id"] != tn.agent {
+				t.Errorf("%s's probe series of its test carries %v, want its tenant %s and agent %s", tn.slug, labels, tn.id, tn.agent)
+			}
+		}
+		for _, other := range tn.others(tenants) {
+			if n := len(tn.series(t, st, other.testID)); n != 0 {
+				t.Errorf("tenant %s's PromQL endpoint answers %d series of %s's test %s", tn.slug, n, other.slug, other.testID)
+			}
+		}
+	}
 
 	// 4. What each agent received: one verified bundle, its own tenant's.
 	for _, tn := range tenants {
-		other := tn.other(A, B)
 		b := tn.persistedBundle(t, st)
 		if b.TenantID != tn.id {
 			t.Errorf("agent %s holds a bundle for tenant %s, want its own %s", tn.agentName, b.TenantID, tn.id)
 		}
 		for _, test := range b.Tests {
-			if test.ID == other.testID {
-				t.Errorf("agent %s (tenant %s) received %s's test %s", tn.agentName, tn.slug, other.slug, other.testID)
+			for _, other := range tn.others(tenants) {
+				if test.ID == other.testID {
+					t.Errorf("agent %s (tenant %s) received %s's test %s", tn.agentName, tn.slug, other.slug, other.testID)
+				}
 			}
 		}
 		if len(b.Tests) != 1 || b.Tests[0].ID != tn.testID || b.Tests[0].Target != tn.target {
@@ -200,7 +275,6 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 
 	// 5. The fleet view, the CLI and the console, per tenant.
 	for _, tn := range tenants {
-		other := tn.other(A, B)
 		var ts *g9TestSet
 		shipped.Await(t, tn.slug+"'s agent in sync with the new test set", 60*time.Second, func() bool {
 			ts = tn.agentTestSet(t, st)
@@ -235,17 +309,23 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 		admin.URL = st.BaseURL + "/ui/admin"
 		admin.Expect = []string{tn.agentName, "In sync",
 			fmt.Sprintf("Running v%d of v%d", ts.AppliedVersion, ts.CurrentVersion)}
-		admin.Absent = []string{other.agentName, "None applied", "Behind"}
-		testsupport.RenderUI(t, admin)
+		admin.Absent = []string{"None applied", "Behind"}
 		targets := console
 		targets.URL = st.BaseURL + "/ui/targets"
 		targets.Expect = []string{"Targets & Tests", tn.testName}
-		targets.Absent = []string{other.testName, other.mark}
+		for _, other := range tn.others(tenants) {
+			admin.Absent = append(admin.Absent, other.agentName)
+			targets.Absent = append(targets.Absent, other.testName, other.mark)
+		}
+		testsupport.RenderUI(t, admin)
 		targets.Steps = []testsupport.RenderStep{
 			{Click: "Results for " + tn.testName, Expect: []string{tn.testName + " — latest results", tn.agent, "ok"}},
 		}
 		testsupport.RenderUI(t, targets)
 	}
+
+	// 6. Where each tenant's test-distribution state physically lives.
+	checkPlacement(t, st, tenants)
 	testsupport.RenderUI(t, testsupport.RenderSpec{
 		URL:            st.BaseURL + "/ui/docs/api",
 		Cookies:        []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: B.cookie}},
@@ -259,6 +339,7 @@ type g9Tenant struct {
 	id, mark, cookie, token, agent string
 	agentName, identity            string
 	testName, testID, target       string
+	ns, pgSchema                   string // the routing `probectl isolation status` reports
 }
 
 type g9TestSet struct {
@@ -278,11 +359,167 @@ type g9Results struct {
 	Items []g9Result `json:"items"`
 }
 
-func (tn *g9Tenant) other(a, b *g9Tenant) *g9Tenant {
-	if tn == a {
-		return b
+// others is every tenant of the receipt but tn.
+func (tn *g9Tenant) others(all []*g9Tenant) []*g9Tenant {
+	out := make([]*g9Tenant, 0, len(all)-1)
+	for _, o := range all {
+		if o != tn {
+			out = append(out, o)
+		}
 	}
-	return a
+	return out
+}
+
+// readPosture records the tenant's routing from `probectl isolation status`
+// and fails unless it is its model's: a siloed tenant has its own Postgres
+// schema and bus lane, a hybrid one a lane only, a pooled one neither.
+func (tn *g9Tenant) readPosture(t *testing.T, st *shipped.Stack) {
+	t.Helper()
+	var posture struct {
+		EffectiveModel string `json:"effective_model"`
+		LaneNamespace  struct {
+			Namespace string `json:"namespace"`
+		} `json:"lane_namespace"`
+		SiloRouting struct {
+			Resolved bool   `json:"resolved"`
+			PGSchema string `json:"pg_schema"`
+		} `json:"silo_routing"`
+	}
+	st.MustCLI(t, tn.env(), &posture, "isolation", "status")
+	tn.ns, tn.pgSchema = posture.LaneNamespace.Namespace, posture.SiloRouting.PGSchema
+	t.Logf("tenant %s (%s): postgres schema %q, bus lane namespace %q", tn.slug, posture.EffectiveModel, tn.pgSchema, tn.ns)
+	wantSchema, wantLane := tn.model == "siloed", tn.model != "pooled"
+	if posture.EffectiveModel != tn.model || !posture.SiloRouting.Resolved ||
+		(tn.pgSchema != "") != wantSchema || (tn.ns != "") != wantLane {
+		t.Fatalf("probectl isolation status as %s (%s) = %+v", tn.slug, tn.model, posture)
+	}
+}
+
+// g9Rows is one table's rows for a tenant, read with the privileged login.
+type g9Rows struct {
+	Own     []string // the tenant's rows in the schema its model routes to
+	Public  int      // a siloed tenant's rows in the shared public schema
+	Foreign int      // other tenants' rows in a siloed tenant's own schema
+}
+
+// placementTables are the tenant-owned tables central test distribution
+// writes, each with the expression that identifies a row in the receipt.
+var placementTables = map[string]string{
+	"tests":                    "id::text",
+	"tenant_test_set_versions": "version::text",
+	"agents":                   "id::text || '@' || COALESCE(test_set_version, 0)::text",
+}
+
+// checkPlacement reads where each tenant's tests, test-set version and agent
+// physically live, with the privileged login (a superuser, which RLS does not
+// filter), so the siloed tenant's isolation is shown at the storage layer and
+// not only through its own scoped reads: a siloed tenant routed to the shared
+// schema would still read its own rows back through RLS.
+func checkPlacement(t *testing.T, st *shipped.Stack, tenants []*g9Tenant) {
+	t.Helper()
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, st.AdminDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	for _, tn := range tenants {
+		epoch := strconv.FormatInt(tn.persistedBundle(t, st).Epoch, 10)
+		want := map[string]string{"tests": tn.testID, "tenant_test_set_versions": epoch, "agents": tn.agent + "@" + epoch}
+		for table, expr := range placementTables {
+			got := tn.rows(ctx, t, pool, table, expr)
+			if tn.pgSchema != "" {
+				t.Logf("%s (%s): %s.%s = %v; its rows in public.%s %d, other tenants' rows in its schema %d",
+					tn.slug, tn.model, tn.schema(), table, got.Own, table, got.Public, got.Foreign)
+			} else {
+				t.Logf("%s (%s): %s.%s = %v", tn.slug, tn.model, tn.schema(), table, got.Own)
+			}
+			if len(got.Own) != 1 || got.Own[0] != want[table] {
+				t.Errorf("%s's rows in %s.%s = %v, want exactly [%s]", tn.slug, tn.schema(), table, got.Own, want[table])
+			}
+			if got.Public != 0 {
+				t.Errorf("ISOLATION: the siloed tenant %s has %d rows in the shared public.%s", tn.slug, got.Public, table)
+			}
+			if got.Foreign != 0 {
+				t.Errorf("ISOLATION: %s's silo schema %s.%s holds %d rows of other tenants", tn.slug, tn.pgSchema, table, got.Foreign)
+			}
+		}
+	}
+}
+
+// schema is the Postgres schema the tenant's control state is routed to.
+func (tn *g9Tenant) schema() string {
+	if tn.pgSchema != "" {
+		return tn.pgSchema
+	}
+	return "public"
+}
+
+// rows reads one table's rows of the tenant in the schema its model routes
+// to and, for a siloed tenant, counts its rows in public and other tenants'
+// rows in its own schema.
+func (tn *g9Tenant) rows(ctx context.Context, t *testing.T, pool *pgxpool.Pool, table, expr string) g9Rows {
+	t.Helper()
+	count := func(schema, op string) int {
+		var n int
+		q := `SELECT count(*) FROM ` + pgx.Identifier{schema, table}.Sanitize() + ` WHERE tenant_id ` + op + ` $1::uuid`
+		if err := pool.QueryRow(ctx, q, tn.id).Scan(&n); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		return n
+	}
+	var out g9Rows
+	q := `SELECT ` + expr + ` FROM ` + pgx.Identifier{tn.schema(), table}.Sanitize() + ` WHERE tenant_id = $1::uuid ORDER BY 1`
+	rows, err := pool.Query(ctx, q, tn.id)
+	if err != nil {
+		t.Fatalf("%s: %v", q, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		out.Own = append(out.Own, v)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("%s: %v", q, err)
+	}
+	if tn.pgSchema != "" {
+		out.Public, out.Foreign = count("public", "="), count(tn.pgSchema, "<>")
+	}
+	return out
+}
+
+// laneCount counts the records on topic whose bus key names tenant.
+func laneCount(t *testing.T, topic, tenant string) int {
+	t.Helper()
+	cl, err := kgo.NewClient(kgo.SeedBrokers(testsupport.KafkaBrokers()...), kgo.ConsumeTopics(topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
+	n := 0
+	deadline := time.Now().Add(20 * time.Second)
+	for idle := 0; idle < 2 && time.Now().Before(deadline); {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		fetches := cl.PollFetches(ctx)
+		cancel()
+		got := 0
+		fetches.EachRecord(func(r *kgo.Record) {
+			got++
+			if key := string(r.Key); key == tenant || strings.HasPrefix(key, tenant+"|") {
+				n++
+			}
+		})
+		if got == 0 {
+			idle++
+		} else {
+			idle = 0
+		}
+	}
+	return n
 }
 
 func (tn *g9Tenant) env() map[string]string {
@@ -309,6 +546,25 @@ func (tn *g9Tenant) latest(t *testing.T, st *shipped.Stack) map[string]g9Result 
 		}
 	}
 	return m
+}
+
+// series is the label sets of the probectl_probe_success series of testID
+// that the tenant's own PromQL endpoint (the Grafana datasource) answers.
+func (tn *g9Tenant) series(t *testing.T, st *shipped.Stack, testID string) []map[string]string {
+	t.Helper()
+	var out struct {
+		Data struct {
+			Result []struct {
+				Metric map[string]string `json:"metric"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	tn.get(t, st, "/v1/grafana/api/v1/query?query="+url.QueryEscape(`probectl_probe_success{test_id="`+testID+`"}`), &out)
+	labels := make([]map[string]string, 0, len(out.Data.Result))
+	for _, r := range out.Data.Result {
+		labels = append(labels, r.Metric)
+	}
+	return labels
 }
 
 // findTest is the id of the tenant's test with that name.
