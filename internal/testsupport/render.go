@@ -123,6 +123,49 @@ func RenderUI(t testing.TB, spec RenderSpec) RenderResult {
 	if embedsPlaceholderUI(t, spec.URL, spec.CAFile) {
 		SkipOrFatal(t, "the control plane embeds the placeholder UI: build web/ and overlay web/dist onto internal/webui/dist before compiling (CI does this; locally: npm --prefix web run build && cp -R web/dist/. internal/webui/dist/)")
 	}
+	if spec.TimeoutMs == 0 {
+		spec.TimeoutMs = 30000
+	}
+	res := renderOnce(t, spec)
+	// A CI runner that creates or attaches a Docker network mid-render makes
+	// Chromium abort the page's requests with net::ERR_NETWORK_CHANGED, and the
+	// SPA then shows its unavailable screen (CI run 40098433056, F18). That is a
+	// transport abort, not an application result, so a read-only render (no
+	// Steps, which could act twice) is retried once. The retry's own result is
+	// judged exactly like the first.
+	if shouldRetryRender(spec, res) {
+		t.Logf("render %s: Chromium reported net::ERR_NETWORK_CHANGED; retrying the read-only render once", spec.URL)
+		res = renderOnce(t, spec)
+	}
+	if failedRender(res) {
+		t.Fatalf("rendered %s (%q): missing %q, must-not-render %q present, page errors %q\nrendered text:\n%s",
+			spec.URL, res.Title, res.Missing, res.Present, res.Errors, res.Text)
+	}
+	return res
+}
+
+func failedRender(res RenderResult) bool { return len(res.Missing) > 0 || len(res.Present) > 0 }
+
+// shouldRetryRender: only a read-only render that is MISSING expected text,
+// shows nothing it must not (a must-not-render hit, e.g. another tenant's
+// data, is never retried away), and whose page errors include a Chromium
+// network-change abort.
+func shouldRetryRender(spec RenderSpec, res RenderResult) bool {
+	return len(res.Missing) > 0 && len(res.Present) == 0 && len(spec.Steps) == 0 && networkChanged(res.Errors)
+}
+
+func networkChanged(errs []string) bool {
+	for _, e := range errs {
+		if strings.Contains(e, "net::ERR_NETWORK_CHANGED") {
+			return true
+		}
+	}
+	return false
+}
+
+// renderOnce runs one Chromium render of spec and decodes its result.
+func renderOnce(t testing.TB, spec RenderSpec) RenderResult {
+	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		SkipOrFatal(t, "node is unavailable for the rendered-UI receipt: %v", err)
@@ -130,9 +173,6 @@ func RenderUI(t testing.TB, spec RenderSpec) RenderResult {
 	root, err := repoRoot()
 	if err != nil {
 		t.Fatal(err)
-	}
-	if spec.TimeoutMs == 0 {
-		spec.TimeoutMs = 30000
 	}
 	in, err := json.Marshal(spec)
 	if err != nil {
@@ -154,10 +194,6 @@ func RenderUI(t testing.TB, spec RenderSpec) RenderResult {
 	var res RenderResult
 	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
 		t.Fatalf("decode render result: %v\n%s", err, stdout.String())
-	}
-	if len(res.Missing) > 0 || len(res.Present) > 0 {
-		t.Fatalf("rendered %s (%q): missing %q, must-not-render %q present, page errors %q\nrendered text:\n%s",
-			spec.URL, res.Title, res.Missing, res.Present, res.Errors, res.Text)
 	}
 	return res
 }
