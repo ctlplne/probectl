@@ -24,12 +24,30 @@ func TestDNSName(t *testing.T) {
 		{"MZXW6YTBOI.exfil.example.net", "{id}.exfil.example.net", "example.net"},
 		{"user123.svc.cluster.local", "{id}.svc.cluster.local", "cluster.local"},
 		{"localhost", "localhost", "localhost"},
+		// D-65 R1: the PSL private section is not a registered-domain boundary.
+		{"bucket-patient-48213.s3.amazonaws.com", "{id}.s3.amazonaws.com", "amazonaws.com"},
+		{"acct48213.blob.core.windows.net", "{id}.blob.core.windows.net", "windows.net"},
+		{"cust-48213.azurewebsites.net", "{id}.azurewebsites.net", "azurewebsites.net"},
+		{"patient-48213.github.io", "{id}.github.io", "github.io"},
+		{"jdoe.herokuapp.com", "jdoe.herokuapp.com", "herokuapp.com"}, // the word-shaped gap
+		// ... nor is a TLD the ICANN list does not know.
+		{"w56hzv-23-c-0123.internal", "{id}.internal", "{id}.internal"},
+		{"records-48213.corp", "{id}.corp", "{id}.corp"},
+		{"host48213.local", "{id}.local", "{id}.local"},
+		{"mrn48213.lan", "{id}.lan", "{id}.lan"},
+		{"patient-48213.records.internal", "{id}.records.internal", "records.internal"},
+		// D-68 (pending): an identifier-shaped ICANN registered label is kept.
+		{"48213.com", "48213.com", "48213.com"},
+		{"x1y2.a1b2.internal", "{id}.internal", "{id}.internal"},
 	} {
 		if got, _ := DNSName(tc.in, false); got != tc.templated {
 			t.Errorf("DNSName(%q) = %q, want %q", tc.in, got, tc.templated)
 		}
 		if got, _ := DNSName(tc.in, true); got != tc.registered {
 			t.Errorf("DNSName(%q, registered) = %q, want %q", tc.in, got, tc.registered)
+		}
+		if got, _ := DNSName(tc.registered, true); got != tc.registered {
+			t.Errorf("DNSName is not idempotent on the registered form %q: %q", tc.registered, got)
 		}
 		if got, _ := DNSName(DNSNameOf(tc.in), false); got != DNSNameOf(tc.in) {
 			t.Errorf("DNSName is not idempotent on %q: %q", tc.in, got)
@@ -54,4 +72,20 @@ func TestMinimizeDNSUnderMetadata(t *testing.T) {
 	if got, _ := MinimizeWith(c, ModeHeaders, Options{}); got.Resource != c.Resource {
 		t.Fatalf("headers opt-in DNS name = %q, want it kept", got.Resource)
 	}
+}
+
+func FuzzDNSName(f *testing.F) {
+	for _, s := range []string{"48213.patients.example.com", "bucket-1.s3.amazonaws.com", "w56hzv-23-c-0123.internal", "a.b", "", "x.y.z.co.uk."} {
+		f.Add(s, false)
+		f.Add(s, true)
+	}
+	f.Fuzz(func(t *testing.T, s string, registered bool) {
+		out, _ := DNSName(s, registered)
+		if len(out) > maxDNSName {
+			t.Fatalf("unbounded: %d", len(out))
+		}
+		if again, _ := DNSName(out, registered); again != out {
+			t.Fatalf("not idempotent: %q -> %q -> %q", s, out, again)
+		}
+	})
 }

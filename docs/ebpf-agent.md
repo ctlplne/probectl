@@ -612,8 +612,16 @@ is three digits and a gRPC status one or two; anything else becomes `_OTHER`.
 its registered domain with the same rules (`48213.patients.example.com` →
 `{id}.patients.example.com`); under the regulated profile only the registered
 domain (eTLD+1, `example.com`) is kept. The registered domain comes from the
-public-suffix list compiled into `golang.org/x/net/publicsuffix` — offline,
-nothing fetched. Both the agent and the ingest strip apply it; the NDR
+**ICANN section** of the public-suffix list compiled into
+`golang.org/x/net/publicsuffix` — offline, nothing fetched. The list's private
+section is deliberately not used: there a cloud customer's label counts as
+"registered", so `bucket-patient-48213.s3.amazonaws.com` becomes
+`{id}.s3.amazonaws.com` (`amazonaws.com` under regulated) and
+`patient-48213.github.io` becomes `{id}.github.io`. In a TLD the ICANN list
+does not know (`.internal`, `.corp`, `.local`, `.lan`) the second-level label is
+judged too: `w56hzv-23-c-0123.internal` becomes `{id}.internal` on both
+profiles. An identifier-shaped label that is itself the ICANN registered label
+(`48213.com`) is kept for now — decision D-68. Both the agent and the ingest strip apply it; the NDR
 detection summaries, incidents and the SIEM export quote only that stored
 form. The DGA and tunnelling detectors keep their signal from features the
 agent computes from the raw name while it is only in agent memory — the first

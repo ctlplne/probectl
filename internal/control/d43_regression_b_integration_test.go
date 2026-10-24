@@ -67,6 +67,16 @@ var d43Needles = []string{
 	"rendezvous-dga-",               // the DGA burst's raw first labels
 	"LENGTHTENANT-ROUTE",            // a length-floor tenant's route: no call persists
 	"EDGECUI-PROTOCOL-9911",         // payload smuggled into an edge's l7_protocol
+	// D-65 R1: identifiers in cloud-provider (PSL private) and unlisted-TLD names
+	"bucket-patient-48213", "acct48213", "cust-48213", "patient-48213",
+	"w56hzv-23-c-0123", "records-48213", "host48213", "mrn48213",
+}
+
+// r1DNSNames are the names the review showed keeping identifiers (D-65 R1).
+var r1DNSNames = []string{
+	"bucket-patient-48213.s3.amazonaws.com", "acct48213.blob.core.windows.net",
+	"cust-48213.azurewebsites.net", "patient-48213.github.io",
+	"w56hzv-23-c-0123.internal", "records-48213.corp", "host48213.local", "mrn48213.lan",
 }
 
 // regulatedNeedles may not survive the regulated profile either: there only
@@ -229,18 +239,23 @@ func dnsMessage(t *testing.T, name string, response bool) string {
 	return base64.StdEncoding.EncodeToString(raw)
 }
 
-// l7Fixture is one HTTP exchange plus one DNS exchange.
-func l7Fixture(t *testing.T, dir, name, request, dnsName string) string {
+// l7Fixture is one HTTP exchange plus one DNS exchange per name.
+func l7Fixture(t *testing.T, dir, name, request string, dnsNames ...string) string {
 	t.Helper()
-	return d43WriteJSON(t, dir, name, []map[string]any{
+	recs := []map[string]any{
 		{"conn_id": 7, "kind": "request", "source_workload": "portal", "destination_workload": "records", "destination_port": 8443,
 			"time_offset_ms": 0, "text": request},
 		{"conn_id": 7, "kind": "response", "time_offset_ms": 12,
 			"text": "HTTP/1.1 201 Created\r\nSet-Cookie: sid=COOKIESECRETVALUE\r\nContent-Length: 0\r\n\r\n"},
-		{"conn_id": 9, "kind": "request", "source_workload": "portal", "destination_workload": "resolver", "destination_port": 53,
-			"transport": "udp", "time_offset_ms": 20, "base64": dnsMessage(t, dnsName, false)},
-		{"conn_id": 9, "kind": "response", "time_offset_ms": 24, "base64": dnsMessage(t, dnsName, true)},
-	})
+	}
+	for i, n := range dnsNames {
+		conn := 100 + i
+		recs = append(recs,
+			map[string]any{"conn_id": conn, "kind": "request", "source_workload": "portal", "destination_workload": "resolver", "destination_port": 53,
+				"transport": "udp", "time_offset_ms": 20 + 4*i, "base64": dnsMessage(t, n, false)},
+			map[string]any{"conn_id": conn, "kind": "response", "time_offset_ms": 22 + 4*i, "base64": dnsMessage(t, n, true)})
+	}
+	return d43WriteJSON(t, dir, name, recs)
 }
 
 // hostileRecord is what an outdated or hostile producer holding a tenant's bus
@@ -248,7 +263,7 @@ func l7Fixture(t *testing.T, dir, name, request, dnsName string) string {
 // header/body bytes in fields the schema does not know, payload in an edge's
 // l7_protocol, and a burst of generated DNS names (with the features an agent
 // would compute, so the DGA detector fires and its summary is persisted).
-func hostileRecord(t *testing.T, tenant, agentID, route, dnsName, dgaPrefix string) []byte {
+func hostileRecord(t *testing.T, tenant, agentID, route, dnsName, dgaPrefix string, moreDNS ...string) []byte {
 	t.Helper()
 	calls := []*ebpfv1.L7Call{{
 		TenantId: tenant, AgentId: agentID, Source: "portal", Destination: "records", DestinationPort: 8443,
@@ -257,6 +272,10 @@ func hostileRecord(t *testing.T, tenant, agentID, route, dnsName, dgaPrefix stri
 		TenantId: tenant, AgentId: agentID, Source: "portal", Destination: "resolver", DestinationPort: 53,
 		Protocol: "dns", Method: "A", Status: "NOERROR", Resource: dnsName, DnsFeatures: testDNSFeatures(dnsName),
 	}}
+	for _, n := range moreDNS {
+		calls = append(calls, &ebpfv1.L7Call{TenantId: tenant, AgentId: agentID, Source: "portal", Destination: "resolver",
+			DestinationPort: 53, Protocol: "dns", Method: "A", Status: "NOERROR", Resource: n, DnsFeatures: testDNSFeatures(n)})
+	}
 	at := time.Now()
 	for i := 0; i < 30; i++ {
 		n := fmt.Sprintf("%sx%dq%dz.evil-rendezvous.example", dgaPrefix, i*7919, i*104729)
@@ -368,7 +387,7 @@ func runD43RegressionB(t *testing.T, regulated bool) {
 		{"source_address": "10.0.1.5", "source_port": 51002, "destination_address": "10.0.2.9", "destination_port": 8443,
 			"network_transport": "tcp", "network_type": "ipv4", "bytes": 2048, "packets": 12, "direction": "egress", "state": "established"},
 	})
-	metaL7 := l7Fixture(t, dir, "l7-meta.json", d43Request, "48213.patients.example.com")
+	metaL7 := l7Fixture(t, dir, "l7-meta.json", d43Request, append([]string{"48213.patients.example.com"}, r1DNSNames...)...)
 	// The headers tenant opted in: its literal route and DNS name may persist
 	// (single profile), so they are its own values, not needles.
 	hdrL7 := l7Fixture(t, dir, "l7-hdr.json", "GET /hdr/HDRSEG-77-X-0001/view?k=HDRQUERYSECRET HTTP/1.1\r\nContent-Length: 0\r\n\r\n", "77310.hdrzone.example.com")
@@ -395,14 +414,14 @@ func runD43RegressionB(t *testing.T, regulated bool) {
 	}
 	var hostile []bus.Message
 	for tenant, id := range hostileIDs {
-		route, dnsName, dga := "/contracts/W56HZV-23-C-0123/drawings?ssn=QUERYSSN987&session=QUERYSESSION", "48213.patients.example.com", "rendezvous-dga-"
+		route, dnsName, dga, more := "/contracts/W56HZV-23-C-0123/drawings?ssn=QUERYSSN987&session=QUERYSESSION", "48213.patients.example.com", "rendezvous-dga-", r1DNSNames
 		switch tenant {
 		case tLength:
-			route = "/LENGTHTENANT-ROUTE/x"
+			route, more = "/LENGTHTENANT-ROUTE/x", nil
 		case tHeaders:
-			route, dnsName, dga = "/hdr/HDRSEG-77-X-0001/view?k=HDRQUERYSECRET", "77310.hdrzone.example.com", "hdrtenant-dga-"
+			route, dnsName, dga, more = "/hdr/HDRSEG-77-X-0001/view?k=HDRQUERYSECRET", "77310.hdrzone.example.com", "hdrtenant-dga-", nil
 		}
-		m := bus.Message{Topic: bus.EBPFFlowsTopic, Key: []byte(tenant), Value: hostileRecord(t, tenant, id, route, dnsName, dga)}
+		m := bus.Message{Topic: bus.EBPFFlowsTopic, Key: []byte(tenant), Value: hostileRecord(t, tenant, id, route, dnsName, dga, more...)}
 		hostile = append(hostile, m)
 	}
 	for _, h := range hostile {
@@ -550,11 +569,11 @@ func runD43RegressionB(t *testing.T, regulated bool) {
 
 	// Non-vacuity: the pipeline really carried each case.
 	metaBus := buses[agentMeta].snapshot()[0].Value
-	wantDNS := "{id}.patients.example.com"
+	wantDNS := []string{"{id}.patients.example.com", "{id}.s3.amazonaws.com", "{id}.github.io", "{id}.internal", "{id}.lan"}
 	if regulated {
-		wantDNS = "example.com"
+		wantDNS = []string{"example.com", "amazonaws.com", "github.io", "{id}.internal", "{id}.lan"}
 	}
-	for _, want := range []string{"/contracts/{id}/drawings", wantDNS} {
+	for _, want := range append([]string{"/contracts/{id}/drawings"}, wantDNS...) {
 		if !bytes.Contains(metaBus, []byte(want)) {
 			t.Errorf("the metadata agent did not publish %q (vacuous run)", want)
 		}
