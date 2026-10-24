@@ -101,6 +101,38 @@ type FlowQualitySummary struct {
 	Error           string               `json:"error,omitempty"`
 }
 
+// L7CaptureAgent is one agent's anonymized L7 capture posture (D-43). The
+// agent ref is a bundle-local ordinal; the scope entries, consent tenant and
+// agent id stay out of the bundle (only the scope size travels).
+type L7CaptureAgent struct {
+	AgentRef        string `json:"agent_ref"`
+	State           string `json:"state"`
+	Consented       bool   `json:"consented"`
+	ConsentMismatch bool   `json:"consent_mismatch,omitempty"`
+	RedactionMode   string `json:"redaction_mode"`
+	EffectiveMode   string `json:"effective_mode,omitempty"`
+	RedactionFloor  string `json:"redaction_floor,omitempty"`
+	Active          bool   `json:"active"`
+	ScopeEntries    int    `json:"scope_entries"`
+}
+
+// L7CaptureSummary is the L7 data-minimization posture of the bundle's tenant
+// (D-43): its effective redaction floor, the ingest strip's counters by kind,
+// and each agent's anonymized capture posture. It never carries L7 call
+// content — no method, route, status or payload byte of any captured call.
+type L7CaptureSummary struct {
+	ContractVersion   string            `json:"contract_version"`
+	DeploymentProfile string            `json:"deployment_profile"`
+	RedactionFloor    string            `json:"redaction_floor"`
+	IngestStrips      map[string]uint64 `json:"ingest_strips"`
+	Agents            []L7CaptureAgent  `json:"agents"`
+	Truncated         bool              `json:"truncated"`
+	Error             string            `json:"error,omitempty"`
+}
+
+// L7CaptureContractVersion versions the l7-capture.json section.
+const L7CaptureContractVersion = "probectl.l7-capture-posture/v1"
+
 // Sources is everything a bundle includes. All fields are SAFE by
 // construction (redacted/anonymized/operational). RedactValues are
 // known-sensitive strings (e.g. the envelope key, tokens, DSN passwords) that
@@ -113,6 +145,7 @@ type Sources struct {
 	Topology         TopologySummary
 	DeviceCollection DeviceCollectionSummary
 	FlowQuality      FlowQualitySummary
+	L7Capture        L7CaptureSummary
 	Runtime          Runtime
 	Notes            []string
 	RedactValues     []string
@@ -172,6 +205,7 @@ func Generate(w io.Writer, src Sources) (Manifest, error) {
 		{"topology-summary.json", src.Topology},
 		{"device-collection.json", src.DeviceCollection},
 		{"flow-ingest-quality.json", src.FlowQuality},
+		{"l7-capture.json", src.L7Capture},
 		{"runtime.json", src.Runtime},
 	}
 	for _, f := range files {

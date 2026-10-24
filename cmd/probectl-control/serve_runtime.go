@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/govern"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/inventory"
 	"github.com/ctlplne/probectl/internal/license"
@@ -67,6 +69,11 @@ import (
 )
 
 type serveRuntime struct {
+	// l7strip is the D-43 control-plane ingest strip every eBPF consumer
+	// decodes through (one instance, so the floor cache and counter are shared).
+	l7strip     *control.L7IngestStrip
+	l7stripOnce sync.Once
+
 	cfg             *config.Config
 	db              *store.DB
 	log             *slog.Logger
@@ -439,6 +446,23 @@ func (rt *serveRuntime) buildAPIServer() error {
 	return nil
 }
 
+// l7IngestStrip returns the deployment's one D-43 ingest strip: each tenant's
+// floor read from its governance row (cached), the regulated profile clamping
+// every floor to at least metadata, every strip counted on /metrics.
+func (rt *serveRuntime) l7IngestStrip() *control.L7IngestStrip {
+	// Consumers are built inside their supervised goroutines: build once.
+	rt.l7stripOnce.Do(func() {
+		var floors *govern.PolicyStore
+		if rt.db != nil && rt.db.Pool() != nil {
+			floors = govern.NewPolicyStore(rt.db.Pool())
+		}
+		rt.l7strip = control.NewL7IngestStrip(floors, rt.cfg.DeploymentProfile == "regulated", rt.log).
+			WithMetrics(rt.srv.Metrics())
+		rt.srv.WithL7IngestStrip(rt.l7strip)
+	})
+	return rt.l7strip
+}
+
 func (rt *serveRuntime) startTopologyConsumer() {
 	rt.g.Go(func() error {
 		return superviseBusLaneRestart(rt.gctx, "topology-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
@@ -446,6 +470,7 @@ func (rt *serveRuntime) startTopologyConsumer() {
 				WithTenantBinding(rt.tenantBinding).
 				WithNamespaceTenants(snap.tenants).
 				WithEBPFStore(rt.ebpfStore).
+				WithL7IngestStrip(rt.l7IngestStrip()).
 				WithDeviceNeighborStore(rt.neighborStore).
 				WithDeviceCollectionOutcomeStore(rt.outcomeStore).
 				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
@@ -733,6 +758,7 @@ func (rt *serveRuntime) startSLOAndComplianceConsumers() {
 					WithSIEM(rt.siemFwd).
 					WithTenantBinding(rt.tenantBinding).
 					WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
+					WithL7IngestStrip(rt.l7IngestStrip()).
 					WithNamespaceTenants(snap.tenants)
 				if rt.db != nil && rt.db.Pool() != nil {
 					cc = cc.WithAlertGate(control.NewPGComplianceGate(rt.db.Pool(), rt.cfg.ComplianceRealert)) // DPR-073, DPR-110
@@ -881,6 +907,7 @@ func (rt *serveRuntime) startNDR() error {
 		WithNamespaceTenants(rt.nsTenants).
 		WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 		WithFairness(rt.fairGate).
+		WithL7IngestStrip(rt.l7IngestStrip()).
 		WithSIEM(rt.siemFwd)
 	rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "ndr-dns", Fn: ndrc.SinkResult})
 	rt.g.Go(func() error {
@@ -903,6 +930,7 @@ func (rt *serveRuntime) startTLSPostureSinks() {
 		WithPostureStore(rt.tlsPostures)
 	rt.resultViewSinks = append(rt.resultViewSinks, control.ResultSink{Name: "tls-posture-view", Fn: tlsView.SinkPosture})
 	ebpfTLSView := control.NewEBPFTLSPostureConsumer(rt.resultBus, rt.tlsPostures, tlsAnalyzer, rt.log).
+		WithL7IngestStrip(rt.l7IngestStrip()).
 		WithTenantBinding(rt.tenantBinding).
 		WithNamespaceTenants(rt.nsTenants).
 		WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes)

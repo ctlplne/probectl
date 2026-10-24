@@ -15,8 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
 	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
@@ -44,6 +42,8 @@ const (
 // certificate metadata from eBPF L7 calls into the tenant posture inventory.
 // It never copies method, resource, status, or application payload.
 type EBPFTLSPostureConsumer struct {
+	// l7strip is the D-43 ingest strip (nil = metadata for every tenant).
+	l7strip   *L7IngestStrip
 	bus       bus.Bus
 	postures  *threat.PostureStore
 	analyzer  *threat.Analyzer
@@ -66,6 +66,12 @@ type EBPFTLSPostureConsumer struct {
 	skipTotals map[string]uint64
 	skipNext   time.Time
 	nowFn      func() time.Time
+}
+
+// WithL7IngestStrip wires the D-43 ingest strip (shared by every eBPF consumer).
+func (cs *EBPFTLSPostureConsumer) WithL7IngestStrip(st *L7IngestStrip) *EBPFTLSPostureConsumer {
+	cs.l7strip = st
+	return cs
 }
 
 func (cs *EBPFTLSPostureConsumer) now() time.Time {
@@ -119,12 +125,12 @@ func (cs *EBPFTLSPostureConsumer) handleLane(ctx context.Context, msg bus.Messag
 	if cs.postures == nil || cs.analyzer == nil {
 		return nil
 	}
-	var batch ebpfv1.FlowBatch
-	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+	// D-43: the shared ingest door — lane tenant first, then the L7 strip.
+	batch, err := decodeEBPFBatch(ctx, cs.l7strip, msg, laneTenant, false)
+	if err != nil {
 		cs.log.Warn("ebpf tls posture: skipping malformed batch", "error", err)
 		return nil
 	}
-	stampEBPFBatchLaneTenant(&batch, laneTenant)
 
 	calls := make([]*ebpfv1.L7Call, 0, len(batch.GetL7Calls()))
 	ids := make([]pipeline.Identity, 0, len(batch.GetL7Calls()))

@@ -547,6 +547,14 @@ emit looser data than its tenant allows.
   agent first reports consented capture and whenever its mode, scope, floor or
   state changes. A consent tenant naming another tenant is never stored, only
   the mismatch.
+- **Ingest strip (second layer).** Whatever an agent sent, the control plane
+  strips every L7 record at ingest, before any consumer projects or persists
+  it, down to the tenant's floor with the same function the agent uses
+  (`internal/l7redact`): query strings always; under `metadata` (and the
+  regulated profile) identifier route segments, non-token methods and
+  statuses, SQL statement text and unknown protocols' free text too, plus any
+  field the schema does not know. Each strip is counted on
+  `probectl_ebpf_l7_ingest_stripped_total{field}`.
 
 What `metadata` cannot see: a route segment that is an identifier but is
 shaped like a word (a username such as `/users/alice`). Templating works on

@@ -57,7 +57,7 @@ func TestBundleHasNoSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The expected diagnostics files are present.
-	for _, want := range []string{"manifest.json", "version.json", "config-redacted.json", "health.json", "self-metrics.json", "topology-summary.json", "device-collection.json", "flow-ingest-quality.json", "runtime.json"} {
+	for _, want := range []string{"manifest.json", "version.json", "config-redacted.json", "health.json", "self-metrics.json", "topology-summary.json", "device-collection.json", "flow-ingest-quality.json", "l7-capture.json", "runtime.json"} {
 		if _, ok := files[want]; !ok {
 			t.Fatalf("bundle missing %s (have %v)", want, keys(files))
 		}

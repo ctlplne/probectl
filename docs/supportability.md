@@ -40,6 +40,7 @@ A `.tar.gz` of JSON files. The code lives in `internal/support/bundle.go`.
 | `topology-summary.json` | **tenant-scoped, anonymized** shape (the authenticated tenant, its agents, its isolation model, region); partial collection exposes only allowlisted error classes — no tenant identifiers, free-form dependency errors, telemetry, or other-tenant counts |
 | `device-collection.json` | bounded LLDP/CDP readiness receipts with bundle-local `agent-NNNN` / `target-NNNN` references; no raw tenant, agent, target, credential, varbind, or error text |
 | `flow-ingest-quality.json` | bounded flow-ingest receipts with bundle-local `agent-NNNN` / `exporter-NNNN` references; counters and allowlisted health only—no tenant, address, raw datagram, flow field, credential, or free-form error |
+| `l7-capture.json` | the tenant's L7 data-minimization posture (D-43): its effective L7 capture redaction floor, the ingest strip's counters by kind, and each reporting eBPF agent's capture state, local/effective mode, applied floor and scope **size**, under bundle-local `agent-NNNN` references — no scope entries, consent tenant, agent id, or anything an agent captured (no method, route, status or payload byte) |
 | `runtime.json` | a runtime snapshot of the process |
 
 ### How it stays secret-free (defense in depth)

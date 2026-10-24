@@ -29,7 +29,6 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/compliance"
 	"github.com/ctlplne/probectl/internal/config"
-	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/pipeline"
@@ -137,6 +136,8 @@ func (s *Server) handleComplianceEvidence(w http.ResponseWriter, r *http.Request
 // ComplianceConsumer feeds the validator from the flow + eBPF topics and
 // exports violation signals to incidents and the SIEM.
 type ComplianceConsumer struct {
+	// l7strip is the D-43 ingest strip (nil = metadata for every tenant).
+	l7strip    *L7IngestStrip
 	engine     *compliance.Engine
 	bus        bus.Bus
 	correlator *incident.Correlator
@@ -149,6 +150,12 @@ type ComplianceConsumer struct {
 	// strictLane (RTP-02, WIRE-001): refuse agent-published batches on the
 	// shared pooled lane so a forged registered pair cannot raise a violation.
 	strictLane bool
+}
+
+// WithL7IngestStrip wires the D-43 ingest strip (shared by every eBPF consumer).
+func (cc *ComplianceConsumer) WithL7IngestStrip(st *L7IngestStrip) *ComplianceConsumer {
+	cc.l7strip = st
+	return cc
 }
 
 // NewComplianceConsumer builds the consumer over a non-nil engine.
@@ -309,12 +316,12 @@ func (cc *ComplianceConsumer) handleFlowLane(ctx context.Context, msg bus.Messag
 }
 
 func (cc *ComplianceConsumer) handleEBPFLane(ctx context.Context, msg bus.Message, laneTenant string) error {
-	var batch ebpfv1.FlowBatch
-	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+	// D-43: the shared ingest door — lane tenant first, then the L7 strip.
+	batch, err := decodeEBPFBatch(ctx, cc.l7strip, msg, laneTenant, false)
+	if err != nil {
 		cc.log.Warn("compliance: skipping malformed ebpf batch", "error", err)
 		return nil
 	}
-	stampEBPFBatchLaneTenant(&batch, laneTenant)
 	ids := make([]pipeline.Identity, len(batch.GetFlows()))
 	for i, f := range batch.GetFlows() {
 		ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}

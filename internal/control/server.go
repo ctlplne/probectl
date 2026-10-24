@@ -340,6 +340,9 @@ type Server struct {
 	// via WithGovernance at the main.go Build* seam when the `governance` feature
 	// is licensed; nil = unlicensed and the surface 404s (hidden-unlicensed).
 	governance governancePolicyStore
+	// l7strip is the deployment's D-43 ingest strip, read for its counters
+	// by the support bundle (nil = no counts reported).
+	l7strip *L7IngestStrip
 
 	// startedAt is the process start (S-EE4): the support bundle reports uptime.
 	startedAt time.Time

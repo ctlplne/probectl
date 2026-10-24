@@ -32,6 +32,8 @@ func TestBundleCompleteness(t *testing.T) {
 	//   topology-summary — scale shape (tenants/agents/region) without telemetry
 	//   device-collection — anonymized per-target collection readiness receipts
 	//   flow-ingest-quality — anonymized per-exporter ingest quality receipts
+	//   l7-capture       — the tenant's L7 redaction floor, ingest strips and
+	//                      anonymized agent capture postures (D-43)
 	//   runtime          — go version / OS / arch / goroutines / mem / uptime
 	//   manifest         — the index (+ the secret-stripped notice)
 	required := []string{
@@ -42,6 +44,7 @@ func TestBundleCompleteness(t *testing.T) {
 		"topology-summary.json",
 		"device-collection.json",
 		"flow-ingest-quality.json",
+		"l7-capture.json",
 		"runtime.json",
 		"manifest.json",
 	}
@@ -54,6 +57,7 @@ func TestBundleCompleteness(t *testing.T) {
 		Topology:         TopologySummary{Tenants: 5, Agents: 20, Region: "eu-west"},
 		DeviceCollection: DeviceCollectionSummary{ContractVersion: "probectl.device-collection-outcomes/v1", Receipts: []DeviceCollectionReceipt{}},
 		FlowQuality:      FlowQualitySummary{ContractVersion: "probectl.flow-ingest-quality/v1", Receipts: []FlowQualityReceipt{}},
+		L7Capture:        L7CaptureSummary{ContractVersion: L7CaptureContractVersion, RedactionFloor: "metadata", IngestStrips: map[string]uint64{}, Agents: []L7CaptureAgent{}},
 		Runtime:          CollectRuntime(time.Now().Add(-time.Hour)),
 	}
 

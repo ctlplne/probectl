@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/govern"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/support"
 	"github.com/ctlplne/probectl/internal/version"
@@ -62,6 +63,11 @@ func supportBundle(args []string) error {
 		FlowQuality: support.FlowQualitySummary{
 			ContractVersion: "probectl.flow-ingest-quality/v1",
 			Receipts:        []support.FlowQualityReceipt{},
+		},
+		L7Capture: support.L7CaptureSummary{
+			ContractVersion: support.L7CaptureContractVersion, DeploymentProfile: cfg.DeploymentProfile,
+			RedactionFloor: govern.EffectiveL7CaptureFloor("", cfg.DeploymentProfile == "regulated"),
+			IngestStrips:   map[string]uint64{}, Agents: []support.L7CaptureAgent{},
 		},
 		Runtime:      support.CollectRuntime(time.Now()),
 		Notes:        []string{"Generated offline by `probectl-control support-bundle` — for a live bundle (topology, self-metrics over time) use GET /v1/diagnostics/bundle."},

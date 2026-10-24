@@ -28,7 +28,6 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/fairness"
-	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 	"github.com/ctlplne/probectl/internal/incident"
@@ -63,6 +62,8 @@ func BuildNDR(cfg *config.Config, intel threat.IntelSource, topo threat.Neighbor
 
 // NDRConsumer feeds the engine from the bus and exports raised detections.
 type NDRConsumer struct {
+	// l7strip is the D-43 ingest strip (nil = metadata for every tenant).
+	l7strip    *L7IngestStrip
 	engine     *threat.Engine
 	bus        bus.Bus
 	correlator *incident.Correlator
@@ -92,6 +93,12 @@ type NDRConsumer struct {
 	// storage flow pipeline's contract. nil = unbounded (tests / opt-out).
 	gate *fairness.Gate
 	shed atomic.Uint64 // flow/eBPF records shed by the per-tenant fairness gate
+}
+
+// WithL7IngestStrip wires the D-43 ingest strip (shared by every eBPF consumer).
+func (cs *NDRConsumer) WithL7IngestStrip(st *L7IngestStrip) *NDRConsumer {
+	cs.l7strip = st
+	return cs
 }
 
 // WithFairness bounds per-tenant flow/eBPF admission into the threat engine
@@ -297,12 +304,12 @@ func (cs *NDRConsumer) handleEBPFBatch(ctx context.Context, msg bus.Message) err
 }
 
 func (cs *NDRConsumer) handleEBPFBatchLane(ctx context.Context, msg bus.Message, laneTenant string) error {
-	var batch ebpfv1.FlowBatch
-	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+	// D-43: the shared ingest door — lane tenant first, then the L7 strip.
+	batch, err := decodeEBPFBatch(ctx, cs.l7strip, msg, laneTenant, false)
+	if err != nil {
 		cs.log.Warn("ndr: skipping malformed ebpf batch", "error", err)
 		return nil
 	}
-	stampEBPFBatchLaneTenant(&batch, laneTenant)
 	// ARCH-012: verify both the flow identities and the L7-call identities
 	// against the registry before any detection is raised; a mismatch drops the
 	// whole batch fail-closed.

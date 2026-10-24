@@ -17,6 +17,8 @@ import (
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/govern"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/support"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/version"
@@ -335,8 +337,63 @@ func (s *Server) supportSources(ctx context.Context, tenant string, includeDeplo
 		Topology:         s.topologySummary(ctx, tenant),
 		DeviceCollection: s.supportDeviceCollection(ctx, tenant),
 		FlowQuality:      s.supportFlowQuality(ctx, tenant),
+		L7Capture:        s.supportL7Capture(ctx, tenant),
 		Runtime:          support.CollectRuntime(s.startedAt),
 		RedactValues:     s.knownSecrets(),
+	}
+}
+
+// maxSupportL7Agents bounds the l7-capture section's agent list.
+const maxSupportL7Agents = 200
+
+// supportL7Capture assembles the bundle's D-43 section: the tenant's effective
+// L7 redaction floor, the ingest strip counters, and each reporting agent's
+// capture posture projected onto an allowlist (bundle-local ordinal refs, scope
+// SIZE only — never the scope entries, the consent tenant or an agent id, and
+// never anything an agent captured).
+func (s *Server) supportL7Capture(ctx context.Context, tenant string) support.L7CaptureSummary {
+	regulated := s.cfg != nil && s.cfg.DeploymentProfile == "regulated"
+	profile := "single"
+	if s.cfg != nil && s.cfg.DeploymentProfile != "" {
+		profile = s.cfg.DeploymentProfile
+	}
+	out := support.L7CaptureSummary{
+		ContractVersion:   support.L7CaptureContractVersion,
+		DeploymentProfile: profile,
+		RedactionFloor:    govern.EffectiveL7CaptureFloor("", regulated),
+		IngestStrips:      s.l7strip.Counts(),
+		Agents:            []support.L7CaptureAgent{},
+	}
+	if s.pool == nil || tenant == "" {
+		return out
+	}
+	if floor, err := govern.NewPolicyStore(s.pool).L7CaptureFloor(ctx, tenant, regulated); err == nil {
+		out.RedactionFloor = floor
+	} else {
+		out.Error = "tenant-scoped L7 redaction floor read unavailable"
+	}
+	var rows []store.AgentL7Posture
+	err := s.inTenantID(ctx, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		var e error
+		rows, out.Truncated, e = (store.Agents{}).L7CapturePostures(ctx, sc, maxSupportL7Agents)
+		return e
+	})
+	if err != nil {
+		out.Error = "tenant-scoped agent L7 capture posture read unavailable"
+		return out
+	}
+	for i, r := range rows {
+		out.Agents = append(out.Agents, l7SupportAgent(i, r.Posture))
+	}
+	return out
+}
+
+// l7SupportAgent is the allowlist projection of one posture for the bundle.
+func l7SupportAgent(i int, p store.L7CapturePosture) support.L7CaptureAgent {
+	return support.L7CaptureAgent{
+		AgentRef: fmt.Sprintf("agent-%04d", i+1), State: p.State, Consented: p.Consented(),
+		ConsentMismatch: p.ConsentMismatch, RedactionMode: p.RedactionMode, EffectiveMode: p.EffectiveMode,
+		RedactionFloor: p.RedactionFloor, Active: p.Active, ScopeEntries: len(p.Scope),
 	}
 }
 

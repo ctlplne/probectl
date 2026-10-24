@@ -83,6 +83,44 @@ func (p L7CapturePosture) SameMaterial(o L7CapturePosture) bool {
 	return true
 }
 
+// AgentL7Posture pairs an agent id with its recorded L7 capture posture.
+type AgentL7Posture struct {
+	AgentID string
+	Posture L7CapturePosture
+}
+
+// L7CapturePostures lists the scoped tenant's agents that reported an L7
+// capture posture, in id order, at most limit (truncated reports more exist).
+func (Agents) L7CapturePostures(ctx context.Context, s tenancy.Scope, limit int) ([]AgentL7Posture, bool, error) {
+	rows, err := s.Q.Query(ctx,
+		`SELECT id::text, l7_capture_posture FROM agents WHERE l7_capture_posture IS NOT NULL ORDER BY id LIMIT $1`, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var out []AgentL7Posture
+	for rows.Next() {
+		var id string
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			return nil, false, err
+		}
+		var p L7CapturePosture
+		if json.Unmarshal(raw, &p) != nil {
+			continue
+		}
+		out = append(out, AgentL7Posture{AgentID: id, Posture: p})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	truncated := len(out) > limit
+	if truncated {
+		out = out[:limit]
+	}
+	return out, truncated, nil
+}
+
 // RecordL7CapturePosture stores an agent's reported L7 capture posture and
 // returns the one it replaces (nil when none was recorded). The row is locked
 // for the read-compare-write so two concurrent reports cannot both see the

@@ -180,6 +180,8 @@ func atParam(r *http.Request, def time.Time) (time.Time, error) {
 // (S14), and device telemetry (S39). Path discoveries fold in at save time
 // (see handleDiscoverPath). Unscoped records are dropped (guardrail 1).
 type TopologyConsumer struct {
+	// l7strip is the D-43 ingest strip (nil = metadata for every tenant).
+	l7strip    *L7IngestStrip
 	store      topology.Store
 	bus        bus.Bus
 	log        *slog.Logger
@@ -202,6 +204,12 @@ type TopologyConsumer struct {
 	// strictLane refuses agent-published records on the shared pooled lane.
 	// Tenant-namespaced broker lanes remain authoritative (WIRE-001).
 	strictLane bool
+}
+
+// WithL7IngestStrip wires the D-43 ingest strip (shared by every eBPF consumer).
+func (tc *TopologyConsumer) WithL7IngestStrip(st *L7IngestStrip) *TopologyConsumer {
+	tc.l7strip = st
+	return tc
 }
 
 // WithEBPFStore wires durable persistence of eBPF service-edge aggregates
@@ -309,13 +317,14 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 
 func (tc *TopologyConsumer) handleEBPFLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	tc.ledger.addReceived("ebpf", 1)
-	var batch ebpfv1.FlowBatch
-	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+	// D-43: the shared ingest door — lane tenant first, then the L7 strip.
+	// This consumer persists to the eBPF store, so its strip is the counted one.
+	batch, err := decodeEBPFBatch(ctx, tc.l7strip, msg, laneTenant, true)
+	if err != nil {
 		tc.ledger.addMalformed("ebpf", 1)
 		tc.log.Warn("topology: skipping malformed ebpf batch", "error", err)
 		return nil
 	}
-	stampEBPFBatchLaneTenant(&batch, laneTenant)
 	// Identity comes from the FLOWS (edges carry tenant only); every edge must
 	// share the flows' tenant — a mixed batch is rejected as an injection
 	// vector. An edges-only batch (no agent to verify) passes homogeneity
