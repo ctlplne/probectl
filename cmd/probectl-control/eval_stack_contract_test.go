@@ -9,6 +9,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -164,5 +165,43 @@ func TestEvalStackControlOneShotsLoadConfig(t *testing.T) {
 	}
 	if checked < 3 {
 		t.Fatalf("checked only %d control-image one-shots (want migrate, agent-ca init, agent-ca export)", checked)
+	}
+}
+
+// TestEvalStackServesAsLeastPrivilegeLogin (DPR-303): the eval control plane
+// must serve as the probectl_runtime login the pg-appuser one-shot provisions
+// (NOSUPERUSER NOBYPASSRLS, member of probectl_app), with the schema applied
+// by a privileged migrate one-shot first. Serving as the Postgres superuser
+// makes the TEN-01 isolation self-check refuse to start: before the fix the
+// eval control plane crash-looped and no eval path produced data.
+func TestEvalStackServesAsLeastPrivilegeLogin(t *testing.T) {
+	stack := loadEvalStack(t)
+	control, pg, appuser := stack["control"], stack["postgres"], stack["pg-appuser"]
+	if control == nil || pg == nil {
+		t.Fatal("eval stack has no control or postgres service")
+	}
+	env := envOf(control, nil)
+	dsn, err := url.Parse(env["PROBECTL_DATABASE_URL"])
+	if err != nil || dsn.User == nil {
+		t.Fatalf("control PROBECTL_DATABASE_URL %q does not name a login", env["PROBECTL_DATABASE_URL"])
+	}
+	superuser := envOf(pg, nil)["POSTGRES_USER"]
+	if login := dsn.User.Username(); login == superuser || login != "probectl_runtime" {
+		t.Errorf("eval control serves as %q (postgres superuser is %q); want the least-privilege probectl_runtime login (TEN-01)", login, superuser)
+	}
+	if env["PROBECTL_MIGRATE_ON_BOOT"] == "true" {
+		t.Error("eval control migrates on boot as its least-privilege login; migrations need the privileged migrate one-shot")
+	}
+	if appuser == nil || !strings.Contains(strings.Join(appuser.Entrypoint, " "), "provision-app-login.sql") {
+		t.Fatal("eval stack has no pg-appuser one-shot running deploy/compose/provision-app-login.sql")
+	}
+	if _, ok := control.DependsOn["pg-appuser"]; !ok {
+		t.Error("eval control does not wait for pg-appuser, so it can start before its login exists")
+	}
+	if _, ok := appuser.DependsOn["migrate"]; !ok {
+		t.Error("pg-appuser does not wait for migrate, so probectl_app may not exist yet")
+	}
+	if m := stack["migrate"]; m == nil || m.Image != evalControlImage || len(m.Command) == 0 || m.Command[0] != "migrate" {
+		t.Error("eval.yml has no migrate one-shot on the control image")
 	}
 }

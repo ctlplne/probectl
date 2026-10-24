@@ -119,6 +119,48 @@ services:
     networks: [probectl]
     restart: "no"
 
+  # ---- one-shots: schema, then the least-privilege serve login (TEN-01) -----
+  # DPR-303: the control plane refuses to serve as a SUPERUSER login, because
+  # a superuser bypasses RLS on every bare-pool path and tenant isolation would
+  # be OFF (guardrail 1). The eval stack used to serve and migrate as the
+  # `probectl` superuser, so `control` crash-looped on its isolation self-check
+  # and nothing in this file produced data. Same shape as probectl.yml:
+  # migrate as the privileged owner, provision probectl_runtime (NOSUPERUSER
+  # NOBYPASSRLS, member of probectl_app), serve as probectl_runtime.
+  migrate:
+    image: probectl-control-eval:dev
+    command: ["migrate"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
+      PROBECTL_REQUIRE_AT_REST_ENCRYPTION: "false"  # eval-only, as for control
+      PROBECTL_ALLOW_KEYLESS_DEV: "true"            # eval-only, as for control
+      # DPR-302: the same auth posture as control (config load is shared, and
+      # the default session mode requires a session HMAC key). No listener.
+      PROBECTL_AUTH_MODE: "dev"
+      PROBECTL_DEV_AUTH_ACK: "i-understand"
+      PROBECTL_HTTP_ADDR: "127.0.0.1:8443"
+      PROBECTL_LOG_FORMAT: "json"
+    networks: [probectl]
+    restart: "no"
+
+  pg-appuser:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      PGPASSWORD: probectl                       # eval-only fixed owner credential (above)
+      POSTGRES_APP_PASSWORD: probectl-runtime-eval  # eval-only fixed runtime credential
+    entrypoint:
+      - bash
+      - -c
+      - exec psql "host=postgres user=probectl dbname=probectl sslmode=disable" -v ON_ERROR_STOP=1 -v app_password="$$POSTGRES_APP_PASSWORD" -f /provision-app-login.sql
+    volumes:
+      - ./provision-app-login.sql:/provision-app-login.sql:ro
+    networks: [probectl]
+    restart: "no"
+
   # ---- the control plane (consumer) -----------------------------------------
   # Dev-auth + loopback-only HTTPS (RED-001). NO host port: the no-auth API is
   # deliberately unreachable from your network; read it via the `viewer` helper,
@@ -130,6 +172,7 @@ services:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
       certgen: { condition: service_completed_successfully }
+      pg-appuser: { condition: service_completed_successfully }  # TEN-01 serve login
     environment:
       # Loopback-only HTTPS — required for dev auth, and why nothing is
       # published. The control plane ENFORCES this: PROBECTL_AUTH_MODE=dev with
@@ -145,8 +188,10 @@ services:
       PROBECTL_HTTP_ADDR: "127.0.0.1:8443"
       PROBECTL_TLS_CERT_FILE: /certs/tls.crt
       PROBECTL_TLS_KEY_FILE: /certs/tls.key
-      PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
-      PROBECTL_MIGRATE_ON_BOOT: "true"        # creates schema + the probectl_app role (0007)
+      # TEN-01: serve as the least-privilege login the pg-appuser one-shot made;
+      # the `migrate` one-shot already applied the schema as the owner.
+      PROBECTL_DATABASE_URL: postgres://probectl_runtime:probectl-runtime-eval@postgres:5432/probectl?sslmode=disable
+      PROBECTL_MIGRATE_ON_BOOT: "false"
       PROBECTL_REQUIRE_AT_REST_ENCRYPTION: "false"  # eval-only: skip envelope-key setup
       PROBECTL_ALLOW_KEYLESS_DEV: "true"       # eval-only: explicit plaintext secret-at-rest escape hatch
       PROBECTL_EVIDENCE_SIGNING_KEY_FILE: /var/lib/probectl/evidence-signing-ed25519.pem
