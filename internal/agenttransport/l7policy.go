@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -89,6 +90,9 @@ func (svc *service) ReportL7Posture(ctx context.Context, req *agentv1.ReportL7Po
 	if svc.l7policy == nil {
 		return nil, status.Error(codes.FailedPrecondition, "L7 capture policy is not configured on this control plane")
 	}
+	if !svc.postureLimiter().allow(id.TenantID+"/"+id.AgentID, time.Now()) {
+		return nil, status.Error(codes.ResourceExhausted, "posture reported too often; retry on the next policy check")
+	}
 	p, err := validateL7Posture(id.TenantID, req.GetPosture(), time.Now().UTC())
 	if err != nil {
 		svc.log.Warn("rejecting malformed l7 capture posture", "tenant", id.TenantID, "agent", id.AgentID, "reason", err.Error())
@@ -108,6 +112,71 @@ func (svc *service) ReportL7Posture(ctx context.Context, req *agentv1.ReportL7Po
 			"redaction_mode", p.RedactionMode, "effective_mode", p.EffectiveMode, "floor", p.RedactionFloor)
 	}
 	return &agentv1.ReportL7PostureResponse{Changed: changed}, nil
+}
+
+// Posture rate limit (review note N1): a token bucket per agent — a burst of
+// postureBurst reports (start: the pre-attach posture, then the attached one),
+// refilled one per postureRefill. A legitimate agent reports at most every
+// 30 seconds; an agent that reports faster is refused before anything is
+// stored or audited, so its tenant's chain cannot be flooded.
+const (
+	postureBurst      = 5
+	postureRefill     = 10 * time.Second
+	postureLimiterMax = 65536
+)
+
+type postureBucket struct {
+	tokens float64
+	at     time.Time
+}
+
+type postureRateLimiter struct {
+	mu      sync.Mutex
+	burst   float64
+	buckets map[string]*postureBucket
+}
+
+func (l *postureRateLimiter) allow(key string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.buckets[key]
+	if !ok {
+		if len(l.buckets) >= postureLimiterMax {
+			for k, v := range l.buckets { // shed buckets idle long enough to be full
+				if now.Sub(v.at) >= postureBurst*postureRefill {
+					delete(l.buckets, k)
+				}
+			}
+			if len(l.buckets) >= postureLimiterMax {
+				return false
+			}
+		}
+		b = &postureBucket{tokens: l.burst, at: now}
+		l.buckets[key] = b
+	}
+	b.tokens += now.Sub(b.at).Seconds() / postureRefill.Seconds()
+	if b.tokens > l.burst {
+		b.tokens = l.burst
+	}
+	b.at = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+func newPostureRateLimiter(burst float64) *postureRateLimiter {
+	return &postureRateLimiter{burst: burst, buckets: map[string]*postureBucket{}}
+}
+
+func (svc *service) postureLimiter() *postureRateLimiter {
+	svc.postureOnce.Do(func() {
+		if svc.postures == nil {
+			svc.postures = newPostureRateLimiter(postureBurst)
+		}
+	})
+	return svc.postures
 }
 
 // Posture bounds: the scope is an allowlist of workloads, not a transcript.
@@ -164,7 +233,8 @@ func validateL7Posture(tenantID string, in *agentv1.L7CapturePosture, now time.T
 		return out, err
 	}
 	if !postureStates[in.GetState()] {
-		return out, fmt.Errorf("state %q is not a known capture state", in.GetState())
+		// N8: never echo the agent-supplied value into the log or the error.
+		return out, fmt.Errorf("state is not a known capture state")
 	}
 	out.State = in.GetState()
 	return out, nil
@@ -206,18 +276,53 @@ type pgL7Policy struct {
 	pool      *pgxpool.Pool
 	floors    *govern.PolicyStore
 	regulated bool
+
+	// cache holds each tenant's floor for floorCacheTTL (review note N1:
+	// FetchL7Policy is not a per-call database read), bounded.
+	mu    sync.Mutex
+	cache map[string]cachedL7Floor
 }
+
+type cachedL7Floor struct {
+	floor   string
+	expires time.Time
+}
+
+const (
+	floorCacheTTL = 30 * time.Second
+	floorCacheMax = 4096
+)
 
 // NewL7Policy builds the database-backed L7 capture policy. regulated is the
 // deployment profile: under it the floor is never looser than metadata.
 func NewL7Policy(pool *pgxpool.Pool, regulated bool) L7Policy {
-	return &pgL7Policy{pool: pool, floors: govern.NewPolicyStore(pool), regulated: regulated}
+	return &pgL7Policy{pool: pool, floors: govern.NewPolicyStore(pool), regulated: regulated, cache: map[string]cachedL7Floor{}}
 }
 
 func (p *pgL7Policy) DNSRegisteredDomainOnly() bool { return p.regulated }
 
 func (p *pgL7Policy) Floor(ctx context.Context, tenantID string) (string, error) {
-	return p.floors.L7CaptureFloor(ctx, tenantID, p.regulated)
+	now := time.Now()
+	p.mu.Lock()
+	c, ok := p.cache[tenantID]
+	p.mu.Unlock()
+	if ok && now.Before(c.expires) {
+		return c.floor, nil
+	}
+	floor, err := p.floors.L7CaptureFloor(ctx, tenantID, p.regulated)
+	if err != nil {
+		return "", err
+	}
+	p.mu.Lock()
+	if len(p.cache) >= floorCacheMax {
+		for k := range p.cache { // shed one arbitrary entry; the TTL bounds staleness
+			delete(p.cache, k)
+			break
+		}
+	}
+	p.cache[tenantID] = cachedL7Floor{floor: floor, expires: now.Add(floorCacheTTL)}
+	p.mu.Unlock()
+	return floor, nil
 }
 
 func (p *pgL7Policy) RecordPosture(ctx context.Context, tenantID, agentID string, next store.L7CapturePosture) (bool, error) {

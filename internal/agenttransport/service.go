@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -158,6 +159,9 @@ type service struct {
 	// each agent's capture posture (D-43). nil = both RPCs FailedPrecondition;
 	// an agent that receives no floor applies metadata.
 	l7policy L7Policy
+	// postures rate-limits ReportL7Posture per agent (lazy, postureOnce).
+	postures    *postureRateLimiter
+	postureOnce sync.Once
 }
 
 // Register upserts the agent into its tenant's registry. The id and tenant are

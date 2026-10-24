@@ -8,6 +8,7 @@ package agenttransport
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -102,6 +103,7 @@ func TestFetchL7PolicyTenantFromCertificate(t *testing.T) {
 
 func TestReportL7PostureValidatesUntrustedFields(t *testing.T) {
 	svc, ctx, _, tenant := l7Service(t)
+	svc.postures = newPostureRateLimiter(1000) // this test is about validation, not the rate
 	fake := &fakeL7Policy{}
 	svc.l7policy = fake
 	good := &agentv1.L7CapturePosture{
@@ -209,5 +211,49 @@ func TestL7PolicyCallsArePlaneScoped(t *testing.T) {
 	}
 	if _, err := svc.PollCoordination(ebpfCtx, &agentv1.PollCoordinationRequest{}); status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("eBPF identity on PollCoordination = %v, want Unauthenticated", err)
+	}
+}
+
+// Review note N1: ReportL7Posture is rate-limited per agent, so a broken or
+// hostile agent cannot flood its tenant's audit chain; a legitimate agent's
+// start (two reports) and its 30-second-or-slower policy checks pass.
+func TestReportL7PostureIsRateLimited(t *testing.T) {
+	svc, ctx, _, tenant := l7Service(t)
+	fake := &fakeL7Policy{}
+	svc.l7policy = fake
+	p := &agentv1.L7CapturePosture{Enabled: true, ConsentTenant: tenant, Scope: []string{"pid:1"},
+		RedactionMode: "metadata", State: "capturing"}
+	ok, limited := 0, 0
+	for i := 0; i < 50; i++ {
+		_, err := svc.ReportL7Posture(ctx, &agentv1.ReportL7PostureRequest{Posture: p})
+		switch status.Code(err) {
+		case codes.OK:
+			ok++
+		case codes.ResourceExhausted:
+			limited++
+		default:
+			t.Fatalf("report: %v", err)
+		}
+	}
+	if ok != postureBurst || limited != 50-postureBurst || len(fake.recorded) != postureBurst {
+		t.Fatalf("ok=%d limited=%d recorded=%d, want a burst of %d then refusals", ok, limited, len(fake.recorded), postureBurst)
+	}
+	l := newPostureRateLimiter(postureBurst)
+	at := time.Now()
+	for i := 0; i < 100; i++ { // one report per 30 s never trips the limit
+		if !l.allow("a", at.Add(time.Duration(i)*30*time.Second)) {
+			t.Fatalf("a 30-second cadence was refused at report %d", i)
+		}
+	}
+}
+
+// Note N8: a rejected posture never echoes the agent-supplied value.
+func TestReportL7PostureRejectionDoesNotEcho(t *testing.T) {
+	svc, ctx, _, _ := l7Service(t)
+	svc.l7policy = &fakeL7Policy{}
+	_, err := svc.ReportL7Posture(ctx, &agentv1.ReportL7PostureRequest{Posture: &agentv1.L7CapturePosture{
+		RedactionMode: "metadata", State: "BODYSECRET-in-a-state"}})
+	if status.Code(err) != codes.InvalidArgument || strings.Contains(err.Error(), "BODYSECRET") {
+		t.Fatalf("rejection = %v", err)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/bus"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
@@ -254,6 +255,11 @@ func TestControlPlaneConfigRequiresTheFullIdentity(t *testing.T) {
 		t.Fatal("grpc_addr without the agent_id its certificate names must refuse")
 	}
 	cfg.AgentID = "55555555-5555-4555-8555-555555555555"
+	cfg.ControlPlane.PolicyInterval = time.Second
+	if err := cfg.validate(); err == nil {
+		t.Fatal("a policy_interval under the 30-second minimum must refuse (note N1)")
+	}
+	cfg.ControlPlane.PolicyInterval = 0
 	if err := cfg.validate(); err != nil {
 		t.Fatalf("full identity must validate: %v", err)
 	}

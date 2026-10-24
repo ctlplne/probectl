@@ -624,6 +624,14 @@ is scored on the stored form. With no floor received the agent keeps only the
 registered domain (the strictest rule). The word-shaped gap applies here too:
 `alice.users.corp.internal` keeps `alice`.
 
+**Upgrading.** The floor, the channel and DNS minimization act from the
+release that carries them. During a rolling upgrade, agents of the previous
+release (inside the N/N-1 skew window) keep publishing what they always did —
+literal routes and DNS names under `headers` — to the retained bus until they
+are upgraded; the control plane's ingest strip still keeps it out of every
+store. Upgrade the eBPF agents first when that bus retention matters, or drain
+the topic.
+
 What `metadata` cannot see: a route segment that is an identifier but is
 shaped like a word (a username such as `/users/alice` or `/users/JDOE`).
 Templating works on shape, so routes of that kind need the application to
