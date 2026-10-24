@@ -32,7 +32,7 @@ else — not mount filesystems, not load modules, not inspect other processes.
 
 | Kernel | Capabilities | Notes |
 |---|---|---|
-| **>= 5.8** (preferred) | `CAP_BPF` + `CAP_PERFMON` | the minimal pair: `bpf()` program/map ops + `perf_event_open` for uprobe/tracepoint attach. The agent needs nothing else — not `CAP_NET_ADMIN` (observe-only, no tc/XDP), not `CAP_SYS_PTRACE`, not root |
+| **>= 5.8** (preferred) | `CAP_BPF` + `CAP_PERFMON` | the minimal pair: `CAP_BPF` for `bpf()` program/map ops, `CAP_PERFMON` for loading and attaching the tracing programs (the L4 raw tracepoint through `bpf()` with no tracefs, ING-23; the L7 uprobes through `perf_event_open`). The agent needs nothing else — not `CAP_NET_ADMIN` (observe-only, no tc/XDP), not `CAP_SYS_PTRACE`, not root |
 | **< 5.8** | unsupported by default | the live agent requires BTF plus the BPF ring buffer. Do not broaden to `CAP_SYS_ADMIN` as a workaround; it still cannot make a kernel without ring-buffer support capture live events |
 | explicit legacy exception | `CAP_SYS_ADMIN` | use only when the runtime probe can still confirm BTF + BPF ring-buffer support but the platform cannot grant the split `CAP_BPF` / `CAP_PERFMON` pair. Record the exception and prefer upgrading the kernel/capability policy |
 | any | `LimitMEMLOCK=infinity` (or a sized `RLIMIT_MEMLOCK`) | BPF maps + the ring buffer are locked memory (pinned in RAM, never swapped to disk) |
@@ -84,7 +84,7 @@ services:
     ulimits: { memlock: -1 }
     volumes:
       - /sys/kernel/btf/vmlinux:/sys/kernel/btf/vmlinux:ro
-      - /sys/kernel/tracing:/sys/kernel/tracing:ro   # tracepoint event ids (DPR-054)
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro   # L7 uprobe path only; L4 needs no tracefs (ING-23)
 ```
 
 ## Kubernetes (DaemonSet securityContext)

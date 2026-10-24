@@ -2,7 +2,11 @@
 #
 # Capability model (see deploy/agent/README.md for the kernel matrix):
 #   kernel >= 5.8: CAP_BPF + CAP_PERFMON (the minimal pair: program/map
-#                  loading + uprobe/tracepoint attachment) — preferred.
+#                  loading + raw-tracepoint/uprobe attachment) — preferred.
+#                  The L4 flow plane runs on exactly this pair as the non-root
+#                  User= below: it attaches as a raw tracepoint, so it reads no
+#                  tracefs (ING-23; proven per kernel by TestLiveNonRootL4Attach).
+#                  L7 TLS capture under this unit is NOT covered (decision D-63).
 #   legacy exception: CAP_SYS_ADMIN only when the runtime probe can still
 #                  confirm BTF + BPF ring-buffer support and the platform
 #                  cannot grant the split CAP_BPF/CAP_PERFMON pair.
@@ -49,6 +53,9 @@ SystemCallErrorNumber=EPERM
 # --- filesystem / namespace hardening ---
 ProtectSystem=strict
 ProtectHome=yes
+# The L4 plane reads only /sys/kernel/btf (CO-RE). tracefs is root-only on
+# systemd distros and L4 no longer needs it (ING-23); the optional entry is
+# left for the L7 uprobe path, whose non-root story is decision D-63.
 ReadOnlyPaths=/sys/kernel/btf -/sys/kernel/tracing
 ReadWritePaths=/var/lib/probectl
 PrivateTmp=yes

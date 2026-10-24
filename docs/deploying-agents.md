@@ -368,9 +368,10 @@ capabilities that permit loading BPF programs and attaching to perf events,
 granted without root — and a
 **BTF-exposing kernel** (`/sys/kernel/btf/vmlinux`, mainstream from 5.8 — BTF
 is the kernel's embedded type catalog, which lets one compiled agent adapt to
-any kernel) with its **tracefs** visible (`/sys/kernel/tracing`; a container
-must have the node's tracefs mounted in read-only — the Helm chart does,
-DPR-054). Generic kernels older than 5.8 are unsupported by default;
+any kernel). The L4 flow plane needs **no tracefs** and no root: it attaches as a
+raw tracepoint, and the kernel-matrix job runs it as a non-root user with only
+that capability pair (`ING-23`). The Helm chart's read-only tracefs mount
+(DPR-054) now serves only the L7 TLS uprobe path. Generic kernels older than 5.8 are unsupported by default;
 `CAP_SYS_ADMIN` is only an explicit legacy break-glass when the runtime probe
 confirms BTF plus BPF ring-buffer support but split caps cannot be granted. On
 macOS/Windows, run it inside a Linux VM. The shipped image is the live build;

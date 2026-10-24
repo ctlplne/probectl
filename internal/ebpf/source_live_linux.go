@@ -25,10 +25,11 @@ import (
 const l4DropRingBufferFull = uint32(0)
 
 // liveSource is the CO-RE eBPF flow source: it loads bpf/l4flow.bpf.c, attaches
-// it to the inet_sock_set_state tracepoint (observe-only), and decodes
-// ring-buffer records into Flows, including IPv4/IPv6 addresses and TCP
-// byte/packet counters when the kernel exposes them. Compiled only under -tags
-// ebpf; it needs a BTF kernel (>= 5.8) and CAP_BPF (or root). The
+// it to the inet_sock_set_state tracepoint as a raw tracepoint (observe-only),
+// and decodes ring-buffer records into Flows, including IPv4/IPv6 addresses and
+// TCP byte/packet counters when the kernel exposes them. Compiled only under
+// -tags ebpf; it needs a BTF kernel (>= 5.8) and CAP_BPF + CAP_PERFMON — not
+// root, and not tracefs (ING-23). The
 // bpf2go-generated symbols (loadL4flowObjects / l4flowObjects) come from
 // `go generate` (see the directive above) — run it on a Linux host with clang
 // before building with -tags ebpf.
@@ -42,6 +43,12 @@ type liveSource struct {
 	// listeners that predate the agent (ING-24); false on kernels without it.
 	listenersSeeded bool
 }
+
+// l4AttachHook is the tracepoint the L4 program attaches to, by name, as a raw
+// tracepoint (ING-23). A classic tracepoint link reads the event id from
+// tracefs, which is root-only on systemd distros, so the shipped non-root unit
+// could not attach; BPF_RAW_TRACEPOINT_OPEN needs only bpf() and the caps.
+const l4AttachHook = "inet_sock_set_state"
 
 // seedListenersProgram is the l4flow iterator that records pre-existing
 // listening sockets with their owning task (ING-24).
@@ -98,7 +105,8 @@ func seedListeners(prog *cebpf.Program) bool {
 func (s *liveSource) ListenersSeeded() bool { return s.listenersSeeded }
 
 // newLiveSource loads and attaches the eBPF program. This is the only place that
-// calls the bpf() syscall, and it loads only an observation (tracepoint) program.
+// calls the bpf() syscall, and it loads only observation programs (a raw
+// tracepoint and a read-only iterator).
 func newLiveSource(cfg *Config) (Source, error) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return nil, fmt.Errorf("ebpf: remove memlock (need CAP_BPF/root): %w", err)
@@ -122,14 +130,10 @@ func newLiveSource(cfg *Config) (Source, error) {
 		// surfaced as a bare EPERM.
 		return nil, explainBPFLoadError(fmt.Errorf("ebpf: load objects (need a BTF kernel + CAP_BPF): %w", err))
 	}
-	tp, err := link.Tracepoint("sock", "inet_sock_set_state", s.objs.HandleSetState, nil)
+	tp, err := link.AttachRawTracepoint(link.RawTracepointOptions{Name: l4AttachHook, Program: s.objs.HandleSetState})
 	if err != nil {
 		_ = s.objs.Close()
-		if !traceFSVisible() {
-			// DPR-054: say what to mount, not just that nothing was mounted.
-			return nil, fmt.Errorf("ebpf: attach tracepoint: %w — %s", err, traceFSReason)
-		}
-		return nil, fmt.Errorf("ebpf: attach tracepoint: %w", err)
+		return nil, fmt.Errorf("ebpf: attach raw tracepoint %s (need CAP_BPF + CAP_PERFMON): %w", l4AttachHook, err)
 	}
 	s.tp = tp
 	// ING-24: listeners opened before the agent are recorded once, AFTER the

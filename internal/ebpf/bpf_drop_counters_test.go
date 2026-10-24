@@ -47,8 +47,10 @@ func TestL4BPFProgramCapturesIPv6AndTCPVolume(t *testing.T) {
 	l4 := readBPFSource(t, "bpf/l4flow.bpf.c")
 	for _, want := range []string{
 		"AF_INET6",
-		"saddr_v6",
-		"daddr_v6",
+		// The socket's v6 pair, which the raw tracepoint reads (ING-23); the
+		// formatted tracepoint record called them saddr_v6/daddr_v6.
+		"skc_v6_rcv_saddr",
+		"skc_v6_daddr",
 		"bytes_acked",
 		"bytes_received",
 		"data_segs_out",

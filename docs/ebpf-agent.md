@@ -40,7 +40,7 @@ bus:
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
   subgraph kernel["kernel (only with -tags ebpf)"]
-    TP["tracepoint sock/inet_sock_set_state"] --> PROG["CO-RE eBPF prog"] --> RB["ring buffer"]
+    TP["raw tracepoint sock/inet_sock_set_state"] --> PROG["CO-RE eBPF prog"] --> RB["ring buffer"]
   end
   RB --> LIVE["liveSource (cilium/ebpf)"]
   FIX["FixtureSource (recorded JSON)"] --> AGG
@@ -56,16 +56,22 @@ flowchart LR
    [Kernel compatibility](#kernel-compatibility)) attaches to the stable
    `sock:inet_sock_set_state` **tracepoint** — a named hook point the kernel
    itself exposes, with a documented argument layout the kernel promises not to
-   break. Every time a TCP socket changes state, the program runs. It keeps the
+   break. It attaches as a **raw tracepoint**: by name, through the `bpf()`
+   system call itself, without reading tracefs (`ING-23`, see
+   [Privileges](#privileges-and-the-observe-only-guarantee)). Every time a TCP
+   socket changes state, the program runs. It keeps the
    ones entering `ESTABLISHED` and writes the **5-tuple** (source IP + port,
    destination IP + port, protocol — the values that uniquely name a connection)
    plus the PID and command name into a **ring buffer** — a fixed-size queue
    shared between kernel and userspace, a conveyor belt of bounded length: the
    kernel places events on one end, userspace lifts them off the other, and when
    userspace falls behind, new events fall off and are *counted*, never silently
-   lost (`internal/ebpf/bpf/l4flow.bpf.c`). Using a *tracepoint* (whose arguments
-   carry the tuple directly) instead of fishing fields out of kernel structs is
-   deliberate — it sidesteps per-kernel struct-layout drift for the common path.
+   lost (`internal/ebpf/bpf/l4flow.bpf.c`). A raw tracepoint hands the program
+   the tracepoint's arguments (the socket, its old and new state) rather than the
+   formatted record, so the program reads the tuple from the socket itself — the
+   same fields the tracepoint builds its record from — and CO-RE re-aims those
+   reads at each kernel's struct layout. The stable hook point is what stays
+   fixed; the event format the agent publishes is unchanged.
 
    **Which end is the client, and whose process is it (`ING-24`).** The kernel
    always reports a socket's *own* address first, so a server's socket reads
@@ -365,13 +371,25 @@ kernel that the runtime probe marks unavailable. A `CAP_SYS_ADMIN` legacy
 exception is only for hosts where the runtime probe can still confirm BTF + ring
 buffer support but the platform cannot grant the split capability pair. The
 capability probe and the enrichment lookups are read-only and need no privileges.
-The attach step also reads the tracepoint's event id from **tracefs**
-(`/sys/kernel/tracing`, or the legacy `/sys/kernel/debug/tracing`), which a
-container does not see unless the node's tracefs is mounted in read-only — the
-Helm chart mounts it (`tracefs.hostPath`), the compose snippet in
-[`deploy/agent/README.md`](../deploy/agent/README.md) adds the volume, and the
-probe reports `tracefs=false` with the remediation before anything loads
-(DPR-054).
+**The L4 flow plane runs non-root and needs no tracefs (`ING-23`).** The shipped
+systemd units run the agent as a dedicated non-root user with exactly
+`AmbientCapabilities=CAP_BPF CAP_PERFMON`. A classic tracepoint link would read
+the event id from **tracefs** (`/sys/kernel/tracing`), which systemd distros
+mount root-only (`0700`), so that user could not attach. The L4 program therefore
+attaches as a **raw tracepoint**, which needs only `bpf()` and the two
+capabilities, and the listener-seeding iterator needs nothing more either. The
+capability probe still reports `tracefs=` but no longer refuses a host where it
+is invisible. The kernel-matrix job proves this on every row: it runs the L4
+attach as uid 65534 with only those two capabilities and no reachable tracefs,
+and observes a real TCP connection (`TestLiveNonRootL4Attach`).
+
+**L7 non-root is not covered by that change.** The TLS uprobes and their tracefs
+fallback are a separate question (`ING-23`'s L7 half, decision `D-63`): on
+kernels from 6.16 the uprobe perf PMU requires `CAP_SYS_ADMIN`, and resolving
+`exe:` scope entries for other users' processes needs `CAP_SYS_PTRACE`. Until
+that is decided, treat consented L7 capture under the non-root unit as
+unsupported. The Helm chart's tracefs mount (`tracefs.hostPath`, DPR-054) now
+serves only the L7 path.
 
 The observe-only guarantee is enforced in code, not just by convention. The agent
 attaches only tracepoints / kprobes / uprobes and calls no traffic-altering
@@ -517,9 +535,10 @@ long-term support — the kernel lines distros actually ship; the images are
 digest-pinned, i.e. referenced by cryptographic hash rather than a floating tag)
 under **QEMU** — a machine emulator that boots a complete kernel inside an
 ephemeral VM — via `vimto`, a small tool that runs a Go test suite inside such a
-booted kernel. It runs the live smoke: l4flow tracepoint attach, sslsniff uprobe
-attach (consented + scoped), one full agent flush cycle, with object-digest
-verification on the load path. The images are `ghcr.io/cilium/ci-kernels`.
+booted kernel. It runs the live smoke: l4flow raw-tracepoint attach (as root and
+again as the systemd unit's non-root identity, `TestLiveNonRootL4Attach`),
+sslsniff uprobe attach (consented + scoped), one full agent flush cycle, with
+object-digest verification on the load path. The images are `ghcr.io/cilium/ci-kernels`.
 
 The matrix is **5.15** and **6.6** on x86_64, plus a **hardened
 entry** on x86_64 that raises kernel lockdown to **integrity** inside the

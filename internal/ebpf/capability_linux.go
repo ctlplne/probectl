@@ -56,7 +56,9 @@ func Probe() Capabilities {
 var traceFSPaths = []string{"/sys/kernel/tracing", "/sys/kernel/debug/tracing"}
 
 // traceFSVisible reports whether a tracefs with tracepoint events is visible
-// to this process.
+// to this process. It is reported, not required: the L4 program attaches as a
+// raw tracepoint without tracefs (ING-23), so a non-root agent that cannot
+// read the root-only tracefs still runs.
 func traceFSVisible() bool {
 	for _, p := range traceFSPaths {
 		if fileExists(p + "/events") {
@@ -65,12 +67,6 @@ func traceFSVisible() bool {
 	}
 	return false
 }
-
-// traceFSReason is the remediation the agent prints when tracefs is missing
-// (DPR-054): the failure used to surface only at attach time as "neither
-// debugfs nor tracefs are mounted", with nothing saying what to mount.
-const traceFSReason = "tracefs is not visible (/sys/kernel/tracing or /sys/kernel/debug/tracing): attaching the sock:inet_sock_set_state tracepoint reads its event id there. " +
-	"Mount the node's /sys/kernel/tracing read-only into the agent (the Helm chart does: tracefs.hostPath; compose: a :ro volume) or keep tracefs mounted on the VM (systemd sys-kernel-tracing.mount) (DPR-054)"
 
 // decide derives Mode and Reason from the probed facts. It is separate from
 // the probing so every reason is unit-testable without a kernel.
@@ -86,8 +82,6 @@ func (c *Capabilities) decide() {
 		c.Mode, c.Reason = ModeUnavailable, "process lacks CAP_BPF / CAP_SYS_ADMIN to LOAD eBPF programs (grant the CAP_BPF + CAP_PERFMON pair, e.g. AmbientCapabilities in the shipped unit)"
 	case !c.CapPerfmon:
 		c.Mode, c.Reason = ModeUnavailable, "process lacks CAP_PERFMON / CAP_SYS_ADMIN to ATTACH tracepoints/uprobes (perf_event_open) — programs would load and then fail at attach; grant CAP_PERFMON alongside CAP_BPF (EBPF-005)"
-	case !c.TraceFS:
-		c.Mode, c.Reason = ModeUnavailable, traceFSReason
 	case lockdownBlocksBPF(c.Lockdown):
 		c.Mode, c.Reason = ModeUnavailable, "kernel lockdown is in CONFIDENTIALITY mode — bpf() is blocked even with CAP_BPF; boot without lockdown=confidentiality (or use integrity mode) to run the eBPF agent (U-075)"
 	default:

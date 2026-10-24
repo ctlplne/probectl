@@ -2,11 +2,21 @@
 //
 // probectl eBPF agent (S20) — CO-RE L3/L4 capture.
 //
-// Attaches to the stable `sock:inet_sock_set_state` tracepoint and, for each TCP
-// socket entering ESTABLISHED or CLOSE, emits the 5-tuple + the connection's
-// ROLE (client / server) + its owning pid/comm + TCP byte/segment counters to a
-// ring buffer. The tracepoint carries the tuple directly; CO-RE relocates the
-// tcp_sock counter reads against the target kernel's BTF.
+// Attaches to the stable `sock:inet_sock_set_state` tracepoint as a RAW
+// tracepoint and, for each TCP socket entering ESTABLISHED or CLOSE, emits the
+// 5-tuple + the connection's ROLE (client / server) + its owning pid/comm + TCP
+// byte/segment counters to a ring buffer. CO-RE relocates every socket read
+// against the target kernel's BTF.
+//
+// WHY RAW (ING-23): a classic tracepoint link (perf_event_open on the event)
+// first reads the event id from tracefs, and tracefs is root-only (0700) on
+// every systemd distro, so the shipped non-root unit (CAP_BPF + CAP_PERFMON)
+// could not attach. A raw tracepoint is attached by NAME through bpf() itself
+// (BPF_RAW_TRACEPOINT_OPEN) and never touches tracefs. It hands the program the
+// tracepoint's raw arguments (sk, oldstate, newstate) instead of the formatted
+// record, so read_set_state() derives the record's fields from the socket
+// exactly as the tracepoint's TP_fast_assign does
+// (include/trace/events/sock.h): same values, same event format.
 //
 // ROLE + OWNER (ING-24): the tuple is always local-first, and the passive-open
 // transitions run in softirq context, so neither direction nor process can be
@@ -29,6 +39,7 @@
 
 #include "vmlinux.h"
 #include <bpf/bpf_core_read.h>
+#include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 #include "conn_role.h"
 
@@ -141,22 +152,62 @@ static __always_inline void count_filtered(void)
 		__sync_fetch_and_add(cnt, 1);
 }
 
-/* Every ctx access below goes through BPF_CORE_READ (probe-read with CO-RE
- * relocation) instead of a direct dereference: newer verifiers (observed on
- * 7.x) reject clang's ctx+offset pointer materialization for the array and
- * multi-field reads as "dereference of modified ctx ptr", while the
- * probe-read path is accepted by every CO-RE kernel back to the documented
- * >=5.8 floor. Same fields, same values — only the access instruction
- * pattern changes. */
-static __always_inline void fill_addrs(struct l4_event *e, struct trace_event_raw_inet_sock_set_state *ctx, __u16 family)
+// set_state is the sock:inet_sock_set_state record, rebuilt from the raw
+// tracepoint's arguments (ING-23). Ports are host byte order, like the
+// tracepoint's own sport/dport fields.
+struct set_state {
+	const struct sock *sk;
+	int oldstate;
+	int newstate;
+	__u16 protocol;
+	__u16 family;
+	__u16 sport; // local port
+	__u16 dport; // peer port
+};
+
+/* Every socket read below goes through BPF_CORE_READ (probe-read with CO-RE
+ * relocation): the raw tracepoint's sk argument is an untyped u64 to the
+ * verifier, and the probe-read path is accepted by every CO-RE kernel back to
+ * the documented >=5.8 floor. The sources mirror TP_fast_assign of
+ * sock:inet_sock_set_state: family/protocol from the sock, ports from
+ * inet_sock (inet_sport, and inet_dport == skc_dport), converted with ntohs. */
+static __always_inline void read_set_state(struct set_state *st, const struct bpf_raw_tracepoint_args *ctx)
+{
+	// TP_PROTO(const struct sock *sk, const int oldstate, const int newstate).
+	// Read through a plain u64 view of the context: vmlinux.h marks every
+	// struct preserve_access_index, so ctx->args[i] would become a CO-RE
+	// relocation against the zero-length args[] array and be refused at load.
+	// The socket is read through a local pointer: BPF_CORE_READ(st->sk, ...)
+	// would also emit a relocation for the local struct set_state, which no
+	// kernel BTF has.
+	const __u64 *args = (const __u64 *)ctx;
+	const struct sock *sk = (const struct sock *)args[0];
+	const struct inet_sock *inet = (const struct inet_sock *)sk;
+	st->sk = sk;
+	st->oldstate = (int)args[1];
+	st->newstate = (int)args[2];
+	st->protocol = BPF_CORE_READ(sk, sk_protocol);
+	st->family = BPF_CORE_READ(sk, __sk_common.skc_family);
+	st->sport = bpf_ntohs(BPF_CORE_READ(inet, inet_sport));
+	st->dport = bpf_ntohs(BPF_CORE_READ(sk, __sk_common.skc_dport));
+}
+
+// fill_addrs mirrors the tracepoint's address fields: IPv4 takes inet_saddr /
+// inet_daddr (4 bytes, the rest of the 16-byte slot stays zero); IPv6 takes
+// the socket's v6 pair (TP_STORE_ADDRS), which a dual-stack socket fills with
+// v4-mapped addresses.
+static __always_inline void fill_addrs(struct l4_event *e, const struct sock *sk, __u16 family)
 {
 	if (family == AF_INET) {
-		BPF_CORE_READ_INTO(&e->saddr, ctx, saddr);
-		BPF_CORE_READ_INTO(&e->daddr, ctx, daddr);
+		const struct inet_sock *inet = (const struct inet_sock *)sk;
+		__be32 saddr = BPF_CORE_READ(inet, inet_saddr);
+		__be32 daddr = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+		__builtin_memcpy(e->saddr, &saddr, sizeof(saddr));
+		__builtin_memcpy(e->daddr, &daddr, sizeof(daddr));
 		return;
 	}
-	BPF_CORE_READ_INTO(&e->saddr, ctx, saddr_v6);
-	BPF_CORE_READ_INTO(&e->daddr, ctx, daddr_v6);
+	BPF_CORE_READ_INTO(&e->saddr, sk, __sk_common.skc_v6_rcv_saddr);
+	BPF_CORE_READ_INTO(&e->daddr, sk, __sk_common.skc_v6_daddr);
 }
 
 static __always_inline void fill_tcp_counters(struct l4_event *e, const void *skaddr)
@@ -214,8 +265,7 @@ static __always_inline void remember_server(__u64 key, const struct sock *sk, __
 		remember(key, PROBECTL_ROLE_SERVER, 0, 0);
 }
 
-static __always_inline void emit(struct trace_event_raw_inet_sock_set_state *ctx, __u64 key,
-				 const struct sock *sk, __u16 family, int newstate,
+static __always_inline void emit(const struct set_state *st, __u64 key,
 				 const struct conn_role *r)
 {
 	struct l4_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
@@ -231,34 +281,34 @@ static __always_inline void emit(struct trace_event_raw_inet_sock_set_state *ctx
 		e->role = r->role;
 		__builtin_memcpy(e->comm, r->comm, sizeof(e->comm));
 	}
-	fill_addrs(e, ctx, family);
-	fill_tcp_counters(e, sk);
-	e->sport = BPF_CORE_READ(ctx, sport); // tracepoint provides ports in host byte order
-	e->dport = BPF_CORE_READ(ctx, dport);
-	e->family = family;
-	e->newstate = newstate;
+	fill_addrs(e, st->sk, st->family);
+	fill_tcp_counters(e, st->sk);
+	e->sport = st->sport;
+	e->dport = st->dport;
+	e->family = st->family;
+	e->newstate = st->newstate;
 	bpf_ringbuf_submit(e, 0);
 }
 
-SEC("tracepoint/sock/inet_sock_set_state")
-int handle_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
+SEC("raw_tracepoint/inet_sock_set_state")
+int handle_set_state(struct bpf_raw_tracepoint_args *ctx)
 {
-	__u16 protocol = BPF_CORE_READ(ctx, protocol);
-	__u16 family = BPF_CORE_READ(ctx, family);
-	int oldstate = BPF_CORE_READ(ctx, oldstate);
-	int newstate = BPF_CORE_READ(ctx, newstate);
+	struct set_state st = {};
+	read_set_state(&st, ctx);
+	const struct sock *sk = st.sk;
+	int oldstate = st.oldstate;
+	int newstate = st.newstate;
 
-	if (protocol != IPPROTO_TCP)
+	if (!sk)
 		return 0;
-	if (family != AF_INET && family != AF_INET6) {
+	if (st.protocol != IPPROTO_TCP)
+		return 0;
+	if (st.family != AF_INET && st.family != AF_INET6) {
 		count_filtered();
 		return 0;
 	}
-	const struct sock *sk = (const struct sock *)BPF_CORE_READ(ctx, skaddr);
-	if (!sk)
-		return 0;
 	__u64 key = (__u64)sk;
-	__u16 lport = BPF_CORE_READ(ctx, sport);
+	__u16 lport = st.sport;
 	struct listen_key lk;
 	struct conn_role *r;
 
@@ -305,7 +355,7 @@ int handle_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
 		}
 		if (r)
 			r->emitted = 1;
-		emit(ctx, key, sk, family, newstate, r);
+		emit(&st, key, r);
 		return 0;
 	case BPF_TCP_CLOSE:
 		if (oldstate == PROBECTL_TCP_LISTEN) {
@@ -316,7 +366,7 @@ int handle_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
 		r = bpf_map_lookup_elem(&conn_roles, &key);
 		if (r) {
 			struct conn_role copy = *r;
-			emit(ctx, key, sk, family, newstate, &copy);
+			emit(&st, key, &copy);
 			bpf_map_delete_elem(&conn_roles, &key);
 			return 0;
 		}
@@ -330,7 +380,7 @@ int handle_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
 			guess.pid = o->pid;
 			__builtin_memcpy(guess.comm, o->comm, sizeof(guess.comm));
 		}
-		emit(ctx, key, sk, family, newstate, &guess);
+		emit(&st, key, &guess);
 		return 0;
 	}
 	return 0;

@@ -79,10 +79,12 @@ func TestProbeCapabilityReasons(t *testing.T) {
 	}
 }
 
-// DPR-054: a container that cannot see the node's tracefs must be told what to
-// mount before anything loads, instead of dying at attach with "neither
-// debugfs nor tracefs are mounted".
-func TestDecideRequiresTraceFS(t *testing.T) {
+// ING-23: the L4 program attaches as a raw tracepoint, which never reads
+// tracefs, so a host where the agent cannot see tracefs (the non-root systemd
+// unit: tracefs is root-only; a container without the host mount) is still
+// live. DPR-054 had made tracefs a precondition while the classic tracepoint
+// link read its event id there; the probe must not turn such a host away now.
+func TestDecideDoesNotRequireTraceFS(t *testing.T) {
 	ready := Capabilities{Compiled: true, BTF: true, RingBuffer: true, CapBPF: true, CapPerfmon: true, TraceFS: true, KernelVersion: "6.6.0"}
 	ready.decide()
 	if ready.Mode != ModeLive || ready.Reason != "ready" {
@@ -91,8 +93,11 @@ func TestDecideRequiresTraceFS(t *testing.T) {
 	noTraceFS := ready
 	noTraceFS.TraceFS = false
 	noTraceFS.decide()
-	if noTraceFS.Mode != ModeUnavailable || !strings.Contains(noTraceFS.Reason, "/sys/kernel/tracing") || !strings.Contains(noTraceFS.Reason, "tracefs.hostPath") {
-		t.Fatalf("missing tracefs must name the mount and the chart value: mode=%s reason=%q", noTraceFS.Mode, noTraceFS.Reason)
+	if noTraceFS.Mode != ModeLive || noTraceFS.Reason != "ready" {
+		t.Fatalf("an agent that cannot see tracefs must stay live (the L4 attach does not read it): mode=%s reason=%q", noTraceFS.Mode, noTraceFS.Reason)
+	}
+	if !strings.Contains(noTraceFS.String(), "tracefs=false") {
+		t.Fatalf("tracefs visibility must still be reported: %s", noTraceFS.String())
 	}
 	// The probe on this host reports the same dimension it decides on.
 	if c := Probe(); c.TraceFS != traceFSVisible() {

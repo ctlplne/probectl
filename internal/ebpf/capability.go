@@ -31,8 +31,9 @@ type Capabilities struct {
 	BTF           bool // /sys/kernel/btf/vmlinux present (CO-RE relocation)
 	RingBuffer    bool // kernel >= 5.8 (BPF_MAP_TYPE_RINGBUF)
 	CapBPF        bool // process holds CAP_BPF or CAP_SYS_ADMIN (program/map load)
-	// CapPerfmon: CAP_PERFMON or CAP_SYS_ADMIN — required to ATTACH the
-	// tracepoints and uprobes (perf_event_open) on kernels >= 5.8. Probed
+	// CapPerfmon: CAP_PERFMON or CAP_SYS_ADMIN — required to load and ATTACH
+	// the tracing programs (the L4 raw tracepoint, the L7 uprobes) on
+	// kernels >= 5.8. Probed
 	// here so the agent fails fast with a clear reason instead of loading
 	// objects and then failing at attach (EBPF-005). CAP_NET_ADMIN is
 	// deliberately NOT probed: the agent attaches only tracepoints + uprobes
@@ -40,9 +41,12 @@ type Capabilities struct {
 	// documents the same pair).
 	CapPerfmon bool
 	// TraceFS: the kernel's tracefs is visible (/sys/kernel/tracing, or the
-	// legacy /sys/kernel/debug/tracing). Attaching the sock:inet_sock_set_state
-	// tracepoint reads the event id there, and a container does not see the
-	// host's tracefs unless it is mounted in (DPR-054).
+	// legacy /sys/kernel/debug/tracing). Informational since ING-23: the L4
+	// program attaches as a raw tracepoint, which never reads tracefs, so a
+	// non-root agent (tracefs is root-only on systemd distros) and a container
+	// without the host's tracefs both still run the flow plane. It no longer
+	// decides Mode; DPR-054 had made it required when the classic tracepoint
+	// link read its event id there.
 	TraceFS  bool
 	Compiled bool // built with -tags ebpf (the live source is linked in)
 	// Lockdown is the kernel lockdown mode ("", "none", "integrity",

@@ -17,7 +17,11 @@ Restart=on-failure
 RestartSec=5s
 
 # eBPF needs exactly these — NOT full root. CAP_BPF loads programs/maps;
-# CAP_PERFMON opens the perf/tracepoint links. The syscall surface is bounded
+# CAP_PERFMON loads and attaches the tracing programs. The L4 flow plane runs
+# on exactly this pair as the non-root User= above: it attaches as a raw
+# tracepoint, so it reads no tracefs, which is root-only here (ING-23; proven
+# per kernel by TestLiveNonRootL4Attach). L7 TLS capture under this unit is NOT
+# covered (decision D-63). The syscall surface is bounded
 # by the in-unit SystemCallFilter below (no external seccomp JSON is bundled by
 # nfpm for this package, so the unit is self-contained — OPS-006).
 AmbientCapabilities=CAP_BPF CAP_PERFMON

@@ -158,10 +158,12 @@ surfaces ring-buffer drops as `dropped_total`; see
 
 The capture attaches to the **`sock:inet_sock_set_state` tracepoint** — a named
 hook point with a stable kernel ABI (application binary interface — its argument
-layout is a kernel compatibility promise, not an internal detail) that carries
-the **5-tuple** (source IP + port, destination IP + port, protocol — a
-connection's identity) and the socket state **directly**, so the common path
-needs **no fragile CO-RE struct-field reads**. The program filters for
+layout is a kernel compatibility promise, not an internal detail) that fires on
+every socket state change with the socket and its old and new state. It attaches
+as a **raw tracepoint** (by name through `bpf()`, so no tracefs read and no root,
+`ING-23`), and reads the **5-tuple** (source IP + port, destination IP + port,
+protocol — a connection's identity) from the socket with CO-RE — the same
+fields the tracepoint's own record is built from. The program filters for
 TCP sockets entering `ESTABLISHED` and emits `{pid, comm, saddr, daddr, sport,
 dport, family, state}` to the ring buffer. Userspace reads the ring buffer and
 folds events into directed **service edges**.
@@ -169,7 +171,7 @@ folds events into directed **service edges**.
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
-  K["kernel: TCP state machine"] -->|"tracepoint sock/inet_sock_set_state"| P["eBPF prog (CO-RE)"]
+  K["kernel: TCP state machine"] -->|"raw tracepoint sock/inet_sock_set_state"| P["eBPF prog (CO-RE)"]
   P -->|"5-tuple + pid/comm"| RB["BPF_MAP_TYPE_RINGBUF"]
   RB --> U["userspace loader (cilium/ebpf)"]
   U --> AGG["flow aggregation → ServiceEdge"]
@@ -178,10 +180,14 @@ flowchart LR
   U -. counts .-> DROPS["ring-buffer drop counter"]
 ```
 
-Using **tracepoint arguments** is the robust path: it avoids per-kernel `struct
-sock` offset drift. Fields the tracepoint *doesn't* carry (cgroup id, netns,
-byte/packet counts via `sock`/`tcp_sock`) are exactly what BTF + CO-RE relocate —
-the structs needed for that are present in BTF on supported kernels. Identifiers
+The hook is the **stable tracepoint**; the field reads are **CO-RE**. Until
+`ING-23` the program took the tracepoint's formatted record, which carries the
+tuple directly, but attaching that way reads the event id from tracefs — root-only
+on systemd distros — so the shipped non-root unit could not attach. The raw
+tracepoint hands over the socket instead, and the tuple, the netns and the
+byte/packet counts (`sock`/`tcp_sock`) are all read with BTF + CO-RE, which
+relocates them against each kernel's struct layout; the structs are present in BTF
+on every supported kernel, and the kernel-matrix job loads them on each row. Identifiers
 are modeled onto **OTel resource attributes from the first emission**, so the OTLP
 layer projects them rather than retrofitting (the implementation is
 `internal/ebpf/bpf/l4flow.bpf.c`).
@@ -292,7 +298,7 @@ overhead test for the ring-buffer path — all documented in
 | D1 | Use **`cilium/ebpf` + `bpf2go`** (pure Go, no cgo) | matches the single-static-binary model; embeds the compiled object; CO-RE-native |
 | D2 | **Ring buffer only** (the perf-buffer <5.8 fallback was considered, dropped) | lower overhead + ordering; one codebase; pre-5.8 reports unavailable |
 | D3 | **CO-RE + BTF**, graceful "unsupported" when BTF is absent (the automatic **BTFHub** fallback was deferred — the probe names it as the manual avenue) | portability across the distro matrix without per-kernel builds |
-| D4 | L3/L4 via **stable tracepoints** first, CO-RE struct reads where required | minimizes per-kernel offset risk |
+| D4 | L3/L4 via **stable tracepoints** first, CO-RE struct reads where required | minimizes per-kernel offset risk. Since `ING-23` the tracepoint is attached raw (no tracefs, so non-root works) and the tuple is read via CO-RE from the socket it passes |
 | D5 | **Go-TLS is a separate post-GA sub-module**, not an OpenSSL variant | Go ABI + uretprobe incompatibility |
 | D6 | **Socket-layer fallback** for stripped/static binaries | uprobe symbol resolution will fail there |
 | D7 | **CI = userspace unit tests + recorded fixtures**; privileged integration test behind a BTF-kernel runner | no-kernel CI is the norm |
