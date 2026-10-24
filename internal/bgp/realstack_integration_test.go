@@ -773,6 +773,12 @@ func startLiveLeg(t *testing.T, st *shipped.Stack, python string, tn *bgpTenant)
 		return leg
 	}
 	tn.watch = map[string]any{"prefix": livePrefix, "expected_origins": []int{liveExpectedASN}}
+	// Liveness is proven by arrival: C is a fresh tenant whose only input is
+	// this RIS Live sidecar, so events that appear while it runs came from the
+	// live feed.
+	if n := len(tn.listEvents(t, st, "")); n != 0 {
+		t.Fatalf("[live] %s already holds %d BGP events before its live leg starts; arrival could not prove live input", tn.slug, n)
+	}
 	// collector "" subscribes to every RIS collector; each event names the
 	// one that recorded it (DPR-294).
 	config := tn.analyzerConfig(t, "")
@@ -817,10 +823,13 @@ func (leg *liveLeg) conclude(t *testing.T, st *shipped.Stack) {
 			tn.slug, len(events), livePrefix, e.Kind, e.Prefix, e.Attributes["new_origin_asn"], e.Attributes["peer_asn"],
 			e.Attributes["peer_address"], e.Attributes["collector"], e.OccurredAt.Format(time.RFC3339))
 		// Every live event must be C's own: in its block, from a RIS collector,
-		// judged against C's watch config. Recency proves the input is live, so
-		// at least one event must be recent; individual RIS updates may carry an
-		// older BGP timestamp (CI run 40095079074: 4 of 78, all via rrc25, were
-		// older than 30 minutes), which is the feed's data, not a product fault.
+		// judged against C's watch config. Liveness is the events' ARRIVAL
+		// during this leg (C held none before it, see startLiveLeg), not their
+		// BGP timestamps: a RIS update carries the collector's record time, and
+		// a collector re-sending its table carries old ones (CI run
+		// 40095079074: 4 of 78 older than 30 minutes; CI run 40123888359: all 77,
+		// newest two days old, every one received during the leg). The
+		// timestamps' age is the feed's data and is reported, not judged.
 		recent := 0
 		for _, ev := range events {
 			var bad []string
@@ -843,9 +852,7 @@ func (leg *liveLeg) conclude(t *testing.T, st *shipped.Stack) {
 				recent++
 			}
 		}
-		if recent == 0 {
-			t.Errorf("[live] none of %s's %d live events is from the last 30 minutes: the input is not live", tn.slug, len(events))
-		}
+		t.Logf("[live] %d of %s's %d live events (all received during this leg) carry a RIS timestamp from the last 30 minutes", recent, tn.slug, len(events))
 	case bridged:
 		t.Errorf("[live] RIS Live events were bridged onto %s's lane but never reached its API:\n%s", tn.slug, tailLines(logText, 30))
 	case !strings.Contains(logText, "RIS Live connected"):
