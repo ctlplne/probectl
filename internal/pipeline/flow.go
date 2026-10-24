@@ -224,7 +224,7 @@ func (c *FlowConsumer) handle(ctx context.Context, msg bus.Message) error {
 // parity with the result + device pipelines (CORRECT-010).
 func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopic, laneTenant string) error {
 	c.ledger.addReceived(1)
-	if laneTenant == "" && refuseMisroutedShared(ctx, c.log, c.group, msg) {
+	if refuseSharedOrQuarantined(ctx, c.log, c.group, msg, laneTenant) {
 		c.rejected.Add(1)
 		c.ledger.addTenantRejected(1)
 		return nil

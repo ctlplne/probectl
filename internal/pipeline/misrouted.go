@@ -8,6 +8,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/ctlplne/probectl/internal/bus"
@@ -36,6 +37,13 @@ func refuseMisroutedShared(ctx context.Context, log *slog.Logger, consumer strin
 		return false
 	}
 	targets, err := tenancy.CurrentRouter().TargetsFor(ctx, tenant)
+	if errors.Is(err, tenancy.ErrTenantQuarantined) {
+		// DPR-369: a quarantined tenant's routing refusal is a verdict, not
+		// "the router cannot answer": its record is refused (no write, no
+		// export), acknowledged and counted, on every consumer.
+		noteQuarantineDrop(consumer, tenant)
+		return true
+	}
 	if err != nil || targets.BusNamespace == "" {
 		return false
 	}
@@ -47,4 +55,20 @@ func refuseMisroutedShared(ctx context.Context, log *slog.Logger, consumer strin
 		"consumer", consumer, "tenant_id", tenant, "isolation_model", string(targets.Model),
 		"own_lane_namespace", targets.BusNamespace, "topic", msg.Topic)
 	return true
+}
+
+// refuseSharedOrQuarantined is the per-record lane gate every consumer runs
+// first: on a tenant's own lane it refuses the record of a quarantined tenant
+// (D-62; its lanes are normally not subscribed at all, so this closes the
+// window around a quarantine change), and on the shared lane it applies
+// refuseMisroutedShared, which also refuses a quarantined tenant.
+func refuseSharedOrQuarantined(ctx context.Context, log *slog.Logger, consumer string, msg bus.Message, laneTenant string) bool {
+	if laneTenant != "" {
+		if tenancy.CheckQuarantine(laneTenant) != nil {
+			noteQuarantineDrop(consumer, laneTenant)
+			return true
+		}
+		return false
+	}
+	return refuseMisroutedShared(ctx, log, consumer, msg)
 }

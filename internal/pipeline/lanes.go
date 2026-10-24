@@ -49,7 +49,7 @@ func RunLanes(ctx context.Context, b bus.Bus, base, group string, nsTenants map[
 	}
 	if len(subs) == 1 {
 		return b.Subscribe(ctx, base, group, func(c context.Context, m bus.Message) error {
-			if refuseMisroutedShared(c, nil, group, m) {
+			if refuseSharedOrQuarantined(c, nil, group, m, "") {
 				return nil
 			}
 			return handler(c, m, "")
@@ -64,7 +64,7 @@ func RunLanes(ctx context.Context, b bus.Bus, base, group string, nsTenants map[
 		go func(s laneSub) {
 			defer wg.Done()
 			h := func(c context.Context, m bus.Message) error {
-				if s.laneTenant == "" && refuseMisroutedShared(c, nil, group, m) {
+				if refuseSharedOrQuarantined(c, nil, group, m, s.laneTenant) {
 					return nil
 				}
 				return handler(c, m, s.laneTenant)
@@ -137,21 +137,16 @@ var quarantineDropped atomic.Uint64
 // only the shared-lane remainder. Exposed on /metrics.
 func QuarantineDroppedTotal() uint64 { return quarantineDropped.Load() }
 
-// guardQuarantined (D-62) keeps a quarantined tenant's record from being
-// processed — no write, no SIEM forward, no export — and from stalling the
-// lane: it is acknowledged and counted instead of returned as an error, which
-// would hold back every co-partitioned tenant's offsets behind it. The tenant
-// is the lane's, or on the shared lane the record key (records are keyed by
-// tenant); a handler error that is a quarantine refusal is treated the same.
+// guardQuarantined (D-62) keeps a quarantine refusal from stalling the lane:
+// a handler error that is a quarantine refusal is acknowledged and counted
+// instead of returned, which would hold back every co-partitioned tenant's
+// offsets behind it. The record itself is refused before the handler by
+// refuseSharedOrQuarantined; this catches a refusal that arises inside it.
 func guardQuarantined(group string, handler LaneHandler) LaneHandler {
 	return func(ctx context.Context, m bus.Message, laneTenant string) error {
 		tenant := laneTenant
 		if tenant == "" {
-			tenant = string(m.Key)
-		}
-		if tenant != "" && tenancy.CheckQuarantine(tenant) != nil {
-			noteQuarantineDrop(group, tenant)
-			return nil
+			tenant = bus.TenantFromKey(m.Key) // production keys are "<tenant>|bN"
 		}
 		err := handler(ctx, m, laneTenant)
 		if err != nil && errors.Is(err, tenancy.ErrTenantQuarantined) {
