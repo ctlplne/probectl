@@ -337,7 +337,7 @@ func (s *Server) supportSources(ctx context.Context, tenant string, includeDeplo
 		Topology:         s.topologySummary(ctx, tenant),
 		DeviceCollection: s.supportDeviceCollection(ctx, tenant),
 		FlowQuality:      s.supportFlowQuality(ctx, tenant),
-		L7Capture:        s.supportL7Capture(ctx, tenant),
+		L7Capture:        s.supportL7Capture(ctx, tenant, includeDeploymentInfra),
 		Runtime:          support.CollectRuntime(s.startedAt),
 		RedactValues:     s.knownSecrets(),
 	}
@@ -351,7 +351,7 @@ const maxSupportL7Agents = 200
 // capture posture projected onto an allowlist (bundle-local ordinal refs, scope
 // SIZE only — never the scope entries, the consent tenant or an agent id, and
 // never anything an agent captured).
-func (s *Server) supportL7Capture(ctx context.Context, tenant string) support.L7CaptureSummary {
+func (s *Server) supportL7Capture(ctx context.Context, tenant string, deploymentWide bool) support.L7CaptureSummary {
 	regulated := s.cfg != nil && s.cfg.DeploymentProfile == "regulated"
 	profile := "single"
 	if s.cfg != nil && s.cfg.DeploymentProfile != "" {
@@ -361,8 +361,13 @@ func (s *Server) supportL7Capture(ctx context.Context, tenant string) support.L7
 		ContractVersion:   support.L7CaptureContractVersion,
 		DeploymentProfile: profile,
 		RedactionFloor:    govern.EffectiveL7CaptureFloor("", regulated),
-		IngestStrips:      s.l7strip.Counts(),
-		Agents:            []support.L7CaptureAgent{},
+		// S11: a tenant's bundle carries only its own strip counts; the
+		// deployment-wide totals belong to the provider plane's bundle.
+		IngestStrips: s.l7strip.CountsFor(tenant),
+		Agents:       []support.L7CaptureAgent{},
+	}
+	if deploymentWide {
+		out.IngestStrips = s.l7strip.Counts()
 	}
 	if s.pool == nil || tenant == "" {
 		return out

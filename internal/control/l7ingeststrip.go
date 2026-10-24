@@ -77,6 +77,9 @@ type L7IngestStrip struct {
 
 	counts   map[string]*atomic.Uint64
 	counters map[string]*metrics.Counter
+	// byTenant is each verified tenant's own tally (bounded like the cache).
+	byTenant    map[string]map[string]uint64
+	tenantOrder []string
 }
 
 type cachedFloor struct {
@@ -101,7 +104,8 @@ func newL7IngestStrip(floors l7FloorReader, regulated bool, log *slog.Logger) *L
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &L7IngestStrip{floors: floors, regulated: regulated, log: log, cache: map[string]cachedFloor{}, counts: counts}
+	return &L7IngestStrip{floors: floors, regulated: regulated, log: log, cache: map[string]cachedFloor{}, counts: counts,
+		byTenant: map[string]map[string]uint64{}}
 }
 
 // maxFloorCache bounds the floor cache (one entry per active tenant).
@@ -127,7 +131,8 @@ func (s *L7IngestStrip) WithMetrics(reg *metrics.Registry) *L7IngestStrip {
 	return s
 }
 
-// Counts returns the strip totals by label (the support bundle reports them).
+// Counts returns the deployment-wide strip totals by label (/metrics and the
+// provider plane's bundle; a tenant's bundle uses CountsFor).
 func (s *L7IngestStrip) Counts() map[string]uint64 {
 	out := map[string]uint64{}
 	if s == nil {
@@ -249,26 +254,27 @@ func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, lane
 	if batch == nil {
 		return
 	}
+	memo := map[[2]string]bool{}
+	owner := s.batchTenant(ctx, laneTenant, batch, memo)
 	unknown := dropUnknownFields(batch)
 	var fieldStrips l7redact.Strip
 	fieldStrips |= clampRecordFields(batch)
 	if count && fieldStrips != 0 {
 		for _, f := range fieldStrips.Fields() {
-			s.add(f, 1)
+			s.add(owner, f, 1)
 		}
 	}
 	kept := batch.L7Calls[:0]
-	memo := map[[2]string]bool{}
 	for _, c := range batch.GetL7Calls() {
-		mode := govern.EffectiveL7CaptureFloor("", s.regulated)
+		mode, who := govern.EffectiveL7CaptureFloor("", s.regulated), ""
 		if s.trustedTenant(ctx, laneTenant, c, memo) {
-			mode = s.floor(ctx, c.GetTenantId())
+			mode, who = s.floor(ctx, c.GetTenantId()), c.GetTenantId()
 		}
 		if !l7redact.Persists(mode) {
 			// D-43 S7: a length floor persists no L7 call at all — no
 			// method, route or status — whoever produced it.
 			if count {
-				s.add(stripCallDropped, 1)
+				s.add(who, stripCallDropped, 1)
 			}
 			continue
 		}
@@ -282,7 +288,7 @@ func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, lane
 		c.Protocol, c.Method, c.Resource, c.Status = m.Protocol, m.Method, m.Resource, m.Status
 		if count {
 			for _, f := range strip.Fields() {
-				s.add(f, 1)
+				s.add(who, f, 1)
 			}
 		}
 	}
@@ -291,17 +297,95 @@ func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, lane
 	}
 	batch.L7Calls = kept
 	if count && unknown > 0 {
-		s.add(stripUnknownField, uint64(unknown))
+		s.add(owner, stripUnknownField, uint64(unknown))
 	}
 }
 
-func (s *L7IngestStrip) add(field string, n uint64) {
+// batchTenant is the verified tenant a whole batch belongs to — the lane
+// tenant, or on the pooled lane the one tenant every record names when its
+// (tenant, agent) pair verifies — or "" when it has none. Batch-level strips
+// (fields, unknown fields) are attributed to it.
+func (s *L7IngestStrip) batchTenant(ctx context.Context, laneTenant string, batch *ebpfv1.FlowBatch, memo map[[2]string]bool) string {
+	if laneTenant != "" {
+		return laneTenant
+	}
+	tenant, agent := "", ""
+	note := func(t, a string) bool {
+		if t == "" {
+			return true
+		}
+		if tenant == "" {
+			tenant = t
+		}
+		if agent == "" {
+			agent = a
+		}
+		return t == tenant
+	}
+	for _, f := range batch.GetFlows() {
+		if !note(f.GetTenantId(), f.GetAgentId()) {
+			return ""
+		}
+	}
+	for _, e := range batch.GetEdges() {
+		if !note(e.GetTenantId(), "") {
+			return ""
+		}
+	}
+	for _, c := range batch.GetL7Calls() {
+		if !note(c.GetTenantId(), c.GetAgentId()) {
+			return ""
+		}
+	}
+	if tenant == "" || !s.trustedTenant(ctx, "", &ebpfv1.L7Call{TenantId: tenant, AgentId: agent}, memo) {
+		return ""
+	}
+	return tenant
+}
+
+// add counts one strip: on the deployment total (and /metrics), and on the
+// verified tenant's own tally (review S11: a tenant's support bundle carries
+// only its own counts; an unverified record counts on the total only).
+func (s *L7IngestStrip) add(tenant, field string, n uint64) {
 	if c, ok := s.counts[field]; ok {
 		c.Add(n)
 	}
 	if c, ok := s.counters[field]; ok {
 		c.Add(n)
 	}
+	if tenant == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.byTenant[tenant]
+	if !ok {
+		if len(s.tenantOrder) >= maxFloorCache {
+			delete(s.byTenant, s.tenantOrder[0])
+			s.tenantOrder = s.tenantOrder[1:]
+		}
+		m = map[string]uint64{}
+		s.byTenant[tenant] = m
+		s.tenantOrder = append(s.tenantOrder, tenant)
+	}
+	m[field] += n
+}
+
+// CountsFor returns one tenant's strip counts by label (every label present).
+func (s *L7IngestStrip) CountsFor(tenant string) map[string]uint64 {
+	out := map[string]uint64{}
+	if s == nil {
+		return out
+	}
+	for k := range s.counts {
+		out[k] = 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.byTenant[tenant] {
+		out[k] = v
+	}
+	return out
 }
 
 // clampRecordFields validates every non-call free-text field of the batch that

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 	"github.com/ctlplne/probectl/internal/store"
 )
 
@@ -35,8 +36,26 @@ func TestSupportL7CaptureProjectsAnAllowlist(t *testing.T) {
 	}
 	// Without a database the section still renders, with the default floor.
 	s := testServer(nil)
-	sum := s.supportL7Capture(context.Background(), "")
+	sum := s.supportL7Capture(context.Background(), "", false)
 	if sum.RedactionFloor != "metadata" || sum.Agents == nil || sum.IngestStrips == nil {
 		t.Fatalf("db-less section = %+v", sum)
+	}
+}
+
+// Review S11: a tenant's support bundle carries only that tenant's strip
+// counts; the deployment-wide totals stay with the provider plane's bundle.
+func TestSupportL7CaptureStripCountsAreTenantScoped(t *testing.T) {
+	st := newL7IngestStrip(nil, false, nil).WithTenantBinding(stripBinding{})
+	for i := 0; i < 3; i++ {
+		st.Apply(context.Background(), &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("tenant-b")}}, "", true)
+	}
+	st.Apply(context.Background(), &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("tenant-a")}}, "", true)
+	s := testServer(nil)
+	s.WithL7IngestStrip(st)
+	if got := s.supportL7Capture(context.Background(), "tenant-a", false).IngestStrips["query"]; got != 1 {
+		t.Fatalf("tenant A's bundle query strips = %d, want its own 1 (not tenant B's)", got)
+	}
+	if got := s.supportL7Capture(context.Background(), "tenant-a", true).IngestStrips["query"]; got != 4 {
+		t.Fatalf("provider bundle query strips = %d, want the deployment total 4", got)
 	}
 }
