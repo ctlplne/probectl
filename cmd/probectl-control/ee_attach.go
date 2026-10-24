@@ -310,6 +310,11 @@ func attachSiloIsolation(ctx context.Context, cfg *config.Config, log *slog.Logg
 	// TENANT-001: ALL FOUR planes (flow/path/eBPF/otel) get the silo router
 	// and a per-tenant database, not flow alone.
 	router := silo.NewRouter(pool, planes, 0)
+	// DPR-324 (D-62): a tenant pinned to a plane that is no longer configured
+	// would be routed to the default plane; refuse to start instead.
+	if err := siloResidencyPreflight(ctx, pool, silo.PlaneNames(planes)); err != nil {
+		return nil, nil, err
+	}
 
 	var ch silo.CHPlanes
 	var flowCH *flowstore.ClickHouse
@@ -502,6 +507,55 @@ func siloCatchUpTenants(ctx context.Context, ids []string, prov siloCatchUpper, 
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// isolatedTenantsOffPlane lists the siloed and hybrid tenants (not deleted)
+// whose residency names a data plane absent from planes (the configured plane
+// names), as "id (residency)".
+func isolatedTenantsOffPlane(ctx context.Context, pool *pgxpool.Pool, planes []string) ([]string, error) {
+	configured := map[string]bool{}
+	for _, name := range planes {
+		configured[name] = true
+	}
+	var missing []string
+	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		rows, err := q.Query(ctx, `SELECT id::text, residency FROM tenants
+			 WHERE isolation_model IN ('siloed','hybrid') AND status <> 'deleted' AND residency <> ''
+			 ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id, residency string
+			if err := rows.Scan(&id, &residency); err != nil {
+				return err
+			}
+			if !configured[residency] {
+				missing = append(missing, id+" ("+residency+")")
+			}
+		}
+		return rows.Err()
+	})
+	return missing, err
+}
+
+// siloResidencyPreflight (DPR-324, decision D-62 option c) refuses startup
+// when a siloed or hybrid tenant's residency plane is missing from
+// PROBECTL_DATAPLANES. The router resolves an unknown plane to the default
+// one, so the tenant's telemetry would be sent to a server (and possibly a
+// jurisdiction) its database was never created on: a residency claim must
+// fail loudly, not degrade into database errors.
+func siloResidencyPreflight(ctx context.Context, pool *pgxpool.Pool, planes []string) error {
+	missing, err := isolatedTenantsOffPlane(ctx, pool, planes)
+	if err != nil {
+		return fmt.Errorf("silo residency preflight: %w", err)
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("silo residency preflight: %d siloed/hybrid tenant(s) are pinned to a data plane that PROBECTL_DATAPLANES no longer names: %s; restore each plane (configured: %s) or move the tenants before starting (DPR-324)",
+			len(missing), strings.Join(missing, ", "), strings.Join(planes, ", "))
+	}
+	return nil
 }
 
 type siloReaderCatchUpper interface {

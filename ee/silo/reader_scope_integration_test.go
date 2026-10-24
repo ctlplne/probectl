@@ -76,6 +76,12 @@ func TestSiloReaderLaneEnforcesTenantIsolationAtTheDB(t *testing.T) {
 	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	X := mkTenant(t, pool, "it-rdr-x-"+stamp, "siloed", "")
 	Y := mkTenant(t, pool, "it-rdr-y-"+stamp, "siloed", "eu")
+	for _, id := range []string{X, Y} {
+		// Registered first, so it runs after the teardowns below: leave no
+		// tenant pinned to this test's "eu" plane in the shared database.
+		id := id
+		t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM tenants WHERE id = $1::uuid`, id) })
+	}
 	xDB, yDB := CHDatabase(X), CHDatabase(Y)
 	planes := map[string]DataPlane{"eu": {Name: "eu", CHURL: ch.plane}}
 	prov := NewProvisioner(pool, CHPlanes{

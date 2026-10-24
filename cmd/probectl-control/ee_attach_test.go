@@ -70,6 +70,12 @@ func TestEEAttachRunsSiloCatchUpBeforeRouterPublication(t *testing.T) {
 	if publish < readerCatch {
 		t.Fatalf("silo router is published before the reader-scope catch-up succeeds; catch=%d publish=%d", readerCatch, publish)
 	}
+	// DPR-324: a tenant pinned to a missing plane refuses startup before
+	// anything is routed or caught up.
+	preflight := strings.Index(text, "if err := siloResidencyPreflight(ctx, pool, silo.PlaneNames(planes)); err != nil")
+	if preflight < 0 || preflight > catch || preflight > publish {
+		t.Fatalf("the residency preflight must run before the catch-ups and router publication; preflight=%d catch=%d publish=%d", preflight, catch, publish)
+	}
 	if strings.Index(text, "ch.Readers = siloReaderScopes(") > strings.Index(text, "prov, err := newSiloProvisioner(") {
 		t.Fatal("the provisioner is built before the stores' reader scopes are attached, so new silos would get no reader scope")
 	}

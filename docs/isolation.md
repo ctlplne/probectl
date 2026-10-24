@@ -145,7 +145,11 @@ precise because **a residency claim you cannot back
 up is a compliance liability.** `PROBECTL_DATAPLANES` names the available planes
 (e.g. `eu=https://ch-eu:8123;us=https://ch-us:8123`); a siloed or hybrid tenant
 provisioned with `residency: eu` gets its ClickHouse database **created on and
-routed to** that plane.
+routed to** that plane. Removing a plane from `PROBECTL_DATAPLANES` while a
+siloed or hybrid tenant (not deleted) is still pinned to it refuses startup,
+naming the tenant and the plane (DPR-324): the tenant is never quietly routed
+to the default plane, where its database does not exist and which may sit in
+another jurisdiction.
 
 **Pinned today:** the tenant's ClickHouse telemetry across all five planes —
 flow, path, eBPF L7 edges, endpoint/DEM events, and OTLP traces+logs (the
