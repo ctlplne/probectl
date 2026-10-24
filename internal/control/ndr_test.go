@@ -96,10 +96,14 @@ func TestNDRConsumerEBPFDNSToDGADetection(t *testing.T) {
 
 	calls := make([]*ebpfv1.L7Call, 0, 25)
 	for i := 0; i < 25; i++ {
+		name := fmt.Sprintf("xq%dk7vz0my%dwt3hjb%dfp8c.evil-rendezvous.example", i*7+13, i*31+5, i*17+3)
 		calls = append(calls, &ebpfv1.L7Call{
 			TenantId: "t1", Source: "host-7", Protocol: "dns",
-			Resource:      fmt.Sprintf("xq%dk7vz0my%dwt3hjb%dfp8c.evil-rendezvous.example", i*7+13, i*31+5, i*17+3),
+			Resource:      name,
 			StartUnixNano: time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC).Add(time.Duration(i) * time.Second).UnixNano(),
+			// D-65: the eBPF agent ships the raw name's features; the
+			// stored name is templated at the door.
+			DnsFeatures: testDNSFeatures(name),
 		})
 	}
 	raw, err := proto.Marshal(&ebpfv1.FlowBatch{L7Calls: calls})

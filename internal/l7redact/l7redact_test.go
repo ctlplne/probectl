@@ -211,14 +211,14 @@ func TestMinimize(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, strip := Minimize(tc.in, tc.mode)
+			got, strip := MinimizeWith(tc.in, tc.mode, Options{})
 			if got != tc.want {
 				t.Fatalf("Minimize = %+v, want %+v", got, tc.want)
 			}
 			if f := strip.Fields(); !reflect.DeepEqual(f, tc.fields) {
 				t.Fatalf("strip fields = %v, want %v", f, tc.fields)
 			}
-			again, strip2 := Minimize(got, tc.mode)
+			again, strip2 := MinimizeWith(got, tc.mode, Options{})
 			if again != got || strip2 != 0 {
 				t.Fatalf("Minimize not idempotent: %+v (strips %v)", again, strip2.Fields())
 			}

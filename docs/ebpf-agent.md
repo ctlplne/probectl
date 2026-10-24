@@ -265,7 +265,7 @@ The four redaction modes:
 
 | Mode | What transits | What you can parse |
 |---|---|---|
-| `metadata` (default) | the request/status line and the framing header values; every other header value and the body are zeroed. The emitted call carries only method, the templated route, status, latency, byte counts, protocol and the 5-tuple | L7 calls with templated routes (`/patients/{id}`); no SQL statement text; HTTP/2-gRPC degraded as under `headers` |
+| `metadata` (default) | the request/status line and the framing header values; every other header value and the body are zeroed. The emitted call carries only method, the templated route, status, latency, byte counts, protocol and the 5-tuple; a DNS call carries its question name templated left of the registered domain (`{id}.patients.example.com`; only `example.com` under the regulated profile) plus the raw name's detector features | L7 calls with templated routes (`/patients/{id}`); no SQL statement text; HTTP/2-gRPC degraded as under `headers` |
 | `headers` (opt-in) | metadata up to the header terminator; the body is zeroed (credential and identity-like header **values** — Authorization/Cookie/Set-Cookie/Proxy-Authorization, common `api-key`/`token`/`secret`/`credential`/`x-amz-*` headers, and user/email/subject/employee/account/customer/session/person families — are also zeroed, names survive) | full L7 calls; HTTP/2-gRPC bodies degraded |
 | `length` | **no payload bytes** — kernel window forced to 0; only chunk direction + true size (`DataEvent.Size`) | traffic *shape* only; no parsed L7 calls |
 | `full` | everything (consented debugging only — still behind the enable+consent+scope gates) | full L7 calls including bodies |
@@ -603,6 +603,22 @@ case churn (`MzEyMw`); tokens of 32+ characters; anything percent-encoded or
 containing `@ = + ~`; and segments starting like a credential (`sk-`, `ghp_`,
 `xoxb-`, `glpat-`, `AKIA`, `AIza`, `eyJ`, …). Under `metadata` an HTTP status
 is three digits and a gRPC status one or two; anything else becomes `_OTHER`.
+
+**DNS question names (D-65).** Under `metadata` a DNS name is templated left of
+its registered domain with the same rules (`48213.patients.example.com` →
+`{id}.patients.example.com`); under the regulated profile only the registered
+domain (eTLD+1, `example.com`) is kept. The registered domain comes from the
+public-suffix list compiled into `golang.org/x/net/publicsuffix` — offline,
+nothing fetched. Both the agent and the ingest strip apply it; the NDR
+detection summaries, incidents and the SIEM export quote only that stored
+form. The DGA and tunnelling detectors keep their signal from features the
+agent computes from the raw name while it is only in agent memory — the first
+label's entropy and length, the name's length, and 8-byte keyed tokens (the
+key is random per agent process) that say whether two names or two subdomains
+are the same and nothing else. A record from a producer that sends no features
+is scored on the stored form. With no floor received the agent keeps only the
+registered domain (the strictest rule). The word-shaped gap applies here too:
+`alice.users.corp.internal` keeps `alice`.
 
 What `metadata` cannot see: a route segment that is an identifier but is
 shaped like a word (a username such as `/users/alice` or `/users/JDOE`).

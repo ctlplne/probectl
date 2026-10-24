@@ -187,3 +187,28 @@ func TestL7IngestStripEnforcesALengthFloor(t *testing.T) {
 		t.Fatalf("drops not counted: %v", st.Counts())
 	}
 }
+
+// D-65: the door minimizes DNS question names too — templated left of the
+// registered domain, or only the registered domain under the regulated
+// profile — and refuses detector features that are not numbers and 8-byte
+// tokens.
+func TestL7IngestStripMinimizesDNSNames(t *testing.T) {
+	dns := func() *ebpfv1.FlowBatch {
+		return &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{{TenantId: "t", Protocol: "dns", Method: "A",
+			Resource: "48213.patients.example.com", Status: "NOERROR",
+			DnsFeatures: &ebpfv1.DNSFeatures{NameToken: []byte("COOKIESECRETVALUE-in-a-token")}}}}
+	}
+	b := dns()
+	newL7IngestStrip(nil, false, nil).Apply(context.Background(), b)
+	if got := b.L7Calls[0].GetResource(); got != "{id}.patients.example.com" {
+		t.Fatalf("default-profile DNS name = %q", got)
+	}
+	if b.L7Calls[0].GetDnsFeatures() != nil {
+		t.Fatal("an oversized token survived the door")
+	}
+	b = dns()
+	newL7IngestStrip(nil, true, nil).Apply(context.Background(), b)
+	if got := b.L7Calls[0].GetResource(); got != "example.com" {
+		t.Fatalf("regulated DNS name = %q, want only the registered domain", got)
+	}
+}

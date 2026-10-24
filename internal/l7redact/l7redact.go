@@ -223,6 +223,8 @@ const (
 	// StripLabel: an identifier-valued field (a workload, process, host or
 	// address) carried bytes no identifier has, or exceeded its bound.
 	StripLabel
+	// StripSubdomain: a DNS name was cut to its registered domain (D-65 (c)).
+	StripSubdomain
 )
 
 // stripNames is the fixed label set the counters expose (never a value from the
@@ -242,6 +244,7 @@ var stripNames = []struct {
 	{StripTruncated, "truncated"},
 	{StripEnum, "enum_field"},
 	{StripLabel, "label_field"},
+	{StripSubdomain, "dns_subdomain"},
 }
 
 // StripFields lists every strip label, in a fixed order.
@@ -264,15 +267,18 @@ func (s Strip) Fields() []string {
 	return out
 }
 
-// Minimize applies mode's persistence rule to c and reports what it removed.
+// MinimizeWith applies mode's persistence rule to c and reports what it removed.
 //
 // Under every mode a query string or fragment never survives in an HTTP or gRPC
 // route (ING-16). Under metadata (and length, which normally has no calls at
 // all) the route is templated, the method and status are reduced to tokens, SQL
-// statement text is dropped, and an unrecognized protocol keeps no resource.
-// DNS question names are kept: they are the DNS plane's route and the NDR
-// detectors' input. Minimize is idempotent: Minimize(Minimize(c)) == Minimize(c).
-func Minimize(c Call, mode string) (Call, Strip) {
+// statement text is dropped, an unrecognized protocol keeps no resource, and a
+// DNS question name is templated left of its registered domain (D-65; the NDR
+// detectors score on in-agent features, never on the stored name). Minimize is
+// idempotent: Minimize(Minimize(c)) == Minimize(c).
+// opt carries the deployment's choices (the regulated profile's
+// registered-domain-only DNS names, D-65).
+func MinimizeWith(c Call, mode string, opt Options) (Call, Strip) {
 	var strip Strip
 	minimize := Minimizing(mode)
 	switch c.Protocol {
@@ -302,6 +308,12 @@ func Minimize(c Call, mode string) (Call, Strip) {
 		}
 	case protoDNS:
 		if minimize {
+			// D-65: identifiers left of the registered domain never persist;
+			// under the regulated profile only the registered domain does.
+			if c.Resource != "" {
+				r, rs := DNSName(c.Resource, opt.DNSRegisteredDomainOnly)
+				c.Resource, strip = r, strip|rs
+			}
 			if m := tokenOr(c.Method, 16); m != c.Method {
 				c.Method, strip = m, strip|StripMethod
 			}

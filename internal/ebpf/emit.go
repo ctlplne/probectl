@@ -284,6 +284,9 @@ type L7Record struct {
 	Encrypted   bool
 	TLS         TLSMetadata
 	Call        l7.Call
+	// DNS carries the detector features of a DNS call's RAW name (D-65); the
+	// name in Call.Resource is already minimized.
+	DNS *ebpfv1.DNSFeatures
 }
 
 // TLSMetadata is privacy-minimized handshake/certificate context. It carries
@@ -327,6 +330,7 @@ func (r L7Record) toProto() *ebpfv1.L7Call {
 		TlsObservationSource:  r.TLS.Source,
 		TlsHandshakeUnixNano:  unixNano(r.TLS.HandshakeAt),
 		TlsConfidence:         r.TLS.Confidence,
+		DnsFeatures:           r.DNS,
 	}
 }
 

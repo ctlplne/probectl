@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -54,6 +55,9 @@ const (
 type L7PolicyClient interface {
 	// FetchFloor returns the tenant's redaction floor.
 	FetchFloor(ctx context.Context) (string, error)
+	// DNSRegisteredDomainOnly reports the DNS-name rule the last successful
+	// FetchFloor delivered (D-65): true — the strictest — until one did.
+	DNSRegisteredDomainOnly() bool
 	// ReportPosture sends the agent's current capture posture.
 	ReportPosture(ctx context.Context, p *agentv1.L7CapturePosture) error
 	Close() error
@@ -64,6 +68,9 @@ type L7PolicyClient interface {
 type grpcL7Policy struct {
 	conn *grpc.ClientConn
 	svc  agentv1.AgentServiceClient
+	// dnsLoose is set once the control plane said labels may be templated
+	// rather than cut to the registered domain (D-65).
+	dnsLoose atomic.Bool
 }
 
 // dialL7Policy connects the policy channel when control_plane.grpc_addr is
@@ -118,8 +125,11 @@ func (g *grpcL7Policy) FetchFloor(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	g.dnsLoose.Store(!resp.GetDnsRegisteredDomainOnly())
 	return resp.GetRedactionFloor(), nil
 }
+
+func (g *grpcL7Policy) DNSRegisteredDomainOnly() bool { return !g.dnsLoose.Load() }
 
 func (g *grpcL7Policy) ReportPosture(ctx context.Context, p *agentv1.L7CapturePosture) error {
 	_, err := g.svc.ReportL7Posture(ctx, &agentv1.ReportL7PostureRequest{Posture: p})
@@ -324,8 +334,9 @@ func (a *Agent) reminimize(recs []L7Record) []L7Record {
 	if !l7redact.Persists(mode) {
 		return nil
 	}
+	opt := a.dnsOptions()
 	for i := range recs {
-		recs[i].Call = minimizeCall(recs[i].Call, mode)
+		recs[i].Call = minimizeCall(recs[i].Call, mode, opt)
 	}
 	return recs
 }

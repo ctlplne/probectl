@@ -99,6 +99,25 @@ message L7Call {
   string tls_observation_source = 22; // uprobe | socket | sidecar | fixture
   int64 tls_handshake_unix_nano = 23;
   uint32 tls_confidence = 24; // percentage points; 1..100 when observed
+
+  // D-65: for a DNS call, the detector features the agent computed from the
+  // RAW question name before minimizing it. The stored resource is templated
+  // ({id}.patients.example.com) or, under the regulated profile, only the
+  // registered domain; the NDR detectors score DGA and tunnelling on these.
+  DNSFeatures dns_features = 25;
+}
+
+// DNSFeatures carries what the DGA and tunnelling detectors need from a raw
+// DNS question name, and nothing that reproduces it: the first label's Shannon
+// entropy and length, the name's byte length, and two 8-byte tokens — keyed
+// digests (the key is random per agent process and never leaves it) that say
+// whether two names, or two subdomains, are the same, and nothing else.
+message DNSFeatures {
+  double first_label_entropy = 1;
+  uint32 first_label_length = 2;
+  uint32 qname_bytes = 3;
+  bytes name_token = 4;      // keyed digest of the full raw name
+  bytes subdomain_token = 5; // keyed digest of the labels left of the registered domain; empty when there are none
 }
 
 // FlowBatch is the payload published to probectl.ebpf.flows (tenant-keyed).

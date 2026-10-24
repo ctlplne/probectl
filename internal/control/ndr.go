@@ -28,6 +28,7 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/fairness"
+	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 	"github.com/ctlplne/probectl/internal/incident"
@@ -352,13 +353,25 @@ func (cs *NDRConsumer) handleEBPFBatchLane(ctx context.Context, msg bus.Message,
 			continue
 		}
 		sigs := cs.engine.ObserveDNS(c.GetTenantId(), threat.DNSObservation{
-			Source: c.GetSource(),
-			QName:  c.GetResource(),
-			At:     time.Unix(0, c.GetStartUnixNano()),
+			Source:   c.GetSource(),
+			QName:    c.GetResource(), // the stored (minimized) form, D-65
+			At:       time.Unix(0, c.GetStartUnixNano()),
+			Features: dnsFeaturesOf(c.GetDnsFeatures()),
 		})
 		cs.export(ctx, sigs)
 	}
 	return nil
+}
+
+// dnsFeaturesOf converts the eBPF agent's raw-name DNS features (D-65).
+func dnsFeaturesOf(f *ebpfv1.DNSFeatures) *threat.DNSFeatures {
+	if f == nil {
+		return nil
+	}
+	return &threat.DNSFeatures{
+		FirstLabelEntropy: f.GetFirstLabelEntropy(), FirstLabelLength: int(f.GetFirstLabelLength()),
+		QNameBytes: int(f.GetQnameBytes()), NameToken: string(f.GetNameToken()), SubdomainToken: string(f.GetSubdomainToken()),
+	}
 }
 
 // export routes each raised detection through the shared outputs: incident

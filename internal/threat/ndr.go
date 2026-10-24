@@ -58,8 +58,26 @@ type NeighborSource interface {
 // eBPF L7 DNS call (S21). Source is the looking-up entity (agent/host/IP).
 type DNSObservation struct {
 	Source string
-	QName  string
-	At     time.Time
+	// QName is the STORED form of the name: under L7 metadata redaction
+	// templated left of its registered domain, or only the registered domain
+	// under the regulated profile (D-65). Summaries quote it, never a raw name.
+	QName string
+	At    time.Time
+	// Features, when the producer computed them from the raw name (the eBPF
+	// agent does), carry the detectors' signal: they score on these, so the
+	// raw name never has to leave the agent.
+	Features *DNSFeatures
+}
+
+// DNSFeatures are the raw-name detector features (see internal/ebpf l7dns.go):
+// entropy and length of the first label, the name's byte length, and opaque
+// tokens that compare equal for equal names / subdomains.
+type DNSFeatures struct {
+	FirstLabelEntropy float64
+	FirstLabelLength  int
+	QNameBytes        int
+	NameToken         string
+	SubdomainToken    string
 }
 
 // FlowObservation is one normalized flow/edge sample: from a flow record
@@ -142,7 +160,8 @@ func (e *Engine) Rules() []DetectionRule {
 
 type dnsEntry struct {
 	at        time.Time
-	name      string
+	name      string // the stored form: what a summary may quote
+	key       string // what makes it distinct: the raw-name token, else the name
 	generated bool
 }
 
@@ -324,16 +343,22 @@ func (e *Engine) observeDGA(tenant string, ts *tenantState, obs DNSObservation) 
 			evictStalest(ts.dga, e.maxEntities, func(v *dnsState) time.Time { return v.touched })
 		}
 		st.touched = obs.At
-		gen := shannonEntropy(firstLabel(obs.QName)) >= rule.Threshold("entropy", 3.8) &&
-			len(firstLabel(obs.QName)) >= 10
-		st.entries = appendPruned(st.entries, dnsEntry{at: obs.At, name: obs.QName, generated: gen},
+		entropy, labelLen, key := shannonEntropy(firstLabel(obs.QName)), len(firstLabel(obs.QName)), obs.QName
+		if f := obs.Features; f != nil {
+			entropy, labelLen = f.FirstLabelEntropy, f.FirstLabelLength
+			if f.NameToken != "" {
+				key = f.NameToken
+			}
+		}
+		gen := entropy >= rule.Threshold("entropy", 3.8) && labelLen >= 10
+		st.entries = appendPruned(st.entries, dnsEntry{at: obs.At, name: obs.QName, key: key, generated: gen},
 			obs.At.Add(-window), func(en dnsEntry) time.Time { return en.at })
 
 		distinct := map[string]bool{}
 		generated := 0
 		for _, en := range st.entries {
-			if !distinct[en.name] {
-				distinct[en.name] = true
+			if !distinct[en.key] {
+				distinct[en.key] = true
 				if en.generated {
 					generated++
 				}
@@ -369,10 +394,18 @@ func (e *Engine) observeDGA(tenant string, ts *tenantState, obs DNSObservation) 
 func (e *Engine) observeExfil(tenant string, ts *tenantState, obs DNSObservation) []incident.Signal {
 	var out []incident.Signal
 	domain := registeredDomain(obs.QName)
-	if domain == "" || domain == obs.QName {
+	sub, qbytes := strings.TrimSuffix(obs.QName, "."+domain), len(obs.QName)
+	if f := obs.Features; f != nil {
+		// D-65: the stored name may be only the registered domain; the
+		// subdomain and length come from the raw name's features.
+		sub, qbytes = f.SubdomainToken, f.QNameBytes
+		if sub == "" {
+			return nil // no labels left of the registered domain
+		}
+	}
+	if domain == "" || (obs.Features == nil && domain == obs.QName) {
 		return nil // bare domain lookups carry no payload labels
 	}
-	sub := strings.TrimSuffix(obs.QName, "."+domain)
 	for _, rule := range e.rules[KindDNSExfil] {
 		window := time.Duration(rule.Threshold("window_s", 600)) * time.Second
 		key := obs.Source + "|" + domain
@@ -383,7 +416,7 @@ func (e *Engine) observeExfil(tenant string, ts *tenantState, obs DNSObservation
 			evictStalest(ts.exfil, e.maxEntities, func(v *exfilState) time.Time { return v.touched })
 		}
 		st.touched = obs.At
-		st.entries = appendPruned(st.entries, exfilEntry{at: obs.At, sub: sub, bytes: len(obs.QName)},
+		st.entries = appendPruned(st.entries, exfilEntry{at: obs.At, sub: sub, bytes: qbytes},
 			obs.At.Add(-window), func(en exfilEntry) time.Time { return en.at })
 
 		total := len(st.entries)

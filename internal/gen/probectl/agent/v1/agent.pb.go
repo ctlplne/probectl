@@ -1106,8 +1106,11 @@ type FetchL7PolicyResponse struct {
 	// tenant made no statement; never looser than metadata under the regulated
 	// deployment profile.
 	RedactionFloor string `protobuf:"bytes,1,opt,name=redaction_floor,json=redactionFloor,proto3" json:"redaction_floor,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// D-65: store and show only the registered domain of a DNS question name
+	// (the regulated profile). false: labels left of it are templated.
+	DnsRegisteredDomainOnly bool `protobuf:"varint,2,opt,name=dns_registered_domain_only,json=dnsRegisteredDomainOnly,proto3" json:"dns_registered_domain_only,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *FetchL7PolicyResponse) Reset() {
@@ -1145,6 +1148,13 @@ func (x *FetchL7PolicyResponse) GetRedactionFloor() string {
 		return x.RedactionFloor
 	}
 	return ""
+}
+
+func (x *FetchL7PolicyResponse) GetDnsRegisteredDomainOnly() bool {
+	if x != nil {
+		return x.DnsRegisteredDomainOnly
+	}
+	return false
 }
 
 // L7CapturePosture is an agent's L7 capture state as it reports it. Every
@@ -1416,9 +1426,10 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\fnot_modified\x18\x01 \x01(\bR\vnotModified\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x04R\aversion\x12#\n" +
 	"\rsigned_bundle\x18\x03 \x01(\fR\fsignedBundle\"\x16\n" +
-	"\x14FetchL7PolicyRequest\"@\n" +
+	"\x14FetchL7PolicyRequest\"}\n" +
 	"\x15FetchL7PolicyResponse\x12'\n" +
-	"\x0fredaction_floor\x18\x01 \x01(\tR\x0eredactionFloor\"\x8e\x02\n" +
+	"\x0fredaction_floor\x18\x01 \x01(\tR\x0eredactionFloor\x12;\n" +
+	"\x1adns_registered_domain_only\x18\x02 \x01(\bR\x17dnsRegisteredDomainOnly\"\x8e\x02\n" +
 	"\x10L7CapturePosture\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12%\n" +
 	"\x0econsent_tenant\x18\x02 \x01(\tR\rconsentTenant\x12\x14\n" +

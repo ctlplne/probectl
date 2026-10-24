@@ -25,8 +25,10 @@ type fakeControlPlane struct {
 	floor     string
 	err       error
 	reportErr error
-	reports   []*agentv1.L7CapturePosture
-	order     *[]string // shared with a liveRecorder: the order of reports and starts
+	// dnsRegistered is the D-65 DNS rule the fake control plane delivers.
+	dnsRegistered bool
+	reports       []*agentv1.L7CapturePosture
+	order         *[]string // shared with a liveRecorder: the order of reports and starts
 }
 
 func (f *fakeControlPlane) FetchFloor(context.Context) (string, error) {
@@ -49,6 +51,12 @@ func (f *fakeControlPlane) ReportPosture(_ context.Context, p *agentv1.L7Capture
 }
 
 func (f *fakeControlPlane) Close() error { return nil }
+
+func (f *fakeControlPlane) DNSRegisteredDomainOnly() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.dnsRegistered
+}
 
 // liveRecorder replaces the live capture constructor: it records each start
 // attempt and the redaction mode capture would run under.

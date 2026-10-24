@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/ebpf/l7"
+	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 	"github.com/ctlplne/probectl/internal/l7redact"
 )
 
@@ -53,7 +54,9 @@ type Agent struct {
 	floorFailures int
 	stoppedFloor  string
 	l7man         *l7.Manager
-	l7conns       map[uint64]l7conn
+	// dnsKey keys the D-65 DNS tokens; random per process, never leaves it.
+	dnsKey  []byte
+	l7conns map[uint64]l7conn
 	// l7seen tracks last-activity per connID so idle entries are swept on flush
 	// (FUZZ-001) — connID is the SSL* pointer with no socket-close signal yet,
 	// so without a TTL sweep l7conns + l7man.conns grow without bound.
@@ -273,6 +276,7 @@ func newAgent(cfg *Config, b bus.Bus, log *slog.Logger, src Source, policy L7Pol
 		l7connsCap: cfg.MaxL7Conns,
 		l7connsTTL: cfg.L7ConnIdleTTL,
 		join:       newHostLocalJoin(),
+		dnsKey:     newDNSKey(),
 	}
 	floor, floorErr := fetchFloor(context.Background(), policy)
 	l7src, l7st, err := a.setupL7(context.Background(), floor, floorErr)
@@ -300,7 +304,7 @@ func newAgentWith(cfg *Config, log *slog.Logger, src Source, enr Enricher, em Em
 		l7mode: l7redact.Normalize(cfg.L7CaptureRedaction),
 		agg:    agg, l7man: l7man, l7conns: map[uint64]l7conn{},
 		l7seen: map[uint64]time.Time{}, l7connsCap: cfg.MaxL7Conns, l7connsTTL: cfg.L7ConnIdleTTL,
-		join: newHostLocalJoin(),
+		join: newHostLocalJoin(), dnsKey: newDNSKey(),
 	}
 }
 
@@ -604,8 +608,13 @@ func (a *Agent) observeL7(ev L7Event) {
 		if !l7redact.Persists(a.l7mode) {
 			continue
 		}
-		c = minimizeCall(c, a.l7mode)
+		var dns *ebpfv1.DNSFeatures
+		if c.Protocol == l7.ProtoDNS {
+			dns = dnsFeatures(c.Resource, a.dnsKey) // D-65: from the raw name, in memory only
+		}
+		c = minimizeCall(c, a.l7mode, a.dnsOptions())
 		a.agg.ObserveL7(L7Record{
+			DNS:         dns,
 			TenantID:    meta.tenant,
 			AgentID:     a.cfg.identity(),
 			Source:      meta.src,

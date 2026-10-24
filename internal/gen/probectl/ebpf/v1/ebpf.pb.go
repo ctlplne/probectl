@@ -406,8 +406,13 @@ type L7Call struct {
 	TlsObservationSource  string `protobuf:"bytes,22,opt,name=tls_observation_source,json=tlsObservationSource,proto3" json:"tls_observation_source,omitempty"` // uprobe | socket | sidecar | fixture
 	TlsHandshakeUnixNano  int64  `protobuf:"varint,23,opt,name=tls_handshake_unix_nano,json=tlsHandshakeUnixNano,proto3" json:"tls_handshake_unix_nano,omitempty"`
 	TlsConfidence         uint32 `protobuf:"varint,24,opt,name=tls_confidence,json=tlsConfidence,proto3" json:"tls_confidence,omitempty"` // percentage points; 1..100 when observed
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// D-65: for a DNS call, the detector features the agent computed from the
+	// RAW question name before minimizing it. The stored resource is templated
+	// ({id}.patients.example.com) or, under the regulated profile, only the
+	// registered domain; the NDR detectors score DGA and tunnelling on these.
+	DnsFeatures   *DNSFeatures `protobuf:"bytes,25,opt,name=dns_features,json=dnsFeatures,proto3" json:"dns_features,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *L7Call) Reset() {
@@ -608,6 +613,94 @@ func (x *L7Call) GetTlsConfidence() uint32 {
 	return 0
 }
 
+func (x *L7Call) GetDnsFeatures() *DNSFeatures {
+	if x != nil {
+		return x.DnsFeatures
+	}
+	return nil
+}
+
+// DNSFeatures carries what the DGA and tunnelling detectors need from a raw
+// DNS question name, and nothing that reproduces it: the first label's Shannon
+// entropy and length, the name's byte length, and two 8-byte tokens — keyed
+// digests (the key is random per agent process and never leaves it) that say
+// whether two names, or two subdomains, are the same, and nothing else.
+type DNSFeatures struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	FirstLabelEntropy float64                `protobuf:"fixed64,1,opt,name=first_label_entropy,json=firstLabelEntropy,proto3" json:"first_label_entropy,omitempty"`
+	FirstLabelLength  uint32                 `protobuf:"varint,2,opt,name=first_label_length,json=firstLabelLength,proto3" json:"first_label_length,omitempty"`
+	QnameBytes        uint32                 `protobuf:"varint,3,opt,name=qname_bytes,json=qnameBytes,proto3" json:"qname_bytes,omitempty"`
+	NameToken         []byte                 `protobuf:"bytes,4,opt,name=name_token,json=nameToken,proto3" json:"name_token,omitempty"`                // keyed digest of the full raw name
+	SubdomainToken    []byte                 `protobuf:"bytes,5,opt,name=subdomain_token,json=subdomainToken,proto3" json:"subdomain_token,omitempty"` // keyed digest of the labels left of the registered domain; empty when there are none
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *DNSFeatures) Reset() {
+	*x = DNSFeatures{}
+	mi := &file_probectl_ebpf_v1_ebpf_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DNSFeatures) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DNSFeatures) ProtoMessage() {}
+
+func (x *DNSFeatures) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_ebpf_v1_ebpf_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DNSFeatures.ProtoReflect.Descriptor instead.
+func (*DNSFeatures) Descriptor() ([]byte, []int) {
+	return file_probectl_ebpf_v1_ebpf_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DNSFeatures) GetFirstLabelEntropy() float64 {
+	if x != nil {
+		return x.FirstLabelEntropy
+	}
+	return 0
+}
+
+func (x *DNSFeatures) GetFirstLabelLength() uint32 {
+	if x != nil {
+		return x.FirstLabelLength
+	}
+	return 0
+}
+
+func (x *DNSFeatures) GetQnameBytes() uint32 {
+	if x != nil {
+		return x.QnameBytes
+	}
+	return 0
+}
+
+func (x *DNSFeatures) GetNameToken() []byte {
+	if x != nil {
+		return x.NameToken
+	}
+	return nil
+}
+
+func (x *DNSFeatures) GetSubdomainToken() []byte {
+	if x != nil {
+		return x.SubdomainToken
+	}
+	return nil
+}
+
 // FlowBatch is the payload published to probectl.ebpf.flows (tenant-keyed).
 type FlowBatch struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
@@ -622,7 +715,7 @@ type FlowBatch struct {
 
 func (x *FlowBatch) Reset() {
 	*x = FlowBatch{}
-	mi := &file_probectl_ebpf_v1_ebpf_proto_msgTypes[3]
+	mi := &file_probectl_ebpf_v1_ebpf_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -634,7 +727,7 @@ func (x *FlowBatch) String() string {
 func (*FlowBatch) ProtoMessage() {}
 
 func (x *FlowBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_ebpf_v1_ebpf_proto_msgTypes[3]
+	mi := &file_probectl_ebpf_v1_ebpf_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -647,7 +740,7 @@ func (x *FlowBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowBatch.ProtoReflect.Descriptor instead.
 func (*FlowBatch) Descriptor() ([]byte, []int) {
-	return file_probectl_ebpf_v1_ebpf_proto_rawDescGZIP(), []int{3}
+	return file_probectl_ebpf_v1_ebpf_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FlowBatch) GetFlows() []*Flow {
@@ -721,7 +814,7 @@ const file_probectl_ebpf_v1_ebpf_proto_rawDesc = "" +
 	"\bl7_calls\x18\f \x01(\x04R\al7Calls\x12\x1b\n" +
 	"\tl7_errors\x18\r \x01(\x04R\bl7Errors\x12-\n" +
 	"\x13l7_latency_sum_nano\x18\x0e \x01(\x03R\x10l7LatencySumNano\x12-\n" +
-	"\x13l7_latency_max_nano\x18\x0f \x01(\x03R\x10l7LatencyMaxNano\"\xdf\x06\n" +
+	"\x13l7_latency_max_nano\x18\x0f \x01(\x03R\x10l7LatencyMaxNano\"\xa1\a\n" +
 	"\x06L7Call\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x16\n" +
@@ -749,7 +842,16 @@ const file_probectl_ebpf_v1_ebpf_proto_rawDesc = "" +
 	"\x10tls_verification\x18\x15 \x01(\tR\x0ftlsVerification\x124\n" +
 	"\x16tls_observation_source\x18\x16 \x01(\tR\x14tlsObservationSource\x125\n" +
 	"\x17tls_handshake_unix_nano\x18\x17 \x01(\x03R\x14tlsHandshakeUnixNano\x12%\n" +
-	"\x0etls_confidence\x18\x18 \x01(\rR\rtlsConfidence\"\xc8\x01\n" +
+	"\x0etls_confidence\x18\x18 \x01(\rR\rtlsConfidence\x12@\n" +
+	"\fdns_features\x18\x19 \x01(\v2\x1d.probectl.ebpf.v1.DNSFeaturesR\vdnsFeatures\"\xd4\x01\n" +
+	"\vDNSFeatures\x12.\n" +
+	"\x13first_label_entropy\x18\x01 \x01(\x01R\x11firstLabelEntropy\x12,\n" +
+	"\x12first_label_length\x18\x02 \x01(\rR\x10firstLabelLength\x12\x1f\n" +
+	"\vqname_bytes\x18\x03 \x01(\rR\n" +
+	"qnameBytes\x12\x1d\n" +
+	"\n" +
+	"name_token\x18\x04 \x01(\fR\tnameToken\x12'\n" +
+	"\x0fsubdomain_token\x18\x05 \x01(\fR\x0esubdomainToken\"\xc8\x01\n" +
 	"\tFlowBatch\x12,\n" +
 	"\x05flows\x18\x01 \x03(\v2\x16.probectl.ebpf.v1.FlowR\x05flows\x123\n" +
 	"\x05edges\x18\x02 \x03(\v2\x1d.probectl.ebpf.v1.ServiceEdgeR\x05edges\x123\n" +
@@ -768,22 +870,24 @@ func file_probectl_ebpf_v1_ebpf_proto_rawDescGZIP() []byte {
 	return file_probectl_ebpf_v1_ebpf_proto_rawDescData
 }
 
-var file_probectl_ebpf_v1_ebpf_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_probectl_ebpf_v1_ebpf_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_probectl_ebpf_v1_ebpf_proto_goTypes = []any{
 	(*Flow)(nil),        // 0: probectl.ebpf.v1.Flow
 	(*ServiceEdge)(nil), // 1: probectl.ebpf.v1.ServiceEdge
 	(*L7Call)(nil),      // 2: probectl.ebpf.v1.L7Call
-	(*FlowBatch)(nil),   // 3: probectl.ebpf.v1.FlowBatch
+	(*DNSFeatures)(nil), // 3: probectl.ebpf.v1.DNSFeatures
+	(*FlowBatch)(nil),   // 4: probectl.ebpf.v1.FlowBatch
 }
 var file_probectl_ebpf_v1_ebpf_proto_depIdxs = []int32{
-	0, // 0: probectl.ebpf.v1.FlowBatch.flows:type_name -> probectl.ebpf.v1.Flow
-	1, // 1: probectl.ebpf.v1.FlowBatch.edges:type_name -> probectl.ebpf.v1.ServiceEdge
-	2, // 2: probectl.ebpf.v1.FlowBatch.l7_calls:type_name -> probectl.ebpf.v1.L7Call
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	3, // 0: probectl.ebpf.v1.L7Call.dns_features:type_name -> probectl.ebpf.v1.DNSFeatures
+	0, // 1: probectl.ebpf.v1.FlowBatch.flows:type_name -> probectl.ebpf.v1.Flow
+	1, // 2: probectl.ebpf.v1.FlowBatch.edges:type_name -> probectl.ebpf.v1.ServiceEdge
+	2, // 3: probectl.ebpf.v1.FlowBatch.l7_calls:type_name -> probectl.ebpf.v1.L7Call
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_probectl_ebpf_v1_ebpf_proto_init() }
@@ -797,7 +901,7 @@ func file_probectl_ebpf_v1_ebpf_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_ebpf_v1_ebpf_proto_rawDesc), len(file_probectl_ebpf_v1_ebpf_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

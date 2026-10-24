@@ -24,12 +24,15 @@ import (
 // fakeL7Policy records which tenant and agent every call was made for, so the
 // tests prove both come from the client certificate and nowhere else.
 type fakeL7Policy struct {
-	mu       sync.Mutex
-	floor    string
-	tenants  []string
-	agents   []string
-	recorded []store.L7CapturePosture
+	mu        sync.Mutex
+	floor     string
+	regulated bool
+	tenants   []string
+	agents    []string
+	recorded  []store.L7CapturePosture
 }
+
+func (f *fakeL7Policy) DNSRegisteredDomainOnly() bool { return f.regulated }
 
 func (f *fakeL7Policy) Floor(_ context.Context, tenant string) (string, error) {
 	f.mu.Lock()

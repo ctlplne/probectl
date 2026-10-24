@@ -42,6 +42,9 @@ const L7PostureAuditAction = "agent.l7_capture.posture"
 type L7Policy interface {
 	// Floor returns the tenant's effective L7 capture redaction floor.
 	Floor(ctx context.Context, tenantID string) (string, error)
+	// DNSRegisteredDomainOnly reports whether DNS question names keep only
+	// their registered domain (the regulated profile, D-65).
+	DNSRegisteredDomainOnly() bool
 	// RecordPosture stores the agent's validated posture and reports whether
 	// it changed; a material change is audited on the tenant's chain in the
 	// same transaction.
@@ -73,7 +76,8 @@ func (svc *service) FetchL7Policy(ctx context.Context, _ *agentv1.FetchL7PolicyR
 		svc.log.Error("l7 redaction floor read failed", "tenant", id.TenantID, "agent", id.AgentID, "error", err.Error())
 		return nil, status.Error(codes.Unavailable, "L7 capture policy unavailable")
 	}
-	return &agentv1.FetchL7PolicyResponse{RedactionFloor: floor}, nil
+	return &agentv1.FetchL7PolicyResponse{RedactionFloor: floor,
+		DnsRegisteredDomainOnly: svc.l7policy.DNSRegisteredDomainOnly()}, nil
 }
 
 // ReportL7Posture validates and records the calling agent's capture posture.
@@ -209,6 +213,8 @@ type pgL7Policy struct {
 func NewL7Policy(pool *pgxpool.Pool, regulated bool) L7Policy {
 	return &pgL7Policy{pool: pool, floors: govern.NewPolicyStore(pool), regulated: regulated}
 }
+
+func (p *pgL7Policy) DNSRegisteredDomainOnly() bool { return p.regulated }
 
 func (p *pgL7Policy) Floor(ctx context.Context, tenantID string) (string, error) {
 	return p.floors.L7CaptureFloor(ctx, tenantID, p.regulated)

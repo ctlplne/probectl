@@ -199,9 +199,12 @@ func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, coun
 			continue
 		}
 		kept = append(kept, c)
-		m, strip := l7redact.Minimize(l7redact.Call{
+		m, strip := l7redact.MinimizeWith(l7redact.Call{
 			Protocol: c.GetProtocol(), Method: c.GetMethod(), Resource: c.GetResource(), Status: c.GetStatus(),
-		}, mode)
+		}, mode, l7redact.Options{DNSRegisteredDomainOnly: s.regulated})
+		if !validDNSFeatures(c.GetDnsFeatures()) {
+			c.DnsFeatures, strip = nil, strip|l7redact.StripLabel
+		}
 		c.Protocol, c.Method, c.Resource, c.Status = m.Protocol, m.Method, m.Resource, m.Status
 		if count {
 			for _, f := range strip.Fields() {
@@ -261,6 +264,27 @@ func clampRecordFields(batch *ebpfv1.FlowBatch) l7redact.Strip {
 	}
 	return strip
 }
+
+// validDNSFeatures bounds the D-65 detector features a producer sends: real
+// entropy and lengths, tokens of exactly the agent's token size — numbers and
+// opaque 8-byte tokens, never a place to carry a name.
+func validDNSFeatures(f *ebpfv1.DNSFeatures) bool {
+	if f == nil {
+		return true
+	}
+	if f.GetFirstLabelEntropy() < 0 || f.GetFirstLabelEntropy() > 8 || f.GetFirstLabelLength() > 255 || f.GetQnameBytes() > 255 {
+		return false
+	}
+	for _, tok := range [][]byte{f.GetNameToken(), f.GetSubdomainToken()} {
+		if len(tok) != 0 && len(tok) != dnsTokenBytes {
+			return false
+		}
+	}
+	return true
+}
+
+// dnsTokenBytes is the eBPF agent's DNS token size (internal/ebpf).
+const dnsTokenBytes = 8
 
 // dropUnknownFields clears the unknown-field bytes of every message in the
 // batch tree and returns how many messages carried any.

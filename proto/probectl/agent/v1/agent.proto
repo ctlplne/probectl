@@ -188,6 +188,9 @@ message FetchL7PolicyResponse {
   // tenant made no statement; never looser than metadata under the regulated
   // deployment profile.
   string redaction_floor = 1;
+  // D-65: store and show only the registered domain of a DNS question name
+  // (the regulated profile). false: labels left of it are templated.
+  bool dns_registered_domain_only = 2;
 }
 
 // L7CapturePosture is an agent's L7 capture state as it reports it. Every

@@ -26,12 +26,15 @@ import (
 // channelPolicy is the control plane's L7Policy behind a real AgentService
 // listener; it records the certificate-derived identity of every call.
 type channelPolicy struct {
-	mu      sync.Mutex
-	floor   string
-	tenants []string
-	agents  []string
-	posture []store.L7CapturePosture
+	mu        sync.Mutex
+	floor     string
+	regulated bool
+	tenants   []string
+	agents    []string
+	posture   []store.L7CapturePosture
 }
+
+func (c *channelPolicy) DNSRegisteredDomainOnly() bool { return c.regulated }
 
 func (c *channelPolicy) Floor(_ context.Context, tenant string) (string, error) {
 	c.mu.Lock()

@@ -16,10 +16,10 @@ import (
 // it is rolled up or published. Under "metadata" only method, the templated
 // route, status, latency, byte counts and protocol survive; under every mode a
 // query string never does.
-func minimizeCall(c l7.Call, mode string) l7.Call {
-	m, _ := l7redact.Minimize(l7redact.Call{
+func minimizeCall(c l7.Call, mode string, opt l7redact.Options) l7.Call {
+	m, _ := l7redact.MinimizeWith(l7redact.Call{
 		Protocol: c.Protocol, Method: c.Method, Resource: c.Resource, Status: c.Status,
-	}, mode)
+	}, mode, opt)
 	c.Protocol, c.Method, c.Resource, c.Status = m.Protocol, m.Method, m.Resource, m.Status
 	return c
 }
