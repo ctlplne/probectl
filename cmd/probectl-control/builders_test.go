@@ -190,6 +190,39 @@ func TestClickHouseReaderFactoryRefusesTheControlLogin(t *testing.T) {
 	}
 }
 
+// DPR-323: the reader reaches each residency plane with that plane's reader
+// credential, which must be the login the per-tenant row policies bind and
+// never the plane's control login.
+func TestClickHouseReaderFactoryPinsEachPlaneReader(t *testing.T) {
+	const planes = "eu=https://ch-eu.example:8443"
+	controlFor := func(t *testing.T, euControlUser string) *crypto.BasicAuthClientFactory {
+		control := readerFactory(t, "probectl")
+		if err := control.WithOriginCredentialFile("https://ch-eu.example:8443", writeCredential(t, euControlUser, "eu-control-ci-only")); err != nil {
+			t.Fatal(err)
+		}
+		return control
+	}
+	cfg := func(t *testing.T, euReaderUser string) *config.Config {
+		return &config.Config{
+			OTelStoreMode: "clickhouse", ClickHouseReaderBasicAuthFile: writeCredential(t, "probectl_reader", "reader-password-ci-only"),
+			DataPlanes: planes, DataPlaneReaderBasicAuthFiles: map[string]string{"eu": writeCredential(t, euReaderUser, "eu-reader-ci-only")},
+		}
+	}
+	reader, err := clickHouseReaderFactory(cfg(t, "probectl_reader"), controlFor(t, "probectl_eu"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user, ok := reader.OriginUsername("https://ch-eu.example:8443", ""); !ok || user != "probectl_reader" {
+		t.Fatalf("eu plane reader = %q, %v; want the pinned probectl_reader credential", user, ok)
+	}
+	if _, err := clickHouseReaderFactory(cfg(t, "someone_else"), controlFor(t, "probectl_eu")); err == nil || !strings.Contains(err.Error(), "every plane's reader must be the same login") {
+		t.Fatalf("err = %v, want a plane reader with another login refused", err)
+	}
+	if _, err := clickHouseReaderFactory(cfg(t, "probectl_reader"), controlFor(t, "probectl_reader")); err == nil || !strings.Contains(err.Error(), "that plane's control login") {
+		t.Fatalf("err = %v, want the plane's control login refused as its reader", err)
+	}
+}
+
 func TestClickHouseReaderClientDropsURLUserinfo(t *testing.T) {
 	f := readerFactory(t, "probectl_reader")
 	// A loopback dev URL may carry the control login as userinfo; the reader

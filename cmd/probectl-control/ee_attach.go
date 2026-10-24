@@ -47,6 +47,7 @@ import (
 	"github.com/ctlplne/probectl/internal/remediation"
 	"github.com/ctlplne/probectl/internal/secrets"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/chclient"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
 	"github.com/ctlplne/probectl/internal/store/endpointstore"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -139,88 +140,11 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	var siloOps provider.SiloOps
 	var routerInvalidate func()
 	if lic.Has(license.FeatureSiloedIsolation) {
-		planes, err := silo.ParseDataPlanes(cfg.DataPlanes)
+		var err error
+		siloOps, routerInvalidate, err = attachSiloIsolation(ctx, cfg, log, pool, flowStore, pathCH, ebpfStore, otelStore, endpointStore)
 		if err != nil {
 			return err
 		}
-		// The ClickHouse leg exists per plane only when that store runs
-		// ClickHouse; memory stores are process-local (logically tenant-keyed).
-		// TENANT-001: ALL FOUR planes (flow/path/eBPF/otel) get the silo router
-		// and a per-tenant database, not flow alone.
-		router := silo.NewRouter(pool, planes, 0)
-
-		var ch silo.CHPlanes
-		var flowCH *flowstore.ClickHouse
-		var ebpfCH *ebpfstore.ClickHouse
-		var otelCH *otelstore.ClickHouse
-		var endpointCH *endpointstore.ClickHouse
-		if c, ok := flowstore.ClickHouseStore(flowStore); ok {
-			flowCH, ch.Flows = c, c
-			c.WithRouter(func(ctx context.Context, tenantID string) (flowstore.Target, error) {
-				t, err := router.TargetsFor(ctx, tenantID)
-				if err != nil {
-					return flowstore.Target{}, err
-				}
-				return flowstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
-			})
-		}
-		if pathCH != nil {
-			ch.Paths = pathCH
-			pathCH.WithRouter(func(ctx context.Context, tenantID string) (pathstore.Target, error) {
-				t, err := router.TargetsFor(ctx, tenantID)
-				if err != nil {
-					return pathstore.Target{}, err
-				}
-				return pathstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
-			})
-		}
-		if c, ok := ebpfstore.ClickHouseStore(ebpfStore); ok {
-			ebpfCH, ch.EBPF = c, c
-			c.WithRouter(func(ctx context.Context, tenantID string) (ebpfstore.Target, error) {
-				t, err := router.TargetsFor(ctx, tenantID)
-				if err != nil {
-					return ebpfstore.Target{}, err
-				}
-				return ebpfstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
-			})
-		}
-		if c, ok := otelstore.ClickHouseStore(otelStore); ok {
-			otelCH, ch.Otel = c, c
-			c.WithRouter(func(ctx context.Context, tenantID string) (otelstore.Target, error) {
-				t, err := router.TargetsFor(ctx, tenantID)
-				if err != nil {
-					return otelstore.Target{}, err
-				}
-				return otelstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
-			})
-		}
-		if c, ok := endpointstore.ClickHouseStore(endpointStore); ok {
-			endpointCH, ch.Endpoint = c, c
-			c.WithRouter(func(ctx context.Context, tenantID string) (endpointstore.Target, error) {
-				t, err := router.TargetsFor(ctx, tenantID)
-				if err != nil {
-					return endpointstore.Target{}, err
-				}
-				return endpointstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
-			})
-		}
-		prov, err := newSiloProvisioner(ctx, cfg, pool, ch, planes, log)
-		if err != nil {
-			return err
-		}
-		// Startup catch-up is a routing precondition (ARCH-001): a siloed tenant
-		// must not become routable until its storage/query-layer schema is at the
-		// current public shape. Idempotent DDL keeps retries safe; failures keep
-		// the control plane from serving a stale silo.
-		if err := siloCatchUpAll(ctx, pool, prov, log); err != nil {
-			return fmt.Errorf("silo catch-up before routing: %w", err)
-		}
-		tenancy.SetRouter(router) // Postgres search_path + bus lanes + object prefixes
-		siloOps, routerInvalidate = prov, router.Invalidate
-		log.Info("siloed/hybrid isolation attached (S-T2; TENANT-001 all planes)",
-			"data_planes", silo.PlaneNames(planes),
-			"flow_routed", flowCH != nil, "path_routed", pathCH != nil,
-			"ebpf_routed", ebpfCH != nil, "otel_routed", otelCH != nil, "endpoint_routed", endpointCH != nil)
 	}
 
 	// Per-tenant metering + quotas + signed usage export (S-T3; see attachMetering).
@@ -371,6 +295,132 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	return nil
 }
 
+// attachSiloIsolation attaches siloed/hybrid isolation (S-T2): the registry
+// router on every ClickHouse-backed plane, the provisioner, and the startup
+// catch-ups that must succeed before the router is published.
+func attachSiloIsolation(ctx context.Context, cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool,
+	flowStore flowstore.Store, pathCH *pathstore.ClickHouse, ebpfStore ebpfstore.Store, otelStore otelstore.Store, endpointStore endpointstore.Store,
+) (provider.SiloOps, func(), error) {
+	planes, err := silo.ParseDataPlanes(cfg.DataPlanes)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The ClickHouse leg exists per plane only when that store runs
+	// ClickHouse; memory stores are process-local (logically tenant-keyed).
+	// TENANT-001: ALL FOUR planes (flow/path/eBPF/otel) get the silo router
+	// and a per-tenant database, not flow alone.
+	router := silo.NewRouter(pool, planes, 0)
+
+	var ch silo.CHPlanes
+	var flowCH *flowstore.ClickHouse
+	var ebpfCH *ebpfstore.ClickHouse
+	var otelCH *otelstore.ClickHouse
+	var endpointCH *endpointstore.ClickHouse
+	if c, ok := flowstore.ClickHouseStore(flowStore); ok {
+		flowCH, ch.Flows = c, c
+		c.WithRouter(func(ctx context.Context, tenantID string) (flowstore.Target, error) {
+			t, err := router.TargetsFor(ctx, tenantID)
+			if err != nil {
+				return flowstore.Target{}, err
+			}
+			return flowstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+		})
+	}
+	if pathCH != nil {
+		ch.Paths = pathCH
+		pathCH.WithRouter(func(ctx context.Context, tenantID string) (pathstore.Target, error) {
+			t, err := router.TargetsFor(ctx, tenantID)
+			if err != nil {
+				return pathstore.Target{}, err
+			}
+			return pathstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+		})
+	}
+	if c, ok := ebpfstore.ClickHouseStore(ebpfStore); ok {
+		ebpfCH, ch.EBPF = c, c
+		c.WithRouter(func(ctx context.Context, tenantID string) (ebpfstore.Target, error) {
+			t, err := router.TargetsFor(ctx, tenantID)
+			if err != nil {
+				return ebpfstore.Target{}, err
+			}
+			return ebpfstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+		})
+	}
+	if c, ok := otelstore.ClickHouseStore(otelStore); ok {
+		otelCH, ch.Otel = c, c
+		c.WithRouter(func(ctx context.Context, tenantID string) (otelstore.Target, error) {
+			t, err := router.TargetsFor(ctx, tenantID)
+			if err != nil {
+				return otelstore.Target{}, err
+			}
+			return otelstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+		})
+	}
+	if c, ok := endpointstore.ClickHouseStore(endpointStore); ok {
+		endpointCH, ch.Endpoint = c, c
+		c.WithRouter(func(ctx context.Context, tenantID string) (endpointstore.Target, error) {
+			t, err := router.TargetsFor(ctx, tenantID)
+			if err != nil {
+				return endpointstore.Target{}, err
+			}
+			return endpointstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+		})
+	}
+	ch.Readers = siloReaderScopes(flowCH, pathCH, ebpfCH, otelCH, endpointCH)
+	prov, err := newSiloProvisioner(ctx, cfg, pool, ch, planes, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Startup catch-up is a routing precondition (ARCH-001): a siloed tenant
+	// must not become routable until its storage/query-layer schema is at the
+	// current public shape. Idempotent DDL keeps retries safe; failures keep
+	// the control plane from serving a stale silo.
+	if err := siloCatchUpAll(ctx, pool, prov, log); err != nil {
+		return nil, nil, fmt.Errorf("silo catch-up before routing: %w", err)
+	}
+	// DPR-323: every existing per-tenant database is under the reader scope,
+	// and proven, before any tenant read can be routed to it.
+	if err := siloReaderCatchUpAll(ctx, pool, prov, len(ch.Readers) > 0, log); err != nil {
+		return nil, nil, fmt.Errorf("silo reader-scope catch-up before routing: %w", err)
+	}
+	tenancy.SetRouter(router) // Postgres search_path + bus lanes + object prefixes
+	log.Info("siloed/hybrid isolation attached (S-T2; TENANT-001 all planes)",
+		"data_planes", silo.PlaneNames(planes),
+		"flow_routed", flowCH != nil, "path_routed", pathCH != nil,
+		"ebpf_routed", ebpfCH != nil, "otel_routed", otelCH != nil, "endpoint_routed", endpointCH != nil,
+		"reader_scoped_stores", len(ch.Readers))
+	return prov, router.Invalidate, nil
+}
+
+// siloReaderScopes collects the reader scope of every ClickHouse-backed store
+// whose tenant reads are scoped (DPR-323). A nil store is memory-backed.
+func siloReaderScopes(flowCH *flowstore.ClickHouse, pathCH *pathstore.ClickHouse, ebpfCH *ebpfstore.ClickHouse,
+	otelCH *otelstore.ClickHouse, endpointCH *endpointstore.ClickHouse) []silo.ReaderScope {
+	var scopers []func() (chclient.SiloScope, bool)
+	if flowCH != nil {
+		scopers = append(scopers, flowCH.SiloReaderScope)
+	}
+	if pathCH != nil {
+		scopers = append(scopers, pathCH.SiloReaderScope)
+	}
+	if ebpfCH != nil {
+		scopers = append(scopers, ebpfCH.SiloReaderScope)
+	}
+	if otelCH != nil {
+		scopers = append(scopers, otelCH.SiloReaderScope)
+	}
+	if endpointCH != nil {
+		scopers = append(scopers, endpointCH.SiloReaderScope)
+	}
+	var out []silo.ReaderScope
+	for _, scoper := range scopers {
+		if scope, scoped := scoper(); scoped {
+			out = append(out, scope)
+		}
+	}
+	return out
+}
+
 func attachProviderIRDurability(
 	ctx context.Context,
 	worm *audit.WormExporter,
@@ -449,6 +499,52 @@ func siloCatchUpTenants(ctx context.Context, ids []string, prov siloCatchUpper, 
 			log.Warn("silo catch-up failed for tenant", "tenant", id, "error", err.Error())
 			errs = append(errs, fmt.Errorf("tenant %s: %w", id, err))
 		}
+	}
+	return errors.Join(errs...)
+}
+
+type siloReaderCatchUpper interface {
+	CatchUpReaderScope(ctx context.Context, tenantID, residency string) error
+}
+
+// siloReaderCatchUpAll runs the reader-scope catch-up (DPR-323) for every
+// siloed and hybrid tenant, whatever its status: a per-tenant database stays
+// readable until it is torn down. scoped=false (no store scopes its tenant
+// reads, so none runs as the reader login) skips it. Every tenant is
+// attempted; any failure refuses startup.
+func siloReaderCatchUpAll(ctx context.Context, pool *pgxpool.Pool, prov siloReaderCatchUpper, scoped bool, log *slog.Logger) error {
+	if !scoped {
+		return nil
+	}
+	type isolated struct{ id, residency string }
+	var tenants []isolated
+	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		rows, err := q.Query(ctx, `SELECT id::text, residency FROM tenants WHERE isolation_model IN ('siloed','hybrid') ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var t isolated
+			if err := rows.Scan(&t.id, &t.residency); err != nil {
+				return err
+			}
+			tenants = append(tenants, t)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, t := range tenants {
+		if err := prov.CatchUpReaderScope(ctx, t.id, t.residency); err != nil {
+			log.Warn("silo reader-scope catch-up failed for tenant", "tenant", t.id, "error", err.Error(), "dpr", "DPR-323")
+			errs = append(errs, fmt.Errorf("tenant %s: %w", t.id, err))
+		}
+	}
+	if len(tenants) > 0 && len(errs) == 0 {
+		log.Info("per-tenant ClickHouse databases are read as the policy-bound reader login", "tenants", len(tenants), "dpr", "DPR-323")
 	}
 	return errors.Join(errs...)
 }

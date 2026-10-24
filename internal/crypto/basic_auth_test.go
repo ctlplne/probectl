@@ -348,3 +348,34 @@ func TestBasicAuthFactoryPinsARoutedOriginToItsOwnCredential(t *testing.T) {
 		t.Fatalf("error leaked a credential: %v", err)
 	}
 }
+
+// TestBasicAuthFactoryOriginUsernameMirrorsTheTransport (DPR-323): the login
+// reported for an origin is the one a derived client actually sends there.
+func TestBasicAuthFactoryOriginUsernameMirrorsTheTransport(t *testing.T) {
+	factory, err := LoadBasicAuthClientFactory(writeBasicAuthTestFile(t, `{"username":"reader","password":"reader-ci-only"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := factory.WithOriginCredentialFile("https://ch-eu.example:8443", writeBasicAuthTestFile(t, `{"username":"reader_eu","password":"eu-ci-only"}`)); err != nil {
+		t.Fatal(err)
+	}
+	const primary = "https://ch.example:8443/"
+	for _, tc := range []struct {
+		endpoint string
+		want     string
+		ok       bool
+	}{
+		{"https://ch.example:8443", "reader", true},
+		{"https://CH-EU.example:8443/", "reader_eu", true},
+		{"https://ch-us.example:8443", "", false},
+		{"not a url", "", false},
+	} {
+		got, ok := factory.OriginUsername(tc.endpoint, primary)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("OriginUsername(%q) = %q, %v; want %q, %v", tc.endpoint, got, ok, tc.want, tc.ok)
+		}
+	}
+	if _, ok := (*BasicAuthClientFactory)(nil).OriginUsername(primary, primary); ok {
+		t.Error("a nil factory reaches no origin")
+	}
+}

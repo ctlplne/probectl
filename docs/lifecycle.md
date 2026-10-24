@@ -232,6 +232,59 @@ tenant-scoped install"); the key is documented in
 `CLICKHOUSE_READER_PASSWORD` in `.env`, so a fresh Compose install needs no
 extra step.
 
+### 0.6.6: per-tenant ClickHouse databases are read as the reader too (DPR-323)
+
+**Who this affects:** an install with the `siloed_isolation` license, tenant
+scoping on (as above) and at least one siloed or hybrid tenant, or that will
+provision one. A pooled-only install is unaffected.
+
+**What changed:** a siloed or hybrid tenant's own ClickHouse database used to
+be read as the control login, so the database name the router chose was the
+only boundary. From 0.6.6 those reads run as the reader login with the
+tenant's setting, and every per-tenant table carries the same row policy as the
+pooled tables, so a read the router sends to the wrong tenant's database finds
+nothing. Back to the reading room: each shelf now checks your card too, not
+just the room's door.
+
+**What happens if you skip it:**
+
+- If the control login cannot grant the reader its per-tenant tables, startup
+  refuses at the silo reader-scope catch-up (the error names
+  `SELECT ON *.* WITH GRANT OPTION`), and new siloed/hybrid provisioning is
+  refused the same way. It never falls back to reading as the control login.
+- If `PROBECTL_DATAPLANES` names a residency plane off the pooled ClickHouse
+  origin and `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` has no entry for it,
+  the 0.6.6 control plane fails config validation at start, whether or not any
+  tenant uses that plane yet.
+
+Under the Helm chart's default rolling update the 0.6.5 pods keep serving
+until the steps below are done.
+
+**Before upgrading:**
+
+1. On every ClickHouse server that hosts per-tenant databases (the default
+   server and each residency plane), let the control login grant `SELECT`:
+   `GRANT SELECT ON *.* TO <control login> WITH GRANT OPTION`. The durable
+   Compose profile's `clickhouse-init` does this on the next `up`.
+2. On each residency plane, create the same reader user as on the default
+   server (same name; `SQL_probectl_tenant` defaulting to `''`, as in
+   `deploy/compose/prod/clickhouse/users.xml`). It needs no grant of its own:
+   the control plane grants it each per-tenant table. The reader must be a
+   SQL-created user (`CREATE USER`), not one defined in `users.xml`, whose
+   read-only storage refuses grants.
+3. Stage that plane reader's owner-only credential file and list it in
+   `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` (`eu=/etc/probectl/credentials/ch-eu-reader.json`).
+   A plane on the pooled ClickHouse origin needs no entry.
+
+At boot, before the silo router is published, the control plane installs the
+reader scope on every existing siloed and hybrid tenant's database and proves
+it per plane: the reader authenticates as the configured reader user, is not
+the control login, is denied `INSERT` and `CREATE`, and sees no row of a
+per-tenant table under another tenant's setting. A scope that fails the proof
+is withdrawn and startup is refused. The key is documented in
+[`configuration.md`](configuration.md); the mechanism in
+[`security/tenant-isolation.md`](security/tenant-isolation.md).
+
 ## Configuration
 
 See [`configuration.md`](configuration.md) for the `PROBECTL_AGENT_SKEW_WINDOW`

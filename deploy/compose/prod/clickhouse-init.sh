@@ -66,8 +66,15 @@ admin() { ch "$ADMIN_USER" "$CLICKHOUSE_ADMIN_PASSWORD" "$1"; }
 admin "CREATE USER IF NOT EXISTS probectl IDENTIFIED WITH sha256_password BY '${CLICKHOUSE_CONTROL_PASSWORD}'"
 admin "ALTER USER probectl IDENTIFIED WITH sha256_password BY '${CLICKHOUSE_CONTROL_PASSWORD}'"
 admin "GRANT SHOW, SELECT, INSERT, ALTER, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE TEMPORARY TABLE, DROP DATABASE, DROP TABLE, DROP VIEW, TRUNCATE, OPTIMIZE, CREATE ROW POLICY, ALTER ROW POLICY, DROP ROW POLICY ON *.* TO probectl"
+# DPR-323: a siloed or hybrid tenant's reads of its own per-tenant database run
+# as probectl_reader too. The control plane puts each per-tenant table under
+# the setting-scoped row policy and only then grants the reader SELECT on that
+# table, so it must be able to pass SELECT on. Grant option on SELECT only: it
+# still cannot create users or roles.
+admin "GRANT SELECT ON *.* TO probectl WITH GRANT OPTION"
 
-# The tenant-scoped reader: SELECT on the pooled telemetry database only.
+# The tenant-scoped reader: SELECT on the pooled telemetry database only. Its
+# per-tenant tables are granted table by table by the control plane (DPR-323).
 admin "CREATE USER IF NOT EXISTS probectl_reader IDENTIFIED WITH sha256_password BY '${CLICKHOUSE_READER_PASSWORD}'"
 admin "ALTER USER probectl_reader IDENTIFIED WITH sha256_password BY '${CLICKHOUSE_READER_PASSWORD}'"
 admin "GRANT SELECT ON default.* TO probectl_reader"

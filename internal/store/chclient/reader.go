@@ -27,8 +27,9 @@ import (
 // one that owns the schema and writes) was therefore isolated only by its own
 // WHERE tenant_id clause, while the policy guarded a login nobody used.
 //
-// Reader is the separate read lane a store sends every tenant-scoped pooled
-// read through when tenant scoping is on: its own connection, authenticated
+// Reader is the separate read lane a store sends every tenant-scoped read
+// (pooled, and since DPR-323 per-tenant databases too) through when tenant
+// scoping is on: its own connection, authenticated
 // as the least-privilege reader login, carrying the per-request tenant setting.
 // The DB then returns only that tenant's rows even if a query loses its WHERE.
 
@@ -41,10 +42,10 @@ var ErrReaderRequired = errors.New("chclient: tenant-scoped ClickHouse read refu
 var ErrReaderTenantRequired = errors.New("chclient: tenant-scoped ClickHouse read refused: no tenant to scope it to")
 
 // ErrReaderRoutedPooled refuses a read of shared tables on a routed data plane.
-// The reader credential is pinned to the pooled origin only; every routed
-// target the silo router produces carries its own per-tenant database, so a
-// routed target without one is a routing contradiction, not a read to guess at.
-var ErrReaderRoutedPooled = errors.New("chclient: tenant-scoped ClickHouse read refused: a routed data plane without a per-tenant database has no reader credential")
+// Every routed target the silo router produces carries its own per-tenant
+// database, so a routed target without one is a routing contradiction, not a
+// read to guess at.
+var ErrReaderRoutedPooled = errors.New("chclient: tenant-scoped ClickHouse read refused: a routed data plane without a per-tenant database is a routing contradiction")
 
 // Reader is the tenant-read lane of one ClickHouse-backed store.
 type Reader struct {
@@ -87,30 +88,37 @@ type ReadLane struct {
 	Reader bool
 }
 
-// RouteRead picks the lane for one tenant read (DPR-285):
+// RouteRead picks the lane for one tenant read (DPR-285, DPR-323):
 //
 //   - scoping off: the control connection. That is the single-tenant profile,
 //     where app-layer WHERE scoping is the documented boundary.
-//   - a routed per-tenant database (siloed/hybrid): the control connection.
-//     That database holds only the one tenant's rows, so the database itself
-//     is the storage-layer boundary; the reader login holds no grant there
-//     and no credential for a residency plane.
-//   - a pooled read: the reader lane, or ErrReaderRequired when none is
-//     attached. Never the control login.
+//   - scoping on: the reader lane, or ErrReaderRequired when none is attached.
+//     Never the control login. A pooled read goes to the store's own
+//     endpoint. A routed per-tenant database (siloed/hybrid) is read as the
+//     same reader login, on the tenant's residency plane when it has one
+//     (the reader's credential for that plane is pinned to its origin,
+//     PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES). The per-tenant tables
+//     carry the same setting-scoped row policy as the pooled ones (SiloScope),
+//     so a read the router sent to another tenant's database finds no row.
 func RouteRead(scoping bool, tenant string, siloed bool, routedBase string, control *Conn, reader *Reader) (ReadLane, error) {
-	if !scoping || siloed {
+	if !scoping {
 		return ReadLane{Conn: control, Key: routedBase}, nil
 	}
 	if strings.TrimSpace(tenant) == "" {
 		return ReadLane{}, ErrReaderTenantRequired
 	}
-	if strings.TrimSpace(routedBase) != "" {
+	routed := strings.TrimSpace(routedBase) != ""
+	if routed && !siloed {
 		return ReadLane{}, ErrReaderRoutedPooled
 	}
 	if reader == nil {
 		return ReadLane{}, ErrReaderRequired
 	}
-	return ReadLane{Conn: reader.conn, Base: reader.base, Reader: true}, nil
+	lane := ReadLane{Conn: reader.conn, Base: reader.base, Reader: true}
+	if routed {
+		lane.Base, lane.Key = StripUserinfo(routedBase), routedBase
+	}
+	return lane, nil
 }
 
 // readerSelfCheckTenant is the tenant setting the boot check reads under. It
@@ -159,29 +167,39 @@ func VerifyReader(ctx context.Context, control *Conn, controlBase string, reader
 }
 
 func verifyReaderIdentity(ctx context.Context, ctl, rdr ReadLane, check ReaderCheck) error {
-	const who = "SELECT currentUser() AS u, currentDatabase() AS db FORMAT JSONEachRow"
-	readerRows, err := selfCheckQuery(ctx, rdr, who, "")
+	readerDB, controlDB, err := verifyReaderLogin(ctx, ctl, rdr, check)
 	if err != nil {
-		return fmt.Errorf("%s: reader credential cannot query ClickHouse: %w", check.Plane, err)
+		return err
 	}
-	controlRows, err := selfCheckQuery(ctx, ctl, who, "")
-	if err != nil {
-		return fmt.Errorf("%s: control login cannot query ClickHouse: %w", check.Plane, err)
-	}
-	if len(readerRows) == 0 || len(controlRows) == 0 {
-		return fmt.Errorf("%s: reader self-check: empty identity result", check.Plane)
-	}
-	readerUser, readerDB := String(readerRows[0]["u"]), String(readerRows[0]["db"])
-	controlUser, controlDB := String(controlRows[0]["u"]), String(controlRows[0]["db"])
-	switch {
-	case readerUser != check.ReaderUser:
-		return fmt.Errorf("%s: the reader credential authenticates as ClickHouse user %q, but the row policy binds %q (DPR-285)", check.Plane, readerUser, check.ReaderUser)
-	case readerUser == controlUser:
-		return fmt.Errorf("%s: the reader credential is the control login %q; tenant reads need a separate least-privilege reader (DPR-285)", check.Plane, controlUser)
-	case readerDB != controlDB:
+	if readerDB != controlDB {
 		return fmt.Errorf("%s: the reader resolves database %q but the store's tables live in %q; give the reader that default database (DPR-285)", check.Plane, readerDB, controlDB)
 	}
 	return nil
+}
+
+// verifyReaderLogin proves the reader lane authenticates as check.ReaderUser
+// and is not the control login. It returns both logins' default databases.
+func verifyReaderLogin(ctx context.Context, ctl, rdr ReadLane, check ReaderCheck) (readerDB, controlDB string, err error) {
+	const who = "SELECT currentUser() AS u, currentDatabase() AS db FORMAT JSONEachRow"
+	readerRows, err := selfCheckQuery(ctx, rdr, who, "")
+	if err != nil {
+		return "", "", fmt.Errorf("%s: reader credential cannot query ClickHouse: %w", check.Plane, err)
+	}
+	controlRows, err := selfCheckQuery(ctx, ctl, who, "")
+	if err != nil {
+		return "", "", fmt.Errorf("%s: control login cannot query ClickHouse: %w", check.Plane, err)
+	}
+	if len(readerRows) == 0 || len(controlRows) == 0 {
+		return "", "", fmt.Errorf("%s: reader self-check: empty identity result", check.Plane)
+	}
+	readerUser, controlUser := String(readerRows[0]["u"]), String(controlRows[0]["u"])
+	switch {
+	case readerUser != check.ReaderUser:
+		return "", "", fmt.Errorf("%s: the reader credential authenticates as ClickHouse user %q, but the row policy binds %q (DPR-285)", check.Plane, readerUser, check.ReaderUser)
+	case readerUser == controlUser:
+		return "", "", fmt.Errorf("%s: the reader credential is the control login %q; tenant reads need a separate least-privilege reader (DPR-285)", check.Plane, controlUser)
+	}
+	return String(readerRows[0]["db"]), String(controlRows[0]["db"]), nil
 }
 
 func verifyReaderCannotWrite(ctx context.Context, rdr ReadLane, check ReaderCheck) error {

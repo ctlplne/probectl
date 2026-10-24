@@ -436,6 +436,9 @@ func TestDatastoreTLSRequiredForTenantProfiles(t *testing.T) {
 			// DPR-044: routed planes carry their own credential files; the
 			// pooled file stays pinned to the pooled origins.
 			env["PROBECTL_DATAPLANE_BASIC_AUTH_FILES"] = "us=/run/secrets/ch-us.json;eu=/run/secrets/ch-eu.json"
+			// DPR-323: the scoped profile reads silos as the reader on every
+			// plane, so each plane names the reader's credential too.
+			env["PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES"] = "us=/run/secrets/ch-us-reader.json;eu=/run/secrets/ch-eu-reader.json"
 			if env["PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE"] == "" {
 				env["PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE"] = "/run/secrets/ch.json"
 			}
@@ -786,6 +789,91 @@ func TestDatastoreBasicAuthFileConfig(t *testing.T) {
 			},
 			want: "requires PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE",
 		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(envFunc(tc.env))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestDataPlaneReaderCredentialConfig (DPR-323): with tenant scoping on, a
+// siloed or hybrid tenant's reads on a residency plane run as the reader
+// login, so every plane off the pooled origin names the reader's credential
+// for that plane — fail closed at config load, never a fall back to the
+// control login.
+func TestDataPlaneReaderCredentialConfig(t *testing.T) {
+	scoped := func(extra map[string]string) map[string]string {
+		env := map[string]string{
+			"PROBECTL_OTELSTORE_MODE":                    "clickhouse",
+			"PROBECTL_OTELSTORE_URL":                     "https://clickhouse.example:8443",
+			"PROBECTL_OTELSTORE_TENANT_SCOPING":          "true",
+			"PROBECTL_OTELSTORE_READER_USER":             "probectl_reader",
+			"PROBECTL_INGEST_STRICT_TENANT_LANES":        "true",
+			"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE":        "/run/secrets/ch.json",
+			"PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE": "/run/secrets/ch-reader.json",
+			"PROBECTL_DATAPLANES":                        "east=https://clickhouse-east.example:8443",
+			"PROBECTL_DATAPLANE_BASIC_AUTH_FILES":        "east=/run/secrets/ch-east.json",
+		}
+		for k, v := range extra {
+			if v == "" {
+				delete(env, k)
+				continue
+			}
+			env[k] = v
+		}
+		return env
+	}
+	cfg, err := Load(envFunc(scoped(map[string]string{
+		"PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES": "east=/run/secrets/ch-east-reader.json",
+	})))
+	if err != nil {
+		t.Fatalf("a scoped deployment with a reader credential per plane must load: %v", err)
+	}
+	if got := cfg.DataPlaneReaderBasicAuthFiles["east"]; got != "/run/secrets/ch-east-reader.json" {
+		t.Fatalf("DataPlaneReaderBasicAuthFiles[east] = %q", got)
+	}
+	// A plane on the pooled origin uses the reader's own credential.
+	if _, err := Load(envFunc(scoped(map[string]string{
+		"PROBECTL_DATAPLANES":                 "lab=https://clickhouse.example:8443",
+		"PROBECTL_DATAPLANE_BASIC_AUTH_FILES": "lab=/run/secrets/ch.json",
+	}))); err != nil {
+		t.Fatalf("a plane on the pooled origin needs no separate reader file: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{name: "a residency plane without a reader credential", env: scoped(nil),
+			want: `plane "east" has no reader credential file`},
+		{name: "a reader credential for an unknown plane", env: scoped(map[string]string{
+			"PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES": "east=/run/secrets/r-east.json;west=/run/secrets/r-west.json"}),
+			want: `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES names data plane "west"`},
+		{name: "a relative reader credential path", env: scoped(map[string]string{
+			"PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES": "east=secrets/r-east.json"}),
+			want: "must be an absolute path"},
+		{name: "the plane's control credential as its reader", env: scoped(map[string]string{
+			"PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES": "east=/run/secrets/ch-east.json"}),
+			want: "names a control credential file"},
+		{name: "the pooled control credential as a plane reader", env: scoped(map[string]string{
+			"PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES": "east=/run/secrets/ch.json"}),
+			want: "names a control credential file"},
+		{name: "a pooled-origin plane naming another reader file", env: scoped(map[string]string{
+			"PROBECTL_DATAPLANES":                        "lab=https://clickhouse.example:8443",
+			"PROBECTL_DATAPLANE_BASIC_AUTH_FILES":        "lab=/run/secrets/ch.json",
+			"PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES": "lab=/run/secrets/other-reader.json"}),
+			want: "its reader credential file must be PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE"},
+		{name: "plane reader credentials without the reader credential", env: map[string]string{
+			"PROBECTL_OTELSTORE_MODE":                    "clickhouse",
+			"PROBECTL_OTELSTORE_URL":                     "https://clickhouse.example:8443",
+			"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE":        "/run/secrets/ch.json",
+			"PROBECTL_DATAPLANES":                        "east=https://clickhouse-east.example:8443",
+			"PROBECTL_DATAPLANE_BASIC_AUTH_FILES":        "east=/run/secrets/ch-east.json",
+			"PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES": "east=/run/secrets/r-east.json"},
+			want: "PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES requires PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Load(envFunc(tc.env))

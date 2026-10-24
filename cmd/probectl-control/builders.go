@@ -692,7 +692,39 @@ func clickHouseReaderFactory(cfg *config.Config, control *crypto.BasicAuthClient
 	if control != nil && control.Username() == reader.Username() {
 		return nil, fmt.Errorf("PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE authenticates as the control login %q; the reader must be a separate least-privilege login (DPR-285)", reader.Username())
 	}
+	if err := attachDataPlaneReaderCredentials(reader, control, cfg.DataPlanes, cfg.DataPlaneReaderBasicAuthFiles); err != nil {
+		return nil, err
+	}
 	return reader, nil
+}
+
+// attachDataPlaneReaderCredentials (DPR-323) pins the reader login's
+// credential for each residency plane to that plane's origin, so a siloed or
+// hybrid tenant's reads there run as the reader too. The reader row policy on
+// every per-tenant table binds ONE login name, so each plane's reader must
+// authenticate as that same name, and never as the plane's control login.
+func attachDataPlaneReaderCredentials(reader, control *crypto.BasicAuthClientFactory, dataPlanes string, files map[string]string) error {
+	if err := attachDataPlaneCredentials(reader, dataPlanes, files); err != nil {
+		return fmt.Errorf("reader %w", err)
+	}
+	for _, item := range strings.Split(dataPlanes, ";") {
+		name, endpoint, ok := strings.Cut(strings.TrimSpace(item), "=")
+		if !ok {
+			continue
+		}
+		name, endpoint = strings.TrimSpace(name), strings.TrimSpace(endpoint)
+		user, pinned := reader.OriginUsername(endpoint, "")
+		if !pinned {
+			continue // the pooled origin: the reader's own credential applies
+		}
+		if user != reader.Username() {
+			return fmt.Errorf("data plane %q reader credential authenticates as %q but the reader row policy binds %q; every plane's reader must be the same login (DPR-323)", name, user, reader.Username())
+		}
+		if controlUser, ok := control.OriginUsername(endpoint, ""); ok && controlUser == user {
+			return fmt.Errorf("data plane %q reader credential is that plane's control login %q; the reader must be a separate least-privilege login (DPR-323)", name, user)
+		}
+	}
+	return nil
 }
 
 // clickHouseReaderClient derives the reader lane's client for one store URL.

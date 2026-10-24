@@ -55,6 +55,21 @@ type EndpointDDL interface {
 	DropTenantDatabase(ctx context.Context, t endpointstore.Target) error
 }
 
+// ReaderScope (DPR-323) is the reader-login side of a per-tenant ClickHouse
+// database: with tenant scoping on, a siloed or hybrid tenant's reads run as
+// the least-privilege reader login (chclient.RouteRead), which may read a
+// per-tenant table only once it carries the setting-scoped row policy. A
+// read misrouted to another tenant's database then returns no row. It is
+// implemented by chclient.SiloScope (each scoped store's SiloReaderScope).
+type ReaderScope interface {
+	// Endpoint names the server a database at baseURL lives on, so stores
+	// sharing a server scope it once.
+	Endpoint(baseURL string) string
+	Ensure(ctx context.Context, baseURL, database string) error
+	Verify(ctx context.Context, baseURL, database string) error
+	Revoke(ctx context.Context, baseURL, database string) error
+}
+
 // CHPlanes bundles every ClickHouse plane's provisioning seam. A nil field =
 // that plane runs the memory store (no per-tenant database leg).
 type CHPlanes struct {
@@ -63,6 +78,9 @@ type CHPlanes struct {
 	EBPF     EBPFDDL
 	Otel     OtelDDL
 	Endpoint EndpointDDL
+	// Readers are the tenant-scoped stores' reader scopes (DPR-323). Empty =
+	// no store scopes its tenant reads, so none runs as the reader login.
+	Readers []ReaderScope
 }
 
 // Provisioner creates, catches up, and tears down per-tenant isolated stores.
@@ -227,7 +245,79 @@ func (p *Provisioner) chSteps(tenantID, residency string) []provisionStep {
 			compensate: func(ctx context.Context) error { return p.ch.Endpoint.DropTenantDatabase(ctx, t) },
 		})
 	}
+	return append(steps, p.readerSteps(tenantID, residency)...)
+}
+
+// readerSteps are the last provisioning legs (DPR-323): once every plane's
+// tables exist, each distinct server's per-tenant database is put under the
+// reader row policy, the reader is granted its tables, and the result is
+// proven before the tenant is routable. Compensation revokes it.
+func (p *Provisioner) readerSteps(tenantID, residency string) []provisionStep {
+	base, db := p.chBaseURL(residency), CHDatabase(tenantID)
+	var steps []provisionStep
+	for _, r := range p.distinctReaders(base) {
+		steps = append(steps, provisionStep{
+			plane:      "reader scope",
+			ensure:     func(ctx context.Context) error { return ensureReaderScope(ctx, r, base, db) },
+			compensate: func(ctx context.Context) error { return r.Revoke(ctx, base, db) },
+		})
+	}
 	return steps
+}
+
+// ensureReaderScope installs and proves one database's reader scope. A scope
+// that cannot be proven is withdrawn, so the reader is refused that database
+// rather than left holding grants the proof could not vouch for.
+func ensureReaderScope(ctx context.Context, r ReaderScope, base, db string) error {
+	err := r.Ensure(ctx, base, db)
+	if err == nil {
+		err = r.Verify(ctx, base, db)
+	}
+	if err == nil {
+		return nil
+	}
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), provisionCompensateTimeout)
+	defer cancel()
+	if rerr := r.Revoke(rctx, base, db); rerr != nil {
+		return errors.Join(err, fmt.Errorf("withdraw the unproven reader scope: %w", rerr))
+	}
+	return err
+}
+
+// distinctReaders keeps one reader scope per ClickHouse server: stores that
+// share a server share its per-tenant database.
+func (p *Provisioner) distinctReaders(base string) []ReaderScope {
+	seen := map[string]bool{}
+	var out []ReaderScope
+	for _, r := range p.ch.Readers {
+		if r == nil || seen[r.Endpoint(base)] {
+			continue
+		}
+		seen[r.Endpoint(base)] = true
+		out = append(out, r)
+	}
+	return out
+}
+
+// CatchUpReaderScope (DPR-323) brings an existing siloed or hybrid tenant's
+// per-tenant database under the reader scope and proves it: run at startup,
+// before the router is published, for every tenant that has one. Silos
+// provisioned before DPR-323 gain it here; on later boots it re-proves that
+// the reader sees none of the tenant's rows under any other tenant's setting.
+//
+// A residency no longer configured is scoped where the router now sends that
+// tenant (the default plane, like Router.TargetsFor), with a warning.
+func (p *Provisioner) CatchUpReaderScope(ctx context.Context, tenantID, residency string) error {
+	if !p.ValidResidency(residency) {
+		p.log.Warn("silo reader-scope catch-up: tenant residency is not a configured data plane; scoping the plane the router uses",
+			"tenant", tenantID, "residency", residency, "dpr", "DPR-323")
+	}
+	for _, step := range p.readerSteps(tenantID, residency) {
+		if err := step.ensure(ctx); err != nil {
+			return fmt.Errorf("silo: %s for tenant %s: %w", step.plane, tenantID, err)
+		}
+	}
+	return nil
 }
 
 // provisionCH creates every configured CH plane's per-tenant database
@@ -268,8 +358,14 @@ func (p *Provisioner) compensate(ctx context.Context, done []provisionStep, tena
 	return errors.Join(errs...)
 }
 
-// teardownCH drops every configured CH plane's per-tenant database.
+// teardownCH drops every configured CH plane's per-tenant database. The
+// reader's grants go first (DPR-323), while the tables they name still exist.
 func (p *Provisioner) teardownCH(ctx context.Context, tenantID, residency string) error {
+	for _, step := range p.readerSteps(tenantID, residency) {
+		if err := step.compensate(ctx); err != nil {
+			return fmt.Errorf("silo: teardown %s: %w", step.plane, err)
+		}
+	}
 	if p.ch.Flows != nil {
 		if err := p.ch.Flows.DropTenantDatabase(ctx, p.flowTarget(tenantID, residency)); err != nil {
 			return fmt.Errorf("silo: teardown flow plane: %w", err)

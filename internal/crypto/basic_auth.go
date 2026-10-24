@@ -123,6 +123,29 @@ func (f *BasicAuthClientFactory) Username() string {
 	return f.username
 }
 
+// OriginUsername is the login that a client derived from this snapshot for
+// primaryEndpoint (HTTPClient) sends to endpoint's origin, resolved exactly as
+// its transport does: the primary credential on the primary's own origin,
+// else that origin's pinned credential. ok=false means the client refuses the
+// origin. Like Username it is not secret; callers check that every origin
+// authenticates as the login a ClickHouse row policy binds (DPR-323).
+func (f *BasicAuthClientFactory) OriginUsername(endpoint, primaryEndpoint string) (string, bool) {
+	if f == nil {
+		return "", false
+	}
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	if p, err := url.Parse(strings.TrimSpace(primaryEndpoint)); err == nil && p.Host != "" && canonicalOrigin(p) == canonicalOrigin(u) {
+		return f.username, true
+	}
+	if routed, ok := f.origins[canonicalOrigin(u)]; ok {
+		return routed.username, true
+	}
+	return "", false
+}
+
 // BasicAuthHTTPClient builds the normal certificate-verifying hardened client
 // and adds HTTP Basic authentication for exactly one configured origin. The
 // origin pin is important: redirects and routed requests cannot carry the

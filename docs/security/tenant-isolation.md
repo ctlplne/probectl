@@ -161,8 +161,9 @@ path entirely:
    reader user's setting **defaults to `''`** server-side, an unset or dropped
    setting matches **no rows** — **fail closed** (when the scope is missing,
    the answer is nothing, never everything).
-3. Every tenant-scoped pooled **read** — queries, tenant exports and DSAR
-   subject exports — is sent **as the reader user**, over its own connection
+3. Every tenant-scoped **read** — queries, tenant exports and DSAR subject
+   exports, of the pooled tables and (DPR-323) of a siloed or hybrid tenant's
+   own database — is sent **as the reader user**, over its own connection
    authenticated with the reader's credential
    (`PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE`; DPR-285). The write/service
    (control) login keeps inserts, migrations, row-policy DDL, retention TTLs and
@@ -182,16 +183,52 @@ Before DPR-285 step 3 was not true: the control plane sent every read as its
 single control login, the policy bound a reader user it never logged in as,
 and ClickHouse's default `users_without_row_policies_can_read_rows=true` let the
 control login read every row. The `WHERE` clause was the only thing scoping
-reads, whatever the profile said. A siloed or hybrid tenant's own database is
-read with its data plane's control credential: it holds only that tenant's
-rows, so the database is the storage-layer boundary there, and the reader
-holds no grant on it.
+reads, whatever the profile said.
+
+**Per-tenant databases (siloed/hybrid, DPR-323).** A siloed or hybrid tenant's
+telemetry lives in its own ClickHouse database, optionally on a residency data
+plane. Until DPR-323 those reads ran as the control login, on the argument that
+the database holds only one tenant's rows. That made the database *name* the
+whole boundary: a routing bug that sent tenant X's read to tenant Y's database,
+together with a read that lost its `WHERE`, would have served Y's rows. Now:
+
+- the silo provisioner (`ee/silo`) installs the same setting-scoped policy,
+  `probectl_reader_scope … USING tenant_id = getSetting('SQL_probectl_tenant')
+  TO <reader>`, on **every** table of the per-tenant database and only then
+  grants the reader `SELECT` on that table — policy first, grant second, one
+  table at a time, never `db.*`, never a view. A table created later is
+  unreadable by the reader until it is scoped too; a data table without a
+  `tenant_id` column is refused, never granted;
+- the read goes to the reader lane (`chclient.RouteRead`) with the tenant
+  setting, on the tenant's residency plane when it has one, using the reader's
+  credential pinned to that plane's origin
+  (`PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES`);
+- the proof runs when the silo is provisioned (before the call returns) and
+  again at **every boot for every siloed and hybrid tenant, before the silo
+  router is published**: on each plane the reader authenticates as the
+  configured reader user and is not the control login, is refused `INSERT`
+  and `CREATE`, and on every per-tenant table that holds rows sees none of them
+  under a tenant setting that owns none. A scope that cannot be proven is
+  withdrawn (its grants revoked), and startup is refused;
+- teardown revokes the reader's grants (before the database is dropped) and
+  drops the policies.
+
+Granting the reader its per-tenant tables needs the control login to hold
+`SELECT ON *.* WITH GRANT OPTION` on each ClickHouse server that hosts silos
+(the default plane and every residency plane); without it provisioning and the
+boot catch-up fail closed with that instruction. Grants name the reader user;
+when you **rename** the reader (not just rotate its password), drop the old
+user, because the replaced policies no longer bind it and its old per-table
+grants would let it read unfiltered.
 
 Operator prerequisites (documented, not auto-configured): allow the custom
 setting prefix (`<custom_settings_prefixes>SQL_</custom_settings_prefixes>`),
 create the reader user with a default `SQL_probectl_tenant = ''`, grant it
 `SELECT` on the control login's default database only, and give the control
-plane its credential file. Under `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` or
+plane its credential file. With siloed/hybrid tenants, also give the control
+login `SELECT ON *.* WITH GRANT OPTION` (so it can grant the reader each
+per-tenant table) and, on every residency plane, create the same reader user
+and stage its credential in `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES`. Under `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` or
 `regulated`, the control plane refuses to start unless every ClickHouse-backed
 lane keeps tenant scoping on, names its scoped reader user and has the reader
 credential; the serve path then refuses to start if row-policy installation or
@@ -240,6 +277,18 @@ pass against real datastores.
   (`-tags isolation`) a non-service ClickHouse reader issuing a
   **predicate-free** read sees only its own tenant's rows — proving the row
   policy, not the app `WHERE`, is what scopes it.
+- **`ee/silo` (`-tags integration` and `-tags isolation`,
+  `TestSiloReaderLaneEnforcesTenantIsolationAtTheDB`):** two siloed tenants on
+  a live Postgres and ClickHouse, one on a residency plane reached with
+  origin-pinned credentials; a predicate-free read as the reader under X's
+  setting against Y's database counts zero rows, a routed read misdirected to
+  Y's database returns X nothing, a later table is refused to the reader until
+  scoped, and teardown revokes every grant. Skipping the row policy turns it
+  red (DPR-323).
+- **`internal/store/pathstore` (`-tags isolation`,
+  `TestPathSiloReadOfAnotherTenantsDatabaseFindsNothing`):** the store's own
+  tenant read path, misrouted to another tenant's database with no `WHERE`,
+  finds nothing; the same read as the control login finds the rows.
 - **`internal/store/endpointstore`:** the first migration puts `tenant_id`
   first in both partition and order keys; restart reads require a non-empty
   tenant and use a server-bound tenant predicate plus the setting-scoped row

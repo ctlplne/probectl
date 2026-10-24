@@ -108,6 +108,9 @@ type ClickHouse struct {
 	// exportConn (GAP-05).
 	reader       *chclient.Reader
 	readerExport *chclient.Reader
+	// readerUser (DPR-323) is the login EnsureReaderRowPolicy bound; the
+	// per-tenant database scope (SiloReaderScope) binds the same one.
+	readerUser string
 }
 
 // WithReader attaches the reader lanes (DPR-285): client must authenticate as
@@ -128,6 +131,17 @@ func (c *ClickHouse) VerifyReaderIsolation(ctx context.Context, readerUser strin
 	return chclient.VerifyReader(ctx, c.conn, c.base, c.reader, chclient.ReaderCheck{
 		Plane: "endpointstore", ReaderUser: readerUser, TenantSetting: tenantSetting, Tables: []string{eventsTable},
 	})
+}
+
+// SiloReaderScope (DPR-323) is this store's reader scope for per-tenant
+// databases; scoped reports whether its tenant reads are scoped at all. A
+// scoped store's per-tenant reads run as the reader login, so the silo
+// provisioner installs this scope on every per-tenant database it creates.
+func (c *ClickHouse) SiloReaderScope() (scope chclient.SiloScope, scoped bool) {
+	return chclient.SiloScope{
+		Plane: "endpointstore", Control: c.conn, ControlBase: c.base, Reader: c.reader,
+		ReaderUser: c.readerUser, TenantSetting: tenantSetting,
+	}, c.tenantScoped
 }
 
 // readLane picks the connection for one tenant read (chclient.RouteRead);
@@ -641,7 +655,11 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 		return fmt.Errorf("endpointstore: refusing malformed ClickHouse user identifier %q", readerUser)
 	}
 	query := chclient.ReaderRowPolicyDDL("probectl_endpoint_reader_scope", eventsTable, tenantSetting, readerUser)
-	return c.execAt(ctx, "", query, nil, nil)
+	if err := c.execAt(ctx, "", query, nil, nil); err != nil {
+		return err
+	}
+	c.readerUser = readerUser
+	return nil
 }
 
 // Close releases no persistent client resources.

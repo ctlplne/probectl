@@ -867,6 +867,13 @@ type Config struct {
 	// must have one; a plane that shares the pooled ClickHouse origin must
 	// name the same file as PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE.
 	DataPlaneBasicAuthFiles map[string]string
+	// DataPlaneReaderBasicAuthFiles (DPR-323) pins the READER login's
+	// credential file to each named data plane, in the same grammar. With
+	// tenant scoping on, a siloed or hybrid tenant's reads run as the reader
+	// login on its residency plane too, so every plane that does not share the
+	// pooled ClickHouse origin needs one (fail closed at startup); a plane on
+	// the pooled origin uses PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE.
+	DataPlaneReaderBasicAuthFiles map[string]string
 
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
@@ -1311,6 +1318,7 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.ProviderBreakGlassMaxTTLMinutes = l.intRange("PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES", 240, 5, 1440)
 	cfg.DataPlanes = l.str("PROBECTL_DATAPLANES", "")
 	cfg.DataPlaneBasicAuthFiles = parseNamedValues(l.str("PROBECTL_DATAPLANE_BASIC_AUTH_FILES", ""))
+	cfg.DataPlaneReaderBasicAuthFiles = parseNamedValues(l.str("PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES", ""))
 	cfg.BackupRetentionNote = l.str("PROBECTL_BACKUP_RETENTION_NOTE", "")
 	cfg.BackupRetentionDays = l.intRange("PROBECTL_BACKUP_RETENTION_DAYS", 0, 0, 3650)
 	cfg.RemediationApprovalsEnabled = l.boolean("PROBECTL_REMEDIATION_APPROVALS_ENABLED", false)
@@ -1434,6 +1442,7 @@ func validateConfig(l *loader, cfg *Config) {
 		l.errf("PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE requires at least one ClickHouse-backed store mode")
 	}
 	validateDataPlaneCredentials(l, cfg)
+	validateDataPlaneReaderCredentials(l, cfg)
 	if cfg.ObjectStoreMode == "s3" {
 		if cfg.ObjectStoreDir != "" {
 			l.errf("PROBECTL_OBJECTSTORE_MODE=s3 cannot be combined with PROBECTL_OBJECTSTORE_DIR")
@@ -2889,12 +2898,7 @@ func validateDataPlaneCredentials(l *loader, cfg *Config) {
 	if len(cfg.DataPlaneBasicAuthFiles) > 0 && cfg.ClickHouseBasicAuthFile == "" {
 		l.errf("PROBECTL_DATAPLANE_BASIC_AUTH_FILES requires PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE: the pooled ClickHouse stores share the client the data-plane credentials attach to")
 	}
-	pooledOrigins := map[string]bool{}
-	for _, raw := range []string{cfg.PathStoreURL, cfg.FlowStoreURL, cfg.OTelStoreURL, cfg.EBPFStoreURL, cfg.EndpointStoreURL} {
-		if u, err := url.Parse(strings.TrimSpace(raw)); err == nil && u.Host != "" {
-			pooledOrigins[strings.ToLower(u.Scheme)+"://"+strings.ToLower(u.Host)] = true
-		}
-	}
+	pooledOrigins := pooledClickHouseOrigins(cfg)
 	for name, raw := range planes {
 		u, err := url.Parse(raw)
 		if err != nil || u.Host == "" {
@@ -2912,6 +2916,63 @@ func validateDataPlaneCredentials(l *loader, cfg *Config) {
 			l.errf("PROBECTL_DATAPLANES plane %q shares the pooled ClickHouse origin %s, so its credential file must be PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE (%s), not %s", name, origin, cfg.ClickHouseBasicAuthFile, file)
 		}
 	}
+}
+
+// pooledClickHouseOrigins are the scheme://host origins of the pooled stores.
+func pooledClickHouseOrigins(cfg *Config) map[string]bool {
+	origins := map[string]bool{}
+	for _, raw := range []string{cfg.PathStoreURL, cfg.FlowStoreURL, cfg.OTelStoreURL, cfg.EBPFStoreURL, cfg.EndpointStoreURL} {
+		if u, err := url.Parse(strings.TrimSpace(raw)); err == nil && u.Host != "" {
+			origins[strings.ToLower(u.Scheme)+"://"+strings.ToLower(u.Host)] = true
+		}
+	}
+	return origins
+}
+
+// validateDataPlaneReaderCredentials (DPR-323) is the reader-login twin of
+// validateDataPlaneCredentials. With tenant scoping on (the reader credential
+// is set), a siloed or hybrid tenant's reads run as the reader on its
+// residency plane, so each plane off the pooled origin names the reader's
+// credential for that plane, and it is never a control credential.
+func validateDataPlaneReaderCredentials(l *loader, cfg *Config) {
+	planes := parseNamedValues(cfg.DataPlanes)
+	readerFile := strings.TrimSpace(cfg.ClickHouseReaderBasicAuthFile)
+	for name := range cfg.DataPlaneReaderBasicAuthFiles {
+		if _, ok := planes[name]; !ok {
+			l.errf("PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES names data plane %q which is not in PROBECTL_DATAPLANES", name)
+		}
+	}
+	if len(cfg.DataPlaneReaderBasicAuthFiles) > 0 && readerFile == "" {
+		l.errf("PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES requires PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE: the plane credentials attach to the reader login's client")
+	}
+	if readerFile == "" {
+		return
+	}
+	pooledOrigins := pooledClickHouseOrigins(cfg)
+	for name, raw := range planes {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			continue // validateDataPlaneURLTLS reports the malformed URL
+		}
+		file, ok := cfg.DataPlaneReaderBasicAuthFiles[name]
+		onPooled := pooledOrigins[strings.ToLower(u.Scheme)+"://"+strings.ToLower(u.Host)]
+		switch {
+		case !ok && !onPooled:
+			l.errf("PROBECTL_DATAPLANES plane %q has no reader credential file: add %s=/path/to/reader-credential.json to PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES (with tenant scoping on, a siloed or hybrid tenant's reads on that plane run as the reader login; DPR-323)", name, name)
+		case !ok:
+			// On the pooled origin the reader's own credential applies.
+		case !filepath.IsAbs(file):
+			l.errf("PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES entry %q must be an absolute path", name)
+		case onPooled && filepath.Clean(file) != filepath.Clean(readerFile):
+			l.errf("PROBECTL_DATAPLANES plane %q shares the pooled ClickHouse origin, so its reader credential file must be PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE (%s), not %s", name, readerFile, file)
+		case sameFile(file, cfg.DataPlaneBasicAuthFiles[name]) || sameFile(file, cfg.ClickHouseBasicAuthFile):
+			l.errf("PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES entry %q names a control credential file; the reader is a separate least-privilege login (DPR-323)", name)
+		}
+	}
+}
+
+func sameFile(a, b string) bool {
+	return strings.TrimSpace(b) != "" && filepath.Clean(a) == filepath.Clean(b)
 }
 
 func isLoopbackHost(host string) bool {

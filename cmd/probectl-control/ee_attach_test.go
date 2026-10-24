@@ -57,12 +57,21 @@ func TestEEAttachRunsSiloCatchUpBeforeRouterPublication(t *testing.T) {
 	}
 	text := string(src)
 	catch := strings.Index(text, "if err := siloCatchUpAll(ctx, pool, prov, log); err != nil")
+	readerCatch := strings.Index(text, "if err := siloReaderCatchUpAll(ctx, pool, prov, len(ch.Readers) > 0, log); err != nil")
 	publish := strings.Index(text, "tenancy.SetRouter(router)")
-	if catch < 0 || publish < 0 {
-		t.Fatalf("expected catch-up and router publication markers in ee_attach.go")
+	if catch < 0 || readerCatch < 0 || publish < 0 {
+		t.Fatalf("expected catch-up, reader-scope catch-up and router publication markers in ee_attach.go")
 	}
 	if publish < catch {
 		t.Fatalf("silo router is published before catch-up succeeds; catch=%d publish=%d", catch, publish)
+	}
+	// DPR-323: no tenant read may reach a per-tenant database as the reader
+	// before that database is under the reader scope and proven.
+	if publish < readerCatch {
+		t.Fatalf("silo router is published before the reader-scope catch-up succeeds; catch=%d publish=%d", readerCatch, publish)
+	}
+	if strings.Index(text, "ch.Readers = siloReaderScopes(") > strings.Index(text, "prov, err := newSiloProvisioner(") {
+		t.Fatal("the provisioner is built before the stores' reader scopes are attached, so new silos would get no reader scope")
 	}
 	if strings.Contains(text, "go func() {\n\t\t\tif err := siloCatchUpAll") {
 		t.Fatal("silo catch-up must not run in a warning-only goroutine before startup readiness")

@@ -70,14 +70,15 @@ func TestPathTenantReadWithoutReaderFailsClosed(t *testing.T) {
 	}
 }
 
-// DPR-285: a routed per-tenant database is read on the control connection; it
-// holds only that tenant's rows and the reader holds no grant there.
-func TestPathSiloedTenantReadsUseTheControlConnection(t *testing.T) {
+// DPR-323: a routed per-tenant database is read as the reader login too, with
+// the tenant setting, so the per-tenant row policy filters it (a read misrouted
+// to another tenant's database finds nothing). It never runs as control.
+func TestPathSiloedTenantReadsRunAsTheReaderLogin(t *testing.T) {
 	c, srv := newReaderLaneStore(t)
 	c.WithTenantScoping(true).WithReader(chtest.Client("reader"))
 	c.WithRouter(func(context.Context, string) (Target, error) { return Target{Database: "t_silo"}, nil })
 	if _, _, err := c.Latest(context.Background(), "tenant-s", "x.example"); err != nil {
 		t.Fatal(err)
 	}
-	chtest.AssertAll(t, srv.Requests("FROM t_silo."), "siloed path read", "control", "tenant-s")
+	chtest.AssertAll(t, srv.Requests("FROM t_silo."), "siloed path read", "reader", "tenant-s")
 }

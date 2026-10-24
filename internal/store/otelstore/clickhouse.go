@@ -194,6 +194,9 @@ type ClickHouse struct {
 	// read runs on it as the reader login the setting-scoped row policy
 	// binds, never as the control login (chclient.RouteRead).
 	reader *chclient.Reader
+	// readerUser (DPR-323) is the login EnsureReaderRowPolicy bound; the
+	// per-tenant database scope (SiloReaderScope) binds the same one.
+	readerUser string
 }
 
 // WithReader attaches the reader lane (DPR-285): client must authenticate as
@@ -232,6 +235,17 @@ func (c *ClickHouse) VerifyReaderIsolation(ctx context.Context, readerUser strin
 	return chclient.VerifyReader(ctx, c.conn, c.base, c.reader, chclient.ReaderCheck{
 		Plane: "otelstore", ReaderUser: readerUser, TenantSetting: tenantSettingName, Tables: tables,
 	})
+}
+
+// SiloReaderScope (DPR-323) is this store's reader scope for per-tenant
+// databases; scoped reports whether its tenant reads are scoped at all. A
+// scoped store's per-tenant reads run as the reader login, so the silo
+// provisioner installs this scope on every per-tenant database it creates.
+func (c *ClickHouse) SiloReaderScope() (scope chclient.SiloScope, scoped bool) {
+	return chclient.SiloScope{
+		Plane: "otelstore", Control: c.conn, ControlBase: c.base, Reader: c.reader,
+		ReaderUser: c.readerUser, TenantSetting: tenantSettingName,
+	}, c.tenantScoping
 }
 
 const tenantSettingName = "SQL_probectl_tenant"
@@ -1037,6 +1051,7 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 			return fmt.Errorf("otelstore: reader row policy: %w", err)
 		}
 	}
+	c.readerUser = readerUser
 	return nil
 }
 
@@ -1082,11 +1097,10 @@ func (p chParams) qs() string {
 	return b.String()
 }
 
-// queryScoped runs one tenant read (TENANT-003, DPR-285). With scoping on, a
-// pooled read runs on the reader lane as the reader login, carrying the
-// per-request tenant setting the reader row policy filters on; a routed
-// per-tenant database is read on the control connection, its database being
-// the boundary (chclient.RouteRead).
+// queryScoped runs one tenant read (TENANT-003, DPR-285, DPR-323). With scoping
+// on, every tenant read, pooled or of a routed per-tenant database, runs on
+// the reader lane as the reader login, carrying the per-request tenant setting
+// the reader row policy filters on (chclient.RouteRead, chclient.SiloScope).
 func (c *ClickHouse) queryScoped(ctx context.Context, t Target, tenant, sql string, p chParams) ([]map[string]any, error) {
 	lane, err := c.readLane(t, tenant)
 	if err != nil {

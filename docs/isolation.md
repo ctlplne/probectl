@@ -173,7 +173,24 @@ binds the SELECT-only reader login that every tenant read is sent as
 (`PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE`, DPR-285). A read that loses its
 `WHERE` returns only the scoped tenant's rows. The control login, which writes,
 migrates and erases, serves no tenant read. Until DPR-285 every read ran as the
-control login, which no policy filtered, so only the `WHERE` scoped reads. The
+control login, which no policy filtered, so only the `WHERE` scoped reads.
+
+A siloed or hybrid tenant's **own database** is read the same way (DPR-323).
+Its database name used to be the whole boundary: those reads ran as the
+control login, so a routing bug that pointed tenant X's read at tenant Y's
+database would have returned Y's rows. Now the provisioner puts every table of
+the per-tenant database under the same row policy and only then grants the
+reader `SELECT` on it (per table, policy first), the read runs as the reader
+with X's tenant setting, and a misrouted read finds nothing. Think of a hotel
+where each room used to be protected only by the receptionist handing out the
+right key; now every room's lock also checks the guest's name. The proof runs
+at provisioning and, for every siloed and hybrid tenant, at every boot before
+the silo router is published; a silo that fails it refuses startup. On a
+residency plane the reader uses its own credential for that plane
+(`PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES`). Operator prerequisite on every
+ClickHouse server that hosts silos: the control login holds
+`SELECT ON *.* WITH GRANT OPTION` so it can grant the reader each per-tenant
+table, and the reader is a SQL-created user (not a `users.xml` one). The
 mechanism, its boot-time proof and the operator prerequisites are in
 [`docs/security/tenant-isolation.md`](security/tenant-isolation.md). The
 cross-tenant CI gate exercises every ClickHouse plane against a *real*
@@ -228,6 +245,7 @@ to another tenant.
 |---|---|---|
 | `PROBECTL_DATAPLANES` | (none) | named residency planes: `name=clickhouseURL[;…]` |
 | `PROBECTL_DATAPLANE_BASIC_AUTH_FILES` | (none) | one owner-only credential file per plane: `name=/abs/file[;…]`; required for every non-loopback plane, pinned to that plane's origin only (DPR-044) |
+| `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` | (none) | the reader login's credential file per plane: `name=/abs/file[;…]`; with tenant scoping on, required for every plane off the pooled origin, pinned to that plane's origin only; a silo's reads there run as this login (DPR-323) |
 
 Everything else rides existing keys (`PROBECTL_FLOWSTORE_*`, and
 `PROBECTL_FLOW_RETENTION_DAYS` applies to per-tenant databases too). Siloed and
@@ -251,3 +269,10 @@ Offboard never calls that primitive.
 sessions (including concurrent authenticated replacement), MCP, SCIM, OTLP,
 agent enrollment, hot revocation, certificate deny-list refresh, and restored
 silo locator/revocation catch-up.
+`TestSiloReaderLaneEnforcesTenantIsolationAtTheDB` (live Postgres and
+ClickHouse; it also runs in the cross-tenant isolation gate) proves the
+per-tenant reader scope (DPR-323): two siloed tenants, one on a residency
+plane; a predicate-free read as the reader under one tenant's setting against
+the other's database counts zero rows, a misrouted read through the store
+returns nothing, a table added later is refused to the reader until scoped,
+and teardown revokes every grant. With the row policy skipped it goes red.

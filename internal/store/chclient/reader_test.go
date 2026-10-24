@@ -18,6 +18,7 @@ import (
 func TestRouteReadPicksTheReaderForPooledTenantReads(t *testing.T) {
 	control := NewWithClient(http.DefaultClient)
 	reader := NewReader(http.DefaultClient, "http://probectl:pw@127.0.0.1:8123/")
+	const pooledBase = "http://127.0.0.1:8123"
 	for _, tc := range []struct {
 		name       string
 		scoping    bool
@@ -26,13 +27,20 @@ func TestRouteReadPicksTheReaderForPooledTenantReads(t *testing.T) {
 		routed     string
 		reader     *Reader
 		wantReader bool
+		wantBase   string // the reader lane's endpoint
 		wantErr    error
 	}{
 		{name: "scoping off reads as control", tenant: "a", reader: reader},
-		{name: "pooled scoped read rides the reader", scoping: true, tenant: "a", reader: reader, wantReader: true},
+		{name: "scoping off siloed reads as control", tenant: "a", siloed: true, routed: "https://ch-eu:8443", reader: reader},
+		{name: "pooled scoped read rides the reader", scoping: true, tenant: "a", reader: reader, wantReader: true, wantBase: pooledBase},
 		{name: "pooled scoped read without a reader fails closed", scoping: true, tenant: "a", wantErr: ErrReaderRequired},
 		{name: "scoped read without a tenant fails closed", scoping: true, reader: reader, wantErr: ErrReaderTenantRequired},
-		{name: "siloed database reads as control", scoping: true, tenant: "a", siloed: true, routed: "https://ch-eu:8443", reader: reader},
+		// DPR-323: a per-tenant database is read as the reader too, never as
+		// the control login, so ClickHouse filters it by the tenant setting.
+		{name: "siloed database on the default plane rides the reader", scoping: true, tenant: "a", siloed: true, reader: reader, wantReader: true, wantBase: pooledBase},
+		{name: "siloed database on a residency plane rides the reader there", scoping: true, tenant: "a", siloed: true, routed: "https://ch-eu:8443/", reader: reader, wantReader: true, wantBase: "https://ch-eu:8443"},
+		{name: "siloed database without a reader fails closed", scoping: true, tenant: "a", siloed: true, routed: "https://ch-eu:8443", wantErr: ErrReaderRequired},
+		{name: "siloed database without a tenant fails closed", scoping: true, siloed: true, reader: reader, wantErr: ErrReaderTenantRequired},
 		{name: "routed plane without a database fails closed", scoping: true, tenant: "a", routed: "https://ch-eu:8443", reader: reader, wantErr: ErrReaderRoutedPooled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -49,8 +57,8 @@ func TestRouteReadPicksTheReaderForPooledTenantReads(t *testing.T) {
 			if lane.Reader != tc.wantReader {
 				t.Fatalf("reader lane = %v, want %v", lane.Reader, tc.wantReader)
 			}
-			if tc.wantReader && (lane.Conn != reader.conn || lane.Base != "http://127.0.0.1:8123") {
-				t.Fatalf("reader lane = %+v: wrong conn or a base that still carries userinfo", lane)
+			if tc.wantReader && (lane.Conn != reader.conn || lane.Base != tc.wantBase || lane.Key != tc.routed) {
+				t.Fatalf("reader lane = %+v: want reader conn, base %q (no userinfo) and breaker key %q", lane, tc.wantBase, tc.routed)
 			}
 			if !tc.wantReader && (lane.Conn != control || lane.Key != tc.routed) {
 				t.Fatalf("control lane = %+v", lane)

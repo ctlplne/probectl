@@ -24,10 +24,8 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/store"
-	"github.com/ctlplne/probectl/internal/store/migrate"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
-	"github.com/ctlplne/probectl/migrations"
 )
 
 // The S-T2 named integration suite (live Postgres; ClickHouse legs are
@@ -39,34 +37,6 @@ import (
 //     identically under either model,
 //  3. teardown fully removes the silo (and is idempotent),
 //  4. catch-up brings a lagging silo up to a newer public shape.
-func itPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := testsupport.PostgresDSN()
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		testsupport.SkipOrFatal(t, "postgres unavailable: %v", err)
-	}
-	if err := pool.Ping(context.Background()); err != nil {
-		testsupport.SkipOrFatal(t, "postgres unavailable: %v", err)
-	}
-	if _, err := migrate.New(migrations.FS, nil).Apply(context.Background(), pool); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	return pool
-}
-
-func mkTenant(t *testing.T, pool *pgxpool.Pool, slug, model, residency string) string {
-	t.Helper()
-	var id string
-	if err := pool.QueryRow(context.Background(),
-		`INSERT INTO tenants (slug, name, isolation_model, residency) VALUES ($1, $1, $2, $3)
-		 ON CONFLICT (slug) DO UPDATE SET isolation_model = EXCLUDED.isolation_model
-		 RETURNING id::text`, slug, model, residency).Scan(&id); err != nil {
-		t.Fatalf("create tenant: %v", err)
-	}
-	return id
-}
-
 func countIn(t *testing.T, pool *pgxpool.Pool, table, tenantID string) int {
 	t.Helper()
 	var n int
