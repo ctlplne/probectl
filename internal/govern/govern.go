@@ -146,14 +146,6 @@ type Policy struct {
 	// REMOTE AI model (U-013). Default false; enforced by the analyzer.
 	AIRemoteEgress bool `json:"ai_remote_egress,omitempty"`
 
-	// L7CaptureRedaction is the tenant's L7 capture redaction floor (D-43):
-	// the loosest mode its eBPF agents may capture under and the level the
-	// ingest strip enforces. "" means no statement — the metadata default.
-	// Only the tenant's own governance surface writes it (PolicyStore); the
-	// provider-plane upsert never does, so a provider operator cannot loosen
-	// a tenant's capture redaction.
-	L7CaptureRedaction string `json:"l7_capture_redaction,omitempty"`
-
 	// Composed (delegated) governance, recorded for the unified view only:
 	RetentionDays *int   `json:"retention_days,omitempty"` // S-T5
 	Residency     string `json:"residency,omitempty"`      // S-T2 / S-EE2

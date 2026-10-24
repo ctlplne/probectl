@@ -133,10 +133,50 @@ func (s *PolicyStore) L7CaptureFloor(ctx context.Context, tenantID string, regul
 	return EffectiveL7CaptureFloor(stmt, regulated), nil
 }
 
+// TenantL7CaptureRedaction reads the tenant's stored L7 capture redaction
+// statement ("" = none: the metadata default) under the tenant's RLS scope.
+// It is the core surface's read (D-64): it works on every edition.
+func (s *PolicyStore) TenantL7CaptureRedaction(ctx context.Context, tenantID string) (string, error) {
+	var stmt string
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var e error
+		stmt, e = L7CaptureRedactionTx(ctx, sc.Q, tenantID)
+		return e
+	})
+	return stmt, err
+}
+
+// SetTenantL7CaptureRedaction writes the tenant's L7 capture redaction floor
+// statement and appends the tamper-evident tenant audit receipt in ONE
+// transaction (D-43, D-64: a core tenant setting, never license-gated). The
+// row is provider-owned (0111 write fence), so the column is written under the
+// provider role inside a tenant-GUC-bound maintenance transaction and the
+// receipt appended as the tenant app role, exactly like SetTenantPolicy. Only
+// this column is written; a missing receipt fails the write closed (G7-7).
+func (s *PolicyStore) SetTenantL7CaptureRedaction(ctx context.Context, tenantID, mode, by string, auditTx func(context.Context, tenancy.Scope) error) error {
+	if auditTx == nil {
+		return ErrAuditReceiptRequired
+	}
+	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
+	return tenancy.InTenantProviderMaintenance(tctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if sc.Tenant.String() != tenantID {
+			return fmt.Errorf("govern: l7 policy tenant %q does not match transaction scope %q", tenantID, sc.Tenant)
+		}
+		if err := upsertL7CaptureRedactionTx(ctx, sc.Q, tenantID, mode, by); err != nil {
+			return err
+		}
+		if _, err := sc.Q.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{tenancy.AppRole}.Sanitize()); err != nil {
+			return fmt.Errorf("govern: assume app role for tenant audit receipt: %w", err)
+		}
+		return auditTx(ctx, sc)
+	})
+}
+
 // upsertL7CaptureRedactionTx writes ONLY the L7 capture redaction column. It is
-// separate from UpsertPolicyTx on purpose: the provider plane calls that one,
-// and must never be able to change this value (D-43: the opt-in is the
-// tenant's, audited on the tenant's chain).
+// separate from UpsertPolicyTx on purpose: the provider plane and the ee/
+// governance surface call that one, and neither can change this value (D-43:
+// the opt-in is the tenant's, audited on the tenant's chain; D-64: it is a
+// core setting with its own core route, the single writer of this column).
 func upsertL7CaptureRedactionTx(ctx context.Context, q tenancy.Querier, tenantID, mode, by string) error {
 	_, err := q.Exec(ctx, `
 		INSERT INTO tenant_governance (tenant_id, l7_capture_redaction, updated_at, updated_by)
@@ -188,10 +228,6 @@ func (s *PolicyStore) TenantPolicy(ctx context.Context, tenantID string) (Policy
 		var e error
 		pol, found, e = ScanPolicy(sc.Q.QueryRow(ctx,
 			`SELECT classifications, redact_from, redact_export, ai_remote_egress FROM tenant_governance WHERE tenant_id = $1`, tenantID))
-		if e != nil || !found {
-			return e
-		}
-		pol.L7CaptureRedaction, e = L7CaptureRedactionTx(ctx, sc.Q, tenantID)
 		return e
 	})
 	return pol, found, err
@@ -219,11 +255,6 @@ func (s *PolicyStore) SetTenantPolicy(ctx context.Context, tenantID string, pol 
 		// Provider role: write the provider-owned policy row, scoped by the
 		// caller's tenant identity (defense in depth above the bound GUC).
 		if err := UpsertPolicyTx(ctx, sc.Q, tenantID, pol, by); err != nil {
-			return err
-		}
-		// D-43: the tenant's own L7 capture redaction floor, written only on
-		// this tenant-initiated path (never by the provider plane's upsert).
-		if err := upsertL7CaptureRedactionTx(ctx, sc.Q, tenantID, pol.L7CaptureRedaction, by); err != nil {
 			return err
 		}
 		// Tenant app role: the tamper-evident TENANT audit receipt. The GUC stays

@@ -14,7 +14,6 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/govern"
-	"github.com/ctlplne/probectl/internal/l7redact"
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -73,30 +72,11 @@ func governancePolicyView(pol govern.Policy) map[string]any {
 		classes[string(cat)] = pol.ClassOf(cat).String()
 	}
 	return map[string]any{
-		"ai_remote_egress":     pol.AIRemoteEgress,
-		"redact_export":        pol.RedactExport,
-		"redact_from":          effectiveRedactFrom(pol),
-		"classifications":      classes,
-		"l7_capture_redaction": l7redact.Normalize(pol.L7CaptureRedaction),
+		"ai_remote_egress": pol.AIRemoteEgress,
+		"redact_export":    pol.RedactExport,
+		"redact_from":      effectiveRedactFrom(pol),
+		"classifications":  classes,
 	}
-}
-
-// validL7CaptureRedaction checks a tenant's requested L7 capture redaction
-// floor (D-43). "" and "metadata" are the default; "length" is stricter;
-// "headers" and "full" are opt-ins the regulated profile refuses, because its
-// ingest strip enforces metadata for every tenant regardless (an opt-in there
-// would only mislead).
-func validL7CaptureRedaction(mode string, regulated bool) error {
-	if mode == "" {
-		return nil
-	}
-	if !l7redact.ValidMode(mode) {
-		return apierror.Validation("l7_capture_redaction must be one of: length, metadata, headers, full")
-	}
-	if regulated && l7redact.Looser(mode, l7redact.ModeMetadata) {
-		return apierror.Validation("l7_capture_redaction " + mode + " is refused under the regulated deployment profile (D-43): only metadata or length")
-	}
-	return nil
 }
 
 // effectiveRedactFrom resolves the policy's redaction floor, defaulting to the
@@ -139,18 +119,11 @@ func (s *Server) handleGovernancePolicyPut(w http.ResponseWriter, r *http.Reques
 		RedactFrom     string            `json:"redact_from"`
 		RedactExport   bool              `json:"redact_export"`
 		AIRemoteEgress bool              `json:"ai_remote_egress"`
-		// D-43: the tenant's L7 capture redaction floor. Omitted = the
-		// metadata default (PUT replaces the whole policy).
-		L7CaptureRedaction string `json:"l7_capture_redaction"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		return err
 	}
-	if err := validL7CaptureRedaction(in.L7CaptureRedaction, s.cfg.DeploymentProfile == "regulated"); err != nil {
-		return err
-	}
-	pol := govern.Policy{RedactExport: in.RedactExport, RedactFrom: govern.ParseClass(in.RedactFrom),
-		AIRemoteEgress: in.AIRemoteEgress, L7CaptureRedaction: in.L7CaptureRedaction}
+	pol := govern.Policy{RedactExport: in.RedactExport, RedactFrom: govern.ParseClass(in.RedactFrom), AIRemoteEgress: in.AIRemoteEgress}
 	if in.RedactFrom != "" && pol.RedactFrom == govern.ClassUnset {
 		return apierror.Validation("redact_from must be one of: public, internal, confidential, pii, restricted")
 	}
@@ -183,10 +156,6 @@ func (s *Server) handleGovernancePolicyPut(w http.ResponseWriter, r *http.Reques
 			"prior_policy_existed":   priorFound,
 			"redact_export":          pol.RedactExport,
 			"redact_from":            effectiveRedactFrom(pol),
-			// D-43: the L7 capture redaction opt-in is audited OLD/NEW on
-			// the tenant's own chain.
-			"l7_capture_redaction":       l7redact.Normalize(pol.L7CaptureRedaction),
-			"prior_l7_capture_redaction": l7redact.Normalize(prior.L7CaptureRedaction),
 		}, "success")
 		_, e := audit.TenantAppend(ctx, sc, actor, governancePolicyAuditAction, tid, data)
 		return e

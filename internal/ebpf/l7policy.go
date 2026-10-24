@@ -50,7 +50,7 @@ const (
 	// for non-HTTP chunks only the protocol-detection window (first
 	// redactKeepPrefix bytes) survives. Credential and identity header values
 	// are still zeroed. An explicit opt-in: the tenant's redaction floor must
-	// allow it (governance policy l7_capture_redaction: headers).
+	// allow it (the core tenant setting PUT /v1/ebpf/l7-capture-policy).
 	RedactHeaders = l7redact.ModeHeaders
 	// RedactLengthOnly captures NO payload bytes: the kernel window is 0, so
 	// only chunk metadata (direction, true size, connection key) transits the

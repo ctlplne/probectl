@@ -41,22 +41,23 @@ func auditActions(t *testing.T, db *store.DB, tenant, action string) []audit.Eve
 	return events
 }
 
-// D-43: the tenant's L7 capture redaction floor persists on its governance row,
+// D-43 / D-64: the tenant's L7 capture redaction floor is a CORE setting. With
+// no license and no ee/ governance surface, a tenant admin opts the tenant into
+// headers through /v1/ebpf/l7-capture-policy; it persists on the tenant's row,
 // stays inside the tenant (RLS), is audited OLD/NEW on the tenant's own chain,
-// and survives a provider-plane policy write untouched — the provider cannot
-// loosen (or reset) a tenant's capture redaction.
-func TestGovernanceL7FloorRealStack(t *testing.T) {
-	srv, db := setupAPIServerWithLatest(t, nil)
-	policies := govern.NewPolicyStore(db.Pool())
-	srv.WithGovernance(policies)
+// and survives a provider-plane policy write and an ee/ governance PUT
+// untouched — that column has one writer.
+func TestL7CapturePolicyCoreRealStack(t *testing.T) {
+	srv, db := setupAPIServerWithLatest(t, nil) // no WithGovernance: the unlicensed core build
 	h := srv.Handler()
 	ctx := context.Background()
+	policies := govern.NewPolicyStore(db.Pool())
 	tenantA := freshTenant(t, db, "l7floor-a")
 	tenantB := freshTenant(t, db, "l7floor-b")
 
-	if rec := apiReq(t, h, http.MethodPut, "/v1/governance/policy", tenantA,
-		map[string]any{"l7_capture_redaction": "headers"}); rec.Code != http.StatusOK {
-		t.Fatalf("PUT headers opt-in: %d %s", rec.Code, rec.Body)
+	if rec := apiReq(t, h, http.MethodPut, "/v1/ebpf/l7-capture-policy", tenantA,
+		map[string]any{"redaction": "headers"}); rec.Code != http.StatusOK {
+		t.Fatalf("core headers opt-in: %d %s", rec.Code, rec.Body)
 	}
 	for tenant, want := range map[string]string{tenantA: "headers", tenantB: "metadata"} {
 		floor, err := policies.L7CaptureFloor(ctx, tenant, false)
@@ -67,19 +68,28 @@ func TestGovernanceL7FloorRealStack(t *testing.T) {
 	if floor, _ := policies.L7CaptureFloor(ctx, tenantA, true); floor != "metadata" {
 		t.Fatalf("regulated floor = %q, want metadata whatever the row says", floor)
 	}
-	events := auditActions(t, db, tenantA, governancePolicyAuditAction)
-	if len(events) != 1 || events[0].Data["l7_capture_redaction"] != "headers" || events[0].Data["prior_l7_capture_redaction"] != "metadata" {
-		t.Fatalf("governance audit = %+v", events)
+	events := auditActions(t, db, tenantA, l7CapturePolicyAuditAction)
+	if len(events) != 1 || events[0].Data["redaction"] != "headers" || events[0].Data["prior_redaction"] != "metadata" {
+		t.Fatalf("L7 capture policy audit = %+v", events)
+	}
+	if n := len(auditActions(t, db, tenantB, l7CapturePolicyAuditAction)); n != 0 {
+		t.Fatalf("tenant B chain carries %d L7 policy events", n)
 	}
 
 	// The provider plane writes the row through UpsertPolicyTx (ee/governance).
 	if err := tenancy.InProvider(ctx, db.Pool(), func(ctx context.Context, q tenancy.Querier) error {
-		return govern.UpsertPolicyTx(ctx, q, tenantA, govern.Policy{AIRemoteEgress: true, L7CaptureRedaction: "full"}, "provider-op")
+		return govern.UpsertPolicyTx(ctx, q, tenantA, govern.Policy{AIRemoteEgress: true}, "provider-op")
 	}); err != nil {
 		t.Fatalf("provider upsert: %v", err)
 	}
+	// The ee/ governance surface, when licensed, writes its own fields only.
+	srv.WithGovernance(policies)
+	if rec := apiReq(t, srv.Handler(), http.MethodPut, "/v1/governance/policy", tenantA,
+		map[string]any{"ai_remote_egress": false}); rec.Code != http.StatusOK {
+		t.Fatalf("governance PUT: %d %s", rec.Code, rec.Body)
+	}
 	if floor, _ := policies.L7CaptureFloor(ctx, tenantA, false); floor != "headers" {
-		t.Fatalf("a provider write changed the tenant's L7 floor to %q", floor)
+		t.Fatalf("another writer changed the tenant's L7 floor to %q", floor)
 	}
 }
 

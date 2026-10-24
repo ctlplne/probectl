@@ -343,6 +343,9 @@ type Server struct {
 	// l7strip is the deployment's D-43 ingest strip, read for its counters
 	// by the support bundle (nil = no counts reported).
 	l7strip *L7IngestStrip
+	// l7policies overrides the core L7 capture policy store (unit tests);
+	// nil = govern.PolicyStore over the pool.
+	l7policies l7CapturePolicyStore
 
 	// startedAt is the process start (S-EE4): the support bundle reports uptime.
 	startedAt time.Time

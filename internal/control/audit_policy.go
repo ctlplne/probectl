@@ -342,6 +342,8 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/fairness":                                                    auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/governance/policy":                                           auditWrapped(auditFacetSensitiveRead),
 	"PUT /v1/governance/policy":                                           auditExplicit(auditFacetMutation, governancePolicyAuditAction),
+	"GET /v1/ebpf/l7-capture-policy":                                      auditWrapped(auditFacetSensitiveRead),
+	"PUT /v1/ebpf/l7-capture-policy":                                      auditExplicit(auditFacetMutation, l7CapturePolicyAuditAction),
 	"GET /v1/diagnostics":                                                 auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/diagnostics/bundle":                                          auditWrapped(auditFacetExport),
 	"GET /v1/remediation/proposals":                                       auditWrapped(auditFacetOperational),

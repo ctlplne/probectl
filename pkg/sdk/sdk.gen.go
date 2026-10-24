@@ -1691,6 +1691,13 @@ type KeyRotateRequest struct {
 	Mode    string `json:"mode,omitempty"`
 }
 
+// A tenant's L7 capture redaction floor (D-43).
+type L7CapturePolicy struct {
+	DeploymentProfile string `json:"deployment_profile"`
+	EffectiveFloor    string `json:"effective_floor"`
+	Redaction         string `json:"redaction"`
+}
+
 type LifecycleEraseRequest struct {
 	Confirm string `json:"confirm"`
 }
@@ -3587,6 +3594,35 @@ func (c *Client) UnbindDirectoryRole(ctx context.Context, req UnbindDirectoryRol
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
+// The calling tenant's L7 capture redaction floor (D-43; a core setting on every edition, D-64)
+type GetL7CapturePolicyRequest struct {
+}
+
+func (c *Client) GetL7CapturePolicy(ctx context.Context, req GetL7CapturePolicyRequest) (*L7CapturePolicy, error) {
+	path := "/v1/ebpf/l7-capture-policy"
+	query := url.Values{}
+	var out L7CapturePolicy
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Set the calling tenant's L7 capture redaction floor (D-43; core, D-64)
+type SetL7CapturePolicyRequest struct {
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) SetL7CapturePolicy(ctx context.Context, req SetL7CapturePolicyRequest) (*L7CapturePolicy, error) {
+	path := "/v1/ebpf/l7-capture-policy"
+	query := url.Values{}
+	var out L7CapturePolicy
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // List eBPF host/L7 service edges
 type ListEbpfServiceMapRequest struct {
 	Source *string `json:"-"`
@@ -3837,7 +3873,7 @@ func (c *Client) FlowTopTalkers(ctx context.Context, req FlowTopTalkersRequest) 
 	return &out, nil
 }
 
-// The calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature — 404 when unlicensed): the remote-AI egress consent (ai_remote_egress), the redaction policy, the effective classification of every category, and the L7 capture redaction floor (l7_capture_redaction, D-43; metadata when unset). Tenant-scoped at the storage layer (RLS); governance.read.
+// The calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature — 404 when unlicensed): the remote-AI egress consent (ai_remote_egress), the redaction policy, and the effective classification of every category. Tenant-scoped at the storage layer (RLS); governance.read.
 type GetV1GovernancePolicyRequest struct {
 }
 
@@ -3847,7 +3883,7 @@ func (c *Client) GetV1GovernancePolicy(ctx context.Context, req GetV1GovernanceP
 	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
 }
 
-// Set the calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature — 404 when unlicensed): classification overrides, the redaction floor (redact_from), redact_export, and the remote-AI egress consent (ai_remote_egress). Tenant comes from the authenticated principal, never the body; audited atomically in the tenant chain (governance.policy_set); governance.write. A management surface for the existing consent, not a relaxation — the AI egress gate still fails closed and redacts. A license past grace denies edits with license_read_only while the policy stays readable; withdrawing ai_remote_egress and/or tightening l7_capture_redaction (and changing nothing else) is always accepted. l7_capture_redaction (D-43) is the loosest L7 redaction this tenant's eBPF agents may capture under and the level the control plane strips L7 records to at ingest: metadata (the default when omitted) or length; headers and full are explicit opt-ins, both refused (validation) under the regulated deployment profile. The provider plane never writes it.
+// Set the calling tenant's own data-governance policy (AUD-12; Enterprise `governance` feature — 404 when unlicensed): classification overrides, the redaction floor (redact_from), redact_export, and the remote-AI egress consent (ai_remote_egress). Tenant comes from the authenticated principal, never the body; audited atomically in the tenant chain (governance.policy_set); governance.write. A management surface for the existing consent, not a relaxation — the AI egress gate still fails closed and redacts. A license past grace denies edits with license_read_only while the policy stays readable; withdrawing ai_remote_egress (and changing nothing else) is always accepted.
 type PutV1GovernancePolicyRequest struct {
 	Body *map[string]any `json:"-"`
 }

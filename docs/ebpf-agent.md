@@ -514,12 +514,15 @@ emit looser data than its tenant allows.
 
 - **The floor.** Each tenant has an L7 capture redaction floor — the loosest
   mode its agents may capture under. With no statement it is `metadata`. A
-  tenant admin can opt the tenant into `headers` or `full` through the
-  governance policy (`PUT /v1/governance/policy`, field
-  `l7_capture_redaction`; audited on the tenant's chain as
-  `governance.policy_set`). The regulated deployment profile refuses both
-  opt-ins and never delivers a floor looser than `metadata`. The provider plane
-  cannot change it.
+  tenant admin (`governance.write`) can opt the tenant into `headers` or
+  `full` through the core tenant setting `PUT /v1/ebpf/l7-capture-policy`
+  (`{"redaction":"headers"}`; CLI `probectl ebpf set-l7-policy`), audited
+  OLD/NEW on the tenant's chain as `ebpf.l7_capture_policy_set`. It is a core
+  feature on every edition and works with no licence (D-64); the ee/
+  governance policy and the provider plane never write it. `redaction` is
+  required, so an update never resets an opt-in by omission. The regulated
+  deployment profile refuses both opt-ins and never delivers a floor looser
+  than `metadata`; `GET` shows the stored statement and the effective floor.
 - **Delivery.** The agent fetches the floor over the existing agent gRPC
   service (`FetchL7Policy`) on the control plane's agent listener, over mTLS:
   set `control_plane.grpc_addr`, `cert_file`, `key_file` and `ca_file` (the

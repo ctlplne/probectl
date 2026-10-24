@@ -141,7 +141,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"archive-config": {Method: http.MethodPost, Path: "/v1/device/configs", Description: "archive one redacted device config version"},
 	}},
 	"ebpf": {Name: "ebpf", Summary: "eBPF host/L7 service map", Ops: map[string]apiOp{
-		"service-map": {Method: http.MethodGet, Path: "/v1/ebpf/service-map", Description: "list tenant eBPF service edges"},
+		"service-map":   {Method: http.MethodGet, Path: "/v1/ebpf/service-map", Description: "list tenant eBPF service edges"},
+		"l7-policy":     {Method: http.MethodGet, Path: "/v1/ebpf/l7-capture-policy", Description: "read the tenant's L7 capture redaction floor (D-43; core)"},
+		"set-l7-policy": {Method: http.MethodPut, Path: "/v1/ebpf/l7-capture-policy", Description: "set the tenant's L7 capture redaction floor: metadata (default), length, or the audited opt-ins headers/full (refused under regulated); body {\"redaction\":\"headers\"}"},
 	}},
 	"change": {Name: "change", Summary: "change correlation events", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/changes"},
@@ -207,8 +209,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"anomalies": {Method: http.MethodGet, Path: "/v1/flows/anomalies"},
 	}},
 	"governance": {Name: "governance", Summary: "data-governance policy (tenant self-service + provider)", Ops: map[string]apiOp{
-		"policy":     {Method: http.MethodGet, Path: "/v1/governance/policy", Description: "read the calling tenant's own governance policy incl ai_remote_egress and l7_capture_redaction (Enterprise governance feature; AUD-12)"},
-		"set-policy": {Method: http.MethodPut, Path: "/v1/governance/policy", Description: "set the calling tenant's own governance policy incl ai_remote_egress and the L7 capture redaction floor (l7_capture_redaction, D-43); audited in the tenant chain (AUD-12)"},
+		"policy":     {Method: http.MethodGet, Path: "/v1/governance/policy", Description: "read the calling tenant's own governance policy incl ai_remote_egress (Enterprise governance feature; AUD-12)"},
+		"set-policy": {Method: http.MethodPut, Path: "/v1/governance/policy", Description: "set the calling tenant's own governance policy incl ai_remote_egress; audited in the tenant chain (AUD-12)"},
 		"tenant":     {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
 		"set-tenant": {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
 	}},

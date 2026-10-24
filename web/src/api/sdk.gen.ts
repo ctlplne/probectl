@@ -1587,6 +1587,12 @@ export interface KeyRotateRequest {
   mode?: "managed" | "byok"
 }
 
+export interface L7CapturePolicy {
+  deployment_profile: string
+  effective_floor: "length" | "metadata" | "headers" | "full"
+  redaction: "length" | "metadata" | "headers" | "full"
+}
+
 export interface LifecycleEraseRequest {
   confirm: string
 }
@@ -2524,6 +2530,17 @@ export interface UnbindDirectoryRoleRequest {
 }
 
 export type UnbindDirectoryRoleResponse = void
+
+export interface GetL7CapturePolicyRequest {
+}
+
+export type GetL7CapturePolicyResponse = L7CapturePolicy
+
+export interface SetL7CapturePolicyRequest {
+  body: JsonObject
+}
+
+export type SetL7CapturePolicyResponse = L7CapturePolicy
 
 export interface ListEbpfServiceMapRequest {
   source?: string
@@ -3774,6 +3791,18 @@ export class ProbectlSDKClient {
     if (request.scopeType !== undefined) query.set("scope_type", String(request.scopeType))
     if (request.scopeId !== undefined) query.set("scope_id", String(request.scopeId))
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async getL7CapturePolicy(): Promise<GetL7CapturePolicyResponse> {
+    let path = "/v1/ebpf/l7-capture-policy"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetL7CapturePolicyResponse>("GET", path, query, undefined)
+  }
+
+  async setL7CapturePolicy(request: SetL7CapturePolicyRequest): Promise<SetL7CapturePolicyResponse> {
+    let path = "/v1/ebpf/l7-capture-policy"
+    const query = new URLSearchParams()
+    return this.requestJSON<SetL7CapturePolicyResponse>("PUT", path, query, request.body)
   }
 
   async listEbpfServiceMap(request: ListEbpfServiceMapRequest = {}): Promise<ListEbpfServiceMapResponse> {
