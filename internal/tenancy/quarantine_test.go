@@ -73,7 +73,7 @@ func TestQuarantineTenantMessageIsActionableAndCarriesNoDetail(t *testing.T) {
 		e := &QuarantinedError{Entry: QuarantineEntry{TenantID: "t-a", Reason: reason, Plane: "eu",
 			Detail: "dial tcp 10.9.8.7:8443: connection refused", Remedy: "PROBECTL_DATAPLANES=eu=..."}}
 		msg := e.TenantMessage()
-		if strings.Contains(msg, "10.9.8.7") || strings.Contains(msg, "connection refused") {
+		if strings.Contains(msg, "10.9.8.7") || strings.Contains(msg, "connection refused") || strings.Contains(msg, "PROBECTL_") {
 			t.Errorf("%s: tenant message leaks the operator detail: %q", reason, msg)
 		}
 		if !strings.Contains(msg, "quarantined") || !strings.Contains(msg, "operator") || !strings.Contains(msg, "resumes automatically") {
@@ -116,7 +116,11 @@ func TestInTenantRefusesAQuarantinedTenantBeforeTheDatabase(t *testing.T) {
 }
 
 // The quarantine notice is the only exemption from the refusal, so it has
-// exactly one production caller: the supervisor's tenant-chain receipt.
+// exactly one production reference: the supervisor's tenant-chain receipt.
+// Any reference counts, not only a call — a function value (f :=
+// tenancy.InTenantQuarantineNotice) or an unqualified use inside this package
+// would escape a call-only scan (DPR-384) — and so does the context marker
+// the notice sets.
 func TestQuarantineNoticeHasOneCaller(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var callers []string
@@ -135,17 +139,44 @@ func TestQuarantineNoticeHasOneCaller(t *testing.T) {
 			return nil
 		}
 		src, err := os.ReadFile(path)
-		if err != nil || !strings.Contains(string(src), "InTenantQuarantineNotice") {
+		if err != nil || (!strings.Contains(string(src), "InTenantQuarantineNotice") && !strings.Contains(string(src), "quarantineNoticeKey")) {
 			return err
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), path, src, 0)
 		if err != nil {
 			return err
 		}
+		slash := filepath.ToSlash(path)
+		declared := map[*ast.Ident]bool{}
 		ast.Inspect(f, func(n ast.Node) bool {
-			if call, ok := n.(*ast.CallExpr); ok {
-				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "InTenantQuarantineNotice" {
-					callers = append(callers, filepath.ToSlash(path))
+			switch d := n.(type) {
+			case *ast.FuncDecl:
+				declared[d.Name] = true
+			case *ast.TypeSpec:
+				declared[d.Name] = true
+			}
+			return true
+		})
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				if x.Sel.Name == "InTenantQuarantineNotice" {
+					callers = append(callers, slash)
+				}
+				return false // its Sel ident is counted here, not again below
+			case *ast.Ident:
+				if declared[x] {
+					return true
+				}
+				switch x.Name {
+				case "InTenantQuarantineNotice":
+					callers = append(callers, slash)
+				case "quarantineNoticeKey":
+					// The marker may be set only by the notice itself and read
+					// only by QuarantineNoticeContext, both in quarantine.go.
+					if !strings.HasSuffix(slash, "internal/tenancy/quarantine.go") {
+						callers = append(callers, slash+" (marker)")
+					}
 				}
 			}
 			return true

@@ -366,7 +366,7 @@ func (s *Server) resolvePrincipalSessionWith(
 		p, err := resolveBearer(r, token)
 		if err != nil {
 			notePrincipalFailure(r.Context(), err)
-			s.log.Warn("bearer token resolve failed", "error", err)
+			s.logResolveFailure("bearer token resolve failed", err)
 			return nil
 		}
 		return s.principalWithSubjectAttributes(r.Context(), p, loadAttributes)
@@ -386,7 +386,7 @@ func (s *Server) resolvePrincipalSessionWith(
 	}
 	if err != nil {
 		notePrincipalFailure(r.Context(), err)
-		s.log.Warn("session resolve failed", "error", err)
+		s.logResolveFailure("session resolve failed", err)
 		return nil
 	}
 	if replacement != "" {
@@ -1029,4 +1029,16 @@ func unauthenticated(r *http.Request) error {
 		}
 	}
 	return apierror.Unauthorized("authentication required")
+}
+
+// logResolveFailure logs a failed credential resolution. A quarantined
+// tenant's every request fails this way, and its cause is already logged
+// (and audited) by the quarantine supervisor, so it is logged at debug
+// rather than a warning per request (DPR-383).
+func (s *Server) logResolveFailure(msg string, err error) {
+	if errors.Is(err, tenancy.ErrTenantQuarantined) {
+		s.log.Debug(msg, "error", err)
+		return
+	}
+	s.log.Warn(msg, "error", err)
 }

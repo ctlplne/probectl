@@ -109,7 +109,8 @@ func (e *QuarantinedError) Is(target error) bool { return target == ErrTenantQua
 // TenantMessage is the refusal shown to the quarantined tenant's own users:
 // which precondition failed, on which plane, that the deployment operator
 // must fix it, and that access resumes by itself. It carries no internal
-// error text (hostnames, statements) — Detail stays operator-side.
+// error text (hostnames, statements) and no deployment vocabulary such as
+// configuration keys (DPR-383): Detail and Remedy stay operator-side.
 func (e *QuarantinedError) TenantMessage() string {
 	plane := e.Entry.Plane
 	if plane == "" {
@@ -118,11 +119,11 @@ func (e *QuarantinedError) TenantMessage() string {
 	var what string
 	switch e.Entry.Reason {
 	case QuarantinePlaneMissing:
-		what = fmt.Sprintf("its residency data plane %q is not configured on this control plane (PROBECTL_DATAPLANES)", plane)
+		what = fmt.Sprintf("its residency data plane %q is not configured on this control plane", plane)
 	case QuarantinePlaneUnreachable:
 		what = fmt.Sprintf("its residency data plane %q is unreachable from this control plane", plane)
 	case QuarantineReaderCredentialMissing:
-		what = fmt.Sprintf("the read-only database login has no credential for its residency data plane %q (PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES)", plane)
+		what = fmt.Sprintf("the read-only database login has no credential for its residency data plane %q", plane)
 	case QuarantineReaderScopeUnproven:
 		what = fmt.Sprintf("the tenant-isolation proof for its data on residency data plane %q failed", plane)
 	case QuarantineSchemaCatchUpFailed:

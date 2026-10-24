@@ -132,9 +132,13 @@ func (s *Server) WithTenantStatus(src TenantStatusSource) *Server {
 // checkTenantLifecycle rejects requests from suspended/offboarded tenants.
 //
 // It also refuses a quarantined tenant (D-62) with the actionable
-// tenant_quarantined 503, before the handler runs. That is the early, clear
-// refusal; the boundary itself is the router, which refuses the tenant's
-// every routed read and write on paths that never reach this check.
+// tenant_quarantined 503, before the handler runs. For API tokens and
+// sessions this branch is redundant: their resolution reads the tenant's own
+// storage, which InTenant already refuses, so unauthenticated() answers the
+// 503 first. It stays as defense in depth for any principal that resolves
+// WITHOUT the tenant's storage (the dev-auth header today, any such
+// credential tomorrow), and TestQuarantinedTenantIsRefusedAtTheAPIWithAnActionableError
+// exercises it through exactly that path. The boundary itself is the router.
 func (s *Server) checkTenantLifecycle(r *http.Request, tenantID string) error {
 	if tenantID != "" {
 		if qerr, quarantined := quarantineAPIError(tenancy.CheckQuarantine(tenantID)); quarantined {

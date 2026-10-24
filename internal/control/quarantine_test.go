@@ -77,7 +77,7 @@ func TestWriteErrorMapsAWrappedQuarantineRefusal(t *testing.T) {
 		rec := httptest.NewRecorder()
 		writeError(rec, httptest.NewRequest(http.MethodGet, "/v1/flows", nil), err)
 		if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "tenant_quarantined") ||
-			!strings.Contains(rec.Body.String(), "PROBECTL_DATAPLANES") {
+			!strings.Contains(rec.Body.String(), `\"mars\" is not configured`) || strings.Contains(rec.Body.String(), "PROBECTL_") {
 			t.Fatalf("writeError(%v) = %d %s", err, rec.Code, rec.Body.String())
 		}
 	}
