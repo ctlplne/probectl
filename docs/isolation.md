@@ -108,7 +108,15 @@ a transient routing blip delays the data instead of mis-routing it.
   storage pipeline, the latest-results view, SLO, outage, IOC, NDR, TLS posture,
   RUM and the OTLP export) drops a record whose payload tenant disagrees with
   its key, so a bus credential for one tenant can never write into another's
-  views or signals.
+  views or signals. A record keyed to a tenant the isolation router sends to
+  its **own** lane (siloed or hybrid) is refused on the shared lane outright,
+  by every lane consumer, whatever its payload says: its producers publish on
+  its lane, so a shared-lane copy can only come from a misrouting control
+  plane, a stale producer or a forger. Refusals are logged and counted in
+  `probectl_pipeline_tenant_rejected_total`. Records already in flight on the
+  shared lane when a tenant moves to its own lane are refused the same way,
+  not rehomed. Pooled tenants keep using the shared lane even though they also
+  own a collector lane for strict-lane mode.
 - **Object store:** tenant-owned artifact callers use a bound object-store
   handle, so they pass relative paths like `browser/shot.png` and the storage
   adapter prepends the namespace. Siloed/hybrid keys move under

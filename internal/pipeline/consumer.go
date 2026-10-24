@@ -507,6 +507,11 @@ func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
 // the registry; namespaced lanes overwrite the tenant with the lane's.
 func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGroup) error {
 	c.ledger.addReceived(1)
+	if lane.laneTenant == "" && refuseMisroutedShared(ctx, c.log, lane.group, msg) {
+		c.rejectedTenant.Add(1)
+		c.ledger.addTenantRejected(1)
+		return nil
+	}
 	// Fairness pre-admission (S-49d7cf45): shed on the CHEAPEST identity we
 	// have — the lane tenant, else the bus key — BEFORE unmarshal and before
 	// any registry verification lookup. Admission after decode still bounded

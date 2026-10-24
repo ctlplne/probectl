@@ -27,8 +27,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/bus"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 	"github.com/ctlplne/probectl/internal/testsync"
@@ -330,6 +333,65 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 
 	// 7. A tampered bundle is refused end to end (PLAT-13 acceptance).
 	checkTamperedBundleRefused(t, st, A, page, "g9tamper-"+run)
+
+	// 8. A siloed tenant's record forged onto the SHARED lane is refused.
+	checkSharedLaneRefusesSiloedTenant(t, st, C, "g9forged-"+run)
+}
+
+// checkSharedLaneRefusesSiloedTenant publishes, straight onto the shared
+// network-results lane, a well-formed result keyed and stamped as the siloed
+// tenant tn: what a misrouting control plane, a stale producer or a forger
+// would put there. The router sends tn to its own lane, so every result
+// consumer must refuse it: it never reaches tn's latest results or its probe
+// series, and the control plane logs the refusal. The G9 siloed leg's plant 2
+// showed such records were accepted under their tenant before.
+func checkSharedLaneRefusesSiloedTenant(t *testing.T, st *shipped.Stack, tn *g9Tenant, forgedTest string) {
+	t.Helper()
+	if tn.ns == "" {
+		t.Fatalf("tenant %s (%s) reports no own bus lane; the forged-record leg needs a siloed tenant", tn.slug, tn.model)
+	}
+	value, err := proto.Marshal(&resultv1.Result{
+		TenantId: tn.id, AgentId: tn.agent, ResultId: forgedTest, CanaryType: "http",
+		ServerAddress: "127.0.0.1", Success: true, StartTimeUnixNano: time.Now().UnixNano(),
+		Metrics:    map[string]float64{"http.total.ms": 1},
+		Attributes: map[string]string{"probectl.test.id": forgedTest},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl, err := kgo.NewClient(kgo.SeedBrokers(testsupport.KafkaBrokers()...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	for i := range 5 {
+		rec := &kgo.Record{Topic: "probectl.network.results", Key: bus.TenantKey(tn.id, fmt.Sprintf("forged-%d", i)), Value: value}
+		if err := cl.ProduceSync(ctx, rec).FirstErr(); err != nil {
+			t.Fatalf("publish the forged result on the shared lane: %v", err)
+		}
+	}
+	refused := func() bool {
+		out, _ := os.ReadFile(st.Log)
+		return strings.Contains(string(out), "its tenant is routed to its own bus lane but it arrived on the shared lane") &&
+			strings.Contains(string(out), tn.id)
+	}
+	accepted := func() bool { _, seen := tn.latest(t, st)[forgedTest]; return seen }
+	shipped.Await(t, "the control plane refusing (or, if broken, accepting) "+tn.slug+"'s records on the shared lane", 30*time.Second, func() bool {
+		return refused() || accepted()
+	})
+	time.Sleep(5 * time.Second) // every consumer group has read the lane by now
+	if accepted() {
+		t.Errorf("ISOLATION: a result forged onto the shared lane as siloed tenant %s reached its latest results", tn.slug)
+	}
+	if !refused() {
+		t.Errorf("ISOLATION: the control plane did not refuse %s's results on the shared lane", tn.slug)
+	}
+	if n := len(tn.series(t, st, forgedTest)); n != 0 {
+		t.Errorf("ISOLATION: a result forged onto the shared lane as siloed tenant %s became %d probe series", tn.slug, n)
+	}
+	t.Logf("5 results forged onto the shared lane as siloed tenant %s were refused: none in its latest results or probe series", tn.slug)
 }
 
 // g9AgentTestSync is each agent's test_sync block: no local tests, central

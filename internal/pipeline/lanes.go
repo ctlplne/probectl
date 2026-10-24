@@ -30,8 +30,9 @@ type LaneHandler func(ctx context.Context, msg bus.Message, laneTenant string) e
 // lane, invoking the handler with the lane's authoritative tenant.
 //
 // A malformed namespace is fatal (RED-006): a siloed tenant's traffic must
-// never silently degrade onto the shared lane. It blocks until ctx is canceled
-// or a subscription fails.
+// never silently degrade onto the shared lane, and a shared-lane record of a
+// tenant the router sends to its own lane is refused (refuseMisroutedShared).
+// It blocks until ctx is canceled or a subscription fails.
 func RunLanes(ctx context.Context, b bus.Bus, base, group string, nsTenants map[string]string, handler LaneHandler) error {
 	subs := []laneSub{{topic: base, group: group}}
 	for ns, tid := range nsTenants {
@@ -43,6 +44,9 @@ func RunLanes(ctx context.Context, b bus.Bus, base, group string, nsTenants map[
 	}
 	if len(subs) == 1 {
 		return b.Subscribe(ctx, base, group, func(c context.Context, m bus.Message) error {
+			if refuseMisroutedShared(c, nil, group, m) {
+				return nil
+			}
 			return handler(c, m, "")
 		})
 	}
@@ -54,7 +58,12 @@ func RunLanes(ctx context.Context, b bus.Bus, base, group string, nsTenants map[
 		wg.Add(1)
 		go func(s laneSub) {
 			defer wg.Done()
-			h := func(c context.Context, m bus.Message) error { return handler(c, m, s.laneTenant) }
+			h := func(c context.Context, m bus.Message) error {
+				if s.laneTenant == "" && refuseMisroutedShared(c, nil, group, m) {
+					return nil
+				}
+				return handler(c, m, s.laneTenant)
+			}
 			if err := b.Subscribe(ctx2, s.topic, s.group, h); err != nil && ctx2.Err() == nil {
 				errs <- err
 				cancel()
