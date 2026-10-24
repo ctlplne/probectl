@@ -20,7 +20,7 @@ var (
 	// series on a metrics registry — the seam through which a series becomes
 	// part of what /metrics exposes. A name that appears only in a comment or an
 	// unregistered constant is NOT exported and never matches.
-	metricRegistrationPattern = regexp.MustCompile(`\.(?:Gauge|Counter|CounterFunc)\(\s*"(probectl_[a-z0-9_]+)"`)
+	metricRegistrationPattern = regexp.MustCompile(`\.(?:Gauge|LabeledGauge|Counter|LabeledCounter|CounterFunc)\(\s*"(probectl_[a-z0-9_]+)"`)
 	// ruleNameMatcherPattern drops __name__=~"..." regex families, whose
 	// concrete series names are built at runtime and so cannot be asserted by
 	// literal name (the dynamically-named ClickHouse breaker and pipeline/otlp
@@ -84,6 +84,12 @@ func TestPrometheusRuleCoversRunOpsCriticalFailureModes(t *testing.T) {
 			anchor:     "probectlwormsignaturefailures",
 			thresholds: []string{"wormVerifyFailureWindow", "wormVerifyFailures", "wormVerifyFailureFor"},
 			metrics:    []string{"probectl_audit_worm_signature_failures_total", "probectl_audit_worm_chain_failures_total"},
+		},
+		{
+			alert:      "ProbectlTenantQuarantined",
+			anchor:     "probectltenantquarantined",
+			thresholds: []string{"tenantQuarantinedFor"},
+			metrics:    []string{"probectl_tenant_quarantined"},
 		},
 	}
 
@@ -149,6 +155,7 @@ func TestRunOpsPrometheusRuleMetricsAreRegistered(t *testing.T) {
 		"ProbectlFairnessShedOrRejected",
 		"ProbectlWORMExportGap",
 		"ProbectlWORMSignatureFailures",
+		"ProbectlTenantQuarantined",
 	}
 	checked := 0
 	for _, alert := range runOpsAlerts {

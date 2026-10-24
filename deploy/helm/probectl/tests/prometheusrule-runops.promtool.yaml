@@ -161,3 +161,25 @@ tests:
               summary: probectl audit WORM verification is failing
               description: Signed WORM segments failed signature or hash-chain verification. Treat this as possible tampering, object-store loss, or wrong signing-key material until proven otherwise.
               runbook_url: https://github.com/ctlplne/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectlwormsignaturefailures
+
+  - interval: 1m
+    input_series:
+      - series: 'probectl_tenant_quarantined{reason="residency_plane_unreachable"}'
+        values: '0 0 0 1 1 1 1 1 1 1'
+      - series: 'probectl_tenant_quarantined{reason="reader_scope_unproven"}'
+        values: '0 0 0 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - alertname: ProbectlTenantQuarantined
+        eval_time: 2m
+        exp_alerts: []
+      - alertname: ProbectlTenantQuarantined
+        eval_time: 6m
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              probectl_component: isolation
+              reason: residency_plane_unreachable
+            exp_annotations:
+              summary: a probectl tenant is quarantined
+              description: A siloed or hybrid tenant failed an isolation precondition at startup (see the reason label) and every read and write of it is refused on at least one control-plane replica, while every other tenant keeps running. The provider console lists the cause and the fix; the replica releases the tenant by itself once it is fixed.
+              runbook_url: https://github.com/ctlplne/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectltenantquarantined

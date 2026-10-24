@@ -1488,6 +1488,10 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 	m.Gauge("probectl_pipeline_tenant_rejected_total",
 		"Records dropped fail-closed by tenant verification (cross-tenant injection attempts / shared-lane refusals, WIRE-001).",
 		func() float64 { return float64(pipeline.TenantRejectedTotal()) })
+	registerQuarantineGauges(m)
+	m.CounterFunc("probectl_pipeline_quarantine_dropped_total",
+		"Shared-lane records of quarantined tenants acknowledged without being processed (D-62); their own lanes are left unconsumed instead.",
+		func() float64 { return float64(pipeline.QuarantineDroppedTotal()) })
 	// Every transport that can report its counters reports them, not just
 	// Kafka: an operator who moves to the durable lightweight bus keeps the
 	// same dashboard (DPR-119).
@@ -1664,4 +1668,26 @@ func registerClickHouseBreakerGaugeSet(m *metrics.Registry, plane string, src br
 		func() float64 { return float64(src.BreakerStats().Trips) })
 	m.Gauge(prefix+"short_circuits_total", "ClickHouse calls short-circuited by the "+plane+" store breaker.",
 		func() float64 { return float64(src.BreakerStats().ShortCircuits) })
+}
+
+// registerQuarantineGauges exposes per-tenant quarantine (D-62) on /metrics:
+// how many tenants this replica holds quarantined, by reason (never by
+// tenant), and how many transitions it has made. ProbectlTenantQuarantined
+// alerts on the first.
+func registerQuarantineGauges(m *metrics.Registry) {
+	reasons := make([]string, 0, len(tenancy.QuarantineReasons()))
+	for _, r := range tenancy.QuarantineReasons() {
+		reasons = append(reasons, string(r))
+	}
+	m.LabeledGauge("probectl_tenant_quarantined",
+		"Tenants this replica holds quarantined (every read and write refused) because an isolation precondition failed, by reason (D-62).",
+		"reason", reasons, func(reason string) float64 {
+			return float64(tenancy.CurrentQuarantine().CountByReason()[tenancy.QuarantineReason(reason)])
+		})
+	m.CounterFunc("probectl_tenant_quarantine_entered_total",
+		"Tenants this replica has quarantined since it started (D-62).",
+		func() float64 { entered, _ := tenancy.CurrentQuarantine().Transitions(); return float64(entered) })
+	m.CounterFunc("probectl_tenant_quarantine_released_total",
+		"Tenants this replica has released from quarantine since it started, once their checks passed again (D-62).",
+		func() float64 { _, released := tenancy.CurrentQuarantine().Transitions(); return float64(released) })
 }

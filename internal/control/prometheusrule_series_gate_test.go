@@ -43,7 +43,7 @@ var (
 	// in the rule that /metrics serves are registered through one of these
 	// seams (or emitted directly by the metrics Handler, caught by the live
 	// scrape below).
-	metricRegistrationRe = regexp.MustCompile(`\.(?:Gauge|Counter|CounterFunc)\(\s*"(probectl_[a-z0-9_]+)"`)
+	metricRegistrationRe = regexp.MustCompile(`\.(?:Gauge|LabeledGauge|Counter|LabeledCounter|CounterFunc)\(\s*"(probectl_[a-z0-9_]+)"`)
 )
 
 // extractReferencedSeries returns the distinct literal probectl_ series names a

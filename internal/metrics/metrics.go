@@ -33,6 +33,7 @@ type Registry struct {
 	labeled    map[string]*labeledCounter
 	counterFns map[string]*gaugeFunc
 	gauges     map[string]*gaugeFunc
+	lgauges    map[string]*labeledGauge
 	help       map[string]string
 	startTime  time.Time
 	version    string
@@ -64,6 +65,7 @@ func New(version, commit string) *Registry {
 		labeled:    map[string]*labeledCounter{},
 		counterFns: map[string]*gaugeFunc{},
 		gauges:     map[string]*gaugeFunc{},
+		lgauges:    map[string]*labeledGauge{},
 		help:       map[string]string{},
 		startTime:  time.Now(),
 		version:    version,
@@ -118,6 +120,23 @@ func (r *Registry) Gauge(name, help string, fn func() float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.gauges[name] = &gaugeFunc{help: help, fn: fn}
+}
+
+type labeledGauge struct {
+	help, label string
+	values      []string
+	fn          func(value string) float64
+}
+
+// LabeledGauge registers a sampled gauge family `name{label="<value>"}` with
+// one series per declared value, each evaluated at scrape time by fn(value).
+// Values must be fixed reason codes, never data (no tenant identifiers).
+func (r *Registry) LabeledGauge(name, help, label string, values []string, fn func(value string) float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	vs := append([]string(nil), values...)
+	sort.Strings(vs)
+	r.lgauges[name] = &labeledGauge{help: help, label: label, values: vs, fn: fn}
 }
 
 // CounterFunc registers a sampled counter backed by fn (evaluated at scrape
@@ -202,6 +221,20 @@ func (r *Registry) Handler() http.Handler {
 			cf := r.counterFns[n]
 			fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s counter\n", n, cf.help, n)
 			fmt.Fprintf(w, "%s %g\n", n, cf.fn())
+		}
+
+		// Labeled gauge families (sorted by name, then by declared value).
+		lgnames := make([]string, 0, len(r.lgauges))
+		for n := range r.lgauges {
+			lgnames = append(lgnames, n)
+		}
+		sort.Strings(lgnames)
+		for _, n := range lgnames {
+			lg := r.lgauges[n]
+			fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n", n, lg.help, n)
+			for _, v := range lg.values {
+				fmt.Fprintf(w, "%s{%s=%q} %g\n", n, lg.label, v, lg.fn(v))
+			}
 		}
 
 		// Registered gauges (sorted).

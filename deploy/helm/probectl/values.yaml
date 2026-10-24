@@ -566,6 +566,7 @@ metrics:
       wormVerifyFailureWindow: 5m
       wormVerifyFailures: 0
       wormVerifyFailureFor: 2m
+      tenantQuarantinedFor: 1m # D-62: any quarantined tenant pages
 
 # OPS-009/H8: chart-managed PG + CH + object-store/WORM backup CronJobs (folded in from
 # deploy/backup/, U-030). OFF by default — opt in, then supply the

@@ -190,7 +190,8 @@
                 "wormExportGapFor": { "type": "string", "minLength": 1 },
                 "wormVerifyFailureWindow": { "type": "string", "minLength": 1 },
                 "wormVerifyFailures": { "type": "integer", "minimum": 0 },
-                "wormVerifyFailureFor": { "type": "string", "minLength": 1 }
+                "wormVerifyFailureFor": { "type": "string", "minLength": 1 },
+                "tenantQuarantinedFor": { "type": "string", "minLength": 1 }
               }
             }
           }

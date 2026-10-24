@@ -161,4 +161,14 @@ spec:
             summary: probectl audit WORM verification is failing
             description: Signed WORM segments failed signature or hash-chain verification. Treat this as possible tampering, object-store loss, or wrong signing-key material until proven otherwise.
             runbook_url: {{ printf "%s#probectlwormsignaturefailures" $rule.runbookBaseURL | quote }}
+        - alert: ProbectlTenantQuarantined
+          expr: sum by (reason) (probectl_tenant_quarantined) > 0
+          for: {{ $thresholds.tenantQuarantinedFor }}
+          labels:
+            severity: critical
+            probectl_component: isolation
+          annotations:
+            summary: a probectl tenant is quarantined
+            description: A siloed or hybrid tenant failed an isolation precondition at startup (see the reason label) and every read and write of it is refused on at least one control-plane replica, while every other tenant keeps running. The provider console lists the cause and the fix; the replica releases the tenant by itself once it is fixed.
+            runbook_url: {{ printf "%s#probectltenantquarantined" $rule.runbookBaseURL | quote }}
 {{- end }}

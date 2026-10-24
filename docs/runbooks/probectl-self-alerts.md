@@ -42,6 +42,7 @@ remediation automatically.
 | `ProbectlFairnessShedOrRejected` | Fairness shed units or rejected queries increased. | Confirm noisy-tenant pressure and quiet-tenant health; tune limits only after proving the gate protected the shared platform. |
 | `ProbectlWORMExportGap` | The WORM exporter has not completed a successful export+verify cycle recently. | Verify object-store reachability, signing key persistence, and provider audit stream health before pruning any audit history. |
 | `ProbectlWORMSignatureFailures` | Signed WORM segments failed signature or hash-chain verification. | Treat as possible tampering, missing objects, or wrong signing key; preserve the bucket and verify with the persisted public key. |
+| `ProbectlTenantQuarantined` | A replica holds a siloed or hybrid tenant quarantined (D-62): an isolation precondition failed, so every read and write of that tenant is refused while every other tenant runs. | Open the provider console's quarantined-tenants list (or `GET /provider/v1/tenants/quarantine`) for the tenant, the cause and the fix; apply the fix; the replica releases the tenant itself. |
 
 ### ProbectlSelfMetricsMissing
 
@@ -122,6 +123,33 @@ off-database trail—the last-success timestamp intentionally remains unchanged.
 WORM signature or hash-chain verification failed. Preserve the object-store
 contents, verify the persisted public key under `worm/audit/provider/signing.pub`,
 and treat missing/corrupt segments as audit-integrity incidents until explained.
+
+### ProbectlTenantQuarantined
+
+With `PROBECTL_SILO_FAILURE_MODE=quarantine` (D-62), a replica that cannot prove
+a siloed or hybrid tenant's isolation targets at startup quarantines that
+tenant instead of refusing to start: the tenant's users get HTTP 503
+`tenant_quarantined`, its bus lanes wait unconsumed, its erasure is refused,
+and every other tenant runs normally. The `reason` label names the failed
+precondition:
+
+| reason | cause | fix |
+| --- | --- | --- |
+| `residency_plane_missing` | The tenant's residency plane is not in `PROBECTL_DATAPLANES` (DPR-324). | Restore the plane (and its credential entries) and roll the control plane, or move the tenant. |
+| `residency_plane_unreachable` | The plane's ClickHouse could not be reached to prove the reader scope. | Restore connectivity (DNS, TLS trust, firewall, server health); released automatically, no restart. |
+| `reader_credential_missing` | The reader login has no credential for the plane (DPR-327). | Add the plane to `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` and roll the control plane. |
+| `reader_scope_unproven` | The plane answered but the reader row policy/grants could not be installed or proven (DPR-323/326/328). | Grant the control login `SELECT ON *.* WITH GRANT OPTION`; keep the reader SQL-created and SELECT-only; released automatically. |
+| `silo_schema_catchup_failed` | The siloed tenant's Postgres schema could not be caught up (ARCH-001). | Fix the named precondition (usually the migration login); released automatically. |
+
+The provider console's quarantined-tenants list (`GET
+/provider/v1/tenants/quarantine`) shows each tenant, replica, cause and fix.
+The supervisor re-checks every `PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL`;
+entering and leaving quarantine is audited on the tenant's chain and the
+provider stream (`tenant.quarantine_entered` / `tenant.quarantine_released`).
+A cause that is configuration clears when the corrected configuration is rolled
+out. While the tenant's lanes wait, Kafka keeps their committed offsets for
+the broker's `offsets.retention.minutes` (7 days by default); fix a quarantine
+well inside that window.
 
 ## eBPF agent alerts (probectl-agent chart)
 

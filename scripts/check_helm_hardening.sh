@@ -731,6 +731,7 @@ need "alert: ProbectlAgentDarkFleet" "$strict" "strict profile missing dark-flee
 need "alert: ProbectlFairnessShedOrRejected" "$strict" "strict profile missing fairness shed/reject alert (RUNOPS-003)"
 need "alert: ProbectlWORMExportGap" "$strict" "strict profile missing WORM export gap alert (RUNOPS-003)"
 need "alert: ProbectlWORMSignatureFailures" "$strict" "strict profile missing WORM signature/chain verification alert (RUNOPS-003)"
+need "alert: ProbectlTenantQuarantined" "$strict" "strict profile missing tenant quarantine alert (D-62)"
 need "kind: CronJob"                "$strict" "strict profile missing backup CronJob (OPS-009)"
 if [ "$(grep -c '^kind: CronJob$' <<<"$strict")" -ne 3 ]; then
   fail "strict profile must render exactly Postgres + ClickHouse + object-store backup CronJobs (H8)"
@@ -836,6 +837,7 @@ if render --set metrics.serviceMonitor.enabled=true --set metrics.serviceMonitor
 fi
 need "alert: ProbectlHighGoroutines" "$(render --set metrics.prometheusRule.enabled=true)" "metrics.prometheusRule.enabled=true must render self-alert rules (OPS-004)"
 need "alert: ProbectlWORMExportGap" "$(render --set metrics.prometheusRule.enabled=true)" "metrics.prometheusRule.enabled=true must render RUNOPS WORM alert (RUNOPS-003)"
+need "alert: ProbectlTenantQuarantined" "$(render --set metrics.prometheusRule.enabled=true)" "metrics.prometheusRule.enabled=true must render the tenant quarantine alert (D-62)"
 
 # CONFIG-03870cbe: restore Jobs use the same shell-free distroless control image
 # for staging. Render both restore paths so this opt-in surface cannot hide a
