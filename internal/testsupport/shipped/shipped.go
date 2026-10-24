@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -68,6 +69,14 @@ type Options struct {
 	TenantBand int
 	// Env adds to or overrides the serve environment.
 	Env map[string]string
+	// DataPlanes are residency planes (name -> ClickHouse URL without
+	// credentials) for siloed and hybrid tenants (PROBECTL_DATAPLANES). The
+	// stack then authenticates ClickHouse the production way — credential
+	// files, not URL userinfo (DPR-044): the dev ClickHouse URL's userinfo
+	// becomes PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE and each plane's control
+	// credential, and each plane gets the reader login's credential
+	// (PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES, DPR-323/327).
+	DataPlanes map[string]string
 }
 
 // Stack is one running shipped control plane.
@@ -227,6 +236,30 @@ func Start(t *testing.T, o Options) *Stack {
 		env["PROBECTL_"+plane+"_READER_USER"] = ReaderUser
 	}
 	env["PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE"] = readerFile
+	if len(o.DataPlanes) > 0 {
+		names := make([]string, 0, len(o.DataPlanes))
+		for name := range o.DataPlanes {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		var planes, readers []string
+		for _, name := range names {
+			planes = append(planes, name+"="+o.DataPlanes[name])
+			readers = append(readers, name+"="+readerFile)
+		}
+		controlFile := s.controlCredential(t, chURL)
+		var controls []string
+		for _, name := range names {
+			controls = append(controls, name+"="+controlFile)
+		}
+		env["PROBECTL_DATAPLANES"] = strings.Join(planes, ";")
+		env["PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES"] = strings.Join(readers, ";")
+		env["PROBECTL_DATAPLANE_BASIC_AUTH_FILES"] = strings.Join(controls, ";")
+		env["PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE"] = controlFile
+		for _, plane := range []string{"FLOWSTORE", "PATHSTORE", "OTELSTORE", "EBPFSTORE", "ENDPOINTSTORE"} {
+			env["PROBECTL_"+plane+"_URL"] = stripUserinfo(chURL)
+		}
+	}
 	for k, v := range o.Env {
 		env[k] = v
 	}
@@ -294,10 +327,59 @@ func (s *Stack) RestartControl(t *testing.T, label string, env map[string]string
 	s.awaitReady(t)
 }
 
+// ServeUntilExit stops the control plane and serves it again with env added,
+// expecting this configuration to REFUSE to start: it waits for the process
+// to exit and returns its log. Becoming ready instead fails the test. Call
+// RestartControl afterwards to serve again.
+func (s *Stack) ServeUntilExit(t *testing.T, label string, env map[string]string, within time.Duration) string {
+	t.Helper()
+	s.Stop(t, s.controlLabel)
+	full := append([]string(nil), s.serveEnv...)
+	for k, v := range env {
+		full = append(full, k+"="+v)
+	}
+	logPath := s.start(t, label, s.Control, []string{"serve"}, full)
+	select {
+	case <-s.procs[label].done:
+	case <-time.After(within):
+		t.Fatalf("serve with %v did not refuse to start within %s:\n%s", env, within, tail(logPath, 40))
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
 // Subcommand runs `probectl-control <args>` in the stack's environment.
 func (s *Stack) Subcommand(t *testing.T, args ...string) string {
 	t.Helper()
 	return s.run(t, s.env, s.Control, args...)
+}
+
+// TrySubcommand runs `probectl-control <args>` like Subcommand but returns
+// its combined output and error instead of failing the test, for a command
+// that is expected to refuse.
+func (s *Stack) TrySubcommand(args ...string) (string, error) {
+	return s.tryRun(s.env, s.Control, args...)
+}
+
+// Get sends an authenticated GET with a bearer token and returns the status
+// and body (the provider plane's operator token, a metrics scrape token).
+func (s *Stack) Get(t *testing.T, bearer, path string) (int, []byte) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, s.BaseURL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	return resp.StatusCode, out
 }
 
 // Client trusts the control plane's CA and does not follow redirects.
@@ -640,6 +722,39 @@ func (s *Stack) run(t *testing.T, env []string, bin string, args ...string) stri
 		t.Fatalf("%s %s: %v\n%s", filepath.Base(bin), redact(args), err, out)
 	}
 	return string(out)
+}
+
+// controlCredential writes the dev ClickHouse URL's userinfo as the control
+// login's owner-only credential file.
+func (s *Stack) controlCredential(t *testing.T, chURL string) string {
+	t.Helper()
+	u, err := url.Parse(chURL)
+	if err != nil || u.User == nil {
+		t.Fatalf("the dev ClickHouse URL %q carries no credentials to turn into a credential file", stripUserinfo(chURL))
+	}
+	password, _ := u.User.Password()
+	raw, err := json.Marshal(map[string]string{"username": u.User.Username(), "password": password})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.write(t, "clickhouse-control-basic-auth.json", raw, 0o600)
+}
+
+func stripUserinfo(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.User = nil
+	return u.String()
+}
+
+func (s *Stack) tryRun(env []string, bin string, args ...string) (string, error) {
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = s.Dir
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 func (s *Stack) start(t *testing.T, label, bin string, args, env []string) string {
