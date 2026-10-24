@@ -4,33 +4,37 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-// Package e2e holds probectl's BLACK-BOX full-stack end-to-end tests
-// (U-054): real binaries built from this tree, the real compose
-// dependencies, and only public interfaces — process env/flags, the bus,
-// and the versioned REST API. No internal packages are imported, by
-// design.
+// Package e2e holds probectl's BLACK-BOX full-stack end-to-end test (U-054,
+// TQ-03): the control plane is the RELEASE IMAGE, built from
+// deploy/docker/Dockerfile exactly as CI's build-images and image-scan jobs
+// build it (core edition, no build tags) and run the way the shipped Compose
+// stack runs it, in its production auth mode. Only public interfaces are used
+// — container env and flags, the bus, the versioned REST API and the IdP's own
+// sign-in form. No internal packages are imported, by design.
 //
 // The happy paths + tenancy boundary:
 //
-//	compose up (postgres+kafka) → build probectl-control + agents →
-//	boot HTTPS + agent mTLS → redeem a one-time join token for a
-//	tenant-bound SVID → run a real noop canary over mTLS → assert its
-//	result through /v1/results/latest → run TWO fixture-mode eBPF agents
-//	(tenant A and tenant B, disjoint traffic) → flows ride Kafka → query
-//	/v1/topology per tenant → assert no result or topology bleed → teardown.
+//	build the release image → certgen (localhost, postgres SANs) → compose up
+//	Postgres (TLS) + Kafka → migrate as the owner login, serve as the
+//	least-privilege login over sslmode=verify-full → start Dex (real OIDC) →
+//	sign tenant A's and tenant B's admins in through Dex's password form and
+//	mint API tokens from those sessions → each tenant writes tests and alert
+//	rules over HTTPS → each sees only its own; the other tenant's object ids
+//	answer 404 for read, update and delete → redeem a one-time join token for
+//	a tenant-bound SVID → run a real noop canary over mTLS → assert its result
+//	through /v1/results/latest → rotate, revoke → run TWO fixture-mode eBPF
+//	agents (disjoint traffic) → flows ride Kafka → query /v1/topology per
+//	tenant → any cross-tenant visibility fails the test → teardown.
 //
-// Gated on PROBECTL_E2E=1 (the nightly e2e workflow sets it; `go test
+// Gated on PROBECTL_E2E=1 (ci.yml's e2e job and the nightly set it; `go test
 // ./test/...` stays a no-op skip everywhere else).
 package e2e
 
 import (
-	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -45,6 +49,8 @@ import (
 const (
 	tenantA        = "00000000-0000-0000-0000-000000000001" // the seeded default tenant
 	tenantB        = "00000000-0000-0000-0000-00000000e2e2"
+	adminA         = "ada@acme.example"   // a scripts/ci_dex.sh password user
+	adminB         = "bob@globex.example" // another, in no tenant but B
 	agentAID       = "a7000000-0000-4000-8000-000000000001"
 	agentBID       = "a7000000-0000-4000-8000-000000000002"
 	canaryAgentID  = "a7000000-0000-4000-8000-000000000003"
@@ -57,43 +63,59 @@ const (
 	ipOnlyB        = "10.88.2.10" // appears only in tenant B's traffic
 	composeF       = "deploy/compose/dev.yml"
 	composeIsoF    = "deploy/compose/isolated.yml"
+	apiListen      = "8443" // the control container's HTTPS listener
+	agentListen    = "9443" // and its agent mTLS listener
 )
+
+// tokenScopes is what each tenant admin's API token may do: exactly the
+// routes this test drives, nothing more.
+var tokenScopes = []string{
+	"tenant.read", "test.read", "test.write", "alert.read", "alert.write",
+	"agent.read", "agent.write", "topology.read",
+}
 
 func TestE2E(t *testing.T) {
 	if os.Getenv("PROBECTL_E2E") != "1" {
-		t.Skip("set PROBECTL_E2E=1 to run the full-stack e2e (nightly ci job; needs docker)")
+		t.Skip("set PROBECTL_E2E=1 to run the full-stack e2e (ci + nightly job; needs docker)")
 	}
 	root := repoRoot(t)
-	work := t.TempDir()
-	composeFile := filepath.Join(root, composeF)
-	composeIsoFile := filepath.Join(root, composeIsoF)
-	composeProject := fmt.Sprintf("probectl-e2e-%d-%d", os.Getpid(), time.Now().UnixNano())
-	// The disposable stack publishes on free loopback ports, never on a LAN
-	// interface and never on the dev stack's fixed ports, so it runs beside a
-	// developer's own probectl-dev stack (DPR-094).
-	pgPort, kafkaPort := freeTCPPort(t), freeTCPPort(t)
-	composeEnv := []string{
-		"PROBECTL_ISOLATED_NETWORK=" + composeProject + "-network",
-		"PROBECTL_DEV_POSTGRES_PORT=" + pgPort,
-		"PROBECTL_DEV_KAFKA_PORT=" + kafkaPort,
+	// The work directory is bind-mounted into the control containers; resolve
+	// symlinks (macOS /var → /private/var) so the daemon sees a real path.
+	work, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	composeLoopbackFile := filepath.Join(work, "loopback.yml")
-	writeFile(t, composeLoopbackFile, loopbackPortsOverride)
-	kafkaBroker := "localhost:" + kafkaPort
+	prefix := envOr("PROBECTL_E2E_NAME_PREFIX", "probectl-e2e")
+	project := fmt.Sprintf("%s-%d-%d", prefix, os.Getpid(), time.Now().UnixNano())
+	network := project + "-network"
+
+	// ── the release image, and its certgen ──────────────────────────────
+	ctl := &controlImage{image: releaseImage(t, root, project), network: network, work: work, project: project}
+	tlsDir := mkdir(t, work, "tls")
+	ctl.oneShot(t, "none", nil, []string{"PROBECTL_CERT_HOSTS=localhost,127.0.0.1,postgres"},
+		"gen-cert", ctl.path(t, tlsDir))
+	serverCA := filepath.Join(tlsDir, "ca.crt")
 
 	// ── stack up ────────────────────────────────────────────────────────
-	// The black-box receipt must be repeatable on a developer workstation where
-	// the shared dev stack may already have data. A unique Compose project gives
-	// this run empty, disposable volumes without ever targeting the developer's
-	// probectl-dev project during setup or teardown.
-	stack := composeStack{env: composeEnv, project: composeProject,
-		files: []string{composeFile, composeIsoFile, composeLoopbackFile}}
-	runCmd(t, root, stack.env, "docker", stack.args("up", "-d", "--wait", "postgres", "kafka")...)
+	// A unique Compose project gives this run empty, disposable volumes and its
+	// own network, never the developer's probectl-dev project. Postgres serves
+	// TLS with the certgen bundle, exactly as deploy/compose/probectl.yml does.
+	pgPort, kafkaPort := freeTCPPort(t), freeTCPPort(t)
+	stack := composeStack{project: project, env: []string{
+		"PROBECTL_ISOLATED_NETWORK=" + network,
+		"PROBECTL_DEV_POSTGRES_PORT=" + pgPort,
+		"PROBECTL_DEV_KAFKA_PORT=" + kafkaPort,
+		"PROBECTL_E2E_TLS_DIR=" + tlsDir,
+	}}
+	overrideFile := filepath.Join(work, "e2e-override.yml")
+	writeFile(t, overrideFile, composeOverride)
+	stack.files = []string{filepath.Join(root, composeF), filepath.Join(root, composeIsoF), overrideFile}
 	t.Cleanup(func() {
 		cmd := exec.Command("docker", stack.args("down", "-v", "--remove-orphans")...)
 		cmd.Env = append(os.Environ(), stack.env...)
 		_ = cmd.Run()
 	})
+	runCmd(t, root, stack.env, "docker", stack.args("up", "-d", "--wait", "postgres", "kafka")...)
 	createKafkaTopics(t, root, stack,
 		"probectl."+laneA+".ebpf.flows",
 		"probectl."+laneB+".ebpf.flows",
@@ -101,153 +123,160 @@ func TestE2E(t *testing.T) {
 		"probectl."+laneB+".network.results",
 	)
 
-	// ── build the real binaries from this tree ──────────────────────────
-	control := filepath.Join(work, "probectl-control")
-	ebpfAgent := filepath.Join(work, "probectl-ebpf-agent")
-	canaryAgent := filepath.Join(work, "probectl-agent")
-	licenseTool := filepath.Join(work, "probectl-license")
-	licensePriv := filepath.Join(work, "license-signing.key")
-	licensePub := filepath.Join(work, "license-signing.pub")
-	licenseFile := filepath.Join(work, "probectl-license.json")
+	// ── the real IdP, on the stack's network ────────────────────────────
+	apiPort, agentPort := freeTCPPort(t), freeTCPPort(t)
+	apiBase := "https://localhost:" + apiPort
+	dexDir := mkdir(t, work, "dex")
+	dex := startDex(t, root, dexDir, network, project+"-dex", apiBase+"/auth/callback")
 
-	runCmd(t, root, nil, "go", "build", "-o", licenseTool, "./cmd/probectl-license")
-	runCmd(t, root, nil, licenseTool, "gen-key", "-out-priv", licensePriv, "-out-pub", licensePub)
-	runCmd(t, root, nil, licenseTool, "sign",
-		"-key", licensePriv,
-		"-customer", "probectl e2e",
-		"-tier", "msp",
-		"-tenant-band", "4",
-		"-expires", time.Now().UTC().AddDate(1, 0, 0).Format("2006-01-02"),
-		"-out", licenseFile)
-	pubPEM, err := os.ReadFile(licensePub)
-	if err != nil {
-		t.Fatal(err)
+	// ── control-plane configuration: the production auth mode ───────────
+	// TEN-01: serve as the least-privilege login, migrate as the owner; both
+	// over TLS with chain + hostname verification against the certgen CA.
+	pgTLS := "@postgres:5432/probectl?sslmode=verify-full&sslrootcert=" + ctl.path(t, serverCA)
+	state := mkdir(t, work, "state")
+	wormDir := mkdir(t, work, "audit-worm")
+	base := map[string]string{
+		"PROBECTL_DATABASE_URL":               "postgres://probectl_runtime:" + e2eRuntimePassword + pgTLS,
+		"PROBECTL_MIGRATE_DATABASE_URL":       "postgres://probectl:probectl" + pgTLS,
+		"PROBECTL_HTTP_ADDR":                  ":" + apiListen,
+		"PROBECTL_TLS_CERT_FILE":              ctl.path(t, filepath.Join(tlsDir, "tls.crt")),
+		"PROBECTL_TLS_KEY_FILE":               ctl.path(t, filepath.Join(tlsDir, "tls.key")),
+		"PROBECTL_HSTS_ENABLED":               "true",
+		"PROBECTL_AUTH_MODE":                  "session",
+		"PROBECTL_SESSION_HMAC_KEY":           randomHex(t, 32),
+		"PROBECTL_OIDC_ISSUER":                dex["PROBECTL_TEST_DEX_ISSUER"],
+		"PROBECTL_OIDC_CLIENT_ID":             dex["PROBECTL_TEST_DEX_CLIENT_ID"],
+		"PROBECTL_OIDC_CLIENT_SECRET":         dex["PROBECTL_TEST_DEX_CLIENT_SECRET"],
+		"PROBECTL_OIDC_REDIRECT_URL":          dex["PROBECTL_TEST_DEX_REDIRECT_URL"],
+		"PROBECTL_OIDC_CA_FILE":               ctl.path(t, filepath.Join(dexDir, "ca.crt")),
+		"PROBECTL_ENVELOPE_KEY_FILE":          ctl.path(t, filepath.Join(state, "envelope.key")),
+		"PROBECTL_REQUIRE_AT_REST_ENCRYPTION": "true",
+		"PROBECTL_OBJECTSTORE_DIR":            ctl.path(t, filepath.Join(state, "objects")),
+		"PROBECTL_EVIDENCE_SIGNING_KEY_FILE":  ctl.path(t, filepath.Join(state, "evidence-signing-ed25519.pem")),
+		"PROBECTL_TESTSYNC_SIGNING_KEY_FILE":  ctl.path(t, filepath.Join(state, "testsync-signing-ed25519.pem")),
+		"PROBECTL_AUDIT_WORM_DIR":             ctl.path(t, wormDir),
+		"PROBECTL_WORM_SIGNING_KEY_FILE":      ctl.path(t, filepath.Join(wormDir, "signing-key.pem")),
+		"PROBECTL_IR_PUBLIC_KEY_DIR":          ctl.path(t, mkdir(t, work, "ir-public")),
+		"PROBECTL_INGEST_STRICT_TENANT_LANES": "true",
+		"PROBECTL_BUS_MODE":                   "kafka",
+		"PROBECTL_BUS_BROKERS":                kafkaInternalBroker,
+		"PROBECTL_BUS_ALLOW_PLAINTEXT":        "true", // dev compose kafka is plaintext, in-network only (U-010 dev override)
+		"PROBECTL_LOG_FORMAT":                 "json",
 	}
-	licenseLDFlags := "-X github.com/ctlplne/probectl/internal/license.builtinPubKeysB64=" +
-		base64.StdEncoding.EncodeToString(pubPEM)
-
-	runCmd(t, root, nil, "go", "build", "-tags", "devauth", "-ldflags", licenseLDFlags, "-o", control, "./cmd/probectl-control")
-	runCmd(t, root, nil, "go", "build", "-o", ebpfAgent, "./cmd/probectl-ebpf-agent")
-	runCmd(t, root, nil, "go", "build", "-o", canaryAgent, "./cmd/probectl-agent")
-
-	serverTLSDir := filepath.Join(work, "server-tls")
-	runCmd(t, root, nil, control, "gen-cert", serverTLSDir)
-	serverCert := filepath.Join(serverTLSDir, "tls.crt")
-	serverKey := filepath.Join(serverTLSDir, "tls.key")
-	serverCA := filepath.Join(serverTLSDir, "ca.crt")
-	irPublicDir := filepath.Join(work, "ir-public")
-	wormDir := filepath.Join(work, "audit-worm")
-	for _, dir := range []string{irPublicDir, wormDir} {
-		if err := os.Mkdir(dir, 0o700); err != nil {
-			t.Fatalf("create e2e security directory %s: %v", dir, err)
-		}
+	for _, plane := range []string{"PATHSTORE", "FLOWSTORE", "OTELSTORE", "EBPFSTORE", "ENDPOINTSTORE"} {
+		base["PROBECTL_"+plane+"_TENANT_SCOPING"] = "true"
 	}
-	wormSigningKey := filepath.Join(wormDir, "signing-key.pem")
-
-	// TEN-01: the control plane serves as a least-privilege login, as every
-	// shipped deployment does; a superuser login bypasses row-level security
-	// and the serve path refuses to start on one. Migrations keep the
-	// privileged owner login, which is what PROBECTL_MIGRATE_DATABASE_URL is for.
-	adminDSN := "postgres://probectl:probectl@localhost:" + pgPort + "/probectl?sslmode=disable"
-	runtimeDSN := "postgres://probectl_runtime:" + e2eRuntimePassword + "@localhost:" + pgPort + "/probectl?sslmode=disable"
-	controlEnv := []string{
-		"PROBECTL_DATABASE_URL=" + runtimeDSN,
-		"PROBECTL_MIGRATE_DATABASE_URL=" + adminDSN,
-		"PROBECTL_HTTP_ADDR=127.0.0.1:0", // loopback posture for offline CLI subcommands
-		"PROBECTL_AUTH_MODE=dev",
-		"PROBECTL_DEV_AUTH_ACK=i-understand",
-		"PROBECTL_ENVELOPE_KEY_ID=e2e",
-		"PROBECTL_ENVELOPE_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", // test-only 32-byte KEK
-		"PROBECTL_AUDIT_WORM_DIR=" + wormDir,
-		"PROBECTL_WORM_SIGNING_KEY_FILE=" + wormSigningKey,
-		"PROBECTL_IR_PUBLIC_KEY_DIR=" + irPublicDir,
-		"PROBECTL_LICENSE_FILE=" + licenseFile,
-		"PROBECTL_PATHSTORE_TENANT_SCOPING=true",
-		"PROBECTL_FLOWSTORE_TENANT_SCOPING=true",
-		"PROBECTL_OTELSTORE_TENANT_SCOPING=true",
-		"PROBECTL_EBPFSTORE_TENANT_SCOPING=true",
-		"PROBECTL_ENDPOINTSTORE_TENANT_SCOPING=true",
-		"PROBECTL_INGEST_STRICT_TENANT_LANES=true",
-		"PROBECTL_BUS_MODE=kafka",
-		"PROBECTL_BUS_BROKERS=" + kafkaBroker,
-		"PROBECTL_BUS_ALLOW_PLAINTEXT=true", // dev compose kafka is plaintext (U-010 dev override)
+	baseEnv := writeEnvFile(t, filepath.Join(work, "control.env"), base)
+	cli := func(args ...string) string {
+		t.Helper()
+		return ctl.oneShot(t, network, []string{baseEnv}, nil, args...)
 	}
 
-	// ── schema: the serve path checks DB-level tenant isolation before listen ─
-	runCmd(t, root, controlEnv, control, "migrate")
+	// ── schema, logins, tenants, people, agent CA ───────────────────────
+	cli("migrate")
 	provisionRuntimeLogin(t, root, stack)
 	seedE2ETenants(t, root, stack)
-	// DPR-121 hardened `agent-ca init` to refuse printing the root CA private key
-	// to a non-terminal, because a Job log or a CI artifact is exactly where
-	// docs/guardrails.md G7-6 says a private key must never land — and `go test`
-	// stdout is a non-terminal. The key goes to a file under the test's temp dir,
-	// the same way deploy/compose/eval-synthetic.yml bootstraps it. This caller was
-	// missed when that landed, which is why nightly e2e had been red (DPR-270).
-	agentCARootKey := filepath.Join(work, "agent-ca-root.key")
-	runCmd(t, root, controlEnv, control, "agent-ca", "init", "-key-out", agentCARootKey)
-	agentCABundle := filepath.Join(work, "agent-ca.crt")
-	runCmd(t, root, controlEnv, control, "agent-ca", "export", agentCABundle)
-	registerCollector(t, root, control, controlEnv, tenantA, agentAID, "agent-a")
-	registerCollector(t, root, control, controlEnv, tenantB, agentBID, "agent-b")
-	canaryToken := mintEnrollToken(t, root, control, controlEnv, tenantA, canaryAgentID, "e2e-canary")
-	apiAddr := freeTCPAddr(t)
-	apiBase := "https://" + apiAddr
-	agentGRPCAddr := freeTCPAddr(t)
-
-	serveEnv := append(setEnv(controlEnv, "PROBECTL_HTTP_ADDR", apiAddr),
-		"PROBECTL_TLS_CERT_FILE="+serverCert,
-		"PROBECTL_TLS_KEY_FILE="+serverKey,
-		"PROBECTL_AGENT_GRPC_ADDR="+agentGRPCAddr,
-		"PROBECTL_AGENT_TLS_CERT_FILE="+serverCert,
-		"PROBECTL_AGENT_TLS_KEY_FILE="+serverKey,
-		"PROBECTL_AGENT_TLS_CA_FILE="+agentCABundle,
-	)
-	apiClient := newAPIClient(t, serverCA)
-
-	// ── control plane: public configuration surface only ────────────────
-	controlLog, _, controlExited := startProc(t, work, "control", control, nil, serveEnv)
-	waitFor(t, "control plane /readyz", 90*time.Second, func() bool {
-		if err := controlExited(); err != nil {
-			t.Fatalf("control plane exited before /readyz (%v); its log tail follows", err)
+	for _, admin := range []struct{ tenant, email string }{{tenantA, adminA}, {tenantB, adminB}} {
+		if out := cli("bootstrap-admin", "-tenant", admin.tenant, "-email", admin.email); !strings.Contains(out, admin.email) {
+			t.Fatalf("bootstrap-admin %s in %s:\n%s", admin.email, admin.tenant, out)
 		}
-		resp, err := apiClient.Get(apiBase + "/readyz")
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		return resp.StatusCode == http.StatusOK
-	})
-	if body := isolationJSON(t, apiClient, apiBase, tenantA); !strings.Contains(body, `"mode":"tenant_namespaced"`) || !strings.Contains(body, laneA) {
-		t.Fatalf("tenant A isolation status did not report the expected namespaced lane %s:\n%s", laneA, body)
 	}
+	// DPR-121: the agent CA root key goes to a file, never to stdout.
+	cli("agent-ca", "init", "-key-out", ctl.path(t, filepath.Join(work, "agent-ca-root.key")))
+	agentCABundle := filepath.Join(work, "agent-ca.crt")
+	cli("agent-ca", "export", ctl.path(t, agentCABundle))
+	registerCollector(t, cli, tenantA, agentAID, "agent-a")
+	registerCollector(t, cli, tenantB, agentBID, "agent-b")
+	canaryToken := mintEnrollTokenTTL(t, cli, tenantA, canaryAgentID, "e2e-canary", "10m")
+
+	// ── serve ───────────────────────────────────────────────────────────
+	serveEnv := writeEnvFile(t, filepath.Join(work, "serve.env"), map[string]string{
+		"PROBECTL_AGENT_GRPC_ADDR":     ":" + agentListen,
+		"PROBECTL_AGENT_TLS_CERT_FILE": base["PROBECTL_TLS_CERT_FILE"],
+		"PROBECTL_AGENT_TLS_KEY_FILE":  base["PROBECTL_TLS_KEY_FILE"],
+		"PROBECTL_AGENT_TLS_CA_FILE":   ctl.path(t, agentCABundle),
+	})
+	controlRunning := ctl.serve(t, []string{baseEnv, serveEnv},
+		"127.0.0.1:"+apiPort+":"+apiListen, "127.0.0.1:"+agentPort+":"+agentListen)
+	anon := api{base: apiBase, client: newHTTPS(t, nil, serverCA)}
+	waitFor(t, "control plane /readyz", 120*time.Second, func() bool {
+		controlRunning()
+		code, _ := anon.doQuiet(http.MethodGet, "/readyz")
+		return code == http.StatusOK
+	})
+
+	// ── real credentials: SSO through Dex, then API tokens ──────────────
+	caFiles := []string{serverCA, filepath.Join(dexDir, "ca.crt")}
+	password := dex["PROBECTL_TEST_DEX_PASSWORD"]
+	a := api{base: apiBase, client: anon.client, token: ssoSignIn(t, apiBase, caFiles, tenantA, adminA, password, tokenScopes)}
+	b := api{base: apiBase, client: anon.client, token: ssoSignIn(t, apiBase, caFiles, tenantB, adminB, password, tokenScopes)}
+	assertUnauthenticated(t, anon, b, tenantA, "")
+	// Each tenant's isolation posture is its own and reports the database
+	// boundary enforced: RLS forced on a non-bypass serve login.
+	for _, c := range []struct {
+		a      api
+		tenant string
+	}{{a, tenantA}, {b, tenantB}} {
+		body := c.a.get(t, "/v1/isolation/status")
+		if !strings.Contains(body, `"tenant_id":"`+c.tenant+`"`) || !strings.Contains(body, `"enforced":true`) {
+			t.Fatalf("tenant %s isolation status is not its own with RLS enforced:\n%s", c.tenant, body)
+		}
+	}
+
+	// ── two-tenant writes and reads over HTTPS ──────────────────────────
+	run := fmt.Sprintf("%x", time.Now().UnixNano())
+	objA := writeObjects(t, a, tenantA, "e2e-a-"+run)
+	objB := writeObjects(t, b, tenantB, "e2e-b-"+run)
+	assertOwnOnly(t, a, objA, objB, b)
+	assertOwnOnly(t, b, objB, objA, a)
+	assertUnauthenticated(t, anon, b, tenantA, objA.mark)
+
+	agentAndFlows(t, root, work, stack, cli, a, b, apiPort, agentPort, serverCA, canaryToken)
+
+	t.Logf("e2e PASS: release image %s in session auth (Dex OIDC) over HTTPS + verify-full Postgres; "+
+		"two tenants' writes and reads stay their own both ways; join token -> SVID -> mTLS canary -> result API; "+
+		"flow ingest is tenant-scoped", ctl.image)
+}
+
+// agentAndFlows drives the agent planes against the running release image:
+// enrollment refusals, the mTLS canary with rotation and revocation, and the
+// two tenants' Kafka flow lanes, each read back through the public API.
+func agentAndFlows(t *testing.T, root, work string, stack composeStack,
+	cli func(...string) string, a, b api, apiPort, agentPort, serverCA, canaryToken string) {
+	t.Helper()
+	ebpfAgent := filepath.Join(work, "probectl-ebpf-agent")
+	canaryAgent := filepath.Join(work, "probectl-agent")
+	runCmd(t, root, nil, "go", "build", "-o", ebpfAgent, "./cmd/probectl-ebpf-agent")
+	runCmd(t, root, nil, "go", "build", "-o", canaryAgent, "./cmd/probectl-agent")
+	enrollBase := "https://127.0.0.1:" + apiPort
+	agentGRPCAddr := "127.0.0.1:" + agentPort
 
 	// First contact fails closed without trust and over plaintext. Neither
 	// attempt may consume its single-use token.
 	runCmdMustFail(t, root, nil, canaryAgent,
-		"enroll", "--server", apiBase, "--token", canaryToken,
+		"enroll", "--server", enrollBase, "--token", canaryToken,
 		"--dir", filepath.Join(work, "missing-ca-identity"), "--hostname", "missing-ca")
-	plainToken := mintEnrollTokenTTL(t, root, control, controlEnv, tenantA, plainAgentID, "plaintext-refused", "10m")
+	plainToken := mintEnrollTokenTTL(t, cli, tenantA, plainAgentID, "plaintext-refused", "10m")
 	runCmdMustFail(t, root, nil, canaryAgent,
-		"enroll", "--server", "http://"+apiAddr, "--token", plainToken,
+		"enroll", "--server", "http://127.0.0.1:"+apiPort, "--token", plainToken,
 		"--dir", filepath.Join(work, "plaintext-identity"), "--hostname", "plaintext-refused")
 	plainEnrollOut := runCmdOutput(t, root, nil, canaryAgent,
-		"enroll", "--server", apiBase, "--token", plainToken,
+		"enroll", "--server", enrollBase, "--token", plainToken,
 		"--dir", filepath.Join(work, "plaintext-identity"), "--ca-file", serverCA,
 		"--hostname", "plaintext-refused")
 	if !strings.Contains(plainEnrollOut, cryptoSPIFFE(tenantA, plainAgentID)) {
 		t.Fatal("plaintext refusal consumed or changed the tenant-bound enrollment token")
 	}
-	// ── two fixture-mode agents, one per tenant, disjoint traffic ───────
+
 	// ── real canary agent: join token → SVID → mTLS → result API ──────
-	// The real canary path runs first; the fixture agents follow it.
 	identityDir := filepath.Join(work, "canary-identity")
 	enrollOut := runCmdOutput(t, root, nil, canaryAgent, "enroll",
-		"--server", apiBase,
+		"--server", enrollBase,
 		"--token", canaryToken,
 		"--dir", identityDir,
 		"--ca-file", serverCA,
 		"--hostname", "e2e-canary")
-	wantSPIFFE := "spiffe://probectl/tenant/" + tenantA + "/agent/" + canaryAgentID
+	wantSPIFFE := cryptoSPIFFE(tenantA, canaryAgentID)
 	if !strings.Contains(enrollOut, wantSPIFFE) {
 		t.Fatalf("agent enrollment did not return the expected tenant-bound SVID %s:\n%s", wantSPIFFE, enrollOut)
 	}
@@ -284,18 +313,20 @@ canaries:
 	var firstObserved time.Time
 	waitFor(t, "tenant A's mTLS canary in /v1/results/latest", 90*time.Second, func() bool {
 		var ok bool
-		firstObserved, ok = latestResultObservedAt(t, apiClient, apiBase, tenantA, canaryAgentID, "noop", canaryTarget)
+		firstObserved, ok = resultsLatest(t, a, canaryAgentID, "noop", canaryTarget)
 		return ok
 	})
-	if latestResultsContains(t, apiClient, apiBase, tenantB, canaryAgentID, "noop", canaryTarget) {
+	if _, leaked := resultsLatest(t, b, canaryAgentID, "noop", canaryTarget); leaked {
 		t.Fatalf("CROSS-TENANT LEAK: tenant B can read tenant A's mTLS canary result (%s/%s)", canaryAgentID, canaryTarget)
 	}
+	assertNoForeign(t, b, tenantB, "/v1/results/latest", canaryTarget, canaryAgentID)
+	assertNoForeign(t, b, tenantB, "/v1/agents", canaryAgentID, plainAgentID)
 
 	// Force a public-binary rotation, preserving the SPIFFE identity while the
 	// leaf fingerprint changes, then prove the rotated credential reconnects.
 	stopCanary()
 	beforeSerial, beforeSPIFFE := certificateIdentity(t, filepath.Join(identityDir, "cert.pem"))
-	runCmd(t, root, nil, canaryAgent, "rotate", "--server", apiBase, "--dir", identityDir, "--ca-file", serverCA)
+	runCmd(t, root, nil, canaryAgent, "rotate", "--server", enrollBase, "--dir", identityDir, "--ca-file", serverCA)
 	afterSerial, afterSPIFFE := certificateIdentity(t, filepath.Join(identityDir, "cert.pem"))
 	if beforeSerial == afterSerial || beforeSPIFFE != afterSPIFFE || afterSPIFFE != wantSPIFFE {
 		t.Fatalf("rotation identity mismatch: before=(%s,%s) after=(%s,%s)",
@@ -305,49 +336,53 @@ canaries:
 	var rotatedObserved time.Time
 	waitFor(t, "rotated mTLS identity to publish a newer result", 30*time.Second, func() bool {
 		var ok bool
-		rotatedObserved, ok = latestResultObservedAt(t, apiClient, apiBase, tenantA, canaryAgentID, "noop", canaryTarget)
+		rotatedObserved, ok = resultsLatest(t, a, canaryAgentID, "noop", canaryTarget)
 		return ok && rotatedObserved.After(firstObserved)
 	})
 
-	// API revocation pushes the serial/SPIFFE deny-list into the live gRPC
-	// listener. A reconnect and a further rotation both fail, and no newer
-	// result is persisted for the revoked identity.
-	revokeAgent(t, apiClient, apiBase, tenantA, canaryAgentID)
+	// Tenant B cannot revoke tenant A's agent; tenant A can. API revocation
+	// pushes the serial/SPIFFE deny-list into the live gRPC listener: a
+	// reconnect and a further rotation both fail, and no newer result is
+	// persisted for the revoked identity.
+	if code, body := b.do(t, http.MethodPost, "/v1/agents/"+canaryAgentID+"/revoke", nil); code != http.StatusNotFound && code != http.StatusForbidden {
+		t.Fatalf("CROSS-TENANT ACCESS: tenant B revoking tenant A's agent = %d, want 404/403: %s", code, body)
+	}
+	a.json(t, http.StatusOK, http.MethodPost, "/v1/agents/"+canaryAgentID+"/revoke", nil, nil)
 	stopRotated()
-	runCmdMustFail(t, root, nil, canaryAgent, "rotate", "--server", apiBase, "--dir", identityDir, "--ca-file", serverCA)
+	runCmdMustFail(t, root, nil, canaryAgent, "rotate", "--server", enrollBase, "--dir", identityDir, "--ca-file", serverCA)
 	startProc(t, work, "canary-agent-revoked", canaryAgent, []string{"-config", canaryConfig}, nil)
 	time.Sleep(3 * time.Second)
-	revokedObserved, ok := latestResultObservedAt(t, apiClient, apiBase, tenantA, canaryAgentID, "noop", canaryTarget)
+	revokedObserved, ok := resultsLatest(t, a, canaryAgentID, "noop", canaryTarget)
 	if !ok || revokedObserved.After(rotatedObserved) {
 		t.Fatalf("revoked identity persisted a newer result: before=%s after=%s", rotatedObserved, revokedObserved)
 	}
 
 	// Deliberately failing, server-reaching enrollment cases run only after
-	// the valid lifecycle is complete. They still exercise the real auth
-	// limiter, without allowing an expected lockout to mask rotation/revocation.
-	// A redeemed token is immutable history, never a reusable credential.
+	// the valid lifecycle is complete. A redeemed token is immutable history,
+	// never a reusable credential; an expired one never redeems.
 	runCmdMustFail(t, root, nil, canaryAgent,
-		"enroll", "--server", apiBase, "--token", canaryToken,
+		"enroll", "--server", enrollBase, "--token", canaryToken,
 		"--dir", filepath.Join(work, "replay-identity"), "--ca-file", serverCA,
 		"--hostname", "replay-refused")
-	expiredToken := mintEnrollTokenTTL(t, root, control, controlEnv, tenantA, expiredAgentID, "expired-token", "1ms")
+	expiredToken := mintEnrollTokenTTL(t, cli, tenantA, expiredAgentID, "expired-token", "1ms")
 	time.Sleep(20 * time.Millisecond)
 	runCmdMustFail(t, root, nil, canaryAgent,
-		"enroll", "--server", apiBase, "--token", expiredToken,
+		"enroll", "--server", enrollBase, "--token", expiredToken,
 		"--dir", filepath.Join(work, "expired-identity"), "--ca-file", serverCA,
 		"--hostname", "expired-token")
 
-	// Two fixture-mode agents now exercise tenant-namespaced flow ingestion.
-	for _, a := range []struct{ tenant, ip, name, agentID, lane string }{
+	// Two fixture-mode agents exercise tenant-namespaced flow ingestion.
+	kafkaBroker := "localhost:" + stack.envValue("PROBECTL_DEV_KAFKA_PORT")
+	for _, f := range []struct{ tenant, ip, name, agentID, lane string }{
 		{tenantA, ipOnlyA, "agent-a", agentAID, laneA},
 		{tenantB, ipOnlyB, "agent-b", agentBID, laneB},
 	} {
-		fixture := writeFixture(t, work, a.name, a.tenant, a.agentID, a.ip)
-		cfg := filepath.Join(work, a.name+".yaml")
+		fixture := writeFixture(t, work, f.name, f.tenant, f.agentID, f.ip)
+		cfg := filepath.Join(work, f.name+".yaml")
 		writeFile(t, cfg, fmt.Sprintf(
 			"apiVersion: probectl.io/ebpf-agent/v1\ntenant_id: %q\nhost: %q\nfixture_path: %q\nbus:\n  mode: kafka\n  brokers: [%q]\n  namespace: %q\n",
-			a.tenant, a.agentID, fixture, kafkaBroker, a.lane))
-		startProc(t, work, a.name, ebpfAgent, []string{"--config", cfg}, []string{
+			f.tenant, f.agentID, fixture, kafkaBroker, f.lane))
+		startProc(t, work, f.name, ebpfAgent, []string{"--config", cfg}, []string{
 			"PROBECTL_EBPF_BUS_ALLOW_PLAINTEXT=true",
 		})
 	}
@@ -359,34 +394,14 @@ canaries:
 
 	// ── ingest lands: each tenant's edge appears via the PUBLIC API ─────
 	waitFor(t, "tenant A's edge in /v1/topology", 90*time.Second, func() bool {
-		return strings.Contains(topologyJSON(t, apiClient, apiBase, tenantA), ipOnlyA)
+		return strings.Contains(a.get(t, "/v1/topology"), ipOnlyA)
 	})
 	waitFor(t, "tenant B's edge in /v1/topology", 90*time.Second, func() bool {
-		return strings.Contains(topologyJSON(t, apiClient, apiBase, tenantB), ipOnlyB)
+		return strings.Contains(b.get(t, "/v1/topology"), ipOnlyB)
 	})
-
 	// ── the tenancy boundary: no bleed in either direction ──────────────
-	if body := topologyJSON(t, apiClient, apiBase, tenantA); strings.Contains(body, ipOnlyB) {
-		t.Fatalf("CROSS-TENANT LEAK: tenant A's topology contains tenant B's endpoint %s:\n%s", ipOnlyB, body)
-	}
-	if body := topologyJSON(t, apiClient, apiBase, tenantB); strings.Contains(body, ipOnlyA) {
-		t.Fatalf("CROSS-TENANT LEAK: tenant B's topology contains tenant A's endpoint %s:\n%s", ipOnlyA, body)
-	}
-
-	// And a malformed tenant override is rejected, not defaulted (dev-mode
-	// fail-closed contract).
-	req, _ := http.NewRequest(http.MethodGet, apiBase+"/v1/topology", nil)
-	req.Header.Set("X-Probectl-Tenant", "not-a-uuid")
-	resp, err := apiClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("malformed tenant override returned %d, want 400", resp.StatusCode)
-	}
-
-	t.Logf("e2e PASS: join token -> tenant-bound SVID -> mTLS canary -> public result API; flow ingest is tenant-scoped and isolation holds both ways (control log: %s)", controlLog)
+	assertNoForeign(t, a, tenantA, "/v1/topology", ipOnlyB)
+	assertNoForeign(t, b, tenantB, "/v1/topology", ipOnlyA)
 }
 
 // ── helpers (stdlib only — this module stays dependency-free) ───────────
@@ -425,18 +440,6 @@ func freeTCPPort(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return port
-}
-
-func setEnv(env []string, key, value string) []string {
-	result := append([]string(nil), env...)
-	prefix := key + "="
-	for index, item := range result {
-		if strings.HasPrefix(item, prefix) {
-			result[index] = prefix + value
-			return result
-		}
-	}
-	return append(result, prefix+value)
 }
 
 func runCmd(t *testing.T, dir string, env []string, name string, args ...string) {
@@ -504,12 +507,23 @@ func (c composeStack) args(args ...string) []string {
 	return append(base, args...)
 }
 
-// loopbackPortsOverride pins the two published ports to loopback: the stack's
-// credentials are throwaway dev values, so it never listens on a LAN interface.
-const loopbackPortsOverride = `services:
+// composeOverride pins the published ports to loopback (the stack's
+// credentials are throwaway dev values, so it never listens on a LAN
+// interface) and serves Postgres over TLS with the run's certgen bundle, the
+// way deploy/compose/probectl.yml does: the key is installed postgres-owned
+// 0600 as the server requires.
+const composeOverride = `services:
   postgres:
     ports: !override
       - "127.0.0.1:${PROBECTL_DEV_POSTGRES_PORT}:5432"
+    command: >
+      bash -c "install -o postgres -g postgres -m 600 /certs/tls.key /var/lib/postgresql/server.key
+      && install -o postgres -g postgres -m 644 /certs/tls.crt /var/lib/postgresql/server.crt
+      && exec docker-entrypoint.sh postgres -c ssl=on
+      -c ssl_cert_file=/var/lib/postgresql/server.crt
+      -c ssl_key_file=/var/lib/postgresql/server.key"
+    volumes:
+      - ${PROBECTL_E2E_TLS_DIR}:/certs:ro
   kafka:
     ports: !override
       - "127.0.0.1:${PROBECTL_DEV_KAFKA_PORT}:9092"
@@ -574,35 +588,27 @@ SET slug = EXCLUDED.slug,
 		"-v", "ON_ERROR_STOP=1", "-c", sql)...)
 }
 
-func registerCollector(t *testing.T, root, control string, env []string, tenant, agentID, name string) {
+func registerCollector(t *testing.T, cli func(...string) string, tenant, agentID, name string) {
 	t.Helper()
-	token := mintEnrollToken(t, root, control, env, tenant, agentID, name)
-	regOut := runCmdOutput(t, root, env, control,
-		"register-collector", "-token", token, "-plane", "ebpf", "-hostname", name)
+	token := mintEnrollTokenTTL(t, cli, tenant, agentID, name, "10m")
+	regOut := cli("register-collector", "-token", token, "-plane", "ebpf", "-hostname", name)
 	if !strings.Contains(regOut, agentID) || !strings.Contains(regOut, tenant) {
 		t.Fatalf("collector registration did not bind expected tenant/agent (%s/%s):\n%s", tenant, agentID, regOut)
 	}
 }
 
-func mintEnrollToken(t *testing.T, root, control string, env []string, tenant, agentID, name string) string {
-	return mintEnrollTokenTTL(t, root, control, env, tenant, agentID, name, "10m")
-}
-
-func mintEnrollTokenTTL(t *testing.T, root, control string, env []string, tenant, agentID, name, ttl string) string {
+// mintEnrollTokenTTL mints a one-time join token with the shipped
+// enroll-token subcommand, run in the release image.
+func mintEnrollTokenTTL(t *testing.T, cli func(...string) string, tenant, agentID, name, ttl string) string {
 	t.Helper()
-	tokenOut := runCmdOutput(t, root, env, control,
-		"enroll-token", "-tenant", tenant, "-agent", agentID, "-name", name, "-ttl", ttl)
-	token := ""
+	tokenOut := cli("enroll-token", "-tenant", tenant, "-agent", agentID, "-name", name, "-ttl", ttl)
 	for _, line := range strings.Split(tokenOut, "\n") {
 		if candidate := strings.TrimSpace(line); strings.HasPrefix(candidate, "pjt_") {
-			token = candidate
-			break
+			return candidate
 		}
 	}
-	if token == "" {
-		t.Fatal("enroll-token did not print a display token")
-	}
-	return token
+	t.Fatal("enroll-token did not print a display token")
+	return ""
 }
 
 func createKafkaTopics(t *testing.T, root string, stack composeStack, topics ...string) {
@@ -725,84 +731,6 @@ func waitFor(t *testing.T, what string, timeout time.Duration, ok func() bool) {
 	t.Fatalf("timed out after %s waiting for %s", timeout, what)
 }
 
-func newAPIClient(t *testing.T, caFile string) *http.Client {
-	t.Helper()
-	caPEM, err := os.ReadFile(caFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(caPEM) {
-		t.Fatalf("API CA file %s contains no certificates", caFile)
-	}
-	return &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			RootCAs:    pool,
-		}},
-	}
-}
-
-// topologyJSON fetches /v1/topology as the given tenant (dev-auth header)
-// and returns the raw body (valid JSON asserted).
-func topologyJSON(t *testing.T, client *http.Client, apiBase, tenant string) string {
-	t.Helper()
-	return getTenantJSON(t, client, apiBase, tenant, "/v1/topology")
-}
-
-func isolationJSON(t *testing.T, client *http.Client, apiBase, tenant string) string {
-	t.Helper()
-	return getTenantJSON(t, client, apiBase, tenant, "/v1/isolation/status")
-}
-
-func getTenantJSON(t *testing.T, client *http.Client, apiBase, tenant, path string) string {
-	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, apiBase+path, nil)
-	req.Header.Set("X-Probectl-Tenant", tenant)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("%s query: %v", path, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("%s query for %s: %d: %s", path, tenant, resp.StatusCode, body)
-	}
-	if !json.Valid(body) {
-		t.Fatalf("%s response is not JSON: %s", path, body)
-	}
-	return string(body)
-}
-
-func latestResultsContains(t *testing.T, client *http.Client, apiBase, tenant, agentID, canaryType, target string) bool {
-	_, ok := latestResultObservedAt(t, client, apiBase, tenant, agentID, canaryType, target)
-	return ok
-}
-
-func latestResultObservedAt(t *testing.T, client *http.Client, apiBase, tenant, agentID, canaryType, target string) (time.Time, bool) {
-	t.Helper()
-	var response struct {
-		Items []struct {
-			AgentID    string    `json:"agent_id"`
-			Type       string    `json:"type"`
-			Target     string    `json:"target"`
-			Success    bool      `json:"success"`
-			ObservedAt time.Time `json:"observed_at"`
-		} `json:"items"`
-	}
-	body := getTenantJSON(t, client, apiBase, tenant, "/v1/results/latest")
-	if err := json.Unmarshal([]byte(body), &response); err != nil {
-		t.Fatalf("decode /v1/results/latest for %s: %v", tenant, err)
-	}
-	for _, item := range response.Items {
-		if item.AgentID == agentID && item.Type == canaryType && item.Target == target && item.Success {
-			return item.ObservedAt, true
-		}
-	}
-	return time.Time{}, false
-}
-
 func certificateIdentity(t *testing.T, path string) (serial, spiffeID string) {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -825,24 +753,6 @@ func certificateIdentity(t *testing.T, path string) (serial, spiffeID string) {
 
 func cryptoSPIFFE(tenant, agentID string) string {
 	return "spiffe://probectl/tenant/" + tenant + "/agent/" + agentID
-}
-
-func revokeAgent(t *testing.T, client *http.Client, apiBase, tenant, agentID string) {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, apiBase+"/v1/agents/"+agentID+"/revoke", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("X-Probectl-Tenant", tenant)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("revoke agent: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("revoke agent returned %d: %s", resp.StatusCode, body)
-	}
 }
 
 // writeFixture emits a small recorded-flow file whose endpoints are unique
@@ -882,6 +792,33 @@ func writeFixture(t *testing.T, work, name, tenant, agentID, ip string) string {
 	path := filepath.Join(work, name+"-flows.json")
 	writeFile(t, path, string(b))
 	return path
+}
+
+// envValue returns the value the stack's environment gives key.
+func (c composeStack) envValue(key string) string {
+	for _, kv := range c.env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			return v
+		}
+	}
+	return ""
+}
+
+func envOr(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// mkdir creates an owner-only directory under the work directory.
+func mkdir(t *testing.T, work, name string) string {
+	t.Helper()
+	dir := filepath.Join(work, name)
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("create e2e directory %s: %v", dir, err)
+	}
+	return dir
 }
 
 func writeFile(t *testing.T, path, content string) {

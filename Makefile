@@ -611,8 +611,8 @@ images: ## Build multi-arch images for all components (Buildx).
 		-t $(IMAGE_REGISTRY)/probectl-browser-agent:$(IMAGE_TAG) -t $(IMAGE_REGISTRY)/probectl-browser-agent:latest .
 
 .PHONY: e2e
-e2e: ## U-054 black-box e2e: join-token/SVID/mTLS canary + HTTPS API + two-tenant flow boundary. Nightly CI.
-	@./scripts/with_integration_stack_lock.sh e2e env PROBECTL_E2E=1 $(GO) test -count=1 -v -timeout 15m -run '^TestE2E$$' ./test/...
+e2e: ## U-054/TQ-03 black-box e2e: the release image in session auth (real Dex), two-tenant HTTPS writes/reads, mTLS canary, flow boundary. CI (verify-all) + nightly.
+	@./scripts/with_integration_stack_lock.sh e2e env PROBECTL_E2E=1 $(GO) test -count=1 -v -timeout 30m -run '^TestE2E$$' ./test/...
 
 .PHONY: backup-restore-drill
 backup-restore-drill: ## U-030 restore drill vs dev compose: seed -> backup -> wipe -> restore -> verify (runs in CI).

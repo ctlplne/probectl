@@ -16,21 +16,38 @@
 #
 # Exports PROBECTL_TEST_DEX_* via $GITHUB_ENV and writes the same lines to
 # <dir>/env for a local `set -a; . <dir>/env; set +a`.
+#
+# Optional knobs for the black-box release-image e2e (test/e2e, TQ-03), whose
+# control plane runs as a container on its own Docker network (all unset = the
+# behavior above, unchanged):
+#   PROBECTL_TEST_DEX_REDIRECT_URL  the callback URL the client registers
+#                                   (default https://localhost:18443/auth/callback)
+#   PROBECTL_TEST_DEX_NETWORK       a Docker network Dex also joins, so a
+#                                   container on it reaches the issuer in-network
+#   PROBECTL_TEST_DEX_HOST          the issuer's host name (default localhost):
+#                                   Dex's network alias and a certificate SAN.
+#                                   The host side still reaches 127.0.0.1:5556
+#                                   and resolves the name to it itself.
 set -euo pipefail
 
 dir="${1:-.ci-dex}"
 mkdir -p "${dir}"
 dir="$(cd "${dir}" && pwd)"
 name="${PROBECTL_TEST_DEX_CONTAINER:-probectl-test-dex}"
-redirect="https://localhost:18443/auth/callback"
+redirect="${PROBECTL_TEST_DEX_REDIRECT_URL:-https://localhost:18443/auth/callback}"
+host="${PROBECTL_TEST_DEX_HOST:-localhost}"
+case "${host}" in *[!A-Za-z0-9.-]* | "") echo "PROBECTL_TEST_DEX_HOST must be a DNS name" >&2; exit 2 ;; esac
+issuer="https://${host}:5556/dex"
+sans="DNS:localhost,IP:127.0.0.1"
+if [ "${host}" != localhost ]; then sans="DNS:${host},${sans}"; fi
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
   -keyout "${dir}/ca.key" -out "${dir}/ca.crt" -subj "/CN=probectl-ci-dex-ca" 2>/dev/null
 openssl req -newkey rsa:2048 -nodes \
-  -keyout "${dir}/server.key" -out "${dir}/server.csr" -subj "/CN=localhost" 2>/dev/null
+  -keyout "${dir}/server.key" -out "${dir}/server.csr" -subj "/CN=${host}" 2>/dev/null
 openssl x509 -req -in "${dir}/server.csr" -CA "${dir}/ca.crt" -CAkey "${dir}/ca.key" \
   -CAcreateserial -out "${dir}/server.crt" -days 2 \
-  -extfile <(printf "subjectAltName=DNS:localhost,IP:127.0.0.1") 2>/dev/null
+  -extfile <(printf "subjectAltName=%s" "${sans}") 2>/dev/null
 chmod 0644 "${dir}/server.crt" "${dir}/ca.crt"
 chmod 0600 "${dir}/server.key" "${dir}/ca.key"
 
@@ -41,7 +58,7 @@ user() { # email username userID
 }
 {
   cat <<YAML
-issuer: https://localhost:5556/dex
+issuer: ${issuer}
 storage:
   type: memory
 web:
@@ -77,9 +94,12 @@ docker run -d --name "${name}" -p 127.0.0.1:5556:5556 \
   -v "${dir}:/etc/dex:ro" \
   ghcr.io/dexidp/dex@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462 \
   dex serve /etc/dex/config.yaml >/dev/null
+if [ -n "${PROBECTL_TEST_DEX_NETWORK:-}" ]; then
+  docker network connect --alias "${host}" "${PROBECTL_TEST_DEX_NETWORK}" "${name}"
+fi
 
 for i in $(seq 1 40); do
-  if curl -fsS --cacert "${dir}/ca.crt" https://localhost:5556/dex/.well-known/openid-configuration >/dev/null 2>&1; then
+  if curl -fsS --cacert "${dir}/ca.crt" --resolve "${host}:5556:127.0.0.1" "${issuer}/.well-known/openid-configuration" >/dev/null 2>&1; then
     break
   fi
   if [ "$i" = 40 ]; then
@@ -91,7 +111,7 @@ for i in $(seq 1 40); do
 done
 
 {
-  echo "PROBECTL_TEST_DEX_ISSUER=https://localhost:5556/dex"
+  echo "PROBECTL_TEST_DEX_ISSUER=${issuer}"
   echo "PROBECTL_TEST_DEX_CA_FILE=${dir}/ca.crt"
   echo "PROBECTL_TEST_DEX_CERT_FILE=${dir}/server.crt"
   echo "PROBECTL_TEST_DEX_CLIENT_ID=probectl"
@@ -101,4 +121,4 @@ done
 } >"${dir}/env"
 chmod 0600 "${dir}/env"
 cat "${dir}/env" >>"${GITHUB_ENV:-/dev/null}"
-echo "Dex up at https://localhost:5556/dex (test CA ${dir}/ca.crt)"
+echo "Dex up at ${issuer} (test CA ${dir}/ca.crt)"
