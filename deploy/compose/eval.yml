@@ -300,6 +300,11 @@ services:
   # ---- optional producer: real Python BGP analyzer -> tenant-bound bridge ---
   # The profile replays one recorded RIS update so evaluation is deterministic:
   #   docker compose -f deploy/compose/eval.yml --profile bgp-analyzer up --build -d
+  # On the synthetic overlay stack (`make first-data`), name the same files and
+  # env file and the one service, so the running control plane is not recreated
+  # (DPR-307):
+  #   docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml \
+  #     -f deploy/compose/eval-synthetic.yml --profile bgp-analyzer up --build -d --no-deps bgp-analyzer
   # Kafka retains the event after this finite runner exits; read it through
   # `viewer` with URL=/v1/bgp/events. Production uses source=ris-live and TLS
   # Kafka; this eval profile is the explicit local plaintext exception.

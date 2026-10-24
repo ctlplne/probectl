@@ -131,7 +131,8 @@ and the next run reuses an agent certificate signed by a CA that no longer
 exists, which surfaces much later as `tls: unknown certificate authority`:
 
 ```sh
-docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml \
+  -f deploy/compose/eval-synthetic.yml \
   --profile synthetic --profile browser-synthetic down -v
 ```
 
@@ -140,25 +141,42 @@ docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
 Active probes need an enrolled, mutually-authenticated agent, so they layer on
 [`deploy/compose/eval-synthetic.yml`](../deploy/compose/eval-synthetic.yml),
 which provisions the agent CA and turns on the control plane's agent gRPC
-listener. Mint a join token, hand it to the canary (which **self-enrolls on
-boot**), then read its results:
+listener. The agent CA's signing key is sealed with an envelope key that the
+control plane must unseal with the same value, so generate that once into
+`deploy/compose/.env.eval` (gitignored; `make first-data` does the same) and
+pass it with `--env-file` on **every** command below. Mint a join token, hand
+it to the canary (which **self-enrolls on boot**), then read its results:
 
 ```sh
-docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml up --build -d
+# 0. the one secret this overlay needs, generated once and reused:
+[ -s deploy/compose/.env.eval ] || (umask 077; printf 'PROBECTL_EVAL_ENVELOPE_KEY=%s\n' \
+  "$(openssl rand -base64 32)" > deploy/compose/.env.eval)
+
+docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml \
+  -f deploy/compose/eval-synthetic.yml up --build -d
 
 # 1. mint a one-time join token (prints pjt_…):
-docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml \
+  -f deploy/compose/eval-synthetic.yml \
   exec control /usr/local/bin/app enroll-token \
   -tenant 00000000-0000-0000-0000-000000000001 -name laptop
 
 # 2. hand the token to the canary — it enrolls itself on boot, then probes:
-PROBECTL_JOIN_TOKEN=pjt_xxx docker compose -f deploy/compose/eval.yml \
-  -f deploy/compose/eval-synthetic.yml --profile synthetic up --build -d canary
+PROBECTL_JOIN_TOKEN=pjt_xxx docker compose --env-file deploy/compose/.env.eval \
+  -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+  --profile synthetic up --build -d --no-deps canary
 
 # 3. read its synthetic results:
-docker compose -f deploy/compose/eval.yml --profile tools run --rm \
+docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml \
+  -f deploy/compose/eval-synthetic.yml --profile tools run --rm --no-deps \
   -e URL=/v1/results/latest viewer
 ```
+
+Keep the same `--env-file` and `-f` set, and `--no-deps`, on every command
+against a running overlay stack (DPR-307). A command that names fewer files, or
+no env file, describes a different `control` service, and Compose recreates the
+running one to match it: it drops the agent listener or the envelope key, reruns
+the certificate one-shot under the live stack, and the canary stops reporting.
 
 The web **First-run setup** page measures the same end-to-end path. It keeps
 credential creation outside the readiness count, then waits for four

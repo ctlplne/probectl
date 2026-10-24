@@ -1,30 +1,42 @@
 # probectl — EVALUATION overlay: add SYNTHETIC (canary) probes to eval.yml.
 # ============================================================================
 # Layer this ON TOP OF eval.yml to also exercise Path 1 (active probes), which —
-# unlike the eBPF fixture path — needs agent enrollment + mTLS:
+# unlike the eBPF fixture path — needs agent enrollment + mTLS. `make first-data`
+# drives all of it; by hand, pass the SAME --env-file and -f set (and --no-deps
+# on run/up of a single service) to every command, or Compose recreates the
+# running control plane from a different definition (DPR-307):
 #
-#     docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml up --build -d
+#     # 0) the envelope key agent-ca-init seals with and control unseals with:
+#     [ -s deploy/compose/.env.eval ] || (umask 077; printf 'PROBECTL_EVAL_ENVELOPE_KEY=%s\n' \
+#         "$(openssl rand -base64 32)" > deploy/compose/.env.eval)
+#     docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml \
+#         -f deploy/compose/eval-synthetic.yml up --build -d
 #     # 1) mint a one-time join token:
-#     docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
-#         exec control /usr/local/bin/app enroll-token \
+#     docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml \
+#         -f deploy/compose/eval-synthetic.yml exec control /usr/local/bin/app enroll-token \
 #         -tenant 00000000-0000-0000-0000-000000000001 -name laptop
 #     # 2) hand the token to the canary; it self-enrolls on boot, then probes:
-#     PROBECTL_JOIN_TOKEN=pjt_xxx docker compose -f deploy/compose/eval.yml \
-#         -f deploy/compose/eval-synthetic.yml --profile synthetic up --build -d canary
+#     PROBECTL_JOIN_TOKEN=pjt_xxx docker compose --env-file deploy/compose/.env.eval \
+#         -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+#         --profile synthetic up --build -d --no-deps canary
 #     # 3) read its synthetic results:
-#     docker compose -f deploy/compose/eval.yml --profile tools run --rm \
+#     docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml \
+#         -f deploy/compose/eval-synthetic.yml --profile tools run --rm --no-deps \
 #         -e URL=/v1/results/latest viewer
 #     # 4) tear down — the profiles MUST be named or the canary and its identity
 #     #    volume survive, and the next run reuses an SVID from a CA that no
 #     #    longer exists (DPR-138):
-#     docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+#     docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml \
+#         -f deploy/compose/eval-synthetic.yml \
 #         --profile synthetic --profile browser-synthetic down -v
 #
 # This overlay provisions the agent CA and turns ON the control plane's agent
-# gRPC listener. It is the most intricate part of the eval and is AUTHORED-UNRUN
-# (no Docker in the authoring env) — give it one real pass. The fully
-# ground-truthed canary path that needs none of this overlay is the "from
-# source" walkthrough in docs/getting-started.md.
+# gRPC listener. It is the most intricate part of the eval. Beta gate G4(a) ran
+# it end to end on a Docker daemon with no cached images or volumes
+# (2026-10-24); cmd/probectl-control/eval_stack_contract_test.go holds the
+# merged eval.yml + overlay model to the contracts that run found broken. The
+# canary path that needs none of this overlay is the "from source" walkthrough
+# in docs/getting-started.md.
 #
 # Trust wiring (no enroll-first chicken-and-egg):
 #   agent-ca-init  -> creates the agent CA in Postgres (it SIGNS agent SVIDs),
@@ -67,7 +79,6 @@ x-eval-oneshot-env: &eval-oneshot-env
   PROBECTL_AUTH_MODE: "dev"
   PROBECTL_DEV_AUTH_ACK: "i-understand"
   PROBECTL_HTTP_ADDR: "127.0.0.1:8443"
-
 
 services:
   # ---- one-shots that provision the agent CA before `control` starts --------
@@ -181,9 +192,9 @@ services:
   # This image contains BOTH the Go agent and the listener-free Playwright
   # worker. Select it instead of `canary` when you need DOM/paint timings and
   # PNG failure screenshots:
-  #   PROBECTL_JOIN_TOKEN=pjt_xxx docker compose -f deploy/compose/eval.yml \
-  #     -f deploy/compose/eval-synthetic.yml --profile browser-synthetic \
-  #     up --build -d browser-canary
+  #   PROBECTL_JOIN_TOKEN=pjt_xxx docker compose --env-file deploy/compose/.env.eval \
+  #     -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+  #     --profile browser-synthetic up --build -d --no-deps browser-canary
   browser-canary:
     build:
       context: ../..

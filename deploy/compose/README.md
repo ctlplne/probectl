@@ -188,9 +188,9 @@ portable HTTP transaction driver. To exercise real Chromium instead, mint a
 fresh join token and start the separate combined agent/worker image:
 
 ```sh
-PROBECTL_JOIN_TOKEN=pjt_xxx docker compose -f deploy/compose/eval.yml \
-  -f deploy/compose/eval-synthetic.yml --profile browser-synthetic \
-  up --build -d browser-canary
+PROBECTL_JOIN_TOKEN=pjt_xxx docker compose --env-file deploy/compose/.env.eval \
+  -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+  --profile browser-synthetic up --build -d --no-deps browser-canary
 ```
 
 That image opens no browser-worker listener; the Go agent communicates with its
