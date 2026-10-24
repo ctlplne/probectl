@@ -72,3 +72,43 @@ func TestMetricsSelectorMatchesTheTargetLabelTheSeriesCarry(t *testing.T) {
 		t.Errorf("selector %s matches a target label no series carries", got)
 	}
 }
+
+// DPR-308: two tests against one host are two series under one agent and
+// server_address. Each metric evidence row must carry its series' test_id, and
+// the answer's allow-list must keep it, or a cited value cannot be followed
+// back to the series it came from (G4(a) found the RCA citing a 0 and a 1 for
+// "probectl_probe_success on 127.0.0.1" with nothing to tell them apart).
+func TestMetricsEvidenceNamesTheTestOfEachSeries(t *testing.T) {
+	mem := tsdb.NewMemory()
+	now := time.Now()
+	for _, r := range []*resultv1.Result{
+		{TenantId: "tenant-a", AgentId: "agent-a", CanaryType: "http", ServerAddress: "127.0.0.1", Success: true,
+			Attributes: map[string]string{"probectl.test.id": "test-readyz"}},
+		{TenantId: "tenant-a", AgentId: "agent-a", CanaryType: "http", ServerAddress: "127.0.0.1", Success: false,
+			Attributes: map[string]string{"probectl.test.id": "test-service"}},
+	} {
+		if err := mem.Write(context.Background(), pipeline.ResultToSeries(r)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := metricsEvidenceSource{writer: mem}.QueryMetrics(context.Background(), "tenant-a",
+		map[string]string{"target": "127.0.0.1"}, ai.TimeRange{Start: now.Add(-time.Hour), End: now.Add(time.Minute)}, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]any{}
+	for _, row := range rows {
+		if row["metric"] != "probectl_probe_success" {
+			continue
+		}
+		clean := ai.SanitizeRow(ai.DomainMetrics, row)
+		id, _ := clean["test_id"].(string)
+		if id == "" {
+			t.Fatalf("serialized metric evidence %v names no test_id", clean)
+		}
+		values[id] = clean["value"]
+	}
+	if values["test-readyz"] != float64(1) || values["test-service"] != float64(0) {
+		t.Errorf("probe success by test = %v, want test-readyz=1 and test-service=0", values)
+	}
+}

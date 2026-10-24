@@ -132,7 +132,12 @@ func metricSampleRow(metric string, labels map[string]string, value float64, at 
 		at = time.Now().UTC()
 	}
 	row["timestamp"] = at
-	for _, key := range []string{"target", "prefix", "node", "service", "agent_id", "instance", "job", "unit"} {
+	// DPR-308: test_id names the one definition a probe series belongs to
+	// (DPR-066). Two tests against one host (here first-data's /readyz and the
+	// tenant's service, both on 127.0.0.1) are distinct series with the same
+	// agent and server_address; without it a cited value could not be
+	// followed back to the series it was read from.
+	for _, key := range []string{"target", "prefix", "node", "service", "agent_id", "test_id", "instance", "job", "unit"} {
 		if v := labels[key]; v != "" {
 			row[key] = v
 		}
