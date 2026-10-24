@@ -60,11 +60,20 @@ say "waiting for the control plane"
 # 4. Create the first test through the API: a real HTTPS check of a real
 #    endpoint, so first data is an observation rather than a fixture, and it
 #    proves the write path too. Dev auth needs no credential.
+#    DPR-305: the target is loopback, so the test carries the audited per-test
+#    exception (params.allow_private_targets, admin-gated at the API). Without
+#    it the canary's SSRF guard refuses the central test and the server-side
+#    test never runs, however the agent's own config is set (D-57).
+private_params=""
+case "$target" in
+  http://127.*|https://127.*|http://localhost[:/]*|https://localhost[:/]*|http://\[::1\]*|https://\[::1\]*)
+    private_params=',"params":{"allow_private_targets":"true"}' ;;
+esac
 say "creating the first test (http $target every 10s)"
 test_id="$("${compose[@]}" --profile tools run --rm --no-deps --entrypoint /bin/sh viewer -c "
   curl -fsS --cacert /certs/ca.crt -X POST https://127.0.0.1:${api_port}/v1/tests \
     -H 'Content-Type: application/json' \
-    -d '{\"name\":\"first-data\",\"type\":\"http\",\"target\":\"${target}\",\"interval_seconds\":10,\"enabled\":true}'
+    -d '{\"name\":\"first-data\",\"type\":\"http\",\"target\":\"${target}\",\"interval_seconds\":10,\"enabled\":true${private_params}}'
 " | tr -d '\r' | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 [ -n "$test_id" ] || { echo "first-data: the control plane did not return a test id" >&2; exit 1; }
 echo "    test id: $test_id"

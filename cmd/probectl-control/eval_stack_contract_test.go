@@ -8,16 +8,20 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
 )
@@ -232,5 +236,64 @@ func TestEvalFixtureAgentRunsAsRegisteredCollector(t *testing.T) {
 	}
 	if got := env["PROBECTL_EBPF_TENANT_ID"]; got != registeredTenant {
 		t.Errorf("eval ebpf-agent claims tenant %q; eval-registry registers its collector under %q", got, registeredTenant)
+	}
+}
+
+// TestFirstDataTestPassesTheAgentTargetGuard (DPR-305): `make first-data`
+// creates its first server-side test against the control plane's own
+// loopback /readyz. The canary's SSRF guard refuses a loopback target unless
+// the test carries the audited per-test exception, whatever the agent's own
+// test_sync.allow_private_targets says (D-57), so before the fix the agent
+// refused the test ("invalid_test") and the server-side half of first data
+// never ran. This executes the script's own params selection under bash and
+// builds the http canary the agent would, with exactly those params.
+func TestFirstDataTestPassesTheAgentTargetGuard(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "scripts", "first_data.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(raw)
+	m := regexp.MustCompile(`target="\$\{PROBECTL_FIRST_DATA_TARGET:-([^}]+)\}"`).FindStringSubmatch(script)
+	if m == nil {
+		t.Fatal("first_data.sh no longer names its default first-test target")
+	}
+	defaultTarget := m[1]
+	block := regexp.MustCompile(`(?s)\nprivate_params="".*?\nesac\n`).FindString(script)
+	if block == "" {
+		t.Fatal("first_data.sh no longer selects the private-target exception for its first test")
+	}
+	if !strings.Contains(script, `\"enabled\":true${private_params}}`) {
+		t.Fatal("first_data.sh no longer sends the selected params with its first test")
+	}
+	paramsFor := func(target string) map[string]string {
+		t.Helper()
+		out, err := exec.Command("bash", "-c", "set -eu; target=\"$1\"\n"+block+"printf '%s' \"$private_params\"", "first-data", target).Output()
+		if err != nil {
+			t.Fatalf("run first_data.sh params selection for %s: %v", target, err)
+		}
+		params := map[string]string{}
+		if s := strings.TrimPrefix(string(out), ","); s != "" {
+			var body struct {
+				Params map[string]string `json:"params"`
+			}
+			if err := json.Unmarshal([]byte("{"+s+"}"), &body); err != nil {
+				t.Fatalf("first_data.sh params %q are not JSON: %v", out, err)
+			}
+			params = body.Params
+		}
+		return params
+	}
+	build := func(target string, params map[string]string) error {
+		_, err := canary.NewHTTP(canary.Config{Type: "http", Target: target, Interval: 10 * time.Second, Params: params})
+		return err
+	}
+	if build(defaultTarget, nil) == nil {
+		t.Fatalf("the agent's http canary accepts %s with no exception; this guard proves nothing", defaultTarget)
+	}
+	if err := build(defaultTarget, paramsFor(defaultTarget)); err != nil {
+		t.Errorf("the agent would refuse first-data's own test (%s): %v", defaultTarget, err)
+	}
+	if p := paramsFor("https://example.com/"); len(p) != 0 {
+		t.Errorf("first_data.sh grants the private-target exception to a public target: %v", p)
 	}
 }
