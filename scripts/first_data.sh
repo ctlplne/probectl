@@ -22,6 +22,10 @@ tenant="${PROBECTL_FIRST_DATA_TENANT:-00000000-0000-0000-0000-000000000001}"
 # plane's own readiness endpoint on the loopback it shares — a real HTTPS
 # measurement with real certificate verification, and no internet needed.
 target="${PROBECTL_FIRST_DATA_TARGET:-https://127.0.0.1:8443/readyz}"
+# CI sets this to 1: only a result from the server-side test created below
+# counts, so a broken central-test path (DPR-305) fails instead of passing on
+# the canary's own config probe.
+require_server_side="${PROBECTL_FIRST_DATA_REQUIRE_SERVER_SIDE:-0}"
 api_port=8443   # the control plane's loopback bind inside its container
 started=$(date +%s)
 
@@ -96,11 +100,17 @@ say "waiting for the first measurement"
 result=""
 for _ in $(seq 1 60); do
   body="$("${compose[@]}" --profile tools run --rm --no-deps -e URL=/v1/results/latest viewer 2>/dev/null || true)"
-  if printf '%s' "$body" | grep -q '"result_id"'; then result="$body"; break; fi
+  if printf '%s' "$body" | grep -q '"result_id"'; then
+    if [ "$require_server_side" != 1 ] || printf '%s' "$body" | grep -q "$test_id"; then result="$body"; break; fi
+  fi
   sleep 5
 done
 [ -n "$result" ] || {
-  echo "first-data: no measurement arrived within the wait. Inspect:" >&2
+  if [ "$require_server_side" = 1 ]; then
+    echo "first-data: no measurement from the server-side test $test_id arrived within the wait. Inspect:" >&2
+  else
+    echo "first-data: no measurement arrived within the wait. Inspect:" >&2
+  fi
   echo "    ${compose[*]} logs canary control" >&2
   exit 1
 }

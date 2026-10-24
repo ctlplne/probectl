@@ -1045,6 +1045,39 @@ jobs:
           PROBECTL_E2E_IMAGE: probectl/probectl-control:e2e
         run: make e2e
 
+  first-data:
+    name: first-data (evaluation stack from a clean checkout)
+    # G4(a): `make first-data` is the first command docs/getting-started.md
+    # gives a new user, and no job ran it, so the evaluation stack sat broken
+    # unseen after TEN-01 and AUTHZ-31 (DPR-301..305): the script was not
+    # executable, the one-shots could not load config, the control plane was
+    # refused for serving as the superuser, and the server-side test was
+    # refused by the agent's private-target guard. This job runs the documented
+    # command on a fresh runner and requires a measurement from the
+    # server-side test it creates, not only the canary's own config probe.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: make first-data (the documented first command; server-side result required)
+        env:
+          PROBECTL_FIRST_DATA_REQUIRE_SERVER_SIDE: "1"
+        run: make first-data
+      - name: Evaluation stack logs on failure
+        if: failure()
+        run: |
+          docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+            --profile synthetic ps -a || true
+          docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+            --profile synthetic logs --no-color --tail 200 || true
+      - name: Tear down the evaluation stack
+        if: always()
+        run: |
+          docker compose --env-file deploy/compose/.env.eval -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+            --profile synthetic --profile browser-synthetic down -v || true
+
   cross-tenant-isolation:
     name: cross-tenant-isolation
     # Permanent CI gate — docs/guardrails.md G7-1. From S2 this proves real
@@ -1917,6 +1950,7 @@ jobs:
       - ebpf-kernel-matrix
       - ebpf-image-live
       - e2e
+      - first-data
       - cross-tenant-isolation
       - integration
       - perf-smoke
