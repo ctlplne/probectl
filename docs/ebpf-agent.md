@@ -495,6 +495,7 @@ whether the agent is *delivering* rather than merely running:
 | `probectl_ebpf_l7_capture_requested` | 1 while TLS-plaintext capture is enabled **and** consented for this agent's tenant |
 | `probectl_ebpf_l7_capture_active` | 1 while the TLS uprobes are actually attached |
 | `probectl_ebpf_l7_attach_failures_total` | TLS-uprobe attach failures (U-015) |
+| `probectl_ebpf_l7_capture_channel_refused` | 1 while consented live capture is refused because the control-plane channel is missing, could not record the capture posture, or presents another tenant's or agent's identity (D-43) |
 | `probectl_ebpf_l7_capture_floor_refused` | 1 while consented capture is refused because `l7_capture_redaction` is looser than the tenant's redaction floor (D-43) |
 
 **Alert on `probectl_ebpf_l7_capture_requested == 1 and
@@ -546,7 +547,15 @@ emit looser data than its tenant allows.
   the stricter of its local mode and `metadata`. The recorded fixture replay
   is not live capture and needs no channel.
 - **Floor changes.** A floor that tightens while the agent runs stops capture
-  at once; a loosened floor never widens a running agent.
+  at once, and records already buffered are re-minimized to the new floor
+  before they are published (nothing at all under `length`); a loosened floor
+  never widens a running agent.
+- **A stale floor (D-43 S2).** When the floor cannot be read for **3
+  consecutive policy checks** (15 minutes at the default 5-minute interval,
+  90 seconds at the 30-second minimum), a running mode looser than `metadata`
+  falls back to `metadata` until a fresh floor arrives. The fresh floor
+  restores the decided mode only after the control plane recorded that
+  posture.
 - **Posture.** At start and on every policy tick the agent reports its capture
   posture (`ReportL7Posture`: enabled, consent tenant, scope, local and
   effective mode, the floor it applied, whether capture is attached, and a

@@ -109,6 +109,10 @@ func known(mode string) string {
 	return mode
 }
 
+// Persists reports whether mode lets any L7 call leave the agent or reach a
+// store at all: under length, none does (D-43 S7).
+func Persists(mode string) bool { return known(mode) != ModeLength }
+
 // Minimizing reports whether mode applies the metadata persistence rule
 // (templated route, normalized method, no statement text).
 func Minimizing(mode string) bool { return strictness(known(mode)) >= strictness(ModeMetadata) }

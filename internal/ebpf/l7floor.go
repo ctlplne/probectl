@@ -215,29 +215,92 @@ func (a *Agent) reportPosture(ctx context.Context) {
 	}
 }
 
+// staleFloorGrace is how many consecutive policy checks may fail before a
+// running mode looser than metadata falls back to metadata (D-43 S2). At the
+// default 5-minute interval that is 15 minutes; at the 30-second minimum,
+// 90 seconds. A stale floor never keeps a looser mode indefinitely.
+const staleFloorGrace = 3
+
 // refreshL7Floor re-reads the floor on the policy tick. A floor that tightened
 // past the running mode stops capture at once: the L7 source is closed and
 // nothing more is parsed or published (fail closed). A loosened floor never
 // widens a running agent — that takes a restart with the new local setting.
+// When the floor cannot be read for staleFloorGrace checks in a row, a mode
+// looser than metadata falls back to metadata until a fresh floor arrives; the
+// fresh floor restores the decided mode only after the control plane recorded
+// the posture it restores (D-43 S2).
 func (a *Agent) refreshL7Floor(ctx context.Context) (stop bool) {
-	floor, err := fetchFloor(ctx, a.policy)
-	if err != nil {
-		a.reportPosture(ctx)
-		return false
-	}
 	a.l7mu.Lock()
 	running := a.l7state
 	a.l7mu.Unlock()
-	if running.mode != "" && l7redact.Looser(running.mode, floor) {
+	floor, err := fetchFloor(ctx, a.policy)
+	if err != nil {
+		a.floorFailures++
+		if a.floorFailures >= staleFloorGrace && running.mode != "" && l7redact.Looser(running.mode, l7redact.ModeMetadata) {
+			a.log.Warn("ebpf L7 capture: the redaction floor could not be refreshed — falling back to metadata until a fresh floor arrives (D-43)",
+				"failed_checks", a.floorFailures, "running_mode", running.mode, "error", err.Error())
+			running.mode = l7redact.ModeMetadata
+			a.setL7State(running)
+			a.l7mode = l7redact.ModeMetadata
+		}
+		a.reportPosture(ctx)
+		return false
+	}
+	a.floorFailures = 0
+	if running.mode == "" {
+		a.reportPosture(ctx)
+		return false
+	}
+	d := decideL7Floor(a.cfg.L7CaptureRedaction, floor, nil)
+	if d.refuse != "" || l7redact.Looser(running.mode, floor) {
 		a.log.Error("ebpf L7 capture STOPPED: the tenant's redaction floor tightened past the running mode (D-43)",
 			"running_mode", running.mode, "floor", floor)
 		a.setL7State(postureState{state: l7StateRefusedFloor, floor: floor})
 		a.l7mode = ""
-		stop = true
-	} else if running.mode != "" && running.floor != floor {
-		running.floor = floor
-		a.setL7State(running)
+		a.stoppedFloor = floor
+		a.reportPosture(ctx)
+		return true
 	}
+	next := running
+	next.floor = floor
+	if l7redact.Looser(d.mode, running.mode) {
+		// Restoring the decided mode from a fallback widens what is emitted:
+		// only once the control plane has recorded it.
+		next.mode = d.mode
+		if rerr := a.reportState(ctx, next); rerr != nil {
+			next.mode = running.mode
+		} else {
+			a.l7mode = d.mode
+		}
+	}
+	a.setL7State(next)
 	a.reportPosture(ctx)
-	return stop
+	return false
+}
+
+// emitFloor is the mode every L7 record leaving the agent must satisfy at
+// flush time: the running mode, or — once a tightened floor stopped capture —
+// that floor. Records aggregated under an earlier, looser mode are re-minimized
+// to it, so a tightening applies to what is already buffered too (D-43).
+func (a *Agent) emitFloor() string {
+	if a.l7mode != "" {
+		return a.l7mode
+	}
+	if a.stoppedFloor != "" {
+		return a.stoppedFloor
+	}
+	return l7redact.DefaultMode
+}
+
+// reminimize applies emitFloor to buffered L7 records before they are
+// published; under length nothing is published.
+func (a *Agent) reminimize(recs []L7Record) []L7Record {
+	mode := a.emitFloor()
+	if !l7redact.Persists(mode) {
+		return nil
+	}
+	for i := range recs {
+		recs[i].Call = minimizeCall(recs[i].Call, mode)
+	}
+	return recs
 }

@@ -48,8 +48,12 @@ type Agent struct {
 	l7state  postureState
 	l7live   atomic.Bool
 	l7closed atomic.Bool
-	l7man    *l7.Manager
-	l7conns  map[uint64]l7conn
+	// floorFailures counts consecutive failed policy checks; stoppedFloor is
+	// the floor that stopped capture (D-43 S2). Run goroutine only.
+	floorFailures int
+	stoppedFloor  string
+	l7man         *l7.Manager
+	l7conns       map[uint64]l7conn
 	// l7seen tracks last-activity per connID so idle entries are swept on flush
 	// (FUZZ-001) — connID is the SSL* pointer with no socket-close signal yet,
 	// so without a TTL sweep l7conns + l7man.conns grow without bound.
@@ -667,7 +671,7 @@ func (a *Agent) flushWith(ctx context.Context, final bool) {
 	countersChanged := a.syncDrops()
 	countersChanged = a.syncFilteredNonIPv4() || countersChanged
 	flows, edges := a.agg.Drain()
-	l7calls := a.agg.DrainL7()
+	l7calls := a.reminimize(a.agg.DrainL7())
 	if len(flows) == 0 && len(edges) == 0 && len(l7calls) == 0 {
 		if countersChanged {
 			a.logFlushStats("ebpf counters updated", 0, 0, 0)
