@@ -171,3 +171,19 @@ func TestL7IngestStripClampsEdgeAndFlowFields(t *testing.T) {
 		t.Fatalf("field strips not counted: %v", st.Counts())
 	}
 }
+
+// D-43 S7: a tenant on a length floor persists no L7 call — the door drops
+// them whole (no method, route or status), whoever produced them.
+func TestL7IngestStripEnforcesALengthFloor(t *testing.T) {
+	floors := &fakeFloors{floors: map[string]string{"t-length": "length"}}
+	st := newL7IngestStrip(floors, false, nil)
+	pg := &ebpfv1.L7Call{TenantId: "t-length", AgentId: "a1", Protocol: "postgresql", Method: "SELECT", Resource: "SELECT * FROM t", Status: "SELECT 1"}
+	batch := &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("t-length"), pg, rawCall("t-meta")}}
+	st.Apply(context.Background(), batch)
+	if len(batch.GetL7Calls()) != 1 || batch.L7Calls[0].GetTenantId() != "t-meta" {
+		t.Fatalf("calls after a length floor = %+v, want only the metadata tenant's", batch.GetL7Calls())
+	}
+	if st.Counts()["call_dropped"] != 2 {
+		t.Fatalf("drops not counted: %v", st.Counts())
+	}
+}

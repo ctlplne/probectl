@@ -600,7 +600,10 @@ func (a *Agent) observeL7(ev L7Event) {
 	for _, c := range a.l7man.OnData(ev.ConnID, port, ev.Data) {
 		// D-43: the shared persistence rule runs here, before the call is
 		// rolled up or published — nothing beyond the mode's fields leaves
-		// the agent.
+		// the agent, and under length no call does.
+		if !l7redact.Persists(a.l7mode) {
+			continue
+		}
 		c = minimizeCall(c, a.l7mode)
 		a.agg.ObserveL7(L7Record{
 			TenantID:    meta.tenant,

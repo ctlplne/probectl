@@ -133,3 +133,23 @@ func TestFixtureReplayCrossesTheRedactionBoundary(t *testing.T) {
 		t.Fatalf("true size lost: %d", src.events[0].Data.Size)
 	}
 }
+
+// D-43 S7: under length no parsed call leaves the agent.
+func TestAgentEmitsNoCallUnderLength(t *testing.T) {
+	em := &captureEmitter{}
+	cfg := &Config{TenantID: "t1", Host: "n", FlushInterval: time.Hour, L7CaptureRedaction: RedactLengthOnly}
+	a := newAgentWith(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), &sliceSource{}, NopEnricher{}, em)
+	t0 := time.Unix(0, 0)
+	a.l7source = &sliceL7Source{events: []L7Event{
+		{ConnID: 1, TenantID: "t1", Data: l7.DataEvent{Kind: l7.Request, Time: t0, Payload: []byte("GET /a HTTP/1.1\r\nContent-Length: 0\r\n\r\n")}},
+		{ConnID: 1, Data: l7.DataEvent{Kind: l7.Response, Time: t0, Payload: []byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")}},
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := a.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(em.l7) != 0 {
+		t.Fatalf("length mode emitted %d calls", len(em.l7))
+	}
+}

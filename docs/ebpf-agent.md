@@ -575,7 +575,9 @@ emit looser data than its tenant allows.
   (`internal/l7redact`): query strings always; under `metadata` (and the
   regulated profile) identifier route segments, non-token methods and
   statuses, SQL statement text and unknown protocols' free text too, plus any
-  field the schema does not know. The other fields a consumer persists are
+  field the schema does not know. Under a `length` floor the door drops the
+  tenant's L7 calls whole — no method, route or status persists (counted as
+  `call_dropped`). The other fields a consumer persists are
   validated too (D-43 S4): protocols, transports, directions and TCP states
   are clamped to their vocabulary (`other` otherwise) — the service edge's
   `l7_protocol` lands in the eBPF store and the topology graph — and

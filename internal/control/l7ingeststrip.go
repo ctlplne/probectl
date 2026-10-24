@@ -38,8 +38,12 @@ import (
 // from the record.
 const L7StripMetric = "probectl_ebpf_l7_ingest_stripped_total"
 
-// stripUnknownField is the counter label for dropped unknown proto fields.
-const stripUnknownField = "unknown_field"
+// stripUnknownField is the counter label for dropped unknown proto fields;
+// stripCallDropped counts L7 calls dropped whole under a length floor.
+const (
+	stripUnknownField = "unknown_field"
+	stripCallDropped  = "call_dropped"
+)
 
 // l7FloorReader resolves a tenant's effective floor (govern.PolicyStore).
 type l7FloorReader interface {
@@ -84,7 +88,7 @@ func NewL7IngestStrip(floors *govern.PolicyStore, regulated bool, log *slog.Logg
 
 func newL7IngestStrip(floors l7FloorReader, regulated bool, log *slog.Logger) *L7IngestStrip {
 	counts := map[string]*atomic.Uint64{}
-	for _, f := range append(l7redact.StripFields(), stripUnknownField) {
+	for _, f := range append(l7redact.StripFields(), stripUnknownField, stripCallDropped) {
 		counts[f] = &atomic.Uint64{}
 	}
 	if log == nil {
@@ -98,7 +102,7 @@ func (s *L7IngestStrip) WithMetrics(reg *metrics.Registry) *L7IngestStrip {
 	if s != nil && reg != nil {
 		s.counters = reg.LabeledCounter(L7StripMetric,
 			"L7 record fields the control-plane ingest strip removed before anything persisted, by kind (D-43).",
-			"field", append(l7redact.StripFields(), stripUnknownField))
+			"field", append(l7redact.StripFields(), stripUnknownField, stripCallDropped))
 	}
 	return s
 }
@@ -183,8 +187,18 @@ func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, coun
 			s.add(f, 1)
 		}
 	}
+	kept := batch.L7Calls[:0]
 	for _, c := range batch.GetL7Calls() {
 		mode := s.floor(ctx, c.GetTenantId())
+		if !l7redact.Persists(mode) {
+			// D-43 S7: a length floor persists no L7 call at all — no
+			// method, route or status — whoever produced it.
+			if count {
+				s.add(stripCallDropped, 1)
+			}
+			continue
+		}
+		kept = append(kept, c)
 		m, strip := l7redact.Minimize(l7redact.Call{
 			Protocol: c.GetProtocol(), Method: c.GetMethod(), Resource: c.GetResource(), Status: c.GetStatus(),
 		}, mode)
@@ -195,6 +209,10 @@ func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, coun
 			}
 		}
 	}
+	for i := len(kept); i < len(batch.L7Calls); i++ {
+		batch.L7Calls[i] = nil
+	}
+	batch.L7Calls = kept
 	if count && unknown > 0 {
 		s.add(stripUnknownField, uint64(unknown))
 	}
