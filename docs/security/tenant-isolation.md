@@ -228,6 +228,28 @@ together with a read that lost its `WHERE`, would have served Y's rows. Now:
 - teardown revokes the reader's grants (before the database is dropped) and
   drops the policies.
 
+**What the setting-scoped policy contains, and what it does not.** It
+contains a *lost or misrouted query*: a read that dropped its `WHERE`, or that
+the router sent to the wrong tenant's database, still carries the
+authenticated tenant's `SQL_probectl_tenant`, so ClickHouse returns only that
+tenant's rows. It is not a boundary against *injected SQL*. The reader is not
+`readonly`, so SQL text that ends in `SETTINGS SQL_probectl_tenant='<other>'`
+overrides the request's setting, and since DPR-323 the reader also sees every
+per-tenant database's *name* in `system.databases` (names only: the tables
+stay behind their policies). Neither is reachable from a request: the store
+appends the tenant setting itself from the authenticated tenant, every value
+is a server-bound `param_*`, and no request input can name a ClickHouse
+setting or add SQL text. Injection is held off by those, not by the policy.
+
+**Stores on different ClickHouse servers.** Each tenant-scoped store's reader
+client sends the reader's credential only to that store's own origin and to
+the planes pinned in `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES`. A residency
+plane that shares one store's origin but not another's is therefore reachable
+by the first store's reader only; the boot catch-up and provisioning check
+each scoped store and, for a plane that hosts a tenant, refuse naming the
+store whose reader cannot reach it (`Config.DataPlaneReaderGap`, DPR-327).
+List such a plane in `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES`.
+
 Granting the reader its per-tenant tables needs the control login to hold
 `SELECT ON *.* WITH GRANT OPTION` on each ClickHouse server that hosts silos
 (the default plane and every residency plane); without it provisioning and the

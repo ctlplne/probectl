@@ -54,7 +54,11 @@ import (
 //     counts ZERO rows; under Y's own setting it counts Y's rows; and the same
 //     read as the control login counts Y's rows too (without the reader lane
 //     the database does not filter);
-//  4. a routing bug that sends X's reads to Y's database returns X nothing;
+//  4. a routing bug that sends X's reads to Y's database returns X nothing
+//     through the stores' own reads. These still carry the store's WHERE
+//     tenant_id = X, so this step is the application-layer check (it stays
+//     green with the row policy planted out); step 3 and the pathstore
+//     isolation test are the database-layer proof of the same misroute;
 //  5. a table created in a silo after provisioning is refused to the reader
 //     until the reader scope covers it;
 //  6. teardown revokes every grant the reader held on both silos.
@@ -174,7 +178,8 @@ func TestSiloReaderLaneEnforcesTenantIsolationAtTheDB(t *testing.T) {
 		t.Fatalf("non-vacuity: the control login counted %d of Y's flows under X's setting, want all 3 (it is not filtered)", n)
 	}
 
-	// 4. A routing bug sends X's reads to Y's silo: X gets nothing of Y's.
+	// 4. A routing bug sends X's reads to Y's silo: X gets nothing of Y's
+	// (application layer: these reads keep their WHERE; step 3 is the DB's).
 	mu.Lock()
 	misroute[X] = Y
 	mu.Unlock()
