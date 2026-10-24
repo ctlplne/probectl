@@ -11,6 +11,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -25,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
@@ -44,21 +46,34 @@ import (
 	"github.com/ctlplne/probectl/internal/topology"
 )
 
-// The bytes D-43 regression test (b) hunts for. Each one is a value the L7
-// fixture carries that metadata mode must never let out of the agent, nor the
-// control plane let into any store: a request body, a credential and two
-// identity header values, a cookie, query-string values, and the raw
-// identifier path segment. None is key-shaped (secret-scan safe).
+// The bytes D-43 regression test (b) hunts for. Every one is a value the
+// fixtures (or the hostile producer) carry that must never reach a stored,
+// logged or exported surface: a request body, a credential and two identity
+// header values, a cookie, query-string values, the raw identifier path
+// segment, the raw DNS question name (D-65), the DGA burst's raw names, the
+// length-floor tenant's route, the headers tenant's query, and payload
+// smuggled into an edge's l7_protocol. None is key-shaped (secret-scan safe).
 var d43Needles = []string{
-	"W56HZV-23-C-0123",              // the raw contract-number path segment
+	"W56HZV-23-C-0123",              // the metadata tenant's raw contract-number path segment
 	"QUERYSSN987",                   // query-string values
 	"QUERYSESSION",                  //
+	"HDRQUERYSECRET",                // the headers tenant's query value (never kept, even opted in)
 	"credvalue-not-a-real-token",    // Authorization header value
 	"pat.person@contractor.example", // identity header value
 	"records.internal",              // Host header value
 	"BODYCUI-CONTROLLED-7731",       // request body
 	"COOKIESECRETVALUE",             // Set-Cookie value
+	"48213.patients.example.com",    // the raw DNS question name
+	"rendezvous-dga-",               // the DGA burst's raw first labels
+	"LENGTHTENANT-ROUTE",            // a length-floor tenant's route: no call persists
+	"EDGECUI-PROTOCOL-9911",         // payload smuggled into an edge's l7_protocol
 }
+
+// regulatedNeedles may not survive the regulated profile either: there only
+// the registered domain of a DNS name is kept.
+var regulatedNeedles = []string{"patients.example.com", "{id}.patients",
+	// the headers tenant's opted-in values: under regulated its opt-in cannot apply
+	"HDRSEG-77-X-0001", "77310.hdrzone", "hdrtenant-dga-"}
 
 const d43Request = "POST /contracts/W56HZV-23-C-0123/drawings?ssn=QUERYSSN987&session=QUERYSESSION HTTP/1.1\r\n" +
 	"Host: records.internal\r\n" +
@@ -122,13 +137,13 @@ func d43WriteJSON(t *testing.T, dir, name string, v any) string {
 }
 
 // d43Stack is the real control plane under test: the agent gRPC listener with
-// the database-backed L7 policy, and a test CA that issues agent SVIDs.
+// the database-backed L7 policy, and a test CA that issues eBPF SVIDs.
 type d43Stack struct {
 	addr, caFile, dir string
 	ca                *crypto.CA
 }
 
-func startD43Stack(t *testing.T, db *store.DB, ctlLog *slog.Logger) d43Stack {
+func startD43Stack(t *testing.T, db *store.DB, ctlLog *slog.Logger, regulated bool) d43Stack {
 	t.Helper()
 	dir := t.TempDir()
 	ca, err := crypto.GenerateCA("d43-regression-b", time.Hour)
@@ -151,7 +166,7 @@ func startD43Stack(t *testing.T, db *store.DB, ctlLog *slog.Logger) d43Stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.WithL7Policy(agenttransport.NewL7Policy(db.Pool(), false))
+	srv.WithL7Policy(agenttransport.NewL7Policy(db.Pool(), regulated))
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -163,9 +178,8 @@ func startD43Stack(t *testing.T, db *store.DB, ctlLog *slog.Logger) d43Stack {
 	return d43Stack{addr: ln.Addr().String(), caFile: caFile, dir: dir, ca: ca}
 }
 
-// runD43Agent runs one real eBPF agent (fixture flows + the L7 fixture through
-// the agent's capture boundary) against the control plane's policy channel,
-// publishing onto rb.
+// runD43Agent runs one real eBPF agent (fixture flows + an L7 fixture through
+// the agent's capture boundary) against the control plane's policy channel.
 func runD43Agent(t *testing.T, st d43Stack, tenant, agentID, redaction, flowsPath, l7Path string, rb bus.Bus, agentLog *slog.Logger) {
 	t.Helper()
 	cert, key, err := st.ca.IssueClientCert(agentID, crypto.EBPFSPIFFEID(tenant, agentID), time.Hour)
@@ -199,36 +213,79 @@ func runD43Agent(t *testing.T, st d43Stack, tenant, agentID, redaction, flowsPat
 	}
 }
 
-// legacyRecord is what an outdated or hostile producer holding the tenant's bus
-// credential could publish: the full call, query string and identifier path
-// intact, and header/body bytes riding fields the schema does not know.
-func legacyRecord(t *testing.T, tenant, agentID string) []byte {
+func dnsMessage(t *testing.T, name string, response bool) string {
 	t.Helper()
-	call := &ebpfv1.L7Call{
-		TenantId: tenant, AgentId: agentID, Source: "portal", Destination: "records", DestinationPort: 8443,
-		Protocol: "http1", Method: "POST", Status: "201",
-		Resource: "/contracts/W56HZV-23-C-0123/drawings?ssn=QUERYSSN987&session=QUERYSESSION",
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(name), dns.TypeA)
+	m.Id = 4242
+	if response {
+		m.Response = true
+		m.Rcode = dns.RcodeSuccess
 	}
-	callRaw, err := proto.Marshal(call)
+	raw, err := m.Pack()
 	if err != nil {
 		t.Fatal(err)
 	}
-	callRaw = protowire.AppendBytes(protowire.AppendTag(callRaw, 90, protowire.BytesType),
-		[]byte("Authorization: Bearer credvalue-not-a-real-token\r\nX-User-Email: pat.person@contractor.example\r\nHost: records.internal"))
-	callRaw = protowire.AppendBytes(protowire.AppendTag(callRaw, 91, protowire.BytesType), []byte(`{"diagnosis":"BODYCUI-CONTROLLED-7731"} COOKIESECRETVALUE`))
-	raw, err := proto.Marshal(&ebpfv1.FlowBatch{Flows: []*ebpfv1.Flow{{
-		TenantId: tenant, AgentId: agentID, Host: "legacy", SourceAddress: "10.9.0.1", DestinationAddress: "10.9.0.2",
-		DestinationPort: 8443, NetworkTransport: "tcp", Bytes: 10, Packets: 1, ObservedAtUnixNano: time.Now().UnixNano(),
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return protowire.AppendBytes(protowire.AppendTag(raw, 3, protowire.BytesType), callRaw)
+	return base64.StdEncoding.EncodeToString(raw)
 }
 
-func findNeedles(hay []byte) []string {
+// l7Fixture is one HTTP exchange plus one DNS exchange.
+func l7Fixture(t *testing.T, dir, name, request, dnsName string) string {
+	t.Helper()
+	return d43WriteJSON(t, dir, name, []map[string]any{
+		{"conn_id": 7, "kind": "request", "source_workload": "portal", "destination_workload": "records", "destination_port": 8443,
+			"time_offset_ms": 0, "text": request},
+		{"conn_id": 7, "kind": "response", "time_offset_ms": 12,
+			"text": "HTTP/1.1 201 Created\r\nSet-Cookie: sid=COOKIESECRETVALUE\r\nContent-Length: 0\r\n\r\n"},
+		{"conn_id": 9, "kind": "request", "source_workload": "portal", "destination_workload": "resolver", "destination_port": 53,
+			"transport": "udp", "time_offset_ms": 20, "base64": dnsMessage(t, dnsName, false)},
+		{"conn_id": 9, "kind": "response", "time_offset_ms": 24, "base64": dnsMessage(t, dnsName, true)},
+	})
+}
+
+// hostileRecord is what an outdated or hostile producer holding a tenant's bus
+// credential could publish: full calls with query strings and identifiers,
+// header/body bytes in fields the schema does not know, payload in an edge's
+// l7_protocol, and a burst of generated DNS names (with the features an agent
+// would compute, so the DGA detector fires and its summary is persisted).
+func hostileRecord(t *testing.T, tenant, agentID, route, dnsName, dgaPrefix string) []byte {
+	t.Helper()
+	calls := []*ebpfv1.L7Call{{
+		TenantId: tenant, AgentId: agentID, Source: "portal", Destination: "records", DestinationPort: 8443,
+		Protocol: "http1", Method: "POST", Status: "201", Resource: route,
+	}, {
+		TenantId: tenant, AgentId: agentID, Source: "portal", Destination: "resolver", DestinationPort: 53,
+		Protocol: "dns", Method: "A", Status: "NOERROR", Resource: dnsName, DnsFeatures: testDNSFeatures(dnsName),
+	}}
+	at := time.Now()
+	for i := 0; i < 30; i++ {
+		n := fmt.Sprintf("%sx%dq%dz.evil-rendezvous.example", dgaPrefix, i*7919, i*104729)
+		calls = append(calls, &ebpfv1.L7Call{TenantId: tenant, AgentId: agentID, Source: "portal-dga", Destination: "resolver",
+			DestinationPort: 53, Protocol: "dns", Method: "A", Status: "NOERROR", Resource: n,
+			StartUnixNano: at.Add(time.Duration(i) * time.Second).UnixNano(), DnsFeatures: testDNSFeatures(n)})
+	}
+	batch := &ebpfv1.FlowBatch{
+		Flows: []*ebpfv1.Flow{{TenantId: tenant, AgentId: agentID, Host: "legacy", SourceAddress: "10.9.0.1", DestinationAddress: "10.9.0.2",
+			DestinationPort: 8443, NetworkTransport: "tcp", Bytes: 10, Packets: 1, ObservedAtUnixNano: at.UnixNano()}},
+		Edges: []*ebpfv1.ServiceEdge{{TenantId: tenant, Source: "portal", Destination: "records", DestinationPort: 8443,
+			NetworkTransport: "tcp", L7Protocol: "EDGECUI-PROTOCOL-9911 /patients/48213?ssn=QUERYSSN987", Connections: 1, Bytes: 10, Packets: 1,
+			FirstSeenUnixNano: at.UnixNano(), LastSeenUnixNano: at.UnixNano()}},
+		L7Calls: calls,
+	}
+	raw, err := proto.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extra, _ := proto.Marshal(&ebpfv1.L7Call{TenantId: tenant, AgentId: agentID, Protocol: "http1", Method: "GET", Status: "200", Resource: "/x"})
+	extra = protowire.AppendBytes(protowire.AppendTag(extra, 90, protowire.BytesType),
+		[]byte("Authorization: Bearer credvalue-not-a-real-token\r\nX-User-Email: pat.person@contractor.example\r\nHost: records.internal"))
+	extra = protowire.AppendBytes(protowire.AppendTag(extra, 91, protowire.BytesType), []byte(`{"diagnosis":"BODYCUI-CONTROLLED-7731"} COOKIESECRETVALUE`))
+	return protowire.AppendBytes(protowire.AppendTag(raw, 3, protowire.BytesType), extra)
+}
+
+func findNeedles(hay []byte, needles []string) []string {
 	var found []string
-	for _, n := range d43Needles {
+	for _, n := range needles {
 		if bytes.Contains(hay, []byte(n)) {
 			found = append(found, n)
 		}
@@ -236,72 +293,128 @@ func findNeedles(hay []byte) []string {
 	return found
 }
 
-// D-43 regression test (b), widened by refinement 3. One tenant on the metadata
-// floor (no policy row: the default). Three probectl eBPF agents replay the
-// same L7 fixture through the real agent pipeline and fetch the floor over the
-// real mTLS agent channel: one in metadata mode, and two deliberately
-// misconfigured with headers and full set locally. A fourth producer — an
-// outdated or hostile one holding the tenant's bus credential — publishes the
-// raw call straight to the bus. Every record then goes through the control
-// plane's ingest door into the real consumers and stores, and a support bundle
-// is generated through the API. The byte search covers the bus records the
-// probectl agents published, both agents' and the control plane's logs, the
-// ingest output every consumer reads, every persisted row, and the decompressed
-// support bundle.
-func TestD43RegressionB_NoCUILeavesAnyLayer(t *testing.T) {
-	srv, db := setupAPIServerWithLatest(t, nil)
-	ctx := context.Background()
-	tenant := freshTenant(t, db, "d43-b")
-	agentMeta, agentHeaders, agentFull, agentLegacy := uuid(t), uuid(t), uuid(t), uuid(t)
-	for _, id := range []string{agentMeta, agentHeaders, agentFull, agentLegacy} {
-		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
-			_, err := (store.Agents{}).Register(ctx, sc, id, "ebpf-"+id[:8], "node", "", crypto.AgentSPIFFEID(tenant, id), []string{"collector", "ebpf"})
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
+func registerD43Agent(t *testing.T, db *store.DB, tenant string) string {
+	t.Helper()
+	id := uuid(t)
+	if err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := (store.Agents{}).Register(ctx, sc, id, "ebpf-"+id[:8], "node", "", crypto.EBPFSPIFFEID(tenant, id), []string{"collector", "ebpf"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
+	return id
+}
+
+// setFloor states a tenant's floor directly on its governance row (the core
+// route is exercised in TestL7CapturePolicyCoreRealStack; here the regulated
+// leg also needs a statement made before the profile changed).
+func setFloor(t *testing.T, db *store.DB, tenant, mode string) {
+	t.Helper()
+	if err := govern.NewPolicyStore(db.Pool()).SetTenantL7CaptureRedaction(context.Background(), tenant, mode, "test",
+		func(context.Context, tenancy.Scope) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// D-43 regression test (b), widened by refinement 3, review S8 and D-65. Per
+// deployment profile (single, regulated) there are three tenants:
+//   - meta: no statement (the metadata default). Three probectl eBPF agents
+//     replay an HTTP and a DNS exchange through the real agent pipeline and
+//     fetch the floor over the real mTLS agent channel: one in metadata mode,
+//     two deliberately misconfigured with headers and full set locally.
+//   - headers: opted into headers. Its agent captures literal routes (the
+//     opt-in) — except under regulated, where the opt-in cannot apply.
+//   - length: a length floor. Its metadata agent is refused.
+//
+// A hostile producer then publishes, for each tenant, full calls, header and
+// body bytes in unknown fields, payload in an edge's l7_protocol, and a DGA
+// burst, straight to the bus. Every record crosses the ingest door into the
+// real topology, NDR and TLS-posture consumers and the eBPF store, and a
+// support bundle is generated through the API. The byte search covers the bus
+// records the probectl agents published, the agents' and the control plane's
+// logs, the ingest output every consumer reads, every persisted row (eBPF
+// store, topology graph, posture and detection read models, agents' registry
+// rows, the tenants' audit chains) and the decompressed bundle.
+func TestD43RegressionB_NoCUILeavesAnyLayer(t *testing.T) {
+	for _, regulated := range []bool{false, true} {
+		name := "single"
+		if regulated {
+			name = "regulated"
+		}
+		t.Run(name, func(t *testing.T) { runD43RegressionB(t, regulated) })
+	}
+}
+
+func runD43RegressionB(t *testing.T, regulated bool) {
+	srv, db := setupAPIServerWithLatest(t, nil)
+	if regulated {
+		srv.cfg.DeploymentProfile = "regulated"
+	}
+	ctx := context.Background()
+	tMeta, tHeaders, tLength := freshTenant(t, db, "d43-b-meta"), freshTenant(t, db, "d43-b-hdr"), freshTenant(t, db, "d43-b-len")
+	setFloor(t, db, tHeaders, "headers")
+	setFloor(t, db, tLength, "length")
+	agentMeta, agentHeaders, agentFull := registerD43Agent(t, db, tMeta), registerD43Agent(t, db, tMeta), registerD43Agent(t, db, tMeta)
+	agentHdr, agentLen := registerD43Agent(t, db, tHeaders), registerD43Agent(t, db, tLength)
+	hostileIDs := map[string]string{tMeta: registerD43Agent(t, db, tMeta), tHeaders: registerD43Agent(t, db, tHeaders), tLength: registerD43Agent(t, db, tLength)}
 
 	agentLogs, ctlLogs := &syncBuf{}, &syncBuf{}
 	agentLog := slog.New(slog.NewJSONHandler(agentLogs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctlLog := slog.New(slog.NewJSONHandler(ctlLogs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	stack := startD43Stack(t, db, ctlLog)
+	stack := startD43Stack(t, db, ctlLog, regulated)
 
 	dir := t.TempDir()
 	flowsPath := d43WriteJSON(t, dir, "flows.json", []map[string]any{
 		{"source_address": "10.0.1.5", "source_port": 51002, "destination_address": "10.0.2.9", "destination_port": 8443,
 			"network_transport": "tcp", "network_type": "ipv4", "bytes": 2048, "packets": 12, "direction": "egress", "state": "established"},
 	})
-	l7Path := d43WriteJSON(t, dir, "l7.json", []map[string]any{
-		{"conn_id": 7, "kind": "request", "source_workload": "portal", "destination_workload": "records", "destination_port": 8443,
-			"time_offset_ms": 0, "text": d43Request},
-		{"conn_id": 7, "kind": "response", "time_offset_ms": 12,
-			"text": "HTTP/1.1 201 Created\r\nSet-Cookie: sid=COOKIESECRETVALUE\r\nContent-Length: 0\r\n\r\n"},
-	})
+	metaL7 := l7Fixture(t, dir, "l7-meta.json", d43Request, "48213.patients.example.com")
+	// The headers tenant opted in: its literal route and DNS name may persist
+	// (single profile), so they are its own values, not needles.
+	hdrL7 := l7Fixture(t, dir, "l7-hdr.json", "GET /hdr/HDRSEG-77-X-0001/view?k=HDRQUERYSECRET HTTP/1.1\r\nContent-Length: 0\r\n\r\n", "77310.hdrzone.example.com")
+	lenL7 := l7Fixture(t, dir, "l7-len.json", "GET /LENGTHTENANT-ROUTE/x HTTP/1.1\r\nContent-Length: 0\r\n\r\n", "48213.patients.example.com")
 
-	// The three probectl agents, each on its own recorded bus.
-	buses := map[string]*recordingBus{agentMeta: {}, agentHeaders: {}, agentFull: {}}
-	runD43Agent(t, stack, tenant, agentMeta, ebpf.RedactMetadata, flowsPath, l7Path, buses[agentMeta], agentLog)
-	runD43Agent(t, stack, tenant, agentHeaders, ebpf.RedactHeaders, flowsPath, l7Path, buses[agentHeaders], agentLog)
-	runD43Agent(t, stack, tenant, agentFull, ebpf.RedactFull, flowsPath, l7Path, buses[agentFull], agentLog)
-
+	buses := map[string]*recordingBus{}
+	for _, a := range []struct{ tenant, id, mode, fixture string }{
+		{tMeta, agentMeta, ebpf.RedactMetadata, metaL7},
+		{tMeta, agentHeaders, ebpf.RedactHeaders, metaL7},
+		{tMeta, agentFull, ebpf.RedactFull, metaL7},
+		{tHeaders, agentHdr, ebpf.RedactHeaders, hdrL7},
+		{tLength, agentLen, ebpf.RedactMetadata, lenL7},
+	} {
+		buses[a.id] = &recordingBus{}
+		runD43Agent(t, stack, a.tenant, a.id, a.mode, flowsPath, a.fixture, buses[a.id], agentLog)
+	}
 	var published []bus.Message
-	for _, id := range []string{agentMeta, agentHeaders, agentFull} {
-		msgs := buses[id].snapshot()
+	for id, b := range buses {
+		msgs := b.snapshot()
 		if len(msgs) == 0 {
 			t.Fatalf("agent %s published nothing (flows must still flow when L7 is refused)", id)
 		}
 		published = append(published, msgs...)
 	}
-	legacy := bus.Message{Topic: bus.EBPFFlowsTopic, Key: []byte(tenant), Value: legacyRecord(t, tenant, agentLegacy)}
-	if got := findNeedles(legacy.Value); len(got) != len(d43Needles) {
-		t.Fatalf("the hostile record must carry every needle (non-vacuity), carries %v", got)
+	var hostile []bus.Message
+	for tenant, id := range hostileIDs {
+		route, dnsName, dga := "/contracts/W56HZV-23-C-0123/drawings?ssn=QUERYSSN987&session=QUERYSESSION", "48213.patients.example.com", "rendezvous-dga-"
+		switch tenant {
+		case tLength:
+			route = "/LENGTHTENANT-ROUTE/x"
+		case tHeaders:
+			route, dnsName, dga = "/hdr/HDRSEG-77-X-0001/view?k=HDRQUERYSECRET", "77310.hdrzone.example.com", "hdrtenant-dga-"
+		}
+		m := bus.Message{Topic: bus.EBPFFlowsTopic, Key: []byte(tenant), Value: hostileRecord(t, tenant, id, route, dnsName, dga)}
+		hostile = append(hostile, m)
+	}
+	for _, h := range hostile {
+		if got := findNeedles(h.Value, []string{"BODYCUI-CONTROLLED-7731", "EDGECUI-PROTOCOL-9911"}); len(got) != 2 {
+			t.Fatalf("the hostile record must carry its needles (non-vacuity), carries %v", got)
+		}
 	}
 
-	// The control plane: one strip over the tenants' governance rows, the real
-	// registry binding, and the real eBPF consumers with their stores.
-	strip := NewL7IngestStrip(govern.NewPolicyStore(db.Pool()), false, ctlLog)
+	// The control plane: one strip over the tenants' governance rows behind
+	// the real registry binding, and the real eBPF consumers with their stores.
 	binding := pipeline.NewRegistryBinding(db.Pool())
+	strip := NewL7IngestStrip(govern.NewPolicyStore(db.Pool()), regulated, ctlLog).WithTenantBinding(binding)
 	ebpfRows := ebpfstore.NewMemory()
 	topo := topology.NewMemoryStore()
 	topoC := NewTopologyConsumer(nil, topo, ctlLog).WithTenantBinding(binding).WithEBPFStore(ebpfRows).WithL7IngestStrip(strip)
@@ -310,8 +423,8 @@ func TestD43RegressionB_NoCUILeavesAnyLayer(t *testing.T) {
 	postures := threat.NewPostureStore(0)
 	tlsC := NewEBPFTLSPostureConsumer(nil, postures, buildTLSAnalyzer(&config.Config{}), ctlLog).WithTenantBinding(binding).WithL7IngestStrip(strip)
 
-	var ingestOut bytes.Buffer
-	for _, msg := range append(append([]bus.Message(nil), published...), legacy) {
+	ingestOut := map[string]*bytes.Buffer{"all": {}}
+	for _, msg := range append(append([]bus.Message(nil), published...), hostile...) {
 		for name, handle := range map[string]func(context.Context, bus.Message, string) error{
 			"topology": topoC.handleEBPFLane, "ndr": ndrC.handleEBPFBatchLane, "tls-posture": tlsC.handleLane,
 		} {
@@ -325,66 +438,77 @@ func TestD43RegressionB_NoCUILeavesAnyLayer(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, _ := proto.Marshal(batch)
-		ingestOut.Write(out)
 		js, _ := json.Marshal(batch)
-		ingestOut.Write(js)
+		ingestOut["all"].Write(out)
+		ingestOut["all"].Write(js)
+		for _, c := range batch.GetL7Calls() {
+			if ingestOut[c.GetTenantId()] == nil {
+				ingestOut[c.GetTenantId()] = &bytes.Buffer{}
+			}
+			cj, _ := json.Marshal(c)
+			ingestOut[c.GetTenantId()].Write(cj)
+		}
 	}
 
-	// Persisted rows: the eBPF store, the topology graph, the TLS posture and
-	// detection read models, the agents' registry rows and the tenant's audit
-	// chain.
+	// Persisted rows, for every tenant.
 	var persisted bytes.Buffer
-	if _, err := ebpfRows.ExportTenant(ctx, tenant, &persisted); err != nil {
-		t.Fatal(err)
-	}
-	for _, v := range []any{topo.SnapshotAt(tenant, time.Now()), postures.List(tenant), detections.List(tenant)} {
-		js, _ := json.Marshal(v)
-		persisted.Write(js)
-	}
-	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
-		rows, err := sc.Q.Query(ctx, `SELECT row_to_json(a)::text FROM agents a`)
-		if err != nil {
-			return err
+	for _, tenant := range []string{tMeta, tHeaders, tLength} {
+		if _, err := ebpfRows.ExportTenant(ctx, tenant, &persisted); err != nil {
+			t.Fatal(err)
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var s string
-			if err := rows.Scan(&s); err != nil {
+		for _, v := range []any{topo.SnapshotAt(tenant, time.Now()), postures.List(tenant), detections.List(tenant)} {
+			js, _ := json.Marshal(v)
+			persisted.Write(js)
+		}
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			rows, err := sc.Q.Query(ctx, `SELECT row_to_json(a)::text FROM agents a`)
+			if err != nil {
 				return err
 			}
-			persisted.WriteString(s)
+			defer rows.Close()
+			for rows.Next() {
+				var s string
+				if err := rows.Scan(&s); err != nil {
+					return err
+				}
+				persisted.WriteString(s)
+			}
+			return rows.Err()
+		}); err != nil {
+			t.Fatal(err)
 		}
-		return rows.Err()
-	}); err != nil {
-		t.Fatal(err)
-	}
-	for _, action := range []string{agenttransport.L7PostureAuditAction, ""} {
-		js, _ := json.Marshal(auditActions(t, db, tenant, action))
+		js, _ := json.Marshal(auditActions(t, db, tenant, ""))
 		persisted.Write(js)
 	}
 
-	// A support bundle generated through the API, decompressed file by file.
+	// A support bundle per tenant, generated through the API, decompressed.
 	srv.log = ctlLog
 	srv.WithL7IngestStrip(strip)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/diagnostics/bundle", nil)
-	req.Header.Set("X-Probectl-Tenant", tenant)
-	srv.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("support bundle: %d %s", rec.Code, rec.Body)
-	}
-	files, err := support.ReadBundle(bytes.NewReader(rec.Body.Bytes()))
-	if err != nil {
-		t.Fatalf("read bundle: %v", err)
-	}
 	var bundle bytes.Buffer
-	names := make([]string, 0, len(files))
-	for n := range files {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, n := range names {
-		bundle.Write(files[n])
+	var metaSection support.L7CaptureSummary
+	for _, tenant := range []string{tMeta, tHeaders, tLength} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v1/diagnostics/bundle", nil)
+		req.Header.Set("X-Probectl-Tenant", tenant)
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("support bundle: %d %s", rec.Code, rec.Body)
+		}
+		files, err := support.ReadBundle(bytes.NewReader(rec.Body.Bytes()))
+		if err != nil {
+			t.Fatalf("read bundle: %v", err)
+		}
+		names := make([]string, 0, len(files))
+		for n := range files {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			bundle.Write(files[n])
+		}
+		if tenant == tMeta {
+			_ = json.Unmarshal(files["l7-capture.json"], &metaSection)
+		}
 	}
 
 	// The byte search.
@@ -393,6 +517,10 @@ func TestD43RegressionB_NoCUILeavesAnyLayer(t *testing.T) {
 		busBytes.Write(m.Key)
 		busBytes.Write(m.Value)
 	}
+	needles := append([]string(nil), d43Needles...)
+	if regulated {
+		needles = append(needles, regulatedNeedles...)
+	}
 	surfaces := []struct {
 		name string
 		hay  []byte
@@ -400,40 +528,67 @@ func TestD43RegressionB_NoCUILeavesAnyLayer(t *testing.T) {
 		{"published bus records (the probectl agents)", busBytes.Bytes()},
 		{"agent logs", agentLogs.Bytes()},
 		{"control-plane logs", ctlLogs.Bytes()},
-		{"ingest output (what every consumer reads)", ingestOut.Bytes()},
+		{"ingest output (what every consumer reads)", ingestOut["all"].Bytes()},
 		{"persisted rows", persisted.Bytes()},
 		{"support bundle", bundle.Bytes()},
 	}
 	for _, s := range surfaces {
-		if found := findNeedles(s.hay); len(found) > 0 {
+		if found := findNeedles(s.hay, needles); len(found) > 0 {
 			t.Errorf("D-43 LEAK — %s carry %v", s.name, found)
 		}
 	}
 	// The bundle's own contract: no raw tenant, agent or workload identifier.
-	for _, id := range []string{tenant, agentMeta, agentHeaders, agentFull, "exe:/opt/records/bin/records-api"} {
+	for _, id := range []string{tMeta, agentMeta, agentHeaders, agentFull, "exe:/opt/records/bin/records-api"} {
 		if bytes.Contains(bundle.Bytes(), []byte(id)) {
 			t.Errorf("D-43 LEAK — support bundle carries the identifier %q", id)
 		}
 	}
+	// A length-floor tenant persists no L7 call at all.
+	if b := ingestOut[tLength]; b != nil && b.Len() > 0 {
+		t.Errorf("D-43 LEAK — the length tenant's calls came out of the door: %s", b.Bytes())
+	}
 
-	// Non-vacuity: the pipeline really carried the call, the misconfigured
-	// agents were really refused, the strip really worked, the bundle really
-	// reports the posture.
-	if !bytes.Contains(buses[agentMeta].snapshot()[0].Value, []byte("/contracts/{id}/drawings")) {
-		t.Error("the metadata agent did not publish the templated call (vacuous run)")
+	// Non-vacuity: the pipeline really carried each case.
+	metaBus := buses[agentMeta].snapshot()[0].Value
+	wantDNS := "{id}.patients.example.com"
+	if regulated {
+		wantDNS = "example.com"
 	}
-	if !bytes.Contains(ingestOut.Bytes(), []byte("/contracts/{id}/drawings")) {
-		t.Error("the ingest output lost the templated call (vacuous run)")
+	for _, want := range []string{"/contracts/{id}/drawings", wantDNS} {
+		if !bytes.Contains(metaBus, []byte(want)) {
+			t.Errorf("the metadata agent did not publish %q (vacuous run)", want)
+		}
+		if !bytes.Contains(ingestOut["all"].Bytes(), []byte(want)) {
+			t.Errorf("the ingest output lost %q (vacuous run)", want)
+		}
 	}
-	for _, id := range []string{agentHeaders, agentFull} {
+	hdrBus := buses[agentHdr].snapshot()[0].Value
+	if regulated {
+		if bytes.Contains(hdrBus, []byte("HDRSEG-77-X-0001")) {
+			t.Error("the regulated profile let the headers opt-in through at the agent")
+		}
+	} else if !bytes.Contains(hdrBus, []byte("/hdr/HDRSEG-77-X-0001/view")) {
+		t.Error("the headers opt-in did not keep its literal route (vacuous run)")
+	}
+	for _, id := range []string{agentHeaders, agentFull, agentLen} {
 		for _, m := range buses[id].snapshot() {
 			var b ebpfv1.FlowBatch
 			if err := proto.Unmarshal(m.Value, &b); err != nil || len(b.GetL7Calls()) != 0 {
-				t.Errorf("misconfigured agent %s published %d L7 calls under a metadata floor", id, len(b.GetL7Calls()))
+				t.Errorf("refused agent %s published %d L7 calls", id, len(b.GetL7Calls()))
 			}
 		}
 	}
-	postureState := func(id string) string {
+	if !bytes.Contains(ingestOut["all"].Bytes(), []byte(`"l7_protocol":"other"`)) {
+		t.Error("the hostile edge's l7_protocol was not clamped (vacuous run)")
+	}
+	dga := false
+	for _, d := range detections.List(tMeta) {
+		dga = dga || d.Kind == "ndr.dns_dga"
+	}
+	if !dga {
+		t.Error("the DGA detector lost its signal under D-65 minimization")
+	}
+	postureState := func(tenant, id string) string {
 		var raw []byte
 		_ = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 			return sc.Q.QueryRow(ctx, `SELECT l7_capture_posture FROM agents WHERE id = $1`, id).Scan(&raw)
@@ -442,31 +597,35 @@ func TestD43RegressionB_NoCUILeavesAnyLayer(t *testing.T) {
 		_ = json.Unmarshal(raw, &p)
 		return p.State + "/" + p.RedactionMode + "/" + p.RedactionFloor
 	}
-	for id, want := range map[string]string{
-		agentMeta: "replaying/metadata/metadata", agentHeaders: "refused_floor/headers/metadata", agentFull: "refused_floor/full/metadata",
+	hdrWant := "replaying/headers/headers"
+	if regulated {
+		hdrWant = "refused_floor/headers/metadata"
+	}
+	for _, c := range []struct{ tenant, id, want string }{
+		{tMeta, agentMeta, "replaying/metadata/metadata"}, {tMeta, agentHeaders, "refused_floor/headers/metadata"},
+		{tMeta, agentFull, "refused_floor/full/metadata"}, {tHeaders, agentHdr, hdrWant}, {tLength, agentLen, "refused_floor/metadata/length"},
 	} {
-		if got := postureState(id); got != want {
-			t.Errorf("agent %s posture = %s, want %s", id, got, want)
+		if got := postureState(c.tenant, c.id); got != c.want {
+			t.Errorf("agent %s posture = %s, want %s", c.id, got, c.want)
 		}
 	}
-	if n := len(auditActions(t, db, tenant, agenttransport.L7PostureAuditAction)); n != 3 {
-		t.Errorf("posture audit events = %d, want one per consented agent (3)", n)
+	if n := len(auditActions(t, db, tMeta, agenttransport.L7PostureAuditAction)); n != 3 {
+		t.Errorf("meta tenant posture audit events = %d, want one per consented agent (3)", n)
 	}
 	counts := strip.Counts()
-	if counts["query"] == 0 || counts["identifier_segment"] == 0 || counts[stripUnknownField] == 0 {
-		t.Errorf("the ingest strip counted nothing (vacuous run): %v", counts)
+	for _, f := range []string{"query", "identifier_segment", stripUnknownField, "enum_field", stripCallDropped} {
+		if counts[f] == 0 {
+			t.Errorf("the ingest strip counted no %s (vacuous run): %v", f, counts)
+		}
 	}
-	var l7Section support.L7CaptureSummary
-	if err := json.Unmarshal(files["l7-capture.json"], &l7Section); err != nil || len(l7Section.Agents) != 3 || l7Section.RedactionFloor != "metadata" {
-		t.Errorf("bundle l7-capture section = %+v (%v)", l7Section, err)
+	if len(metaSection.Agents) != 3 || metaSection.RedactionFloor != "metadata" {
+		t.Errorf("bundle l7-capture section = %+v", metaSection)
 	}
 	if t.Failed() {
-		t.Logf("D-43 regression (b) surfaces: %s", strings.Join(func() []string {
-			out := []string{}
-			for _, s := range surfaces {
-				out = append(out, fmt.Sprintf("%s=%dB", s.name, len(s.hay)))
-			}
-			return out
-		}(), ", "))
+		parts := []string{}
+		for _, s := range surfaces {
+			parts = append(parts, fmt.Sprintf("%s=%dB", s.name, len(s.hay)))
+		}
+		t.Logf("D-43 regression (b) surfaces: %s", strings.Join(parts, ", "))
 	}
 }
