@@ -198,3 +198,51 @@ func TestStripUserinfo(t *testing.T) {
 		}
 	}
 }
+
+// DPR-326: only a definitive answer marks the reader unsafe (and justifies
+// withdrawing a live tenant's scope). A proof that could not run does not.
+func TestVerifyReaderSeparatesUnsafeFromUnproven(t *testing.T) {
+	check := ReaderCheck{Plane: "pathstore", ReaderUser: "probectl_reader", TenantSetting: "SQL_probectl_tenant", Tables: []string{"probectl_path_hops2"}}
+	for _, tc := range []struct {
+		name       string
+		mutate     func(*fakeServer)
+		down       bool
+		proxy503   bool
+		wantUnsafe bool
+	}{
+		{name: "foreign rows are unsafe", mutate: func(f *fakeServer) { f.readerSeesRows = true }, wantUnsafe: true},
+		{name: "a write-capable reader is unsafe", mutate: func(f *fakeServer) { f.readerCanWrite = true }, wantUnsafe: true},
+		{name: "the wrong login is unsafe", mutate: func(f *fakeServer) { f.readerName = "someone_else" }, wantUnsafe: true},
+		{name: "an unreachable server is unproven, not unsafe", down: true},
+		{name: "a proxy error on the write probe is unproven, not unsafe", proxy503: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeServer{readerName: "probectl_reader", readerDB: "default", controlHasRows: true}
+			if tc.mutate != nil {
+				tc.mutate(f)
+			}
+			h := f.handler(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if q := r.URL.Query().Get("query"); tc.proxy503 && strings.HasPrefix(q, "INSERT") {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = w.Write([]byte("upstream connect error"))
+					return
+				}
+				h(w, r)
+			}))
+			url := srv.URL
+			if tc.down {
+				srv.Close()
+			} else {
+				defer srv.Close()
+			}
+			err := VerifyReader(context.Background(), NewWithClient(authClient("control")), url, NewReader(authClient("reader"), url), check)
+			if err == nil {
+				t.Fatal("the proof must fail")
+			}
+			if got := errors.Is(err, ErrReaderUnsafe); got != tc.wantUnsafe {
+				t.Fatalf("errors.Is(err, ErrReaderUnsafe) = %v, want %v: %v", got, tc.wantUnsafe, err)
+			}
+		})
+	}
+}

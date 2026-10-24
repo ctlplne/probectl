@@ -47,6 +47,21 @@ var ErrReaderTenantRequired = errors.New("chclient: tenant-scoped ClickHouse rea
 // read to guess at.
 var ErrReaderRoutedPooled = errors.New("chclient: tenant-scoped ClickHouse read refused: a routed data plane without a per-tenant database is a routing contradiction")
 
+// ErrReaderUnsafe (DPR-326) marks a DEFINITIVE reader-proof failure: the
+// server answered, and what it answered shows the reader login is not safely
+// policy-bound (it is the wrong login or the control login, it can write, it
+// sees rows of a tenant it was not scoped to, or its grants are too broad).
+// Only such a result justifies withdrawing a live tenant's reader scope. A
+// proof that could not run (transport error, timeout, cancellation, an
+// unexpected server error) is not wrapped with it: the scope is left in place
+// and only the process that could not prove it refuses to start.
+var ErrReaderUnsafe = errors.New("chclient: the reader login is not safely policy-bound")
+
+// unsafeReader wraps a definitive proof failure with ErrReaderUnsafe.
+func unsafeReader(format string, args ...any) error {
+	return fmt.Errorf("%w: "+format, append([]any{ErrReaderUnsafe}, args...)...)
+}
+
 // Reader is the tenant-read lane of one ClickHouse-backed store.
 type Reader struct {
 	conn *Conn
@@ -172,7 +187,7 @@ func verifyReaderIdentity(ctx context.Context, ctl, rdr ReadLane, check ReaderCh
 		return err
 	}
 	if readerDB != controlDB {
-		return fmt.Errorf("%s: the reader resolves database %q but the store's tables live in %q; give the reader that default database (DPR-285)", check.Plane, readerDB, controlDB)
+		return unsafeReader("%s: the reader resolves database %q but the store's tables live in %q; give the reader that default database (DPR-285)", check.Plane, readerDB, controlDB)
 	}
 	return nil
 }
@@ -195,9 +210,9 @@ func verifyReaderLogin(ctx context.Context, ctl, rdr ReadLane, check ReaderCheck
 	readerUser, controlUser := String(readerRows[0]["u"]), String(controlRows[0]["u"])
 	switch {
 	case readerUser != check.ReaderUser:
-		return "", "", fmt.Errorf("%s: the reader credential authenticates as ClickHouse user %q, but the row policy binds %q (DPR-285)", check.Plane, readerUser, check.ReaderUser)
+		return "", "", unsafeReader("%s: the reader credential authenticates as ClickHouse user %q, but the row policy binds %q (DPR-285)", check.Plane, readerUser, check.ReaderUser)
 	case readerUser == controlUser:
-		return "", "", fmt.Errorf("%s: the reader credential is the control login %q; tenant reads need a separate least-privilege reader (DPR-285)", check.Plane, controlUser)
+		return "", "", unsafeReader("%s: the reader credential is the control login %q; tenant reads need a separate least-privilege reader (DPR-285)", check.Plane, controlUser)
 	}
 	return String(readerRows[0]["db"]), String(controlRows[0]["db"]), nil
 }
@@ -215,9 +230,18 @@ func verifyReaderCannotWrite(ctx context.Context, rdr ReadLane, check ReaderChec
 		if err != nil {
 			return fmt.Errorf("%s: reader %s probe: %w", check.Plane, probe.what, err)
 		}
-		if status/100 == 2 || code != accessDeniedCode {
-			return fmt.Errorf("%s: the reader login %q is not least-privilege: %s on %s was not refused with ACCESS_DENIED (status %d, code %q: %s) (DPR-285)",
+		switch {
+		case code == accessDeniedCode && status/100 != 2:
+			// refused on privileges: least-privilege, as required
+		case status/100 == 2 || code != "":
+			// It ran, or ClickHouse got past the privilege check to another
+			// error: the login holds the privilege.
+			return unsafeReader("%s: the reader login %q is not least-privilege: %s on %s was not refused with ACCESS_DENIED (status %d, code %q: %s) (DPR-285)",
 				check.Plane, check.ReaderUser, probe.what, table, status, code, snippet(body))
+		default:
+			// No ClickHouse answer at all (a proxy or transport failure):
+			// the probe could not run, which proves nothing either way.
+			return fmt.Errorf("%s: reader %s probe got no ClickHouse answer (status %d: %s)", check.Plane, probe.what, status, snippet(body))
 		}
 	}
 	return nil
@@ -238,7 +262,7 @@ func verifyReaderSeesNoForeignRows(ctx context.Context, ctl, rdr ReadLane, check
 			return fmt.Errorf("%s: reader self-check (reader count of %s): %w", check.Plane, table, err)
 		}
 		if Count(seen) != 0 {
-			return fmt.Errorf("%s: the reader login %q reads rows of %s that belong to no tenant it was scoped to: the setting-scoped row policy does not bind it, so ClickHouse would not enforce tenant isolation (DPR-285)",
+			return unsafeReader("%s: the reader login %q reads rows of %s that belong to no tenant it was scoped to: the setting-scoped row policy does not bind it, so ClickHouse would not enforce tenant isolation (DPR-285)",
 				check.Plane, check.ReaderUser, table)
 		}
 	}

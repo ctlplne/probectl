@@ -11,10 +11,13 @@ package silo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/ctlplne/probectl/internal/store/chclient"
 )
 
 // fakeReaderScope records every reader-scope call against one server.
@@ -158,5 +161,34 @@ func TestCatchUpReaderScopeProvesExistingSilos(t *testing.T) {
 	// No scoped store: nothing runs as the reader, nothing to scope.
 	if err := readerProvisioner(newCompCH(), nil).CatchUpReaderScope(context.Background(), "tenant-a", ""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// DPR-326: at boot a live tenant's reader scope is withdrawn only when the
+// proof definitively shows it unsafe. A proof that could not run (a timeout,
+// a canceled startup, a network blip) leaves the grants in place for the
+// replicas already serving the tenant; this process just refuses to start.
+func TestCatchUpWithdrawsTheScopeOnlyOnADefinitiveUnsafeResult(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		verifyErr    error
+		wantWithdraw bool
+	}{
+		{name: "a timeout leaves the scope", verifyErr: fmt.Errorf("reader credential cannot query ClickHouse: %w", context.DeadlineExceeded)},
+		{name: "a canceled startup leaves the scope", verifyErr: context.Canceled},
+		{name: "a transport error leaves the scope", verifyErr: errors.New("dial tcp 10.0.0.9:8443: connect: connection refused")},
+		{name: "foreign rows withdraw it", verifyErr: fmt.Errorf("pathstore: %w: reads rows of another tenant", chclient.ErrReaderUnsafe), wantWithdraw: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &fakeReaderScope{server: "https://ch:8443", verifyErr: tc.verifyErr}
+			p := readerProvisioner(newCompCH(), nil, r)
+			if err := p.CatchUpReaderScope(context.Background(), "tenant-a", ""); !errors.Is(err, tc.verifyErr) {
+				t.Fatalf("catch-up err = %v, want it to carry %v (startup refused)", err, tc.verifyErr)
+			}
+			withdrew := strings.HasPrefix(r.calls[len(r.calls)-1], "revoke ")
+			if withdrew != tc.wantWithdraw {
+				t.Fatalf("withdrew the live scope = %v, want %v (calls %q)", withdrew, tc.wantWithdraw, r.calls)
+			}
+		})
 	}
 }

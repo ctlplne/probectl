@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/store/chclient"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
 	"github.com/ctlplne/probectl/internal/store/endpointstore"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -196,6 +197,10 @@ type provisionStep struct {
 	plane      string
 	ensure     func(context.Context) error
 	compensate func(context.Context) error
+	// undoOwnFailure: a failed ensure may have done part of its work (a
+	// reader scope's first grants), so provisioning compensates it too. The
+	// tenant is not routable yet, so withdrawing it can cut off nobody.
+	undoOwnFailure bool
 }
 
 // chSteps is the ordered ledger of ClickHouse provisioning legs for one
@@ -257,24 +262,32 @@ func (p *Provisioner) readerSteps(tenantID, residency string) []provisionStep {
 	var steps []provisionStep
 	for _, r := range p.distinctReaders(base) {
 		steps = append(steps, provisionStep{
-			plane:      "reader scope",
-			ensure:     func(ctx context.Context) error { return ensureReaderScope(ctx, r, base, db) },
-			compensate: func(ctx context.Context) error { return r.Revoke(ctx, base, db) },
+			plane:          "reader scope",
+			ensure:         func(ctx context.Context) error { return ensureReaderScope(ctx, r, base, db) },
+			compensate:     func(ctx context.Context) error { return r.Revoke(ctx, base, db) },
+			undoOwnFailure: true,
 		})
 	}
 	return steps
 }
 
-// ensureReaderScope installs and proves one database's reader scope. A scope
-// that cannot be proven is withdrawn, so the reader is refused that database
-// rather than left holding grants the proof could not vouch for.
+// ensureReaderScope installs and proves one database's reader scope.
+//
+// DPR-326: the scope is withdrawn only on a DEFINITIVE unsafe result
+// (chclient.ErrReaderUnsafe: foreign rows visible, a write-capable reader,
+// the wrong login, too-broad grants). A proof that could not run — a
+// transport error, a timeout, this process being canceled at its startup
+// probe — leaves the scope in place: the live replicas keep serving the
+// tenant, and only this process refuses to start (the error is returned).
+// Withdrawing on every failure turned one pod's network blip into an outage
+// of that tenant's reads on every pod.
 func ensureReaderScope(ctx context.Context, r ReaderScope, base, db string) error {
 	err := r.Ensure(ctx, base, db)
 	if err == nil {
 		err = r.Verify(ctx, base, db)
 	}
-	if err == nil {
-		return nil
+	if err == nil || !errors.Is(err, chclient.ErrReaderUnsafe) {
+		return err
 	}
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), provisionCompensateTimeout)
 	defer cancel()
@@ -331,7 +344,11 @@ func (p *Provisioner) provisionCH(ctx context.Context, tenantID, residency strin
 	for i, step := range steps {
 		if err := step.ensure(ctx); err != nil {
 			provisionErr := fmt.Errorf("silo: provision %s plane: %w", step.plane, err)
-			if cerr := p.compensate(ctx, steps[:i], tenantID); cerr != nil {
+			done := steps[:i]
+			if step.undoOwnFailure {
+				done = steps[:i+1]
+			}
+			if cerr := p.compensate(ctx, done, tenantID); cerr != nil {
 				return errors.Join(provisionErr, cerr)
 			}
 			return provisionErr
