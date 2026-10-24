@@ -21,10 +21,12 @@ import (
 // fakeControlPlane is the agent's view of the control plane in these tests: it
 // serves a floor (or fails) and records every posture report.
 type fakeControlPlane struct {
-	mu      sync.Mutex
-	floor   string
-	err     error
-	reports []*agentv1.L7CapturePosture
+	mu        sync.Mutex
+	floor     string
+	err       error
+	reportErr error
+	reports   []*agentv1.L7CapturePosture
+	order     *[]string // shared with a liveRecorder: the order of reports and starts
 }
 
 func (f *fakeControlPlane) FetchFloor(context.Context) (string, error) {
@@ -36,7 +38,13 @@ func (f *fakeControlPlane) FetchFloor(context.Context) (string, error) {
 func (f *fakeControlPlane) ReportPosture(_ context.Context, p *agentv1.L7CapturePosture) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.reportErr != nil {
+		return f.reportErr
+	}
 	f.reports = append(f.reports, p)
+	if f.order != nil {
+		*f.order = append(*f.order, "report:"+p.GetState())
+	}
 	return nil
 }
 
@@ -46,6 +54,7 @@ func (f *fakeControlPlane) Close() error { return nil }
 // attempt and the redaction mode capture would run under.
 type liveRecorder struct {
 	starts []string
+	order  []string
 }
 
 type nopL7 struct{}
@@ -64,6 +73,7 @@ func recordLiveStarts(t *testing.T) *liveRecorder {
 	prev := startLiveL7
 	startLiveL7 = func(cfg *Config, _ *slog.Logger) (L7Source, error) {
 		rec.starts = append(rec.starts, cfg.L7CaptureRedaction)
+		rec.order = append(rec.order, "start")
 		return nopL7{}, nil
 	}
 	t.Cleanup(func() { startLiveL7 = prev })
@@ -186,13 +196,12 @@ func TestD43RedactionFloorAtTheSource(t *testing.T) {
 			}
 		})
 	}
-	t.Run("no control-plane channel at all applies metadata", func(t *testing.T) {
+	t.Run("no control-plane channel at all refuses consented live capture (S1)", func(t *testing.T) {
 		rec := recordLiveStarts(t)
 		cfg := consentedConfig()
-		cfg.L7CaptureRedaction = RedactHeaders
 		_ = d43Agent(t, cfg, nil)
-		if len(rec.starts) != 1 || rec.starts[0] != RedactMetadata {
-			t.Fatalf("starts = %v, want metadata with no floor", rec.starts)
+		if len(rec.starts) != 0 {
+			t.Fatalf("starts = %v, want none without the control-plane channel", rec.starts)
 		}
 	})
 }

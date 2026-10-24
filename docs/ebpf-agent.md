@@ -532,11 +532,21 @@ emit looser data than its tenant allows.
   `l7_capture_redaction` is looser than the floor (ERROR log, posture
   `refused_floor`, `probectl_ebpf_l7_capture_floor_refused` = 1). It never
   silently tightens a stated mode under a received floor — an operator who
-  asked for `headers` must see that the tenant does not allow it. When **no**
-  floor was received (no channel configured, or the call failed) it applies
-  the stricter of its local mode and `metadata`. A floor that tightens while
-  the agent runs stops capture at once; a loosened floor never widens a
-  running agent.
+  asked for `headers` must see that the tenant does not allow it.
+- **The channel is required (D-43 S1).** Consented *live* capture runs only
+  with the control-plane channel configured, and starts only after the
+  control plane has recorded the posture it is about to run under — so no
+  capture runs that the tenant's audit chain does not show. Without a channel
+  the agent refuses (ERROR log, `probectl_ebpf_l7_capture_requested` = 1 with
+  `_active` = 0, `probectl_ebpf_l7_capture_channel_refused` = 1), and the
+  chart refuses to render `l7Capture.enabled` without `controlPlane.grpcAddr`.
+  A control plane that cannot record the posture at start defers capture; the
+  next policy check retries. When the channel is configured and recorded the
+  posture but returned **no floor** (the floor call failed), the agent applies
+  the stricter of its local mode and `metadata`. The recorded fixture replay
+  is not live capture and needs no channel.
+- **Floor changes.** A floor that tightens while the agent runs stops capture
+  at once; a loosened floor never widens a running agent.
 - **Posture.** At start and on every policy tick the agent reports its capture
   posture (`ReportL7Posture`: enabled, consent tenant, scope, local and
   effective mode, the floor it applied, whether capture is attached, and a

@@ -55,8 +55,8 @@ type Config struct {
 	// ControlPlane is the agent's mTLS channel to the control plane's agent
 	// gRPC service (D-43 refinement 3). It carries policy only: the tenant's
 	// L7 capture redaction floor in, the agent's capture posture out. Flows
-	// still go to the bus. Empty grpc_addr = no channel: no floor is received
-	// and L7 capture applies the metadata default.
+	// still go to the bus. Consented live L7 capture requires it (D-43 S1):
+	// with an empty grpc_addr the agent refuses consented live capture.
 	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
 
 	// FixturePath, when set, replays recorded flows instead of loading eBPF —

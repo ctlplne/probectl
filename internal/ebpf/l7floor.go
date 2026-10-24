@@ -37,6 +37,11 @@ const (
 	l7StateAttachFailed   = "attach_failed"
 	l7StateCapturing      = "capturing"
 	l7StateReplaying      = "replaying"
+	// l7StateRefusedChannel is agent-local: consented live capture needs the
+	// control-plane channel, and a control plane that recorded its posture
+	// (D-43 S1). The control plane never stores it — there is nothing to
+	// store it through.
+	l7StateRefusedChannel = "refused_channel"
 )
 
 // Policy-channel timing.
@@ -178,6 +183,22 @@ func (a *Agent) setL7State(st postureState) {
 	a.l7mu.Unlock()
 	a.l7live.Store(st.active && st.state == l7StateCapturing)
 }
+
+// reportState sends the posture capture is about to run under, and returns
+// whether the control plane recorded it.
+func (a *Agent) reportState(ctx context.Context, st postureState) error {
+	if a.policy == nil {
+		return errNoChannel
+	}
+	p := a.posture()
+	p.EffectiveMode, p.RedactionFloor, p.Active, p.State = st.mode, st.floor, st.active, st.state
+	cctx, cancel := context.WithTimeout(ctx, l7PolicyCallTimeout)
+	defer cancel()
+	return a.policy.ReportPosture(cctx, p)
+}
+
+// errNoChannel marks a consented capture with no control-plane channel.
+var errNoChannel = errors.New("no control-plane channel configured")
 
 // reportPosture sends the current posture, bounded and best effort: the
 // control plane being unreachable never stops the agent, and the posture is

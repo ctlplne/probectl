@@ -148,6 +148,14 @@ func run() error {
 			}
 			return 0
 		})
+	metricsRuntime.WatchGauge("probectl_ebpf_l7_capture_channel_refused",
+		"1 while consented L7 capture is refused because the control-plane channel is missing, cannot record the capture posture, or presents another identity (D-43).",
+		func() float64 {
+			if agent.L7CaptureChannelRefused() {
+				return 1
+			}
+			return 0
+		})
 	metricsRuntime.WatchGauge("probectl_ebpf_l7_attach_failures_total",
 		"TLS-uprobe attach failures (U-015): an encrypted-traffic visibility gap, never a silent no-op.",
 		func() float64 { return float64(agent.L7AttachFailures()) })

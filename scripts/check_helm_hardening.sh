@@ -1174,13 +1174,21 @@ if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bu
      --set l7Capture.consentTenant=gate >/dev/null 2>&1; then
   fail "agent chart rendered L7 capture without l7Capture.scope (EBPF-002)"
 fi
-l7="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate \
+l7="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate --set controlPlane.grpcAddr=control:9443 --set controlPlane.identity.existingSecret=ebpf-identity \
        --set-json 'l7Capture.scope=["exe:/usr/bin/nginx"]' \
        --set l7Capture.redaction=length --set l7Capture.kernelWindow=0)"
 need "l7_capture_scope:"                "$l7" "agent: L7 scope not rendered (EBPF-002)"
 need "exe:/usr/bin/nginx"               "$l7" "agent: L7 scoped workload not rendered (EBPF-002)"
 need "l7_capture_redaction: \"length\"" "$l7" "agent: L7 redaction not rendered (EBPF-002)"
 need "l7_capture_kernel_window: 0"      "$l7" "agent: L7 kernel window not rendered (EBPF-002)"
+
+# D-43 S1: consented capture never runs unfloored or unaudited — enabling it
+# without the control-plane policy channel refuses to render.
+if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \
+     --set-string image.tag="$AGENT_IMAGE_TAG" --set l7Capture.enabled=true --set l7Capture.consentTenant=gate \
+     --set-json 'l7Capture.scope=["exe:/usr/bin/nginx"]' >/dev/null 2>&1; then
+  fail "agent chart rendered consented L7 capture without the control-plane policy channel (D-43 S1)"
+fi
 
 # D-43 regression test (a), helm half: the DEFAULT render grants no capture
 # privilege and states no capture. hostPID, the node cgroupfs mount, the node
@@ -1193,7 +1201,7 @@ for priv in "hostPID: true" "SYS_PTRACE" "name: hostcgroup" "name: node-lib-" "l
 done
 # The consented render carries them (so the absence above is not vacuous) and
 # defaults its redaction to metadata (D-43 refinement 2).
-l7_default="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate \
+l7_default="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate --set controlPlane.grpcAddr=control:9443 --set controlPlane.identity.existingSecret=ebpf-identity \
        --set-json 'l7Capture.scope=["exe:/usr/bin/nginx"]')"
 need "hostPID: true"                      "$l7_default" "agent: consented L7 render lost hostPID (D-02a)"
 need "SYS_PTRACE"                         "$l7_default" "agent: consented L7 render lost CAP_SYS_PTRACE (D-02a)"

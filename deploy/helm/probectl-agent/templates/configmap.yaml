@@ -50,6 +50,9 @@ data:
     {{- if not .Values.l7Capture.scope }}
     {{- fail "l7Capture.scope is required when l7Capture.enabled=true; host-wide TLS plaintext capture is not expressible" }}
     {{- end }}
+    {{- if not .Values.controlPlane.grpcAddr }}
+    {{- fail "l7Capture.enabled requires controlPlane.grpcAddr and controlPlane.identity.existingSecret (D-43): consented capture runs only under the tenant's redaction floor, with its posture on the tenant's audit chain" }}
+    {{- end }}
     # U-003/EBPF-002: requires enable + consent + explicit workload scope.
     l7_capture_enabled: true
     l7_capture_consent_tenant: {{ required "l7Capture.consentTenant is required when l7Capture.enabled=true" .Values.l7Capture.consentTenant | quote }}
