@@ -76,17 +76,23 @@ func ensureBusTopics(ctx context.Context, b bus.Bus, cfg *config.Config, log *sl
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	// DPR-335: reading the brokers' metadata comes first, and its failure is a
+	// reachability, TLS or authentication problem. Topic permissions do not
+	// cause it, so it must not get the "grant CREATE" advice.
+	missing, err := ensurer.TopicsMissing(ctx, topics)
+	if err != nil {
+		return fmt.Errorf("bus topics: cannot read topic metadata from the brokers: %w — check that PROBECTL_BUS_BROKERS is reachable from the control plane and that PROBECTL_BUS_TLS_CA_FILE and the PROBECTL_BUS_SASL_* settings match the brokers (docs/deploying-agents.md#bus-topics)", err)
+	}
 	if !cfg.BusCreateTopics {
-		missing, err := ensurer.TopicsMissing(ctx, topics)
-		if err != nil {
-			return fmt.Errorf("bus topics: %w", err)
-		}
 		if len(missing) > 0 {
 			return fmt.Errorf("bus topics: PROBECTL_BUS_CREATE_TOPICS=false and these topics do not exist on the brokers: %s (create them, or let the control plane do it with PROBECTL_BUS_CREATE_TOPICS=true; docs/deploying-agents.md#bus-topics)", strings.Join(missing, ", "))
 		}
 		return nil
 	}
-	created, err := ensurer.EnsureTopics(ctx, topics, cfg.BusTopicPartitions, cfg.BusTopicReplication)
+	if len(missing) == 0 {
+		return nil
+	}
+	created, err := ensurer.EnsureTopics(ctx, missing, cfg.BusTopicPartitions, cfg.BusTopicReplication)
 	if err != nil {
 		return fmt.Errorf("bus topics: %w — grant the bus user CREATE on probectl.*, or pre-create the lanes and set PROBECTL_BUS_CREATE_TOPICS=false (docs/deploying-agents.md#bus-topics)", err)
 	}

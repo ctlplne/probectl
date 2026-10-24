@@ -208,6 +208,14 @@ startup then verifies them and fails closed naming any that is missing:
 Partitions and replication for created topics: `PROBECTL_BUS_TOPIC_PARTITIONS`
 (3) and `PROBECTL_BUS_TOPIC_REPLICATION` (`-1` = the broker default).
 
+Startup reads the brokers' topic metadata before it creates anything. If that
+read fails, startup refuses with "cannot read topic metadata from the brokers"
+and the cause, for example `x509: certificate signed by unknown authority`.
+That is a reachability, TLS or SASL fault, not a topic permission: check
+`PROBECTL_BUS_BROKERS`, `PROBECTL_BUS_TLS_CA_FILE` and the
+`PROBECTL_BUS_SASL_*` settings. Only a create the broker refuses asks you to
+grant the bus user CREATE (DPR-335).
+
 ## The producers
 
 ### Canary / synthetic — `probectl-agent`
