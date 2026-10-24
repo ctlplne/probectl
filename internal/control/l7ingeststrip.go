@@ -22,6 +22,7 @@ import (
 	"github.com/ctlplne/probectl/internal/govern"
 	"github.com/ctlplne/probectl/internal/l7redact"
 	"github.com/ctlplne/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/pipeline"
 )
 
 // The control-plane ingest strip (D-43, the second layer): whatever an agent
@@ -65,8 +66,14 @@ type L7IngestStrip struct {
 	regulated bool
 	log       *slog.Logger
 
+	// binding verifies a pooled-lane record's (tenant, agent) before its
+	// tenant's floor is looked up (review S10); nil = unit tests and the
+	// registry-less lightweight mode, where only UUID-shaped tenants are read.
+	binding pipeline.TenantBinding
+
 	mu    sync.Mutex
 	cache map[string]cachedFloor
+	order []string // insertion order, for the cache bound
 
 	counts   map[string]*atomic.Uint64
 	counters map[string]*metrics.Counter
@@ -95,6 +102,19 @@ func newL7IngestStrip(floors l7FloorReader, regulated bool, log *slog.Logger) *L
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &L7IngestStrip{floors: floors, regulated: regulated, log: log, cache: map[string]cachedFloor{}, counts: counts}
+}
+
+// maxFloorCache bounds the floor cache (one entry per active tenant).
+const maxFloorCache = 4096
+
+// WithTenantBinding verifies a pooled-lane record's (tenant, agent) pair
+// against the registry before the door reads that tenant's floor (S10): a
+// sprayed fake tenant id costs no database read and no cache entry.
+func (s *L7IngestStrip) WithTenantBinding(b pipeline.TenantBinding) *L7IngestStrip {
+	if s != nil {
+		s.binding = b
+	}
+	return s
 }
 
 // WithMetrics registers the strip counter on the control plane's /metrics.
@@ -157,25 +177,75 @@ func (s *L7IngestStrip) floor(ctx context.Context, tenant string) string {
 		mode, ttl = l7redact.Stricter(l7redact.DefaultMode, govern.EffectiveL7CaptureFloor("", s.regulated)), l7FloorErrorTTL
 	}
 	s.mu.Lock()
+	if _, ok := s.cache[tenant]; !ok {
+		if len(s.order) >= maxFloorCache {
+			delete(s.cache, s.order[0])
+			s.order = s.order[1:]
+		}
+		s.order = append(s.order, tenant)
+	}
 	s.cache[tenant] = cachedFloor{mode: mode, expires: now.Add(ttl)}
 	s.mu.Unlock()
 	return mode
 }
 
-// Apply strips batch in place and counts what it removed (the persisting
-// consumer's call). ApplyUncounted is the same strip for the read-model
-// consumers, so one record is counted once per control plane, not once per
-// consumer that reads it.
-func (s *L7IngestStrip) Apply(ctx context.Context, batch *ebpfv1.FlowBatch) {
-	s.orDefault().apply(ctx, batch, true)
+// trustedTenant reports whether a call's tenant may have its floor read: a
+// namespaced lane names its tenant; on the pooled lane the (tenant, agent)
+// pair must verify against the registry (memoized per batch). Anything else
+// is stripped to the metadata default without a lookup — the consumers
+// reject such a record anyway.
+func (s *L7IngestStrip) trustedTenant(ctx context.Context, laneTenant string, c *ebpfv1.L7Call, memo map[[2]string]bool) bool {
+	if laneTenant != "" {
+		return true
+	}
+	key := [2]string{c.GetTenantId(), c.GetAgentId()}
+	if v, ok := memo[key]; ok {
+		return v
+	}
+	var ok bool
+	if s.binding != nil {
+		ok = s.binding.Verify(ctx, key[0], key[1]) == nil
+	} else {
+		ok = uuidShaped(key[0])
+	}
+	memo[key] = ok
+	return ok
 }
 
-// ApplyUncounted strips batch in place without counting.
-func (s *L7IngestStrip) ApplyUncounted(ctx context.Context, batch *ebpfv1.FlowBatch) {
-	s.orDefault().apply(ctx, batch, false)
+func isHexDigit(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
-func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, count bool) {
+// uuidShaped reports whether v is a canonical 8-4-4-4-12 hex id.
+func uuidShaped(v string) bool {
+	if len(v) != 36 {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		switch i {
+		case 8, 13, 18, 23:
+			if v[i] != '-' {
+				return false
+			}
+		default:
+			if !isHexDigit(v[i]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Apply strips batch in place. laneTenant is the namespaced lane's tenant
+// ("" on the pooled lane); counted selects whether this strip feeds the
+// counters — only the persisting consumer's, so one record is counted once per
+// control plane, not once per consumer that reads it. A nil strip strips to
+// the metadata default.
+func (s *L7IngestStrip) Apply(ctx context.Context, batch *ebpfv1.FlowBatch, laneTenant string, counted bool) {
+	s.orDefault().apply(ctx, batch, laneTenant, counted)
+}
+
+func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, laneTenant string, count bool) {
 	if batch == nil {
 		return
 	}
@@ -188,8 +258,12 @@ func (s *L7IngestStrip) apply(ctx context.Context, batch *ebpfv1.FlowBatch, coun
 		}
 	}
 	kept := batch.L7Calls[:0]
+	memo := map[[2]string]bool{}
 	for _, c := range batch.GetL7Calls() {
-		mode := s.floor(ctx, c.GetTenantId())
+		mode := govern.EffectiveL7CaptureFloor("", s.regulated)
+		if s.trustedTenant(ctx, laneTenant, c, memo) {
+			mode = s.floor(ctx, c.GetTenantId())
+		}
 		if !l7redact.Persists(mode) {
 			// D-43 S7: a length floor persists no L7 call at all — no
 			// method, route or status — whoever produced it.
@@ -320,10 +394,6 @@ func decodeEBPFBatch(ctx context.Context, strip *L7IngestStrip, msg bus.Message,
 		return nil, fmt.Errorf("decode ebpf batch: %w", err)
 	}
 	stampEBPFBatchLaneTenant(&batch, laneTenant)
-	if counted {
-		strip.Apply(ctx, &batch)
-	} else {
-		strip.ApplyUncounted(ctx, &batch)
-	}
+	strip.Apply(ctx, &batch, laneTenant, counted)
 	return &batch, nil
 }

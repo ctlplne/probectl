@@ -590,7 +590,11 @@ emit looser data than its tenant allows.
   workload, process, container, host and address fields must have an
   identifier's shape (≤ 253 bytes of letters, digits, space and
   `. _ : / @ + - ( ) [ ] # ~ ,`) or become `_invalid`. An identifier-shaped
-  value cannot be content-checked; this bounds shape, not meaning. Each strip is counted on
+  value cannot be content-checked; this bounds shape, not meaning. On the
+  pooled bus lane a tenant's floor is read only after the record's
+  (tenant, agent) pair verifies against the registry (a namespaced lane names
+  its tenant); anything unverified is stripped to `metadata` without a lookup,
+  and the per-tenant floor cache is bounded (4096 tenants, 30-second TTL). Each strip is counted on
   `probectl_ebpf_l7_ingest_stripped_total{field}`.
 
 **What templating turns into `{id}`** (one shared function,

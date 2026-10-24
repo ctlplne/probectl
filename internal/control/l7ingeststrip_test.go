@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protowire"
@@ -41,6 +42,16 @@ func (f *fakeFloors) L7CaptureFloor(_ context.Context, tenant string, regulated 
 	return mode, nil
 }
 
+// stripBinding verifies every (tenant, agent) pair except the listed tenants.
+type stripBinding struct{ refuse map[string]bool }
+
+func (b stripBinding) Verify(_ context.Context, tenant, _ string) error {
+	if b.refuse[tenant] {
+		return errors.New("not bound")
+	}
+	return nil
+}
+
 func rawCall(tenant string) *ebpfv1.L7Call {
 	return &ebpfv1.L7Call{
 		TenantId: tenant, AgentId: "a1", Source: "portal", Destination: "records", DestinationPort: 443,
@@ -50,9 +61,9 @@ func rawCall(tenant string) *ebpfv1.L7Call {
 
 func TestL7IngestStripAppliesEachTenantsFloor(t *testing.T) {
 	floors := &fakeFloors{floors: map[string]string{"t-headers": "headers"}}
-	st := newL7IngestStrip(floors, false, nil)
+	st := newL7IngestStrip(floors, false, nil).WithTenantBinding(stripBinding{})
 	batch := &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("t-meta"), rawCall("t-headers"), rawCall("t-meta")}}
-	st.Apply(context.Background(), batch)
+	st.Apply(context.Background(), batch, "", true)
 
 	if got := batch.L7Calls[0].GetResource(); got != "/contracts/{id}/drawings" {
 		t.Fatalf("metadata tenant route = %q", got)
@@ -70,16 +81,16 @@ func TestL7IngestStripAppliesEachTenantsFloor(t *testing.T) {
 }
 
 func TestL7IngestStripRegulatedAndFailClosed(t *testing.T) {
-	regulated := newL7IngestStrip(&fakeFloors{floors: map[string]string{"t": "headers"}}, true, nil)
+	regulated := newL7IngestStrip(&fakeFloors{floors: map[string]string{"t": "headers"}}, true, nil).WithTenantBinding(stripBinding{})
 	b := &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("t")}}
-	regulated.Apply(context.Background(), b)
+	regulated.Apply(context.Background(), b, "", true)
 	if got := b.L7Calls[0].GetResource(); got != "/contracts/{id}/drawings" {
 		t.Fatalf("regulated profile let a headers row through: %q", got)
 	}
 
-	broken := newL7IngestStrip(&fakeFloors{err: errors.New("db down")}, false, nil)
+	broken := newL7IngestStrip(&fakeFloors{err: errors.New("db down")}, false, nil).WithTenantBinding(stripBinding{})
 	b = &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("t")}}
-	broken.Apply(context.Background(), b)
+	broken.Apply(context.Background(), b, "", true)
 	if got := b.L7Calls[0].GetResource(); got != "/contracts/{id}/drawings" {
 		t.Fatalf("an unreadable floor did not fail closed to metadata: %q", got)
 	}
@@ -87,7 +98,7 @@ func TestL7IngestStripRegulatedAndFailClosed(t *testing.T) {
 	// A consumer wired without a strip still strips to metadata.
 	var unwired *L7IngestStrip
 	b = &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("t")}}
-	unwired.ApplyUncounted(context.Background(), b)
+	unwired.Apply(context.Background(), b, "", false)
 	if got := b.L7Calls[0].GetResource(); got != "/contracts/{id}/drawings" {
 		t.Fatalf("unwired consumer did not strip: %q", got)
 	}
@@ -156,7 +167,7 @@ func TestL7IngestStripClampsEdgeAndFlowFields(t *testing.T) {
 			NetworkTransport: "tcp", NetworkType: "ipv4", Direction: "egress", State: "BODYSECRET"}},
 	}
 	st := newL7IngestStrip(nil, false, nil)
-	st.Apply(context.Background(), batch)
+	st.Apply(context.Background(), batch, "", true)
 	out, _ := proto.Marshal(batch)
 	if bytes.Contains(out, []byte("BODYSECRET")) {
 		t.Fatalf("edge/flow free text survived the door: %s", batch.String())
@@ -176,10 +187,10 @@ func TestL7IngestStripClampsEdgeAndFlowFields(t *testing.T) {
 // them whole (no method, route or status), whoever produced them.
 func TestL7IngestStripEnforcesALengthFloor(t *testing.T) {
 	floors := &fakeFloors{floors: map[string]string{"t-length": "length"}}
-	st := newL7IngestStrip(floors, false, nil)
+	st := newL7IngestStrip(floors, false, nil).WithTenantBinding(stripBinding{})
 	pg := &ebpfv1.L7Call{TenantId: "t-length", AgentId: "a1", Protocol: "postgresql", Method: "SELECT", Resource: "SELECT * FROM t", Status: "SELECT 1"}
 	batch := &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("t-length"), pg, rawCall("t-meta")}}
-	st.Apply(context.Background(), batch)
+	st.Apply(context.Background(), batch, "", true)
 	if len(batch.GetL7Calls()) != 1 || batch.L7Calls[0].GetTenantId() != "t-meta" {
 		t.Fatalf("calls after a length floor = %+v, want only the metadata tenant's", batch.GetL7Calls())
 	}
@@ -199,7 +210,7 @@ func TestL7IngestStripMinimizesDNSNames(t *testing.T) {
 			DnsFeatures: &ebpfv1.DNSFeatures{NameToken: []byte("COOKIESECRETVALUE-in-a-token")}}}}
 	}
 	b := dns()
-	newL7IngestStrip(nil, false, nil).Apply(context.Background(), b)
+	newL7IngestStrip(nil, false, nil).Apply(context.Background(), b, "", true)
 	if got := b.L7Calls[0].GetResource(); got != "{id}.patients.example.com" {
 		t.Fatalf("default-profile DNS name = %q", got)
 	}
@@ -207,8 +218,38 @@ func TestL7IngestStripMinimizesDNSNames(t *testing.T) {
 		t.Fatal("an oversized token survived the door")
 	}
 	b = dns()
-	newL7IngestStrip(nil, true, nil).Apply(context.Background(), b)
+	newL7IngestStrip(nil, true, nil).Apply(context.Background(), b, "", true)
 	if got := b.L7Calls[0].GetResource(); got != "example.com" {
 		t.Fatalf("regulated DNS name = %q, want only the registered domain", got)
+	}
+}
+
+// Review S10: on the pooled lane a tenant's floor is read only after its
+// (tenant, agent) pair verifies, and the floor cache is bounded — a spray of
+// fake tenant ids costs no lookup and no cache entry.
+func TestL7IngestStripLooksUpOnlyVerifiedTenants(t *testing.T) {
+	floors := &fakeFloors{floors: map[string]string{"victim": "headers"}}
+	st := newL7IngestStrip(floors, false, nil).WithTenantBinding(stripBinding{refuse: map[string]bool{"forged": true}})
+	b := &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("forged"), rawCall("forged")}}
+	st.Apply(context.Background(), b, "", true)
+	if floors.reads != 0 || len(st.cache) != 0 {
+		t.Fatalf("an unverified tenant drove %d floor reads and %d cache entries", floors.reads, len(st.cache))
+	}
+	if got := b.L7Calls[0].GetResource(); got != "/contracts/{id}/drawings" {
+		t.Fatalf("unverified record not stripped to the default: %q", got)
+	}
+	// Without a registry binding only UUID-shaped tenants are read.
+	bare := newL7IngestStrip(floors, false, nil)
+	bare.Apply(context.Background(), &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall("not-a-uuid")}}, "", true)
+	if floors.reads != 0 {
+		t.Fatal("a non-UUID tenant was looked up")
+	}
+	// The cache is bounded.
+	many := newL7IngestStrip(floors, false, nil).WithTenantBinding(stripBinding{})
+	for i := 0; i < maxFloorCache+100; i++ {
+		many.Apply(context.Background(), &ebpfv1.FlowBatch{L7Calls: []*ebpfv1.L7Call{rawCall(fmt.Sprintf("t-%d", i))}}, "", true)
+	}
+	if len(many.cache) > maxFloorCache || len(many.order) > maxFloorCache {
+		t.Fatalf("floor cache grew to %d entries (bound %d)", len(many.cache), maxFloorCache)
 	}
 }

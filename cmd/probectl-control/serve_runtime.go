@@ -458,6 +458,11 @@ func (rt *serveRuntime) l7IngestStrip() *control.L7IngestStrip {
 		}
 		rt.l7strip = control.NewL7IngestStrip(floors, rt.cfg.DeploymentProfile == "regulated", rt.log).
 			WithMetrics(rt.srv.Metrics())
+		if rt.tenantBinding != nil {
+			// S10: a pooled-lane record's floor is read only once its
+			// (tenant, agent) pair verifies.
+			rt.l7strip.WithTenantBinding(rt.tenantBinding)
+		}
 		rt.srv.WithL7IngestStrip(rt.l7strip)
 	})
 	return rt.l7strip
