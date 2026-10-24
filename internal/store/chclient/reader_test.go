@@ -81,6 +81,7 @@ type fakeServer struct {
 	readerSeesRows  bool
 	controlHasRows  bool
 	readerWasScoped bool
+	grants          []string // the reader's SHOW GRANTS; nil = the documented pooled grant
 }
 
 func (f *fakeServer) handler(t *testing.T) http.HandlerFunc {
@@ -95,6 +96,15 @@ func (f *fakeServer) handler(t *testing.T) http.HandlerFunc {
 				name, db = f.readerName, f.readerDB
 			}
 			_, _ = w.Write([]byte(`{"u":"` + name + `","db":"` + db + `"}` + "\n"))
+		case strings.HasPrefix(q, "SHOW GRANTS"):
+			if !reader {
+				t.Fatalf("grant probe sent as %q", user)
+			}
+			grants := f.grants
+			if grants == nil {
+				grants = []string{"GRANT SELECT ON default.* TO probectl_reader"}
+			}
+			_, _ = w.Write([]byte(strings.Join(grants, "\n") + "\n"))
 		case strings.HasPrefix(q, "INSERT"), strings.HasPrefix(q, "CREATE TABLE"):
 			if !reader {
 				t.Fatalf("write probe sent as %q", user)
@@ -154,6 +164,27 @@ func TestVerifyReader(t *testing.T) {
 		{name: "a write-capable reader refuses", mutate: func(f *fakeServer) { f.readerCanWrite = true }, wantErr: "not least-privilege"},
 		{name: "a reader the policy does not bind refuses", mutate: func(f *fakeServer) { f.readerSeesRows = true }, wantErr: "does not bind it"},
 		{name: "an empty table has nothing to leak yet", mutate: func(f *fakeServer) { f.controlHasRows = false; f.readerSeesRows = true }},
+		// DPR-328: grants broader than the proof can vouch for.
+		{name: "a global SELECT refuses", mutate: func(f *fakeServer) { f.grants = []string{"GRANT SELECT ON *.* TO probectl_reader"} }, wantErr: "DPR-328"},
+		{name: "a database-wide grant on a per-tenant database refuses", mutate: func(f *fakeServer) {
+			f.grants = []string{"GRANT SELECT ON default.* TO probectl_reader", "GRANT SELECT ON probectl_t_ab.* TO probectl_reader"}
+		}, wantErr: "database-wide grant"},
+		{name: "a database-wide grant on another database refuses", mutate: func(f *fakeServer) {
+			f.grants = []string{"GRANT SELECT ON default.* TO probectl_reader", "GRANT SELECT ON system.* TO probectl_reader"}
+		}, wantErr: "database-wide grant"},
+		{name: "a grant option refuses", mutate: func(f *fakeServer) {
+			f.grants = []string{"GRANT SELECT ON default.* TO probectl_reader WITH GRANT OPTION"}
+		}, wantErr: "DPR-328"},
+		{name: "another privilege refuses", mutate: func(f *fakeServer) { f.grants = []string{"GRANT SELECT, INSERT ON default.* TO probectl_reader"} }, wantErr: "DPR-328"},
+		{name: "a role refuses", mutate: func(f *fakeServer) {
+			f.grants = []string{"GRANT SELECT ON default.* TO probectl_reader", "GRANT analysts TO probectl_reader"}
+		}, wantErr: "DPR-328"},
+		{name: "a partial revoke refuses", mutate: func(f *fakeServer) {
+			f.grants = []string{"GRANT SELECT ON *.* TO probectl_reader", "REVOKE SELECT ON system.* FROM probectl_reader"}
+		}, wantErr: "DPR-328"},
+		{name: "per-table and column grants pass", mutate: func(f *fakeServer) {
+			f.grants = []string{"GRANT SELECT ON default.* TO probectl_reader", "GRANT SELECT ON probectl_t_ab.probectl_flows TO probectl_reader", "GRANT SELECT(tenant_id, ts) ON probectl_t_ab.probectl_otel_spans TO probectl_reader"}
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := good()
@@ -213,6 +244,7 @@ func TestVerifyReaderSeparatesUnsafeFromUnproven(t *testing.T) {
 		{name: "foreign rows are unsafe", mutate: func(f *fakeServer) { f.readerSeesRows = true }, wantUnsafe: true},
 		{name: "a write-capable reader is unsafe", mutate: func(f *fakeServer) { f.readerCanWrite = true }, wantUnsafe: true},
 		{name: "the wrong login is unsafe", mutate: func(f *fakeServer) { f.readerName = "someone_else" }, wantUnsafe: true},
+		{name: "a too-broad grant is unsafe", mutate: func(f *fakeServer) { f.grants = []string{"GRANT SELECT ON *.* TO probectl_reader"} }, wantUnsafe: true},
 		{name: "an unreachable server is unproven, not unsafe", down: true},
 		{name: "a proxy error on the write probe is unproven, not unsafe", proxy503: true},
 	} {

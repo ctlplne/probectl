@@ -10,6 +10,7 @@ package chclient_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -177,5 +178,53 @@ func TestReaderRowPolicyConvergesADriftedPolicyInPlace(t *testing.T) {
 	fields := strings.Split(strings.TrimSpace(got), "\t")
 	if len(fields) != 2 || !strings.Contains(fields[0], "getSetting('SQL_probectl_tenant')") || fields[1] != current {
 		t.Fatalf("the drifted policy was not converged in place: %q (want the setting-scoped filter bound only to %s)", got, current)
+	}
+}
+
+// TestReaderProofRefusesBroadGrants (DPR-328, real ClickHouse): the boot proof
+// passes the documented grants (the pooled database plus individual
+// per-tenant tables) and refuses a reader that also holds SELECT on every
+// database or on a whole per-tenant database, though every existing table
+// still carries its policy: such a reader would read any table created later,
+// and system tables, unfiltered.
+func TestReaderProofRefusesBroadGrants(t *testing.T) {
+	raw := os.Getenv("PROBECTL_FLOWSTORE_URL")
+	if raw == "" {
+		testsupport.SkipOrFatal(t, "PROBECTL_FLOWSTORE_URL not set — the reader grant proof needs a real ClickHouse")
+	}
+	db := fmt.Sprintf("probectl_t_grants_%d", time.Now().UnixNano())
+	for _, stmt := range []string{
+		"CREATE DATABASE " + db,
+		"CREATE TABLE " + db + ".probectl_flows (tenant_id String) ENGINE = MergeTree ORDER BY tenant_id",
+		"INSERT INTO " + db + ".probectl_flows VALUES ('tenant-y')",
+	} {
+		if _, err := chtest.Exec(raw, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = chtest.Exec(raw, "DROP ROW POLICY IF EXISTS probectl_reader_scope ON "+db+".probectl_flows")
+		_, _ = chtest.Exec(raw, "DROP DATABASE IF EXISTS "+db)
+	})
+	reader, readerClient := chtest.ProvisionReader(t, raw, "grants_reader")
+	scope := chclient.SiloScope{
+		Plane: "test", Control: chclient.NewWithClient(nil), ControlBase: raw,
+		Reader: chclient.NewReader(readerClient, raw), ReaderUser: reader, TenantSetting: "SQL_probectl_tenant",
+	}
+	ctx := context.Background()
+	if err := scope.Ensure(ctx, "", db); err != nil {
+		t.Fatal(err)
+	}
+	if err := scope.Verify(ctx, "", db); err != nil {
+		t.Fatalf("the documented grants must pass the proof: %v", err)
+	}
+	for _, broad := range []string{"GRANT SELECT ON " + db + ".* TO " + reader, "GRANT SELECT ON *.* TO " + reader} {
+		if _, err := chtest.Exec(raw, broad); err != nil {
+			t.Fatal(err)
+		}
+		err := scope.Verify(ctx, "", db)
+		if err == nil || !errors.Is(err, chclient.ErrReaderUnsafe) {
+			t.Fatalf("after %q the proof returned %v, want a definitive refusal", broad, err)
+		}
 	}
 }

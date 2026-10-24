@@ -224,7 +224,9 @@ update the 0.6.5 pods keep serving until the credential is supplied.
 
 At boot the control plane refuses to start unless that login is not the
 control login, resolves the same default database, is denied `INSERT` and
-`CREATE`, and sees no row outside the tenant it is scoped to. The Helm commands
+`CREATE`, holds no grant beyond `SELECT` on that database and on individual
+tables (no `SELECT ON *.*`, no role, no grant option; DPR-328), and sees no row
+outside the tenant it is scoped to. The Helm commands
 are in [`deploy/helm/README.md`](../deploy/helm/README.md) ("Upgrading a
 tenant-scoped install"); the key is documented in
 [`configuration.md`](configuration.md). The durable Compose profile

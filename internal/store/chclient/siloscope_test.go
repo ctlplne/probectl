@@ -100,6 +100,7 @@ type siloFake struct {
 	readerSeesRows  bool
 	controlHasRows  bool
 	denyGrant       bool
+	grants          []string // nil = the documented pooled + per-table grants
 	mu              sync.Mutex
 	statements      []string
 	readerTenantSet string
@@ -119,6 +120,12 @@ func (f *siloFake) handler(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"name":"probectl_flows","engine":"ReplacingMergeTree"}` + "\n" + `{"name":"probectl_flow_rollups_hour_mv","engine":"MaterializedView"}` + "\n"))
 	case strings.HasPrefix(q, "SELECT table FROM system.columns"):
 		_, _ = w.Write([]byte(`{"table":"probectl_flows"}` + "\n" + `{"table":"probectl_flow_rollups_hour_mv"}` + "\n"))
+	case strings.HasPrefix(q, "SHOW GRANTS"):
+		grants := f.grants
+		if grants == nil {
+			grants = []string{"GRANT SELECT ON default.* TO probectl_reader", "GRANT SELECT ON " + siloDB + ".probectl_flows TO probectl_reader"}
+		}
+		_, _ = w.Write([]byte(strings.Join(grants, "\n") + "\n"))
 	case strings.HasPrefix(q, "SELECT currentUser()"):
 		name := "control"
 		if reader {
@@ -191,6 +198,10 @@ func TestSiloScopeEnsureAndVerify(t *testing.T) {
 		{name: "a write-capable reader refuses", mutate: func(f *siloFake) { f.readerCanWrite = true }, wantErr: "not least-privilege"},
 		{name: "a plane credential for another login refuses", mutate: func(f *siloFake) { f.readerName = "someone_else" }, wantErr: `authenticates as ClickHouse user "someone_else"`},
 		{name: "a control login without grant option is named", mutate: func(f *siloFake) { f.denyGrant = true }, wantErr: "WITH GRANT OPTION"},
+		{name: "a database-wide grant on the silo refuses (DPR-328)", mutate: func(f *siloFake) {
+			f.grants = []string{"GRANT SELECT ON default.* TO probectl_reader", "GRANT SELECT ON " + siloDB + ".* TO probectl_reader"}
+		}, wantErr: "database-wide grant"},
+		{name: "a global grant refuses (DPR-328)", mutate: func(f *siloFake) { f.grants = []string{"GRANT SELECT ON *.* TO probectl_reader"} }, wantErr: "DPR-328"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := good(t)

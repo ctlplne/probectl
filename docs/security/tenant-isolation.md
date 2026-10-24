@@ -185,9 +185,14 @@ path entirely:
 4. At boot, the control plane proves the reader against the live server and
    refuses to start otherwise: the credential authenticates as the configured
    `*_READER_USER`, is not the control login, resolves the control login's
-   default database, is refused `INSERT` and `CREATE` (`ACCESS_DENIED`), and,
-   on every policy table that holds rows, sees none of them under a tenant that
-   owns none (so the policy really binds it).
+   default database, is refused `INSERT` and `CREATE` (`ACCESS_DENIED`), holds
+   no grant broader than the proof can vouch for (DPR-328: its own
+   `SHOW GRANTS` may list only `SELECT` on its default database and `SELECT` on
+   individual tables; a global or other database-wide grant, any other
+   privilege, a grant option, a role or a partial revoke is refused, because
+   such a reader would read, unfiltered, any table created after the proof
+   ran), and, on every policy table that holds rows, sees none of them under a
+   tenant that owns none (so the policy really binds it).
 
 Before DPR-285 step 3 was not true: the control plane sent every read as its
 single control login, the policy bound a reader user it never logged in as,

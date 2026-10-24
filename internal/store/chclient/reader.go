@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -172,7 +173,11 @@ func VerifyReader(ctx context.Context, control *Conn, controlBase string, reader
 	}
 	ctl := ReadLane{Conn: control, Base: strings.TrimRight(controlBase, "/")}
 	rdr := ReadLane{Conn: reader.conn, Base: reader.base, Reader: true}
-	if err := verifyReaderIdentity(ctx, ctl, rdr, check); err != nil {
+	readerDB, err := verifyReaderIdentity(ctx, ctl, rdr, check)
+	if err != nil {
+		return err
+	}
+	if err := verifyReaderGrants(ctx, rdr, check, readerDB); err != nil {
 		return err
 	}
 	if err := verifyReaderCannotWrite(ctx, rdr, check); err != nil {
@@ -181,13 +186,61 @@ func VerifyReader(ctx context.Context, control *Conn, controlBase string, reader
 	return verifyReaderSeesNoForeignRows(ctx, ctl, rdr, check)
 }
 
-func verifyReaderIdentity(ctx context.Context, ctl, rdr ReadLane, check ReaderCheck) error {
+func verifyReaderIdentity(ctx context.Context, ctl, rdr ReadLane, check ReaderCheck) (string, error) {
 	readerDB, controlDB, err := verifyReaderLogin(ctx, ctl, rdr, check)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if readerDB != controlDB {
-		return unsafeReader("%s: the reader resolves database %q but the store's tables live in %q; give the reader that default database (DPR-285)", check.Plane, readerDB, controlDB)
+		return "", unsafeReader("%s: the reader resolves database %q but the store's tables live in %q; give the reader that default database (DPR-285)", check.Plane, readerDB, controlDB)
+	}
+	return readerDB, nil
+}
+
+// siloDatabasePrefix names every per-tenant database (ee/silo CHDatabase).
+const siloDatabasePrefix = "probectl_t_"
+
+// readerGrantRe is the one grant shape a least-privilege reader may hold:
+// SELECT (optionally on named columns) on one database's tables or on one
+// table, unquoted identifiers only, no grant option.
+var readerGrantRe = regexp.MustCompile(`^GRANT SELECT(\([A-Za-z0-9_, ]+\))? ON ([A-Za-z_][A-Za-z0-9_]*)\.(\*|[A-Za-z_][A-Za-z0-9_]*) TO [^ ]+$`)
+
+// verifyReaderGrants (DPR-328) proves the reader's grants are as narrow as the
+// boot proof assumes. The row-policy proof checks only the tables that exist
+// and hold rows when it runs; a reader with SELECT ON *.* or a database-wide
+// grant on a per-tenant database would pass it and still read, unfiltered,
+// any table created later, and system tables such as query_log. The reader's
+// own SHOW GRANTS (which needs no privilege) may therefore list only:
+//
+//   - SELECT on one table (or some of its columns), anywhere: the per-tenant
+//     tables the silo scope grants after installing their policies;
+//   - SELECT on all of dbWide's tables, the pooled database the operator
+//     grants, and never a per-tenant database.
+//
+// Anything else is refused as unsafe: a global grant, another privilege, a
+// grant option, a role (its grants are not visible to the reader, so they
+// cannot be vouched for), a partial revoke (it implies a broader grant), or a
+// quoted identifier.
+func verifyReaderGrants(ctx context.Context, rdr ReadLane, check ReaderCheck, dbWide string) error {
+	status, _, body, err := selfCheckDo(ctx, rdr, http.MethodGet, "SHOW GRANTS FORMAT TSVRaw", "")
+	if err != nil {
+		return fmt.Errorf("%s: reader grants: %w", check.Plane, err)
+	}
+	if status/100 != 2 {
+		return fmt.Errorf("%s: reader grants: status %d: %s", check.Plane, status, snippet(body))
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		m := readerGrantRe.FindStringSubmatch(line)
+		switch {
+		case m == nil:
+			return unsafeReader("%s: the reader login %q holds %q; a tenant reader may hold only SELECT on the pooled database and on individual per-tenant tables (DPR-328)", check.Plane, check.ReaderUser, line)
+		case m[3] == "*" && (m[2] != dbWide || strings.HasPrefix(m[2], siloDatabasePrefix)):
+			return unsafeReader("%s: the reader login %q holds %q: a database-wide grant outside its pooled database %q would let it read tables no row policy covers yet (DPR-328)", check.Plane, check.ReaderUser, line, dbWide)
+		}
 	}
 	return nil
 }

@@ -246,7 +246,11 @@ func (s SiloScope) Verify(ctx context.Context, routedBase, database string) erro
 		return fmt.Errorf("%s: %w", s.Plane, err)
 	}
 	check := ReaderCheck{Plane: s.Plane + " per-tenant database " + database, ReaderUser: s.ReaderUser, TenantSetting: s.TenantSetting}
-	if _, _, err := verifyReaderLogin(ctx, ctl, rdr, check); err != nil {
+	readerDB, _, err := verifyReaderLogin(ctx, ctl, rdr, check)
+	if err != nil {
+		return err
+	}
+	if err := verifyReaderGrants(ctx, rdr, check, readerDB); err != nil {
 		return err
 	}
 	tables, err := siloCatalog(ctx, ctl, database)
