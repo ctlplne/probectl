@@ -83,7 +83,7 @@ SPDX-License-Identifier = "LGPL-2.1-only OR BSD-2-Clause"
 # a BPF object, so these carry "(GPL-2.0 OR BSD-3-Clause)" in their headers;
 # SPDX names the deprecated "GPL-2.0" GPL-2.0-only.
 [[annotations]]
-path = ["internal/ebpf/bpf/*.bpf.c", "internal/ebpf/bpf/arch_compat.h"]
+path = ["internal/ebpf/bpf/*.bpf.c", "internal/ebpf/bpf/arch_compat.h", "internal/ebpf/bpf/conn_role.h"]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 certctl LLC"
 SPDX-License-Identifier = "GPL-2.0-only OR BSD-3-Clause"
