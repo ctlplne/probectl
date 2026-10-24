@@ -110,7 +110,7 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(tn.identity, "testsync.pub")); err != nil {
 			t.Fatalf("enrollment did not hand %s's agent the test-bundle key: %v", tn.slug, err)
 		}
-		st.StartAgent(t, tn.identity, tn.agentName, []string{"http"}, g9AgentTestSync)
+		tn.agentLog = st.StartAgent(t, tn.identity, tn.agentName, []string{"http"}, g9AgentTestSync)
 	}
 	for _, tn := range tenants {
 		shipped.Await(t, tn.slug+"'s agent applying its tenant's test set", 90*time.Second, func() bool {
@@ -179,6 +179,9 @@ func TestCentralTestsReachAgentsRealStack(t *testing.T) {
 			t.Errorf("the target never saw %s's test (mark %s)", tn.slug, tn.mark)
 		}
 	}
+	// PLAT-13: the API-created test runs within one interval of the agent
+	// verifying and applying the bundle that carries it.
+	checkFirstRunWithinInterval(t, st, C, 10*time.Second)
 	for _, tn := range tenants {
 		latest := tn.latest(t, st)
 		var history g9Results
@@ -394,6 +397,60 @@ func checkSharedLaneRefusesSiloedTenant(t *testing.T, st *shipped.Stack, tn *g9T
 	t.Logf("5 results forged onto the shared lane as siloed tenant %s were refused: none in its latest results or probe series", tn.slug)
 }
 
+// checkFirstRunWithinInterval measures PLAT-13's "executed by an enrolled
+// agent within one interval after the agent verifies the signed bundle": the
+// agent's own log names when it verified and applied the bundle that carries
+// tn's test (only a verified bundle is ever applied), and the earliest result
+// of that test in the tenant's history must be observed within one interval
+// of it.
+func checkFirstRunWithinInterval(t *testing.T, st *shipped.Stack, tn *g9Tenant, interval time.Duration) {
+	t.Helper()
+	epoch := tn.persistedBundle(t, st).Epoch
+	applied, ok := appliedAt(t, tn.agentLog, epoch)
+	if !ok {
+		t.Fatalf("agent %s logged no \"applied central test set\" for v%d", tn.agentName, epoch)
+	}
+	var history g9Results
+	tn.get(t, st, "/v1/results/history?window=1h", &history)
+	var first time.Time
+	for _, r := range history.Items {
+		if r.Attributes["probectl.test.id"] == tn.testID && (first.IsZero() || r.ObservedAt.Before(first)) {
+			first = r.ObservedAt
+		}
+	}
+	if first.IsZero() {
+		t.Fatalf("tenant %s's result history holds no result of its test %s", tn.slug, tn.testID)
+	}
+	lag := first.Sub(applied)
+	t.Logf("agent %s applied v%d at %s; first result of %s's API-created test observed %s later (interval %s)",
+		tn.agentName, epoch, applied.Format(time.RFC3339Nano), tn.slug, lag, interval)
+	if lag < -time.Second || lag > interval {
+		t.Errorf("PLAT-13: %s's API-created test first ran %s after its agent applied the verified bundle, want within one interval (%s)",
+			tn.slug, lag, interval)
+	}
+}
+
+// appliedAt is when the agent logged applying the central test set at
+// version epoch (the agent logs JSON by default).
+func appliedAt(t *testing.T, logPath string, epoch int64) (time.Time, bool) {
+	t.Helper()
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		var rec struct {
+			Time    time.Time `json:"time"`
+			Msg     string    `json:"msg"`
+			Version int64     `json:"version"`
+		}
+		if json.Unmarshal([]byte(line), &rec) == nil && rec.Msg == "test sync: applied central test set" && rec.Version == epoch {
+			return rec.Time, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // g9AgentTestSync is each agent's test_sync block: no local tests, central
 // tests on, and private targets allowed because the target is a loopback
 // page the operator owns.
@@ -474,7 +531,7 @@ func checkTamperedBundleRefused(t *testing.T, st *shipped.Stack, tn *g9Tenant, p
 type g9Tenant struct {
 	slug, name, model, admin       string
 	id, mark, cookie, token, agent string
-	agentName, identity            string
+	agentName, identity, agentLog  string
 	testName, testID, target       string
 	ns, pgSchema                   string // the routing `probectl isolation status` reports
 }
@@ -487,6 +544,7 @@ type g9TestSet struct {
 
 type g9Result struct {
 	AgentID    string             `json:"agent_id"`
+	ObservedAt time.Time          `json:"observed_at"`
 	Success    bool               `json:"success"`
 	Metrics    map[string]float64 `json:"metrics"`
 	Attributes map[string]string  `json:"attributes"`
