@@ -386,6 +386,9 @@ func (c *Config) validateControlPlane() error {
 	if cp.GRPCAddr == "" {
 		return nil
 	}
+	if c.AgentID == "" {
+		return fmt.Errorf("ebpf: control_plane.grpc_addr requires agent_id (the registered collector id its certificate names)")
+	}
 	if cp.CertFile == "" || cp.KeyFile == "" || cp.CAFile == "" {
 		return fmt.Errorf("ebpf: control_plane.grpc_addr requires control_plane.cert_file, key_file and ca_file (the agent's mTLS identity; no plaintext agent channel)")
 	}

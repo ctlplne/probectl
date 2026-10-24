@@ -127,3 +127,43 @@ func TestL7FloorRidesTheExistingMTLSAgentChannel(t *testing.T) {
 		t.Fatalf("recorded posture = %+v", p)
 	}
 }
+
+// D-43 S3: a channel whose certificate names another tenant (or another agent)
+// is never used — the agent refuses consented capture rather than fetch that
+// tenant's floor and record its posture there while publishing as itself.
+func TestL7ChannelIdentityMustBeThisAgents(t *testing.T) {
+	dir := t.TempDir()
+	ca, err := crypto.GenerateCA("d43-s3", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		otherTenant = "99999999-9999-4999-8999-999999999999"
+		agentID     = "55555555-5555-4555-8555-555555555555"
+	)
+	for name, id := range map[string]string{
+		"foreign tenant": crypto.AgentSPIFFEID(otherTenant, agentID),
+		"foreign agent":  crypto.AgentSPIFFEID(d43Tenant, "66666666-6666-4666-8666-666666666666"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			cert, key, err := ca.IssueClientCert(agentID, id, time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := recordLiveStarts(t)
+			cfg := consentedConfig()
+			cfg.AgentID = agentID
+			cfg.FixturePath = "testdata/flows.json"
+			cfg.ControlPlane = ControlPlaneConfig{GRPCAddr: "127.0.0.1:1", ServerName: "localhost",
+				CertFile: writeChannelFile(t, dir, "c.pem", cert), KeyFile: writeChannelFile(t, dir, "c.key", key),
+				CAFile: writeChannelFile(t, dir, "ca.pem", ca.CertPEM())}
+			a, err := New(cfg, bus.NewMemory(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rec.starts) != 0 || a.policy != nil || !a.L7CaptureChannelRefused() {
+				t.Fatalf("capture under another identity's channel: starts=%v policy=%v", rec.starts, a.policy)
+			}
+		})
+	}
+}

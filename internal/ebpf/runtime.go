@@ -228,6 +228,15 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	if err != nil {
 		return nil, err // a half-working policy channel refuses start (fail closed)
 	}
+	if policy != nil {
+		if ierr := checkChannelIdentity(cfg); ierr != nil {
+			// D-43 S3: never use another agent's channel. Without it,
+			// consented live capture is refused (the flow plane runs on).
+			log.Error("ebpf L7 capture REFUSED: the control-plane channel's identity is not this agent's (D-43)", "error", ierr.Error())
+			_ = policy.Close()
+			policy = nil
+		}
+	}
 	return newAgent(cfg, b, log, src, policy)
 }
 

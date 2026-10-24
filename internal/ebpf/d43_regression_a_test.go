@@ -242,6 +242,10 @@ func TestControlPlaneConfigRequiresTheFullIdentity(t *testing.T) {
 		t.Fatal("grpc_addr without the mTLS identity must refuse")
 	}
 	cfg.ControlPlane.CertFile, cfg.ControlPlane.KeyFile, cfg.ControlPlane.CAFile = "/id/cert.pem", "/id/key.pem", "/id/server-ca.pem"
+	if err := cfg.validate(); err == nil {
+		t.Fatal("grpc_addr without the agent_id its certificate names must refuse")
+	}
+	cfg.AgentID = "55555555-5555-4555-8555-555555555555"
 	if err := cfg.validate(); err != nil {
 		t.Fatalf("full identity must validate: %v", err)
 	}

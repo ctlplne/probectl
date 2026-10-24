@@ -527,7 +527,10 @@ emit looser data than its tenant allows.
   `server-ca.pem`; enroll with a join token pinned to this collector's
   `agent_id`, `probectl-control enroll-token -agent <agent_id>`). The tenant
   the control plane answers for is the one in the certificate, never anything
-  the agent sends. The floor is re-read every `control_plane.policy_interval`
+  the agent sends — and the agent refuses to use a channel whose certificate
+  names another tenant or another agent than the `tenant_id` and `agent_id`
+  it publishes as (D-43 S3; `agent_id` is required with the channel). The
+  floor is re-read every `control_plane.policy_interval`
   (5 minutes).
 - **Enforcement.** The agent refuses to start capture when its local
   `l7_capture_redaction` is looser than the floor (ERROR log, posture

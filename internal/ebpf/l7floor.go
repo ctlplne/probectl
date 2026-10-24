@@ -88,6 +88,31 @@ func dialL7Policy(cp ControlPlaneConfig) (L7PolicyClient, error) {
 	return &grpcL7Policy{conn: conn, svc: agentv1.NewAgentServiceClient(conn)}, nil
 }
 
+// checkChannelIdentity binds the policy channel to this agent (D-43 S3): the
+// certificate's SPIFFE identity must name the tenant and the collector
+// agent_id this agent publishes as. A Secret copied from another release, or
+// another tenant's identity, would otherwise fetch THAT tenant's floor and
+// record the posture on THAT tenant's agent while this agent published as
+// itself.
+func checkChannelIdentity(cfg *Config) error {
+	id, err := channelSPIFFEID(cfg.ControlPlane.CertFile)
+	if err != nil {
+		return fmt.Errorf("ebpf: control-plane identity unreadable: %w", err)
+	}
+	if id.TenantID != cfg.TenantID {
+		return fmt.Errorf("ebpf: control-plane certificate names tenant %q but this agent is configured for tenant %q — the identity Secret is not this agent's", id.TenantID, cfg.TenantID)
+	}
+	if id.AgentID != cfg.AgentID {
+		return fmt.Errorf("ebpf: control-plane certificate names agent %q but this agent publishes as %q — the identity Secret is not this agent's", id.AgentID, cfg.AgentID)
+	}
+	return nil
+}
+
+// channelSPIFFEID reads the SPIFFE identity of the policy-channel certificate.
+func channelSPIFFEID(certFile string) (crypto.SPIFFEID, error) {
+	return crypto.SPIFFEIDFromCertFile(certFile)
+}
+
 func (g *grpcL7Policy) FetchFloor(ctx context.Context) (string, error) {
 	resp, err := g.svc.FetchL7Policy(ctx, &agentv1.FetchL7PolicyRequest{})
 	if err != nil {
