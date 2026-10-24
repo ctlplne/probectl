@@ -91,7 +91,7 @@ func TestL7FloorRidesTheExistingMTLSAgentChannel(t *testing.T) {
 	t.Cleanup(func() { stop(); <-done })
 
 	const agentID = "55555555-5555-4555-8555-555555555555"
-	cert, key, err := ca.IssueClientCert(agentID, crypto.AgentSPIFFEID(d43Tenant, agentID), time.Hour)
+	cert, key, err := ca.IssueClientCert(agentID, crypto.EBPFSPIFFEID(d43Tenant, agentID), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,8 +142,9 @@ func TestL7ChannelIdentityMustBeThisAgents(t *testing.T) {
 		agentID     = "55555555-5555-4555-8555-555555555555"
 	)
 	for name, id := range map[string]string{
-		"foreign tenant": crypto.AgentSPIFFEID(otherTenant, agentID),
-		"foreign agent":  crypto.AgentSPIFFEID(d43Tenant, "66666666-6666-4666-8666-666666666666"),
+		"foreign tenant": crypto.EBPFSPIFFEID(otherTenant, agentID),
+		"foreign agent":  crypto.EBPFSPIFFEID(d43Tenant, "66666666-6666-4666-8666-666666666666"),
+		"agent plane":    crypto.AgentSPIFFEID(d43Tenant, agentID),
 	} {
 		t.Run(name, func(t *testing.T) {
 			cert, key, err := ca.IssueClientCert(agentID, id, time.Hour)

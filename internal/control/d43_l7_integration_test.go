@@ -174,8 +174,8 @@ func TestEBPFCollectorRegistrationIssuesAgentChannelSVID(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.SVID == nil || out.SVID.SPIFFEID != crypto.AgentSPIFFEID(tenant, out.AgentID) || out.SVID.Plane != "agent" {
-		t.Fatalf("eBPF collector SVID = %+v, want the agent-plane identity of %s", out.SVID, out.AgentID)
+	if out.SVID == nil || out.SVID.SPIFFEID != crypto.EBPFSPIFFEID(tenant, out.AgentID) || out.SVID.Plane != "ebpf" {
+		t.Fatalf("eBPF collector SVID = %+v, want the eBPF-plane identity of %s (D-43 S9)", out.SVID, out.AgentID)
 	}
 	var a *store.Agent
 	if err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {

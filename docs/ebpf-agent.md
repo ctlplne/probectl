@@ -523,9 +523,12 @@ emit looser data than its tenant allows.
 - **Delivery.** The agent fetches the floor over the existing agent gRPC
   service (`FetchL7Policy`) on the control plane's agent listener, over mTLS:
   set `control_plane.grpc_addr`, `cert_file`, `key_file` and `ca_file` (the
-  identity directory an enrollment writes — `cert.pem`, `key.pem`,
-  `server-ca.pem`; enroll with a join token pinned to this collector's
-  `agent_id`, `probectl-control enroll-token -agent <agent_id>`). The tenant
+  identity files — `cert.pem`, `key.pem`,
+  `server-ca.pem`; the certificate is the collector's own eBPF-plane SVID,
+  `spiffe://probectl/tenant/<t>/ebpf/<agent_id>`, issued by
+  `POST /v1/collectors/register` with `plane=ebpf` and a `csr_pem` — the
+  listener admits it to the two L7 policy calls only, never as a synthetic
+  agent, D-43 S9). The tenant
   the control plane answers for is the one in the certificate, never anything
   the agent sends — and the agent refuses to use a channel whose certificate
   names another tenant or another agent than the `tenant_id` and `agent_id`

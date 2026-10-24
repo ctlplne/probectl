@@ -678,7 +678,7 @@ func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostn
 // registerEBPFCollectorWithSVID registers an eBPF collector that also wants
 // the mTLS agent channel (D-43 refinement 3: the tenant's L7 redaction floor is
 // delivered over the agent gRPC service, and the collector reports its capture
-// posture there). The SVID is an agent-plane identity bound to the collector's
+// posture there). The SVID is an eBPF-collector-plane identity (spiffe://.../ebpf/<id>, D-43 S9) bound to the collector's
 // own agent_id, so the records it publishes and the policy it fetches name the
 // same registry row; the private key never leaves the collector host (the CSR
 // is signed, the key is not sent). Metered like every collector (DPR-081).
@@ -686,7 +686,7 @@ func (s *Service) registerEBPFCollectorWithSVID(ctx context.Context, tenantID, a
 	if qerr := usage.AllowCreate(ctx, tenantID, usage.MeterAgents); qerr != nil {
 		return nil, fmt.Errorf("%w: %v", ErrQuotaExceeded, qerr)
 	}
-	svid, err := s.issue(ctx, tenantID, agentID, hostname, "", csrPEM, "agent", []string{"collector", "ebpf"}, "")
+	svid, err := s.issue(ctx, tenantID, agentID, hostname, "", csrPEM, "ebpf", []string{"collector", "ebpf"}, "")
 	if err != nil {
 		return nil, err
 	}
@@ -799,6 +799,10 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 		spiffe = crypto.AgentSPIFFEID(tenantID, agentID)
 	case "bmp":
 		spiffe = crypto.BMPSPIFFEID(tenantID, agentID)
+	case "ebpf":
+		// D-43 S9: the eBPF collector's own plane — the agent listener
+		// admits it to the L7 policy calls only.
+		spiffe = crypto.EBPFSPIFFEID(tenantID, agentID)
 	default:
 		return nil, refuseTenant(tenantID, ErrInvalidCollectorPlane)
 	}

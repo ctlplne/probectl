@@ -150,6 +150,8 @@ func revocationGuard(rl *RevocationList, base func([][]byte, [][]*x509.Certifica
 // (U-038): the handshake refuses a revoked cert after CA + trust-domain
 // verification. A nil/empty list is a no-op.
 func ServerMTLSConfigRevocable(certFile, keyFile, caFile string, rl *RevocationList) (*tls.Config, error) {
+	// D-43 S9: this is the agent gRPC listener's policy — it admits agent and
+	// eBPF-collector identities, and every RPC authorizes its plane.
 	cfg, err := ServerMTLSConfig(certFile, keyFile, caFile)
 	if err != nil {
 		return nil, err

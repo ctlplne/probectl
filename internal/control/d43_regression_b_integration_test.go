@@ -168,7 +168,7 @@ func startD43Stack(t *testing.T, db *store.DB, ctlLog *slog.Logger) d43Stack {
 // publishing onto rb.
 func runD43Agent(t *testing.T, st d43Stack, tenant, agentID, redaction, flowsPath, l7Path string, rb bus.Bus, agentLog *slog.Logger) {
 	t.Helper()
-	cert, key, err := st.ca.IssueClientCert(agentID, crypto.AgentSPIFFEID(tenant, agentID), time.Hour)
+	cert, key, err := st.ca.IssueClientCert(agentID, crypto.EBPFSPIFFEID(tenant, agentID), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

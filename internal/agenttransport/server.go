@@ -112,6 +112,9 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 	// expires. Starts empty (no effect); the control plane refreshes it from
 	// the agent registry via RevocationList().
 	revocations := crypto.NewRevocationList()
+	// D-43 S9: the listener admits agents and eBPF collectors; every RPC
+	// authorizes its plane (service.authenticate: agents only;
+	// authenticateEBPFCollector: the L7 policy calls only).
 	tlsConfig, err := crypto.ServerMTLSConfigRevocable(certFile, keyFile, caFile, revocations)
 	if err != nil {
 		return nil, fmt.Errorf("agent transport tls: %w", err)

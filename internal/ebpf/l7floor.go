@@ -110,7 +110,7 @@ func checkChannelIdentity(cfg *Config) error {
 
 // channelSPIFFEID reads the SPIFFE identity of the policy-channel certificate.
 func channelSPIFFEID(certFile string) (crypto.SPIFFEID, error) {
-	return crypto.SPIFFEIDFromCertFile(certFile)
+	return crypto.EBPFSPIFFEIDFromCertFile(certFile)
 }
 
 func (g *grpcL7Policy) FetchFloor(ctx context.Context) (string, error) {

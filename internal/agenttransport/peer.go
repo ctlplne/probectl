@@ -46,6 +46,11 @@ func peerLeafFromContext(ctx context.Context) (*x509.Certificate, error) {
 // mTLS client certificate. Because the transport requires and verifies the client
 // certificate, this identity is authoritative — it is the agent's tenant + id.
 func identityFromContext(ctx context.Context) (crypto.SPIFFEID, error) {
+	return planeIdentityFromContext(ctx, crypto.SPIFFEIDFromCert)
+}
+
+// planeIdentityFromContext is identityFromContext for one SPIFFE plane.
+func planeIdentityFromContext(ctx context.Context, parse func(*x509.Certificate) (crypto.SPIFFEID, error)) (crypto.SPIFFEID, error) {
 	leaf, err := peerLeafFromContext(ctx)
 	if err != nil {
 		return crypto.SPIFFEID{}, err
@@ -63,7 +68,7 @@ func identityFromContext(ctx context.Context) (crypto.SPIFFEID, error) {
 			"agent identity expired at %s (rotate before expiry via POST /enroll/agent/rotate; an expired identity must re-enroll with a join token)",
 			leaf.NotAfter.UTC().Format(time.RFC3339))
 	}
-	return crypto.SPIFFEIDFromCert(leaf)
+	return parse(leaf)
 }
 
 // authenticate resolves the verified agent identity and re-validates it on EVERY
@@ -80,7 +85,18 @@ func identityFromContext(ctx context.Context) (crypto.SPIFFEID, error) {
 // StreamResults on that connection is refused within one refresh interval.
 // Guardrail §7.4/§7.12: a revoked credential fails closed on every path.
 func (svc *service) authenticate(ctx context.Context) (crypto.SPIFFEID, error) {
-	id, err := identityFromContext(ctx)
+	return svc.authenticatePlane(ctx, crypto.SPIFFEIDFromCert)
+}
+
+// authenticateEBPFCollector is authenticate for the eBPF-collector plane: the
+// only identity the L7 policy calls accept, and an identity no other call
+// accepts (D-43 S9).
+func (svc *service) authenticateEBPFCollector(ctx context.Context) (crypto.SPIFFEID, error) {
+	return svc.authenticatePlane(ctx, crypto.EBPFSPIFFEIDFromCert)
+}
+
+func (svc *service) authenticatePlane(ctx context.Context, parse func(*x509.Certificate) (crypto.SPIFFEID, error)) (crypto.SPIFFEID, error) {
+	id, err := planeIdentityFromContext(ctx, parse)
 	if err != nil {
 		return crypto.SPIFFEID{}, err
 	}

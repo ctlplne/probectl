@@ -43,6 +43,14 @@ func BMPSPIFFEID(tenantID, routerID string) string {
 	return SPIFFEID{TrustDomain: TrustDomain, TenantID: tenantID, AgentID: routerID, Plane: "bmp"}.String()
 }
 
+// EBPFSPIFFEID builds the SPIFFE URI for a registry-issued eBPF collector
+// (D-43 S9): its own plane, so the eBPF agent's key — present on every node of
+// a DaemonSet — authenticates only to the L7 policy calls, never as a
+// synthetic agent.
+func EBPFSPIFFEID(tenantID, collectorID string) string {
+	return SPIFFEID{TrustDomain: TrustDomain, TenantID: tenantID, AgentID: collectorID, Plane: "ebpf"}.String()
+}
+
 // String renders the SPIFFE URI.
 func (id SPIFFEID) String() string {
 	plane := id.Plane
@@ -66,6 +74,11 @@ func ParseSPIFFEID(uri string) (SPIFFEID, error) {
 // the agent transport, even though both identities use the same registry.
 func ParseBMPSPIFFEID(uri string) (SPIFFEID, error) {
 	return parseSPIFFEIDForPlane(uri, "bmp")
+}
+
+// ParseEBPFSPIFFEID parses only a probectl eBPF-collector SPIFFE URI.
+func ParseEBPFSPIFFEID(uri string) (SPIFFEID, error) {
+	return parseSPIFFEIDForPlane(uri, "ebpf")
 }
 
 func parseSPIFFEIDForPlane(uri, plane string) (SPIFFEID, error) {
@@ -120,11 +133,30 @@ func BMPSPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
 	return spiffeIDFromCert(cert, ParseBMPSPIFFEID)
 }
 
+// EBPFSPIFFEIDFromCert extracts one canonical eBPF-collector URI SAN.
+func EBPFSPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
+	return spiffeIDFromCert(cert, ParseEBPFSPIFFEID)
+}
+
+// AgentChannelSPIFFEIDFromCert accepts the two identities the agent gRPC
+// listener admits at the handshake: an agent, or an eBPF collector. Each RPC
+// then authorizes its plane (the eBPF collector is allowed the L7 policy calls
+// only).
+func AgentChannelSPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
+	if id, err := SPIFFEIDFromCert(cert); err == nil {
+		return id, nil
+	}
+	return EBPFSPIFFEIDFromCert(cert)
+}
+
 // RegisteredSPIFFEIDFromCert extracts either supported enrollment-registry
 // identity. Plane-specific listener authentication must use the narrower
 // helper above; this broader helper is for shared rotation and revocation.
 func RegisteredSPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
 	if id, err := SPIFFEIDFromCert(cert); err == nil {
+		return id, nil
+	}
+	if id, err := EBPFSPIFFEIDFromCert(cert); err == nil {
 		return id, nil
 	}
 	return BMPSPIFFEIDFromCert(cert)
@@ -146,6 +178,15 @@ func spiffeIDFromCert(cert *x509.Certificate, parse func(string) (SPIFFEID, erro
 // SPIFFE identity. An agent uses this to learn its own tenant + id from its
 // client certificate.
 func SPIFFEIDFromCertFile(path string) (SPIFFEID, error) {
+	return spiffeIDFromCertFile(path, SPIFFEIDFromCert)
+}
+
+// EBPFSPIFFEIDFromCertFile is SPIFFEIDFromCertFile for the eBPF-collector plane.
+func EBPFSPIFFEIDFromCertFile(path string) (SPIFFEID, error) {
+	return spiffeIDFromCertFile(path, EBPFSPIFFEIDFromCert)
+}
+
+func spiffeIDFromCertFile(path string, parse func(*x509.Certificate) (SPIFFEID, error)) (SPIFFEID, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return SPIFFEID{}, fmt.Errorf("crypto: read certificate: %w", err)
@@ -163,6 +204,6 @@ func SPIFFEIDFromCertFile(path string) (SPIFFEID, error) {
 		if err != nil {
 			return SPIFFEID{}, fmt.Errorf("crypto: parse certificate: %w", err)
 		}
-		return SPIFFEIDFromCert(cert)
+		return parse(cert)
 	}
 }

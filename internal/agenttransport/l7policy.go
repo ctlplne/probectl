@@ -59,7 +59,7 @@ func (s *Server) WithL7Policy(p L7Policy) *Server {
 // FetchL7Policy serves the calling agent's tenant's redaction floor. The tenant
 // is the one in the verified client certificate (docs/guardrails.md G7-4).
 func (svc *service) FetchL7Policy(ctx context.Context, _ *agentv1.FetchL7PolicyRequest) (*agentv1.FetchL7PolicyResponse, error) {
-	id, err := svc.authenticate(ctx)
+	id, err := svc.authenticateEBPFCollector(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
@@ -78,7 +78,7 @@ func (svc *service) FetchL7Policy(ctx context.Context, _ *agentv1.FetchL7PolicyR
 
 // ReportL7Posture validates and records the calling agent's capture posture.
 func (svc *service) ReportL7Posture(ctx context.Context, req *agentv1.ReportL7PostureRequest) (*agentv1.ReportL7PostureResponse, error) {
-	id, err := svc.authenticate(ctx)
+	id, err := svc.authenticateEBPFCollector(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}

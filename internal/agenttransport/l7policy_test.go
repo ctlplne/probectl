@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/store"
 )
@@ -46,8 +47,39 @@ func (f *fakeL7Policy) RecordPosture(_ context.Context, tenant, agent string, p 
 	return true, nil
 }
 
+// l7Service is a service plus two peer contexts for one tenant: an eBPF
+// collector identity (the only one the L7 policy calls accept) and an agent
+// identity (which they refuse, D-43 S9).
+func l7Service(t *testing.T) (*service, context.Context, context.Context, string) {
+	t.Helper()
+	dir := t.TempDir()
+	ca, err := crypto.GenerateCA("l7policy-ca", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srvCert, srvKey, err := ca.IssueServerCert("control", []string{"localhost"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := New(writeFile(t, dir, "srv.crt", srvCert), writeFile(t, dir, "srv.key", srvKey),
+		writeFile(t, dir, "ca.crt", ca.CertPEM()), nil, nil, nil, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const tenant, agent = "33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444"
+	ebpfPEM, _, err := ca.IssueClientCert(agent, crypto.EBPFSPIFFEID(tenant, agent), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentPEM, _, err := ca.IssueClientCert(agent, crypto.AgentSPIFFEID(tenant, agent), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv.svc, peerContextForLeaf(leafFromPEM(t, ebpfPEM)), peerContextForLeaf(leafFromPEM(t, agentPEM)), tenant
+}
+
 func TestFetchL7PolicyTenantFromCertificate(t *testing.T) {
-	svc, ctx, tenant := testBundleService(t)
+	svc, ctx, _, tenant := l7Service(t)
 	if _, err := svc.FetchL7Policy(ctx, &agentv1.FetchL7PolicyRequest{}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("unwired policy = %v, want FailedPrecondition (the agent then applies metadata)", err)
 	}
@@ -66,7 +98,7 @@ func TestFetchL7PolicyTenantFromCertificate(t *testing.T) {
 }
 
 func TestReportL7PostureValidatesUntrustedFields(t *testing.T) {
-	svc, ctx, tenant := testBundleService(t)
+	svc, ctx, _, tenant := l7Service(t)
 	fake := &fakeL7Policy{}
 	svc.l7policy = fake
 	good := &agentv1.L7CapturePosture{
@@ -145,5 +177,34 @@ func TestL7PostureMaterial(t *testing.T) {
 		if got := l7PostureMaterial(tc.prior, tc.next); got != tc.want {
 			t.Errorf("%s: material = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// D-43 S9: the eBPF collector's identity reaches the L7 policy calls only, and
+// an agent identity cannot use them.
+func TestL7PolicyCallsArePlaneScoped(t *testing.T) {
+	svc, ebpfCtx, agentCtx, _ := l7Service(t)
+	svc.l7policy = &fakeL7Policy{floor: "metadata"}
+	if _, err := svc.FetchL7Policy(agentCtx, &agentv1.FetchL7PolicyRequest{}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("agent identity on FetchL7Policy = %v, want Unauthenticated", err)
+	}
+	if _, err := svc.ReportL7Posture(agentCtx, &agentv1.ReportL7PostureRequest{}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("agent identity on ReportL7Posture = %v, want Unauthenticated", err)
+	}
+	if _, err := svc.FetchL7Policy(ebpfCtx, &agentv1.FetchL7PolicyRequest{}); err != nil {
+		t.Fatalf("eBPF identity on FetchL7Policy = %v", err)
+	}
+	// Every agent-plane call refuses the eBPF collector identity.
+	if _, err := svc.Register(ebpfCtx, &agentv1.RegisterRequest{Hostname: "x"}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("eBPF identity on Register = %v, want Unauthenticated", err)
+	}
+	if _, err := svc.Heartbeat(ebpfCtx, &agentv1.HeartbeatRequest{}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("eBPF identity on Heartbeat = %v, want Unauthenticated", err)
+	}
+	if _, err := svc.FetchTestBundle(ebpfCtx, &agentv1.FetchTestBundleRequest{}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("eBPF identity on FetchTestBundle = %v, want Unauthenticated", err)
+	}
+	if _, err := svc.PollCoordination(ebpfCtx, &agentv1.PollCoordinationRequest{}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("eBPF identity on PollCoordination = %v, want Unauthenticated", err)
 	}
 }

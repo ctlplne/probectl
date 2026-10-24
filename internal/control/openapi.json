@@ -9467,7 +9467,7 @@
         "x-required-permission": "agent.write",
         "operationId": "registerCollector",
         "summary": "Register a tenant-scoped bus collector from a one-time enrollment token",
-        "description": "Consumes a tenant-scoped one-time token inside the caller tenant. Bus-collector planes receive a registry identity to stamp on records; plane=bmp additionally requires csr_pem and returns a registry-issued /bmp/<router-id> SVID for router mTLS. plane=ebpf accepts an optional csr_pem and then returns an agent-plane SVID bound to the collector's own agent_id, for the mTLS agent channel that delivers the tenant's L7 capture redaction floor and takes the capture posture (D-43); the private key never leaves the collector host.",
+        "description": "Consumes a tenant-scoped one-time token inside the caller tenant. Bus-collector planes receive a registry identity to stamp on records; plane=bmp additionally requires csr_pem and returns a registry-issued /bmp/<router-id> SVID for router mTLS. plane=ebpf accepts an optional csr_pem and then returns a registry-issued /ebpf/<agent-id> SVID bound to the collector's own agent_id, which the agent listener admits to the L7 policy calls only (FetchL7Policy, ReportL7Posture — never as a synthetic agent), so the tenant's L7 capture redaction floor reaches the collector and its capture posture reaches the tenant's audit chain (D-43); the private key never leaves the collector host.",
         "tags": [
           "agents"
         ],

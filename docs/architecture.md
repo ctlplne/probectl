@@ -239,7 +239,10 @@ must present a certificate too, not just the server
 `PollCoordination` / `ReportEndpoint` pair that brokers agent-to-agent
 measurement — see [Network tests and agent-to-agent](#network-tests-and-agent-to-agent) —
 and `FetchTestBundle`, the agent's pull of its tenant's signed central test
-set).
+set). The same listener admits one more identity: the eBPF collector's own
+plane, `spiffe://probectl/tenant/<t>/ebpf/<a>`, which reaches only
+`FetchL7Policy` and `ReportL7Posture` (its tenant's L7 redaction floor in, its
+capture posture out — D-43) and is refused by every agent call.
 The server demands and verifies a client certificate, and reads the agent's
 **tenant and id from that certificate's SPIFFE identity** (**SPIFFE** — a
 standard for naming a workload *inside* its certificate as a URI) —
