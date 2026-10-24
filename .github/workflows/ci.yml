@@ -1004,6 +1004,47 @@ jobs:
           grep -E '\bbuild\s+-tags=.*\bebpf\b' buildinfo.txt \
             || { echo "::error::shipped probectl-ebpf-agent image is NOT the -tags ebpf live build (EBPF-004)"; exit 1; }
 
+  e2e:
+    name: e2e (release image, production auth, two tenants)
+    # TQ-03 (beta gate G6): the black-box e2e tests the control plane AS
+    # SHIPPED. The step below builds the release image exactly as image-scan
+    # does (deploy/docker/Dockerfile, COMPONENT=probectl-control, the default
+    # core edition, no build tags) and loads it locally — it is never pushed.
+    # test/e2e then runs that image the way deploy/compose/probectl.yml does
+    # (certgen, verify-full Postgres, least-privilege serve login, read-only
+    # non-root container) in PROBECTL_AUTH_MODE=session against a real Dex,
+    # signs two tenants' admins in through Dex's own password form, writes and
+    # reads tests and alert rules over HTTPS with the API tokens those
+    # sessions mint, and fails on any cross-tenant visibility; then it drives
+    # the enroll -> SVID -> mTLS canary and two-tenant Kafka flow lanes.
+    # Inside verify-all because the nightly copy alone went red for 19 nights
+    # with nobody looking (G6 root cause, bucket C).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build the release control-plane image (amd64, local load, never pushed)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            COMPONENT=probectl-control
+            EDITION=core
+          load: true
+          tags: probectl/probectl-control:e2e
+      - name: Black-box e2e against the release image (session auth via Dex, HTTPS, two tenants)
+        env:
+          PROBECTL_E2E_IMAGE: probectl/probectl-control:e2e
+        run: make e2e
+
   cross-tenant-isolation:
     name: cross-tenant-isolation
     # Permanent CI gate — docs/guardrails.md G7-1. From S2 this proves real
@@ -1875,6 +1916,7 @@ jobs:
       - terraform-gate
       - ebpf-kernel-matrix
       - ebpf-image-live
+      - e2e
       - cross-tenant-isolation
       - integration
       - perf-smoke

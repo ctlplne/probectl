@@ -114,6 +114,7 @@ jobs is below — 42 specialist jobs plus the `verify-all` umbrella, for
 | `terraform-gate`         | `terraform fmt` + `validate`                                                                                                                       |
 | `ebpf-kernel-matrix`     | eBPF programs load across the supported kernel matrix                                                                                              |
 | `ebpf-image-live`        | the shipped eBPF-agent image is the live (not fixture-replay) build                                                                                |
+| `e2e`                    | black-box e2e: the release image in session auth (real Dex OIDC) over HTTPS, two tenants' writes and reads, fails on any cross-tenant visibility |
 | `cross-tenant-isolation` | **permanent** RLS tenant-isolation gate — never remove (cross-tenant leakage is the highest-severity failure; see [isolation.md](../isolation.md)) |
 | `integration`            | real Kafka/Postgres/ClickHouse stack                                                                                                               |
 | `perf-smoke`             | ingest-path performance floor                                                                                                                      |

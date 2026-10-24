@@ -140,6 +140,7 @@ This is the full list; `ci.yml` is the source of truth.
 | `terraform-gate`         | `terraform fmt -check` + `terraform validate` of the module's example root                                                                                                                                                       |
 | `ebpf-kernel-matrix`     | the BPF programs **load and attach** on real LTS kernels (5.15/6.6 plus a lockdown-hardened entry) booted under QEMU/KVM on amd64 and on the self-hosted Linux/ARM64 `kvm` runner; missing KVM is a CI failure, not a green skip |
 | `ebpf-image-live`        | the shipped eBPF-agent image is the live `-tags ebpf` build, not the fixture replayer                                                                                                                                            |
+| `e2e`                    | black-box e2e against the release control-plane image in `session` auth (real Dex OIDC) over HTTPS: two tenants' writes and reads, fails on any cross-tenant visibility                                                          |
 | `cross-tenant-isolation` | **permanent** tenant-isolation gate (a [non-negotiable](../CONTRIBUTING.md#non-negotiables)), against real Postgres (TLS) + ClickHouse                                                                                           |
 | `integration`            | migrations are idempotent + `/readyz` passes + result pipeline, against a real Postgres + Prometheus                                                                                                                             |
 | `perf-smoke`             | ingest baseline + pooled multi-tenant query-latency smoke                                                                                                                                                                        |
@@ -204,9 +205,10 @@ fail closed before Docker starts.
 > so pointing it at secrets would re-flag those intentional fixtures — hence
 > `scanners: vuln` in both Trivy jobs.
 
-Two more workflows run outside the pull-request loop: **`nightly.yml`** (the
-black-box full-stack e2e via `make e2e`, ingest benchmarks, and the M-profile
-scale-gate regression guard — too slow to run per-PR) and
+Two more workflows run outside the pull-request loop: **`nightly.yml`** (a scheduled
+copy of the black-box e2e via `make e2e` — the per-push one is the `e2e` job
+above — ingest benchmarks, and the M-profile scale-gate regression guard, too
+slow to run per-PR) and
 **`security-scan.yml`** (weekly `govulncheck` / `npm audit` / Trivy with
 retained evidence artifacts; Trivy fails on High/Critical findings, so a
 newly-disclosed serious CVE in an _unchanged_ pin still goes red on its own).
