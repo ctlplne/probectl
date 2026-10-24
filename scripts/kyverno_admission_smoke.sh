@@ -71,10 +71,10 @@ NOTSIGNED="image signature not verified by the configured attestor"
 
 # ── pins (bump together; every image by digest, every download by sha256) ──
 KIND_NODE_IMAGE="kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5" # kind v0.33.0 release notes
-KYVERNO_CHART_URL="https://kyverno.github.io/kyverno/kyverno-3.9.1.tgz"                                           # Kyverno v1.19.1
-KYVERNO_CHART_SHA256="7b7fe51a431b5b133b0ce7eb9dcb222b6a37fb967c163223cf480054ad14d752"                            # = index.yaml digest
-KYVERNO_TAG="v1.19.1@sha256:b31d8511ae5fd6010e2a01ea72ebae08eb82fa51d91af14a1d9fe989949b4edb"
-KYVERNOPRE_TAG="v1.19.1@sha256:c25c47461f06f2845a48c319ae86fbbc1730a7b9ed5b701889c9dc1f9ee94b09"
+KYVERNO_CHART_URL="https://kyverno.github.io/kyverno/kyverno-3.9.2.tgz"                                           # Kyverno v1.19.2
+KYVERNO_CHART_SHA256="f6fe7184544d5e2ee33a77808c09e67aa603ce6560cc197038fde31d727c861e"                            # = index.yaml digest
+KYVERNO_TAG="v1.19.2@sha256:c8c4dd09e720d2cd7fd24ca73ac28e46651001372f988e0cba3f2f612f04b955"
+KYVERNOPRE_TAG="v1.19.2@sha256:27f3cc52e628559b56d08363b85316819802086c9808606914f7805a244148f4"
 # registry:2, cosign v2.5.3, crane v0.22.1 and golang 1.26.10 (the toolchain
 # go.mod pins; same digest as deploy/docker/Dockerfile.ebpf) are pinned by digest as literals
 # in their `docker run` lines below (the supply-pins gate reads those lines).
