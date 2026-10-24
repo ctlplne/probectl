@@ -44,6 +44,14 @@ func TestGatePolicyWritesDegradesClosedOnAReadOnlyLicense(t *testing.T) {
 	withdrawn := base // the same policy with the consent off
 	loosened := base
 	loosened.RedactExport = false
+	// D-43: the L7 capture redaction floor. headers -> metadata closes;
+	// metadata -> headers opens.
+	l7Headers := base
+	l7Headers.L7CaptureRedaction = "headers"
+	l7Metadata := base
+	l7Metadata.L7CaptureRedaction = "metadata"
+	l7HeadersConsented := consented
+	l7HeadersConsented.L7CaptureRedaction = "headers"
 
 	for _, tc := range []struct {
 		name     string
@@ -58,6 +66,12 @@ func TestGatePolicyWritesDegradesClosedOnAReadOnlyLicense(t *testing.T) {
 		{"read-only: grant consent", false, withdrawn, consented, false},
 		{"read-only: unchanged consent, other edit", false, withdrawn, loosened, false},
 		{"read-only: rewrite the same policy", false, withdrawn, withdrawn, false},
+		{"read-only: tighten the L7 floor and nothing else", false, l7Headers, l7Metadata, true},
+		{"read-only: tighten the L7 floor from unset to length", false, base, func() Policy { p := base; p.L7CaptureRedaction = "length"; return p }(), true},
+		{"read-only: withdraw consent AND tighten the L7 floor", false, l7HeadersConsented, l7Metadata, true},
+		{"read-only: loosen the L7 floor", false, l7Metadata, l7Headers, false},
+		{"read-only: unset floor to headers (loosen)", false, base, l7Headers, false},
+		{"read-only: withdraw consent but loosen the L7 floor", false, consented, l7Headers, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spy := &policyStoreSpy{stored: tc.prior}

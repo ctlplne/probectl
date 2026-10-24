@@ -9,6 +9,7 @@ package govern
 import (
 	"context"
 
+	"github.com/ctlplne/probectl/internal/l7redact"
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -23,10 +24,12 @@ type TenantPolicyStore interface {
 // GatePolicyWrites keeps a tenant's governance policy readable but refuses to
 // change it once the license is read-only (past its grace period: "no new
 // tenants or config", docs/editions.md), before the change reaches the store.
-// One change is always allowed: withdrawing the remote-AI egress consent with
-// nothing else changed. Refusing that would keep the tenant's telemetry
-// flowing to a remote model it no longer consents to, which is the open
-// direction (docs/guardrails.md G7-2); every other edit degrades closed.
+// Changes in the closed direction are always allowed, alone or together, with
+// nothing else changed: withdrawing the remote-AI egress consent, and
+// tightening the L7 capture redaction floor (D-43). Refusing either would keep
+// data flowing in a way the tenant no longer consents to, which is the open
+// direction (docs/guardrails.md G7-2); every other edit — loosening the L7
+// floor included — degrades closed.
 func GatePolicyWrites(delegate TenantPolicyStore, writes license.WriteCapability) TenantPolicyStore {
 	if delegate == nil {
 		return nil
@@ -49,19 +52,27 @@ func (g writeGatedPolicyStore) SetTenantPolicy(ctx context.Context, tenantID str
 		if err != nil {
 			return err
 		}
-		if !withdrawsEgressOnly(prior, pol) {
+		if !closesOnly(prior, pol) {
 			return license.ErrReadOnly
 		}
 	}
 	return g.delegate.SetTenantPolicy(ctx, tenantID, pol, by, auditTx)
 }
 
-// withdrawsEgressOnly reports whether next differs from prior only by turning
-// the remote-AI egress consent off: every category keeps its effective class
-// and redaction strategy, and the redaction floor and export redaction are
-// unchanged.
-func withdrawsEgressOnly(prior, next Policy) bool {
-	if !prior.AIRemoteEgress || next.AIRemoteEgress {
+// closesOnly reports whether next differs from prior only in the closed
+// direction: the remote-AI egress consent turned off and/or the L7 capture
+// redaction floor made stricter, with at least one of them changed, and every
+// category keeping its effective class and redaction strategy, and the
+// redaction floor and export redaction unchanged.
+func closesOnly(prior, next Policy) bool {
+	egressSame := prior.AIRemoteEgress == next.AIRemoteEgress
+	egressWithdrawn := prior.AIRemoteEgress && !next.AIRemoteEgress
+	l7Same := l7redact.Normalize(prior.L7CaptureRedaction) == l7redact.Normalize(next.L7CaptureRedaction)
+	l7Tightened := l7redact.ValidMode(l7redact.Normalize(next.L7CaptureRedaction)) &&
+		l7redact.Looser(prior.L7CaptureRedaction, next.L7CaptureRedaction)
+	egressOK := egressSame || egressWithdrawn
+	l7OK := l7Same || l7Tightened
+	if !egressOK || !l7OK || (egressSame && l7Same) {
 		return false
 	}
 	if prior.RedactExport != next.RedactExport || prior.redactFrom() != next.redactFrom() {

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/l7redact"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -88,6 +89,66 @@ func UpsertPolicyTx(ctx context.Context, q tenancy.Querier, tenantID string, pol
 	return err
 }
 
+// L7CaptureRedactionTx reads a tenant's L7 capture redaction floor statement
+// through q ("" when no row or no statement exists; the caller applies the
+// metadata default). q must already be scoped to tenantID (tenant GUC under
+// RLS, or the provider role for a cross-tenant read).
+func L7CaptureRedactionTx(ctx context.Context, q tenancy.Querier, tenantID string) (string, error) {
+	var mode string
+	err := q.QueryRow(ctx, `SELECT l7_capture_redaction FROM tenant_governance WHERE tenant_id = $1`, tenantID).Scan(&mode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return mode, err
+}
+
+// EffectiveL7CaptureFloor turns a tenant's stored statement into the floor its
+// agents and the ingest strip apply (D-43): no statement (or an unknown value)
+// is the metadata default, and the regulated profile never allows anything
+// looser than metadata, whatever the row says.
+func EffectiveL7CaptureFloor(statement string, regulated bool) string {
+	mode := l7redact.Normalize(statement)
+	if !l7redact.ValidMode(mode) {
+		mode = l7redact.DefaultMode
+	}
+	if regulated {
+		mode = l7redact.Stricter(mode, l7redact.ModeMetadata)
+	}
+	return mode
+}
+
+// L7CaptureFloor reads the tenant's effective L7 capture redaction floor under
+// the tenant's own RLS scope. A read error is returned; callers fail closed to
+// the metadata default.
+func (s *PolicyStore) L7CaptureFloor(ctx context.Context, tenantID string, regulated bool) (string, error) {
+	var stmt string
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var e error
+		stmt, e = L7CaptureRedactionTx(ctx, sc.Q, tenantID)
+		return e
+	})
+	if err != nil {
+		return l7redact.DefaultMode, err
+	}
+	return EffectiveL7CaptureFloor(stmt, regulated), nil
+}
+
+// upsertL7CaptureRedactionTx writes ONLY the L7 capture redaction column. It is
+// separate from UpsertPolicyTx on purpose: the provider plane calls that one,
+// and must never be able to change this value (D-43: the opt-in is the
+// tenant's, audited on the tenant's chain).
+func upsertL7CaptureRedactionTx(ctx context.Context, q tenancy.Querier, tenantID, mode, by string) error {
+	_, err := q.Exec(ctx, `
+		INSERT INTO tenant_governance (tenant_id, l7_capture_redaction, updated_at, updated_by)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (tenant_id) DO UPDATE SET
+			l7_capture_redaction = excluded.l7_capture_redaction,
+			updated_at           = excluded.updated_at,
+			updated_by           = excluded.updated_by`,
+		tenantID, mode, time.Now().UTC(), by)
+	return err
+}
+
 // ErrAuditReceiptRequired is returned when a policy write is attempted without
 // a tenant audit receipt. A consent/governance change must never persist
 // unaudited (docs/guardrails.md G7-7), so the write fails closed.
@@ -127,6 +188,10 @@ func (s *PolicyStore) TenantPolicy(ctx context.Context, tenantID string) (Policy
 		var e error
 		pol, found, e = ScanPolicy(sc.Q.QueryRow(ctx,
 			`SELECT classifications, redact_from, redact_export, ai_remote_egress FROM tenant_governance WHERE tenant_id = $1`, tenantID))
+		if e != nil || !found {
+			return e
+		}
+		pol.L7CaptureRedaction, e = L7CaptureRedactionTx(ctx, sc.Q, tenantID)
 		return e
 	})
 	return pol, found, err
@@ -154,6 +219,11 @@ func (s *PolicyStore) SetTenantPolicy(ctx context.Context, tenantID string, pol 
 		// Provider role: write the provider-owned policy row, scoped by the
 		// caller's tenant identity (defense in depth above the bound GUC).
 		if err := UpsertPolicyTx(ctx, sc.Q, tenantID, pol, by); err != nil {
+			return err
+		}
+		// D-43: the tenant's own L7 capture redaction floor, written only on
+		// this tenant-initiated path (never by the provider plane's upsert).
+		if err := upsertL7CaptureRedactionTx(ctx, sc.Q, tenantID, pol.L7CaptureRedaction, by); err != nil {
 			return err
 		}
 		// Tenant app role: the tamper-evident TENANT audit receipt. The GUC stays
