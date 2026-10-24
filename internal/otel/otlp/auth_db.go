@@ -8,10 +8,12 @@ package otlp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // TokenStore is the persistence interface for DB-backed OTLP tokens
@@ -70,6 +72,11 @@ func (a *DBTokenAuthenticator) Authenticate(ctx context.Context, token string) (
 		// DB-issued token: verify the DB row is still live. If someone revoked
 		// it via the admin API, the DB returns ErrInvalidOTLPToken immediately.
 		dbTenant, dbErr := a.db.Authenticate(ctx, crypto.Hash([]byte(token)))
+		if errors.Is(dbErr, tenancy.ErrTenantQuarantined) {
+			// D-62: a quarantine is not a revocation — keep the token cached
+			// and answer retry-later until the tenant is released.
+			return "", dbErr
+		}
 		if dbErr != nil {
 			// Token was revoked in DB — evict from in-process cache immediately.
 			a.mem.Revoke(token)
@@ -83,6 +90,9 @@ func (a *DBTokenAuthenticator) Authenticate(ctx context.Context, token string) (
 
 	// Slow path: not in in-process cache — try the DB (admin-issued token).
 	dbTenant, dbErr := a.db.Authenticate(ctx, crypto.Hash([]byte(token)))
+	if errors.Is(dbErr, tenancy.ErrTenantQuarantined) {
+		return "", dbErr
+	}
 	if dbErr != nil {
 		return "", ErrUnauthenticated
 	}

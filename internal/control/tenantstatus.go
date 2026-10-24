@@ -130,7 +130,17 @@ func (s *Server) WithTenantStatus(src TenantStatusSource) *Server {
 }
 
 // checkTenantLifecycle rejects requests from suspended/offboarded tenants.
+//
+// It also refuses a quarantined tenant (D-62) with the actionable
+// tenant_quarantined 503, before the handler runs. That is the early, clear
+// refusal; the boundary itself is the router, which refuses the tenant's
+// every routed read and write on paths that never reach this check.
 func (s *Server) checkTenantLifecycle(r *http.Request, tenantID string) error {
+	if tenantID != "" {
+		if qerr, quarantined := quarantineAPIError(tenancy.CheckQuarantine(tenantID)); quarantined {
+			return qerr
+		}
+	}
 	if s.tenantStatus == nil || tenantID == "" {
 		return nil
 	}

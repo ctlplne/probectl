@@ -73,6 +73,7 @@ const (
 	CodeNotProposed         Code = "not_proposed"
 	CodePrivateTargetDenied Code = "private_target_denied" // PLAT-05
 	CodeCrossOriginDenied   Code = "cross_origin_denied"   // AUTHZ-05
+	CodeTenantQuarantined   Code = "tenant_quarantined"    // D-62
 )
 
 var registeredCodes = []Code{
@@ -98,6 +99,7 @@ var registeredCodes = []Code{
 	CodeUnsupportedMediaType,
 	CodePrivateTargetDenied,
 	CodeCrossOriginDenied,
+	CodeTenantQuarantined,
 }
 
 // RegisteredCodes returns the complete public API error-code registry.

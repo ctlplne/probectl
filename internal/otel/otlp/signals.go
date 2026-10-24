@@ -265,7 +265,7 @@ func signalHTTPHandler[Req proto.Message, Resp proto.Message](
 		}
 		tenant, err := auth.Authenticate(r.Context(), bearerFromHeader(r.Header.Get("Authorization")))
 		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			writeHTTPAuthError(w, err)
 			return
 		}
 		body, err := readOTLPBody(w, r, maxBytes) // ARCH-005: gzip-aware, bounded

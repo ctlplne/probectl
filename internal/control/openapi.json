@@ -10091,7 +10091,8 @@
           "not_proposed",
           "unsupported_media_type",
           "private_target_denied",
-          "cross_origin_denied"
+          "cross_origin_denied",
+          "tenant_quarantined"
         ]
       },
       "ErrorDetail": {

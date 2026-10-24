@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // errorBody is the JSON envelope returned for every error response.
@@ -74,6 +75,11 @@ func (h apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	log := logging.FromContext(r.Context())
 	domain, ok := apierror.As(err)
+	if qerr, quarantined := quarantineAPIError(err); quarantined {
+		// D-62: a quarantined tenant's refusal wins over any wrapping domain
+		// error, so the actionable message reaches the client on every route.
+		domain, ok = qerr, true
+	}
 	if !ok {
 		// WEB-20: a malformed id or other syntactically invalid value reaches
 		// Postgres as 22P02 (invalid_text_representation) — e.g. a non-UUID on a
@@ -106,4 +112,15 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		Message:   domain.Message,
 		RequestID: reqID,
 	}})
+}
+
+// quarantineAPIError maps a quarantined tenant's routing refusal (D-62) to the
+// stable tenant_quarantined 503: which precondition failed on which plane, and
+// that the operator fixes it. The operator-side cause never reaches the tenant.
+func quarantineAPIError(err error) (*apierror.Error, bool) {
+	var q *tenancy.QuarantinedError
+	if !errors.As(err, &q) {
+		return nil, false
+	}
+	return apierror.Unavailable(q.TenantMessage()).WithCode(string(apierror.CodeTenantQuarantined)), true
 }

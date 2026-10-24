@@ -968,7 +968,7 @@ export interface Error {
   error: ErrorDetail
 }
 
-export type ErrorCode = "internal" | "bad_request" | "validation" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unavailable" | "rate_limited" | "too_large" | "writer_unavailable" | "quota_exceeded" | "tenant_suspended" | "tenant_offboarded" | "license_read_only" | "approvals_disabled" | "blast_radius_exceeded" | "blast_radius_unknown" | "not_proposed" | "unsupported_media_type" | "private_target_denied" | "cross_origin_denied"
+export type ErrorCode = "internal" | "bad_request" | "validation" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unavailable" | "rate_limited" | "too_large" | "writer_unavailable" | "quota_exceeded" | "tenant_suspended" | "tenant_offboarded" | "license_read_only" | "approvals_disabled" | "blast_radius_exceeded" | "blast_radius_unknown" | "not_proposed" | "unsupported_media_type" | "private_target_denied" | "cross_origin_denied" | "tenant_quarantined"
 
 export interface ErrorDetail {
   code: ErrorCode

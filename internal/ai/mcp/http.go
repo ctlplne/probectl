@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/httpbody"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // rpcErrorCode returns the JSON-RPC error code of a single serialized response,
@@ -73,6 +74,13 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 			// required) is 403 like /v1; a bad/expired/disabled token is 401.
 			if errors.Is(err, ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			// D-62: a quarantined tenant is refused with the actionable cause,
+			// as a retry-later 503 (the token itself is valid).
+			var quarantined *tenancy.QuarantinedError
+			if errors.As(err, &quarantined) {
+				http.Error(w, quarantined.TenantMessage(), http.StatusServiceUnavailable)
 				return
 			}
 			w.Header().Set("WWW-Authenticate", "Bearer")

@@ -425,6 +425,11 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 		return nil, err
 	}
 	tenantID, userID := res.TenantID, res.UserID
+	// D-62: a quarantined tenant's token is refused before any tenant read,
+	// with the actionable cause (the MCP edges map it to 503).
+	if err := tenancy.CheckQuarantine(tenantID); err != nil {
+		return nil, err
+	}
 	// AUTHZ-12: the MCP listener must apply the same tenant lifecycle and MFA
 	// gates as every /v1 route (requirePermissionMode) — otherwise a suspended
 	// or offboarded tenant's token keeps reading telemetry and running AI tools

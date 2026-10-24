@@ -325,6 +325,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		r = r.WithContext(withPrincipalFailure(r.Context()))
 		if p := s.resolvePrincipalAndRotate(w, r); p != nil {
 			r = r.WithContext(auth.WithPrincipal(r.Context(), p))
 		}
@@ -364,6 +365,7 @@ func (s *Server) resolvePrincipalSessionWith(
 	if token, ok := bearerTokenFromRequest(r); ok {
 		p, err := resolveBearer(r, token)
 		if err != nil {
+			notePrincipalFailure(r.Context(), err)
 			s.log.Warn("bearer token resolve failed", "error", err)
 			return nil
 		}
@@ -383,6 +385,7 @@ func (s *Server) resolvePrincipalSessionWith(
 		p, replacement, err = s.authn.ResolveAndRotate(r)
 	}
 	if err != nil {
+		notePrincipalFailure(r.Context(), err)
 		s.log.Warn("session resolve failed", "error", err)
 		return nil
 	}
@@ -532,7 +535,7 @@ func boolStr(b bool) string {
 func (s *Server) principalTenant(r *http.Request) (string, error) {
 	p := auth.PrincipalFrom(r.Context())
 	if p == nil {
-		return "", apierror.Unauthorized("authentication required")
+		return "", unauthenticated(r)
 	}
 	return p.TenantID, nil
 }
@@ -556,7 +559,7 @@ func (s *Server) requirePermissionMode(perm string, allowScoped bool, h apiHandl
 	return func(w http.ResponseWriter, r *http.Request) error {
 		p := auth.PrincipalFrom(r.Context())
 		if p == nil {
-			return apierror.Unauthorized("authentication required")
+			return unauthenticated(r)
 		}
 		// Tenant lifecycle (S-T1): a suspended/offboarded tenant's users are
 		// rejected. Keyed strictly by the principal's OWN tenant — the check
@@ -994,4 +997,36 @@ func (s *Server) clearOAuthCookie(w http.ResponseWriter, name string) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
+}
+
+// principalFailure carries why the request's credential did not resolve to a
+// principal, so the route edge can tell a quarantined tenant (D-62) why it is
+// refused. Only that one cause is ever surfaced; every other failure stays a
+// plain 401 (no oracle on why a credential is bad).
+type principalFailureKey struct{}
+
+type principalFailure struct{ err error }
+
+func withPrincipalFailure(ctx context.Context) context.Context {
+	return context.WithValue(ctx, principalFailureKey{}, &principalFailure{})
+}
+
+func notePrincipalFailure(ctx context.Context, err error) {
+	if h, ok := ctx.Value(principalFailureKey{}).(*principalFailure); ok && h.err == nil {
+		h.err = err
+	}
+}
+
+// unauthenticated is the 401 of a request with no principal — or, when its
+// credential was valid but belongs to a quarantined tenant, the actionable
+// 503 tenant_quarantined. A credential reaches the tenant's own (refused)
+// storage only after its pre-tenant hash lookup matched, so this tells
+// nothing to a caller without a real credential.
+func unauthenticated(r *http.Request) error {
+	if h, ok := r.Context().Value(principalFailureKey{}).(*principalFailure); ok {
+		if qerr, quarantined := quarantineAPIError(h.err); quarantined {
+			return qerr
+		}
+	}
+	return apierror.Unauthorized("authentication required")
 }

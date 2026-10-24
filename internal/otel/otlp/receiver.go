@@ -313,7 +313,7 @@ func MetricsHTTPHandlerWithFreshness(auth Authenticator, sink Sink, maxBytes int
 		}
 		tenant, err := auth.Authenticate(r.Context(), bearerFromHeader(r.Header.Get("Authorization")))
 		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			writeHTTPAuthError(w, err)
 			return
 		}
 		body, err := readOTLPBody(w, r, maxBytes)

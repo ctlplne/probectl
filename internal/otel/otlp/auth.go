@@ -9,6 +9,7 @@ package otlp
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"google.golang.org/grpc/tap"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // ErrUnauthenticated is returned by an Authenticator for a missing/invalid token.
@@ -190,7 +192,7 @@ func authTapHandle(auth Authenticator) tap.ServerInHandle {
 	return func(ctx context.Context, _ *tap.Info) (context.Context, error) {
 		tenant, err := auth.Authenticate(ctx, bearerFromMetadata(ctx))
 		if err != nil {
-			return ctx, status.Error(codes.Unauthenticated, "otlp: invalid or missing bearer token")
+			return ctx, grpcAuthError(err)
 		}
 		return withTenant(ctx, tenant), nil
 	}
@@ -214,7 +216,7 @@ func authUnaryInterceptorWithFreshness(auth Authenticator, freshness *FreshnessV
 			var err error
 			tenant, err = auth.Authenticate(ctx, bearerFromMetadata(ctx))
 			if err != nil {
-				return nil, status.Error(codes.Unauthenticated, "otlp: invalid or missing bearer token")
+				return nil, grpcAuthError(err)
 			}
 			ctx = withTenant(ctx, tenant)
 		}
@@ -241,4 +243,26 @@ func bearerFromMetadata(ctx context.Context) string {
 
 func bearerFromHeader(authz string) string {
 	return strings.TrimSpace(strings.TrimPrefix(authz, "Bearer "))
+}
+
+// grpcAuthError maps an Authenticate failure to its gRPC status. A
+// quarantined tenant (D-62) is UNAVAILABLE — retryable, so a collector keeps
+// its data queued until the tenant is released — never UNAUTHENTICATED: its
+// token is valid. Everything else fails closed as UNAUTHENTICATED.
+func grpcAuthError(err error) error {
+	if errors.Is(err, tenancy.ErrTenantQuarantined) {
+		return status.Error(codes.Unavailable, "otlp: the tenant is quarantined on this control plane; retry later")
+	}
+	return status.Error(codes.Unauthenticated, "otlp: invalid or missing bearer token")
+}
+
+// writeHTTPAuthError is the OTLP/HTTP twin: 503 with Retry-After for a
+// quarantined tenant (retryable per the OTLP spec), 401 otherwise.
+func writeHTTPAuthError(w http.ResponseWriter, err error) {
+	if errors.Is(err, tenancy.ErrTenantQuarantined) {
+		w.Header().Set("Retry-After", "30")
+		http.Error(w, "the tenant is quarantined on this control plane; retry later", http.StatusServiceUnavailable)
+		return
+	}
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
