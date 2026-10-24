@@ -10,6 +10,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 // DPR-143: DPR-061 established that an unmeasured layer reported as healthy is a
@@ -101,5 +102,48 @@ func TestBuiltinSaysNothingWhenEveryPlaneSpoke(t *testing.T) {
 	}
 	if strings.Contains(syn.RootCause, "No signal from") {
 		t.Errorf("no caveat belongs on a fully corroborated verdict: %q", syn.RootCause)
+	}
+}
+
+// DPR-310: a question about a host gathers every probe series on it. When one
+// test of the host fails while another passes, the passing test's samples are
+// context, not corroboration: G4(a)'s answer cited the healthy /readyz test's
+// success = 1 and HTTP 200 as "corroborating" the outage of the service on the
+// same address. The failing series and the cross-plane signals still
+// corroborate, and every item stays in the evidence.
+func TestBuiltinDoesNotCiteAPassingProbeAsCorroboration(t *testing.T) {
+	at := func(sec int) time.Time { return time.Date(2026, 10, 24, 14, 11, sec, 0, time.UTC) }
+	probe := func(id, test, metric string, value float64, sec int) Evidence {
+		return Evidence{ID: id, Domain: DomainMetrics, Plane: "metrics", Title: metric, OccurredAt: at(sec),
+			Fields: Row{"metric": metric, "value": value, "agent_id": "agent-1", "test_id": test, "target": "127.0.0.1"}}
+	}
+	evidence := []Evidence{
+		{ID: "bgp", Domain: DomainEntities, Plane: "bgp", Severity: "critical", Title: "127.0.0.0/24 announced by unexpected AS65021", OccurredAt: at(2)},
+		{ID: "alert", Domain: DomainEntities, Plane: "network", Severity: "critical", Title: "tenant service down firing", OccurredAt: at(27)},
+		probe("readyz-ok-old", "test-readyz", "probectl_probe_success", 0, 1), // an old failure, since recovered
+		probe("readyz-ok", "test-readyz", "probectl_probe_success", 1, 21),
+		probe("readyz-status", "test-readyz", "probectl_probe_http_status", 200, 21),
+		probe("service-down", "test-service", "probectl_probe_success", 0, 16),
+		probe("service-duration", "test-service", "probectl_probe_duration_seconds", 0.0009, 16),
+	}
+	syn, err := NewBuiltinModel().Synthesize(context.Background(), SynthesisInput{Question: "Why is the service at 127.0.0.1 failing?", Evidence: evidence})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cited := map[string]bool{}
+	for _, f := range syn.Findings {
+		for _, c := range f.Citations {
+			cited[c.EvidenceID] = true
+		}
+	}
+	for _, id := range []string{"readyz-ok", "readyz-status", "readyz-ok-old"} {
+		if cited[id] {
+			t.Errorf("finding cites %s, a sample of the passing test, as corroboration: %+v", id, syn.Findings)
+		}
+	}
+	for _, id := range []string{"bgp", "alert", "service-down", "service-duration"} {
+		if !cited[id] {
+			t.Errorf("finding does not cite %s: %+v", id, syn.Findings)
+		}
 	}
 }

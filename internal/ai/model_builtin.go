@@ -111,9 +111,13 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 	})
 	// Corroborating / symptom signals, most-relevant first (cap to keep answers tight).
 	planes := map[string]bool{strings.ToLower(primary.Plane): true}
+	healthy := healthyProbeSeries(ranked)
 	for _, e := range ranked[1:] {
 		if len(findings) >= 6 {
 			break
+		}
+		if key, ok := probeSeriesKey(e); ok && healthy[key] {
+			continue // DPR-310: a passing probe is context, not corroboration
 		}
 		findings = append(findings, Finding{
 			Statement: fmt.Sprintf("Corroborating signal: %s on the %s plane.", describe(e), planeLabel(e)),
@@ -144,6 +148,47 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 		Silent:             silent,
 		Findings:           findings,
 	}, nil
+}
+
+// probeSeriesKey names the probe series a metric evidence item was read from:
+// one agent's samples of one test definition (DPR-066, DPR-308), falling back
+// to the target when a series carries no test_id.
+func probeSeriesKey(e Evidence) (string, bool) {
+	metric, _ := e.Fields["metric"].(string)
+	if e.Domain != DomainMetrics || !strings.HasPrefix(metric, "probectl_probe_") {
+		return "", false
+	}
+	agent, _ := e.Fields["agent_id"].(string)
+	test, _ := e.Fields["test_id"].(string)
+	target, _ := e.Fields["target"].(string)
+	return agent + "|" + test + "|" + target, true
+}
+
+// healthyProbeSeries returns the probe series whose most recent
+// probectl_probe_success sample in the evidence passed (DPR-310). Two tests
+// against one host share an agent and a target, so a question about the host
+// gathers the failing test's samples and the passing test's alike. G4(a)'s
+// answer cited the passing test's success = 1 and its HTTP 200 as
+// "corroborating" the outage. A passing probe is context, not corroboration;
+// it stays in the answer's evidence, and the findings leave it out.
+func healthyProbeSeries(evidence []Evidence) map[string]bool {
+	latest := map[string]Evidence{}
+	for _, e := range evidence {
+		key, ok := probeSeriesKey(e)
+		if !ok || e.Fields["metric"] != "probectl_probe_success" {
+			continue
+		}
+		if cur, seen := latest[key]; !seen || e.OccurredAt.After(cur.OccurredAt) {
+			latest[key] = e
+		}
+	}
+	out := map[string]bool{}
+	for key, e := range latest {
+		if v, ok := e.Fields["value"].(float64); ok && v == 1 {
+			out[key] = true
+		}
+	}
+	return out
 }
 
 // contextOnly reports whether every evidence item is topology context: what
