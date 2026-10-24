@@ -37,6 +37,10 @@ type Router struct {
 	now   func() time.Time
 	fetch func(ctx context.Context) (map[string]registryRow, error)
 
+	// quarantine (D-62) refuses every routed read and write of a quarantined
+	// tenant; nil = the process registry (tenancy.CurrentQuarantine).
+	quarantine *tenancy.Quarantine
+
 	mu          sync.Mutex
 	byID        map[string]registryRow
 	fetched     time.Time
@@ -82,6 +86,21 @@ func NewRouter(pool *pgxpool.Pool, planes map[string]DataPlane, ttl time.Duratio
 	r := &Router{pool: pool, planes: planes, ttl: ttl, byID: map[string]registryRow{}, now: time.Now}
 	r.fetch = r.fetchRegistry
 	return r
+}
+
+// WithQuarantine binds the router to a quarantine registry (D-62). Without it
+// the router consults the process registry.
+func (r *Router) WithQuarantine(q *tenancy.Quarantine) *Router {
+	r.quarantine = q
+	return r
+}
+
+func (r *Router) quarantined(tenantID string) error {
+	q := r.quarantine
+	if q == nil {
+		q = tenancy.CurrentQuarantine()
+	}
+	return q.Check(tenantID)
 }
 
 // Invalidate drops the cache (called after lifecycle changes so a freshly
@@ -198,7 +217,20 @@ func (r *Router) fetchRegistry(ctx context.Context) (map[string]registryRow, err
 }
 
 // TargetsFor resolves one tenant's isolation targets.
+//
+// A quarantined tenant (D-62) is refused here, before any target is
+// resolved, so every store routed through this router — Postgres schema,
+// each ClickHouse plane, object prefix, request-side bus lane — fails closed
+// for it alone. The one exemption is the quarantine supervisor's own audit
+// notice (tenancy.InTenantQuarantineNotice), and only for Postgres: it gets
+// the schema, never a ClickHouse target.
 func (r *Router) TargetsFor(ctx context.Context, tenantID string) (tenancy.Targets, error) {
+	notice := tenancy.QuarantineNoticeContext(ctx)
+	if !notice {
+		if err := r.quarantined(tenantID); err != nil {
+			return tenancy.Targets{}, err
+		}
+	}
 	reg, err := r.load(ctx)
 	if err != nil {
 		return tenancy.Targets{}, err
@@ -224,6 +256,10 @@ func (r *Router) TargetsFor(ctx context.Context, tenantID string) (tenancy.Targe
 	default:
 		return tenancy.Targets{Model: tenancy.IsolationPooled, Residency: row.residency}, nil
 	}
+	if notice {
+		// The notice writes the tenant's Postgres audit chain only.
+		return tenancy.Targets{Model: row.model, Residency: row.residency, PGSchema: t.PGSchema}, nil
+	}
 	if plane, ok := r.planes[row.residency]; ok {
 		t.CHBaseURL = plane.CHURL
 	}
@@ -243,6 +279,9 @@ func (r *Router) BusNamespaceTenants(ctx context.Context) (map[string]string, er
 		if row.status == "offboarding" || row.status == "deleted" {
 			continue
 		}
+		if r.quarantined(id) != nil {
+			continue // D-62: see BusNamespaces
+		}
 		out[BusNamespace(row.slug)] = id
 	}
 	return out, nil
@@ -256,10 +295,17 @@ func (r *Router) BusNamespaces(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	var out []string
-	for _, row := range reg {
+	for id, row := range reg {
 		// DPR-049: pooled tenants own a lane too — strict-lane mode refuses
 		// agent-published planes on the shared lane for every tenant.
 		if row.status == "offboarding" || row.status == "deleted" {
+			continue
+		}
+		// D-62: a quarantined tenant's lanes are not consumed. Its records
+		// stay on the bus (uncommitted) instead of being refused record by
+		// record into the dead-letter queue, and the lane supervisor resumes
+		// them from the committed offset once the tenant is released.
+		if r.quarantined(id) != nil {
 			continue
 		}
 		out = append(out, BusNamespace(row.slug))

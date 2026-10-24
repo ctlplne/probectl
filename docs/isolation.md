@@ -149,7 +149,47 @@ routed to** that plane. Removing a plane from `PROBECTL_DATAPLANES` while a
 siloed or hybrid tenant (not deleted) is still pinned to it refuses startup,
 naming the tenant and the plane (DPR-324): the tenant is never quietly routed
 to the default plane, where its database does not exist and which may sit in
-another jurisdiction.
+another jurisdiction. With `PROBECTL_SILO_FAILURE_MODE=quarantine` that tenant
+is quarantined instead and every other tenant starts (see "Per-tenant
+quarantine" below).
+
+### Per-tenant quarantine (D-62)
+
+Startup proves every siloed and hybrid tenant's isolation targets before the
+silo router is published: its residency plane is configured, its Postgres
+schema is caught up, the reader login has a credential for its plane, and the
+reader scope on its per-tenant ClickHouse database is installed and proven.
+`PROBECTL_SILO_FAILURE_MODE` decides what a failure does:
+
+- `stop` (the alpha default): startup refuses for every tenant, naming each
+  failing tenant and the fix.
+- `quarantine`: only the failing tenant is quarantined; the control plane
+  starts for everyone else.
+
+A quarantined tenant is refused at the routing layer, not in handlers: the
+silo router returns no target for it (no Postgres schema, ClickHouse plane,
+object prefix or bus lane) and `tenancy.InTenant` refuses its transactions,
+so every path — API, CLI, UI, MCP/AI, exports, bus consumers, background jobs —
+fails closed for that tenant alone. Its users get HTTP 503 `tenant_quarantined`
+naming the failed check and the plane (never the operator-side error text).
+Its bus lanes are not consumed, so its records wait on the bus and resume from
+the committed offset on release; a record of it that reaches a shared lane is
+acknowledged unprocessed and counted (`probectl_pipeline_quarantine_dropped_total`).
+Its erasure is refused until release. One-shot commands (`mcp-stdio`, the token
+commands, `bootstrap-admin`) honour the quarantines the serving replicas hold.
+
+Entering and leaving quarantine is audited on the tenant's own chain (reason
+and plane) and on the provider stream (with the cause, fix and replica). The
+gauge `probectl_tenant_quarantined{reason}` drives the `ProbectlTenantQuarantined`
+alert, and the provider console lists each quarantined tenant with its cause
+and fix (`GET /provider/v1/tenants/quarantine`). A supervisor on each replica
+re-runs the failed checks every `PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL` and
+releases the tenant once they pass — no restart for a plane that comes back or
+a grant that is applied; a cause that is configuration (a plane or credential
+entry missing) clears when the corrected configuration is rolled out.
+
+Quarantine is per replica: each replica proves the tenant for itself, so a
+replica that can reach the plane serves it while one that cannot refuses it.
 
 **Pinned today:** the tenant's ClickHouse telemetry across all five planes —
 flow, path, eBPF L7 edges, endpoint/DEM events, and OTLP traces+logs (the

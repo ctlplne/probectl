@@ -874,6 +874,17 @@ type Config struct {
 	// pooled ClickHouse origin needs one (fail closed at startup); a plane on
 	// the pooled origin uses PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE.
 	DataPlaneReaderBasicAuthFiles map[string]string
+	// SiloFailureMode (D-62) picks what startup does when one siloed or
+	// hybrid tenant's isolation targets cannot be proven (its residency
+	// plane missing from PROBECTL_DATAPLANES or unreachable, the reader
+	// credential missing, the reader-scope proof or the schema catch-up
+	// failing): SiloFailureStop refuses to start for every tenant;
+	// SiloFailureQuarantine quarantines only the affected tenants (every
+	// read and write of them refused) and starts for every other tenant.
+	SiloFailureMode string
+	// SiloQuarantineRecheck is how often the quarantine supervisor re-checks
+	// each quarantined tenant and releases the ones whose fault is fixed.
+	SiloQuarantineRecheck time.Duration
 
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
@@ -1319,6 +1330,11 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.DataPlanes = l.str("PROBECTL_DATAPLANES", "")
 	cfg.DataPlaneBasicAuthFiles = parseNamedValues(l.str("PROBECTL_DATAPLANE_BASIC_AUTH_FILES", ""))
 	cfg.DataPlaneReaderBasicAuthFiles = parseNamedValues(l.str("PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES", ""))
+	cfg.SiloFailureMode = l.enum("PROBECTL_SILO_FAILURE_MODE", DefaultSiloFailureMode, SiloFailureStop, SiloFailureQuarantine)
+	cfg.SiloQuarantineRecheck = l.dur("PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL", 30*time.Second)
+	if cfg.SiloQuarantineRecheck < 5*time.Second || cfg.SiloQuarantineRecheck > time.Hour {
+		l.errf("PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL must be between 5s and 1h")
+	}
 	cfg.BackupRetentionNote = l.str("PROBECTL_BACKUP_RETENTION_NOTE", "")
 	cfg.BackupRetentionDays = l.intRange("PROBECTL_BACKUP_RETENTION_DAYS", 0, 0, 3650)
 	cfg.RemediationApprovalsEnabled = l.boolean("PROBECTL_REMEDIATION_APPROVALS_ENABLED", false)
@@ -2970,6 +2986,24 @@ func validateDataPlaneReaderCredentials(l *loader, cfg *Config) {
 		}
 	}
 }
+
+// The PROBECTL_SILO_FAILURE_MODE values (D-62).
+const (
+	// SiloFailureStop refuses startup for every tenant when one siloed or
+	// hybrid tenant's isolation targets cannot be proven.
+	SiloFailureStop = "stop"
+	// SiloFailureQuarantine quarantines only the affected tenants.
+	SiloFailureQuarantine = "quarantine"
+)
+
+// DefaultSiloFailureMode is stop-everything while probectl is alpha (D-62).
+// The intended beta default is SiloFailureQuarantine: flipping it is this one
+// line (plus the documented default in docs/configuration.md).
+const DefaultSiloFailureMode = SiloFailureStop
+
+// QuarantineOnSiloFailure reports whether an unprovable silo quarantines its
+// tenant instead of refusing startup.
+func (c *Config) QuarantineOnSiloFailure() bool { return c.SiloFailureMode == SiloFailureQuarantine }
 
 // DataPlaneReaderGap (DPR-327) reports why the reader login cannot reach data
 // plane name, or nil when it can or need not. With tenant scoping on (the

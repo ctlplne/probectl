@@ -120,6 +120,11 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 	if !ok {
 		return ErrNoTenant
 	}
+	// D-62: a quarantined tenant's transaction is refused before it begins
+	// (the silo router refuses it too; this holds even under another router).
+	if err := pgQuarantineCheck(ctx, id.String()); err != nil {
+		return err
+	}
 
 	// Resolve the tenant's isolation targets FIRST (fail closed: a siloed
 	// tenant must never silently fall through to the pooled schema — S-T2).
@@ -184,6 +189,9 @@ func InTenantProviderMaintenance(
 	id, ok := FromContext(ctx)
 	if !ok {
 		return ErrNoTenant
+	}
+	if err := pgQuarantineCheck(ctx, id.String()); err != nil {
+		return err
 	}
 	schema, err := pgSchemaFor(ctx, id.String())
 	if err != nil {

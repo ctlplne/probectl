@@ -290,6 +290,39 @@ is withdrawn and startup is refused. The key is documented in
 [`configuration.md`](configuration.md); the mechanism in
 [`security/tenant-isolation.md`](security/tenant-isolation.md).
 
+### Unreleased: per-tenant quarantine instead of stop-everything (D-62)
+
+**Who this affects:** an install with the `siloed_isolation` license and at
+least one siloed or hybrid tenant. Nothing changes until you opt in.
+
+**What changed:** the startup preconditions of the notes above (residency
+plane configured, reader credential, reader-scope proof, Postgres silo
+catch-up) refuse startup for every tenant when one tenant fails them. That is
+still the default (`PROBECTL_SILO_FAILURE_MODE=stop`). Setting
+`PROBECTL_SILO_FAILURE_MODE=quarantine` makes a failure quarantine only the
+affected tenant: its reads and writes are refused with HTTP 503
+`tenant_quarantined`, every other tenant starts and runs, the quarantine is
+audited, alerted (`ProbectlTenantQuarantined`) and listed in the provider
+console, and the tenant is released by itself once the check passes. Migration
+`0130_tenant_quarantine` adds the provider-domain table behind that list
+(expand-only; release N-1 never reads it). The intended beta default is
+`quarantine`; the switch is the one `DefaultSiloFailureMode` constant in
+`internal/config`.
+
+**Before opting in:**
+
+1. Enable `metrics.prometheusRule` (or add the `ProbectlTenantQuarantined`
+   rule to your own Prometheus): in quarantine mode a broken plane no longer
+   stops the rollout, so the alert is how you learn of it.
+2. Keep Kafka's `offsets.retention.minutes` (7 days by default) well above how
+   long a quarantine may last: a quarantined tenant's lanes wait unconsumed,
+   and their committed offsets expire after that window.
+3. A configuration cause (a plane removed from `PROBECTL_DATAPLANES`, a missing
+   `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` entry) clears when the fixed
+   configuration is rolled out; a runtime cause (an unreachable plane, a
+   missing `GRANT`, a schema catch-up precondition) clears without a restart
+   within one `PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL` of the fix.
+
 ## Configuration
 
 See [`configuration.md`](configuration.md) for the `PROBECTL_AGENT_SKEW_WINDOW`

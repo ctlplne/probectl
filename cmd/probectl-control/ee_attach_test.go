@@ -56,25 +56,42 @@ func TestEEAttachRunsSiloCatchUpBeforeRouterPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(src)
-	catch := strings.Index(text, "if err := siloCatchUpAll(ctx, pool, prov, log); err != nil")
-	readerCatch := strings.Index(text, "if err := siloReaderCatchUpAll(ctx, pool, prov, len(ch.Readers) > 0, log); err != nil")
-	publish := strings.Index(text, "tenancy.SetRouter(router)")
-	if catch < 0 || readerCatch < 0 || publish < 0 {
-		t.Fatalf("expected catch-up, reader-scope catch-up and router publication markers in ee_attach.go")
+	at := func(marker string) int {
+		t.Helper()
+		i := strings.Index(text, marker)
+		if i < 0 {
+			t.Fatalf("expected marker %q in ee_attach.go", marker)
+		}
+		return i
 	}
-	if publish < catch {
-		t.Fatalf("silo router is published before catch-up succeeds; catch=%d publish=%d", catch, publish)
+	stopMode := at("} else if err := siloStartupPreconditions(ctx, pool, prov, len(ch.Readers) > 0, log); err != nil {")
+	quarantineMode := at("if supervisor, err = bootSiloQuarantine(ctx, cfg, pool, prov, planes, registry, len(ch.Readers) > 0, log); err != nil {")
+	publish := at("tenancy.SetRouter(router) // Postgres search_path")
+	// Both modes settle every tenant's preconditions before the router is
+	// published: stop mode refuses startup, quarantine mode (D-62) enters each
+	// failing tenant into the registry the router refuses.
+	if publish < stopMode || publish < quarantineMode {
+		t.Fatalf("silo router is published before the startup preconditions; stop=%d quarantine=%d publish=%d", stopMode, quarantineMode, publish)
 	}
-	// DPR-323: no tenant read may reach a per-tenant database as the reader
-	// before that database is under the reader scope and proven.
-	if publish < readerCatch {
-		t.Fatalf("silo router is published before the reader-scope catch-up succeeds; catch=%d publish=%d", readerCatch, publish)
+	if !strings.Contains(text, "router := silo.NewRouter(pool, planes, 0).WithQuarantine(registry)") {
+		t.Fatal("the silo router must refuse quarantined tenants (D-62)")
+	}
+	// The supervisor's tenant-chain audit resolves the tenant's schema
+	// through the router, so it starts only once the router is published.
+	if start := at("supervisor.Start(ctx)"); start < publish {
+		t.Fatalf("quarantine supervisor starts before the router is published; start=%d publish=%d", start, publish)
+	}
+	// ARCH-001 then DPR-323, inside the stop-mode preconditions.
+	catch := at("if err := siloCatchUpAll(ctx, pool, prov, log); err != nil")
+	readerCatch := at("if err := siloReaderCatchUpAll(ctx, pool, prov, scoped, log); err != nil")
+	if readerCatch < catch {
+		t.Fatalf("reader-scope catch-up runs before the schema catch-up; catch=%d reader=%d", catch, readerCatch)
 	}
 	// DPR-324: a tenant pinned to a missing plane refuses startup before
-	// anything is routed or caught up.
-	preflight := strings.Index(text, "if err := siloResidencyPreflight(ctx, pool, silo.PlaneNames(planes)); err != nil")
-	if preflight < 0 || preflight > catch || preflight > publish {
-		t.Fatalf("the residency preflight must run before the catch-ups and router publication; preflight=%d catch=%d publish=%d", preflight, catch, publish)
+	// anything is routed or caught up (stop mode).
+	preflight := at("if err := siloResidencyPreflight(ctx, pool, silo.PlaneNames(planes)); err != nil")
+	if preflight > stopMode || preflight > publish {
+		t.Fatalf("the residency preflight must run before the catch-ups and router publication; preflight=%d stop=%d publish=%d", preflight, stopMode, publish)
 	}
 	if strings.Index(text, "ch.Readers = siloReaderScopes(") > strings.Index(text, "prov, err := newSiloProvisioner(") {
 		t.Fatal("the provisioner is built before the stores' reader scopes are attached, so new silos would get no reader scope")

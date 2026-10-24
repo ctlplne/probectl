@@ -309,11 +309,20 @@ func attachSiloIsolation(ctx context.Context, cfg *config.Config, log *slog.Logg
 	// ClickHouse; memory stores are process-local (logically tenant-keyed).
 	// TENANT-001: ALL FOUR planes (flow/path/eBPF/otel) get the silo router
 	// and a per-tenant database, not flow alone.
-	router := silo.NewRouter(pool, planes, 0)
+	// D-62: the router refuses every routed read and write of a quarantined
+	// tenant. In stop mode the registry stays empty: any failed precondition
+	// below refuses startup for every tenant instead.
+	registry := tenancy.NewQuarantine()
+	tenancy.SetQuarantine(registry) // the API edges and /metrics read it too
+	router := silo.NewRouter(pool, planes, 0).WithQuarantine(registry)
+	quarantine := cfg.QuarantineOnSiloFailure()
 	// DPR-324 (D-62): a tenant pinned to a plane that is no longer configured
-	// would be routed to the default plane; refuse to start instead.
-	if err := siloResidencyPreflight(ctx, pool, silo.PlaneNames(planes)); err != nil {
-		return nil, nil, err
+	// would be routed to the default plane; refuse to start instead (stop
+	// mode), or quarantine it (quarantine mode, in bootSiloQuarantine).
+	if !quarantine {
+		if err := siloResidencyPreflight(ctx, pool, silo.PlaneNames(planes)); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	var ch silo.CHPlanes
@@ -376,25 +385,65 @@ func attachSiloIsolation(ctx context.Context, cfg *config.Config, log *slog.Logg
 	if err != nil {
 		return nil, nil, err
 	}
-	// Startup catch-up is a routing precondition (ARCH-001): a siloed tenant
-	// must not become routable until its storage/query-layer schema is at the
-	// current public shape. Idempotent DDL keeps retries safe; failures keep
-	// the control plane from serving a stale silo.
-	if err := siloCatchUpAll(ctx, pool, prov, log); err != nil {
-		return nil, nil, fmt.Errorf("silo catch-up before routing: %w", err)
-	}
-	// DPR-323: every existing per-tenant database is under the reader scope,
-	// and proven, before any tenant read can be routed to it.
-	if err := siloReaderCatchUpAll(ctx, pool, prov, len(ch.Readers) > 0, log); err != nil {
-		return nil, nil, fmt.Errorf("silo reader-scope catch-up before routing: %w", err)
+	var supervisor *silo.QuarantineSupervisor
+	if quarantine {
+		// D-62 quarantine mode: the same preconditions, per tenant. Each
+		// tenant that fails one is quarantined BEFORE the router is
+		// published, so no request ever routes to it.
+		if supervisor, err = bootSiloQuarantine(ctx, cfg, pool, prov, planes, registry, len(ch.Readers) > 0, log); err != nil {
+			return nil, nil, err
+		}
+	} else if err := siloStartupPreconditions(ctx, pool, prov, len(ch.Readers) > 0, log); err != nil {
+		return nil, nil, err
 	}
 	tenancy.SetRouter(router) // Postgres search_path + bus lanes + object prefixes
+	if supervisor != nil {
+		supervisor.Start(ctx) // audits the quarantines, re-checks, releases
+	}
 	log.Info("siloed/hybrid isolation attached (S-T2; TENANT-001 all planes)",
 		"data_planes", silo.PlaneNames(planes),
 		"flow_routed", flowCH != nil, "path_routed", pathCH != nil,
 		"ebpf_routed", ebpfCH != nil, "otel_routed", otelCH != nil, "endpoint_routed", endpointCH != nil,
 		"reader_scoped_stores", len(ch.Readers))
 	return prov, router.Invalidate, nil
+}
+
+// siloStartupPreconditions runs the stop-mode startup catch-ups: any failure
+// refuses startup for every tenant.
+func siloStartupPreconditions(ctx context.Context, pool *pgxpool.Pool, prov *silo.Provisioner, scoped bool, log *slog.Logger) error {
+	// Startup catch-up is a routing precondition (ARCH-001): a siloed tenant
+	// must not become routable until its storage/query-layer schema is at the
+	// current public shape. Idempotent DDL keeps retries safe; failures keep
+	// the control plane from serving a stale silo.
+	if err := siloCatchUpAll(ctx, pool, prov, log); err != nil {
+		return fmt.Errorf("silo catch-up before routing: %w", err)
+	}
+	// DPR-323: every existing per-tenant database is under the reader scope,
+	// and proven, before any tenant read can be routed to it.
+	if err := siloReaderCatchUpAll(ctx, pool, prov, scoped, log); err != nil {
+		return fmt.Errorf("silo reader-scope catch-up before routing: %w", err)
+	}
+	return nil
+}
+
+// bootSiloQuarantine (D-62, PROBECTL_SILO_FAILURE_MODE=quarantine) evaluates
+// every siloed and hybrid tenant's startup preconditions and quarantines each
+// one that fails, so the control plane starts for every other tenant. Only an
+// unreadable tenant registry refuses startup.
+func bootSiloQuarantine(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, prov *silo.Provisioner,
+	planes map[string]silo.DataPlane, registry *tenancy.Quarantine, scoped bool, log *slog.Logger) (*silo.QuarantineSupervisor, error) {
+	sup := silo.NewQuarantineSupervisor(silo.QuarantineConfig{
+		Pool: pool, Checks: prov, Registry: registry,
+		ReaderScoped: scoped, ReaderGap: cfg.DataPlaneReaderGap,
+		Planes: silo.PlaneNames(planes), Interval: cfg.SiloQuarantineRecheck, Log: log,
+	})
+	held, err := sup.Boot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("silo isolation preconditions evaluated per tenant (D-62 quarantine mode)",
+		"quarantined", len(held), "replica", sup.Replica(), "recheck", cfg.SiloQuarantineRecheck.String())
+	return sup, nil
 }
 
 // siloReaderScopes collects the reader scope of every ClickHouse-backed store
@@ -677,7 +726,14 @@ func attachEETenancyRouter(cfg *config.Config, pool *pgxpool.Pool, _ *slog.Logge
 	if err != nil {
 		return err
 	}
-	tenancy.SetRouter(silo.NewRouter(pool, planes, 0))
+	// D-62: honor the quarantines the serving replicas hold, so a one-shot
+	// command never serves or writes a tenant they refuse.
+	registry := tenancy.NewQuarantine()
+	if _, err := silo.LoadReplicaQuarantine(context.Background(), pool, registry, 3*cfg.SiloQuarantineRecheck); err != nil {
+		return err
+	}
+	tenancy.SetQuarantine(registry)
+	tenancy.SetRouter(silo.NewRouter(pool, planes, 0).WithQuarantine(registry))
 	return nil
 }
 

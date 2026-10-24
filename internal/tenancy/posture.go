@@ -714,6 +714,7 @@ var providerDomainNoAppAccessTables = map[string]string{
 	"provider_sessions":   "MSP provider-operator session roster; operators are the privilege domain above tenants, so the app role gets no read or write",
 	"tenant_provisioning": "resumable tenant-provisioning ledger the provider console and reaper drive; not tenant-readable",
 	"provider_branding":   "the provider master-brand singleton; provider-plane configuration with no tenant self-view",
+	"tenant_quarantine":   "the replicas' per-tenant quarantine view (D-62, migration 0130) the provider console lists; the quarantined tenant is refused everything, so it has no self-view",
 }
 
 func providerDomainNoAppAccessTableNames() []string {

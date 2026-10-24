@@ -35,6 +35,7 @@ var gap03ProviderDomainTables = []string{
 	"provider_sessions",
 	"tenant_provisioning",
 	"provider_branding",
+	"tenant_quarantine",
 }
 
 // gap03ControlPlaneTables look provider-adjacent but are deployment-wide
