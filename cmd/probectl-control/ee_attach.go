@@ -507,10 +507,20 @@ type siloReaderCatchUpper interface {
 	CatchUpReaderScope(ctx context.Context, tenantID, residency string) error
 }
 
+// siloReaderCatchUpQuery lists the tenants whose per-tenant databases the
+// reader can be routed to: every siloed and hybrid tenant that is not deleted.
+// An offboarding tenant stays in, as the silo router still routes it (its
+// stores remain for the verifiable-deletion flow). A deleted tenant's
+// databases were erased, so proving them costs a round trip per server at
+// every boot forever, and an unreachable plane that hosts only deleted
+// tenants must not block startup for everyone else.
+const siloReaderCatchUpQuery = `SELECT id::text, residency FROM tenants
+	 WHERE isolation_model IN ('siloed','hybrid') AND status <> 'deleted'
+	 ORDER BY id`
+
 // siloReaderCatchUpAll runs the reader-scope catch-up (DPR-323) for every
-// siloed and hybrid tenant, whatever its status: a per-tenant database stays
-// readable until it is torn down. scoped=false (no store scopes its tenant
-// reads, so none runs as the reader login) skips it. Every tenant is
+// tenant siloReaderCatchUpQuery lists. scoped=false (no store scopes its
+// tenant reads, so none runs as the reader login) skips it. Every tenant is
 // attempted; any failure refuses startup.
 func siloReaderCatchUpAll(ctx context.Context, pool *pgxpool.Pool, prov siloReaderCatchUpper, scoped bool, log *slog.Logger) error {
 	if !scoped {
@@ -519,7 +529,7 @@ func siloReaderCatchUpAll(ctx context.Context, pool *pgxpool.Pool, prov siloRead
 	type isolated struct{ id, residency string }
 	var tenants []isolated
 	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
-		rows, err := q.Query(ctx, `SELECT id::text, residency FROM tenants WHERE isolation_model IN ('siloed','hybrid') ORDER BY id`)
+		rows, err := q.Query(ctx, siloReaderCatchUpQuery)
 		if err != nil {
 			return err
 		}
