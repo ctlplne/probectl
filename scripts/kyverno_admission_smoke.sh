@@ -138,7 +138,18 @@ done
 cat "$sysbundle" ca.crt > bundle.crt
 
 echo "== kind cluster $CLUSTER ($KIND_NODE_IMAGE) on network $NET"
-KIND_EXPERIMENTAL_DOCKER_NETWORK="$NET" "$KIND" create cluster --name "$CLUSTER" \
+# containerd reads per-registry trust from certs.d only when config_path is set,
+# and the kind node image's base config does not set it; kind's documented way
+# is a containerdConfigPatches entry (see the registry trust step below).
+cat > kind.yaml <<'KINDCFG'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
+KINDCFG
+KIND_EXPERIMENTAL_DOCKER_NETWORK="$NET" "$KIND" create cluster --name "$CLUSTER" --config "$work/kind.yaml" \
   --image "$KIND_NODE_IMAGE" --kubeconfig "$KUBECONFIG" --wait 120s >/dev/null
 docker run -d --name "$REG" --network "$NET" -v "$work:/certs:ro" \
   -e REGISTRY_HTTP_ADDR=0.0.0.0:5000 \
@@ -206,6 +217,17 @@ echo "== Kyverno $KYVERNO_TAG (chart sha256-verified)"
 # Secret past its 1 MiB limit. Kyverno mounts it over its system bundle.
 docker exec "$CLUSTER-control-plane" mkdir -p /etc/probectl-qa-beta
 docker cp "$work/bundle.crt" "$CLUSTER-control-plane:/etc/probectl-qa-beta/ca-bundle.crt" >/dev/null
+# The node's containerd must trust the run-time CA too: S1 is the first leg that
+# actually pulls and runs an image (the admission-only stand-ins never start),
+# and an untrusted registry is an x509 pull failure (ImagePullBackOff). kind's
+# containerd reads per-registry trust from config_path /etc/containerd/certs.d.
+regdir="/etc/containerd/certs.d/$REGHOST"
+docker exec "$CLUSTER-control-plane" mkdir -p "$regdir"
+docker cp "$work/ca.crt" "$CLUSTER-control-plane:$regdir/ca.crt" >/dev/null
+printf 'server = "https://%s"\n\n[host."https://%s"]\n  ca = "%s/ca.crt"\n' "$REGHOST" "$REGHOST" "$regdir" > hosts.toml
+docker cp "$work/hosts.toml" "$CLUSTER-control-plane:$regdir/hosts.toml" >/dev/null
+docker exec "$CLUSTER-control-plane" grep -q 'config_path *= *"/etc/containerd/certs.d"' /etc/containerd/config.toml \
+  || die "kind node containerd has no certs.d config_path; registry trust would not apply"
 curl -fsSL -o kyverno.tgz "$KYVERNO_CHART_URL"
 got="$(openssl dgst -sha256 -r kyverno.tgz | cut -d' ' -f1)"
 [ "$got" = "$KYVERNO_CHART_SHA256" ] || die "Kyverno chart digest $got != pinned $KYVERNO_CHART_SHA256"
