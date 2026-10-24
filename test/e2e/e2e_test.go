@@ -373,6 +373,7 @@ canaries:
 
 	// Two fixture-mode agents exercise tenant-namespaced flow ingestion.
 	kafkaBroker := "localhost:" + stack.envValue("PROBECTL_DEV_KAFKA_PORT")
+	ebpfExited := map[string]func() error{}
 	for _, f := range []struct{ tenant, ip, name, agentID, lane string }{
 		{tenantA, ipOnlyA, "agent-a", agentAID, laneA},
 		{tenantB, ipOnlyB, "agent-b", agentBID, laneB},
@@ -382,9 +383,16 @@ canaries:
 		writeFile(t, cfg, fmt.Sprintf(
 			"apiVersion: probectl.io/ebpf-agent/v1\ntenant_id: %q\nhost: %q\nfixture_path: %q\nbus:\n  mode: kafka\n  brokers: [%q]\n  namespace: %q\n",
 			f.tenant, f.agentID, fixture, kafkaBroker, f.lane))
-		startProc(t, work, f.name, ebpfAgent, []string{"--config", cfg}, []string{
+		_, _, exited := startProc(t, work, f.name, ebpfAgent, []string{"--config", cfg}, []string{
 			"PROBECTL_EBPF_BUS_ALLOW_PLAINTEXT=true",
 		})
+		ebpfExited[f.name] = exited
+	}
+	// A wait for an agent's edge stops at once when that agent has exited.
+	agentAlive := func(name string) {
+		if err := ebpfExited[name](); err != nil {
+			t.Fatalf("%s exited before its edge appeared: %v", name, err)
+		}
 	}
 	t.Cleanup(func() {
 		if t.Failed() {
@@ -394,9 +402,11 @@ canaries:
 
 	// ── ingest lands: each tenant's edge appears via the PUBLIC API ─────
 	waitFor(t, "tenant A's edge in /v1/topology", 90*time.Second, func() bool {
+		agentAlive("agent-a")
 		return strings.Contains(a.get(t, "/v1/topology"), ipOnlyA)
 	})
 	waitFor(t, "tenant B's edge in /v1/topology", 90*time.Second, func() bool {
+		agentAlive("agent-b")
 		return strings.Contains(b.get(t, "/v1/topology"), ipOnlyB)
 	})
 	// ── the tenancy boundary: no bleed in either direction ──────────────
@@ -656,6 +666,22 @@ func dumpKafkaDiagnostics(t *testing.T, root string, stack composeStack) {
 // stop func, and exited, which is nil while the process runs and its exit
 // error once it has ended, so a wait can stop at once instead of spending its
 // whole budget on a process that is already gone.
+// ownMetricsAddr gives every process startProc runs its own loopback metrics
+// port, picked by the kernel. Each collector binary otherwise listens on its
+// fixed default (internal/agent/metrics), so two of one kind on one runner
+// collide: tenant B's eBPF agent exited on "bind: address already in use"
+// before its first flush and the topology wait timed out (CI run 40103763025,
+// DPR-321). One entry per collector's PREFIX_METRICS_ADDR; a caller's env
+// still wins.
+var ownMetricsAddr = []string{
+	"PROBECTL_AGENT_METRICS_ADDR=127.0.0.1:0",
+	"PROBECTL_FLOW_METRICS_ADDR=127.0.0.1:0",
+	"PROBECTL_DEVICE_METRICS_ADDR=127.0.0.1:0",
+	"PROBECTL_EBPF_METRICS_ADDR=127.0.0.1:0",
+	"PROBECTL_ENDPOINT_METRICS_ADDR=127.0.0.1:0",
+	"PROBECTL_BMP_METRICS_ADDR=127.0.0.1:0",
+}
+
 func startProc(t *testing.T, work, name, bin string, args, env []string) (string, func(), func() error) {
 	t.Helper()
 	logPath := filepath.Join(work, name+".log")
@@ -665,7 +691,7 @@ func startProc(t *testing.T, work, name, bin string, args, env []string) (string
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(append(os.Environ(), ownMetricsAddr...), env...)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start %s: %v", name, err)
 	}
