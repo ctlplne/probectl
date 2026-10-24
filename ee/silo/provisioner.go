@@ -282,13 +282,51 @@ func (p *Provisioner) readerSteps(tenantID, residency string) []provisionStep {
 						return err
 					}
 				}
-				return ensureReaderScope(ctx, r, base, db)
+				return p.withReaderScopeLock(ctx, db, func(ctx context.Context) error { return ensureReaderScope(ctx, r, base, db) })
 			},
-			compensate:     func(ctx context.Context) error { return r.Revoke(ctx, base, db) },
+			compensate: func(ctx context.Context) error {
+				return p.withReaderScopeLock(ctx, db, func(ctx context.Context) error { return r.Revoke(ctx, base, db) })
+			},
 			undoOwnFailure: true,
 		})
 	}
 	return steps
+}
+
+// readerScopeLockKey namespaces the per-database advisory lock (DPR-329).
+const readerScopeLockKey = "probectl:silo-reader-scope:"
+
+// withReaderScopeLock runs fn holding a Postgres session advisory lock keyed
+// by the per-tenant database, so the reader-scope install/proof and its
+// revoke never interleave across replicas (DPR-329). Without it one replica's
+// boot Ensure (policy, then grant) could straddle another's Revoke (revoke,
+// then drop policy) and leave the reader a grant on a table with no policy;
+// grants and policies are kept by name and survive DROP TABLE, so a later
+// re-provision under the same name would start unfiltered. A nil pool (unit
+// tests) runs fn unlocked.
+func (p *Provisioner) withReaderScopeLock(ctx context.Context, db string, fn func(context.Context) error) error {
+	if p.pool == nil {
+		return fn(ctx)
+	}
+	conn, err := p.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("silo: reader-scope lock for %s: %w", db, err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, readerScopeLockKey+db); err != nil {
+		return fmt.Errorf("silo: reader-scope lock for %s: %w", db, err)
+	}
+	defer func() {
+		uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), provisionCompensateTimeout)
+		defer cancel()
+		var unlocked bool
+		if err := conn.QueryRow(uctx, `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, readerScopeLockKey+db).Scan(&unlocked); err != nil || !unlocked {
+			// A session lock that could not be released must not return
+			// to the pool still held: close the connection, which drops it.
+			_ = conn.Conn().Close(uctx)
+		}
+	}()
+	return fn(ctx)
 }
 
 // ensureReaderScope installs and proves one database's reader scope.
