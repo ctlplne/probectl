@@ -150,6 +150,8 @@ type Service struct {
 
 	// S-T2: nil = pooled-only (the siloed_isolation feature is not licensed).
 	silo SiloOps
+	// quarantineStaleAfter marks a replica's quarantine row stale (D-62).
+	quarantineStaleAfter time.Duration
 	// routerInvalidate drops the isolation router's registry cache after a
 	// lifecycle change, so new/changed tenants route correctly at once.
 	routerInvalidate func()
@@ -952,6 +954,23 @@ func (s *Service) RequestBreakGlass(ctx context.Context, op Operator, tenantID, 
 		return Grant{}, tenantIRKeyError(tenantID, err)
 	}
 	return g, nil
+}
+
+// WithQuarantineStaleAfter sets when a replica's quarantine row reads as
+// stale: three of the supervisor's recheck intervals (D-62).
+func (s *Service) WithQuarantineStaleAfter(d time.Duration) *Service {
+	s.quarantineStaleAfter = d
+	return s
+}
+
+// ListQuarantined lists the tenants the control-plane replicas hold
+// quarantined (D-62), with the failed precondition, cause and fix.
+func (s *Service) ListQuarantined(ctx context.Context) ([]QuarantinedTenant, error) {
+	stale := s.quarantineStaleAfter
+	if stale <= 0 {
+		stale = 90 * time.Second
+	}
+	return s.store.ListQuarantined(ctx, stale)
 }
 
 // ListStrandedProvisions surfaces in-flight provisioning attempts older than

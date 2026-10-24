@@ -132,6 +132,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	if d.Silo != nil {
 		svc.WithSilo(d.Silo, d.SiloInvalidate)
 	}
+	svc.WithQuarantineStaleAfter(3 * cfg.SiloQuarantineRecheck) // D-62
 	// TEN-04 / VER-02: refuse a second tenant on the degraded single-tenant
 	// profile at creation time, not only at boot. The profile + scoping pair is
 	// the same one builders.go feeds tenancy.AssertDeploymentProfilePosture, so

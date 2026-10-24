@@ -31,6 +31,7 @@ import {
 import { useI18n } from "../../../web/src/i18n/useI18n";
 import styles from "./ProviderConsole.module.css";
 import { TenantsCard } from "./TenantsCard";
+import { QuarantineCard } from "./QuarantineCard";
 
 interface Operator {
   id: string;
@@ -331,6 +332,13 @@ function Dashboard({ operator }: { operator: Operator }) {
           tabIndex={-1}
         >
           <FleetCard onExceptionsChange={setFleetExceptions} />
+        </div>
+        <div
+          id="provider-quarantine"
+          className={styles.taskSection}
+          tabIndex={-1}
+        >
+          <QuarantineCard />
         </div>
         <div id="provider-tenants" className={styles.taskSection} tabIndex={-1}>
           <TenantsCard readOnly={readOnly} api={api} />

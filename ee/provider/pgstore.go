@@ -499,6 +499,36 @@ func (s *PGStore) AbandonProvision(ctx context.Context, id string) (bool, error)
 	return removed, mapPGErr(err)
 }
 
+// ListQuarantined reads tenant_quarantine (migration 0130) joined to the
+// registry, newest quarantine first. Provider-domain metadata only: the cause
+// and fix of a failed isolation proof, never tenant telemetry.
+func (s *PGStore) ListQuarantined(ctx context.Context, staleAfter time.Duration) ([]QuarantinedTenant, error) {
+	var out []QuarantinedTenant
+	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		rows, err := q.Query(ctx,
+			`SELECT q.tenant::text, t.slug, t.name, t.isolation_model, q.plane, q.reason,
+			        q.detail, q.remedy, q.replica, q.since, q.checked_at,
+			        q.checked_at < now() - make_interval(secs => $1)
+			   FROM tenant_quarantine q
+			   JOIN tenants t ON t.id = q.tenant
+			  ORDER BY q.since DESC, q.tenant, q.replica`, staleAfter.Seconds())
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var e QuarantinedTenant
+			if err := rows.Scan(&e.TenantID, &e.Slug, &e.Name, &e.IsolationModel, &e.Plane, &e.Reason,
+				&e.Detail, &e.Remedy, &e.Replica, &e.Since, &e.CheckedAt, &e.Stale); err != nil {
+				return err
+			}
+			out = append(out, e)
+		}
+		return rows.Err()
+	})
+	return out, mapPGErr(err)
+}
+
 // ListStrandedProvisions returns attempts whose LAST attempt is older than
 // age, newest first. age <= 0 lists every in-flight attempt.
 func (s *PGStore) ListStrandedProvisions(ctx context.Context, age time.Duration) ([]StrandedProvision, error) {

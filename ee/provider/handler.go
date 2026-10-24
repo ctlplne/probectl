@@ -109,6 +109,7 @@ func routes() []RouteDecl {
 		{http.MethodPost, "/provider/v1/tenants/{id}/offboard"},
 		{http.MethodGet, "/provider/v1/fleet"},
 		{http.MethodGet, "/provider/v1/tenants/provisioning"},
+		{http.MethodGet, "/provider/v1/tenants/quarantine"},
 		{http.MethodPost, "/provider/v1/tenants/provisioning/{id}/abandon"},
 		{http.MethodGet, "/provider/v1/breakglass"},
 		{http.MethodPost, "/provider/v1/breakglass"},
@@ -169,6 +170,8 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	// with its last step, and offer an EXPLICIT abandon. Retry is the existing
 	// idempotent POST /provider/v1/tenants with the same body.
 	h.handle("GET /provider/v1/tenants/provisioning", h.asOperator("", h.handleListStrandedProvisions))
+	// D-62: tenants a replica holds quarantined, with the cause and the fix.
+	h.handle("GET /provider/v1/tenants/quarantine", h.asOperator("", h.auditedRead("provider.quarantine_read", false, h.handleListQuarantined)))
 	h.handle("POST /provider/v1/tenants/provisioning/{id}/abandon", h.asOperator(RoleAdmin, h.handleAbandonProvision))
 	h.handle("GET /provider/v1/breakglass", h.asOperator("", h.handleListGrants))
 	h.handle("POST /provider/v1/breakglass", h.asOperator("", h.handleRequestGrant))
@@ -347,6 +350,20 @@ func (h *Handler) handleListStrandedProvisions(w http.ResponseWriter, r *http.Re
 	}
 	if items == nil {
 		items = []StrandedProvision{}
+	}
+	return h.writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// handleListQuarantined serves the quarantine view (D-62): one row per
+// (tenant, replica) quarantine, with the failed precondition, the
+// operator-side cause and fix, and whether the replica still refreshes it.
+func (h *Handler) handleListQuarantined(w http.ResponseWriter, r *http.Request, _ Operator) error {
+	items, err := h.svc.ListQuarantined(r.Context())
+	if err != nil {
+		return err
+	}
+	if items == nil {
+		items = []QuarantinedTenant{}
 	}
 	return h.writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -880,6 +897,10 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		// TEN-01: siloed provisioning needs the migration login, which this
 		// control plane was not given — a precondition the operator fixes.
 		code, status = "silo_ddl_login_required", http.StatusConflict
+	case errors.Is(err, tenancy.ErrTenantQuarantined):
+		// D-62: the tenant's isolated stores failed a startup proof on this
+		// replica; the operator sees the cause and fix (provider-side detail).
+		code, status = "tenant_quarantined", http.StatusConflict
 	case errors.Is(err, ErrSingleProfileTenantCap):
 		// TEN-04 / VER-02: a deployment-posture precondition the operator can fix
 		// (switch the profile or enable tenant scoping), not a permission denial —

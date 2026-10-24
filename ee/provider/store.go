@@ -184,6 +184,26 @@ type StrandedProvision struct {
 	LastError      string    `json:"last_error,omitempty"`
 }
 
+// QuarantinedTenant is one replica's quarantine of a tenant (D-62): which
+// isolation precondition failed, the operator-side cause and fix, and when
+// the replica last re-checked it.
+type QuarantinedTenant struct {
+	TenantID       string    `json:"tenant_id"`
+	Slug           string    `json:"slug"`
+	Name           string    `json:"name"`
+	IsolationModel string    `json:"isolation_model"`
+	Plane          string    `json:"plane"`
+	Reason         string    `json:"reason"`
+	Detail         string    `json:"detail"`
+	Remedy         string    `json:"remedy"`
+	Replica        string    `json:"replica"`
+	Since          time.Time `json:"since"`
+	CheckedAt      time.Time `json:"checked_at"`
+	// Stale: the replica has not refreshed the row for three recheck
+	// intervals, so it is probably gone.
+	Stale bool `json:"stale"`
+}
+
 // Store is the provider plane's persistence surface.
 type Store interface {
 	MutationStore
@@ -203,6 +223,9 @@ type Store interface {
 	// ListStrandedProvisions returns provisioning attempts whose last attempt
 	// is older than age — the rows an operator (or the reaper) must act on.
 	ListStrandedProvisions(ctx context.Context, age time.Duration) ([]StrandedProvision, error)
+	// ListQuarantined returns every replica's quarantined tenants (D-62),
+	// marking a row unrefreshed for longer than staleAfter as stale.
+	ListQuarantined(ctx context.Context, staleAfter time.Duration) ([]QuarantinedTenant, error)
 	TenantBySlug(ctx context.Context, slug string) (*Tenant, error)
 	CountActiveTenants(ctx context.Context) (int, error)
 
@@ -532,6 +555,11 @@ func (m *MemStore) AbandonProvision(_ context.Context, id string) (bool, error) 
 	delete(m.provisions, id)
 	delete(m.ledger, id)
 	return true, nil
+}
+
+// ListQuarantined: the in-memory store has no replicas to quarantine (D-62).
+func (m *MemStore) ListQuarantined(context.Context, time.Duration) ([]QuarantinedTenant, error) {
+	return nil, nil
 }
 
 // ListStrandedProvisions returns in-flight attempts last touched before the

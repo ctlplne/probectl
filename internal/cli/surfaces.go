@@ -332,6 +332,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"fleet":              {Method: http.MethodGet, Path: "/provider/v1/fleet"},
 		"provisioning":       {Method: http.MethodGet, Path: "/provider/v1/tenants/provisioning", Description: "list stranded tenant provisioning attempts"},
 		"abandon-provision":  {Method: http.MethodPost, Path: "/provider/v1/tenants/provisioning/{id}/abandon", ArgName: "id", Description: "tear down and abandon one stranded tenant provisioning attempt"},
+		"quarantine":         {Method: http.MethodGet, Path: "/provider/v1/tenants/quarantine", Description: "list the tenants control-plane replicas hold quarantined (D-62): the failed isolation check, plane, cause, fix, replica and when it was last re-checked"},
 		"breakglass":         {Method: http.MethodGet, Path: "/provider/v1/breakglass"},
 		"request-breakglass": {Method: http.MethodPost, Path: "/provider/v1/breakglass"},
 		"revoke-breakglass":  {Method: http.MethodPost, Path: "/provider/v1/breakglass/{id}/revoke", ArgName: "id"},

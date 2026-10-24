@@ -93,7 +93,7 @@ file (`--body-file /owner-only/path.json`). The login response includes the
 provider bearer token used by later `probectl provider ...`, `tenant ...`, and
 `billing ...` commands; inject it with `PROBECTL_API_TOKEN`, not the global
 `--token` argument, so it does not enter the process list or shell history.
-`logout`, `provisioning`, and `abandon-provision` are named commands too.
+`logout`, `provisioning`, `abandon-provision` and `quarantine` are named commands too.
 
 ## Tenant lifecycle
 
@@ -109,6 +109,7 @@ on the provider audit stream with the acting operator's identity. The deployment
 | Suspend | The tenant's **users are rejected at the API** (`tenant_suspended`, via the core lifecycle gate in `requirePermission`). Data, agents, and ingestion are left untouched — suspend is a reversible billing/lifecycle state, never destruction. Only an `active` tenant can be suspended. |
 | Resume | Reactivates a suspended tenant — only a `suspended` one. Each control-plane replica re-reads a suspended tenant's status within its 15-second status cache, so the tenant's users are let back in everywhere without a restart; a failed status read keeps them refused rather than guessing "active". |
 | Offboard | Marks the tenant `offboarding`: API access stops and the band slot frees. Offboarding **never silently destroys data** — the actual data export and verifiable deletion is a separate compliance flow (deliberately core/free). It is one-way: an `offboarding` tenant can be neither resumed nor suspended, and a transition the tenant's current state does not allow answers `409 conflict`. |
+| (quarantine, D-62) | With `PROBECTL_SILO_FAILURE_MODE=quarantine`, a replica that cannot prove a siloed or hybrid tenant's isolation targets at startup quarantines that tenant instead of refusing to start: the tenant's users get `503 tenant_quarantined` and every other tenant runs. `GET /provider/v1/tenants/quarantine` (CLI `probectl provider quarantine`, the console's **Quarantined tenants** card) lists each (tenant, replica) quarantine with the failed check, plane, the operator-side cause and fix, and when the replica last re-checked it (`stale` after three recheck intervals). The replica releases the tenant itself once the check passes; enter and release are on the provider audit stream (`tenant.quarantine_entered` / `tenant.quarantine_released`) and the tenant's own chain. Erasing a quarantined tenant answers `409 tenant_quarantined`. See [`isolation.md`](isolation.md). |
 
 A tenant, operator or grant id in a path that is not a well-formed UUID is the
 caller's mistake: it answers `400 bad_request` ("malformed identifier"), never an
@@ -219,7 +220,9 @@ platform" with "I'm inside a tenant." Its source lives in **`ee/web/provider`**
 pointing at `ee/web`, is the web seam). When the API returns 404 (unlicensed), the
 console honestly renders "Provider plane not enabled." The screens: MFA login;
 tenant inventory with lifecycle actions and a provision form; a
-fleet-across-tenants table (counts and versions only — no telemetry);
+fleet-across-tenants table (counts and versions only — no telemetry); a
+**Quarantined tenants** card (D-62) listing each quarantined tenant with the
+failed isolation check, plane, cause, fix and replica;
 break-glass request/list/revoke with per-grant audited-use counts; an
 **Activity** card (admins) that pages the plane's own audit stream newest-first
 — every bootstrap, login, lockout, operator change, tenant lifecycle step,
