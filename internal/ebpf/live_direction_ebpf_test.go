@@ -64,12 +64,12 @@ func startListenerChild(t *testing.T, name string) (int, string, int) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A symlink named for the process, not a copy of the test binary: the
+	// kernel names a task after the path it was exec'd by, and a copy of a
+	// tens-of-MB binary in a RAM-backed temp dir starved the kernel-matrix VMs
+	// (CI run 40123888359: ring buffer ENOMEM on 5.15, the 6.6 guest killed).
 	bin := filepath.Join(t.TempDir(), name)
-	data, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(bin, data, 0o755); err != nil {
+	if err := os.Symlink(self, bin); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(bin, "-test.run=^TestHelperProcessListener$")
