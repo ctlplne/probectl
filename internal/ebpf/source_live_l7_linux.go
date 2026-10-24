@@ -69,8 +69,11 @@ type liveL7Source struct {
 	attachMechanism string
 	rd              *ringbuf.Reader
 	cfg             *Config
-	scope           []ScopeEntry
-	exePIDs         map[uint32]struct{} // tgids we programmed for exe: entries (refresher diff)
+	// streams remembers where each HTTP/1 stream's headers ended, so a
+	// body-only chunk is zeroed whole (DPR-340).
+	streams *streamRedactor
+	scope   []ScopeEntry
+	exePIDs map[uint32]struct{} // tgids we programmed for exe: entries (refresher diff)
 	// scopedLibs is every (device:inode) this source has already tried to
 	// attach for a scoped workload, so a library shared by many processes is
 	// probed once and an unattachable one is not retried every ten seconds.
@@ -108,6 +111,7 @@ func newLiveL7Source(cfg *Config, log *slog.Logger) (L7Source, error) {
 		cfg: cfg, scope: scope, log: log,
 		exePIDs:    map[uint32]struct{}{},
 		scopedLibs: map[string]struct{}{},
+		streams:    newStreamRedactor(),
 	}
 	if s.hasExeEntries() {
 		s.scopeRefresh = newL7ScopeSyncMonitor(cfg, log, scopeExe)
@@ -412,7 +416,7 @@ func (s *liveL7Source) decodeChunkSafely(sample []byte) (ev L7Event, ok bool) {
 	e, err := decodeChunkWithPolicy(sample, s.cfg.TenantID, s.cfg.L7CaptureRedaction, headerValuePolicy{
 		identityFragments: s.cfg.L7CaptureIdentityHeaderFragments,
 		hashAllValues:     s.cfg.L7CaptureHashAllHeaderValues,
-	})
+	}, s.streams)
 	if err != nil {
 		s.drops.Add(1)
 		return L7Event{}, false

@@ -223,9 +223,15 @@ Even for an allowlisted workload, payload bodies are redacted by default
 - **At the ring-buffer → userspace boundary**, on the only surviving copy, payload
   bodies are zeroed in place. This is `l7_capture_redaction: headers` (the
   default): protocol metadata (request line, headers) survives, the body is
-  killed. (A consequence: HTTP/2 / gRPC call extraction is degraded under `headers`
-  redaction, by design — the HPACK frames, HTTP/2's compressed header encoding,
-  live in the zeroed region.)
+  killed. The boundary remembers, per direction of each HTTP/1 connection,
+  whether a message's headers have ended (DPR-340): a chunk that continues a
+  message past its headers is body and is zeroed **whole**, even when it holds
+  bytes that look like a header terminator. A chunk on a stream the agent is not
+  tracking (a non-HTTP/1 protocol, or more than 8192 live HTTP/1 streams) is
+  judged on its own: the metadata up to the header terminator, or the first 128
+  bytes, survives. (A consequence: HTTP/2 / gRPC call extraction is degraded
+  under `headers` redaction, by design — the HPACK frames, HTTP/2's compressed
+  header encoding, live in the zeroed region.)
 
 The three redaction modes:
 

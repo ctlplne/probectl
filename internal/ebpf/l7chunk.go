@@ -40,10 +40,12 @@ type sslChunk struct {
 // is redacted BEFORE this function returns — nothing upstream of it retains
 // plaintext (raw is kernel-owned ring memory, reused on the next read).
 func decodeChunk(raw []byte, tenantID, mode string) (L7Event, error) {
-	return decodeChunkWithPolicy(raw, tenantID, mode, headerValuePolicy{})
+	return decodeChunkWithPolicy(raw, tenantID, mode, headerValuePolicy{}, nil)
 }
 
-func decodeChunkWithPolicy(raw []byte, tenantID, mode string, policy headerValuePolicy) (L7Event, error) {
+// decodeChunkWithPolicy is decodeChunk with the deployment's header policy and
+// the source's stream history (DPR-340; nil judges the chunk alone).
+func decodeChunkWithPolicy(raw []byte, tenantID, mode string, policy headerValuePolicy, streams *streamRedactor) (L7Event, error) {
 	var c sslChunk
 	if err := binary.Read(bytes.NewReader(raw), binary.LittleEndian, &c); err != nil {
 		return L7Event{}, fmt.Errorf("ebpf: decode tls chunk: %w", err)
@@ -56,7 +58,8 @@ func decodeChunkWithPolicy(raw []byte, tenantID, mode string, policy headerValue
 	if n > uint32(len(c.Data)) {
 		n = uint32(len(c.Data))
 	}
-	payload := redactPayloadWithPolicy(append([]byte(nil), c.Data[:n]...), mode, policy)
+	payload := streams.redact(streamKey{pid: c.PID, conn: c.Conn, read: c.IsRead == 1},
+		append([]byte(nil), c.Data[:n]...), mode, policy)
 	observedAt := time.Now()
 	return L7Event{
 		ConnID:    c.Conn,
