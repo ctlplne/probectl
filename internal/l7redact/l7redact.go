@@ -330,7 +330,7 @@ func Minimize(c Call, mode string) (Call, Strip) {
 		}
 	}
 	if minimize {
-		if s := statusToken(c.Status); s != c.Status {
+		if s := statusFor(c.Protocol, c.Status); s != c.Status {
 			c.Status, strip = s, strip|StripStatus
 		}
 	}
@@ -376,6 +376,34 @@ func tokenOr(s string, limit int) string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if !isAlnum(c) && c != ' ' && c != '_' && c != '-' {
+			return OtherMethod
+		}
+	}
+	return s
+}
+
+// statusFor bounds a status under metadata: an HTTP status is three digits, a
+// gRPC status one or two digits (review N6 — an HTTP/2 :status could carry
+// "password authentication failed"); other protocols keep a short token.
+func statusFor(protocol, status string) string {
+	switch protocol {
+	case protoHTTP1, protoHTTP2:
+		return digitsOr(status, 3, 3)
+	case protoGRPC:
+		return digitsOr(status, 1, 2)
+	}
+	return statusToken(status)
+}
+
+func digitsOr(s string, minLen, maxLen int) string {
+	if s == "" || s == OtherMethod {
+		return s
+	}
+	if len(s) < minLen || len(s) > maxLen {
+		return OtherMethod
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
 			return OtherMethod
 		}
 	}

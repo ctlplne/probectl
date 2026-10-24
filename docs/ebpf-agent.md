@@ -585,10 +585,21 @@ emit looser data than its tenant allows.
   value cannot be content-checked; this bounds shape, not meaning. Each strip is counted on
   `probectl_ebpf_l7_ingest_stripped_total{field}`.
 
+**What templating turns into `{id}`** (one shared function,
+`l7redact.TemplateRoute`): numbers; UUIDs; any token mixing letters and
+digits (`user123`, `acct42`, `ABCD123`, contract numbers such as
+`W56HZV-23-C-0123`) except a short list of protocol and product names
+(`oauth2`, `ec2`, `s3`, `k8s`, `http2`, `md5`, `sha256`, `x509`, `ipv6`, …) and
+API versions (`v1`, `v2beta1`); digit-free hex of 12+ characters; base64-like
+case churn (`MzEyMw`); tokens of 32+ characters; anything percent-encoded or
+containing `@ = + ~`; and segments starting like a credential (`sk-`, `ghp_`,
+`xoxb-`, `glpat-`, `AKIA`, `AIza`, `eyJ`, …). Under `metadata` an HTTP status
+is three digits and a gRPC status one or two; anything else becomes `_OTHER`.
+
 What `metadata` cannot see: a route segment that is an identifier but is
-shaped like a word (a username such as `/users/alice`). Templating works on
-shape, so routes of that kind need the application to template them, or the
-`length` mode.
+shaped like a word (a username such as `/users/alice` or `/users/JDOE`).
+Templating works on shape, so routes of that kind need the application to
+template them, or the `length` mode.
 
 ## Tuning and kernel lockdown
 

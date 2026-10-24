@@ -140,6 +140,9 @@ func labelIsIdentifier(label string) bool {
 	if label == "" {
 		return false
 	}
+	if hasTokenPrefix(label) {
+		return true
+	}
 	start := 0
 	for i := 0; i <= len(label); i++ {
 		if i == len(label) || label[i] == '-' || label[i] == '_' {
@@ -181,13 +184,20 @@ func tokenIsIdentifier(t string) bool {
 		if digits == len(t) {
 			return true // numeric id
 		}
-		if isVersion(t) {
-			return false // v1, v2beta1, V3
+		if isVersion(t) || keptMixedWords[asciiLowerString(t)] {
+			return false // v1, v2beta1; oauth2, ec2, k8s
 		}
-		// short protocol/product names: oauth2, ec2, http2, md5, 2fa
-		return len(t) > 8 || digits > 3 || letters <= digits
+		// Any other mix of letters and digits is an identifier: user123,
+		// acct42, ABCD123, a1b2c3 (D-43 refinement 1, review S6).
+		return true
 	}
-	// No digits: a word, unless it reads as random letters.
+	// No digits: a word, unless it reads as an encoding of something.
+	if len(t) >= 12 && isHexString(t) {
+		return true // digit-free hex: deadbeefcafebabe
+	}
+	if len(t) >= 6 && caseTransitions(t)*2 >= len(t) {
+		return true // base64-ish case churn: MzEyMw, AbCdEfGhIjKlMnOp
+	}
 	if len(t) >= 12 && longestConsonantRun(t) >= 6 {
 		return true
 	}
@@ -195,6 +205,65 @@ func tokenIsIdentifier(t string) bool {
 		return true
 	}
 	return false
+}
+
+// keptMixedWords are the letter-and-digit tokens that name a protocol,
+// product or standard rather than a record; every other mixed token is an
+// identifier.
+var keptMixedWords = map[string]bool{
+	"oauth2": true, "ec2": true, "s3": true, "k8s": true, "http2": true, "h2c": true,
+	"md5": true, "sha1": true, "sha256": true, "sha512": true, "x509": true,
+	"base64": true, "utf8": true, "ipv4": true, "ipv6": true, "2fa": true,
+	"i18n": true, "l10n": true, "e2e": true, "p2p": true, "b2b": true,
+	"mp3": true, "mp4": true, "h264": true, "3ds": true,
+}
+
+// tokenPrefixes are credential families a route segment can carry whole.
+var tokenPrefixes = []string{
+	"sk-", "sk_", "pk_", "rk_", "ghp_", "gho_", "ghs_", "ghu_", "ghr_", "github_pat_",
+	"xoxb-", "xoxp-", "xoxa-", "xoxr-", "xoxs-", "glpat-", "AKIA", "ASIA", "AIza", "ya29", "eyJ",
+}
+
+// hasTokenPrefix reports whether label starts like a known credential family
+// (the prefix alone is never a route word).
+func hasTokenPrefix(label string) bool {
+	for _, p := range tokenPrefixes {
+		if len(label) > len(p) && strings.HasPrefix(label, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHexString(t string) bool {
+	for i := 0; i < len(t); i++ {
+		if !isHex(t[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// caseTransitions counts adjacent letter pairs whose case differs.
+func caseTransitions(t string) int {
+	n := 0
+	for i := 1; i < len(t); i++ {
+		a, b := t[i-1], t[i]
+		if isLetter(a) && isLetter(b) && isUpper(a) != isUpper(b) {
+			n++
+		}
+	}
+	return n
+}
+
+func isLetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+
+func asciiLowerString(t string) string {
+	b := []byte(t)
+	for i := range b {
+		b[i] = asciiLower(b[i])
+	}
+	return string(b)
 }
 
 // isVersion matches v<digits> with an optional lowercase suffix and digits:
