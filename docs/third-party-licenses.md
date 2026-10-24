@@ -513,7 +513,7 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `xmlchars` | 2.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/xmlchars |
 | npm:web | `yallist` | 3.1.1 | dev/build-only | ISC | web/package-lock.json:node_modules/yallist |
 | npm:web | `yocto-queue` | 0.1.0 | dev/build-only | MIT | web/package-lock.json:node_modules/yocto-queue |
-| npm:web | `zod` | 4.6.5 | dev/build-only | MIT | web/package-lock.json:node_modules/zod |
+| npm:web | `zod` | 4.6.7 | dev/build-only | MIT | web/package-lock.json:node_modules/zod |
 | npm:web | `zod-validation-error` | 4.0.2 | dev/build-only | MIT | web/package-lock.json:node_modules/zod-validation-error |
 | proto:gnmi | `openconfig gNMI gnmi.proto` | 0.14.1 | runtime (vendored) | Apache-2.0 | third_party/vendored-assets.json; proto/gnmi/gnmi.proto; source openconfig/gnmi v0.14.1, Copyright 2016 Google Inc.; internal/gen holds the Go generated from it; sha256 1ef8c2035d5b9e01153d22b93f83c7060e69bd153180aee1d0973c808cdc5929 |
 | proto:gnmi | `openconfig gNMI gnmi_ext.proto` | 0.14.1 | runtime (vendored) | Apache-2.0 | third_party/vendored-assets.json; proto/gnmi_ext/gnmi_ext.proto; source openconfig/gnmi v0.14.1, Copyright 2018 Google Inc.; internal/gen holds the Go generated from it; sha256 dd102b5eb4c92c6892aaaa82a225359a25910171bc5f08c9e86c5b1854eec461 |

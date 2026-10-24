@@ -505,7 +505,7 @@ docs/third-party-licenses.md.
 - npm:web xmlchars 2.2.0 (dev/build-only) - MIT
 - npm:web yallist 3.1.1 (dev/build-only) - ISC
 - npm:web yocto-queue 0.1.0 (dev/build-only) - MIT
-- npm:web zod 4.6.5 (dev/build-only) - MIT
+- npm:web zod 4.6.7 (dev/build-only) - MIT
 - npm:web zod-validation-error 4.0.2 (dev/build-only) - MIT
 - proto:gnmi openconfig gNMI gnmi.proto 0.14.1 (runtime, vendored proto/gnmi/gnmi.proto from openconfig/gnmi v0.14.1, Copyright 2016 Google Inc.; internal/gen holds the Go generated from it) - Apache-2.0
 - proto:gnmi openconfig gNMI gnmi_ext.proto 0.14.1 (runtime, vendored proto/gnmi_ext/gnmi_ext.proto from openconfig/gnmi v0.14.1, Copyright 2018 Google Inc.; internal/gen holds the Go generated from it) - Apache-2.0
