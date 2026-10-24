@@ -182,10 +182,18 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 		fenced, err := pbs.SaveBatchPartitioned(ctx, items)
 		var partial *PartialBatchError
 		if errors.As(err, &partial) {
-			b.saved.Add(uint64(len(batch) - partial.Refused))
-			b.lost.Add(uint64(partial.Refused))
-			b.log.Warn("PATH BATCH PARTIAL: refused the paths of tenants the router refuses (e.g. quarantined, D-62) and stored the rest",
-				"refused", partial.Refused, "stored", len(batch)-partial.Refused, "error", err.Error())
+			// DPR-382: the fence's drops are lost too, never counted saved.
+			fencedItems := 0
+			for i := range items {
+				if _, bad := fenced[items[i].TenantID]; bad {
+					fencedItems++
+				}
+			}
+			dropped := partial.Refused + fencedItems
+			b.saved.Add(uint64(len(batch) - dropped))
+			b.lost.Add(uint64(dropped))
+			b.log.Warn("PATH BATCH PARTIAL: refused the paths of tenants the router or the write fence refuses (e.g. quarantined, D-62) and stored the rest",
+				"refused", partial.Refused, "fenced", fencedItems, "stored", len(batch)-dropped, "error", err.Error())
 			return
 		}
 		if err != nil {

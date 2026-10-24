@@ -80,3 +80,34 @@ func TestPathBatchRefusesOnlyTheQuarantinedTenant(t *testing.T) {
 		t.Fatalf("batcher saved=%d lost=%d, want 2 saved and only the quarantined tenant's 1 lost", saved, lost)
 	}
 }
+
+// partialFencedStore answers a partitioned flush with BOTH a routing refusal
+// and a fenced tenant, as the write fence over a store with a quarantined
+// tenant does.
+type partialFencedStore struct{ Store }
+
+func (partialFencedStore) SaveBatchPartitioned(_ context.Context, items []PathItem) (map[string]error, error) {
+	refused := &PartialBatchError{ByTenant: map[string]error{}}
+	for _, it := range items {
+		if it.TenantID == "tenant-q" {
+			refused = refused.add(it.TenantID, tenancy.ErrTenantQuarantined)
+		}
+	}
+	return map[string]error{"tenant-fenced": tenancy.ErrTenantWritesFenced}, refused
+}
+
+// DPR-382: when a quarantine refusal and the write fence coincide in one
+// flush, the fenced tenant's paths are counted lost, not saved.
+func TestPartitionedPartialBatchCountsFencedPathsAsLost(t *testing.T) {
+	batching := NewBatchingSaver(partialFencedStore{Store: NewMemory()}, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 100)
+	defer func() { _ = batching.Close() }()
+	for _, id := range []string{"tenant-a", "tenant-q", "tenant-fenced"} {
+		if err := batching.Save(context.Background(), id, samplePath()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	batching.Flush(context.Background())
+	if saved, lost := batching.saved.Load(), batching.lostCount(); saved != 1 || lost != 2 {
+		t.Fatalf("saved=%d lost=%d, want 1 saved and the quarantined and fenced tenants' 2 lost", saved, lost)
+	}
+}
