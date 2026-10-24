@@ -134,10 +134,20 @@ table. `EnsureRowPolicies` installs a `probectl_tenant_isolation` policy
 see [../isolation.md](../isolation.md)) is constrained by ClickHouse itself and
 cannot cross tenants — independent of probectl's code.
 
-Setting-scoped runtime reader policies use `CREATE ROW POLICY OR REPLACE`.
-That replacement is deliberate: when a reader credential rotates, the fixed
-policy name must move its `TO` binding to the new validated user atomically;
-`IF NOT EXISTS` would leave the new reader without the intended filter.
+Setting-scoped runtime reader policies are converged in two steps,
+`CREATE ROW POLICY IF NOT EXISTS …` and then `ALTER ROW POLICY …`, at every
+boot and on every per-tenant table (DPR-325). The `ALTER` matters: when a
+reader credential rotates, the fixed policy name must move its `TO` binding to
+the new validated user; `IF NOT EXISTS` alone would leave the new reader
+without the intended filter. The policy is never replaced: ClickHouse runs
+`CREATE ROW POLICY OR REPLACE` as remove-then-insert, and a reader query that
+started in between found no policy and read every row (measured on the pinned
+24.8 image: 291 of 17,685 concurrent foreign-tenant reads unfiltered while one
+replica re-applied the policy; zero with create-then-alter). That is like
+changing a lock by taking the old one out first: for a moment the door is
+open. The real-ClickHouse proof is
+`TestReaderRowPolicyReapplyNeverOpensTheTable` (`internal/store/chclient`,
+`-tags isolation`).
 
 **The honest gap (and its opt-in fix).** probectl's own *pooled* deployment holds
 **one** service credential, and that account is deliberately policy-exempt

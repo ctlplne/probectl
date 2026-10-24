@@ -87,11 +87,13 @@ func siloDataTables(database string, tables []SiloTable) ([]SiloTable, error) {
 
 // SiloReaderScopeStatements returns, in order, the statements that put a
 // per-tenant database's tables under the reader row policy and only then let
-// the reader read them. Each table's policy precedes its grant, so there is no
-// moment at which the reader can SELECT a table the policy does not filter;
-// a run that stops part way leaves a table ungranted (the reader is refused),
-// never granted and unfiltered. Grants are per table, never database-wide, so
-// a table created later is unreadable by the reader until it is scoped too.
+// the reader read them. Each table's policy precedes its grant, and a policy
+// is converged in place (create if absent, then ALTER; never OR REPLACE,
+// which removes it first: DPR-325), so once a table is granted its policy is
+// never absent. A run that stops part way leaves a table ungranted (the reader
+// is refused), never granted and unfiltered. Grants are per table, never
+// database-wide, so a table created later is unreadable by the reader until it
+// is scoped too.
 func SiloReaderScopeStatements(database string, tables []SiloTable, tenantSetting, readerUser string) ([]string, error) {
 	if !siloUserRe.MatchString(readerUser) {
 		return nil, fmt.Errorf("chclient: refusing malformed ClickHouse reader user %q", readerUser)
@@ -106,10 +108,8 @@ func SiloReaderScopeStatements(database string, tables []SiloTable, tenantSettin
 	stmts := make([]string, 0, 2*len(data))
 	for _, t := range data {
 		qualified := database + "." + t.Name
-		stmts = append(stmts,
-			ReaderRowPolicyDDL(SiloReaderPolicy, qualified, tenantSetting, readerUser),
-			"GRANT SELECT ON "+qualified+" TO "+readerUser,
-		)
+		stmts = append(stmts, ReaderRowPolicyStatements(SiloReaderPolicy, qualified, tenantSetting, readerUser)...)
+		stmts = append(stmts, "GRANT SELECT ON "+qualified+" TO "+readerUser)
 	}
 	return stmts, nil
 }
@@ -172,7 +172,8 @@ func (s SiloScope) bound() error {
 }
 
 // Ensure installs the reader scope on every table of database (idempotent:
-// the policies are OR REPLACE and a repeated GRANT is a no-op). It runs as the
+// each policy is created if absent and altered in place, and a repeated GRANT
+// is a no-op). It runs as the
 // control login, which needs SELECT WITH GRANT OPTION to grant the reader.
 func (s SiloScope) Ensure(ctx context.Context, routedBase, database string) error {
 	if err := s.bound(); err != nil {

@@ -607,12 +607,12 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 		return err
 	}
 	for _, table := range tables {
-		// OR REPLACE is intentional: a fixed policy name with IF NOT EXISTS
-		// retains the old TO user after credential rotation, leaving the new
-		// reader without a database filter.
-		ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", table, tenantSettingName, readerUser)
-		if err := c.exec(ctx, "", ddl, nil, nil); err != nil {
-			return fmt.Errorf("flowstore: reader row policy: %w", err)
+		// DPR-325: create-if-absent then ALTER, never OR REPLACE: the policy
+		// stays in place while it converges (chclient.ReaderRowPolicyStatements).
+		for _, ddl := range chclient.ReaderRowPolicyStatements("probectl_reader_scope", table, tenantSettingName, readerUser) {
+			if err := c.exec(ctx, "", ddl, nil, nil); err != nil {
+				return fmt.Errorf("flowstore: reader row policy: %w", err)
+			}
 		}
 	}
 	c.readerUser = readerUser

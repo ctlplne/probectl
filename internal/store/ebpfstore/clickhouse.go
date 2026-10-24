@@ -459,9 +459,10 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	if err := chValidUser(readerUser); err != nil {
 		return fmt.Errorf("ebpfstore: reader user: %w", err)
 	}
-	ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", edgesTable, tenantSettingName, readerUser)
-	if err := c.exec(ctx, ddl, nil); err != nil {
-		return fmt.Errorf("ebpfstore: reader row policy: %w", err)
+	for _, ddl := range chclient.ReaderRowPolicyStatements("probectl_reader_scope", edgesTable, tenantSettingName, readerUser) {
+		if err := c.exec(ctx, ddl, nil); err != nil {
+			return fmt.Errorf("ebpfstore: reader row policy: %w", err)
+		}
 	}
 	c.readerUser = readerUser
 	return nil

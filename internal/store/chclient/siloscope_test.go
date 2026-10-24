@@ -34,16 +34,18 @@ func TestSiloReaderScopeStatementsPolicyPrecedesEachGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"CREATE ROW POLICY OR REPLACE probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
+		"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
+		"ALTER ROW POLICY probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
 		"GRANT SELECT ON " + siloDB + ".probectl_flows TO probectl_reader",
-		"CREATE ROW POLICY OR REPLACE probectl_reader_scope ON " + siloDB + ".probectl_flow_rollups_hour FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
+		"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flow_rollups_hour FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
+		"ALTER ROW POLICY probectl_reader_scope ON " + siloDB + ".probectl_flow_rollups_hour FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
 		"GRANT SELECT ON " + siloDB + ".probectl_flow_rollups_hour TO probectl_reader",
 	}
 	if strings.Join(stmts, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("scope statements:\n%s\nwant:\n%s", strings.Join(stmts, "\n"), strings.Join(want, "\n"))
 	}
 	for _, s := range stmts {
-		if strings.Contains(s, ".*") || strings.Contains(s, "_mv") {
+		if strings.Contains(s, ".*") || strings.Contains(s, "_mv") || strings.Contains(s, "OR REPLACE") {
 			t.Fatalf("the reader must be granted per data table, never a database wildcard or a view: %s", s)
 		}
 	}
@@ -145,7 +147,7 @@ func (f *siloFake) handler(w http.ResponseWriter, r *http.Request) {
 			n = "1"
 		}
 		_, _ = w.Write([]byte(`{"n":"` + n + `"}` + "\n"))
-	case strings.HasPrefix(q, "CREATE ROW POLICY"), strings.HasPrefix(q, "GRANT"), strings.HasPrefix(q, "REVOKE"), strings.HasPrefix(q, "DROP ROW POLICY"):
+	case strings.HasPrefix(q, "CREATE ROW POLICY"), strings.HasPrefix(q, "ALTER ROW POLICY"), strings.HasPrefix(q, "GRANT"), strings.HasPrefix(q, "REVOKE"), strings.HasPrefix(q, "DROP ROW POLICY"):
 		if reader {
 			f.t.Errorf("scope DDL sent as the reader: %s", q)
 		}
@@ -227,7 +229,8 @@ func TestSiloScopeEnsureAndVerify(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := []string{
-				"CREATE ROW POLICY OR REPLACE probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
+				"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
+				"ALTER ROW POLICY probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
 				"GRANT SELECT ON " + siloDB + ".probectl_flows TO probectl_reader",
 			}
 			if strings.Join(f.statements, "\n") != strings.Join(want, "\n") {

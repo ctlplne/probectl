@@ -11,23 +11,19 @@ import (
 	"testing"
 )
 
-func TestReaderRowPolicyDDLReplacesTheCurrentUserBinding(t *testing.T) {
-	ddl := ReaderRowPolicyDDL(
-		"probectl_reader_scope",
-		"probectl_flows",
-		"SQL_probectl_tenant",
-		"reader_b",
-	)
-	for _, want := range []string{
-		"CREATE ROW POLICY OR REPLACE probectl_reader_scope ON probectl_flows",
-		"FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant')",
-		"TO reader_b",
-	} {
-		if !strings.Contains(ddl, want) {
-			t.Fatalf("reader policy DDL missing %q: %s", want, ddl)
-		}
+// DPR-325: the reader policy is converged without ever being removed: create
+// it if absent, then alter it in place. OR REPLACE (remove-then-insert) left a
+// window in which a concurrent reader query saw no policy and every row.
+func TestReaderRowPolicyStatementsConvergeWithoutRemovingThePolicy(t *testing.T) {
+	stmts := ReaderRowPolicyStatements("probectl_reader_scope", "probectl_flows", "SQL_probectl_tenant", "reader_b")
+	const body = "probectl_reader_scope ON probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO reader_b"
+	want := []string{"CREATE ROW POLICY IF NOT EXISTS " + body, "ALTER ROW POLICY " + body}
+	if strings.Join(stmts, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("reader policy statements:\n%s\nwant:\n%s", strings.Join(stmts, "\n"), strings.Join(want, "\n"))
 	}
-	if strings.Contains(ddl, "IF NOT EXISTS") || strings.Contains(ddl, "USING 1") {
-		t.Fatalf("reader policy must replace stale bindings and never be permissive: %s", ddl)
+	for _, s := range stmts {
+		if strings.Contains(s, "OR REPLACE") || strings.Contains(s, "USING 1") || strings.Contains(s, "DROP") {
+			t.Fatalf("reader policy DDL must never remove the policy or be permissive: %s", s)
+		}
 	}
 }

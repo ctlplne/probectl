@@ -485,9 +485,10 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 		return fmt.Errorf("pathstore: refusing malformed ClickHouse user identifier %q", readerUser)
 	}
 	for _, table := range readerPolicyTables() {
-		ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", table, tenantSettingName, readerUser)
-		if err := c.exec(ctx, ddl, nil, nil); err != nil {
-			return fmt.Errorf("pathstore: reader row policy: %w", err)
+		for _, ddl := range chclient.ReaderRowPolicyStatements("probectl_reader_scope", table, tenantSettingName, readerUser) {
+			if err := c.exec(ctx, ddl, nil, nil); err != nil {
+				return fmt.Errorf("pathstore: reader row policy: %w", err)
+			}
 		}
 	}
 	c.readerUser = readerUser

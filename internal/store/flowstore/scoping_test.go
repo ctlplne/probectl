@@ -44,14 +44,19 @@ func TestTenantSettingAttach(t *testing.T) {
 func TestReaderRowPolicyDDLShape(t *testing.T) {
 	// Reproduce the DDL EnsureReaderRowPolicy emits (it is built from the same
 	// constants) and assert the security-relevant shape.
-	ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", sharedFlowsTable, tenantSettingName, "probectl_reader")
-	for _, must := range []string{"CREATE ROW POLICY OR REPLACE", "FOR SELECT", "tenant_id = getSetting('" + tenantSettingName + "')", "TO probectl_reader"} {
-		if !strings.Contains(ddl, must) {
-			t.Fatalf("reader policy DDL missing %q: %s", must, ddl)
-		}
+	stmts := chclient.ReaderRowPolicyStatements("probectl_reader_scope", sharedFlowsTable, tenantSettingName, "probectl_reader")
+	if len(stmts) != 2 || !strings.HasPrefix(stmts[0], "CREATE ROW POLICY IF NOT EXISTS ") || !strings.HasPrefix(stmts[1], "ALTER ROW POLICY ") {
+		t.Fatalf("reader policy must be created if absent then altered in place, never replaced (DPR-325): %q", stmts)
 	}
-	if strings.Contains(ddl, "USING 1") {
-		t.Fatal("reader policy must NOT contain a permissive USING 1 escape")
+	for _, ddl := range stmts {
+		for _, must := range []string{"FOR SELECT", "tenant_id = getSetting('" + tenantSettingName + "')", "TO probectl_reader"} {
+			if !strings.Contains(ddl, must) {
+				t.Fatalf("reader policy DDL missing %q: %s", must, ddl)
+			}
+		}
+		if strings.Contains(ddl, "USING 1") || strings.Contains(ddl, "OR REPLACE") {
+			t.Fatalf("reader policy must not be permissive or remove-then-insert: %s", ddl)
+		}
 	}
 }
 

@@ -1046,9 +1046,10 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 		return err
 	}
 	for _, table := range tables {
-		ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", table, tenantSettingName, readerUser)
-		if err := c.exec(ctx, ddl, nil, nil); err != nil {
-			return fmt.Errorf("otelstore: reader row policy: %w", err)
+		for _, ddl := range chclient.ReaderRowPolicyStatements("probectl_reader_scope", table, tenantSettingName, readerUser) {
+			if err := c.exec(ctx, ddl, nil, nil); err != nil {
+				return fmt.Errorf("otelstore: reader row policy: %w", err)
+			}
 		}
 	}
 	c.readerUser = readerUser

@@ -654,9 +654,10 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	if !chUserRe.MatchString(readerUser) {
 		return fmt.Errorf("endpointstore: refusing malformed ClickHouse user identifier %q", readerUser)
 	}
-	query := chclient.ReaderRowPolicyDDL("probectl_endpoint_reader_scope", eventsTable, tenantSetting, readerUser)
-	if err := c.execAt(ctx, "", query, nil, nil); err != nil {
-		return err
+	for _, query := range chclient.ReaderRowPolicyStatements("probectl_endpoint_reader_scope", eventsTable, tenantSetting, readerUser) {
+		if err := c.execAt(ctx, "", query, nil, nil); err != nil {
+			return err
+		}
 	}
 	c.readerUser = readerUser
 	return nil

@@ -8,15 +8,27 @@ package chclient
 
 import "fmt"
 
-// ReaderRowPolicyDDL returns the convergent DDL for one setting-scoped reader
-// policy. Callers must validate every identifier before calling it.
+// ReaderRowPolicyStatements returns the convergent DDL for one setting-scoped
+// reader policy, in order. Callers must validate every identifier first.
 //
-// OR REPLACE is the security boundary here: IF NOT EXISTS would leave a fixed
-// policy attached to the previous reader after credential rotation, while the
-// new reader could issue unfiltered SELECTs.
-func ReaderRowPolicyDDL(policy, table, tenantSetting, readerUser string) string {
-	return fmt.Sprintf(
-		"CREATE ROW POLICY OR REPLACE %s ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s",
-		policy, table, tenantSetting, readerUser,
-	)
+// DPR-325: the policy must stay in place WHILE it is converged. ClickHouse
+// runs CREATE ROW POLICY OR REPLACE as remove-then-insert, and its row-policy
+// cache sees the two separately: a reader query that starts in between finds
+// no policy on the table and, under the default
+// users_without_row_policies_can_read_rows=true, reads every row. That
+// happened on every boot of every replica (measured: 291 of 17,685
+// concurrent foreign-tenant reads unfiltered). Instead:
+//
+//  1. CREATE ROW POLICY IF NOT EXISTS installs the policy when it is absent
+//     and is a no-op otherwise, never removing an existing one;
+//  2. ALTER ROW POLICY then converges an existing policy's expression and
+//     binding in place. It is the step that matters after a credential
+//     rotation: IF NOT EXISTS alone would leave a fixed policy name bound to
+//     the previous reader while the new reader issued unfiltered SELECTs.
+func ReaderRowPolicyStatements(policy, table, tenantSetting, readerUser string) []string {
+	body := fmt.Sprintf("%s ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s", policy, table, tenantSetting, readerUser)
+	return []string{
+		"CREATE ROW POLICY IF NOT EXISTS " + body,
+		"ALTER ROW POLICY " + body,
+	}
 }

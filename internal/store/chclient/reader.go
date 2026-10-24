@@ -20,7 +20,7 @@ import (
 // DPR-285: storage-layer tenant isolation for ClickHouse reads
 // (docs/guardrails.md G7-1).
 //
-// The setting-scoped row policy (ReaderRowPolicyDDL) binds ONE ClickHouse
+// The setting-scoped row policy (ReaderRowPolicyStatements) binds ONE ClickHouse
 // login: the reader. It filters nothing for any other login, and ClickHouse's
 // default users_without_row_policies_can_read_rows=true lets every other login
 // read every row. A store that sent its tenant reads as the control login (the
