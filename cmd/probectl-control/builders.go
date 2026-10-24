@@ -1687,6 +1687,9 @@ func registerQuarantineGauges(m *metrics.Registry) {
 	m.CounterFunc("probectl_tenant_quarantine_entered_total",
 		"Tenants this replica has quarantined since it started (D-62).",
 		func() float64 { entered, _ := tenancy.CurrentQuarantine().Transitions(); return float64(entered) })
+	m.CounterFunc("probectl_tenant_quarantine_notices_dropped_total",
+		"Tenant-chain quarantine receipts given up after their bounded retries and recorded on the provider stream only (D-62, DPR-381).",
+		func() float64 { return float64(tenancy.CurrentQuarantine().NoticesDropped()) })
 	m.CounterFunc("probectl_tenant_quarantine_released_total",
 		"Tenants this replica has released from quarantine since it started, once their checks passed again (D-62).",
 		func() float64 { _, released := tenancy.CurrentQuarantine().Transitions(); return float64(released) })

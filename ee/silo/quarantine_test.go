@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/breaker"
 	"github.com/ctlplne/probectl/internal/store/chclient"
@@ -135,9 +136,86 @@ type recordedNotice struct {
 	reason         tenancy.QuarantineReason
 }
 
-func testSupervisor(t *testing.T, checks *fakeChecks, tenants []IsolatedTenant) (*QuarantineSupervisor, *tenancy.Quarantine, *[]recordedNotice, *[]recordedNotice) {
-	t.Helper()
-	q := tenancy.NewQuarantine()
+// fakeStore is tenant_quarantine in memory, with the same holder semantics
+// as the Postgres store: an entered event only when the first holder
+// appears, a released event only when the last one goes.
+type fakeStore struct {
+	mu     sync.Mutex
+	rows   map[string]map[string]tenancy.QuarantineEntry // tenant -> replica -> entry
+	events []recordedNotice
+}
+
+func newFakeStore() *fakeStore {
+	return &fakeStore{rows: map[string]map[string]tenancy.QuarantineEntry{}}
+}
+
+func (f *fakeStore) hold(_ context.Context, replica string, e tenancy.QuarantineEntry, _ time.Duration) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.rows[e.TenantID] == nil {
+		f.rows[e.TenantID] = map[string]tenancy.QuarantineEntry{}
+	}
+	before := len(f.rows[e.TenantID])
+	prev, had := f.rows[e.TenantID][replica]
+	f.rows[e.TenantID][replica] = e
+	switch {
+	case before == 0:
+		f.events = append(f.events, recordedNotice{e.TenantID, AuditTenantQuarantined, e.Reason})
+		return true, nil
+	case had && prev.Reason != e.Reason:
+		f.events = append(f.events, recordedNotice{e.TenantID, AuditQuarantineCauseChanged, e.Reason})
+	}
+	return false, nil
+}
+
+func (f *fakeStore) drop(_ context.Context, replica string, e tenancy.QuarantineEntry, _ time.Duration, _ string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	before := len(f.rows[e.TenantID])
+	delete(f.rows[e.TenantID], replica)
+	if before == 0 || len(f.rows[e.TenantID]) > 0 {
+		return false, nil
+	}
+	f.events = append(f.events, recordedNotice{e.TenantID, AuditTenantReleased, e.Reason})
+	return true, nil
+}
+
+func (f *fakeStore) mine(_ context.Context, replica string) ([]tenancy.QuarantineEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []tenancy.QuarantineEntry
+	for _, byReplica := range f.rows {
+		if e, ok := byReplica[replica]; ok {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) prune(context.Context, time.Duration) ([]tenancy.QuarantineEntry, error) {
+	return nil, nil
+}
+
+func (f *fakeStore) record(_ context.Context, action, tenantID string, _ map[string]any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, recordedNotice{tenant: tenantID, action: action})
+	return nil
+}
+
+func (f *fakeStore) count(action, tenant string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, e := range f.events {
+		if e.action == action && (tenant == "" || e.tenant == tenant) {
+			n++
+		}
+	}
+	return n
+}
+
+func newTestSupervisor(checks TenantChecks, q *tenancy.Quarantine, store *fakeStore, replica string, tenants *[]IsolatedTenant) (*QuarantineSupervisor, *[]recordedNotice) {
 	gap := func(plane string) error {
 		if plane == "nocred" {
 			return fmt.Errorf("a siloed or hybrid tenant lives on data plane %q ... add nocred=/path/to/reader-credential.json to PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES", plane)
@@ -145,21 +223,26 @@ func testSupervisor(t *testing.T, checks *fakeChecks, tenants []IsolatedTenant) 
 		return nil
 	}
 	s := NewQuarantineSupervisor(QuarantineConfig{Checks: checks, Registry: q, ReaderScoped: true, ReaderGap: gap,
-		Planes: []string{"eu", "us", "nocred"}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	list := tenants
-	s.list = func(context.Context) ([]IsolatedTenant, error) { return list, nil }
-	var provider, tenant []recordedNotice
-	s.persist = func(_ context.Context, n quarantineNotice) error {
-		provider = append(provider, recordedNotice{n.entry.TenantID, n.action(), n.entry.Reason})
-		return nil
-	}
-	s.tenant = func(_ context.Context, n quarantineNotice) error {
+		Planes: []string{"eu", "us", "nocred"}, Replica: replica, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	s.list = func(context.Context) ([]IsolatedTenant, error) { return *tenants, nil }
+	s.store = store
+	var tenant []recordedNotice
+	var mu sync.Mutex
+	s.tenant = func(_ context.Context, n tenantNotice) error {
+		mu.Lock()
+		defer mu.Unlock()
 		tenant = append(tenant, recordedNotice{n.entry.TenantID, n.action(), n.entry.Reason})
 		return nil
 	}
-	s.sync = func(context.Context, []tenancy.QuarantineEntry) error { return nil }
-	t.Cleanup(func() { _ = list })
-	return s, q, &provider, &tenant
+	return s, &tenant
+}
+
+func testSupervisor(t *testing.T, checks *fakeChecks, tenants []IsolatedTenant) (*QuarantineSupervisor, *tenancy.Quarantine, *fakeStore, *[]recordedNotice) {
+	t.Helper()
+	q, store := tenancy.NewQuarantine(), newFakeStore()
+	list := tenants
+	s, tenant := newTestSupervisor(checks, q, store, "replica-1", &list)
+	return s, q, store, tenant
 }
 
 var errTransport = &url.Error{Op: "Post", URL: "https://ch-eu:8443/", Err: &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}}
@@ -195,7 +278,7 @@ func TestQuarantineBootQuarantinesOnlyTheFailingTenantPerTrigger(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			checks := &fakeChecks{catchUp: tc.catchUp, reader: tc.reader, planes: map[string]bool{"eu": true, "us": true, "nocred": true}}
-			s, q, provider, tenant := testSupervisor(t, checks, []IsolatedTenant{tc.tenant, healthy})
+			s, q, store, tenant := testSupervisor(t, checks, []IsolatedTenant{tc.tenant, healthy})
 			held, err := s.Boot(context.Background())
 			if err != nil {
 				t.Fatalf("Boot = %v; a per-tenant fault must never refuse startup in quarantine mode", err)
@@ -213,8 +296,8 @@ func TestQuarantineBootQuarantinesOnlyTheFailingTenantPerTrigger(t *testing.T) {
 				t.Fatalf("the failing tenant is routable: %v", err)
 			}
 			s.flush(context.Background())
-			if len(*provider) != 1 || (*provider)[0].action != AuditTenantQuarantined || len(*tenant) != 1 || (*tenant)[0].tenant != "t-bad" {
-				t.Fatalf("audit = provider %+v tenant %+v, want one entered event on each stream", *provider, *tenant)
+			if store.count(AuditTenantQuarantined, "t-bad") != 1 || len(store.events) != 1 || len(*tenant) != 1 || (*tenant)[0].tenant != "t-bad" {
+				t.Fatalf("audit = provider %+v tenant %+v, want one entered event on each stream", store.events, *tenant)
 			}
 		})
 	}
@@ -225,7 +308,7 @@ func TestQuarantineBootQuarantinesOnlyTheFailingTenantPerTrigger(t *testing.T) {
 func TestQuarantineRecheckReleasesOnceFixed(t *testing.T) {
 	checks := &fakeChecks{planes: map[string]bool{"eu": true},
 		reader: map[string]error{"t-a": errTransport, "t-b": errTransport}}
-	s, q, provider, tenant := testSupervisor(t, checks, []IsolatedTenant{
+	s, q, store, tenant := testSupervisor(t, checks, []IsolatedTenant{
 		{ID: "t-a", Model: "siloed", Status: "active", Residency: "eu"},
 		{ID: "t-b", Model: "hybrid", Status: "active", Residency: "eu"},
 	})
@@ -254,45 +337,39 @@ func TestQuarantineRecheckReleasesOnceFixed(t *testing.T) {
 	if e, ok := held(q, "t-b"); !ok || e.Reason != tenancy.QuarantineReaderScopeUnproven {
 		t.Fatalf("t-b = %+v %v; want it kept, with its cause refreshed to the unproven scope", e, ok)
 	}
-	released := 0
-	for _, n := range *provider {
-		if n.action == AuditTenantReleased {
-			released++
-			if n.tenant != "t-a" {
-				t.Fatalf("released the wrong tenant: %+v", n)
-			}
-		}
-	}
-	if released != 1 || len(*tenant) != 3 {
-		t.Fatalf("audit = provider %+v tenant %+v, want 2 entered + 1 released on each stream", *provider, *tenant)
+	if store.count(AuditTenantReleased, "") != 1 || store.count(AuditTenantReleased, "t-a") != 1 ||
+		store.count(AuditTenantQuarantined, "") != 2 || store.count(AuditQuarantineCauseChanged, "t-b") != 1 || len(*tenant) != 3 {
+		t.Fatalf("audit = provider %+v tenant %+v, want 2 entered + 1 released on each stream and t-b's cause change on the provider stream", store.events, *tenant)
 	}
 }
 
 // A tenant that is deleted (or no longer isolated) while quarantined is
-// released; a canceled recheck (shutdown) never releases anyone; a notice
-// that fails is retried until it lands.
+// released, its release recorded on the provider stream only (it has no
+// chain); a canceled recheck (shutdown) never releases anyone; a notice that
+// fails is retried until it lands.
 func TestQuarantineRecheckEdges(t *testing.T) {
 	checks := &fakeChecks{planes: map[string]bool{}}
 	tenants := []IsolatedTenant{{ID: "t-gone", Model: "siloed", Status: "active", Residency: "mars"}}
-	s, q, _, _ := testSupervisor(t, checks, tenants)
+	s, q, store, _ := testSupervisor(t, checks, tenants)
 	if _, err := s.Boot(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
-	s.recheckHeld(canceled, q.List(), nil)
-	if _, ok := held(q, "t-gone"); !ok {
-		t.Fatal("a canceled recheck released a tenant")
-	}
 	failures := 2
 	var landed int
-	s.tenant = func(context.Context, quarantineNotice) error {
+	s.tenant = func(context.Context, tenantNotice) error {
 		if failures > 0 {
 			failures--
 			return errors.New("audit table busy")
 		}
 		landed++
 		return nil
+	}
+	s.flush(context.Background()) // Start's first flush: the entered receipt fails once
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.recheckHeld(canceled, q.List(), nil)
+	if _, ok := held(q, "t-gone"); !ok {
+		t.Fatal("a canceled recheck released a tenant")
 	}
 	s.list = func(context.Context) ([]IsolatedTenant, error) { return nil, nil } // the tenant was deleted
 	s.Recheck(context.Background())
@@ -301,8 +378,8 @@ func TestQuarantineRecheckEdges(t *testing.T) {
 	}
 	s.Recheck(context.Background())
 	s.Recheck(context.Background())
-	if landed != 2 {
-		t.Fatalf("tenant-chain notices landed %d times, want the entered and released receipts retried until both land", landed)
+	if landed != 1 || store.count(AuditQuarantineNoticeProviderOnly, "t-gone") != 1 || store.count(AuditTenantReleased, "t-gone") != 1 {
+		t.Fatalf("landed %d tenant-chain receipts, provider %+v; want the entered receipt retried until it lands and the erased tenant's release on the provider stream only", landed, store.events)
 	}
 }
 
@@ -313,7 +390,7 @@ func TestPlaneUnreachableClassification(t *testing.T) {
 	}{
 		{errTransport, true},
 		{fmt.Errorf("wrapped: %w", breaker.ErrOpen), true},
-		{context.DeadlineExceeded, true},
+		{context.DeadlineExceeded, false}, // a budget, never a plane verdict (DPR-380)
 		{fmt.Errorf("%w: foreign rows", chclient.ErrReaderUnsafe), false},
 		{errors.New("clickhouse: Code: 497. ACCESS_DENIED: not enough privileges"), false},
 	} {

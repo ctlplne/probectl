@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -67,6 +68,17 @@ func TestOneShotCommandsRouteSiloedTenants(t *testing.T) {
 	if err := attachEETenancyRouter(&config.Config{}, pool, log); err != nil {
 		t.Fatalf("attach tenancy router: %v", err)
 	}
+	// DPR-368: a siloed tenant whose schema does not exist is REFUSED, never
+	// served from public (Postgres accepts a missing schema on search_path).
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(siloed)), pool, func(context.Context, tenancy.Scope) error { return nil })
+	if !errors.Is(err, tenancy.ErrSiloSchemaMissing) {
+		t.Fatalf("siloed tenant with no schema = %v, want ErrSiloSchemaMissing", err)
+	}
+	schema := "t_" + strings.ReplaceAll(siloed, "-", "")
+	if _, err := pool.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS `+schema); err != nil {
+		t.Fatalf("create the silo schema: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`) })
 	if p := searchPath(siloed); !strings.HasPrefix(p, `"t_`) && !strings.HasPrefix(p, "t_") {
 		t.Fatalf("siloed tenant must route to its own schema, search_path = %q", p)
 	}

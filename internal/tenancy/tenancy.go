@@ -150,6 +150,11 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 	// recreated RLS policies + the GUC below keep even a mis-routed query
 	// scoped (defense-in-depth on top of physical separation, not instead).
 	if schema != "" {
+		// DPR-368: Postgres accepts a missing schema on search_path, so an
+		// absent silo would resolve every unqualified tenant table to public.
+		if err := requireSiloSchema(ctx, tx, id.String(), schema, noticeTables(ctx)); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx,
 			"SET LOCAL search_path TO "+pgx.Identifier{schema}.Sanitize()+", public"); err != nil {
 			return fmt.Errorf("route tenant schema: %w", err)
@@ -205,6 +210,9 @@ func InTenantProviderMaintenance(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if schema != "" {
+		if err := requireSiloSchema(ctx, tx, id.String(), schema, nil); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(
 			ctx,
 			"SET LOCAL search_path TO "+pgx.Identifier{schema}.Sanitize()+", public",
@@ -233,6 +241,38 @@ func InTenantProviderMaintenance(
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tenant provider-maintenance tx: %w", err)
+	}
+	return nil
+}
+
+// ErrSiloSchemaMissing refuses a siloed tenant's transaction whose routed
+// Postgres schema (or a table the caller requires in it) does not exist
+// (DPR-368). Postgres accepts a missing schema on search_path and resolves
+// every unqualified table to the next entry, public, so without this check
+// such a transaction would read and write the POOLED tables under the
+// tenant's id — the S-T2 fall-through the router exists to prevent.
+var ErrSiloSchemaMissing = errors.New("tenancy: the tenant's isolated Postgres schema is missing or incomplete")
+
+// requireSiloSchema checks, inside the tenant transaction, that schema exists
+// and holds every table in tables.
+func requireSiloSchema(ctx context.Context, tx pgx.Tx, tenantID, schema string, tables []string) error {
+	if tables == nil {
+		tables = []string{}
+	}
+	var schemaOK, tablesOK bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1),
+		       NOT EXISTS (SELECT 1 FROM unnest($2::text[]) AS want(t)
+		                    WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+		                                        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		                                       WHERE n.nspname = $1 AND c.relname = want.t))`,
+		schema, tables).Scan(&schemaOK, &tablesOK); err != nil {
+		return fmt.Errorf("verify tenant schema: %w", err)
+	}
+	switch {
+	case !schemaOK:
+		return fmt.Errorf("%w: tenant %s is routed to schema %s, which does not exist (refusing rather than falling through to public)", ErrSiloSchemaMissing, tenantID, schema)
+	case !tablesOK:
+		return fmt.Errorf("%w: tenant %s's schema %s lacks %v (refusing rather than falling through to public)", ErrSiloSchemaMissing, tenantID, schema, tables)
 	}
 	return nil
 }

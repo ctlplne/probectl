@@ -885,6 +885,9 @@ type Config struct {
 	// SiloQuarantineRecheck is how often the quarantine supervisor re-checks
 	// each quarantined tenant and releases the ones whose fault is fixed.
 	SiloQuarantineRecheck time.Duration
+	// SiloQuarantineCheckTimeout bounds each per-tenant check (the silo
+	// schema catch-up, the reader-scope proof) separately (DPR-380).
+	SiloQuarantineCheckTimeout time.Duration
 
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
@@ -1334,6 +1337,10 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.SiloQuarantineRecheck = l.dur("PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL", 30*time.Second)
 	if cfg.SiloQuarantineRecheck < 5*time.Second || cfg.SiloQuarantineRecheck > time.Hour {
 		l.errf("PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL must be between 5s and 1h")
+	}
+	cfg.SiloQuarantineCheckTimeout = l.dur("PROBECTL_SILO_QUARANTINE_CHECK_TIMEOUT", 5*time.Minute)
+	if cfg.SiloQuarantineCheckTimeout < 10*time.Second || cfg.SiloQuarantineCheckTimeout > 6*time.Hour {
+		l.errf("PROBECTL_SILO_QUARANTINE_CHECK_TIMEOUT must be between 10s and 6h")
 	}
 	cfg.BackupRetentionNote = l.str("PROBECTL_BACKUP_RETENTION_NOTE", "")
 	cfg.BackupRetentionDays = l.intRange("PROBECTL_BACKUP_RETENTION_DAYS", 0, 0, 3650)

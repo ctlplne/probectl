@@ -435,7 +435,8 @@ func bootSiloQuarantine(ctx context.Context, cfg *config.Config, pool *pgxpool.P
 	sup := silo.NewQuarantineSupervisor(silo.QuarantineConfig{
 		Pool: pool, Checks: prov, Registry: registry,
 		ReaderScoped: scoped, ReaderGap: cfg.DataPlaneReaderGap,
-		Planes: silo.PlaneNames(planes), Interval: cfg.SiloQuarantineRecheck, Log: log,
+		Planes: silo.PlaneNames(planes), Interval: cfg.SiloQuarantineRecheck,
+		CheckTimeout: cfg.SiloQuarantineCheckTimeout, Log: log,
 	})
 	held, err := sup.Boot(ctx)
 	if err != nil {

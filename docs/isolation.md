@@ -161,8 +161,9 @@ schema is caught up, the reader login has a credential for its plane, and the
 reader scope on its per-tenant ClickHouse database is installed and proven.
 `PROBECTL_SILO_FAILURE_MODE` decides what a failure does:
 
-- `stop` (the alpha default): startup refuses for every tenant, naming each
-  failing tenant and the fix.
+- `stop` (the alpha default; the `v0.7.0` beta tag flips the default to
+  `quarantine`, D-66): startup refuses for every tenant, naming each failing
+  tenant and the fix.
 - `quarantine`: only the failing tenant is quarantined; the control plane
   starts for everyone else.
 
@@ -171,25 +172,69 @@ silo router returns no target for it (no Postgres schema, ClickHouse plane,
 object prefix or bus lane) and `tenancy.InTenant` refuses its transactions,
 so every path — API, CLI, UI, MCP/AI, exports, bus consumers, background jobs —
 fails closed for that tenant alone. Its users get HTTP 503 `tenant_quarantined`
-naming the failed check and the plane (never the operator-side error text).
-Its bus lanes are not consumed, so its records wait on the bus and resume from
-the committed offset on release; a record of it that reaches a shared lane is
-acknowledged unprocessed and counted (`probectl_pipeline_quarantine_dropped_total`).
-Its erasure is refused until release. One-shot commands (`mcp-stdio`, the token
-commands, `bootstrap-admin`) honour the quarantines the serving replicas hold.
+naming the failed check and the plane (never the operator-side error text or
+configuration keys). Its bus lanes are not consumed, so its records wait on
+the bus and resume from the committed offset on release; a record of it that
+reaches a shared lane is refused at every consumer's lane gate, acknowledged
+unprocessed and counted (`probectl_pipeline_quarantine_dropped_total`). Its
+erasure and break-glass reads are refused until release. One-shot commands
+(`mcp-stdio`, the token commands, `bootstrap-admin`) honor the quarantines the
+serving replicas hold.
 
-Entering and leaving quarantine is audited on the tenant's own chain (reason
-and plane) and on the provider stream (with the cause, fix and replica). The
-gauge `probectl_tenant_quarantined{reason}` drives the `ProbectlTenantQuarantined`
-alert, and the provider console lists each quarantined tenant with its cause
-and fix (`GET /provider/v1/tenants/quarantine`). A supervisor on each replica
-re-runs the failed checks every `PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL` and
-releases the tenant once they pass — no restart for a plane that comes back or
-a grant that is applied; a cause that is configuration (a plane or credential
-entry missing) clears when the corrected configuration is rolled out.
+Independently of quarantine, `tenancy.InTenant` refuses any siloed tenant
+whose routed Postgres schema does not exist (DPR-368): Postgres accepts a
+missing schema on `search_path` and would otherwise resolve the tenant's
+tables to the pooled `public` ones.
+
+Each tenant check — the silo schema catch-up and the reader-scope proof — runs
+on its own budget, `PROBECTL_SILO_QUARANTINE_CHECK_TIMEOUT` (default 5m). A
+check that overruns it is that tenant's own fault (a slow catch-up, a
+reader-scope lock another replica holds during a rollout) and is retried every
+recheck; only a refused connection or an open breaker marks a plane down for
+the other tenants on it (DPR-380).
+
+The audit trail is per tenant transition (DPR-381). Each replica keeps a row
+in `tenant_quarantine` under a stable identity (its host name, which is the pod
+name on Kubernetes); `tenant.quarantine_entered` is recorded on the provider
+stream (with the cause, fix and replica) and the tenant's own chain (reason,
+plane, replica) only when the first live replica starts holding the tenant,
+and `tenant.quarantine_released` only when the last one lets go — or when the
+replicas that held it are gone. Restarts, rollouts and several replicas do not
+repeat the events. A tenant-chain receipt that cannot land (the silo schema is
+missing, the tenant was erased, or 20 retries ran out) is recorded on the
+provider stream only (`tenant.quarantine_notice_provider_only`) and the
+given-up ones are counted (`probectl_tenant_quarantine_notices_dropped_total`).
+A changed cause is recorded on the provider stream (`tenant.quarantine_cause_changed`).
+
+The gauge `probectl_tenant_quarantined{reason}` drives the
+`ProbectlTenantQuarantined` alert, and the provider console lists each
+quarantined tenant with its cause and fix (`GET /provider/v1/tenants/quarantine`).
+A supervisor on each replica re-runs the failed checks every
+`PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL` and releases the tenant once they
+pass — no restart for a plane that comes back, a grant that is applied or a
+schema that is repaired. **A configuration fault needs a rolling restart**
+(D-66): a plane missing from `PROBECTL_DATAPLANES` or a missing
+`PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` entry is process-static
+configuration with no live reload, so it clears on each replica that starts
+with the corrected configuration.
 
 Quarantine is per replica: each replica proves the tenant for itself, so a
 replica that can reach the plane serves it while one that cannot refuses it.
+
+**Accepted residuals (D-66):**
+
+- The metrics TSDB has no storage-layer quarantine check (it has no
+  tenant-routed interface; queries are tenant-labeled PromQL). Every reader of
+  it is gated — the API edge, MCP authentication, the alert supervisor — and
+  a quarantined tenant's series do not arrive, because its lanes are not
+  consumed and its shared-lane records are refused.
+- A quarantined tenant's records that reach a SHARED lane are dropped and
+  counted, not dead-lettered. Its own lanes are not consumed, so their
+  records wait on the bus instead.
+- Kafka keeps a consumer group's committed offsets for the broker's
+  `offsets.retention.minutes` (7 days by default), and the topic's
+  `retention.ms` bounds the records themselves: fix a quarantine well inside
+  that window, or its lanes resume from `auto.offset.reset`.
 
 **Pinned today:** the tenant's ClickHouse telemetry across all five planes —
 flow, path, eBPF L7 edges, endpoint/DEM events, and OTLP traces+logs (the

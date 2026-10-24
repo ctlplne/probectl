@@ -144,6 +144,7 @@ type Quarantine struct {
 	entries  map[string]QuarantineEntry
 	entered  atomic.Uint64
 	released atomic.Uint64
+	dropped  atomic.Uint64
 }
 
 // NewQuarantine builds an empty registry.
@@ -240,6 +241,23 @@ func (q *Quarantine) Transitions() (entered, released uint64) {
 	return q.entered.Load(), q.released.Load()
 }
 
+// NoteNoticeDropped counts a tenant-chain quarantine receipt that could not
+// be written within its bounded retries (recorded on the provider stream
+// instead).
+func (q *Quarantine) NoteNoticeDropped() {
+	if q != nil {
+		q.dropped.Add(1)
+	}
+}
+
+// NoticesDropped reports NoteNoticeDropped's count.
+func (q *Quarantine) NoticesDropped() uint64 {
+	if q == nil {
+		return 0
+	}
+	return q.dropped.Load()
+}
+
 var currentQuarantine atomic.Pointer[Quarantine]
 
 // SetQuarantine installs the process's quarantine registry (the attach seam,
@@ -279,6 +297,16 @@ type quarantineNoticeKey struct{}
 // do nothing but append that receipt.
 func InTenantQuarantineNotice(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, Scope) error) error {
 	return InTenant(context.WithValue(ctx, quarantineNoticeKey{}, true), pool, fn)
+}
+
+// noticeTables are the tables a quarantine notice needs in the tenant's own
+// schema: its audit chain. A silo without them gets no tenant-chain notice
+// (DPR-368), never one written to the pooled table.
+func noticeTables(ctx context.Context) []string {
+	if QuarantineNoticeContext(ctx) {
+		return []string{"audit_events"}
+	}
+	return nil
 }
 
 // QuarantineNoticeContext reports whether ctx is an InTenantQuarantineNotice
