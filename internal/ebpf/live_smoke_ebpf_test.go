@@ -365,11 +365,128 @@ func TestLiveScopeAllowlistAttach(t *testing.T) {
 	}
 	pid2, err := run(ctx2, 1*time.Second) // > 2 refresh ticks before any SSL_write
 	if err != nil {
-		t.Fatalf("spawn openssl: %v", err)
+		// DPR-284: say whether openssl starts once the agent has detached, so
+		// a refused spawn names the agent or the VM.
+		_ = src2.Close()
+		detached := exec.Command(openssl, "version").Run()
+		t.Fatalf("spawn openssl with the agent attached: %v; the same binary after detaching: %v", err, detached)
 	}
 	if n, others := countFromAndOthers(events2, pid2, 8*time.Second); n == 0 {
 		t.Fatalf("allowlisted (exe:) process produced no events — scope refresher or kernel filter broken (%s; events from other pids: %d)",
 			scopeDiagnosis(src2, pid2), others)
+	}
+}
+
+// TestLiveSpawnWhileUprobesAttached separates the two readings of DPR-284's
+// latest 5.15 miss (CI run 40103763025): phase 2 of
+// TestLiveScopeAllowlistAttach failed to start its openssl client at all,
+// "fork/exec /usr/bin/openssl: invalid argument", right after phase 1's
+// source closed and phase 2's attached. If attaching or detaching the agent
+// can make a process that loads libssl fail to start, the observe-only agent
+// is breaking the hosts it watches, which is a product defect. If the same
+// spawn also fails with no agent at all, the matrix VM is at fault. So it
+// spawns openssl with nothing attached; then with the agent attached to the
+// scoped workload's own libssl (the refresher attaches on first sighting);
+// then across repeated attach/detach cycles like the allowlist test's phase
+// boundary. It fails only when spawns fail with the agent and never without.
+func TestLiveSpawnWhileUprobesAttached(t *testing.T) {
+	openssl, err := exec.LookPath("openssl")
+	if err != nil {
+		t.Skip("openssl binary not on this rootfs")
+	}
+	if resolved, rerr := filepath.EvalSymlinks(openssl); rerr == nil {
+		openssl = resolved
+	}
+	oldRefresh := scopeRefreshInterval
+	scopeRefreshInterval = 200 * time.Millisecond
+	defer func() { scopeRefreshInterval = oldRefresh }()
+
+	tally := map[string]map[string]int{}
+	spawn := func(phase string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if tally[phase] == nil {
+			tally[phase] = map[string]int{}
+		}
+		if err := exec.CommandContext(ctx, openssl, "version").Run(); err != nil {
+			tally[phase][err.Error()]++
+		}
+	}
+	failed := func(phase string) int {
+		n := 0
+		for _, c := range tally[phase] {
+			n += c
+		}
+		return n
+	}
+	attach := func() (L7Source, context.CancelFunc) {
+		cfg := Default()
+		cfg.TenantID = "kernel-matrix"
+		cfg.L7CaptureEnabled = true
+		cfg.L7CaptureConsentTenant = "kernel-matrix"
+		cfg.L7CaptureScope = []string{"exe:" + openssl}
+		src, err := newLiveL7Source(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		if err != nil {
+			t.Skipf("sslsniff attach unavailable (no supported TLS library on this rootfs?): %v", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		events, err := src.L7Events(ctx)
+		if err != nil {
+			cancel()
+			_ = src.Close()
+			t.Fatalf("l7 events stream: %v", err)
+		}
+		go func() {
+			// Drained only so the ring buffer keeps flowing; the events are not under test here.
+			for ev := range events {
+				_ = ev
+			}
+		}()
+		return src, cancel
+	}
+
+	const spawns = 40
+	for range spawns {
+		spawn("nothing attached")
+	}
+
+	// Steady: a long-lived scoped openssl makes the refresher attach to its
+	// libssl; every later spawn maps that library with the uprobes on it.
+	src, cancel := attach()
+	keep := exec.Command(openssl, "speed", "-seconds", "30", "sha256")
+	keep.Stdout, keep.Stderr = io.Discard, io.Discard
+	if err := keep.Start(); err != nil {
+		t.Fatalf("start the long-lived scoped openssl: %v", err)
+	}
+	time.Sleep(2 * time.Second) // ten refresh ticks: the refresher has seen it and attached
+	for range spawns {
+		spawn("attached to the workload's libssl")
+	}
+	steady := scopeDiagnosis(src, keep.Process.Pid)
+	_ = keep.Process.Kill()
+	_ = keep.Wait()
+	cancel()
+	_ = src.Close()
+
+	// Churn: attach, spawn, detach, as at the allowlist test's phase boundary.
+	for range 10 {
+		src, cancel := attach()
+		spawn("attach/detach churn")
+		spawn("attach/detach churn")
+		cancel()
+		_ = src.Close()
+		spawn("attach/detach churn")
+	}
+
+	t.Logf("openssl spawn failures: %v (steady phase: %s)", tally, steady)
+	control := failed("nothing attached")
+	withAgent := failed("attached to the workload's libssl") + failed("attach/detach churn")
+	switch {
+	case withAgent > 0 && control == 0:
+		t.Fatalf("DPR-284: %d openssl spawns failed only with the agent attaching or attached (%v): the observe-only agent is breaking the processes it watches",
+			withAgent, tally)
+	case withAgent > 0:
+		t.Logf("DPR-284: openssl spawns fail with and without the agent; the matrix VM, not the agent, refuses them")
 	}
 }
 
