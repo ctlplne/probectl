@@ -77,6 +77,12 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 		return fmt.Errorf("path store: %w", err)
 	}
 	defer pathStore.Close()
+	// DPR-361: route the stdio transport's path reads through the installed
+	// tenancy router, as the serving process does (attachSiloIsolation).
+	// Without it a siloed or hybrid tenant's path reads went to the pooled
+	// database, where its rows never are, and a quarantined tenant's reads
+	// were not refused at the routing layer (D-62).
+	routeMCPPathReads(pathStore)
 	// DPR-285: the stdio transport serves the same tenant path reads as the
 	// HTTP listener, so they run as the policy-bound reader login too.
 	if err := scopeMCPPathReads(cfg, log, pathAuth, pathStore); err != nil {
@@ -91,6 +97,23 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	defer stop()
 	log.Info("mcp stdio session", "tenant", p.TenantID, "user", p.UserID)
 	return runtime.server.ServeStdio(ctx, os.Stdin, os.Stdout, p)
+}
+
+// routeMCPPathReads routes a ClickHouse path store through the process
+// tenancy router (siloed/hybrid database, residency plane, quarantine). A
+// memory store is process-local and has nothing to route.
+func routeMCPPathReads(store pathstore.Store) {
+	ch, ok := store.(*pathstore.ClickHouse)
+	if !ok {
+		return
+	}
+	ch.WithRouter(func(ctx context.Context, tenantID string) (pathstore.Target, error) {
+		t, err := tenancy.CurrentRouter().TargetsFor(ctx, tenantID)
+		if err != nil {
+			return pathstore.Target{}, err
+		}
+		return pathstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+	})
 }
 
 // scopeMCPPathReads attaches the reader lane and its boot proof to the stdio
