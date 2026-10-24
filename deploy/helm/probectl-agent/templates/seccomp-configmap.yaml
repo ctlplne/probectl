@@ -10,6 +10,8 @@ metadata:
   labels:
     {{- include "probectl-agent.labels" . | nindent 4 }}
 data:
-  seccomp.json: |-
+  # `|` (not `|-`): keep the file's trailing newline so the profile lands on the
+  # node byte-identical to files/seccomp.json (the Kyverno smoke compares bytes).
+  seccomp.json: |
 {{ .Files.Get "files/seccomp.json" | indent 4 }}
 {{- end }}
