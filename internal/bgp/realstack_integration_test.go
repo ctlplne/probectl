@@ -816,11 +816,35 @@ func (leg *liveLeg) conclude(t *testing.T, st *shipped.Stack) {
 		t.Logf("[live] LIVE LEG RAN: %s sees %d RIS Live announcement(s) under %s; newest: %s %s from AS%s (peer AS%s %s) recorded by %s at %s",
 			tn.slug, len(events), livePrefix, e.Kind, e.Prefix, e.Attributes["new_origin_asn"], e.Attributes["peer_asn"],
 			e.Attributes["peer_address"], e.Attributes["collector"], e.OccurredAt.Format(time.RFC3339))
+		// Every live event must be C's own: in its block, from a RIS collector,
+		// judged against C's watch config. Recency proves the input is live, so
+		// at least one event must be recent; individual RIS updates may carry an
+		// older BGP timestamp (CI run 40095079074: 4 of 78, all via rrc25, were
+		// older than 30 minutes), which is the feed's data, not a product fault.
+		recent := 0
 		for _, ev := range events {
-			if ev.Kind != "bgp.possible_hijack" || !inLiveBlock(ev.Prefix) || !risCollector.MatchString(ev.Attributes["collector"]) ||
-				ev.Attributes["expected_origins"] != strconv.Itoa(liveExpectedASN) || time.Since(ev.OccurredAt) > 30*time.Minute {
-				t.Errorf("[live] %s's live event is not a recent RIS Live announcement under %s: %s", tn.slug, livePrefix, describe([]bgpEvent{ev}))
+			var bad []string
+			if ev.Kind != "bgp.possible_hijack" {
+				bad = append(bad, "kind")
 			}
+			if !inLiveBlock(ev.Prefix) {
+				bad = append(bad, "prefix outside "+livePrefix)
+			}
+			if !risCollector.MatchString(ev.Attributes["collector"]) {
+				bad = append(bad, "not a RIS collector")
+			}
+			if ev.Attributes["expected_origins"] != strconv.Itoa(liveExpectedASN) {
+				bad = append(bad, "expected_origins "+ev.Attributes["expected_origins"]+" is not C's watch config")
+			}
+			if len(bad) > 0 {
+				t.Errorf("[live] %s's live event is not its own RIS Live announcement (%s): %s", tn.slug, strings.Join(bad, "; "), describe([]bgpEvent{ev}))
+			}
+			if time.Since(ev.OccurredAt) <= 30*time.Minute {
+				recent++
+			}
+		}
+		if recent == 0 {
+			t.Errorf("[live] none of %s's %d live events is from the last 30 minutes: the input is not live", tn.slug, len(events))
 		}
 	case bridged:
 		t.Errorf("[live] RIS Live events were bridged onto %s's lane but never reached its API:\n%s", tn.slug, tailLines(logText, 30))
