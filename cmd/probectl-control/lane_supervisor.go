@@ -81,16 +81,23 @@ func superviseBusLaneRestart(
 		maxBackoff  = 30 * time.Second
 	)
 	backoff := baseBackoff
+	// DPR-403: take the quarantine change channel BEFORE reading the lane set,
+	// so a quarantine entered (or released) between the read and the start of
+	// the generation still wakes it. Taken after, that change was lost until
+	// the next refresh tick, and a just-quarantined tenant's lane kept being
+	// consumed for up to busLaneRefreshInterval.
+	changed := tenancy.CurrentQuarantine().Changed()
 	snap, err := loadBusLaneSnapshot(ctx)
 	if err != nil {
 		log.Warn("isolation: bus namespaces unavailable; starting shared lanes only", "subsystem", name, "error", err.Error())
 	}
 
 	for {
-		err = runBusLaneGeneration(ctx, name, log, snap, run)
+		err = runBusLaneGeneration(ctx, name, log, snap, changed, run)
 		if ctx.Err() != nil {
 			return nil
 		}
+		changed = tenancy.CurrentQuarantine().Changed()
 		next, nerr := loadBusLaneSnapshot(ctx)
 		if nerr == nil {
 			snap = next
@@ -122,6 +129,7 @@ func runBusLaneGeneration(
 	name string,
 	log *slog.Logger,
 	snap busLaneSnapshot,
+	quarantineChanged <-chan struct{}, // taken before snap was read (DPR-403)
 	run func(context.Context, busLaneSnapshot) error,
 ) error {
 	genCtx, cancel := context.WithCancel(ctx)
@@ -139,7 +147,6 @@ func runBusLaneGeneration(
 	// DPR-389: a quarantine entered (or released) at runtime changes the lane
 	// set at once, so a quarantined tenant's lane stops being consumed — its
 	// records stay on the bus — without waiting for the next refresh tick.
-	quarantineChanged := tenancy.CurrentQuarantine().Changed()
 	for {
 		select {
 		case err := <-done:

@@ -172,3 +172,63 @@ func TestRuntimeQuarantineUnsubscribesTheLaneAtOnce(t *testing.T) {
 		t.Fatalf("lanes after release = %+v, want tenant-b's lane back", next)
 	}
 }
+
+// racingLaneRouter enters a quarantine once, right after the supervisor has
+// read the lane set: the interleaving in which the change lands between the
+// read and the start of the generation that serves it.
+type racingLaneRouter struct {
+	quarantineAwareLaneRouter
+	once sync.Once
+	race func()
+}
+
+func (r *racingLaneRouter) BusNamespaceTenants(ctx context.Context) (map[string]string, error) {
+	m, err := r.quarantineAwareLaneRouter.BusNamespaceTenants(ctx)
+	r.once.Do(r.race)
+	return m, err
+}
+
+// DPR-403: a quarantine entered between the supervisor's read of the lane set
+// and the start of the generation must still restart the lanes at once. The
+// change channel used to be taken after the read, so this change was lost
+// until the next refresh tick (an hour here) and tenant-b's lane kept being
+// consumed.
+func TestQuarantineDuringTheLaneReadStillRestarts(t *testing.T) {
+	oldInterval := busLaneRefreshInterval
+	busLaneRefreshInterval = time.Hour // only the quarantine change can trigger it
+	t.Cleanup(func() { busLaneRefreshInterval = oldInterval })
+	prevQ := tenancy.CurrentQuarantine()
+	q := tenancy.NewQuarantine()
+	tenancy.SetQuarantine(q)
+	t.Cleanup(func() { tenancy.SetQuarantine(prevQ) })
+	router := &racingLaneRouter{
+		quarantineAwareLaneRouter: quarantineAwareLaneRouter{laneTestRouter{tenants: map[string]string{"acme": "tenant-a", "beta": "tenant-b"}}},
+		race: func() {
+			q.Enter(tenancy.QuarantineEntry{TenantID: "tenant-b", Reason: tenancy.QuarantineSchemaIncomplete})
+		},
+	}
+	tenancy.SetRouter(router)
+	t.Cleanup(func() { tenancy.SetRouter(nil) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan map[string]string, 4)
+	done := make(chan struct{})
+	t.Cleanup(func() { cancel(); <-done })
+	go func() {
+		defer close(done)
+		_ = superviseBusLaneRestart(ctx, "test-lane-consumer", slog.New(slog.NewTextHandler(io.Discard, nil)),
+			func(ctx context.Context, snap busLaneSnapshot) error {
+				started <- cloneTenantMap(snap.tenants)
+				<-ctx.Done()
+				return nil
+			})
+	}()
+	// The first generation serves the set read just before the quarantine...
+	if first := waitLaneStart(t, started); len(first) != 2 {
+		t.Fatalf("initial lanes = %+v, want the pre-quarantine set", first)
+	}
+	// ...and the quarantine that landed during that read restarts it at once.
+	if next := waitLaneStart(t, started); len(next) != 1 || next["beta"] != "" {
+		t.Fatalf("lanes after a quarantine during the read = %+v, want tenant-b's lane dropped", next)
+	}
+}
