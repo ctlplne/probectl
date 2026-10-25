@@ -1275,7 +1275,8 @@ const en = {
   'admin.fleet.dialog.lastFailure': 'Last failure',
   'admin.fleet.dialog.l7Capture': 'L7 capture',
   'admin.fleet.l7.none': 'Not reported (no L7 capture posture from this agent)',
-  'admin.fleet.l7.detail': '{state} · redaction {mode} (effective {effective}, tenant floor {floor}) · {scope} scoped workloads',
+  'admin.fleet.l7.detail':
+    '{state} · redaction {mode} (effective {effective}, tenant floor {floor}) · {scope} scoped workloads',
   'admin.fleet.l7.noFloor': 'none received — metadata applied',
   'admin.fleet.l7.state.off': 'Off',
   'admin.fleet.l7.state.refusedConsent': 'Refused: consent incomplete',
@@ -2761,7 +2762,8 @@ const es: Record<MessageKey, string> = {
   'admin.fleet.dialog.lastFailure': 'Ultimo fallo',
   'admin.fleet.dialog.l7Capture': 'Captura L7',
   'admin.fleet.l7.none': 'Sin informe (este agente no reporto postura de captura L7)',
-  'admin.fleet.l7.detail': '{state} · redaccion {mode} (efectiva {effective}, minimo del tenant {floor}) · {scope} cargas en alcance',
+  'admin.fleet.l7.detail':
+    '{state} · redaccion {mode} (efectiva {effective}, minimo del tenant {floor}) · {scope} cargas en alcance',
   'admin.fleet.l7.noFloor': 'no recibido — se aplica metadata',
   'admin.fleet.l7.state.off': 'Apagada',
   'admin.fleet.l7.state.refusedConsent': 'Rechazada: consentimiento incompleto',
@@ -4184,7 +4186,8 @@ const ar: Record<MessageKey, string> = {
   'admin.fleet.dialog.lastFailure': 'آخر فشل',
   'admin.fleet.dialog.l7Capture': 'التقاط L7',
   'admin.fleet.l7.none': 'لم يُبلَّغ (لا توجد وضعية التقاط L7 من هذا الوكيل)',
-  'admin.fleet.l7.detail': '{state} · التنقيح {mode} (الفعلي {effective}، حد المستأجر {floor}) · {scope} أحمال ضمن النطاق',
+  'admin.fleet.l7.detail':
+    '{state} · التنقيح {mode} (الفعلي {effective}، حد المستأجر {floor}) · {scope} أحمال ضمن النطاق',
   'admin.fleet.l7.noFloor': 'لم يُستلم — يُطبَّق metadata',
   'admin.fleet.l7.state.off': 'متوقف',
   'admin.fleet.l7.state.refusedConsent': 'مرفوض: الموافقة غير مكتملة',
