@@ -199,3 +199,60 @@ func TestEBPFCollectorRegistrationIssuesAgentChannelSVID(t *testing.T) {
 		t.Fatalf("collector capabilities = %v", a.Capabilities)
 	}
 }
+
+// RN3: the audit receipt's prior_redaction is the value the write actually
+// replaced. A concurrent writer holds the tenant's row (uncommitted) while a
+// PUT arrives; the PUT must read its prior inside its own write transaction,
+// after that writer commits — not a stale value read before it.
+func TestL7CapturePolicyAuditPriorIsReadInsideTheWrite(t *testing.T) {
+	srv, db := setupAPIServerWithLatest(t, nil)
+	h := srv.Handler()
+	ctx := context.Background()
+	tenant := freshTenant(t, db, "l7floor-prior")
+	setFloor(t, db, tenant, "metadata")
+
+	locked, release, held := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		held <- tenancy.InTenantProviderMaintenance(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(),
+			func(ctx context.Context, sc tenancy.Scope) error {
+				if _, err := sc.Q.Exec(ctx, `UPDATE tenant_governance SET l7_capture_redaction = 'length' WHERE tenant_id = $1`, tenant); err != nil {
+					return err
+				}
+				close(locked)
+				<-release // commit only once the PUT is waiting on the row
+				return nil
+			})
+	}()
+	<-locked
+	done := make(chan int, 1)
+	go func() {
+		done <- apiReq(t, h, http.MethodPut, "/v1/ebpf/l7-capture-policy", tenant, map[string]any{"redaction": "headers"}).Code
+	}()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var waiting int
+		if err := db.Pool().QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE wait_event_type = 'Lock' AND query ILIKE '%tenant_governance%'`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatal("the PUT never waited on the concurrent writer's row")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	close(release)
+	if err := <-held; err != nil {
+		t.Fatalf("concurrent writer: %v", err)
+	}
+	if code := <-done; code != http.StatusOK {
+		t.Fatalf("PUT = %d", code)
+	}
+	events := auditActions(t, db, tenant, l7CapturePolicyAuditAction)
+	if len(events) != 1 || events[0].Data["redaction"] != "headers" || events[0].Data["prior_redaction"] != "length" {
+		t.Fatalf("audit receipt = %+v, want prior_redaction=length (the value the write replaced)", events)
+	}
+}

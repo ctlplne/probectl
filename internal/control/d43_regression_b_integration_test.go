@@ -334,7 +334,7 @@ func registerD43Agent(t *testing.T, db *store.DB, tenant string) string {
 func setFloor(t *testing.T, db *store.DB, tenant, mode string) {
 	t.Helper()
 	if err := govern.NewPolicyStore(db.Pool()).SetTenantL7CaptureRedaction(context.Background(), tenant, mode, "test",
-		func(context.Context, tenancy.Scope) error { return nil }); err != nil {
+		func(context.Context, tenancy.Scope, string) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 }

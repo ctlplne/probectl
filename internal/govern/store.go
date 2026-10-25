@@ -153,7 +153,12 @@ func (s *PolicyStore) TenantL7CaptureRedaction(ctx context.Context, tenantID str
 // provider role inside a tenant-GUC-bound maintenance transaction and the
 // receipt appended as the tenant app role, exactly like SetTenantPolicy. Only
 // this column is written; a missing receipt fails the write closed (G7-7).
-func (s *PolicyStore) SetTenantL7CaptureRedaction(ctx context.Context, tenantID, mode, by string, auditTx func(context.Context, tenancy.Scope) error) error {
+//
+// auditTx receives the statement the write replaces, read inside the same
+// transaction under a row lock (and a per-tenant transaction lock for a tenant
+// with no row yet), so concurrent updates each audit the value they actually
+// replaced (RN3).
+func (s *PolicyStore) SetTenantL7CaptureRedaction(ctx context.Context, tenantID, mode, by string, auditTx func(ctx context.Context, sc tenancy.Scope, prior string) error) error {
 	if auditTx == nil {
 		return ErrAuditReceiptRequired
 	}
@@ -162,14 +167,34 @@ func (s *PolicyStore) SetTenantL7CaptureRedaction(ctx context.Context, tenantID,
 		if sc.Tenant.String() != tenantID {
 			return fmt.Errorf("govern: l7 policy tenant %q does not match transaction scope %q", tenantID, sc.Tenant)
 		}
+		prior, err := lockL7CaptureRedactionTx(ctx, sc.Q, tenantID)
+		if err != nil {
+			return err
+		}
 		if err := upsertL7CaptureRedactionTx(ctx, sc.Q, tenantID, mode, by); err != nil {
 			return err
 		}
 		if _, err := sc.Q.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{tenancy.AppRole}.Sanitize()); err != nil {
 			return fmt.Errorf("govern: assume app role for tenant audit receipt: %w", err)
 		}
-		return auditTx(ctx, sc)
+		return auditTx(ctx, sc, prior)
 	})
+}
+
+// lockL7CaptureRedactionTx serializes this tenant's L7 policy writers and
+// returns the current statement: a transaction-scoped advisory lock covers a
+// tenant with no governance row yet (nothing to row-lock), and FOR UPDATE
+// waits for any other writer of the row to commit before reading it.
+func lockL7CaptureRedactionTx(ctx context.Context, q tenancy.Querier, tenantID string) (string, error) {
+	if _, err := q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('l7_capture_redaction:'||$1::text, 0))`, tenantID); err != nil {
+		return "", fmt.Errorf("govern: lock l7 policy: %w", err)
+	}
+	var mode string
+	err := q.QueryRow(ctx, `SELECT l7_capture_redaction FROM tenant_governance WHERE tenant_id = $1 FOR UPDATE`, tenantID).Scan(&mode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return mode, err
 }
 
 // upsertL7CaptureRedactionTx writes ONLY the L7 capture redaction column. It is

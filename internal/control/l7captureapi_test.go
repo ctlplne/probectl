@@ -28,7 +28,7 @@ func (f *fakeL7PolicyStore) TenantL7CaptureRedaction(_ context.Context, tenant s
 	return f.stmt[tenant], nil
 }
 
-func (f *fakeL7PolicyStore) SetTenantL7CaptureRedaction(_ context.Context, tenant, mode, _ string, auditTx func(context.Context, tenancy.Scope) error) error {
+func (f *fakeL7PolicyStore) SetTenantL7CaptureRedaction(_ context.Context, tenant, mode, _ string, auditTx func(context.Context, tenancy.Scope, string) error) error {
 	if auditTx == nil {
 		return govern.ErrAuditReceiptRequired
 	}

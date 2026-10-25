@@ -32,7 +32,7 @@ const l7CapturePolicyAuditAction = "ebpf.l7_capture_policy_set"
 // a fake drives the unit tests).
 type l7CapturePolicyStore interface {
 	TenantL7CaptureRedaction(ctx context.Context, tenantID string) (string, error)
-	SetTenantL7CaptureRedaction(ctx context.Context, tenantID, mode, by string, auditTx func(context.Context, tenancy.Scope) error) error
+	SetTenantL7CaptureRedaction(ctx context.Context, tenantID, mode, by string, auditTx func(ctx context.Context, sc tenancy.Scope, prior string) error) error
 }
 
 func (s *Server) l7CapturePolicies() (l7CapturePolicyStore, error) {
@@ -120,12 +120,11 @@ func (s *Server) handleL7CapturePolicyPut(w http.ResponseWriter, r *http.Request
 	if err := validL7CaptureRedaction(mode, s.regulatedProfile()); err != nil {
 		return err
 	}
-	prior, err := st.TenantL7CaptureRedaction(r.Context(), tid)
-	if err != nil {
-		return apierror.Internal("L7 capture policy read failed").Wrap(err)
-	}
 	actor := auditActor(r)
-	auditTx := func(ctx context.Context, sc tenancy.Scope) error {
+	// RN3: the prior value is the one this write replaces, read inside its
+	// transaction — never a read made before it, which a concurrent update
+	// could have changed.
+	auditTx := func(ctx context.Context, sc tenancy.Scope, prior string) error {
 		data := s.withRequestContext(r, map[string]any{
 			"redaction":       mode,
 			"prior_redaction": l7redact.Normalize(prior),
