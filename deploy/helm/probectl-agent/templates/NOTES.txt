@@ -46,3 +46,12 @@ Namespace Pod Security Admission (SUP-20):
     kubectl label namespace {{ .Release.Namespace }} \
       pod-security.kubernetes.io/enforce=privileged \
       pod-security.kubernetes.io/enforce-version=latest
+{{- if .Values.controlPlane.grpcAddr }}
+
+Policy-channel identity (D-43 R2/R3):
+  Each node keeps the rotated channel identity (a private key and its
+  certificate) under {{ .Values.controlPlane.identity.stateHostPath }}/{{ .Release.Namespace }}/{{ include "probectl-agent.fullname" . }}.
+  `helm uninstall` does not remove it; the certificate stays usable until it
+  expires (at most 24 h). To decommission: revoke the collector
+  (POST /v1/agents/{id}/revoke), then delete that directory on every node.
+{{- end }}

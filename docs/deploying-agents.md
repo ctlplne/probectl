@@ -406,6 +406,13 @@ profile is the allowlist of kernel calls the process may make) live in
 The full plane — capture pipeline, the triple-gate, redaction modes, the
 kernel/uprobe compatibility matrix, and the build: **[eBPF host agent](ebpf-agent.md)**.
 
+**Removing it.** Uninstalling leaves the policy channel's node identity
+directory (its private key and last certificate, usable until it expires,
+at most 24 h) on each node: revoke the collector
+(`POST /v1/agents/{id}/revoke`), then delete the directory — see
+[eBPF host agent](ebpf-agent.md) ("Uninstalling leaves the node identity
+behind").
+
 ### Endpoint / last-mile DEM — `probectl-endpoint`
 
 **What it observes.** The **last mile** that server-side canaries physically

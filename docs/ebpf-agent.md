@@ -602,6 +602,16 @@ emit looser data than its tenant allows.
   joins after the registration Secret's certificate has expired has nothing
   valid to seed from — re-register (`POST /v1/collectors/register`) and update
   the Secret.
+- **Uninstalling leaves the node identity behind.** `helm uninstall` (or
+  removing the systemd unit) does not delete the node identity directory:
+  `controlPlane.identity.stateHostPath`/<namespace>/<release> on every node
+  for the chart, `/var/lib/probectl-ebpf-agent/identity` for systemd. It holds
+  the collector's private key and its last certificate, which stays usable
+  until it expires (at most 24 h after the last rotation); the key file stays
+  until it is deleted. To decommission, revoke the collector first
+  (`POST /v1/agents/{id}/revoke`, which feeds the listener's deny-list at
+  once), then delete the directory on each node. There is no cleanup hook: a
+  Helm hook runs one Job, not one per node.
 - **Posture.** At start and on every policy tick the agent reports its capture
   posture (`ReportL7Posture`: enabled, consent tenant, scope, local and
   effective mode, the floor it applied, whether capture is attached, and a
