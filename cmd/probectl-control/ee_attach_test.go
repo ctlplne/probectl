@@ -28,14 +28,20 @@ func (f *fakeSiloCatchUpper) CatchUp(_ context.Context, tenantID string) error {
 	return f.fail[tenantID]
 }
 
+func (f *fakeSiloCatchUpper) CatchUpSchema(_ context.Context, tenantID string) error {
+	f.seen = append(f.seen, "schema-only:"+tenantID)
+	return f.fail[tenantID]
+}
+
 func TestSiloCatchUpTenantsFailsClosedOnAnyTenantFailure(t *testing.T) {
 	prov := &fakeSiloCatchUpper{fail: map[string]error{"t-b": errors.New("missing table grant")}}
-	err := siloCatchUpTenants(context.Background(), []string{"t-a", "t-b", "t-c"}, prov,
+	err := siloCatchUpTenants(context.Background(), []string{"t-a", "t-b", "t-c"}, map[string]bool{"t-c": true}, prov,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil || !strings.Contains(err.Error(), "t-b") || !strings.Contains(err.Error(), "missing table grant") {
 		t.Fatalf("catch-up error = %v, want tenant-specific failure", err)
 	}
-	if got := strings.Join(prov.seen, ","); got != "t-a,t-b,t-c" {
+	// D-71: the offboarding t-c gets the schema-only catch-up.
+	if got := strings.Join(prov.seen, ","); got != "t-a,t-b,schema-only:t-c" {
 		t.Fatalf("catch-up visited %q, want every tenant attempted for complete diagnostics", got)
 	}
 }

@@ -8,6 +8,7 @@ package silo
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/breaker"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -78,6 +80,9 @@ const maxNoticeAttempts = 20
 type TenantChecks interface {
 	ValidResidency(name string) bool
 	CatchUp(ctx context.Context, tenantID string) error
+	// CatchUpSchema is the schema-only catch-up an offboarding silo gets
+	// (D-71): empty tables and columns, no row changed.
+	CatchUpSchema(ctx context.Context, tenantID string) error
 	CatchUpReaderScope(ctx context.Context, tenantID, residency string) error
 	// MissingSiloTables reports, per siloed tenant, the tenant-owned tables
 	// its schema lacks (verification only, DPR-385).
@@ -101,9 +106,11 @@ type quarantineStore interface {
 	// drop deletes this replica's row; released reports that no live holder
 	// remains (the released event was then written).
 	drop(ctx context.Context, replica string, e tenancy.QuarantineEntry, live time.Duration, why string) (released bool, err error)
-	// mine lists this replica's rows (left by an earlier process on the same
-	// replica identity).
-	mine(ctx context.Context, replica string) ([]tenancy.QuarantineEntry, error)
+	// predecessors lists the rows of OTHER processes on this host (replica
+	// identities "<host>/..." other than me) that have not been refreshed
+	// for idle: a previous process here that stopped. A live sibling on the
+	// same host is never returned (DPR-386).
+	predecessors(ctx context.Context, host, me string, idle time.Duration) ([]heldRow, error)
 	// prune deletes rows of replicas that are gone and returns the tenants
 	// that thereby lost their last live holder (released events written).
 	prune(ctx context.Context, live time.Duration) ([]tenancy.QuarantineEntry, error)
@@ -134,13 +141,22 @@ type QuarantineSupervisor struct {
 	notices []*tenantNotice
 }
 
-// pendingDrop is a release this replica has applied in memory but not yet
-// persisted.
+// heldRow is one replica's row.
+type heldRow struct {
+	entry   tenancy.QuarantineEntry
+	replica string
+}
+
+// pendingDrop is a release not yet persisted: this replica's own (replica
+// "") or a stopped predecessor's on this host.
 type pendingDrop struct {
 	entry        tenancy.QuarantineEntry
+	replica      string
 	why          string
 	providerOnly bool
 }
+
+func dropKey(tenantID, replica string) string { return tenantID + "|" + replica }
 
 // tenantNotice is one tenant transition still to be written on the tenant's
 // own chain.
@@ -173,9 +189,10 @@ type QuarantineConfig struct {
 	// CheckTimeout bounds each check separately (default
 	// DefaultQuarantineCheckTimeout).
 	CheckTimeout time.Duration
-	// Replica is this process's stable identity in tenant_quarantine and
-	// the audit events (default: the host name, which is the pod name on
-	// Kubernetes, so a restarted container keeps it).
+	// Replica is this process's identity in tenant_quarantine and on the
+	// provider stream: "<host>/<per-process nonce>" by default, so two live
+	// processes on one host (several instances on a VM, hostNetwork pods, a
+	// blue/green restart) never share it (DPR-386).
 	Replica string
 	Log     *slog.Logger
 }
@@ -215,12 +232,24 @@ func (s *QuarantineSupervisor) Replica() string { return s.replica }
 func replicaIdentity() string {
 	host, err := os.Hostname()
 	if err != nil || strings.TrimSpace(host) == "" {
-		return "control"
+		host = "control"
 	}
-	if len(host) > 200 {
-		host = host[:200]
+	if len(host) > 180 {
+		host = host[:180]
 	}
-	return host
+	nonce, err := crypto.Random(6)
+	if err != nil {
+		return fmt.Sprintf("%s/%d-%x", host, os.Getpid(), time.Now().UnixNano())
+	}
+	return host + "/" + hex.EncodeToString(nonce)
+}
+
+// replicaHost is the host part of a replica identity.
+func replicaHost(replica string) string {
+	if i := strings.LastIndexByte(replica, '/'); i > 0 {
+		return replica[:i]
+	}
+	return replica
 }
 
 // live is the window inside which a replica row counts as a holder.
@@ -284,7 +313,7 @@ func (s *QuarantineSupervisor) enter(e tenancy.QuarantineEntry) {
 	}
 	stored, fresh := s.registry.Enter(e)
 	s.mu.Lock()
-	delete(s.drops, stored.TenantID) // held again before its release was persisted
+	delete(s.drops, dropKey(stored.TenantID, "")) // held again before its release was persisted
 	s.mu.Unlock()
 	if !fresh && prevReason == string(stored.Reason) {
 		s.log.Debug("silo quarantine: tenant still fails its check", "tenant", stored.TenantID, "reason", string(stored.Reason))
@@ -304,7 +333,7 @@ func (s *QuarantineSupervisor) release(e tenancy.QuarantineEntry, why string, pr
 		"tenant", released.TenantID, "reason", string(released.Reason), "plane", released.Plane, "why", why,
 		"quarantined_for", time.Since(released.Since).Round(time.Second).String(), "replica", s.replica)
 	s.mu.Lock()
-	s.drops[released.TenantID] = pendingDrop{entry: released, why: why, providerOnly: providerOnly}
+	s.drops[dropKey(released.TenantID, "")] = pendingDrop{entry: released, why: why, providerOnly: providerOnly}
 	s.mu.Unlock()
 }
 
@@ -349,8 +378,12 @@ func (s *QuarantineSupervisor) evaluate(ctx context.Context, t IsolatedTenant, d
 			"the tenant is pinned to data plane %q, which PROBECTL_DATAPLANES does not name (configured: %s); routing it would send its telemetry to the default plane (DPR-324)",
 			t.Residency, planeList(s.planes)), "")
 	}
-	if repair && t.Model == string(tenancy.IsolationSiloed) && (t.Status == "active" || t.Status == "suspended") {
-		r := s.bounded(ctx, func(ctx context.Context) error { return s.checks.CatchUp(ctx, t.ID) })
+	if repair && siloCaughtUp(t) {
+		catchUp := s.checks.CatchUp
+		if t.Status == "offboarding" {
+			catchUp = s.checks.CatchUpSchema // D-71: schema only, no data change
+		}
+		r := s.bounded(ctx, func(ctx context.Context) error { return catchUp(ctx, t.ID) })
 		switch {
 		case r.timedOut:
 			return entry(tenancy.QuarantineSchemaCatchUpFailed,
@@ -395,12 +428,18 @@ func (s *QuarantineSupervisor) evaluate(ctx context.Context, t IsolatedTenant, d
 	}
 }
 
-// siloCaughtUp: the siloed tenants whose schemas the catch-up keeps current
-// (active and suspended), and so the ones verified complete. An offboarding
-// silo is not caught up; InTenant's per-transaction table guard still
-// refuses it if it lacks a table.
+// siloCaughtUp: the siloed tenants whose schemas the catch-up keeps current,
+// and so the ones verified complete — active, suspended and (schema only,
+// D-71) offboarding, whose export and erasure still run in its silo.
 func siloCaughtUp(t IsolatedTenant) bool {
-	return t.Model == string(tenancy.IsolationSiloed) && (t.Status == "active" || t.Status == "suspended")
+	if t.Model != string(tenancy.IsolationSiloed) {
+		return false
+	}
+	switch t.Status {
+	case "active", "suspended", "offboarding":
+		return true
+	}
+	return false
 }
 
 // schemaComplete verifies a siloed tenant's schema carries every tenant-owned
@@ -608,9 +647,7 @@ func (s *QuarantineSupervisor) recheckHeld(ctx context.Context, held []tenancy.Q
 // Anything that fails is retried on the next recheck.
 func (s *QuarantineSupervisor) flush(ctx context.Context) {
 	live := s.live()
-	heldIDs := map[string]bool{}
 	for _, e := range s.registry.List() {
-		heldIDs[e.TenantID] = true
 		entered, err := s.store.hold(ctx, s.replica, e, live)
 		if err != nil {
 			s.log.Warn("silo quarantine: could not persist the quarantine; retrying", "tenant", e.TenantID, "error", err.Error())
@@ -620,13 +657,16 @@ func (s *QuarantineSupervisor) flush(ctx context.Context) {
 			s.queueNotice(&tenantNotice{entry: e, entered: true})
 		}
 	}
-	// Rows a previous process on this replica identity left for tenants it
-	// no longer holds: their release was never persisted.
-	if leftover, err := s.store.mine(ctx, s.replica); err == nil {
+	// Rows a previous process on this host left behind and no longer
+	// refreshes (not even for one interval): it stopped without persisting
+	// its releases. A live sibling's rows are never taken over (DPR-386).
+	if leftover, err := s.store.predecessors(ctx, replicaHost(s.replica), s.replica, s.interval); err == nil {
 		s.mu.Lock()
-		for _, e := range leftover {
-			if _, pending := s.drops[e.TenantID]; !heldIDs[e.TenantID] && !pending {
-				s.drops[e.TenantID] = pendingDrop{entry: e, why: "every startup check passes again (on this replica's restart)"}
+		for _, r := range leftover {
+			key := dropKey(r.entry.TenantID, r.replica)
+			if _, pending := s.drops[key]; !pending {
+				s.drops[key] = pendingDrop{entry: r.entry, replica: r.replica,
+					why: "the process on this host that held it stopped (taken over by its successor)"}
 			}
 		}
 		s.mu.Unlock()
@@ -638,13 +678,17 @@ func (s *QuarantineSupervisor) flush(ctx context.Context) {
 	}
 	s.mu.Unlock()
 	for _, d := range drops {
-		released, err := s.store.drop(ctx, s.replica, d.entry, live, d.why)
+		replica := d.replica
+		if replica == "" {
+			replica = s.replica
+		}
+		released, err := s.store.drop(ctx, replica, d.entry, live, d.why)
 		if err != nil {
 			s.log.Warn("silo quarantine: could not persist the release; retrying", "tenant", d.entry.TenantID, "error", err.Error())
 			continue
 		}
 		s.mu.Lock()
-		delete(s.drops, d.entry.TenantID)
+		delete(s.drops, dropKey(d.entry.TenantID, d.replica))
 		s.mu.Unlock()
 		if released {
 			s.queueNotice(&tenantNotice{entry: d.entry, providerOnly: d.providerOnly})
@@ -717,13 +761,15 @@ func (s *QuarantineSupervisor) flushNotices(ctx context.Context) {
 }
 
 // appendTenantNotice writes the transition to the tenant's own audit chain:
-// the reason, plane and replica, never the operator-side detail. A silo
+// the reason and plane, never the operator-side detail or the replica. A silo
 // without its audit table is refused by InTenant (ErrSiloSchemaMissing),
 // never written to the pooled table.
 func (s *QuarantineSupervisor) appendTenantNotice(ctx context.Context, n tenantNotice) error {
 	e := n.entry
+	// No replica identity: host and pod names are deployment detail the
+	// tenant's own chain must not carry (DPR-388); the provider stream has it.
 	data := map[string]any{"reason": string(e.Reason), "plane": e.Plane, "since": e.Since.UTC().Format(time.RFC3339),
-		"replica": s.replica, "decision": "D-62"}
+		"decision": "D-62"}
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(e.TenantID))
 	return tenancy.InTenantQuarantineNotice(tctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := audit.TenantAppend(ctx, sc, QuarantineActor, n.action(), e.TenantID, data)

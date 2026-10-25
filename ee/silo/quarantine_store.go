@@ -93,19 +93,19 @@ func (p pgQuarantineStore) drop(ctx context.Context, replica string, e tenancy.Q
 		if err := lockQuarantineTenant(ctx, q, e.TenantID); err != nil {
 			return err
 		}
-		before, err := liveHolders(ctx, q, e.TenantID, live)
+		tag, err := q.Exec(ctx, `DELETE FROM tenant_quarantine WHERE tenant = $1::uuid AND replica = $2`, e.TenantID, replica)
 		if err != nil {
-			return err
-		}
-		if _, err := q.Exec(ctx, `DELETE FROM tenant_quarantine WHERE tenant = $1::uuid AND replica = $2`, e.TenantID, replica); err != nil {
 			return err
 		}
 		after, err := liveHolders(ctx, q, e.TenantID, live)
 		if err != nil {
 			return err
 		}
-		if before == 0 || after > 0 {
-			return nil // never recorded as held, or another replica still holds it
+		// The row existed (its entered was recorded, and a row is released
+		// exactly once: by this drop or by prune, both under the lock) and no
+		// live holder remains.
+		if tag.RowsAffected() == 0 || after > 0 {
+			return nil
 		}
 		released = true
 		_, err = audit.ProviderAppendTx(ctx, q, QuarantineActor, AuditTenantReleased, e.TenantID,
@@ -115,16 +115,26 @@ func (p pgQuarantineStore) drop(ctx context.Context, replica string, e tenancy.Q
 	return released, err
 }
 
-func (p pgQuarantineStore) mine(ctx context.Context, replica string) ([]tenancy.QuarantineEntry, error) {
-	var out []tenancy.QuarantineEntry
+func (p pgQuarantineStore) predecessors(ctx context.Context, host, me string, idle time.Duration) ([]heldRow, error) {
+	var out []heldRow
 	err := tenancy.InProvider(ctx, p.pool, func(ctx context.Context, q tenancy.Querier) error {
-		rows, err := q.Query(ctx, `SELECT tenant::text, reason, plane, detail, remedy, since FROM tenant_quarantine WHERE replica = $1`, replica)
+		rows, err := q.Query(ctx, `SELECT tenant::text, reason, plane, detail, remedy, since, replica FROM tenant_quarantine
+			 WHERE left(replica, length($1) + 1) = $1 || '/' AND replica <> $2
+			   AND checked_at < now() - make_interval(secs => $3)`, host, me, idle.Seconds())
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
-		out, err = scanQuarantineEntries(rows)
-		return err
+		for rows.Next() {
+			var r heldRow
+			var reason string
+			if err := rows.Scan(&r.entry.TenantID, &reason, &r.entry.Plane, &r.entry.Detail, &r.entry.Remedy, &r.entry.Since, &r.replica); err != nil {
+				return err
+			}
+			r.entry.Reason = tenancy.QuarantineReason(reason)
+			out = append(out, r)
+		}
+		return rows.Err()
 	})
 	return out, err
 }

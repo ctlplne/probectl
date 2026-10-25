@@ -155,13 +155,14 @@ type recordedNotice struct {
 // as the Postgres store: an entered event only when the first holder
 // appears, a released event only when the last one goes.
 type fakeStore struct {
-	mu     sync.Mutex
-	rows   map[string]map[string]tenancy.QuarantineEntry // tenant -> replica -> entry
-	events []recordedNotice
+	mu      sync.Mutex
+	rows    map[string]map[string]tenancy.QuarantineEntry // tenant -> replica -> entry
+	events  []recordedNotice
+	stopped map[string]bool // replicas that stopped refreshing
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{rows: map[string]map[string]tenancy.QuarantineEntry{}}
+	return &fakeStore{rows: map[string]map[string]tenancy.QuarantineEntry{}, stopped: map[string]bool{}}
 }
 
 func (f *fakeStore) hold(_ context.Context, replica string, e tenancy.QuarantineEntry, _ time.Duration) (bool, error) {
@@ -195,13 +196,18 @@ func (f *fakeStore) drop(_ context.Context, replica string, e tenancy.Quarantine
 	return true, nil
 }
 
-func (f *fakeStore) mine(_ context.Context, replica string) ([]tenancy.QuarantineEntry, error) {
+// predecessors: the fake has no clock; a test marks a replica stopped (its
+// rows idle). The SQL idle window is proven on real Postgres.
+func (f *fakeStore) predecessors(_ context.Context, host, me string, _ time.Duration) ([]heldRow, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var out []tenancy.QuarantineEntry
-	for _, byReplica := range f.rows {
-		if e, ok := byReplica[replica]; ok {
-			out = append(out, e)
+	var out []heldRow
+	for tenant, byReplica := range f.rows {
+		for replica, e := range byReplica {
+			if replica != me && strings.HasPrefix(replica, host+"/") && f.stopped[replica] {
+				e.TenantID = tenant
+				out = append(out, heldRow{entry: e, replica: replica})
+			}
 		}
 	}
 	return out, nil
@@ -423,3 +429,5 @@ func held(q *tenancy.Quarantine, tenantID string) (tenancy.QuarantineEntry, bool
 	}
 	return tenancy.QuarantineEntry{}, false
 }
+
+func (f *fakeChecks) CatchUpSchema(ctx context.Context, id string) error { return f.CatchUp(ctx, id) }

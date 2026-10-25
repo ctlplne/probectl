@@ -38,9 +38,9 @@ func TestQuarantineAuditIsPerTransitionAcrossReplicasAndRestarts(t *testing.T) {
 		s.flush(context.Background())
 		return s, q, chain
 	}
-	s1, _, chain1 := boot("replica-1", broken)
-	s2, _, chain2 := boot("replica-2", broken)
-	s1again, _, chain1again := boot("replica-1", broken) // replica-1 restarts, same identity
+	s1, _, chain1 := boot("host-a/p1", broken)
+	s2, _, chain2 := boot("host-b/p1", broken)
+	s1again, _, chain1again := boot("host-a/p2", broken) // host-a's process restarts: a new per-process identity
 	if n := store.count(AuditTenantQuarantined, "t-x"); n != 1 {
 		t.Fatalf("entered events = %d after two replicas and a restart, want 1", n)
 	}
@@ -48,6 +48,9 @@ func TestQuarantineAuditIsPerTransitionAcrossReplicasAndRestarts(t *testing.T) {
 		t.Fatalf("tenant-chain receipts = %d, want one entered receipt", len(*chain1)+len(*chain2)+len(*chain1again))
 	}
 	_ = s1
+	store.mu.Lock()
+	store.stopped["host-a/p1"] = true // the first process on host-a is gone
+	store.mu.Unlock()
 
 	fixed := &fakeChecks{planes: map[string]bool{"eu": true}}
 	s1again.checks, s2.checks = fixed, fixed
@@ -265,3 +268,5 @@ func TestIncompleteSiloIsQuarantinedAndNeverSilentlyRepaired(t *testing.T) {
 		t.Fatal("the silo is complete again but the tenant is still quarantined")
 	}
 }
+
+func (*slowChecks) CatchUpSchema(context.Context, string) error { return nil }

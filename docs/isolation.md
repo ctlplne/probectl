@@ -176,8 +176,11 @@ naming the failed check and the plane (never the operator-side error text or
 configuration keys). Its bus lanes are not consumed, so its records wait on
 the bus and resume from the committed offset on release; a record of it that
 reaches a shared lane is refused at every consumer's lane gate, acknowledged
-unprocessed and counted (`probectl_pipeline_quarantine_dropped_total`). Its
-erasure and break-glass reads are refused until release. One-shot commands
+unprocessed and counted (`probectl_pipeline_quarantine_dropped_total`). A
+quarantine entered at runtime drops the tenant's lanes from the subscription at
+once, and a record already delivered on its own lane is left unacknowledged on
+the bus (DPR-389). Its erasure and break-glass requests and reads are refused
+until release (`409 tenant_quarantined`). One-shot commands
 (`mcp-stdio`, the token commands, `bootstrap-admin`) honor the quarantines the
 serving replicas hold.
 
@@ -189,15 +192,17 @@ entry, so the tenant's rows would otherwise land in the pooled `public`
 tables. The set is the one the provisioner and the catch-up use (the public
 tables with `tenant_id`, minus the provider-owned ones), installed at
 startup; the check rides the same catalog query as the schema check, one per
-transaction. Startup verifies every caught-up silo (active and suspended) is
+transaction. The startup catch-up covers active and suspended silos in full
+and offboarding silos schema-only (D-71: empty tables and columns, no row
+changed), so an offboarding tenant's export and erasure keep working after an
+upgrade adds a tenant-owned table. Startup verifies every caught-up silo is
 complete after the catch-up — stop mode refuses to start naming the tenant
 and table — and in quarantine mode the supervisor re-verifies every silo each
 recheck interval and quarantines one that lost a table as
 `silo_schema_incomplete`. It never recreates the table itself: restore it (for
 example from backup), or roll the control plane, whose startup catch-up
 recreates missing tables empty; the tenant is released once its schema is
-complete. An offboarding silo is not caught up; the per-transaction guard
-still refuses it if it lacks a table.
+complete.
 
 Each tenant check — the silo schema catch-up and the reader-scope proof — runs
 on its own budget, `PROBECTL_SILO_QUARANTINE_CHECK_TIMEOUT` (default 5m). A
@@ -206,11 +211,15 @@ reader-scope lock another replica holds during a rollout) and is retried every
 recheck; only a refused connection or an open breaker marks a plane down for
 the other tenants on it (DPR-380).
 
-The audit trail is per tenant transition (DPR-381). Each replica keeps a row
-in `tenant_quarantine` under a stable identity (its host name, which is the pod
-name on Kubernetes); `tenant.quarantine_entered` is recorded on the provider
-stream (with the cause, fix and replica) and the tenant's own chain (reason,
-plane, replica) only when the first live replica starts holding the tenant,
+The audit trail is per tenant transition (DPR-381). Each control-plane
+process keeps a row in `tenant_quarantine` under its own identity, the host
+name plus a per-process nonce (DPR-386), so two live processes on one host
+never take over each other's rows; a process takes over only the rows of a
+predecessor on its host that has stopped refreshing them for one recheck
+interval. `tenant.quarantine_entered` is recorded on the provider stream (with
+the cause, fix and replica) and the tenant's own chain (reason and plane; no
+host or pod name, DPR-388) only when the first live process starts holding the
+tenant,
 and `tenant.quarantine_released` only when the last one lets go — or when the
 replicas that held it are gone. Restarts, rollouts and several replicas do not
 repeat the events. A tenant-chain receipt that cannot land (the silo schema is

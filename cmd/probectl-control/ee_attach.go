@@ -447,9 +447,9 @@ type siloSchemaVerifier interface {
 func siloSchemasComplete(ctx context.Context, pool *pgxpool.Pool, v siloSchemaVerifier) error {
 	var ids []string
 	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
-		// The tenants the catch-up covers (siloCatchUpAll); an offboarding
-		// silo is still refused per transaction by InTenant's table guard.
-		rows, err := q.Query(ctx, `SELECT id::text FROM tenants WHERE isolation_model = 'siloed' AND status IN ('active','suspended') ORDER BY id`)
+		// The tenants the catch-up covers (siloCatchUpAll), offboarding
+		// included (D-71).
+		rows, err := q.Query(ctx, `SELECT id::text FROM tenants WHERE isolation_model = 'siloed' AND status IN ('active','suspended','offboarding') ORDER BY id`)
 		if err != nil {
 			return err
 		}
@@ -578,37 +578,46 @@ func newSiloProvisioner(ctx context.Context, cfg *config.Config, pool *pgxpool.P
 
 type siloCatchUpper interface {
 	CatchUp(ctx context.Context, tenantID string) error
+	CatchUpSchema(ctx context.Context, tenantID string) error
 }
 
-// siloCatchUpAll runs the schema catch-up for every siloed tenant.
+// siloCatchUpAll runs the schema catch-up for every siloed tenant whose silo
+// is still used: active and suspended in full, offboarding schema-only
+// (D-71, DPR-387) so its export and erasure keep working after an upgrade.
 func siloCatchUpAll(ctx context.Context, pool *pgxpool.Pool, prov siloCatchUpper, log *slog.Logger) error {
 	var ids []string
+	offboarding := map[string]bool{}
 	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
 		rows, err := q.Query(ctx,
-			`SELECT id::text FROM tenants WHERE isolation_model = 'siloed' AND status IN ('active','suspended')`)
+			`SELECT id::text, status FROM tenants WHERE isolation_model = 'siloed' AND status IN ('active','suspended','offboarding')`)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
+			var id, status string
+			if err := rows.Scan(&id, &status); err != nil {
 				return err
 			}
 			ids = append(ids, id)
+			offboarding[id] = status == "offboarding"
 		}
 		return rows.Err()
 	})
 	if err != nil {
 		return err
 	}
-	return siloCatchUpTenants(ctx, ids, prov, log)
+	return siloCatchUpTenants(ctx, ids, offboarding, prov, log)
 }
 
-func siloCatchUpTenants(ctx context.Context, ids []string, prov siloCatchUpper, log *slog.Logger) error {
+func siloCatchUpTenants(ctx context.Context, ids []string, schemaOnly map[string]bool, prov siloCatchUpper, log *slog.Logger) error {
 	var errs []error
 	for _, id := range ids {
-		if err := prov.CatchUp(ctx, id); err != nil {
+		catchUp := prov.CatchUp
+		if schemaOnly[id] {
+			catchUp = prov.CatchUpSchema
+		}
+		if err := catchUp(ctx, id); err != nil {
 			log.Warn("silo catch-up failed for tenant", "tenant", id, "error", err.Error())
 			errs = append(errs, fmt.Errorf("tenant %s: %w", id, err))
 		}

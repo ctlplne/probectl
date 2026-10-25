@@ -342,3 +342,7 @@ func TestDroppedSiloTableIsRefusedAndQuarantined(t *testing.T) {
 		t.Fatalf("still quarantined after the silo was made complete: %v", err)
 	}
 }
+
+func (missingSilo) CatchUpSchema(context.Context, string) error { return nil }
+
+func (*planeCheck) CatchUpSchema(context.Context, string) error { return nil }

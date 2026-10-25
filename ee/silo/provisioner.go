@@ -575,10 +575,12 @@ func (p *Provisioner) Provision(ctx context.Context, tenantID, residency string,
 	return nil
 }
 
-// CatchUp brings a siloed tenant's schema up to the current public shape
-// (new tables/columns from later migrations). Run at startup for every
-// siloed tenant and on demand from the provider console.
-func (p *Provisioner) CatchUp(ctx context.Context, tenantID string) error {
+// CatchUpSchema is the schema-only half of CatchUp (D-71, DPR-387): it adds
+// the tables and columns later migrations introduced — empty, with their
+// RLS, grants and write fences — and changes no row. It is what an
+// OFFBOARDING silo gets, so its export and verifiable erasure keep working
+// after an upgrade adds a tenant-owned table.
+func (p *Provisioner) CatchUpSchema(ctx context.Context, tenantID string) error {
 	schema := SchemaName(tenantID)
 	cat, err := p.readCatalog(ctx, schema)
 	if err != nil {
@@ -591,11 +593,21 @@ func (p *Provisioner) CatchUp(ctx context.Context, tenantID string) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// CatchUp brings a siloed tenant's schema up to the current public shape
+// (new tables/columns from later migrations). Run at startup for every
+// siloed tenant and on demand from the provider console.
+func (p *Provisioner) CatchUp(ctx context.Context, tenantID string) error {
+	if err := p.CatchUpSchema(ctx, tenantID); err != nil {
+		return err
+	}
 	// A restored/pre-0073 silo can have current detailed rows but no public
 	// hash locator or certificate-revocation metadata. Rebuild only those
 	// opaque fields after the schema columns are current; credential/session
 	// PII never leaves the silo.
-	return p.backfillPreTenantMetadata(ctx, tenantID, schema)
+	return p.backfillPreTenantMetadata(ctx, tenantID, SchemaName(tenantID))
 }
 
 func (p *Provisioner) backfillPreTenantMetadata(

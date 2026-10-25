@@ -10,6 +10,8 @@ package main
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"strconv"
 	"strings"
 	"testing"
@@ -78,7 +80,8 @@ func (f fakeSchemaVerifier) MissingSiloTables(_ context.Context, ids []string) (
 
 // DPR-385 (stop mode): startup refuses when a siloed tenant's schema still
 // lacks a tenant-owned table after the catch-up, naming the tenant and the
-// table; an offboarding silo (not caught up) is left to InTenant's guard.
+// table — offboarding silos included, which the catch-up now covers
+// schema-only (D-71, DPR-387).
 func TestSiloSchemasCompleteRefusesAnIncompleteSilo(t *testing.T) {
 	db := setupBootstrapAdminDB(t)
 	ctx := context.Background()
@@ -94,11 +97,62 @@ func TestSiloSchemasCompleteRefusesAnIncompleteSilo(t *testing.T) {
 		return id
 	}
 	hollow, leaving := mk("sc-hollow", "active"), mk("sc-leaving", "offboarding")
-	err := siloSchemasComplete(ctx, db.Pool(), fakeSchemaVerifier{missing: map[string][]string{hollow: {"tests"}, leaving: {"tests"}}})
-	if err == nil || !strings.Contains(err.Error(), hollow) || !strings.Contains(err.Error(), "tests") || strings.Contains(err.Error(), leaving) {
-		t.Fatalf("siloSchemasComplete = %v, want startup refused naming %s's missing table only", err, hollow)
+	err := siloSchemasComplete(ctx, db.Pool(), fakeSchemaVerifier{missing: map[string][]string{hollow: {"tests"}, leaving: {"device_traps"}}})
+	if err == nil || !strings.Contains(err.Error(), hollow) || !strings.Contains(err.Error(), leaving) || !strings.Contains(err.Error(), "device_traps") {
+		t.Fatalf("siloSchemasComplete = %v, want startup refused naming both incomplete silos", err)
 	}
 	if err := siloSchemasComplete(ctx, db.Pool(), fakeSchemaVerifier{}); err != nil {
 		t.Fatalf("complete silos refused: %v", err)
 	}
+}
+
+// DPR-387 (D-71, stop mode): the startup catch-up covers an OFFBOARDING silo
+// schema-only, so after an upgrade adds a tenant-owned table the tenant's
+// export and erasure still find their tables; the active silo still gets the
+// full catch-up.
+func TestSiloCatchUpAllCoversOffboardingSilosSchemaOnly(t *testing.T) {
+	db := setupBootstrapAdminDB(t)
+	ctx := context.Background()
+	stamp := strconv.FormatInt(time.Now().UnixNano(), 36)
+	ids := map[string]string{}
+	for _, status := range []string{"active", "offboarding", "deleted"} {
+		var id string
+		if err := db.Pool().QueryRow(ctx, `INSERT INTO tenants (slug, name, isolation_model, residency, status, audit_write_fenced_at)
+			VALUES ($1, $1, 'siloed', '', $2, CASE WHEN $2 = 'deleted' THEN now() END) RETURNING id::text`, "cu-"+status+"-"+stamp, status).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = db.Pool().Exec(context.Background(), `DELETE FROM tenants WHERE id = $1::uuid`, id) })
+		ids[status] = id
+	}
+	rec := &recordingCatchUp{}
+	if err := siloCatchUpAll(ctx, db.Pool(), rec, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+		t.Fatal(err)
+	}
+	if !rec.full[ids["active"]] || rec.schemaOnly[ids["active"]] {
+		t.Errorf("the active silo must get the full catch-up (%+v)", rec)
+	}
+	if !rec.schemaOnly[ids["offboarding"]] || rec.full[ids["offboarding"]] {
+		t.Errorf("the offboarding silo must get the schema-only catch-up and no data change (%+v)", rec)
+	}
+	if rec.full[ids["deleted"]] || rec.schemaOnly[ids["deleted"]] {
+		t.Error("a deleted tenant's erased silo was caught up")
+	}
+}
+
+type recordingCatchUp struct{ full, schemaOnly map[string]bool }
+
+func (r *recordingCatchUp) CatchUp(_ context.Context, id string) error {
+	if r.full == nil {
+		r.full = map[string]bool{}
+	}
+	r.full[id] = true
+	return nil
+}
+
+func (r *recordingCatchUp) CatchUpSchema(_ context.Context, id string) error {
+	if r.schemaOnly == nil {
+		r.schemaOnly = map[string]bool{}
+	}
+	r.schemaOnly[id] = true
+	return nil
 }
