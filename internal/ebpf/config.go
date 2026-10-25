@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -414,6 +415,9 @@ func (c *Config) validateControlPlane() error {
 	}
 	if cp.CertFile == "" || cp.KeyFile == "" || cp.CAFile == "" {
 		return fmt.Errorf("ebpf: control_plane.grpc_addr requires control_plane.cert_file, key_file and ca_file (the agent's mTLS identity; no plaintext agent channel)")
+	}
+	if filepath.Dir(cp.CertFile) != filepath.Dir(cp.KeyFile) || filepath.Base(cp.CertFile) == filepath.Base(cp.KeyFile) {
+		return fmt.Errorf("ebpf: control_plane.cert_file and key_file must be two files in one directory: the agent rotates them as one unit (R3)")
 	}
 	if cp.PolicyInterval != 0 && cp.PolicyInterval < minPolicyInterval {
 		return fmt.Errorf("ebpf: control_plane.policy_interval must be 0 (the 5m default) or at least %s", minPolicyInterval)

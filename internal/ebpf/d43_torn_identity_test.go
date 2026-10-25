@@ -98,3 +98,68 @@ func TestUnloadableChannelIdentityRefusesL7NotTheAgent(t *testing.T) {
 		})
 	}
 }
+
+// R3 (DPR-395): the seed repairs a torn identity. The state directory holds a
+// valid, NEWER certificate of the same identity beside a key that is not its
+// own (or an empty one) — what a torn rotation leaves — and the seed must
+// replace it, so the restarted agent's channel loads and consented capture
+// starts.
+func TestSeedRepairsATornIdentity(t *testing.T) {
+	st := startRotationStack(t, time.Hour)
+	for _, kind := range []string{"mismatched key", "zero-length key"} {
+		t.Run(kind, func(t *testing.T) {
+			seed := filepath.Join(t.TempDir(), "seed")
+			st.issue(t, seed, r2Agent)
+			st.mu.Lock()
+			st.leafTTL = 2 * time.Hour // the torn certificate outlives the seed
+			st.mu.Unlock()
+			t.Cleanup(func() { st.mu.Lock(); st.leafTTL = time.Hour; st.mu.Unlock() })
+			certFile, keyFile := tornIdentity(t, st, filepath.Join(t.TempDir(), "identity"), kind)
+			rec := recordLiveStarts(t)
+			a, err := New(st.config(r2Agent, certFile, keyFile, seed), bus.NewMemory(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := crypto.VerifyIdentityPair(certFile, keyFile); err != nil {
+				t.Fatalf("the torn identity was kept: %v", err)
+			}
+			if len(rec.starts) != 1 || !a.L7CaptureActive() {
+				t.Fatalf("the repaired identity did not start consented capture: starts=%v", rec.starts)
+			}
+		})
+	}
+}
+
+// R3 (DPR-397): a rotation that fails part-way never tears the pair. Here the
+// certificate's write is made to fail (a full disk, a kill): the identity
+// on disk must still load — the old pair or the new one, as a unit.
+func TestRotationFailurePartWayKeepsALoadablePair(t *testing.T) {
+	st := startRotationStack(t, time.Hour)
+	dir := filepath.Join(t.TempDir(), "identity")
+	certFile, keyFile := st.issue(t, dir, r2Agent)
+	r, err := newIdentityRotator(st.config(r2Agent, certFile, keyFile, "").ControlPlane, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Block the certificate's replacement where a write-then-rename would put
+	// its temporary file; an install that replaces the pair as one unit is
+	// unaffected or fails before touching the pair.
+	if err := os.Mkdir(certFile+".tmp", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.now = func() time.Time { return time.Now().Add(50 * time.Minute) }
+	_, _ = r.check(context.Background())
+	if err := crypto.VerifyIdentityPair(certFile, keyFile); err != nil {
+		t.Fatalf("a rotation that failed part-way left a torn identity: %v", err)
+	}
+	// And a successful rotation lands the reply's CA bundle beside the pair.
+	if rotated, err := r.check(context.Background()); err != nil || !rotated {
+		t.Fatalf("rotation: %v %v", rotated, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, identityCABundleFile)); err != nil || !bytes.Contains(b, []byte("BEGIN CERTIFICATE")) {
+		t.Fatalf("the rotation reply's CA bundle was not kept: %v", err)
+	}
+	if fi, err := os.Lstat(certFile); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("the certificate is not part of a versioned unit")
+	}
+}

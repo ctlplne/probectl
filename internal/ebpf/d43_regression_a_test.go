@@ -264,6 +264,11 @@ func TestControlPlaneConfigRequiresTheFullIdentity(t *testing.T) {
 		t.Fatal("a channel without rotate_url must refuse (its certificate would expire unrenewed, D-43 R2)")
 	}
 	cfg.ControlPlane.RotateURL = "https://control.example:8443"
+	cfg.ControlPlane.KeyFile = "/elsewhere/key.pem"
+	if err := cfg.validate(); err == nil {
+		t.Fatal("a certificate and key in different directories cannot rotate as one unit (R3)")
+	}
+	cfg.ControlPlane.KeyFile = "/id/key.pem"
 	if err := cfg.validate(); err != nil {
 		t.Fatalf("full identity must validate: %v", err)
 	}

@@ -38,6 +38,10 @@ import (
 // rotated identity always equals the old one (the server refuses anything
 // else), and this side checks it too.
 
+// identityCABundleFile is where the rotation reply's agent-CA bundle is kept,
+// beside the certificate and key (the probe agent's name for it).
+const identityCABundleFile = "ca.pem"
+
 // rotationCheckEvery is how often the agent checks whether its certificate is
 // due for renewal.
 const rotationCheckEvery = time.Minute
@@ -104,6 +108,7 @@ func (r *identityRotator) check(ctx context.Context) (bool, error) {
 
 type rotatedIdentity struct {
 	CertPEM  string    `json:"cert_pem"`
+	CABundle string    `json:"ca_bundle"`
 	SPIFFEID string    `json:"spiffe_id"`
 	NotAfter time.Time `json:"not_after"`
 }
@@ -159,21 +164,25 @@ func (r *identityRotator) rotate(ctx context.Context, leaf *x509.Certificate) (t
 	if got, err := crypto.EBPFSPIFFEIDFromCert(newLeaf); err != nil || got != current {
 		return time.Time{}, fmt.Errorf("ebpf: rotate: the control plane issued a different identity (%v) — refused", got)
 	}
-	// Key first, then the certificate: the rotating identity reloads the pair
-	// on the next handshake; a handshake between the two renames fails once
-	// and is retried, never presents a mismatched pair as valid.
-	if err := writeAtomic(r.keyFile, newKeyPEM); err != nil {
-		return time.Time{}, err
+	// R3: the certificate, its key and the agent-CA bundle land as ONE unit
+	// (versioned, fsynced, one atomic swap): a kill, a power loss or a full
+	// disk leaves the previous pair or the new one, never a certificate with
+	// a mismatched or empty key. The bundle is kept as ca.pem beside them, as
+	// the probe agent does; control_plane.ca_file (the listener trust the
+	// operator provides) is never overwritten.
+	var extra map[string][]byte
+	if out.CABundle != "" {
+		extra = map[string][]byte{identityCABundleFile: []byte(out.CABundle)}
 	}
-	if err := writeAtomic(r.certFile, []byte(out.CertPEM)); err != nil {
-		return time.Time{}, err
+	if err := crypto.InstallIdentity(r.certFile, r.keyFile, []byte(out.CertPEM), newKeyPEM, extra); err != nil {
+		return time.Time{}, fmt.Errorf("ebpf: rotate: install the renewed identity: %w", err)
 	}
 	return newLeaf.NotAfter, nil
 }
 
 // seedIdentity copies the operator-provided identity (a read-only Secret
-// mount) into the writable identity files when they are missing, hold another
-// identity, or the seed's certificate outlives them — a fresh registration
+// mount) into the writable identity files when they are missing, do not load
+// as a pair, hold another identity, or the seed's certificate outlives them — a fresh registration
 // replaces a rotated one, a rotated one is never overwritten by its older seed
 // (D-43 R2).
 func seedIdentity(seedDir, certFile, keyFile string) (bool, error) {
@@ -185,7 +194,11 @@ func seedIdentity(seedDir, certFile, keyFile string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("ebpf: identity seed: %w", err)
 	}
-	if cur, err := readLeaf(certFile); err == nil && !seed.NotAfter.After(cur.NotAfter) && sameIdentity(seed, cur) {
+	// R3: the current identity counts only when its certificate AND key load
+	// as one pair — a torn write (a valid certificate beside a mismatched or
+	// empty key) is repaired from the seed, not kept.
+	if cur, err := readLeaf(certFile); err == nil && !seed.NotAfter.After(cur.NotAfter) && sameIdentity(seed, cur) &&
+		crypto.VerifyIdentityPair(certFile, keyFile) == nil {
 		return false, nil
 	}
 	certPEM, err := os.ReadFile(seedCert)
@@ -196,13 +209,10 @@ func seedIdentity(seedDir, certFile, keyFile string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(certFile), 0o700); err != nil {
-		return false, err
+	if err := crypto.InstallIdentity(certFile, keyFile, certPEM, keyPEM, nil); err != nil {
+		return false, fmt.Errorf("ebpf: identity seed: %w", err)
 	}
-	if err := writeAtomic(keyFile, keyPEM); err != nil {
-		return false, err
-	}
-	return true, writeAtomic(certFile, certPEM)
+	return true, nil
 }
 
 // sameIdentity reports whether two certificates name the same SPIFFE ID.
@@ -227,15 +237,6 @@ func firstLeaf(pemBytes []byte) (*x509.Certificate, error) {
 		return nil, errors.New("no certificate in PEM")
 	}
 	return x509.ParseCertificate(block.Bytes)
-}
-
-// writeAtomic replaces path with data, owner-only, via a same-directory rename.
-func writeAtomic(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }
 
 // runRotation is the agent's rotation loop: it checks every minute and keeps

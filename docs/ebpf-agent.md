@@ -574,14 +574,23 @@ emit looser data than its tenant allows.
   thirds of its lifetime through `control_plane.rotate_url` (the API's
   `POST /enroll/agent/rotate`, verified against `control_plane.ca_file`),
   proving possession of the current key over a CSR for a new key generated on
-  the host, and atomically replaces `cert_file`/`key_file`; the next handshake
-  presents the new pair, and a certificate naming any other identity is
-  refused. `rotate_url` is required with `grpc_addr`, and the identity files
+  the host, and replaces `cert_file`/`key_file` as **one unit** (R3): the new
+  certificate, key and the reply's agent-CA bundle (`ca.pem`, as the probe
+  agent keeps it) are written to a fresh version directory and fsynced, then
+  one `current` symlink is swapped atomically — `cert_file` and `key_file`
+  become fixed links into it, so `cert_file` and `key_file` must sit in one
+  directory. A kill, power loss or full disk leaves the previous pair or the
+  new one, never a certificate beside a mismatched or empty key; the previous
+  version is kept until the next rotation. `ca_file`, the listener trust the
+  operator provides, is never overwritten. The next handshake presents the
+  new pair, and a certificate naming any other identity is refused. `rotate_url` is required with `grpc_addr`, and the identity files
   must be writable: the shipped systemd units keep them under the
   `probectl-ebpf-agent` state directory, and the chart seeds a node-local
   hostPath (`controlPlane.identity.stateHostPath`/<namespace>/<release>) from
   the read-only registration Secret (`control_plane.identity_seed_dir`), so a
   restarted pod presents the certificate it rotated, not the registration's.
+  An identity whose certificate and key do not load as one pair is repaired
+  from the seed.
   A failed renewal is logged at ERROR, counted in
   `probectl_ebpf_control_plane_cert_rotation_failures_total`, and retried every
   minute while the current certificate is valid; once it expires the channel
