@@ -699,3 +699,72 @@ func firstLine(s string) string {
 	}
 	return s
 }
+
+// requiredSiloTablesQuery lists the public tables that carry tenant_id —
+// the catch-up's source (readCatalog), through pg_catalog so any login sees
+// the same set. TenantOwned then applies the shared deny list.
+const requiredSiloTablesQuery = `SELECT c.relname FROM pg_catalog.pg_class c
+	  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+	  JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
+	 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')`
+
+// RequiredSiloTables (DPR-385) is the set of tenant-owned tables every silo
+// schema must carry: exactly what provisioning creates and the catch-up adds
+// (TenantOwned over the public tenant_id tables).
+func RequiredSiloTables(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	rows, err := pool.Query(ctx, requiredSiloTablesQuery)
+	if err != nil {
+		return nil, fmt.Errorf("silo: list the tables a silo must carry: %w", err)
+	}
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		tables = append(tables, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return TenantOwned(tables), nil
+}
+
+// MissingSiloTables (DPR-385) reports, per siloed tenant, the tenant-owned
+// tables its schema lacks — verification only, it never creates anything.
+// One catalog query covers every tenant. Tenants with a complete schema are
+// absent from the result.
+func (p *Provisioner) MissingSiloTables(ctx context.Context, tenantIDs []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(tenantIDs) == 0 {
+		return out, nil
+	}
+	required, err := RequiredSiloTables(ctx, p.ddlPool())
+	if err != nil {
+		return nil, err
+	}
+	schemas := make([]string, len(tenantIDs))
+	for i, id := range tenantIDs {
+		schemas[i] = SchemaName(id)
+	}
+	rows, err := p.ddlPool().Query(ctx, `SELECT s.tenant, r.t
+		  FROM unnest($1::text[], $2::text[]) AS s(tenant, schema)
+		 CROSS JOIN unnest($3::text[]) AS r(t)
+		 WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+		                     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		                    WHERE n.nspname = s.schema AND c.relname = r.t AND c.relkind IN ('r', 'p'))
+		 ORDER BY s.tenant, r.t`, tenantIDs, schemas, required)
+	if err != nil {
+		return nil, fmt.Errorf("silo: verify silo schemas: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tenant, table string
+		if err := rows.Scan(&tenant, &table); err != nil {
+			return nil, err
+		}
+		out[tenant] = append(out[tenant], table)
+	}
+	return out, rows.Err()
+}

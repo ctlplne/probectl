@@ -385,6 +385,13 @@ func attachSiloIsolation(ctx context.Context, cfg *config.Config, log *slog.Logg
 	if err != nil {
 		return nil, nil, err
 	}
+	// DPR-385: every siloed transaction verifies its schema carries every
+	// tenant-owned table, so a missing table never resolves to public.
+	required, err := silo.RequiredSiloTables(ctx, pool)
+	if err != nil {
+		return nil, nil, err
+	}
+	tenancy.SetSiloRequiredTables(required)
 	var supervisor *silo.QuarantineSupervisor
 	if quarantine {
 		// D-62 quarantine mode: the same preconditions, per tenant. Each
@@ -420,10 +427,60 @@ func siloStartupPreconditions(ctx context.Context, pool *pgxpool.Pool, prov *sil
 	}
 	// DPR-323: every existing per-tenant database is under the reader scope,
 	// and proven, before any tenant read can be routed to it.
+	// DPR-385: the catch-up must have left every silo complete.
+	if err := siloSchemasComplete(ctx, pool, prov); err != nil {
+		return fmt.Errorf("silo schema check before routing: %w", err)
+	}
 	if err := siloReaderCatchUpAll(ctx, pool, prov, scoped, log); err != nil {
 		return fmt.Errorf("silo reader-scope catch-up before routing: %w", err)
 	}
 	return nil
+}
+
+type siloSchemaVerifier interface {
+	MissingSiloTables(ctx context.Context, tenantIDs []string) (map[string][]string, error)
+}
+
+// siloSchemasComplete (DPR-385, stop mode) refuses startup when a siloed
+// tenant's schema still lacks a tenant-owned table after the catch-up,
+// naming each tenant and table.
+func siloSchemasComplete(ctx context.Context, pool *pgxpool.Pool, v siloSchemaVerifier) error {
+	var ids []string
+	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		// The tenants the catch-up covers (siloCatchUpAll); an offboarding
+		// silo is still refused per transaction by InTenant's table guard.
+		rows, err := q.Query(ctx, `SELECT id::text FROM tenants WHERE isolation_model = 'siloed' AND status IN ('active','suspended') ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			ids = append(ids, id)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return err
+	}
+	missing, err := v.MissingSiloTables(ctx, ids)
+	if err != nil {
+		return err
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	var parts []string
+	for _, id := range ids {
+		if m := missing[id]; len(m) > 0 {
+			parts = append(parts, fmt.Sprintf("tenant %s lacks %s", id, strings.Join(m, ", ")))
+		}
+	}
+	return fmt.Errorf("%d siloed tenant schema(s) are incomplete: %s; a missing table would resolve to the pooled public one. Restore the tables (for example from backup) or let the catch-up recreate them (DPR-385)",
+		len(parts), strings.Join(parts, "; "))
 }
 
 // bootSiloQuarantine (D-62, PROBECTL_SILO_FAILURE_MODE=quarantine) evaluates
@@ -734,6 +791,11 @@ func attachEETenancyRouter(cfg *config.Config, pool *pgxpool.Pool, _ *slog.Logge
 		return err
 	}
 	tenancy.SetQuarantine(registry)
+	required, err := silo.RequiredSiloTables(context.Background(), pool)
+	if err != nil {
+		return err
+	}
+	tenancy.SetSiloRequiredTables(required) // DPR-385
 	tenancy.SetRouter(silo.NewRouter(pool, planes, 0).WithQuarantine(registry))
 	return nil
 }

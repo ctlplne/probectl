@@ -79,6 +79,9 @@ type TenantChecks interface {
 	ValidResidency(name string) bool
 	CatchUp(ctx context.Context, tenantID string) error
 	CatchUpReaderScope(ctx context.Context, tenantID, residency string) error
+	// MissingSiloTables reports, per siloed tenant, the tenant-owned tables
+	// its schema lacks (verification only, DPR-385).
+	MissingSiloTables(ctx context.Context, tenantIDs []string) (map[string][]string, error)
 }
 
 // IsolatedTenant is one siloed or hybrid registry row.
@@ -327,6 +330,14 @@ func (s *QuarantineSupervisor) bounded(ctx context.Context, fn func(context.Cont
 // breaker — never a timeout, which may be the tenant's own slow check or a
 // lock wait), so tenants sharing a dead plane do not each wait on it.
 func (s *QuarantineSupervisor) Evaluate(ctx context.Context, t IsolatedTenant, down map[string]tenancy.QuarantineEntry) *tenancy.QuarantineEntry {
+	return s.evaluate(ctx, t, down, true)
+}
+
+// evaluate is Evaluate; repair=false skips the schema catch-up, which would
+// otherwise silently recreate a missing table EMPTY: a tenant quarantined
+// for an incomplete silo stays quarantined until the operator restores the
+// table or rolls the control plane (whose startup catch-up recreates it).
+func (s *QuarantineSupervisor) evaluate(ctx context.Context, t IsolatedTenant, down map[string]tenancy.QuarantineEntry, repair bool) *tenancy.QuarantineEntry {
 	entry := func(reason tenancy.QuarantineReason, detail, remedy string) *tenancy.QuarantineEntry {
 		if remedy == "" {
 			remedy = quarantineRemedy(reason, t.Residency)
@@ -338,7 +349,7 @@ func (s *QuarantineSupervisor) Evaluate(ctx context.Context, t IsolatedTenant, d
 			"the tenant is pinned to data plane %q, which PROBECTL_DATAPLANES does not name (configured: %s); routing it would send its telemetry to the default plane (DPR-324)",
 			t.Residency, planeList(s.planes)), "")
 	}
-	if t.Model == string(tenancy.IsolationSiloed) && (t.Status == "active" || t.Status == "suspended") {
+	if repair && t.Model == string(tenancy.IsolationSiloed) && (t.Status == "active" || t.Status == "suspended") {
 		r := s.bounded(ctx, func(ctx context.Context) error { return s.checks.CatchUp(ctx, t.ID) })
 		switch {
 		case r.timedOut:
@@ -347,6 +358,11 @@ func (s *QuarantineSupervisor) Evaluate(ctx context.Context, t IsolatedTenant, d
 				fmt.Sprintf("the catch-up of this tenant's silo schema is slow (a large silo, or a lock held by a migration); it is retried every recheck interval — raise PROBECTL_SILO_QUARANTINE_CHECK_TIMEOUT (now %s) if it needs longer", s.checkTimeout))
 		case r.err != nil:
 			return entry(tenancy.QuarantineSchemaCatchUpFailed, "silo schema catch-up: "+r.err.Error(), "")
+		}
+	}
+	if siloCaughtUp(t) {
+		if e := s.schemaComplete(ctx, t); e != nil {
+			return e
 		}
 	}
 	if !s.readerScoped {
@@ -377,6 +393,48 @@ func (s *QuarantineSupervisor) Evaluate(ctx context.Context, t IsolatedTenant, d
 	default:
 		return entry(tenancy.QuarantineReaderScopeUnproven, "reader-scope proof: "+r.err.Error(), "")
 	}
+}
+
+// siloCaughtUp: the siloed tenants whose schemas the catch-up keeps current
+// (active and suspended), and so the ones verified complete. An offboarding
+// silo is not caught up; InTenant's per-transaction table guard still
+// refuses it if it lacks a table.
+func siloCaughtUp(t IsolatedTenant) bool {
+	return t.Model == string(tenancy.IsolationSiloed) && (t.Status == "active" || t.Status == "suspended")
+}
+
+// schemaComplete verifies a siloed tenant's schema carries every tenant-owned
+// table (DPR-385).
+func (s *QuarantineSupervisor) schemaComplete(ctx context.Context, t IsolatedTenant) *tenancy.QuarantineEntry {
+	var missing map[string][]string
+	r := s.bounded(ctx, func(ctx context.Context) error {
+		var err error
+		missing, err = s.checks.MissingSiloTables(ctx, []string{t.ID})
+		return err
+	})
+	if r.err != nil {
+		return &tenancy.QuarantineEntry{TenantID: t.ID, Reason: tenancy.QuarantineSchemaIncomplete, Plane: t.Residency,
+			Detail: "could not verify the silo schema's tables: " + r.err.Error(), Remedy: incompleteRemedy(t.ID, nil)}
+	}
+	return incompleteEntry(t, missing[t.ID])
+}
+
+func incompleteEntry(t IsolatedTenant, missing []string) *tenancy.QuarantineEntry {
+	if len(missing) == 0 {
+		return nil
+	}
+	return &tenancy.QuarantineEntry{TenantID: t.ID, Reason: tenancy.QuarantineSchemaIncomplete, Plane: t.Residency,
+		Detail: fmt.Sprintf("silo schema %s lacks the tenant-owned table(s) %s, which every silo must carry; without the guard they would resolve to the pooled public tables (DPR-385)",
+			SchemaName(t.ID), strings.Join(missing, ", ")),
+		Remedy: incompleteRemedy(t.ID, missing)}
+}
+
+func incompleteRemedy(tenantID string, missing []string) string {
+	what := "the missing tables"
+	if len(missing) > 0 {
+		what = strings.Join(missing, ", ")
+	}
+	return fmt.Sprintf("restore %s in schema %s (for example from backup), or roll the control plane: its startup catch-up recreates missing tables EMPTY. The supervisor never recreates them silently; it re-verifies every recheck interval and releases the tenant once the schema is complete", what, SchemaName(tenantID))
 }
 
 // planeUnreachable reports a transport-level failure (refused, DNS, TLS
@@ -462,17 +520,57 @@ func (s *QuarantineSupervisor) run(ctx context.Context) {
 // Recheck re-evaluates every quarantined tenant once, releases the tenants
 // that pass (or are no longer routed as siloed/hybrid), and persists and
 // audits the transitions.
+//
+// It also verifies, every interval, that each siloed tenant that is NOT
+// quarantined still has every tenant-owned table in its schema (DPR-385),
+// and quarantines one that lost a table.
 func (s *QuarantineSupervisor) Recheck(ctx context.Context) {
 	held := s.registry.List()
-	if len(held) > 0 {
-		tenants, err := s.list(ctx)
-		if err != nil {
-			s.log.Warn("silo quarantine: recheck could not read the tenant registry; keeping every quarantine", "error", err.Error())
-		} else {
+	tenants, err := s.list(ctx)
+	switch {
+	case err != nil:
+		s.log.Warn("silo quarantine: recheck could not read the tenant registry; keeping every quarantine", "error", err.Error())
+	default:
+		if len(held) > 0 {
 			s.recheckHeld(ctx, held, tenants)
 		}
+		s.verifyHealthySilos(ctx, tenants)
 	}
 	s.flush(ctx)
+}
+
+// verifyHealthySilos quarantines each routed siloed tenant whose schema lost
+// a tenant-owned table since it was proven (DPR-385). One catalog query.
+func (s *QuarantineSupervisor) verifyHealthySilos(ctx context.Context, tenants []IsolatedTenant) {
+	var ids []string
+	byID := map[string]IsolatedTenant{}
+	for _, t := range tenants {
+		if !siloCaughtUp(t) || s.registry.Check(t.ID) != nil {
+			continue
+		}
+		ids = append(ids, t.ID)
+		byID[t.ID] = t
+	}
+	if len(ids) == 0 || ctx.Err() != nil {
+		return
+	}
+	var missing map[string][]string
+	r := s.bounded(ctx, func(ctx context.Context) error {
+		var err error
+		missing, err = s.checks.MissingSiloTables(ctx, ids)
+		return err
+	})
+	if r.err != nil {
+		s.log.Warn("silo quarantine: could not verify the silo schemas this interval", "error", r.err.Error())
+		return
+	}
+	for id, tables := range missing {
+		if t, ok := byID[id]; ok {
+			if e := incompleteEntry(t, tables); e != nil {
+				s.enter(*e)
+			}
+		}
+	}
 }
 
 func (s *QuarantineSupervisor) recheckHeld(ctx context.Context, held []tenancy.QuarantineEntry, tenants []IsolatedTenant) {
@@ -492,7 +590,8 @@ func (s *QuarantineSupervisor) recheckHeld(ctx context.Context, held []tenancy.Q
 			s.release(e, "the tenant is no longer an isolated (siloed/hybrid) tenant that is routed", true)
 			continue
 		}
-		next := s.Evaluate(ctx, t, down)
+		// An incomplete silo is never repaired behind the operator's back.
+		next := s.evaluate(ctx, t, down, e.Reason != tenancy.QuarantineSchemaIncomplete)
 		if ctx.Err() != nil {
 			return // shutting down: never release on a canceled check
 		}

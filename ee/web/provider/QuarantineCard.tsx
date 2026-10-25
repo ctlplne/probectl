@@ -44,6 +44,7 @@ const reasonLabels: Record<string, string> = {
   reader_credential_missing: "Reader credential missing",
   reader_scope_unproven: "Reader scope unproven",
   silo_schema_catchup_failed: "Silo schema catch-up failed",
+  silo_schema_incomplete: "Silo schema incomplete",
 };
 
 export function QuarantineCard() {

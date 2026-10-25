@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -152,7 +153,7 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 	if schema != "" {
 		// DPR-368: Postgres accepts a missing schema on search_path, so an
 		// absent silo would resolve every unqualified tenant table to public.
-		if err := requireSiloSchema(ctx, tx, id.String(), schema, noticeTables(ctx)); err != nil {
+		if err := requireSiloSchema(ctx, tx, id.String(), schema, guardedSiloTables(ctx)); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
@@ -210,7 +211,7 @@ func InTenantProviderMaintenance(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if schema != "" {
-		if err := requireSiloSchema(ctx, tx, id.String(), schema, nil); err != nil {
+		if err := requireSiloSchema(ctx, tx, id.String(), schema, guardedSiloTables(ctx)); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(
@@ -259,20 +260,48 @@ func requireSiloSchema(ctx context.Context, tx pgx.Tx, tenantID, schema string, 
 	if tables == nil {
 		tables = []string{}
 	}
-	var schemaOK, tablesOK bool
+	var schemaOK bool
+	var missing []string
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1),
-		       NOT EXISTS (SELECT 1 FROM unnest($2::text[]) AS want(t)
-		                    WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
-		                                        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-		                                       WHERE n.nspname = $1 AND c.relname = want.t))`,
-		schema, tables).Scan(&schemaOK, &tablesOK); err != nil {
+		       COALESCE((SELECT array_agg(want.t ORDER BY want.t) FROM unnest($2::text[]) AS want(t)
+		                  WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+		                                      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		                                     WHERE n.nspname = $1 AND c.relname = want.t
+		                                       AND c.relkind IN ('r', 'p'))), '{}')`,
+		schema, tables).Scan(&schemaOK, &missing); err != nil {
 		return fmt.Errorf("verify tenant schema: %w", err)
 	}
 	switch {
 	case !schemaOK:
 		return fmt.Errorf("%w: tenant %s is routed to schema %s, which does not exist (refusing rather than falling through to public)", ErrSiloSchemaMissing, tenantID, schema)
-	case !tablesOK:
-		return fmt.Errorf("%w: tenant %s's schema %s lacks %v (refusing rather than falling through to public)", ErrSiloSchemaMissing, tenantID, schema, tables)
+	case len(missing) > 0:
+		return fmt.Errorf("%w: tenant %s's schema %s lacks %v (refusing rather than falling through to public)", ErrSiloSchemaMissing, tenantID, schema, missing)
+	}
+	return nil
+}
+
+var siloRequiredTables atomic.Pointer[[]string]
+
+// SetSiloRequiredTables installs the tenant-owned tables every silo schema
+// must carry (DPR-385) — derived by ee/silo from the same catalog the silo
+// provisioner and catch-up use. Every siloed InTenant transaction then
+// checks, in the same round trip as the schema check, that its schema holds
+// all of them: a table missing from a silo would otherwise resolve, through
+// search_path, to the pooled public table of the same name.
+func SetSiloRequiredTables(tables []string) {
+	cp := append([]string(nil), tables...)
+	siloRequiredTables.Store(&cp)
+}
+
+// guardedSiloTables are the tables the current siloed transaction requires:
+// the quarantine notice needs only its audit table (it writes nothing else);
+// every other transaction needs the whole tenant-owned set.
+func guardedSiloTables(ctx context.Context) []string {
+	if QuarantineNoticeContext(ctx) {
+		return noticeTables(ctx)
+	}
+	if p := siloRequiredTables.Load(); p != nil {
+		return *p
 	}
 	return nil
 }

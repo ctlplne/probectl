@@ -113,12 +113,27 @@ type fakeChecks struct {
 	catchUp   map[string]error
 	reader    map[string]error
 	readerHit map[string]int
+	missing   map[string][]string // tenant -> tables its silo lacks
+	catchUps  int
+}
+
+func (f *fakeChecks) MissingSiloTables(_ context.Context, ids []string) (map[string][]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := map[string][]string{}
+	for _, id := range ids {
+		if m := f.missing[id]; len(m) > 0 {
+			out[id] = m
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeChecks) ValidResidency(name string) bool { return name == "" || f.planes[name] }
 func (f *fakeChecks) CatchUp(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.catchUps++
 	return f.catchUp[id]
 }
 func (f *fakeChecks) CatchUpReaderScope(_ context.Context, id, _ string) error {

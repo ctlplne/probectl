@@ -74,11 +74,23 @@ func TestOneShotCommandsRouteSiloedTenants(t *testing.T) {
 	if !errors.Is(err, tenancy.ErrSiloSchemaMissing) {
 		t.Fatalf("siloed tenant with no schema = %v, want ErrSiloSchemaMissing", err)
 	}
+	// DPR-385: a schema that exists but lacks the tenant-owned tables is
+	// refused too — the error names the tenant's OWN schema, which is the
+	// routing this test pins.
 	schema := "t_" + strings.ReplaceAll(siloed, "-", "")
 	if _, err := pool.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS `+schema); err != nil {
 		t.Fatalf("create the silo schema: %v", err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`) })
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
+		tenancy.SetSiloRequiredTables(nil)
+	})
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(siloed)), pool, func(context.Context, tenancy.Scope) error { return nil })
+	if !errors.Is(err, tenancy.ErrSiloSchemaMissing) || !strings.Contains(err.Error(), schema) || !strings.Contains(err.Error(), "lacks") {
+		t.Fatalf("siloed tenant with an incomplete schema = %v, want ErrSiloSchemaMissing naming %s's missing tables", err, schema)
+	}
+	// With no table requirement installed, the routing itself is visible.
+	tenancy.SetSiloRequiredTables(nil)
 	if p := searchPath(siloed); !strings.HasPrefix(p, `"t_`) && !strings.HasPrefix(p, "t_") {
 		t.Fatalf("siloed tenant must route to its own schema, search_path = %q", p)
 	}

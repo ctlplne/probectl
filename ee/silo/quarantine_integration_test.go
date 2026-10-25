@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // D-62 on real Postgres: the supervisor's quarantine is enforced by the
@@ -117,6 +118,9 @@ type planeCheck struct{ valid func(string) bool }
 func (p *planeCheck) ValidResidency(name string) bool                        { return p.valid(name) }
 func (*planeCheck) CatchUp(context.Context, string) error                    { return nil }
 func (*planeCheck) CatchUpReaderScope(context.Context, string, string) error { return nil }
+func (*planeCheck) MissingSiloTables(context.Context, []string) (map[string][]string, error) {
+	return nil, nil
+}
 
 func count(t *testing.T, pool *pgxpool.Pool, query string, args ...any) int {
 	t.Helper()
@@ -188,6 +192,9 @@ func (missingSilo) CatchUp(context.Context, string) error {
 	return errors.New(`ERROR: schema "t_x" does not exist (SQLSTATE 3F000)`)
 }
 func (missingSilo) CatchUpReaderScope(context.Context, string, string) error { return nil }
+func (missingSilo) MissingSiloTables(context.Context, []string) (map[string][]string, error) {
+	return nil, nil
+}
 
 // DPR-381 on real Postgres: two replicas and a restart of one record ONE
 // entered event on each stream; the released event comes once, from the last
@@ -243,5 +250,95 @@ func TestQuarantineTransitionsAreDedupedAcrossReplicasOnRealPostgres(t *testing.
 	}
 	if n := count(t, pool, `SELECT count(*) FROM provider_audit_events WHERE action = $1 AND target = $2 AND data->>'replica' = $3`, AuditTenantReleased, x, r2); n != 1 {
 		t.Fatal("the released event does not name the replica that made the transition")
+	}
+}
+
+// DPR-385 on real Postgres: a provisioned silo loses one tenant-owned table
+// after boot. No write of that tenant ever lands in public.<table> — the
+// per-transaction guard refuses it at once — and the supervisor quarantines
+// the tenant as silo_schema_incomplete within one check, without recreating
+// the table behind the operator's back.
+func TestDroppedSiloTableIsRefusedAndQuarantined(t *testing.T) {
+	ctx := context.Background()
+	pool := itPool(t)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	stamp := strconv.FormatInt(time.Now().UnixNano(), 36)
+	x := mkTenant(t, pool, "d62-hollow-"+stamp, "siloed", "")
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	prov := NewProvisioner(pool, CHPlanes{}, nil, 0, log)
+	if err := prov.Provision(ctx, x, "", tenancy.IsolationSiloed); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = prov.Teardown(context.Background(), x, "", tenancy.IsolationSiloed)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM tenants WHERE id = $1::uuid`, x)
+	})
+	q := tenancy.NewQuarantine()
+	prevRouter, prevQ := tenancy.CurrentRouter(), tenancy.CurrentQuarantine()
+	t.Cleanup(func() {
+		tenancy.SetRouter(prevRouter)
+		tenancy.SetQuarantine(prevQ)
+		tenancy.SetSiloRequiredTables(nil)
+	})
+	tenancy.SetQuarantine(q)
+	tenancy.SetRouter(NewRouter(pool, nil, 0).WithQuarantine(q))
+	required, err := RequiredSiloTables(ctx, pool)
+	if err != nil || len(required) < 10 {
+		t.Fatalf("RequiredSiloTables = %d tables, %v", len(required), err)
+	}
+	tenancy.SetSiloRequiredTables(required)
+
+	insert := func(name string) error {
+		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(x)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `INSERT INTO tests (tenant_id, name, type, target, interval_seconds, timeout_seconds, params, enabled)
+				 VALUES ($1, $2, 'icmp', '192.0.2.1', 60, 5, '{}'::jsonb, true)`, x, name)
+			return err
+		})
+	}
+	s := NewQuarantineSupervisor(QuarantineConfig{Pool: pool, Checks: prov, Registry: q, Interval: 5 * time.Second,
+		Replica: "d62-hollow-" + stamp, Log: log})
+	s.list = func(context.Context) ([]IsolatedTenant, error) {
+		return []IsolatedTenant{{ID: x, Model: "siloed", Status: "active"}}, nil
+	}
+	if held, err := s.Boot(ctx); err != nil || len(held) != 0 {
+		t.Fatalf("Boot of a complete silo = %+v %v", held, err)
+	}
+	if err := insert("before"); err != nil {
+		t.Fatalf("write to the complete silo: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DROP TABLE `+SchemaName(x)+`.tests CASCADE`); err != nil {
+		t.Fatalf("drop the silo's tests table: %v", err)
+	}
+	if err := insert("after-drop"); !errors.Is(err, tenancy.ErrSiloSchemaMissing) {
+		t.Fatalf("write after the silo lost its table = %v, want the per-transaction refusal", err)
+	}
+	s.Recheck(ctx)
+	if err := q.Check(x); err == nil {
+		t.Fatal("the tenant is not quarantined one check after its silo lost a table")
+	}
+	var reason string
+	for _, e := range q.List() {
+		if e.TenantID == x {
+			reason = string(e.Reason)
+		}
+	}
+	if reason != string(tenancy.QuarantineSchemaIncomplete) {
+		t.Fatalf("quarantine reason = %q, want silo_schema_incomplete", reason)
+	}
+	s.Recheck(ctx)
+	if n := count(t, pool, `SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = 'tests'`, SchemaName(x)); n != 0 {
+		t.Fatal("the recheck recreated the dropped table behind the operator's back")
+	}
+	if n := count(t, pool, `SELECT count(*) FROM public.tests WHERE tenant_id = $1::uuid`, x); n != 0 {
+		t.Fatalf("%d of the siloed tenant's tests landed in the pooled public.tests", n)
+	}
+	// The operator rolls the control plane: the startup catch-up recreates
+	// the table (empty) and the tenant is complete again.
+	if err := prov.CatchUp(ctx, x); err != nil {
+		t.Fatalf("catch-up: %v", err)
+	}
+	s.Recheck(ctx)
+	if err := q.Check(x); err != nil {
+		t.Fatalf("still quarantined after the silo was made complete: %v", err)
 	}
 }

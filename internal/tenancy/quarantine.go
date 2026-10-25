@@ -62,6 +62,11 @@ const (
 	// QuarantineSchemaCatchUpFailed: the siloed tenant's Postgres schema could
 	// not be brought to the current shape (ARCH-001 catch-up).
 	QuarantineSchemaCatchUpFailed QuarantineReason = "silo_schema_catchup_failed"
+	// QuarantineSchemaIncomplete: the siloed tenant's Postgres schema lacks a
+	// tenant-owned table it must carry (DPR-385) — removed after it was
+	// proven, or never created — so that table would resolve to the pooled
+	// public one.
+	QuarantineSchemaIncomplete QuarantineReason = "silo_schema_incomplete"
 )
 
 // QuarantineReasons lists every reason (stable order) — the metric's label set.
@@ -72,6 +77,7 @@ func QuarantineReasons() []QuarantineReason {
 		QuarantineReaderCredentialMissing,
 		QuarantineReaderScopeUnproven,
 		QuarantineSchemaCatchUpFailed,
+		QuarantineSchemaIncomplete,
 	}
 }
 
@@ -128,6 +134,8 @@ func (e *QuarantinedError) TenantMessage() string {
 		what = fmt.Sprintf("the tenant-isolation proof for its data on residency data plane %q failed", plane)
 	case QuarantineSchemaCatchUpFailed:
 		what = "its isolated database schema could not be brought up to date"
+	case QuarantineSchemaIncomplete:
+		what = "its isolated database schema is missing part of its data"
 	default:
 		what = "an isolation precondition failed"
 	}

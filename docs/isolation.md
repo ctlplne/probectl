@@ -182,9 +182,22 @@ erasure and break-glass reads are refused until release. One-shot commands
 serving replicas hold.
 
 Independently of quarantine, `tenancy.InTenant` refuses any siloed tenant
-whose routed Postgres schema does not exist (DPR-368): Postgres accepts a
-missing schema on `search_path` and would otherwise resolve the tenant's
-tables to the pooled `public` ones.
+whose routed Postgres schema does not exist (DPR-368), or that lacks any of
+the tenant-owned tables every silo must carry (DPR-385): Postgres accepts a
+missing schema on `search_path` and resolves a missing table to the next
+entry, so the tenant's rows would otherwise land in the pooled `public`
+tables. The set is the one the provisioner and the catch-up use (the public
+tables with `tenant_id`, minus the provider-owned ones), installed at
+startup; the check rides the same catalog query as the schema check, one per
+transaction. Startup verifies every caught-up silo (active and suspended) is
+complete after the catch-up — stop mode refuses to start naming the tenant
+and table — and in quarantine mode the supervisor re-verifies every silo each
+recheck interval and quarantines one that lost a table as
+`silo_schema_incomplete`. It never recreates the table itself: restore it (for
+example from backup), or roll the control plane, whose startup catch-up
+recreates missing tables empty; the tenant is released once its schema is
+complete. An offboarding silo is not caught up; the per-transaction guard
+still refuses it if it lacks a table.
 
 Each tenant check — the silo schema catch-up and the reader-scope proof — runs
 on its own budget, `PROBECTL_SILO_QUARANTINE_CHECK_TIMEOUT` (default 5m). A

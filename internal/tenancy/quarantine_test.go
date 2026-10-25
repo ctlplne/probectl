@@ -79,7 +79,7 @@ func TestQuarantineTenantMessageIsActionableAndCarriesNoDetail(t *testing.T) {
 		if !strings.Contains(msg, "quarantined") || !strings.Contains(msg, "operator") || !strings.Contains(msg, "resumes automatically") {
 			t.Errorf("%s: tenant message is not actionable: %q", reason, msg)
 		}
-		if reason != QuarantineSchemaCatchUpFailed && !strings.Contains(msg, `"eu"`) {
+		if reason != QuarantineSchemaCatchUpFailed && reason != QuarantineSchemaIncomplete && !strings.Contains(msg, `"eu"`) {
 			t.Errorf("%s: tenant message does not name the plane: %q", reason, msg)
 		}
 		if full := e.Error(); !strings.Contains(full, "connection refused") || !strings.Contains(full, "fix:") {

@@ -140,6 +140,7 @@ precondition:
 | `reader_credential_missing` | The reader login has no credential for the plane (DPR-327). | Add the plane to `PROBECTL_DATAPLANE_READER_BASIC_AUTH_FILES` and roll the control plane. |
 | `reader_scope_unproven` | The plane answered but the reader row policy/grants could not be installed or proven (DPR-323/326/328). | Grant the control login `SELECT ON *.* WITH GRANT OPTION`; keep the reader SQL-created and SELECT-only; released automatically. |
 | `silo_schema_catchup_failed` | The siloed tenant's Postgres schema could not be caught up (ARCH-001). | Fix the named precondition (usually the migration login); released automatically. |
+| `silo_schema_incomplete` | A tenant-owned table the silo must carry is missing from the tenant's schema (DPR-385), e.g. dropped after it was proven; it would otherwise resolve to the pooled `public` table. | Restore the table (for example from backup), or roll the control plane: its startup catch-up recreates missing tables empty. The supervisor never recreates it silently; it releases the tenant once the schema is complete. |
 
 The provider console's quarantined-tenants list (`GET
 /provider/v1/tenants/quarantine`) shows each tenant, replica, cause and fix.

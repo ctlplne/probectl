@@ -117,6 +117,9 @@ type slowChecks struct {
 }
 
 func (*slowChecks) ValidResidency(string) bool { return true }
+func (*slowChecks) MissingSiloTables(context.Context, []string) (map[string][]string, error) {
+	return nil, nil
+}
 func (c *slowChecks) CatchUp(ctx context.Context, id string) error {
 	if id == "t-a-slow" {
 		return wait(ctx, c.slowCatchUp)
@@ -214,3 +217,51 @@ type timeoutErr struct{}
 func (timeoutErr) Error() string   { return "i/o timeout" }
 func (timeoutErr) Timeout() bool   { return true }
 func (timeoutErr) Temporary() bool { return true }
+
+// DPR-385: a siloed tenant whose schema lacks a tenant-owned table is
+// quarantined (silo_schema_incomplete) at boot and when it loses one later;
+// the recheck never repairs it behind the operator's back (no catch-up),
+// and releases it once the table is back.
+func TestIncompleteSiloIsQuarantinedAndNeverSilentlyRepaired(t *testing.T) {
+	checks := &fakeChecks{planes: map[string]bool{"eu": true}}
+	tenants := []IsolatedTenant{
+		{ID: "t-ok", Model: "siloed", Status: "active", Residency: "eu"},
+		{ID: "t-hollow", Model: "siloed", Status: "active", Residency: "eu"},
+	}
+	q, store := tenancy.NewQuarantine(), newFakeStore()
+	s, _ := newTestSupervisor(checks, q, store, "replica-1", &tenants)
+	if held, err := s.Boot(context.Background()); err != nil || len(held) != 0 {
+		t.Fatalf("Boot = %+v %v; both silos are complete", held, err)
+	}
+	// After boot, someone drops a table from t-hollow's silo.
+	checks.mu.Lock()
+	checks.missing = map[string][]string{"t-hollow": {"tests"}}
+	checks.mu.Unlock()
+	s.Recheck(context.Background())
+	e, ok := held(q, "t-hollow")
+	if !ok || e.Reason != tenancy.QuarantineSchemaIncomplete || !strings.Contains(e.Detail, "tests") ||
+		!strings.Contains(e.Remedy, "restore tests") {
+		t.Fatalf("t-hollow = %+v %v; want quarantined as silo_schema_incomplete naming the table and the fix", e, ok)
+	}
+	if err := q.Check("t-ok"); err != nil {
+		t.Fatalf("the complete neighbor was quarantined: %v", err)
+	}
+	checks.mu.Lock()
+	before := checks.catchUps
+	checks.mu.Unlock()
+	s.Recheck(context.Background())
+	checks.mu.Lock()
+	ran := checks.catchUps - before
+	checks.missing = nil // the operator restored the table
+	checks.mu.Unlock()
+	if ran != 0 {
+		t.Fatalf("the recheck ran %d catch-up(s), which would recreate the dropped table empty", ran)
+	}
+	if _, still := held(q, "t-hollow"); !still {
+		t.Fatal("an incomplete silo was released before its table came back")
+	}
+	s.Recheck(context.Background())
+	if _, still := held(q, "t-hollow"); still {
+		t.Fatal("the silo is complete again but the tenant is still quarantined")
+	}
+}
