@@ -173,6 +173,9 @@ func TestEBPFCertRotatesBeforeExpiry(t *testing.T) {
 	}
 	old, _ := readLeaf(certFile)
 	life := old.NotAfter.Sub(old.NotBefore)
+	if got := a.ChannelCertNotAfter(); got != old.NotAfter.Unix() {
+		t.Fatalf("channel certificate expiry gauge = %d, want %d", got, old.NotAfter.Unix())
+	}
 
 	a.rotator.now = func() time.Time { return old.NotBefore.Add(life / 2) }
 	if rotated, err := a.rotator.check(context.Background()); err != nil || rotated {
@@ -191,6 +194,9 @@ func TestEBPFCertRotatesBeforeExpiry(t *testing.T) {
 	newID, _ := crypto.EBPFSPIFFEIDFromCert(renewed)
 	if renewed.SerialNumber.Cmp(old.SerialNumber) == 0 || newID != oldID || renewed.NotAfter.Before(old.NotAfter) {
 		t.Fatalf("rotation did not renew the same identity: old %s %v, new %s %v", old.SerialNumber, oldID, renewed.SerialNumber, newID)
+	}
+	if got := a.ChannelCertNotAfter(); got != renewed.NotAfter.Unix() {
+		t.Fatalf("the expiry gauge did not follow the rotation: %d, want %d", got, renewed.NotAfter.Unix())
 	}
 	// The running agent's channel still answers (a new handshake presents the
 	// renewed certificate).

@@ -148,6 +148,9 @@ func run() error {
 			}
 			return 0
 		})
+	metricsRuntime.WatchGauge("probectl_ebpf_control_plane_cert_not_after_unix_seconds",
+		"Expiry of the policy channel's certificate (unix seconds; 0 = no channel). The agent renews it at two thirds of its lifetime (D-43).",
+		func() float64 { return float64(agent.ChannelCertNotAfter()) })
 	metricsRuntime.WatchGauge("probectl_ebpf_control_plane_cert_rotation_failures_total",
 		"Failed renewals of the policy channel's short-lived certificate (D-43); the channel stops when it expires.",
 		func() float64 { return float64(agent.CertRotationFailures()) })

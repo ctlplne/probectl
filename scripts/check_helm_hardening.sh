@@ -1166,6 +1166,16 @@ need 'PROBECTL_EBPF_METRICS_ADDR'         "$metrics_agent" "agent: metrics bind 
 need 'PROBECTL_EBPF_METRICS_TLS_CERT_FILE' "$metrics_agent" "agent: metrics TLS certificate not wired (H6)"
 need 'PROBECTL_EBPF_METRICS_TLS_KEY_FILE' "$metrics_agent" "agent: metrics TLS key not wired (H6)"
 need 'secretName: agent-metrics-tls'      "$metrics_agent" "agent: metrics TLS Secret not mounted (H6)"
+# D-43 R3: the opt-in agent alert pack watches the channel certificate's expiry;
+# it is off by default and needs the agent's scraped metrics.
+grep -q "kind: PrometheusRule" <<<"$agent" && fail "agent: default render ships a PrometheusRule nobody enabled (D-43 R3)"
+if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \
+     --set-string image.tag="$AGENT_IMAGE_TAG" --set metrics.prometheusRule.enabled=true >/dev/null 2>&1; then
+  fail "agent chart rendered the alert pack without metrics.enabled (D-43 R3)"
+fi
+agent_rules="$(arender --set metrics.enabled=true --set metrics.tls.existingSecret=agent-metrics-tls --set metrics.prometheusRule.enabled=true)"
+need "alert: ProbectlEBPFChannelCertExpiring" "$agent_rules" "agent: no alert on the channel certificate's expiry (D-43 R3)"
+need "probectl_ebpf_control_plane_cert_not_after_unix_seconds > 0" "$agent_rules" "agent: the expiry alert would fire for agents with no channel (D-43 R3)"
 # EBPF-002: L7 capture must render the full runtime contract, and enabled
 # capture without scope must fail at template time.
 if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \

@@ -1,0 +1,62 @@
+# Promtool fixture for the probectl-agent alert pack (D-43 R3).
+#
+# Render the concrete rule file, then run promtool against it:
+#
+#   helm template agent deploy/helm/probectl-agent \
+#     --set tenantID=t --set agentID=a --set 'bus.brokers={kafka:9093}' \
+#     --set-string image.tag="0.4.0@sha256:<64 hex>" \
+#     --set metrics.enabled=true --set metrics.tls.existingSecret=agent-metrics-tls \
+#     --set metrics.prometheusRule.enabled=true \
+#     --show-only templates/prometheusrule.yaml \
+#   | yq '.spec' > /tmp/probectl-agent.rules.yaml
+#   promtool check rules /tmp/probectl-agent.rules.yaml
+#   promtool test rules deploy/helm/probectl-agent/tests/prometheusrule.promtool.yaml
+#
+# Each case: a renewing certificate stays quiet, a certificate whose renewals
+# stopped fires, and an agent with no channel (gauge 0) never fires.
+
+rule_files:
+  - /tmp/probectl-agent.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # A certificate that expires 24 h after t=0 and is never renewed: quiet
+  # while more than 6 h remain, firing (after 10 m) once less than 6 h remain.
+  - interval: 1m
+    input_series:
+      - series: 'probectl_ebpf_control_plane_cert_not_after_unix_seconds{instance="node-1"}'
+        values: '86400x1439'
+    alert_rule_test:
+      - alertname: ProbectlEBPFChannelCertExpiring
+        eval_time: 17h
+        exp_alerts: []
+      - alertname: ProbectlEBPFChannelCertExpiring
+        eval_time: 19h
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              probectl_component: ebpf-agent
+              instance: node-1
+            exp_annotations:
+              summary: an eBPF agent's control-plane channel certificate is about to expire
+              description: The eBPF agent has not renewed its policy-channel certificate (see probectl_ebpf_control_plane_cert_rotation_failures_total and the agent log). At expiry the channel fails closed and consented L7 capture stops; flows continue.
+              runbook_url: https://github.com/ctlplne/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectlebpfchannelcertexpiring
+  # Renewed at 16 h (a new 24 h certificate): never fires.
+  - interval: 1m
+    input_series:
+      - series: 'probectl_ebpf_control_plane_cert_not_after_unix_seconds{instance="node-2"}'
+        values: '86400x959 144000x480'
+    alert_rule_test:
+      - alertname: ProbectlEBPFChannelCertExpiring
+        eval_time: 20h
+        exp_alerts: []
+  # No channel: the gauge is 0 and the alert never fires.
+  - interval: 1m
+    input_series:
+      - series: 'probectl_ebpf_control_plane_cert_not_after_unix_seconds{instance="node-3"}'
+        values: '0x1439'
+    alert_rule_test:
+      - alertname: ProbectlEBPFChannelCertExpiring
+        eval_time: 20h
+        exp_alerts: []

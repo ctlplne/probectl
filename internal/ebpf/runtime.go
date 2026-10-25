@@ -147,6 +147,16 @@ func (a *Agent) L7CaptureActive() bool { return a.l7live.Load() }
 // certificate (D-43 R2).
 func (a *Agent) CertRotationFailures() uint64 { return a.rotationFailures.Load() }
 
+// ChannelCertNotAfter is the policy channel certificate's expiry in unix
+// seconds, or 0 without a channel (D-43 R3: exported so an expiring channel
+// alerts before consented capture stops).
+func (a *Agent) ChannelCertNotAfter() int64 {
+	if a.rotator == nil {
+		return 0
+	}
+	return a.rotator.notAfter.Load()
+}
+
 // L7CaptureChannelRefused reports whether consented live capture is refused
 // because there is no control-plane channel, the control plane could not
 // record the capture posture, or the channel's identity is not this agent's

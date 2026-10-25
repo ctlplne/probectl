@@ -1,0 +1,33 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+{{- if not .Values.metrics.enabled }}
+{{- fail "metrics.prometheusRule.enabled requires metrics.enabled (the alerts read the agent's scraped /metrics)" }}
+{{- end }}
+{{- $rule := .Values.metrics.prometheusRule -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "probectl-agent.fullname" . }}
+  labels:
+    {{- include "probectl-agent.labels" . | nindent 4 }}
+    {{- with $rule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: probectl.ebpf-agent
+      rules:
+        # D-43 R3: the policy channel's certificate lives a day and is renewed
+        # at two thirds of its lifetime. Less than channelCertExpirySeconds
+        # left means renewals have been failing for hours; at expiry the
+        # channel fails closed and consented L7 capture stops.
+        - alert: ProbectlEBPFChannelCertExpiring
+          expr: (probectl_ebpf_control_plane_cert_not_after_unix_seconds > 0) - time() < {{ $rule.channelCertExpirySeconds }}
+          for: {{ $rule.channelCertExpiryFor }}
+          labels:
+            severity: warning
+            probectl_component: ebpf-agent
+          annotations:
+            summary: an eBPF agent's control-plane channel certificate is about to expire
+            description: The eBPF agent has not renewed its policy-channel certificate (see probectl_ebpf_control_plane_cert_rotation_failures_total and the agent log). At expiry the channel fails closed and consented L7 capture stops; flows continue.
+            runbook_url: {{ printf "%s#probectlebpfchannelcertexpiring" $rule.runbookBaseURL | quote }}
+{{- end }}

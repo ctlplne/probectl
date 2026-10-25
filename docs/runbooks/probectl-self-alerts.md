@@ -123,6 +123,26 @@ WORM signature or hash-chain verification failed. Preserve the object-store
 contents, verify the persisted public key under `worm/audit/provider/signing.pub`,
 and treat missing/corrupt segments as audit-integrity incidents until explained.
 
+## eBPF agent alerts (probectl-agent chart)
+
+The agent chart ships its own opt-in pack (`metrics.prometheusRule.enabled`,
+which requires `metrics.enabled`) for the eBPF agent's process metrics. It
+carries no tenant telemetry.
+
+### ProbectlEBPFChannelCertExpiring
+
+An eBPF agent's control-plane policy-channel certificate has less than
+`metrics.prometheusRule.channelCertExpirySeconds` (default 6 h) left. The agent
+renews it at two thirds of its lifetime (16 h of 24 h), so renewals have been
+failing for hours. Check the agent log for `certificate rotation FAILED` and
+`probectl_ebpf_control_plane_cert_rotation_failures_total`. Typical causes are
+the control plane's API (`controlPlane.apiURL`) being unreachable or not
+chaining to `server-ca.pem`, a revoked identity, or a read-only identity
+directory. Once the certificate has expired, consented L7 capture is refused
+(`probectl_ebpf_l7_capture_channel_refused` = 1) while flows continue. An
+expired identity cannot rotate itself; re-register the collector
+(`POST /v1/collectors/register`, `plane=ebpf`) and update the identity Secret.
+
 ## Tuning
 
 The Helm defaults live under `metrics.prometheusRule.thresholds`. Keep

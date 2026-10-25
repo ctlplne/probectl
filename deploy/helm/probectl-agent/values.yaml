@@ -334,3 +334,11 @@ metrics:
   path: /metrics
   tls:
     existingSecret: ""
+  # D-43 R3: opt-in alert pack (a Prometheus Operator PrometheusRule) for the
+  # agent's own metrics; requires metrics.enabled.
+  prometheusRule:
+    enabled: false
+    labels: {}
+    runbookBaseURL: https://github.com/ctlplne/probectl/blob/main/docs/runbooks/probectl-self-alerts.md
+    channelCertExpirySeconds: 21600 # 6 h left of a 24 h certificate renewed at 16 h
+    channelCertExpiryFor: 10m

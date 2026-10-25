@@ -593,7 +593,11 @@ emit looser data than its tenant allows.
   from the seed.
   A failed renewal is logged at ERROR, counted in
   `probectl_ebpf_control_plane_cert_rotation_failures_total`, and retried every
-  minute while the current certificate is valid; once it expires the channel
+  minute while the current certificate is valid. The certificate's expiry is
+  exported as `probectl_ebpf_control_plane_cert_not_after_unix_seconds` (0
+  without a channel), and the chart's opt-in alert pack
+  (`metrics.prometheusRule.enabled`) fires `ProbectlEBPFChannelCertExpiring`
+  when less than 6 h remain; once it expires the channel
   fails closed (consented capture is refused). **Limitation:** a node that
   joins after the registration Secret's certificate has expired has nothing
   valid to seed from — re-register (`POST /v1/collectors/register`) and update

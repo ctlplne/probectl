@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -53,6 +54,9 @@ type identityRotator struct {
 	hc                *http.Client
 	now               func() time.Time
 	log               *slog.Logger
+	// notAfter is the current certificate's expiry (unix seconds; 0 =
+	// unknown), exported as a gauge so an expiring channel alerts.
+	notAfter atomic.Int64
 }
 
 // newIdentityRotator builds the rotator for a configured channel. The control
@@ -73,11 +77,15 @@ func newIdentityRotator(cp ControlPlaneConfig, log *slog.Logger) (*identityRotat
 		t.TLSClientConfig.ServerName = cp.ServerName
 	}
 	u.RawQuery, u.Fragment = "", ""
-	return &identityRotator{
+	r := &identityRotator{
 		endpoint: strings.TrimRight(u.String(), "/") + "/enroll/agent/rotate",
 		certFile: cp.CertFile, keyFile: cp.KeyFile, hc: hc,
 		now: time.Now, log: log,
-	}, nil
+	}
+	if leaf, err := readLeaf(cp.CertFile); err == nil {
+		r.notAfter.Store(leaf.NotAfter.Unix())
+	}
+	return r, nil
 }
 
 // rotationDue reports whether now is past two thirds of the lifetime.
@@ -95,6 +103,7 @@ func (r *identityRotator) check(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	r.notAfter.Store(leaf.NotAfter.Unix())
 	if !rotationDue(leaf.NotBefore, leaf.NotAfter, r.now()) {
 		return false, nil
 	}
@@ -102,6 +111,7 @@ func (r *identityRotator) check(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("%w (current certificate expires %s)", err, leaf.NotAfter.UTC().Format(time.RFC3339))
 	}
+	r.notAfter.Store(notAfter.Unix())
 	r.log.Info("ebpf control-plane certificate rotated", "not_after", notAfter.UTC().Format(time.RFC3339))
 	return true, nil
 }
