@@ -74,3 +74,46 @@ func TestBreakGlassRefusesAQuarantinedTenant(t *testing.T) {
 		t.Fatalf("after release: %v (reads %d)", err, telemetry.calls)
 	}
 }
+
+// DPR-400: a break-glass REQUEST on a quarantined tenant is refused with
+// tenant_quarantined, and no grant is created.
+func TestBreakGlassRequestRefusesAQuarantinedTenant(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	svc, err := NewService(store, &memAudit{}, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		&countingTelemetry{}, testEnvelope(t), 4*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err := store.CreateOperator(ctx, Operator{Email: "operator@msp.example", Name: "Operator", Role: RoleOperator},
+		crypto.Hash([]byte("enrollment-token")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant, err := store.CreateTenant(ctx, "quarantined-req", "Quarantined", "pooled", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := tenancy.CurrentQuarantine()
+	t.Cleanup(func() { tenancy.SetQuarantine(prev) })
+	q := tenancy.NewQuarantine()
+	tenancy.SetQuarantine(q)
+	q.Enter(tenancy.QuarantineEntry{TenantID: tenant.ID, Reason: tenancy.QuarantineSchemaIncomplete})
+
+	_, err = svc.RequestBreakGlass(ctx, op, tenant.ID, "incident response", time.Hour)
+	if !errors.Is(err, tenancy.ErrTenantQuarantined) {
+		t.Fatalf("RequestBreakGlass = %v, want the quarantine refusal", err)
+	}
+	rec := httptest.NewRecorder()
+	(&Handler{}).writeErr(rec, err)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "tenant_quarantined") {
+		t.Fatalf("provider error = %d %s, want 409 tenant_quarantined", rec.Code, rec.Body.String())
+	}
+	if grants, err := store.ListGrants(ctx); err != nil || len(grants) != 0 {
+		t.Fatalf("grants after a refused request = %+v %v, want none", grants, err)
+	}
+	q.Release(tenant.ID)
+	if _, err := svc.RequestBreakGlass(ctx, op, tenant.ID, "incident response", time.Hour); err != nil {
+		t.Fatalf("request after release: %v", err)
+	}
+}

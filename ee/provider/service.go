@@ -917,6 +917,12 @@ func (s *Service) RequestBreakGlass(ctx context.Context, op Operator, tenantID, 
 	if ttl <= 0 || ttl > s.maxGrantTTL {
 		return Grant{}, validationError(fmt.Sprintf("provider: ttl must be within (0, %s]", s.maxGrantTTL))
 	}
+	// DPR-400: a quarantined tenant's data is unreachable by every path, so
+	// a grant on it is refused up front with tenant_quarantined (409) rather
+	// than issued and then failing with a raw storage error.
+	if err := tenancy.CheckQuarantine(tenantID); err != nil {
+		return Grant{}, err
+	}
 	now := s.now()
 	var g Grant
 	err := s.store.WithAuditedMutation(ctx, s.audit, func(ctx context.Context, store MutationStore, audit AuditSink) error {
