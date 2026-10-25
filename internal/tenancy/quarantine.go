@@ -154,11 +154,33 @@ type Quarantine struct {
 	entered  atomic.Uint64
 	released atomic.Uint64
 	dropped  atomic.Uint64
+	changed  chan struct{} // closed and replaced on every enter/release
 }
 
 // NewQuarantine builds an empty registry.
 func NewQuarantine() *Quarantine {
-	return &Quarantine{entries: map[string]QuarantineEntry{}}
+	return &Quarantine{entries: map[string]QuarantineEntry{}, changed: make(chan struct{})}
+}
+
+// Changed returns a channel closed at the next enter or release, so a
+// consumer of the quarantine set (the bus lane supervisor) reacts at once
+// instead of on its next poll (DPR-389). Take a fresh channel after each
+// wake-up.
+func (q *Quarantine) Changed() <-chan struct{} {
+	if q == nil {
+		return nil
+	}
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	return q.changed
+}
+
+// signalLocked wakes every Changed waiter; q.mu must be held for writing.
+func (q *Quarantine) signalLocked() {
+	if q.changed != nil {
+		close(q.changed)
+	}
+	q.changed = make(chan struct{})
 }
 
 // Check refuses a quarantined tenant with a *QuarantinedError.
@@ -193,6 +215,7 @@ func (q *Quarantine) Enter(e QuarantineEntry) (QuarantineEntry, bool) {
 	q.entries[e.TenantID] = e
 	if !existed {
 		q.entered.Add(1)
+		q.signalLocked()
 	}
 	return e, !existed
 }
@@ -209,6 +232,7 @@ func (q *Quarantine) Release(tenantID string) (QuarantineEntry, bool) {
 	if ok {
 		delete(q.entries, id)
 		q.released.Add(1)
+		q.signalLocked()
 	}
 	return e, ok
 }

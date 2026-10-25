@@ -136,30 +136,39 @@ func runBusLaneGeneration(
 	ticker := time.NewTicker(busLaneRefreshInterval)
 	defer ticker.Stop()
 	key := snap.key()
+	// DPR-389: a quarantine entered (or released) at runtime changes the lane
+	// set at once, so a quarantined tenant's lane stops being consumed — its
+	// records stay on the bus — without waiting for the next refresh tick.
+	quarantineChanged := tenancy.CurrentQuarantine().Changed()
 	for {
 		select {
 		case err := <-done:
 			return err
 		case <-ticker.C:
-			next, err := loadBusLaneSnapshot(ctx)
-			if err != nil {
-				log.Warn("isolation: bus namespace refresh failed; keeping current lane subscriptions",
-					"subsystem", name, "error", err.Error())
-				continue
-			}
-			nextKey := next.key()
-			if nextKey == key {
-				continue
-			}
-			log.Info("isolation: bus namespace set changed; restarting lane subscriber",
-				"subsystem", name, "namespaces", next.namespaces)
-			cancel()
-			<-done
-			return nil
+			// Re-take the channel: the registry may have been installed
+			// after this generation started.
+			quarantineChanged = tenancy.CurrentQuarantine().Changed()
+		case <-quarantineChanged:
+			quarantineChanged = tenancy.CurrentQuarantine().Changed()
 		case <-ctx.Done():
 			cancel()
 			<-done
 			return nil
 		}
+		next, err := loadBusLaneSnapshot(ctx)
+		if err != nil {
+			log.Warn("isolation: bus namespace refresh failed; keeping current lane subscriptions",
+				"subsystem", name, "error", err.Error())
+			continue
+		}
+		nextKey := next.key()
+		if nextKey == key {
+			continue
+		}
+		log.Info("isolation: bus namespace set changed; restarting lane subscriber",
+			"subsystem", name, "namespaces", next.namespaces)
+		cancel()
+		<-done
+		return nil
 	}
 }

@@ -59,19 +59,22 @@ func TestLaneGateRefusesQuarantinedTenantsWithProductionKeys(t *testing.T) {
 		key        []byte
 		laneTenant string
 		refuse     bool
+		held       bool
 	}{
-		{"quarantined siloed tenant on the shared lane", bus.TenantKey("t-q", "agent-1"), "", true},
-		{"quarantined tenant on its own lane", bus.TenantKey("t-q", "agent-1"), "t-q", true},
-		{"healthy siloed tenant on the shared lane is misrouted", bus.TenantKey("t-x", "agent-1"), "", true},
-		{"healthy siloed tenant on its own lane", bus.TenantKey("t-x", "agent-1"), "t-x", false},
-		{"pooled tenant on the shared lane", bus.TenantKey("t-pooled", "agent-1"), "", false},
+		{"quarantined siloed tenant on the shared lane", bus.TenantKey("t-q", "agent-1"), "", true, false},
+		// DPR-389: held on the bus (no ack), never dropped.
+		{"quarantined tenant on its own lane", bus.TenantKey("t-q", "agent-1"), "t-q", false, true},
+		{"healthy siloed tenant on the shared lane is misrouted", bus.TenantKey("t-x", "agent-1"), "", true, false},
+		{"healthy siloed tenant on its own lane", bus.TenantKey("t-x", "agent-1"), "t-x", false, false},
+		{"pooled tenant on the shared lane", bus.TenantKey("t-pooled", "agent-1"), "", false, false},
 	} {
-		if got := refuseSharedOrQuarantined(ctx, nil, "g", bus.Message{Key: tc.key, Topic: bus.NetworkResultsTopic}, tc.laneTenant); got != tc.refuse {
-			t.Errorf("%s (key %q): refused = %v, want %v", tc.name, tc.key, got, tc.refuse)
+		refuse, held := refuseSharedOrQuarantined(ctx, nil, "g", bus.Message{Key: tc.key, Topic: bus.NetworkResultsTopic}, tc.laneTenant)
+		if refuse != tc.refuse || errors.Is(held, ErrLaneQuarantined) != tc.held {
+			t.Errorf("%s (key %q): refused = %v held = %v, want %v / %v", tc.name, tc.key, refuse, held, tc.refuse, tc.held)
 		}
 	}
-	if got := QuarantineDroppedTotal() - before; got != 2 {
-		t.Fatalf("quarantine drops = %d, want the 2 quarantined records counted", got)
+	if got := QuarantineDroppedTotal() - before; got != 1 {
+		t.Fatalf("quarantine drops = %d, want only the shared-lane record dropped (the own-lane one is held)", got)
 	}
 }
 

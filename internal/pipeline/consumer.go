@@ -507,7 +507,9 @@ func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
 // the registry; namespaced lanes overwrite the tenant with the lane's.
 func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGroup) error {
 	c.ledger.addReceived(1)
-	if refuseSharedOrQuarantined(ctx, c.log, lane.group, msg, lane.laneTenant) {
+	if refuse, held := refuseSharedOrQuarantined(ctx, c.log, lane.group, msg, lane.laneTenant); held != nil {
+		return held
+	} else if refuse {
 		c.rejectedTenant.Add(1)
 		c.ledger.addTenantRejected(1)
 		return nil

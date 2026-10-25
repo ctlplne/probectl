@@ -106,3 +106,69 @@ func waitLaneStart(t *testing.T, ch <-chan map[string]string) map[string]string 
 		return nil
 	}
 }
+
+// quarantineAwareLaneRouter leaves a quarantined tenant's lane out, as the
+// silo router does.
+type quarantineAwareLaneRouter struct{ laneTestRouter }
+
+func (r *quarantineAwareLaneRouter) BusNamespaceTenants(ctx context.Context) (map[string]string, error) {
+	all, _ := r.laneTestRouter.BusNamespaceTenants(ctx)
+	out := map[string]string{}
+	for ns, tenant := range all {
+		if tenancy.CheckQuarantine(tenant) == nil {
+			out[ns] = tenant
+		}
+	}
+	return out, nil
+}
+
+func (r *quarantineAwareLaneRouter) BusNamespaces(ctx context.Context) ([]string, error) {
+	m, _ := r.BusNamespaceTenants(ctx)
+	out := make([]string, 0, len(m))
+	for ns := range m {
+		out = append(out, ns)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// DPR-389: a quarantine entered at runtime drops the tenant's lane from the
+// subscription AT ONCE — not on the next refresh tick — so its records stay
+// on the bus instead of reaching a consumer that would have to refuse them.
+func TestRuntimeQuarantineUnsubscribesTheLaneAtOnce(t *testing.T) {
+	oldInterval := busLaneRefreshInterval
+	busLaneRefreshInterval = time.Hour // only the quarantine change can trigger it
+	t.Cleanup(func() { busLaneRefreshInterval = oldInterval })
+	prevQ := tenancy.CurrentQuarantine()
+	q := tenancy.NewQuarantine()
+	tenancy.SetQuarantine(q)
+	t.Cleanup(func() { tenancy.SetQuarantine(prevQ) })
+	router := &quarantineAwareLaneRouter{laneTestRouter{tenants: map[string]string{"acme": "tenant-a", "beta": "tenant-b"}}}
+	tenancy.SetRouter(router)
+	t.Cleanup(func() { tenancy.SetRouter(nil) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan map[string]string, 4)
+	done := make(chan struct{})
+	t.Cleanup(func() { cancel(); <-done }) // runs first: the supervisor stops before the globals reset
+	go func() {
+		defer close(done)
+		_ = superviseBusLaneRestart(ctx, "test-lane-consumer", slog.New(slog.NewTextHandler(io.Discard, nil)),
+			func(ctx context.Context, snap busLaneSnapshot) error {
+				started <- cloneTenantMap(snap.tenants)
+				<-ctx.Done()
+				return nil
+			})
+	}()
+	if first := waitLaneStart(t, started); len(first) != 2 {
+		t.Fatalf("initial lanes = %+v", first)
+	}
+	q.Enter(tenancy.QuarantineEntry{TenantID: "tenant-b", Reason: tenancy.QuarantineSchemaIncomplete})
+	if next := waitLaneStart(t, started); len(next) != 1 || next["beta"] != "" {
+		t.Fatalf("lanes after a runtime quarantine = %+v, want tenant-b's lane dropped", next)
+	}
+	q.Release("tenant-b")
+	if next := waitLaneStart(t, started); len(next) != 2 {
+		t.Fatalf("lanes after release = %+v, want tenant-b's lane back", next)
+	}
+}

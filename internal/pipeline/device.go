@@ -183,7 +183,9 @@ func (c *DeviceConsumer) Run(ctx context.Context) error {
 // failures are logged and dropped (best-effort, matching the result pipeline).
 func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopic, laneTenant string) error {
 	c.ledger.addReceived(1)
-	if refuseSharedOrQuarantined(ctx, c.log, c.group, msg, laneTenant) {
+	if refuse, held := refuseSharedOrQuarantined(ctx, c.log, c.group, msg, laneTenant); held != nil {
+		return held
+	} else if refuse {
 		c.rejected.Add(1)
 		c.ledger.addTenantRejected(1)
 		return nil

@@ -49,7 +49,7 @@ func RunLanes(ctx context.Context, b bus.Bus, base, group string, nsTenants map[
 	}
 	if len(subs) == 1 {
 		return b.Subscribe(ctx, base, group, func(c context.Context, m bus.Message) error {
-			if refuseSharedOrQuarantined(c, nil, group, m, "") {
+			if refuse, _ := refuseSharedOrQuarantined(c, nil, group, m, ""); refuse {
 				return nil
 			}
 			return handler(c, m, "")
@@ -64,7 +64,9 @@ func RunLanes(ctx context.Context, b bus.Bus, base, group string, nsTenants map[
 		go func(s laneSub) {
 			defer wg.Done()
 			h := func(c context.Context, m bus.Message) error {
-				if refuseSharedOrQuarantined(c, nil, group, m, s.laneTenant) {
+				if refuse, held := refuseSharedOrQuarantined(c, nil, group, m, s.laneTenant); held != nil {
+					return held
+				} else if refuse {
 					return nil
 				}
 				return handler(c, m, s.laneTenant)

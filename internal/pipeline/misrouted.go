@@ -9,6 +9,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/ctlplne/probectl/internal/bus"
@@ -57,18 +58,25 @@ func refuseMisroutedShared(ctx context.Context, log *slog.Logger, consumer strin
 	return true
 }
 
+// ErrLaneQuarantined holds a record on a quarantined tenant's OWN lane on the
+// bus: it is returned instead of acknowledging, so the record is not
+// committed and is consumed again once the tenant is released (DPR-389).
+var ErrLaneQuarantined = errors.New("pipeline: the lane's tenant is quarantined; record left on the bus")
+
 // refuseSharedOrQuarantined is the per-record lane gate every consumer runs
-// first: on a tenant's own lane it refuses the record of a quarantined tenant
-// (D-62; its lanes are normally not subscribed at all, so this closes the
-// window around a quarantine change), and on the shared lane it applies
-// refuseMisroutedShared, which also refuses a quarantined tenant.
-func refuseSharedOrQuarantined(ctx context.Context, log *slog.Logger, consumer string, msg bus.Message, laneTenant string) bool {
+// first. On a tenant's own lane a quarantined tenant's record is HELD
+// (ErrLaneQuarantined, no ack): the lane is normally not subscribed at all,
+// and after a runtime quarantine the lane supervisor drops it at once, so
+// this covers the moment in between without losing the record. On the
+// shared lane it applies refuseMisroutedShared, which refuses (acks and
+// counts) a quarantined tenant's record. refuse=true means acknowledge and
+// count; a non-nil error means leave it unacknowledged.
+func refuseSharedOrQuarantined(ctx context.Context, log *slog.Logger, consumer string, msg bus.Message, laneTenant string) (bool, error) {
 	if laneTenant != "" {
 		if tenancy.CheckQuarantine(laneTenant) != nil {
-			noteQuarantineDrop(consumer, laneTenant)
-			return true
+			return false, fmt.Errorf("%w (consumer %s, tenant %s)", ErrLaneQuarantined, consumer, laneTenant)
 		}
-		return false
+		return false, nil
 	}
-	return refuseMisroutedShared(ctx, log, consumer, msg)
+	return refuseMisroutedShared(ctx, log, consumer, msg), nil
 }
