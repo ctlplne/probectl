@@ -220,7 +220,11 @@ func TestTenantQuarantineRealStack(t *testing.T) {
 	var chain struct {
 		Items []struct{ Action, Actor string }
 	}
-	st.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": tokens[X]}, &chain, "audit", "list")
+	// Filter on the quarantine actor: an unfiltered `audit list` is one page of
+	// the oldest events, and on a slow runner the trace polling above writes
+	// enough access.read events to push the transitions off that page.
+	st.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": tokens[X]}, &chain,
+		"api", "GET", "/v1/audit?actor="+url.QueryEscape(silo.QuarantineActor))
 	onChain := map[string]bool{}
 	for _, ev := range chain.Items {
 		if ev.Actor == silo.QuarantineActor {
