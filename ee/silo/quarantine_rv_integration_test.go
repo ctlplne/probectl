@@ -204,3 +204,76 @@ func TestOffboardingSiloLaggingAMigrationCanBeExportedAndErased(t *testing.T) {
 		t.Fatalf("erasure of the offboarding tenant = %+v, %v", att.Complete, err)
 	}
 }
+
+// DPR-401 (D-73): a long multi-statement siloed transaction (export,
+// erasure, maintenance) holds ACCESS SHARE on its silo's tables from the
+// start, so a DROP TABLE committed by another session while it runs blocks,
+// and the transaction's LATER statements can never resolve to the pooled
+// public table.
+func TestDropDuringALongSiloTransactionCannotReachPublic(t *testing.T) {
+	ctx := context.Background()
+	pool := itPool(t)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	stamp := strconv.FormatInt(time.Now().UnixNano(), 36)
+	x := mkTenant(t, pool, "d62-long-"+stamp, "siloed", "")
+	prov := NewProvisioner(pool, CHPlanes{}, nil, 0, log)
+	if err := prov.Provision(ctx, x, "", tenancy.IsolationSiloed); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = prov.Teardown(context.Background(), x, "", tenancy.IsolationSiloed)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM public.tests WHERE tenant_id = $1::uuid`, x)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM tenants WHERE id = $1::uuid`, x)
+	})
+	prevRouter := tenancy.CurrentRouter()
+	t.Cleanup(func() { tenancy.SetRouter(prevRouter); tenancy.SetSiloRequiredTables(nil) })
+	tenancy.SetRouter(NewRouter(pool, nil, 0).WithQuarantine(tenancy.NewQuarantine()))
+	required, err := RequiredSiloTables(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenancy.SetSiloRequiredTables(required)
+
+	var dropErr error
+	lctx := tenancy.WithSiloTableLock(tenancy.WithTenant(ctx, tenancy.ID(x)))
+	err = tenancy.InTenant(lctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		// The transaction works through other tables first (an export walks
+		// them in order); it has not touched tests yet, so only the silo
+		// lock taken at its start protects that table.
+		var n int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM alert_rules`).Scan(&n); err != nil {
+			return err
+		}
+		// Another session (the migration login) drops tests mid-transaction.
+		conn, err := pool.Acquire(context.Background())
+		if err != nil {
+			return err
+		}
+		defer conn.Release()
+		if _, err := conn.Exec(context.Background(), `SET lock_timeout = '1s'`); err != nil {
+			return err
+		}
+		_, dropErr = conn.Exec(context.Background(), `DROP TABLE `+pgx.Identifier{SchemaName(x), "tests"}.Sanitize()+` CASCADE`)
+		_, err = sc.Q.Exec(ctx, `INSERT INTO tests (tenant_id, name, type, target, interval_seconds, timeout_seconds, params, enabled)
+			 VALUES ($1, 'late', 'icmp', '192.0.2.1', 60, 5, '{}'::jsonb, true)`, x)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("the long transaction failed: %v", err)
+	}
+	if n := count(t, pool, `SELECT count(*) FROM public.tests WHERE tenant_id = $1::uuid`, x); n != 0 {
+		t.Fatalf("%d of the siloed tenant's rows landed in the pooled public.tests", n)
+	}
+	if dropErr == nil {
+		t.Fatal("DROP TABLE succeeded while a long siloed transaction was running; it must block on the transaction's ACCESS SHARE lock")
+	}
+	if n := count(t, pool, `SELECT count(*) FROM `+pgx.Identifier{SchemaName(x), "tests"}.Sanitize()+` WHERE name = 'late'`); n != 1 {
+		t.Fatalf("the later statement's row is not in the silo (%d)", n)
+	}
+	// The real export takes the same locks and still works.
+	var bundle bytes.Buffer
+	if _, err := tenantlife.New(pool, nil, nil, nil, nil, "", log).Export(ctx, x, &bundle); err != nil {
+		t.Fatalf("export under the silo locks: %v", err)
+	}
+}

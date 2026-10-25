@@ -89,6 +89,7 @@ func (e *Engine) ExportRedacted(ctx context.Context, tenantID string, w io.Write
 }
 
 func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redact bool) (Manifest, error) {
+	ctx = tenancy.WithSiloTableLock(ctx) // D-73: a long multi-transaction read of every table
 	// Resolve the effective redaction policy. A request for redaction (or a
 	// policy that forces it) uses the tenant's governance policy, defaulting to
 	// PII-floor partial masking when nothing is configured — the redaction

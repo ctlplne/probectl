@@ -661,7 +661,7 @@ func pruneTenantWithReceipt(
 		return 0, fmt.Errorf("prune tenant audit: receipt appender is required")
 	}
 	var pruned int64
-	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
+	tctx := tenancy.WithTenant(tenancy.WithSiloTableLock(ctx), tenancy.ID(tenantID)) // D-73: multi-statement maintenance
 	err := tenancy.InTenant(
 		tctx,
 		pool,

@@ -450,6 +450,7 @@ const maxDeletePasses = 6
 // route into their own schema, where encrypted IR evidence remains after the
 // distinct attribution key is crypto-shredded.
 func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attestation, error) {
+	ctx = tenancy.WithSiloTableLock(ctx) // D-73: the verify and evidence transactions span every table
 	att := Attestation{
 		FormatVersion: 1, TenantID: tenantID, TenantSlug: slug, Actor: actor,
 		StartedAt: e.now().UTC(), BackupPolicy: e.backupNote, Complete: true,

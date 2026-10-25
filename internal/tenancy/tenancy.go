@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
@@ -156,6 +157,9 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 		if err := requireSiloSchema(ctx, tx, id.String(), schema, guardedSiloTables(ctx)); err != nil {
 			return err
 		}
+		if err := lockSiloTables(ctx, tx, schema); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx,
 			"SET LOCAL search_path TO "+pgx.Identifier{schema}.Sanitize()+", public"); err != nil {
 			return fmt.Errorf("route tenant schema: %w", err)
@@ -234,6 +238,12 @@ func InTenantProviderMaintenance(
 	); err != nil {
 		return fmt.Errorf("assume provider role for tenant maintenance: %w", err)
 	}
+	if schema != "" {
+		// Locked as the role that does the maintenance (D-73).
+		if err := lockSiloTables(ctx, tx, schema); err != nil {
+			return err
+		}
+	}
 	if err := runTxGuard(ctx, tx); err != nil {
 		return err
 	}
@@ -302,6 +312,61 @@ func guardedSiloTables(ctx context.Context) []string {
 	}
 	if p := siloRequiredTables.Load(); p != nil {
 		return *p
+	}
+	return nil
+}
+
+type siloTableLockKey struct{}
+
+// WithSiloTableLock marks ctx for long-running, multi-statement tenant
+// transactions — export, erasure, multi-statement maintenance (D-73,
+// DPR-401). A siloed tenant's transaction under it takes ACCESS SHARE on
+// every tenant-owned table of its silo at the start, so a concurrent DROP
+// TABLE (or DROP SCHEMA) blocks until the transaction ends. Without it a
+// table dropped after the start-of-transaction guard would make the
+// transaction's LATER statements on that table resolve, through
+// search_path, to the pooled public table. ACCESS SHARE conflicts only with
+// ACCESS EXCLUSIVE, so reads and writes of the tenant are not slowed; the
+// request path does not take it (one statement per transaction there).
+func WithSiloTableLock(ctx context.Context) context.Context {
+	return context.WithValue(ctx, siloTableLockKey{}, true)
+}
+
+// SiloTableLockContext reports whether ctx asks for the silo table locks.
+func SiloTableLockContext(ctx context.Context) bool {
+	v, _ := ctx.Value(siloTableLockKey{}).(bool)
+	return v
+}
+
+// lockSiloTables takes ACCESS SHARE on the silo's tenant-owned tables the
+// transaction's role can use, when ctx asks for it. A table the role holds
+// no privilege on cannot be read or written by this transaction either, and
+// LOCK would be refused for it.
+func lockSiloTables(ctx context.Context, tx pgx.Tx, schema string) error {
+	if !SiloTableLockContext(ctx) {
+		return nil
+	}
+	tables := guardedSiloTables(ctx)
+	if len(tables) == 0 {
+		return nil
+	}
+	var lockable []string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(array_agg(want.t ORDER BY want.t), '{}')
+		  FROM unnest($2::text[]) AS want(t)
+		  JOIN pg_catalog.pg_class c ON c.relname = want.t AND c.relkind IN ('r', 'p')
+		  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace AND n.nspname = $1
+		 WHERE has_table_privilege(c.oid, 'SELECT')`, schema, tables).Scan(&lockable); err != nil {
+		return fmt.Errorf("list silo tables to lock: %w", err)
+	}
+	if len(lockable) == 0 {
+		return nil
+	}
+	quoted := make([]string, len(lockable))
+	for i, t := range lockable {
+		quoted[i] = pgx.Identifier{schema, t}.Sanitize()
+	}
+	if _, err := tx.Exec(ctx, "LOCK TABLE "+strings.Join(quoted, ", ")+" IN ACCESS SHARE MODE"); err != nil {
+		return fmt.Errorf("lock the tenant's silo tables: %w", err)
 	}
 	return nil
 }

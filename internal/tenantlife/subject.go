@@ -369,6 +369,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 // ExportSubject writes a subject-scoped portability bundle. Reads are tenant
 // scoped first; the subject filter is applied only inside the caller's tenant.
 func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w io.Writer, redact bool) (SubjectManifest, error) {
+	ctx = tenancy.WithSiloTableLock(ctx) // D-73
 	subject = strings.TrimSpace(subject)
 	if subject == "" {
 		return SubjectManifest{}, fmt.Errorf("tenantlife: subject export requires a non-empty subject")
@@ -709,6 +710,7 @@ func (e *Engine) exportSubjectEndpoint(x *subjectExportContext) error {
 // rewrites audit history; append-only markers make future audit reads/exports
 // project the subject and its stable aliases while preserving prev_hash/hash.
 func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, reason string) (SubjectErasureReport, error) {
+	ctx = tenancy.WithSiloTableLock(ctx) // D-73: one transaction across every table
 	subject = strings.TrimSpace(subject)
 	if subject == "" {
 		return SubjectErasureReport{}, fmt.Errorf("tenantlife: subject erasure requires a non-empty subject")

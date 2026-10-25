@@ -192,7 +192,13 @@ entry, so the tenant's rows would otherwise land in the pooled `public`
 tables. The set is the one the provisioner and the catch-up use (the public
 tables with `tenant_id`, minus the provider-owned ones), installed at
 startup; the check rides the same catalog query as the schema check, one per
-transaction. The startup catch-up covers active and suspended silos in full
+transaction. The check runs at the start of each transaction; long-running,
+multi-statement transactions — export, erasure, subject export and erasure,
+audit-retention maintenance — also take `ACCESS SHARE` on every tenant-owned
+table of the silo at their start (D-73, DPR-401), so a concurrent
+`DROP TABLE` or `DROP SCHEMA` blocks until they end and their later
+statements can never resolve to `public`. `ACCESS SHARE` conflicts only with
+`ACCESS EXCLUSIVE`, so the tenant's reads and writes are not slowed. The startup catch-up covers active and suspended silos in full
 and offboarding silos schema-only (D-71: empty tables and columns, no row
 changed), so an offboarding tenant's export and erasure keep working after an
 upgrade adds a tenant-owned table. Startup verifies every caught-up silo is
