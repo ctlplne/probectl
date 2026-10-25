@@ -699,20 +699,29 @@ func TestL7CaptureRequestedIsSeparateFromActive(t *testing.T) {
 func TestAgentHelmTracefsIsWritableOnlyForConsentedL7Capture(t *testing.T) {
 	daemonset := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/daemonset.yaml")
 
-	const mount = "readOnly: {{ not .Values.l7Capture.enabled }}"
-	if !strings.Contains(daemonset, mount) {
-		t.Errorf("the tracefs mount must be read-only unless l7Capture.enabled; want %q in the daemonset", mount)
-	}
-	// A blanket `readOnly: false` would also make the uprobe path work and is
+	// A blanket writable mount would also make the uprobe path work and is
 	// exactly the shortcut to refuse: it would hand write access to every agent
-	// in the fleet, including the ones with capture off.
-	idx := strings.Index(daemonset, "name: tracefs")
-	if idx < 0 {
-		t.Fatal("the daemonset no longer mounts tracefs at all")
+	// in the fleet, including the ones with capture off. Every tracefs mount
+	// and volume must sit inside the l7Capture.enabled gate (DPR-345: L4 needs
+	// no tracefs at all).
+	const gate = "{{- if .Values.l7Capture.enabled }}"
+	n := 0
+	for idx := 0; ; {
+		i := strings.Index(daemonset[idx:], "- name: tracefs")
+		if i < 0 {
+			break
+		}
+		i += idx
+		n++
+		g := strings.LastIndex(daemonset[:i], gate)
+		e := strings.LastIndex(daemonset[:i], "{{- end }}")
+		if g < 0 || e > g {
+			t.Errorf("a tracefs mount or volume at byte %d is outside the l7Capture.enabled gate", i)
+		}
+		idx = i + 1
 	}
-	window := daemonset[idx:min(idx+400, len(daemonset))]
-	if strings.Contains(window, "readOnly: false") {
-		t.Error("tracefs is mounted unconditionally writable; it must be gated on l7Capture.enabled")
+	if n != 2 {
+		t.Errorf("want the tracefs volumeMount and volume (2), found %d", n)
 	}
 }
 

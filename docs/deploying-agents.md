@@ -370,8 +370,8 @@ granted without root — and a
 is the kernel's embedded type catalog, which lets one compiled agent adapt to
 any kernel). The L4 flow plane needs **no tracefs** and no root: it attaches as a
 raw tracepoint, and the kernel-matrix job runs it as a non-root user with only
-that capability pair (`ING-23`). The Helm chart's read-only tracefs mount
-(DPR-054) now serves only the L7 TLS uprobe path. Generic kernels older than 5.8 are unsupported by default;
+that capability pair (`ING-23`). The Helm chart mounts tracefs only
+when `l7Capture.enabled`, for the L7 TLS uprobe path (DPR-345). Generic kernels older than 5.8 are unsupported by default;
 `CAP_SYS_ADMIN` is only an explicit legacy break-glass when the runtime probe
 confirms BTF plus BPF ring-buffer support but split caps cannot be granted. On
 macOS/Windows, run it inside a Linux VM. The shipped image is the live build;

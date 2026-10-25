@@ -184,9 +184,10 @@ controlPlane:
     existingSecret: ""
     stateHostPath: /var/lib/probectl-ebpf-agent
 
-# The node's tracefs, mounted read-only at the same path: attaching the
-# sock:inet_sock_set_state tracepoint reads its event id there, and a container
-# does not see the host's tracefs on its own (DPR-054). The legacy
+# The node's tracefs, mounted writable at the same path ONLY when l7Capture is
+# enabled: the TLS uprobe attach registers its probe through uprobe_events
+# (DPR-125). L4 needs no tracefs (it attaches a raw tracepoint, ING-23), so an
+# agent with capture off gets no tracefs mount (DPR-345). The legacy
 # /sys/kernel/debug/tracing works for kernels that only expose it there.
 tracefs:
   hostPath: /sys/kernel/tracing

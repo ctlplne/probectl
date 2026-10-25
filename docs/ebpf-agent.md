@@ -419,8 +419,10 @@ running. There is no `CAP_SYS_PTRACE` drop-in for the unit; root and the Helm
 consented path (D-02a, which adds `SYS_PTRACE`) keep `exe:`. Second, on kernels
 from 6.16 the uprobe perf PMU requires `CAP_SYS_ADMIN`, so non-root L7 attach
 there depends on `uprobe_multi` links (6.6+). That attach path is not built yet,
-so treat consented L7 capture under the non-root unit as unsupported until it is. The Helm chart's tracefs mount (`tracefs.hostPath`, DPR-054) now
-serves only the L7 path.
+so treat consented L7 capture under the non-root unit as unsupported until it is.
+The Helm chart mounts the node's tracefs (`tracefs.hostPath`) only when
+`l7Capture.enabled`, writable, for the TLS uprobe registration (DPR-125); an
+agent with capture off gets no tracefs mount (DPR-345).
 
 The observe-only guarantee is enforced in code, not just by convention. The agent
 attaches only tracepoints / kprobes / uprobes and calls no traffic-altering
@@ -910,8 +912,8 @@ after the runtime probe has confirmed BTF + BPF ring-buffer support; it is not a
 generic `<5.8` escape hatch. The chart also declares a **seccomp** profile (a
 kernel syscall filter — the process may invoke only the listed system calls;
 `RuntimeDefault`, or point `seccomp.type: Localhost` at the installed
-default-deny profile for tighter filtering), read-only root, the BTF and tracefs
-host mounts (`tracefs.hostPath`, DPR-054), the read-only node library mounts
+default-deny profile for tighter filtering), read-only root, the BTF host mount, the
+tracefs mount (`tracefs.hostPath`, consented L7 only, DPR-345), the read-only node library mounts
 that consented L7 capture needs to attach at all (`l7Capture.hostRoot` /
 `l7Capture.hostLibraryPaths`, DPR-124 — present only when
 `l7Capture.enabled`), and resource limits. Rendering **fails closed**: no `tenantID`, L7 capture without

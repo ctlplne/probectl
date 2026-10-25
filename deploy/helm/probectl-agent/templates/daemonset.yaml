@@ -303,18 +303,18 @@ spec:
             - name: btf
               mountPath: /sys/kernel/btf/vmlinux
               readOnly: true
-            # DPR-054: tracepoint metadata (event ids) lives in tracefs.
-            #
-            # DPR-125: read-only unless L7 capture is ON. The TLS uprobe attach
-            # registers its probe by WRITING uprobe_events, which is what lets it
-            # attach to a distribution-packaged libssl that has no execute bit,
-            # while keeping the agent's documented CAP_BPF + CAP_PERFMON pair.
-            # Writable is therefore part of the consented L7 path and of nothing
-            # else: an agent with capture off keeps the read-only mount it has
-            # always had.
+            {{- if .Values.l7Capture.enabled }}
+            # DPR-125: the node's tracefs, writable, on the consented L7 path
+            # only. The TLS uprobe attach registers its probe by WRITING
+            # uprobe_events, which is what lets it attach to a
+            # distribution-packaged libssl that has no execute bit, while keeping
+            # the agent's documented CAP_BPF + CAP_PERFMON pair. DPR-345: L4
+            # attaches as a raw tracepoint with no tracefs (ING-23), so an agent
+            # with capture off gets no tracefs mount at all.
             - name: tracefs
               mountPath: {{ .Values.tracefs.hostPath }}
-              readOnly: {{ not .Values.l7Capture.enabled }}
+              readOnly: false
+            {{- end }}
             {{- if and .Values.l7Capture.enabled .Values.l7Capture.hostRoot }}
             # DPR-127: the node's cgroup tree, read-only. A container IS a
             # cgroup, so `cgroup:` is how a scope entry names another pod's
@@ -377,12 +377,15 @@ spec:
           hostPath:
             path: /sys/kernel/btf/vmlinux
             type: File
-        # DPR-054: the node's tracefs, read-only (Directory: a node without
-        # it cannot attach anyway, so the pod fails closed at scheduling).
+        {{- if .Values.l7Capture.enabled }}
+        # The node's tracefs, consented L7 path only (DPR-125, DPR-345).
+        # Directory: a node without it cannot attach the TLS uprobes, so the
+        # pod fails closed at scheduling instead of capturing nothing.
         - name: tracefs
           hostPath:
             path: {{ .Values.tracefs.hostPath }}
             type: Directory
+        {{- end }}
         {{- if and .Values.l7Capture.enabled .Values.l7Capture.hostRoot }}
         # DPR-127: Directory, not DirectoryOrCreate — a node with no cgroup v2
         # tree cannot resolve a cgroup: scope entry at all, so the pod must fail

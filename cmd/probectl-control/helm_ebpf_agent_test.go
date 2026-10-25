@@ -128,22 +128,36 @@ func TestHelmEBPFAgentSeccompInstallerRunsOutsideTheProfileItInstalls(t *testing
 	}
 }
 
-// TestHelmEBPFAgentMountsTraceFS (DPR-054): the live loader reads the
-// tracepoint's event id from tracefs, which a container does not see unless
-// the node's /sys/kernel/tracing is mounted in; without it the agent died at
-// attach with "neither debugfs nor tracefs are mounted".
-func TestHelmEBPFAgentMountsTraceFS(t *testing.T) {
+// TestHelmEBPFAgentMountsTraceFSOnlyForL7 (DPR-345): L4 attaches a raw
+// tracepoint by name, with no tracefs (ING-23), so the default render mounts
+// none. The consented L7 render mounts the node's tracefs writable, because the
+// TLS uprobe attach registers its probe through uprobe_events (DPR-125), and the
+// Directory hostPath keeps a node without tracefs from scheduling it.
+func TestHelmEBPFAgentMountsTraceFSOnlyForL7(t *testing.T) {
 	requireOrSkipHelm(t)
 	out, err := renderHelmEBPFAgent(t, "--set", "agentID=a")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
+	if strings.Contains(out, "/sys/kernel/tracing") {
+		t.Error("the default render mounts tracefs; only the consented L7 path uses it (DPR-345)")
+	}
+	out, err = renderHelmEBPFAgent(t, "--set", "agentID=a",
+		"--set", "l7Capture.enabled=true",
+		"--set", "l7Capture.consentTenant=00000000-0000-0000-0000-000000000001",
+		"--set-json", `l7Capture.scope=["pid:1"]`,
+		"--set", "controlPlane.grpcAddr=control:9443",
+		"--set", "controlPlane.apiURL=https://control:8080",
+		"--set", "controlPlane.identity.existingSecret=ebpf-identity")
+	if err != nil {
+		t.Fatalf("render with consented L7: %v\n%s", err, out)
+	}
 	for _, want := range []string{
-		"mountPath: /sys/kernel/tracing\n              readOnly: true",
+		"mountPath: /sys/kernel/tracing\n              readOnly: false",
 		"path: /sys/kernel/tracing\n            type: Directory",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("rendered chart lacks %q", want)
+			t.Errorf("consented L7 render lacks %q", want)
 		}
 	}
 }

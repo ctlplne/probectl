@@ -1127,7 +1127,9 @@ need "readOnlyRootFilesystem: true"     "$agent" "agent: root filesystem not rea
 need "allowPrivilegeEscalation: false"  "$agent" "agent: privilege escalation not disabled"
 need "automountServiceAccountToken: false" "$agent" "agent: SA token automounted"
 need "/sys/kernel/btf/vmlinux"          "$agent" "agent: BTF host mount missing"
-need "mountPath: /sys/kernel/tracing"   "$agent" "agent: tracefs host mount missing — tracepoint attach reads the event id there (DPR-054)"
+# DPR-345: L4 attaches a raw tracepoint (no tracefs), so the default render
+# mounts no tracefs; only the consented L7 render does (checked below).
+grep -qF "/sys/kernel/tracing" <<<"$agent" && fail "agent: default render mounts tracefs, which only the consented L7 path uses (DPR-345)"
 need "limits:"                          "$agent" "agent: no resource limits"
 # OPS-001/WIRE-004: the DaemonSet ships real liveness + readiness probes
 # without opening a plaintext health listener by default.
@@ -1220,6 +1222,7 @@ need "SYS_PTRACE"                         "$l7_default" "agent: consented L7 ren
 need "l7_capture_redaction: \"metadata\"" "$l7_default" "agent: consented L7 capture must default to metadata redaction (D-43)"
 need "name: hostcgroup"                   "$l7_default" "agent: consented L7 render lost the node cgroupfs mount (DPR-127)"
 need "name: node-lib-0"                   "$l7_default" "agent: consented L7 render lost the node library mount (DPR-124)"
+need "mountPath: /sys/kernel/tracing"     "$l7_default" "agent: consented L7 render lost the tracefs mount the uprobe attach writes (DPR-125)"
 # D-43 refinement 3: the policy channel to the control plane is mTLS-only — an
 # address without the identity Secret refuses to render; with it, the identity
 # is mounted read-only and the agent config names it.
