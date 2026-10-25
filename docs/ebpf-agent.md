@@ -565,6 +565,26 @@ emit looser data than its tenant allows.
   falls back to `metadata` until a fresh floor arrives. The fresh floor
   restores the decided mode only after the control plane recorded that
   posture.
+- **Certificate rotation (D-43 R2).** The channel certificate is the
+  enrollment service's short-lived leaf (24 h). The agent renews it at two
+  thirds of its lifetime through `control_plane.rotate_url` (the API's
+  `POST /enroll/agent/rotate`, verified against `control_plane.ca_file`),
+  proving possession of the current key over a CSR for a new key generated on
+  the host, and atomically replaces `cert_file`/`key_file`; the next handshake
+  presents the new pair, and a certificate naming any other identity is
+  refused. `rotate_url` is required with `grpc_addr`, and the identity files
+  must be writable: the shipped systemd units keep them under the
+  `probectl-ebpf-agent` state directory, and the chart seeds a node-local
+  hostPath (`controlPlane.identity.stateHostPath`/<namespace>/<release>) from
+  the read-only registration Secret (`control_plane.identity_seed_dir`), so a
+  restarted pod presents the certificate it rotated, not the registration's.
+  A failed renewal is logged at ERROR, counted in
+  `probectl_ebpf_control_plane_cert_rotation_failures_total`, and retried every
+  minute while the current certificate is valid; once it expires the channel
+  fails closed (consented capture is refused). **Limitation:** a node that
+  joins after the registration Secret's certificate has expired has nothing
+  valid to seed from — re-register (`POST /v1/collectors/register`) and update
+  the Secret.
 - **Posture.** At start and on every policy tick the agent reports its capture
   posture (`ReportL7Posture`: enabled, consent tenant, scope, local and
   effective mode, the floor it applied, whether capture is attached, and a

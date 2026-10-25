@@ -54,12 +54,15 @@ l7_ring_buffer_bytes: 16777216 # 16 MiB TLS/plaintext L7 chunk ring (live source
 # D-43: the mTLS policy channel. The agent fetches its tenant's L7 redaction
 # floor here and refuses capture when l7_capture_redaction is looser. Consented
 # live capture REQUIRES this channel (D-43): without it capture is refused.
-# Policy only — flows go to the bus.
+# Policy only — flows go to the bus. cert_file/key_file must be writable: the
+# agent rotates them in place.
 # control_plane:
 #   grpc_addr: control.example.internal:9443
 #   cert_file: /var/lib/probectl-ebpf-agent/identity/cert.pem   # the collector's SVID
 #   key_file: /var/lib/probectl-ebpf-agent/identity/key.pem     # never leaves this host
 #   ca_file: /var/lib/probectl-ebpf-agent/identity/server-ca.pem
+#   rotate_url: https://control.example.internal:8080  # the API: the certificate is renewed here before it expires (D-43 R2)
+#   # identity_seed_dir: /etc/probectl/identity-seed   # optional: a read-only registered identity that seeds cert_file/key_file
 #   policy_interval: 5m
 # l7_capture_kernel_window: 1024  # max plaintext bytes/chunk that may transit the kernel ring (headers mode; 128-4095)
 # l7_capture_identity_header_fragments: # extra identity-like header-name fragments whose values are zeroed

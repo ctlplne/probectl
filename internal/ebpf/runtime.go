@@ -55,8 +55,12 @@ type Agent struct {
 	stoppedFloor  string
 	l7man         *l7.Manager
 	// dnsKey keys the D-65 DNS tokens; random per process, never leaves it.
-	dnsKey  []byte
-	l7conns map[uint64]l7conn
+	dnsKey []byte
+	// rotator renews the policy channel's certificate (D-43 R2); nil
+	// without a channel.
+	rotator          *identityRotator
+	rotationFailures atomic.Uint64
+	l7conns          map[uint64]l7conn
 	// l7seen tracks last-activity per connID so idle entries are swept on flush
 	// (FUZZ-001) — connID is the SSL* pointer with no socket-close signal yet,
 	// so without a TTL sweep l7conns + l7man.conns grow without bound.
@@ -138,6 +142,10 @@ func (a *Agent) L7CaptureRequested() bool {
 // L7CaptureActive reports whether a live L7 source is attached and can deliver
 // encrypted-traffic visibility. A recorded fixture replay is not live capture.
 func (a *Agent) L7CaptureActive() bool { return a.l7live.Load() }
+
+// CertRotationFailures counts failed renewals of the policy channel's
+// certificate (D-43 R2).
+func (a *Agent) CertRotationFailures() uint64 { return a.rotationFailures.Load() }
 
 // L7CaptureChannelRefused reports whether consented live capture is refused
 // because there is no control-plane channel, the control plane could not
@@ -227,6 +235,15 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	}
 	logListenerSeed(log, src)
 
+	if cfg.ControlPlane.GRPCAddr != "" {
+		// D-43 R2: bring in a fresh registration, never over a newer
+		// rotated certificate.
+		if seeded, serr := seedIdentity(cfg.ControlPlane.IdentitySeedDir, cfg.ControlPlane.CertFile, cfg.ControlPlane.KeyFile); serr != nil {
+			log.Warn("ebpf control-plane identity seed not applied", "error", serr.Error())
+		} else if seeded {
+			log.Info("ebpf control-plane identity seeded from the registration")
+		}
+	}
 	policy, err := dialL7Policy(cfg.ControlPlane)
 	if err != nil {
 		return nil, err // a half-working policy channel refuses start (fail closed)
@@ -240,7 +257,14 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 			policy = nil
 		}
 	}
-	return newAgent(cfg, b, log, src, policy)
+	a, err := newAgent(cfg, b, log, src, policy)
+	if err != nil || policy == nil {
+		return a, err
+	}
+	if a.rotator, err = newIdentityRotator(cfg.ControlPlane, log); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 // newAgent finishes construction with the flow source and the policy channel
@@ -452,6 +476,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.policy != nil {
 		defer func() { _ = a.policy.Close() }()
 	}
+	// D-43 R2: renew the policy channel's certificate before it expires.
+	go a.runRotation(ctx)
 	// D-43: report the capture posture at registration with the control
 	// plane, then on every policy tick (which also re-reads the floor).
 	a.reportPosture(ctx)

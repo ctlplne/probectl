@@ -165,6 +165,16 @@ type ControlPlaneConfig struct {
 	KeyFile    string `yaml:"key_file"`
 	CAFile     string `yaml:"ca_file"`
 	ServerName string `yaml:"server_name"`
+	// RotateURL is the control plane's https:// API base URL; the agent renews
+	// its certificate there (POST /enroll/agent/rotate) at two thirds of its
+	// lifetime (D-43 R2). Required with GRPCAddr: the certificate is
+	// short-lived, so a channel that cannot renew it stops within a day.
+	RotateURL string `yaml:"rotate_url"`
+	// IdentitySeedDir is an optional read-only directory (the chart's Secret
+	// mount) holding the registration's cert.pem and key.pem; at start they
+	// are copied into CertFile/KeyFile when those are missing, name another
+	// identity, or expire sooner than the seed.
+	IdentitySeedDir string `yaml:"identity_seed_dir"`
 	// PolicyInterval is how often the agent re-reads the floor and
 	// re-reports its posture; a floor that tightened past the running mode
 	// stops capture at once. 0 = 5m.
@@ -371,6 +381,12 @@ func (c *Config) applyControlPlaneEnv(getenv func(string) string) {
 	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_SERVER_NAME"); v != "" {
 		cp.ServerName = v
 	}
+	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_ROTATE_URL"); v != "" {
+		cp.RotateURL = v
+	}
+	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_IDENTITY_SEED_DIR"); v != "" {
+		cp.IdentitySeedDir = v
+	}
 	if v := getenv("PROBECTL_EBPF_CONTROL_PLANE_POLICY_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cp.PolicyInterval = d
@@ -392,6 +408,9 @@ func (c *Config) validateControlPlane() error {
 	}
 	if c.AgentID == "" {
 		return fmt.Errorf("ebpf: control_plane.grpc_addr requires agent_id (the registered collector id its certificate names)")
+	}
+	if !strings.HasPrefix(cp.RotateURL, "https://") {
+		return fmt.Errorf("ebpf: control_plane.grpc_addr requires control_plane.rotate_url (the control plane's https:// API, where the short-lived certificate is renewed)")
 	}
 	if cp.CertFile == "" || cp.KeyFile == "" || cp.CAFile == "" {
 		return fmt.Errorf("ebpf: control_plane.grpc_addr requires control_plane.cert_file, key_file and ca_file (the agent's mTLS identity; no plaintext agent channel)")

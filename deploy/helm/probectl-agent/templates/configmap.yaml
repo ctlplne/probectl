@@ -27,13 +27,22 @@ data:
     {{- if not .Values.controlPlane.identity.existingSecret }}
     {{- fail "controlPlane.grpcAddr requires controlPlane.identity.existingSecret (keys cert.pem, key.pem, server-ca.pem): the agent's mTLS identity; there is no plaintext agent channel" }}
     {{- end }}
+    {{- if not (hasPrefix "https://" (.Values.controlPlane.apiURL | default "")) }}
+    {{- fail "controlPlane.grpcAddr requires controlPlane.apiURL (the control plane's https:// API base URL): the agent renews its short-lived channel certificate there before it expires (D-43 R2)" }}
+    {{- end }}
     # D-43: the mTLS policy channel — the tenant's L7 redaction floor in, the
     # agent's capture posture out (the tenant comes from the certificate).
+    # D-43 R2: the registered identity (the Secret) seeds a node-local, writable
+    # identity directory; the agent renews the certificate there through
+    # rotate_url at two thirds of its lifetime, so a running or restarted agent
+    # keeps its channel.
     control_plane:
       grpc_addr: {{ .Values.controlPlane.grpcAddr | quote }}
-      cert_file: /etc/probectl/identity/cert.pem
-      key_file: /etc/probectl/identity/key.pem
-      ca_file: /etc/probectl/identity/server-ca.pem
+      cert_file: /var/lib/probectl-ebpf-agent/identity/cert.pem
+      key_file: /var/lib/probectl-ebpf-agent/identity/key.pem
+      ca_file: /etc/probectl/identity-seed/server-ca.pem
+      identity_seed_dir: /etc/probectl/identity-seed
+      rotate_url: {{ .Values.controlPlane.apiURL | quote }}
       {{- with .Values.controlPlane.serverName }}
       server_name: {{ . | quote }}
       {{- end }}

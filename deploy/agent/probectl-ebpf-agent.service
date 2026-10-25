@@ -58,6 +58,10 @@ ProtectHome=yes
 # left for the L7 uprobe path, whose non-root story is decision D-63.
 ReadOnlyPaths=/sys/kernel/btf -/sys/kernel/tracing
 ReadWritePaths=/var/lib/probectl
+# D-43 R2: the policy channel's identity lives here and the agent rotates it
+# in place (the certificate is short-lived), so it must be writable.
+StateDirectory=probectl-ebpf-agent
+StateDirectoryMode=0700
 PrivateTmp=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

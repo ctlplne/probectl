@@ -214,7 +214,8 @@ func runD43Agent(t *testing.T, st d43Stack, tenant, agentID, redaction, flowsPat
 	cfg.L7CaptureEnabled, cfg.L7CaptureConsentTenant = true, tenant
 	cfg.L7CaptureScope = []string{"exe:/opt/records/bin/records-api"}
 	cfg.L7CaptureRedaction = redaction
-	cfg.ControlPlane = ebpf.ControlPlaneConfig{GRPCAddr: st.addr, ServerName: "localhost", CertFile: certFile, KeyFile: keyFile, CAFile: st.caFile}
+	cfg.ControlPlane = ebpf.ControlPlaneConfig{GRPCAddr: st.addr, ServerName: "localhost", CertFile: certFile, KeyFile: keyFile, CAFile: st.caFile,
+		RotateURL: "https://localhost:1"} // a fresh certificate is not due for renewal in this run
 	agent, err := ebpf.New(cfg, rb, agentLog.With("agent", agentID))
 	if err != nil {
 		t.Fatalf("agent %s: %v", agentID, err)

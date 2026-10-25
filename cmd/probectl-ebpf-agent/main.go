@@ -148,6 +148,9 @@ func run() error {
 			}
 			return 0
 		})
+	metricsRuntime.WatchGauge("probectl_ebpf_control_plane_cert_rotation_failures_total",
+		"Failed renewals of the policy channel's short-lived certificate (D-43); the channel stops when it expires.",
+		func() float64 { return float64(agent.CertRotationFailures()) })
 	metricsRuntime.WatchGauge("probectl_ebpf_l7_capture_channel_refused",
 		"1 while consented L7 capture is refused because the control-plane channel is missing, cannot record the capture posture, or presents another identity (D-43).",
 		func() float64 {

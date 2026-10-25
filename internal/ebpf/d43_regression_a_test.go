@@ -260,6 +260,10 @@ func TestControlPlaneConfigRequiresTheFullIdentity(t *testing.T) {
 		t.Fatal("a policy_interval under the 30-second minimum must refuse (note N1)")
 	}
 	cfg.ControlPlane.PolicyInterval = 0
+	if err := cfg.validate(); err == nil {
+		t.Fatal("a channel without rotate_url must refuse (its certificate would expire unrenewed, D-43 R2)")
+	}
+	cfg.ControlPlane.RotateURL = "https://control.example:8443"
 	if err := cfg.validate(); err != nil {
 		t.Fatalf("full identity must validate: %v", err)
 	}

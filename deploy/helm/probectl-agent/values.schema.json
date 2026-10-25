@@ -226,6 +226,11 @@
         "grpcAddr": {
           "type": "string"
         },
+        "apiURL": {
+          "type": "string",
+          "description": "The control plane's https:// API base URL; the agent renews its channel certificate at /enroll/agent/rotate (D-43 R2). Required with grpcAddr.",
+          "pattern": "^(|https://.+)$"
+        },
         "serverName": {
           "type": "string"
         },
@@ -238,6 +243,11 @@
           "properties": {
             "existingSecret": {
               "type": "string"
+            },
+            "stateHostPath": {
+              "type": "string",
+              "description": "Node directory under which each release keeps its rotated identity (<stateHostPath>/<namespace>/<release>).",
+              "pattern": "^/[^.]*$"
             }
           }
         }

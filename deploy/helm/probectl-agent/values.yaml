@@ -166,12 +166,23 @@ bus:
 # that made the CSR) and server-ca.pem (the CA the control plane's listener
 # certificate chains to) — from POST /v1/collectors/register with plane=ebpf and
 # a csr_pem. Never put key material in values.
+#
+# D-43 R2: that certificate is short-lived (the enrollment service's leaf TTL,
+# 24 h). The Secret only SEEDS a node-local identity directory (a hostPath under
+# identity.stateHostPath, one per namespace and release); the agent renews the
+# certificate there through apiURL's /enroll/agent/rotate at two thirds of its
+# lifetime, proving possession of the current key. apiURL is required with
+# grpcAddr and must present a certificate that chains to server-ca.pem. A NEW
+# node that joins after the Secret's certificate has expired has nothing valid
+# to seed from: re-register (POST /v1/collectors/register) and update the Secret.
 controlPlane:
   grpcAddr: ""        # e.g. probectl-control.probectl.svc:9443
+  apiURL: ""          # e.g. https://probectl-control.probectl.svc:8080 (required with grpcAddr)
   serverName: ""      # when it differs from the grpcAddr host
   policyInterval: ""  # "" = 5m
   identity:
     existingSecret: ""
+    stateHostPath: /var/lib/probectl-ebpf-agent
 
 # The node's tracefs, mounted read-only at the same path: attaching the
 # sock:inet_sock_set_state tracepoint reads its event id there, and a container

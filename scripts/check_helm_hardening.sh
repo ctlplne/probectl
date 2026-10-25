@@ -1174,7 +1174,7 @@ if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bu
      --set l7Capture.consentTenant=gate >/dev/null 2>&1; then
   fail "agent chart rendered L7 capture without l7Capture.scope (EBPF-002)"
 fi
-l7="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate --set controlPlane.grpcAddr=control:9443 --set controlPlane.identity.existingSecret=ebpf-identity \
+l7="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate --set controlPlane.grpcAddr=control:9443 --set controlPlane.apiURL=https://control:8080 --set controlPlane.identity.existingSecret=ebpf-identity \
        --set-json 'l7Capture.scope=["exe:/usr/bin/nginx"]' \
        --set l7Capture.redaction=length --set l7Capture.kernelWindow=0)"
 need "l7_capture_scope:"                "$l7" "agent: L7 scope not rendered (EBPF-002)"
@@ -1201,7 +1201,7 @@ for priv in "hostPID: true" "SYS_PTRACE" "name: hostcgroup" "name: node-lib-" "l
 done
 # The consented render carries them (so the absence above is not vacuous) and
 # defaults its redaction to metadata (D-43 refinement 2).
-l7_default="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate --set controlPlane.grpcAddr=control:9443 --set controlPlane.identity.existingSecret=ebpf-identity \
+l7_default="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate --set controlPlane.grpcAddr=control:9443 --set controlPlane.apiURL=https://control:8080 --set controlPlane.identity.existingSecret=ebpf-identity \
        --set-json 'l7Capture.scope=["exe:/usr/bin/nginx"]')"
 need "hostPID: true"                      "$l7_default" "agent: consented L7 render lost hostPID (D-02a)"
 need "SYS_PTRACE"                         "$l7_default" "agent: consented L7 render lost CAP_SYS_PTRACE (D-02a)"
@@ -1215,12 +1215,34 @@ if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bu
      --set-string image.tag="$AGENT_IMAGE_TAG" --set controlPlane.grpcAddr=control:9443 >/dev/null 2>&1; then
   fail "agent chart rendered the control-plane policy channel without an mTLS identity Secret (D-43)"
 fi
-cp_render="$(arender --set controlPlane.grpcAddr=control:9443 --set controlPlane.identity.existingSecret=ebpf-identity)"
+# D-43 R2: the channel certificate lives a day, so the channel also needs the
+# rotation endpoint — an address without an https:// apiURL refuses to render.
+for bad in "" "http://control:8080"; do
+  if helm template agent "$AGENT" --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \
+       --set-string image.tag="$AGENT_IMAGE_TAG" --set controlPlane.grpcAddr=control:9443 \
+       --set controlPlane.identity.existingSecret=ebpf-identity --set "controlPlane.apiURL=$bad" >/dev/null 2>&1; then
+    fail "agent chart rendered the control-plane policy channel without an https rotation endpoint ('$bad', D-43 R2)"
+  fi
+done
+cp_render="$(helm template agent "$AGENT" --namespace obs --set tenantID=gate --set agentID=gate --set 'bus.brokers={kafka:9093}' \
+  --set-string image.tag="$AGENT_IMAGE_TAG" --set controlPlane.grpcAddr=control:9443 \
+  --set controlPlane.apiURL=https://control:8080 --set controlPlane.identity.existingSecret=ebpf-identity)"
 need 'grpc_addr: "control:9443"'           "$cp_render" "agent: control-plane policy channel not rendered (D-43)"
-need "ca_file: /etc/probectl/identity/server-ca.pem" "$cp_render" "agent: control-plane channel does not verify the server (D-43)"
+need "ca_file: /etc/probectl/identity-seed/server-ca.pem" "$cp_render" "agent: control-plane channel does not verify the server (D-43)"
 need "secretName: ebpf-identity"           "$cp_render" "agent: control-plane identity Secret not mounted (D-43)"
 grep -A2 "name: control-plane-identity$" <<<"$cp_render" | grep -q "readOnly: true" \
   || fail "agent: control-plane identity must be mounted read-only (D-43)"
+# D-43 R2: the Secret seeds a writable node-local identity the agent rotates
+# through the API; it survives pod recreation and is this release's alone.
+need 'rotate_url: "https://control:8080"'   "$cp_render" "agent: the channel certificate is never rotated (D-43 R2)"
+need "identity_seed_dir: /etc/probectl/identity-seed" "$cp_render" "agent: the registered identity does not seed the rotated one (D-43 R2)"
+need "cert_file: /var/lib/probectl-ebpf-agent/identity/cert.pem" "$cp_render" "agent: the channel certificate is not the rotated one (D-43 R2)"
+need 'path: "/var/lib/probectl-ebpf-agent/obs/agent-probectl-agent"' "$cp_render" "agent: rotated identity is not a per-namespace, per-release node directory (D-43 R2)"
+grep -A3 "name: control-plane-identity-state$" <<<"$(awk '/^      volumes:/,0' <<<"$cp_render")" | grep -q "type: DirectoryOrCreate" \
+  || fail "agent: rotated identity is not kept on the node across pod recreation (D-43 R2)"
+grep -A2 "name: control-plane-identity-state$" <<<"$(awk '/volumeMounts:/,/^      volumes:/' <<<"$cp_render")" | grep -q "readOnly: true" \
+  && fail "agent: the rotated identity directory is read-only — rotation cannot write (D-43 R2)"
+grep -q "control-plane-identity-state" <<<"$agent" && fail "agent: default render mounts a node identity directory nobody configured (D-43 R2)"
 grep -q "control_plane:" <<<"$agent" && fail "agent: default render opened a control-plane channel nobody configured (D-43)"
 
 # EBPF-004: legacy SYS_ADMIN is fenced behind an explicit acknowledgment.
