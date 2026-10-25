@@ -144,3 +144,46 @@ func TestScopeCgroupIDRequiresDirectory(t *testing.T) {
 		t.Fatal("file must not pass as a cgroup directory")
 	}
 }
+
+// D-63 #2: without CAP_SYS_PTRACE an exe: entry cannot see other users'
+// processes, so L7 refuses it instead of capturing a silently partial set.
+func TestScopeExeRequiresPtrace(t *testing.T) {
+	cases := []struct {
+		name      string
+		raw       []string
+		canPtrace bool
+		wantErr   bool
+	}{
+		{"non-root unit: pid and cgroup", []string{"pid:42", "cgroup:/sys/fs/cgroup/app.slice"}, false, false},
+		{"non-root unit: exe refused", []string{"pid:42", "exe:/usr/sbin/nginx"}, false, true},
+		{"ptrace granted (root, Helm D-02a): exe allowed", []string{"exe:/usr/sbin/nginx"}, true, false},
+		{"ptrace granted: mixed", []string{"pid:1", "exe:/usr/bin/app", "cgroup:/sys/fs/cgroup/x"}, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			entries, err := ParseScopeEntries(tc.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = checkScopePrivilege(entries, tc.canPtrace)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("checkScopePrivilege(%v, ptrace=%v) = %v, wantErr %v", tc.raw, tc.canPtrace, err, tc.wantErr)
+			}
+			if err != nil && !strings.Contains(err.Error(), "pid:<n> or cgroup:") {
+				t.Errorf("refusal does not tell the operator what to use instead: %v", err)
+			}
+		})
+	}
+}
+
+// The live L7 source applies the check before it loads anything (D-63 #2);
+// the source is linux+ebpf only, so the wiring is asserted on the file.
+func TestLiveL7SourceChecksScopePrivilege(t *testing.T) {
+	b, err := os.ReadFile("source_live_l7_linux.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "checkScopePrivilege(scope, effectiveCaps().has(capSysPtrace))") {
+		t.Fatal("newLiveL7Source no longer refuses exe: scope entries without CAP_SYS_PTRACE (D-63 #2)")
+	}
+}

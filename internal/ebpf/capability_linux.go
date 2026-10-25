@@ -20,9 +20,10 @@ import (
 
 // Linux capability numbers (see <linux/capability.h>).
 const (
-	capSysAdmin = 21
-	capPerfmon  = 38
-	capBPF      = 39
+	capSysPtrace = 19
+	capSysAdmin  = 21
+	capPerfmon   = 38
+	capBPF       = 39
 )
 
 // Probe inspects the host for eBPF readiness. It is read-only, needs no

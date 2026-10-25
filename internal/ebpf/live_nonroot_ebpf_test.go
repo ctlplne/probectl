@@ -160,6 +160,16 @@ func runNonRootL4Child(t *testing.T) {
 	if c := Probe(); c.Mode != ModeLive {
 		t.Fatalf("capability probe turns the non-root agent away: %s", c)
 	}
+	// D-63 #2: under the unit's identity an exe: L7 scope entry is refused
+	// (it needs CAP_SYS_PTRACE), while pid: and cgroup: entries are accepted.
+	exe, _ := ParseScopeEntries([]string{"exe:/usr/sbin/nginx"})
+	if err := checkScopePrivilege(exe, effectiveCaps().has(capSysPtrace)); err == nil {
+		t.Error("the non-root unit accepted an exe: L7 scope entry it cannot resolve (D-63 #2)")
+	}
+	named, _ := ParseScopeEntries([]string{"pid:1", "cgroup:/sys/fs/cgroup"})
+	if err := checkScopePrivilege(named, effectiveCaps().has(capSysPtrace)); err != nil {
+		t.Errorf("the non-root unit refused pid:/cgroup: L7 scope: %v", err)
+	}
 	prePID, prePort := nonRootPreListener(t)
 
 	cfg := Default()

@@ -36,9 +36,10 @@ l7_ring_buffer_bytes: 16777216    # 16 MiB L7 chunk ring
 # l7_capture_enabled: true
 # l7_capture_consent_tenant: ""   # must equal tenant_id exactly
 # l7_capture_scope:               # the opted-in workloads, nothing wider
-#   - exe:/usr/sbin/nginx         #   every process of this binary (re-resolved every 10s)
 #   - cgroup:/sys/fs/cgroup/system.slice/myapp.service # a container or pod IS a cgroup
 #   - pid:1234                    #   one exact process
+#   # exe:/usr/sbin/nginx is refused under the non-root unit (it needs
+#   # CAP_SYS_PTRACE, which the unit does not grant; D-63) — root only.
 # l7_capture_redaction: metadata  # metadata (default: method, templated route, status, sizes) | headers (opt-in; tenant floor must allow) | length (no payload bytes) | full (consented debugging only)
 #
 # D-43: the mTLS policy channel. The agent fetches its tenant's L7 redaction

@@ -107,6 +107,9 @@ func newLiveL7Source(cfg *Config, log *slog.Logger) (L7Source, error) {
 	if len(scope) == 0 {
 		return nil, fmt.Errorf("ebpf: l7_capture_scope is empty — TLS capture requires an explicit workload allowlist (EBPF-001)")
 	}
+	if err := checkScopePrivilege(scope, effectiveCaps().has(capSysPtrace)); err != nil {
+		return nil, err
+	}
 	s := &liveL7Source{
 		cfg: cfg, scope: scope, log: log,
 		exePIDs:    map[uint32]struct{}{},

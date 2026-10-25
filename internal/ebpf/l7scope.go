@@ -78,6 +78,25 @@ func ParseScopeEntries(raw []string) ([]ScopeEntry, error) {
 	return out, nil
 }
 
+// checkScopePrivilege refuses exe: entries when the agent cannot resolve them
+// (D-63 #2). An exe: match reads /proc/<pid>/exe, which is ptrace-gated: an
+// agent without CAP_SYS_PTRACE (the non-root systemd unit, which grants only
+// CAP_BPF + CAP_PERFMON) silently sees no process owned by another user. The
+// opt-in would then name a workload that is never captured, or only the
+// agent's own user's processes, so refuse it loudly. pid: and cgroup: entries
+// need no ptrace and are the non-root unit's whole L7 scope.
+func checkScopePrivilege(entries []ScopeEntry, canPtrace bool) error {
+	if canPtrace {
+		return nil
+	}
+	for _, e := range entries {
+		if e.Kind == scopeExe {
+			return fmt.Errorf("ebpf: l7_capture_scope entry exe:%s needs CAP_SYS_PTRACE to resolve other users' processes, which this agent does not have (the non-root unit grants only CAP_BPF + CAP_PERFMON) — scope L7 with pid:<n> or cgroup:/abs/path instead (D-63)", e.Path)
+		}
+	}
+	return nil
+}
+
 // resolveScope materializes the allowlist into the two kernel-map key sets:
 // tgids (pid: entries + exe: matches under procRoot) and cgroup ids (cgroup:
 // entries). exe: entries that currently match no process are NOT an error —

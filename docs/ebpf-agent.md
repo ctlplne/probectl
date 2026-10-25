@@ -233,7 +233,9 @@ for *every* process that maps them, so the BPF program checks the in-kernel
 `scope_tgids` / `scope_cgroups` maps and **drops a non-allowlisted process before
 copying a byte** — that process's plaintext never enters the ring buffer at all.
 `exe:` entries are re-resolved against `/proc` every 10 seconds, so restarts and
-new workers of an opted-in binary stay in scope.
+new workers of an opted-in binary stay in scope. They need `CAP_SYS_PTRACE` (root,
+or the Helm consented path); an agent without it refuses L7 when the scope has an
+`exe:` entry (D-63).
 
 ### Redaction is layered, and defaults closed
 
@@ -408,11 +410,16 @@ attach as uid 65534 with only those two capabilities and no reachable tracefs,
 and observes a real TCP connection (`TestLiveNonRootL4Attach`).
 
 **L7 non-root is not covered by that change.** The TLS uprobes and their tracefs
-fallback are a separate question (`ING-23`'s L7 half, decision `D-63`): on
-kernels from 6.16 the uprobe perf PMU requires `CAP_SYS_ADMIN`, and resolving
-`exe:` scope entries for other users' processes needs `CAP_SYS_PTRACE`. Until
-that is decided, treat consented L7 capture under the non-root unit as
-unsupported. The Helm chart's tracefs mount (`tracefs.hostPath`, DPR-054) now
+fallback are a separate question (`ING-23`'s L7 half, decision `D-63`). Two parts
+are settled. First, the non-root unit's L7 scope is `pid:` and `cgroup:` entries
+only: resolving an `exe:` entry reads `/proc/<pid>/exe`, which is ptrace-gated,
+so an agent without `CAP_SYS_PTRACE` refuses L7 at start when the scope contains
+one, and says to use `pid:` or `cgroup:` instead. The rest of the agent keeps
+running. There is no `CAP_SYS_PTRACE` drop-in for the unit; root and the Helm
+consented path (D-02a, which adds `SYS_PTRACE`) keep `exe:`. Second, on kernels
+from 6.16 the uprobe perf PMU requires `CAP_SYS_ADMIN`, so non-root L7 attach
+there depends on `uprobe_multi` links (6.6+). That attach path is not built yet,
+so treat consented L7 capture under the non-root unit as unsupported until it is. The Helm chart's tracefs mount (`tracefs.hostPath`, DPR-054) now
 serves only the L7 path.
 
 The observe-only guarantee is enforced in code, not just by convention. The agent
