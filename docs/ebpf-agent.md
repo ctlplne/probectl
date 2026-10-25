@@ -550,6 +550,10 @@ emit looser data than its tenant allows.
   the agent refuses (ERROR log, `probectl_ebpf_l7_capture_requested` = 1 with
   `_active` = 0, `probectl_ebpf_l7_capture_channel_refused` = 1), and the
   chart refuses to render `l7Capture.enabled` without `controlPlane.grpcAddr`.
+  A channel identity the agent cannot load (a key that does not match the
+  certificate, an empty key, an unreadable CA) refuses consented capture the
+  same way and is logged at ERROR; it never stops the agent, so the L4 flow
+  plane keeps running (R3).
   A control plane that cannot record the posture at start defers capture; the
   next policy check retries. When the channel is configured and recorded the
   posture but returned **no floor** (the floor call failed), the agent applies

@@ -235,36 +235,50 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	}
 	logListenerSeed(log, src)
 
-	if cfg.ControlPlane.GRPCAddr != "" {
-		// D-43 R2: bring in a fresh registration, never over a newer
-		// rotated certificate.
-		if seeded, serr := seedIdentity(cfg.ControlPlane.IdentitySeedDir, cfg.ControlPlane.CertFile, cfg.ControlPlane.KeyFile); serr != nil {
-			log.Warn("ebpf control-plane identity seed not applied", "error", serr.Error())
-		} else if seeded {
-			log.Info("ebpf control-plane identity seeded from the registration")
-		}
-	}
-	policy, err := dialL7Policy(cfg.ControlPlane)
-	if err != nil {
-		return nil, err // a half-working policy channel refuses start (fail closed)
-	}
-	if policy != nil {
-		if ierr := checkChannelIdentity(cfg); ierr != nil {
-			// D-43 S3: never use another agent's channel. Without it,
-			// consented live capture is refused (the flow plane runs on).
-			log.Error("ebpf L7 capture REFUSED: the control-plane channel's identity is not this agent's (D-43)", "error", ierr.Error())
-			_ = policy.Close()
-			policy = nil
-		}
-	}
+	policy, rotator := openChannel(cfg, log)
 	a, err := newAgent(cfg, b, log, src, policy)
-	if err != nil || policy == nil {
-		return a, err
-	}
-	if a.rotator, err = newIdentityRotator(cfg.ControlPlane, log); err != nil {
+	if err != nil {
 		return nil, err
 	}
+	a.rotator = rotator
 	return a, nil
+}
+
+// openChannel opens the control-plane policy channel and its certificate
+// rotator, or returns neither. It never fails the agent (R3): an identity the
+// channel cannot load — a torn rotation, a wrong Secret, an unreadable CA —
+// refuses consented L7 capture (refused_channel, logged, gauged) while the L4
+// flow plane, which does not depend on the policy channel, runs on.
+func openChannel(cfg *Config, log *slog.Logger) (L7PolicyClient, *identityRotator) {
+	cp := cfg.ControlPlane
+	if cp.GRPCAddr == "" {
+		return nil, nil
+	}
+	// D-43 R2/R3: bring in a fresh registration, or repair an identity the
+	// channel cannot load, never over a newer rotated certificate.
+	if seeded, serr := seedIdentity(cp.IdentitySeedDir, cp.CertFile, cp.KeyFile); serr != nil {
+		log.Warn("ebpf control-plane identity seed not applied", "error", serr.Error())
+	} else if seeded {
+		log.Info("ebpf control-plane identity seeded from the registration")
+	}
+	policy, err := dialL7Policy(cp)
+	if err != nil {
+		log.Error("ebpf L7 capture REFUSED: the control-plane channel identity cannot be loaded (D-43); the flow plane runs on", "error", err.Error())
+		return nil, nil
+	}
+	if ierr := checkChannelIdentity(cfg); ierr != nil {
+		// D-43 S3: never use another agent's channel.
+		log.Error("ebpf L7 capture REFUSED: the control-plane channel's identity is not this agent's (D-43)", "error", ierr.Error())
+		_ = policy.Close()
+		return nil, nil
+	}
+	rotator, err := newIdentityRotator(cp, log)
+	if err != nil {
+		log.Error("ebpf L7 capture REFUSED: the channel certificate cannot be renewed (D-43 R2)", "error", err.Error())
+		_ = policy.Close()
+		return nil, nil
+	}
+	return policy, rotator
 }
 
 // newAgent finishes construction with the flow source and the policy channel
