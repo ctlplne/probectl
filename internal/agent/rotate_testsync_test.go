@@ -40,9 +40,17 @@ func rotationFixture(t *testing.T, key string) (dir, server, caFile string) {
 	if err := writeIdentityDir(dir, certPEM, keyPEM, ca.CertPEM()); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The renewed certificate is for the NEW key the agent's CSR carries.
+		var in map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		renewed, _, err := ca.SignCSR([]byte(in["csr_pem"]), crypto.AgentSPIFFEID("t-1", "agent-1"), time.Hour)
+		if err != nil {
+			http.Error(w, "bad csr", http.StatusBadRequest)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"cert_pem": string(certPEM), "ca_bundle": string(ca.CertPEM()),
+			"cert_pem": string(renewed), "ca_bundle": string(ca.CertPEM()),
 			"spiffe_id": crypto.AgentSPIFFEID("t-1", "agent-1"), "tenant_id": "t-1", "agent_id": "agent-1",
 			"serial": "01", "not_after": time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano),
 			"testsync_public_key": key,
@@ -108,6 +116,27 @@ func TestRotationDeliversTestSyncKeyToAnAgentEnrolledBefore(t *testing.T) {
 	b.cfg.TestSync.Enabled = &off
 	if b.maybeStartSync(now.Add(time.Hour)) {
 		t.Fatal("a delivered key turned on central tests that the operator disabled")
+	}
+}
+
+// R3 (DPR-398): a rotation that fails part-way — here the certificate's
+// replacement cannot be written (a full disk, a kill) — never tears the pair:
+// the identity on disk still loads, the old unit or the new one.
+func TestProbeRotationFailurePartWayKeepsALoadablePair(t *testing.T) {
+	dir, server, caFile := rotationFixture(t, "")
+	certFile, keyFile := filepath.Join(dir, IdentityCertFile), filepath.Join(dir, IdentityKeyFile)
+	if err := os.Mkdir(certFile+".tmp", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = Rotate(context.Background(), server, certFile, keyFile, caFile)
+	if err := crypto.VerifyIdentityPair(certFile, keyFile); err != nil {
+		t.Fatalf("a rotation that failed part-way left a torn identity: %v", err)
+	}
+	if _, err := Rotate(context.Background(), server, certFile, keyFile, caFile); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if err := crypto.VerifyIdentityPair(certFile, keyFile); err != nil {
+		t.Fatalf("after rotation: %v", err)
 	}
 }
 

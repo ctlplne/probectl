@@ -99,6 +99,15 @@ probectl-agent enroll \
   --ca-pin <hex sha256>        # for self-signed quickstarts; or --ca-file ca.crt
 ```
 
+Enrollment and every rotation write `cert.pem`, `key.pem` and `ca.pem` as
+**one unit**: a fresh version directory under the identity directory, each
+file fsynced, behind one `current` link swapped atomically; the three names
+are fixed links into it. A kill, power loss or full disk leaves the previous
+identity or the new one, never a certificate beside a mismatched or empty
+key, and a certificate whose key is not its own is never written. The
+previous version is kept until the next rotation. `server-ca.pem` and
+`testsync.pub` are written durably (fsynced, then renamed).
+
 To force the same proof-of-possession rotation used by the automatic
 two-thirds-lifetime loop (for example, during an operator drill), run:
 

@@ -542,39 +542,20 @@ func ensureWritableIdentityDir(dir string) error {
 	return nil
 }
 
-// writeOwnerOnly lands one file atomically with owner-only mode.
+// writeOwnerOnly lands one file atomically and durably with owner-only mode
+// (R3: fsynced before the rename, the directory after it).
 func writeOwnerOnly(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return crypto.WriteFileDurable(path, data)
 }
 
-// writeIdentityDir lands key/cert/bundle atomically with owner-only modes —
-// partial writes never replace a working identity.
+// writeIdentityDir lands key/cert/bundle as ONE unit (R3): a fresh version
+// directory, fsynced, behind one atomically swapped "current" link, so a
+// kill, power loss or full disk leaves the previous identity or the new one,
+// never a certificate beside a mismatched or empty key. A pair whose key is
+// not its certificate's is refused before anything is written.
 func writeIdentityDir(dir string, certPEM, keyPEM, caPEM []byte) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	for _, f := range []struct {
-		name string
-		data []byte
-	}{
-		{IdentityKeyFile, keyPEM},
-		{IdentityCertFile, certPEM},
-		{IdentityCAFile, caPEM},
-	} {
-		path := filepath.Join(dir, f.name)
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, f.data, 0o600); err != nil {
-			return err
-		}
-		if err := os.Rename(tmp, path); err != nil {
-			return err
-		}
-	}
-	return nil
+	return crypto.InstallIdentity(filepath.Join(dir, IdentityCertFile), filepath.Join(dir, IdentityKeyFile),
+		certPEM, keyPEM, map[string][]byte{IdentityCAFile: caPEM})
 }
 
 func firstCert(pemBytes []byte) (*x509.Certificate, error) {

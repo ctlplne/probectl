@@ -27,6 +27,32 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 )
 
+// testLeafCA signs the fake control planes' leaves: enrollment installs a
+// certificate only with the key it belongs to (R3), so the fakes sign the
+// agent's CSR the way the real service does.
+var testLeafCA = func() *crypto.CA {
+	ca, err := crypto.GenerateCA("agent-test-leaf-ca", 24*time.Hour)
+	if err != nil {
+		panic(err)
+	}
+	return ca
+}()
+
+func testLeafFor(t *testing.T, csrPEM string) string {
+	leaf, _, err := testLeafCA.SignCSR([]byte(csrPEM), "spiffe://probectl/tenant/t-1/agent/a-1", time.Hour)
+	if err != nil {
+		t.Errorf("fake control plane: sign CSR: %v", err)
+		return ""
+	}
+	return string(leaf)
+}
+
+func csrOf(r *http.Request) string {
+	var req map[string]string
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	return req["csr_pem"]
+}
+
 // fakeControl serves a canned identity for /enroll/agent (no DB — the service
 // itself is covered by the integration suite; THIS covers the client side).
 func fakeControl(t *testing.T) (*httptest.Server, string) {
@@ -39,7 +65,7 @@ func fakeControl(t *testing.T) (*httptest.Server, string) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"cert_pem":  "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n",
+			"cert_pem":  testLeafFor(t, req["csr_pem"]),
 			"ca_bundle": "-----BEGIN CERTIFICATE-----\nFAKECA\n-----END CERTIFICATE-----\n",
 			"spiffe_id": "spiffe://probectl/tenant/t-1/agent/a-1",
 			"tenant_id": "t-1", "agent_id": "a-1", "serial": "ab12",
@@ -113,9 +139,9 @@ func TestEnrollPinCapturesIssuingCANotLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build server chain: %v", err)
 	}
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"cert_pem":  "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n",
+			"cert_pem":  testLeafFor(t, csrOf(r)),
 			"ca_bundle": "-----BEGIN CERTIFICATE-----\nFAKECA\n-----END CERTIFICATE-----\n",
 			"spiffe_id": "spiffe://probectl/tenant/t-1/agent/a-1",
 			"tenant_id": "t-1", "agent_id": "a-1", "serial": "ab12",
@@ -217,7 +243,7 @@ func TestEnrollAllowsPlaintextLoopbackWithExplicitOverride(t *testing.T) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"cert_pem":  "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n",
+			"cert_pem":  testLeafFor(t, csrOf(r)),
 			"ca_bundle": "-----BEGIN CERTIFICATE-----\nFAKECA\n-----END CERTIFICATE-----\n",
 			"spiffe_id": "spiffe://probectl/tenant/t-1/agent/a-1",
 			"tenant_id": "t-1", "agent_id": "a-1", "serial": "ab12",
@@ -345,9 +371,9 @@ func TestEnrollWritesTestSyncPublicKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	serve := func(key string) (*httptest.Server, string) {
-		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"cert_pem":  "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n",
+				"cert_pem":  testLeafFor(t, csrOf(r)),
 				"ca_bundle": "-----BEGIN CERTIFICATE-----\nFAKECA\n-----END CERTIFICATE-----\n",
 				"spiffe_id": "spiffe://probectl/tenant/t-1/agent/a-1",
 				"tenant_id": "t-1", "agent_id": "a-1", "serial": "ab12",

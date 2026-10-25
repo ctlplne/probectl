@@ -130,3 +130,18 @@ func TestInstallIdentityRefusesAMismatchedPairAndPrunes(t *testing.T) {
 		t.Fatalf("key mode = %v (%v), want 0600", fi.Mode().Perm(), err)
 	}
 }
+
+func TestWriteFileDurable(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "server-ca.pem")
+	for _, v := range []string{"one", "two"} {
+		if err := WriteFileDurable(p, []byte(v)); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := os.ReadFile(p); string(got) != v {
+			t.Fatalf("content = %q", got)
+		}
+	}
+	if _, err := os.Stat(p + ".tmp"); !os.IsNotExist(err) {
+		t.Fatal("temporary file left behind")
+	}
+}

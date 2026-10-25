@@ -228,6 +228,21 @@ func pruneIdentityVersions(dir, current, prev string) {
 	}
 }
 
+// WriteFileDurable replaces path with data (owner-only): a same-directory
+// temporary file, fsynced, renamed over path, and the directory fsynced — a
+// crash leaves the old content or the new, never an empty or partial file.
+func WriteFileDurable(path string, data []byte) error {
+	tmp := path + ".tmp"
+	_ = os.Remove(tmp)
+	if err := writeSynced(tmp, data); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
+}
+
 func writeSynced(path string, data []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {

@@ -102,7 +102,7 @@ func TestEnsureIdentitySuccessWritesIdentity(t *testing.T) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"cert_pem":  "-----BEGIN CERTIFICATE-----\nFAKELEAF\n-----END CERTIFICATE-----\n",
+			"cert_pem":  testLeafFor(t, csrOf(r)),
 			"ca_bundle": "-----BEGIN CERTIFICATE-----\nFAKECA\n-----END CERTIFICATE-----\n",
 			"spiffe_id": "spiffe://probectl/tenant/t/agent/a",
 			"not_after": time.Now().Add(24 * time.Hour),
