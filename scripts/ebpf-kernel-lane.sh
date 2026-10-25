@@ -38,9 +38,10 @@ cd "$repo_root"
 kernel="${1:?usage: ebpf-kernel-lane.sh <5.15|6.6|image-ref> [go test -run regex]}"
 run="${2:-TestLive}"
 name="${PROBECTL_EBPF_LANE_NAME:-probectl-ebpf-lane}"
-# CI boots vimto's default 128M. The arm64 6.6 guest keeps only ~67 MB of that
-# free, too little for the L4 ring buffer (map create: ENOMEM), so the lane
-# defaults to 256M; set PROBECTL_EBPF_LANE_MEMORY=size=128M to match CI exactly.
+# 256M, the size the CI matrix boots (DPR-402). vimto's default 128M is too
+# small: the arm64 6.6 guest keeps only ~67 MB of it free, too little for the
+# L4 ring buffer (map create: ENOMEM), and the amd64 5.15 guest was SIGKILLed
+# during the non-root attach. PROBECTL_EBPF_LANE_MEMORY overrides it.
 memory="${PROBECTL_EBPF_LANE_MEMORY:-size=256M}"
 image="${PROBECTL_EBPF_LANE_IMAGE:-$name:local}"
 

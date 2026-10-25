@@ -971,7 +971,11 @@ jobs:
             exit 1
           fi
           sudo chmod 0666 /dev/kvm || true
-          env ${{ matrix.env_extra }} CGO_ENABLED=0 go test -tags ebpf -exec "$(go env GOPATH)/bin/vimto -kernel ${{ matrix.image }} -sudo exec --" -run '${{ matrix.run }}' -count=1 -v ./internal/ebpf/
+          # 256M, not vimto's default 128M (DPR-402): TestLiveNonRootL4Attach runs a
+          # second copy of the test binary beside the first, and in 128M the 5.15
+          # guest was SIGKILLed mid-test ("exec: guest: signal: killed"). The local
+          # lane (scripts/ebpf-kernel-lane.sh) uses the same size.
+          env ${{ matrix.env_extra }} CGO_ENABLED=0 go test -tags ebpf -exec "$(go env GOPATH)/bin/vimto -memory size=256M -kernel ${{ matrix.image }} -sudo exec --" -run '${{ matrix.run }}' -count=1 -v ./internal/ebpf/
 
   ebpf-image-live:
     # EBPF-004: the SHIPPED probectl-ebpf-agent image must carry the LIVE

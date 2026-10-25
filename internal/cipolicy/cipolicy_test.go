@@ -651,6 +651,24 @@ func TestArm64EBPFKernelMatrixRequiresLiveKVM(t *testing.T) {
 	}
 }
 
+// TestEBPFKernelMatrixBootsEnoughMemory closes DPR-402: at vimto's default
+// 128M the 5.15 guest was SIGKILLed during the non-root attach, which runs a
+// second copy of the test binary. The matrix boots 256M, the same size as the
+// local reproduction lane.
+func TestEBPFKernelMatrixBootsEnoughMemory(t *testing.T) {
+	ci := readWorkflow(t, "ci.yml")
+	if !strings.Contains(ci, `vimto -memory size=256M -kernel ${{ matrix.image }}`) {
+		t.Error("ci.yml ebpf-kernel-matrix must boot vimto with -memory size=256M (DPR-402)")
+	}
+	lane, err := os.ReadFile(filepath.Join(repoRoot(t), "scripts", "ebpf-kernel-lane.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(lane), `PROBECTL_EBPF_LANE_MEMORY:-size=256M`) {
+		t.Error("scripts/ebpf-kernel-lane.sh must default to the matrix's 256M (DPR-402)")
+	}
+}
+
 // TestReleaseEBPFDownloadablesAreLiveBuilds closes TEST-002: the downloadable
 // eBPF agent binaries and deb/rpm package inputs must be the same live
 // `-tags ebpf` build as the shipped image. A plain cross-compile links the

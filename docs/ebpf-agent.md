@@ -792,9 +792,9 @@ boots the row's kernel with the same vimto, under QEMU's software emulation
 be debugged on a laptop — macOS Docker Desktop included. On an amd64 host it uses
 the row's digest-pinned image from `ci.yml`; on an arm64 host it uses the same
 ci-kernels series' arm64 build, pinned in the script, because the CI digests are
-amd64-only manifests. The guest gets 256M by default (the arm64 6.6 guest has
-too little free in CI's 128M for the ring buffer; `PROBECTL_EBPF_LANE_MEMORY`
-overrides it). A boot takes seconds and the full `TestLive` set about two
+amd64-only manifests. The guest gets 256M, the size the CI matrix boots (vimto's
+default 128M leaves too little free for the ring buffer and for the non-root
+attach's second test process; `PROBECTL_EBPF_LANE_MEMORY` overrides it). A boot takes seconds and the full `TestLive` set about two
 minutes on an arm64 Mac. It is a reproduction lane, not evidence: the CI job
 still requires KVM, and it does not change the arm64 claim below.
 
