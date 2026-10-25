@@ -125,6 +125,32 @@ func TestDNSExfilDetection(t *testing.T) {
 	}
 }
 
+// The exfil detector groups by the same registered domain the agent keys its
+// subdomain tokens on (l7redact.RegisteredDomain: ICANN eTLD+1). The naive
+// last-two-labels rule grouped every .co.uk domain into "co.uk": two quiet
+// domains summed into one false detection, and a real one was reported
+// against the public suffix.
+func TestDNSExfilGroupsByTheICANNRegisteredDomain(t *testing.T) {
+	exfil := func(e *Engine, names ...string) []incident.Signal {
+		var hits []incident.Signal
+		for i := 0; i < 40; i++ {
+			q := fmt.Sprintf("%0120d.%s", i, names[i%len(names)])
+			for _, s := range e.ObserveDNS("t1", DNSObservation{Source: "10.0.0.9", QName: q, At: t0.Add(time.Duration(i) * time.Second)}) {
+				if s.Kind == "ndr.dns_exfil" {
+					hits = append(hits, s)
+				}
+			}
+		}
+		return hits
+	}
+	if hits := exfil(testEngine(t, nil, nil), "tunnel.example.co.uk"); len(hits) != 1 || hits[0].Attributes["dns.domain"] != "example.co.uk" {
+		t.Fatalf("exfil under a multi-label suffix = %+v, want one detection against example.co.uk", hits)
+	}
+	if hits := exfil(testEngine(t, nil, nil), "a.quiet-one.co.uk", "b.quiet-two.co.uk"); len(hits) != 0 {
+		t.Fatalf("two domains under co.uk were summed into one detection: %+v", hits[0].Attributes)
+	}
+}
+
 // --- beaconing ---
 
 func TestBeaconingDetectionAndIntelBoost(t *testing.T) {

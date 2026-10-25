@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/l7redact"
 	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/topology"
 )
@@ -840,16 +841,13 @@ func firstLabel(name string) string {
 	return name
 }
 
-// registeredDomain naively takes the last two labels ("x.y.evil.example" →
-// "evil.example"). A public-suffix list is deliberately out of scope for
-// NDR-lite v1 (documented); thresholds absorb the imprecision.
+// registeredDomain is the domain the exfil detector groups by: the ICANN
+// registered domain (eTLD+1) from the compiled-in public-suffix list, the same
+// rule the eBPF agent keys its subdomain tokens on and the ingest strip keeps
+// (l7redact.RegisteredDomain) — so "x.evil.co.uk" groups under evil.co.uk,
+// not under the public suffix co.uk. Offline; nothing is fetched.
 func registeredDomain(name string) string {
-	name = strings.TrimSuffix(name, ".")
-	labels := strings.Split(name, ".")
-	if len(labels) < 2 {
-		return ""
-	}
-	return strings.Join(labels[len(labels)-2:], ".")
+	return l7redact.RegisteredDomain(name)
 }
 
 // cgnatPrefix is RFC 6598 carrier-grade NAT space (100.64.0.0/10). netip's

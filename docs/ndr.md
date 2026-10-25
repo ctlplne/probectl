@@ -50,7 +50,7 @@ report to) and **exfiltration** (smuggling data out of the network).
 | Kind | Behavior detected | Key tunables |
 |---|---|---|
 | `dns_dga` | many distinct high-entropy ("algorithmically generated") lookups from one source | `min_names`, `entropy`, `ratio`, `window_s` |
-| `dns_exfil` | high unique-subdomain volume under one domain (payload smuggled in query names) | `min_queries`, `qname_bytes`, `unique_ratio`, `window_s` |
+| `dns_exfil` | high unique-subdomain volume under one registered domain — the ICANN eTLD+1 from the compiled-in public-suffix list, so `x.evil.co.uk` counts under `evil.co.uk` (payload smuggled in query names) | `min_queries`, `qname_bytes`, `unique_ratio`, `window_s` |
 | `beaconing` | metronome-regular callbacks to one dst:port (a C2 heartbeat); confidence rises with regularity and with the destination's threat-intel reputation, and is scored down by `internal_penalty` when the destination is a private address (keepalives and pollers look identical; the signal carries `beacon.scope=internal`). Loopback and same-host flows never beacon | `min_samples`, `max_jitter`, `min_interval_s`, `max_interval_s`, `internal_penalty` |
 | `egress_volume` | egress bytes far above the source's own moving-average baseline | `min_samples`, `spike_factor`, `min_bytes` |
 | `egress_intel` | egress to Tor exits / IOC-listed hosts / configured bad ASNs | `min_confidence`, `lists.bad_asns` |
