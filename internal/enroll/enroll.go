@@ -624,6 +624,11 @@ func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostn
 		return nil, refuseTenant(tenantID, ErrRevoked)
 	}
 	if plane == "bmp" {
+		// DPR-356: a BMP router is a metered agent like every other collector
+		// (DPR-081); this branch issued its certificate without asking.
+		if qerr := usage.AllowCreate(ctx, tenantID, usage.MeterAgents); qerr != nil {
+			return nil, fmt.Errorf("%w: %v", ErrQuotaExceeded, qerr)
+		}
 		svid, err := s.issue(
 			ctx,
 			tenantID,

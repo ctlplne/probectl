@@ -618,31 +618,51 @@ func (d denyAgentQuota) AllowCreate(_ context.Context, _ string, resource string
 
 // DPR-081: a bus collector is a metered agent — registering one at the
 // tenant's agent cap is refused with the quota error the gRPC path already
-// raises, and admitted once the cap is lifted.
+// raises, and admitted once the cap is lifted. DPR-356: every collector plane,
+// including the ones that are issued a certificate (bmp, and ebpf with a CSR),
+// because the bmp branch once issued its certificate without asking.
 func TestCollectorRegistrationHonoursTheAgentQuota(t *testing.T) {
 	ctx := context.Background()
 	pool, svc, _ := setup(ctx, t)
 	defer pool.Close()
-	tn, err := store.NewTenants(pool).Create(ctx, fmt.Sprintf("quota-%d", time.Now().UnixNano()), "quota")
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(func() { usage.SetQuotaChecker(nil) })
-	usage.SetQuotaChecker(denyAgentQuota{})
-	token, _, err := svc.MintToken(ctx, tn.ID, "", "flow-collector", "test", time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.RegisterCollectorForTenant(ctx, tn.ID, token, "flow-1", "flow", ""); !errors.Is(err, enroll.ErrQuotaExceeded) {
-		t.Fatalf("registration at the cap must be refused with ErrQuotaExceeded, got %v", err)
-	}
-	usage.SetQuotaChecker(denyAgentQuota{allow: true})
-	token2, _, err := svc.MintToken(ctx, tn.ID, "", "flow-collector", "test", time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.RegisterCollectorForTenant(ctx, tn.ID, token2, "flow-1", "flow", ""); err != nil {
-		t.Fatalf("registration under the cap must succeed: %v", err)
+	for _, tc := range []struct {
+		plane   string
+		withCSR bool
+	}{
+		{"flow", false}, {"bgp", false}, {"device", false}, {"endpoint", false},
+		{"ebpf", false}, {"ebpf", true}, {"bmp", true},
+	} {
+		t.Run(fmt.Sprintf("%s/csr=%v", tc.plane, tc.withCSR), func(t *testing.T) {
+			tn, err := store.NewTenants(pool).Create(ctx, fmt.Sprintf("quota-%s-%d", tc.plane, time.Now().UnixNano()), "quota")
+			if err != nil {
+				t.Fatal(err)
+			}
+			csr := ""
+			if tc.withCSR {
+				c, _, err := crypto.CreateCSR(tc.plane + "-1")
+				if err != nil {
+					t.Fatal(err)
+				}
+				csr = string(c)
+			}
+			usage.SetQuotaChecker(denyAgentQuota{})
+			token, _, err := svc.MintToken(ctx, tn.ID, "", tc.plane+"-collector", "test", time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.RegisterCollectorForTenant(ctx, tn.ID, token, tc.plane+"-1", tc.plane, csr); !errors.Is(err, enroll.ErrQuotaExceeded) {
+				t.Fatalf("%s registration at the cap must be refused with ErrQuotaExceeded, got %v", tc.plane, err)
+			}
+			usage.SetQuotaChecker(denyAgentQuota{allow: true})
+			token2, _, err := svc.MintToken(ctx, tn.ID, "", tc.plane+"-collector", "test", time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.RegisterCollectorForTenant(ctx, tn.ID, token2, tc.plane+"-1", tc.plane, csr); err != nil {
+				t.Fatalf("%s registration under the cap must succeed: %v", tc.plane, err)
+			}
+		})
 	}
 }
 
