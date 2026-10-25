@@ -610,7 +610,10 @@ emit looser data than its tenant allows.
   workload, process, container, host and address fields must have an
   identifier's shape (≤ 253 bytes of letters, digits, space and
   `. _ : / @ + - ( ) [ ] # ~ ,`) or become `_invalid`. An identifier-shaped
-  value cannot be content-checked; this bounds shape, not meaning. On the
+  value cannot be content-checked; this bounds shape, not meaning. The clamp
+  fails closed at a cost: distinct workloads whose names carry other bytes
+  (`=`, `%`, `!`, non-ASCII) all become `_invalid` and merge into one topology
+  node within the tenant. On the
   pooled bus lane a tenant's floor is read only after the record's
   (tenant, agent) pair verifies against the registry (a namespaced lane names
   its tenant); anything unverified is stripped to `metadata` without a lookup,
@@ -663,6 +666,23 @@ literal routes and DNS names under `headers` — to the retained bus until they
 are upgraded; the control plane's ingest strip still keeps it out of every
 store. Upgrade the eBPF agents first when that bus retention matters, or drain
 the topic.
+
+- **The chart fails closed on upgrade.** `helm upgrade` of a release that has
+  `l7Capture.enabled` but no `controlPlane` (address, identity Secret and, from
+  D-43 R2, `controlPlane.apiURL`) refuses to render — and that blocks the
+  whole agent DaemonSet, flow plane included, not only capture. Before
+  upgrading, register the eBPF collector with a CSR
+  (`POST /v1/collectors/register`, `plane=ebpf`), create the identity Secret,
+  and set `controlPlane.grpcAddr`, `controlPlane.apiURL` and
+  `controlPlane.identity.existingSecret` (or disable `l7Capture` for the
+  upgrade).
+- **DGA and tunnelling are blind for older agents during the skew.** Agents
+  of the previous release (and any producer that sends no `dns_features`)
+  publish raw DNS names without the in-agent features; the ingest strip
+  templates those names, so the detectors score them on the stored form, whose
+  random first label is now `{id}`. Their DGA bursts and tunnelling go
+  undetected until the agents are upgraded — another reason to upgrade the
+  eBPF agents first.
 
 What `metadata` cannot see: a route segment that is an identifier but is
 shaped like a word (a username such as `/users/alice` or `/users/JDOE`).
