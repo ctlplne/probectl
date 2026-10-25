@@ -35,9 +35,10 @@ const maxDNSName = 253
 // .corp, .local, .lan) the second-level label is judged too. A name with no
 // registered domain (a single label) has every label judged.
 //
+// An identifier-shaped label that IS the ICANN registered label (48213.com) is
+// kept by default and templated with registeredOnly ({id}.com, decision D-68).
 // What it cannot see, as for routes: a word-shaped identifier label
-// (alice.users.corp.internal keeps "alice"). An identifier-shaped label that IS
-// the ICANN registered label (48213.com) is kept for now (decision D-68).
+// (alice.users.corp.internal keeps "alice").
 func DNSName(name string, registeredOnly bool) (string, Strip) {
 	var strip Strip
 	name = strings.TrimSuffix(name, ".")
@@ -61,10 +62,12 @@ func DNSName(name string, registeredOnly bool) (string, Strip) {
 	} else if domain == "" {
 		left = name
 	}
-	if !listed && domain != "" {
+	if domain != "" && (!listed || registeredOnly) {
 		// D-65 R1: a TLD the ICANN list does not know (.internal, .corp,
 		// .local, .lan) gives no organization boundary — its second-level
-		// label is judged like any other (w56hzv-23-c-0123.internal).
+		// label is judged like any other (w56hzv-23-c-0123.internal). D-68:
+		// under the regulated profile an identifier-shaped ICANN registered
+		// label is judged too (48213.com becomes {id}.com).
 		if sld, tld, _ := strings.Cut(domain, "."); sld == Placeholder || labelIsIdentifier(sld) {
 			if sld != Placeholder {
 				strip |= StripIdentifier

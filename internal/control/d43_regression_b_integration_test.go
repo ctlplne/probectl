@@ -77,11 +77,14 @@ var r1DNSNames = []string{
 	"bucket-patient-48213.s3.amazonaws.com", "acct48213.blob.core.windows.net",
 	"cust-48213.azurewebsites.net", "patient-48213.github.io",
 	"w56hzv-23-c-0123.internal", "records-48213.corp", "host48213.local", "mrn48213.lan",
+	// D-68: identifier-shaped ICANN registered labels — kept by default,
+	// templated under the regulated profile.
+	"58114.com", "patient58114.net",
 }
 
 // regulatedNeedles may not survive the regulated profile either: there only
 // the registered domain of a DNS name is kept.
-var regulatedNeedles = []string{"patients.example.com", "{id}.patients",
+var regulatedNeedles = []string{"patients.example.com", "{id}.patients", "58114",
 	// the headers tenant's opted-in values: under regulated its opt-in cannot apply
 	"HDRSEG-77-X-0001", "77310.hdrzone", "hdrtenant-dga-"}
 
@@ -569,9 +572,10 @@ func runD43RegressionB(t *testing.T, regulated bool) {
 
 	// Non-vacuity: the pipeline really carried each case.
 	metaBus := buses[agentMeta].snapshot()[0].Value
-	wantDNS := []string{"{id}.patients.example.com", "{id}.s3.amazonaws.com", "{id}.github.io", "{id}.internal", "{id}.lan"}
+	wantDNS := []string{"{id}.patients.example.com", "{id}.s3.amazonaws.com", "{id}.github.io", "{id}.internal", "{id}.lan",
+		"58114.com", "patient58114.net"}
 	if regulated {
-		wantDNS = []string{"example.com", "amazonaws.com", "github.io", "{id}.internal", "{id}.lan"}
+		wantDNS = []string{"example.com", "amazonaws.com", "github.io", "{id}.internal", "{id}.lan", "{id}.com", "{id}.net"}
 	}
 	for _, want := range append([]string{"/contracts/{id}/drawings"}, wantDNS...) {
 		if !bytes.Contains(metaBus, []byte(want)) {

@@ -621,7 +621,11 @@ section is deliberately not used: there a cloud customer's label counts as
 does not know (`.internal`, `.corp`, `.local`, `.lan`) the second-level label is
 judged too: `w56hzv-23-c-0123.internal` becomes `{id}.internal` on both
 profiles. An identifier-shaped label that is itself the ICANN registered label
-(`48213.com`) is kept for now — decision D-68. Both the agent and the ingest strip apply it; the NDR
+is kept on the default profile (`48213.com`, `patient48213.net`) and templated
+under the regulated profile (`{id}.com`, `{id}.net`) with the same identifier
+check — decision D-68. Under the audited `headers` opt-in (never available
+under regulated) DNS question names are kept raw, as they always were —
+decision D-69. Both the agent and the ingest strip apply it; the NDR
 detection summaries, incidents and the SIEM export quote only that stored
 form. The DGA and tunnelling detectors keep their signal from features the
 agent computes from the raw name while it is only in agent memory — the first

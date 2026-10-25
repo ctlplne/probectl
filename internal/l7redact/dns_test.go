@@ -10,7 +10,8 @@ import "testing"
 
 // D-65: DNS question names under metadata. Default: labels left of the
 // registered domain are templated with the route rules; regulated: only the
-// registered domain (eTLD+1, from the compiled-in public-suffix list).
+// registered domain (eTLD+1, from the compiled-in public-suffix list), its
+// own label templated when identifier-shaped (D-68).
 func TestDNSName(t *testing.T) {
 	for _, tc := range []struct {
 		in, templated, registered string
@@ -36,8 +37,12 @@ func TestDNSName(t *testing.T) {
 		{"host48213.local", "{id}.local", "{id}.local"},
 		{"mrn48213.lan", "{id}.lan", "{id}.lan"},
 		{"patient-48213.records.internal", "{id}.records.internal", "records.internal"},
-		// D-68 (pending): an identifier-shaped ICANN registered label is kept.
-		{"48213.com", "48213.com", "48213.com"},
+		// D-68: an identifier-shaped ICANN registered label is kept by default
+		// and templated under the regulated profile.
+		{"48213.com", "48213.com", "{id}.com"},
+		{"patient48213.net", "patient48213.net", "{id}.net"},
+		{"api.patient48213.co.uk", "api.patient48213.co.uk", "{id}.co.uk"},
+		{"48213.patient48213.com", "{id}.patient48213.com", "{id}.com"},
 		{"x1y2.a1b2.internal", "{id}.internal", "{id}.internal"},
 	} {
 		if got, _ := DNSName(tc.in, false); got != tc.templated {
