@@ -49,7 +49,7 @@ RUN npm ci --omit=dev --no-audit --no-fund && chmod -R a+rX /worker && \
       /usr/lib/node_modules/npm /usr/lib/node_modules/corepack /usr/lib/node_modules/yarn \
       /usr/bin/npm /usr/bin/npx /usr/bin/corepack /usr/bin/yarn /usr/bin/yarnpkg /root/.npm && \
     sh -c '! command -v npm && ! command -v npx && ! command -v corepack && ! command -v yarn'
-COPY --chown=pwuser:pwuser --chmod=0644 browser-worker/worker.mjs ./worker.mjs
+COPY --chown=pwuser:pwuser --chmod=0644 browser-worker/worker.mjs browser-worker/timings.mjs ./
 COPY --from=build --chmod=0755 /out/probectl-agent /usr/local/bin/probectl-agent
 RUN node --check /worker/worker.mjs && test -r /worker/worker.mjs
 

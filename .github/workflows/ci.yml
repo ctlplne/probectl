@@ -1777,6 +1777,9 @@ jobs:
             EDITION=${{ matrix.edition || 'core' }}
           load: true
           tags: probectl/${{ matrix.component }}:scan
+      - name: Exercise the shipped browser worker (success and failure screenshot)
+        if: matrix.component == 'probectl-browser-agent'
+        run: bash scripts/check_browser_image.sh probectl/probectl-browser-agent:scan
       - name: Trivy image scan (vuln)
         # Vuln-only: secret scanning is gitleaks' job (the secret-scan job, with
         # the .gitleaks.toml allowlist); see the dependency-scan step above.

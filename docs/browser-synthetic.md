@@ -196,6 +196,12 @@ immutable image digest, a Secret containing `agent.yml` plus the mTLS
 certificate/key/CA, and an explicit non-empty egress allow-list. Neither deploy
 renders a Service because the worker listens on nothing.
 
+CI also runs `scripts/check_browser_image.sh <built-image>` against the shipped
+image. It mounts only the smoke driver and exercises the image's own worker,
+timing helper, Node and Chromium: a successful local login, a failure screenshot,
+and private-target refusal. The container has no external network. This catches
+missing runtime files that syntax checks and source-based worker tests cannot.
+
 The worker applies the target policy to the start URL, redirects, and every page
 subresource after DNS resolution. Loopback, RFC1918/ULA, link-local/cloud
 metadata, CGNAT, multicast, and numeric-address bypasses are denied by default.
