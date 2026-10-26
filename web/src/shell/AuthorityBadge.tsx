@@ -10,8 +10,8 @@ import { authorityPosture } from './authority'
 import styles from './AuthorityBadge.module.css'
 
 export function AuthorityBadge() {
-  const { permissions } = useAuth()
-  const posture = authorityPosture(permissions)
+  const { permissions, hasScopedGrants } = useAuth()
+  const posture = authorityPosture(permissions, hasScopedGrants)
 
   return (
     <span

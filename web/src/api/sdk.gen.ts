@@ -1642,6 +1642,7 @@ export interface MPLSLabel {
 export interface Me {
   display_name?: string
   email?: string
+  has_scoped_grants?: boolean
   locale?: string
   mfa_satisfied?: boolean
   permissions: string[]

@@ -114,3 +114,34 @@ func TestScopedRBACScopeChangeRotatesSession(t *testing.T) {
 		t.Fatalf("rotated principal retained stale scope: %+v", principal.PermissionGrants)
 	}
 }
+
+func TestHasScopedGrantsIsMetadataOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		grants []PermissionGrant
+		want   bool
+	}{
+		{"none", nil, false},
+		{"tenant", []PermissionGrant{{Permission: "org.write", ScopeType: ScopeTenant}}, false},
+		{"organization", []PermissionGrant{{Permission: "org.write", ScopeType: ScopeOrganization, ScopeID: "org-a"}}, true},
+		{"team read", []PermissionGrant{{Permission: "org.read", ScopeType: ScopeTeam, ScopeID: "team-a"}}, true},
+		{"project read", []PermissionGrant{{Permission: "org.read", ScopeType: ScopeProject, ScopeID: "project-a"}}, true},
+		{"missing id", []PermissionGrant{{Permission: "org.write", ScopeType: ScopeOrganization}}, false},
+		{"unknown scope", []PermissionGrant{{Permission: "org.write", ScopeType: "unknown", ScopeID: "org-a"}}, false},
+		{"empty permission", []PermissionGrant{{ScopeType: ScopeOrganization, ScopeID: "org-a"}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := PrincipalWithPermissionGrants(&Principal{}, tc.grants)
+			if p.HasScopedGrants() != tc.want {
+				t.Fatalf("scoped metadata = %v, want %v", p.HasScopedGrants(), tc.want)
+			}
+			if tc.want && p.Has("org.write") {
+				t.Fatal("scoped metadata widened tenant permission")
+			}
+		})
+	}
+	var p *Principal
+	if p.HasScopedGrants() {
+		t.Fatal("nil principal has scoped grants")
+	}
+}

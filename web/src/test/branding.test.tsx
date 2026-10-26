@@ -202,3 +202,19 @@ describe('deployment-level probectl theming', () => {
     ).toEqual({ '--primary': '28 85% 30%', '--primary-foreground': '0 0% 100%' })
   })
 })
+
+test.each([{ permissions: [] }, { permissions: ['org.read', 'test.read'] }])(
+  'scoped grants produce an honest badge without enabling tenant-wide writes: $permissions',
+  async ({ permissions }) => {
+    vi.stubGlobal('fetch', brandingStub(DEFAULT_BRAND))
+    renderApp('/targets', { me: { permissions, has_scoped_grants: true } })
+    expect(
+      await screen.findByRole('status', { name: 'Authority posture: Scoped access' }),
+    ).toBeInTheDocument()
+    if (permissions.includes('test.read')) {
+      expect(screen.getByRole('button', { name: 'New test' })).toBeDisabled()
+    } else {
+      expect(screen.queryByRole('button', { name: 'New test' })).not.toBeInTheDocument()
+    }
+  },
+)

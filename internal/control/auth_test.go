@@ -525,3 +525,36 @@ func TestLoginRecoversInvalidPredecessor(t *testing.T) {
 		})
 	}
 }
+
+func TestMeScopedGrantMetadataDoesNotWidenPermissions(t *testing.T) {
+	for _, tc := range []struct {
+		tenant string
+		scoped bool
+	}{{"tenant-a", true}, {"tenant-b", false}} {
+		grants := []auth.PermissionGrant{{Permission: permOrgRead, ScopeType: auth.ScopeTenant}}
+		if tc.scoped {
+			grants = append(grants, auth.PermissionGrant{Permission: permOrgWrite, ScopeType: auth.ScopeOrganization, ScopeID: "private-org-a"})
+		}
+		p := auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: tc.tenant, UserID: "user-" + tc.tenant}, grants)
+		req := httptest.NewRequest(http.MethodGet, "/v1/me?has_scoped_grants=true&tenant_id=foreign", nil)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), p))
+		rec := httptest.NewRecorder()
+		if err := testServer(nil).handleMe(rec, req); err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			TenantID    string   `json:"tenant_id"`
+			Permissions []string `json:"permissions"`
+			Scoped      bool     `json:"has_scoped_grants"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.TenantID != tc.tenant || body.Scoped != tc.scoped || len(body.Permissions) != 1 || body.Permissions[0] != permOrgRead {
+			t.Fatalf("wrong caller authority: %+v", body)
+		}
+		if strings.Contains(rec.Body.String(), "private-org-a") {
+			t.Fatal("summary exposed resource IDs")
+		}
+	}
+}

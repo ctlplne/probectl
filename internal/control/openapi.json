@@ -12354,6 +12354,10 @@
           "permissions"
         ],
         "properties": {
+          "has_scoped_grants": {
+            "type": "boolean",
+            "description": "Informational only: the authenticated principal has resource-scoped RBAC grants. Does not confer tenant-wide permission; actions still require scoped RBAC and ABAC."
+          },
           "tenant_id": {
             "type": "string",
             "format": "uuid"

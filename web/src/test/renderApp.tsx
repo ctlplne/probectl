@@ -23,6 +23,7 @@ interface MeFixture {
   display_name: string
   mfa_satisfied: boolean
   permissions: string[]
+  has_scoped_grants?: boolean
   tenant_time_zone?: string
   tenant_locale?: string
   time_zone?: string

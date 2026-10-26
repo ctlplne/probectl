@@ -170,6 +170,14 @@ func TestScopedRBACHierarchySiblingAndTenantIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	foreignGrants, err := (permLoader{pool: db.Pool()}).ForUser(ctx, tenantB, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignPrincipal := auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: tenantB, UserID: userID}, foreignGrants)
+	if foreignPrincipal.HasScopedGrants() {
+		t.Fatal("scoped metadata leaked a different tenant's role bindings")
+	}
 	principal := auth.PrincipalWithPermissionGrants(
 		&auth.Principal{TenantID: tenantA, UserID: userID, Email: "delegated@example.test"},
 		grants,

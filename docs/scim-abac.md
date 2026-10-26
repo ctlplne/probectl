@@ -279,3 +279,11 @@ existing parent when creating a team or project. They do not accept `project`,
 because a new project has no existing project ID to match. `org.read` and `*`
 can use `org`, `team`, or `project`; unrelated permissions still reject those
 keys rather than accepting a policy that cannot be enforced.
+
+
+`GET /v1/me` keeps `permissions` tenant-wide. Its separate
+`has_scoped_grants` flag reports valid resource-scoped RBAC grants for the
+current principal without exposing branch IDs or widening permissions. The
+console displays **Scoped access** when such grants accompany otherwise
+read-only tenant permissions. This is an authority summary, not an authorization
+decision: per-resource actions still require RBAC and ABAC checks.

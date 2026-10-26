@@ -23,7 +23,7 @@ function isReadPermission(permission: string): boolean {
   )
 }
 
-export function authorityPosture(permissions: string[]): AuthorityPosture {
+export function authorityPosture(permissions: string[], hasScopedGrants = false): AuthorityPosture {
   const sorted = [...permissions].sort()
   const joined = sorted.join(', ')
   if (sorted.some((permission) => /break[-_]?glass|breakglass/i.test(permission))) {
@@ -48,6 +48,15 @@ export function authorityPosture(permissions: string[]): AuthorityPosture {
       short: 'Provider',
       tone: 'warning',
       detail: `Provider privilege domain from server permissions: ${joined}`,
+    }
+  }
+  if (hasScopedGrants && sorted.every(isReadPermission)) {
+    return {
+      label: 'Scoped access',
+      short: 'Scoped',
+      tone: 'info',
+      detail:
+        'Resource-scoped role grants apply within assigned branches. Each action is checked by the server; these grants do not confer tenant-wide write permission.',
     }
   }
   if (sorted.length === 0 || (sorted.length === 1 && sorted[0] === 'audit.read')) {

@@ -1746,18 +1746,19 @@ type MPLSLabel struct {
 
 // The authenticated caller: the resolved tenant (always present), identity, and the effective RBAC permission keys within that tenant.
 type Me struct {
-	DisplayName    string   `json:"display_name,omitempty"`
-	Email          string   `json:"email,omitempty"`
-	Locale         string   `json:"locale,omitempty"`
-	MfaSatisfied   bool     `json:"mfa_satisfied,omitempty"`
-	Permissions    []string `json:"permissions"`
-	TenantId       string   `json:"tenant_id"`
-	TenantLocale   string   `json:"tenant_locale,omitempty"`
-	TenantName     string   `json:"tenant_name"`
-	TenantSlug     string   `json:"tenant_slug"`
-	TenantTimeZone string   `json:"tenant_time_zone,omitempty"`
-	TimeZone       string   `json:"time_zone,omitempty"`
-	UserId         string   `json:"user_id"`
+	DisplayName     string   `json:"display_name,omitempty"`
+	Email           string   `json:"email,omitempty"`
+	HasScopedGrants bool     `json:"has_scoped_grants,omitempty"`
+	Locale          string   `json:"locale,omitempty"`
+	MfaSatisfied    bool     `json:"mfa_satisfied,omitempty"`
+	Permissions     []string `json:"permissions"`
+	TenantId        string   `json:"tenant_id"`
+	TenantLocale    string   `json:"tenant_locale,omitempty"`
+	TenantName      string   `json:"tenant_name"`
+	TenantSlug      string   `json:"tenant_slug"`
+	TenantTimeZone  string   `json:"tenant_time_zone,omitempty"`
+	TimeZone        string   `json:"time_zone,omitempty"`
+	UserId          string   `json:"user_id"`
 }
 
 type OnboardingFinding struct {

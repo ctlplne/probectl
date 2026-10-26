@@ -39,6 +39,7 @@ export interface AuthContextValue {
   tenant: Tenant
   tenants: Tenant[]
   permissions: string[]
+  hasScopedGrants?: boolean
   switchTenant: (id: string) => void
   signOut: () => void
 }
@@ -55,6 +56,7 @@ interface Me {
   email: string
   display_name: string
   permissions?: string[]
+  has_scoped_grants?: boolean
   tenant_time_zone?: string | null
   tenant_locale?: string | null
   time_zone?: string | null
@@ -159,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tenant,
       tenants: [tenant],
       permissions: me.permissions ?? [],
+      hasScopedGrants: me.has_scoped_grants === true,
       switchTenant: () => {},
       signOut,
     }

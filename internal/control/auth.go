@@ -964,18 +964,19 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) error {
 	}
 	sort.Strings(perms)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tenant_id":        p.TenantID,
-		"tenant_name":      tenantName,
-		"tenant_slug":      tenantSlug,
-		"user_id":          p.UserID,
-		"email":            p.Email,
-		"display_name":     p.DisplayName,
-		"mfa_satisfied":    p.MFASatisfied,
-		"time_zone":        prefOrDefault(p.TimeZone, "UTC"),
-		"locale":           prefOrDefault(p.Locale, "en"),
-		"tenant_time_zone": prefOrDefault(p.TenantTimeZone, "UTC"),
-		"tenant_locale":    prefOrDefault(p.TenantLocale, "en"),
-		"permissions":      perms,
+		"tenant_id":         p.TenantID,
+		"tenant_name":       tenantName,
+		"tenant_slug":       tenantSlug,
+		"user_id":           p.UserID,
+		"email":             p.Email,
+		"display_name":      p.DisplayName,
+		"mfa_satisfied":     p.MFASatisfied,
+		"time_zone":         prefOrDefault(p.TimeZone, "UTC"),
+		"locale":            prefOrDefault(p.Locale, "en"),
+		"tenant_time_zone":  prefOrDefault(p.TenantTimeZone, "UTC"),
+		"tenant_locale":     prefOrDefault(p.TenantLocale, "en"),
+		"permissions":       perms,
+		"has_scoped_grants": p.HasScopedGrants(),
 	})
 	return nil
 }

@@ -127,6 +127,21 @@ type Principal struct {
 	Attributes map[string]string
 }
 
+// HasScopedGrants reports whether the principal has a valid resource-scoped
+// RBAC grant. This is display metadata only; callers must still use HasAt and
+// ABAC to authorize a concrete action within the resolved tenant.
+func (p *Principal) HasScopedGrants() bool {
+	if p == nil {
+		return false
+	}
+	for _, grant := range p.PermissionGrants {
+		if grant.ScopeType != ScopeTenant && validPermissionGrant(grant) {
+			return true
+		}
+	}
+	return false
+}
+
 // Has reports whether the principal holds permission key tenant-wide. A
 // resource-scoped role binding must never make this method return true.
 func (p *Principal) Has(key string) bool {
