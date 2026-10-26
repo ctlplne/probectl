@@ -7,14 +7,14 @@
 # Build context is the repository root.
 
 ARG GO_VERSION=1.26.10
-ARG NODE_VERSION=22
+ARG NODE_VERSION=26
 
 # UX-002: build the web UI FIRST, on the build platform, and hand its bundle to
 # the Go stage so go:embed (internal/webui) ships the REAL single-page app — not
 # the "not bundled" placeholder. The release image previously compiled Go without
 # ever running `npm run build`, so every shipped binary served the stub. Building
 # it here makes the default production image serve the real UI.
-FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752 AS web
+FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS web
 # EDITION (PD-5, AUD-20): `core` (the default) builds the core-only image, with
 # no ee/ code in the binary and no commercial UI in the bundle; `ee` builds the
 # separate partner image line. Anything else fails the build.

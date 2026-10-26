@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${PROBECTL_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c}"
+IMAGE="${PROBECTL_PLAYWRIGHT_IMAGE:-}"
 DOCKER_BIN="${DOCKER:-docker}"
 A11Y_THEMES="${PROBECTL_A11Y_THEMES:-light,dark}"
 SOURCE_SHA="$(git -C "$ROOT" rev-parse HEAD)"
@@ -96,7 +96,16 @@ if ! "$DOCKER_BIN" info >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "web-rendered-a11y: running the CI Playwright image:"
+# Use the browser-agent's pinned Node 26/npm 11 with the pinned Chromium base.
+# No source bundle is copied into this target; the run below mounts this checkout.
+if [ -z "$IMAGE" ]; then
+  IMAGE="$("$DOCKER_BIN" build --quiet --target browser-toolchain -f "$ROOT/deploy/docker/Dockerfile.browser-agent" "$ROOT")"
+  for ((i = 0; i < ${#docker_args[@]}; i++)); do
+    if [ -z "${docker_args[$i]}" ]; then docker_args[$i]="$IMAGE"; break; fi
+  done
+fi
+
+echo "web-rendered-a11y: running the pinned Node/Chromium toolchain:"
 echo "  $IMAGE"
 echo "web-rendered-a11y: themes: $A11Y_THEMES"
 

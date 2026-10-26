@@ -23,8 +23,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         -X github.com/ctlplne/probectl/internal/version.Date=${DATE}" \
       -o /out/probectl-agent ./cmd/probectl-agent
 
-# Chromium + OS runtime are supplied by the already-pinned Playwright image.
-FROM mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+# Chromium and its OS dependencies stay pinned independently of Node. This
+# target also supplies the local rendered-a11y toolchain, so it cannot silently
+# inherit an older npm from the Playwright base.
+FROM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS node-toolchain
+FROM mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c AS browser-toolchain
+RUN rm -rf /usr/lib/node_modules/npm /usr/lib/node_modules/corepack /usr/lib/node_modules/yarn \
+      /usr/bin/node /usr/bin/nodejs /usr/bin/npm /usr/bin/npx /usr/bin/corepack /usr/bin/yarn /usr/bin/yarnpkg
+COPY --from=node-toolchain /usr/local/ /usr/local/
+RUN test "$(node --version)" = v26.12.1 && test "$(npm --version)" = 11.20.0
+
+FROM browser-toolchain AS runtime
 WORKDIR /worker
 # DPR-062: explicit modes — COPY otherwise inherits the build host's file
 # modes, and a 0600 checkout produced a worker the chart's uid could not read
@@ -35,7 +44,9 @@ COPY --chmod=0644 browser-worker/package.json browser-worker/package-lock.json .
 # corepack/yarn fetch package managers from the network, so all three leave the
 # runtime image once the worker's dependencies are installed (PD-13).
 RUN npm ci --omit=dev --no-audit --no-fund && chmod -R a+rX /worker && \
-    rm -rf /usr/lib/node_modules/npm /usr/lib/node_modules/corepack /usr/lib/node_modules/yarn \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn* \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+      /usr/lib/node_modules/npm /usr/lib/node_modules/corepack /usr/lib/node_modules/yarn \
       /usr/bin/npm /usr/bin/npx /usr/bin/corepack /usr/bin/yarn /usr/bin/yarnpkg /root/.npm && \
     sh -c '! command -v npm && ! command -v npx && ! command -v corepack && ! command -v yarn'
 COPY --chown=pwuser:pwuser --chmod=0644 browser-worker/worker.mjs ./worker.mjs

@@ -11,20 +11,21 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TestWebLockHasNoNonOptionalPlatformBinaries (DPR-236): platform-specific
 // binaries — @esbuild/<os>-<arch>, @rollup/rollup-<os>-<arch> and friends — must
 // be marked optional in web/package-lock.json. A lock that lists them as REQUIRED
-// tells npm to install a NetBSD arm64 binary on a linux/x64 builder, and npm 10
-// (the version CI and deploy/docker/Dockerfile both use) refuses with
-// EBADPLATFORM in about seven seconds.
+// caused npm 10 to attempt a NetBSD arm64 binary on linux/x64 (EBADPLATFORM).
+// npm 11 can reconstruct optionality, but the portable lock invariant remains.
 //
 // That is not hypothetical: it took down eleven of fourteen failing jobs at once
 // — web, web-rendered-a11y, image-scan and all EIGHT build-images jobs, because
-// the Dockerfile's web stage runs `npm ci` too. npm 11 on a developer's laptop
-// writes the lock that way and installs from it happily, so the break is
-// invisible until CI sees it.
+// the Dockerfile's web stage runs `npm ci` too. A different npm on a developer's
+// laptop had hidden the break. Node 26/npm 11 now owns every consumer, but the
+// optionality invariant remains unchanged.
 //
 // The rule is therefore checked here, where it costs nothing, needs no docker and
 // runs on every commit. Regenerate the lock with scripts/web_npm.sh, which uses
@@ -79,10 +80,59 @@ func TestWebLockHasNoNonOptionalPlatformBinaries(t *testing.T) {
 		t.Fatal("no platform-pinned packages found in the lock; the guard has stopped checking anything")
 	}
 	if len(bad) != 0 {
-		t.Fatalf("%d of %d platform-pinned packages are NOT optional — npm 10 will fail with "+
-			"EBADPLATFORM on a linux/x64 builder and take every image build with it. Regenerate with "+
+		t.Fatalf("%d of %d platform-pinned packages are NOT optional — the portable-lock invariant requires it. Regenerate with "+
 			"scripts/web_npm.sh install --package-lock-only:\n  %s",
 			len(bad), pinned, strings.Join(bad[:min(len(bad), 8)], "\n  "))
+	}
+}
+
+// TestWebToolchainConsumersAgree keeps CI, image builds and local browser checks
+// on the same Node generation; a clean npm install must not depend on its caller.
+func TestWebToolchainConsumersAgree(t *testing.T) {
+	dockerfile := readRepoFile(t, "deploy", "docker", "Dockerfile")
+	if !strings.Contains(dockerfile, "ARG NODE_VERSION=26") {
+		t.Error("the product web builder must use Node 26")
+	}
+	for _, file := range []string{"ci.yml", "release.yml", "security-scan.yml"} {
+		var workflow struct {
+			Jobs map[string]struct {
+				Steps []struct {
+					Uses string            `yaml:"uses"`
+					With map[string]string `yaml:"with"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal([]byte(readRepoFile(t, ".github", "workflows", file)), &workflow); err != nil {
+			t.Fatal(err)
+		}
+		for job, def := range workflow.Jobs {
+			found := false
+			for _, step := range def.Steps {
+				if strings.HasPrefix(step.Uses, "actions/setup-node@") {
+					found = true
+					if step.With["node-version"] != "26.12.1" {
+						t.Errorf("%s job %s uses Node %q, want 26.12.1", file, job, step.With["node-version"])
+					}
+				}
+			}
+			if file == "ci.yml" && job == "browser-worker" && !found {
+				t.Error("browser-worker must select the product Node version instead of inheriting Playwright's older Node")
+			}
+		}
+	}
+	for _, dir := range []string{"web", "browser-worker"} {
+		var pkg struct {
+			PackageManager string `json:"packageManager"`
+		}
+		if err := json.Unmarshal([]byte(readRepoFile(t, dir, "package.json")), &pkg); err != nil {
+			t.Fatal(err)
+		}
+		if pkg.PackageManager != "npm@11.20.0" {
+			t.Errorf("%s packageManager = %q, want npm@11.20.0", dir, pkg.PackageManager)
+		}
+	}
+	if !strings.Contains(readRepoFile(t, "scripts", "web_rendered_a11y_container.sh"), "--target browser-toolchain") {
+		t.Error("local rendered checks must build the same Node/Chromium toolchain as the browser agent")
 	}
 }
 

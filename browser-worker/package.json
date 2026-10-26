@@ -17,6 +17,8 @@
     "playwright": "1.55.1"
   },
   "engines": {
-    "node": ">=20"
-  }
+    "node": ">=26 <27",
+    "npm": ">=11 <12"
+  },
+  "packageManager": "npm@11.20.0"
 }

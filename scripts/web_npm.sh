@@ -4,20 +4,9 @@
 # Run an npm command for web/ inside the SAME digest-pinned Node image CI and
 # deploy/docker/Dockerfile use, instead of whatever npm the host happens to have.
 #
-# DPR-236: web/package-lock.json is owned by ONE npm version, and it is not the
-# laptop's. npm 10 and npm 11 disagree about lockfile content in a way that makes
-# a lock written by one unusable by the other:
-#
-#   * npm 11 records every platform-specific optional binary (72 @esbuild/* and
-#     @rollup/* nodes) and writes them WITHOUT "optional": true. npm 10 then tries
-#     to install @esbuild/netbsd-arm64 on linux/x64 and dies with EBADPLATFORM.
-#   * npm 10 omits those nodes entirely. npm 11 then refuses the lock with EUSAGE,
-#     "Missing: @esbuild/aix-ppc64@0.21.5 from lock file", 72 times.
-#
-# Every consumer in CI is npm 10: the Dockerfile's digest-pinned node:22 stage
-# (8 build-images jobs + image-scan), the three setup-node jobs at node-version
-# "22", and web-rendered-a11y inside the Playwright container. So npm 10 owns the
-# lock, and the way to produce or check it is this script — not `npm` on a host.
+# DPR-236 / CQA-001: Node 26.12.1 and npm 11.20.0 own the lockfile.
+# CI, release builds and browser tooling use the same generation. Always prove
+# a fresh npm ci; a populated node_modules can conceal a broken lockfile.
 #
 #   scripts/web_npm.sh ci                 # install exactly what the lock says
 #   scripts/web_npm.sh install --package-lock-only   # regenerate the lock
@@ -55,5 +44,5 @@ exec docker run --rm \
   -w /src/web \
   -e npm_config_update_notifier=false \
   -e HOME=/tmp \
-  node:22-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752 \
+  node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe \
   npm "$@"

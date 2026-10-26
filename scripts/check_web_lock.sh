@@ -13,8 +13,9 @@
 #   EUSAGE        a node the tree needs is absent — `npm audit fix
 #                 --package-lock-only` deleted vitest's nested esbuild without
 #                 re-resolving the vite that wanted it (ac90177).
-#   EBADPLATFORM  platform binaries recorded non-optional, so npm tries to install
-#                 @esbuild/netbsd-arm64 on linux/x64 (an npm 11-written lock).
+#   REQUIRED_PLATFORM_BINARY  platform binaries recorded non-optional. This
+#                 caused EBADPLATFORM under npm 10; npm 11 accepts some such
+#                 locks, so the portability rule is also checked explicitly.
 #
 # Neither is visible locally from an already-populated node_modules: `npm audit`,
 # the policy gate and the whole test suite pass while `npm ci` cannot install at
@@ -40,19 +41,35 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 127
 fi
 
-# dry_run <package.json> <package-lock.json> -> prints npm's error code, exits non-zero on failure.
+# dry_run <package.json> <package-lock.json> -> prints the policy/npm error code on failure.
 #
 # The mount arguments are built BEFORE the docker line: the workflow-image policy
 # (SUPPLY-002) parses docker commands statically to prove the image operand is a
 # digest, and a command substitution inside -v defeats that parse.
 dry_run() {
   local pj="$1" lock="$2" out pj_mount lock_mount
+  # npm 11 can reconstruct optionality from the dependency edges and accepts
+  # the old non-optional-platform crasher. Keep the repository's portability
+  # invariant explicit instead of relying on one npm version's rejection.
+  if ! python3 - "$lock" <<'PY'
+import json, sys
+lock = json.load(open(sys.argv[1]))
+bad = [name for name, package in lock['packages'].items()
+       if (package.get('os') or package.get('cpu')) and not package.get('optional')]
+if bad:
+    print('required platform binaries: ' + ', '.join(sorted(bad)), file=sys.stderr)
+    sys.exit(1)
+PY
+  then
+    echo REQUIRED_PLATFORM_BINARY
+    return 1
+  fi
   pj_mount="$(cd "$(dirname "$pj")" && pwd)/$(basename "$pj"):/s/package.json:ro"
   lock_mount="$(cd "$(dirname "$lock")" && pwd)/$(basename "$lock"):/s/package-lock.json:ro"
   out="$(mktemp)"
   if docker run --rm --platform "$PLATFORM" -v "$pj_mount" -v "$lock_mount" \
       -e npm_config_update_notifier=false -e HOME=/tmp \
-      node:22-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752 \
+      node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe \
       bash -c 'mkdir -p /b && cp /s/package*.json /b/ && cd /b && npm ci --dry-run --no-audit --no-fund' \
       > "$out" 2>&1; then
     rm -f "$out"
