@@ -4,6 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
+import { AdminQueryError } from './AdminQueryError'
 import { useState } from 'react'
 import styles from '../pages.module.css'
 import {
@@ -14,7 +15,6 @@ import {
   CardHeader,
   Column,
   EmptyState,
-  ErrorState,
   Field,
   Modal,
   StatusDot,
@@ -110,7 +110,7 @@ export function RemediationCard() {
           </p>
         ) : null}
         {isError ? (
-          <ErrorState description={t('remediation.error')} />
+          <AdminQueryError error={error} description={t('remediation.error')} />
         ) : (
           <Table
             caption={t('remediation.table.caption')}
@@ -248,7 +248,7 @@ export function KeysCard() {
       />
       <CardBody>
         {isError ? (
-          <ErrorState description="Could not load the key chain." />
+          <AdminQueryError error={error} description="Could not load the key chain." />
         ) : (
           <>
             <Table

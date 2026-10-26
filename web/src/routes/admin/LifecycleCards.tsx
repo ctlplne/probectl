@@ -4,6 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
+import { AdminQueryError } from './AdminQueryError'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styles from '../pages.module.css'
@@ -15,7 +16,6 @@ import {
   CardHeader,
   Column,
   EmptyState,
-  ErrorState,
   Field,
   LoadingState,
   Modal,
@@ -46,7 +46,7 @@ import { formatInteger, formatScaledBytes, formatDuration } from '../../i18n/num
  *  control, and residency/isolation visibility — export + verifiable
  *  deletion are a compliance right, present in every edition. */
 export function LifecycleCard() {
-  const { data, isPending, isError } = useLifecycle()
+  const { data, isPending, isError, error: queryError } = useLifecycle()
   const saveRetention = useSaveLifecycleRetention()
   const eraseTenant = useEraseTenantLifecycle()
   const [retentionDays, setRetentionDays] = useState<Record<string, string>>({})
@@ -131,7 +131,10 @@ export function LifecycleCard() {
         {isPending ? (
           <LoadingState label="Loading lifecycle…" />
         ) : isError ? (
-          <ErrorState description="Tenant lifecycle is not wired on this deployment." />
+          <AdminQueryError
+            error={queryError}
+            description="Could not load tenant lifecycle. Configuration and health are unknown."
+          />
         ) : (
           <>
             <p className={styles.editionsLede}>
@@ -353,7 +356,7 @@ function EraseTenantDialog({
  *  credentials or PII. */
 export function SupportCard() {
   const { locale, t } = useI18n()
-  const { data, isPending, isError, refetch, isFetching } = useDiagnostics()
+  const { data, isPending, isError, error: queryError, refetch, isFetching } = useDiagnostics()
   const checks = data?.checks ?? []
   const findings = checks.flatMap((check) => (check.finding ? [check.finding] : []))
   const missingFindings = checks.filter((check) => check.status !== 'ok' && !check.finding).length
@@ -443,7 +446,10 @@ export function SupportCard() {
           <LoadingState label="Running health checks…" />
         ) : isError ? (
           <>
-            <ErrorState description="Could not load diagnostics. No healthy state is being inferred." />
+            <AdminQueryError
+              error={queryError}
+              description="Could not load diagnostics. No healthy state is being inferred."
+            />
             <Button
               onClick={() => {
                 void refetch()
@@ -635,7 +641,7 @@ function hasCompleteBuildIdentity(build: Version | undefined): build is Version 
 /** EditionsCard (S-T0) is the ONE place tiers appear when unlicensed — the
  *  hidden-unlicensed doctrine: no lockware anywhere else in the product. */
 export function EditionsCard() {
-  const { data, isPending, isError } = useEditions()
+  const { data, isPending, isError, error: queryError } = useEditions()
 
   const stateBadge = () => {
     switch (data?.state) {
@@ -692,7 +698,7 @@ export function EditionsCard() {
         {isPending ? (
           <LoadingState label="Loading license state…" />
         ) : isError ? (
-          <ErrorState description="Could not load the editions state." />
+          <AdminQueryError error={queryError} description="Could not load the editions state." />
         ) : (
           <>
             <p className={styles.editionsLede}>

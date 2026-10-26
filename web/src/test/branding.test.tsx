@@ -211,10 +211,6 @@ test.each([{ permissions: [] }, { permissions: ['org.read', 'test.read'] }])(
     expect(
       await screen.findByRole('status', { name: 'Authority posture: Scoped access' }),
     ).toBeInTheDocument()
-    if (permissions.includes('test.read')) {
-      expect(screen.getByRole('button', { name: 'New test' })).toBeDisabled()
-    } else {
-      expect(screen.queryByRole('button', { name: 'New test' })).not.toBeInTheDocument()
-    }
+    expect(await screen.findByRole('button', { name: 'New test' })).toBeDisabled()
   },
 )

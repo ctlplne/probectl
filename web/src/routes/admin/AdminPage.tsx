@@ -4,6 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
+import { AdminQueryError } from './AdminQueryError'
 import { useAuth } from '../../auth/useAuth'
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -677,7 +678,7 @@ function CollectorRegisterDialog({
  * "not wired" empty state, never as a healthy zero. */
 function SecretBackendsCard() {
   const { t } = useI18n()
-  const { data, isPending, isError } = useSecretsHealth()
+  const { data, isPending, isError, error } = useSecretsHealth()
 
   const columns: Column<SecretBackendHealth>[] = [
     {
@@ -718,7 +719,7 @@ function SecretBackendsCard() {
         {isPending ? (
           <LoadingState label={t('admin.secrets.loading')} />
         ) : isError ? (
-          <ErrorState description={t('admin.secrets.error')} />
+          <AdminQueryError error={error} description={t('admin.secrets.error')} />
         ) : !data?.resolver_running ? (
           <EmptyState
             icon="admin"
