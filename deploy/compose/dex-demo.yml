@@ -40,6 +40,8 @@ services:
         condition: service_started
     command: ["dex", "serve", "/etc/dex/config.demo.yaml"]
     environment:
+      DEX_DEMO_PORT: "5556"
+      DEX_DEMO_REDIRECT_URL: "https://localhost:8443/auth/callback"
       DEX_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?DEX_CLIENT_SECRET is required for the local Dex demo}
       DEX_DEMO_PASSWORD_HASH: ${DEX_DEMO_PASSWORD_HASH:?DEX_DEMO_PASSWORD_HASH is required for the local Dex demo}
     volumes:

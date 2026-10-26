@@ -214,6 +214,13 @@ file and recreate the stack with the command above. Do not replace the key or
 delete the database to hide the error. Keep the secret file out of Git. A fresh
 SSO-only evaluation generates this file once using the overlay's instructions.
 
+The UI and Dex each need a reachable HTTPS port. To avoid other local stacks,
+set `PROBECTL_EVAL_UI_PORT=18443` and `PROBECTL_EVAL_DEX_PORT=19556` before
+running that command, then open `https://localhost:18443/ui/`. Compose keeps
+the issuer, Dex listener and allowed callback in agreement and publishes both
+ports on `127.0.0.1` only. Recreate the whole stack when changing ports because
+Dex shares the control container's network namespace.
+
 ## Local dev dependency stack (`dev.yml`)
 
 Backing services only — Postgres, Kafka, ClickHouse, Prometheus — for running

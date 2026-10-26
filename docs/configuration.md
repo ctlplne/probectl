@@ -2965,3 +2965,25 @@ them, so don't rename them casually.
 
 `make compose-down` removes the containers **and volumes** (`pgdata`, `chdata`,
 `promdata`).
+
+## Evaluation SSO Compose variables
+
+These values are read by `deploy/compose/eval-sso.yml`, rather than the control
+plane's environment loader. Keep its generated secrets in an uncommitted
+runtime environment file. When switching from `make first-data`, reuse its
+`.env.eval` so the enrolled-agent CA can still be decrypted.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROBECTL_EVAL_UI_PORT` | `8443` | Loopback host port for the HTTPS UI; also sets the allowed OIDC callback on both control and Dex. |
+| `PROBECTL_EVAL_DEX_PORT` | `5556` | Dex HTTPS listener and loopback host port; both the browser and control plane use this issuer port. |
+| `PROBECTL_EVAL_ENVELOPE_KEY` | `(none)` | Existing evaluation envelope key forwarded as `PROBECTL_ENVELOPE_KEY`; required to reopen an enrolled-agent CA created by first-data. Never replace it while retaining that database. |
+| `DEX_CLIENT_SECRET` | `(none)` | Generated OIDC client secret shared by control and the local demo IdP. |
+| `DEX_DEMO_PASSWORD_HASH` | `(none)` | bcrypt hash of the local demo user's chosen password; no default password ships. |
+
+The shared Dex template consumes `DEX_DEMO_PORT` and
+`DEX_DEMO_REDIRECT_URL`. The Compose overlays set these automatically:
+`eval-sso.yml` derives them from the evaluation ports, while `dex-demo.yml`
+retains its existing `5556` issuer and `8443` callback defaults. Do not set a
+second, conflicting callback in the template. Both listeners use the generated
+TLS certificate and preserve certificate verification.
