@@ -189,6 +189,23 @@ it) is a separate follow-up.
 Most releases upgrade by the rules above and nothing else. A release that needs
 an operator step before its pods can start is listed here, newest first.
 
+### Historical audit records during upgrade
+
+The verifier preserves hashes written by v0.6.5 rather than rewriting audit
+history. Records without durable canonical bytes can verify using the exact
+historical format, provided their headers contain neither newlines nor
+backslashes. Ambiguous historical headers fail closed and require operator
+investigation; the upgrade does not silently reinterpret them. Current records
+always use the timestamp-bound, escaped-header format, including in mixed
+old/new chains. Removing a current record's canonical-data marker does not
+make a changed timestamp valid.
+
+Historical timestamps were **not hash-bound** by v0.6.5. Compatibility does not
+retroactively attest them. Payload, stream identity, sequence and chain links
+still verify against the original hashes, with the existing signed head/WORM
+anchors checked independently. Preserve the original database and signed
+artifacts when rehearsing an upgrade.
+
 ### 0.6.6: the ClickHouse reader credential (DPR-285)
 
 **Who this affects:** any install where a ClickHouse lane has

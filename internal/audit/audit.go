@@ -178,13 +178,37 @@ func CanonicalEventHash(streamKey string, seq int64, actor, action, target strin
 
 // eventHash recomputes a read-back event's hash over the bytes it is bound to:
 // the durable canonical bytes when present, else (legacy/pre-AUD-03 or synthetic
-// in-memory events) the re-canonicalized map. Both branches are byte-identical
-// for honest data, so mixed-vintage chains link seamlessly.
+// in-memory events) the re-canonicalized map. Marker-less records may also
+// match the exact v0.6.5 format; its timestamps were never hash-bound. New
+// append paths always store canonical bytes and bind timestamps.
 func eventHash(streamKey string, ev Event) (string, error) {
 	if len(ev.canonicalData) > 0 {
 		return chainEventHash(streamKey, ev.Seq, ev.Actor, ev.Action, ev.Target, ev.CreatedAt.UnixMicro(), ev.canonicalData, ev.PrevHash), nil
 	}
-	return computeHash(streamKey, ev.Seq, ev.Actor, ev.Action, ev.Target, ev.CreatedAt.UnixMicro(), ev.Data, ev.PrevHash)
+	current, err := computeHash(streamKey, ev.Seq, ev.Actor, ev.Action, ev.Target, ev.CreatedAt.UnixMicro(), ev.Data, ev.PrevHash)
+	if err != nil || current == ev.Hash {
+		return current, err
+	}
+	// v0.6.5 predates both timestamp binding and durable canonical bytes.
+	// Only marker-less records can use that exact historical format. Never
+	// emit it, rewrite evidence, or try it for a current canonical record.
+	// Refuse ambiguous raw headers rather than accepting old newline collisions.
+	for _, field := range []string{streamKey, ev.Actor, ev.Action, ev.Target, ev.PrevHash} {
+		if strings.ContainsAny(field, "\\\n") {
+			return current, nil
+		}
+	}
+	canonical, err := canonicalAuditData(ev.Data)
+	if err != nil {
+		return "", err
+	}
+	header := fmt.Sprintf("%s\n%d\n%s\n%s\n%s\n%s\n", streamKey, ev.Seq, ev.Actor, ev.Action, ev.Target, ev.PrevHash)
+	sum := crypto.Hash(append([]byte(header), canonical...))
+	legacy := hex.EncodeToString(sum)
+	if legacy == ev.Hash {
+		return legacy, nil
+	}
+	return current, nil
 }
 
 // TenantAppend appends an event to the calling tenant's audit chain. It is
@@ -1212,24 +1236,19 @@ func verify(rows pgx.Rows, streamKey string, wantSeq int64, startPrev string) (i
 		if storedPrev != prev {
 			return 0, "", fmt.Errorf("audit chain broken at seq %d: prev_hash mismatch (record inserted, deleted, or reordered)", seq)
 		}
-		// AUD-03: hash the EXACT canonical bytes the append side stored, so a
-		// payload with an integer above 2^53 verifies cleanly (a jsonb-decode +
-		// re-marshal would round-trip it through float64 and corrupt it). Rows
-		// written before the data_canonical column fall back to the pre-AUD-03
-		// recompute so their honest chains stay byte-identical.
-		var want string
-		if len(canonical) > 0 {
-			want = chainEventHash(streamKey, seq, actor, action, target, createdAt.UnixMicro(), canonical, storedPrev)
-		} else {
-			var data map[string]any
+		var data map[string]any
+		if len(canonical) == 0 {
 			if err := json.Unmarshal(dataBytes, &data); err != nil {
 				return 0, "", fmt.Errorf("seq %d: decode data: %w", seq, err)
 			}
-			var err error
-			want, err = computeHash(streamKey, seq, actor, action, target, createdAt.UnixMicro(), data, storedPrev)
-			if err != nil {
-				return 0, "", err
-			}
+		}
+		// Share format selection with WORM source validation. Current rows use
+		// exact canonical bytes; historical rows retain their original hashes.
+		want, err := eventHash(streamKey, Event{Seq: seq, Actor: actor, Action: action,
+			Target: target, Data: data, PrevHash: storedPrev, Hash: storedHash,
+			CreatedAt: createdAt, canonicalData: canonical})
+		if err != nil {
+			return 0, "", err
 		}
 		if want != storedHash {
 			return 0, "", fmt.Errorf("audit chain broken at seq %d: hash mismatch (record tampered)", seq)
