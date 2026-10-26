@@ -83,6 +83,19 @@ describe('fixture-backed documented journeys', () => {
     expect(await body(await fetch('/branding'))).toEqual({ product_name: 'probectl' })
   })
 
+  test.each(['cold', 'populated'] as const)(
+    'J4 reads quarantine only in the provider fixture (%s)',
+    async (profile) => {
+      const path = '/provider/v1/tenants/quarantine'
+      const providerFetch = fixtureFetch(profile, { providerPlane: true })
+      const response = await providerFetch(path)
+      expect(response.status).toBe(200)
+      expect(await body(response)).toEqual({ items: [] })
+      expect((await fixtureFetch(profile)(path)).status).toBe(404)
+      expect((await providerFetch(path, { method: 'POST' })).status).toBe(404)
+    },
+  )
+
   test('J2 produces a replayable, tenant-redacted incident share', async () => {
     const fetch = fixtureFetch()
     const created = await fetch('/v1/incidents/30000000-0000-4000-8000-000000000001/shares', {

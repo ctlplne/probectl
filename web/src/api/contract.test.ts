@@ -217,6 +217,11 @@ const PROVIDER_FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   },
   {
     method: 'GET',
+    path: '/provider/v1/tenants/quarantine',
+    allowMissingResponseSchema: 'provider contract currently documents status only',
+  },
+  {
+    method: 'GET',
     path: '/provider/v1/usage',
     allowMissingResponseSchema: 'provider contract currently documents status only',
   },

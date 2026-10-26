@@ -2659,6 +2659,10 @@ export function fixtureFetch(
       })
     if (options.providerPlane && path === '/provider/v1/tenants' && method === 'GET')
       return jsonResponse({ items: providerTenants })
+    // The initial provider-console read includes quarantine even when healthy.
+    // Keep this read-only and provider-only, as in the served provider API.
+    if (options.providerPlane && path === '/provider/v1/tenants/quarantine' && method === 'GET')
+      return jsonResponse({ items: [] })
     if (options.providerPlane && path === '/provider/v1/tenants' && method === 'POST') {
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {}
       const created = {
