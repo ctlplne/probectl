@@ -104,6 +104,7 @@ The bundle contains:
    database:
      url: postgres://probectl@postgres.internal:5432/probectl?sslmode=verify-full
    control:
+     trustedProxies: ["10.244.0.0/16"]    # replace with the ingress controller pod CIDR
      tls:
        existingSecret: probectl-tls        # tls.crt / tls.key / ca.crt
    ingress:
@@ -114,9 +115,17 @@ The bundle contains:
      existingSecret: probectl-secrets      # or secrets.envelopeKey, a base64 32-byte KEK
    ```
 
-   With those plus the two `--set` flags above, the chart renders and installs
-   with **no network access at all** — verified by rendering it inside a
-   container with no route to anywhere.
+   Set `control.trustedProxies` to the actual ingress controller pod CIDR,
+   not the example range or a catch-all network. This lets login throttling
+   identify the client behind the trusted ingress; without it, the chart
+   refuses to render. The referenced database, TLS certificates and Secrets
+   must already exist inside the isolated network.
+
+   With those plus the two `--set` flags above, the chart renders with
+   **no network access at all** — verified inside a container with no route
+   to anywhere. Rendering validates the manifests; installation additionally
+   requires the internal Kubernetes API, preloaded images and those local
+   services and Secrets.
 4. **Install agents** from `packaging/` (deb/rpm via the Ansible role, or the
    binaries in `bin/`), then enroll them against the control plane. The Ansible
    `airgap` method verifies the local package's `.sig` and `.pem` before the
