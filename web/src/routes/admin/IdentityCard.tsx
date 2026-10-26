@@ -44,6 +44,7 @@ import {
 } from '../../api/identity'
 import { useHierarchy, type Hierarchy } from '../../api/hierarchy'
 import { DateTime } from '../../time/DateTime'
+import { useAuth } from '../../auth/useAuth'
 
 /** The branches a role can be delegated to: every org, team and project the
  *  administrator can see, as "type:id" select values. */
@@ -132,6 +133,8 @@ function formatAttrs(attrs?: Record<string, string>) {
 }
 
 export function IdentityCard() {
+  const { permissions } = useAuth()
+  const canWrite = permissions.includes('directory.write')
   const idpSettings = useTenantIdPSettings()
   const updateIdP = useUpdateTenantIdPSettings()
   const scimTokens = useScimTokens()
@@ -215,6 +218,7 @@ export function IdentityCard() {
           <Button
             type="button"
             variant="ghost"
+            disabled={!canWrite}
             onClick={() => setConfirm({ kind: 'token', id: t.id, name: t.name })}
           >
             Revoke
@@ -251,6 +255,7 @@ export function IdentityCard() {
           <Button
             type="button"
             variant="ghost"
+            disabled={!canWrite}
             onClick={() => setConfirm({ kind: 'policy', id: p.id!, name: p.name || p.id! })}
           >
             Delete
@@ -290,6 +295,7 @@ export function IdentityCard() {
   // delegates the role to one org, team or project instead of the tenant.
   const submitGrant = async (e: FormEvent) => {
     e.preventDefault()
+    if (!canWrite) return
     setPersonError('')
     const email = personEmail.trim().toLowerCase()
     if (!email) return
@@ -310,6 +316,7 @@ export function IdentityCard() {
     }
   }
   const revoke = async (user: DirectoryUser, role: string, scope?: DirectoryScopedRole) => {
+    if (!canWrite) return
     setPersonError('')
     try {
       await unbindRole.mutateAsync({
@@ -354,6 +361,7 @@ export function IdentityCard() {
                   type="button"
                   size="sm"
                   aria-label={`Remove ${r} from ${u.email}`}
+                  disabled={!canWrite}
                   onClick={() => setConfirm({ kind: 'role', user: u, role: r })}
                 >
                   Remove
@@ -367,6 +375,7 @@ export function IdentityCard() {
                   type="button"
                   size="sm"
                   aria-label={`Remove ${s.role} on ${s.scope_type} ${s.scope_name} from ${u.email}`}
+                  disabled={!canWrite}
                   onClick={() => setConfirm({ kind: 'role', user: u, role: s.role, scope: s })}
                 >
                   Remove
@@ -380,6 +389,7 @@ export function IdentityCard() {
 
   const submitToken = async (e: FormEvent) => {
     e.preventDefault()
+    if (!canWrite) return
     setTokenError('')
     setCreatedToken('')
     try {
@@ -392,6 +402,7 @@ export function IdentityCard() {
 
   const submitIdP = async (e: FormEvent) => {
     e.preventDefault()
+    if (!canWrite) return
     setIdpError('')
     setIdpSaved(false)
     try {
@@ -416,6 +427,7 @@ export function IdentityCard() {
 
   const submitPolicy = async (e: FormEvent) => {
     e.preventDefault()
+    if (!canWrite) return
     setPolicyError('')
     try {
       await createPolicy.mutateAsync({
@@ -439,6 +451,7 @@ export function IdentityCard() {
         description="SSO status, IdP-provisioned users/groups, SCIM bearer tokens, and tenant ABAC policies. Tokens are shown once; group membership maps to tenant roles."
       />
       <CardBody>
+        {!canWrite ? <p>Read-only directory. Changes require directory.write permission.</p> : null}
         {idpSettings.isPending ? (
           <LoadingState label="Loading tenant OIDC settings…" />
         ) : idpSettings.isError ? (
@@ -500,7 +513,7 @@ export function IdentityCard() {
               />{' '}
               Use tenant IdP override
             </label>
-            <Button type="submit" variant="primary" disabled={updateIdP.isPending}>
+            <Button type="submit" variant="primary" disabled={!canWrite || updateIdP.isPending}>
               Save OIDC settings
             </Button>
           </form>
@@ -545,7 +558,9 @@ export function IdentityCard() {
           <Button
             type="submit"
             variant="primary"
-            disabled={createPerson.isPending || bindRole.isPending || roleOptions.length === 0}
+            disabled={
+              !canWrite || createPerson.isPending || bindRole.isPending || roleOptions.length === 0
+            }
           >
             Grant
           </Button>
@@ -596,7 +611,7 @@ export function IdentityCard() {
             onChange={(e) => setTokenName(e.target.value)}
             placeholder="okta"
           />
-          <Button type="submit" variant="primary" disabled={createToken.isPending}>
+          <Button type="submit" variant="primary" disabled={!canWrite || createToken.isPending}>
             Create SCIM token
           </Button>
         </form>
@@ -687,7 +702,7 @@ export function IdentityCard() {
             />{' '}
             Enabled
           </label>
-          <Button type="submit" variant="primary" disabled={createPolicy.isPending}>
+          <Button type="submit" variant="primary" disabled={!canWrite || createPolicy.isPending}>
             Create ABAC policy
           </Button>
         </form>
@@ -737,7 +752,7 @@ export function IdentityCard() {
           pending={revokeToken.isPending || deletePolicy.isPending || unbindRole.isPending}
           onClose={() => setConfirm(null)}
           onConfirm={() => {
-            if (!confirm) return
+            if (!confirm || !canWrite) return
             if (confirm.kind === 'token') {
               revokeToken.mutate(confirm.id)
             } else if (confirm.kind === 'policy') {

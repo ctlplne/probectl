@@ -87,6 +87,12 @@ Entra's `path:"active"` with the string `"False"` (the parser in
 IdPs, one spec, two dialects — the parser speaks both rather than failing the
 one you happen to run.
 
+The console's Identity administration card stays readable with `directory.read`.
+Its mutation controls require `directory.write`: saving OIDC settings, granting
+or removing roles, creating or revoking SCIM tokens, and creating or deleting
+ABAC policies. Read-only sessions see disabled actions and a permission hint;
+the API remains the authorization boundary, including ABAC enforcement.
+
 ### Deprovision → immediate revocation
 
 This is the part to get right. When a user is **deactivated**

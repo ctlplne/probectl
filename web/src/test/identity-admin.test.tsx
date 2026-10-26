@@ -123,7 +123,7 @@ describe('Admin identity surface', () => {
   }
   async function openAdmin(capture: IdentityCapture = {}): Promise<IdentityCapture> {
     vi.stubGlobal('fetch', identityFetch(capture))
-    renderApp('/admin')
+    renderApp('/admin', { me: { permissions: ['directory.read', 'directory.write'] } })
     expect(await screen.findByText(/identity administration/i)).toBeInTheDocument()
     return capture
   }
@@ -160,7 +160,7 @@ describe('Admin identity surface', () => {
         }
         return base(input, init)
       })
-      renderApp('/admin')
+      renderApp('/admin', { me: { permissions: ['directory.read', 'directory.write'] } })
       const surfaces = await screen.findByRole('table', { name: /identity surfaces/i })
       const label =
         state === 'loading'
@@ -254,7 +254,7 @@ describe('Admin identity surface', () => {
         return base(input, init)
       }),
     )
-    renderApp('/admin')
+    renderApp('/admin', { me: { permissions: ['directory.read', 'directory.write'] } })
 
     const originalPolicyRow = (await screen.findByText('contractor write guard')).closest('tr')
     expect(originalPolicyRow).not.toBeNull()
@@ -269,7 +269,9 @@ describe('Admin identity surface', () => {
 
   test('a11y: identity administration card has no axe violations', async () => {
     vi.stubGlobal('fetch', identityFetch({}))
-    const { container } = renderApp('/admin')
+    const { container } = renderApp('/admin', {
+      me: { permissions: ['directory.read', 'directory.write'] },
+    })
     await screen.findByText(/identity administration/i)
     // TQ-12: scan only once the async-loaded surfaces have settled. The card's
     // SCIM-token and ABAC-policy tables arrive on separate fetches; running axe
@@ -283,7 +285,7 @@ describe('Admin identity surface', () => {
 
   test('WEB-22: the one-time SCIM token can be dismissed and leaves the DOM', async () => {
     vi.stubGlobal('fetch', identityFetch({}))
-    renderApp('/admin')
+    renderApp('/admin', { me: { permissions: ['directory.read', 'directory.write'] } })
 
     await userEvent.clear(await screen.findByLabelText(/scim token name/i))
     await userEvent.type(screen.getByLabelText(/scim token name/i), 'entra')
@@ -293,4 +295,25 @@ describe('Admin identity surface', () => {
     await userEvent.click(screen.getByRole('button', { name: /dismiss/i }))
     expect(screen.queryByText(/plain-scim-token/i)).not.toBeInTheDocument()
   })
+})
+
+test('a directory viewer can inspect identity but cannot submit or confirm mutations', async () => {
+  const capture = {}
+  const backend = identityFetch(capture)
+  vi.stubGlobal('fetch', backend)
+  renderApp('/admin', { me: { permissions: ['directory.read'] } })
+  expect(await screen.findByText(/Read-only directory/)).toBeInTheDocument()
+  const tokenTable = await screen.findByRole('table', { name: 'SCIM bearer tokens' })
+  expect(await within(tokenTable).findByText('okta')).toBeInTheDocument()
+  for (const name of ['Save OIDC settings', 'Grant', 'Create SCIM token', 'Create ABAC policy']) {
+    expect(screen.getByRole('button', { name })).toBeDisabled()
+  }
+  expect(within(tokenTable).getByRole('button', { name: 'Revoke' })).toBeDisabled()
+  const policies = await screen.findByRole('table', { name: 'ABAC policies' })
+  expect(within(policies).getByRole('button', { name: 'Delete' })).toBeDisabled()
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: 'Create SCIM token' }))
+  await user.type(screen.getByLabelText('SCIM token name'), '{Enter}')
+  expect(capture).toEqual({})
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 })
