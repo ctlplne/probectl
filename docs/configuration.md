@@ -2995,3 +2995,12 @@ The shared Dex template consumes `DEX_DEMO_PORT` and
 retains its existing `5556` issuer and `8443` callback defaults. Do not set a
 second, conflicting callback in the template. Both listeners use the generated
 TLS certificate and preserve certificate verification.
+
+### DNS result details
+
+In Targets & Tests, open **Results** on a DNS test to inspect the response code,
+answer records, resolver, transport and query type alongside query timing and
+answer count. Current agents emit these details as `probectl.dns.*` attributes;
+the console also reads historical `dns.*` attributes, preferring current names
+when both exist. DNSSEC validation appears only when the result supplies its
+validation metric; a missing metric does not imply validation.

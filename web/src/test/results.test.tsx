@@ -72,11 +72,11 @@ function resultFixtures(): LatestResult[] {
       observed_at: at,
       metrics: { 'dns.query.ms': 12.5, 'dns.answers': 2, 'dns.dnssec.secure': 1 },
       attributes: {
-        'dns.rcode': 'NOERROR',
-        'dns.answer': '203.0.113.10, 203.0.113.11',
-        'dns.server': '192.0.2.53:53',
-        'dns.transport': 'udp',
-        'dns.qtype': 'A',
+        'probectl.dns.rcode': 'NOERROR',
+        'probectl.dns.answer': '203.0.113.10, 203.0.113.11',
+        'probectl.dns.server': '192.0.2.53:53',
+        'probectl.dns.transport': 'udp',
+        'probectl.dns.qtype': 'A',
       },
     },
     {
@@ -287,17 +287,34 @@ describe('synthetic result views (S-FE5)', () => {
     expect(await axe(dialog)).toHaveNoViolations()
   })
 
-  test('DNS renders the resolution breakdown (rcode, answers, resolver, DNSSEC)', async () => {
-    const { fetcher } = resultsBackend(resultFixtures())
-    vi.stubGlobal('fetch', fetcher)
-    renderApp('/targets')
-    const dialog = await openResults('apex dns')
+  test.each(['current', 'historical', 'conflicting'])(
+    'DNS renders %s resolution attributes (rcode, answers, resolver, DNSSEC)',
+    async (shape) => {
+      const fixtures = resultFixtures()
+      const dns = fixtures.find((result) => result.type === 'dns')!
+      if (shape === 'historical') {
+        dns.attributes = Object.fromEntries(
+          Object.entries(dns.attributes!).map(([key, value]) => [
+            key.replace('probectl.', ''),
+            value,
+          ]),
+        )
+      } else if (shape === 'conflicting') {
+        dns.attributes = { ...dns.attributes, 'dns.rcode': 'SERVFAIL', 'dns.server': 'obsolete' }
+      }
+      const { fetcher } = resultsBackend(fixtures)
+      vi.stubGlobal('fetch', fetcher)
+      renderApp('/targets')
+      const dialog = await openResults('apex dns')
 
-    expect(within(dialog).getByText(/12\.5 ms · 2 answers · NOERROR/)).toBeDefined()
-    expect(within(dialog).getByText('203.0.113.10, 203.0.113.11')).toBeDefined()
-    expect(within(dialog).getByText(/192\.0\.2\.53:53 via udp · A/)).toBeDefined()
-    expect(within(dialog).getByText('validated')).toBeDefined()
-  })
+      expect(within(dialog).getByText(/12\.5 ms · 2 answers · NOERROR/)).toBeDefined()
+      expect(within(dialog).getByText('203.0.113.10, 203.0.113.11')).toBeDefined()
+      expect(within(dialog).getByText(/192\.0\.2\.53:53 via udp · A/)).toBeDefined()
+      expect(within(dialog).getByText('validated')).toBeDefined()
+      expect(within(dialog).queryByText(/SERVFAIL|obsolete/)).toBeNull()
+      expect(await axe(dialog)).toHaveNoViolations()
+    },
+  )
 
   test('browser renders transaction steps with timings (F15)', async () => {
     const { fetcher } = resultsBackend(resultFixtures())

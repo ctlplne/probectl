@@ -98,6 +98,8 @@ function HTTPWaterfall({ r }: { r: LatestResult }) {
 /** DNSBreakdown renders the resolution detail (S12). */
 function DNSBreakdown({ r }: { r: LatestResult }) {
   const { locale } = useI18n()
+  // Current agents namespace DNS attributes; retain reads of historical results.
+  const dns = (key: string) => a(r, `probectl.dns.${key}`) ?? a(r, `dns.${key}`)
   const secure = m(r, 'dns.dnssec.secure')
   const answerCount = m(r, 'dns.answers')
   return (
@@ -106,19 +108,19 @@ function DNSBreakdown({ r }: { r: LatestResult }) {
       <dd>
         {num(m(r, 'dns.query.ms'), 'ms', 1, locale)} ·{' '}
         {answerCount === undefined ? '—' : formatCount(answerCount, 'answer', 'answers', locale)} ·{' '}
-        {a(r, 'dns.rcode') ?? '—'}
+        {dns('rcode') ?? '—'}
       </dd>
-      {a(r, 'dns.answer') ? (
+      {dns('answer') ? (
         <>
           <dt>Answers</dt>
-          <dd>{a(r, 'dns.answer')}</dd>
+          <dd>{dns('answer')}</dd>
         </>
       ) : null}
       <dt>Resolver</dt>
       <dd>
-        {a(r, 'dns.server') ?? a(r, 'server.address') ?? '—'}
-        {a(r, 'dns.transport') ? ` via ${a(r, 'dns.transport')}` : ''}
-        {a(r, 'dns.qtype') ? ` · ${a(r, 'dns.qtype')}` : ''}
+        {dns('server') ?? a(r, 'server.address') ?? '—'}
+        {dns('transport') ? ` via ${dns('transport')}` : ''}
+        {dns('qtype') ? ` · ${dns('qtype')}` : ''}
       </dd>
       {secure !== undefined ? (
         <>
