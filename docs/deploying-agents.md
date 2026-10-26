@@ -427,7 +427,8 @@ IPs are
 dropped before a sample is ever emitted), and it **discloses exactly what it
 collects at startup**.
 
-**Where it runs.** **Cross-OS** (Linux / macOS / Windows), on end-user devices,
+**Where it runs.** **Linux in the beta**, on end-user devices (macOS and Windows
+builds compile but are not yet supported),
 **no elevated privileges** — it uses the OS's own `traceroute`/`tracert` and
 read-only Wi-Fi queries. Ship the single static binary via your MDM (mobile
 device management — the tool IT already uses to push software to managed
@@ -436,7 +437,11 @@ laptops: Intune, Jamf).
 **How it ships data.** It **publishes to the bus** on
 `probectl.endpoint.results`, tenant-keyed, flowing through the same pipeline as
 every other canary; it **never phones home**. **Infra it needs: the message bus**
-— Kafka in a fleet, or the lightweight in-memory bus on a single-node dev box.
+— Kafka in a fleet, or durable lightweight NATS JetStream. Register its
+collector identity and use the returned tenant bus namespace as described
+above. `memory` is process-local and cannot deliver from this standalone agent
+to the control plane, even on the same host. See [endpoint DEM](endpoint-dem.md)
+for the NATS configuration.
 
 **Deploy it.**
 
@@ -455,7 +460,7 @@ The privacy model, the attribution engine, the per-OS collection matrix, and the
 | Flow | `probectl-flow-agent` | mgmt network (UDP `:2055/:4739/:6343`) | **bus** (`probectl.flow.events`) | Kafka + ClickHouse | `probectl-flow-agent -config flow-agent.yml` |
 | Device | `probectl-device-agent` | reaches device mgmt | **bus** (`probectl.device.metrics`) | Kafka (+ TSDB) | `probectl-device-agent -config device-agent.yml` |
 | eBPF host | `probectl-ebpf-agent` | **Linux**, `CAP_BPF`+`CAP_PERFMON`, BTF ≥5.8 | **bus** (`probectl.ebpf.flows`) | Kafka (+ ClickHouse) | `sudo deploy/agent/install.sh ./probectl-ebpf-agent` (cosign verification is default) |
-| Endpoint / DEM | `probectl-endpoint` | Linux (beta), unprivileged | **bus** (`probectl.endpoint.results`) | Kafka (or in-memory) | `probectl-endpoint -config endpoint.yml` |
+| Endpoint / DEM | `probectl-endpoint` | Linux (beta), unprivileged | **bus** (`probectl.endpoint.results`) | Kafka or NATS JetStream | `probectl-endpoint -config endpoint.yml` |
 
 ## At scale
 

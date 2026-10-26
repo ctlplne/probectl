@@ -208,8 +208,16 @@ lose an endpoint event.
 Ship the single static binary to managed devices via your **MDM** (mobile-device
 management — the fleet tool that pushes software and policy to managed laptops;
 Intune, Jamf). It needs **no elevated privileges**: it uses the OS's own
-`traceroute` / `tracert` and read-only Wi-Fi queries. Point it at the bus (Kafka in a fleet, or the
-lightweight in-memory bus for a single-node dev deploy) with a tenant id.
+`traceroute` / `tracert` and read-only Wi-Fi queries. Register a tenant-bound collector identity first (see below), then point it at
+Kafka or the durable lightweight NATS JetStream bus. A standalone endpoint
+process cannot deliver through the in-process `memory` bus: its samples have no
+consumer in that process. Use a networked bus even on a single-node deployment.
+Set `PROBECTL_ENDPOINT_BUS_MODE=nats` and
+`PROBECTL_ENDPOINT_BUS_BROKERS=tls://nats.internal:4222` for NATS, with the
+operator's actual broker address, trusted CA and credentials through the
+`PROBECTL_ENDPOINT_BUS_TLS_*` and `PROBECTL_ENDPOINT_BUS_SASL_*` settings in
+[configuration.md](configuration.md). Preserve the registration response's
+`agent_id`, `tenant_id` and `bus.namespace`; a tenant ID alone is not enrollment.
 
 First deployment? The cross-producer journey — control plane, bus, and each
 agent's enrollment-or-bus path — lives in

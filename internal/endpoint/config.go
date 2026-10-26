@@ -68,8 +68,8 @@ type Config struct {
 
 // BusConfig selects the bus backend for emission.
 type BusConfig struct {
-	Mode    string   `yaml:"mode"`    // memory | kafka
-	Brokers []string `yaml:"brokers"` // kafka mode
+	Mode    string   `yaml:"mode"`    // memory | nats | kafka
+	Brokers []string `yaml:"brokers"` // required for networked modes
 	// Namespace routes this tenant's results onto its SILOED bus lane
 	// (TENANT-107). Empty = shared lane; malformed refuses start (RED-006).
 	Namespace string `yaml:"namespace"`
@@ -191,12 +191,12 @@ func (c *Config) validate() error {
 		return fmt.Errorf("endpoint: tenant_id is required (PROBECTL_ENDPOINT_TENANT_ID or config)")
 	}
 	switch c.Bus.Mode {
-	case "memory", "kafka":
+	case "memory", "nats", "kafka":
 	default:
-		return fmt.Errorf("endpoint: invalid bus mode %q (memory|kafka)", c.Bus.Mode)
+		return fmt.Errorf("endpoint: invalid bus mode %q (memory|nats|kafka)", c.Bus.Mode)
 	}
-	if c.Bus.Mode == "kafka" && len(c.Bus.Brokers) == 0 {
-		return fmt.Errorf("endpoint: kafka bus requires brokers")
+	if c.Bus.Mode != "memory" && len(c.Bus.Brokers) == 0 {
+		return fmt.Errorf("endpoint: %s bus requires brokers", c.Bus.Mode)
 	}
 	if c.Interval <= 0 {
 		return fmt.Errorf("endpoint: interval must be > 0")

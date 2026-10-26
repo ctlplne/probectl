@@ -273,3 +273,28 @@ func TestValidateErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestEndpointDurableBusModes(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode string
+		brokers    []string
+		wantError  bool
+	}{
+		{name: "NATS with TLS broker", mode: "nats", brokers: []string{"tls://nats.internal:4222"}},
+		{name: "NATS needs broker", mode: "nats", wantError: true},
+		{name: "Kafka with broker", mode: "kafka", brokers: []string{"kafka.internal:9093"}},
+		{name: "Kafka needs broker", mode: "kafka", wantError: true},
+		{name: "memory for embedded tests", mode: "memory"},
+		{name: "unknown transport", mode: "other", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			c.TenantID = "tenant-a"
+			c.Bus.Mode = tc.mode
+			c.Bus.Brokers = tc.brokers
+			if err := c.validate(); (err != nil) != tc.wantError {
+				t.Fatalf("validate()=%v, wantError=%v", err, tc.wantError)
+			}
+		})
+	}
+}
