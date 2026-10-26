@@ -109,7 +109,7 @@ func SiloReaderScopeStatements(database string, tables []SiloTable, tenantSettin
 	for _, t := range data {
 		qualified := database + "." + t.Name
 		stmts = append(stmts, ReaderRowPolicyStatements(SiloReaderPolicy, qualified, tenantSetting, readerUser)...)
-		stmts = append(stmts, "GRANT SELECT ON "+qualified+" TO "+readerUser)
+		stmts = append(stmts, "GRANT SELECT ON "+qualified+" TO "+QuotePolicyUser(readerUser))
 	}
 	return stmts, nil
 }
@@ -124,7 +124,7 @@ func SiloReaderRevokeStatements(database string, tables []SiloTable, readerUser 
 	if err != nil {
 		return nil, err
 	}
-	stmts := []string{"REVOKE SELECT ON " + database + ".* FROM " + readerUser}
+	stmts := []string{"REVOKE SELECT ON " + database + ".* FROM " + QuotePolicyUser(readerUser)}
 	for _, t := range data {
 		stmts = append(stmts, "DROP ROW POLICY IF EXISTS "+SiloReaderPolicy+" ON "+database+"."+t.Name)
 	}

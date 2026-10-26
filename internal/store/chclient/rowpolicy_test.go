@@ -16,7 +16,7 @@ import (
 // window in which a concurrent reader query saw no policy and every row.
 func TestReaderRowPolicyStatementsConvergeWithoutRemovingThePolicy(t *testing.T) {
 	stmts := ReaderRowPolicyStatements("probectl_reader_scope", "probectl_flows", "SQL_probectl_tenant", "reader_b")
-	const body = "probectl_reader_scope ON probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO reader_b"
+	const body = "probectl_reader_scope ON probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO `reader_b`"
 	want := []string{"CREATE ROW POLICY IF NOT EXISTS " + body, "ALTER ROW POLICY " + body}
 	if strings.Join(stmts, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("reader policy statements:\n%s\nwant:\n%s", strings.Join(stmts, "\n"), strings.Join(want, "\n"))
@@ -25,5 +25,20 @@ func TestReaderRowPolicyStatementsConvergeWithoutRemovingThePolicy(t *testing.T)
 		if strings.Contains(s, "OR REPLACE") || strings.Contains(s, "USING 1") || strings.Contains(s, "DROP") {
 			t.Fatalf("reader policy DDL must never remove the policy or be permissive: %s", s)
 		}
+	}
+}
+
+// User names are identifiers, even when they resemble a role-set keyword.
+// The pooled stores accept hyphens and leading digits; neither may be emitted
+// as an unquoted SQL token.
+func TestReaderRowPolicyQuotesUserIdentifiers(t *testing.T) {
+	for _, user := range []string{"tenant-a-123", "123reader", "ALL", "default", "reader_b"} {
+		t.Run(user, func(t *testing.T) {
+			for _, stmt := range ReaderRowPolicyStatements("probectl_reader_scope", "probectl_flows", "SQL_probectl_tenant", user) {
+				if !strings.HasSuffix(stmt, "TO `"+user+"`") {
+					t.Fatalf("policy must bind exactly the named user, not raw SQL: %s", stmt)
+				}
+			}
+		})
 	}
 }

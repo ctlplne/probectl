@@ -6,7 +6,10 @@
 
 package chclient
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ReaderRowPolicyStatements returns the convergent DDL for one setting-scoped
 // reader policy, in order. Callers must validate every identifier first.
@@ -26,9 +29,17 @@ import "fmt"
 //     rotation: IF NOT EXISTS alone would leave a fixed policy name bound to
 //     the previous reader while the new reader issued unfiltered SELECTs.
 func ReaderRowPolicyStatements(policy, table, tenantSetting, readerUser string) []string {
-	body := fmt.Sprintf("%s ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s", policy, table, tenantSetting, readerUser)
+	body := fmt.Sprintf("%s ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s", policy, table, tenantSetting, QuotePolicyUser(readerUser))
 	return []string{
 		"CREATE ROW POLICY IF NOT EXISTS " + body,
 		"ALTER ROW POLICY " + body,
 	}
+}
+
+// QuotePolicyUser renders a ClickHouse account name as one quoted identifier.
+// Policy and grant callers must still validate the supported username shape before issuing DDL.
+// Quoting preserves hyphenated and digit-leading names and prevents names such
+// as ALL from being interpreted as role-set syntax. It grants no privileges.
+func QuotePolicyUser(user string) string {
+	return "`" + strings.NewReplacer("\\", "\\\\", "`", "\\`").Replace(user) + "`"
 }

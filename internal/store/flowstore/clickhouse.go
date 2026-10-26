@@ -634,8 +634,8 @@ func (c *ClickHouse) ensureRowPolicies(ctx context.Context, serviceUser string) 
 	}
 	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
 		for _, ddl := range []string{
-			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, serviceUser),
-			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, serviceUser),
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, chclient.QuotePolicyUser(serviceUser)),
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, chclient.QuotePolicyUser(serviceUser)),
 		} {
 			if err := c.exec(ctx, "", ddl, nil, nil); err != nil {
 				return fmt.Errorf("flowstore: row policy: %w", err)
@@ -647,7 +647,7 @@ func (c *ClickHouse) ensureRowPolicies(ctx context.Context, serviceUser string) 
 
 // chUserRe is the shape a ClickHouse USER identifier may take in our DDL
 // (identifiers cannot travel as bound parameters in any SQL dialect, so they
-// are validated, never escaped — fail closed on anything else).
+// are validated before quoting — fail closed on anything else).
 var chUserRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$`)
 
 func chValidUser(u string) error {

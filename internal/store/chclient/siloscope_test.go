@@ -34,12 +34,12 @@ func TestSiloReaderScopeStatementsPolicyPrecedesEachGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
-		"ALTER ROW POLICY probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
-		"GRANT SELECT ON " + siloDB + ".probectl_flows TO probectl_reader",
-		"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flow_rollups_hour FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
-		"ALTER ROW POLICY probectl_reader_scope ON " + siloDB + ".probectl_flow_rollups_hour FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
-		"GRANT SELECT ON " + siloDB + ".probectl_flow_rollups_hour TO probectl_reader",
+		"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO `probectl_reader`",
+		"ALTER ROW POLICY probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO `probectl_reader`",
+		"GRANT SELECT ON " + siloDB + ".probectl_flows TO `probectl_reader`",
+		"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flow_rollups_hour FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO `probectl_reader`",
+		"ALTER ROW POLICY probectl_reader_scope ON " + siloDB + ".probectl_flow_rollups_hour FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO `probectl_reader`",
+		"GRANT SELECT ON " + siloDB + ".probectl_flow_rollups_hour TO `probectl_reader`",
 	}
 	if strings.Join(stmts, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("scope statements:\n%s\nwant:\n%s", strings.Join(stmts, "\n"), strings.Join(want, "\n"))
@@ -82,7 +82,7 @@ func TestSiloReaderRevokeStatementsRevokeBeforeDroppingPolicies(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"REVOKE SELECT ON " + siloDB + ".* FROM probectl_reader",
+		"REVOKE SELECT ON " + siloDB + ".* FROM `probectl_reader`",
 		"DROP ROW POLICY IF EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flows",
 		"DROP ROW POLICY IF EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flow_rollups_hour",
 	}
@@ -240,9 +240,9 @@ func TestSiloScopeEnsureAndVerify(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := []string{
-				"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
-				"ALTER ROW POLICY probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO probectl_reader",
-				"GRANT SELECT ON " + siloDB + ".probectl_flows TO probectl_reader",
+				"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO `probectl_reader`",
+				"ALTER ROW POLICY probectl_reader_scope ON " + siloDB + ".probectl_flows FOR SELECT USING tenant_id = getSetting('SQL_probectl_tenant') TO `probectl_reader`",
+				"GRANT SELECT ON " + siloDB + ".probectl_flows TO `probectl_reader`",
 			}
 			if strings.Join(f.statements, "\n") != strings.Join(want, "\n") {
 				t.Fatalf("scope DDL = %q, want %q", f.statements, want)
@@ -279,10 +279,30 @@ func TestSiloScopeRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"REVOKE SELECT ON " + siloDB + ".* FROM probectl_reader",
+		"REVOKE SELECT ON " + siloDB + ".* FROM `probectl_reader`",
 		"DROP ROW POLICY IF EXISTS probectl_reader_scope ON " + siloDB + ".probectl_flows",
 	}
 	if strings.Join(f.statements, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("revoke DDL = %q, want %q", f.statements, want)
+	}
+}
+
+func TestSiloReaderKeywordAccountIsExact(t *testing.T) {
+	tables := []SiloTable{{Name: "probectl_flows", Engine: "Memory", TenantColumn: true}}
+	install, err := SiloReaderScopeStatements(siloDB, tables, "SQL_probectl_tenant", "ALL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range install {
+		if !strings.HasSuffix(stmt, "TO `ALL`") {
+			t.Fatalf("must bind exact account: %s", stmt)
+		}
+	}
+	revoke, err := SiloReaderRevokeStatements(siloDB, tables, "ALL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(revoke[0], "FROM `ALL`") {
+		t.Fatalf("must revoke exact account: %s", revoke[0])
 	}
 }

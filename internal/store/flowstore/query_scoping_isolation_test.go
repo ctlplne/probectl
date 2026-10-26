@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/store/chclient"
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
@@ -32,7 +33,7 @@ import (
 // chReadCountAs issues a raw, predicate-free count over the flows table as
 // (user, pass) — bypassing the app-layer WHERE so the DB policy is what scopes
 // the result. Returns the count and any CH error text.
-func chReadCountAs(t *testing.T, user, pass string) (int, string) {
+func chReadCountAs(t *testing.T, user, pass string, tenant ...string) (int, string) {
 	t.Helper()
 	base, err := url.Parse(os.Getenv("PROBECTL_FLOWSTORE_URL"))
 	if err != nil {
@@ -40,6 +41,9 @@ func chReadCountAs(t *testing.T, user, pass string) (int, string) {
 	}
 	u := fmt.Sprintf("%s://%s:%s@%s/?query=%s", base.Scheme, user, pass, base.Host,
 		url.QueryEscape("SELECT count() AS n FROM "+sharedFlowsTable+" FORMAT TabSeparated"))
+	if len(tenant) > 0 {
+		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenant[0])
+	}
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, u, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -119,23 +123,23 @@ func TestClickHouseReaderCannotCrossTenant(t *testing.T) {
 func TestClickHouseSettingScopedReaderPolicy(t *testing.T) {
 	c := chFlow(t)
 	ctx := context.Background()
-	reader := fmt.Sprintf("isordr%d", time.Now().UnixNano())
+	reader := fmt.Sprintf("isordr-%d", time.Now().UnixNano())
 	readerPw := "readerpw"
 
 	for _, ddl := range []string{
 		fmt.Sprintf(
 			"CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s' SETTINGS %s = ''",
-			reader,
+			chclient.QuotePolicyUser(reader),
 			readerPw,
 			tenantSettingName,
 		),
-		fmt.Sprintf("GRANT SELECT ON *.* TO %s", reader),
+		fmt.Sprintf("GRANT SELECT ON *.* TO %s", chclient.QuotePolicyUser(reader)),
 	} {
 		if err := c.exec(ctx, "", ddl, nil, nil); err != nil {
 			t.Fatalf("provision reader: %v", err)
 		}
 	}
-	defer func() { _ = c.exec(ctx, "", "DROP USER IF EXISTS "+reader, nil, nil) }()
+	defer func() { _ = c.exec(ctx, "", "DROP USER IF EXISTS "+chclient.QuotePolicyUser(reader), nil, nil) }()
 
 	if err := c.EnsureReaderRowPolicy(ctx, reader); err != nil {
 		// CH rejects getSetting() of an undeclared custom setting at policy
@@ -145,6 +149,24 @@ func TestClickHouseSettingScopedReaderPolicy(t *testing.T) {
 			testsupport.SkipOrFatal(t, "custom settings prefix not configured on this server: %v", err)
 		}
 		t.Fatalf("EnsureReaderRowPolicy: %v", err)
+	}
+
+	// Exercise the quoted account through predicate-free reads of two tenants.
+	// Different row counts detect both unfiltered reads and a stuck tenant scope.
+	now := time.Now().UTC().Truncate(time.Second)
+	ta, tb := reader+"-a", reader+"-b"
+	if err := c.Insert(ctx, []Row{flowRow(ta, "198.51.100.1", now), flowRow(ta, "198.51.100.2", now), flowRow(tb, "192.0.2.77", now)}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = c.DeleteTenant(ctx, ta); _, _ = c.DeleteTenant(ctx, tb) }()
+	for _, tc := range []struct {
+		tenant string
+		want   int
+	}{{ta, 2}, {tb, 1}} {
+		n, errText := chReadCountAs(t, reader, readerPw, tc.tenant)
+		if errText != "" || n != tc.want {
+			t.Fatalf("quoted reader tenant %s: count=%d error=%s, want %d", tc.tenant, n, errText, tc.want)
+		}
 	}
 	// The policy applied; a read without the setting must return nothing for
 	// the reader (fail closed — unset setting matches no rows).

@@ -1020,6 +1020,8 @@ Where the discovered hops/links are stored is a control-plane choice:
 | `PROBECTL_SILO_QUARANTINE_CHECK_TIMEOUT` | `5m` | D-62 (DPR-380): the budget of EACH per-tenant check the quarantine supervisor runs — the Postgres silo schema catch-up and the reader-scope proof each get their own, so a slow but healthy catch-up cannot starve the proof. A check that overruns it quarantines (or keeps quarantined) only that tenant, as a slow catch-up or an unproven reader scope (often another replica holding the reader-scope lock during a rollout), and is retried every recheck interval; it never marks the plane unreachable for other tenants (only a refused connection or an open breaker does). Raise it for very large silos. 10s to 6h |
 | `PROBECTL_PATH_RETENTION_DAYS` | `90` | delete-after-N-days TTL on the path/traceroute ClickHouse tables (applied at boot); `0` disables the TTL |
 
+ClickHouse pooled-store policy usernames retain their validated account-name shape (1–63 ASCII letters, digits, underscores or hyphens; a hyphen cannot be first). Policy DDL quotes the account name, so a hyphenated, digit-leading or keyword-shaped name binds that exact account. This does not broaden database/table identifiers, silo account-name rules, or the reader grant allowlist.
+
 Each stored discovery is an immutable history round. The Path UI reads a
 maximum of 50 rounds by default (the API hard ceiling is 100) and can request up
 to two exact opaque `round_id` values for a stable comparison link. Those IDs

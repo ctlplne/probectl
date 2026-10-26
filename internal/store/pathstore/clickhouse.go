@@ -507,8 +507,8 @@ func (c *ClickHouse) ensureRowPolicies(ctx context.Context, serviceUser string) 
 	}
 	for _, table := range []string{hopsTable, linksTable, hopsRollupsTable, linksRollupsTable} {
 		for _, ddl := range []string{
-			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, serviceUser),
-			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, serviceUser),
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, chclient.QuotePolicyUser(serviceUser)),
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, chclient.QuotePolicyUser(serviceUser)),
 		} {
 			if err := c.exec(ctx, ddl, nil, nil); err != nil {
 				return fmt.Errorf("pathstore: row policy: %w", err)

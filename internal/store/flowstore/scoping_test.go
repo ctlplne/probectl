@@ -49,7 +49,7 @@ func TestReaderRowPolicyDDLShape(t *testing.T) {
 		t.Fatalf("reader policy must be created if absent then altered in place, never replaced (DPR-325): %q", stmts)
 	}
 	for _, ddl := range stmts {
-		for _, must := range []string{"FOR SELECT", "tenant_id = getSetting('" + tenantSettingName + "')", "TO probectl_reader"} {
+		for _, must := range []string{"FOR SELECT", "tenant_id = getSetting('" + tenantSettingName + "')", "TO `probectl_reader`"} {
 			if !strings.Contains(ddl, must) {
 				t.Fatalf("reader policy DDL missing %q: %s", must, ddl)
 			}

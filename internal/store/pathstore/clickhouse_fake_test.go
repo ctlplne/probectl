@@ -202,7 +202,7 @@ func TestClickHouseRowPolicyDDL(t *testing.T) {
 	for _, want := range []string{
 		"ON probectl_path_hops2", "ON probectl_path_links2",
 		"ON probectl_path_hops_rollups_hour", "ON probectl_path_links_rollups_hour",
-		"tenant_id = currentUser() TO ALL EXCEPT default", "USING 1 TO default",
+		"tenant_id = currentUser() TO ALL EXCEPT `default`", "USING 1 TO `default`",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("row policies missing %q:\n%s", want, joined)
