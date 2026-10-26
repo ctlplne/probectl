@@ -75,8 +75,8 @@ type TenantFleet struct {
 	TenantName   string         `json:"tenant_name"`
 	TenantStatus string         `json:"tenant_status"`
 	AgentsTotal  int            `json:"agents_total"`
-	AgentsOnline int            `json:"agents_online"`
-	AgentsStale  int            `json:"agents_stale"` // online but last seen > 5m ago
+	AgentsOnline int            `json:"agents_online"` // online status with heartbeat within 5m
+	AgentsStale  int            `json:"agents_stale"`  // stored online status but last seen > 5m ago
 	Versions     map[string]int `json:"versions"`
 }
 

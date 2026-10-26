@@ -1154,3 +1154,65 @@ func TestCoreTenantAuthAuthorizationContextIsTenantScoped(t *testing.T) {
 		t.Fatal("tenant A scope loaded tenant B's subject by ID")
 	}
 }
+
+// TestFleetFreshnessCountsStayTenantScoped verifies heartbeat-based counts while
+// the provider remains limited to aggregate views, not tenant agent rows.
+func TestFleetFreshnessCountsStayTenantScoped(t *testing.T) {
+	pool := pgPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	st := NewPGStore(pool)
+	stamp := time.Now().UnixNano()
+	a, err := st.CreateTenant(ctx, fmt.Sprintf("fleet-fresh-a-%d", stamp), "Fleet A", "pooled", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateTenant(ctx, fmt.Sprintf("fleet-fresh-b-%d", stamp), "Fleet B", "pooled", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, stale := time.Now().Add(-time.Minute), time.Now().Add(-10*time.Minute)
+	for i, row := range []struct {
+		tenant, status string
+		seen           *time.Time
+	}{
+		{a.ID, "online", &fresh}, {a.ID, "online", &stale}, {a.ID, "online", nil},
+		{a.ID, "offline", &fresh}, {a.ID, "registered", nil},
+		{b.ID, "online", &fresh}, {b.ID, "online", &fresh}, {b.ID, "online", &stale},
+	} {
+		_, err := pool.Exec(ctx, `INSERT INTO agents (tenant_id,name,status,last_seen_at) VALUES ($1,$2,$3,$4)`, row.tenant, fmt.Sprintf("fleet-agent-%d", i), row.status, row.seen)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	fleet, err := st.FleetSummary(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]TenantFleet{}
+	for _, row := range fleet {
+		found[row.TenantID] = row
+	}
+	for _, tc := range []struct {
+		tenant               string
+		total, online, stale int
+	}{{a.ID, 5, 1, 1}, {b.ID, 3, 2, 1}} {
+		got := found[tc.tenant]
+		if got.AgentsTotal != tc.total || got.AgentsOnline != tc.online || got.AgentsStale != tc.stale {
+			t.Errorf("tenant %s counts = %d/%d/%d, want %d/%d/%d", tc.tenant, got.AgentsTotal, got.AgentsOnline, got.AgentsStale, tc.total, tc.online, tc.stale)
+		}
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tc.tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var total, foreign int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE tenant_id <> $1) FROM agents`, tc.tenant).Scan(&total, &foreign); err != nil {
+				return err
+			}
+			if total != tc.total || foreign != 0 {
+				t.Errorf("tenant query counts=%d foreign=%d", total, foreign)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}

@@ -290,6 +290,7 @@
     },
     "/provider/v1/fleet": {
       "get": {
+        "description": "Online counts require stored online status and a heartbeat within five minutes. Stale counts retain the older-than-five-minutes threshold. Missing heartbeat timestamps count toward totals only. Provider access remains aggregate-only.",
         "summary": "Fleet-across-tenants health: agent counts + versions per tenant \u2014 never telemetry",
         "responses": {
           "200": {

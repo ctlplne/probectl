@@ -319,3 +319,9 @@ is what keeps the "core never imports `ee/`" rule intact.
 
 Plus an MSP-tier license (`PROBECTL_LICENSE_FILE`) granting
 `provider_plane` — see [`editions.md`](editions.md).
+
+Fleet **Online** counts require both stored online status and a heartbeat within
+the last five minutes. **Stale (>5m)** counts agents still marked online whose
+last heartbeat is older. An agent with no heartbeat timestamp contributes to the
+total but neither freshness count; registration alone never establishes online
+health. These remain per-tenant aggregates, not access to raw agent records.
