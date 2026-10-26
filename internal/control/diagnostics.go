@@ -621,7 +621,7 @@ func newVolatileStoresCheck(cfg *config.Config) support.CheckFunc {
 					"OTLP trace/log, eBPF edge and endpoint event lives only in RAM and is erased on any restart, upgrade, OOM or node drain; "+
 					"alerts then evaluate only data since the last restart. Configure durable modes (NATS/Kafka bus, Prometheus/VictoriaMetrics TSDB, "+
 					"ClickHouse stores), or acknowledge a deliberate dev/test deployment with PROBECTL_ALLOW_VOLATILE="+config.VolatileAckPhrase+".",
-				support.LocalAction{Label: "Storage configuration", Href: "/docs/configuration", Kind: support.ActionNavigate},
+				support.LocalAction{Label: "Storage configuration", Href: "/docs/api#configuration", Kind: support.ActionNavigate},
 			),
 		}
 	}

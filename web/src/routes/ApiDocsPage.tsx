@@ -113,6 +113,8 @@ const OPERATOR_TOPICS: OperatorTopic[] = [
       'Control-plane settings use the PROBECTL_ prefix. Missing transport, identity, signature, or secret prerequisites fail closed instead of silently weakening the deployment.',
     checks: [
       'Keep secrets in an operator-managed secret source, never in URLs, shell history, logs, or committed files.',
+      'For durable Compose storage, configure the required credentials in deploy/compose/.env, then run make compose-prod-durable-up. This adds NATS JetStream, ClickHouse, and Prometheus with TLS.',
+      'Memory-backed telemetry is lost on restart. PROBECTL_ALLOW_VOLATILE=i-understand-data-is-not-durable acknowledges an intentional evaluation; it does not make storage durable.',
       'Use /readyz after every change; it reports each engine as ready, quiet, or blocked with a bounded reason.',
       'The offline distribution includes docs/configuration.md as the exhaustive key reference.',
     ],

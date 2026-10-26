@@ -115,6 +115,18 @@ func TestDeepHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestStorageRecoveryLinksReachOperatorGuide(t *testing.T) {
+	checks := []support.Check{
+		newVolatileStoresCheck(&config.Config{TSDBMode: "memory"})(context.Background()),
+		volatileBackendCheck("tsdb", "readiness.tsdb", "Memory metrics", "memory mode", false),
+	}
+	for _, check := range checks {
+		if check.Finding == nil || check.Finding.NextAction.Href != "/docs/api#configuration" {
+			t.Fatalf("storage recovery must link to the shipped operator guide: %+v", check.Finding)
+		}
+	}
+}
+
 func TestDeepHealthReportsAlertingInactive(t *testing.T) {
 	srv := testServer(okPinger{})
 	rr := httptest.NewRecorder()

@@ -5,6 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import styles from '../pages.module.css'
 import {
   Badge,
@@ -544,11 +545,14 @@ export function SupportCard() {
                 {
                   key: 'action',
                   header: 'Safe local action',
-                  render: (f) => (
-                    <a href={f.next_action.href} download={f.next_action.kind === 'download'}>
-                      {f.next_action.label}
-                    </a>
-                  ),
+                  render: (f) =>
+                    f.next_action.kind === 'download' ? (
+                      <a href={f.next_action.href} download>
+                        {f.next_action.label}
+                      </a>
+                    ) : (
+                      <Link to={f.next_action.href}>{f.next_action.label}</Link>
+                    ),
                 },
               ]}
               rows={findings}

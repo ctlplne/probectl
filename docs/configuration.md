@@ -2775,6 +2775,12 @@ the failover runbook.
 
 ### Supportability (core)
 
+In **Admin & Settings → Support & diagnostics**, the **Storage configuration**
+recovery action opens **Docs & API → Configuration** inside the console. That
+offline guide explains the durable Compose profile and the limits of volatile
+evaluation storage. Recovery navigation retains the console's `/ui` base path;
+support-bundle downloads continue to use the authenticated `/v1` API.
+
 Deep health + a secret-stripped support bundle for triage (CORE; the support
 org/SLA is contract). No new config keys; `diagnostics.read` (migration 0034,
 admin-seeded) gates `GET /v1/diagnostics` and `GET /v1/diagnostics/bundle`. An

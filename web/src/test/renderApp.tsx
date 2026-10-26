@@ -49,7 +49,7 @@ const DEFAULT_ME: MeFixture = {
  *  directly with its own /v1/me stub (see auth.test.tsx). */
 export function renderApp(
   path = '/targets',
-  options: { locale?: string; me?: Partial<MeFixture> } = {},
+  options: { locale?: string; me?: Partial<MeFixture>; basename?: string } = {},
 ) {
   const inner = globalThis.fetch
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
@@ -62,7 +62,7 @@ export function renderApp(
   })
   return render(
     <Providers initialLocale={options.locale}>
-      <MemoryRouter initialEntries={[path]}>
+      <MemoryRouter basename={options.basename} initialEntries={[path]}>
         <AppRoutes />
       </MemoryRouter>
     </Providers>,

@@ -181,7 +181,7 @@ func volatileBackendCheck(name, findingID, title, detail string, acknowledged bo
 			findingID,
 			title,
 			detail+" Configure a durable backend, or acknowledge a deliberate dev/test deployment with PROBECTL_ALLOW_VOLATILE="+config.VolatileAckPhrase+".",
-			support.LocalAction{Label: "Storage configuration", Href: "/docs/configuration", Kind: support.ActionNavigate},
+			support.LocalAction{Label: "Storage configuration", Href: "/docs/api#configuration", Kind: support.ActionNavigate},
 		),
 	}
 }

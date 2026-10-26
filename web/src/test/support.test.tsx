@@ -14,6 +14,30 @@ import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
  *  posture, build identity, deep health, and the secret-stripped bundle. */
 
 describe('support & diagnostics (S-EE4)', () => {
+  test('opens recovery guidance within the deployed UI basename', async () => {
+    const fallback = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await fallback(input, init)
+        if (pathOf(input) !== '/v1/diagnostics') return response
+        const health = await response.json()
+        health.checks[1].finding.next_action = {
+          kind: 'navigate',
+          label: 'Storage configuration',
+          href: '/docs/api#configuration',
+        }
+        return jsonResponse(health)
+      }),
+    )
+    renderApp('/ui/admin', { basename: '/ui' })
+    const link = await screen.findByRole('link', { name: 'Storage configuration' })
+    expect(link).toHaveAttribute('href', '/ui/docs/api#configuration')
+    expect(link).not.toHaveAttribute('download')
+    await userEvent.setup().click(link)
+    expect(await screen.findByRole('heading', { name: 'Configuration' })).toBeInTheDocument()
+  })
+
   test.each([
     {
       locale: 'es',
