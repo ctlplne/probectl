@@ -484,7 +484,10 @@
       "type": "object",
       "additionalProperties": false,
       "$comment": "RTO-10: url is NOT unconditionally required here — it is required only when secrets.existingSecret is unset (enforced by the root allOf below and by templates/secret.yaml). An existingSecret supplies PROBECTL_DATABASE_URL directly, and the Terraform module + Argo CD/Flux GitOps manifests use exactly that path, so a hard minLength:1 here rejected every secret-managed install before the template could run.",
-      "properties": { "url": { "type": "string" } }
+      "properties": {
+        "url": { "type": "string" },
+        "migrationExistingSecret": { "type": "string" }
+      }
     },
     "service": {
       "type": "object",

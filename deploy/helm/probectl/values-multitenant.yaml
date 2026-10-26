@@ -6,6 +6,7 @@
 #     --set ingress.backendTLS.trustSecret=probectl-backend-ca \
 #     --set ingress.backendTLS.serverName=probectl.msp.example \
 #     --set control.tls.existingSecret=probectl-msp-tls \
+#     --set database.migrationExistingSecret=probectl-migrations \
 #     --set-string image.digest='sha256:<release-digest>' \
 #     --set database.url=...
 #

@@ -268,6 +268,7 @@ migration-gate: ## Migration gate (S34/SCHEMA-001/003): reject destructive, lock
 .PHONY: helm-gate
 helm-gate: ## Helm chart lint + secure-by-default hardening assertions (S35). Needs helm.
 	bash scripts/check_helm_hardening.sh
+	bash scripts/check_helm_migration_credentials.sh
 	@# RTO-09: the copy-paste install command in docs/install.md must satisfy
 	@# values.schema.json and render — the hardening gate above uses its own value
 	@# set, so it never exercised the exact flags the docs tell operators to run.

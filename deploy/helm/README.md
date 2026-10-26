@@ -53,9 +53,30 @@ nothing.
 
 ## Install (single-tenant / sovereign)
 
+Use separate PostgreSQL logins for schema migrations and normal runtime queries.
+The runtime login must remain non-superuser and must not have `BYPASSRLS`; do not
+grant it schema-writing privileges to make the migration init container pass.
+Create a Secret containing the migration owner's verified-TLS DSN under the key
+`PROBECTL_DATABASE_URL`, then set `database.migrationExistingSecret` to its name.
+For example, prepare a private file named `migration-database-url` and run:
+
+```sh
+kubectl -n probectl create secret generic probectl-migrations \
+  --from-file=PROBECTL_DATABASE_URL=./migration-database-url
+```
+
+Pre-create the namespace before this command. Only the `migrate` init container
+receives that Secret reference; the control process and other init containers
+retain the runtime DSN from `database.url` or `secrets.existingSecret`. Both DSNs
+must select the same database. The migration container uses the configured trust
+bundle and staged credential files. With an empty `database.migrationExistingSecret`,
+the chart preserves its existing shared-DSN behavior. If migrations are managed
+separately, run them before installation or upgrade and set `migrateOnBoot=false`.
+
 ```sh
 helm install probectl deploy/helm/probectl \
   --namespace probectl --create-namespace \
+  --set database.migrationExistingSecret=probectl-migrations \
   --set ingress.host=probectl.example.com \
   --set ingress.tlsSecretName=probectl-tls \
   --set ingress.backendTLS.trustSecret=probectl-backend-ca \
@@ -107,6 +128,10 @@ supplies a digest.
 > collector produces which data plane).
 
 ## Install (multi-tenant / provider, MSP)
+
+Use the separate `probectl-migrations` Secret described above and pass
+`--set database.migrationExistingSecret=probectl-migrations`. The provider runtime
+Secret below carries only the restricted runtime database login.
 
 Before installing, pre-create two shared resources (three with the license),
 and have your SIEM endpoint ready — the multi-tenant profile refuses to render

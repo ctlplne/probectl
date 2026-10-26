@@ -273,6 +273,14 @@ completion before the main one starts — so the schema is always in place befor
 the server boots), and the pod runs non-root with a read-only
 root filesystem.
 
+Keep the runtime database login restricted. Supply the schema owner's DSN in a
+separate Secret with key `PROBECTL_DATABASE_URL`, and reference it with
+`database.migrationExistingSecret`; only the migration init container receives
+that override. See the [Helm credential setup](../deploy/helm/README.md#install-single-tenant--sovereign).
+If you apply migrations outside Helm, finish them first and set
+`migrateOnBoot=false`. Do not grant the API login schema-writing privileges to
+work around an init-container permission error.
+
 ```sh
 helm install probectl deploy/helm/probectl \
   --namespace probectl --create-namespace \

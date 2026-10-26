@@ -65,11 +65,22 @@ spec:
                 name: {{ include "probectl.secretName" . }}
           securityContext:
             {{- include "probectl.scrubUIDs" (dict "root" $ "sc" .Values.securityContext) | nindent 12 }}
-          {{- if .Values.control.trustBundle.existingConfigMap }}
+          {{- if or .Values.control.trustBundle.existingConfigMap .Values.database.migrationExistingSecret }}
           env:
+            {{- if .Values.database.migrationExistingSecret }}
+            # Only this init container receives schema-writing credentials.
+            # Explicit env overrides the runtime DSN inherited via envFrom.
+            - name: PROBECTL_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.migrationExistingSecret | quote }}
+                  key: PROBECTL_DATABASE_URL
+            {{- end }}
+            {{- if .Values.control.trustBundle.existingConfigMap }}
             # DPR-026: the migration reaches the database with the same trust.
             - name: SSL_CERT_FILE
               value: {{ printf "%s/%s" .Values.control.trustBundle.mountPath .Values.control.trustBundle.key | quote }}
+            {{- end }}
           {{- end }}
           {{- if or .Values.control.tls.enabled .Values.control.trustBundle.existingConfigMap .Values.control.credentialFiles.existingSecret }}
           volumeMounts:
