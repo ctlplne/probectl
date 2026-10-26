@@ -51,7 +51,9 @@ Forwarding, value 46) is the class real voice conventionally rides.
 The target must **echo the UDP datagrams** back — that can be a probectl agent
 acting as a responder, or any plain UDP echo service. A target that does *not*
 echo shows up as **100% loss** and an explicit *"voice path unmeasurable"*
-failure. It never invents a score from a silent target.
+failure. The result-detail view still shows the measured packet counts and
+100% loss when no echoes return; MOS, jitter and delay estimates remain
+unavailable. It never invents a score from a silent target.
 
 ## How it works — sending a call and listening to the echo
 

@@ -180,6 +180,8 @@ function VoiceBreakdown({ r }: { r: LatestResult }) {
   const { locale } = useI18n()
   const fmt = (v: number | undefined, unit = '', digits = 1) => num(v, unit, digits, locale)
   const mos = m(r, 'voice.mos')
+  const lossRatio = m(r, 'loss.ratio')
+  const lossPct = m(r, 'voice.loss.pct') ?? (lossRatio === undefined ? undefined : lossRatio * 100)
   return (
     <dl className={styles.kv}>
       <dt>MOS</dt>
@@ -195,8 +197,8 @@ function VoiceBreakdown({ r }: { r: LatestResult }) {
       </dd>
       <dt>Jitter / loss</dt>
       <dd>
-        {fmt(m(r, 'voice.jitter.ms'), 'ms')} (RFC 3550) · loss {fmt(m(r, 'voice.loss.pct'), '%', 1)}{' '}
-        · {fmt(m(r, 'packets.received'), '', 0)}/{fmt(m(r, 'packets.sent'), '', 0)} packets
+        {fmt(m(r, 'voice.jitter.ms'), 'ms')} (RFC 3550) · loss {fmt(lossPct, '%', 1)} ·{' '}
+        {fmt(m(r, 'packets.received'), '', 0)}/{fmt(m(r, 'packets.sent'), '', 0)} packets
       </dd>
       <dt>Delay</dt>
       <dd>

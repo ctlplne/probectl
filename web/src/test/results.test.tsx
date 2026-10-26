@@ -374,6 +374,25 @@ describe('synthetic result views (S-FE5)', () => {
     expect(await axe(dialog)).toHaveNoViolations()
   })
 
+  test('silent voice shows measured total loss without inventing quality or delay', async () => {
+    const items = resultFixtures()
+    const voice = items.find((r) => r.type === 'voice')!
+    voice.success = false
+    voice.error = 'no RTP echoes — voice path unmeasurable'
+    voice.metrics = { 'loss.ratio': 1, 'packets.sent': 50, 'packets.received': 0 }
+    const { fetcher } = resultsBackend(items)
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/targets')
+    const dialog = await openResults('voip probe')
+
+    expect(within(dialog).getByText(/loss 100%/)).toBeDefined()
+    expect(within(dialog).getByText(/0\/50 packets/)).toBeDefined()
+    expect(within(dialog).getByText('— (no echoes — voice path unmeasurable)')).toBeDefined()
+    expect(within(dialog).queryByText(/R-factor/)).toBeNull()
+    expect(within(dialog).getByText(/one-way est\. — · RTT avg —/)).toBeDefined()
+    expect(await axe(dialog)).toHaveNoViolations()
+  })
+
   test('consistency: no view ever renders raw JSON', async () => {
     const { fetcher } = resultsBackend(resultFixtures())
     vi.stubGlobal('fetch', fetcher)
