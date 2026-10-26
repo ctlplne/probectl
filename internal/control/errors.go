@@ -107,6 +107,9 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 			"code", domain.Code, "status", status, "error", err.Error())
 	}
 	reqID, _ := logging.RequestIDFromContext(r.Context())
+	if writeQuarantineLoginPage(w, r, domain, reqID) {
+		return
+	}
 	writeJSON(w, status, errorBody{Error: errorDetail{
 		Code:      domain.Code,
 		Message:   domain.Message,

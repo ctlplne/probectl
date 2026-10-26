@@ -393,3 +393,13 @@ plane; a predicate-free read as the reader under one tenant's setting against
 the other's database counts zero rows, a misrouted read through the store
 returns nothing, a table added later is refused to the reader until scoped,
 and teardown revokes every grant. With the row policy skipped it goes red.
+
+### Browser sign-in during quarantine
+
+A quarantined tenant cannot start sign-in. Browser requests accepting HTML at
+`/auth/login` receive HTTP 503 with an accessible, script-free explanation, the
+`tenant_quarantined` code, and **Retry sign-in** / **Return to console** links.
+The links retain only a valid tenant UUID routing hint; retry never releases
+quarantine or bypasses SSO. The deployment operator must repair the failed
+precondition first. Operator-only diagnostic details are not shown. API clients
+and all `/v1` routes retain the structured JSON error and HTTP 503.
