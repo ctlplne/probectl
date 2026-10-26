@@ -277,6 +277,8 @@ func TestPathEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 		"DROP TABLE IF EXISTS probectl_t_old.probectl_path_links",
 		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS fidelity_version",
 		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS hardware_timestamping",
+		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS trace_count",
+		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS max_hops",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("old tenant ledger did not apply pending v2 %q in:\n%s", want, body)

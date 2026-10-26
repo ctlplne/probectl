@@ -8,6 +8,7 @@ package pathstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -155,5 +156,27 @@ func TestLegacyClickHouseRowLeavesMeasurementFidelityUnknown(t *testing.T) {
 		"fidelity_version": 0,
 	}); got != nil {
 		t.Fatalf("legacy row was backfilled from mode: %+v", got)
+	}
+}
+
+func TestHopRowsPreserveDiscoveryCounts(t *testing.T) {
+	p := samplePath()
+	p.TraceCount, p.MaxHops = 2, 30
+	rows := hopRows("tenant-a", "round-a", "2026-10-26 00:00:00.000", p)
+	raw, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored []map[string]any
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) == 0 {
+		t.Fatal("missing hop rows")
+	}
+	for _, row := range stored {
+		if row["trace_count"] != float64(2) || row["max_hops"] != float64(30) {
+			t.Fatalf("discovery metadata lost: %+v", row)
+		}
 	}
 }

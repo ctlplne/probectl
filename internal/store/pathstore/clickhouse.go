@@ -330,6 +330,10 @@ func chMigrationsFor(hopsV1, linksV1, hopsV2, linksV2 string) []chmigrate.Migrat
 			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS kernel_timestamping UInt8 DEFAULT 0",
 			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS hardware_timestamping UInt8 DEFAULT 0",
 		}},
+		{Version: 5, Name: "path_discovery_counts", Statements: []string{
+			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS trace_count UInt32 DEFAULT 0",
+			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS max_hops UInt32 DEFAULT 0",
+		}},
 	}
 }
 
@@ -411,6 +415,8 @@ type hopRow struct {
 	Target               string   `json:"target"`
 	TargetIP             string   `json:"target_ip"`
 	Mode                 string   `json:"mode"`
+	TraceCount           int      `json:"trace_count"`
+	MaxHops              int      `json:"max_hops"`
 	FidelityVersion      int      `json:"fidelity_version"`
 	ProbeTransport       string   `json:"probe_transport"`
 	AcquisitionMode      string   `json:"acquisition_mode"`
@@ -456,6 +462,7 @@ func hopRows(tenantID, pathID, ts string, p *path.Path) []hopRow {
 			}
 			rows = append(rows, hopRow{
 				TenantID: tenantID, PathID: pathID, Target: p.Target, TargetIP: p.TargetIP, Mode: p.Mode,
+				TraceCount: p.TraceCount, MaxHops: p.MaxHops,
 				FidelityVersion: fidelity.Version, ProbeTransport: fidelity.ProbeTransport,
 				AcquisitionMode: fidelity.AcquisitionMode, TimingSource: fidelity.TimingSource,
 				HopVisibility: fidelity.HopVisibility, KernelTimestamping: boolByte(fidelity.KernelTimestamping),
@@ -752,7 +759,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	// across snapshots, so no dedup engine is needed (see doc.go). Do not widen
 	// this to a cross-snapshot scan.
 	meta, err := c.queryScoped(ctx, t, tenantID,
-		"SELECT path_id, target_ip, mode, fidelity_version, probe_transport, acquisition_mode, timing_source, hop_visibility, kernel_timestamping, hardware_timestamping FROM "+hopsT+" WHERE tenant_id={tenant:String} AND target={target:String} ORDER BY ts DESC LIMIT 1",
+		"SELECT path_id, target_ip, mode, trace_count, max_hops, fidelity_version, probe_transport, acquisition_mode, timing_source, hop_visibility, kernel_timestamping, hardware_timestamping FROM "+hopsT+" WHERE tenant_id={tenant:String} AND target={target:String} ORDER BY ts DESC LIMIT 1",
 		chParams{"tenant": tenantID, "target": target})
 	if err != nil {
 		return nil, false, err
@@ -763,6 +770,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	pathID := chToString(meta[0]["path_id"])
 	p := &path.Path{
 		Target: target, TargetIP: chToString(meta[0]["target_ip"]), Mode: chToString(meta[0]["mode"]),
+		TraceCount: chToInt(meta[0]["trace_count"]), MaxHops: chToInt(meta[0]["max_hops"]),
 		MeasurementFidelity: fidelityFromRow(meta[0]),
 	}
 
@@ -803,7 +811,9 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	for _, ttl := range order {
 		p.Hops = append(p.Hops, *byTTL[ttl])
 	}
-	p.MaxHops = maxTTL
+	if p.MaxHops == 0 {
+		p.MaxHops = maxTTL
+	}
 
 	linkRows, err := c.queryScoped(ctx, t, tenantID,
 		"SELECT ttl, from_ip, to_ip FROM "+linksT+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, from_ip, to_ip",
@@ -866,7 +876,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		}
 	}
 	metaRows, err := c.queryScoped(ctx, t, tenantID,
-		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, max(ts) AS observed_at FROM "+hopsT+
+		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, any(trace_count) AS trace_count, any(max_hops) AS max_hops, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, max(ts) AS observed_at FROM "+hopsT+
 			" WHERE "+where+" GROUP BY path_id ORDER BY observed_at DESC, path_id DESC LIMIT {limit:UInt32}",
 		params)
 	if err != nil {
@@ -888,6 +898,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 			ObservedAt: parseCHTime(row["observed_at"]),
 			Path: path.Path{
 				Target: target, TargetIP: chToString(row["target_ip"]), Mode: chToString(row["mode"]),
+				TraceCount: chToInt(row["trace_count"]), MaxHops: chToInt(row["max_hops"]),
 				MeasurementFidelity: fidelityFromRow(row),
 			},
 		})
@@ -956,13 +967,6 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		for _, ttl := range order {
 			hop := *byTTL[ttl]
 			snapshots[i].Path.Hops = append(snapshots[i].Path.Hops, hop)
-			traces := 0
-			for _, node := range hop.Nodes {
-				traces += node.Sent
-			}
-			if traces > snapshots[i].Path.TraceCount {
-				snapshots[i].Path.TraceCount = traces
-			}
 		}
 	}
 

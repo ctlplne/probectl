@@ -1005,6 +1005,12 @@ Discovery runs on the control-plane host, not on agents: the privilege above is
 the control plane's, and the path is the route from where the control plane runs
 (every path carries `vantage: control_plane`).
 
+New ClickHouse discovery rounds preserve the original `trace_count` (flow traces,
+not packets sent) and `max_hops` (configured hop limit) in latest and history
+responses. Older rows lack these values: `trace_count: 0` means unknown, and
+`max_hops` falls back to the highest observed hop. Rediscover to obtain exact
+metadata; packet totals cannot reconstruct it when a trace sends multiple probes.
+
 Where the discovered hops/links are stored is a control-plane choice:
 
 | Variable | Default | Description |

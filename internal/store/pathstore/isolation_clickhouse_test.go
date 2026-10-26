@@ -37,9 +37,9 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	tb := fmt.Sprintf("path-iso-b-%d", now.UnixNano())
 	target := fmt.Sprintf("shared-target-%d.example", now.UnixNano())
 
-	mk := func(ip string) *path.Path {
+	mk := func(ip string, traces int) *path.Path {
 		return &path.Path{
-			Target: target, TargetIP: ip, Mode: "icmp", MaxHops: 8, TraceCount: 1, DestinationReached: true,
+			Target: target, TargetIP: ip, Mode: "icmp", MaxHops: 8, TraceCount: traces, DestinationReached: true,
 			MeasurementFidelity: &path.MeasurementFidelity{
 				Version: 1, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp",
 				TimingSource: "application_monotonic", HopVisibility: "full",
@@ -47,10 +47,10 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 			Hops: []path.Hop{{TTL: 1, Nodes: []path.HopNode{{IP: ip, Sent: 1, Received: 1, RTTAvgMs: 1.5}}}},
 		}
 	}
-	if err := c.Save(ctx, ta, mk("198.51.100.10")); err != nil {
+	if err := c.Save(ctx, ta, mk("198.51.100.10", 2)); err != nil {
 		t.Fatalf("save A: %v", err)
 	}
-	if err := c.Save(ctx, tb, mk("192.0.2.99")); err != nil {
+	if err := c.Save(ctx, tb, mk("192.0.2.99", 7)); err != nil {
 		t.Fatalf("save B: %v", err)
 	}
 
@@ -72,6 +72,9 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	roundsB, err := c.History(ctx, tb, target, HistoryQuery{})
 	if err != nil || len(roundsB) != 1 || roundsB[0].Path.TargetIP != "192.0.2.99" {
 		t.Fatalf("history B: rounds=%+v err=%v", roundsB, err)
+	}
+	if got.TraceCount != 2 || got.MaxHops != 8 || roundsA[0].Path.TraceCount != 2 || roundsB[0].Path.TraceCount != 7 {
+		t.Fatalf("cross-tenant discovery metadata: latest A=%+v history A=%+v B=%+v", got, roundsA, roundsB)
 	}
 	// Replaying B's stable round ID in A's authenticated scope must be a
 	// clean miss. path_id is never authorization by itself.

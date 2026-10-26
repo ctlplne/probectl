@@ -11155,9 +11155,11 @@
             "type": "string"
           },
           "max_hops": {
+            "description": "Configured discovery hop limit; historical stored rounds without metadata fall back to the highest observed hop.",
             "type": "integer"
           },
           "trace_count": {
+            "description": "Number of flow traces, not packets. Zero means unknown for historical stored rounds without discovery metadata.",
             "type": "integer"
           },
           "destination_reached": {

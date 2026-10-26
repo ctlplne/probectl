@@ -67,7 +67,7 @@ func (f *fakeCH) handler() http.HandlerFunc {
 			if qv.Get("param_path0") != "" && qv.Get("param_path0") != "p1" {
 				return
 			}
-			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp","fidelity_version":1,"probe_transport":"icmp","acquisition_mode":"raw_icmp","timing_source":"application_monotonic","hop_visibility":"full","kernel_timestamping":0,"hardware_timestamping":0,"observed_at":"2026-07-14 12:05:00.000"}` + "\n"))
+			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp","trace_count":2,"max_hops":30,"fidelity_version":1,"probe_transport":"icmp","acquisition_mode":"raw_icmp","timing_source":"application_monotonic","hop_visibility":"full","kernel_timestamping":0,"hardware_timestamping":0,"observed_at":"2026-07-14 12:05:00.000"}` + "\n"))
 		case strings.Contains(q, "SELECT path_id, ttl, from_ip"):
 			_, _ = w.Write([]byte(`{"path_id":"p1","ttl":1,"from_ip":"10.0.0.1","to_ip":"8.8.8.8"}` + "\n"))
 		case strings.Contains(q, "SELECT path_id, ttl"):
@@ -78,7 +78,7 @@ func (f *fakeCH) handler() http.HandlerFunc {
 			if strings.Contains(q, "'missing.example'") || qv.Get("param_target") == "missing.example" {
 				return // no rows -> not found
 			}
-			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp","fidelity_version":1,"probe_transport":"icmp","acquisition_mode":"raw_icmp","timing_source":"application_monotonic","hop_visibility":"full","kernel_timestamping":0,"hardware_timestamping":0}` + "\n"))
+			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp","trace_count":2,"max_hops":30,"fidelity_version":1,"probe_transport":"icmp","acquisition_mode":"raw_icmp","timing_source":"application_monotonic","hop_visibility":"full","kernel_timestamping":0,"hardware_timestamping":0}` + "\n"))
 		case strings.Contains(q, "FROM probectl_path_hops") && strings.Contains(q, "path_id="):
 			_, _ = w.Write([]byte(
 				`{"ttl":1,"responder":"10.0.0.1","sent":3,"received":3,"loss_ratio":0,"rtt_min_ms":"1.1","rtt_avg_ms":1.5,"rtt_max_ms":2.0,"mpls_labels":[16001]}` + "\n" +
@@ -140,6 +140,10 @@ func TestClickHousePathHistoryScopesQueriesAndBindsCopiedID(t *testing.T) {
 	if err != nil || len(rounds) != 1 {
 		t.Fatalf("History: len=%d err=%v", len(rounds), err)
 	}
+	if rounds[0].Path.TraceCount != 2 || rounds[0].Path.MaxHops != 30 {
+		t.Fatalf("history discovery counts = %+v", rounds[0].Path)
+	}
+
 	if rounds[0].ID != "p1" || rounds[0].Path.Target != "dns.example" || len(rounds[0].Path.Hops) != 2 || len(rounds[0].Path.Links) != 1 {
 		t.Fatalf("reconstructed round = %+v", rounds[0])
 	}
@@ -248,7 +252,7 @@ func TestClickHouseLatestReconstructsPath(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("Latest: ok=%v err=%v", ok, err)
 	}
-	if p.TargetIP != "8.8.8.8" || p.Mode != "icmp" || !p.DestinationReached || p.MaxHops != 2 {
+	if p.TargetIP != "8.8.8.8" || p.Mode != "icmp" || !p.DestinationReached || p.MaxHops != 30 || p.TraceCount != 2 {
 		t.Fatalf("path meta = %+v", p)
 	}
 	if p.MeasurementFidelity == nil ||
@@ -270,5 +274,33 @@ func TestClickHouseLatestReconstructsPath(t *testing.T) {
 	// And the not-found branch stays a clean miss, not an error.
 	if _, ok, err := ch.Latest(context.Background(), "t1", "missing.example"); ok || err != nil {
 		t.Fatalf("missing target: ok=%v err=%v, want clean miss", ok, err)
+	}
+}
+
+// Historical hop rows contain packet counts, not enough information to recover
+// the number of flow traces or the configured hop limit.
+func TestClickHouseLegacyDiscoveryCountsRemainUnknown(t *testing.T) {
+	fake := &fakeCH{deleted: map[string]bool{}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := httptest.NewRecorder()
+		fake.handler().ServeHTTP(rec, r)
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write([]byte(strings.ReplaceAll(rec.Body.String(), `"trace_count":2,"max_hops":30,`, "")))
+	}))
+	defer srv.Close()
+	ch, err := newClickHouse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, ok, err := ch.Latest(context.Background(), "tenant-a", "dns.example")
+	if err != nil || !ok {
+		t.Fatalf("latest: %v %v", ok, err)
+	}
+	history, err := ch.History(context.Background(), "tenant-a", "dns.example", HistoryQuery{})
+	if err != nil || len(history) != 1 {
+		t.Fatalf("history: %+v %v", history, err)
+	}
+	if latest.TraceCount != 0 || history[0].Path.TraceCount != 0 || latest.MaxHops != 2 || history[0].Path.MaxHops != 2 {
+		t.Fatalf("legacy metadata guessed from packets: latest=%+v history=%+v", latest, history)
 	}
 }
