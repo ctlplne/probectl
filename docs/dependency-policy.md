@@ -157,6 +157,16 @@ bytes but the manifest still states upgrade intent.
   regenerated `internal/gen` tree in the same commit, because the `proto` job
   fails if the committed generated code doesn't match the pinned plugins.
 
+## Patched development dependencies
+
+The 2026-10-26 QA audit patched the development-only Vitest family to 4.1.12
+for [manual mock registration](https://github.com/advisories/GHSA-qxg6-89mg-rqv8)
+and [Windows redirect traversal](https://github.com/advisories/GHSA-xp26-3454-mjgp),
+and the transitive `postcss-selector-parser` to 6.1.5 for
+[selector parsing CPU exhaustion](https://github.com/advisories/GHSA-rj75-hqrm-r3gf).
+These tools run tests and build CSS; they are not servers in the shipped product.
+The updates retain the existing dependency majors and require no audit exception.
+
 ## Risk register: pre-1.0 dependencies on privileged paths
 
 Most dependencies are stable, post-1.0 libraries. A couple sit on sensitive paths
