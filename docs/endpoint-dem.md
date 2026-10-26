@@ -203,6 +203,13 @@ and sends the original protobuf to `probectl.deadletter.results.endpoint` if Cli
 remains unavailable. A store failure therefore cannot silently acknowledge and
 lose an endpoint event.
 
+The console marks a no-impairment verdict with unmeasured layers as **partial
+coverage**, rather than healthy. Its detail view labels those layers **Not
+measured** instead of treating their zero placeholder scores as observations,
+and shows the collector's unavailable-signal reason. The **No detected
+impairment** filter can include these partial observations; inspect coverage
+before treating a device as fully measured.
+
 ## Deploy
 
 Ship the single static binary to managed devices via your **MDM** (mobile-device

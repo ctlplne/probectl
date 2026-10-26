@@ -201,6 +201,30 @@ function endpointsBackend(items: EndpointView[]) {
 describe('endpoint / WiFi DEM surface (S-FE4)', () => {
   beforeEach(() => vi.restoreAllMocks())
 
+  test('keeps unmeasured layers out of healthy verdicts and severity scores', async () => {
+    const endpoint = endpointFixtures()[2]
+    endpoint.attribution!.attributes = {
+      'endpoint.unmeasured': 'local, isp',
+      'endpoint.unavailable': 'last_mile: traceroute is unavailable',
+    }
+    endpoint.attribution!.metrics = { local_score: 0, isp_score: 0, network_score: 0 }
+    const { fetcher } = endpointsBackend([endpoint])
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/endpoints')
+    const fleet = await screen.findByRole('table', { name: 'Endpoint fleet' })
+    expect(within(fleet).getByText('partial coverage')).toBeVisible()
+    expect(within(fleet).queryByText('healthy')).not.toBeInTheDocument()
+    await userEvent.click(within(fleet).getByRole('button', { name: 'Details' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('last_mile: traceroute is unavailable')).toBeVisible()
+    for (const label of ['Local', 'ISP']) {
+      const layer = within(dialog).getByText(label).closest('li')!
+      expect(within(layer).getByText('Not measured')).toBeVisible()
+      expect(within(layer).queryByText(/severity/)).not.toBeInTheDocument()
+    }
+    expect(within(dialog).getByText('severity 0')).toBeVisible()
+  })
+
   test('renders the WiFi-degradation fixture: verdict, WiFi health, segments', async () => {
     const { fetcher } = endpointsBackend(endpointFixtures())
     vi.stubGlobal('fetch', fetcher)

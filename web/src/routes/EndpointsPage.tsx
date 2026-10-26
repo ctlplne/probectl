@@ -64,7 +64,19 @@ function num(v: number | undefined, unit = '', digits = 1, locale = 'en'): strin
   return formatDecimal(v, locale, { maximumFractionDigits: digits })
 }
 
+function unmeasuredLayers(a?: DEMResult): Set<string> {
+  return new Set(
+    (attr(a, 'endpoint.unmeasured') ?? '')
+      .split(',')
+      .map((layer) => layer.trim())
+      .filter(Boolean),
+  )
+}
+
 function verdictBadge(v: EndpointView) {
+  if (!v.slow && unmeasuredLayers(v.attribution).size > 0) {
+    return <Badge tone="neutral">partial coverage</Badge>
+  }
   return (
     <Badge tone={causeTone(v.cause, v.slow)}>
       {v.slow ? `slow: ${causeLabel(v.cause)}` : 'healthy'}
@@ -94,6 +106,18 @@ function LayerScores({ a, locale }: { a: DEMResult; locale: string }) {
     <ul className={styles.findings}>
       {layers.map(([label, key]) => {
         const score = metric(a, key)
+        const unmeasured = unmeasuredLayers(a)
+        if (
+          unmeasured.has(key.replace('_score', '')) ||
+          (key === 'network_score' && unmeasured.has('sessions'))
+        ) {
+          return (
+            <li key={key}>
+              <Badge tone="neutral">{label}</Badge>
+              <span>Not measured</span>
+            </li>
+          )
+        }
         if (score === undefined) return null
         return (
           <li key={key}>
@@ -125,6 +149,12 @@ function EndpointDetail({ view, onClose }: { view: EndpointView; onClose: () => 
           <>
             <dt>Why</dt>
             <dd>{view.summary}</dd>
+          </>
+        ) : null}
+        {attr(view.attribution, 'endpoint.unavailable') ? (
+          <>
+            <dt>Unavailable signals</dt>
+            <dd>{attr(view.attribution, 'endpoint.unavailable')}</dd>
           </>
         ) : null}
         <dt>Last seen</dt>
@@ -337,7 +367,7 @@ export function EndpointsPage() {
                   { value: 'local', label: 'Local network' },
                   { value: 'isp', label: 'ISP / last mile' },
                   { value: 'network', label: 'Network / service' },
-                  { value: 'none', label: 'Healthy' },
+                  { value: 'none', label: 'No detected impairment' },
                 ]}
               />
               <Select
