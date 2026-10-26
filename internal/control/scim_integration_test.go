@@ -764,3 +764,36 @@ func TestSCIMGroupFilterAndDuplicateConflict(t *testing.T) {
 		t.Fatalf("duplicate group must be 409 uniqueness, got %d %s", dup.Code, dup.Body)
 	}
 }
+
+// A syntactically valid UUID from another tenant must fail just like a missing
+// user, and roll back the rename and replacement of existing members.
+func TestSCIMGroupForeignMemberPatchRollsBack(t *testing.T) {
+	h, db := setupAPI(t)
+	tenants := []string{freshTenant(t, db, "scimrefa"), freshTenant(t, db, "scimrefb")}
+	tokens := []string{scimToken(t, db, tenants[0], "qa"), scimToken(t, db, tenants[1], "qa")}
+	users := make([]string, 2)
+	for i, token := range tokens {
+		users[i] = scimID(t, scimReq(t, h, http.MethodPost, "/scim/v2/Users", token, scimUserBody("member@example.test", "member", "qa")))
+	}
+	for i, token := range tokens {
+		created := scimReq(t, h, http.MethodPost, "/scim/v2/Groups", token, `{"displayName":"Original","members":[{"value":"`+users[i]+`"}]}`)
+		if created.Code != http.StatusCreated {
+			t.Fatalf("create: %d %s", created.Code, created.Body)
+		}
+		path := "/scim/v2/Groups/" + scimID(t, created)
+		before := scimReq(t, h, http.MethodGet, path, token, "").Body.String()
+		for _, member := range []string{users[1-i], "00000000-0000-0000-0000-000000000099"} {
+			for _, op := range []string{"add", "replace"} {
+				body := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"displayName","value":"Must rollback"},{"op":"` + op + `","path":"members","value":[{"value":"` + member + `"}]}]}`
+				got := scimReq(t, h, http.MethodPatch, path, token, body)
+				if got.Code != http.StatusBadRequest {
+					t.Fatalf("%s foreign/missing member: %d %s", op, got.Code, got.Body)
+				}
+				after := scimReq(t, h, http.MethodGet, path, token, "")
+				if after.Code != http.StatusOK || after.Body.String() != before {
+					t.Fatalf("failed PATCH changed group: %s", after.Body)
+				}
+			}
+		}
+	}
+}

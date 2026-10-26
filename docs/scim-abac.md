@@ -66,7 +66,9 @@ Endpoints — twelve routes, mounted at `/scim/v2`, outside the `/v1` API, in
   changes while its slug, the stable identity bindings join on, does not),
   `DELETE`. A group PATCH is **atomic**: it runs in one database transaction,
   so a failed sync applies nothing and returns a real error for the IdP to
-  retry — never a 200 over half-applied state. A SCIM **Group maps to a probectl role**, and
+  retry — never a 200 over half-applied state. Member IDs must identify users
+  in the current tenant. A foreign or missing member returns `400 invalidValue`
+  and rolls back the entire PATCH, including any rename or membership removal. A SCIM **Group maps to a probectl role**, and
   group membership is a role binding — that is the **group-sync mapping** that
   gives users their permissions.
 - **Discovery** — `GET /scim/v2/ServiceProviderConfig` (the machine-readable

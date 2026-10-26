@@ -520,6 +520,10 @@ func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request, tenantID
 			writeSCIMError(w, http.StatusNotFound, "", "group not found")
 			return
 		}
+		if errors.As(err, &ae) && ae.Kind == apierror.KindValidation {
+			writeSCIMError(w, http.StatusBadRequest, "invalidValue", "invalid group attributes; no changes were applied")
+			return
+		}
 		// AUTHZ-08: a last-administrator conflict is a 409, not a 500.
 		if isConflict(err) {
 			writeSCIMError(w, http.StatusConflict, "mutability", "cannot remove the last administrator")

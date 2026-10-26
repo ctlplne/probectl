@@ -204,8 +204,33 @@ func (Roles) Permissions(ctx context.Context, s tenancy.Scope, roleID string) ([
 // RoleBindings is the tenant-scoped role-binding repository.
 type RoleBindings struct{}
 
+// validateBindingReferences rejects foreign or missing subjects and roles at the
+// query boundary. RLS on role_bindings alone protects the binding row, not the
+// polymorphic subject_id it points to. Explicit tenant predicates also protect
+// callers using a privileged migration/test connection.
+func validateBindingReferences(ctx context.Context, s tenancy.Scope, subjectType, subjectID, roleID string) error {
+	var valid bool
+	err := s.Q.QueryRow(ctx, `SELECT
+  EXISTS (SELECT 1 FROM roles WHERE tenant_id = $1 AND id = $4::uuid)
+  AND CASE $2::text
+   WHEN 'user' THEN EXISTS (SELECT 1 FROM users WHERE tenant_id = $1 AND id = $3::uuid)
+   WHEN 'service_account' THEN EXISTS (SELECT 1 FROM service_accounts WHERE tenant_id = $1 AND id = $3::uuid)
+   ELSE false
+  END`, s.Tenant.String(), subjectType, subjectID, roleID).Scan(&valid)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return apierror.Validation("role binding references must exist in the current tenant")
+	}
+	return nil
+}
+
 // Create binds a subject (user or service account) to a role at a scope.
 func (RoleBindings) Create(ctx context.Context, s tenancy.Scope, subjectType, subjectID, roleID, scopeType string, scopeID *string) (string, error) {
+	if err := validateBindingReferences(ctx, s, subjectType, subjectID, roleID); err != nil {
+		return "", err
+	}
 	var id string
 	err := s.Q.QueryRow(ctx,
 		`INSERT INTO role_bindings (tenant_id, subject_type, subject_id, role_id, scope_type, scope_id)
@@ -230,6 +255,9 @@ func (RoleBindings) countForSubject(ctx context.Context, s tenancy.Scope, subjec
 // scope_id, which PostgreSQL treats as distinct, so it never deduplicated
 // (DPR-015).
 func (RoleBindings) Bind(ctx context.Context, s tenancy.Scope, subjectType, subjectID, roleID string) error {
+	if err := validateBindingReferences(ctx, s, subjectType, subjectID, roleID); err != nil {
+		return err
+	}
 	_, err := s.Q.Exec(ctx,
 		`INSERT INTO role_bindings (tenant_id, subject_type, subject_id, role_id, scope_type)
 		 VALUES ($1, $2, $3, $4, 'tenant')
@@ -254,6 +282,9 @@ func (RoleBindings) Unbind(ctx context.Context, s tenancy.Scope, subjectType, su
 // it only for resources in that branch (auth.Principal.HasAt); it never
 // satisfies a tenant-wide permission check.
 func (RoleBindings) BindScoped(ctx context.Context, s tenancy.Scope, subjectType, subjectID, roleID, scopeType, scopeID string) error {
+	if err := validateBindingReferences(ctx, s, subjectType, subjectID, roleID); err != nil {
+		return err
+	}
 	_, err := s.Q.Exec(ctx,
 		`INSERT INTO role_bindings (tenant_id, subject_type, subject_id, role_id, scope_type, scope_id)
 		 VALUES ($1, $2, $3, $4, $5, $6::uuid)
