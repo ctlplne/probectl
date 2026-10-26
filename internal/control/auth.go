@@ -606,6 +606,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// A revoked/expired predecessor cannot authenticate this browser. Drop it
+	// only when starting a NEW IdP flow, so reactivation can recover without
+	// reusing a tombstone at callback. Keep live predecessors: competing
+	// callbacks must still atomically consume exactly one successor.
+	if oldToken := auth.TokenFromRequest(r); oldToken != "" {
+		previous, err := s.sessions.Resolve(r.Context(), oldToken)
+		if err != nil {
+			return apierror.Unavailable("session state is temporarily unavailable")
+		}
+		if previous == nil {
+			s.sessions.ClearCookie(w)
+		}
+	}
 	state, err := auth.RandomToken()
 	if err != nil {
 		return err

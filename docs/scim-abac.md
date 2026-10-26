@@ -95,6 +95,11 @@ deprovisioned session fails to resolve and returns `401` — there is **no TTL
 window** to wait out. This does not depend on any cache; it is a direct session
 delete keyed by `(tenant_id, user_id)`, so it takes effect at once.
 
+After reactivation, the user must complete a new IdP login. Starting that login
+clears an already-revoked browser cookie; it never restores the revoked session.
+Live predecessor cookies still participate in atomic session replacement, so
+concurrent callbacks cannot mint two successors.
+
 Think of a building badge: the safe design confiscates the badge at the desk
 the moment HR terminates, rather than letting it keep opening doors until its
 printed expiry date. A session that outlives the employment it represents is

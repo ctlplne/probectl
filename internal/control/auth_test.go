@@ -465,3 +465,63 @@ func TestTenantIdPMisconfigurationFailsClosedWithoutEnvironmentFallback(t *testi
 		t.Fatal("unreadable tenant IdP silently fell back to the environment provider")
 	}
 }
+
+// loginRecoveryStore preserves the production distinction between a missing
+// session and a lookup failure without granting authority from a cookie alone.
+type loginRecoveryStore struct {
+	subjectAttributeSessionStore
+	err error
+}
+
+func (s *loginRecoveryStore) LookupByHash(ctx context.Context, hash []byte, idle time.Duration) (*auth.Session, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.subjectAttributeSessionStore.LookupByHash(ctx, hash, idle)
+}
+
+func TestLoginRecoversInvalidPredecessor(t *testing.T) {
+	const targetTenant = "00000000-0000-0000-0000-0000000000a1"
+	for _, tc := range []struct {
+		name      string
+		session   *auth.Session
+		lookupErr error
+		clear     bool
+	}{
+		{name: "revoked or expired cookie", clear: true},
+		{name: "live same tenant", session: &auth.Session{TenantID: targetTenant}},
+		{name: "live foreign tenant is still consumed atomically", session: &auth.Session{TenantID: "00000000-0000-0000-0000-0000000000b1"}},
+		{name: "lookup unavailable fails closed", lookupErr: errors.New("session store unavailable")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &loginRecoveryStore{subjectAttributeSessionStore: subjectAttributeSessionStore{session: tc.session}, err: tc.lookupErr}
+			factory := &capturingOIDCFactory{}
+			srv := &Server{cfg: &config.Config{AuthMode: "session"}, providers: factory, sessions: auth.NewManager(st, time.Hour, true, nil)}
+			req := httptest.NewRequest(http.MethodGet, "/auth/login?tenant="+targetTenant, nil)
+			req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: "qa-invalid-or-live-cookie"})
+			rec := httptest.NewRecorder()
+			err := srv.handleLogin(rec, req)
+			if tc.lookupErr != nil {
+				if err == nil || rec.Header().Get("Location") != "" || len(rec.Result().Cookies()) != 0 {
+					t.Fatal("lookup failure must not start a login or clear the predecessor")
+				}
+				return
+			}
+			if err != nil || rec.Code != http.StatusFound {
+				t.Fatalf("login: code=%d err=%v", rec.Code, err)
+			}
+			var cleared bool
+			for _, cookie := range rec.Result().Cookies() {
+				if cookie.Name == auth.SessionCookie {
+					cleared = cookie.Value == "" && cookie.MaxAge < 0 && cookie.Path == "/" && cookie.HttpOnly && cookie.Secure
+				}
+			}
+			if cleared != tc.clear {
+				t.Fatalf("cleared invalid predecessor=%v, want %v", cleared, tc.clear)
+			}
+			if len(factory.tenantIDs) != 1 || factory.tenantIDs[0] != targetTenant {
+				t.Fatalf("cookie changed requested tenant: %v", factory.tenantIDs)
+			}
+		})
+	}
+}
