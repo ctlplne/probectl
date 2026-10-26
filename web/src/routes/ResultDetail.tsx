@@ -286,6 +286,22 @@ function BrowserBreakdown({ r }: { r: LatestResult }) {
           )}
         </dd>
       </dl>
+      {a(r, 'browser.screenshot.key') ? (
+        <dl className={styles.kv}>
+          <dt>Stored failure artifact</dt>
+          <dd>
+            <code>{a(r, 'browser.screenshot.key')}</code>
+          </dd>
+          <dt>File type</dt>
+          <dd>{a(r, 'browser.screenshot.content_type') ?? 'Not reported'}</dd>
+          <dt>Retrieve</dt>
+          <dd>
+            Ask your storage operator to retrieve this reference from the producing agent’s
+            configured object store. This is a storage reference, not a download URL. Inspect
+            captured HTML as untrusted text.
+          </dd>
+        </dl>
+      ) : null}
       <Table
         caption="Browser transaction steps"
         columns={columns}

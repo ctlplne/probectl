@@ -393,6 +393,37 @@ describe('synthetic result views (S-FE5)', () => {
     expect(await axe(dialog)).toHaveNoViolations()
   })
 
+  test.each([
+    ['image/png', 'tenant/qa-red/browser/failure.png'],
+    ['text/html', 'tenant/qa-red/browser/failure.html'],
+    ['text/html', 'https://untrusted.example/artifact'],
+  ])(
+    'browser failure exposes its stored %s reference as text, never a remote link',
+    async (type, key) => {
+      const items = resultFixtures()
+      const browser = items.find((r) => r.type === 'browser')!
+      browser.success = false
+      browser.attributes = {
+        ...browser.attributes,
+        'browser.screenshot.key': key,
+        'browser.screenshot.content_type': type,
+      }
+      const { fetcher } = resultsBackend(items)
+      vi.stubGlobal('fetch', fetcher)
+      renderApp('/targets')
+      const dialog = await openResults('checkout browser')
+      expect(within(dialog).getByText('Stored failure artifact')).toBeDefined()
+      expect(within(dialog).getByText(key)).toBeDefined()
+      expect(within(dialog).getByText(type)).toBeDefined()
+      expect(
+        within(dialog).getByText(/Ask your storage operator to retrieve this reference/),
+      ).toBeDefined()
+      expect(within(dialog).queryByRole('link')).toBeNull()
+      expect(within(dialog).queryByRole('img')).toBeNull()
+      expect(await axe(dialog)).toHaveNoViolations()
+    },
+  )
+
   test('consistency: no view ever renders raw JSON', async () => {
     const { fetcher } = resultsBackend(resultFixtures())
     vi.stubGlobal('fetch', fetcher)

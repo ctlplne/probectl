@@ -134,6 +134,40 @@ Successful runs store nothing by default (to bound storage); set
 `StoreOnSuccess` to keep them. Object-lifecycle / retention policy is applied at
 the store itself.
 
+## Retrieving a failure artifact
+
+Open **Targets & Tests → Results** on the failed browser test. **Stored failure
+artifact** shows the exact object reference and content type when the agent
+successfully saved one. Copy that reference to your authorized storage operator.
+It is a storage key, not a URL: the console does not fetch it, embed captured HTML,
+or offer an HTTP download from an agent-local filesystem. If the section is
+absent, inspect the agent's artifact-storage logs; an unsuccessful upload does
+not produce a reference.
+
+The operator uses the **producing agent's** `artifact_store` configuration:
+
+- **Filesystem:** locate the object beneath `artifact_store.dir`, preserving the
+  complete `tenant/<id>/browser/...` or `silo/<id>/browser/...` reference. For an
+  agent container, copy that exact file from its mounted object-store directory
+  with your existing container administration tools. For example, when the
+  configured directory is `/var/lib/probectl/objects`, a reference of
+  `tenant/<tenant-id>/browser/<artifact>.png` resolves to
+  `/var/lib/probectl/objects/tenant/<tenant-id>/browser/<artifact>.png`.
+- **S3/MinIO:** use the operator's existing authenticated storage client against
+  the configured HTTPS endpoint and bucket. The object key is the configured
+  S3 prefix followed by the complete displayed reference. Keep certificate
+  validation enabled; do not turn the object public or place credentials in a
+  URL to retrieve it.
+
+Check that the reference's tenant matches the authorized request before reading
+or sharing it. Keep retrieved files private. A rendered driver's artifact is
+PNG; the HTTP driver's artifact is captured HTML, which should be inspected as
+untrusted text rather than opened as an active webpage. Retention can remove a
+previously stored object, so a reference is evidence of storage at execution
+time, not a promise that the file remains available. Sharing the agent and
+control-plane object backend supports lifecycle export/erase; it does not add a
+browser-artifact download route.
+
 ## Deploy
 
 For non-rendering HTTP transactions, no extra process is required:
