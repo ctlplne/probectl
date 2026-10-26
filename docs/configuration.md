@@ -1010,6 +1010,8 @@ not packets sent) and `max_hops` (configured hop limit) in latest and history
 responses. Older rows lack these values: `trace_count: 0` means unknown, and
 `max_hops` falls back to the highest observed hop. Rediscover to obtain exact
 metadata; packet totals cannot reconstruct it when a trace sends multiple probes.
+The console labels these older rounds “Flow count unknown” and offers rediscovery
+guidance instead of presenting an unknown value as zero measured flows.
 
 Where the discovered hops/links are stored is a control-plane choice:
 

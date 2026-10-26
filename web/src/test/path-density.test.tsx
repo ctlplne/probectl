@@ -67,7 +67,7 @@ const denseTest = {
   updated_at: '',
 }
 
-function stubDensePathFetch() {
+function stubDensePathFetch(path: Path = densePath) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -77,7 +77,7 @@ function stubDensePathFetch() {
         return jsonResponse({ items: [denseTest] })
       }
       if (pathname === '/v1/tests/dense-path/path' && method === 'GET') {
-        return jsonResponse(densePath)
+        return jsonResponse(path)
       }
       if (pathname === '/v1/tests/dense-path/path/history' && method === 'GET') {
         return jsonResponse({
@@ -85,7 +85,7 @@ function stubDensePathFetch() {
             {
               id: 'dense-latest',
               observed_at: '2026-07-14T12:30:00Z',
-              path: densePath,
+              path,
             },
           ],
         })
@@ -99,6 +99,17 @@ function stubDensePathFetch() {
 }
 
 describe('dense path visualization', () => {
+  test('labels unknown historical flow counts and offers rediscovery', async () => {
+    stubDensePathFetch({ ...densePath, trace_count: 0 })
+    renderApp('/path')
+    const triage = await screen.findByRole('region', { name: /path triage summary/i })
+    expect(within(triage).getByText('Current tenant · Flow count unknown')).toBeVisible()
+    expect(
+      within(triage).getByText('Discover the path again to record the flow count.'),
+    ).toBeVisible()
+    expect(within(triage).queryByText(/0 merged flows/)).not.toBeInTheDocument()
+  })
+
   test('bounds the graph but keeps all 400 responders searchable and selectable', async () => {
     const user = userEvent.setup()
     stubDensePathFetch()
@@ -158,6 +169,7 @@ describe('dense path visualization', () => {
     expect(triage.compareDocumentPosition(graph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(triage).getByText('Selected path')).toBeInTheDocument()
     expect(within(triage).getByText('Scope / time')).toBeInTheDocument()
+    expect(within(triage).getByText('Current tenant · 12 merged flows')).toBeVisible()
     expect(within(triage).getByText('Worst hop')).toBeInTheDocument()
     expect(within(triage).getByText('Next action')).toBeInTheDocument()
     expect(within(triage).getByText(/hop 17.*branch 10/i)).toBeInTheDocument()

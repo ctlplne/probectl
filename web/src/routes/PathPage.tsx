@@ -446,7 +446,15 @@ export function PathPage() {
               </div>
               <div>
                 <span className={styles.triageLabel}>Scope / time</span>
-                <strong>Current tenant · {displayedPath.trace_count} merged flows</strong>
+                <strong>
+                  Current tenant ·{' '}
+                  {displayedPath.trace_count > 0
+                    ? `${displayedPath.trace_count} merged flows`
+                    : 'Flow count unknown'}
+                </strong>
+                {displayedPath.trace_count === 0 && (
+                  <span>Discover the path again to record the flow count.</span>
+                )}
                 <span data-path-vantage={displayedPath.vantage ?? 'unknown'}>
                   {displayedPath.vantage === 'control_plane'
                     ? t('path.vantage.controlPlane')
