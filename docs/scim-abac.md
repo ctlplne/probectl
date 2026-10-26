@@ -292,3 +292,7 @@ Admin cards distinguish authorization failures from service failures. A `403`
 shows **Permission denied** and directs the caller to their tenant administrator.
 A failed read does not establish whether a service is configured or healthy.
 Commercial cards retain their existing hidden-on-unlicensed (`404`) behavior.
+
+The remediation advisory-only banner requires a successful read explicitly
+reporting approvals disabled. Failed or incomplete reads leave configuration
+unknown and never enable approval actions.

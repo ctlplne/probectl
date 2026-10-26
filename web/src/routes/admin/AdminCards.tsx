@@ -101,7 +101,7 @@ export function RemediationCard() {
         description={t('remediation.card.description')}
       />
       <CardBody>
-        {!approvalsEnabled ? (
+        {!isError && data?.approvals_enabled === false ? (
           <p role="status" className={styles.editionsLede}>
             <Badge tone="neutral">{t('remediation.advisoryBadge')}</Badge>{' '}
             {t('remediation.advisoryMessage', {

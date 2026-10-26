@@ -56,3 +56,26 @@ test('lifecycle service failure does not imply missing configuration or permissi
   ).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Permission denied' })).not.toBeInTheDocument()
 })
+
+test.each([403, 503])(
+  'failed remediation read (%s) does not invent approval configuration',
+  async (status) => {
+    const base = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        pathOf(input) === '/v1/remediation/proposals'
+          ? jsonResponse({ message: 'Unavailable' }, status)
+          : base(input, init),
+      ),
+    )
+    renderApp('/admin')
+    if (status === 403) {
+      await screen.findByRole('heading', { name: 'Permission denied' })
+    } else {
+      await screen.findByText('Could not load remediation proposals.')
+    }
+    expect(screen.queryByText(/Approvals are disabled/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Review proposal/i })).not.toBeInTheDocument()
+  },
+)
