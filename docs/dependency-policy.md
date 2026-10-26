@@ -167,6 +167,13 @@ and the transitive `postcss-selector-parser` to 6.1.5 for
 These tools run tests and build CSS; they are not servers in the shipped product.
 The updates retain the existing dependency majors and require no audit exception.
 
+The browser-agent image also applies exact Ubuntu package patches for
+`CVE-2025-68973` (GnuPG), `CVE-2026-45447` and `CVE-2026-84782` (OpenSSL),
+and `CVE-2025-9900` (libtiff). These upgrade existing packages through the base
+image's signed Ubuntu repositories over HTTPS. Chromium and the Ubuntu release
+remain unchanged. The browser image's CRITICAL-only CI vulnerability threshold
+is unchanged; the QA scan additionally checks fixable HIGH findings.
+
 ## Risk register: pre-1.0 dependencies on privileged paths
 
 Most dependencies are stable, post-1.0 libraries. A couple sit on sensitive paths
