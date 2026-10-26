@@ -6,8 +6,13 @@
 #     export DEX_CLIENT_SECRET="$(openssl rand -hex 32)"
 #     export DEX_DEMO_PASSWORD_HASH="$(htpasswd -bnBC 12 demo 'choose-a-password' | cut -d: -f2)"
 #     export PROBECTL_SESSION_HMAC_KEY="$(openssl rand -hex 32)"
-#     docker compose -f eval.yml -f eval-sso.yml up --build -d
+#     [ -s .env.eval ] || (umask 077; printf 'PROBECTL_EVAL_ENVELOPE_KEY=%s\n' "$(openssl rand -base64 32)" > .env.eval)
+#     docker compose --env-file .env.eval -f eval.yml -f eval-sso.yml up --build -d
 #     open https://localhost:8443/ui/      # sign in as demo@probectl.local
+#
+# Reuse the .env.eval created by `make first-data`; never regenerate its key
+# while keeping the database. It unlocks the enrolled-agent CA already stored
+# there. Missing/wrong keys must continue to fail closed at startup.
 #
 # If another stack already holds 8443, pick a port and keep the two in step:
 #     export PROBECTL_EVAL_UI_PORT=8444
@@ -57,6 +62,7 @@ services:
       # Session cookies are HMACed before their digest is stored, and session
       # auth refuses to start without this key. Generated per evaluation.
       PROBECTL_SESSION_HMAC_KEY: ${PROBECTL_SESSION_HMAC_KEY:?PROBECTL_SESSION_HMAC_KEY is required for session auth — openssl rand -hex 32}
+      PROBECTL_ENVELOPE_KEY: "${PROBECTL_EVAL_ENVELOPE_KEY:-}"
       PROBECTL_OIDC_ISSUER: https://localhost:5556/dex
       PROBECTL_OIDC_CLIENT_ID: probectl-demo
       PROBECTL_OIDC_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?DEX_CLIENT_SECRET is required for the local Dex demo — openssl rand -hex 32}

@@ -199,6 +199,21 @@ mTLS. The full walkthrough is
 [`docs/getting-started.md`](../../docs/getting-started.md); for anything real,
 use `probectl.yml`.
 
+To switch this evaluation to real browser sign-in, follow the generated-secret
+steps in [`eval-sso.yml`](eval-sso.yml), then start it with the **same**
+`deploy/compose/.env.eval` created by `make first-data`:
+
+```sh
+docker compose --env-file deploy/compose/.env.eval \
+  -f deploy/compose/eval.yml -f deploy/compose/eval-sso.yml up --build -d
+```
+
+The SSO overlay forwards that envelope key to unlock the stored agent CA. If
+startup reports `unseal intermediate key`, restore the original environment
+file and recreate the stack with the command above. Do not replace the key or
+delete the database to hide the error. Keep the secret file out of Git. A fresh
+SSO-only evaluation generates this file once using the overlay's instructions.
+
 ## Local dev dependency stack (`dev.yml`)
 
 Backing services only — Postgres, Kafka, ClickHouse, Prometheus — for running
