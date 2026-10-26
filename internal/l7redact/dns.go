@@ -76,10 +76,10 @@ func DNSName(name string, registeredOnly bool) (string, Strip) {
 		}
 	}
 	if left == "" {
-		return domain, strip
+		return boundDNSName(domain, strip)
 	}
 	if registeredOnly && domain != "" {
-		return domain, strip | StripSubdomain
+		return boundDNSName(domain, strip|StripSubdomain)
 	}
 	var out []string
 	prevID := false
@@ -103,12 +103,21 @@ func DNSName(name string, registeredOnly bool) (string, Strip) {
 		}
 		out = append(out, domain)
 	}
-	res := strings.Join(out, ".")
+	return boundDNSName(strings.Join(out, "."), strip)
+}
+
+// boundDNSName keeps a templated name within maxDNSName. {id} is longer than
+// a one- to three-byte label, so templating can grow a name that fit: every
+// return path goes through here (DPR-405; the registered-domain-only paths
+// once skipped it and came out one byte over). Leading labels are dropped
+// first, so the registered domain, which is last, survives. When dropping
+// would leave a single label, the result is {id} instead: a lone label would be
+// judged again on a second pass ("000…" becomes {id}), and the output must be
+// stable under DNSName.
+func boundDNSName(res string, strip Strip) (string, Strip) {
 	for len(res) > maxDNSName {
-		// {id} is longer than a one-byte label: keep the bound by dropping
-		// leading labels (the registered domain is last and survives).
 		i := strings.IndexByte(res, '.')
-		if i < 0 {
+		if i < 0 || !strings.Contains(res[i+1:], ".") {
 			return Placeholder, strip | StripTruncated
 		}
 		res, strip = res[i+1:], strip|StripTruncated
