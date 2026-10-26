@@ -1390,7 +1390,8 @@ type HealthCheck struct {
 type HealthStatus string
 
 type Hierarchy struct {
-	Items []HierarchyOrganization `json:"items"`
+	CanCreateOrganization bool                    `json:"can_create_organization,omitempty"`
+	Items                 []HierarchyOrganization `json:"items"`
 }
 
 type HierarchyCreate struct {
@@ -1399,13 +1400,14 @@ type HierarchyCreate struct {
 }
 
 type HierarchyOrganization struct {
-	CreatedAt string          `json:"created_at"`
-	Id        string          `json:"id"`
-	Name      string          `json:"name"`
-	Slug      string          `json:"slug"`
-	Teams     []HierarchyTeam `json:"teams"`
-	TenantId  string          `json:"tenant_id"`
-	UpdatedAt string          `json:"updated_at"`
+	CanCreateTeam bool            `json:"can_create_team,omitempty"`
+	CreatedAt     string          `json:"created_at"`
+	Id            string          `json:"id"`
+	Name          string          `json:"name"`
+	Slug          string          `json:"slug"`
+	Teams         []HierarchyTeam `json:"teams"`
+	TenantId      string          `json:"tenant_id"`
+	UpdatedAt     string          `json:"updated_at"`
 }
 
 type HierarchyOrganizationFlat struct {
@@ -1428,14 +1430,15 @@ type HierarchyProject struct {
 }
 
 type HierarchyTeam struct {
-	CreatedAt string             `json:"created_at"`
-	Id        string             `json:"id"`
-	Name      string             `json:"name"`
-	OrgId     string             `json:"org_id"`
-	Projects  []HierarchyProject `json:"projects"`
-	Slug      string             `json:"slug"`
-	TenantId  string             `json:"tenant_id"`
-	UpdatedAt string             `json:"updated_at"`
+	CanCreateProject bool               `json:"can_create_project,omitempty"`
+	CreatedAt        string             `json:"created_at"`
+	Id               string             `json:"id"`
+	Name             string             `json:"name"`
+	OrgId            string             `json:"org_id"`
+	Projects         []HierarchyProject `json:"projects"`
+	Slug             string             `json:"slug"`
+	TenantId         string             `json:"tenant_id"`
+	UpdatedAt        string             `json:"updated_at"`
 }
 
 type HierarchyTeamFlat struct {

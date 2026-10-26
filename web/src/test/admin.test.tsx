@@ -247,3 +247,14 @@ describe('Admin fleet identity lifetime', () => {
     expect(within(row).getByText('Valid')).toBeInTheDocument()
   })
 })
+
+test('viewer cannot open enrollment via buttons or a collector deep link', async () => {
+  vi.stubGlobal('fetch', defaultFetch())
+  renderApp('/admin?register_collector=flow', { me: { permissions: ['agent.read'] } })
+  expect(await screen.findByRole('button', { name: 'Enroll agent' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Register collector' })).toBeDisabled()
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(
+    screen.getByText('Collector registration requires agent.write permission.'),
+  ).toBeInTheDocument()
+})

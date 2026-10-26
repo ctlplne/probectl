@@ -4,6 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
+import { useAuth } from '../../auth/useAuth'
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -277,6 +278,8 @@ function FleetActionDialog({
 // health (S41, live /v1/secrets/health) ---
 
 function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { permissions } = useAuth()
+  const canEnroll = permissions.includes('agent.write')
   const { t } = useI18n()
   const mint = useMintAgentEnrollToken()
   const [name, setName] = useState('')
@@ -294,6 +297,7 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
 
   function submit(e: FormEvent) {
     e.preventDefault()
+    if (!canEnroll) return
     const ttl = Number(ttlMinutes)
     const input = {
       ...(agentID.trim() ? { agent_id: agentID.trim() } : {}),
@@ -386,7 +390,7 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
             </p>
           ) : null}
           <span className={styles.actions}>
-            <Button type="submit" variant="primary" disabled={mint.isPending}>
+            <Button type="submit" variant="primary" disabled={!canEnroll || mint.isPending}>
               <Icon name="admin" />{' '}
               {mint.isPending ? t('admin.agentDialog.minting') : t('admin.agentDialog.mint')}
             </Button>
@@ -455,6 +459,8 @@ function CollectorRegisterDialog({
 }) {
   const { t } = useI18n()
   const mint = useMintAgentEnrollToken()
+  const { permissions } = useAuth()
+  const canEnroll = permissions.includes('agent.write')
   const register = useRegisterCollector()
   const [plane, setPlane] = useState<CollectorPlane>(initialPlane ?? 'flow')
   const [collectionProfile, setCollectionProfile] = useState<DeviceCollectionProfile>('standard')
@@ -473,6 +479,7 @@ function CollectorRegisterDialog({
 
   async function submit(e: FormEvent) {
     e.preventDefault()
+    if (!canEnroll) return
     setError('')
     setRegistered(null)
     try {
@@ -644,7 +651,11 @@ function CollectorRegisterDialog({
             </p>
           ) : null}
           <span className={styles.actions}>
-            <Button type="submit" variant="primary" disabled={mint.isPending || register.isPending}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!canEnroll || mint.isPending || register.isPending}
+            >
               <Icon name="admin" />{' '}
               {mint.isPending || register.isPending
                 ? t('admin.collectorDialog.registering')
@@ -735,6 +746,8 @@ function SecretBackendsCard() {
 }
 
 export function AdminPage() {
+  const { permissions } = useAuth()
+  const canEnroll = permissions.includes('agent.write')
   const { t, locale } = useI18n()
   const { data, isPending, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useAgents()
   const [enrollOpen, setEnrollOpen] = useState(false)
@@ -759,8 +772,8 @@ export function AdminPage() {
     setURLFilters(params, setParams, defaults, patch)
 
   useEffect(() => {
-    if (deepLinkedCollectorPlane) setCollectorOpen(true)
-  }, [deepLinkedCollectorPlane])
+    if (canEnroll && deepLinkedCollectorPlane) setCollectorOpen(true)
+  }, [canEnroll, deepLinkedCollectorPlane])
 
   function closeCollectorDialog() {
     setCollectorOpen(false)
@@ -948,16 +961,29 @@ export function AdminPage() {
 
   return (
     <Page title={t('admin.page.title')} subtitle={t('admin.page.subtitle')}>
+      {!canEnroll && deepLinkedCollectorPlane ? (
+        <p role="status">Collector registration requires agent.write permission.</p>
+      ) : null}
       <Card>
         <CardHeader
           title={t('admin.agents.title')}
           description={t('admin.agents.description')}
           actions={
             <span className={styles.actions}>
-              <Button variant="secondary" onClick={() => setCollectorOpen(true)}>
+              <Button
+                variant="secondary"
+                disabled={!canEnroll}
+                title={!canEnroll ? 'Requires agent.write permission' : undefined}
+                onClick={() => setCollectorOpen(true)}
+              >
                 <Icon name="admin" /> {t('admin.action.registerCollector')}
               </Button>
-              <Button variant="primary" onClick={() => setEnrollOpen(true)}>
+              <Button
+                variant="primary"
+                disabled={!canEnroll}
+                title={!canEnroll ? 'Requires agent.write permission' : undefined}
+                onClick={() => setEnrollOpen(true)}
+              >
                 <Icon name="admin" /> {t('admin.action.enrollAgent')}
               </Button>
             </span>

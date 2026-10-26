@@ -340,7 +340,7 @@ describe('endpoint / WiFi DEM surface (S-FE4)', () => {
   test('empty fleet offers the real tenant-scoped endpoint setup journey', async () => {
     const { fetcher } = endpointsBackend([])
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/endpoints')
+    renderApp('/endpoints', { me: { permissions: ['agent.read', 'agent.write'] } })
 
     await userEvent.click(await screen.findByRole('button', { name: 'Set up endpoint collection' }))
 

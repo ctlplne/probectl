@@ -234,7 +234,10 @@ func TestScopedRBACHierarchySiblingAndTenantIsolation(t *testing.T) {
 
 	teamPrincipal := auth.PrincipalWithPermissionGrants(
 		&auth.Principal{TenantID: tenantA, UserID: userID},
-		[]auth.PermissionGrant{{Permission: permOrgWrite, ScopeType: auth.ScopeTeam, ScopeID: allowedTeam.ID}},
+		[]auth.PermissionGrant{
+			{Permission: permOrgWrite, ScopeType: auth.ScopeTeam, ScopeID: allowedTeam.ID},
+			{Permission: permOrgRead, ScopeType: auth.ScopeTeam, ScopeID: allowedTeam.ID},
+		},
 	)
 	projectCreate := call(
 		teamPrincipal,
@@ -294,6 +297,55 @@ func TestScopedRBACHierarchySiblingAndTenantIsolation(t *testing.T) {
 	} {
 		if strings.Contains(body, secret) {
 			t.Fatalf("scoped hierarchy leaked %q: %s", secret, body)
+		}
+	}
+
+	for _, tc := range []struct {
+		name          string
+		caller        *auth.Principal
+		team, project bool
+	}{
+		{"organization delegate", principal, true, true},
+		{"team delegate", teamPrincipal, false, true},
+		{"project reader", projectPrincipal, false, false},
+	} {
+		rec := call(tc.caller, http.MethodGet, "/v1/hierarchy", "/v1/hierarchy", nil, srv.handleGetHierarchy, permOrgRead)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s hierarchy: %d", tc.name, rec.Code)
+		}
+		var got hierarchyResponse
+		mustJSON(t, rec, &got)
+		if got.CanCreateOrganization {
+			t.Fatalf("%s acquired root creation", tc.name)
+		}
+		if len(got.Items) != 1 || got.Items[0].ID != alpha.ID || got.Items[0].CanCreateTeam != tc.team {
+			t.Fatalf("%s wrong org capability: %+v", tc.name, got)
+		}
+		for _, team := range got.Items[0].Teams {
+			if team.ID == allowedTeam.ID && team.CanCreateProject != tc.project {
+				t.Fatalf("%s wrong project capability: %+v", tc.name, team)
+			}
+		}
+		if strings.Contains(rec.Body.String(), foreign.ID) {
+			t.Fatal("foreign capability leaked")
+		}
+	}
+	// A write-only ABAC denial must disable creation while preserving visible data.
+	srv.abac = &abacCache{pool: db.Pool(), ttl: time.Minute, data: map[string]abacEntry{
+		tenantA: {policies: []auth.Policy{{Name: "deny child creation", Effect: auth.PolicyDeny, Permission: permOrgWrite, Resource: map[string]string{string(auth.ScopeOrganization): alpha.ID}, Enabled: true}}, expiry: time.Now().Add(time.Minute)},
+	}, generations: map[string]uint64{}}
+	deniedCapabilities := call(principal, http.MethodGet, "/v1/hierarchy", "/v1/hierarchy", nil, srv.handleGetHierarchy, permOrgRead)
+	if deniedCapabilities.Code != http.StatusOK {
+		t.Fatalf("ABAC capability read: %d %s", deniedCapabilities.Code, deniedCapabilities.Body)
+	}
+	var deniedTree hierarchyResponse
+	mustJSON(t, deniedCapabilities, &deniedTree)
+	if len(deniedTree.Items) != 1 || deniedTree.Items[0].CanCreateTeam {
+		t.Fatalf("ABAC did not narrow creation: %+v", deniedTree)
+	}
+	for _, team := range deniedTree.Items[0].Teams {
+		if team.CanCreateProject {
+			t.Fatal("ABAC-denied project creation advertised")
 		}
 	}
 

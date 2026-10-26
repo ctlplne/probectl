@@ -36,6 +36,7 @@ export interface HierarchyTeamFlat {
 }
 
 export interface HierarchyTeam extends HierarchyTeamFlat {
+  can_create_project?: boolean
   projects: HierarchyProject[]
 }
 
@@ -49,15 +50,18 @@ export interface HierarchyOrganizationFlat {
 }
 
 export interface HierarchyOrganization extends HierarchyOrganizationFlat {
+  can_create_team?: boolean
   teams: HierarchyTeam[]
 }
 
 export interface Hierarchy {
+  can_create_organization?: boolean
   items: HierarchyOrganization[]
 }
 
 /** The wire form: the server may omit an empty array rather than send `[]`. */
 interface HierarchyWire {
+  can_create_organization?: boolean
   items?: HierarchyOrganization[] | null
 }
 
@@ -77,6 +81,7 @@ interface TeamWire extends Omit<HierarchyTeam, 'projects'> {
  */
 export function normalizeHierarchy(wire: HierarchyWire): Hierarchy {
   return {
+    can_create_organization: wire.can_create_organization === true,
     items: (wire.items ?? []).map((org) => {
       const orgWire = org as OrganizationWire
       return {

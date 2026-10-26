@@ -105,7 +105,7 @@ describe('command palette (keyboard-first)', () => {
 
   test('exposes task commands and deep-links into human-gated workflows', async () => {
     const user = userEvent.setup()
-    renderApp('/targets', { me: { permissions: ['test.write'] } })
+    renderApp('/targets', { me: { permissions: ['test.write', 'agent.write'] } })
     await screen.findByRole('heading', { name: /targets & tests/i })
 
     await user.keyboard('{Meta>}k{/Meta}')

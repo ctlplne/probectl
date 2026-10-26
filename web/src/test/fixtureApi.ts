@@ -2487,8 +2487,10 @@ export function fixtureFetch(
     // real tenant.
     if (path === '/v1/hierarchy')
       return jsonResponse({
+        can_create_organization: true,
         items: [
           {
+            can_create_team: true,
             id: 'org-fixture-1',
             tenant_id: TENANT_ID,
             slug: 'acme-platform',
@@ -2497,6 +2499,7 @@ export function fixtureFetch(
             updated_at: '2026-06-01T10:15:00Z',
             teams: [
               {
+                can_create_project: true,
                 id: 'team-fixture-1',
                 tenant_id: TENANT_ID,
                 org_id: 'org-fixture-1',

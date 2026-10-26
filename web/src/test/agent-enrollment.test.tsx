@@ -37,7 +37,7 @@ describe('Admin agent enrollment journey (JOURNEY-002)', () => {
   test('mints a tenant-scoped token and prints the exact enroll command with trust pin', async () => {
     const capture: { body?: Record<string, unknown> } = {}
     vi.stubGlobal('fetch', enrollmentFetch(capture))
-    renderApp('/admin')
+    renderApp('/admin', { me: { permissions: ['agent.read', 'agent.write'] } })
 
     await userEvent.click(await screen.findByRole('button', { name: /enroll agent/i }))
     await userEvent.type(screen.getByLabelText(/agent label/i), 'edge canary')
@@ -67,7 +67,7 @@ describe('Admin agent enrollment journey (JOURNEY-002)', () => {
 
   test('WEB-22: the one-time join token clears on dismiss and reopening shows a fresh mint form', async () => {
     vi.stubGlobal('fetch', enrollmentFetch({}))
-    renderApp('/admin')
+    renderApp('/admin', { me: { permissions: ['agent.read', 'agent.write'] } })
 
     await userEvent.click(await screen.findByRole('button', { name: /enroll agent/i }))
     await userEvent.click(screen.getByRole('button', { name: /mint token/i }))

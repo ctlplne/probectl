@@ -15,8 +15,10 @@ import type { Hierarchy } from '../api/hierarchy'
 const TENANT = '00000000-0000-0000-0000-000000000001'
 
 const tree: Hierarchy = {
+  can_create_organization: true,
   items: [
     {
+      can_create_team: true,
       id: 'org-1',
       tenant_id: TENANT,
       slug: 'acme-platform',
@@ -25,6 +27,7 @@ const tree: Hierarchy = {
       updated_at: '2026-06-01T10:15:00Z',
       teams: [
         {
+          can_create_project: true,
           id: 'team-1',
           tenant_id: TENANT,
           org_id: 'org-1',
@@ -52,7 +55,9 @@ const tree: Hierarchy = {
 /** A stateful hierarchy backend: GET serves the tree, POST appends to it. */
 function hierarchyFetch(options: { empty?: boolean; createStatus?: number; wire?: unknown } = {}) {
   const base = defaultFetch()
-  let state: Hierarchy = options.empty ? { items: [] } : structuredClone(tree)
+  let state: Hierarchy = options.empty
+    ? { items: [], can_create_organization: true }
+    : structuredClone(tree)
   const calls: Array<{ path: string; body: unknown }> = []
   const stub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = pathOf(input)
@@ -164,9 +169,7 @@ describe('tenant hierarchy card', () => {
     await user.type(screen.getByLabelText('Slug'), 'threat-det')
     await user.click(screen.getByRole('button', { name: /Create team/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /Choose the organization this team belongs to/i,
-    )
+    expect(screen.getByRole('button', { name: /Create team/i })).toBeDisabled()
     expect(calls, 'no request may be sent without a parent').toHaveLength(0)
 
     await user.selectOptions(screen.getByLabelText('Within organization'), 'org-1')
@@ -224,4 +227,42 @@ describe('tenant hierarchy card', () => {
     })
     expect(table).toHaveTextContent('Lean Org')
   })
+})
+
+test('uses scoped server capabilities rather than flattening delegated org.write into tenant permission', async () => {
+  const scoped = structuredClone(tree)
+  scoped.can_create_organization = false
+  const { stub, calls } = hierarchyFetch({ wire: scoped })
+  vi.stubGlobal('fetch', stub)
+  renderApp('/admin', { me: { permissions: ['org.read'] } })
+  expect(await screen.findByRole('button', { name: 'Create organization' })).toBeDisabled()
+  const user = userEvent.setup()
+  await user.selectOptions(screen.getByLabelText('Level'), 'team')
+  expect(screen.getByRole('button', { name: 'Create team' })).toBeDisabled()
+  await user.selectOptions(screen.getByLabelText('Within organization'), 'org-1')
+  expect(screen.getByRole('button', { name: 'Create team' })).toBeEnabled()
+  await user.type(screen.getByLabelText('Name'), 'Delegated team')
+  await user.type(screen.getByLabelText('Slug'), 'delegated-team')
+  await user.click(screen.getByRole('button', { name: 'Create team' }))
+  await waitFor(() => expect(calls).toHaveLength(1))
+  expect(calls[0].path).toBe('/v1/hierarchy/orgs/org-1/teams')
+})
+
+test('missing or denied creation capabilities fail closed for viewers', async () => {
+  const wire = structuredClone(tree)
+  delete wire.can_create_organization
+  wire.items[0].can_create_team = false
+  wire.items[0].teams[0].can_create_project = false
+  const { stub, calls } = hierarchyFetch({ wire })
+  vi.stubGlobal('fetch', stub)
+  renderApp('/admin', { me: { permissions: ['org.read'] } })
+  expect(await screen.findByRole('button', { name: 'Create organization' })).toBeDisabled()
+  const user = userEvent.setup()
+  await user.selectOptions(screen.getByLabelText('Level'), 'team')
+  await user.selectOptions(screen.getByLabelText('Within organization'), 'org-1')
+  expect(screen.getByRole('button', { name: 'Create team' })).toBeDisabled()
+  await user.selectOptions(screen.getByLabelText('Level'), 'project')
+  await user.selectOptions(screen.getByLabelText('Within team'), 'team-1')
+  expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled()
+  expect(calls).toHaveLength(0)
 })

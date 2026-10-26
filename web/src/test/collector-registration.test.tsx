@@ -91,7 +91,9 @@ describe('Admin collector registration journey (JOURNEY-003)', () => {
   test('deep-links to eBPF registration with Linux capability prerequisites before token minting', async () => {
     const capture: { mint?: Record<string, unknown>; register?: Record<string, unknown> } = {}
     vi.stubGlobal('fetch', collectorFetch(capture))
-    renderApp('/admin?register_collector=ebpf')
+    renderApp('/admin?register_collector=ebpf', {
+      me: { permissions: ['agent.read', 'agent.write'] },
+    })
 
     const dialog = await screen.findByRole('dialog', { name: /register collector/i })
     expect(within(dialog).getByLabelText(/collector plane/i)).toHaveValue('ebpf')
@@ -105,7 +107,7 @@ describe('Admin collector registration journey (JOURNEY-003)', () => {
   test('mints and consumes a tenant token without sending tenant_id from the browser', async () => {
     const capture: { mint?: Record<string, unknown>; register?: Record<string, unknown> } = {}
     vi.stubGlobal('fetch', collectorFetch(capture))
-    renderApp('/admin')
+    renderApp('/admin', { me: { permissions: ['agent.read', 'agent.write'] } })
 
     await userEvent.click(await screen.findByRole('button', { name: /register collector/i }))
     await userEvent.selectOptions(screen.getByLabelText(/collector plane/i), 'flow')
@@ -141,7 +143,7 @@ describe('Admin collector registration journey (JOURNEY-003)', () => {
   test('configures a BGP source with BMP startup hints from the product surface', async () => {
     const capture: { mint?: Record<string, unknown>; register?: Record<string, unknown> } = {}
     vi.stubGlobal('fetch', collectorFetch(capture))
-    renderApp('/admin')
+    renderApp('/admin', { me: { permissions: ['agent.read', 'agent.write'] } })
 
     await userEvent.click(await screen.findByRole('button', { name: /register collector/i }))
     await userEvent.selectOptions(screen.getByLabelText(/collector plane/i), 'bgp')
@@ -178,7 +180,9 @@ describe('Admin collector registration journey (JOURNEY-003)', () => {
   test('previews and registers a bounded device evidence profile without tenant input', async () => {
     const capture: { mint?: Record<string, unknown>; register?: Record<string, unknown> } = {}
     vi.stubGlobal('fetch', collectorFetch(capture))
-    renderApp('/admin?register_collector=device')
+    renderApp('/admin?register_collector=device', {
+      me: { permissions: ['agent.read', 'agent.write'] },
+    })
 
     const dialog = await screen.findByRole('dialog', { name: /register collector/i })
     const profile = within(dialog).getByRole('combobox', { name: /device evidence profile/i })

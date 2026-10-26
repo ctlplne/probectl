@@ -39,8 +39,8 @@ import { DateTime } from '../../time/DateTime'
  * The tree the server returns is what THIS principal may read — ABAC prunes
  * branches per node — so the card says so rather than presenting it as the
  * whole tenant. Creation is a separate permission (`org.write`); when the
- * server refuses, the card surfaces its message instead of hiding the control
- * and pretending the structure is fixed.
+ * server reports scoped creation capabilities for each visible parent and
+ * rechecks authorization when the user submits.
  */
 
 const INDENT: Record<HierarchyRow['level'], number> = { organization: 0, team: 1, project: 2 }
@@ -64,6 +64,14 @@ export function HierarchyCard() {
     org.teams.map((team) => ({ value: team.id, label: `${org.name} / ${team.name}` })),
   )
   const parentOptions = level === 'team' ? orgOptions : level === 'project' ? teamOptions : []
+  const canCreate =
+    level === 'organization'
+      ? data?.can_create_organization === true
+      : level === 'team'
+        ? tree.items.some((org) => org.id === parentID && org.can_create_team === true)
+        : tree.items.some((org) =>
+            org.teams.some((team) => team.id === parentID && team.can_create_project === true),
+          )
   const pending = createOrg.isPending || createTeam.isPending || createProject.isPending
 
   const columns: Column<HierarchyRow>[] = [
@@ -94,6 +102,7 @@ export function HierarchyCard() {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setFormError('')
+    if (!canCreate) return
     const input = { name: name.trim(), slug: slug.trim() }
     if (!input.name || !input.slug) {
       setFormError('A name and a slug are both required.')
@@ -210,9 +219,15 @@ export function HierarchyCard() {
                 onChange={(event) => setSlug(event.target.value)}
                 placeholder="platform-eng"
               />
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" disabled={pending || !canCreate}>
                 {pending ? 'Creating…' : `Create ${level}`}
               </Button>
+              {!canCreate ? (
+                <p>
+                  Creation requires org.write permission for the selected parent. Choose an
+                  authorized parent or ask your administrator.
+                </p>
+              ) : null}
             </form>
             {formError && (
               <p className={styles.subtitle} role="alert">

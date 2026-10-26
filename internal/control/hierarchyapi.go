@@ -21,17 +21,20 @@ import (
 )
 
 type hierarchyResponse struct {
-	Items []hierarchyOrganization `json:"items"`
+	Items                 []hierarchyOrganization `json:"items"`
+	CanCreateOrganization bool                    `json:"can_create_organization"`
 }
 
 type hierarchyOrganization struct {
 	store.Organization
-	Teams []hierarchyTeam `json:"teams"`
+	Teams         []hierarchyTeam `json:"teams"`
+	CanCreateTeam bool            `json:"can_create_team"`
 }
 
 type hierarchyTeam struct {
 	store.Team
-	Projects []store.Project `json:"projects"`
+	Projects         []store.Project `json:"projects"`
+	CanCreateProject bool            `json:"can_create_project"`
 }
 
 type hierarchyCreateRequest struct {
@@ -64,6 +67,10 @@ func (s *Server) handleGetHierarchy(w http.ResponseWriter, r *http.Request) erro
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		tree, err := s.loadHierarchy(ctx, sc, principal)
 		resp.Items = tree
+		if err != nil {
+			return err
+		}
+		resp.CanCreateOrganization, err = s.canCreateHierarchyChild(ctx, principal, auth.ResourceLineage{})
 		return err
 	}); err != nil {
 		return err
@@ -100,6 +107,16 @@ func (s *Server) hierarchyABACDenies(ctx context.Context, principal *auth.Princi
 		return false, err
 	}
 	return reason != auth.DecisionAllowed, nil
+}
+
+// canCreateHierarchyChild reports the same RBAC and ABAC decision used by
+// creation. It is an advisory UI capability; every write checks again.
+func (s *Server) canCreateHierarchyChild(ctx context.Context, principal *auth.Principal, lineage auth.ResourceLineage) (bool, error) {
+	if !principal.HasAt(permOrgWrite, lineage) {
+		return false, nil
+	}
+	denied, err := s.hierarchyABACDenies(ctx, principal, permOrgWrite, lineage)
+	return err == nil && !denied, err
 }
 
 func (s *Server) loadHierarchy(ctx context.Context, sc tenancy.Scope, principal *auth.Principal) ([]hierarchyOrganization, error) {
@@ -156,10 +173,18 @@ func (s *Server) loadHierarchy(ctx context.Context, sc tenancy.Scope, principal 
 				}
 			}
 			if teamVisible || len(visibleProjects) > 0 {
-				ho.Teams = append(ho.Teams, hierarchyTeam{Team: team, Projects: visibleProjects})
+				canCreate, err := s.canCreateHierarchyChild(ctx, principal, teamLineage)
+				if err != nil {
+					return nil, err
+				}
+				ho.Teams = append(ho.Teams, hierarchyTeam{Team: team, Projects: visibleProjects, CanCreateProject: canCreate})
 			}
 		}
 		if orgVisible || len(ho.Teams) > 0 {
+			ho.CanCreateTeam, err = s.canCreateHierarchyChild(ctx, principal, orgLineage)
+			if err != nil {
+				return nil, err
+			}
 			out = append(out, ho)
 		}
 	}

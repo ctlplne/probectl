@@ -1288,6 +1288,7 @@ export interface HealthCheck {
 export type HealthStatus = "ok" | "degraded" | "down"
 
 export interface Hierarchy {
+  can_create_organization?: boolean
   items: HierarchyOrganization[]
 }
 
@@ -1297,6 +1298,7 @@ export interface HierarchyCreate {
 }
 
 export interface HierarchyOrganization {
+  can_create_team?: boolean
   created_at: string
   id: string
   name: string
@@ -1326,6 +1328,7 @@ export interface HierarchyProject {
 }
 
 export interface HierarchyTeam {
+  can_create_project?: boolean
   created_at: string
   id: string
   name: string

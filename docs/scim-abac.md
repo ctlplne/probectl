@@ -262,3 +262,14 @@ SCIM push + OIDC); SCIM bulk/sort/etag; and full resource-attribute plumbing
 into every handler (the ABAC resource model and role-binding scopes exist, but
 wiring per-handler resource attributes is incremental). BYOK/governance is
 tracked separately as an Enterprise-tier feature.
+
+
+The hierarchy console uses server-reported creation capabilities from
+`GET /v1/hierarchy`: `can_create_organization` at the root,
+`can_create_team` on each visible organization, and `can_create_project` on
+each visible team. These include scoped RBAC and current ABAC denials. Missing
+or false capabilities disable creation; delegated administrators retain actions
+on their authorized branches without receiving tenant-wide `org.write`.
+Creation requests always recheck authorization, so a displayed capability is
+not a grant and may become stale after a policy change. Collector registration
+and agent enrollment controls require tenant-wide `agent.write`.

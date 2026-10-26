@@ -12533,6 +12533,10 @@
           "items"
         ],
         "properties": {
+          "can_create_organization": {
+            "type": "boolean",
+            "description": "Whether current RBAC and ABAC permit child creation here. Advisory only; writes recheck authorization."
+          },
           "items": {
             "type": "array",
             "items": {
@@ -12552,6 +12556,10 @@
               "teams"
             ],
             "properties": {
+              "can_create_team": {
+                "type": "boolean",
+                "description": "Whether current RBAC and ABAC permit child creation here. Advisory only; writes recheck authorization."
+              },
               "teams": {
                 "type": "array",
                 "items": {
@@ -12573,6 +12581,10 @@
               "projects"
             ],
             "properties": {
+              "can_create_project": {
+                "type": "boolean",
+                "description": "Whether current RBAC and ABAC permit child creation here. Advisory only; writes recheck authorization."
+              },
               "projects": {
                 "type": "array",
                 "items": {
