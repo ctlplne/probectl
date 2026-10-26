@@ -271,6 +271,12 @@ export function IdentityCard() {
       render: (s) =>
         s.status === 'ready' ? (
           <StatusDot tone="success" label="Session-backed" />
+        ) : scimTokens.isPending ? (
+          <StatusDot label="Checking SCIM tokens" />
+        ) : scimTokens.isError ? (
+          <StatusDot tone="warning" label="SCIM token status unavailable" />
+        ) : scimTokens.data?.some((token) => !token.revoked_at) ? (
+          <StatusDot tone="success" label="SCIM token configured" />
         ) : (
           <StatusDot tone="warning" label="Needs SCIM token" />
         ),

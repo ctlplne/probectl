@@ -110,6 +110,11 @@ Identity administration** or from the session-authenticated API:
   bearer value once;
 - `DELETE /v1/directory/scim-tokens/{id}` revokes it.
 
+The identity surface reports **SCIM token configured** when the tenant has an
+unrevoked token. This confirms that a credential exists, not that the IdP has
+been configured or a sync succeeded. Loading and failed metadata reads show
+separate states; an empty list or only revoked tokens reports **Needs SCIM token**.
+
 The IdP then pastes the token into its provisioning config. The token is shown
 once — only its hash is stored, so this is the single chance to copy it. The
 bootstrap CLI still exists for first-boot/operator workflows:

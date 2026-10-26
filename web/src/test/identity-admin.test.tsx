@@ -135,6 +135,44 @@ describe('Admin identity surface', () => {
     expect(within(surfaces).getByText('/scim/v2/Groups')).toBeInTheDocument()
   })
 
+  test('SCIM surface status follows active token metadata', async () => {
+    await openAdmin()
+    const surfaces = screen.getByRole('table', { name: /identity surfaces/i })
+    expect(await within(surfaces).findAllByText('SCIM token configured')).toHaveLength(2)
+    const row = (await screen.findByText('okta')).closest('tr')!
+    await userEvent.click(within(row).getByRole('button', { name: /revoke/i }))
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /revoke token/i }),
+    )
+    expect(await within(surfaces).findAllByText('Needs SCIM token')).toHaveLength(2)
+  })
+
+  test.each(['loading', 'error', 'empty'] as const)(
+    'SCIM surface status is honest when metadata is %s',
+    async (state) => {
+      const base = identityFetch({})
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) === '/v1/directory/scim-tokens') {
+          if (state === 'loading') return new Promise<Response>(() => {})
+          if (state === 'error')
+            return jsonResponse({ error: { code: 'unavailable', message: 'unavailable' } }, 503)
+          return jsonResponse({ items: [] })
+        }
+        return base(input, init)
+      })
+      renderApp('/admin')
+      const surfaces = await screen.findByRole('table', { name: /identity surfaces/i })
+      const label =
+        state === 'loading'
+          ? 'Checking SCIM tokens'
+          : state === 'error'
+            ? 'SCIM token status unavailable'
+            : 'Needs SCIM token'
+      expect(await within(surfaces).findAllByText(label, {}, { timeout: 3_000 })).toHaveLength(2)
+      expect(within(surfaces).queryByText('SCIM token configured')).not.toBeInTheDocument()
+    },
+  )
+
   test('saves tenant OIDC settings through the session-backed API', async () => {
     const capture = await openAdmin()
     await userEvent.clear(await screen.findByLabelText(/oidc issuer/i))
