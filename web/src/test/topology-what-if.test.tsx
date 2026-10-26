@@ -233,7 +233,10 @@ describe('topology blast-radius workspace (X10)', () => {
       selection: { kind: 'entity', id: 'service:api' },
       returnTo: '/incidents?incident_status=open&incident=inc-blast',
     })
-    expect(url.search.toLowerCase()).not.toContain('tenant')
+    expect(url.searchParams.get('login_tenant')).toBe('00000000-0000-4000-8000-000000000001')
+    const contextOnly = new URLSearchParams(url.search)
+    contextOnly.delete('login_tenant')
+    expect(contextOnly.toString().toLowerCase()).not.toContain('tenant')
     expect(
       (
         fetcher as unknown as { mock: { calls: [RequestInfo | URL, RequestInit?][] } }

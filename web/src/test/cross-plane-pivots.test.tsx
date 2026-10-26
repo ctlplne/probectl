@@ -137,7 +137,10 @@ describe('native cross-plane pivots', () => {
       filters: { incident_status: 'open' },
       returnTo: '/incidents?incident_status=open&incident=inc-context',
     })
-    expect(url.search.toLowerCase()).not.toContain('tenant')
+    expect(url.searchParams.get('login_tenant')).toBe('00000000-0000-4000-8000-000000000001')
+    const contextOnly = new URLSearchParams(url.search)
+    contextOnly.delete('login_tenant')
+    expect(contextOnly.toString().toLowerCase()).not.toContain('tenant')
 
     await screen.findByText('The BGP route changed.')
     await userEvent.click(screen.getAllByRole('link', { name: 'E-BGP-1' })[0])
@@ -240,7 +243,12 @@ describe('native cross-plane pivots', () => {
         filters: { severity: 'critical' },
         selection: { kind: 'entity', id: 'prefix:203.0.113.0/24' },
       })
-      expect(currentURL().search.toLowerCase()).not.toContain('tenant')
+      expect(currentURL().searchParams.get('login_tenant')).toBe(
+        '00000000-0000-4000-8000-000000000001',
+      )
+      const contextOnly = new URLSearchParams(currentURL().search)
+      contextOnly.delete('login_tenant')
+      expect(contextOnly.toString().toLowerCase()).not.toContain('tenant')
     }
   })
 

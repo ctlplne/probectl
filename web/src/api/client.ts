@@ -128,6 +128,13 @@ export async function publicFetch(path: string, init?: RequestInit): Promise<Res
 /** The pre-auth SSO login entry point (outside the /v1 base). */
 export const LOGIN_PATH = '/auth/login'
 
+/** A public routing hint only; never an API authorization or tenant override. */
+export function validLoginTenant(value: string | null | undefined): string | undefined {
+  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : undefined
+}
+
 // A tenant's own erasure removes its users and sessions with its data, so
 // every later call answers 401. The erasure receipt on screen is what the
 // admin erased the data for: while it is held, the shared 401 handler leaves
@@ -151,11 +158,13 @@ export function redirectToLogin({
 }: { replace?: boolean; force?: boolean } = {}) {
   if (typeof window === 'undefined') return
   if (loginRedirectHeld && !force) return
+  const tenant = validLoginTenant(new URLSearchParams(window.location.search).get('login_tenant'))
+  const loginPath = tenant ? `${LOGIN_PATH}?tenant=${encodeURIComponent(tenant)}` : LOGIN_PATH
   if (replace) {
-    window.location.replace(LOGIN_PATH)
+    window.location.replace(loginPath)
     return
   }
-  window.location.assign(LOGIN_PATH)
+  window.location.assign(loginPath)
 }
 
 /** True when an error is an ApiError carrying the given HTTP status. */

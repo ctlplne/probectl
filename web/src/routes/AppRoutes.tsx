@@ -17,6 +17,7 @@ import { AppShell } from '../shell/AppShell'
 import { NAV } from '../nav/ia'
 import { DemoModeProvider } from '../demo/DemoMode'
 import { AuthProvider } from '../auth/AuthProvider'
+import { TenantLoginHint } from '../auth/TenantLoginHint'
 import { useAuth } from '../auth/useAuth'
 import { TimeProvider } from '../time/TimeProvider'
 import { useI18n } from '../i18n/useI18n'
@@ -48,6 +49,7 @@ function AuthPreferenceBridge({ children }: { children: ReactNode }) {
 function TenantApp() {
   return (
     <AuthProvider>
+      <TenantLoginHint />
       <AuthPreferenceBridge>
         <TimeProvider>
           <DemoModeProvider>

@@ -176,3 +176,17 @@ covered by the auth suite
 (`internal/auth/oidc_test.go`, `oidc_mfa_test.go`). The IdP itself is
 operator-run; standing up Dex in a disconnected cluster and completing a login
 end-to-end is the deployment-time exercise, scripted by the values above.
+
+## Returning to the tenant after session expiry
+
+The tenant console keeps a `login_tenant=<tenant UUID>` hint in its URL for
+non-default tenants. The authenticated `/v1/me` identity sets and corrects this
+hint on navigation. It survives reloads and can be bookmarked; no localStorage,
+sessionStorage or additional cookie is used. Filters and fragment links remain.
+
+On session expiry or revocation, the console validates the hint as a UUID and
+routes sign-in to `/auth/login?tenant=<UUID>`. The hint only selects the IdP
+login destination. It is public, untrusted routing context: it never changes
+an API request's tenant, grants access, or replaces session authentication.
+A changed hint cannot switch a signed-in session. URLs without a valid hint
+retain the deployment's default-tenant login behavior.

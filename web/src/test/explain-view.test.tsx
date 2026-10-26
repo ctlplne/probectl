@@ -109,7 +109,12 @@ describe('Explain this view', () => {
     const initial = `/topology?${context.toString()}`
     const { container } = renderAt(initial)
 
-    const before = (await screen.findByTestId('route-location')).textContent
+    await waitFor(() =>
+      expect(screen.getByTestId('route-location')).toHaveTextContent(
+        'login_tenant=00000000-0000-4000-8000-000000000001',
+      ),
+    )
+    const before = screen.getByTestId('route-location').textContent
     await userEvent.click(await screen.findByRole('button', { name: 'Explain this view' }))
     const inspector = await screen.findByRole('region', { name: 'Explanation inspector' })
 
