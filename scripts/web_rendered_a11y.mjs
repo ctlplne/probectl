@@ -1143,6 +1143,27 @@ function apiPayload(path, method, pagePath = "") {
       ],
       archive_running: true,
     });
+  if (path === "/v1/audit" && method === "GET")
+    return json({
+      items: [
+        {
+          seq: 1,
+          actor: "system:bootstrap-admin",
+          action: "access.read.onboarding.progress",
+          target: "10000000-0000-0000-0000-000000000001",
+          data: {
+            source: "bootstrap-admin",
+            outcome: "success",
+            request_id: "audit-layout-fixture-request",
+          },
+          hash: "audit-layout-fixture",
+          created_at: "2026-06-04T12:00:00Z",
+        },
+      ],
+      next: 0,
+    });
+  if (path === "/v1/audit/verify" && method === "GET")
+    return json({ ok: true });
   return json({ error: { code: "not_found", message: "not found" } }, 404);
 }
 
@@ -1366,6 +1387,18 @@ function blockingAxeResults(result) {
 // a regression names its culprit.
 async function horizontalOverflowCheck(page) {
   return page.evaluate(() => {
+    // CQA-025: the shell main is itself a scroll container, so a wide audit
+    // grid can hide the title behind the sidebar without widening document.
+    const main = document.querySelector("main");
+    if (
+      document.querySelector("table caption")?.textContent === "Audit events" &&
+      main &&
+      main.scrollWidth > main.clientWidth + 1
+    ) {
+      return [
+        `audit page scrolls horizontally: ${main.scrollWidth} > ${main.clientWidth}`,
+      ];
+    }
     const doc = document.documentElement;
     const overflow = doc.scrollWidth - doc.clientWidth;
     if (overflow <= 1) return [];

@@ -129,6 +129,11 @@ number: remove, alter, or reorder one link and every engraving after it stops
 matching. That is what makes the log tamper-*evident* rather than merely
 append-only.
 
+In the console, open **Audit** to filter events and select **Verify chain**.
+Wide evidence scrolls inside the events table, keeping the page heading,
+filters, and verification controls in view. **Export JSON** exports the
+currently selected filters and page limit.
+
 Read and verify it (requires the `audit.read` permission — `admin` by default):
 
 ```sh
