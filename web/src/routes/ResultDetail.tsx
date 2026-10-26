@@ -353,11 +353,11 @@ export function ResultDetail({ test, onClose }: { test: Test; onClose: () => voi
         <ErrorState description="Could not load the latest results for this test." />
       ) : matches.length === 0 ? (
         <EmptyState
-          title="No results yet"
+          title="No cached results"
           description={
             latest.data && !latest.data.collector_running
               ? 'The result-view consumer is not wired.'
-              : 'Results appear after the first probe run for this test.'
+              : 'This temporary detail cache is cleared when the control plane restarts. Wait for the next probe run; if it stays empty, check that the test is enabled and an agent is connected.'
           }
         />
       ) : (

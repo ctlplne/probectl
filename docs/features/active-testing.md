@@ -294,7 +294,11 @@ probectl test create \
   is bound to one tenant by its identity certificate; results buffer to local disk
   during an outage and drain on reconnect.
 - **Read results:** `GET /v1/results/latest` (latest result per target), or the
-  Targets / synthetic results screen in the web interface.
+  Targets / synthetic results screen in the web interface. This bounded,
+  in-memory detail cache clears when the control plane restarts and fills again
+  as agents report. An empty cache does not prove a test has never run. Check
+  that the test is enabled and an agent is connected, then wait for its next
+  scheduled run. Historical metrics are stored separately in the configured TSDB.
 - **Create a test from the CLI:** `probectl test create --name … --type … --target …`.
 - **Related capabilities (separate pages):** Digital experience (last-mile, voice,
   real-user monitoring); Topology & change (the correlated picture a failing

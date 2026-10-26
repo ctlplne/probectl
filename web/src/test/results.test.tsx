@@ -408,6 +408,18 @@ describe('synthetic result views (S-FE5)', () => {
     expect(within(dialog).queryByText(/belongs to another test/i)).not.toBeInTheDocument()
   })
 
+  test('empty latest cache does not claim a test has never run', async () => {
+    const { fetcher } = resultsBackend([])
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/targets')
+    const dialog = await openResults('app http')
+
+    expect(within(dialog).getByText('No cached results')).toBeInTheDocument()
+    expect(within(dialog).getByText(/cleared when the control plane restarts/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/next probe run/)).toBeInTheDocument()
+    expect(within(dialog).queryByText(/first probe run/)).not.toBeInTheDocument()
+  })
+
   test('no results yet / collector-off are stated, not guessed', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       assertNoDoublePrefix(input)
