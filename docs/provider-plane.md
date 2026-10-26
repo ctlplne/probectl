@@ -27,10 +27,11 @@ vice versa) — with their own everything:
   separate cookie, `probectl_provider_session`; `SameSite=Strict`, meaning the
   browser refuses to attach it to any navigation that starts on another site, so
   a malicious page cannot ride an operator's session; a 4-hour absolute TTL
-  plus the default-on `PROBECTL_SESSION_IDLE_TIMEOUT` inactivity wall,
-  held in memory by design — a restart deliberately re-authenticates this
-  high-privilege domain rather than persisting its sessions), and **their own
-  tamper-evident audit chain** (`provider_audit_events`).
+  plus the default-on `PROBECTL_SESSION_IDLE_TIMEOUT` inactivity wall).
+  Sessions persist in Postgres as keyed token hashes, so replicas sharing the
+  session HMAC key honor the same session after a restart. Logout, expiry, or
+  disabling the operator ends access across replicas. Operators also have
+  **their own tamper-evident audit chain** (`provider_audit_events`).
 - **Multi-factor auth is mandatory** — there is no password-only login. Every
   sign-in is email + password (hashed with PBKDF2-HMAC-SHA256, per NIST SP
   800-132 — a deliberately *slow*, salted password hash, so a stolen database of
