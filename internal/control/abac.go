@@ -322,7 +322,7 @@ func (s *Server) handleListPolicies(w http.ResponseWriter, r *http.Request) erro
 // no route ever supplies for its permission, so a resource-scoped deny can never
 // be silently unenforced (docs/guardrails.md G7-5). The tenant-boundary key is
 // supplied on every resource path; org/team/project are only ever attached by
-// the hierarchy listing (hierarchyapi.go), and only while evaluating a hierarchy
+// hierarchy reads and child creation (hierarchyapi.go), while evaluating a hierarchy
 // permission. attrsSubset can never match a key the request does not carry, so
 // any other resource key would make the policy dead weight — a deny that looks
 // enforced but is not. Reject it at creation (422) rather than accept a lie.
@@ -334,9 +334,15 @@ func validatePolicyResourceKeys(p auth.Policy) error {
 		if isHierarchyResourceKey(k) && isHierarchyScopedPermission(p.Permission) {
 			continue
 		}
+		// Child creation resolves an existing org/team parent. No creation
+		// route has an existing project ID, so project-scoped writes remain
+		// rejected rather than accepting a policy that can never match.
+		if p.Permission == permOrgWrite && (k == string(auth.ScopeOrganization) || k == string(auth.ScopeTeam)) {
+			continue
+		}
 		return apierror.Validation("resource key " + strconv.Quote(k) +
 			" is not supplied by any route for permission " + strconv.Quote(p.Permission) +
-			"; only \"tenant\", or \"org\"/\"team\"/\"project\" on a hierarchy permission (org.read or \"*\"), are enforced")
+			"; tenant is supported for every permission; org/team/project for org.read or wildcard; org/team for org.write")
 	}
 	return nil
 }

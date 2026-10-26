@@ -15283,6 +15283,7 @@
             }
           },
           "resource": {
+            "description": "Resource matching: tenant for any permission; org/team/project for org.read or wildcard; org/team for org.write child creation. Unsupported keys are rejected.",
             "type": "object",
             "additionalProperties": {
               "type": "string"

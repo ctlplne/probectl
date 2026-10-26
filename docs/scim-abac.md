@@ -273,3 +273,9 @@ on their authorized branches without receiving tenant-wide `org.write`.
 Creation requests always recheck authorization, so a displayed capability is
 not a grant and may become stale after a policy change. Collector registration
 and agent enrollment controls require tenant-wide `agent.write`.
+
+Resource-scoped `org.write` policies accept `org` and `team`: these match the
+existing parent when creating a team or project. They do not accept `project`,
+because a new project has no existing project ID to match. `org.read` and `*`
+can use `org`, `team`, or `project`; unrelated permissions still reject those
+keys rather than accepting a policy that cannot be enforced.

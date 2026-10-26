@@ -101,6 +101,21 @@ func TestAUTHZ15PolicyResourceKeyValidation(t *testing.T) {
 			want: http.StatusCreated,
 		},
 		{
+			name: "deny org-scoped writes is accepted for child creation",
+			body: `{"name":"orgwrite","effect":"deny","permission":"org.write","resource":{"org":"org-1"},"enabled":true}`,
+			want: http.StatusCreated,
+		},
+		{
+			name: "deny team-scoped writes is accepted for project creation",
+			body: `{"name":"teamwrite","effect":"deny","permission":"org.write","resource":{"team":"team-1"},"enabled":true}`,
+			want: http.StatusCreated,
+		},
+		{
+			name: "project-scoped writes remain rejected because creation has no existing project",
+			body: `{"name":"deadproject","effect":"deny","permission":"org.write","resource":{"project":"project-1"},"enabled":true}`,
+			want: http.StatusUnprocessableEntity,
+		},
+		{
 			name: "deny team-scoped on wildcard is accepted",
 			body: `{"name":"wild","effect":"deny","permission":"*","resource":{"team":"team-1"},"priority":10,"enabled":true}`,
 			want: http.StatusCreated,
