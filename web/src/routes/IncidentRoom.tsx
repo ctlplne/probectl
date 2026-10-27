@@ -351,7 +351,7 @@ export function IncidentRoom({
           title: checkpointEvidence.title || checkpointEvidence.id,
         }
       : undefined
-  const canWriteJournal = permissions.includes('incident.write')
+  const canWriteIncident = permissions.includes('incident.write')
 
   function selectEvidence(id: string) {
     setParams(
@@ -585,7 +585,7 @@ export function IncidentRoom({
         <InvestigationJournal
           incidentID={roomIncident.id}
           checkpointSource={checkpointSource}
-          canWrite={canWriteJournal}
+          canWrite={canWriteIncident}
         />
       ) : null}
 
@@ -689,7 +689,7 @@ export function IncidentRoom({
             <CorrelationDecision
               incident={roomIncident}
               signal={selectedSignal?.signal}
-              canWrite={canWriteJournal}
+              canWrite={canWriteIncident}
               createOverride={createCorrelationOverride}
               reverseOverride={reverseCorrelationOverride}
               onToast={push}
@@ -708,6 +708,11 @@ export function IncidentRoom({
                     description="Could not determine whether guarded, human-approved proposals are available."
                   />
                 ) : null}
+                {!canWriteIncident ? (
+                  <p className={styles.safety}>
+                    incident.write is required to resolve or reopen an incident.
+                  </p>
+                ) : null}
                 <div className={styles.actions}>
                   {canPropose ? (
                     <Button
@@ -724,7 +729,7 @@ export function IncidentRoom({
                     <Button
                       variant="secondary"
                       onClick={resolveIncident}
-                      disabled={resolve.isPending}
+                      disabled={!canWriteIncident || resolve.isPending}
                     >
                       {t('incidents.action.resolve')}
                     </Button>
@@ -732,7 +737,7 @@ export function IncidentRoom({
                     <Button
                       variant="secondary"
                       onClick={reopenIncident}
-                      disabled={reopen.isPending}
+                      disabled={!canWriteIncident || reopen.isPending}
                     >
                       {t('incidents.action.reopen')}
                     </Button>

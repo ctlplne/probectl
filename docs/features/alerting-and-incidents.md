@@ -147,6 +147,10 @@ the tamper-evident audit log; successful replay records
 tenant's `object_retention_days` policy is tighter. Live resolve/remediation
 actions are disabled when viewing the fixed snapshot.
 
+Resolving or reopening a live incident requires `incident.write`. Read-only
+viewers see disabled Resolve/Reopen controls and the required permission;
+the API independently enforces that permission for every status change.
+
 The live room also contains a native **investigation journal**. Think of it as
 a tenant-owned lab notebook attached to one incident:
 

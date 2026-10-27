@@ -198,7 +198,7 @@ describe('unified incident room', () => {
         return base(input, init)
       }),
     )
-    renderApp('/incidents')
+    renderApp('/incidents', { me: { permissions: ['incident.write'] } })
 
     await screen.findByRole('list', { name: /incident evidence on one time axis/i })
     await userEvent.click(screen.getByRole('button', { name: /^resolve$/i }))
@@ -206,6 +206,29 @@ describe('unified incident room', () => {
     expect(await screen.findByText(/resolve failed/i)).toBeInTheDocument()
     expect(screen.getByText(/incident store unavailable/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^resolve$/i })).toBeInTheDocument()
+  })
+
+  test.each([
+    ['open', 'resolve'],
+    ['resolved', 'reopen incident'],
+  ])('read-only incident viewer cannot %s via %s', async (status, action) => {
+    const current = { ...incident, status }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = pathOf(input)
+      if (path === '/v1/incidents') return jsonResponse({ items: [current] })
+      if (path === '/v1/incidents/inc-1' && (init?.method ?? 'GET') === 'GET') {
+        return jsonResponse(current)
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'no route' } }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderApp('/incidents', { me: { permissions: ['incident.read'] } })
+
+    const control = await screen.findByRole('button', { name: new RegExp(`^${action}$`, 'i') })
+    expect(control).toBeDisabled()
+    expect(screen.getByText(/incident.write is required to resolve or reopen/i)).toBeInTheDocument()
+    await userEvent.click(control)
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
   })
 
   test('the incidents page has no axe violations', async () => {
