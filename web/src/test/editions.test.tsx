@@ -137,6 +137,43 @@ describe('editions card (S-T0)', () => {
     expect(await screen.findByText(/expired — read-only/i)).toBeInTheDocument()
   })
 
+  test.each(['active', 'grace', 'read_only'] as const)(
+    'key rotation respects the server feature mode in %s',
+    async (state) => {
+      const info = licensedFixture()
+      info.state = state
+      info.features = info.features.map((feature) => ({
+        ...feature,
+        mode: state === 'read_only' ? 'read_only' : 'enabled',
+      }))
+      const fallback = stubWith(info)
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/v1/security/keys')) {
+          return jsonResponse({
+            items: [
+              { version: 1, mode: 'managed', state: 'active', created_at: '2026-09-01T00:00:00Z' },
+            ],
+          })
+        }
+        return fallback(input)
+      })
+      renderApp('/admin')
+      await screen.findByText(state === 'read_only' ? /expired — read-only/i : 'MSP')
+      const rotate = await screen.findByRole('button', { name: 'Rotate managed key' })
+      const reference = screen.getByLabelText('BYOK secret reference (blank = managed rotation)')
+      if (state === 'read_only') {
+        expect(rotate).toBeDisabled()
+        expect(reference).toBeDisabled()
+        expect(
+          screen.getByText(/key rotation is unavailable while the license is read-only/i),
+        ).toBeInTheDocument()
+      } else {
+        expect(rotate).toBeEnabled()
+        expect(reference).toBeEnabled()
+      }
+    },
+  )
+
   test('a11y: the admin page with the editions card has no axe violations', async () => {
     vi.stubGlobal('fetch', stubWith(licensedFixture()))
     const { container } = renderApp('/admin')

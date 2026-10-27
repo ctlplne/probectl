@@ -21,6 +21,7 @@ import {
   Table,
 } from '../../components'
 import { ApiError } from '../../api/client'
+import { useEditions } from '../../api/editions'
 import { useKeys, useRotateKey, type KeyInfo } from '../../api/keys'
 import { useRemediations, useDecideRemediation, type Proposal } from '../../api/remediation'
 import { useI18n } from '../../i18n/useI18n'
@@ -210,6 +211,10 @@ export function RemediationCard() {
  *  (hidden-unlicensed, the usage-card pattern). */
 export function KeysCard() {
   const { data, isPending, isError, error } = useKeys()
+  const editions = useEditions()
+  const readOnly = editions.data?.features?.some(
+    (feature) => feature.name === 'byok' && feature.mode === 'read_only',
+  )
   const rotate = useRotateKey()
   const [byokRef, setByokRef] = useState('')
 
@@ -268,6 +273,7 @@ export function KeysCard() {
               className={styles.actions}
               onSubmit={(e) => {
                 e.preventDefault()
+                if (readOnly) return
                 rotate.mutate(byokRef ? { mode: 'byok', byok_ref: byokRef } : { mode: 'managed' })
               }}
             >
@@ -276,11 +282,23 @@ export function KeysCard() {
                 value={byokRef}
                 onChange={(e) => setByokRef(e.target.value)}
                 placeholder="vault:kv/tenants/acme#kek"
+                disabled={readOnly}
               />
-              <Button type="submit" variant="primary" disabled={rotate.isPending}>
+              <Button type="submit" variant="primary" disabled={rotate.isPending || readOnly}>
                 {byokRef ? 'Activate BYOK' : 'Rotate managed key'}
               </Button>
             </form>
+            {readOnly ? (
+              <p role="note" className={styles.editionsLede}>
+                Key rotation is unavailable while the license is read-only. Existing keys remain
+                available for decryption.
+              </p>
+            ) : null}
+            {editions.isError ? (
+              <p role="alert" className={styles.editionsLede}>
+                Could not load license state. Rotation requests will be checked by the server.
+              </p>
+            ) : null}
             {rotate.isSuccess ? (
               <p className={styles.editionsLede}>
                 Rotated — new data seals under v{rotate.data.version}.

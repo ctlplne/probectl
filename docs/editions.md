@@ -249,6 +249,11 @@ Compose takes `PROBECTL_LICENSE_PATH` in `.env` plus the
 | `grace` | 0–30 days past expiry | Features stay `enabled`; the UI banners the deadline. |
 | `read_only` | >30 days past expiry | Granted features degrade to `read_only`: existing views still render, but **no new tenants or config**; **telemetry pipelines never break**. Expired is not the same as broken observability. |
 
+Admin → Encryption keys keeps the key chain visible in read-only mode and
+disables managed rotation and BYOK activation with an explanation. Existing
+keys remain available for decryption; the API independently enforces the write
+restriction.
+
 The loaded license and every state transition — `active` → `grace` →
 `read_only`, or a swapped license file — are recorded in the **provider audit
 stream** as `license.loaded` and `license.state_changed` (tier, state, license
