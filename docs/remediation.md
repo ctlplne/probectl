@@ -57,7 +57,9 @@ code — changing them is a product decision, not an engineering one.
    create a `proposed` proposal. The
    *only* path to `approved` is the authenticated `POST
    /v1/remediation/proposals/{id}/approve` route, which requires a human holding
-   the `remediation.approve` permission. A prompt-injection buried in telemetry
+   the `remediation.approve` permission in an interactive session. API/MCP bearer
+   tokens cannot approve, and the proposer cannot approve their own proposal.
+   A prompt-injection buried in telemetry
    (malicious instructions hidden inside data the AI reads)
    can, at worst, cause a proposal to appear in the review queue — never an
    approval, and never an action.
@@ -68,9 +70,14 @@ code — changing them is a product decision, not an engineering one.
    `409 approvals_disabled`; the UI disables the button and shows an advisory-only
    banner).
 
-4. **Single-admin approve.** Any authenticated principal holding
-   `remediation.approve` (an admin permission) can approve. A future
-   second-approver / change-window gate can layer on without changing this model.
+4. **Independent human approval (four-eyes).** An administrator holding
+   `remediation.approve` must sign in through an interactive session and must be
+   different from the proposal's recorded proposer. Bearer-token approval is
+   refused with `403`; self-approval is refused with `403 self_approval` when
+   approvals are enabled, and that blocked attempt is audited. One independent
+   approver is sufficient; a future additional-approver or change-window gate
+   can layer on without changing this model. Rejection remains available through
+   an authorized API token as well as an interactive session.
 
 5. **Blast-radius limited.** Every proposal carries a **dry-run** — a read-only
    topology what-if that sizes how many services, prefixes, and hosts the change
@@ -140,7 +147,7 @@ All routes are tenant-scoped and hidden (404) when the feature is unlicensed.
 | `GET /v1/remediation/proposals` | `remediation.propose` | list (newest first) + `approvals_enabled` |
 | `POST /v1/remediation/proposals` | `remediation.propose` | files a proposal — always `proposed` |
 | `GET /v1/remediation/proposals/{id}` | `remediation.propose` | one proposal |
-| `POST /v1/remediation/proposals/{id}/approve` | `remediation.approve` | the ONLY path to `approved`; fails closed |
+| `POST /v1/remediation/proposals/{id}/approve` | `remediation.approve` | interactive session and independent approver required; fails closed |
 | `POST /v1/remediation/proposals/{id}/reject` | `remediation.approve` | records a decline |
 
 Request bodies (DPR-070 — they are in the OpenAPI spec, so the generated Go
@@ -155,6 +162,12 @@ and `RejectRemediationProposal` calls and a typed `RemediationProposal` response
 Fail-closed approval errors map to `409 Conflict` with a machine code:
 `approvals_disabled`, `blast_radius_exceeded`, `blast_radius_unknown`,
 `not_proposed`.
+
+Authorization refusals use `403 Forbidden`: bearer tokens cannot approve, and
+an interactive proposer cannot approve their own proposal (`self_approval`).
+The advisory-only switch is checked before the service loads a proposal, so
+an interactive approval attempt while approvals are disabled returns
+`409 approvals_disabled` without reaching the self-approval or blast-radius checks.
 
 After a running commercial license ages past grace, proposal `GET`/list review
 continues, but propose/approve/reject return `403 license_read_only` before the
