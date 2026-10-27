@@ -119,19 +119,28 @@
    "statement": "The lightweight bus for small deployments is DURABLE (NATS with JetStream): records are on disk and a consumer's position survives a restart and a rolling upgrade. The in-process memory bus is VOLATILE and is development-only. Both networked transports are held to the same TLS-and-credentials policy.",
    "pattern": "durable lightweight|volatile lightweight|durable bus mode",
    "surfaces": [
+    "docs/bgp.md",
     "docs/configuration.md",
+    "docs/deploying-agents.md",
+    "docs/endpoint-dem.md",
     "docs/fairness.md",
     "docs/ops/data-plane.md"
    ],
    "code": [
     "internal/bus/nats.go",
     "internal/bus/memory.go",
-    "internal/bus/bus.go"
+    "internal/bus/bus.go",
+    "cmd/probectl-control/bgp_analyzer.go",
+    "internal/endpoint/config.go",
+    "internal/endpoint/emit.go"
    ],
    "proof": [
     "test:internal/bus/nats_test.go#TestDurableLightweightModeIsRefusedInTheClear",
     "test:internal/bus/nats_integration_test.go#TestNATSConsumerPositionSurvivesAReconnect",
-    "test:internal/config/config_test.go#TestDurableLightweightBusPassesTheProductionProfiles"
+    "test:internal/config/config_test.go#TestDurableLightweightBusPassesTheProductionProfiles",
+    "test:cmd/probectl-control/bgp_analyzer_test.go#TestBGPAnalyzerSupportsDurableNATS",
+    "test:internal/endpoint/config_test.go#TestEndpointDurableBusModes",
+    "test:internal/endpoint/emit_test.go#TestBusEmitterPublishesTenantTaggedResults"
    ]
   },
   {
@@ -595,17 +604,20 @@
    "statement": "A layer, plane or segment that was NOT measured is reported as unverified, never as healthy. Every verdict surface names what it could not see, in a machine-readable field and in the text a human reads, and lowers its own confidence rather than presenting an unmeasured gap as corroboration. The endpoint attribution names unmeasured layers and drops to a fixed lower confidence; the cross-plane root cause names the cause-bearing planes that contributed nothing and refuses high confidence for a single-plane verdict while others were silent; the topology graph ships its coverage counts and says which planes are missing from an impact answer.",
    "pattern": "unverified rather than clean|unmeasured layers|silent planes",
    "surfaces": [
+    "docs/endpoint-dem.md",
     "docs/features/ai-assistant.md",
     "docs/verdict-coverage.md"
    ],
    "code": [
     "internal/ai/model_builtin.go",
-    "internal/endpoint/attribution.go"
+    "internal/endpoint/attribution.go",
+    "web/src/routes/EndpointsPage.tsx"
    ],
    "proof": [
     "test:internal/ai/model_builtin_test.go#TestBuiltinNamesThePlanesThatSaidNothing",
     "test:internal/ai/model_builtin_test.go#TestBuiltinSaysNothingWhenEveryPlaneSpoke",
-    "selftest-label:DOCS-S06"
+    "selftest-label:DOCS-S06",
+    "test:web/src/test/endpoints.test.tsx"
    ]
   },
   {
@@ -896,6 +908,23 @@
     "selftest-label:SEC-004"
    ],
    "surfaces": []
+  },
+  {
+   "id": "CLM-AUDIT-V065-UPGRADE",
+   "kind": "capability",
+   "statement": "Audit verification preserves unambiguous v0.6.5 hashes without rewriting history; ambiguous historical headers and foreign streams fail closed, and timestamp-bound current records do not downgrade to the historical format. Historical timestamps were not hash-bound.",
+   "pattern": "Ambiguous historical headers fail closed",
+   "surfaces": [
+    "docs/lifecycle.md"
+   ],
+   "code": [
+    "internal/audit/audit.go"
+   ],
+   "proof": [
+    "test:internal/audit/audit_upgrade_v065_test.go#TestV065ProviderEventSurvivesUpgrade",
+    "test:internal/audit/audit_upgrade_v065_test.go#TestV065ProviderEventTamperingStillRefused",
+    "test:internal/audit/audit_upgrade_v065_test.go#TestV065HashDoesNotAdmitAmbiguousHeadersOrForeignStreams"
+   ]
   }
  ]
 }
