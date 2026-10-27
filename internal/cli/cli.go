@@ -382,8 +382,8 @@ func (c *client) do(method, path string, body any, out any) error {
 		}
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
-	if out != nil && len(data) > 0 {
-		if isDownload(resp) {
+	if out != nil && (len(data) > 0 || isYAMLResponse(resp)) {
+		if isDownload(resp) || isYAMLResponse(resp) {
 			// A download (a CSV or JSON Lines billing export, for one) goes
 			// out exactly as served, once its signature verifies.
 			if err := verifySignedDownload(method, path, resp.Header, data); err != nil {
@@ -401,6 +401,13 @@ func (c *client) do(method, path string, body any, out any) error {
 
 // rawBody is a non-JSON response printed exactly as served.
 type rawBody []byte
+
+// isYAMLResponse recognizes structured YAML exports even when the server does
+// not label them as attachments. Keep unknown media types on the JSON path.
+func isYAMLResponse(resp *http.Response) bool {
+	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	return err == nil && (mediaType == "application/yaml" || mediaType == "text/yaml" || mediaType == "application/x-yaml")
+}
 
 // isDownload reports whether a response is a file the server hands over
 // (Content-Disposition: attachment) rather than a JSON answer.

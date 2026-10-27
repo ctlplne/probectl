@@ -234,3 +234,11 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
 
 Out of scope by design: application-level SLOs. probectl correlates the network
 planes; it does not own application instrumentation.
+
+### Export from the CLI
+
+Run `probectl slo export > slos.yaml` to save the authenticated tenant’s OpenSLO
+YAML stream. The CLI preserves the response bytes, including YAML document
+separators and an empty stream when no definitions apply. `--json` does not
+convert a YAML export into JSON. A disabled engine’s JSON status and HTTP errors
+still use the normal CLI response handling; `metrics.read` remains required.
