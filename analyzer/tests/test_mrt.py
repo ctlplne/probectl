@@ -99,3 +99,23 @@ def test_oversized_seekable_record_is_skipped_without_body_read():
     data = header + rib_ipv4("192.0.2.0/24", [64496])
 
     assert list(stream_mrt(io.BytesIO(data))) == []
+
+
+@pytest.mark.parametrize("micros", [0, 1, 123456, 999999])
+def test_bgp4mp_extended_timestamp_preserves_route_and_time(micros):
+    ts = 1_793_059_200
+    regular = bgp4mp_update_as4("192.0.2.0/24", [64511, 64496], ts=ts)
+    body = struct.pack(">I", micros) + regular[12:]
+    extended = struct.pack(">IHHI", ts, 17, 4, len(body)) + body
+    routes = list(stream_mrt(io.BytesIO(extended)))
+    assert len(routes) == 1
+    assert routes[0].prefix == "192.0.2.0/24"
+    assert routes[0].as_path == [64511, 64496]
+    assert routes[0].peer_asn == 64511
+    assert routes[0].event_time_unix_nano == ts * 1_000_000_000 + micros * 1000
+
+
+def test_short_extended_timestamp_does_not_consume_next_record():
+    short = struct.pack(">IHHI", 0, 17, 4, 3) + b"abc"
+    good = bgp4mp_update_as4("198.51.100.0/24", [64496])
+    assert [r.prefix for r in stream_mrt(io.BytesIO(short + good))] == ["198.51.100.0/24"]

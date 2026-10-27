@@ -40,7 +40,7 @@ what *should* be true.
    collectors** — independent vantage points run by RouteViews and RIPE **RIS**
    (Routing Information Service) that record what they hear other networks announce.
    The archived form of that feed is **MRT** (a standard binary record format,
-   **RFC 6396**). If you operate routers that export BMP (BGP Monitoring
+   **RFC 6396**, including BGP4MP extended timestamps with microsecond precision). If you operate routers that export BMP (BGP Monitoring
    Protocol), `probectl-bmp-listener` can also accept their direct route-monitoring
    stream over mTLS and publish it into the same tenant-scoped event path.
 2. **Filter to you.** It keeps only the announcements that touch the prefixes you've

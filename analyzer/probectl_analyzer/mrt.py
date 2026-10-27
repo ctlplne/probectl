@@ -30,6 +30,7 @@ _log = get_logger("probectl.analyzer.mrt")
 # MRT record types.
 TYPE_TABLE_DUMP_V2 = 13
 TYPE_BGP4MP = 16
+TYPE_BGP4MP_ET = 17
 
 # TABLE_DUMP_V2 subtypes.
 SUB_PEER_INDEX_TABLE = 1
@@ -193,6 +194,14 @@ class MRTReader:
     def _dispatch(
         self, mtype: int, subtype: int, body: bytes, event_time_unix_nano: int
     ) -> Iterator[BGPRoute]:
+        if mtype == TYPE_BGP4MP_ET:
+            # RFC 6396 section 3: Length includes the four-octet microsecond
+            # offset. Consume it inside this bounded record, then use the
+            # same subtype/message parser as ordinary BGP4MP.
+            reader = _Reader(body)
+            event_time_unix_nano += reader.u32() * 1000
+            body = body[4:]
+            mtype = TYPE_BGP4MP
         if mtype == TYPE_TABLE_DUMP_V2:
             if subtype == SUB_PEER_INDEX_TABLE:
                 self._parse_peer_index(body)
