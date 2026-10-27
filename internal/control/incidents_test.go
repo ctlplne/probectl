@@ -38,6 +38,17 @@ func TestSignalFromAlert(t *testing.T) {
 	}
 }
 
+func TestTrapAlertDevicePlane(t *testing.T) {
+	for _, state := range []alert.State{alert.StateFiring, alert.StateResolved} {
+		for _, tenant := range []string{"red", "blue"} {
+			sig := signalFromAlert(alert.Alert{TenantID: tenant, Metric: alert.TrapMetric, State: state, Labels: map[string]string{"device": "192.0.2.10"}})
+			if sig.Plane != "device" || sig.TenantID != tenant || sig.Kind != "alert."+string(state) {
+				t.Fatalf("trap plane/tenant/kind = %q/%q/%q", sig.Plane, sig.TenantID, sig.Kind)
+			}
+		}
+	}
+}
+
 func TestTrapAlertIncidentTargetAndTenantIsolation(t *testing.T) {
 	st := incident.NewMemoryStore()
 	c := incident.NewCorrelator(st, time.Minute, nil)
