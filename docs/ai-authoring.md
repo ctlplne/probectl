@@ -193,6 +193,13 @@ Flow-derived suggestions additionally require `flow.read` after its ABAC
 deny-override; test-authoring authority never silently becomes flow-reading
 authority.
 
+Creation preserves the proposal's parameters and enabled state. For a private
+or loopback target, an operator with `test.allow_private` must explicitly select
+the per-proposal opt-in before Create or Add. It starts unchecked, even if the
+proposal contains `allow_private_targets`; generated output is not consent.
+The receiving agent must also set `test_sync.allow_private_targets: true`.
+Without these controls, the existing target guard refuses private probing.
+
 The same additive response is available to terminal workflows:
 
 ```bash

@@ -9,6 +9,7 @@ import { fireEvent, screen } from '@testing-library/react'
 import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
+import { specToInput, type TestSpec } from '../api/authoring'
 
 const discover = {
   proposals: [
@@ -41,7 +42,7 @@ const proposal = {
   source: 'heuristic',
 }
 
-function stub() {
+function stub(authorSpec: TestSpec = proposal.spec) {
   const posts: Array<{ url: string; body: Record<string, unknown> | undefined }> = []
   const createdTargets = new Set<string>()
   vi.stubGlobal(
@@ -63,7 +64,7 @@ function stub() {
           proposals: discover.proposals.filter((p) => !createdTargets.has(p.spec.target)),
         })
       }
-      if (url.endsWith('/v1/ai/author')) return jsonResponse(proposal)
+      if (url.endsWith('/v1/ai/author')) return jsonResponse({ ...proposal, spec: authorSpec })
       return jsonResponse({ error: { code: 'x', message: 'no route' } }, 404)
     }),
   )
@@ -71,6 +72,58 @@ function stub() {
 }
 
 describe('AI test authoring', () => {
+  test('preserves reviewed parameters and disabled state', () => {
+    const spec = { ...proposal.spec, enabled: false, params: { count: '2' } }
+    expect(specToInput(spec)).toEqual(spec)
+  })
+
+  test('offers per-suggestion private-target consent only to authorized operators', async () => {
+    const posts = stub()
+    renderApp('/targets', { me: { permissions: ['ai.query', 'test.write', 'test.allow_private'] } })
+    const consent = await screen.findByRole('checkbox', { name: /allow private.*203.0.113.10/i })
+    expect(consent).not.toBeChecked()
+    fireEvent.click(consent)
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await screen.findByText(/test created/i)
+    expect(posts.find((p) => p.url.endsWith('/v1/tests'))?.body?.params).toEqual({
+      allow_private_targets: 'true',
+    })
+  })
+
+  test.each([false, true])(
+    'model output cannot opt into private targets (permission=%s)',
+    async (authorized) => {
+      const posts = stub({
+        ...proposal.spec,
+        enabled: false,
+        params: { count: '2', allow_private_targets: 'true' },
+      })
+      renderApp('/targets', {
+        me: {
+          permissions: ['ai.query', 'test.write', ...(authorized ? ['test.allow_private'] : [])],
+        },
+      })
+      await screen.findByText('203.0.113.10')
+      fireEvent.change(screen.getByLabelText(/describe a test/i), {
+        target: { value: 'ping 9.9.9.9' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /propose a test/i }))
+      await screen.findByText('9.9.9.9 (ICMP)')
+      const consent = screen.queryByRole('checkbox', { name: /allow private.*9.9.9.9/i })
+      if (authorized) expect(consent).not.toBeChecked()
+      else expect(consent).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /create test/i }))
+      await screen.findByText(/test created/i)
+      expect(posts.find((p) => p.url.endsWith('/v1/tests'))?.body).toMatchObject({
+        enabled: false,
+        params: { count: '2' },
+      })
+      expect(posts.find((p) => p.url.endsWith('/v1/tests'))?.body?.params).not.toHaveProperty(
+        'allow_private_targets',
+      )
+    },
+  )
+
   test('lists suggestions and creates an authored test on confirmation (review-and-apply)', async () => {
     const posts = stub()
     renderApp('/targets', { me: { permissions: ['ai.query', 'test.write'] } })

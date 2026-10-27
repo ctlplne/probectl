@@ -57,6 +57,58 @@ function SpecSummary({ spec }: { spec: TestSpec }) {
   )
 }
 
+/** Each proposal needs its own explicit consent; model output is not consent. */
+function ApplyProposal({
+  spec,
+  onApply,
+  creating,
+  canCreate,
+  label,
+}: {
+  spec: TestSpec
+  onApply: (s: TestSpec) => void
+  creating: boolean
+  canCreate: boolean
+  label: string
+}) {
+  const { permissions } = useAuth()
+  const canAllowPrivate = permissions.includes('test.allow_private')
+  const [allowPrivate, setAllowPrivate] = useState(false)
+  function apply() {
+    const params = { ...spec.params }
+    delete params.allow_private_targets
+    if (canAllowPrivate && allowPrivate) params.allow_private_targets = 'true'
+    onApply({ ...spec, params })
+  }
+  return (
+    <div>
+      {canAllowPrivate ? (
+        <label className={styles.privateConsent}>
+          <input
+            type="checkbox"
+            checked={allowPrivate}
+            onChange={(e) => setAllowPrivate(e.target.checked)}
+            disabled={creating || !canCreate}
+          />
+          <span>Allow private or loopback targets for {spec.target}</span>
+        </label>
+      ) : null}
+      <p className={styles.permissionHint}>
+        Private targets require test.allow_private permission and explicit consent here. The agent
+        must also enable test_sync.allow_private_targets.
+      </p>
+      <Button
+        variant="secondary"
+        onClick={apply}
+        disabled={creating || !canCreate}
+        title={!canCreate ? 'Requires test.write permission' : undefined}
+      >
+        {label}
+      </Button>
+    </div>
+  )
+}
+
 function ProposalCard({
   proposal,
   onApply,
@@ -77,14 +129,14 @@ function ProposalCard({
       <p className={styles.provenance}>Proposed by {proposal.source} — review before creating.</p>
       <CodeExportPanel title="View as YAML" code={testAsCode(proposal.spec)} />
       <div className={styles.actions}>
-        <Button
-          variant="primary"
-          onClick={() => onApply(proposal.spec)}
-          disabled={creating || !canCreate}
-          title={!canCreate ? 'Requires test.write permission' : undefined}
-        >
-          Create test
-        </Button>
+        <ApplyProposal
+          key={JSON.stringify(proposal.spec)}
+          spec={proposal.spec}
+          onApply={onApply}
+          creating={creating}
+          canCreate={canCreate}
+          label="Create test"
+        />
         <Button variant="ghost" onClick={onDismiss}>
           Dismiss
         </Button>
@@ -175,22 +227,20 @@ export function AuthoringPanel() {
                 />
               ) : (
                 <ul className={styles.suggestionList} aria-label="Suggested targets">
-                  {discover.data.map((d, i) => (
-                    <li key={i} className={styles.suggestion}>
+                  {discover.data.map((d) => (
+                    <li key={JSON.stringify(d.spec)} className={styles.suggestion}>
                       <div className={styles.suggestionBody}>
                         <Badge tone="accent">{d.spec.type}</Badge>
                         <code className={styles.suggestionTarget}>{d.spec.target}</code>
                         <span className={styles.suggestionWhy}>{d.rationale}</span>
                       </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => apply(d.spec, d.spec.target)}
-                        disabled={create.isPending || !canCreate}
-                        title={!canCreate ? 'Requires test.write permission' : undefined}
-                      >
-                        Add
-                      </Button>
+                      <ApplyProposal
+                        spec={d.spec}
+                        onApply={(s) => apply(s, s.target)}
+                        creating={create.isPending}
+                        canCreate={canCreate}
+                        label="Add"
+                      />
                     </li>
                   ))}
                 </ul>

@@ -115,3 +115,10 @@
   font-size: var(--font-size-caption);
   color: hsl(var(--muted-foreground));
 }
+
+.privateConsent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}

@@ -65,6 +65,7 @@ export function specToInput(s: TestSpec): TestInput {
     target: s.target,
     interval_seconds: s.interval_seconds,
     timeout_seconds: s.timeout_seconds,
-    enabled: true,
+    enabled: s.enabled,
+    params: s.params,
   }
 }
