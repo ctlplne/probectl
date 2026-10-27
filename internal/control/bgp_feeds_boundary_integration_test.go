@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -54,7 +55,7 @@ import (
 // every file it reads. It proves:
 //
 //   - live mode reads RIPE's websocket — the hard-coded ris-live.ripe.net:443,
-//     path /v1/ws/, subscribed to exactly the monitored prefix — plus the
+//     path /v1/ws/, subscribed to public collector updates without tenant prefixes — plus the
 //     configured VRP export, and nothing else;
 //   - MRT mode reads the operator's local file and makes no network call but
 //     the VRP fetch: the feed is bring-your-own;
@@ -206,9 +207,19 @@ func TestBGPAnalyzerFeedBoundaryRealStack(t *testing.T) {
 	if got := proxy.targets("live"); !sameSet(got, []string{"ris-live.ripe.net:443", "rpki.example.test:443"}) {
 		t.Errorf("live analyzer reached %v, want exactly RIS Live and the VRP export", got)
 	}
-	if path, subs := ris.observed(); path != "/v1/ws/" || len(subs) != 1 ||
-		!strings.Contains(subs[0], `"type": "ris_subscribe"`) || !strings.Contains(subs[0], `"prefix": "192.0.2.0/24"`) {
-		t.Errorf("RIS Live session = path %q subscriptions %q, want /v1/ws/ subscribed to the monitored prefix only", path, subs)
+	path, subs := ris.observed()
+	if path != "/v1/ws/" || len(subs) != 1 {
+		t.Fatalf("RIS Live session = path %q subscriptions %q, want one public collector subscription at /v1/ws/", path, subs)
+	}
+	var subscription map[string]any
+	if err := json.Unmarshal([]byte(subs[0]), &subscription); err != nil {
+		t.Fatalf("decode RIS subscription: %v", err)
+	}
+	wantSubscription := map[string]any{
+		"type": "ris_subscribe", "data": map[string]any{"type": "UPDATE", "host": "rrc00"},
+	}
+	if !reflect.DeepEqual(subscription, wantSubscription) {
+		t.Errorf("RIS subscription = %v, want only public collector fields %v; tenant prefixes must stay local", subscription, wantSubscription)
 	}
 	// MRT mode: the local file, and no network but the VRP export.
 	if got := proxy.targets("mrt"); !sameSet(got, []string{"rpki.example.test:443"}) {
@@ -403,8 +414,9 @@ func tlsStandIn(t *testing.T, ca *crypto.CA, host string, handler http.Handler) 
 }
 
 // risLiveStandIn speaks the RIS Live protocol: it accepts the websocket at
-// /v1/ws/, records the subscriptions, and streams one UPDATE for 192.0.2.0/24
-// from an unexpected origin.
+// /v1/ws/, records the subscriptions, and streams an unrelated route followed by
+// the monitored 192.0.2.0/24 from an unexpected origin. The analyzer must apply its
+// monitored-prefix filter locally, without sending that configuration upstream.
 type risLiveStandIn struct {
 	addr string
 	mu   sync.Mutex
@@ -429,6 +441,9 @@ func newRISLiveStandIn(t *testing.T, ca *crypto.CA) *risLiveStandIn {
 			s.mu.Lock()
 			s.subs = append(s.subs, sub)
 			s.mu.Unlock()
+			if err := websocket.Message.Send(conn, risUpdate("198.51.100.0/24", 65551)); err != nil {
+				return
+			}
 			if err := websocket.Message.Send(conn, risUpdate("192.0.2.0/24", 65551)); err != nil {
 				return
 			}
