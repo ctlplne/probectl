@@ -100,6 +100,33 @@ describe('native API docs route', () => {
     ).toBe(true)
   })
 
+  test('notification routing setup resolves the Alerts deep link without external requests', async () => {
+    const requests: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = pathnameOf(input)
+        requests.push(path)
+        return jsonResponse(path === '/openapi.json' ? openapiDoc : {})
+      }),
+    )
+    renderApp('/docs/api#oncall-setup')
+
+    await screen.findByRole('heading', { name: 'API docs' })
+    const setup = document.getElementById('oncall-setup')
+    expect(setup).not.toBeNull()
+    expect(setup).toHaveTextContent('PROBECTL_NOTIFY_CONNECTORS')
+    expect(setup).toHaveTextContent('PROBECTL_NOTIFY_INBOUND')
+    expect(setup).toHaveTextContent('probectl oncall status')
+    expect(setup).toHaveTextContent('incident.write permission')
+    expect(setup).toHaveFocus()
+    expect(
+      requests.every((path) =>
+        ['/branding', '/v1/me', '/v1/editions', '/openapi.json'].includes(path),
+      ),
+    ).toBe(true)
+  })
+
   test('/docs/api renders operations from same-origin /openapi.json without external assets', async () => {
     const requests: string[] = []
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {

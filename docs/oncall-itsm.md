@@ -36,6 +36,9 @@ tooling, so the whole feature stays off unless `PROBECTL_NOTIFY_CONNECTORS` is s
 Routing is **per-tenant**: a connector is registered against one tenant id and
 only ever fires for incidents of that tenant.
 
+The Alerts page links to **Docs & API → Notification routing setup** for offline
+configuration prerequisites and delivery verification steps.
+
 Operators can inspect the tenant-scoped, redacted integration posture with
 `GET /v1/oncall/status` or `probectl oncall status`. The status response shows
 provider counts, sanitized endpoint hosts, and inbound webhook paths for the

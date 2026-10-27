@@ -4,9 +4,9 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import styles from './apiDocs.module.css'
 import { Page } from './RoutePage'
 import {
@@ -596,6 +596,13 @@ function OperationDetail({ row, doc }: { row: OperationRow | null; doc?: OpenAPI
 }
 
 export function ApiDocsPage() {
+  const { hash } = useLocation()
+  const oncallSetup = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (hash !== '#oncall-setup') return
+    oncallSetup.current?.scrollIntoView?.({ block: 'start' })
+    oncallSetup.current?.focus({ preventScroll: true })
+  }, [hash])
   const [searchParams] = useSearchParams()
   const spec = useQuery({ queryKey: ['openapi'], queryFn: fetchOpenAPI })
   const [query, setQuery] = useState(() => searchParams.get('filter') ?? '')
@@ -718,6 +725,40 @@ export function ApiDocsPage() {
                 </div>
               )}
             </div>
+          </CardBody>
+        </Card>
+        <Card>
+          <CardBody>
+            <section
+              ref={oncallSetup}
+              tabIndex={-1}
+              id="oncall-setup"
+              aria-labelledby="oncall-setup-title"
+              className={styles.stack}
+            >
+              <h2 id="oncall-setup-title">Notification routing setup</h2>
+              <p>
+                Incident connectors are off until an operator configures them. Set{' '}
+                <code>PROBECTL_NOTIFY_CONNECTORS</code> in the control-plane deployment, with each
+                connector bound to its tenant ID, provider, HTTPS endpoint, and credential. Keep
+                credentials in the deployment secret source, never in URLs or this console.
+              </p>
+              <p>
+                For inbound status synchronization, configure <code>PROBECTL_NOTIFY_INBOUND</code>{' '}
+                with a tenant-bound webhook credential. Deliveries must authenticate; keep
+                certificate verification enabled. The offline <code>docs/oncall-itsm.md</code> and{' '}
+                <code>docs/configuration.md</code> describe provider formats and signature
+                requirements.
+              </p>
+              <p>
+                After applying the deployment configuration, inspect{' '}
+                <code>probectl oncall status</code> or <code>GET /v1/oncall/status</code>. Return to
+                Alerts and confirm the intended tenant, provider, TLS, and credential posture. Use
+                the connector’s <strong>Test</strong> button with <code>incident.write</code>{' '}
+                permission only when ready to send a real test notification, then verify it in the
+                receiver. A configured connector alone does not prove delivery.
+              </p>
+            </section>
           </CardBody>
         </Card>
         <Card>
