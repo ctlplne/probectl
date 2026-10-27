@@ -364,6 +364,52 @@ export interface ChangeEventList {
   truncated?: boolean
 }
 
+export interface ChangeGenericEvent {
+  actor?: string
+  attributes?: { [key: string]: string }
+  kind?: string
+  occurred_at?: string
+  prefix?: string
+  ref?: string
+  summary?: string
+  target?: string
+  title: string
+  url?: string
+}
+
+export type ChangeGenericPayload = JsonValue
+
+export interface ChangeGitHubDeployment {
+  deployment: JsonObject
+  repository?: JsonObject
+}
+
+export interface ChangeGitHubPush {
+  commits?: JsonObject[]
+  compare?: string
+  head_commit?: JsonObject
+  pusher?: JsonObject
+  ref?: string
+  repository: JsonObject
+}
+
+export interface ChangeGitLabDeployment {
+  deployable_url?: string
+  environment: string
+  project?: JsonObject
+  short_sha?: string
+  status?: string
+  user?: JsonObject
+}
+
+export interface ChangeGitLabPush {
+  checkout_sha?: string
+  commits?: JsonObject[]
+  project: JsonObject
+  ref?: string
+  user_name?: string
+}
+
 export interface ChannelSpec {
   recipients?: string[]
   secret?: string
@@ -2054,6 +2100,14 @@ export interface GetHealthzRequest {
 
 export type GetHealthzResponse = Health
 
+export interface IngestChangeWebhookRequest {
+  provider: "generic" | "github" | "gitlab"
+  id: string
+  body: JsonValue
+}
+
+export type IngestChangeWebhookResponse = JsonObject
+
 export interface IngestItsmStatusRequest {
   provider: "pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira" | "psa"
   id: string
@@ -3269,6 +3323,14 @@ export class ProbectlSDKClient {
     let path = "/healthz"
     const query = new URLSearchParams()
     return this.requestJSON<GetHealthzResponse>("GET", path, query, undefined)
+  }
+
+  async ingestChangeWebhook(request: IngestChangeWebhookRequest): Promise<IngestChangeWebhookResponse> {
+    let path = "/ingest/changes/{provider}/{id}"
+    path = path.replace("{provider}", encodeURIComponent(String(request.provider)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<IngestChangeWebhookResponse>("POST", path, query, request.body)
   }
 
   async ingestItsmStatus(request: IngestItsmStatusRequest): Promise<IngestItsmStatusResponse> {

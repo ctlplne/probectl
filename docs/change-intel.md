@@ -162,6 +162,17 @@ That scope is enforced twice: the source opens an RLS transaction for the
 RCA path requires the `events.read` + `ai.query` permissions. The plain timeline
 read (`GET /v1/changes`) requires `change.read`.
 
+## API contract and SDK transport
+
+The same-origin `/openapi.json` and offline console API explorer describe
+`POST /ingest/changes/{provider}/{id}`, its provider-specific credentials,
+delivery headers, payload shapes, and responses. Cookie sessions and API bearer
+tokens do not authorize this webhook. A generated SDK transport must supply the
+configured provider's webhook authentication and delivery headers; sign the exact
+serialized bytes sent by that transport. For generic deliveries, include the fresh
+timestamp in both the signature input and header. Honor `Retry-After` on `429`
+without changing the delivery body or ID to evade replay protection.
+
 ## Configuration
 
 Webhooks are configured by the operator (mirroring the OTLP token model). Each

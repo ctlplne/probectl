@@ -447,6 +447,52 @@ type ChangeEventList struct {
 	Truncated              bool          `json:"truncated,omitempty"`
 }
 
+type ChangeGenericEvent struct {
+	Actor      string            `json:"actor,omitempty"`
+	Attributes map[string]string `json:"attributes,omitempty"`
+	Kind       string            `json:"kind,omitempty"`
+	OccurredAt string            `json:"occurred_at,omitempty"`
+	Prefix     string            `json:"prefix,omitempty"`
+	Ref        string            `json:"ref,omitempty"`
+	Summary    string            `json:"summary,omitempty"`
+	Target     string            `json:"target,omitempty"`
+	Title      string            `json:"title"`
+	Url        string            `json:"url,omitempty"`
+}
+
+type ChangeGenericPayload any
+
+type ChangeGitHubDeployment struct {
+	Deployment map[string]any `json:"deployment"`
+	Repository map[string]any `json:"repository,omitempty"`
+}
+
+type ChangeGitHubPush struct {
+	Commits    []map[string]any `json:"commits,omitempty"`
+	Compare    string           `json:"compare,omitempty"`
+	HeadCommit map[string]any   `json:"head_commit,omitempty"`
+	Pusher     map[string]any   `json:"pusher,omitempty"`
+	Ref        string           `json:"ref,omitempty"`
+	Repository map[string]any   `json:"repository"`
+}
+
+type ChangeGitLabDeployment struct {
+	DeployableUrl string         `json:"deployable_url,omitempty"`
+	Environment   string         `json:"environment"`
+	Project       map[string]any `json:"project,omitempty"`
+	ShortSha      string         `json:"short_sha,omitempty"`
+	Status        string         `json:"status,omitempty"`
+	User          map[string]any `json:"user,omitempty"`
+}
+
+type ChangeGitLabPush struct {
+	CheckoutSha string           `json:"checkout_sha,omitempty"`
+	Commits     []map[string]any `json:"commits,omitempty"`
+	Project     map[string]any   `json:"project"`
+	Ref         string           `json:"ref,omitempty"`
+	UserName    string           `json:"user_name,omitempty"`
+}
+
 type ChannelSpec struct {
 	Recipients []string `json:"recipients,omitempty"`
 	Secret     string   `json:"secret,omitempty"`
@@ -2224,6 +2270,31 @@ func (c *Client) GetHealthz(ctx context.Context, req GetHealthzRequest) (*Health
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Ingest an authenticated tenant-bound change webhook
+type IngestChangeWebhookRequest struct {
+	Provider string `json:"-"`
+	Id       string `json:"-"`
+	Body     *any   `json:"-"`
+}
+
+func (c *Client) IngestChangeWebhook(ctx context.Context, req IngestChangeWebhookRequest) (map[string]any, error) {
+	path := "/ingest/changes/{provider}/{id}"
+	if req.Provider == "" {
+		return nil, fmt.Errorf("provider is required")
+	}
+	path = strings.ReplaceAll(path, "{provider}", url.PathEscape(req.Provider))
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Synchronize incident status from an authenticated on-call or ITSM webhook

@@ -69,6 +69,250 @@
     }
   ],
   "paths": {
+    "/ingest/changes/{provider}/{id}": {
+      "post": {
+        "operationId": "ingestChangeWebhook",
+        "summary": "Ingest an authenticated tenant-bound change webhook",
+        "tags": [
+          "changes"
+        ],
+        "description": "Provider authentication is selected by the configured credential and path provider, not freely interchangeable between providers. Session cookies and API bearer tokens do not authorize ingestion. Tenant binding comes only from the verified credential. Generic signatures cover timestamp plus exact body; GitHub signatures cover exact body; GitLab uses its configured token. Required provider-specific delivery headers are described below. Bodies are capped at1MiB. Both delivery IDs and exact-body fingerprints are deduplicated per tenant/provider/credential before change and ingest-audit writes. Change events are context, never automatic remediation.",
+        "security": [
+          {
+            "changeGenericSignature": []
+          },
+          {
+            "changeGitHubSignature": []
+          },
+          {
+            "changeGitLabToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "generic",
+                "github",
+                "gitlab"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Operator-configured credential selector, not a secret. Binds provider and tenant; payload tenant fields cannot override it."
+          },
+          {
+            "name": "X-Probectl-Delivery",
+            "in": "header",
+            "required": false,
+            "description": "Required for generic; stable nonblank delivery identifier, at most256 characters.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Probectl-Timestamp",
+            "in": "header",
+            "required": false,
+            "description": "Required for generic; Unix seconds signed together with the exact body. Must be within five minutes of server time.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-GitHub-Delivery",
+            "in": "header",
+            "required": false,
+            "description": "Required for github; stable nonblank delivery identifier, at most256 characters.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-GitHub-Event",
+            "in": "header",
+            "required": false,
+            "description": "For github: push, deployment or deployment_status; other verified types including ping accept zero events.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Gitlab-Event-UUID",
+            "in": "header",
+            "required": false,
+            "description": "Required for gitlab unless X-Gitlab-Webhook-UUID is supplied; stable nonblank identifier, at most256 characters.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Gitlab-Webhook-UUID",
+            "in": "header",
+            "required": false,
+            "description": "Fallback GitLab delivery identifier when X-Gitlab-Event-UUID is absent.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Gitlab-Event",
+            "in": "header",
+            "required": false,
+            "description": "For gitlab: Push Hook or Deployment Hook; other verified types accept zero events.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ChangeGenericPayload"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChangeGitHubPush"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChangeGitHubDeployment"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChangeGitLabPush"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChangeGitLabDeployment"
+                  }
+                ]
+              },
+              "example": {
+                "kind": "deploy",
+                "title": "QA deployment",
+                "target": "api.example.test",
+                "actor": "ci",
+                "ref": "qa-change-1"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Verified delivery normalized; accepted counts new stored changes. A replay of the delivery ID or exact body under the same tenant/provider/credential returns duplicate:true with accepted:0. Unmodeled verified provider events accept zero changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "provider": {
+                      "type": "string",
+                      "enum": [
+                        "generic",
+                        "github",
+                        "gitlab"
+                      ]
+                    },
+                    "duplicate": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "accepted",
+                    "provider",
+                    "duplicate"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unreadable or malformed recognized payload.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown credential/provider, missing or invalid authentication/delivery ID, or stale generic timestamp.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential tenant suspended or offboarded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds1MiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Webhook brute-force limiter refuses this source or credential; honor Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt may be accepted.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database or audit persistence unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "security": [],
@@ -9723,6 +9967,24 @@
   },
   "components": {
     "securitySchemes": {
+      "changeGenericSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Probectl-Signature",
+        "description": "generic only: sha256=<hex HMAC-SHA256(secret, timestamp + \".\" + exact body bytes)>. X-Probectl-Timestamp must be fresh within five minutes; X-Probectl-Delivery is also required."
+      },
+      "changeGitHubSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Hub-Signature-256",
+        "description": "github only: sha256=<hex HMAC-SHA256(secret, exact body bytes)>. X-GitHub-Delivery is also required; X-GitHub-Event selects normalization."
+      },
+      "changeGitLabToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Gitlab-Token",
+        "description": "gitlab only: configured webhook secret compared in constant time over HTTPS. X-Gitlab-Event-UUID or fallback X-Gitlab-Webhook-UUID is required; X-Gitlab-Event selects normalization."
+      },
       "cookieAuth": {
         "type": "apiKey",
         "in": "cookie",
@@ -9782,6 +10044,283 @@
       }
     },
     "schemas": {
+      "ChangeGenericEvent": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "deploy, config, route, iac, commit, release or other; unknown kinds normalize to other."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Optional event time; absent or zero uses server time."
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "ChangeGenericPayload": {
+        "description": "A single generic event, an array or an events envelope. Blank-title members in arrays/envelopes are dropped.",
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/ChangeGenericEvent"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/ChangeGenericEvent"
+            }
+          },
+          {
+            "type": "object",
+            "properties": {
+              "events": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/components/schemas/ChangeGenericEvent"
+                }
+              }
+            },
+            "required": [
+              "events"
+            ]
+          }
+        ]
+      },
+      "ChangeGitHubPush": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "compare": {
+            "type": "string"
+          },
+          "pusher": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "repository": {
+            "type": "object",
+            "properties": {
+              "full_name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "full_name"
+            ]
+          },
+          "head_commit": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "commits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "repository"
+        ]
+      },
+      "ChangeGitHubDeployment": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "object",
+            "properties": {
+              "full_name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "full_name"
+            ]
+          },
+          "deployment": {
+            "type": "object",
+            "properties": {
+              "environment": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ref": {
+                "type": "string"
+              },
+              "sha": {
+                "type": "string"
+              },
+              "environment_url": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "creator": {
+                "type": "object",
+                "properties": {
+                  "login": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "required": [
+              "environment"
+            ]
+          }
+        },
+        "required": [
+          "deployment"
+        ]
+      },
+      "ChangeGitLabPush": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "user_name": {
+            "type": "string"
+          },
+          "project": {
+            "type": "object",
+            "properties": {
+              "path_with_namespace": {
+                "type": "string"
+              },
+              "web_url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path_with_namespace"
+            ]
+          },
+          "checkout_sha": {
+            "type": "string"
+          },
+          "commits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "project"
+        ]
+      },
+      "ChangeGitLabDeployment": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string",
+            "minLength": 1
+          },
+          "deployable_url": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "short_sha": {
+            "type": "string"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "project": {
+            "type": "object",
+            "properties": {
+              "path_with_namespace": {
+                "type": "string"
+              },
+              "web_url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path_with_namespace"
+            ]
+          }
+        },
+        "required": [
+          "environment"
+        ]
+      },
       "ThreatRule": {
         "type": "object",
         "properties": {
