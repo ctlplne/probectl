@@ -3012,3 +3012,15 @@ answer count. Current agents emit these details as `probectl.dns.*` attributes;
 the console also reads historical `dns.*` attributes, preferring current names
 when both exist. DNSSEC validation appears only when the result supplies its
 validation metric; a missing metric does not imply validation.
+
+### ClickHouse backup and restore script transport
+
+`scripts/backup_clickhouse.sh` and `scripts/restore_clickhouse.sh` accept
+`CH_SECURE` (`true` or `false`, default `false` for their dev-stack target),
+`CH_HOST` (default `localhost`), and `CH_PORT` (default `9440` with TLS,
+otherwise `9000`). The durable production profile requires `CH_SECURE=true`
+and `CH_HOST=clickhouse`; its mounted client configuration strictly verifies
+the deployment CA and hostname. `CH_USER`, `CH_PASSWORD`, `CH_DB`,
+`CH_SERVICE`, and `COMPOSE_FILE` select the existing credentials and Compose
+service. These are one-shot script settings, not control-plane environment keys.
+See [backup and restore](ops/backup-restore.md) for encrypted staging and artifact custody.

@@ -157,6 +157,19 @@ For a non-dev deployment, override the env vars the scripts read:
 `PG_SERVICE`/`PGUSER`/`PGDATABASE`, and
 `CH_SERVICE`/`CH_USER`/`CH_PASSWORD`/`CH_DB`.
 
+For the TLS-only durable production Compose profile, both ClickHouse scripts
+also require `CH_SECURE=true CH_HOST=clickhouse` (native port `9440`; override
+with `CH_PORT` if needed). Set `CH_DB=default` for the pooled database in the
+shipped production profile; back up each silo database separately as well.
+Use `CH_USER=probectl_admin` and supply its existing
+password through `CH_PASSWORD`. The client uses the profile's mounted
+`/etc/clickhouse-client/config.xml`, which verifies the CA and server name.
+The production overlay mounts `chbackups:/backups` and the native backup-path
+allowlist; back that staging volume with encrypted storage as described above.
+The scripts retain `CH_SECURE=false`, host `localhost`, port `9000` only for
+their default dev-stack invocation. Do not use that transport for production.
+`CH_SECURE` accepts only `true` or `false` and never falls back after a TLS error.
+
 The object-store script has two modes. `filesystem` is the default shown above:
 it refuses symlinks/special files and a destination nested under the source,
 then writes only the authenticated `.tar.pbk`. `s3` copies

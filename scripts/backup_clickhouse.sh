@@ -25,6 +25,17 @@ CH_SERVICE="${CH_SERVICE:-clickhouse}"
 CH_USER="${CH_USER:-probectl}"
 CH_PASSWORD="${CH_PASSWORD:-probectl}"
 CH_DB="${CH_DB:-probectl}"
+# Defaults retain the dev-stack transport; production selects TLS explicitly.
+CH_SECURE="${CH_SECURE:-false}"
+CH_HOST="${CH_HOST:-localhost}"
+ch_transport=(--host "${CH_HOST}")
+case "${CH_SECURE}" in
+  true) ch_transport+=(--secure --port "${CH_PORT:-9440}") ;;
+  false) ch_transport+=(--port "${CH_PORT:-9000}") ;;
+  *) echo "${0##*/}: CH_SECURE must be true or false" >&2; exit 1 ;;
+esac
+# clickhouse-client reads its normal config.xml trust settings. Never disable
+# certificate verification; the production profile mounts strict CA trust.
 ACK="${PROBECTL_CLICKHOUSE_BACKUP_ACK:-}"
 PCTL_BIN="${PROBECTL_CONTROL_BIN:-probectl-control}"
 KEY_FILE="${PROBECTL_BACKUP_KEY_FILE:-${PROBECTL_ENVELOPE_KEY_FILE:-}}"
@@ -63,7 +74,7 @@ NAME="clickhouse-${CH_DB}-${STAMP}.zip"
 
 ch() {
   docker compose -f "${COMPOSE_FILE}" exec -T "${CH_SERVICE}" \
-    clickhouse-client --user "${CH_USER}" --password "${CH_PASSWORD}" --query "$1"
+    clickhouse-client "${ch_transport[@]}" --user "${CH_USER}" --password "${CH_PASSWORD}" --query "$1"
 }
 
 # A fresh backups volume mounts root-owned, but the ClickHouse server runs as

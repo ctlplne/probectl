@@ -671,3 +671,51 @@ func TestBackupFlagSetIsStdinStdoutOnly(t *testing.T) {
 		}
 	}
 }
+
+// Production ClickHouse has no plaintext listener. Exercise the shipped shell
+// entrypoints and intercept the database invocation, rather than inspecting
+// comments that might describe flags the commands never pass.
+func TestClickHouseBackupRestoreTLSArguments(t *testing.T) {
+	for _, script := range []string{"backup_clickhouse.sh", "restore_clickhouse.sh"} {
+		t.Run(script, func(t *testing.T) {
+			dir := t.TempDir()
+			docker := `#!/bin/sh
+case " $* " in
+ *" clickhouse-client "*) printf '%s\n' "$@" > "$QA_CH_ARGS"; exit 88;;
+esac
+exit 0
+`
+			for name, body := range map[string]string{"docker": docker, "sha256sum": "#!/bin/sh\nexit 0\n"} {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			artifact := filepath.Join(dir, "restore.zip")
+			for _, name := range []string{artifact, artifact + ".sha256"} {
+				if err := os.WriteFile(name, []byte("transport fixture"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			arg := filepath.Join(dir, "out")
+			if script == "restore_clickhouse.sh" {
+				arg = artifact
+			}
+			log := filepath.Join(dir, "args")
+			cmd := exec.Command("bash", filepath.Join(repoRoot(t), "scripts", script), arg)
+			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "QA_CH_ARGS="+log, "CH_SECURE=true", "CH_HOST=clickhouse", "CH_PORT=9440", "CH_USER=qa_admin", "CH_PASSWORD=", "PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target")
+			if out, err := cmd.CombinedOutput(); err == nil {
+				t.Fatalf("expected intercepted client exit, got success: %s", out)
+			}
+			raw, err := os.ReadFile(log)
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := strings.Split(strings.TrimSpace(string(raw)), "\n")
+			for _, flag := range []string{"--secure", "--host", "clickhouse", "--port", "9440"} {
+				if !slices.Contains(args, flag) {
+					t.Errorf("TLS database invocation missing %q: %q", flag, args)
+				}
+			}
+		})
+	}
+}

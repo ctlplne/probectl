@@ -147,6 +147,8 @@ services:
         hard: 262144
     volumes:
       - chdata:/var/lib/clickhouse
+      - chbackups:/backups
+      - ./clickhouse-backups.xml:/etc/clickhouse-server/config.d/backups.xml:ro
       - chsecrets:/run/probectl-clickhouse:ro
       - ./prod/clickhouse/tls.xml:/etc/clickhouse-server/config.d/probectl-tls.xml:ro
       - ./prod/clickhouse/users.xml:/etc/clickhouse-server/users.d/probectl-tenant-setting.xml:ro
@@ -325,6 +327,8 @@ services:
 volumes:
   natsdata: {}
   chdata: {}
+  # Native backup staging; operator must back this with encrypted storage.
+  chbackups: {}
   promdata: {}
   # Signed WORM audit segments. Back it with object-lock / write-once storage
   # (a volume driver or bind mount) for true WORM; a plain volume is durable,
