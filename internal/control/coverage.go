@@ -131,16 +131,18 @@ func buildCoverageMatrix(
 			continue
 		}
 		group.agentIDs[candidate.AgentID] = struct{}{}
-		group.item.AgentCount++
-		if candidate.AgentStatus == "online" && candidate.LastSeenAt != nil &&
-			!candidate.LastSeenAt.Before(now.Add(-agentCoverageFreshness)) {
-			group.item.ReadyAgentCount++
+		if !candidate.EvidenceOnly {
+			group.item.AgentCount++
+			if candidate.AgentStatus == "online" && candidate.LastSeenAt != nil &&
+				!candidate.LastSeenAt.Before(now.Add(-agentCoverageFreshness)) {
+				group.item.ReadyAgentCount++
+			}
 		}
 		result, ok := exactEvidence[candidate.TestID+"\x00"+candidate.AgentID]
 		if ok && (result.Type != candidate.ProbeFamily || result.Target != candidate.Target) {
 			ok = false
 		}
-		if !ok {
+		if !ok && !candidate.EvidenceOnly {
 			result, ok = legacyEvidence[candidate.ProbeFamily+"\x00"+candidate.Target+"\x00"+candidate.AgentID]
 		}
 		if !ok {
@@ -460,9 +462,18 @@ func (s *Server) handleCoverageMatrix(w http.ResponseWriter, r *http.Request) er
 		limit = store.DefaultCoverageCandidateLimit
 	}
 
+	results := []ResultView{}
+	recent := []ResultView{}
+	var recentIncompleteThrough time.Time
+	evidenceRunning := s.latestResults != nil
+	if evidenceRunning {
+		results = s.latestResults.List(tenantID)
+		recent, recentIncompleteThrough = s.latestResults.RecentSnapshot(tenantID)
+	}
+
 	var candidates []store.CoverageCandidate
 	if err := s.inTenant(r, func(ctx context.Context, scope tenancy.Scope) error {
-		rows, queryErr := (store.Agents{}).CoverageCandidates(ctx, scope, limit+1)
+		rows, queryErr := (store.Agents{}).CoverageCandidates(ctx, scope, limit+1, coverageEvidenceRefs(results, recent)...)
 		candidates = rows
 		return queryErr
 	}); err != nil {
@@ -471,14 +482,6 @@ func (s *Server) handleCoverageMatrix(w http.ResponseWriter, r *http.Request) er
 	truncated := len(candidates) > limit
 	if truncated {
 		candidates = candidates[:limit]
-	}
-	results := []ResultView{}
-	recent := []ResultView{}
-	var recentIncompleteThrough time.Time
-	evidenceRunning := s.latestResults != nil
-	if evidenceRunning {
-		results = s.latestResults.List(tenantID)
-		recent, recentIncompleteThrough = s.latestResults.RecentSnapshot(tenantID)
 	}
 	now := time.Now().UTC()
 	items := buildCoverageMatrix(
@@ -494,4 +497,27 @@ func (s *Server) handleCoverageMatrix(w http.ResponseWriter, r *http.Request) er
 		"candidate_limit": limit, "truncated": truncated,
 	})
 	return nil
+}
+
+// coverageEvidenceRefs keeps evidence discovery bounded by the already bounded
+// tenant-local result snapshots. Ownership and definition matching are checked
+// again by the relational query; observed identifiers confer no access.
+func coverageEvidenceRefs(snapshots ...[]ResultView) []store.CoverageEvidence {
+	seen := map[store.CoverageEvidence]struct{}{}
+	refs := []store.CoverageEvidence{}
+	for _, results := range snapshots {
+		for _, result := range results {
+			testID := result.Attributes[otel.AttrTestID]
+			if testID == "" || result.AgentID == "" {
+				continue
+			}
+			ref := store.CoverageEvidence{TestID: testID, AgentID: result.AgentID, ProbeFamily: result.Type, Target: result.Target}
+			if _, ok := seen[ref]; ok {
+				continue
+			}
+			seen[ref] = struct{}{}
+			refs = append(refs, ref)
+		}
+	}
+	return refs
 }

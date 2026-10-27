@@ -16821,6 +16821,7 @@
             ]
           },
           "agent_count": {
+            "description": "Currently compatible owned agents; excludes agents retained solely by exact historical evidence.",
             "type": "integer",
             "minimum": 0
           },
@@ -16839,6 +16840,7 @@
             "format": "date-time"
           },
           "independent_vantage_count": {
+            "description": "Owned agents with matching result evidence, including past execution after a capability change. Readiness is reported separately.",
             "type": "integer",
             "minimum": 0
           },

@@ -485,3 +485,42 @@ func TestCoverageDebtRouteIsReadOnlyAndPermissioned(t *testing.T) {
 	}
 	t.Fatal("/v1/coverage/debt not registered")
 }
+
+// A capability update must not erase exact execution history or turn past
+// execution into a claim that the vantage can still execute this probe.
+func TestCoverageHistoricalEvidenceDoesNotImplyCurrentCapability(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	seen := now.Add(-time.Minute)
+	candidate := store.CoverageCandidate{
+		TestID: "dns-test", TestName: "dns", ProbeFamily: "dns", Target: "example.test",
+		IntervalSeconds: 30, AgentID: "former-dns-agent", Region: "qa", Site: "blue",
+		AgentStatus: "online", LastSeenAt: &seen, EvidenceOnly: true,
+	}
+	latest := NewLatestResults(20)
+	latest.recentStartedAt = now.Add(-time.Hour)
+	for i, age := range []time.Duration{90 * time.Second, 60 * time.Second, 30 * time.Second} {
+		latest.Record("blue", ResultView{
+			ResultID: string(rune('a' + i)), AgentID: candidate.AgentID, Type: "dns", Target: candidate.Target,
+			ObservedAt: now.Add(-age), Attributes: map[string]string{
+				"probectl.test.id": candidate.TestID, "probectl.test.interval_seconds": "30",
+			},
+		})
+	}
+	latest.Record("red", ResultView{AgentID: candidate.AgentID, Type: "dns", Target: candidate.Target,
+		ObservedAt: now.Add(time.Hour), Attributes: map[string]string{"probectl.test.id": candidate.TestID}})
+	recent, incomplete := latest.RecentSnapshot("blue")
+	items := buildCoverageMatrix([]store.CoverageCandidate{candidate}, latest.List("blue"), recent, incomplete, true, now)
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	got := items[0]
+	if got.AgentCount != 0 || got.ReadyAgentCount != 0 || got.AgentReadiness != "unavailable" {
+		t.Fatalf("past execution counted as current capability: %+v", got)
+	}
+	if got.LastEvidenceAt == nil || !got.LastEvidenceAt.Equal(now.Add(-30*time.Second)) || got.IndependentVantageCount != 1 {
+		t.Fatalf("exact owned evidence lost or foreign evidence used: %+v", got)
+	}
+	if got.ExecutionCadence.State == "never_observed" || got.ExecutionCadence.ObservedAgentCount != 1 || got.ExecutionCadence.CurrentAssignmentVerified {
+		t.Fatalf("historical execution receipt = %+v", got.ExecutionCadence)
+	}
+}

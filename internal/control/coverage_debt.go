@@ -261,7 +261,7 @@ func buildCoverageDebtSites(candidates []store.CoverageCandidate, results []Resu
 		// unambiguous only while exactly one candidate owns the remaining
 		// type/target/agent tuple. Duplicate definitions fail closed instead of
 		// borrowing another test's observation.
-		if !ok && seriesCounts[series] == 1 {
+		if !ok && !candidate.EvidenceOnly && seriesCounts[series] == 1 {
 			result, ok = resultBySeries["\x00"+series]
 		}
 		if !ok {
@@ -453,13 +453,20 @@ func (s *Server) handleCoverageDebt(w http.ResponseWriter, r *http.Request) erro
 		entityLimit = defaultCoverageDebtEntityLimit
 	}
 
+	results := []ResultView{}
+	resultsTruncated := false
+	evidenceRunning := s.latestResults != nil
+	if evidenceRunning {
+		results, resultsTruncated = s.latestResults.ListWithTruncation(tenantID)
+	}
+
 	var (
 		candidates    []store.CoverageCandidate
 		registrations store.CoverageProducerCounts
 	)
 	if err := s.inTenant(r, func(ctx context.Context, scope tenancy.Scope) error {
 		rows, queryErr := (store.Agents{}).CoverageCandidates(
-			ctx, scope, store.DefaultCoverageCandidateLimit+1,
+			ctx, scope, store.DefaultCoverageCandidateLimit+1, coverageEvidenceRefs(results)...,
 		)
 		if queryErr != nil {
 			return queryErr
@@ -476,12 +483,6 @@ func (s *Server) handleCoverageDebt(w http.ResponseWriter, r *http.Request) erro
 		candidates = candidates[:store.DefaultCoverageCandidateLimit]
 	}
 
-	results := []ResultView{}
-	resultsTruncated := false
-	evidenceRunning := s.latestResults != nil
-	if evidenceRunning {
-		results, resultsTruncated = s.latestResults.ListWithTruncation(tenantID)
-	}
 	snapshot := topology.Snapshot{Tenant: tenantID}
 	topologyRunning := s.topo != nil
 	if topologyRunning {

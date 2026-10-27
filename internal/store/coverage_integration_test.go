@@ -102,3 +102,65 @@ func TestCoverageCandidatesCrossTenantIsolation(t *testing.T) {
 		return nil
 	})
 }
+
+// Exact evidence may recover an incompatible owned vantage, but cannot pull
+// another tenant's agent or test through the relational boundary.
+func TestCoverageHistoricalEvidenceCrossTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+	type fixture struct{ tenant, test, agent string }
+	makeFixture := func(prefix string) fixture {
+		tenant, err := NewTenants(pool).Create(ctx, fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano()), prefix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f := fixture{tenant: tenant.ID, agent: covUUID(t)}
+		inTenant(ctx, t, pool, f.tenant, func(ctx context.Context, s tenancy.Scope) error {
+			test, err := (Tests{}).Create(ctx, s, TestInput{Name: prefix, Type: "dns", Target: "shared.example", IntervalSeconds: 30, TimeoutSeconds: 5, Enabled: true})
+			if err != nil {
+				return err
+			}
+			f.test = test.ID
+			_, err = (Agents{}).RegisterWithLabels(ctx, s, f.agent, prefix, prefix, "0.1.0",
+				"spiffe://probectl/tenant/"+f.tenant+"/agent/"+f.agent, []string{"browser"}, map[string]string{"site": prefix})
+			return err
+		})
+		return f
+	}
+	a, b := makeFixture("history-a"), makeFixture("history-b")
+	for _, own := range []fixture{a, b} {
+		foreign := b
+		if own == b {
+			foreign = a
+		}
+		inTenant(ctx, t, pool, own.tenant, func(ctx context.Context, s tenancy.Scope) error {
+			refs := []CoverageEvidence{
+				{TestID: own.test, AgentID: own.agent, ProbeFamily: "dns", Target: "shared.example"},
+				{TestID: own.test, AgentID: foreign.agent, ProbeFamily: "dns", Target: "shared.example"},
+				{TestID: foreign.test, AgentID: foreign.agent, ProbeFamily: "dns", Target: "shared.example"},
+			}
+			rows, err := (Agents{}).CoverageCandidates(ctx, s, 10, refs...)
+			if err != nil {
+				return err
+			}
+			if len(rows) != 1 || rows[0].AgentID != own.agent || rows[0].TestID != own.test || !rows[0].EvidenceOnly {
+				t.Fatalf("historical owned candidate or isolation failed: %+v", rows)
+			}
+			for _, bad := range []CoverageEvidence{
+				{TestID: own.test, AgentID: own.agent, ProbeFamily: "http", Target: "shared.example"},
+				{TestID: own.test, AgentID: own.agent, ProbeFamily: "dns", Target: "different.example"},
+				{TestID: own.test, AgentID: foreign.agent, ProbeFamily: "dns", Target: "shared.example"},
+			} {
+				rows, err = (Agents{}).CoverageCandidates(ctx, s, 10, bad)
+				if err != nil {
+					return err
+				}
+				if len(rows) != 1 || rows[0].AgentID != "" || rows[0].EvidenceOnly {
+					t.Fatalf("unmatched evidence gained a vantage: %+v", rows)
+				}
+			}
+			return nil
+		})
+	}
+}

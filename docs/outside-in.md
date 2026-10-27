@@ -88,6 +88,14 @@ separate field, so an online agent cannot make missing result evidence look
 green. Filters are keyboard-accessible and every next action only opens the
 existing enrollment or test-authoring flow; it never mutates the fleet.
 
+Exact historical results remain eligible when an owned agent changes its
+advertised capabilities. The agent's current registered region/site locates
+that evidence; it is not a historical location record. Such an agent contributes
+to evidence and cadence, but not to the current compatible or ready agent
+counts. The query still requires the test and agent to belong to the caller's
+tenant, and the observed test ID, probe family and target to match the enabled
+definition. Legacy results cannot recover an incompatible vantage.
+
 Each row's `execution_cadence` is a separate proof, not another coverage color.
 Add the server definition ID as optional `test_id` in the matching local agent
 canary. Exact result IDs and effective local intervals then produce
