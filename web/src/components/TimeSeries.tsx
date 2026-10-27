@@ -158,10 +158,16 @@ export function TimeSeries({
       const theme = readVizTheme()
       const format = formatValue ?? ((value: number) => String(value))
       const rect = target.getBoundingClientRect()
+      const xs = data[0]
+      const singleTimestamp = xs.length > 0 && xs[0] === xs[xs.length - 1]
       const options: uPlot.Options = {
         width: Math.max(240, Math.floor(rect.width)),
         height: Math.max(120, Math.floor(rect.height)),
         legend: { show: false },
+        // uPlot's numeric fallback expands a lone Unix timestamp by its
+        // magnitude, yielding a years-wide axis. Give it display padding only:
+        // the original aligned samples and their timestamps stay untouched.
+        scales: singleTimestamp ? { x: { range: [xs[0] - 30, xs[0] + 30] } } : undefined,
         cursor: { points: { size: 8 } },
         // Axis labels follow the app's UTC/preferred timezone mode — the axis
         // and the readout must never disagree with the scope card's promise.
@@ -174,7 +180,7 @@ export function TimeSeries({
             dash: theme.dashes[index % theme.dashes.length],
             width: 2,
             spanGaps: false,
-            points: { show: false },
+            points: { show: singleTimestamp },
             value: (_u: uPlot, raw: number | null) => (raw == null ? '—' : format(raw)),
           })),
         ],

@@ -288,6 +288,9 @@ GET /v1/flows/ingest-quality?agent_id=&exporter=&protocol=&state=&limit=100
   by the requested key and returns the highest contributors (`limit` defaults to
   10, capped at 1000), plus bucketed history for the first six rows so the web
   workspace can show the ranked table and time series from the same query.
+  When only one time bucket is present, the chart shows a point with 30 seconds
+  of display padding on each side of its actual timestamp. This adds no samples
+  and does not imply traffic during the surrounding interval.
   Every ranked row and time bucket also returns `exporter_count`, the number of
   distinct non-empty exporter identities that contributed after the tenant
   boundary and exact-match filters were applied. Empty or whitespace-only
