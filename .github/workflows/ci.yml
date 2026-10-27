@@ -1244,15 +1244,24 @@ jobs:
           cp -R web/dist/. internal/webui/dist/
           test -d internal/webui/dist/assets
       - name: Install the lockfile-pinned Playwright Chromium for the rendered-UI receipts
-        # scripts/realstack_render.mjs drives browser-worker's lockfile-pinned
-        # Playwright, the version the digest-pinned image of the a11y and
-        # browser-worker jobs carries. --no-install runs that local CLI, never a
-        # registry fetch, and it installs exactly its own Chromium build.
+        # Reuse the exact browser payload tested by browser-worker and a11y.
+        # Older Playwright ZIP extraction hangs on Node26 (upstream40724).
+        # Copy only browser files; execution keeps setup-node's Node26/npm11.
+        # The local CLI still installs OS dependencies and verifies that its
+        # expected Chromium revision exists before any receipt can run.
         working-directory: browser-worker
+        env:
+          PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          npx --no-install playwright install --with-deps chromium
+          npx --no-install playwright install-deps chromium
+          export PLAYWRIGHT_BROWSERS_PATH="$(mktemp -d "$RUNNER_TEMP/probectl-browsers.XXXXXX")"
+          browser_container="$(docker create "$PLAYWRIGHT_IMAGE")"
+          trap 'docker rm "$browser_container" >/dev/null' EXIT
+          docker cp "$browser_container:/ms-playwright/." "$PLAYWRIGHT_BROWSERS_PATH/"
+          node --input-type=module -e 'import fs from "node:fs"; import { chromium } from "playwright"; fs.accessSync(chromium.executablePath(), fs.constants.X_OK); console.log("Verified pinned Chromium:", chromium.executablePath());'
+          echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
       - name: Start Dex, a real OIDC IdP, under a per-run test CA (F22 SSO receipt)
         # TestSSOWithARealIdPRealStack signs people in through a real IdP, not a
         # fake: Dex, the self-hosted reference of docs/auth/self-hosted-idp.md,

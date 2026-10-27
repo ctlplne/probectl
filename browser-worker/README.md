@@ -55,3 +55,16 @@ recycling in Go (`internal/browser`, fully unit-tested), and delegates rendering
 to this worker over the `ExecDriver` contract. A lighter `HTTPDriver` (Go-native,
 real HTTP-transaction waterfall, no rendering) is the default for environments
 without a browser. See [`docs/browser-synthetic.md`](../docs/browser-synthetic.md).
+
+### Node 26 browser installation in CI
+
+The integration receipts use the same digest-pinned Chromium payload as the
+browser-worker and rendered-accessibility jobs. CI copies `/ms-playwright` from
+the official pinned image, installs the browser OS dependencies with the local
+Playwright CLI, and verifies that the lockfile-selected executable exists.
+`PLAYWRIGHT_BROWSERS_PATH` then points the unchanged receipt runner at those
+files. Node 26/npm 11 still run the worker; no image-provided Node is executed.
+This avoids the older Playwright ZIP extractor's Node 26 hang
+([upstream issue40724](https://github.com/microsoft/playwright/issues/40724))
+without changing dependency versions, browser revisions, test coverage, or job
+budgets. A missing or mismatched browser executable fails setup.
