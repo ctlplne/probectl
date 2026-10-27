@@ -93,10 +93,29 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 		return ranked[i].ID < ranked[j].ID
 	})
 
-	primary := ranked[0]
 	if contextOnly(ranked) {
 		return contextOnlySynthesis(ranked), nil
 	}
+	// A clear has the same plane/severity as its firing signal and is newer.
+	// It explains recovery, never the cause of the preceding degradation.
+	primaryIndex := -1
+	for i, e := range ranked {
+		if !recoveryEvidence(e) && !strings.EqualFold(e.Plane, "topology") {
+			primaryIndex = i
+			break
+		}
+	}
+	if primaryIndex < 0 {
+		out := contextOnlySynthesis(ranked)
+		out.RootCause = "Insufficient evidence: only recovery and topology context was found; no signal in your scope names the preceding fault."
+		for i, e := range ranked[:len(out.Findings)] {
+			if recoveryEvidence(e) {
+				out.Findings[i].Statement = fmt.Sprintf("Recovery context: %s on the %s plane.", describe(e), planeLabel(e))
+			}
+		}
+		return out, nil
+	}
+	primary := ranked[primaryIndex]
 	var b strings.Builder
 	fmt.Fprintf(&b, "Most likely root cause: %s", describe(primary))
 	if primary.Severity != "" {
@@ -112,9 +131,19 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 	// Corroborating / symptom signals, most-relevant first (cap to keep answers tight).
 	planes := map[string]bool{strings.ToLower(primary.Plane): true}
 	healthy := healthyProbeSeries(ranked)
-	for _, e := range ranked[1:] {
+	for i, e := range ranked {
+		if i == primaryIndex {
+			continue
+		}
 		if len(findings) >= 6 {
 			break
+		}
+		if recoveryEvidence(e) {
+			findings = append(findings, Finding{
+				Statement: fmt.Sprintf("Recovery context: %s on the %s plane.", describe(e), planeLabel(e)),
+				Citations: []Citation{{EvidenceID: e.ID}},
+			})
+			continue // recovery does not increase fault corroboration/confidence
 		}
 		if key, ok := probeSeriesKey(e); ok && healthy[key] {
 			continue // DPR-310: a passing probe is context, not corroboration
@@ -148,6 +177,11 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 		Silent:             silent,
 		Findings:           findings,
 	}, nil
+}
+
+func recoveryEvidence(e Evidence) bool {
+	kind, _ := e.Fields["kind"].(string)
+	return kind == "alert.resolved"
 }
 
 // probeSeriesKey names the probe series a metric evidence item was read from:

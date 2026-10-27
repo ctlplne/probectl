@@ -48,6 +48,12 @@ One stance runs through everything below: the model is the *least* trusted
 component in the pipeline — useful for fluent prose, never relied on for truth
 or for isolation.
 
+The built-in engine keeps alert clears (`alert.resolved`) as cited recovery
+context. A clear cannot become the root cause or increase fault corroboration
+just because it is newer than the firing signal. If the authorized evidence
+contains only clears and topology, the answer reports insufficient evidence
+for the preceding fault.
+
 ## The pipeline: four steps, four guarantees
 
 Every question takes the same four-step path, whichever model is configured.

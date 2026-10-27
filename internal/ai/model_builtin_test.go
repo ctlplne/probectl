@@ -147,3 +147,55 @@ func TestBuiltinDoesNotCiteAPassingProbeAsCorroboration(t *testing.T) {
 		}
 	}
 }
+
+// Recovery records describe the end of a fault, not its cause. A newer clear
+// must not outrank the firing signal or inflate cross-plane corroboration.
+func TestBuiltinRecoveryIsContextNotCause(t *testing.T) {
+	at := time.Date(2026, 10, 27, 3, 26, 0, 0, time.UTC)
+	firing := Evidence{ID: "fault", Domain: DomainEntities, Plane: "network", Severity: "critical", Title: "service unreachable", OccurredAt: at, Fields: Row{"kind": "alert.firing"}}
+	recovery := Evidence{ID: "clear", Domain: DomainEntities, Plane: "network", Severity: "critical", Title: "service recovered", OccurredAt: at.Add(time.Minute), Fields: Row{"kind": "alert.resolved"}}
+	topology := Evidence{ID: "context", Domain: DomainTopology, Plane: "topology", Title: "service node"}
+	deviceRecovery := recovery
+	deviceRecovery.Plane = "device"
+	for _, tc := range []struct {
+		name     string
+		evidence []Evidence
+		cause    string
+	}{
+		{"newer clear", []Evidence{firing, recovery}, "fault"},
+		{"clear on another plane", []Evidence{firing, deviceRecovery}, "fault"},
+		{"clear only", []Evidence{recovery}, ""},
+		{"clear and topology", []Evidence{recovery, topology}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := NewBuiltinModel().Synthesize(context.Background(), SynthesisInput{Evidence: tc.evidence})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Confidence != ConfidenceLow {
+				t.Errorf("recovery increased fault confidence: %s", got.Confidence)
+			}
+			if tc.cause == "" {
+				if !got.InsufficientEvidence || len(got.RootCauseCitations) != 0 {
+					t.Fatalf("recovery context became a cause: %+v", got)
+				}
+			} else if len(got.RootCauseCitations) != 1 || got.RootCauseCitations[0].EvidenceID != tc.cause {
+				t.Fatalf("cause citations = %+v, want %s", got.RootCauseCitations, tc.cause)
+			}
+			found := false
+			for _, f := range got.Findings {
+				for _, c := range f.Citations {
+					if c.EvidenceID == recovery.ID {
+						found = true
+						if !strings.HasPrefix(f.Statement, "Recovery context:") {
+							t.Errorf("clear presented as fault corroboration: %s", f.Statement)
+						}
+					}
+				}
+			}
+			if !found {
+				t.Error("recovery must remain cited context")
+			}
+		})
+	}
+}
