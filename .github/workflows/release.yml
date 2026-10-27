@@ -312,7 +312,7 @@ jobs:
       # supply-pins gate never sees an unresolvable expression as an image ref.
       - name: Install syft
         id: syft
-        uses: anchore/sbom-action/download-syft@8e94d75ddd33f69f691467e42275782e4bfefe84 # v0.20.9
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       - name: Generate the image SBOM (SPDX)
         env:
           IMAGE_REF: ${{ env.IMAGE_PREFIX }}/${{ matrix.component }}@${{ steps.build.outputs.digest }}
