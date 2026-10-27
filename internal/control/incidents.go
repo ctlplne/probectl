@@ -165,6 +165,12 @@ func AlertSink(c *incident.Correlator, log *slog.Logger) func(context.Context, a
 }
 
 func signalFromAlert(a alert.Alert) incident.Signal {
+	target := a.Labels["server_address"]
+	if target == "" && a.Metric == alert.TrapMetric {
+		// Authenticated trap alerts identify their source in the device label.
+		// Keep that address as the tenant-scoped correlation target.
+		target = a.Labels["device"]
+	}
 	return incident.Signal{
 		TenantID:   a.TenantID,
 		Plane:      "network",
@@ -172,7 +178,7 @@ func signalFromAlert(a alert.Alert) incident.Signal {
 		Severity:   incident.Severity(a.Severity),
 		Title:      fmt.Sprintf("%s %s", a.RuleName, a.State),
 		Summary:    a.Reason,
-		Target:     a.Labels["server_address"],
+		Target:     target,
 		OccurredAt: a.At,
 		Attributes: map[string]string{
 			"metric":  a.Metric,

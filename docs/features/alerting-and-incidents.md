@@ -60,7 +60,10 @@ A rule is one of three kinds:
 - a **trap** rule — a device sent a matching authenticated SNMP trap (for
   example linkDown on ifIndex 3), resolved by a clear trap (linkUp) or when a
   hold time runs out with no newer match. See
-  [`docs/alerting.md`](../alerting.md#trap-rules).
+  [`docs/alerting.md`](../alerting.md#trap-rules). For incident correlation, a
+  trap alert uses its `device` address when no `server_address` label exists.
+  The signal retains the alert's tenant; identical device addresses in different
+  tenants do not identify the same incident.
 
 Each rule adds a debounce window (the condition must hold for N consecutive
 evaluations before firing), a renotify cadence (how often a still-firing alert

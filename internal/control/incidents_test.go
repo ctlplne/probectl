@@ -38,6 +38,49 @@ func TestSignalFromAlert(t *testing.T) {
 	}
 }
 
+func TestTrapAlertIncidentTargetAndTenantIsolation(t *testing.T) {
+	st := incident.NewMemoryStore()
+	c := incident.NewCorrelator(st, time.Minute, nil)
+	ids := map[string]string{}
+	for _, tenant := range []string{"red", "blue"} {
+		a := alert.Alert{
+			TenantID: tenant, RuleID: tenant + "-trap", RuleName: "link down",
+			Metric: alert.TrapMetric, State: alert.StateFiring,
+			Severity: alert.SeverityCritical, At: time.Now(),
+			Labels: map[string]string{"device": "192.0.2.10", "trap_name": "linkDown"},
+		}
+		sig := signalFromAlert(a)
+		if sig.Target != "192.0.2.10" || sig.TenantID != tenant {
+			t.Fatalf("trap target/tenant = %q/%q, want device address and %s", sig.Target, sig.TenantID, tenant)
+		}
+		got, err := c.Ingest(context.Background(), sig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.TenantID != tenant || len(got.Signals) != 1 || got.Signals[0].TenantID != tenant {
+			t.Fatalf("foreign trap signal in incident: %+v", got)
+		}
+		ids[tenant] = got.ID
+	}
+	if st.Len() != 2 || ids["red"] == ids["blue"] {
+		t.Fatal("same device address must produce separate tenant incidents")
+	}
+	for _, tc := range []struct {
+		name, metric, server, device, want string
+	}{
+		{"ordinary alert ignores device", "probectl_probe_loss_ratio", "", "192.0.2.10", ""},
+		{"trap without device remains uncorrelatable", alert.TrapMetric, "", "", ""},
+		{"explicit server target retained", alert.TrapMetric, "192.0.2.11", "192.0.2.10", "192.0.2.11"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sig := signalFromAlert(alert.Alert{Metric: tc.metric, Labels: map[string]string{"server_address": tc.server, "device": tc.device}})
+			if sig.Target != tc.want {
+				t.Fatalf("target = %q, want %q", sig.Target, tc.want)
+			}
+		})
+	}
+}
+
 func TestSignalFromBGPEvent(t *testing.T) {
 	e := &bgpv1.BGPEvent{
 		TenantId: "t1", EventType: bgpv1.EventType_EVENT_TYPE_POSSIBLE_HIJACK,
