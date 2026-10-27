@@ -214,7 +214,9 @@ export function CostPage() {
               {!s.zones_mapped && (
                 <div className={styles.notice} role="note" aria-label="zones unmapped">
                   No CIDR→zone rules configured (PROBECTL_COST_ZONES) — locality classes are
-                  unknown, so cross-AZ detection is inactive.
+                  unknown, so cross-AZ detection is inactive. Zone and service mappings are
+                  single-tenant settings; multi-tenant and regulated profiles refuse them and retain
+                  tenant-scoped volume-only reporting.
                 </div>
               )}
               <dl className={styles.totals}>
@@ -336,7 +338,7 @@ export function CostPage() {
                   <EmptyState
                     icon="cost"
                     title="No budgets configured"
-                    description="Set PROBECTL_COST_BUDGETS, e.g. team:payments=500."
+                    description="For single-tenant deployments, set PROBECTL_COST_BUDGETS, e.g. team:payments=500. Multi-tenant and regulated profiles refuse deployment-wide budgets to prevent cross-tenant attribution."
                   />
                 }
               />

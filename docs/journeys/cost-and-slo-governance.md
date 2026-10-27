@@ -26,7 +26,11 @@ sustainability visible per tenant, and retention under control.
   — empty stores answer with zeros, not errors.
 - You hold the metrics-read permission (cost and carbon need it) and admin rights
   for a governed export.
-- For cost in dollars, you have declared CIDR (Classless Inter-Domain Routing — a
+- Zone/service mappings and budgets are single-tenant-only. Multi-tenant and
+  regulated profiles refuse these deployment-wide settings and retain
+  tenant-scoped volume reporting; do not enable shared mappings in a pooled
+  deployment.
+- For cost in dollars on a single-tenant deployment, you have declared CIDR (Classless Inter-Domain Routing — a
   way of naming an address range by prefix) zone and service rules. Without them
   the cost engine tracks bytes but never invents a dollar figure.
 

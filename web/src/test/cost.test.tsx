@@ -98,6 +98,20 @@ const carbonFixture = {
 }
 
 describe('cost / FinOps summary (S44)', () => {
+  test('setup guidance distinguishes single-tenant mappings from pooled volume-only operation', async () => {
+    const data = summaryFixture()
+    data.summary!.zones_mapped = false
+    data.summary!.budgets = []
+    vi.stubGlobal('fetch', stubWith(data))
+    renderApp('/cost')
+    const notice = await screen.findByRole('note', { name: 'zones unmapped' })
+    expect(notice).toHaveTextContent('single-tenant')
+    expect(notice).toHaveTextContent('multi-tenant and regulated')
+    const budgets = screen.getByRole('table', { name: /budget status/i })
+    expect(budgets).toHaveTextContent('single-tenant')
+    expect(budgets).toHaveTextContent('refuse')
+  })
+
   test('shows totals, team showback, chatty pairs and budget breach', async () => {
     vi.stubGlobal('fetch', stubWith(summaryFixture()))
     renderApp('/cost')
