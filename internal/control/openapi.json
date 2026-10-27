@@ -5766,6 +5766,11 @@
                     "slo_running": {
                       "type": "boolean"
                     },
+                    "data_since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "When this tenant's in-memory evaluation window opened in this process. Omitted when no evaluation window exists, including an enabled engine with no applicable definitions."
+                    },
                     "items": {
                       "type": "array",
                       "items": {
