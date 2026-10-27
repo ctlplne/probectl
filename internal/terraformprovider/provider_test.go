@@ -9,8 +9,11 @@ package terraformprovider
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,6 +21,56 @@ import (
 
 	"github.com/ctlplne/probectl/internal/crypto"
 )
+
+func TestProviderPrivateCA(t *testing.T) {
+	p := New()
+	if p.Schema["ca_file"] == nil {
+		t.Fatal("provider must expose a private CA bundle")
+	}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuthHeaders(t, r, "tenant-a", "token-a")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	valid := filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(valid, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	invalid := filepath.Join(dir, "invalid.pem")
+	if err := os.WriteFile(invalid, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, file                string
+		configError, requestError bool
+	}{
+		{"trusted", valid, false, false},
+		{"system-roots", "", false, true},
+		{"malformed", invalid, true, false},
+		{"missing", filepath.Join(dir, "missing.pem"), true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := schema.TestResourceDataRaw(t, p.Schema, map[string]any{"api_url": srv.URL, "tenant": "tenant-a", "token": "token-a", "ca_file": tc.file})
+			meta, diags := configure(context.Background(), d)
+			if diags.HasError() != tc.configError {
+				t.Fatalf("configuration error = %v, want %v", diags, tc.configError)
+			}
+			if tc.configError {
+				return
+			}
+			_, err := meta.(*client).do(context.Background(), http.MethodGet, "/v1/tests", nil, nil)
+			if (err != nil) != tc.requestError {
+				t.Fatalf("request error = %v, want error %v", err, tc.requestError)
+			}
+		})
+	}
+	t.Setenv("PROBECTL_CA_FILE", valid)
+	d := schema.TestResourceDataRaw(t, p.Schema, map[string]any{"api_url": srv.URL})
+	if d.Get("ca_file") != valid {
+		t.Fatal("CA environment default not applied")
+	}
+}
 
 func TestProviderInternalValidateAndConfigure(t *testing.T) {
 	p := New()

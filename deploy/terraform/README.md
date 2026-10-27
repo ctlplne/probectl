@@ -168,6 +168,12 @@ for CI systems. The provider sends `X-Probectl-Tenant` on tenant-scoped `/v1`
 resources, uses bearer auth when a token is configured, and keeps all outbound
 TLS policy inside `internal/crypto`.
 
+For an API issued by a private CA, set `ca_file` in the provider block or
+`PROBECTL_CA_FILE` to the PEM trust bundle on the machine running Terraform.
+The bundle replaces system roots for that provider; an empty setting uses the
+system trust store. Missing or malformed bundles fail during configuration.
+Certificate and hostname verification remain enabled, including on localhost.
+
 Air-gapped and pre-registry installs use Terraform's normal filesystem mirror or
 `dev_overrides` flow: place the signed release binary as
 `terraform-provider-probectl_v<version>` under the provider mirror path for

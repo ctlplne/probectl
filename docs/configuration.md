@@ -2120,7 +2120,7 @@ pipeline. The API URL must be HTTPS except for loopback test instances.
 | `PROBECTL_CLOUD_METRICS_FILE`          | `-`                      | JSONL export path; `-` reads stdin |
 | `PROBECTL_CLOUD_METRICS_BATCH_SIZE`    | `1000`                   | samples per remote-write request |
 | `PROBECTL_API_URL`                     | `https://localhost:8443` | self-hosted probectl API URL |
-| `PROBECTL_CA_FILE`                     | (OS trust store) | PEM CA bundle that verifies the control plane's certificate (`--ca-file`); required when a private CA issued it and the OS trust store does not hold that CA (DPR-077). Verification is never disabled |
+| `PROBECTL_CA_FILE`                     | (OS trust store) | PEM CA bundle that verifies the control plane's certificate (CLI `--ca-file`, native Terraform provider `ca_file`); required when a private CA issued it and the OS trust store does not hold that CA (DPR-077). The explicit bundle replaces system roots; invalid bundles fail closed. Verification is never disabled |
 | `PROBECTL_TENANT` / `PROBECTL_API_TOKEN` | (none)                 | tenant header and bearer token for `/v1/prometheus/write` |
 
 ### AI assistant

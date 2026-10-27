@@ -33,6 +33,12 @@ import (
 func New() *schema.Provider {
 	p := &schema.Provider{
 		Schema: map[string]*schema.Schema{
+			"ca_file": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("PROBECTL_CA_FILE", ""),
+				Description: "PEM CA bundle for verifying the API certificate. Empty uses system roots; an invalid bundle fails closed.",
+			},
 			"api_url": {
 				Type:        schema.TypeString,
 				Optional:    true,
@@ -84,11 +90,15 @@ func configure(_ context.Context, d *schema.ResourceData) (interface{}, diag.Dia
 	if err := validateAPIURL(baseURL); err != nil {
 		return nil, diag.FromErr(err)
 	}
+	hc, err := crypto.HardenedHTTPClientWithCAFile(30*time.Second, d.Get("ca_file").(string))
+	if err != nil {
+		return nil, diag.FromErr(fmt.Errorf("configure API CA bundle: %w", err))
+	}
 	return &client{
 		baseURL: baseURL,
 		tenant:  strings.TrimSpace(d.Get("tenant").(string)),
 		token:   d.Get("token").(string),
-		hc:      crypto.HardenedHTTPClient(30 * time.Second),
+		hc:      hc,
 	}, nil
 }
 
