@@ -187,23 +187,15 @@ class RISLiveClient:
         self,
         url: str = RIS_LIVE_URL,
         host: str | None = None,
-        prefixes: list[str] | None = None,
         max_backoff: float = 30.0,
     ):
         self._url = url
         self._host = host
-        self._prefixes = prefixes or []
         self._max_backoff = max_backoff
 
     def _subscribe_messages(self) -> list[str]:
         host = {"host": self._host} if self._host else {}
-        if self._prefixes:
-            return [
-                json.dumps(
-                    {"type": "ris_subscribe", "data": {"type": "UPDATE", "prefix": p} | host}
-                )
-                for p in self._prefixes
-            ]
+        # Subscription payloads are public: tenant prefix selection stays in PrefixMonitor.
         return [json.dumps({"type": "ris_subscribe", "data": {"type": "UPDATE"} | host})]
 
     def messages(self) -> Iterator[str]:

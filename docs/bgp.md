@@ -75,6 +75,10 @@ What probectl guarantees you:
   never takes your monitoring down.
 - **Your data stays yours.** The feeds are public, but which prefixes you care about and
   what probectl finds are scoped to your tenant and never leave your network.
+  RIS Live subscriptions request UPDATE messages, optionally limited to a public
+  collector; they never include tenant IDs or monitored prefixes. Prefix matching
+  happens locally. This consumes more inbound data than upstream prefix filtering;
+  select a collector to bound the feed.
 - **Direct router feeds are tenant-authenticated.** A BMP peer's tenant comes from
   its verified SPIFFE client certificate, not from the BMP payload. Unknown or
   plaintext peers are refused before route data is read.

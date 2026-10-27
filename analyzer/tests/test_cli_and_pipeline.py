@@ -68,6 +68,35 @@ def test_cli_replay_writes_events(tmp_path):
     assert all(ev["tenant_id"] == "t-test" for ev in lines), "every event is tenant-stamped"
 
 
+def test_live_subscription_keeps_tenant_prefixes_local(tmp_path, monkeypatch):
+    """Same public feed, identical outbound subscriptions, tenant-local events."""
+    blue = json.loads(json.dumps(HIJACK_MESSAGE))
+    blue["data"]["announcements"][0]["prefixes"] = ["198.51.100.0/24"]
+    subscriptions = []
+
+    def messages(client):
+        subscriptions.append([json.loads(m) for m in client._subscribe_messages()])
+        yield json.dumps(HIJACK_MESSAGE)
+        yield json.dumps(blue)
+
+    monkeypatch.setattr(RISLiveClient, "messages", messages)
+    for tenant, prefix in [("red", "192.0.2.0/24"), ("blue", "198.51.100.0/24")]:
+        out = tmp_path / f"{tenant}.jsonl"
+        cfg = write_config(
+            tmp_path,
+            tenant_id=tenant,
+            collector="rrc00.ripe.net",
+            monitored_prefixes=[{"prefix": prefix, "expected_origins": [64496]}],
+        )
+        assert main(["--config", cfg, "--ris-live", "--out", str(out)]) == 0
+        events = [json.loads(line) for line in out.read_text().splitlines()]
+        assert events
+        assert {e["tenant_id"] for e in events} == {tenant}
+        assert {e["prefix"] for e in events} == {prefix}
+    expected = [{"type": "ris_subscribe", "data": {"type": "UPDATE", "host": "rrc00.ripe.net"}}]
+    assert subscriptions == [expected, expected], "tenant prefixes must never be sent upstream"
+
+
 def test_cli_requires_a_source(tmp_path):
     with pytest.raises(SystemExit):
         main(["--config", write_config(tmp_path)])  # no --mrt/--replay/--ris-live
@@ -196,13 +225,9 @@ def test_jsonl_sink_writes_one_line_per_event():
 # ── RIS Live client: subscriptions + the reconnect/backoff loop ─────────────
 
 
-def test_subscribe_messages_per_prefix_with_host():
-    c = RISLiveClient(host="rrc00", prefixes=["192.0.2.0/24", "198.51.100.0/24"])
-    msgs = [json.loads(m) for m in c._subscribe_messages()]
-    assert len(msgs) == 2
-    assert all(m["type"] == "ris_subscribe" for m in msgs)
-    assert {m["data"]["prefix"] for m in msgs} == {"192.0.2.0/24", "198.51.100.0/24"}
-    assert all(m["data"]["host"] == "rrc00" for m in msgs)
+def test_subscribe_messages_with_host():
+    msgs = [json.loads(m) for m in RISLiveClient(host="rrc00")._subscribe_messages()]
+    assert msgs == [{"type": "ris_subscribe", "data": {"type": "UPDATE", "host": "rrc00"}}]
 
 
 def test_subscribe_messages_firehose_without_prefixes():
