@@ -141,6 +141,18 @@ new public key. A deployment that injects `PROBECTL_TESTSYNC_SIGNING_KEY`
 (Helm's `secrets.testSyncSigningKey`) re-injects the same value instead, and
 the file is not captured.
 
+The artifact also preserves the file-backed **WORM audit signing key**
+(`PROBECTL_WORM_SIGNING_KEY_FILE`). This key anchors tenant audit heads and
+signs provider WORM exports. Set the same variable, or `--worm-key-out`, during
+restore; a carried key without a destination is rejected. The restored file is
+0600 and an existing key is never overwritten. If `PROBECTL_WORM_SIGNING_KEY`
+is injected, it takes precedence over the file: re-inject that same secret on
+the restored host. Backups created before WORM-key capture was supported lack
+this key; recover the original separately before booting against restored audit
+data. Generating a replacement does not repair the old signatures. Use the
+current restore binary for artifacts containing the WORM key; older binaries
+do not restore this field.
+
 The database scripts run the dump *inside* the running compose container (so you need
 no Postgres/ClickHouse client on the host), write a SHA-256 manifest next to
 the artifact (a **checksum** — a fingerprint that changes if even one byte of
@@ -286,10 +298,11 @@ PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 
 # 5. Restore the control-state onto the FRESH controldata volume BEFORE boot.
 #    This verifies the checksum, opens the sealed artifact with the KEK, and
-#    writes the evidence-signing key, the test-bundle signing key, the KEK-id
+#    writes the evidence-signing key, test-bundle key, WORM audit key, KEK-id
 #    sidecar, and the agent-CA trust bundle into place. The paths default to
 #    the deployment's own PROBECTL_EVIDENCE_SIGNING_KEY_FILE /
-#    PROBECTL_TESTSYNC_SIGNING_KEY_FILE / PROBECTL_AGENT_TLS_CA_FILE /
+#    PROBECTL_TESTSYNC_SIGNING_KEY_FILE / PROBECTL_WORM_SIGNING_KEY_FILE /
+#    PROBECTL_AGENT_TLS_CA_FILE /
 #    PROBECTL_ENVELOPE_KEY_FILE env, so inside the shipped compose image you
 #    pass nothing but the KEK. It writes NO database — only files — so it runs
 #    before the control plane does, and it refuses to overwrite a live key.
@@ -297,6 +310,7 @@ PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 PROBECTL_EVIDENCE_SIGNING_KEY_FILE=/var/lib/probectl/evidence-signing-ed25519.pem \
 PROBECTL_TESTSYNC_SIGNING_KEY_FILE=/var/lib/probectl/testsync-signing-ed25519.pem \
+PROBECTL_WORM_SIGNING_KEY_FILE=/var/lib/probectl/worm-signing-ed25519.pem \
 PROBECTL_AGENT_TLS_CA_FILE=/var/lib/probectl/agent-ca.crt \
 PROBECTL_ENVELOPE_KEY_FILE=/var/lib/probectl/envelope.key \
   probectl-control restore-control-state < /srv/probectl-backups/controlstate-<ts>.pcs

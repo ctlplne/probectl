@@ -64,6 +64,7 @@ func backupControlState(ctx context.Context, cfg *config.Config, db *store.DB) e
 
 	st, err := controlstate.Capture(controlstate.Paths{
 		EvidenceSigningKeyFile: cfg.EvidenceSigningKeyFile,
+		WormSigningKeyFile:     wormKeyFileToCapture(cfg),
 		TestSyncSigningKeyFile: testSyncKeyFileToCapture(cfg),
 	}, cfg.EnvelopeKeyID, caBundle)
 	if err != nil {
@@ -86,6 +87,14 @@ func testSyncKeyFileToCapture(cfg *config.Config) string {
 	return cfg.TestSyncSigningKeyFile
 }
 
+// wormKeyFileToCapture follows serve's injected-key precedence.
+func wormKeyFileToCapture(cfg *config.Config) string {
+	if strings.TrimSpace(cfg.WormSigningKey) != "" {
+		return ""
+	}
+	return cfg.WormSigningKeyFile
+}
+
 // restoreControlState opens a sealed control-state artifact from stdin and
 // writes its files onto a fresh controldata volume BEFORE boot. It needs no
 // database — only the KEK (the same secret backup-open needs) — so it runs as
@@ -103,6 +112,7 @@ func restoreControlState(args []string, stdin io.Reader) error {
 	evidenceOut := fs.String("evidence-key-out", os.Getenv("PROBECTL_EVIDENCE_SIGNING_KEY_FILE"), "where to write the restored evidence-signing key (PROBECTL_EVIDENCE_SIGNING_KEY_FILE)")
 	agentCAOut := fs.String("agent-ca-out", os.Getenv("PROBECTL_AGENT_TLS_CA_FILE"), "where to write the restored agent-CA trust bundle (PROBECTL_AGENT_TLS_CA_FILE)")
 	testSyncOut := fs.String("testsync-key-out", os.Getenv("PROBECTL_TESTSYNC_SIGNING_KEY_FILE"), "where to write the restored test-bundle signing key (PROBECTL_TESTSYNC_SIGNING_KEY_FILE)")
+	wormOut := fs.String("worm-key-out", os.Getenv("PROBECTL_WORM_SIGNING_KEY_FILE"), "where to restore the WORM audit signing key")
 	sidecarOut := fs.String("key-id-out", "", "where to write the KEK id sidecar (default: <PROBECTL_ENVELOPE_KEY_FILE>.id)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -121,6 +131,7 @@ func restoreControlState(args []string, stdin io.Reader) error {
 	}
 	if err := controlstate.Restore(st, controlstate.Paths{
 		EvidenceSigningKeyFile: *evidenceOut,
+		WormSigningKeyFile:     *wormOut,
 		AgentCABundleFile:      *agentCAOut,
 		EnvelopeKeyIDSidecar:   *sidecarOut,
 		TestSyncSigningKeyFile: *testSyncOut,
@@ -137,6 +148,11 @@ func restoreControlState(args []string, stdin io.Reader) error {
 	}
 	if len(st.AgentCABundlePEM) > 0 && *agentCAOut != "" {
 		fmt.Fprintln(os.Stderr, "  agent-CA trust bundle ->", *agentCAOut)
+	}
+	if len(st.WormSigningKeyPEM) > 0 {
+		fmt.Fprintln(os.Stderr, "  WORM signing key ->", *wormOut)
+	} else if *wormOut != "" {
+		fmt.Fprintln(os.Stderr, "  WARNING: artifact has no WORM signing key; recover the original key separately before booting with existing audit data")
 	}
 	reportRestoredTestSyncKey(st, *testSyncOut)
 	fmt.Fprintln(os.Stderr, "boot the control plane normally — it reloads this material instead of generating fresh.")

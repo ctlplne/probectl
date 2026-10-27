@@ -61,7 +61,9 @@ const maxManifest = 4 << 20 // 4 MiB
 // Every field is optional so the artifact degrades gracefully: a deployment
 // that never initialized the agent CA simply omits that field.
 type State struct {
-	Version int `json:"version"`
+	// WormSigningKeyPEM preserves the signed audit head and WORM export identity.
+	WormSigningKeyPEM []byte `json:"worm_signing_key_pem,omitempty"`
+	Version           int    `json:"version"`
 	// EnvelopeKeyID is the deployment KEK id the source sealed its at-rest data
 	// under. It is NOT secret (it is stamped in the clear in every dv1 value and
 	// .pbk header); restoring it pins the id so the restored values keep opening.
@@ -88,6 +90,8 @@ type State struct {
 // They mirror the shipped compose env (PROBECTL_EVIDENCE_SIGNING_KEY_FILE,
 // PROBECTL_AGENT_TLS_CA_FILE) and the KEK-id sidecar beside the envelope key.
 type Paths struct {
+	// WormSigningKeyFile is PROBECTL_WORM_SIGNING_KEY_FILE.
+	WormSigningKeyFile     string
 	EvidenceSigningKeyFile string
 	AgentCABundleFile      string
 	EnvelopeKeyIDSidecar   string
@@ -149,11 +153,16 @@ func Capture(p Paths, keyID string, agentCABundle []byte) (State, error) {
 	if _, err := crypto.PublicPEMFromPrivate(evPEM); err != nil {
 		return State{}, fmt.Errorf("controlstate: evidence-signing key %s is not a usable Ed25519 private key: %w", p.EvidenceSigningKeyFile, err)
 	}
-	tsPEM, err := captureTestSyncKey(p.TestSyncSigningKeyFile)
+	tsPEM, err := captureSigningKey(p.TestSyncSigningKeyFile, "test-bundle")
+	if err != nil {
+		return State{}, err
+	}
+	wormPEM, err := captureSigningKey(p.WormSigningKeyFile, "WORM")
 	if err != nil {
 		return State{}, err
 	}
 	return State{
+		WormSigningKeyPEM:     wormPEM,
 		Version:               manifestVersion,
 		EnvelopeKeyID:         keyID,
 		EvidenceSigningKeyPEM: evPEM,
@@ -162,11 +171,9 @@ func Capture(p Paths, keyID string, agentCABundle []byte) (State, error) {
 	}, nil
 }
 
-// captureTestSyncKey reads the test-bundle signing key (G9). Unconfigured, or
-// configured but never generated (distribution never started), there is
-// nothing to preserve; a file that exists but is not a usable key fails the
-// capture rather than sealing an artifact that would restore a broken key.
-func captureTestSyncKey(path string) ([]byte, error) {
+// captureSigningKey preserves an initialized file-backed signing identity.
+// An absent file has never been generated; an existing invalid file fails closed.
+func captureSigningKey(path, label string) ([]byte, error) {
 	if path == "" {
 		return nil, nil
 	}
@@ -175,10 +182,10 @@ func captureTestSyncKey(path string) ([]byte, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("controlstate: read test-bundle signing key %s: %w", path, err)
+		return nil, fmt.Errorf("controlstate: read %s signing key %s: %w", label, path, err)
 	}
 	if _, err := crypto.PublicPEMFromPrivate(pemBytes); err != nil {
-		return nil, fmt.Errorf("controlstate: test-bundle signing key %s is not a usable Ed25519 private key: %w", path, err)
+		return nil, fmt.Errorf("controlstate: %s signing key %s is not a usable Ed25519 private key: %w", label, path, err)
 	}
 	return pemBytes, nil
 }
@@ -189,6 +196,17 @@ func captureTestSyncKey(path string) ([]byte, error) {
 // 0600. Writes are atomic and never clobber an existing evidence key — a
 // restore populates a fresh node, it does not overwrite a live signing key.
 func Restore(st State, p Paths) error {
+	if len(st.WormSigningKeyPEM) > 0 {
+		if p.WormSigningKeyFile == "" {
+			return errors.New("controlstate: artifact carries WORM signing key but no restore destination is configured (PROBECTL_WORM_SIGNING_KEY_FILE)")
+		}
+		if _, err := crypto.PublicPEMFromPrivate(st.WormSigningKeyPEM); err != nil {
+			return fmt.Errorf("controlstate: invalid WORM signing key: %w", err)
+		}
+		if err := writeNewFile(p.WormSigningKeyFile, st.WormSigningKeyPEM, 0o600); err != nil {
+			return fmt.Errorf("controlstate: restore WORM signing key: %w", err)
+		}
+	}
 	if len(st.EvidenceSigningKeyPEM) > 0 && p.EvidenceSigningKeyFile != "" {
 		if err := writeNewFile(p.EvidenceSigningKeyFile, st.EvidenceSigningKeyPEM, 0o600); err != nil {
 			return fmt.Errorf("controlstate: restore evidence-signing key: %w", err)

@@ -23,3 +23,12 @@ func TestBackupControlStateCapturesTheLiveTestSyncKey(t *testing.T) {
 		t.Fatalf("secret-injected deployment captures %q, want nothing", got)
 	}
 }
+
+func TestBackupControlStateCapturesTheLiveWormKey(t *testing.T) {
+	if got := wormKeyFileToCapture(&config.Config{WormSigningKeyFile: "/keys/worm.pem"}); got != "/keys/worm.pem" {
+		t.Fatalf("file-backed capture path = %q", got)
+	}
+	if got := wormKeyFileToCapture(&config.Config{WormSigningKey: "injected", WormSigningKeyFile: "/keys/stale.pem"}); got != "" {
+		t.Fatalf("injected key must take precedence, got %q", got)
+	}
+}
