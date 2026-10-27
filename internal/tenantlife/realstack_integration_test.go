@@ -360,6 +360,9 @@ flush_interval: 1s
 `, tn.id, tn.agent, bus, udp))
 	go shipped.ExportNetFlow(t.Context(), udp)
 	// A recorded eBPF capture through the shipped eBPF agent (no kernel).
+	// Its recorded PID is not a live runner PID: use an empty proc root so
+	// an unrelated host process cannot change this fixture's workload identity.
+	// Keep the export assertions on each tenant's unique network unchanged.
 	fixture := filepath.Join(t.TempDir(), "flows.json")
 	var flows []map[string]any
 	for i := 0; i < 3; i++ {
@@ -375,9 +378,10 @@ tenant_id: %q
 agent_id: %q
 host: %q
 %sfixture_path: %q
+proc_root: %q
 flush_interval: 1s
 health_state_dir: %q
-`, tn.id, tn.agent, tn.mark, bus, fixture, t.TempDir()))
+`, tn.id, tn.agent, tn.mark, bus, fixture, t.TempDir(), t.TempDir()))
 	// DEM samples from the shipped endpoint agent, timing the local page.
 	st.StartCollector(t, "probectl-endpoint", "f55-endpoint-"+tn.id[:8], "PROBECTL_ENDPOINT", fmt.Sprintf(`apiVersion: probectl.io/endpoint/v1
 tenant_id: %q
