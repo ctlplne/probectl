@@ -22,7 +22,7 @@ const button = cva(
     'inline-flex items-center justify-center gap-2 whitespace-nowrap',
     'rounded-control border font-sans font-medium',
     'transition-colors duration-fast ease-standard',
-    'outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2',
+    'outline-hidden focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2',
     'focus-visible:ring-offset-background',
     'disabled:pointer-events-none disabled:opacity-50',
   ],

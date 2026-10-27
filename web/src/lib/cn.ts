@@ -8,7 +8,7 @@ import { clsx, type ClassValue } from 'clsx'
 import { extendTailwindMerge } from 'tailwind-merge'
 
 /**
- * The six semantic type rungs (tailwind.config.js `fontSize`). tailwind-merge
+ * The six semantic type rungs (styles/theme.css `--text-*`). tailwind-merge
  * ships knowing Tailwind's OWN scale — text-sm, text-lg — and classifies any
  * other `text-<word>` as a TEXT COLOUR. Left unconfigured it therefore reads
  * `text-data` as a colour, puts it in the same group as `text-primary-foreground`,

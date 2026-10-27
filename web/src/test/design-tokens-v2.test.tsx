@@ -75,10 +75,10 @@ describe('expert design-token contract', () => {
     )
 
     // The primitives are Tailwind now, so the density chain runs
-    // token -> tailwind.config theme -> utility on the component. Assert every
+    // token -> CSS theme -> utility on the component. Assert every
     // link: a token mapped in the theme but used by nothing is still dead, and a
     // utility whose theme entry is missing silently resolves to nothing.
-    const tailwindConfig = readFileSync(join(process.cwd(), 'tailwind.config.js'), 'utf8')
+    const tailwindConfig = readFileSync(join(process.cwd(), 'src/styles/theme.css'), 'utf8')
     const primitiveNames = [
       'Button.tsx',
       'Input.tsx',

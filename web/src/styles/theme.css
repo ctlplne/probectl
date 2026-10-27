@@ -1,0 +1,174 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ *
+ * Use of this source code is governed by the Business Source License 1.1
+ * in the LICENSE file at the root of this repository; on its Change Date
+ * each version converts to the Mozilla Public License 2.0.
+ */
+
+/* Compile semantic utilities to runtime tokens. Inline theme values preserve
+ * deployment theme overrides and both density modes, without a rebuild. */
+@theme inline {
+  --color-border: hsl(var(--border));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-brand-accent: hsl(var(--brand-accent));
+  --color-brand-foreground: hsl(var(--brand-accent-foreground));
+  --color-focus: hsl(var(--focus));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-hover: hsl(var(--sidebar-hover));
+  --color-sidebar-active: hsl(var(--sidebar-active));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-monitor: hsl(var(--monitor));
+  --color-monitor-foreground: hsl(var(--monitor-foreground));
+  --color-analyze: hsl(var(--analyze));
+  --color-analyze-foreground: hsl(var(--analyze-foreground));
+  --color-secure: hsl(var(--secure));
+  --color-secure-foreground: hsl(var(--secure-foreground));
+  --color-operate: hsl(var(--operate));
+  --color-operate-foreground: hsl(var(--operate-foreground));
+  --color-risk-critical: hsl(var(--risk-critical));
+  --color-risk-high: hsl(var(--risk-high));
+  --color-risk-medium: hsl(var(--risk-medium));
+  --color-risk-low: hsl(var(--risk-low));
+  --color-risk-none: hsl(var(--risk-none));
+  --color-status-success: hsl(var(--status-success));
+  --color-status-warning: hsl(var(--status-warning));
+  --color-status-neutral: hsl(var(--status-neutral));
+  --color-status-info: hsl(var(--status-info));
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+  --color-chart-6: hsl(var(--chart-6));
+  --color-chart-grid: hsl(var(--chart-grid));
+  --color-chart-axis: hsl(var(--chart-axis));
+  --color-chart-neutral: hsl(var(--chart-neutral));
+  --text-caption: var(--font-size-caption);
+  --text-caption--line-height: var(--line-height-caption);
+  --text-data: var(--font-size-data);
+  --text-data--line-height: var(--line-height-data);
+  --text-body: var(--font-size-body);
+  --text-body--line-height: var(--line-height-body);
+  --text-title: var(--font-size-title);
+  --text-title--line-height: var(--line-height-title);
+  --text-heading: var(--font-size-heading);
+  --text-heading--line-height: var(--line-height-heading);
+  --text-display: var(--font-size-display);
+  --text-display--line-height: var(--line-height-display);
+  --radius-control: var(--radius-control);
+  --radius-panel: var(--radius-panel);
+  --radius-pill: var(--radius-pill);
+  --shadow-elevation1: var(--elevation-1);
+  --shadow-elevation2: var(--elevation-2);
+  --shadow-elevation3: var(--elevation-3);
+  --spacing-comfortable: var(--density-comfortable);
+  --spacing-panel-padding: var(--density-panel-padding);
+  --spacing-cell-block: var(--density-table-cell-block);
+  --spacing-cell-inline: var(--density-table-cell-inline);
+  --ease-standard: var(--easing-standard);
+  --ease-emphasized: var(--easing-emphasized);
+  --tracking-tight: var(--tracking-tight);
+  --tracking-snug: var(--tracking-snug);
+  --tracking-wide: var(--tracking-wide);
+  --tracking-wider: var(--tracking-wider);
+  --animate-overlay-in: overlay-in var(--motion-fast) ease-out both;
+  --animate-panel-in: panel-in var(--motion-base) var(--easing-emphasized) both;
+  --animate-drawer-in: drawer-in var(--motion-base) var(--easing-emphasized) both;
+}
+
+/* Keep names identical to the component vocabulary. Size-specific utilities
+ * avoid making a height-only token available as unrelated spacing or width. */
+@utility font-sans {
+  font-family: var(--font-sans);
+}
+@utility font-mono {
+  font-family: var(--font-mono);
+}
+@utility font-display {
+  font-family: var(--font-display);
+}
+@utility min-w-touch {
+  min-width: var(--density-touch-target);
+}
+@utility min-h-touch {
+  min-height: var(--density-touch-target);
+}
+@utility h-control {
+  height: var(--density-control-block);
+}
+@utility h-control-sm {
+  height: var(--density-control-block-sm);
+}
+@utility h-row {
+  height: var(--density-row-block);
+}
+@utility h-topbar {
+  height: var(--layout-topbar-height);
+}
+@utility w-sidebar {
+  width: var(--layout-sidebar-width);
+}
+@utility max-w-content {
+  max-width: var(--layout-content-max);
+}
+@utility z-sticky {
+  z-index: var(--z-sticky);
+}
+@utility z-overlay {
+  z-index: var(--z-overlay);
+}
+@utility z-modal {
+  z-index: var(--z-modal);
+}
+@utility z-toast {
+  z-index: var(--z-toast);
+}
+@utility duration-fast {
+  --tw-duration: var(--motion-fast);
+  transition-duration: var(--motion-fast);
+}
+@utility duration-base {
+  --tw-duration: var(--motion-base);
+  transition-duration: var(--motion-base);
+}
+@utility duration-slow {
+  --tw-duration: var(--motion-slow);
+  transition-duration: var(--motion-slow);
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Opacity-only panels preserve centering transforms after animation fill. */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--space-5));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

@@ -46,7 +46,7 @@ export function Table<Row>({
   const truncated = rows.length - rendered.length
   return (
     <div
-      className="max-h-[70vh] overflow-auto rounded-panel border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      className="max-h-[70vh] overflow-auto rounded-panel border border-border focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus"
       tabIndex={0}
       aria-label={`${caption} table region`}
     >

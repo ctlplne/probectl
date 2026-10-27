@@ -1,142 +1,149 @@
 /* SPDX-License-Identifier: BUSL-1.1 */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Explicit sources keep the core bundle scoped to its shipped source tree. */
+@import 'tailwindcss' source(none);
+@import './reset.css' layer(base);
+@import './theme.css';
+@source '../';
+@source '../../index.html';
+@custom-variant dark (&:where(.dark, .dark *));
 
-/* Base element styling — tokens only. */
-body {
-  margin: 0;
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-family: var(--font-sans);
-  font-size: var(--font-size-data);
-  line-height: var(--line-height-normal);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  /* Sora carries no stylistic-set alternates, so identifier disambiguation is
+/* Base rules stay below utilities in the cascade, including the reset. */
+@layer base {
+  /* Base element styling — tokens only. */
+  body {
+    margin: 0;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    font-size: var(--font-size-data);
+    line-height: var(--line-height-normal);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Sora carries no stylistic-set alternates, so identifier disambiguation is
      the mono face's job: DM Mono's 0 is slashed and its l/I/1 are distinct, and
      every identifier, digest and timestamp in this product is set in it. */
-}
-
-/* Typesetting courtesies (progressive; older engines ignore them). */
-h1,
-h2,
-h3,
-h4 {
-  text-wrap: balance;
-}
-
-p {
-  text-wrap: pretty;
-}
-
-/* Every timestamp and duration aligns: same-width digits product-wide. */
-time {
-  font-variant-numeric: tabular-nums;
-}
-
-::selection {
-  background: hsl(var(--brand-accent));
-  color: hsl(var(--brand-accent-foreground));
-}
-
-/* A single, consistent keyboard-focus treatment across the app (WCAG 2.4.7). */
-:focus-visible {
-  outline: var(--focus-ring-width) solid hsl(var(--focus));
-  outline-offset: var(--focus-ring-offset);
-  border-radius: var(--radius-control);
-}
-
-:focus:not(:focus-visible) {
-  outline: none;
-}
-
-input[type='checkbox'] {
-  width: var(--density-control-block-sm);
-  min-width: var(--density-control-block-sm);
-  height: var(--density-control-block-sm);
-  flex: 0 0 var(--density-control-block-sm);
-  margin: 0;
-  accent-color: hsl(var(--brand-accent));
-}
-
-main a[href] {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  text-underline-offset: 0.16em;
-}
-
-::selection {
-  background: hsl(var(--brand-accent) / 0.22);
-}
-
-/* Headings — hierarchy comes from scale + weight + tracking (no web font). */
-h1,
-h2,
-h3 {
-  line-height: var(--line-height-tight);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-snug);
-}
-
-code,
-kbd {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-code);
-}
-
-/* Refined, unobtrusive scrollbars (token-driven; no third-party calls). */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) transparent;
-}
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-*::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
-  border-radius: var(--radius-pill);
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground));
-  background-clip: content-box;
-}
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-/* Visually hidden but available to assistive tech. */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: var(--space-neg-px);
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* Compact density is visual density, not a smaller motor target. */
-@media (pointer: coarse) {
-  :where(button, input, select, textarea, [role='button'], a[href]) {
-    min-block-size: var(--density-touch-target);
   }
-}
 
-/* Motion is ornamental only; labels, shapes, and state text remain present. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    animation-duration: var(--motion-fast) !important;
-    transition-duration: var(--motion-fast) !important;
+  /* Typesetting courtesies (progressive; older engines ignore them). */
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Every timestamp and duration aligns: same-width digits product-wide. */
+  time {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: hsl(var(--brand-accent));
+    color: hsl(var(--brand-accent-foreground));
+  }
+
+  /* A single, consistent keyboard-focus treatment across the app (WCAG 2.4.7). */
+  :focus-visible {
+    outline: var(--focus-ring-width) solid hsl(var(--focus));
+    outline-offset: var(--focus-ring-offset);
+    border-radius: var(--radius-control);
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  input[type='checkbox'] {
+    width: var(--density-control-block-sm);
+    min-width: var(--density-control-block-sm);
+    height: var(--density-control-block-sm);
+    flex: 0 0 var(--density-control-block-sm);
+    margin: 0;
+    accent-color: hsl(var(--brand-accent));
+  }
+
+  main a[href] {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    text-underline-offset: 0.16em;
+  }
+
+  ::selection {
+    background: hsl(var(--brand-accent) / 0.22);
+  }
+
+  /* Headings — hierarchy comes from scale + weight + tracking (no web font). */
+  h1,
+  h2,
+  h3 {
+    line-height: var(--line-height-tight);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-snug);
+  }
+
+  code,
+  kbd {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-code);
+  }
+
+  /* Refined, unobtrusive scrollbars (token-driven; no third-party calls). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: var(--radius-pill);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* Visually hidden but available to assistive tech. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: var(--space-neg-px);
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* Compact density is visual density, not a smaller motor target. */
+  @media (pointer: coarse) {
+    :where(button, input, select, textarea, [role='button'], a[href]) {
+      min-block-size: var(--density-touch-target);
+    }
+  }
+
+  /* Motion is ornamental only; labels, shapes, and state text remain present. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      animation-duration: var(--motion-fast) !important;
+      transition-duration: var(--motion-fast) !important;
+    }
   }
 }

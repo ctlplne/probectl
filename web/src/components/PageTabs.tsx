@@ -34,7 +34,7 @@ export function PageTabs({ tabs, className }: { tabs: PageTab[]; className?: str
             cn(
               'inline-flex min-h-touch items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2',
               'text-data transition-colors duration-fast ease-standard',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+              'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus',
               isActive
                 ? 'border-brand-accent font-semibold text-foreground'
                 : 'border-transparent font-medium text-muted-foreground hover:border-border hover:text-foreground',

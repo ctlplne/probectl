@@ -21,6 +21,19 @@ you do not pin them yourself.
 | golangci-lint   | v2.12.2              | Go linting (installed via `make tools`)                                                           |
 | buf             | v1.50.0              | protobuf lint + codegen (installed via `make proto-tools`)                                        |
 
+The web build uses Node 26/npm 11 and Tailwind CSS 4, with the dedicated
+`@tailwindcss/postcss` adapter. Use `scripts/web_npm.sh` to generate the lock
+with the digest-pinned build image, then prove a fresh `npm ci`. Semantic
+utilities live in `web/src/styles/theme.css` and resolve the runtime tokens in
+`tokens.css`; the reset and global element rules stay in the base cascade layer
+so component utilities can override them. Add custom class groups only through
+`web/src/lib/cn.ts`. The CSS build regression and rendered accessibility gate
+cover both themes and preserve class-based dark mode and density controls.
+
+Tailwind 4 requires Safari 16.4+, Chrome 111+, or Firefox 128+ because its
+generated CSS uses modern browser features. See the
+[upstream upgrade guide](https://tailwindcss.com/docs/upgrade-guide).
+
 > The Go version is pinned to the _exact patch_ (`1.26.10`), not a loose `1.26`.
 > That is intentional — it keeps `govulncheck`'s standard-library scan honest and
 > keeps the FIPS build working under `GOTOOLCHAIN=local`. Details:
