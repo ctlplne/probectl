@@ -19,10 +19,12 @@ export function setURLFilters(
   patch: Record<string, string>,
 ) {
   const next = new URLSearchParams(params)
-  for (const [key, value] of Object.entries({ ...defaults, ...patch })) {
-    const v = value.trim()
-    if (!v || v === defaults[key]) next.delete(key)
-    else next.set(key, v)
+  // A patch updates only its own controls; an empty patch explicitly clears
+  // this surface's filters. Preserve whitespace while a controlled input is
+  // being edited so typing the separator between two words is not discarded.
+  for (const [key, value] of Object.entries(Object.keys(patch).length ? patch : defaults)) {
+    if (!value || value === defaults[key]) next.delete(key)
+    else next.set(key, value)
   }
   setParams(next, { replace: true })
 }

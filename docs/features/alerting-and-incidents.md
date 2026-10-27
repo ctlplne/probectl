@@ -41,6 +41,10 @@ for several evaluations before it fires). It answers the second with
 signals into one incident, so the human reads a single story with evidence
 attached, not a wall of red.
 
+The incident list combines Find, Status, and Severity filters. Editing one
+keeps the others selected, and spaces remain intact while typing a multiword
+search. The URL retains the selected filters for revisiting the view.
+
 ## How it works
 
 probectl deliberately keeps **rules** (what you configured) separate from

@@ -65,6 +65,20 @@ function stubIncidents(items: unknown[] = [incident]) {
 }
 
 describe('unified incident room', () => {
+  test('keeps spaces while typing and combines search with status and severity', async () => {
+    const user = userEvent.setup()
+    stubIncidents()
+    renderApp('/incidents?incident_status=open&incident_severity=critical')
+    const find = await screen.findByRole('textbox', { name: 'Find' })
+    await user.type(find, 'high loss')
+    expect(find).toHaveValue('high loss')
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveValue('open')
+    expect(screen.getByRole('combobox', { name: 'Severity' })).toHaveValue('critical')
+    expect(
+      screen.getAllByRole('button', { name: /high loss to 192\.0\.2\.10/i }).length,
+    ).toBeGreaterThan(0)
+  })
+
   test('lists incidents and overlays network + BGP signals on one clock', async () => {
     stubIncidents()
     renderApp('/incidents')
