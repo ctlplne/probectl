@@ -10,9 +10,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -112,6 +114,7 @@ func (p Preset) authHeader(token, scheme string) (name, value string) {
 
 // HTTPSender posts each record to a SIEM's HTTP ingest endpoint over hardened TLS.
 type HTTPSender struct {
+	preset      Preset
 	url         string
 	contentType string
 	authName    string
@@ -127,15 +130,41 @@ func NewHTTPSender(preset Preset, endpoint, token, scheme, contentType string, c
 		client = crypto.HardenedHTTPClient(15 * time.Second)
 	}
 	name, value := preset.authHeader(token, scheme)
-	return &HTTPSender{url: endpoint, contentType: contentType, authName: name, authValue: value, client: client}
+	return &HTTPSender{preset: preset, url: endpoint, contentType: contentType, authName: name, authValue: value, client: client}
 }
 
 func (h *HTTPSender) Send(ctx context.Context, payload []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, bytes.NewReader(payload))
+	endpoint, contentType := h.url, h.contentType
+	bulkItems := 0
+	if h.preset == PresetElastic && h.contentType == "application/json" {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return err
+		}
+		records := bytes.Split(bytes.TrimSpace(payload), []byte("\n"))
+		path := strings.TrimSuffix(u.Path, "/")
+		if strings.HasSuffix(path, "/_bulk") || (strings.HasSuffix(path, "/_doc") && len(records) > 1) {
+			u.Path = strings.TrimSuffix(strings.TrimSuffix(path, "/_doc"), "/_bulk") + "/_bulk"
+			u.RawPath = ""
+			endpoint, contentType = u.String(), "application/x-ndjson"
+			var framed bytes.Buffer
+			for _, record := range records {
+				if len(bytes.TrimSpace(record)) == 0 {
+					continue
+				}
+				framed.WriteString("{\"index\":{}}\n")
+				framed.Write(record)
+				framed.WriteByte('\n')
+				bulkItems++
+			}
+			payload = framed.Bytes()
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", h.contentType)
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "probectl-siem")
 	if h.authName != "" {
 		req.Header.Set(h.authName, h.authValue)
@@ -145,7 +174,28 @@ func (h *HTTPSender) Send(ctx context.Context, payload []byte) error {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if bulkItems > 0 && resp.StatusCode/100 == 2 {
+		var receipt struct {
+			Errors *bool `json:"errors"`
+			Items  []map[string]struct {
+				Status int `json:"status"`
+			} `json:"items"`
+		}
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&receipt); err != nil {
+			return fmt.Errorf("siem: invalid bulk receipt")
+		}
+		if receipt.Errors == nil || *receipt.Errors || len(receipt.Items) != bulkItems {
+			return fmt.Errorf("siem: incomplete or failed bulk receipt")
+		}
+		for _, item := range receipt.Items {
+			result, ok := item["index"]
+			if !ok || len(item) != 1 || result.Status/100 != 2 {
+				return fmt.Errorf("siem: bulk item not acknowledged")
+			}
+		}
+	} else {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	}
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("siem: %s returned status %d", h.url, resp.StatusCode)
 	}

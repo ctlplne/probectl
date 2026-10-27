@@ -83,6 +83,14 @@ PROBECTL_SIEM_TOKEN=<user>:<password>     # encoded for you; inject it as a secr
 PROBECTL_SIEM_ENDPOINT=https://opensearch.example:9200/probectl-events/_doc
 ```
 
+With the Elastic preset and ECS format, multi-event pages sent to an index
+`/_doc` URL use the corresponding `/_bulk` URL with action/document pairs.
+An explicit `/_bulk` endpoint also supports single threat events. The exporter
+requires a successful receipt for every item before advancing the audit cursor;
+HTTP 200 with rejected items is retried. Whole-page retries may duplicate already
+accepted items, consistent with at-least-once delivery. Single events at `/_doc`
+continue to use the document API.
+
 The token is never logged and never appears in a response; `basic` base64-encodes
 it so an operator does not have to pre-encode a credential into configuration.
 

@@ -270,9 +270,8 @@ type ecsFormatter struct{}
 func (ecsFormatter) Name() string        { return "ecs" }
 func (ecsFormatter) ContentType() string { return "application/json" }
 
-// FormatBatch emits newline-delimited JSON (NDJSON) — the shape the
-// Elastic/OpenSearch bulk ingest and most JSON log pipelines accept for many
-// documents in one request.
+// FormatBatch emits newline-delimited ECS documents. The Elastic HTTP sender
+// adds bulk action lines and validates each item receipt for bulk ingestion.
 func (f ecsFormatter) FormatBatch(events []Event) []byte { return joinRecords(events, f.Format) }
 
 func (ecsFormatter) Format(e Event) []byte {
