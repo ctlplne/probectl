@@ -5,8 +5,11 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
+import { Providers } from '../App'
+import { AppRoutes } from '../routes/AppRoutes'
 import { renderApp } from './renderApp'
 import { defaultFetch, jsonResponse, pathOf, sampleExplorerTemplates } from './fetchStub'
 
@@ -247,6 +250,150 @@ describe('structured and natural-language Explorer', () => {
     expect(screen.getByLabelText('Filter exact value')).toHaveValue('from-value')
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({ filters: { from: 'from-value' } })
+  })
+
+  test.each([false, true])(
+    'stable execution accepts auth context and reordered legacy URL fields (comparison=%s)',
+    async (comparison) => {
+      const base = defaultFetch()
+      const requests: Record<string, unknown>[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (
+            pathOf(input) === (comparison ? '/v1/explorer/compare' : '/v1/explorer/query') &&
+            init?.method === 'POST'
+          )
+            requests.push(JSON.parse(String(init.body)))
+          return base(input, init)
+        }),
+      )
+      renderApp(
+        '/explore?run=1&login_tenant=auth-context&to=2026-07-14T12:00:00Z&template=service-dependencies&from=2026-07-14T11:00:00Z' +
+          (comparison
+            ? '&compare=1&previous_from=2026-07-14T10:00:00Z&previous_to=2026-07-14T11:00:00Z'
+            : ''),
+      )
+      await waitFor(() => expect(requests).toHaveLength(1))
+      expect(comparison ? requests[0].query : requests[0]).toMatchObject({
+        source: 'topology',
+        from: '2026-07-14T11:00:00.000Z',
+      })
+      expect(
+        screen.getByRole('link', { name: 'Stable view link' }).getAttribute('href'),
+      ).not.toContain('login_tenant')
+    },
+  )
+
+  test('custom stable links preserve grammar and re-execute on reopen', async () => {
+    const user = userEvent.setup()
+    const base = defaultFetch()
+    const requests: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) === '/v1/explorer/query' && init?.method === 'POST')
+          requests.push(JSON.parse(String(init.body)))
+        return base(input, init)
+      }),
+    )
+    const page = renderApp(
+      '/explore?template=service-dependencies&from=2026-07-14T11:00:00Z&to=2026-07-14T12:00:00Z&filter=from:as:10967',
+    )
+    await screen.findByRole('heading', { name: 'Explorer' })
+    await user.clear(screen.getByLabelText('Group by'))
+    await user.type(screen.getByLabelText('Group by'), 'from')
+    await user.selectOptions(screen.getByLabelText('Visualization'), 'table')
+    const href = screen.getByRole('link', { name: 'Stable view link' }).getAttribute('href') ?? ''
+    expect(new URL(href, 'https://example.test').searchParams.get('source')).toBe('topology')
+    page.unmount()
+    renderApp(href + '&login_tenant=auth-context')
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(requests[0]).toMatchObject({
+      source: 'topology',
+      dimensions: ['from', 'to', 'kind'],
+      groupings: ['from'],
+      measures: ['edges'],
+      visualization: 'table',
+      filters: { from: 'as:10967' },
+    })
+    expect(screen.getByLabelText('Group by')).toHaveValue('from')
+    expect(screen.getByLabelText('Source / plane')).toHaveValue('topology')
+  })
+
+  test('history navigation restores and executes each URL rather than the current draft', async () => {
+    const user = userEvent.setup()
+    const base = defaultFetch()
+    const requests: { filters: Record<string, string> }[] = []
+    const path = (value: string) =>
+      '/explore?template=service-dependencies&from=2026-07-14T11:00:00.000Z&to=2026-07-14T12:00:00.000Z&filter=from:' +
+      value +
+      '&run=1'
+    let historyNavigate: ReturnType<typeof useNavigate>
+    function HistoryControls() {
+      const navigate = useNavigate()
+      historyNavigate = navigate
+      return (
+        <>
+          <button onClick={() => void navigate(path('second'))}>Second link</button>
+          <button onClick={() => void navigate(-1)}>History back</button>
+          <button onClick={() => void navigate(1)}>History forward</button>
+        </>
+      )
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) === '/v1/me')
+          return jsonResponse({
+            tenant_id: 'current',
+            user_id: 'operator',
+            email: 'operator@example.test',
+            permissions: [],
+            mfa_satisfied: true,
+          })
+        if (pathOf(input) === '/v1/explorer/query' && init?.method === 'POST')
+          requests.push(JSON.parse(String(init.body)))
+        return base(input, init)
+      }),
+    )
+    render(
+      <Providers>
+        <MemoryRouter initialEntries={[path('first')]}>
+          <HistoryControls />
+          <AppRoutes />
+        </MemoryRouter>
+      </Providers>,
+    )
+    await waitFor(() => expect(requests).toHaveLength(1))
+    await user.clear(screen.getByLabelText('Filter exact value'))
+    await user.type(screen.getByLabelText('Filter exact value'), 'unsent-draft')
+    expect(requests).toHaveLength(1)
+    for (const [button, count, value] of [
+      ['Second link', 2, 'second'],
+      ['History back', 3, 'first'],
+      ['History forward', 4, 'second'],
+    ] as const) {
+      await user.click(screen.getByRole('button', { name: button }))
+      await waitFor(() => expect(requests).toHaveLength(count))
+      expect(screen.getByLabelText('Filter exact value')).toHaveValue(value)
+      expect(requests[count - 1].filters).toEqual({ from: value })
+    }
+    // Browser history can move while a grammar field still owns focus.
+    await user.clear(screen.getByLabelText('Group by'))
+    await user.type(screen.getByLabelText('Group by'), 'unsent-draft,')
+    await act(async () => {
+      await historyNavigate(-1)
+    })
+    await waitFor(() => expect(requests).toHaveLength(5))
+    expect(screen.getByLabelText('Group by')).toHaveValue('kind')
+    expect(screen.getByLabelText('Filter exact value')).toHaveValue('first')
+    await act(async () => {
+      await historyNavigate(1)
+    })
+    await waitFor(() => expect(requests).toHaveLength(6))
+    expect(screen.getByLabelText('Group by')).toHaveValue('kind')
+    expect(screen.getByLabelText('Filter exact value')).toHaveValue('second')
   })
 
   test('compares two explicit windows with stable links and honest delta states', async () => {

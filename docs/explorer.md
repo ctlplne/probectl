@@ -108,8 +108,11 @@ the worksheet; choose **Run query** or **Compare periods** to fetch fresh author
 
 ## Context and evidence
 
-The stable view link contains the recipe, absolute UTC time range, exact filters, and—when
-enabled—the explicit previous UTC window. It never contains tenant identity or credentials.
+The stable view link contains the recipe, source, dimensions, groupings, measures,
+visualization, row limit, absolute UTC time range, exact filters, and—when enabled—the
+explicit previous UTC window. Custom grammar survives reopening even without a recipe.
+It never contains tenant identity or credentials; authentication routing context is ignored
+when decoding the worksheet and is never copied into the API request.
 Running a query pushes that stable view into browser history. Opening the link, including by
 returning from native evidence with browser Back, re-executes the same read-only query inside
 the newly authenticated tenant boundary so the result receipt is current rather than cached
@@ -117,6 +120,10 @@ client state. “Open evidence” uses the common short-lived pivot contract to 
 time/filter context to the source screen, and “Explain this view” uses the tenant/RBAC-scoped
 AI evidence engine. The exact result table remains available beside both paths so a chart or
 explanation never hides the source values.
+
+Back and Forward restore and execute the selected URL's worksheet. Typing an unsent draft
+does not trigger another request. Older recipe-only links remain readable, including links
+whose parameter order or UTC timestamp formatting differs from newly generated links.
 
 ## Operator and CLI examples
 

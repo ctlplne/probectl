@@ -29,6 +29,7 @@ import {
   type ExplorerComparisonRow,
   type ExplorerExecutionReceipt,
   type ExplorerQuery,
+  type ExplorerSchema,
   type ExplorerSource,
   type ExplorerTemplate,
   type ExplorerVisualization,
@@ -105,13 +106,16 @@ function GrammarListField({
   label,
   value,
   onChange,
+  locationKey,
 }: {
   label: string
   value: string[]
   onChange: (value: string[]) => void
+  locationKey: string | undefined
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  useEffect(() => setEditing(false), [locationKey])
   return (
     <Field
       label={label}
@@ -122,6 +126,7 @@ function GrammarListField({
       }}
       onBlur={() => setEditing(false)}
       onChange={(event) => {
+        setEditing(true)
         setDraft(event.target.value)
         onChange(csv(event.target.value))
       }}
@@ -165,6 +170,12 @@ function preview(query: ExplorerQuery) {
 function stableHref(query: ExplorerQuery, comparison: ComparisonWindow | null) {
   const params = new URLSearchParams()
   if (query.template) params.set('template', query.template)
+  params.set('source', query.source)
+  params.set('dimensions', query.dimensions.join(','))
+  params.set('groupings', query.groupings.join(','))
+  params.set('measures', query.measures.join(','))
+  params.set('visualization', query.visualization)
+  params.set('limit', String(query.limit))
   params.set('from', query.from)
   params.set('to', query.to)
   for (const [key, value] of Object.entries(query.filters))
@@ -176,6 +187,53 @@ function stableHref(query: ExplorerQuery, comparison: ComparisonWindow | null) {
   }
   params.set('run', '1')
   return `/explore?${params.toString()}`
+}
+
+// Decode only query grammar. Authentication/router context is deliberately not
+// part of a portable link and never supplies the API's tenant boundary.
+function explorerLocation(params: URLSearchParams, schema: ExplorerSchema | undefined) {
+  if (!schema?.templates.length) return null
+  const template =
+    schema.templates.find((item) => item.id === params.get('template')) ?? schema.templates[0]
+  const from = params.get('from')
+  const to = params.get('to')
+  const next = fromTemplate(
+    template,
+    from && to ? { from: absoluteTime(from), to: absoluteTime(to) } : rangeNow(),
+  )
+  next.source =
+    SOURCE_OPTIONS.find((option) => option.value === params.get('source'))?.value ?? next.source
+  for (const key of ['dimensions', 'groupings', 'measures'] as const) {
+    if (params.has(key)) next[key] = csv(params.get(key) ?? '')
+  }
+  const visualization = params.get('visualization') as ExplorerVisualization | null
+  if (visualization && schema.visualizations.includes(visualization))
+    next.visualization = visualization
+  const limit = Number(params.get('limit'))
+  if (Number.isInteger(limit) && limit >= 1 && limit <= schema.max_rows) next.limit = limit
+  if (params.has('source') && !params.get('template')) next.template = undefined
+  if (params.has('source') && !next.template) next.question = grammarQuestion(next)
+  for (const encoded of params.getAll('filter')) {
+    const split = encoded.indexOf(':')
+    const key = encoded.slice(0, split)
+    if (split > 0 && !key.toLowerCase().startsWith('tenant'))
+      next.filters[key] = encoded.slice(split + 1)
+  }
+  let comparison: ComparisonWindow | null = null
+  if (params.get('compare') === '1') {
+    const previousFrom = params.get('previous_from')
+    const previousTo = params.get('previous_to')
+    comparison =
+      previousFrom && previousTo
+        ? { from: absoluteTime(previousFrom), to: absoluteTime(previousTo) }
+        : precedingWindow(next)
+  }
+  return {
+    query: next,
+    comparison,
+    execute: params.get('run') === '1',
+    href: stableHref(next, comparison),
+  }
 }
 
 function savedState(query: ExplorerQuery, comparison: ComparisonWindow | null) {
@@ -438,52 +496,39 @@ export function ExplorerPage() {
   const [filterKey, setFilterKey] = useState('')
   const autoExecutedHref = useRef('')
 
-  useEffect(() => {
-    if (query || !schema.data?.templates.length) return
-    const requested = params.get('template')
-    const template =
-      schema.data.templates.find((item) => item.id === requested) ?? schema.data.templates[0]
-    const from = params.get('from')
-    const to = params.get('to')
-    const range = from && to ? { from: absoluteTime(from), to: absoluteTime(to) } : rangeNow()
-    const next = fromTemplate(template, range)
-    for (const encoded of params.getAll('filter')) {
-      const split = encoded.indexOf(':')
-      const key = encoded.slice(0, split)
-      if (split > 0 && !key.toLowerCase().startsWith('tenant'))
-        next.filters[key] = encoded.slice(split + 1)
-    }
-    if (params.get('compare') === '1') {
-      const previousFrom = params.get('previous_from')
-      const previousTo = params.get('previous_to')
-      setComparison(
-        previousFrom && previousTo
-          ? { from: absoluteTime(previousFrom), to: absoluteTime(previousTo) }
-          : precedingWindow(next),
-      )
-    }
-    setFilterKey(Object.keys(next.filters)[0] ?? next.dimensions[0] ?? '')
-    setQuery(next)
-  }, [params, query, schema.data])
+  const location = useMemo(() => explorerLocation(params, schema.data), [params, schema.data])
+  const { mutate: executeQuery, reset: resetQuery } = run
+  const { mutate: executeComparison, reset: resetComparison } = comparisonRun
 
   useEffect(() => {
-    if (!query || params.get('run') !== '1') return
-    const requestedHref = `/explore?${params.toString()}`
-    if (stableHref(query, comparison) !== requestedHref) return
-    if (autoExecutedHref.current === requestedHref) return
-    autoExecutedHref.current = requestedHref
-    if (comparison) {
-      run.reset()
-      comparisonRun.mutate({
-        query,
-        previous_from: comparison.from,
-        previous_to: comparison.to,
+    if (!location) return
+    setQuery(location.query)
+    setComparison(location.comparison)
+    setFilterKey(Object.keys(location.query.filters)[0] ?? location.query.dimensions[0] ?? '')
+  }, [location])
+
+  useEffect(() => {
+    if (!location) return
+    if (!location.execute) {
+      autoExecutedHref.current = ''
+      resetQuery()
+      resetComparison()
+      return
+    }
+    if (autoExecutedHref.current === location.href) return
+    autoExecutedHref.current = location.href
+    if (location.comparison) {
+      resetQuery()
+      executeComparison({
+        query: location.query,
+        previous_from: location.comparison.from,
+        previous_to: location.comparison.to,
       })
     } else {
-      comparisonRun.reset()
-      run.mutate(query)
+      resetComparison()
+      executeQuery(location.query)
     }
-  }, [comparison, comparisonRun, params, query, run])
+  }, [location, executeQuery, executeComparison, resetQuery, resetComparison])
 
   const columns = useMemo<Column<Record<string, unknown>>[]>(
     () =>
@@ -703,16 +748,19 @@ export function ExplorerPage() {
               }}
             />
             <GrammarListField
+              locationKey={location?.href}
               label="Dimensions"
               value={query.dimensions}
               onChange={(dimensions) => updateStructure({ dimensions })}
             />
             <GrammarListField
+              locationKey={location?.href}
               label="Group by"
               value={query.groupings}
               onChange={(groupings) => updateStructure({ groupings })}
             />
             <GrammarListField
+              locationKey={location?.href}
               label="Measures"
               value={query.measures}
               onChange={(measures) => updateStructure({ measures })}
