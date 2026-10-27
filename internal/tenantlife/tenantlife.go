@@ -645,13 +645,13 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 	}
 
 	// 6) Cryptographic offboarding (S-T6): when a per-tenant keyring is
-	// installed, destroy the tenant's keys — every remaining ciphertext
-	// (incl. backups within their TTL) becomes permanently unreadable.
+	// installed, destroy its live tenant keys. This does not destroy managed
+	// key material in backups or externally held BYOK keys.
 	if n, supported, err := tenantcrypto.DestroyKeys(ctx, tenantID); err != nil {
 		fail("tenant_keys", "key destruction failed: "+err.Error())
 	} else if supported {
 		att.Stores = append(att.Stores, StoreResult{Store: "tenant_keys", Deleted: int64(n), VerifiedZero: true,
-			Notes: "crypto-shred: key versions destroyed; ciphertexts (incl. in-TTL backups) unreadable"})
+			Notes: "live key versions destroyed; managed-key backups remain decryptable with the deployment master and are subject to backup retention; external BYOK keys require operator destruction"})
 	} else {
 		att.Stores = append(att.Stores, StoreResult{Store: "tenant_keys", VerifiedZero: true,
 			Notes: "no per-tenant keyring installed (byok feature not licensed)"})

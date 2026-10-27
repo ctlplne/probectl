@@ -223,6 +223,11 @@ encrypted IR sidecar.
 > attestation's store list too. The table above is the representative subset most
 > often asked about.
 
+The `tenant_keys` receipt attests destruction of live key versions only. Its
+notes explicitly preserve the managed-backup retention obligation and the
+operator's responsibility to destroy external BYOK keys; `complete: true` does
+not certify destruction of operator backups or external keys.
+
 **Crypto-shred**, in one image: a tenant's data sitting inside your still-live
 backups is a locked safe. Crypto-shred works only when you destroy *every* copy
 of the key — so the engine can honestly attest deletion of data inside backups

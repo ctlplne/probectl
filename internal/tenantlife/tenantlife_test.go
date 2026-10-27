@@ -26,6 +26,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/otelstore"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
 )
 
 var t0 = time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
@@ -613,4 +614,51 @@ func keysOf(m map[string][]byte) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// A successful live-key destroyer cannot attest what survives in operator backups.
+type receiptKeyDestroyer struct {
+	tenantcrypto.Sealer
+	tenant string
+}
+
+func (d *receiptKeyDestroyer) Scheme() string { return "receipt-test" }
+func (d *receiptKeyDestroyer) DestroyKeys(_ context.Context, tenant string) (int, error) {
+	d.tenant = tenant
+	return 2, nil
+}
+func TestEraseKeyReceiptScopesBackupClaims(t *testing.T) {
+	d := &receiptKeyDestroyer{}
+	tenantcrypto.SetPrimary(d)
+	t.Cleanup(tenantcrypto.Reset)
+	flows, objects, mem := seedStores(t)
+	e := New(nil, flows, objects, mem, (&capturedAudit{}).sink, "backups expire after 30 days", testLog())
+	att, err := e.Erase(context.Background(), "tnA", "acme", "admin@msp.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !att.Complete || d.tenant != "tnA" {
+		t.Fatalf("erase completion/scope: %+v, tenant=%q", att, d.tenant)
+	}
+	for _, result := range att.Stores {
+		if result.Store != "tenant_keys" {
+			continue
+		}
+		if !result.VerifiedZero || result.Deleted != 2 {
+			t.Fatalf("live-key receipt: %+v", result)
+		}
+		for _, claim := range []string{"live key versions destroyed", "managed-key backups remain decryptable", "external BYOK keys require operator destruction"} {
+			if !strings.Contains(result.Notes, claim) {
+				t.Errorf("key receipt omits %q: %s", claim, result.Notes)
+			}
+		}
+		if strings.Contains(result.Notes, "backups) unreadable") {
+			t.Error("receipt claims unverified backup destruction")
+		}
+		if att.BackupPolicy != "backups expire after 30 days" {
+			t.Fatal("operator retention policy lost")
+		}
+		return
+	}
+	t.Fatal("missing tenant-key receipt")
 }
