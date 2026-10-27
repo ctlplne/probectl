@@ -11,6 +11,28 @@ import { join } from 'node:path'
 import postcss, { type AcceptedPlugin } from 'postcss'
 import { expect, test } from 'vitest'
 
+async function compileTheme(candidates: string[] = []) {
+  const configPath = join(process.cwd(), 'postcss.config.js')
+  const config = (await import(configPath)) as {
+    default: { plugins: AcceptedPlugin[] | Record<string, Record<string, unknown>> }
+  }
+  // PostCSS supports both its object and array configuration forms. Load the
+  // actual build pipeline so its output, including final transforms, is tested.
+  const plugins = Array.isArray(config.default.plugins)
+    ? config.default.plugins
+    : await Promise.all(
+        Object.entries(config.default.plugins).map(async ([name, options]) => {
+          const plugin = (await import(name)) as { default: (options: unknown) => AcceptedPlugin }
+          return plugin.default(options)
+        }),
+      )
+  const file = join(process.cwd(), 'src/styles/global.css')
+  return postcss(plugins).process(
+    readFileSync(file, 'utf8') + `\n@source inline("${candidates.join(' ')}");\n`,
+    { from: file },
+  )
+}
+
 // Exercise the actual CSS entrypoint and engine. Token declarations alone do
 // not prove a build emits the utilities that keep controls readable and usable.
 test('Tailwind 4 emits token-backed controls, opacity, motion and class-based dark mode', async () => {
@@ -19,9 +41,6 @@ test('Tailwind 4 emits token-backed controls, opacity, motion and class-based da
   ) as { version: string }
   expect(installed.version.split('.')[0], 'the installed CSS engine must be Tailwind 4').toBe('4')
 
-  const packageName = '@tailwindcss/postcss'
-  const plugin = (await import(packageName)) as { default: () => AcceptedPlugin }
-  const file = join(process.cwd(), 'src/styles/global.css')
   const candidates = [
     'h-control',
     'h-row',
@@ -41,10 +60,7 @@ test('Tailwind 4 emits token-backed controls, opacity, motion and class-based da
     'duration-fast',
     'animate-panel-in',
   ]
-  const result = await postcss([plugin.default()]).process(
-    readFileSync(file, 'utf8') + `\n@source inline("${candidates.join(' ')}");\n`,
-    { from: file },
-  )
+  const result = await compileTheme(candidates)
   const declarations = new Map<string, string[]>()
   result.root.walkRules((rule) => {
     const values: string[] = []
@@ -83,4 +99,18 @@ test('Tailwind 4 emits token-backed controls, opacity, motion and class-based da
     'animation: panel-in var(--motion-base) var(--easing-emphasized) both',
   )
   expect(result.css).not.toContain('@tailwind ')
+}, 15_000)
+
+test('keyboard focus remains above utility outline resets in the compiled cascade', async () => {
+  const result = await compileTheme(['outline-none', 'outline-hidden'])
+  const outlines: string[] = []
+  result.root.walkRules(':focus-visible', (rule) => {
+    // A base-layer focus rule loses to an outline utility even with greater
+    // selector specificity. The shared keyboard treatment must outrank it.
+    expect(rule.parent?.type, 'shared focus must outrank utility layers').toBe('root')
+    rule.walkDecls('outline', (declaration) => {
+      outlines.push(declaration.value)
+    })
+  })
+  expect(outlines).toContain('var(--focus-ring-width) solid hsl(var(--focus))')
 }, 15_000)

@@ -25,6 +25,6 @@ export const controlShell = [
 ].join(' ')
 
 export const controlInput =
-  'h-full w-full min-w-touch flex-1 border-0 bg-transparent p-0 text-data text-foreground outline-none placeholder:text-muted-foreground'
+  'h-full w-full min-w-touch flex-1 border-0 bg-transparent p-0 text-data text-foreground outline-hidden placeholder:text-muted-foreground'
 
 export const fieldLabel = 'text-caption font-medium text-muted-foreground'

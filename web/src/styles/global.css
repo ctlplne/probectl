@@ -47,17 +47,6 @@
     color: hsl(var(--brand-accent-foreground));
   }
 
-  /* A single, consistent keyboard-focus treatment across the app (WCAG 2.4.7). */
-  :focus-visible {
-    outline: var(--focus-ring-width) solid hsl(var(--focus));
-    outline-offset: var(--focus-ring-offset);
-    border-radius: var(--radius-control);
-  }
-
-  :focus:not(:focus-visible) {
-    outline: none;
-  }
-
   input[type='checkbox'] {
     width: var(--density-control-block-sm);
     min-width: var(--density-control-block-sm);
@@ -146,4 +135,15 @@
       transition-duration: var(--motion-fast) !important;
     }
   }
+}
+
+/* Keyboard focus must outrank layered outline utilities (WCAG 2.4.7). */
+:focus-visible {
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--radius-control);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
 }

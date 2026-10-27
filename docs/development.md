@@ -26,7 +26,8 @@ The web build uses Node 26/npm 11 and Tailwind CSS 4, with the dedicated
 with the digest-pinned build image, then prove a fresh `npm ci`. Semantic
 utilities live in `web/src/styles/theme.css` and resolve the runtime tokens in
 `tokens.css`; the reset and global element rules stay in the base cascade layer
-so component utilities can override them. Add custom class groups only through
+so component utilities can override them. The shared keyboard-focus rules stay
+unlayered so outline utilities cannot hide the focus indicator. Add custom class groups only through
 `web/src/lib/cn.ts`. The CSS build regression and rendered accessibility gate
 cover both themes and preserve class-based dark mode and density controls.
 
