@@ -25,8 +25,8 @@ tooling, so the whole feature stays off unless `PROBECTL_NOTIFY_CONNECTORS` is s
 
 | Provider | Capability | On open | On resolve | Inbound (status-sync back) |
 | -------- | ---------- | ------- | ---------- | -------------------------- |
-| **PagerDuty** | page | Events API v2 `trigger` (dedup key `probectl-<id>`) | `resolve` (same dedup key) | resolve/ack via the portable contract |
-| **Opsgenie** | page | Alerts API create (alias `probectl-<id>`) | close-by-alias | resolve/ack via the portable contract |
+| **PagerDuty** | page | Events API v2 `trigger` (dedup key `probectl-<id>`) | `resolve` (same dedup key) | resolve via the portable contract |
+| **Opsgenie** | page | Alerts API create (alias `probectl-<id>`) | close-by-alias | resolve via the portable contract |
 | **Slack** | chat | post "incident opened" | post "incident resolved" | — |
 | **Teams** | chat | post "incident opened" | post "incident resolved" | — |
 | **ServiceNow** | ticket | create incident (Table API) | set state Resolved (state `6`) | native Business-Rule POST, or the portable contract |
@@ -136,6 +136,12 @@ already-resolved incident is a no-op.
 
 ## Inbound contract + security
 
+The served OpenAPI documents `POST /ingest/itsm/{provider}/{id}` with its own
+signature-or-token security schemes. Session cookies and API bearer tokens do
+not authenticate webhook deliveries. Sign the exact JSON bytes sent, or use the
+shared token header over HTTPS. The generated SDK transport must supply that
+webhook header; its normal bearer token is not a substitute.
+
 `POST /ingest/itsm/{provider}/{id}` is an ingest surface (mounted off `/v1`, like
 the change webhook). A **webhook** is an HTTP POST another system makes to you
 when something happens — which means anyone who can reach the URL can attempt
@@ -163,6 +169,11 @@ and Jira (`statusCategory.key == "done"`) shapes natively; **every** provider
 ```json
 { "external_ref": "probectl-<incident-id>", "status": "resolved" }
 ```
+
+A valid non-resolution status (including `acknowledged`) is an accepted no-op;
+it does not acknowledge an alert or change incident state. Unknown external
+references and duplicate resolutions also return `202` with `resolved:false`.
+
 
 Outbound delivery uses the hardened, certificate-validating HTTP client (TLS is
 never disabled). Remote provider endpoints must be `https://`; plain `http://`

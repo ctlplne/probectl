@@ -1494,6 +1494,21 @@ type IRAttributionRevealRequest struct {
 	Reason string `json:"reason"`
 }
 
+type ITSMJiraStatus struct {
+	Issue map[string]any `json:"issue"`
+}
+
+type ITSMPortableStatus struct {
+	ExternalRef string `json:"external_ref"`
+	Status      string `json:"status,omitempty"`
+}
+
+type ITSMServiceNowStatus struct {
+	Number string `json:"number,omitempty"`
+	State  string `json:"state,omitempty"`
+	SysId  string `json:"sys_id"`
+}
+
 type Incident struct {
 	CorrelationOverrides []IncidentCorrelationOverride `json:"correlation_overrides,omitempty"`
 	Id                   string                        `json:"id,omitempty"`
@@ -2209,6 +2224,31 @@ func (c *Client) GetHealthz(ctx context.Context, req GetHealthzRequest) (*Health
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Synchronize incident status from an authenticated on-call or ITSM webhook
+type IngestItsmStatusRequest struct {
+	Provider string `json:"-"`
+	Id       string `json:"-"`
+	Body     *any   `json:"-"`
+}
+
+func (c *Client) IngestItsmStatus(ctx context.Context, req IngestItsmStatusRequest) (map[string]any, error) {
+	path := "/ingest/itsm/{provider}/{id}"
+	if req.Provider == "" {
+		return nil, fmt.Errorf("provider is required")
+	}
+	path = strings.ReplaceAll(path, "{provider}", url.PathEscape(req.Provider))
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // RUM beacon ingest (S47b) — public-key routed

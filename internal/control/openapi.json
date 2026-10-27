@@ -9579,6 +9579,146 @@
           }
         }
       }
+    },
+    "/ingest/itsm/{provider}/{id}": {
+      "post": {
+        "operationId": "ingestITSMStatus",
+        "summary": "Synchronize incident status from an authenticated on-call or ITSM webhook",
+        "tags": [
+          "oncall"
+        ],
+        "description": "Authenticates each delivery with a configured webhook credential; session cookies and API bearer tokens do not authorize this endpoint. The credential id and provider bind the tenant before lookup. A valid signature takes precedence over a token when both headers are present. HMAC-SHA256 covers the exact request bytes. The body is limited to 1 MiB. Native Jira and ServiceNow payloads and the portable external_ref/status payload are accepted. Resolved or closed status resolves an open linked incident and notifies other connectors without echoing to the origin. Unknown references, already-resolved incidents and non-resolution statuses are accepted no-ops; acknowledged status does not alter incident state. No telemetry from another tenant is returned.",
+        "security": [
+          {
+            "itsmSignature": []
+          },
+          {
+            "itsmToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pagerduty",
+                "opsgenie",
+                "slack",
+                "teams",
+                "servicenow",
+                "jira",
+                "psa"
+              ]
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Operator-configured webhook credential identifier; not a secret or tenant override.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ITSMPortableStatus"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ITSMJiraStatus"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ITSMServiceNowStatus"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Authenticated delivery processed; resolved is true only when an open linked incident changed state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "provider",
+                    "resolved"
+                  ],
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "resolved": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unreadable or unrecognized payload.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown credential, provider mismatch, missing or invalid authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credential tenant is suspended or offboarded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 1 MiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database unavailable or incident/audit persistence failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -9593,6 +9733,18 @@
         "type": "http",
         "scheme": "bearer",
         "description": "API/MCP access token minted by POST /v1/api-tokens, sent as Authorization: Bearer <token>. The token is bound to a tenant and user; the server resolves the tenant boundary first, then RBAC/ABAC, from the token. Programmatic clients (SDKs, CI, MCP) authenticate this way."
+      },
+      "itsmSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Probectl-Signature",
+        "description": "sha256=<hex HMAC-SHA256 of the exact body bytes under the configured inbound webhook secret>. Takes precedence over X-Probectl-Token when supplied. Tenant binding comes from the webhook credential id."
+      },
+      "itsmToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Probectl-Token",
+        "description": "Configured inbound webhook secret, compared in constant time over HTTPS. Alternative to a signature; never put the secret in the URL."
       }
     },
     "parameters": {
@@ -17069,6 +17221,81 @@
           "capabilities",
           "config"
         ]
+      },
+      "ITSMPortableStatus": {
+        "type": "object",
+        "required": [
+          "external_ref"
+        ],
+        "properties": {
+          "external_ref": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank tenant-scoped external reference recorded by the connector."
+          },
+          "status": {
+            "type": "string",
+            "description": "resolved or closed requests resolution; other or missing values are accepted no-ops."
+          }
+        }
+      },
+      "ITSMJiraStatus": {
+        "type": "object",
+        "required": [
+          "issue"
+        ],
+        "properties": {
+          "issue": {
+            "type": "object",
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "object",
+                    "properties": {
+                      "statusCategory": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "description": "done requests resolution; other or missing values are accepted no-ops."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ITSMServiceNowStatus": {
+        "type": "object",
+        "required": [
+          "sys_id"
+        ],
+        "properties": {
+          "sys_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "number": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "description": "6, 7, resolved or closed requests resolution; other or missing values are accepted no-ops."
+          }
+        }
       }
     }
   }

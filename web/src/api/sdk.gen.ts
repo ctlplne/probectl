@@ -1390,6 +1390,21 @@ export interface IRAttributionRevealRequest {
   reason: string
 }
 
+export interface ITSMJiraStatus {
+  issue: JsonObject
+}
+
+export interface ITSMPortableStatus {
+  external_ref: string
+  status?: string
+}
+
+export interface ITSMServiceNowStatus {
+  number?: string
+  state?: string
+  sys_id: string
+}
+
 export interface Incident {
   correlation_overrides?: IncidentCorrelationOverride[]
   id?: string
@@ -2038,6 +2053,14 @@ export interface GetHealthzRequest {
 }
 
 export type GetHealthzResponse = Health
+
+export interface IngestItsmStatusRequest {
+  provider: "pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira" | "psa"
+  id: string
+  body: JsonValue
+}
+
+export type IngestItsmStatusResponse = JsonObject
 
 export interface IngestRumBeaconRequest {
   body: JsonObject
@@ -3246,6 +3269,14 @@ export class ProbectlSDKClient {
     let path = "/healthz"
     const query = new URLSearchParams()
     return this.requestJSON<GetHealthzResponse>("GET", path, query, undefined)
+  }
+
+  async ingestItsmStatus(request: IngestItsmStatusRequest): Promise<IngestItsmStatusResponse> {
+    let path = "/ingest/itsm/{provider}/{id}"
+    path = path.replace("{provider}", encodeURIComponent(String(request.provider)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<IngestItsmStatusResponse>("POST", path, query, request.body)
   }
 
   async ingestRumBeacon(request: IngestRumBeaconRequest): Promise<IngestRumBeaconResponse> {
