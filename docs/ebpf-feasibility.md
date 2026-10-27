@@ -232,7 +232,8 @@ more brittle code path than the C-library case, with real Go-version sensitivity
 **The decisions for the L7/TLS layer:** ship the C-library uprobe path
 (OpenSSL/BoringSSL/GnuTLS) first; treat **Go-TLS as an explicitly-scoped,
 post-GA / out-of-scope-for-GA module** with a documented version-sensitivity
-matrix and separate tests; and for stripped/static binaries with no resolvable
+matrix and separate tests. Go's `crypto/tls` has no **plaintext L7** capture
+through these C-library uprobes. For stripped/static binaries with no resolvable
 symbols, mark live L7 coverage as **unavailable**. The beta has no live socket-layer
 fallback. Cleartext parser fixtures do not establish live capture coverage.
 
