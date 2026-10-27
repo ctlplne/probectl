@@ -148,7 +148,11 @@ func buildCoverageMatrix(
 		if !ok {
 			continue
 		}
-		group.evidenceIDs[candidate.AgentID] = struct{}{}
+		// Historical evidence still explains the last observation, but each
+		// vantage must be individually fresh to establish current redundancy.
+		if !result.ObservedAt.Before(now.Add(-time.Duration(group.item.StaleAfterSeconds) * time.Second)) {
+			group.evidenceIDs[candidate.AgentID] = struct{}{}
+		}
 		if group.item.LastEvidenceAt == nil || result.ObservedAt.After(*group.item.LastEvidenceAt) {
 			at := result.ObservedAt
 			group.item.LastEvidenceAt = &at
@@ -179,7 +183,7 @@ func buildCoverageMatrix(
 			item.AgentReadiness = "ready"
 		}
 		switch {
-		case item.IndependentVantageCount == 0:
+		case item.LastEvidenceAt == nil:
 			item.Status = "uncovered"
 		case item.LastEvidenceAt == nil ||
 			item.LastEvidenceAt.Before(now.Add(-time.Duration(item.StaleAfterSeconds)*time.Second)):

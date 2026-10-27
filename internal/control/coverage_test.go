@@ -524,3 +524,46 @@ func TestCoverageHistoricalEvidenceDoesNotImplyCurrentCapability(t *testing.T) {
 		t.Fatalf("historical execution receipt = %+v", got.ExecutionCadence)
 	}
 }
+
+func TestCoverageRedundancyRequiresIndividuallyFreshTenantEvidence(t *testing.T) {
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name   string
+		ages   []time.Duration
+		status string
+		count  int
+	}{
+		{"mixed", []time.Duration{time.Minute, 24 * time.Hour}, "non_redundant", 1},
+		{"fresh_pair", []time.Duration{time.Minute, 2 * time.Minute}, "covered", 2},
+		{"all_stale", []time.Duration{6 * time.Minute, 24 * time.Hour}, "stale", 0},
+		{"boundary", []time.Duration{time.Minute, 5 * time.Minute}, "covered", 2},
+		{"outside_boundary", []time.Duration{time.Minute, 5*time.Minute + time.Nanosecond}, "non_redundant", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			latest := NewLatestResults(20)
+			var candidates []store.CoverageCandidate
+			for i, age := range tc.ages {
+				agent := string(rune('a' + i))
+				candidates = append(candidates, store.CoverageCandidate{TestID: "same-test", ProbeFamily: "http", Target: "https://example.test", IntervalSeconds: 30, AgentID: agent, Region: "local", Site: "owned", AgentStatus: "online", LastSeenAt: &now})
+				latest.Record("tenant-a", ResultView{AgentID: agent, Type: "http", Target: "https://example.test", Attributes: map[string]string{"probectl.test.id": "same-test"}, ObservedAt: now.Add(-age)})
+				// Identical IDs in another tenant must not refresh stale local evidence.
+				latest.Record("tenant-b", ResultView{AgentID: agent, Type: "http", Target: "https://example.test", Attributes: map[string]string{"probectl.test.id": "same-test"}, ObservedAt: now})
+			}
+			recent, evicted := latest.RecentSnapshot("tenant-a")
+			items := buildCoverageMatrix(candidates, latest.List("tenant-a"), recent, evicted, true, now)
+			if len(items) != 1 {
+				t.Fatalf("items=%+v", items)
+			}
+			got := items[0]
+			if got.Status != tc.status || got.IndependentVantageCount != tc.count {
+				t.Fatalf("fresh redundancy: status=%s count=%d, want %s/%d", got.Status, got.IndependentVantageCount, tc.status, tc.count)
+			}
+			if got.LastEvidenceAt == nil || !got.LastEvidenceAt.Equal(now.Add(-tc.ages[0])) {
+				t.Fatalf("historical timestamp lost or foreign evidence used: %+v", got)
+			}
+			if (got.NextAction == nil) != (tc.status == "covered") {
+				t.Fatalf("next action does not match coverage: %+v", got)
+			}
+		})
+	}
+}

@@ -65,7 +65,7 @@ Targets → **Owned-vantage coverage** is the live, read-only coverage map. It i
 served by `GET /v1/coverage/vantages` (or
 `probectl coverage vantages --json`) and derives each row locally from the
 authenticated agent registry, enabled test definitions, and bounded latest
-result evidence. It answers three
+result evidence. It answers four
 questions:
 
 1. Which regions and sites have at least one enrolled canary agent?
@@ -83,7 +83,11 @@ remain `unknown`, and every source/entity safety-bound is reported as partial.
 
 The API and native table report `uncovered` when there is no evidence, `stale`
 after the larger of three test intervals or five minutes, `non_redundant` for
-one fresh independent agent, and `covered` for two or more. Agent readiness is a
+one fresh independent agent, and `covered` for two or more individually fresh
+agents. `independent_vantage_count` excludes older observations;
+`last_evidence_at` retains the newest historical timestamp even when all
+vantages are stale. A fresh result from one agent cannot refresh another
+agent’s old evidence. Agent readiness is a
 separate field, so an online agent cannot make missing result evidence look
 green. Filters are keyboard-accessible and every next action only opens the
 existing enrollment or test-authoring flow; it never mutates the fleet.

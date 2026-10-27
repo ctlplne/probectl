@@ -17606,7 +17606,7 @@
             "format": "date-time"
           },
           "independent_vantage_count": {
-            "description": "Owned agents with matching result evidence, including past execution after a capability change. Readiness is reported separately.",
+            "description": "Owned agents with matching result evidence individually within stale_after_seconds, including recent execution after a capability change. Older evidence remains in last_evidence_at but does not count toward current redundancy. Readiness is reported separately.",
             "type": "integer",
             "minimum": 0
           },
