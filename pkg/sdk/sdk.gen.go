@@ -84,7 +84,7 @@ func Float64(v float64) *float64 { return &v }
 // An ABAC policy evaluated after RBAC (deny-override).
 type ABACPolicy struct {
 	Effect     string            `json:"effect"`
-	Enabled    bool              `json:"enabled,omitempty"`
+	Enabled    *bool             `json:"enabled,omitempty"`
 	Id         string            `json:"id,omitempty"`
 	Name       string            `json:"name,omitempty"`
 	Permission string            `json:"permission"`
@@ -99,7 +99,7 @@ type ABACPolicyList struct {
 
 type AIAnswer struct {
 	Confidence           string                `json:"confidence"`
-	Degraded             bool                  `json:"degraded,omitempty"`
+	Degraded             *bool                 `json:"degraded,omitempty"`
 	Evidence             []AIEvidence          `json:"evidence"`
 	Findings             []AIFinding           `json:"findings"`
 	Id                   string                `json:"id"`
@@ -155,12 +155,12 @@ type AIInvestigationStep struct {
 	Goal          string            `json:"goal,omitempty"`
 	Limit         int               `json:"limit,omitempty"`
 	NodeId        string            `json:"node_id,omitempty"`
-	ReadOnly      bool              `json:"read_only,omitempty"`
+	ReadOnly      *bool             `json:"read_only,omitempty"`
 	Reason        string            `json:"reason,omitempty"`
 	Selector      map[string]string `json:"selector,omitempty"`
 	Status        string            `json:"status,omitempty"`
 	Step          int               `json:"step,omitempty"`
-	Truncated     bool              `json:"truncated,omitempty"`
+	Truncated     *bool             `json:"truncated,omitempty"`
 	WindowEnd     string            `json:"window_end,omitempty"`
 	WindowStart   string            `json:"window_start,omitempty"`
 }
@@ -214,7 +214,7 @@ type Agent struct {
 // The L7 capture posture an eBPF agent last reported over its mTLS channel (D-43). Absent for agents that never reported one. Every string came from the agent and was validated by the transport; consent_tenant is kept only when it equals the agent's own tenant (consent_mismatch records that it did not). The first consented report and every later mode change are in the tenant's audit chain as agent.l7_capture.posture.
 type AgentL7CapturePosture struct {
 	Active          bool     `json:"active"`
-	ConsentMismatch bool     `json:"consent_mismatch,omitempty"`
+	ConsentMismatch *bool    `json:"consent_mismatch,omitempty"`
 	ConsentTenant   string   `json:"consent_tenant,omitempty"`
 	EffectiveMode   string   `json:"effective_mode,omitempty"`
 	Enabled         bool     `json:"enabled"`
@@ -226,7 +226,7 @@ type AgentL7CapturePosture struct {
 }
 
 type AgentList struct {
-	AgentTransportRunning bool         `json:"agent_transport_running,omitempty"`
+	AgentTransportRunning *bool        `json:"agent_transport_running,omitempty"`
 	ControlVersion        string       `json:"control_version"`
 	Items                 []FleetAgent `json:"items"`
 	NextCursor            string       `json:"next_cursor,omitempty"`
@@ -300,7 +300,7 @@ type AlertList struct {
 type AlertRequest struct {
 	Channels        []ChannelSpec     `json:"channels,omitempty"`
 	Comparison      string            `json:"comparison,omitempty"`
-	Enabled         bool              `json:"enabled,omitempty"`
+	Enabled         *bool             `json:"enabled,omitempty"`
 	ForN            int               `json:"for_n,omitempty"`
 	Match           map[string]string `json:"match,omitempty"`
 	Metric          string            `json:"metric,omitempty"`
@@ -318,7 +318,7 @@ type AlertRule struct {
 	Channels        []ChannelSpec     `json:"channels,omitempty"`
 	Comparison      string            `json:"comparison,omitempty"`
 	CreatedAt       string            `json:"created_at,omitempty"`
-	Enabled         bool              `json:"enabled,omitempty"`
+	Enabled         *bool             `json:"enabled,omitempty"`
 	ForN            int               `json:"for_n,omitempty"`
 	Id              string            `json:"id,omitempty"`
 	Match           map[string]string `json:"match,omitempty"`
@@ -399,7 +399,7 @@ type BGPEvent struct {
 }
 
 type BGPEventList struct {
-	BgpRunning     bool       `json:"bgp_running,omitempty"`
+	BgpRunning     *bool      `json:"bgp_running,omitempty"`
 	EffectiveLimit int        `json:"effective_limit,omitempty"`
 	Items          []BGPEvent `json:"items,omitempty"`
 }
@@ -417,10 +417,10 @@ type ChangeCandidate struct {
 }
 
 type ChangeCandidateList struct {
-	CorrelationRunning bool              `json:"correlation_running,omitempty"`
+	CorrelationRunning *bool             `json:"correlation_running,omitempty"`
 	EffectiveLimit     int               `json:"effective_limit,omitempty"`
 	Items              []ChangeCandidate `json:"items,omitempty"`
-	Truncated          bool              `json:"truncated,omitempty"`
+	Truncated          *bool             `json:"truncated,omitempty"`
 }
 
 // A normalized tenant-scoped change event from a signed webhook or a content-free read-time projection.
@@ -440,11 +440,11 @@ type ChangeEvent struct {
 }
 
 type ChangeEventList struct {
-	ChangeIngestConfigured bool          `json:"change_ingest_configured,omitempty"`
-	ConfigArchiveRunning   bool          `json:"config_archive_running,omitempty"`
+	ChangeIngestConfigured *bool         `json:"change_ingest_configured,omitempty"`
+	ConfigArchiveRunning   *bool         `json:"config_archive_running,omitempty"`
 	EffectiveLimit         int           `json:"effective_limit,omitempty"`
 	Items                  []ChangeEvent `json:"items,omitempty"`
-	Truncated              bool          `json:"truncated,omitempty"`
+	Truncated              *bool         `json:"truncated,omitempty"`
 }
 
 type ChangeGenericEvent struct {
@@ -794,7 +794,7 @@ type DeviceConfigArchiveRequest struct {
 }
 
 type DeviceConfigList struct {
-	ArchiveRunning  bool                  `json:"archive_running,omitempty"`
+	ArchiveRunning  *bool                 `json:"archive_running,omitempty"`
 	EffectiveLimit  int                   `json:"effective_limit,omitempty"`
 	Items           []DeviceConfigVersion `json:"items,omitempty"`
 	RedactionPolicy string                `json:"redaction_policy,omitempty"`
@@ -805,7 +805,7 @@ type DeviceConfigVersion struct {
 	Content      string `json:"content,omitempty"`
 	ContentHash  string `json:"content_hash,omitempty"`
 	Device       string `json:"device,omitempty"`
-	Drifted      bool   `json:"drifted,omitempty"`
+	Drifted      *bool  `json:"drifted,omitempty"`
 	Id           string `json:"id,omitempty"`
 	ObservedAt   string `json:"observed_at,omitempty"`
 	PreviousHash string `json:"previous_hash,omitempty"`
@@ -853,9 +853,9 @@ type DeviceIdentityConflictResponse struct {
 	FilteredCount     int                      `json:"filtered_count,omitempty"`
 	Items             []DeviceIdentityConflict `json:"items"`
 	PartialReasons    []string                 `json:"partial_reasons"`
-	ResponseTruncated bool                     `json:"response_truncated,omitempty"`
+	ResponseTruncated *bool                    `json:"response_truncated,omitempty"`
 	StaleAfterSeconds int                      `json:"stale_after_seconds,omitempty"`
-	StoreTruncated    bool                     `json:"store_truncated,omitempty"`
+	StoreTruncated    *bool                    `json:"store_truncated,omitempty"`
 	TopologyRunning   bool                     `json:"topology_running"`
 	Truncated         bool                     `json:"truncated"`
 }
@@ -880,7 +880,7 @@ type DeviceInventoryList struct {
 	At              string            `json:"at,omitempty"`
 	EffectiveLimit  int               `json:"effective_limit,omitempty"`
 	Items           []DeviceInventory `json:"items,omitempty"`
-	TopologyRunning bool              `json:"topology_running,omitempty"`
+	TopologyRunning *bool             `json:"topology_running,omitempty"`
 }
 
 // Latest retained sample for one device/metric/interface series.
@@ -902,7 +902,7 @@ type DeviceMetricSummary struct {
 type DeviceMetricSummaryList struct {
 	EffectiveLimit int                   `json:"effective_limit,omitempty"`
 	Items          []DeviceMetricSummary `json:"items,omitempty"`
-	MetricsRunning bool                  `json:"metrics_running,omitempty"`
+	MetricsRunning *bool                 `json:"metrics_running,omitempty"`
 	Source         string                `json:"source,omitempty"`
 }
 
@@ -958,7 +958,7 @@ type DeviceSyslogEvent struct {
 type DeviceSyslogList struct {
 	EffectiveLimit int                 `json:"effective_limit,omitempty"`
 	Items          []DeviceSyslogEvent `json:"items,omitempty"`
-	SyslogRunning  bool                `json:"syslog_running,omitempty"`
+	SyslogRunning  *bool               `json:"syslog_running,omitempty"`
 }
 
 type DeviceSyslogRequest struct {
@@ -988,7 +988,7 @@ type DeviceTrap struct {
 	TrapOid           string              `json:"trap_oid"`
 	UptimeTicks       int                 `json:"uptime_ticks,omitempty"`
 	Varbinds          []DeviceTrapVarBind `json:"varbinds"`
-	VarbindsTruncated bool                `json:"varbinds_truncated,omitempty"`
+	VarbindsTruncated *bool               `json:"varbinds_truncated,omitempty"`
 	Version           string              `json:"version"`
 }
 
@@ -1013,7 +1013,7 @@ type DirectoryRole struct {
 	CreatedAt   string   `json:"created_at,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Id          string   `json:"id"`
-	IsSystem    bool     `json:"is_system,omitempty"`
+	IsSystem    *bool    `json:"is_system,omitempty"`
 	Members     int      `json:"members"`
 	Name        string   `json:"name"`
 	Permissions []string `json:"permissions"`
@@ -1095,7 +1095,7 @@ type EBPFServiceEdge struct {
 }
 
 type EBPFServiceMap struct {
-	EbpfRunning    bool              `json:"ebpf_running,omitempty"`
+	EbpfRunning    *bool             `json:"ebpf_running,omitempty"`
 	EffectiveLimit int               `json:"effective_limit,omitempty"`
 	Items          []EBPFServiceEdge `json:"items,omitempty"`
 	Source         string            `json:"source,omitempty"`
@@ -1142,7 +1142,7 @@ type ExplorerAlignmentExecutionReceipt struct {
 type ExplorerColumn struct {
 	Key     string `json:"key"`
 	Label   string `json:"label"`
-	Numeric bool   `json:"numeric,omitempty"`
+	Numeric *bool  `json:"numeric,omitempty"`
 }
 
 // Two tenant-scoped logical receipts plus the bounded local alignment stage.
@@ -1334,12 +1334,12 @@ type FlowAnomaly struct {
 }
 
 type FlowAnomalyList struct {
-	IngestRunning bool          `json:"ingest_running,omitempty"`
+	IngestRunning *bool         `json:"ingest_running,omitempty"`
 	Items         []FlowAnomaly `json:"items,omitempty"`
 }
 
 type FlowCapacityList struct {
-	IngestRunning bool                `json:"ingest_running,omitempty"`
+	IngestRunning *bool               `json:"ingest_running,omitempty"`
 	Items         []FlowCapacityPoint `json:"items,omitempty"`
 }
 
@@ -1404,7 +1404,7 @@ type FlowTopList struct {
 	Bucket         string            `json:"bucket,omitempty"`
 	EffectiveLimit int               `json:"effective_limit,omitempty"`
 	Filters        []FlowFilter      `json:"filters,omitempty"`
-	IngestRunning  bool              `json:"ingest_running,omitempty"`
+	IngestRunning  *bool             `json:"ingest_running,omitempty"`
 	Items          []FlowTopRow      `json:"items,omitempty"`
 	Series         []FlowSeriesPoint `json:"series,omitempty"`
 	SeriesLimit    int               `json:"series_limit,omitempty"`
@@ -1436,7 +1436,7 @@ type HealthCheck struct {
 type HealthStatus string
 
 type Hierarchy struct {
-	CanCreateOrganization bool                    `json:"can_create_organization,omitempty"`
+	CanCreateOrganization *bool                   `json:"can_create_organization,omitempty"`
 	Items                 []HierarchyOrganization `json:"items"`
 }
 
@@ -1446,7 +1446,7 @@ type HierarchyCreate struct {
 }
 
 type HierarchyOrganization struct {
-	CanCreateTeam bool            `json:"can_create_team,omitempty"`
+	CanCreateTeam *bool           `json:"can_create_team,omitempty"`
 	CreatedAt     string          `json:"created_at"`
 	Id            string          `json:"id"`
 	Name          string          `json:"name"`
@@ -1476,7 +1476,7 @@ type HierarchyProject struct {
 }
 
 type HierarchyTeam struct {
-	CanCreateProject bool               `json:"can_create_project,omitempty"`
+	CanCreateProject *bool              `json:"can_create_project,omitempty"`
 	CreatedAt        string             `json:"created_at"`
 	Id               string             `json:"id"`
 	Name             string             `json:"name"`
@@ -1565,7 +1565,7 @@ type Incident struct {
 	SignalCount          int                           `json:"signal_count,omitempty"`
 	Signals              []Signal                      `json:"signals,omitempty"`
 	SignalsLimit         int                           `json:"signals_limit,omitempty"`
-	SignalsTruncated     bool                          `json:"signals_truncated,omitempty"`
+	SignalsTruncated     *bool                         `json:"signals_truncated,omitempty"`
 	StartedAt            string                        `json:"started_at,omitempty"`
 	Status               string                        `json:"status,omitempty"`
 	Target               string                        `json:"target,omitempty"`
@@ -1654,10 +1654,10 @@ type IncidentJournalList struct {
 }
 
 type IncidentList struct {
-	CorrelationRunning bool       `json:"correlation_running,omitempty"`
+	CorrelationRunning *bool      `json:"correlation_running,omitempty"`
 	EffectiveLimit     int        `json:"effective_limit,omitempty"`
 	Items              []Incident `json:"items,omitempty"`
-	Truncated          bool       `json:"truncated,omitempty"`
+	Truncated          *bool      `json:"truncated,omitempty"`
 }
 
 type IncidentPatch struct {
@@ -1799,19 +1799,19 @@ type Link struct {
 }
 
 type MPLSLabel struct {
-	Label int  `json:"label,omitempty"`
-	S     bool `json:"s,omitempty"`
-	Tc    int  `json:"tc,omitempty"`
-	Ttl   int  `json:"ttl,omitempty"`
+	Label int   `json:"label,omitempty"`
+	S     *bool `json:"s,omitempty"`
+	Tc    int   `json:"tc,omitempty"`
+	Ttl   int   `json:"ttl,omitempty"`
 }
 
 // The authenticated caller: the resolved tenant (always present), identity, and the effective RBAC permission keys within that tenant.
 type Me struct {
 	DisplayName     string   `json:"display_name,omitempty"`
 	Email           string   `json:"email,omitempty"`
-	HasScopedGrants bool     `json:"has_scoped_grants,omitempty"`
+	HasScopedGrants *bool    `json:"has_scoped_grants,omitempty"`
 	Locale          string   `json:"locale,omitempty"`
-	MfaSatisfied    bool     `json:"mfa_satisfied,omitempty"`
+	MfaSatisfied    *bool    `json:"mfa_satisfied,omitempty"`
 	Permissions     []string `json:"permissions"`
 	TenantId        string   `json:"tenant_id"`
 	TenantLocale    string   `json:"tenant_locale,omitempty"`
@@ -1888,7 +1888,7 @@ type OncallTestResponse struct {
 
 // A merged, multi-path traceroute result.
 type Path struct {
-	DestinationReached  bool                     `json:"destination_reached,omitempty"`
+	DestinationReached  *bool                    `json:"destination_reached,omitempty"`
 	Hops                []Hop                    `json:"hops"`
 	Links               []Link                   `json:"links"`
 	MaxHops             int                      `json:"max_hops,omitempty"`
@@ -1982,7 +1982,7 @@ type RemediationProposal struct {
 }
 
 type RemediationProposalList struct {
-	ApprovalsEnabled bool                  `json:"approvals_enabled,omitempty"`
+	ApprovalsEnabled *bool                 `json:"approvals_enabled,omitempty"`
 	Items            []RemediationProposal `json:"items,omitempty"`
 }
 
@@ -2084,7 +2084,7 @@ type TenantIdPSettings struct {
 type TenantIdPSettingsInput struct {
 	ClientId     string          `json:"client_id"`
 	ClientSecret string          `json:"client_secret,omitempty"`
-	Enabled      bool            `json:"enabled,omitempty"`
+	Enabled      *bool           `json:"enabled,omitempty"`
 	Flags        map[string]bool `json:"flags,omitempty"`
 	Issuer       string          `json:"issuer"`
 	RedirectUrl  string          `json:"redirect_url"`
@@ -2107,7 +2107,7 @@ type TenantKeyList struct {
 type Test struct {
 	Config          map[string]any    `json:"config,omitempty"`
 	CreatedAt       string            `json:"created_at"`
-	Enabled         bool              `json:"enabled,omitempty"`
+	Enabled         *bool             `json:"enabled,omitempty"`
 	Id              string            `json:"id"`
 	IntervalSeconds int               `json:"interval_seconds,omitempty"`
 	Name            string            `json:"name"`
@@ -2132,7 +2132,7 @@ type TestProposal struct {
 
 // The mutable fields of a synthetic test.
 type TestRequest struct {
-	Enabled         bool              `json:"enabled,omitempty"`
+	Enabled         *bool             `json:"enabled,omitempty"`
 	IntervalSeconds int               `json:"interval_seconds,omitempty"`
 	Name            string            `json:"name"`
 	Params          map[string]string `json:"params,omitempty"`
@@ -2142,7 +2142,7 @@ type TestRequest struct {
 }
 
 type TestSpec struct {
-	Enabled         bool              `json:"enabled,omitempty"`
+	Enabled         *bool             `json:"enabled,omitempty"`
 	IntervalSeconds int               `json:"interval_seconds,omitempty"`
 	Name            string            `json:"name,omitempty"`
 	Params          map[string]string `json:"params,omitempty"`
@@ -2154,7 +2154,7 @@ type TestSpec struct {
 type ThreatRule struct {
 	BaseConfidence int                 `json:"base_confidence,omitempty"`
 	Description    string              `json:"description,omitempty"`
-	Enabled        bool                `json:"enabled,omitempty"`
+	Enabled        *bool               `json:"enabled,omitempty"`
 	Id             string              `json:"id,omitempty"`
 	Kind           string              `json:"kind,omitempty"`
 	Lists          map[string][]string `json:"lists,omitempty"`
@@ -2168,7 +2168,7 @@ type ThreatRule struct {
 type ThreatRuleList struct {
 	OverlayDir   string       `json:"overlay_dir,omitempty"`
 	Rules        []ThreatRule `json:"rules,omitempty"`
-	RulesRunning bool         `json:"rules_running,omitempty"`
+	RulesRunning *bool        `json:"rules_running,omitempty"`
 }
 
 type Version struct {

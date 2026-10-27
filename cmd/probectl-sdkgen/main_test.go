@@ -7,12 +7,30 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+func TestOptionalBooleanPreservesExplicitFalse(t *testing.T) {
+	g := generator{doc: &document{Components: components{Schemas: map[string]*schema{
+		"Options": {Type: "object", Properties: map[string]*schema{
+			"enabled":  {Type: "boolean"},
+			"required": {Type: "boolean"},
+			"nullable": {Type: []any{"boolean", "null"}},
+		}, Required: []string{"required"}},
+	}}}}
+	var b bytes.Buffer
+	g.writeGoModels(&b)
+	for _, want := range []string{"Enabled *bool `json:\"enabled,omitempty\"`", "Required bool `json:\"required\"`", "Nullable *bool `json:\"nullable,omitempty\"`"} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("generated model missing %s:\n%s", want, b.String())
+		}
+	}
+}
 
 func TestNullableScalarTypes(t *testing.T) {
 	g := generator{}

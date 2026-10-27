@@ -542,7 +542,14 @@ func (g generator) writeGoModels(b *bytes.Buffer) {
 		fmt.Fprintf(b, "%stype %s struct {\n", commentLine(s.Description), name)
 		for _, prop := range sortedKeys(props) {
 			requiredProp := requiredList(required, prop)
-			fmt.Fprintf(b, "\t%s %s %s\n", exportedName(prop), g.goType(props[prop]), jsonTag(prop, requiredProp))
+			fieldType := g.goType(props[prop])
+			// Optional booleans have three states: absent, false and true.
+			// A plain bool with omitempty loses an explicit false, allowing
+			// server defaults (including enabled=true) to change its meaning.
+			if !requiredProp && fieldType == "bool" {
+				fieldType = "*bool"
+			}
+			fmt.Fprintf(b, "\t%s %s %s\n", exportedName(prop), fieldType, jsonTag(prop, requiredProp))
 		}
 		b.WriteString("}\n\n")
 	}

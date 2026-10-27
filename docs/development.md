@@ -89,6 +89,14 @@ reach for most:
 | `make tools`                       | Install pinned dev tools (golangci-lint)                                                                                        |
 | `make ci`                          | `lint` + `test` + `test-isolation` + `completeness-gate` (the core gates locally)                                                |
 
+Generated Go SDK optional boolean fields use `*bool` to preserve three states:
+`nil` omits the field and lets the API apply its default, `sdk.Bool(false)` sends
+an explicit false, and `sdk.Bool(true)` sends true. For example, create a disabled
+test by setting `Enabled: sdk.Bool(false)` in `sdk.TestRequest`. Callers migrating
+from plain boolean fields must wrap assignments with `sdk.Bool`; when reading
+an optional boolean, check for nil before dereferencing it. Required booleans
+remain plain `bool`. This does not change the JSON API or TypeScript types.
+
 The central browser API client and generated TypeScript SDK buffer JSON only
 through `web/src/api/response.ts`: successful responses are capped at 32 MiB
 and error envelopes at 1 MiB, with the stream canceled on the first byte past
