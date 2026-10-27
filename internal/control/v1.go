@@ -229,6 +229,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/dashboard-manifests/import", s.handleImportDashboardManifest, permMetricsWrite},
 		{http.MethodGet, "/v1/dashboard-report-schedules", s.handleListReportSchedules, permMetricsRead},
 		{http.MethodPost, "/v1/dashboard-report-schedules", s.handleCreateReportSchedule, permMetricsWrite},
+		{http.MethodPatch, "/v1/dashboard-report-schedules/{id}", s.handleUpdateReportSchedule, permMetricsWrite},
 		// AUTHZ-28: generating a report PERSISTS an export artifact (auditFacetExport),
 		// so it is a write, not a read — a viewer with only metrics.read must not be able
 		// to persist unbounded artifacts (docs/guardrails.md G7-5).

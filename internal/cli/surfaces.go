@@ -180,6 +180,7 @@ var surfaceCommands = map[string]surfaceCommand{
 	"dashboard-report": {Name: "dashboard-report", Summary: "local dashboard report inbox", Ops: map[string]apiOp{
 		"schedules":       {Method: http.MethodGet, Path: "/v1/dashboard-report-schedules"},
 		"create-schedule": {Method: http.MethodPost, Path: "/v1/dashboard-report-schedules"},
+		"update-schedule": {Method: http.MethodPatch, Path: "/v1/dashboard-report-schedules/{id}", ArgName: "id"},
 		"generate":        {Method: http.MethodPost, Path: "/v1/dashboard-reports"},
 		"artifacts":       {Method: http.MethodGet, Path: "/v1/dashboard-report-artifacts"},
 		"download":        {Method: http.MethodGet, Path: "/v1/dashboard-report-artifacts/{id}", ArgName: "id", Description: "download one audited PDF or CSV artifact"},

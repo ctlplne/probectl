@@ -364,6 +364,7 @@ func TestCLIDashboardAndReportSurfacesMapEveryOperation(t *testing.T) {
 		"dashboard-report": {
 			"schedules":       {Method: http.MethodGet, Path: "/v1/dashboard-report-schedules"},
 			"create-schedule": {Method: http.MethodPost, Path: "/v1/dashboard-report-schedules"},
+			"update-schedule": {Method: http.MethodPatch, Path: "/v1/dashboard-report-schedules/{id}", ArgName: "id"},
 			"generate":        {Method: http.MethodPost, Path: "/v1/dashboard-reports"},
 			"artifacts":       {Method: http.MethodGet, Path: "/v1/dashboard-report-artifacts"},
 			"download":        {Method: http.MethodGet, Path: "/v1/dashboard-report-artifacts/{id}", ArgName: "id"},
@@ -1728,5 +1729,36 @@ func TestCLIAuditStreamsRenderTheirOwnColumns(t *testing.T) {
 	// The generic table is untouched for surfaces without declared columns.
 	if len(surfaceCommands["provider"].Ops["tenants"].Columns) != 0 {
 		t.Fatal("tenants must keep the generic id/name/status table")
+	}
+}
+
+func TestCLIDashboardSchedulePauseResume(t *testing.T) {
+	mux := http.NewServeMux()
+	var states []bool
+	mux.HandleFunc("PATCH /v1/dashboard-report-schedules/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") != "schedule/one" || r.Header.Get("X-Probectl-Tenant") != "tenant-a" {
+			t.Fatalf("unexpected identity: %s", r.URL.Path)
+		}
+		var body map[string]bool
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		enabled, ok := body["enabled"]
+		if !ok || len(body) != 1 {
+			t.Fatalf("unexpected body: %+v", body)
+		}
+		states = append(states, enabled)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "schedule/one", "enabled": enabled})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	for _, body := range []string{`{"enabled":false}`, `{"enabled":true}`} {
+		_, errs, code := run(t, srv, "--tenant", "tenant-a", "dashboard-report", "update-schedule", "schedule/one", "--body", body)
+		if code != 0 {
+			t.Fatalf("exit=%d: %s", code, errs)
+		}
+	}
+	if len(states) != 2 || states[0] || !states[1] {
+		t.Fatalf("states=%v", states)
 	}
 }

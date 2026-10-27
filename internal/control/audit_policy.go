@@ -228,6 +228,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/dashboard-manifests/import":           auditExplicit(auditFacetMutation, "dashboard.manifest_import"),
 	"GET /v1/dashboard-report-schedules":            auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/dashboard-report-schedules":           auditExplicit(auditFacetMutation, "dashboard.report_schedule"),
+	"PATCH /v1/dashboard-report-schedules/{id}":     auditExplicit(auditFacetMutation, "dashboard.report_schedule_update"),
 	"POST /v1/dashboard-reports":                    auditExplicit(auditFacetExport, "dashboard.report_export"),
 	"GET /v1/dashboard-report-artifacts":            auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/dashboard-report-artifacts/{id}":       auditExplicit(auditFacetExport, "dashboard.report_download"),

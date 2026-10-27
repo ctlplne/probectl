@@ -8,10 +8,13 @@ package control
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/store"
 )
 
@@ -188,5 +191,24 @@ func TestDashboardReportScheduleCadenceNeverReplaysMissedIntervals(t *testing.T)
 	}
 	if _, err := nextDashboardReportRun("hourly", now, now); err == nil {
 		t.Fatal("unsupported cadence must fail closed")
+	}
+}
+
+func TestReportScheduleUpdateRequiresExplicitBoolean(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		kind apierror.Kind
+	}{
+		{`{}`, apierror.KindValidation}, {`{"enabled":null}`, apierror.KindValidation},
+		{`{"enabled":"false"}`, apierror.KindBadRequest}, {`{"enabled":false,"tenant_id":"foreign"}`, apierror.KindBadRequest},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPatch, "/v1/dashboard-report-schedules/id", strings.NewReader(tc.body))
+			err := (&Server{}).handleUpdateReportSchedule(httptest.NewRecorder(), req)
+			apiErr, ok := apierror.As(err)
+			if !ok || apiErr.Kind != tc.kind {
+				t.Fatalf("error=%v, want kind %v", err, tc.kind)
+			}
+		})
 	}
 }

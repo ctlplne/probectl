@@ -74,6 +74,7 @@ checking RBAC. The browser never sends `tenant_id`.
 | `GET /v1/dashboards/{id}/manifest`        | `metrics.read`                   | Export a deterministic, redacted native JSON manifest       |
 | `POST /v1/dashboard-manifests/import`     | `metrics.write`                  | Preview or explicitly confirm a strictly validated import   |
 | `GET/POST /v1/dashboard-report-schedules` | `metrics.read` / `metrics.write` | Inspect configured destinations or create a schedule        |
+| `PATCH /v1/dashboard-report-schedules/{id}` | `metrics.write` | Pause/resume a caller-owned schedule; foreign IDs look missing |
 | `POST /v1/dashboard-reports`              | `metrics.write`                  | Generate (persist) a PDF/CSV artifact in the tenant inbox   |
 | `GET /v1/dashboard-report-artifacts`      | `metrics.read`                   | List artifact metadata without loading binary bodies        |
 | `GET /v1/dashboard-report-artifacts/{id}` | `metrics.read`                   | Audited artifact download                                   |
@@ -140,6 +141,15 @@ queries return metadata only; loading bytes is a separate audited action.
 
 Core ships one configured destination: `tenant-report-inbox`.
 
+Use **Pause** or **Resume** beside an owned schedule to control recurrence.
+The API accepts `PATCH /v1/dashboard-report-schedules/{id}` with
+`{"enabled":false}` or `{"enabled":true}`; the CLI equivalent is
+`probectl dashboard-report update-schedule <id> --body '{"enabled":false}'`.
+Only the owning user with `metrics.write` in the same tenant can change it.
+Pause stops future worker claims; a delivery already in progress may finish.
+Artifacts and audit history remain available. Resume keeps the existing next-run
+clock: an overdue schedule delivers once, then advances beyond the current time.
+
 - It is local PostgreSQL storage, not an email address or webhook.
 - `outbound_default` is always `false`.
 - An unknown destination fails validation; the scheduler never guesses an
@@ -169,6 +179,7 @@ The tenant hash chain records:
 - `dashboard.manifest_export`;
 - `dashboard.manifest_import` with `confirmed: false|true`;
 - `dashboard.report_schedule`;
+- `dashboard.report_schedule_update` with the new enabled state;
 - `dashboard.report_export`;
 - `dashboard.report_delivery` (actor `probectl-report-scheduler`);
 - `dashboard.report_download`.

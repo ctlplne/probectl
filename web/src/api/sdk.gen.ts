@@ -2448,6 +2448,13 @@ export interface CreateDashboardReportScheduleRequest {
 
 export type CreateDashboardReportScheduleResponse = DashboardReportSchedule
 
+export interface UpdateDashboardReportScheduleRequest {
+  id: string
+  body: JsonObject
+}
+
+export type UpdateDashboardReportScheduleResponse = DashboardReportSchedule
+
 export interface GenerateDashboardReportRequest {
   body: JsonObject
 }
@@ -3706,6 +3713,13 @@ export class ProbectlSDKClient {
     let path = "/v1/dashboard-report-schedules"
     const query = new URLSearchParams()
     return this.requestJSON<CreateDashboardReportScheduleResponse>("POST", path, query, request.body)
+  }
+
+  async updateDashboardReportSchedule(request: UpdateDashboardReportScheduleRequest): Promise<UpdateDashboardReportScheduleResponse> {
+    let path = "/v1/dashboard-report-schedules/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<UpdateDashboardReportScheduleResponse>("PATCH", path, query, request.body)
   }
 
   async generateDashboardReport(request: GenerateDashboardReportRequest): Promise<GenerateDashboardReportResponse> {

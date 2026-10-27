@@ -56,6 +56,18 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("create A schedule: %v", err)
 		}
+
+		if _, err := (DashboardReports{}).SetScheduleEnabled(ctx, sc, scheduleID, "bob", false); err == nil {
+			t.Fatal("non-owner changed schedule")
+		}
+		paused, err := (DashboardReports{}).SetScheduleEnabled(ctx, sc, scheduleID, "alice", false)
+		if err != nil || paused.Enabled {
+			t.Fatalf("owner pause=%+v/%v", paused, err)
+		}
+		resumed, err := (DashboardReports{}).SetScheduleEnabled(ctx, sc, scheduleID, "alice", true)
+		if err != nil || !resumed.Enabled || !resumed.NextRunAt.Equal(now.Add(time.Hour)) {
+			t.Fatalf("owner resume changed clock=%+v/%v", resumed, err)
+		}
 		if _, err := (DashboardReports{}).CreateArtifact(ctx, sc, ReportArtifactInput{
 			ID: "artifact-a", DashboardID: view.ID, ScheduleID: &scheduleID,
 			Format: "csv", MediaType: "text/csv", Filename: "a.csv", Content: []byte("metric,value\n"),
@@ -90,6 +102,10 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 
 	inTenant(ctx, t, pool, tenantB.ID, func(ctx context.Context, sc tenancy.Scope) error {
 		for name, get := range map[string]func() error{
+			"schedule update": func() error {
+				_, err := (DashboardReports{}).SetScheduleEnabled(ctx, sc, "schedule-a", "alice", false)
+				return err
+			},
 			"view": func() error {
 				_, err := (DashboardReports{}).GetView(ctx, sc, "view-a", "alice")
 				return err

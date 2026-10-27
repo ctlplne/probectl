@@ -14,6 +14,7 @@ import {
   useImportDashboardManifest,
   useReportArtifacts,
   useReportSchedules,
+  useUpdateReportSchedule,
   type DashboardDefinition,
   type DashboardManifest,
   type DashboardManifestImportResponse,
@@ -43,6 +44,7 @@ export function DashboardReportingCard({
   const artifacts = useReportArtifacts()
   const createDashboard = useCreateDashboard()
   const createSchedule = useCreateReportSchedule()
+  const updateSchedule = useUpdateReportSchedule()
   const generateReport = useGenerateDashboardReport()
   const importDashboard = useImportDashboardManifest()
   const [name, setName] = useState('Cross-plane posture')
@@ -119,6 +121,21 @@ export function DashboardReportingCard({
       })
     } catch (error) {
       push({ tone: 'danger', title: 'Could not schedule report', message: String(error) })
+    }
+  }
+
+  async function setScheduleEnabled(id: string, enabled: boolean) {
+    try {
+      await updateSchedule.mutateAsync({ id, enabled })
+      push({
+        tone: 'success',
+        title: enabled ? 'Schedule resumed' : 'Schedule paused',
+        message: enabled
+          ? 'An overdue schedule delivers once on the next worker run.'
+          : 'Future deliveries are paused. A delivery already in progress may finish; saved artifacts remain available.',
+      })
+    } catch (error) {
+      push({ tone: 'danger', title: 'Could not update schedule', message: String(error) })
     }
   }
 
@@ -376,10 +393,24 @@ export function DashboardReportingCard({
                 <p className={styles.reportingEmpty}>No report schedules.</p>
               ) : (
                 <ul className={styles.compactList}>
-                  {schedules.data?.items.slice(0, 4).map((item) => (
+                  {schedules.data?.items.map((item) => (
                     <li key={item.id}>
                       <strong>{item.name}</strong> · {item.format.toUpperCase()} · {item.cadence} ·
-                      next <DateTime value={item.next_run_at} />
+                      {item.enabled ? (
+                        <>
+                          next <DateTime value={item.next_run_at} />
+                        </>
+                      ) : (
+                        <Badge tone="neutral">Paused</Badge>
+                      )}
+                      <Button
+                        variant="secondary"
+                        aria-label={`${item.enabled ? 'Pause' : 'Resume'} ${item.name}`}
+                        disabled={!canWrite || updateSchedule.isPending}
+                        onClick={() => void setScheduleEnabled(item.id, !item.enabled)}
+                      >
+                        {item.enabled ? 'Pause' : 'Resume'}
+                      </Button>
                     </li>
                   ))}
                 </ul>

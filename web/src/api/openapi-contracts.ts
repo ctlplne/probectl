@@ -358,6 +358,14 @@ export const API_CALL_CONTRACTS = [
     response: 'ReportSchedule',
     generated: 'CreateDashboardReportScheduleResponse',
   },
+
+  {
+    file: 'api/dashboardReporting.ts',
+    method: 'PATCH',
+    path: '`/dashboard-report-schedules/${encodeURIComponent(id)}`',
+    response: 'ReportSchedule',
+    generated: 'UpdateDashboardReportScheduleResponse',
+  },
   {
     file: 'api/dashboardReporting.ts',
     method: 'GET',

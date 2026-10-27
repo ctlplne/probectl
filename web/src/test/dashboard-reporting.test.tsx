@@ -311,3 +311,70 @@ describe('tenant-safe dashboard reporting', () => {
     expect(screen.queryByRole('alert', { name: /unavailable/i })).not.toBeInTheDocument()
   })
 })
+
+test.each([
+  { enabled: true, writable: true, failed: false },
+  { enabled: false, writable: true, failed: false },
+  { enabled: true, writable: false, failed: false },
+  { enabled: true, writable: true, failed: true },
+])(
+  'schedule lifecycle preserves authority and confirmed state: %j',
+  async ({ enabled, writable, failed }) => {
+    const fallback = defaultFetch()
+    let current = enabled
+    const mutations: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = pathOf(input)
+        if (path === '/v1/dashboard-report-schedules')
+          return jsonResponse({
+            items: Array.from({ length: 5 }, (_, i) => ({
+              id: `schedule-${i}`,
+              name: `Owned schedule ${i}`,
+              format: 'csv',
+              cadence: 'weekly',
+              enabled: current,
+              next_run_at: '2026-07-21T12:00:00Z',
+            })),
+            destinations: [],
+            outbound_default: false,
+          })
+        if (path === '/v1/dashboard-report-schedules/schedule-4' && init?.method === 'PATCH') {
+          const body = JSON.parse(String(init.body)) as { enabled: boolean }
+          mutations.push(body)
+          if (failed)
+            return jsonResponse(
+              { error: { code: 'internal', message: 'Schedule update failed' } },
+              500,
+            )
+          current = body.enabled
+          return jsonResponse({ id: 'schedule-4', enabled: current })
+        }
+        return fallback(input, init)
+      }),
+    )
+    renderApp('/dashboards', {
+      me: { permissions: writable ? ['metrics.read', 'metrics.write'] : ['metrics.read'] },
+    })
+    const label = `${enabled ? 'Pause' : 'Resume'} Owned schedule 4`
+    const button = await screen.findByRole('button', { name: label })
+    if (!writable) {
+      expect(button).toBeDisabled()
+      expect(mutations).toHaveLength(0)
+      return
+    }
+    await userEvent.click(button)
+    await waitFor(() => expect(mutations).toEqual([{ enabled: !enabled }]))
+    if (failed) {
+      expect(await screen.findByText(/Schedule update failed/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: label })).toBeEnabled()
+    } else {
+      expect(
+        await screen.findByRole('button', {
+          name: `${enabled ? 'Resume' : 'Pause'} Owned schedule 4`,
+        }),
+      ).toBeEnabled()
+    }
+  },
+)

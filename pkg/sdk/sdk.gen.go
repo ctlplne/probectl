@@ -3230,6 +3230,26 @@ func (c *Client) CreateDashboardReportSchedule(ctx context.Context, req CreateDa
 	return &out, nil
 }
 
+// Pause or resume a caller-owned report schedule
+type UpdateDashboardReportScheduleRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) UpdateDashboardReportSchedule(ctx context.Context, req UpdateDashboardReportScheduleRequest) (*DashboardReportSchedule, error) {
+	path := "/v1/dashboard-report-schedules/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out DashboardReportSchedule
+	if err := c.doJSON(ctx, http.MethodPatch, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Generate an audited PDF or CSV artifact in the tenant report inbox
 type GenerateDashboardReportRequest struct {
 	Body *map[string]any `json:"-"`

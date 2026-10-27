@@ -236,6 +236,20 @@ func (DashboardReports) ListSchedules(ctx context.Context, s tenancy.Scope, user
 	return out, rows.Err()
 }
 
+// SetScheduleEnabled changes only a caller-owned schedule within the tenant.
+// The UPDATE row lock serializes with worker claims; prior artifacts remain intact.
+func (DashboardReports) SetScheduleEnabled(ctx context.Context, s tenancy.Scope, id, ownerID string, enabled bool) (*ReportSchedule, error) {
+	var out ReportSchedule
+	err := scanReportSchedule(s.Q.QueryRow(ctx, `
+  UPDATE dashboard_report_schedules SET enabled = $4, updated_at = now()
+  WHERE tenant_id = $1 AND id = $2 AND owner_id = $3
+  RETURNING `+reportScheduleColumns, s.Tenant.String(), id, ownerID, enabled), &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ClaimDue returns at most limit schedules due in this tenant and row-locks
 // them until the caller atomically stores an artifact, advances next_run_at,
 // and appends the audit event.

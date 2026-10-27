@@ -9705,6 +9705,76 @@
         }
       }
     },
+    "/v1/dashboard-report-schedules/{id}": {
+      "patch": {
+        "x-required-permission": "metrics.write",
+        "operationId": "updateDashboardReportSchedule",
+        "summary": "Pause or resume a caller-owned report schedule",
+        "description": "Tenant and owner predicates are enforced in storage. Pausing prevents future claims; an already-claimed delivery may finish. Artifacts and audit history are preserved. Resuming an overdue schedule retains one-delivery catch-up.",
+        "tags": [
+          "dashboards"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated schedule, committed with its audit event.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardReportSchedule"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/dashboard-reports": {
       "post": {
         "x-required-permission": "metrics.write",

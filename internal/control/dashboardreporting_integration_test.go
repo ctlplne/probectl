@@ -74,11 +74,35 @@ func TestDashboardExportAuditAndTenantIsolation(t *testing.T) {
 	if schedule.Code != http.StatusCreated {
 		t.Fatalf("create schedule = %d: %s", schedule.Code, schedule.Body)
 	}
+	var createdSchedule store.ReportSchedule
+	if err := json.Unmarshal(schedule.Body.Bytes(), &createdSchedule); err != nil {
+		t.Fatal(err)
+	}
+	schedulePath := "/v1/dashboard-report-schedules/" + createdSchedule.ID
+	foreignUpdate := apiReq(t, h, http.MethodPatch, schedulePath, tenantB.ID, map[string]any{"enabled": false})
+	missingUpdate := apiReq(t, h, http.MethodPatch, "/v1/dashboard-report-schedules/missing", tenantB.ID, map[string]any{"enabled": false})
+	if foreignUpdate.Code != http.StatusNotFound || missingUpdate.Code != http.StatusNotFound || dashboardErrorShape(t, foreignUpdate) != dashboardErrorShape(t, missingUpdate) {
+		t.Fatalf("foreign/missing schedule update differ: %d/%d", foreignUpdate.Code, missingUpdate.Code)
+	}
+	paused := apiReq(t, h, http.MethodPatch, schedulePath, tenantA.ID, map[string]any{"enabled": false})
+	if paused.Code != http.StatusOK || !strings.Contains(paused.Body.String(), `"enabled":false`) {
+		t.Fatalf("pause=%d %s", paused.Code, paused.Body)
+	}
+
 	supervisor, ok := BuildDashboardReportSupervisor(db.Pool(), time.Minute, nil)
 	if !ok {
 		t.Fatal("dashboard report supervisor unavailable")
 	}
 	supervisor.now = func() time.Time { return now.Add(2 * time.Hour) }
+	supervisor.Tick(ctx)
+	pausedInbox := apiReq(t, h, http.MethodGet, "/v1/dashboard-report-artifacts", tenantA.ID, nil)
+	if pausedInbox.Code != http.StatusOK || !strings.Contains(pausedInbox.Body.String(), `"items":[]`) {
+		t.Fatalf("paused schedule delivered: %d %s", pausedInbox.Code, pausedInbox.Body)
+	}
+	resumed := apiReq(t, h, http.MethodPatch, schedulePath, tenantA.ID, map[string]any{"enabled": true})
+	if resumed.Code != http.StatusOK || !strings.Contains(resumed.Body.String(), `"enabled":true`) {
+		t.Fatalf("resume=%d %s", resumed.Code, resumed.Body)
+	}
 	supervisor.Tick(ctx)
 	inbox := apiReq(t, h, http.MethodGet, "/v1/dashboard-report-artifacts", tenantA.ID, nil)
 	if inbox.Code != http.StatusOK || !strings.Contains(inbox.Body.String(), `"schedule_id"`) || !strings.Contains(inbox.Body.String(), `"format":"pdf"`) {
@@ -119,7 +143,7 @@ func TestDashboardExportAuditAndTenantIsolation(t *testing.T) {
 	want := map[string]bool{
 		"dashboard.save": false, "dashboard.report_schedule": false,
 		"dashboard.report_export": false, "dashboard.report_download": false,
-		"dashboard.report_delivery": false,
+		"dashboard.report_delivery": false, "dashboard.report_schedule_update": false,
 	}
 	var page struct {
 		Items []struct {

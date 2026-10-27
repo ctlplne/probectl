@@ -566,6 +566,34 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 	return nil
 }
 
+func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		return err
+	}
+	if req.Enabled == nil {
+		return apierror.Validation("enabled must be a boolean")
+	}
+	var schedule *store.ReportSchedule
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		updated, err := (store.DashboardReports{}).SetScheduleEnabled(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.Enabled)
+		if err != nil {
+			return err
+		}
+		if err := s.recordAudit(ctx, sc, r, "dashboard.report_schedule_update", updated.ID, map[string]any{"enabled": updated.Enabled}); err != nil {
+			return err
+		}
+		schedule = updated
+		return nil
+	}); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, schedule)
+	return nil
+}
+
 func (s *Server) handleListReportSchedules(w http.ResponseWriter, r *http.Request) error {
 	var items []store.ReportSchedule
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {

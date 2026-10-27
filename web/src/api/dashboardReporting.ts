@@ -185,6 +185,19 @@ export function useCreateReportSchedule() {
   })
 }
 
+export function useUpdateReportSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      apiFetch<ReportSchedule>(
+        `/dashboard-report-schedules/${encodeURIComponent(id)}`,
+        jsonInit('PATCH', { enabled }),
+      ),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: ['dashboards', 'report-schedules'] }),
+  })
+}
+
 export function useReportArtifacts() {
   return useQuery({
     queryKey: ['dashboards', 'report-artifacts'],
