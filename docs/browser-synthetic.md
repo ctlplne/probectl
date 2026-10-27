@@ -230,7 +230,10 @@ immutable image digest, a Secret containing `agent.yml` plus the mTLS
 certificate/key/CA, and an explicit non-empty egress allow-list. Neither deploy
 renders a Service because the worker listens on nothing.
 
-CI also runs `scripts/check_browser_image.sh <built-image>` against the shipped
+CI also runs `scripts/check_browser_image.sh <local-image-tag> [platform]`. It
+builds the core browser-agent image from the checkout for the selected platform
+(default `linux/amd64`), then tests that local image with pulling disabled. A
+failed build stops the check before smoke execution. The check exercises the shipped
 image. It mounts only the smoke driver and exercises the image's own worker,
 timing helper, Node and Chromium: a successful local login, a failure screenshot,
 and private-target refusal. The container has no external network. This catches
