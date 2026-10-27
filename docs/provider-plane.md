@@ -325,3 +325,5 @@ the last five minutes. **Stale (>5m)** counts agents still marked online whose
 last heartbeat is older. An agent with no heartbeat timestamp contributes to the
 total but neither freshness count; registration alone never establishes online
 health. These remain per-tenant aggregates, not access to raw agent records.
+
+When offboarding races an existing API session’s cached lifecycle state, the durable database fence still refuses the request. A lifecycle-fenced audit or data write returns HTTP 403 `tenant_offboarded`, matching the early lifecycle gate; the request is not served and its audit is not deferred as a database failover event.
