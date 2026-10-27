@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import postcss, { type AcceptedPlugin } from 'postcss'
 import { expect, test } from 'vitest'
 
-async function compileTheme(candidates: string[] = []) {
+async function compileTheme(candidates: string[] = [], extraCSS = '') {
   const configPath = join(process.cwd(), 'postcss.config.js')
   const config = (await import(configPath)) as {
     default: { plugins: AcceptedPlugin[] | Record<string, Record<string, unknown>> }
@@ -28,7 +28,7 @@ async function compileTheme(candidates: string[] = []) {
       )
   const file = join(process.cwd(), 'src/styles/global.css')
   return postcss(plugins).process(
-    readFileSync(file, 'utf8') + `\n@source inline("${candidates.join(' ')}");\n`,
+    readFileSync(file, 'utf8') + `\n@source inline("${candidates.join(' ')}");\n${extraCSS}`,
     { from: file },
   )
 }
@@ -90,8 +90,9 @@ test('Tailwind 4 emits token-backed controls, opacity, motion and class-based da
   expect(
     declarations.get('.text-data')?.find((value) => value.startsWith('line-height:')),
   ).toContain('var(--line-height-data)')
-  expect(declarations.get('.bg-primary\\/90')?.join('\n')).toContain('var(--primary)')
-  expect(declarations.get('.bg-primary\\/90')?.join('\n')).toContain('color-mix(')
+  expect(declarations.get('.bg-primary\\/90')).toContain(
+    'background-color: hsl(var(--primary) / 90%)',
+  )
   expect(declarations.get('.dark\\:bg-card:where(.dark, .dark *)')).toContain(
     'background-color: hsl(var(--card))',
   )
@@ -99,6 +100,39 @@ test('Tailwind 4 emits token-backed controls, opacity, motion and class-based da
     'animation: panel-in var(--motion-base) var(--easing-emphasized) both',
   )
   expect(result.css).not.toContain('@tailwind ')
+}, 15_000)
+
+test('opacity compatibility preserves arbitrary mixes and variable percentages', async () => {
+  const values = [
+    'color-mix(in oklab, hsl(var(--primary)) 12.5%, transparent)',
+    'color-mix(in oklab, hsl(var(--primary)) 0%, transparent)',
+    'color-mix(in oklab, hsl(var(--primary)) 100%, transparent)',
+    'color-mix(in oklab, hsl(var(--primary)) 50%, hsl(var(--card)))',
+    'color-mix(in oklab, hsl(var(--primary)) var(--motion-fast), transparent)',
+    'color-mix(in srgb, hsl(var(--primary)) 50%, transparent)',
+  ]
+  const result = await compileTheme(
+    [],
+    values
+      .map((value, index) => `.opacity-case-${index} { background-color: ${value}; }`)
+      .join('\n'),
+  )
+  const actual: string[] = []
+  result.root.walkRules(/^\.opacity-case-/, (rule) => {
+    // Tailwind emits a legacy fallback before the modern declaration. Compare
+    // the last declaration, which wins in the browsers supported by this build.
+    let value = ''
+    rule.walkDecls('background-color', (declaration) => {
+      value = declaration.value
+    })
+    actual.push(value)
+  })
+  expect(actual).toEqual([
+    'hsl(var(--primary) / 12.5%)',
+    'hsl(var(--primary) / 0%)',
+    'hsl(var(--primary) / 100%)',
+    ...values.slice(3),
+  ])
 }, 15_000)
 
 test('keyboard focus remains above utility outline resets in the compiled cascade', async () => {

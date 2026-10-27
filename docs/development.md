@@ -27,7 +27,10 @@ with the digest-pinned build image, then prove a fresh `npm ci`. Semantic
 utilities live in `web/src/styles/theme.css` and resolve the runtime tokens in
 `tokens.css`; the reset and global element rules stay in the base cascade layer
 so component utilities can override them. The shared keyboard-focus rules stay
-unlayered so outline utilities cannot hide the focus indicator. Add custom class groups only through
+unlayered so outline utilities cannot hide the focus indicator. A narrow
+PostCSS transform emits literal semantic-token opacity tints as equivalent
+HSL alpha colors, which the pinned rendered contrast checker can measure;
+arbitrary color mixes remain unchanged. Add custom class groups only through
 `web/src/lib/cn.ts`. The CSS build regression and rendered accessibility gate
 cover both themes and preserve class-based dark mode and density controls.
 
