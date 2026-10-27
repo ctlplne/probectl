@@ -113,6 +113,85 @@ describe('structured and natural-language Explorer', () => {
     )
   })
 
+  test.each([false, true])(
+    'saves and restores comparison grammar (custom=%s) within store limits',
+    async (custom) => {
+      const user = userEvent.setup()
+      const base = defaultFetch()
+      const views: { id: string; name: string; filters: Record<string, string> }[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (pathOf(input) === '/v1/inventory/views') {
+            if (init?.method === 'POST') {
+              const body = JSON.parse(String(init.body))
+              if (Object.keys(body.filters).length > 12)
+                return jsonResponse(
+                  {
+                    error: {
+                      code: 'validation',
+                      message: 'inventory saved view: too many filters',
+                    },
+                  },
+                  422,
+                )
+              const view = { id: 'saved-comparison', ...body }
+              views.push(view)
+              return jsonResponse(view, 201)
+            }
+            return jsonResponse({ items: views })
+          }
+          return base(input, init)
+        }),
+      )
+      renderApp(
+        '/explore?template=service-dependencies&from=2026-07-14T11:00:00Z&to=2026-07-14T12:00:00Z&filter=from:as:10967&compare=1&previous_from=2026-07-14T10:00:00Z&previous_to=2026-07-14T11:00:00Z',
+        { me: { permissions: ['agent.write'] } },
+      )
+      await screen.findByRole('heading', { name: 'Explorer' })
+      if (custom) {
+        await user.selectOptions(screen.getByLabelText('Source / plane'), 'changes')
+        for (const [label, value] of [
+          ['Dimensions', 'source, target'],
+          ['Group by', 'source'],
+          ['Measures', 'events'],
+        ]) {
+          await user.clear(screen.getByLabelText(label))
+          await user.paste(value)
+        }
+        await user.selectOptions(screen.getByLabelText('Visualization'), 'table')
+        await user.selectOptions(screen.getByLabelText('Filter dimension'), 'source')
+        await user.clear(screen.getByLabelText('Filter exact value'))
+        await user.type(screen.getByLabelText('Filter exact value'), 'qa-deploy')
+      }
+      const before = Object.fromEntries(
+        [
+          'Source / plane',
+          'Dimensions',
+          'Group by',
+          'Measures',
+          'Visualization',
+          'From',
+          'To',
+          'Previous from',
+          'Previous to',
+          'Filter dimension',
+          'Filter exact value',
+        ].map((label) => [label, screen.getByLabelText<HTMLInputElement>(label).value]),
+      )
+      await user.type(screen.getByLabelText('View name'), 'Historical comparison')
+      await user.click(screen.getByRole('button', { name: 'Save view' }))
+      await waitFor(() => expect(views).toHaveLength(1))
+      expect(Object.keys(views[0].filters).length).toBeLessThanOrEqual(12)
+      await user.click(screen.getByRole('button', { name: 'Show top talkers by site' }))
+      await user.click(screen.getByRole('checkbox', { name: 'Compare with another period' }))
+      await user.selectOptions(screen.getByLabelText('Saved views'), 'saved-comparison')
+      expect(screen.getByRole('checkbox', { name: 'Compare with another period' })).toBeChecked()
+      for (const [label, value] of Object.entries(before))
+        expect(screen.getByLabelText(label)).toHaveValue(value)
+    },
+  )
+
   test('re-executes an explicit stable query after history or evidence return', async () => {
     const base = defaultFetch()
     const requests: unknown[] = []

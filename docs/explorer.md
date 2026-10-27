@@ -97,6 +97,11 @@ next key is the authenticated owner. A saved view contains grammar/filter choice
 opening it reruns the current tenant's telemetry query. A copied foreign view ID is
 indistinguishable from a missing ID (`404 saved view not found`).
 
+Saved views restore the source, dimensions, groupings, measures, visualization, exact filter,
+and absolute time bounds. A comparison also restores both previous-window bounds; those dates
+encode comparison mode within the existing 12-field saved-view limit. Loading a view restores
+the worksheet; choose **Run query** or **Compare periods** to fetch fresh authorized results.
+
 ## Context and evidence
 
 The stable view link contains the recipe, absolute UTC time range, exact filters, and—when

@@ -163,7 +163,8 @@ function savedState(query: ExplorerQuery, comparison: ComparisonWindow | null) {
     visualization: query.visualization,
     filter_key: firstFilter?.[0] ?? '',
     filter_value: firstFilter?.[1] ?? '',
-    compare: comparison ? '1' : '',
+    // The two previous bounds encode comparison mode without a redundant 13th
+    // field; inventory saved views deliberately allow at most 12 fields.
     previous_from: comparison?.from ?? '',
     previous_to: comparison?.to ?? '',
   }
@@ -538,15 +539,26 @@ export function ExplorerPage() {
     const base = template ? fromTemplate(template) : query
     const key = filters.filter_key ?? ''
     setFilterKey(key)
-    const next = {
+    const next: ExplorerQuery = {
       ...base,
+      template: filters.template || undefined,
+      source:
+        SOURCE_OPTIONS.find((option) => option.value === filters.source)?.value ?? base.source,
       from: filters.from ? absoluteTime(filters.from) : base.from,
       to: filters.to ? absoluteTime(filters.to) : base.to,
+      dimensions: csv(filters.dimensions ?? base.dimensions.join(',')),
+      groupings: csv(filters.groupings ?? ''),
+      measures: csv(filters.measures ?? base.measures.join(',')),
+      visualization: schema.data.visualizations.includes(
+        filters.visualization as ExplorerVisualization,
+      )
+        ? (filters.visualization as ExplorerVisualization)
+        : base.visualization,
       filters: key && filters.filter_value ? { [key]: filters.filter_value } : {},
     }
-    setQuery(next)
+    setQuery({ ...next, question: grammarQuestion(next) })
     setComparison(
-      filters.compare === '1'
+      filters.compare === '1' || (filters.previous_from && filters.previous_to)
         ? {
             from: filters.previous_from
               ? absoluteTime(filters.previous_from)
