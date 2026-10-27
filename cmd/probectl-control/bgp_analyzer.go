@@ -28,6 +28,7 @@ const maxAnalyzerConfigBytes = 1 << 20
 
 type bgpAnalyzerRuntime struct {
 	process   bgp.AnalyzerProcess
+	busMode   string
 	brokers   []string
 	security  bus.Security
 	logLevel  string
@@ -36,7 +37,7 @@ type bgpAnalyzerRuntime struct {
 
 // runBGPAnalyzer is the shipped sidecar entry point. The Python process reads
 // public BGP data and writes JSONL; this Go process is the tenant-bound trust
-// boundary that validates and republishes those events to Kafka.
+// boundary that validates and republishes those events to the configured durable bus.
 func runBGPAnalyzer(getenv func(string) string) error {
 	rt, err := loadBGPAnalyzerRuntime(getenv)
 	if err != nil {
@@ -45,7 +46,7 @@ func runBGPAnalyzer(getenv func(string) string) error {
 	log := logging.New(os.Stderr, rt.logLevel, rt.logFormat)
 	slog.SetDefault(log)
 
-	b, err := bus.New("kafka", rt.brokers, rt.security)
+	b, err := bus.New(rt.busMode, rt.brokers, rt.security)
 	if err != nil {
 		return fmt.Errorf("bgp analyzer bus: %w", err)
 	}
@@ -118,8 +119,9 @@ func loadBGPAnalyzerRuntime(getenv func(string) string) (bgpAnalyzerRuntime, err
 		}
 	}
 
-	if mode := strings.TrimSpace(getenv("PROBECTL_BUS_MODE")); mode != "kafka" {
-		return bgpAnalyzerRuntime{}, fmt.Errorf("PROBECTL_BUS_MODE must be kafka for the out-of-process analyzer bridge (got %q)", mode)
+	mode := strings.TrimSpace(getenv("PROBECTL_BUS_MODE"))
+	if mode != "kafka" && mode != "nats" {
+		return bgpAnalyzerRuntime{}, fmt.Errorf("PROBECTL_BUS_MODE must be kafka or nats for the out-of-process analyzer bridge (got %q)", mode)
 	}
 	brokers := splitNonEmpty(getenv("PROBECTL_BUS_BROKERS"))
 	if len(brokers) == 0 {
@@ -144,6 +146,7 @@ func loadBGPAnalyzerRuntime(getenv func(string) string) (bgpAnalyzerRuntime, err
 			Env:          analyzerSubprocessEnv(getenv),
 			Restart:      restart,
 		},
+		busMode:   mode,
 		brokers:   brokers,
 		security:  bus.SecurityFromEnv(getenv, "PROBECTL_BUS"),
 		logLevel:  level,

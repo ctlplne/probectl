@@ -139,7 +139,7 @@ origin, AS path, the collector that saw it and the RPKI verdict, newest first,
 above the routing graph (DPR-293). `probectl bgp events` prints it for scripts.
 
 Run the public-collector analyzer through its shipped tenant-bound bridge (the
-sidecar is opt-in and needs the same TLS Kafka settings as the control plane):
+sidecar is opt-in and needs the same TLS Kafka or NATS settings as the control plane):
 
 ```sh
 PROBECTL_BGP_ANALYZER_CONFIG=/etc/probectl/bgp/analyzer.json \
@@ -151,6 +151,12 @@ PROBECTL_BUS_BROKERS=kafka-1:9093 \
 PROBECTL_BUS_TLS_ENABLED=true \
   probectl-control bgp-analyzer
 ```
+
+For a durable lightweight deployment, set `PROBECTL_BUS_MODE=nats` and
+`PROBECTL_BUS_BROKERS=tls://nats:4222`, with the deployment's bus CA and
+authentication settings. The bridge uses the existing JetStream transport;
+`memory` is refused because separate processes cannot share an in-process bus.
+The tenant lane is required in strict-lane deployments with either transport.
 
 The Go supervisor treats the JSON config's `tenant_id` as the trusted binding,
 rejects a Python payload that claims any other tenant, and only then publishes

@@ -1105,7 +1105,7 @@ than breaking the plane.
 RouteViews/RIS are open data — their AUP/provenance matters for MSP/commercial
 resale, not for private development or single-tenant OSS use.
 
-The sidecar is off by default and requires Kafka because a separate process
+The sidecar is off by default and requires Kafka or durable NATS because a separate process
 cannot share the control plane's in-memory bus. It has no listener. Live mode
 restarts after crashes with exponential backoff capped at 30 seconds; finite
 MRT/replay jobs exit after one successful run. The child Python process does

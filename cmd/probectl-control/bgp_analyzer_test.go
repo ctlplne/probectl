@@ -123,3 +123,34 @@ func TestAnalyzerConfigTenantBoundsFile(t *testing.T) {
 		})
 	}
 }
+
+func TestBGPAnalyzerSupportsDurableNATS(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "analyzer.json")
+	if err := os.WriteFile(configFile, []byte(`{"tenant_id":"tenant-a"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{
+		"PROBECTL_BGP_ANALYZER_CONFIG":        configFile,
+		"PROBECTL_BGP_ANALYZER_SOURCE":        "ris-live",
+		"PROBECTL_BGP_ANALYZER_BUS_NAMESPACE": "t-acme",
+		"PROBECTL_BUS_MODE":                   "nats",
+		"PROBECTL_BUS_BROKERS":                "tls://nats:4222",
+		"PROBECTL_BUS_TLS_ENABLED":            "true",
+		"PROBECTL_BUS_TLS_CA_FILE":            "/certs/ca.crt",
+		"PROBECTL_BUS_SASL_PASSWORD":          "not-for-python",
+	}
+	rt, err := loadBGPAnalyzerRuntime(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.busMode != "nats" || len(rt.brokers) != 1 || rt.brokers[0] != "tls://nats:4222" || !rt.security.TLSEnabled || rt.process.BusNamespace != "t-acme" {
+		t.Fatalf("incorrect NATS transport or lane: %+v", rt)
+	}
+	if strings.Contains(strings.Join(rt.process.Env, "\n"), "not-for-python") {
+		t.Fatal("bus credential leaked into Python")
+	}
+	env["PROBECTL_BUS_BROKERS"] = ""
+	if _, err = loadBGPAnalyzerRuntime(func(k string) string { return env[k] }); err == nil {
+		t.Fatal("NATS without broker accepted")
+	}
+}
