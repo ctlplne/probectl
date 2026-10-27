@@ -37,6 +37,7 @@ export function OutagesPage() {
   const eventColumns = useMemo(() => makeEventColumns(t), [t])
   const feedColumns = useMemo(() => makeFeedColumns(t), [t])
   const feedDegraded = data?.feeds?.some((feed) => feed.status === 'failed') ?? false
+  const sourcesDisabled = data?.feeds_enabled === false && data?.scope_resolution === false
   const lastSuccessfulIngest = latestTimestamp(
     data?.feeds?.flatMap((feed) => (feed.last_success ? [feed.last_success] : [])) ?? [],
   )
@@ -91,22 +92,34 @@ export function OutagesPage() {
               )}
               {(data.events?.length ?? 0) === 0 && (data.vantage_events?.length ?? 0) === 0 ? (
                 <HonestDataState
-                  state={classifySurfaceTruth({
-                    producerRunning: true,
-                    degraded: feedDegraded,
-                    quiet: !feedDegraded,
-                  })}
+                  state={
+                    sourcesDisabled
+                      ? 'blocked'
+                      : classifySurfaceTruth({
+                          producerRunning: true,
+                          degraded: feedDegraded,
+                          quiet: !feedDegraded,
+                        })
+                  }
                   icon="outage"
-                  title={t('outages.none.title')}
+                  title={t(
+                    sourcesDisabled ? 'outages.sourcesDisabled.title' : 'outages.none.title',
+                  )}
                   producer="Outage correlation service"
                   producerReadiness={
-                    feedDegraded
-                      ? 'Running, but at least one enabled feed reports failure'
-                      : 'Running; no outage events were returned for the observed window'
+                    sourcesDisabled
+                      ? t('outages.sourcesDisabled.readiness')
+                      : feedDegraded
+                        ? 'Running, but at least one enabled feed reports failure'
+                        : 'Running; no outage events were returned for the observed window'
                   }
                   lastSuccessfulIngest={lastSuccessfulIngest}
                   coverageLimitation={[
-                    data.feeds_enabled ? t('outages.none.feedsOn') : t('outages.none.feedsOff'),
+                    sourcesDisabled
+                      ? t('outages.sourcesDisabled.coverage')
+                      : data.feeds_enabled
+                        ? t('outages.none.feedsOn')
+                        : t('outages.none.feedsOff'),
                     ...(data.coverage_notes ?? []),
                   ].join(' ')}
                   action={

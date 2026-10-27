@@ -167,6 +167,31 @@ describe('outages / collective internet-outage view (S47a)', () => {
     expect(screen.getAllByText(/PROBECTL_OUTAGE_FEEDS_ENABLED/).length).toBeGreaterThan(0)
   })
 
+  test.each([
+    { feeds: false, scope: false, blocked: true },
+    { feeds: false, scope: true, blocked: false },
+    { feeds: true, scope: false, blocked: false },
+  ])('empty source readiness: feeds=$feeds scope=$scope', async ({ feeds, scope, blocked }) => {
+    vi.stubGlobal(
+      'fetch',
+      stubWith({
+        outage_running: true,
+        feeds_enabled: feeds,
+        scope_resolution: scope,
+        events: [],
+        vantage_events: [],
+      }),
+    )
+    renderApp('/outages')
+    if (blocked) {
+      expect(await screen.findByText('Outage detection not configured')).toBeInTheDocument()
+      expect(screen.queryByText('Quiet · producer is ready')).not.toBeInTheDocument()
+    } else {
+      expect(await screen.findByText('Quiet · producer is ready')).toBeInTheDocument()
+      expect(screen.queryByText('Outage detection not configured')).not.toBeInTheDocument()
+    }
+  })
+
   test('a11y: the outages page passes the axe baseline', async () => {
     vi.stubGlobal('fetch', stubWith(fixture()))
     const { container } = renderApp('/outages')

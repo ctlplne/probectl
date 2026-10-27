@@ -618,6 +618,11 @@ const en = {
   'outages.unwired.title': 'Outage view not wired',
   'outages.unwired.description':
     'The control plane started with the outage engine disabled (PROBECTL_OUTAGE_ENABLED).',
+  'outages.sourcesDisabled.title': 'Outage detection not configured',
+  'outages.sourcesDisabled.readiness':
+    'Engine running; public feeds and IP-to-scope enrichment are both disabled',
+  'outages.sourcesDisabled.coverage':
+    'No observation source is available. Configure IP-to-scope enrichment for your own vantage detection, or opt into an approved public feed. An empty view does not establish that the internet is healthy.',
   'outages.none.title': 'No outage signals',
   'outages.none.feedsOn':
     'No external events in the window and nothing detected from your vantage points.',
@@ -2097,6 +2102,11 @@ const es: Record<MessageKey, string> = {
   'outages.unwired.title': 'Vista de cortes no conectada',
   'outages.unwired.description':
     'El plano de control inicio con el motor de cortes desactivado (PROBECTL_OUTAGE_ENABLED).',
+  'outages.sourcesDisabled.title': 'Detección de cortes sin configurar',
+  'outages.sourcesDisabled.readiness':
+    'Motor en ejecución; las fuentes públicas y el enriquecimiento de IP a ámbito están desactivados',
+  'outages.sourcesDisabled.coverage':
+    'No hay ninguna fuente de observación disponible. Configura el enriquecimiento de IP a ámbito para detectar cortes desde tus puntos de observación, o activa una fuente pública aprobada. Una vista vacía no demuestra que internet funcione correctamente.',
   'outages.none.title': 'Sin senales de cortes',
   'outages.none.feedsOn':
     'No hay eventos externos en la ventana ni detecciones desde tus puntos de observacion.',
@@ -3542,6 +3552,11 @@ const ar: Record<MessageKey, string> = {
   'outages.unwired.title': 'عرض الانقطاعات غير موصول',
   'outages.unwired.description':
     'بدأ مستوى التحكم مع تعطيل محرك الانقطاعات (PROBECTL_OUTAGE_ENABLED).',
+  'outages.sourcesDisabled.title': 'لم يتم إعداد اكتشاف الانقطاعات',
+  'outages.sourcesDisabled.readiness':
+    'المحرك يعمل؛ المصادر العامة وإثراء عناوين IP لتحديد النطاق معطلان',
+  'outages.sourcesDisabled.coverage':
+    'لا يتوفر مصدر للمراقبة. اضبط إثراء عناوين IP لتحديد النطاق واكتشاف الانقطاعات من نقاط المراقبة لديك، أو فعّل مصدرًا عامًا معتمدًا. لا يثبت العرض الفارغ أن الإنترنت يعمل دون مشاكل.',
   'outages.none.title': 'لا توجد إشارات انقطاع',
   'outages.none.feedsOn': 'لا توجد أحداث خارجية ضمن النافذة ولا اكتشافات من نقاط المراقبة لديك.',
   'outages.none.feedsOff':

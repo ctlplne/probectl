@@ -78,6 +78,10 @@ Both are **signals** into the incident pipeline (plane `outage`, severity
 action: detection is a signal, not an IPS, so probectl never blocks traffic on
 the back of one.
 
+When both public feeds and scope resolution are disabled, the console reports
+**Outage detection not configured**, even if the local engine is running. An
+empty view in that state is unavailable coverage, not a quiet observed window.
+
 Scope resolution (peer IP → ASN / country) rides the open-data enricher, gated by
 `PROBECTL_FLOW_ENRICH_ASN`. Without it the external view still renders, and the
 response says plainly that vantage detection and correlation are off.
