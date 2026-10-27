@@ -5757,7 +5757,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The statuses.",
+            "description": "Tenant-scoped SLO statuses. HTTP target selectors match the server.address hostname, not the full URL displayed in result history; test_id selects an individual test on that host.",
             "content": {
               "application/json": {
                 "schema": {

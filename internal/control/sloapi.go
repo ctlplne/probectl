@@ -177,7 +177,18 @@ func (sc *SLOConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 	}
 	tenant := r.GetTenantId()
 	at := pipeline.ResultEventTime(&r, sc.receivedAt())
-	sigs := sc.engine.ObserveResult(tenant, r.GetCanaryType(), r.GetServerAddress(), r.GetAttributes()[otel.AttrTestID], r.GetSuccess(), at)
+	// HTTP result envelopes retain the redacted URL as their display target.
+	// SLO selectors use the documented server.address host, so a path or port
+	// must not silently prevent a hostname-based definition from receiving data.
+	target := r.GetServerAddress()
+	if r.GetCanaryType() == "http" {
+		if host := r.GetAttributes()[otel.AttrServerAddress]; host != "" {
+			target = host
+		} else {
+			target = pathHost(target)
+		}
+	}
+	sigs := sc.engine.ObserveResult(tenant, r.GetCanaryType(), target, r.GetAttributes()[otel.AttrTestID], r.GetSuccess(), at)
 	for _, sig := range sigs {
 		if sc.correlator != nil {
 			if _, err := sc.correlator.Ingest(ctx, sig); err != nil {

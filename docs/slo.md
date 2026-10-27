@@ -94,7 +94,10 @@ A few matching rules worth knowing:
   against one host (`/` and `/checkout`) are indistinguishable by target. Name
   the server test definition instead: `test_id: <id>` (the id the test receipt
   returns; results carry it as `probectl.test.id`) selects exactly that
-  definition, with or without a `target` (DPR-066).
+  definition, with or without a `target` (DPR-066). The collector prefers the
+  HTTP result’s `server.address` attribute, falling back to the hostname in
+  a URL-shaped result target for older producers. The URL shown in result
+  history is a display target; do not paste that full URL into this selector.
 - The `good` metric must declare `outcome: success`; `good` and `total` must
   share the same `target`/`test_id` (at least one non-empty) and the same
   `canary_type` — otherwise the ratio would compare two different things.
