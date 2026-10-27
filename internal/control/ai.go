@@ -278,7 +278,15 @@ type incidentEntitiesSource struct{ pool *pgxpool.Pool }
 func (s incidentEntitiesSource) QueryEntities(ctx context.Context, tenant string, sel map[string]string, limit int) ([]ai.Row, error) {
 	var rows []ai.Row
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		incs, _, err := (store.Incidents{}).List(ctx, sc, store.DefaultIncidentListLimit)
+		// List is ordered by last activity and scoped by storage RLS. A latest
+		// request without another anchor needs only one incident, while the
+		// evidence limit still allows its cross-plane signals to be returned.
+		listLimit := store.DefaultIncidentListLimit
+		latest := sel["latest_incident"] == "true" && sel["incident_id"] == ""
+		if latest && sel["target"] == "" && sel["prefix"] == "" {
+			listLimit = 1
+		}
+		incs, _, err := (store.Incidents{}).List(ctx, sc, listLimit)
 		if err != nil {
 			return err
 		}
@@ -308,6 +316,9 @@ func (s incidentEntitiesSource) QueryEntities(ctx context.Context, tenant string
 					break
 				}
 				rows = append(rows, incidentSignalRow(inc.ID, j, sig))
+			}
+			if latest {
+				break
 			}
 		}
 		return nil

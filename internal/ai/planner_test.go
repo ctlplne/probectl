@@ -167,3 +167,30 @@ func TestSubjectURLIsReducedToItsHost(t *testing.T) {
 		}
 	}
 }
+
+func TestPlannerLatestIncidentPinsOneEntity(t *testing.T) {
+	for _, text := range []string{"What caused the latest incident?", "Explain the most recent incident"} {
+		queries := (HeuristicPlanner{}).Plan(Question{Text: text})
+		if len(queries) != 1 || queries[0].Domain != DomainEntities || queries[0].Selector["latest_incident"] != "true" {
+			t.Fatalf("latest incident must select one authorized incident, not tenant-wide evidence: %+v", queries)
+		}
+	}
+	explicit := (HeuristicPlanner{}).Plan(Question{Text: "What caused the latest incident?", Subject: map[string]string{"incident_id": "chosen"}})
+	if len(explicit) != 1 || explicit[0].Selector["incident_id"] != "chosen" || explicit[0].Selector["latest_incident"] != "" {
+		t.Fatalf("explicit incident must win: %+v", explicit)
+	}
+}
+
+func TestPlannerLatestIncidentPreservesOtherSubjects(t *testing.T) {
+	for _, q := range []Question{
+		{Text: "Show the latest incidents"},
+		{Text: "What caused the latest incident?", Subject: map[string]string{"target": "db-1"}},
+		{Text: "What caused the latest incident for 192.0.2.1?"},
+	} {
+		for _, query := range (HeuristicPlanner{}).Plan(q) {
+			if query.Selector["latest_incident"] != "" {
+				t.Fatalf("plural or anchored question must preserve its scope: %+v", query)
+			}
+		}
+	}
+}

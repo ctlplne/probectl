@@ -93,7 +93,11 @@ The four steps, and the guardrail each one buys you:
    "deploy"/"config" → change events; and so on). The planner is **probectl code,
    never the model** — so untrusted question text can't widen the query scope.
    Think of it as a switchboard with a fixed set of lines, not an operator who
-   can be sweet-talked into dialing anywhere. A vague question simply broadens
+   can be sweet-talked into dialing anywhere. The unanchored phrases "latest incident" and "most recent incident" select only
+   the caller’s most recently active incident and its correlated signals.
+   They do not gather unrelated tenant-wide changes or metrics; an explicit
+   subject takes precedence. No authorized incident yields insufficient evidence.
+   A vague question otherwise broadens
    across planes; a question with no anchor won't dump the whole topology graph
    (the live map of what connects to what).
 

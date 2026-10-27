@@ -2376,6 +2376,7 @@
         "x-required-permission": "ai.query",
         "operationId": "aiAsk",
         "summary": "Ask the AI assistant (cited, RBAC-scoped root-cause analysis)",
+        "description": "Unanchored latest incident or most recent incident questions use only the caller-authorized most recently active incident and its correlated signals. Explicit subjects take precedence. Missing or denied incident evidence never broadens into unrelated tenant-wide data.",
         "tags": [
           "ai"
         ],

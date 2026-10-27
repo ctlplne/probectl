@@ -265,3 +265,16 @@ func TestAnalyzeInsufficientAndNoTenant(t *testing.T) {
 		t.Errorf("tenantless principal must fail closed, got %v", err)
 	}
 }
+
+func TestAnalyzeLatestIncidentDoesNotFallbackToUnrelatedEvidence(t *testing.T) {
+	fs := fixtureSource{events: []Row{{"id": "unrelated", "plane": "change", "title": "Unrelated deployment"}}}
+	for _, perms := range [][]string{allReadPerms(), {PermEventsRead, PermMetricsRead}} {
+		ans, err := NewAnalyzer(engineWith(fs)).Analyze(context.Background(), principal("tenant-a", perms...), Question{Text: "What caused the latest incident?"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ans.InsufficientEvidence || len(ans.Evidence) != 0 {
+			t.Fatalf("missing or forbidden incident must not broaden: %+v", ans)
+		}
+	}
+}

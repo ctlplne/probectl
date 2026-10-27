@@ -273,3 +273,44 @@ func TestAIFeedbackRejectsForeignAnswerID(t *testing.T) {
 		t.Fatalf("feedback for a foreign answer_id: status %d, want 404 (RTA-04); body %s", rec.Code, rec.Body)
 	}
 }
+
+// CQA-080: latest means one incident in this tenant, including its signals,
+// never a global newest incident or an unrelated same-tenant event.
+func TestAIAskLatestIncidentTenantScope(t *testing.T) {
+	h, db := setupAPI(t)
+	ctx := context.Background()
+	c := BuildCorrelator(db.Pool(), time.Minute, quietLog())
+	now := time.Now().UTC()
+	tenants := []string{freshTenant(t, db, "latest-a"), freshTenant(t, db, "latest-b"), freshTenant(t, db, "latest-empty")}
+	for i, tenant := range tenants[:2] {
+		for j, suffix := range []string{"older", "latest"} {
+			_, err := c.Ingest(ctx, incident.Signal{TenantID: tenant, Plane: "network", Kind: "test.failure", Severity: incident.SeverityCritical, Title: fmt.Sprintf("tenant-%d-%s", i, suffix), Target: fmt.Sprintf("tenant-%d-%s.example.test", i, suffix), OccurredAt: now.Add(time.Duration(i*10+j-30) * time.Minute)})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		seedChange(t, db, tenant, change.Event{Source: "qa", Kind: change.Kind("config"), Title: "unrelated-newer-change", Target: "unrelated.example.test", OccurredAt: now})
+	}
+	for i, tenant := range tenants {
+		rec := apiReq(t, h, http.MethodPost, "/v1/ai/ask", tenant, map[string]any{"question": "What caused the latest incident?"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status%d: %s", rec.Code, rec.Body)
+		}
+		var ans aiAnswer
+		mustJSON(t, rec, &ans)
+		if i == 2 {
+			if len(ans.Evidence) != 0 || !ans.InsufficientEvidence {
+				t.Fatalf("empty tenant received evidence: %+v", ans)
+			}
+			continue
+		}
+		if len(ans.Evidence) != 2 {
+			t.Fatalf("want incident and its signal: %+v", ans)
+		}
+		for _, e := range ans.Evidence {
+			if e.Title != fmt.Sprintf("tenant-%d-latest", i) {
+				t.Fatalf("unrelated or foreign evidence: %+v", e)
+			}
+		}
+	}
+}

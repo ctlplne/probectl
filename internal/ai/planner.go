@@ -71,10 +71,11 @@ type Question struct {
 type HeuristicPlanner struct{}
 
 var (
-	reCIDR = regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}\b`)
-	reIP   = regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`)
-	reURL  = regexp.MustCompile(`https?://[^\s]+`)
-	reHost = regexp.MustCompile(`\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+\b`)
+	reLatestIncident = regexp.MustCompile(`\b(?:latest|most recent) incident\b`)
+	reCIDR           = regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}\b`)
+	reIP             = regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`)
+	reURL            = regexp.MustCompile(`https?://[^\s]+`)
+	reHost           = regexp.MustCompile(`\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+\b`)
 )
 
 // Plan extracts the subject + window, picks the relevant planes, and emits one
@@ -83,7 +84,15 @@ var (
 func (HeuristicPlanner) Plan(q Question) []Query {
 	subject := extractSubject(q)
 	r := planRange(q.Range)
-	want := selectDomains(strings.ToLower(q.Text))
+	text := strings.ToLower(q.Text)
+	want := selectDomains(text)
+	// Resolve the shipped latest-incident question within the authorized entity
+	// source, not by ranking unrelated tenant-wide changes or metrics.
+	if subject["incident_id"] == "" && subject["target"] == "" && subject["prefix"] == "" && subject["node"] == "" &&
+		reLatestIncident.MatchString(text) {
+		subject["latest_incident"] = "true"
+		want = map[Domain]bool{DomainEntities: true}
+	}
 	// A copied incident reference is an authorization-sensitive anchor. When it
 	// is the only anchor, resolve it solely through the tenant-scoped incident
 	// source; broad metrics/events reads could otherwise return unrelated
