@@ -39,6 +39,11 @@ here," and to say so out loud.
 
 ## Declaring policy
 
+Policy YAML is supported only in single-tenant deployments. The directory is
+deployment-wide: multi-tenant and regulated profiles refuse a configured
+`PROBECTL_COMPLIANCE_POLICY_DIR` at startup. Keep it unset in those profiles;
+an empty policy list is not evidence of compliant segmentation.
+
 Policies are YAML files in `PROBECTL_COMPLIANCE_POLICY_DIR`. They are validated
 **strictly** (unknown YAML fields are rejected via `KnownFields(true)`, so a
 typo like `birdirectional` is an error, not a silently ignored rule), and a

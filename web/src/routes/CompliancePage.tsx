@@ -23,6 +23,9 @@ import { useCompliance, type RuleResult, type Verdict } from '../api/compliance'
 import { apiURL } from '../api/client'
 import { DateTime } from '../time/DateTime'
 
+const policySetupGuidance =
+  'No declared-policy verdict is available. PROBECTL_COMPLIANCE_POLICY_DIR is single-tenant only; multi-tenant and regulated profiles refuse this setting at startup. Keep it unset in those profiles.'
+
 /** CompliancePage (S46): segmentation validation against OBSERVED traffic —
  * pass/fail per declared boundary, with the never-overclaim coverage block
  * and the audit-grade evidence export. */
@@ -101,7 +104,7 @@ export function CompliancePage() {
               producer="Compliance validator"
               producerReadiness="Server reports compliance_running=false"
               lastSuccessfulIngest={null}
-              coverageLimitation="No policy or observed-flow verdict exists until PROBECTL_COMPLIANCE_POLICY_DIR is configured."
+              coverageLimitation={policySetupGuidance}
               action={
                 <Button variant="secondary" onClick={() => void refetch()}>
                   Recheck validator status
@@ -116,7 +119,7 @@ export function CompliancePage() {
               producer="Compliance validator"
               producerReadiness="Ready; the server returned no declared policies"
               lastSuccessfulIngest={null}
-              coverageLimitation="Observed traffic cannot be evaluated until policy YAML is added to PROBECTL_COMPLIANCE_POLICY_DIR."
+              coverageLimitation={policySetupGuidance}
               action={
                 <Button variant="secondary" onClick={() => void refetch()}>
                   Recheck declared policies

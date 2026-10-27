@@ -134,6 +134,17 @@ describe('compliance / segmentation validation (S46)', () => {
     expect(screen.getByText(/PROBECTL_COMPLIANCE_POLICY_DIR/)).toBeInTheDocument()
   })
 
+  test.each([false, true])(
+    'policy setup preserves supported profile boundary (running=%s)',
+    async (running) => {
+      vi.stubGlobal('fetch', stubWith({ compliance_running: running, items: [] }))
+      renderApp('/compliance')
+      const guidance = await screen.findByText(/PROBECTL_COMPLIANCE_POLICY_DIR/)
+      expect(guidance).toHaveTextContent(/single-tenant only/i)
+      expect(guidance).toHaveTextContent(/multi-tenant and regulated profiles refuse/i)
+    },
+  )
+
   test('legacy null collections render the honest zero-policy state instead of a blank page', async () => {
     vi.stubGlobal(
       'fetch',
