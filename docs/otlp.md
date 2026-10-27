@@ -250,8 +250,34 @@ paths, so a stock **opentelemetry-collector** exports to it with the ordinary
    [`deploy/otel-collector/config.yaml`](../deploy/otel-collector/config.yaml):
    apps export to the Collector as usual; it batches and forwards
    metrics + traces + logs to probectl over TLS with the bearer token.
-3. Query them back, tenant-scoped: `GET /v1/otlp/traces` and `GET /v1/otlp/logs`
-   (and metrics via the unified metrics path).
+3. Query them back through the control-plane HTTPS API, using an ordinary
+   API credential with `metrics.read` in the same tenant. An OTLP ingest token
+   cannot authenticate these reads. Traces use `GET /v1/otlp/traces`; logs use
+   `GET /v1/otlp/logs`. Both accept `trace_id` and `service` filters.
+
+For metric readback, use `GET /v1/grafana/api/v1/query`. The stored gauge/sum
+name is `probectl_otlp_` followed by the incoming name, with each character
+outside ASCII letters, digits and underscores replaced by `_`. For example,
+`process.memory` becomes `probectl_otlp_process_memory`. The prefix is added
+even when the incoming name already starts with `probectl_`. Explicit-bucket
+histograms use the same normalized base with `_bucket`, `_sum` and `_count`
+suffixes. This conversion is implemented in `internal/pipeline/otlp.go` and
+`internal/pipeline/convert.go` and exercised by `TestOTLPPushIsConsumedAndQueryable`.
+
+```sh
+# CONTROL_URL is the control-plane HTTPS origin, not the OTLP receiver origin.
+# API_TOKEN is an ordinary tenant API token with metrics.read, not an ingest token.
+curl --fail --silent --show-error --cacert "$CA_FILE" \
+  -H "Authorization: Bearer $API_TOKEN" --get \
+  --data-urlencode 'query=probectl_otlp_process_memory' \
+  "$CONTROL_URL/v1/grafana/api/v1/query"
+```
+
+The query is forced to the authenticated tenant. If it returns an empty result,
+check the stored name and query time before resending: an instant query only
+shows samples inside the TSDB's lookback window. Use the API's `time` parameter
+for a known sample time, or `/v1/grafana/api/v1/query_range` with `start`, `end`
+and `step` for historical samples.
 
 The token determines the tenant: probectl verifies or stamps `probectl.tenant.id`
 server-side, so a mislabeled resource is rejected — never misfiled. The
