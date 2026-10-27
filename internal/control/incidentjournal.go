@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -245,14 +246,22 @@ func (s *Server) resolveIncidentJournalCitation(ctx context.Context, sc tenancy.
 		if evidence.ID != request.EvidenceID {
 			continue
 		}
-		occurredAt := evidence.OccurredAt
-		return &incidentJournalCitation{
-			ShareID: request.ShareID, EvidenceID: request.EvidenceID, State: "available",
-			Domain: string(evidence.Domain), Plane: evidence.Plane, Title: evidence.Title,
-			Summary: evidence.Summary, OccurredAt: &occurredAt, Ref: evidence.Ref,
-		}, nil
+		return journalCitationFromEvidence(request, evidence), nil
 	}
 	return nil, apierror.NotFound("cited incident evidence not found")
+}
+
+func journalCitationFromEvidence(request incidentJournalCitationRequest, evidence ai.Evidence) *incidentJournalCitation {
+	var occurredAt *time.Time
+	if !evidence.OccurredAt.IsZero() {
+		at := evidence.OccurredAt
+		occurredAt = &at
+	}
+	return &incidentJournalCitation{
+		ShareID: request.ShareID, EvidenceID: request.EvidenceID, State: "available",
+		Domain: string(evidence.Domain), Plane: evidence.Plane, Title: evidence.Title,
+		Summary: evidence.Summary, OccurredAt: occurredAt, Ref: evidence.Ref,
+	}
 }
 
 func (s *Server) incidentJournalExpiry(ctx context.Context, tenantID string) (time.Time, error) {

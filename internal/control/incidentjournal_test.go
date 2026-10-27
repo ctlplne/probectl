@@ -8,10 +8,12 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/tenantlife"
 )
 
@@ -66,5 +68,31 @@ func TestIncidentJournalExpiryUsesTenantObjectRetention(t *testing.T) {
 	}
 	if expires.Before(before.Add(23*time.Hour)) || expires.After(before.Add(25*time.Hour)) {
 		t.Fatalf("journal expiry = %v, want tenant-bounded one-day retention", expires)
+	}
+}
+
+func TestJournalCitationPreservesUnknownObservationTime(t *testing.T) {
+	for _, at := range []time.Time{{}, time.Date(2026, 10, 27, 3, 37, 0, 0, time.UTC)} {
+		evidence := ai.Evidence{ID: "topology-evidence", Domain: ai.DomainTopology, Plane: "topology", Title: "node", OccurredAt: at}
+		citation := journalCitationFromEvidence(incidentJournalCitationRequest{ShareID: "owned-share", EvidenceID: evidence.ID}, evidence)
+		raw, err := json.Marshal(citation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		value, present := fields["occurred_at"]
+		if at.IsZero() {
+			if present {
+				t.Fatalf("timeless evidence invents timestamp: %s", raw)
+			}
+		} else if !present || value != at.Format(time.RFC3339) {
+			t.Fatalf("recorded timestamp lost: %s", raw)
+		}
+		if citation.State != "available" || citation.EvidenceID != evidence.ID {
+			t.Fatalf("citation identity changed: %+v", citation)
+		}
 	}
 }

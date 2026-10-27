@@ -160,6 +160,10 @@ Resolving or reopening a live incident requires `incident.write`. Read-only
 viewers see disabled Resolve/Reopen controls and the required permission;
 the API independently enforces that permission for every status change.
 
+Journal citations omit `occurred_at` when the source has no observation time
+(for example, a topology node). The entry's creation time records when the
+operator wrote the checkpoint; it is not a substitute observation timestamp.
+
 The live room also contains a native **investigation journal**. Think of it as
 a tenant-owned lab notebook attached to one incident:
 
