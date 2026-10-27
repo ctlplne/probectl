@@ -43,7 +43,8 @@ attached, not a wall of red.
 
 The incident list combines Find, Status, and Severity filters. Editing one
 keeps the others selected, and spaces remain intact while typing a multiword
-search. The URL retains the selected filters for revisiting the view.
+search. Rapid keyboard edits retain every character without requiring pauses
+between keys. The URL retains the selected filters for revisiting the view.
 
 ## How it works
 

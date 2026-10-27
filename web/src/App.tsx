@@ -44,7 +44,9 @@ export function Providers({
 export function App() {
   return (
     <Providers>
-      <BrowserRouter basename="/ui">
+      {/* URL-backed controlled inputs need their value committed in the input
+          event; deferred navigation can restore the previous value between keys. */}
+      <BrowserRouter basename="/ui" useTransitions={false}>
         <AppRoutes />
       </BrowserRouter>
     </Providers>
