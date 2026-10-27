@@ -80,6 +80,28 @@ function stubExplain(response: unknown = groundedAnswer) {
 }
 
 describe('Explain this view', () => {
+  test('reader without ai.query sees the required permission and cannot submit', async () => {
+    const fallback = defaultFetch()
+    const asks: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) === '/v1/me') {
+          const response = await fallback(input, init)
+          return jsonResponse({ ...(await response.json()), permissions: ['incident.read'] })
+        }
+        if (pathOf(input) === '/v1/ai/ask') asks.push(String(init?.body))
+        return fallback(input, init)
+      }),
+    )
+    renderAt('/incidents')
+    const action = await screen.findByRole('button', { name: 'Explain this view' })
+    expect(action).toBeDisabled()
+    expect(screen.getByText(/ai.query is required to explain this view/i)).toBeInTheDocument()
+    await userEvent.click(action)
+    expect(asks).toHaveLength(0)
+  })
+
   test.each([
     ['/incidents', 'Incidents'],
     ['/path', 'Path'],

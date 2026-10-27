@@ -139,7 +139,9 @@ describe('J2 cited incident sharing', () => {
       }),
     )
 
-    const first = renderApp('/incidents?incident_status=open')
+    const first = renderApp('/incidents?incident_status=open', {
+      me: { permissions: ['incident.read', 'ai.query'] },
+    })
     const room = await screen.findByRole('region', {
       name: /unified five-plane incident room/i,
     })

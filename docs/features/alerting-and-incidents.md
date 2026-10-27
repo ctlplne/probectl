@@ -131,6 +131,10 @@ row in the inspector. The URL carries only bounded investigation context; it
 never carries a tenant identifier because the authenticated server session owns
 tenant scope.
 
+**Explain this view** requires `ai.query`. Viewers without that permission can
+read authorized incident evidence, but the explanation action is disabled and
+shows the required permission. Existing authorized snapshots remain readable.
+
 After a cited answer exists, **Copy cited share link** creates one fixed,
 redacted evidence snapshot. The snapshot preserves the absolute time window,
 filters, selected source row, exact citations, and the reasoning-provenance

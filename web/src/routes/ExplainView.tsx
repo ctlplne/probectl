@@ -15,6 +15,7 @@ import {
   type Evidence,
 } from '../api/ai'
 import { DateTime } from '../time/DateTime'
+import { useAuth } from '../auth/useAuth'
 import type { PivotContext } from './pivotContext'
 import { resolveClaims } from './explanationGrounding'
 import styles from './explainView.module.css'
@@ -79,11 +80,14 @@ export function ExplainView({
   initialAnswer,
 }: ExplainViewProps) {
   const ask = useAsk()
+  const { permissions } = useAuth()
+  const canExplain = permissions.includes('ai.query')
   const inspector = useRef<HTMLElement>(null)
   const rawDisplayedAnswer = ask.data ?? initialAnswer
   const displayedAnswer = rawDisplayedAnswer ? normalizeAnswer(rawDisplayedAnswer) : undefined
 
   function explain() {
+    if (!canExplain) return
     const range =
       pivotContext.from && pivotContext.to
         ? { start: pivotContext.from, end: pivotContext.to }
@@ -106,9 +110,14 @@ export function ExplainView({
   return (
     <div className={styles.explain}>
       {!initialAnswer ? (
-        <Button variant="secondary" onClick={explain} disabled={ask.isPending}>
-          {ask.isPending ? 'Explaining…' : 'Explain this view'}
-        </Button>
+        <>
+          <Button variant="secondary" onClick={explain} disabled={!canExplain || ask.isPending}>
+            {ask.isPending ? 'Explaining…' : 'Explain this view'}
+          </Button>
+          {!canExplain ? (
+            <p className={styles.insufficient}>ai.query is required to explain this view.</p>
+          ) : null}
+        </>
       ) : null}
       {ask.isError ? (
         <ErrorState description="This view could not be explained within your authorized scope." />

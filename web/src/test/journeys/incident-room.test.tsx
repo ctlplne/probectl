@@ -172,7 +172,7 @@ describe('J2 unified incident room', () => {
       }),
     )
 
-    renderApp('/incidents')
+    renderApp('/incidents', { me: { permissions: ['incident.read', 'ai.query'] } })
 
     const room = await screen.findByRole('region', {
       name: /unified five-plane incident room/i,

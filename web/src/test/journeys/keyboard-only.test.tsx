@@ -334,7 +334,9 @@ describe('J1-J6 keyboard-only completion', () => {
         return base(input, init)
       }),
     )
-    renderApp('/incidents?incident_status=open')
+    renderApp('/incidents?incident_status=open', {
+      me: { permissions: ['incident.read', 'ai.query'] },
+    })
     const room = await screen.findByRole('region', { name: /unified five-plane incident room/i })
 
     // J2's first keyboard action selects the signal directly on the incident

@@ -315,7 +315,9 @@ describe('unified incident room', () => {
       }),
     )
 
-    renderApp('/incidents')
+    renderApp('/incidents', {
+      me: { permissions: ['incident.read', 'ai.query', 'remediation.propose'] },
+    })
     await userEvent.click(
       await screen.findByRole('button', { name: /high loss to 192\.0\.2\.10/i }),
     )
