@@ -80,7 +80,7 @@ const PRD_ROW_SURFACE_PARITY: Array<{
   },
   {
     id: 'F11',
-    name: 'eBPF host/L7 agent',
+    name: 'eBPF host/L7 agent (L7 preview)',
     kind: 'native',
     route: '/planes/ebpf',
     evidence: ['openapi:/v1/ebpf/service-map', 'cli:probectl ebpf service-map'],

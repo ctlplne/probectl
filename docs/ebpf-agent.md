@@ -159,10 +159,14 @@ plus an `l7_*` rollup on the `ServiceEdge`. Parsing is pure Go and kernel-
 independent (`internal/ebpf/l7`), driven by the live capture layer in production
 and by an L7 fixture (`PROBECTL_EBPF_L7_FIXTURE_PATH`) in CI and demos.
 
-probectl gets the plaintext two ways:
+**Beta scope: L7 is preview.** Live capture is limited to consented TLS-library
+uprobes, with `metadata` redaction by default. Live socket-level cleartext
+capture is not shipped. Protocol parser fixtures can exercise cleartext messages;
+that does not prove a live capture path. Complete L7 5-tuple correlation and full
+HTTP/1 message coverage are outside beta scope and remain unverified. L3/L4 capture and its
+connection tuples are separate.
 
-- **Cleartext traffic:** parsed straight from socket reads/writes.
-- **TLS traffic:** the **TLS plaintext** — the readable bytes that exist inside
+**TLS traffic:** the **TLS plaintext** — the readable bytes that exist inside
   the application just before encryption and just after decryption — is captured
   via **uprobes** (user-space probes: breakpoint-like hooks placed on a named
   function in an ordinary program or library) on supported TLS library read/write
@@ -324,11 +328,11 @@ not papered over:
 | BoringSSL | same `SSL_*` API | ✅ if symbols resolvable / ⚠️ if stripped/static |
 | GnuTLS | `gnutls_record_send` / `gnutls_record_recv` | ✅ (attaches the same way) |
 | **Go `crypto/tls`** | no libssl — pure Go; `uretprobe` unsafe on Go | ⛔ **post-GA / out of scope for GA** (ret-offset disassembly + goroutine tracking — see [`ebpf-feasibility.md`](ebpf-feasibility.md)) |
-| Stripped / static, no symbols | — | ❌ socket-layer cleartext only |
+| Stripped / static, no symbols | — | ❌ no live L7 capture; L3/L4 only |
 
 Two limits carry over from the feasibility study: **stripped or statically-linked
-binaries** break uprobe symbol resolution (the agent falls back to socket
-cleartext for those), and **Go-encrypted** traffic needs its own capture path.
+binaries** without resolvable symbols have no live L7 capture, and
+**Go-encrypted** traffic needs its own capture path.
 
 ### Where the agent looks for those libraries (`l7_capture_host_root`)
 
@@ -1040,8 +1044,9 @@ See [`configuration.md`](configuration.md#ebpf-host-agent) for the full
 ## Scope and follow-ups
 
 In scope today: the agent, IPv4/IPv6 L3/L4 capture with byte/packet counters, the
-service map, **L7 parsing (HTTP/1.1+2, gRPC, DNS, Kafka) with TLS-uprobe plaintext
-capture**, OTel emit, and the kernel/uprobe matrix. On the consuming side, the
+service map, **preview L7 parsing (HTTP/1.1+2, gRPC, DNS, Kafka) with consented
+TLS-uprobe capture and metadata redaction by default**, OTel emit, and the
+kernel/uprobe matrix. On the consuming side, the
 control plane already drains `probectl.ebpf.flows` on three independent,
 tenant-verified consumer groups: the **topology** view (service edges feed the
 graph), **segmentation validation** (declared policy vs observed traffic), and

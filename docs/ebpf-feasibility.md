@@ -43,8 +43,8 @@ Three risks have to be **decided, not discovered**:
    — the function-name → address index — was removed to shrink the binary;
    *statically linked* means the TLS library was baked into the executable
    instead of loaded as a shared `libssl.so`. Either way, uprobe symbol
-   resolution fails without symbols. → socket-layer plaintext only for those;
-   document the gap per service.
+   resolution fails without symbols. → no live L7 capture for those; L3/L4
+   remains available. A socket-layer fallback is not shipped in the beta.
 
 None of these block L3/L4. Risks 1 and 3 are relevant only to the L7/TLS layer;
 the L4 capture path is unaffected by them.
@@ -208,7 +208,7 @@ exposes different symbols, so each needs its own attach.
 | **GnuTLS** | `gnutls_record_send` / `gnutls_record_recv` | dynamic `libgnutls.so` | ✅ |
 | **NSS/NSPR** | `PR_Write` / `PR_Read` | dynamic | feasible — **not shipped** (no NSS attach in the agent today) |
 | **Go `crypto/tls`** | **no libssl** — pure Go; `uretprobe` unsafe on Go | static in the app binary | ⚠️ **special case (below)** |
-| Stripped / static (no symbols) | n/a | symbols absent | ❌ socket-layer plaintext only |
+| Stripped / static (no symbols) | n/a | symbols absent | ❌ no live L7 capture; L3/L4 only |
 
 **The `SSL_read` subtlety:** at the *entry* of `SSL_read` the destination buffer
 isn't populated yet — the plaintext must be copied at the **return** (`uretprobe`).
@@ -233,8 +233,8 @@ more brittle code path than the C-library case, with real Go-version sensitivity
 (OpenSSL/BoringSSL/GnuTLS) first; treat **Go-TLS as an explicitly-scoped,
 post-GA / out-of-scope-for-GA module** with a documented version-sensitivity
 matrix and separate tests; and for stripped/static binaries with no resolvable
-symbols, fall back to **socket-layer (plaintext L7) parsing only** and mark the
-edge's TLS-L7 coverage as "unavailable" rather than silently missing it.
+symbols, mark live L7 coverage as **unavailable**. The beta has no live socket-layer
+fallback. Cleartext parser fixtures do not establish live capture coverage.
 
 ---
 
@@ -300,7 +300,7 @@ overhead test for the ring-buffer path — all documented in
 | D3 | **CO-RE + BTF**, graceful "unsupported" when BTF is absent (the automatic **BTFHub** fallback was deferred — the probe names it as the manual avenue) | portability across the distro matrix without per-kernel builds |
 | D4 | L3/L4 via **stable tracepoints** first, CO-RE struct reads where required | minimizes per-kernel offset risk. Since `ING-23` the tracepoint is attached raw (no tracefs, so non-root works) and the tuple is read via CO-RE from the socket it passes |
 | D5 | **Go-TLS is a separate post-GA sub-module**, not an OpenSSL variant | Go ABI + uretprobe incompatibility |
-| D6 | **Socket-layer fallback** for stripped/static binaries | uprobe symbol resolution will fail there |
+| D6 | **No live L7** for stripped/static binaries in the beta; socket-layer fallback not shipped | uprobe symbol resolution fails there; L3/L4 remains available |
 | D7 | **CI = userspace unit tests + recorded fixtures**; privileged integration test behind a BTF-kernel runner | no-kernel CI is the norm |
 
 The realistic cost risk is the **Go-TLS** path, contained by D5 plus explicit
@@ -334,8 +334,8 @@ For the L7/TLS layer specifically:
    **return**.
 8. **Go-TLS as its own module** — ret-offset disassembly + goroutine tracking +
    Go-version sensitivity; ship with a documented coverage matrix.
-9. **Stripped/static fallback** — socket-layer plaintext only; mark TLS-L7 coverage
-   "unavailable" on those edges (decided, not silently missing).
+9. **Stripped/static coverage** — mark live L7 "unavailable" on those edges. No
+   socket-layer fallback is shipped in the beta.
 
 ---
 

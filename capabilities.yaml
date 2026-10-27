@@ -191,7 +191,7 @@ capabilities:
     migration: {refs: ["file:migrations/0001_baseline.sql"]}
 
   - id: F11
-    name: eBPF host/L7 agent
+    name: eBPF host/L7 agent (L7 preview)
     status: delivered
     evidence_status: partial
     owner: eBPF/quality

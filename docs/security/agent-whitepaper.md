@@ -88,8 +88,8 @@ bytes against that manifest and refuses on any mismatch or missing entry
 | L3/L4 flow metadata | **Yes** | 5-tuple (source/destination address, ports, protocol), byte/packet counts, direction, state, PID/process name; tenant-stamped at emission |
 | Service edges | **Yes** | aggregated process↔service relationships (the service map) |
 | Packet payloads | **No** | no program captures packet bodies |
-| TLS-plaintext L7 metadata | **Off by default — triple-keyed consent** | requires `l7_capture_enabled`, PLUS `l7_capture_consent_tenant` exactly matching this agent's bound tenant (a mismatch is refused, `internal/ebpf/l7policy.go`), PLUS an explicit `l7_capture_scope` naming the opted-in workloads (`pid:`/`exe:`/`cgroup:`) — host-wide capture is not even expressible; the config refuses any one key without the others (`internal/ebpf/config.go`) |
-| HTTP bodies under L7 capture | **No by default** | the redaction boundary zeroes bodies in place; headers and protocol metadata survive; non-HTTP traffic keeps only a 128-byte detection window (`internal/ebpf/l7policy.go`, CI-tested); a `full` mode exists for consented debugging only |
+| TLS-plaintext L7 metadata | **Preview; off by default — triple-keyed consent** | requires `l7_capture_enabled`, PLUS `l7_capture_consent_tenant` exactly matching this agent's bound tenant (a mismatch is refused, `internal/ebpf/l7policy.go`), PLUS an explicit `l7_capture_scope` naming the opted-in workloads (`pid:`/`exe:`/`cgroup:`) — host-wide capture is not even expressible; the config refuses any one key without the others (`internal/ebpf/config.go`) |
+| HTTP bodies under L7 capture | **No by default** | `metadata` is the default on every profile: no emitted header values, query strings or bodies; routes are templated. `headers` and `full` are explicit audited opt-ins, both refused under the regulated profile. Live L7 is limited to supported TLS-library uprobes; socket-level cleartext capture is not shipped |
 | Host files, env, user data | **No** | no collection paths exist |
 
 The L7 probe works by attaching to supported system TLS libraries

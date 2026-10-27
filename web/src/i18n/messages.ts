@@ -596,7 +596,7 @@ const en = {
   'planes.ebpf.value.l4': 'L4',
   'planes.ebpf.card.title': 'Host/L7 service edges',
   'planes.ebpf.card.description':
-    'eBPF-derived workload-to-workload evidence folded into the topology graph.',
+    'eBPF-derived workload-to-workload evidence folded into the topology graph. L7 is preview: consented TLS-library capture only, metadata redaction by default; no live cleartext capture.',
   'planes.ebpf.loading': 'Loading eBPF plane...',
   'planes.ebpf.error': 'Could not load eBPF service edges.',
   'planes.ebpf.table.caption': 'eBPF service edges',
@@ -2080,7 +2080,7 @@ const es: Record<MessageKey, string> = {
   'planes.ebpf.value.l4': 'L4',
   'planes.ebpf.card.title': 'Aristas de servicio Host/L7',
   'planes.ebpf.card.description':
-    'Evidencia workload-a-workload derivada de eBPF incorporada en el grafo de topologia.',
+    'Evidencia workload-a-workload derivada de eBPF incorporada en el grafo de topologia. L7 en vista previa: solo captura consentida en bibliotecas TLS, metadatos por defecto; sin captura en claro en vivo.',
   'planes.ebpf.loading': 'Cargando plano eBPF...',
   'planes.ebpf.error': 'No se pudieron cargar las aristas de servicio eBPF.',
   'planes.ebpf.table.caption': 'Aristas de servicio eBPF',
@@ -3531,7 +3531,8 @@ const ar: Record<MessageKey, string> = {
   'planes.ebpf.column.l7': 'L7',
   'planes.ebpf.value.l4': 'L4',
   'planes.ebpf.card.title': 'حواف خدمة المضيف/L7',
-  'planes.ebpf.card.description': 'دليل عبء-إلى-عبء مشتق من eBPF ومدمج في رسم الطوبولوجيا.',
+  'planes.ebpf.card.description':
+    'دليل عبء-إلى-عبء مشتق من eBPF ومدمج في رسم الطوبولوجيا. L7 معاينة: التقاط مكتبات TLS بموافقة فقط، ووضع البيانات الوصفية افتراضيًا؛ لا التقاط حي للنص الصريح.',
   'planes.ebpf.loading': 'جار تحميل مستوى eBPF...',
   'planes.ebpf.error': 'تعذر تحميل حواف خدمة eBPF.',
   'planes.ebpf.table.caption': 'حواف خدمة eBPF',

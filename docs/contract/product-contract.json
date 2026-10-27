@@ -79,9 +79,9 @@
       "ids": [
         "F11"
       ],
-      "name": "eBPF host/L7 agent",
+      "name": "eBPF host/L7 agent (L7 preview)",
       "status": "partial",
-      "evidence": "`internal/ebpf` · *kernel-matrix*"
+      "evidence": "`internal/ebpf` · *kernel-matrix*. Beta L7 is preview: consented TLS-library capture only, metadata redaction by default; no live socket-level cleartext fallback. Full L7 5-tuple/HTTP1 coverage and shipped-stack proof remain incomplete."
     },
     {
       "ids": [

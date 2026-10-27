@@ -319,6 +319,24 @@ func TestAdvertisedCapabilitiesAreServedOrQualified(t *testing.T) {
 	}
 }
 
+// Live socket-level capture is not shipped. Parser fixtures do not establish
+// that fallback, even when they can decode the same application protocol.
+func TestBetaL7DoesNotAdvertiseUnshippedCleartextFallback(t *testing.T) {
+	t.Parallel()
+	for path, claims := range map[string][]string{
+		"ebpf-agent.md":                {"parsed straight from socket reads/writes", "socket-layer cleartext only", "agent falls back to socket cleartext"},
+		"ebpf-feasibility.md":          {"socket-layer plaintext only", "socket-layer (plaintext L7) parsing only"},
+		"features/telemetry-planes.md": {"cleartext-only capture"},
+	} {
+		prose := normalizeDocProse(readDoc(t, path))
+		for _, claim := range claims {
+			if strings.Contains(prose, claim) {
+				t.Errorf("%s advertises an unshipped live L7 fallback: %q", path, claim)
+			}
+		}
+	}
+}
+
 // normalizeDocProse strips markdown blockquote markers and collapses every run
 // of whitespace to a single space, so a phrase the gate looks for still matches
 // when the author wraps it across lines (including inside a `>` blockquote).

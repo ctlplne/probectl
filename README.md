@@ -190,7 +190,7 @@ The five observability planes:
 | **BGP / routing** | RouteViews + RIPE RIS ingestion, direct mTLS BMP sessions from routers, route/path analysis, RPKI validity, a collective internet-outage view |
 | **Flow analytics** | NetFlow / sFlow / IPFIX plus AWS VPC, Azure NSG, and GCP VPC flow-log import into ClickHouse, with local learned per-tenant anomaly detection |
 | **Device telemetry** | tenant-scoped SNMP discovery/import review, SNMP polling + gNMI streaming, folded into the topology graph |
-| **eBPF host / L7** | service map + L7 visibility, observation-only (the Retina model). **Default builds replay recorded fixtures** (no kernel access needed — CI/macOS/demo path); live kernel capture is the separate `-tags ebpf` build on a BTF kernel ([build matrix](docs/ebpf-agent.md)) |
+| **eBPF host / L7** | service map + **preview L7**, observation-only (the Retina model). Live L7 is consented TLS-library capture only, with metadata redaction by default; no live socket-level cleartext fallback. **Default builds replay recorded fixtures** (no kernel access needed — CI/macOS/demo path); live kernel capture is the separate `-tags ebpf` build on a BTF kernel ([build matrix](docs/ebpf-agent.md)) |
 
 Intelligence, security, and platform layers built across the planes:
 
