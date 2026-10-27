@@ -168,12 +168,20 @@ describe('native audit route', () => {
     const exportLink = screen.getByRole('link', { name: 'Export JSON' })
     expect(exportLink.getAttribute('href')).toContain('/v1/audit')
     expect(exportLink.getAttribute('href')).toContain('actor=alice')
+    expect(
+      new URL(exportLink.getAttribute('href')!, 'http://probectl.test').searchParams.get('export'),
+    ).toBe('true')
+    expect(requests.every((request) => !request.includes('export=true'))).toBe(true)
 
     await userEvent.click(screen.getByRole('button', { name: /Verify chain/ }))
     expect(await screen.findByText('Chain intact')).toBeDefined()
 
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
     await waitFor(() => expect(requests.some((r) => r.includes('after=1'))).toBe(true))
+    const nextExport = new URL(exportLink.getAttribute('href')!, 'http://probectl.test')
+    expect(nextExport.searchParams.get('after')).toBe('1')
+    expect(nextExport.searchParams.get('export')).toBe('true')
+    expect(requests.every((request) => !request.includes('export=true'))).toBe(true)
   })
 
   test.each([

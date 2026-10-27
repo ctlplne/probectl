@@ -195,7 +195,11 @@ curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
 
 The in-product route is `/audit`: it pages by sequence cursor, filters by actor,
 action, and target, verifies the tenant hash chain, and downloads the filtered
-JSON page. For exact `test.create`, `test.update`, `test.delete`, and
+JSON page. Each deliberate download sends `export=true` and records one
+tenant-scoped `audit.export` receipt with the exported count and filters. Ordinary
+list reads and chain verification do not append events. The CLI can request the
+same audited page with `probectl audit list --query export=true`. For exact
+`test.create`, `test.update`, `test.delete`, and
 `incident.resolve` actions, the Target cell also offers a same-app **Open**
 pivot. The original immutable target stays visible. Tests open the exact
 Targets inventory state; resolved incidents open the existing incident room.

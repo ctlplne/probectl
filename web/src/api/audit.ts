@@ -49,6 +49,7 @@ function paramsFor(filters: AuditFilters): URLSearchParams {
 
 export function auditExportHref(filters: AuditFilters): string {
   const q = paramsFor(filters)
+  q.set('export', 'true')
   const suffix = q.toString()
   return suffix ? `${apiURL('/audit')}?${suffix}` : apiURL('/audit')
 }
