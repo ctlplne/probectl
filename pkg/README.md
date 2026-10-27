@@ -7,10 +7,16 @@ package from outside this module, so `pkg/` is the one deliberate shelf of
 exported code — putting something here is a publishing decision, not a file
 move.
 
-## Status
+## Packages
 
-Empty. It is populated only as stable, reusable surfaces emerge — for example a
-thin client library or published SDK types. (Note that the generated protobuf
-Go currently lives in `internal/gen/`, private on purpose; it would move or be
-re-exported here only as a deliberate publishing decision.) Keep this directory
-free of control-plane business logic.
+- [`sdk`](sdk/sdk.gen.go): the Go API client generated from the control-plane
+  OpenAPI specification. Configure it with the deployment's HTTPS URL, an API
+  token, and an HTTP client that trusts the deployment's certificate authority
+  when using a private CA.
+- [`transport`](transport/transport.go): the SDK's HTTP client and bounded
+  response reader, with certificate verification and a TLS 1.2 minimum.
+
+Both packages are MPL-2.0 and import no `internal/` or `ee/` packages; the SDK
+license-boundary test checks that dependency boundary. Generated protobuf Go
+currently lives in `internal/gen/`, private on purpose. Keep this directory free
+of control-plane business logic.
