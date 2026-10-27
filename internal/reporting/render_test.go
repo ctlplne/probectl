@@ -9,6 +9,8 @@ package reporting
 import (
 	"bytes"
 	"encoding/csv"
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -84,4 +86,69 @@ func flattenRows(rows [][]string) []string {
 		out = append(out, row...)
 	}
 	return out
+}
+
+func TestPDFWrapsDisclosuresAndPreservesAllMetrics(t *testing.T) {
+	doc := testDocument()
+	doc.Provenance = []string{strings.Repeat("tenant-scoped source ", 30)}
+	doc.CoverageLimitations = []string{strings.Repeat("X", 240)}
+	doc.Metrics = make(map[string]string)
+	for i := range 100 {
+		doc.Metrics[fmt.Sprintf("metric-%03d", i)] = fmt.Sprintf("value-%03d", i)
+	}
+	pdf, err := RenderPDF(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(pdf)
+	if strings.Contains(text, "omitted") {
+		t.Error("valid exact values were omitted")
+	}
+	for i := range 100 {
+		if !strings.Contains(text, fmt.Sprintf("metric-%03d: value-%03d", i, i)) {
+			t.Errorf("missing metric %d", i)
+		}
+	}
+	// Each Courier glyph is 6 points at 10pt. 88 glyphs fit inside 40pt
+	// margins on a 612pt page. Escapes are PDF syntax, not extra glyphs.
+	linePattern := regexp.MustCompile(`(?m)^\((.*)\) Tj$`)
+	for _, match := range linePattern.FindAllStringSubmatch(text, -1) {
+		line := strings.NewReplacer(`\(`, "(", `\)`, ")", `\\`, `\`).Replace(match[1])
+		if len(line) > 88 {
+			t.Errorf("line exceeds printable width: %d glyphs", len(line))
+		}
+	}
+	pages := strings.Count(text, "/Type /Page /Parent")
+	if pages < 3 {
+		t.Errorf("expected pagination, got %d pages", pages)
+	}
+	if strings.Count(text, `Tenant: Acme \(tenant-a\)`) != pages {
+		t.Error("tenant scope must repeat on every page")
+	}
+	if strings.Count(text, "Absolute time:") != pages {
+		t.Error("absolute interval must repeat on every page")
+	}
+	if strings.Contains(text, "probectl ?") {
+		t.Error("built-in banner uses an unrenderable separator")
+	}
+}
+
+func TestPDFRejectsHeaderThatCannotFitOnAPage(t *testing.T) {
+	doc := testDocument()
+	doc.TenantName = strings.Repeat("tenant", 1000)
+	if _, err := RenderPDF(doc); err == nil {
+		t.Fatal("oversized header must fail explicitly")
+	}
+}
+
+func TestPDFPreservesWhitespaceInsideExactValues(t *testing.T) {
+	doc := testDocument()
+	doc.Metrics = map[string]string{"opaque value": "left  right"}
+	pdf, err := RenderPDF(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(pdf, []byte("opaque value: left  right")) {
+		t.Fatal("PDF changed significant whitespace in an exact value")
+	}
 }

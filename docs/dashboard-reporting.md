@@ -48,8 +48,11 @@ The page keeps these facts visible above the panels:
 - an expandable receipt for provenance, redaction, and coverage limitations.
 
 Every generated PDF/CSV repeats the same contract and adds generation time and
-generator identity. A report is rejected before storage if any mandatory field
-is absent. This prevents a chart from becoming an apparently universal claim
+generator identity. PDF text wraps within the page margins and continues onto
+additional pages; all supported exact values are retained. Every page repeats tenant scope and
+the absolute observation interval. The built-in PDF font uses printable ASCII;
+CSV preserves Unicode text. A report is rejected before storage if any mandatory
+field is absent. This prevents a chart from becoming an apparently universal claim
 after its tenant or observation window is separated from it.
 
 When an operator saves the current screen, the outer saved-view record captures

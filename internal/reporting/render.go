@@ -95,17 +95,16 @@ func RenderCSV(d Document) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// RenderPDF emits a minimal standards-compliant one-page PDF using only the
-// built-in Helvetica font. Avoiding a PDF dependency keeps air-gapped builds
-// deterministic and adds no new outbound-capable code.
+// RenderPDF emits a paginated PDF using the built-in fixed-width Courier font.
+// Text is wrapped within the page margins before PDF string escaping. Avoiding
+// a PDF dependency keeps air-gapped builds deterministic and adds no new
+// outbound-capable code.
 func RenderPDF(d Document) ([]byte, error) {
 	if err := d.Validate(); err != nil {
 		return nil, err
 	}
 	lines := []string{
-		Banner, d.Title + " · " + d.Preset,
-		"Tenant: " + d.TenantName + " (" + d.TenantScope + ")",
-		"Absolute time: " + d.AbsoluteFrom.UTC().Format(time.RFC3339) + " to " + d.AbsoluteTo.UTC().Format(time.RFC3339),
+		d.Title + " - " + d.Preset,
 		"Generated: " + d.GeneratedAt.UTC().Format(time.RFC3339) + " by " + d.GeneratedBy,
 		"Provenance: " + strings.Join(d.Provenance, "; "),
 		"Redaction: " + d.RedactionState,
@@ -120,28 +119,45 @@ func RenderPDF(d Document) ([]byte, error) {
 	for _, key := range keys {
 		lines = append(lines, key+": "+d.Metrics[key])
 	}
-	if len(lines) > 42 {
-		lines = append(lines[:41], "Additional exact values omitted by the one-page artifact cap")
+	// Courier at 10pt has a 6pt advance: 88 glyphs use 528 of the 532
+	// points between the 40pt margins. 54 baselines leave room for a footer.
+	const columns, pageLines = 88, 54
+	header := wrapPDFLines([]string{
+		"probectl - tenant-scoped report",
+		"Tenant: " + d.TenantName + " (" + d.TenantScope + ")",
+		"Absolute time: " + d.AbsoluteFrom.UTC().Format(time.RFC3339) + " to " + d.AbsoluteTo.UTC().Format(time.RFC3339),
+	}, columns)
+	if len(header) >= pageLines {
+		return nil, fmt.Errorf("report tenant header exceeds page capacity")
 	}
-	var stream strings.Builder
-	stream.WriteString("BT /F1 10 Tf 40 760 Td 13 TL\n")
-	for i, line := range lines {
-		if i > 0 {
-			stream.WriteString("T*\n")
-		}
-		stream.WriteString("(")
-		stream.WriteString(pdfText(line))
-		stream.WriteString(") Tj\n")
-	}
-	stream.WriteString("ET\n")
-	content := stream.String()
+	lines = wrapPDFLines(lines, columns)
+	capacity := pageLines - len(header)
+	pages := (len(lines) + capacity - 1) / capacity
 	objects := []string{
-		"<< /Type /Catalog /Pages 2 0 R >>",
-		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(content), content),
-		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+		"<< /Type /Catalog /Pages 2 0 R >>", "",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
 	}
+	var kids strings.Builder
+	for page := range pages {
+		pageID := len(objects) + 1
+		fmt.Fprintf(&kids, "%d 0 R ", pageID)
+		var stream strings.Builder
+		stream.WriteString("BT /F1 10 Tf 40 760 Td 13 TL\n")
+		pageText := append(append([]string(nil), header...), lines[page*capacity:min((page+1)*capacity, len(lines))]...)
+		for i, line := range pageText {
+			if i > 0 {
+				stream.WriteString("T*\n")
+			}
+			fmt.Fprintf(&stream, "(%s) Tj\n", pdfText(line))
+		}
+		fmt.Fprintf(&stream, "ET\nBT /F1 10 Tf 40 40 Td\n(Page %d of %d) Tj\nET\n", page+1, pages)
+		content := stream.String()
+		objects = append(objects,
+			fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>", pageID+1),
+			fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(content), content),
+		)
+	}
+	objects[1] = fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", kids.String(), pages)
 	var out bytes.Buffer
 	out.WriteString("%PDF-1.4\n")
 	offsets := []int{0}
@@ -156,6 +172,28 @@ func RenderPDF(d Document) ([]byte, error) {
 	}
 	fmt.Fprintf(&out, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
 	return out.Bytes(), nil
+}
+
+// wrapPDFLines preserves every glyph, splitting at spaces where possible.
+// Count glyphs before escaping parentheses/backslashes into PDF syntax.
+func wrapPDFLines(lines []string, columns int) []string {
+	var wrapped []string
+	for _, line := range lines {
+		remaining := []rune(line)
+		for len(remaining) > columns {
+			cut := columns
+			for i := columns - 1; i > 0; i-- {
+				if remaining[i] == ' ' {
+					cut = i + 1
+					break
+				}
+			}
+			wrapped = append(wrapped, string(remaining[:cut]))
+			remaining = remaining[cut:]
+		}
+		wrapped = append(wrapped, string(remaining))
+	}
+	return wrapped
 }
 
 func pdfText(value string) string {
