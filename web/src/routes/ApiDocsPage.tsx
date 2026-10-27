@@ -278,6 +278,10 @@ function sampleForSchema(doc: OpenAPIDoc | undefined, schema: unknown, name = 'v
   if ('default' in rec) return rec.default
   const enumValues = Array.isArray(rec.enum) ? rec.enum : []
   if (enumValues.length > 0) return enumValues[0]
+  const alternatives = Array.isArray(rec.anyOf) ? rec.anyOf : rec.oneOf
+  if (Array.isArray(alternatives) && alternatives.length > 0) {
+    return sampleForSchema(doc, alternatives[0], name)
+  }
   const type =
     typeof rec.type === 'string' ? rec.type : asRecord(rec.properties) ? 'object' : 'string'
   if (type === 'object') {

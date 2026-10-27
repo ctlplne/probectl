@@ -204,3 +204,8 @@ probectl is **not** a SIEM (see [`siem.md`](siem.md)) and **not** a CMDB; it doe
 not own on-call schedules or escalation policies (those stay in PagerDuty /
 Opsgenie). Connectors mirror the incident outward — there is no auto-remediation
 here.
+
+The offline API explorer generates a request body from the first documented
+payload alternative. Review the example and replace its reference with the
+linked external incident reference before using it; webhook authentication is
+still required as described above.

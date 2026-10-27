@@ -165,6 +165,54 @@ describe('native API docs route', () => {
     ).toBe(true)
   })
 
+  test.each(['anyOf', 'oneOf'])(
+    'generates an object request from %s alternatives',
+    async (keyword) => {
+      const doc = {
+        ...openapiDoc,
+        paths: {
+          '/ingest/itsm/{provider}/{id}': {
+            post: {
+              summary: 'Receive a webhook',
+              requestBody: {
+                content: {
+                  'application/json': {
+                    schema: {
+                      [keyword]: [
+                        { $ref: '#/components/schemas/Webhook' },
+                        { type: 'object', properties: { issue: { type: 'string' } } },
+                      ],
+                    },
+                  },
+                },
+              },
+              responses: { '202': { description: 'accepted' } },
+            },
+          },
+        },
+        components: {
+          schemas: {
+            Webhook: {
+              type: 'object',
+              properties: {
+                external_ref: { type: 'string', example: 'QA-123' },
+                status: { type: 'string', enum: ['resolved', 'open'] },
+              },
+            },
+          },
+        },
+      }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(doc)),
+      )
+      renderApp('/docs/api')
+      await screen.findByRole('table', { name: 'API operations' })
+      const body = screen.getByLabelText<HTMLTextAreaElement>('Request body')
+      expect(JSON.parse(body.value)).toEqual({ external_ref: 'QA-123', status: 'resolved' })
+    },
+  )
+
   test('/docs/api executes a GET with the same-origin session only', async () => {
     const calls: { path: string; init?: RequestInit }[] = []
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
