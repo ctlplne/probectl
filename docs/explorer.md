@@ -12,6 +12,10 @@ budgets are burning?” fills in `source=slo`, the SLO dimensions, burn measures
 Running it asks the existing SLO engine for the authenticated tenant's rows. The same pattern
 covers the ten canonical operator questions an operator arrives with.
 
+Dimensions, groupings, and measures accept comma-separated keyboard input. Separators stay
+visible while editing; the query preview uses trimmed, distinct names, and leaving the field
+normalizes its display.
+
 ## Query contract
 
 `GET /v1/explorer/schema` returns the fixed catalog of ten recipes. `POST

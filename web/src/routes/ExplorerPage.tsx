@@ -101,6 +101,34 @@ function csv(value: string) {
   )
 }
 
+function GrammarListField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string[]
+  onChange: (value: string[]) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  return (
+    <Field
+      label={label}
+      value={editing ? draft : value.join(', ')}
+      onFocus={() => {
+        setDraft(value.join(', '))
+        setEditing(true)
+      }}
+      onBlur={() => setEditing(false)}
+      onChange={(event) => {
+        setDraft(event.target.value)
+        onChange(csv(event.target.value))
+      }}
+    />
+  )
+}
+
 function localTime(value: string) {
   const date = new Date(value)
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
@@ -674,20 +702,20 @@ export function ExplorerPage() {
                 if (!comparisonSources.includes(source)) setComparison(null)
               }}
             />
-            <Field
+            <GrammarListField
               label="Dimensions"
-              value={query.dimensions.join(', ')}
-              onChange={(event) => updateStructure({ dimensions: csv(event.target.value) })}
+              value={query.dimensions}
+              onChange={(dimensions) => updateStructure({ dimensions })}
             />
-            <Field
+            <GrammarListField
               label="Group by"
-              value={query.groupings.join(', ')}
-              onChange={(event) => updateStructure({ groupings: csv(event.target.value) })}
+              value={query.groupings}
+              onChange={(groupings) => updateStructure({ groupings })}
             />
-            <Field
+            <GrammarListField
               label="Measures"
-              value={query.measures.join(', ')}
-              onChange={(event) => updateStructure({ measures: csv(event.target.value) })}
+              value={query.measures}
+              onChange={(measures) => updateStructure({ measures })}
             />
             <Select
               label="Visualization"

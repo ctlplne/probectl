@@ -192,6 +192,40 @@ describe('structured and natural-language Explorer', () => {
     },
   )
 
+  test.each([
+    ['Dimensions', 'dimensions', 'site, interface'],
+    ['Group by', 'groupings', 'site, interface'],
+    ['Measures', 'measures', 'bps, pps'],
+  ])(
+    'keeps separators while typing %s and submits normalized grammar',
+    async (label, key, value) => {
+      const user = userEvent.setup()
+      const base = defaultFetch()
+      const queries: Record<string, unknown>[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (pathOf(input) === '/v1/explorer/query' && init?.method === 'POST')
+            queries.push(JSON.parse(String(init.body)))
+          return base(input, init)
+        }),
+      )
+      renderApp('/explore')
+      await screen.findByRole('heading', { name: 'Explorer' })
+      const field = screen.getByLabelText(label)
+      await user.clear(field)
+      await user.type(field, value)
+      expect(field).toHaveValue(value)
+      await user.click(screen.getByRole('button', { name: 'Run query' }))
+      await waitFor(() => expect(queries).toHaveLength(1))
+      expect(queries[0][key]).toEqual(value.split(', '))
+      await user.click(screen.getByRole('button', { name: 'Show service dependencies' }))
+      expect(field).toHaveValue(
+        label === 'Dimensions' ? 'from, to, kind' : label === 'Group by' ? 'kind' : 'edges',
+      )
+    },
+  )
+
   test('re-executes an explicit stable query after history or evidence return', async () => {
     const base = defaultFetch()
     const requests: unknown[] = []
