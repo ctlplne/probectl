@@ -223,6 +223,7 @@ a deployment outgrows a single process.
 - The **Topology** page renders the layered graph (columns by kind, capped for
   legibility on dense graphs with an honest "showing N of M"), node drill-down,
   one version clock, and an explicit added/removed/changed node-and-edge diff.
+  The version-clock input uses UTC, independently of the browser timezone.
   Scrubbing the clock preserves the selected entity. Incident evidence can pivot
   into the selected entity and open the what-if overlay in two interactions
   while preserving the incident, evidence, time range, filters, and return path.

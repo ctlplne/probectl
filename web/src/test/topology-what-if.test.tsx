@@ -192,6 +192,18 @@ describe('topology blast-radius workspace (X10)', () => {
     expect(within(inspector as HTMLElement).getByText('service:api')).toBeInTheDocument()
   })
 
+  test('version-clock UTC input round-trips without applying the browser timezone', async () => {
+    vi.stubGlobal('fetch', topologyStub())
+    renderWithLocation('/topology?at=2026-07-14T10:00:00.000Z')
+    const clock = await screen.findByLabelText<HTMLInputElement>('As of')
+    expect(clock.value).toBe('2026-07-14T10:00')
+    fireEvent.change(clock, { target: { value: '2026-07-14T10:04' } })
+    await waitFor(() =>
+      expect(locationURL().searchParams.get('at')).toBe('2026-07-14T10:04:00.000Z'),
+    )
+    expect(clock.value).toBe('2026-07-14T10:04')
+  })
+
   test('incident evidence pivots into an automatic observe-only preview in two interactions', async () => {
     const fetcher = topologyStub()
     vi.stubGlobal('fetch', fetcher)

@@ -57,7 +57,7 @@ export function TopologyPage() {
   const pivotContext = parsedPivot.context
   const initialAt = topologyTime(params, pivotContext)
   const [at, setAt] = useState(initialAt) // '' = live
-  const [timeInput, setTimeInput] = useState(toDateTimeLocal(initialAt))
+  const [timeInput, setTimeInput] = useState(toUTCDateTimeInput(initialAt))
   const { data, isPending, isError } = useTopology(at || undefined)
   const comparisonAt =
     at && pivotContext.from && pivotContext.from !== at ? pivotContext.from : undefined
@@ -153,7 +153,7 @@ export function TopologyPage() {
   useEffect(() => {
     const nextAt = topologyTime(params, pivotContext)
     setAt(nextAt)
-    setTimeInput(toDateTimeLocal(nextAt))
+    setTimeInput(toUTCDateTimeInput(nextAt))
   }, [params, pivotContext])
 
   function selectNode(node: TopoNode) {
@@ -192,7 +192,7 @@ export function TopologyPage() {
       setParams(replacePivotContext(next, pivotContext))
       return
     }
-    const next = new Date(value)
+    const next = new Date(`${value}Z`)
     if (!Number.isNaN(next.getTime())) {
       const absolute = next.toISOString()
       setAt(absolute)
@@ -342,7 +342,7 @@ function topologyTime(params: URLSearchParams, context: PivotContext): string {
   return pageTime ?? context.to ?? ''
 }
 
-function toDateTimeLocal(value: string): string {
+function toUTCDateTimeInput(value: string): string {
   const timestamp = Date.parse(value)
   if (!value || !Number.isFinite(timestamp)) return ''
   return new Date(timestamp).toISOString().slice(0, 16)
@@ -373,7 +373,7 @@ function TopologyToolbar({
       <div className={styles.toolbar}>
         <Field
           label="As of"
-          hint="Empty = live; pick a time to view the graph as it was."
+          hint="Version-clock times are UTC. Empty = live; pick a time to view the graph as it was."
           type="datetime-local"
           value={timeInput}
           onChange={(e) => onTimeChange(e.target.value)}
