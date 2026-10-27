@@ -106,6 +106,13 @@ function roundtripBackend(options: { expiredSilence?: boolean; connectorBlocked?
 
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = pathOf(input)
+    if (path === '/v1/me') {
+      const identity = (await (await fallback(input, init)).json()) as { permissions: string[] }
+      return jsonResponse({
+        ...identity,
+        permissions: [...identity.permissions, 'alert.read', 'alert.write'],
+      })
+    }
     const method = init?.method ?? 'GET'
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined
     requests.push({ method, path, body })

@@ -25,6 +25,11 @@ something is wrong. It has two halves that together form one truth:
   preview API, survive control-plane restarts, and create audit events when
   changed.
 
+The console shows read-only users disabled rule and maintenance controls, with
+`alert.write` permission guidance. Silence and acknowledgement need the same
+permission. Notification connector tests separately need `incident.write`;
+read-only inspection and YAML export remain available.
+
 Both rule-level channels are wired. The **webhook** channel is an HTTPS POST
 with the body signed HMAC-SHA256 in `X-Probectl-Signature`. The **email**
 channel delivers through the SMTP endpoint configured with

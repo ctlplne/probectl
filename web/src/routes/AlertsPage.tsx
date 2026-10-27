@@ -65,6 +65,7 @@ import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 import { CodeExportPanel } from './CodeExportPanel'
 import { alertRuleAsCode, maintenanceWindowAsCode } from './codeExport'
 import { pivotHref } from './pivotContext'
+import { useAuth } from '../auth/useAuth'
 
 function labelText(labels?: Record<string, string>): string {
   if (!labels) return ''
@@ -257,6 +258,8 @@ function ActiveAlertDetail({
   returnTo: string
 }) {
   const { push } = useToast()
+  const { permissions } = useAuth()
+  const canWrite = permissions.includes('alert.write')
   const silence = useSilenceAlert()
   const ack = useAckAlert()
   // api-error-covered: silence, ack — act() converts rejected mutateAsync
@@ -358,6 +361,7 @@ function ActiveAlertDetail({
         </dd>
       </dl>
 
+      {!canWrite ? <p>Requires alert.write permission to silence or acknowledge alerts.</p> : null}
       <div className={styles.actionsRow}>
         <Field
           label="Operator reason"
@@ -378,7 +382,7 @@ function ActiveAlertDetail({
         />
         <Button
           variant="secondary"
-          disabled={silence.isPending}
+          disabled={!canWrite || silence.isPending}
           onClick={() =>
             act(
               () =>
@@ -396,7 +400,7 @@ function ActiveAlertDetail({
         {alert.silenced_until ? (
           <Button
             variant="ghost"
-            disabled={silence.isPending}
+            disabled={!canWrite || silence.isPending}
             onClick={() =>
               act(
                 () =>
@@ -414,7 +418,7 @@ function ActiveAlertDetail({
         ) : null}
         <Button
           variant="secondary"
-          disabled={ack.isPending || !!alert.acked_by}
+          disabled={!canWrite || ack.isPending || !!alert.acked_by}
           onClick={() =>
             act(
               () => ack.mutateAsync({ fingerprint: alert.fingerprint, reason: operationReason }),
@@ -1136,6 +1140,8 @@ const ALERT_CONTEXT_PARAMS = [
 /** AlertsPage is the S16 alerting surface (S-FE1): the engine's firing alerts
  *  (filter, detail, silence, acknowledge) over the durable rule config. */
 export function AlertsPage() {
+  const { permissions } = useAuth()
+  const canWrite = permissions.includes('alert.write')
   const active = useActiveAlerts()
   const rules = useAlertRules()
   const maintenance = useMaintenanceWindows()
@@ -1293,7 +1299,7 @@ export function AlertsPage() {
       align: 'end',
       render: (r) => (
         <>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(r)}>
+          <Button size="sm" variant="ghost" disabled={!canWrite} onClick={() => setEditing(r)}>
             Edit
           </Button>
           <Button
@@ -1308,6 +1314,7 @@ export function AlertsPage() {
           <Button
             size="sm"
             variant="ghost"
+            disabled={!canWrite}
             onClick={() => setConfirming({ kind: 'rule', id: r.id, name: r.name })}
           >
             Delete
@@ -1365,7 +1372,12 @@ export function AlertsPage() {
       align: 'end',
       render: (w) => (
         <>
-          <Button size="sm" variant="ghost" onClick={() => setEditingWindow(w)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!canWrite}
+            onClick={() => setEditingWindow(w)}
+          >
             Edit
           </Button>
           <Button
@@ -1383,6 +1395,7 @@ export function AlertsPage() {
           <Button
             size="sm"
             variant="ghost"
+            disabled={!canWrite}
             onClick={() => setConfirming({ kind: 'window', id: w.id, name: w.name })}
           >
             Delete
@@ -1395,6 +1408,12 @@ export function AlertsPage() {
   return (
     <Page title="Alerts" subtitle="Firing alerts (engine truth) and the rules that drive them.">
       <div className={styles.stack}>
+        {!canWrite ? (
+          <p>
+            Requires alert.write permission to create, edit, or delete rules and maintenance
+            windows.
+          </p>
+        ) : null}
         {evaluatorInactive ? (
           <section
             role="alert"
@@ -1485,7 +1504,11 @@ export function AlertsPage() {
         <Card>
           <CardHeader
             title="Maintenance windows"
-            actions={<Button onClick={() => setCreatingWindow(true)}>Schedule window</Button>}
+            actions={
+              <Button disabled={!canWrite} onClick={() => setCreatingWindow(true)}>
+                Schedule window
+              </Button>
+            }
           />
           <CardBody>
             {maintenance.isLoading ? (
@@ -1512,7 +1535,11 @@ export function AlertsPage() {
         <Card>
           <CardHeader
             title="Alert rules"
-            actions={<Button onClick={() => setCreating(true)}>Create rule</Button>}
+            actions={
+              <Button disabled={!canWrite} onClick={() => setCreating(true)}>
+                Create rule
+              </Button>
+            }
           />
           <CardBody>
             {rules.isLoading ? (
@@ -1594,6 +1621,8 @@ export function AlertsPage() {
 }
 
 function OncallRoutingCard() {
+  const { permissions } = useAuth()
+  const canTest = permissions.includes('incident.write')
   const status = useOncallStatus()
   const testConnector = useTestOncallConnector()
   const { push } = useToast()
@@ -1640,7 +1669,7 @@ function OncallRoutingCard() {
         <Button
           size="sm"
           variant="secondary"
-          disabled={testConnector.isPending}
+          disabled={!canTest || testConnector.isPending}
           onClick={() =>
             testConnector.mutate(c.id, {
               onSuccess: (r) =>
@@ -1679,6 +1708,7 @@ function OncallRoutingCard() {
     <Card>
       <CardHeader title="Notification routing" />
       <CardBody>
+        {!canTest ? <p>Requires incident.write permission to send connector tests.</p> : null}
         {status.isLoading ? (
           <LoadingState label="Loading notification routing…" />
         ) : status.isError ? (

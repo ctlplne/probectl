@@ -355,10 +355,60 @@ describe('alerting surface (S-FE1)', () => {
     vi.restoreAllMocks()
   })
 
+  test('read-only alert viewers cannot open write forms or send mutations', async () => {
+    const { fetcher, state } = alertsBackend()
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/alerts', { me: { permissions: ['alert.read', 'incident.read'] } })
+    await screen.findByRole('table', { name: 'Alert rules' })
+    expect(screen.getByRole('button', { name: 'Create rule' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Schedule window' })).toBeDisabled()
+    for (const tableName of ['Alert rules', 'Maintenance windows']) {
+      const table = screen.getByRole('table', { name: tableName })
+      expect(within(table).getByRole('button', { name: 'Edit' })).toBeDisabled()
+      expect(within(table).getByRole('button', { name: 'Delete' })).toBeDisabled()
+      expect(within(table).getByRole('button', { name: 'View as YAML' })).toBeEnabled()
+    }
+    expect(
+      within(screen.getByRole('table', { name: 'Incident connectors' })).getByRole('button', {
+        name: 'Test',
+      }),
+    ).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await userEvent.click(screen.getAllByRole('button', { name: 'Details' })[0])
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: 'Silence' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Acknowledge' })).toBeDisabled()
+    expect(state.requests.filter((r) => r.method !== 'GET')).toHaveLength(0)
+  })
+
+  test.each([
+    { permission: 'alert.write', alertEnabled: true, connectorEnabled: false },
+    { permission: 'incident.write', alertEnabled: false, connectorEnabled: true },
+  ])(
+    'keeps $permission separate from other write capabilities',
+    async ({ permission, alertEnabled, connectorEnabled }) => {
+      const { fetcher } = alertsBackend()
+      vi.stubGlobal('fetch', fetcher)
+      renderApp('/alerts', { me: { permissions: ['alert.read', 'incident.read', permission] } })
+      await screen.findByRole('table', { name: 'Alert rules' })
+      const create = screen.getByRole('button', { name: 'Create rule' })
+      const connector = within(
+        screen.getByRole('table', { name: 'Incident connectors' }),
+      ).getByRole('button', { name: 'Test' })
+      if (alertEnabled) expect(create).toBeEnabled()
+      else expect(create).toBeDisabled()
+      if (connectorEnabled) expect(connector).toBeEnabled()
+      else expect(connector).toBeDisabled()
+    },
+  )
+
   test('lists active alerts (engine truth) and rules; filters by state + severity', async () => {
     const { fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
 
     // Both firing series render with severity badges.
     const table = await screen.findByRole('table', { name: 'Active alerts' })
@@ -388,7 +438,9 @@ describe('alerting surface (S-FE1)', () => {
   test('shows active maintenance badges and schedules timezone-aware windows', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
 
     const activeTable = await screen.findByRole('table', { name: 'Active alerts' })
     await waitFor(() => {
@@ -431,7 +483,9 @@ describe('alerting surface (S-FE1)', () => {
   test('exports alert rules and maintenance windows as redacted YAML', async () => {
     const { fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
 
     const rulesTable = await screen.findByRole('table', { name: 'Alert rules' })
     await userEvent.click(within(rulesTable).getByRole('button', { name: 'View as YAML' }))
@@ -454,7 +508,9 @@ describe('alerting surface (S-FE1)', () => {
   test('deleting a rule or a maintenance window is gated behind a confirm dialog (WEB-21/G8)', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
 
     // The row Delete only OPENS the gate; a single click deletes nothing.
     const rulesTable = await screen.findByRole('table', { name: 'Alert rules' })
@@ -498,7 +554,9 @@ describe('alerting surface (S-FE1)', () => {
   test('silence + acknowledge act through the API and render the ENGINE state', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
 
     // Open the detail for the db series.
     expect(
@@ -544,7 +602,9 @@ describe('alerting surface (S-FE1)', () => {
   test('creates an alert rule through the form', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
 
     expect(
       within(await screen.findByRole('table', { name: 'Active alerts' })).getByText(/target=db/),
@@ -575,7 +635,9 @@ describe('alerting surface (S-FE1)', () => {
   test('creates an SNMP trap alert rule through the form', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
 
     await screen.findByRole('table', { name: 'Active alerts' })
     await userEvent.click(screen.getByRole('button', { name: 'Create rule' }))
@@ -635,7 +697,9 @@ describe('alerting surface (S-FE1)', () => {
         puts.push(JSON.parse(String(init.body)) as Record<string, unknown>)
       return fetcher(input, init)
     })
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
 
     const rules = await screen.findByRole('table', { name: 'Alert rules' })
     await userEvent.click(within(rules).getByRole('button', { name: 'Edit' }))
@@ -663,7 +727,9 @@ describe('alerting surface (S-FE1)', () => {
   test('configures alert-channel delivery and tests tenant-routed incident connectors with redacted secrets', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
 
     const connectors = await screen.findByRole('table', { name: 'Incident connectors' })
     expect(within(connectors).getByText('Pagerduty')).toBeDefined()
@@ -700,7 +766,9 @@ describe('alerting surface (S-FE1)', () => {
   test('tenant scoping: the page renders only what the tenant-scoped API returns and never sends tenant params', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
     expect(
       within(await screen.findByRole('table', { name: 'Active alerts' })).getByText(/target=db/),
     ).toBeDefined()
@@ -724,7 +792,9 @@ describe('alerting surface (S-FE1)', () => {
       return fetcher(input, init)
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', offFetcher)
-    renderApp('/alerts')
+    renderApp('/alerts', {
+      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+    })
     const warning = await screen.findByRole('alert', { name: /stored rules will not fire/i })
     expect(warning).toHaveTextContent(/no query-capable TSDB backend/i)
     expect(warning).toHaveTextContent(/not evaluated/i)
