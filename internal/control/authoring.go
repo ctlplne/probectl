@@ -130,7 +130,7 @@ func (s *Server) handleAIDiscover(w http.ResponseWriter, r *http.Request) error 
 			if !incidentsAllowed {
 				return nil
 			}
-			incs, _, e := store.Incidents{}.List(ctx, sc, store.DefaultIncidentListLimit)
+			incs, e := store.Incidents{}.ListDiscoveryCandidates(ctx, sc, store.DefaultIncidentListLimit)
 			if e != nil {
 				return e
 			}

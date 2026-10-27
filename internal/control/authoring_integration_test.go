@@ -102,3 +102,49 @@ func TestAuthoringDiscoverAndAuthor(t *testing.T) {
 		t.Errorf("author proposal = %+v", prop.Spec)
 	}
 }
+
+// Outage scopes are not endpoints. A host with the same spelling in another
+// tenant must neither disappear nor cross the tenant boundary.
+func TestAuthoringDiscoveryOutageScopesTenantIsolation(t *testing.T) {
+	h, db := setupAPI(t)
+	ctx := context.Background()
+	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	tenants := make([]string, 2)
+	for i := range tenants {
+		tn, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("scope-%d-%d", i, time.Now().UnixNano()), "Discovery scopes")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tenants[i] = tn.ID
+	}
+	seed := func(tid, target, plane, kind string) {
+		t.Helper()
+		_, err := c.Ingest(ctx, incident.Signal{TenantID: tid, Plane: plane, Kind: kind, Severity: incident.SeverityWarning,
+			Title: "discovery fixture", Target: target, OccurredAt: time.Now().UTC(), Attributes: map[string]string{"outage.scope_kind": "asn", "outage.scope": "AS64512"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed(tenants[0], "AS64512", "outage", "outage.vantage_detected")
+	seed(tenants[0], "US", "outage", "outage.vantage_detected")
+	seed(tenants[0], "red.qa.local", "outage", "outage.external_correlated")
+	seed(tenants[1], "AS64512", "network", "alert.firing")
+	seed(tenants[1], "blue.qa.local", "network", "alert.firing")
+	wants := []map[string]bool{{"https://red.qa.local": true}, {"https://AS64512": true, "https://blue.qa.local": true}}
+	for i, tid := range tenants {
+		rec := apiReq(t, h, http.MethodPost, "/v1/ai/discover", tid, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("tenant %d: %d %s", i, rec.Code, rec.Body)
+		}
+		var got discoverResp
+		mustJSON(t, rec, &got)
+		if len(got.Proposals) != len(wants[i]) {
+			t.Errorf("tenant %d proposals = %+v, want %v", i, got.Proposals, wants[i])
+		}
+		for _, p := range got.Proposals {
+			if !wants[i][p.Spec.Target] {
+				t.Errorf("tenant %d unexpected proposal %s", i, p.Spec.Target)
+			}
+		}
+	}
+}

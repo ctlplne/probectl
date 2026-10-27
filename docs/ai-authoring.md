@@ -179,7 +179,10 @@ The eBPF service map (who-talks-to-whom, observed at the kernel),
 BGP-monitored prefixes, and DNS can feed the *same* `Observation` input when
 those sources are wired. (A bare **CIDR** — a whole address range like
 `10.0.0.0/8` — is deliberately *not* proposed as a synthetic test: a prefix is
-BGP-monitored, not pinged.)
+BGP-monitored, not pinged.) Aggregate vantage-outage scopes (ASN, country,
+or region codes) are also excluded using their signal classification, not
+hostname spelling. An outage correlated with a real test endpoint remains
+eligible. Classification and candidate reads stay inside the caller's tenant.
 
 ## Surface
 

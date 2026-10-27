@@ -88,6 +88,27 @@ func (Incidents) List(ctx context.Context, s tenancy.Scope, limit int) ([]incide
 	return rows, false, nil
 }
 
+// ListDiscoveryCandidates returns recent incidents whose target is not an
+// aggregate outage scope. Vantage outage targets are ASN/country/region codes,
+// while external-correlated outage signals still name real test endpoints.
+// Both the candidate and scope classification are confined to the same tenant.
+func (Incidents) ListDiscoveryCandidates(ctx context.Context, s tenancy.Scope, limit int) ([]incident.Incident, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = DefaultIncidentListLimit
+	}
+	return queryIncidents(ctx, s, `SELECT `+incidentCols+`
+  FROM incidents
+  WHERE tenant_id = $1 AND NOT EXISTS (
+   SELECT 1 FROM incident_signals AS scope_signal
+   WHERE scope_signal.tenant_id = incidents.tenant_id
+    AND scope_signal.incident_id = incidents.id
+    AND scope_signal.target = incidents.target
+    AND scope_signal.plane = 'outage'
+    AND scope_signal.kind = 'outage.vantage_detected'
+  )
+  ORDER BY last_seen_at DESC LIMIT $2`, s.Tenant.String(), limit)
+}
+
 func queryIncidents(ctx context.Context, s tenancy.Scope, sql string, args ...any) ([]incident.Incident, error) {
 	rows, err := s.Q.Query(ctx, sql, args...)
 	if err != nil {
