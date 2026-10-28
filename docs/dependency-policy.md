@@ -79,6 +79,14 @@ bytes but the manifest still states upgrade intent.
 
 ## Upgrade cadence
 
+The selected `golang.org/x/net` release must be at least `v0.62.0`, which fixes
+[GO-2026-6860](https://pkg.go.dev/vuln/GO-2026-6860) and
+[GO-2026-6866](https://pkg.go.dev/vuln/GO-2026-6866) in its HTML parser and
+renderer. `TestGoNetReleaseIncludesHTMLSecurityFixes` checks the effective module
+selection and refuses a replacement or rollback below that floor. The shipped
+module scan still checks all current advisories, including fixable findings
+without a reachable vulnerable call; the version floor does not replace it.
+
 - **Bot-proposed, human-reviewed, never auto-merged.** An update bot opens the
   pull requests and a person reads the release notes, reviews, and merges — the
   bots never merge on their own and never batch unrelated bumps.
