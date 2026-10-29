@@ -28,7 +28,7 @@ duty in `docs/opendata-aup.md`).
 | go | `github.com/cilium/ebpf` | v0.22.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/coreos/go-oidc/v3` | v3.18.0 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/fatih/color` | v1.16.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `github.com/go-jose/go-jose/v4` | v4.1.4 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `github.com/go-jose/go-jose/v4` | v4.1.6 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/golang/protobuf` | v1.5.4 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/google/go-cmp` | v0.7.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/google/uuid` | v1.6.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |

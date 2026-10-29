@@ -72,6 +72,13 @@ special case.
 
 ## The contract
 
+RSA public keys in the IdP's JWKS must have a modulus of at most 4096 bits.
+Larger RSA keys are refused by the patched JWK parser before expensive key
+validation. This bound addresses
+[GHSA-mgcc-cww5-fp2q](https://github.com/go-jose/go-jose/security/advisories/GHSA-mgcc-cww5-fp2q);
+configure the IdP to publish supported keys rather than raising the parser's
+global limit.
+
 To be a valid IdP for probectl, the provider must:
 
 - expose a discovery document at `${issuer}/.well-known/openid-configuration`
