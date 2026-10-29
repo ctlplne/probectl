@@ -143,7 +143,7 @@ func mcpCallAuditor(pool *pgxpool.Pool, log *slog.Logger) mcp.CallAudit {
 		}); err != nil {
 			// CODE-002: surface a failed MCP-call audit write. The server blocks
 			// tool invocation/output when this hook returns an error.
-			log.Warn("failed to persist mcp.tool_call audit record", "tenant_id", ev.TenantID, "tool", ev.Tool, "error", err.Error())
+			log.Warn("failed to persist mcp.tool_call audit record", "tenant_id", ev.TenantID, "tool", ev.Tool, "error_class", mcp.ErrorClass(err))
 			return errMCPCallAuditUnavailable
 		}
 		return nil

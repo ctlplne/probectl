@@ -183,7 +183,7 @@ func (s *Server) dispatch(ctx context.Context, p *auth.Principal, req rpcRequest
 	case "tools/list":
 		result, err := s.listTools(ctx, p)
 		if err != nil {
-			s.log.Warn("mcp authorization policy load failed", "tenant_id", p.TenantID, "error", err)
+			s.log.Warn("mcp authorization policy load failed", "tenant_id", p.TenantID, "error_class", ErrorClass(err))
 			return errorResponse(req.ID, codeUnavailable, "authorization policy is temporarily unavailable")
 		}
 		return resultResponse(req.ID, result)
@@ -264,7 +264,7 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 			Allowed:  allowed,
 			Denial:   denial,
 		}); err != nil {
-			s.log.Warn("mcp durable call audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+			s.log.Warn("mcp durable call audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error_class", ErrorClass(err))
 			return errCallAuditUnavailable
 		}
 		return nil
@@ -283,7 +283,7 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	}
 	policies, err := s.loadPolicies(ctx, p.TenantID)
 	if err != nil {
-		s.log.Warn("mcp authorization policy load failed", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+		s.log.Warn("mcp authorization policy load failed", "tenant_id", p.TenantID, "tool", params.Name, "error_class", ErrorClass(err))
 		if err := emit(CallPhaseTerminal, false, "policy"); err != nil {
 			return auditUnavailable()
 		}
@@ -319,7 +319,7 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		Surface:  "mcp",
 	}); err != nil {
 		if errors.Is(err, ai.ErrEgressAuditUnavailable) {
-			s.log.Warn("mcp durable egress denial audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+			s.log.Warn("mcp durable egress denial audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error_class", ErrorClass(err))
 			if auditErr := emit(CallPhaseTerminal, false, "egress_audit"); auditErr != nil {
 				return auditUnavailable()
 			}
@@ -338,9 +338,9 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	out, err := t.Invoke(ctx, p, params.Arguments)
 	if err != nil {
 		// A tool error is returned as an isError tool result (MCP idiom) so the
-		// model can react, but dependency error text is server-only: it can
-		// contain DSNs, hostnames, schemas, or an attacker-sized response body.
-		s.log.Warn("mcp tool invocation failed", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+		// model can react. Dependency text can contain credentials or private
+		// source details, so neither the response nor logs include it.
+		s.log.Warn("mcp tool invocation failed", "tenant_id", p.TenantID, "tool", params.Name, "error_class", ErrorClass(err))
 		if auditErr := emit(CallPhaseTerminal, false, terminalToolDenial(err)); auditErr != nil {
 			return auditUnavailable()
 		}
@@ -368,7 +368,7 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		Model:    "mcp",
 		Surface:  "mcp",
 	}); err != nil {
-		s.log.Warn("mcp durable egress audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error", err)
+		s.log.Warn("mcp durable egress audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error_class", ErrorClass(err))
 		if auditErr := emit(CallPhaseTerminal, false, "egress_audit"); auditErr != nil {
 			return auditUnavailable()
 		}

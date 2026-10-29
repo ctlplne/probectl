@@ -68,7 +68,7 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 		p, err := authn.Authenticate(r.Context(), bearer)
 		if err != nil || p == nil || p.TenantID == "" {
 			if err != nil {
-				s.log.Warn("mcp authentication failed", "error", err)
+				s.log.Warn("mcp authentication failed", "error_class", ErrorClass(err))
 			}
 			// AUTHZ-12: a policy refusal (suspended/offboarded tenant, MFA
 			// required) is 403 like /v1; a bad/expired/disabled token is 401.

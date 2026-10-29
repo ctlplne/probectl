@@ -315,6 +315,11 @@ three checks, every time:
   result, so a database outage cannot silently turn an audited egress path into
   an unaudited one.
 
+MCP dependency failures log a bounded `error_class` alongside the known tenant,
+tool and phase. Raw backend, policy, authentication and audit error text is
+excluded from those logs and from generic client failures because it can contain
+credentials, SQL or private source details.
+
 Crucially, the egress gate is a **required constructor argument** of `mcp.New` —
 there is no gate-less constructor, and a nil gate denies every tool call (fail
 closed). A gate-less MCP server simply can't exist, so no future transport can
