@@ -209,7 +209,9 @@ describe('native API docs route', () => {
       renderApp('/docs/api')
       await screen.findByRole('table', { name: 'API operations' })
       const body = screen.getByLabelText<HTMLTextAreaElement>('Request body')
-      expect(JSON.parse(body.value)).toEqual({ external_ref: 'QA-123', status: 'resolved' })
+      await waitFor(() =>
+        expect(JSON.parse(body.value)).toEqual({ external_ref: 'QA-123', status: 'resolved' }),
+      )
     },
   )
 
