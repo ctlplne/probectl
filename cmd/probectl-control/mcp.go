@@ -59,8 +59,8 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	}
 	// AUTHZ-12: the stdio transport enforces the same tenant-lifecycle and MFA
 	// gates as the HTTP listener and /v1.
-	p, err := control.NewMCPAuthenticator(db.Pool(), control.NewTenantStatusCache(db.Pool(), 0), cfg.RequireMFA).
-		Authenticate(context.Background(), token)
+	authenticator := control.NewMCPAuthenticator(db.Pool(), control.NewTenantStatusCache(db.Pool(), 0), cfg.RequireMFA)
+	p, err := authenticator.Authenticate(context.Background(), token)
 	if err != nil {
 		return fmt.Errorf("authenticate mcp token: %w", err)
 	}
@@ -96,7 +96,9 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Info("mcp stdio session", "tenant", p.TenantID, "user", p.UserID)
-	return runtime.server.ServeStdio(ctx, os.Stdin, os.Stdout, p)
+	return runtime.server.ServeAuthenticatedStdio(ctx, os.Stdin, os.Stdout, p, func(ctx context.Context) (*auth.Principal, error) {
+		return authenticator.Authenticate(ctx, token)
+	})
 }
 
 // routeMCPPathReads routes a ClickHouse path store through the process

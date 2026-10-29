@@ -179,7 +179,12 @@ clean JSON-RPC channel.
 The local-trust model is worth being explicit about. The **binary authenticates the
 token before it serves anything**: `mcp-stdio` resolves `PROBECTL_MCP_TOKEN` against
 the `mcp_tokens` store and refuses to start on a missing or invalid token
-(`runMCPStdio` in `cmd/probectl-control/mcp.go`). What stdio *deliberately* trusts
+(`runMCPStdio` in `cmd/probectl-control/mcp.go`). It authenticates the same
+credential again before every nonblank request frame, applying current token,
+user, tenant-lifecycle, MFA and permission state. The stream remains bound to its
+initial tenant and user; a changed identity or failed refresh refuses the request
+without falling back to old grants. Client metadata cannot change that identity.
+What stdio *deliberately* trusts
 is the **local invoking process**: anyone who can spawn the binary with that env var
 **is** the principal the token names — workstation process isolation is the
 boundary, exactly like any local CLI credential (think `kubectl`'s kubeconfig).
