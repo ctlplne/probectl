@@ -30,7 +30,7 @@ dev = [
   "pytest==8.4.2",
   "pytest-cov==7.1.0",
   "ruff==0.15.16",
-  "black==25.11.0",
+  "black==26.10.1",
   # Constrain Black's already-vetted transitive package so fresh resolution
   # retains the hash-locked version instead of adopting a new minor release.
   "platformdirs==4.13.6",
