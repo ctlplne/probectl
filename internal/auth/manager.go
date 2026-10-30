@@ -177,6 +177,7 @@ func (m *Manager) ReplaceAuthenticated(ctx context.Context, oldToken string, ses
 }
 
 func (m *Manager) prepare(sess Session) (string, []byte, Session, error) {
+	sess.workerCredential = WorkerCredentialRef{}
 	raw, err := crypto.Random(32)
 	if err != nil {
 		return "", nil, Session{}, err
@@ -198,14 +199,28 @@ func (m *Manager) Resolve(ctx context.Context, token string) (*Session, error) {
 	if token == "" {
 		return nil, nil
 	}
-	sess, err := m.store.LookupByHash(ctx, m.hashToken(token), m.idle)
-	if err != nil || sess != nil || !m.keyedHashing() {
-		return sess, err
-	}
+	acceptedHash := m.hashToken(token)
+	sess, err := m.store.LookupByHash(ctx, acceptedHash, m.idle)
 	// KEYS-002 migration window: sessions minted before the keyed hash rolled
 	// out are stored under the legacy unkeyed digest. They expire naturally by
 	// TTL; new sessions are always stored under the keyed digest.
-	return m.store.LookupByHash(ctx, legacyHashToken(token), m.idle)
+	if err == nil && sess == nil && m.keyedHashing() {
+		acceptedHash = legacyHashToken(token)
+		sess, err = m.store.LookupByHash(ctx, acceptedHash, m.idle)
+	}
+	if err != nil || sess == nil {
+		return nil, err
+	}
+	return m.sessionWithWorkerCredential(sess, acceptedHash), nil
+}
+
+// Copy before attaching provenance so a store-owned session is never mutated.
+// Missing canonical row metadata leaves ordinary authentication unchanged but
+// cannot admit a background job. A store-supplied reference is never trusted.
+func (m *Manager) sessionWithWorkerCredential(sess *Session, acceptedHash []byte) *Session {
+	snapshot := *sess
+	snapshot.workerCredential, _ = captureWorkerCredential(WorkerCredentialSession, sess.TenantID, sess.UserID, sess.ID, acceptedHash, m.workerCredentialPolicy())
+	return &snapshot
 }
 
 // Revoke deletes a session (logout).

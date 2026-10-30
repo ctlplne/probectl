@@ -169,6 +169,7 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	var offenders []string
 	var invalidSiloTables []string
 	var siloTables []siloPostureTable
+	var historyTables []siloPostureTable
 	var checked int
 	for rows.Next() {
 		var schema, name string
@@ -185,6 +186,9 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 			return fmt.Errorf("isolation posture: scan: %w", err)
 		}
 		schemaTenant, canonicalSilo := canonicalSiloTenantID(schema)
+		if FlowHistoryOwnerTable(name) {
+			historyTables = append(historyTables, siloPostureTable{schema: schema, table: name})
+		}
 		if canonicalSilo && (!hasTenantID || !tenantIDUUID || !tenantIDNotNull) {
 			invalidSiloTables = append(
 				invalidSiloTables,
@@ -231,6 +235,11 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	}
 	if err := assertSiloSchemaGuards(ctx, q, siloTables); err != nil {
 		return err
+	}
+	for _, table := range historyTables {
+		if err := AssertFlowHistoryOwnerGuard(ctx, q, table.schema, table.table); err != nil {
+			return err
+		}
 	}
 	if err := assertStrictPreTenantPolicies(ctx, q); err != nil {
 		return err

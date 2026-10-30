@@ -88,6 +88,7 @@ func (a *Authenticator) ResolveAndRotate(r *http.Request) (*Principal, string, e
 	if err != nil {
 		return nil, "", err
 	}
+	sess = a.mgr.sessionWithWorkerCredential(sess, a.mgr.hashToken(replacement))
 	return principalFromSession(sess, grants), replacement, nil
 }
 
@@ -145,15 +146,16 @@ func PrincipalWithPermissionGrants(p *Principal, grants []PermissionGrant) *Prin
 // principalFromSession builds a Principal from a session + its permission grants.
 func principalFromSession(sess *Session, grants []PermissionGrant) *Principal {
 	p := &Principal{
-		TenantID:       sess.TenantID,
-		UserID:         sess.UserID,
-		Email:          sess.Email,
-		DisplayName:    sess.DisplayName,
-		MFASatisfied:   sess.MFASatisfied,
-		TimeZone:       sess.TimeZone,
-		Locale:         sess.Locale,
-		TenantTimeZone: sess.TenantTimeZone,
-		TenantLocale:   sess.TenantLocale,
+		TenantID:         sess.TenantID,
+		UserID:           sess.UserID,
+		Email:            sess.Email,
+		DisplayName:      sess.DisplayName,
+		MFASatisfied:     sess.MFASatisfied,
+		TimeZone:         sess.TimeZone,
+		Locale:           sess.Locale,
+		TenantTimeZone:   sess.TenantTimeZone,
+		TenantLocale:     sess.TenantLocale,
+		workerCredential: sess.workerCredential,
 	}
 	return PrincipalWithPermissionGrants(p, grants)
 }

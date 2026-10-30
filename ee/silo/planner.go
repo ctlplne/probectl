@@ -7,11 +7,11 @@
 package silo
 
 import (
-	"github.com/ctlplne/probectl/internal/tenancy"
-
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // The Postgres schema planner: PURE functions from catalog facts to ordered
@@ -133,6 +133,11 @@ func tableRolePlan(quotedTable, table string) []string {
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
 			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_provider",
 		}
+	case "flow_conversation_messages", "flow_conversation_jobs":
+		return []string{
+			"REVOKE ALL ON " + quotedTable + " FROM PUBLIC, probectl_provider",
+			"GRANT SELECT, INSERT, UPDATE, DELETE ON " + quotedTable + " TO probectl_app",
+		}
 	}
 	return []string{
 		"GRANT SELECT, INSERT, UPDATE, DELETE ON " + quotedTable + " TO probectl_app",
@@ -233,6 +238,7 @@ func repairTenantBoundaryPlan(schema, quotedTable, table string) []string {
 	}
 	plan = append(plan, auditWriteFencePlan(quotedTable, table)...)
 	plan = append(plan, tenantWriteFencePlan(quotedTable, table)...)
+	plan = append(plan, tenancy.FlowHistoryOwnerBoundaryPlan(schema, table)...)
 	return append(plan, tableRolePlan(quotedTable, table)...)
 }
 

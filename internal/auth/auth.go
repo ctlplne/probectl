@@ -67,6 +67,8 @@ type Session struct {
 	// resource scope) at the moment this opaque token was issued. A changed
 	// fingerprint causes an atomic token rotation before the request continues.
 	AuthorizationHash []byte
+	// Captured only by successful authentication; never persisted as authority.
+	workerCredential WorkerCredentialRef
 }
 
 // PermissionScope is the hierarchy level at which a role binding applies.
@@ -125,6 +127,8 @@ type Principal struct {
 	// Attributes are the subject's ABAC attributes (from the user's SCIM-provisioned
 	// attributes plus derived ones like "mfa"). nil when ABAC is not in use.
 	Attributes map[string]string
+	// Private exact-origin metadata for background admission, never a grant.
+	workerCredential WorkerCredentialRef
 }
 
 // HasScopedGrants reports whether the principal has a valid resource-scoped
