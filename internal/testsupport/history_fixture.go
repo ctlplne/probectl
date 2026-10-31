@@ -26,7 +26,8 @@ func InstallFlowHistoryFixture(ctx context.Context, t testing.TB, admin *pgxpool
 		t.Fatal("history fixture requires the canonical owner boundary plan")
 	}
 	statements := []string{
-		`CREATE TABLE public.flow_conversation_epochs(tenant_id uuid PRIMARY KEY REFERENCES public.tenants(id) ON DELETE CASCADE,generation bigint NOT NULL CHECK(generation>0),invalidating boolean NOT NULL DEFAULT false,operation_id uuid,operation_kind text,operation_binding bytea,operation_plan text,
+		`CREATE TABLE public.flow_conversation_epochs(tenant_id uuid PRIMARY KEY REFERENCES public.tenants(id) ON DELETE CASCADE,generation bigint NOT NULL CHECK(generation>0),invalidating boolean NOT NULL DEFAULT false,operation_id uuid,operation_kind text,operation_binding bytea,operation_plan text,operation_messages_deleted bigint NOT NULL DEFAULT 0 CHECK(operation_messages_deleted>=0),operation_jobs_deleted bigint NOT NULL DEFAULT 0 CHECK(operation_jobs_deleted>=0),operation_source_empty boolean NOT NULL DEFAULT false,
+          CHECK(COALESCE(operation_kind='subject_erase',false) OR (operation_messages_deleted=0 AND operation_jobs_deleted=0 AND NOT operation_source_empty)),
 		  CHECK(operation_plan IS NULL OR (invalidating AND operation_kind='subject_erase' AND length(operation_plan)>0)),
           CHECK((NOT invalidating AND operation_id IS NULL AND operation_kind IS NULL AND operation_binding IS NULL) OR
             (invalidating AND operation_id IS NOT NULL AND operation_kind IS NOT NULL AND operation_kind IN ('tenant_erase','subject_erase','retention','key_rotation') AND operation_binding IS NOT NULL AND octet_length(operation_binding)=32)))`,

@@ -146,7 +146,7 @@ func (j *Journal) beginInvalidation(ctx context.Context, request MaintenanceRequ
 				if request.Kind != MaintenanceSubjectErase {
 					return ErrMessageIntegrity
 				}
-				query = `UPDATE flow_conversation_epochs SET generation=$2,invalidating=true,operation_id=$3::uuid,operation_kind=$4,operation_binding=$5,operation_plan=$7 WHERE tenant_id=$1::uuid AND generation=$6 AND NOT invalidating`
+				query = `UPDATE flow_conversation_epochs SET generation=$2,invalidating=true,operation_id=$3::uuid,operation_kind=$4,operation_binding=$5,operation_plan=$7,operation_messages_deleted=0,operation_jobs_deleted=0,operation_source_empty=false WHERE tenant_id=$1::uuid AND generation=$6 AND NOT invalidating`
 				args = append(args, plan)
 			}
 			changed, err := sc.Q.Exec(ctx, query, args...)
@@ -160,6 +160,15 @@ func (j *Journal) beginInvalidation(ctx context.Context, request MaintenanceRequ
 				return err
 			}
 			result = Invalidation{&invalidation{tenant, request, next}}
+			if plan != "" {
+				progress, err := readSubjectProgressTx(ctx, sc, result)
+				if err != nil {
+					return err
+				}
+				if progress != (SubjectHistoryProgress{}) {
+					return ErrJournalConflict
+				}
+			}
 			return nil
 		})
 	})

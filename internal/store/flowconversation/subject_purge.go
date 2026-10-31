@@ -85,6 +85,13 @@ func (j *Journal) purgeSubjectLeaf(ctx context.Context, selection subjectLeafSel
 				if err := lockSubjectPurgeLeaf(ctx, sc, stored); err != nil {
 					return err
 				}
+				progress, err := readSubjectProgressTx(ctx, sc, pending)
+				if err != nil {
+					return err
+				}
+				if progress.SourceEmpty {
+					return ErrJournalConflict
+				}
 				refs, err := countSubjectJobReferences(ctx, sc, stored)
 				if err != nil {
 					return err
@@ -131,6 +138,13 @@ func (j *Journal) purgeSubjectLeaf(ctx context.Context, selection subjectLeafSel
 				if result.messagesDeleted == 0 && result.jobsDeleted == 0 {
 					return ErrJournalUnavailable
 				}
+				next, err := advanceSubjectProgress(progress, result.messagesDeleted, result.jobsDeleted)
+				if err != nil {
+					return err
+				}
+				if err := writeSubjectProgressTx(ctx, sc, pending, progress, next); err != nil {
+					return err
+				}
 				if err := j.record(ctx, sc, "system:flow-conversation", "flow.conversation.subject_purge", pending.value.request.ID, map[string]any{
 					"generation": state.generation, "owner_id": stored.Scope().OwnerID, "conversation_id": stored.Scope().ConversationID,
 					"message_id": stored.Scope().MessageID, "revision": stored.Scope().Revision,
@@ -146,6 +160,13 @@ func (j *Journal) purgeSubjectLeaf(ctx context.Context, selection subjectLeafSel
 					return err
 				}
 				if verified != after {
+					return ErrJournalConflict
+				}
+				verifiedProgress, err := readSubjectProgressTx(ctx, sc, pending)
+				if err != nil {
+					return err
+				}
+				if verifiedProgress != next {
 					return ErrJournalConflict
 				}
 				return nil

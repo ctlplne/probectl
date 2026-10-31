@@ -21,8 +21,11 @@ import (
 // index bindings before returning a semantic match. A match is never authority.
 // body and plan are borrowed only for this joined source phase; release clears
 // application-owned matching state. There is deliberately no generic fallback.
-type subjectDocumentMatch func(context.Context, StoredMessage, []byte) (bool, error)
-type subjectMatchFactory func(context.Context, SubjectErasurePlan) (subjectDocumentMatch, func(), error)
+type SubjectDocumentMatch func(context.Context, StoredMessage, []byte) (bool, error)
+type SubjectMatchFactory func(context.Context, SubjectErasurePlan) (SubjectDocumentMatch, func(), error)
+
+type subjectDocumentMatch = SubjectDocumentMatch
+type subjectMatchFactory = SubjectMatchFactory
 
 // This bounded set holds exact original ciphertext pairs, not decoded source,
 // a completed erasure receipt or permission to clear the durable intent.

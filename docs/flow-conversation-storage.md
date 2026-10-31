@@ -336,3 +336,10 @@ export authority and actual-drain registration. Per-page rows and bytes bound
 resources; exhaustion refuses and never becomes a successful zero-row receipt.
 This storage composition does not claim native controller classification,
 complete subject erasure, or enable private persistence.
+
+
+This private conversation-history subsystem is PARKED by owner decision on
+2026-10-31 and is outside FX-1. It has no product migration or runtime activation.
+The checkpoint preserves complete source selection and durable physical counters,
+including lost-response recovery; it does not deliver all-plane subject erasure.
+No further development or activation is authorized without Shankar's go-ahead.
