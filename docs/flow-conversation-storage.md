@@ -295,3 +295,29 @@ validation, independently current controller credentials, stable directory
 identity, durable all-plane/self-erasure receipts, keys, retention and positive
 orphan recovery remain required. The pending intent stays set; this primitive
 introduces no finish/clear authority or product migration.
+
+
+Version2 subject-plan envelopes can bind one bounded private application JSON
+snapshot. The lifecycle service owns its typed directory schema and validation;
+the history store does not query directory tables. Version1 alias-only plans
+remain explicit and cannot certify typed identity approval. Borrowed selector
+copies clear after their visitor, and a source callback cannot release the
+active selector that its enclosing operation owns.
+
+The lifecycle snapshot freezes a typed user/service-account UUID or literal
+binding, original directory aliases and exact credential locators. Directory
+credentials are selected by the approved stable ID; a stale session email
+cannot add another user's credential. Application approval must recheck the
+exact directory and credential snapshot in the same short writer/audit/epoch
+transaction as marker and encrypted-plan creation. Missing validation, directory
+drift or audit failure rolls back marker, epoch and audit. Routed directory
+locks and canonical storage posture precede these SQL reads; crypto and current
+authorization execute outside mutation locks.
+
+Resume retains the original approval and checks the same stable identity.
+Reassigned original aliases and literal-to-account adoption refuse. Renames and
+new credentials of the original UUID are returned separately; a missing original
+identity is absent rather than a replacement. This approval/reconciliation stage
+still needs native projection, genuine controller erase authority, physical
+orchestration, durable all-plane/self-erasure completion, retention, key inventory
+and positive orphan recovery before private persistence is enabled.

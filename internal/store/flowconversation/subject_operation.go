@@ -98,11 +98,16 @@ func clearSubjectSourcePlan(plan SubjectErasurePlan) {
 	if plan.value != nil {
 		clear(plan.value.wire.Salt)
 		clear(plan.value.wire.Aliases)
+		clear(plan.value.wire.Application)
+		plan.value.wire.Application = nil
 		plan.value.wire.Subject = ""
 	}
 }
 
 func (j *Journal) runSubjectMatchSource(parent context.Context, lease *subjectSourceLease, plan SubjectErasurePlan, fn func(context.Context, SubjectErasurePlan) error) (result error) {
+	// The callback borrows this immutable selector. Releasing a standalone
+	// resumed plan must not let a callback destroy its active source selector.
+	plan.value.borrowed = true
 	owned, cancel := context.WithCancelCause(parent)
 	current := context.WithValue(owned, subjectSourceLeaseKey{}, lease)
 	check := func(ctx context.Context) error { return j.checkSubjectSource(ctx, lease) }

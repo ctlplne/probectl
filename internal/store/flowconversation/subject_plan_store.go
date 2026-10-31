@@ -15,12 +15,17 @@ import (
 // BeginSubjectInvalidation commits the encrypted immutable selector with its
 // audited refusal marker. No source, destructive completion or clear authority
 // follows from this reference. Exact retries use the same prepared plan.
-func (j *Journal) BeginSubjectInvalidation(ctx context.Context, codec *Codec, plan SubjectErasurePlan, authorize AuthorizeMaintenance) (Invalidation, error) {
+func (j *Journal) BeginSubjectInvalidation(ctx context.Context, codec *Codec, plan SubjectErasurePlan, authorize AuthorizeMaintenance, validate ...func(context.Context, tenancy.Scope) error) (Invalidation, error) {
 	tenant, err := maintenanceTenant(ctx)
 	if err != nil {
 		return Invalidation{}, err
 	}
 	if plan.value == nil || plan.value.tenant != tenant {
+		return Invalidation{}, ErrMessageDenied
+	}
+	// Version2 application approval is a pure storage check under this same
+	// writer/audit/epoch transaction. Auth/crypto/external IO must remain outside.
+	if len(validate) > 1 || len(validate) == 1 && validate[0] == nil || plan.value.wire.Version == 2 && len(validate) != 1 {
 		return Invalidation{}, ErrMessageDenied
 	}
 	if err := authorizeMaintenance(ctx, tenant, authorize); err != nil {
@@ -30,13 +35,14 @@ func (j *Journal) BeginSubjectInvalidation(ctx context.Context, codec *Codec, pl
 	if err != nil {
 		return Invalidation{}, err
 	}
-	pending, err := j.beginInvalidation(ctx, plan.value.request, stored, authorize)
+	pending, err := j.beginInvalidation(ctx, plan.value.request, stored, authorize, validate...)
 	if err != nil {
 		return Invalidation{}, err
 	}
 	// Even an exact marker retry must have a valid durable selector; a generic
 	// marker with the same metadata alone cannot fabricate the plan envelope.
-	current, _, err := j.ResumeSubjectInvalidation(ctx, codec, plan.value.request.ID, authorize)
+	current, checked, err := j.ResumeSubjectInvalidation(ctx, codec, plan.value.request.ID, authorize)
+	defer checked.Release()
 	if err != nil {
 		return Invalidation{}, err
 	}
@@ -108,9 +114,11 @@ func (j *Journal) ResumeSubjectInvalidation(ctx context.Context, codec *Codec, o
 	}
 	pending, err := j.ResumeInvalidation(ctx, request, authorize)
 	if err != nil {
+		plan.Release()
 		return Invalidation{}, SubjectErasurePlan{}, err
 	}
 	if pending.value == nil || pending.value.generation != generation {
+		plan.Release()
 		return Invalidation{}, SubjectErasurePlan{}, ErrJournalGeneration
 	}
 	return pending, plan, nil

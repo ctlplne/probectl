@@ -86,13 +86,16 @@ func (j *Journal) BeginInvalidation(ctx context.Context, request MaintenanceRequ
 	return j.beginInvalidation(ctx, request, "", authorize)
 }
 
-func (j *Journal) beginInvalidation(ctx context.Context, request MaintenanceRequest, plan string, authorize AuthorizeMaintenance) (Invalidation, error) {
+func (j *Journal) beginInvalidation(ctx context.Context, request MaintenanceRequest, plan string, authorize AuthorizeMaintenance, validate ...func(context.Context, tenancy.Scope) error) (Invalidation, error) {
 	tenant, err := maintenanceTenant(ctx)
 	if err != nil {
 		return Invalidation{}, err
 	}
 	if !validMaintenanceRequest(request) {
 		return Invalidation{}, ErrMessageIntegrity
+	}
+	if len(validate) > 1 || len(validate) == 1 && validate[0] == nil {
+		return Invalidation{}, ErrMessageDenied
 	}
 	if err := authorizeMaintenance(ctx, tenant, authorize); err != nil {
 		return Invalidation{}, err
@@ -120,11 +123,21 @@ func (j *Journal) beginInvalidation(ctx context.Context, request MaintenanceRequ
 				if !state.matches(request) {
 					return ErrJournalConflict
 				}
+				if len(validate) == 1 {
+					if err := validate[0](ctx, sc); err != nil {
+						return err
+					}
+				}
 				result = Invalidation{&invalidation{tenant, request, state.generation}}
 				return nil
 			}
 			if state.generation >= math.MaxInt64 {
 				return ErrJournalGeneration
+			}
+			if len(validate) == 1 {
+				if err := validate[0](ctx, sc); err != nil {
+					return err
+				}
 			}
 			next := state.generation + 1
 			query := `UPDATE flow_conversation_epochs SET generation=$2,invalidating=true,operation_id=$3::uuid,operation_kind=$4,operation_binding=$5 WHERE tenant_id=$1::uuid AND generation=$6 AND NOT invalidating`
