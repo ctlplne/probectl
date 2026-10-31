@@ -146,7 +146,7 @@ func (j *Journal) exportLeaseScope(ctx context.Context, lease *operationLease) e
 		return context.Cause(ctx)
 	}
 	tenant, ok := tenancy.FromContext(ctx)
-	if !ok || lease == nil || lease.journal != j || tenant.String() != lease.owner.tenant || auth.PrincipalFrom(ctx) != nil || ctx.Value(operationLeaseKey{}) != nil || ctx.Value(tenantExportLeaseKey{}) != lease || lease.activity == nil || !lease.activity.runtime.isActive(lease.activity) {
+	if !ok || lease == nil || lease.journal != j || tenant.String() != lease.owner.tenant || auth.PrincipalFrom(ctx) != nil || ctx.Value(operationLeaseKey{}) != nil || ctx.Value(subjectSourceLeaseKey{}) != nil || ctx.Value(tenantExportLeaseKey{}) != lease || lease.activity == nil || !lease.activity.runtime.isActive(lease.activity) {
 		return ErrMessageDenied
 	}
 	lease.mu.Lock()

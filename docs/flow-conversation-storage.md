@@ -217,3 +217,29 @@ These methods neither admit matching message source nor prove actual drain,
 delete records or clear the refusal marker. Complete subject matching and
 erasure, retention, key inventory/rewrap including the plan envelope, and
 positive orphan recovery remain required before private persistence is enabled.
+
+
+## Pending subject matching source (private foundation)
+
+Subject matching uses a separate internal source context for the exact pending
+subject-erasure operation. It requires independently current lifecycle
+authority and strong durable drain, then atomically rechecks zero activity,
+registers the actual operation and appends mandatory audit under the canonical
+writer, audit and epoch lock order. Losing the family SQL lease cannot admit
+another source or destructive mutation while this registration is live.
+
+The approved encrypted alias plan opens after registration. Current authority
+and the exact intent are checked during source use; ordinary owner history,
+active-generation export and general maintenance cannot borrow this context.
+The matching callback and nested readers release their actual buffers before
+acknowledgement. Returning early or canceling a context does not imply drain.
+The first nested-reader failure refuses success even if its caller ignores it.
+Panic unwinding also joins actual readers and the watcher before source-free
+retirement; failed acknowledgement retains the existing private retry.
+
+This is admission for destructive matching of all stored data, including
+expired ciphertext, and grants no source-return API or completion authority.
+The bounded semantic matcher, native document validation, complete descendant
+selection, counted job/leaf deletion, all-plane receipts and self-erasure,
+retention, key lifecycle and positive orphan recovery remain required before
+private persistence is enabled. No product migration is introduced here.

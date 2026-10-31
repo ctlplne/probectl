@@ -187,7 +187,7 @@ func maintenanceTenant(ctx context.Context) (string, error) {
 		return "", err
 	}
 	tenant, ok := tenancy.FromContext(ctx)
-	if !ok || !historyID(tenant.String()) || auth.PrincipalFrom(ctx) != nil || ctx.Value(operationLeaseKey{}) != nil || ctx.Value(tenantExportLeaseKey{}) != nil {
+	if !ok || !historyID(tenant.String()) || auth.PrincipalFrom(ctx) != nil || ctx.Value(operationLeaseKey{}) != nil || ctx.Value(tenantExportLeaseKey{}) != nil || ctx.Value(subjectSourceLeaseKey{}) != nil {
 		return "", ErrMessageDenied
 	}
 	return tenant.String(), nil

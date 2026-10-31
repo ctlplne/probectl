@@ -69,6 +69,13 @@ func (j *Journal) registerActivity(ctx context.Context, id historyIdentity, ref 
 // Journal data operations under a private read callback must still have an
 // exact active durable registration. The registration itself grants no source.
 func (j *Journal) checkActivityContext(ctx context.Context, sc tenancy.Scope) error {
+	if value := ctx.Value(subjectSourceLeaseKey{}); value != nil {
+		lease, ok := value.(*subjectSourceLease)
+		if !ok {
+			return ErrMessageDenied
+		}
+		return j.checkSubjectActivityContext(ctx, sc, lease)
+	}
 	if value := ctx.Value(tenantExportLeaseKey{}); value != nil {
 		lease, ok := value.(*operationLease)
 		if !ok {
@@ -103,7 +110,7 @@ type activityCleanupParent struct{ context.Context }
 
 func (ctx activityCleanupParent) Value(key any) any {
 	switch key.(type) {
-	case operationLeaseKey, tenantExportLeaseKey:
+	case operationLeaseKey, tenantExportLeaseKey, subjectSourceLeaseKey:
 		return nil
 	}
 	return ctx.Context.Value(key)
