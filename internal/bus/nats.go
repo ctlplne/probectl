@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -62,14 +63,18 @@ type NATS struct {
 	maxPending int
 	maxDeliver int // bounded redelivery: a poison record is terminated after this many attempts (ING-12)
 
-	produced     atomic.Uint64
-	failed       atomic.Uint64
-	shed         atomic.Uint64
-	handlerErr   atomic.Uint64
-	handlerPanic atomic.Uint64 // handler panics recovered (ING-40 — counted, never a process crash)
-	handlerLost  atomic.Uint64 // poison records terminated after exhausting MaxDeliver — a counted loss, never silent
-	inflight     atomic.Int64
-	lastFailure  atomic.Pointer[produceFailure]
+	produced       atomic.Uint64
+	failed         atomic.Uint64
+	shed           atomic.Uint64
+	handlerErr     atomic.Uint64
+	handlerPanic   atomic.Uint64 // handler panics recovered (ING-40 — counted, never a process crash)
+	handlerLost    atomic.Uint64 // poison records terminated after exhausting MaxDeliver — a counted loss, never silent
+	ackErrors      atomic.Uint64 // JetStream ACK confirmations that failed (DPR-507)
+	ackUnconfirmed atomic.Uint64 // cumulative processed messages left for broker redelivery after all confirmations failed
+	nakErrors      atomic.Uint64 // JetStream NAK sends that failed (DPR-507)
+	nakUnconfirmed atomic.Uint64 // cumulative handler-error messages left for AckWait after all NAK sends failed
+	inflight       atomic.Int64
+	lastFailure    atomic.Pointer[produceFailure]
 
 	// DPR-141: this process's consumer backlog, from JetStream's per-message
 	// pending count.
@@ -104,6 +109,13 @@ const (
 	// record cannot loop forever and wedge the consumer. Parity with the Kafka
 	// transport's redelivery and the in-memory bus's memoryMaxRedeliver.
 	defaultNATSMaxDeliver = 5
+	// A processed batch must have a broker-confirmed ACK. Two bounded attempts
+	// cover a transient lost reply/reconnect without waiting for AckWait, while a
+	// persistent outage leaves the durable record pending for safe redelivery.
+	natsAckConfirmTimeout  = 2 * time.Second
+	natsAckConfirmAttempts = 2
+	natsNakAttempts        = 2
+	natsNakRetryDelay      = 250 * time.Millisecond
 	// natsKeyHeader carries the Kafka-style record key. Tenant attribution
 	// rides on it, so it is not optional metadata: the pipeline reads it.
 	natsKeyHeader = "Probectl-Key"
@@ -340,12 +352,16 @@ func (n *NATS) ConsumerLag() (int64, int, bool) {
 
 func (n *NATS) Stats() PublishStats {
 	return PublishStats{
-		Produced:      n.produced.Load(),
-		Failed:        n.failed.Load(),
-		Shed:          n.shed.Load(),
-		Buffered:      n.inflight.Load(),
-		HandlerErrors: n.handlerErr.Load(),
-		HandlerPanics: n.handlerPanic.Load(),
+		Produced:       n.produced.Load(),
+		Failed:         n.failed.Load(),
+		Shed:           n.shed.Load(),
+		Buffered:       n.inflight.Load(),
+		HandlerErrors:  n.handlerErr.Load(),
+		HandlerPanics:  n.handlerPanic.Load(),
+		AckErrors:      n.ackErrors.Load(),
+		AckUnconfirmed: n.ackUnconfirmed.Load(),
+		NakErrors:      n.nakErrors.Load(),
+		NakUnconfirmed: n.nakUnconfirmed.Load(),
 	}
 }
 
@@ -427,8 +443,10 @@ func (n *NATS) handleMessage(ctx context.Context, msg jetstream.Msg, handler Han
 	// watermark, and it stays fresh as long as anything is flowing. The delivery
 	// count on the same metadata is what bounds redelivery.
 	var numDelivered uint64 = 1
+	var streamSeq uint64
 	if md, err := msg.Metadata(); err == nil {
 		n.recordLag(int64(md.NumPending))
+		streamSeq = md.Sequence.Stream
 		if md.NumDelivered > 0 {
 			numDelivered = md.NumDelivered
 		}
@@ -443,6 +461,12 @@ func (n *NATS) handleMessage(ctx context.Context, msg jetstream.Msg, handler Han
 	// whole process. Counted on handlerPanic; logged without the payload.
 	if herr := recoverHandler(ctx, handler, m, &n.handlerPanic); herr != nil {
 		n.handlerErr.Add(1)
+		if numDelivered == 1 {
+			// No payload or raw error: the source may contain tenant secrets. The
+			// broker sequence lets a retained stream identify this exact batch.
+			slog.Default().Warn("bus: handler failed; durable message will retry",
+				"topic", msg.Subject(), "stream_seq", streamSeq)
+		}
 		if n.maxDeliver > 0 && numDelivered >= uint64(n.maxDeliver) {
 			// Poison: stop the redelivery loop explicitly and count the loss.
 			// Term tells the server never to redeliver this record again; the
@@ -453,10 +477,43 @@ func (n *NATS) handleMessage(ctx context.Context, msg jetstream.Msg, handler Han
 		}
 		// Transient (or still within the bound): leave it unacked for a delayed
 		// redelivery. The delay keeps a failing record from spinning the consumer.
-		_ = msg.NakWithDelay(time.Second)
+		for attempt := 0; attempt < natsNakAttempts; attempt++ {
+			if err := msg.NakWithDelay(time.Second); err == nil {
+				return
+			}
+			n.nakErrors.Add(1)
+			slog.Default().Warn("bus: NAK send failed; retrying bounded delivery request",
+				"topic", msg.Subject(), "stream_seq", streamSeq, "attempt", attempt+1)
+			if attempt+1 < natsNakAttempts {
+				time.Sleep(natsNakRetryDelay)
+			}
+		}
+		n.nakUnconfirmed.Add(1)
+		slog.Default().Error("bus: NAK send failed; broker AckWait will redeliver",
+			"topic", msg.Subject(), "stream_seq", streamSeq, "attempts", natsNakAttempts)
 		return
 	}
-	_ = msg.Ack()
+	// DPR-507: Ack is fire-and-forget and its error used to be ignored. A
+	// successful handler could therefore leave one durable batch unacknowledged
+	// while later batches passed, one possible path to the G2 attempt19 state.
+	// The historical handler branch was not recorded.
+	// DoubleAck confirms the broker's reply; retry only this ACK, never the
+	// already-committed handler. If confirmation still fails, leave the record
+	// pending so JetStream can redeliver it. Never Term a successful write.
+	for attempt := 0; attempt < natsAckConfirmAttempts; attempt++ {
+		ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), natsAckConfirmTimeout)
+		err := msg.DoubleAck(ackCtx)
+		cancel()
+		if err == nil {
+			return
+		}
+		n.ackErrors.Add(1)
+		slog.Default().Warn("bus: processed message ACK confirmation failed; retrying",
+			"topic", msg.Subject(), "stream_seq", streamSeq, "attempt", attempt+1)
+	}
+	n.ackUnconfirmed.Add(1)
+	slog.Default().Error("bus: processed message ACK not confirmed; broker will redeliver",
+		"topic", msg.Subject(), "stream_seq", streamSeq, "attempts", natsAckConfirmAttempts)
 }
 
 // HandlerLost returns how many poison records were terminated after exhausting

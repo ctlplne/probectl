@@ -28,22 +28,114 @@ type fakeJSMsg struct {
 	acks  int
 	naks  int
 	terms int
+	// A fire-and-forget ACK can be accepted by the client without confirmation
+	// from JetStream. The fake keeps those outcomes separate for DPR-507.
+	doubleAckCalls    int
+	doubleAckFailures int
+	confirmed         bool
+	nakCalls          int
+	nakFailures       int
 }
 
 func (f *fakeJSMsg) Metadata() (*jetstream.MsgMetadata, error) {
 	return &jetstream.MsgMetadata{NumDelivered: f.numDelivered}, nil
 }
-func (f *fakeJSMsg) Data() []byte                     { return f.data }
-func (f *fakeJSMsg) Headers() nats.Header             { return f.hdr }
-func (f *fakeJSMsg) Subject() string                  { return f.subject }
-func (f *fakeJSMsg) Reply() string                    { return "" }
-func (f *fakeJSMsg) Ack() error                       { f.acks++; return nil }
-func (f *fakeJSMsg) DoubleAck(context.Context) error  { f.acks++; return nil }
-func (f *fakeJSMsg) Nak() error                       { f.naks++; return nil }
-func (f *fakeJSMsg) NakWithDelay(time.Duration) error { f.naks++; return nil }
-func (f *fakeJSMsg) InProgress() error                { return nil }
-func (f *fakeJSMsg) Term() error                      { f.terms++; return nil }
-func (f *fakeJSMsg) TermWithReason(string) error      { f.terms++; return nil }
+func (f *fakeJSMsg) Data() []byte         { return f.data }
+func (f *fakeJSMsg) Headers() nats.Header { return f.hdr }
+func (f *fakeJSMsg) Subject() string      { return f.subject }
+func (f *fakeJSMsg) Reply() string        { return "" }
+func (f *fakeJSMsg) Ack() error           { f.acks++; return nil }
+func (f *fakeJSMsg) DoubleAck(context.Context) error {
+	f.doubleAckCalls++
+	if f.doubleAckCalls <= f.doubleAckFailures {
+		return context.DeadlineExceeded
+	}
+	f.acks++
+	f.confirmed = true
+	return nil
+}
+func (f *fakeJSMsg) Nak() error { f.naks++; return nil }
+func (f *fakeJSMsg) NakWithDelay(time.Duration) error {
+	f.nakCalls++
+	if f.nakCalls <= f.nakFailures {
+		return context.DeadlineExceeded
+	}
+	f.naks++
+	return nil
+}
+func (f *fakeJSMsg) InProgress() error           { return nil }
+func (f *fakeJSMsg) Term() error                 { f.terms++; return nil }
+func (f *fakeJSMsg) TermWithReason(string) error { f.terms++; return nil }
+
+// DPR-507: the first durable G2 flow batch stayed pending while later batches
+// passed. A successful handler is insufficient if its ACK is not confirmed by
+// the broker. Simulate one lost ACK reply, then a healthy retry, and require the
+// original delivery to become confirmed without replaying the handler.
+func TestNATSSuccessfulHandlerConfirmsAckAfterLostReply(t *testing.T) {
+	n := &NATS{maxDeliver: defaultNATSMaxDeliver}
+	msg := &fakeJSMsg{subject: FlowEventsTopic, data: []byte("flow-batch"), hdr: nats.Header{}, doubleAckFailures: 1}
+	called := 0
+	n.handleMessage(context.Background(), msg, func(context.Context, Message) error {
+		called++
+		return nil
+	})
+	if !msg.confirmed {
+		t.Fatal("successful flow handler left its JetStream batch unconfirmed until AckWait redelivery")
+	}
+	if called != 1 || msg.doubleAckCalls != 2 || msg.acks != 1 {
+		t.Fatalf("handler calls=%d, confirmation attempts=%d, acknowledged=%d; want 1, 2, 1", called, msg.doubleAckCalls, msg.acks)
+	}
+	if got := n.Stats(); got.AckErrors != 1 || got.AckUnconfirmed != 0 {
+		t.Fatalf("ack telemetry=%+v, want one failed reply and zero pending after recovery", got)
+	}
+}
+
+func TestNATSPersistentAckFailureLeavesDurableMessagePending(t *testing.T) {
+	n := &NATS{maxDeliver: defaultNATSMaxDeliver}
+	msg := &fakeJSMsg{subject: FlowEventsTopic, data: []byte("flow-batch"), hdr: nats.Header{}, doubleAckFailures: natsAckConfirmAttempts}
+	called := 0
+	n.handleMessage(context.Background(), msg, func(context.Context, Message) error {
+		called++
+		return nil
+	})
+	if called != 1 || msg.acks != 0 || msg.terms != 0 || msg.doubleAckCalls != natsAckConfirmAttempts {
+		t.Fatalf("handler calls=%d, acks=%d, terms=%d, confirmation attempts=%d; processed data must remain pending for broker redelivery", called, msg.acks, msg.terms, msg.doubleAckCalls)
+	}
+	if got := n.Stats(); got.AckErrors != natsAckConfirmAttempts || got.AckUnconfirmed != 1 {
+		t.Fatalf("ack telemetry=%+v, want bounded failures and one pending message", got)
+	}
+}
+
+// DPR-507: an early flow-handler error can leave a batch pending. If the
+// negative acknowledgement itself fails once, retry it before falling back to
+// the 30-second AckWait; never count an unsuccessful client send as a NAK.
+func TestNATSTransientNakFailureRetriesWithoutWaitingForAckWait(t *testing.T) {
+	n := &NATS{maxDeliver: defaultNATSMaxDeliver}
+	msg := &fakeJSMsg{subject: FlowEventsTopic, data: []byte("flow-batch"), hdr: nats.Header{}, nakFailures: 1}
+	n.handleMessage(context.Background(), msg, func(context.Context, Message) error {
+		return context.DeadlineExceeded
+	})
+	if msg.nakCalls != 2 || msg.naks != 1 || msg.acks != 0 || msg.terms != 0 {
+		t.Fatalf("NAK calls=%d, accepted NAKs=%d, ACKs=%d, terms=%d; want 2, 1, 0, 0", msg.nakCalls, msg.naks, msg.acks, msg.terms)
+	}
+	if got := n.Stats(); got.NakErrors != 1 || got.NakUnconfirmed != 0 {
+		t.Fatalf("NAK telemetry=%+v, want one send error and zero pending after retry", got)
+	}
+}
+
+func TestNATSPersistentNakFailureWaitsForBrokerRedelivery(t *testing.T) {
+	n := &NATS{maxDeliver: defaultNATSMaxDeliver}
+	msg := &fakeJSMsg{subject: FlowEventsTopic, data: []byte("flow-batch"), hdr: nats.Header{}, nakFailures: natsNakAttempts}
+	n.handleMessage(context.Background(), msg, func(context.Context, Message) error {
+		return context.DeadlineExceeded
+	})
+	if msg.nakCalls != natsNakAttempts || msg.naks != 0 || msg.acks != 0 || msg.terms != 0 {
+		t.Fatalf("NAK calls=%d, accepted NAKs=%d, ACKs=%d, terms=%d; message must remain broker-pending", msg.nakCalls, msg.naks, msg.acks, msg.terms)
+	}
+	if got := n.Stats(); got.NakErrors != natsNakAttempts || got.NakUnconfirmed != 1 {
+		t.Fatalf("NAK telemetry=%+v, want bounded failures and one pending message", got)
+	}
+}
 
 // drive replays the server's redelivery loop against the real handleMessage: it
 // keeps redelivering (with an incrementing delivery count) until the consumer

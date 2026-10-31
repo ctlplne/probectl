@@ -67,6 +67,16 @@ Reference operators (manage the stores on Kubernetes):
   watch `probectl_bus_shed` and `probectl_bus_handler_errors` (CORRECT-009). A
   rising shed rate means the consumers or stores can't keep up — scale the slow
   tier, don't raise the buffer blindly.
+- **JetStream acknowledgements:** `probectl_bus_ack_confirmation_errors_total`
+  counts failed broker-confirmation attempts after a successful handler;
+  `probectl_bus_ack_unconfirmed_total` counts messages left to durable
+  redelivery after both attempts. `probectl_bus_nak_errors_total` and
+  `probectl_bus_nak_unconfirmed_total` do the same for handler-error redelivery
+  requests. These counters remain incremented after recovery. An unconfirmed
+  batch can coexist with later processed batches: inspect the
+  broker's durable consumer ACK floor and the handler-error counter before
+  calling it data loss. Kafka reports zero for these JetStream-only counters;
+  memory mode has its own counters (DPR-507).
 - **Falling behind:** `probectl_bus_consumer_lag_max` is the records this process
   has not consumed yet, taken from the transport's own view — Kafka's high
   watermarks, JetStream's pending count, the in-process channel depth. Alert on

@@ -1493,6 +1493,14 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 			func() float64 { return float64(sb.Stats().Shed) })
 		m.Gauge("probectl_bus_handler_errors", "Consumed records whose handler errored, leaving the record unacknowledged for redelivery (SCALE-007/CODE-007).",
 			func() float64 { return float64(sb.Stats().HandlerErrors) })
+		m.CounterFunc("probectl_bus_ack_confirmation_errors_total", "JetStream ACK confirmation attempts that failed after a handler succeeded (DPR-507); zero for other transports.",
+			func() float64 { return float64(sb.Stats().AckErrors) })
+		m.CounterFunc("probectl_bus_ack_unconfirmed_total", "Processed JetStream messages left for durable redelivery after bounded ACK confirmation retries, cumulative even after recovery (DPR-507); zero for other transports.",
+			func() float64 { return float64(sb.Stats().AckUnconfirmed) })
+		m.CounterFunc("probectl_bus_nak_errors_total", "JetStream negative-acknowledgement sends that failed after a handler error (DPR-507); zero for other transports.",
+			func() float64 { return float64(sb.Stats().NakErrors) })
+		m.CounterFunc("probectl_bus_nak_unconfirmed_total", "Handler-error JetStream messages left for AckWait after bounded NAK send retries, cumulative even after recovery (DPR-507); zero for other transports.",
+			func() float64 { return float64(sb.Stats().NakUnconfirmed) })
 		m.Gauge("probectl_bus_buffered", "Records currently buffered in the async producer (in flight).",
 			func() float64 { return float64(sb.Stats().Buffered) })
 	}

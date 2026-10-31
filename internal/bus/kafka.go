@@ -94,12 +94,16 @@ var ErrPublishShed = errors.New("bus: in-flight buffer full — record shed (bro
 
 // PublishStats are the bus's cumulative counters (producer + consumer).
 type PublishStats struct {
-	Produced      uint64 // broker-acked
-	Failed        uint64 // accepted, failed asynchronously after retries
-	Shed          uint64 // dropped at the full buffer
-	Buffered      int64  // currently in flight
-	HandlerErrors uint64 // consumed records whose handler errored (offset NOT committed → redelivered)
-	HandlerPanics uint64 // consumed records whose handler PANICKED and was recovered (ING-40 — counted, never a process crash)
+	Produced       uint64 // broker-acked
+	Failed         uint64 // accepted, failed asynchronously after retries
+	Shed           uint64 // dropped at the full buffer
+	Buffered       int64  // currently in flight
+	HandlerErrors  uint64 // consumed records whose handler errored (offset NOT committed → redelivered)
+	HandlerPanics  uint64 // consumed records whose handler PANICKED and was recovered (ING-40 — counted, never a process crash)
+	AckErrors      uint64 // JetStream ACK confirmation attempts that failed (DPR-507; zero for other transports)
+	AckUnconfirmed uint64 // cumulative processed JetStream messages left unconfirmed after retries (DPR-507)
+	NakErrors      uint64 // JetStream NAK sends that failed (DPR-507; zero for other transports)
+	NakUnconfirmed uint64 // cumulative handler-error JetStream messages left without a successful NAK send (DPR-507)
 }
 
 // NewKafka creates a Kafka bus seeded with brokers. The async producer is
