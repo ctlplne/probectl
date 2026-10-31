@@ -328,6 +328,19 @@ func readHistoryPage(ctx context.Context, sc tenancy.Scope, id historyIdentity, 
 type historyRow interface{ Scan(...any) error }
 
 func scanStoredMessage(ctx context.Context, row historyRow, identity historyIdentity, conversation string, budget int) (StoredMessage, int, error) {
+	message, size, err := scanTenantMessage(ctx, row, budget)
+	if err != nil {
+		return StoredMessage{}, 0, err
+	}
+	if message.value.scope.TenantID != identity.tenant || message.value.scope.OwnerID != identity.owner || message.value.scope.ConversationID != conversation {
+		return StoredMessage{}, 0, ErrMessageIntegrity
+	}
+	return message, size, nil
+}
+
+// The tenant-only decoder is private to controlled lifecycle readers. Ordinary
+// owner lookup/page callers retain the exact owner/conversation wrapper above.
+func scanTenantMessage(ctx context.Context, row historyRow, budget int) (StoredMessage, int, error) {
 	var result storedMessage
 	var revision, epoch, position, size int64
 	var parentID, header, payload *string
@@ -351,7 +364,7 @@ func scanStoredMessage(ctx context.Context, row historyRow, identity historyIden
 	if err := result.scope.validate(ctx); err != nil {
 		return StoredMessage{}, 0, err
 	}
-	if result.scope.TenantID != identity.tenant || result.scope.OwnerID != identity.owner || result.scope.ConversationID != conversation || (parentID == nil) != (parentRevision == nil) {
+	if (parentID == nil) != (parentRevision == nil) {
 		return StoredMessage{}, 0, ErrMessageIntegrity
 	}
 	var err error

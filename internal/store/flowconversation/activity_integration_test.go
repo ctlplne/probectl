@@ -97,7 +97,7 @@ func activityAuditFault(t *testing.T, admin *pgxpool.Pool, table, tenant string,
 	t.Helper()
 	event := "flow.conversation.operation_drained"
 	if len(action) > 0 {
-		if len(action) != 1 || action[0] != "flow.conversation.operation_started" {
+		if len(action) != 1 || action[0] != "flow.conversation.operation_started" && action[0] != "flow.conversation.export_started" {
 			t.Fatal("invalid owned audit fault action")
 		}
 		event = action[0]

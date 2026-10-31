@@ -163,3 +163,30 @@ it is not a product migration or a completed lifecycle service.
 
 See [guardrails](guardrails.md) for G7-1, G7-3, G7-5, G7-6 and G7-7, and
 [contributor conventions](../CONTRIBUTING.md) for testing and licensing.
+
+## Controlled tenant portability reader (private foundation)
+
+`Journal.WithTenantExport` requires an independent current privacy-operation
+checker and a current record/privacy checker. It admits a Principal-free
+maintenance context only; historical creator credentials and grants establish
+ciphertext integrity and never authorize the export. Ordinary owner reads keep
+their exact owner and conversation checks. Partial/unknown schema refuses.
+
+The reader registers audited durable activity before private source and keeps
+it live through the complete archive/output callback, nested readers and
+current-authority watcher. Cancellation or loss of the SQL family lease does
+not acknowledge a writer that has not actually returned. Failed retirement
+retains a private source-free retry reference; unknown crashed instances stay
+pending. No time-based or missing-lock success is inferred.
+
+Messages stream in positive row/byte-bounded tenant keyset pages across owners,
+with complete immutable ancestor metadata checked before source. Decoded JSONL
+preserves message metadata and exact JSON numbers; encryption envelopes,
+creator credential references, permission snapshots and control keys are not
+portable. There is no total history/turn cap. The callback must consume the
+single-use stream successfully; ignoring its error cannot report success.
+
+This is a private storage primitive, not enabled public conversation storage.
+The real initiating-credential/Engine composition, honest HTTP failures,
+subject portability/erasure, retention, paired key lifecycle, positive orphan
+fencing and retained native results remain required before activation.
