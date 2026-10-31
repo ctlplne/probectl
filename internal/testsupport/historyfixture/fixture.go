@@ -70,6 +70,11 @@ func Install(ctx context.Context, t testing.TB, admin *pgxpool.Pool) {
 				t.Fatal(err)
 			}
 		}
+		if table == "flow_conversation_messages" || table == "flow_conversation_jobs" {
+			if _, err := admin.Exec(ctx, `CREATE TRIGGER tenant_write_fence BEFORE INSERT OR UPDATE ON public.`+table+` FOR EACH ROW EXECUTE FUNCTION public.probectl_enforce_tenant_write_fence()`); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if table == "flow_conversation_activity" {
 			if _, err := admin.Exec(ctx, `CREATE TRIGGER tenant_audit_write_fence BEFORE INSERT ON public.flow_conversation_activity FOR EACH ROW EXECUTE FUNCTION public.probectl_enforce_tenant_audit_write_fence()`); err != nil {
 				t.Fatal(err)

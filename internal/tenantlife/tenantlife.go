@@ -463,7 +463,7 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		att.Complete = false
 		return att, fmt.Errorf("tenantlife: erasure refused while the tenant is quarantined; fix the cause and retry once it is released: %w", err)
 	}
-	irPlanID, err := e.prepareErasure(ctx, tenantID, actor)
+	prepared, err := e.prepareErasure(ctx, tenantID, actor)
 	if err != nil {
 		att.Complete = false
 		return att, err
@@ -472,6 +472,9 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		att.Stores = append(att.Stores, StoreResult{Store: store, Deleted: -1, Notes: note})
 		att.Complete = false
 	}
+
+	att.Stores = append(att.Stores, prepared.history...)
+	irPlanID := prepared.irPlanID
 
 	// 1) ClickHouse flows (routed: siloed databases are dropped whole).
 	if e.flows != nil {
@@ -695,7 +698,7 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 func (e *Engine) prepareErasure(
 	ctx context.Context,
 	tenantID, actor string,
-) (string, error) {
+) (erasurePreparation, error) {
 	// RTT-04 / VER-01: the IR-attribution crypto-shred is CONDITIONAL, and any
 	// capability or precondition it needs is validated BEFORE the irreversible
 	// tenant audit-write fence — so a failure is reported with the tenant still
@@ -719,31 +722,31 @@ func (e *Engine) prepareErasure(
 		var err error
 		planID, err = e.irAttribution.Plan(ctx, tenantID, actor)
 		if err != nil {
-			return "", fmt.Errorf("tenantlife: plan IR attribution crypto-shred: %w", err)
+			return erasurePreparation{}, fmt.Errorf("tenantlife: plan IR attribution crypto-shred: %w", err)
 		}
 		if strings.TrimSpace(planID) == "" {
-			return "", errors.New("tenantlife: plan IR attribution crypto-shred: empty plan id")
+			return erasurePreparation{}, errors.New("tenantlife: plan IR attribution crypto-shred: empty plan id")
 		}
 	case e.pool != nil:
 		retained, err := e.tenantHasRetainedIRAttribution(ctx, tenantID)
 		if err != nil {
-			return "", err
+			return erasurePreparation{}, err
 		}
 		if retained {
-			return "", errors.New(
+			return erasurePreparation{}, errors.New(
 				"tenantlife: tenant retains encrypted IR attribution evidence but no IR crypto-shred lifecycle is composed",
 			)
 		}
 	}
+	var history []StoreResult
 	if e.pool != nil {
-		if err := e.fenceTenantAuditWrites(ctx, tenantID, actor); err != nil {
-			return "", fmt.Errorf(
-				"tenantlife: establish tenant audit write fence: %w",
-				err,
-			)
+		var err error
+		history, err = e.prepareConversationErasure(ctx, tenantID, actor)
+		if err != nil {
+			return erasurePreparation{}, fmt.Errorf("tenantlife: establish tenant audit write fence and history erasure: %w", err)
 		}
 	}
-	return planID, nil
+	return erasurePreparation{irPlanID: planID, history: history}, nil
 }
 
 // tenantHasRetainedIRAttribution reports whether the tenant still holds

@@ -124,6 +124,10 @@ func (j *Journal) retireActivity(ctx context.Context, ref *activityRef) error {
 	if state != ref.runtime || !state.canRetire(ref) {
 		return ErrMessageDenied
 	}
+	schema, err := historyStorageSchema(ctx)
+	if err != nil {
+		return err
+	}
 	err = tenancy.InTenantProviderMaintenance(tenancy.WithSiloTableLock(ctx), j.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		if sc.Tenant.String() != ref.tenant {
 			return ErrMessageDenied
@@ -146,6 +150,9 @@ func (j *Journal) retireActivity(ctx context.Context, ref *activityRef) error {
 			return err
 		}
 		if err := bindLifecycle(ctx, sc); err != nil {
+			return err
+		}
+		if err := lockHistoryFamily(ctx, sc, schema); err != nil {
 			return err
 		}
 		if err := assertActivityGuard(ctx, sc); err != nil {

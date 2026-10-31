@@ -201,7 +201,14 @@ func (j *Journal) scoped(ctx context.Context, fn func(context.Context, tenancy.S
 	if err := j.available(); err != nil {
 		return err
 	}
+	schema, err := historyStorageSchema(ctx)
+	if err != nil {
+		return err
+	}
 	return tenancy.InTenant(tenancy.WithSiloTableLock(ctx), j.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := lockHistoryFamily(ctx, sc, schema); err != nil {
+			return err
+		}
 		if err := j.checkActivityContext(ctx, sc); err != nil {
 			return err
 		}

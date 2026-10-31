@@ -135,6 +135,26 @@ refusal, not a completed product crash-recovery procedure. Positive orphan
 instance fencing, complete artifact/key counts and full lifecycle/public service
 integration remain mandatory before persistence is enabled.
 
+Full-tenant `Engine.Erase` now detects the routed history family and refuses
+partial or unknown schemas. Independent lifecycle authority commits or resumes
+the exact internal full-tenant intent, cancels job metadata in bounded batches,
+and verifies durable actual drain before the canonical global offboarding fence.
+Only then can it purge terminal jobs followed by leaf messages across all owners
+in this tenant. The app role retains FORCE tenant/owner RLS; only global registry
+metadata and the separate lifecycle audit use the provider role. Private source
+SELECT, creator credentials and decryption keys are unnecessary for this purge.
+
+Every batch reconciles before/deleted/remaining counts and commits mandatory
+provider audit with its deletes. Leaf selection prevents an unbounded ancestry
+cascade from bypassing the row resource. Audit failure, no progress with rows
+remaining, active work or a mismatched plan keeps erasure incomplete before
+other stores or keys are deleted. Exact retries resume behind the global fence.
+The attestation reports message/job counts and verified operation drain; final
+canonical PostgreSQL teardown removes the epoch behind that fence. An absent
+history family preserves ordinary erasure. This does not complete subject
+matching, portability, retention, key inventory/rotation, orphan recovery or
+future retained-result lifecycle requirements.
+
 Before runtime persistence is enabled, integration must include counted tenant
 and subject portability, verifiable erasure, retention, worker drain and late
 writer fencing, paired key rotation and key inventory. The disposable schema in
