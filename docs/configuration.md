@@ -2941,11 +2941,14 @@ resource ceilings. They are **Compose-file interpolation variables** (consumed b
 | `PROBECTL_PROMETHEUS_RETENTION` | `30d` | Durable profile only: Prometheus `--storage.tsdb.retention.time`, how long metric series are kept on the `promdata` volume. |
 
 The durable Compose profile mounts `prod/clickhouse/resources.xml` read-only.
-For its default 4 GiB ClickHouse container, background compaction uses two
-threads (up to four scheduled merge/mutation tasks), 1 GiB soft memory admission
-and 1,024-row merge blocks. Smaller blocks reduce the buffers required by wide
-internal tables such as `system.metric_log`. The soft limit prevents admission
-of new maintenance work; it does not cancel tasks already running. Metric logs,
+The default 4 GiB ClickHouse container keeps the upstream 16-worker pool and
+32-task limit. The profile sets 1 GiB soft memory admission and 1,024-row merge
+blocks. For eligible wide parts with at least 11 non-key
+columns, vertical merging starts at one row rather than the upstream 131,072-row
+threshold. This reads those columns separately and reduces simultaneous buffers
+for internal tables such as `system.metric_log`; it can make merges slower.
+Deduplication and expired-value removal can still require horizontal merging.
+The soft limit prevents admission of new maintenance work; it does not cancel tasks already running. Metric logs,
 merges, mutations and retention remain enabled. Foreground Explorer query limits
 and the server/container memory ceilings are unchanged.
 
@@ -2955,7 +2958,7 @@ a reviewed resource XML override after measuring maintenance and query demand;
 keep the MergeTree free-entry thresholds within pool size times the concurrency
 ratio so the server can start and mutations can run. These are internal
 maintenance controls, not limits on dimensions, rows or retention. The settings
-and startup constraint are documented in the shipped [ClickHouse 24.8 source](https://github.com/ClickHouse/ClickHouse/blob/v24.8.14.39-lts/src/Storages/MergeTree/MergeTreeSettings.cpp).
+and startup constraint are documented in the shipped [ClickHouse 24.8 settings](https://github.com/ClickHouse/ClickHouse/blob/v24.8.14.39-lts/src/Storages/MergeTree/MergeTreeSettings.cpp); its [merge implementation](https://github.com/ClickHouse/ClickHouse/blob/v24.8.14.39-lts/src/Storages/MergeTree/MergeTask.cpp) defines when vertical processing is eligible.
 
 
 Every service in this stack ships hardened (RTO-03): the control plane and the

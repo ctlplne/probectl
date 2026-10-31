@@ -88,8 +88,8 @@ func TestExplorerClickHouseRealOperatorBudgets(t *testing.T) {
 	red := fmt.Sprintf("probectl-qa-beta-budget-red-%d", time.Now().UnixNano())
 	blue := red + "-blue"
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	first := explorerFixtureRow(red)
 	second := first
@@ -162,8 +162,8 @@ func TestExplorerClickHouseRealD102Plan(t *testing.T) {
 	red := fmt.Sprintf("probectl-qa-beta-fx1-plan-red-%d", suffix)
 	blue := fmt.Sprintf("probectl-qa-beta-fx1-plan-blue-%d", suffix)
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	first := explorerFixtureRow(red)
 	first.BytesScaled = ^uint64(0)
@@ -264,8 +264,8 @@ func TestExplorerClickHouseRealSnapshotClockUsesContributingInput(t *testing.T) 
 	red := fmt.Sprintf("probectl-qa-beta-fx1-clock-red-%d", time.Now().UnixNano())
 	blue := red + "-sibling"
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	matched := explorerFixtureRow(red)
 	unmatched := matched
@@ -295,8 +295,8 @@ func TestExplorerClickHouseRealSnapshotInputsRecheckCoverageAndReader(t *testing
 	red := fmt.Sprintf("probectl-qa-beta-fx1-snapshot-source-%d", time.Now().UnixNano())
 	blue := red + "-sibling"
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	row := explorerFixtureRow(red)
 	sibling := row
@@ -372,8 +372,8 @@ func TestExplorerClickHouseRealD102FiftyThousandDetails(t *testing.T) {
 	red := fmt.Sprintf("probectl-qa-beta-fx1-50k-red-%d", suffix)
 	blue := fmt.Sprintf("probectl-qa-beta-fx1-50k-blue-%d", suffix)
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	base := explorerFixtureRow(red)
 	rows := make([]Row, 50001)
@@ -420,8 +420,8 @@ func TestExplorerClickHouseRealD103MembershipAndMatrix(t *testing.T) {
 	red := fmt.Sprintf("probectl-qa-beta-fx1-members-red-%d", suffix)
 	blue := fmt.Sprintf("probectl-qa-beta-fx1-members-blue-%d", suffix)
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	base := explorerFixtureRow(red)
 	a := base
@@ -493,8 +493,8 @@ func TestExplorerClickHouseRealD103EveryRegistryFieldPaired(t *testing.T) {
 	red := fmt.Sprintf("probectl-qa-beta-fx1-reg2-red-%d", suffix)
 	blue := fmt.Sprintf("probectl-qa-beta-fx1-reg2-blue-%d", suffix)
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	own := explorerFixtureRow(red)
 	foreign := own
@@ -552,8 +552,8 @@ func TestExplorerClickHouseRealBackfillPreservesAgedHistory(t *testing.T) {
 	red := fmt.Sprintf("probectl-qa-beta-fx1-backfill-red-%d", suffix)
 	blue := fmt.Sprintf("probectl-qa-beta-fx1-backfill-blue-%d", suffix)
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	from := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	for i, tenant := range []string{red, blue} {
@@ -588,8 +588,8 @@ func TestExplorerClickHouseRealRetainedCoverage(t *testing.T) {
 	red := fmt.Sprintf("probectl-qa-beta-fx1-retained-red-%d", suffix)
 	blue := fmt.Sprintf("probectl-qa-beta-fx1-retained-blue-%d", suffix)
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	first := explorerFixtureRow(red)
 	first.TS = first.TS.AddDate(-1, 0, 0)
@@ -745,7 +745,7 @@ func TestExplorerClickHouseRealRetentionRace(t *testing.T) {
 			}
 		}, armed: &armed}
 	})
-	t.Cleanup(func() { _, _ = store.DeleteTenant(context.Background(), tenant) })
+	t.Cleanup(func() { cleanupExplorerFixtureTenant(t, store, tenant) })
 	if err := store.Insert(t.Context(), []Row{row}); err != nil {
 		t.Fatal(err)
 	}
@@ -795,7 +795,7 @@ func TestExplorerClickHouseRealRetentionClock(t *testing.T) {
 	ctx := t.Context()
 	suffix := time.Now().UnixNano()
 	tenant := fmt.Sprintf("probectl-qa-beta-fx1-policy-%d", suffix)
-	t.Cleanup(func() { _, _ = store.DeleteTenant(context.Background(), tenant) })
+	t.Cleanup(func() { cleanupExplorerFixtureTenant(t, store, tenant) })
 	row := explorerFixtureRow(tenant)
 	if err := store.Insert(ctx, []Row{row}); err != nil {
 		t.Fatal(err)
@@ -861,8 +861,8 @@ func TestExplorerClickHouseRealRawCoveragePaired(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	red, blue := "probectl-qa-beta-raw-coverage-red-"+suffix, "probectl-qa-beta-raw-coverage-blue-"+suffix
 	t.Cleanup(func() {
-		_, _ = store.DeleteTenant(context.Background(), red)
-		_, _ = store.DeleteTenant(context.Background(), blue)
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
 	})
 	own := explorerFixtureRow(red)
 	other := own
