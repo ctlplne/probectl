@@ -6,8 +6,10 @@ checkpoint adds no production migration for its tables and does not enable
 conversation persistence. The flow explorer and its runtime integration remain
 separate work.
 
-The application must authorize the tenant and current owner before using these
-primitives. Tenant RLS is the outer boundary. Conversation messages and jobs
+Ordinary operations require current tenant and owner authorization. Source-free
+restart discovery and maintenance use separate internal operational authority;
+they cannot borrow an owner's credential or grant source access. Tenant RLS is
+the outer boundary. Conversation messages and jobs
 also require the restrictive owner policy in pooled and siloed storage;
 provider operators receive no implicit access. Startup posture checks and silo
 repair use the same policy definition. A separately authorized maintenance path
@@ -41,6 +43,28 @@ atomically appends the encrypted proposal, its job reference, a new lease fence
 and audit. It preserves the processing state: a proposal is not a completed
 answer or permission to execute a query. Takeover returns the same proposal
 reference for recovery.
+
+Restart discovery binds one tenant and owner at the storage layer and returns
+only bounded job metadata and an opaque encrypted minimal header. It never
+selects the payload column. Per-page rows, header bytes and time bound cost;
+there is no total backlog cap. A cursor supports a best-effort keyset sweep,
+not an immutable snapshot. New or newly eligible work may require another
+sweep. Internal operational authorization is checked around discovery and
+header bootstrap; request and provider Principals cannot select this path.
+Bootstrap authenticates original provenance only. Actual execution must still
+reload the exact current credential and validate the complete input, ancestry,
+source permissions, privacy policy and lease before opening source or planning.
+
+Independent terminal cleanup can fail queued or expired processing work after
+the creator loses authority, without reading source or requiring its encryption
+key. It compares the exact input, epoch, observed status, lease generation and
+cancellation revision. A newer claim, renewal, publication or cancellation
+refuses the transition. Failure state, advanced fences and a bounded system
+audit reason commit atomically; audit failure rolls back. Unknown or corrupt
+minimal headers cannot authorize work, but remain eligible for source-free
+maintenance. Transient infrastructure errors are not proof of a permanent
+authorization refusal. The automatic scheduler and its error classification
+remain separate integration work.
 
 Crypto, current-authorization callbacks, model calls and native queries must run
 outside SQL mutation locks. Applications must validate typed documents, complete
