@@ -39,6 +39,7 @@ COPY docs/ux/journey-baseline.json /docs/ux/journey-baseline.json
 # against the served OpenAPI schema, so both inputs must exist at their original
 # repository-relative paths inside this isolated stage.
 COPY scripts/web_rendered_a11y.mjs /scripts/web_rendered_a11y.mjs
+COPY scripts/web_rendered_native_flow.mjs /scripts/web_rendered_native_flow.mjs
 COPY internal/control/openapi.json /internal/control/openapi.json
 RUN PROBECTL_WEB_EDITION="${EDITION}" npm run build   # → /web/dist (hashed assets)
 
