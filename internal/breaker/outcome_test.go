@@ -19,19 +19,19 @@ func TestNeutralOutcomePreservesClosedFailuresAndHalfOpenState(t *testing.T) {
 	b := New(2, time.Minute)
 	b.now = func() time.Time { return time.Unix(0, clock.Load()) }
 	down := errors.New("owned upstream down")
-	_ = b.Do(func() error { return down })
+	_ = runBreakerErrorTest(b, func() error { return down })
 	before := b.Stats()
 	if err := b.DoWithOutcome(func() (Outcome, error) { return OutcomeNeutral, context.Canceled }); !errors.Is(err, context.Canceled) || b.Stats() != before {
 		t.Fatal("neutral completion erased or increased prior failures", err, b.Stats())
 	}
-	_ = b.Do(func() error { return down })
+	_ = runBreakerErrorTest(b, func() error { return down })
 	clock.Store(int64(2 * time.Minute))
 	before = b.Stats()
 	cooldown := b.openUntil
 	if err := b.DoWithOutcome(func() (Outcome, error) { return OutcomeNeutral, context.DeadlineExceeded }); !errors.Is(err, context.DeadlineExceeded) || b.Stats() != before || !b.openUntil.Equal(cooldown) {
 		t.Fatal("neutral probe manufactured recovery or rearmed cooldown", err, b.Stats())
 	}
-	if err := b.Do(func() error { return nil }); err != nil || b.Stats().State != StateClosed {
+	if err := runBreakerErrorTest(b, func() error { return nil }); err != nil || b.Stats().State != StateClosed {
 		t.Fatal("neutral probe retained admission after ending", err)
 	}
 }
@@ -53,7 +53,7 @@ func TestOldNeutralRequestCannotReleaseAnotherRequestsHalfOpenProbe(t *testing.T
 		_ = b.DoWithOutcome(func() (Outcome, error) { close(oldStarted); <-oldRelease; return OutcomeNeutral, context.Canceled })
 	}()
 	<-oldStarted
-	_ = b.Do(func() error { return errors.New("down") })
+	_ = runBreakerErrorTest(b, func() error { return errors.New("down") })
 	clock.Store(int64(2 * time.Minute))
 	probeStarted, probeRelease, probeDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	t.Cleanup(func() {
@@ -65,13 +65,13 @@ func TestOldNeutralRequestCannotReleaseAnotherRequestsHalfOpenProbe(t *testing.T
 	})
 	go func() {
 		defer close(probeDone)
-		_ = b.Do(func() error { close(probeStarted); <-probeRelease; return nil })
+		_ = runBreakerErrorTest(b, func() error { close(probeStarted); <-probeRelease; return nil })
 	}()
 	<-probeStarted
 	close(oldRelease)
 	<-oldDone
 	called := false
-	if err := b.Do(func() error { called = true; return nil }); !errors.Is(err, ErrOpen) || called {
+	if err := runBreakerErrorTest(b, func() error { called = true; return nil }); !errors.Is(err, ErrOpen) || called {
 		t.Fatal("an older neutral caller released someone else's probe", err)
 	}
 	close(probeRelease)

@@ -78,20 +78,6 @@ func New(threshold int, cooldown time.Duration) *Breaker {
 	return &Breaker{threshold: threshold, cooldown: cooldown, now: time.Now}
 }
 
-// Do runs fn unless the breaker is open. A nil error from fn is a success
-// (resets/closes); a non-nil error is a failure (trips at the threshold).
-// fn should return an error only for UPSTREAM-DOWN conditions (transport
-// errors) — application-level responses are the caller's concern.
-func (b *Breaker) Do(fn func() error) error {
-	return b.DoWithOutcome(func() (Outcome, error) {
-		err := fn()
-		if err != nil {
-			return OutcomeFailure, err
-		}
-		return OutcomeSuccess, nil
-	})
-}
-
 // DoWithOutcome preserves the callback error while classifying health in trusted
 // code. A neutral callback neither clears nor increments failures, nor changes
 // an open cooldown. Its own half-open probe admission is still released.

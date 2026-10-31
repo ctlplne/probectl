@@ -23,7 +23,7 @@ func TestBreakerOpensAfterThresholdAndShortCircuits(t *testing.T) {
 	fn := func() error { calls++; return boom }
 
 	for i := 0; i < 3; i++ {
-		if err := b.Do(fn); err != boom {
+		if err := runBreakerErrorTest(b, fn); err != boom {
 			t.Fatalf("call %d err = %v, want the upstream error", i, err)
 		}
 	}
@@ -32,7 +32,7 @@ func TestBreakerOpensAfterThresholdAndShortCircuits(t *testing.T) {
 	}
 	// Now open: calls short-circuit WITHOUT hitting the upstream.
 	before := calls
-	if err := b.Do(fn); err != ErrOpen {
+	if err := runBreakerErrorTest(b, fn); err != ErrOpen {
 		t.Fatalf("open breaker err = %v, want ErrOpen", err)
 	}
 	if calls != before {
@@ -48,8 +48,8 @@ func TestBreakerHalfOpenRecovers(t *testing.T) {
 	b := New(2, time.Minute)
 	b.now = func() time.Time { return now }
 	boom := errors.New("down")
-	_ = b.Do(func() error { return boom })
-	_ = b.Do(func() error { return boom }) // open
+	_ = runBreakerErrorTest(b, func() error { return boom })
+	_ = runBreakerErrorTest(b, func() error { return boom }) // open
 	if b.Stats().State != StateOpen {
 		t.Fatal("breaker should be open")
 	}
@@ -60,7 +60,7 @@ func TestBreakerHalfOpenRecovers(t *testing.T) {
 		t.Fatalf("after cooldown state = %s, want half-open", b.Stats().State)
 	}
 	probed := false
-	if err := b.Do(func() error { probed = true; return nil }); err != nil {
+	if err := runBreakerErrorTest(b, func() error { probed = true; return nil }); err != nil {
 		t.Fatalf("half-open probe err = %v", err)
 	}
 	if !probed {
@@ -75,9 +75,9 @@ func TestBreakerHalfOpenProbeFailureReArms(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := New(1, time.Minute)
 	b.now = func() time.Time { return now }
-	_ = b.Do(func() error { return errors.New("x") }) // open immediately (threshold 1)
-	now = now.Add(2 * time.Minute)                    // half-open
-	if err := b.Do(func() error { return errors.New("still down") }); err == nil {
+	_ = runBreakerErrorTest(b, func() error { return errors.New("x") }) // open immediately (threshold 1)
+	now = now.Add(2 * time.Minute)                                      // half-open
+	if err := runBreakerErrorTest(b, func() error { return errors.New("still down") }); err == nil {
 		t.Fatal("probe should surface the failure")
 	}
 	// Re-armed, still open; only ONE trip was counted (no double-count on probe).
@@ -93,8 +93,8 @@ func TestBreakerHalfOpenSingleFlight(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := New(1, time.Minute)
 	b.now = func() time.Time { return now }
-	_ = b.Do(func() error { return errors.New("down") }) // open (threshold 1)
-	now = now.Add(2 * time.Minute)                       // cooldown elapsed → half-open
+	_ = runBreakerErrorTest(b, func() error { return errors.New("down") }) // open (threshold 1)
+	now = now.Add(2 * time.Minute)                                         // cooldown elapsed → half-open
 
 	const n = 100
 	release := make(chan struct{})
@@ -106,7 +106,7 @@ func TestBreakerHalfOpenSingleFlight(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			defer wg.Done()
-			err := b.Do(func() error {
+			err := runBreakerErrorTest(b, func() error {
 				// The elected probe blocks here so the other 99 race the gate
 				// while a probe is genuinely in flight.
 				atomic.AddInt64(&reached, 1)
@@ -136,16 +136,28 @@ func TestBreakerHalfOpenSingleFlight(t *testing.T) {
 
 func TestBreakerSuccessResetsFailureRun(t *testing.T) {
 	b := New(3, time.Minute)
-	_ = b.Do(func() error { return errors.New("x") })
-	_ = b.Do(func() error { return errors.New("x") })
-	_ = b.Do(func() error { return nil }) // success resets the run
+	_ = runBreakerErrorTest(b, func() error { return errors.New("x") })
+	_ = runBreakerErrorTest(b, func() error { return errors.New("x") })
+	_ = runBreakerErrorTest(b, func() error { return nil }) // success resets the run
 	if st := b.Stats(); st.ConsecFailures != 0 || st.State != StateClosed {
 		t.Fatalf("success must reset: %+v", st)
 	}
 	// Two more failures should not trip (run was reset).
-	_ = b.Do(func() error { return errors.New("x") })
-	_ = b.Do(func() error { return errors.New("x") })
+	_ = runBreakerErrorTest(b, func() error { return errors.New("x") })
+	_ = runBreakerErrorTest(b, func() error { return errors.New("x") })
 	if b.Stats().State == StateOpen {
 		t.Fatal("breaker tripped despite the reset")
 	}
+}
+
+// runBreakerErrorTest keeps the existing error-only test callbacks while
+// exercising the classified API used by the actual datastore clients.
+func runBreakerErrorTest(b *Breaker, fn func() error) error {
+	return b.DoWithOutcome(func() (Outcome, error) {
+		err := fn()
+		if err != nil {
+			return OutcomeFailure, err
+		}
+		return OutcomeSuccess, nil
+	})
 }
