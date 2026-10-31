@@ -25,6 +25,10 @@ import (
 // refuse. The callback receives a single-use streaming function, not data or
 // authority that may outlive this operation. Historical origins grant nothing.
 func (j *Journal) WithTenantExport(ctx context.Context, budget HistoryBudget, authorize AuthorizeMaintenance, recordAuthority func(context.Context, MessageScope, InputMetadata) error, fn func(context.Context, func(io.Writer) (int64, error)) error) (bool, error) {
+	return j.withTenantExport(ctx, budget, authorize, recordAuthority, nil, fn)
+}
+
+func (j *Journal) withTenantExport(ctx context.Context, budget HistoryBudget, authorize AuthorizeMaintenance, recordAuthority func(context.Context, MessageScope, InputMetadata) error, match func(context.Context, StoredMessage, []byte) (bool, error), fn func(context.Context, func(io.Writer) (int64, error)) error) (bool, error) {
 	if _, err := maintenanceTenant(ctx); err != nil {
 		return false, err
 	}
@@ -57,7 +61,7 @@ func (j *Journal) WithTenantExport(ctx context.Context, budget HistoryBudget, au
 				return 0, ErrMessageDenied
 			}
 			defer lease.readers.Done()
-			return j.streamTenantHistory(ctx, codec, budget, check, recordAuthority, w)
+			return j.streamTenantHistory(ctx, codec, budget, check, recordAuthority, match, w)
 		}
 		if err := fn(ctx, stream); err != nil {
 			return err
@@ -95,21 +99,21 @@ type exportPosition struct {
 	revision                     uint64
 }
 
-func (j *Journal) streamTenantHistory(ctx context.Context, codec *Codec, budget HistoryBudget, check func(context.Context) error, authorize func(context.Context, MessageScope, InputMetadata) error, w io.Writer) (int64, error) {
+func (j *Journal) streamTenantHistory(ctx context.Context, codec *Codec, budget HistoryBudget, check func(context.Context) error, authorize func(context.Context, MessageScope, InputMetadata) error, match func(context.Context, StoredMessage, []byte) (bool, error), w io.Writer) (int64, error) {
 	var after exportPosition
 	var total int64
 	for {
 		if err := check(ctx); err != nil {
 			return 0, err
 		}
-		last, rows, err := j.exportHistoryPage(ctx, codec, after, budget, check, authorize, w)
+		last, rows, emitted, err := j.exportHistoryPage(ctx, codec, after, budget, check, authorize, match, w)
 		if err != nil {
 			return 0, err
 		}
-		if rows > math.MaxInt64-total {
+		if emitted > math.MaxInt64-total {
 			return 0, ErrMessageBudget
 		}
-		total += rows
+		total += emitted
 		if rows == 0 {
 			return total, check(ctx)
 		}
@@ -117,9 +121,9 @@ func (j *Journal) streamTenantHistory(ctx context.Context, codec *Codec, budget 
 	}
 }
 
-func (j *Journal) exportHistoryPage(ctx context.Context, codec *Codec, after exportPosition, budget HistoryBudget, check func(context.Context) error, authorize func(context.Context, MessageScope, InputMetadata) error, w io.Writer) (exportPosition, int64, error) {
+func (j *Journal) exportHistoryPage(ctx context.Context, codec *Codec, after exportPosition, budget HistoryBudget, check func(context.Context) error, authorize func(context.Context, MessageScope, InputMetadata) error, match func(context.Context, StoredMessage, []byte) (bool, error), w io.Writer) (exportPosition, int64, int64, error) {
 	last := after
-	var count int64
+	var count, emitted int64
 	err := j.scoped(ctx, func(ctx context.Context, scope tenancy.Scope) error {
 		if err := bindLifecycle(ctx, scope); err != nil {
 			return err
@@ -154,14 +158,20 @@ func (j *Journal) exportHistoryPage(ctx context.Context, codec *Codec, after exp
 			if err != nil {
 				return err
 			}
-			if err := exportPortableMessage(ctx, codec, stored, bounds, check, authorize, w); err != nil {
+			remaining := budget.Bytes - used
+			selected, err := j.exportPortableMessage(ctx, codec, stored, bounds, check, authorize, match, &remaining, w)
+			if err != nil {
 				return err
+			}
+			used = budget.Bytes - remaining
+			if selected {
+				emitted++
 			}
 			last, count = position, count+1
 		}
 		return rows.Err()
 	})
-	return last, count, journalError(ctx, err)
+	return last, count, emitted, journalError(ctx, err)
 }
 
 func exportPositionAfter(next, previous exportPosition) bool {
@@ -177,13 +187,13 @@ func exportPositionAfter(next, previous exportPosition) bool {
 	return next.revision > previous.revision
 }
 
-func exportPortableMessage(ctx context.Context, codec *Codec, stored StoredMessage, bounds InputMetadata, check func(context.Context) error, authorize func(context.Context, MessageScope, InputMetadata) error, w io.Writer) error {
+func (j *Journal) exportPortableMessage(ctx context.Context, codec *Codec, stored StoredMessage, bounds InputMetadata, check func(context.Context) error, authorize func(context.Context, MessageScope, InputMetadata) error, match func(context.Context, StoredMessage, []byte) (bool, error), remaining *int, w io.Writer) (bool, error) {
 	message := stored.value
 	if err := check(ctx); err != nil {
-		return err
+		return false, err
 	}
 	authorizeCurrent := func(ctx context.Context, scope MessageScope, _ auth.WorkerCredentialRef, _ []string) error {
-		if scope != message.scope || !message.meta.ExpiresAt.IsZero() && !message.meta.ExpiresAt.After(time.Now()) {
+		if scope != message.scope || !message.meta.ExpiresAt.IsZero() && !message.meta.ExpiresAt.After(time.Now()) || !bounds.ExpiresAt.IsZero() && !bounds.ExpiresAt.After(time.Now()) {
 			return ErrMessageDenied
 		}
 		if err := check(ctx); err != nil {
@@ -193,9 +203,13 @@ func exportPortableMessage(ctx context.Context, codec *Codec, stored StoredMessa
 	}
 	body, err := codec.Open(ctx, message.scope, message.sealed, authorizeCurrent)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer clear(body)
+	selected, err := j.selectExportMessage(ctx, codec, stored, bounds, body, check, authorize, match, remaining)
+	if err != nil || !selected {
+		return false, err
+	}
 	portable := portableHistoryMessage{TenantID: message.scope.TenantID, OwnerID: message.scope.OwnerID,
 		ConversationID: message.scope.ConversationID, MessageID: message.scope.MessageID, Revision: message.scope.Revision,
 		Position: message.position, Kind: message.kind, FrozenAt: message.meta.FrozenAt, Document: body}
@@ -207,21 +221,21 @@ func exportPortableMessage(ctx context.Context, codec *Codec, stored StoredMessa
 	}
 	encoded, err := json.Marshal(portable)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer clear(encoded)
 	if err := authorizeCurrent(ctx, message.scope, auth.WorkerCredentialRef{}, nil); err != nil {
-		return err
+		return false, err
 	}
 	if n, err := w.Write(encoded); err != nil {
-		return err
+		return false, err
 	} else if n != len(encoded) {
-		return io.ErrShortWrite
+		return false, io.ErrShortWrite
 	}
 	if n, err := io.WriteString(w, "\n"); err != nil {
-		return err
+		return false, err
 	} else if n != 1 {
-		return io.ErrShortWrite
+		return false, io.ErrShortWrite
 	}
-	return check(ctx)
+	return true, check(ctx)
 }

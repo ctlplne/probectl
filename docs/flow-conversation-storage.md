@@ -321,3 +321,18 @@ identity is absent rather than a replacement. This approval/reconciliation stage
 still needs native projection, genuine controller erase authority, physical
 orchestration, durable all-plane/self-erasure completion, retention, key inventory
 and positive orphan recovery before private persistence is enabled.
+
+
+Subject portability has a distinct streaming selector. Its mandatory application
+callback receives the authenticated stored record, including kind and immutable
+metadata, together with borrowed decoded bytes. The application must validate
+its complete typed frame and SQL bindings and classify source-bearing fields;
+message references and other private control metadata do not identify a data
+subject. There is no built-in generic document fallback. A direct match still
+validates every ancestor before this record can be emitted. The selector scans
+unmatched pages through actual EOF and exports the original selected documents,
+including inherited descendant closure, under independent current privacy
+export authority and actual-drain registration. Per-page rows and bytes bound
+resources; exhaustion refuses and never becomes a successful zero-row receipt.
+This storage composition does not claim native controller classification,
+complete subject erasure, or enable private persistence.

@@ -29,7 +29,11 @@ import (
 func seedExportMessage(t *testing.T, journal *Journal, fixture messageCodecFixture, question string) messageCodecFixture {
 	t.Helper()
 	fixture.scope.MessageID = mustInvalidationUUID(t)
-	meta := inputMetadata()
+	return seedExportMetadata(t, journal, fixture, question, inputMetadata())
+}
+
+func seedExportMetadata(t *testing.T, journal *Journal, fixture messageCodecFixture, question string, meta InputMetadata) messageCodecFixture {
+	t.Helper()
 	body, err := json.Marshal(map[string]any{"question": question, "exact": json.RawMessage("18446744073709551617")})
 	if err != nil {
 		t.Fatal(err)
@@ -270,4 +274,140 @@ func TestHistoryJournalPostgresTenantExportLostLeaseStillRequiresActualWriterDra
 	if err := replica.WithDrainedInvalidation(operational, pending, allowActivityMaintenance, func(context.Context) error { entered = true; return nil }); err != nil || !entered {
 		t.Fatal("actual export drain left a false pending source", err)
 	}
+}
+
+func TestHistoryJournalPostgresSubjectExportCompleteDescendantClosure(t *testing.T) {
+	f := newActivityFixture(t)
+	if f.admin == nil {
+		return
+	}
+	meta := inputMetadata()
+	add := func(id, question string, parent *Revision) messageCodecFixture {
+		t.Helper()
+		fixture := f.red
+		fixture.scope.MessageID = id
+		m := meta
+		m.Parent = parent
+		return seedExportMetadata(t, f.journal, fixture, question, m)
+	}
+	unrelated := add("00000000-0000-4000-8000-000000000010", "unrelated leading page", nil)
+	root := add("00000000-0000-4000-8000-000000000020", "MATCH_SUBJECT in root", nil)
+	parent := Revision{MessageID: root.scope.MessageID, Revision: 1}
+	child := add("00000000-0000-4000-8000-000000000030", "child inherited context without literal", &parent)
+	parent = Revision{MessageID: child.scope.MessageID, Revision: 1}
+	add("00000000-0000-4000-8000-000000000040", "grandchild inherited context without literal", &parent)
+	parent = Revision{MessageID: unrelated.scope.MessageID, Revision: 1}
+	add("00000000-0000-4000-8000-000000000050", "nonmatching sibling branch", &parent)
+	seedExportMessage(t, f.journal, f.blue, "MATCH_SUBJECT foreign blue")
+	matcher := func(ctx context.Context, record StoredMessage, body []byte) (bool, error) {
+		scope := record.Scope()
+		if auth.PrincipalFrom(ctx) != nil || scope.TenantID != f.red.scope.TenantID {
+			return false, ErrMessageDenied
+		}
+		return bytes.Contains(body, []byte("MATCH_SUBJECT")), ctx.Err()
+	}
+	var out bytes.Buffer
+	installed, err := f.journal.WithSubjectExport(f.operational(t, f.red.scope.TenantID), HistoryBudget{Rows: 1, Bytes: 1 << 20}, allowActivityMaintenance, exportRecordAuthority, matcher, func(_ context.Context, stream func(io.Writer) (int64, error)) error {
+		count, err := stream(&out)
+		if count != 3 || err != nil {
+			t.Errorf("subject closure omitted a later page or descendant:count=%d err=%v", count, err)
+		}
+		return err
+	})
+	if !installed || err != nil || f.active(t, f.red.scope.TenantID) != 0 {
+		t.Fatal("subject export failed or retired incorrectly", err)
+	}
+	var ids []string
+	decoder := json.NewDecoder(&out)
+	for decoder.More() {
+		var message portableHistoryMessage
+		if err := decoder.Decode(&message); err != nil {
+			t.Fatal(err)
+		}
+		if message.TenantID != f.red.scope.TenantID || bytes.Contains(message.Document, []byte("foreign blue")) {
+			t.Fatal("subject selector crossed tenant boundary")
+		}
+		ids = append(ids, message.MessageID)
+	}
+	if len(ids) != 3 || ids[0] != root.scope.MessageID || ids[1] != child.scope.MessageID || ids[2] != "00000000-0000-4000-8000-000000000040" {
+		t.Fatal("incorrect transitive subject closure", ids)
+	}
+	// An opaque message ID is not part of the decoded subject document.
+	matcher = func(_ context.Context, _ StoredMessage, body []byte) (bool, error) {
+		return bytes.Contains(body, []byte(root.scope.MessageID)), nil
+	}
+	if _, err := f.journal.WithSubjectExport(f.operational(t, f.red.scope.TenantID), HistoryBudget{Rows: 1, Bytes: 1 << 20}, allowActivityMaintenance, exportRecordAuthority, matcher, func(_ context.Context, stream func(io.Writer) (int64, error)) error {
+		n, err := stream(io.Discard)
+		if n != 0 {
+			t.Error("metadata ID was matched as subject content")
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Ancestor ciphertext shares the positive page-byte resource. A matching
+	// root must not let its unmatched child read an extra unbudgeted body.
+	stored, err := f.journal.Lookup(child.requestContext(t), child.scope.ConversationID, Revision{MessageID: child.scope.MessageID, Revision: 1}, 1<<20, child.authorizeHistory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	matcher = func(_ context.Context, _ StoredMessage, body []byte) (bool, error) {
+		return bytes.Contains(body, []byte("MATCH_SUBJECT")), nil
+	}
+	if _, err := f.journal.WithSubjectExport(f.operational(t, f.red.scope.TenantID), HistoryBudget{Rows: 1, Bytes: stored.StoredBytes()}, allowActivityMaintenance, exportRecordAuthority, matcher, func(_ context.Context, stream func(io.Writer) (int64, error)) error {
+		_, _ = stream(io.Discard)
+		return nil
+	}); !errors.Is(err, ErrMessageBudget) || f.active(t, f.red.scope.TenantID) != 0 {
+		t.Fatal("ancestor read exceeded page resources or hid refusal", err)
+	}
+	// Matcher and per-record authority failures are never empty clean success,
+	// even if an internal callback ignores the streaming error.
+	marker := errors.New("owned subject matcher resource refusal")
+	matcher = func(context.Context, StoredMessage, []byte) (bool, error) { return false, marker }
+	if _, err := f.journal.WithSubjectExport(f.operational(t, f.red.scope.TenantID), HistoryBudget{Rows: 1, Bytes: 1 << 20}, allowActivityMaintenance, exportRecordAuthority, matcher, func(_ context.Context, stream func(io.Writer) (int64, error)) error {
+		_, _ = stream(io.Discard)
+		return nil
+	}); !errors.Is(err, ErrJournalUnavailable) || f.active(t, f.red.scope.TenantID) != 0 {
+		// Unknown callback detail is deliberately normalized at the storage
+		// boundary. It must stay a refusal, not become an empty success.
+		t.Fatal("ignored matcher failure lost its safe refusal or actual drain", err)
+	}
+	entered := false
+	denied := func(context.Context, MessageScope, InputMetadata) error { return ErrMessageDenied }
+	matcher = func(context.Context, StoredMessage, []byte) (bool, error) { entered = true; return true, nil }
+	if _, err := f.journal.WithSubjectExport(f.operational(t, f.red.scope.TenantID), HistoryBudget{Rows: 1, Bytes: 1 << 20}, allowActivityMaintenance, denied, matcher, func(_ context.Context, stream func(io.Writer) (int64, error)) error {
+		_, err := stream(io.Discard)
+		return err
+	}); !errors.Is(err, ErrMessageDenied) || entered {
+		t.Fatal("selector became independent source authority", err)
+	}
+	if _, err := f.journal.WithSubjectExport(f.operational(t, f.red.scope.TenantID), HistoryBudget{Rows: 1, Bytes: 1 << 20}, allowActivityMaintenance, exportRecordAuthority, nil, func(context.Context, func(io.Writer) (int64, error)) error { return nil }); !errors.Is(err, ErrMessageDenied) {
+		t.Fatal("missing subject selector widened to full export", err)
+	}
+	// Simulate corrupted persisted ancestry in this disposable owned DB. The
+	// FK remains valid, but the parent points forward and creates a cycle.
+	restore := sync.OnceFunc(func() {
+		if _, err := f.admin.Exec(context.Background(), `UPDATE flow_conversation_messages SET parent_message_id=NULL,parent_revision=NULL WHERE tenant_id=$1::uuid AND message_id=$2::uuid`, f.red.scope.TenantID, root.scope.MessageID); err != nil {
+			t.Error("owned ancestry restoration failed", err)
+		}
+	})
+	t.Cleanup(restore)
+	if tag, err := f.admin.Exec(t.Context(), `UPDATE flow_conversation_messages SET parent_message_id=$3::uuid,parent_revision=1 WHERE tenant_id=$1::uuid AND message_id=$2::uuid`, f.red.scope.TenantID, root.scope.MessageID, "00000000-0000-4000-8000-000000000040"); err != nil || tag.RowsAffected() != 1 {
+		t.Fatal("owned ancestry fault was not installed", err)
+	}
+	badSourceEntered := false
+	matcher = func(_ context.Context, record StoredMessage, body []byte) (bool, error) {
+		scope := record.Scope()
+		if scope.MessageID == root.scope.MessageID {
+			badSourceEntered = true
+		}
+		return bytes.Contains(body, []byte("MATCH_SUBJECT")), nil
+	}
+	if _, err := f.journal.WithSubjectExport(f.operational(t, f.red.scope.TenantID), HistoryBudget{Rows: 1, Bytes: 1 << 20}, allowActivityMaintenance, exportRecordAuthority, matcher, func(_ context.Context, stream func(io.Writer) (int64, error)) error {
+		_, err := stream(io.Discard)
+		return err
+	}); !errors.Is(err, ErrMessageIntegrity) || badSourceEntered {
+		t.Fatal("invalid ancestry entered subject source or produced clean success", err, badSourceEntered)
+	}
+	restore()
 }
