@@ -288,3 +288,48 @@ func TestHistoryJournalPostgresSubjectPendingSourceLeaseLossRequiresActualDrain(
 		t.Fatal("actual drain could not resume the exact pending operation", err)
 	}
 }
+
+func TestHistoryJournalPostgresSubjectPendingSourceRechecksFamilyAfterLeaseLoss(t *testing.T) {
+	f := newActivityFixture(t)
+	if f.admin == nil {
+		return
+	}
+	seedSubjectOperation(t, f.journal, f.red, time.Time{})
+	seedSubjectOperation(t, f.journal, f.blue, time.Time{})
+	pending := subjectOperationIntent(t, f)
+	operational := f.operational(t, f.red.scope.TenantID)
+	opened := false
+	err := f.journal.withSubjectMatchSource(operational, f.red.codec, pending, allowActivityMaintenance, func(ctx context.Context, _ SubjectErasurePlan) error {
+		var pid int
+		if err := f.admin.QueryRow(t.Context(), `WITH lease_key AS(SELECT hashtextextended('probectl.flow_conversations.operation:'||$1::text,0) AS value)
+ SELECT l.pid FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid,lease_key WHERE l.locktype='advisory' AND l.granted AND l.mode='ExclusiveLock' AND l.objsubid=1 AND l.classid=((lease_key.value>>32)&4294967295)::oid AND l.objid=(lease_key.value&4294967295)::oid AND a.datname=current_database() AND a.query LIKE '%probectl.flow_conversations.operation:%'`, f.red.scope.TenantID).Scan(&pid); err != nil {
+			return err
+		}
+		var killed bool
+		if err := f.admin.QueryRow(t.Context(), `SELECT pg_terminate_backend($1)`, pid).Scan(&killed); err != nil || !killed {
+			return errors.New("owned exact family-lease fault failed")
+		}
+		if _, err := f.admin.Exec(t.Context(), `ALTER TABLE public.flow_conversation_messages NO FORCE ROW LEVEL SECURITY`); err != nil {
+			return err
+		}
+		defer func() {
+			if _, err := f.admin.Exec(t.Context(), `ALTER TABLE public.flow_conversation_messages FORCE ROW LEVEL SECURITY`); err != nil {
+				t.Error("owned message posture restore failed", err)
+			}
+		}()
+		readErr := visitSubjectOperationFixture(ctx, f.journal, f.red, func(_ context.Context, body []byte) error {
+			opened = bytes.Contains(body, []byte("subject@example.test"))
+			return nil
+		})
+		if readErr == nil || opened {
+			t.Error("unknown message storage posture admitted authenticated source")
+		}
+		return readErr
+	})
+	if err == nil || opened || f.active(t, f.red.scope.TenantID) != 0 {
+		t.Fatal("lost lease or malformed family reported healthy source/drain", err)
+	}
+	if _, err := f.journal.Lookup(f.blue.requestContext(t), f.blue.scope.ConversationID, Revision{MessageID: f.blue.scope.MessageID, Revision: f.blue.scope.Revision}, 1<<20, f.blue.authorizeHistory); err != nil {
+		t.Fatal("restored family did not preserve independent blue history", err)
+	}
+}

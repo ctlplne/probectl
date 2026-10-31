@@ -243,3 +243,13 @@ The bounded semantic matcher, native document validation, complete descendant
 selection, counted job/leaf deletion, all-plane receipts and self-erasure,
 retention, key lifecycle and positive orphan recovery remain required before
 private persistence is enabled. No product migration is introduced here.
+
+
+Every journal transaction takes its own locks on the fully qualified routed
+family and verifies the complete canonical storage posture under those locks
+before any callback. A lost outer family lease does not preserve an earlier
+catalogue observation: missing FORCE RLS, altered owner boundaries, partial or
+unknown families and route drift refuse before source. This validation also
+covers metadata-only paths; source-free erasure still needs no private payload
+SELECT or decryption key. An eventual outer commit error cannot substitute for
+refusing an unsafe read before it opens authenticated data.

@@ -206,8 +206,18 @@ func (j *Journal) scoped(ctx context.Context, fn func(context.Context, tenancy.S
 		return err
 	}
 	return tenancy.InTenant(tenancy.WithSiloTableLock(ctx), j.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		// A longer operation's family lease may have been lost. Validate the
+		// complete routed posture under this transaction's own table locks;
+		// an eventual lease/commit error cannot undo already opened source.
 		if err := lockHistoryFamily(ctx, sc, schema); err != nil {
 			return err
+		}
+		installed, err := assertHistoryErasureFamily(ctx, sc, schema)
+		if err != nil {
+			return err
+		}
+		if !installed {
+			return ErrJournalUnavailable
 		}
 		if err := j.checkActivityContext(ctx, sc); err != nil {
 			return err
