@@ -118,13 +118,13 @@ const AI_LIVE_RECEIPT: SurfaceLiveReceipt = {
 }
 
 const EXPLORER_LIVE_RECEIPT: SurfaceLiveReceipt = {
-  status: 'static-only',
+  status: 'live-green',
   evidence: [
     'ci:.github/workflows/ci.yml:make test-integration',
     'test:internal/ai/realstack_integration_test.go:TestAIRootCauseRealStack',
     'test:internal/flow/realstack_integration_test.go:TestNativeFlowExplorerRealStack',
   ],
-  note: 'Pending actual native receipt execution. The older AI receipt proves path/topology recipes only; native flow requires its own protocol-sender, REST/CLI/MCP and rendered Explorer proof. Development CI transport and production TLS image receipts have separate scopes.',
+  note: 'The native flow real-stack receipt runs signed collector registration and four protocol senders for two tenants through policy-bound stores, then checks REST, CLI, MCP, stateless planning and the rendered Explorer. CI development transport and the separate production TLS image receipt have distinct scopes.',
 }
 
 const EBPF_LIVE_RECEIPT: SurfaceLiveReceipt = {
