@@ -134,7 +134,7 @@ func TestHistoryOwnerPostgresRestrictiveBoundaryAndPrivateLifecycleReset(t *test
 		`ALTER TABLE ` + table + ` FORCE ROW LEVEL SECURITY`,
 		`GRANT SELECT,INSERT,UPDATE,DELETE ON ` + table + ` TO probectl_app`,
 		`CREATE POLICY legacy_open ON ` + table + ` USING(true) WITH CHECK(true)`,
-		`CREATE POLICY flow_history_owner ON ` + table + ` AS RESTRICTIVE FOR ALL TO PUBLIC USING(` + OwnerBoundaryPredicate + `) WITH CHECK(` + OwnerBoundaryPredicate + `)`,
+		`CREATE POLICY flow_history_owner ON ` + table + ` AS RESTRICTIVE FOR ALL TO PUBLIC USING(` + tenancy.FlowHistoryOwnerPredicate + `) WITH CHECK(` + tenancy.FlowHistoryOwnerPredicate + `)`,
 	} {
 		if _, err := admin.Exec(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -281,9 +281,9 @@ func testHistoryOwnerPostureTamper(ctx context.Context, t *testing.T, admin, run
 		"",
 		strings.Replace(plan[1], " AS RESTRICTIVE", " AS PERMISSIVE", 1),
 		strings.Replace(plan[1], "TO PUBLIC", "TO probectl_provider", 1),
-		`CREATE POLICY flow_history_owner ON ` + table + ` AS RESTRICTIVE FOR SELECT TO PUBLIC USING (` + OwnerBoundaryPredicate + `)`,
-		`CREATE POLICY flow_history_owner ON ` + table + ` AS RESTRICTIVE FOR ALL TO PUBLIC USING (` + OwnerBoundaryPredicate + `)`,
-		`CREATE POLICY flow_history_owner ON ` + table + ` AS RESTRICTIVE FOR ALL TO PUBLIC USING (` + OwnerBoundaryPredicate + `) WITH CHECK (true)`,
+		`CREATE POLICY flow_history_owner ON ` + table + ` AS RESTRICTIVE FOR SELECT TO PUBLIC USING (` + tenancy.FlowHistoryOwnerPredicate + `)`,
+		`CREATE POLICY flow_history_owner ON ` + table + ` AS RESTRICTIVE FOR ALL TO PUBLIC USING (` + tenancy.FlowHistoryOwnerPredicate + `)`,
+		`CREATE POLICY flow_history_owner ON ` + table + ` AS RESTRICTIVE FOR ALL TO PUBLIC USING (` + tenancy.FlowHistoryOwnerPredicate + `) WITH CHECK (true)`,
 		`CREATE POLICY flow_history_owner ON ` + table + ` AS RESTRICTIVE FOR ALL TO PUBLIC USING (` + regrouped + `) WITH CHECK (` + regrouped + `)`,
 	}
 	for _, policy := range policies {

@@ -14,9 +14,6 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-// OwnerBoundaryPredicate shares the exact pooled/silo/startup predicate.
-const OwnerBoundaryPredicate = tenancy.FlowHistoryOwnerPredicate
-
 func validOwnerScope(ctx context.Context, scope tenancy.Scope) error {
 	if err := ctx.Err(); err != nil {
 		return err

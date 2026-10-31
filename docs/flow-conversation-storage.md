@@ -158,7 +158,7 @@ future retained-result lifecycle requirements.
 Before runtime persistence is enabled, integration must include counted tenant
 and subject portability, verifiable erasure, retention, worker drain and late
 writer fencing, paired key rotation and key inventory. The disposable schema in
-`internal/testsupport/historyfixture` is for owned integration databases only;
+`testsupport.InstallFlowHistoryFixture` is for owned integration databases only;
 it is not a product migration or a completed lifecycle service.
 
 See [guardrails](guardrails.md) for G7-1, G7-3, G7-5, G7-6 and G7-7, and

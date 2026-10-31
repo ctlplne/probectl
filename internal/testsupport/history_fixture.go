@@ -4,9 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-// Package historyfixture installs disposable private-history SQL for tests.
-// It is not a product migration or a completed history/lifecycle service.
-package historyfixture
+package testsupport
 
 import (
 	"context"
@@ -14,15 +12,19 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-// Install requires an owned test database, applied product migrations and the
-// caller's held testsupport.LockPostgresPublicCatalog lock. CREATE refuses an
-// existing table; cleanup drops only tables this call successfully created.
-func Install(ctx context.Context, t testing.TB, admin *pgxpool.Pool) {
+// InstallFlowHistoryFixture installs disposable private-history SQL only in an
+// owned test database with applied migrations and a held LockPostgresPublicCatalog
+// lock. Pass tenancy.FlowHistoryOwnerBoundaryPlan so tests use the canonical
+// policy without making this low-level support package import tenancy. CREATE
+// refuses existing tables; cleanup drops only tables this call created.
+// This is not a product migration or a completed history/lifecycle service.
+func InstallFlowHistoryFixture(ctx context.Context, t testing.TB, admin *pgxpool.Pool, ownerBoundary func(string, string) []string) {
 	t.Helper()
+	if ownerBoundary == nil {
+		t.Fatal("history fixture requires the canonical owner boundary plan")
+	}
 	statements := []string{
 		`CREATE TABLE public.flow_conversation_epochs(tenant_id uuid PRIMARY KEY REFERENCES public.tenants(id) ON DELETE CASCADE,generation bigint NOT NULL CHECK(generation>0),invalidating boolean NOT NULL DEFAULT false,operation_id uuid,operation_kind text,operation_binding bytea,
           CHECK((NOT invalidating AND operation_id IS NULL AND operation_kind IS NULL AND operation_binding IS NULL) OR
@@ -80,7 +82,7 @@ func Install(ctx context.Context, t testing.TB, admin *pgxpool.Pool) {
 				t.Fatal(err)
 			}
 		}
-		for _, statement := range tenancy.FlowHistoryOwnerBoundaryPlan("public", table) {
+		for _, statement := range ownerBoundary("public", table) {
 			if _, err := admin.Exec(ctx, statement); err != nil {
 				t.Fatal(err)
 			}

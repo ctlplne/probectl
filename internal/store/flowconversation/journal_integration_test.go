@@ -23,7 +23,6 @@ import (
 	"github.com/ctlplne/probectl/internal/store/migrate"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
-	"github.com/ctlplne/probectl/internal/testsupport/historyfixture"
 	"github.com/ctlplne/probectl/migrations"
 )
 
@@ -63,7 +62,7 @@ func journalFixture(t *testing.T) (*pgxpool.Pool, *pgxpool.Pool) {
 	} else {
 		t.Log("journal proof uses plaintext CI fixture; not TLS proof")
 	}
-	historyfixture.Install(ctx, t, admin)
+	testsupport.InstallFlowHistoryFixture(ctx, t, admin, tenancy.FlowHistoryOwnerBoundaryPlan)
 	return admin, pool
 }
 

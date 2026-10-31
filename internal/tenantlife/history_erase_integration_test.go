@@ -27,7 +27,6 @@ import (
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
-	"github.com/ctlplne/probectl/internal/testsupport/historyfixture"
 )
 
 type historyEraseFlowStore struct {
@@ -90,7 +89,7 @@ func historyEraseFixture(t *testing.T) (*pgxpool.Pool, *pgxpool.Pool, string, st
 	if tls {
 		t.Log("history erasure runtime TLS transport verified")
 	}
-	historyfixture.Install(t.Context(), t, admin)
+	testsupport.InstallFlowHistoryFixture(t.Context(), t, admin, tenancy.FlowHistoryOwnerBoundaryPlan)
 	red := mkTenant(t, admin, "probectl-qa-beta-history-red-"+historyEraseUUID(t))
 	blue := mkTenant(t, admin, "probectl-qa-beta-history-blue-"+historyEraseUUID(t))
 	t.Cleanup(func() {
