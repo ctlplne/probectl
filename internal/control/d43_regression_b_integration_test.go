@@ -73,18 +73,22 @@ var d43Needles = []string{
 }
 
 // r1DNSNames are the names the review showed keeping identifiers (D-65 R1).
+// A source canary must be distinct from ports, timestamp fractions and UUID
+// segments. Five-digit registered labels remain covered in l7redact/dns_test.go.
+const d43RegisteredDomainCanary = "5811458114581145811458114"
+
 var r1DNSNames = []string{
 	"bucket-patient-48213.s3.amazonaws.com", "acct48213.blob.core.windows.net",
 	"cust-48213.azurewebsites.net", "patient-48213.github.io",
 	"w56hzv-23-c-0123.internal", "records-48213.corp", "host48213.local", "mrn48213.lan",
 	// D-68: identifier-shaped ICANN registered labels — kept by default,
 	// templated under the regulated profile.
-	"58114.com", "patient58114.net",
+	d43RegisteredDomainCanary + ".com", "patient" + d43RegisteredDomainCanary + ".net",
 }
 
 // regulatedNeedles may not survive the regulated profile either: there only
 // the registered domain of a DNS name is kept.
-var regulatedNeedles = []string{"patients.example.com", "{id}.patients", "58114",
+var regulatedNeedles = []string{"patients.example.com", "{id}.patients", d43RegisteredDomainCanary,
 	// the headers tenant's opted-in values: under regulated its opt-in cannot apply
 	"HDRSEG-77-X-0001", "77310.hdrzone", "hdrtenant-dga-"}
 
@@ -574,7 +578,7 @@ func runD43RegressionB(t *testing.T, regulated bool) {
 	// Non-vacuity: the pipeline really carried each case.
 	metaBus := buses[agentMeta].snapshot()[0].Value
 	wantDNS := []string{"{id}.patients.example.com", "{id}.s3.amazonaws.com", "{id}.github.io", "{id}.internal", "{id}.lan",
-		"58114.com", "patient58114.net"}
+		d43RegisteredDomainCanary + ".com", "patient" + d43RegisteredDomainCanary + ".net"}
 	if regulated {
 		wantDNS = []string{"example.com", "amazonaws.com", "github.io", "{id}.internal", "{id}.lan", "{id}.com", "{id}.net"}
 	}
@@ -651,5 +655,34 @@ func runD43RegressionB(t *testing.T, regulated bool) {
 			parts = append(parts, fmt.Sprintf("%s=%dB", s.name, len(s.hay)))
 		}
 		t.Logf("D-43 regression (b) surfaces: %s", strings.Join(parts, ", "))
+	}
+}
+
+// A transport log may legitimately contain the old numeric canary. The source
+// marker still has to be found in any field; no log key or surface is exempted.
+func TestD43PrivacyCanaryDistinctFromTransportMetadata(t *testing.T) {
+	var logs bytes.Buffer
+	handler := slog.NewJSONHandler(&logs, nil)
+	record := slog.NewRecord(time.Date(2026, 10, 31, 1, 2, 3, 581140000, time.UTC), slog.LevelInfo, "agent gRPC listening", 0)
+	record.AddAttrs(slog.String("addr", "127.0.0.1:58114"), slog.String("tenant", "00058114-0000-4000-8000-000000000001"))
+	if err := handler.Handle(t.Context(), record); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(logs.Bytes(), []byte("58114")) {
+		t.Fatal("transport collision control is vacuous")
+	}
+	if got := findNeedles(logs.Bytes(), regulatedNeedles); len(got) != 0 {
+		t.Fatal("source canary collides with ordinary transport metadata", got)
+	}
+	for _, needle := range regulatedNeedles {
+		record := slog.NewRecord(time.Now(), slog.LevelInfo, "owned leak control", 0)
+		record.AddAttrs(slog.String("unexpected_field", needle))
+		logs.Reset()
+		if err := handler.Handle(t.Context(), record); err != nil {
+			t.Fatal(err)
+		}
+		if got := findNeedles(logs.Bytes(), []string{needle}); len(got) != 1 {
+			t.Fatal("source canary escaped the byte search", needle)
+		}
 	}
 }
