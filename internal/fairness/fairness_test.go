@@ -54,16 +54,9 @@ func (m *memSource) PolicyFor(_ context.Context, tenantID string) (Policy, bool,
 // eventually polls until fn() is true (the async policy refresh).
 func eventually(t *testing.T, fn func() bool) {
 	t.Helper()
-	// Generous, load-tolerant budget: the gate refreshes policy ASYNCHRONOUSLY
-	// (go g.refresh), so this polls for an off-hot-path goroutine to land. The
-	// old 200×1ms (~200ms) budget was too tight under -race on a loaded CI
-	// runner — the refresh goroutine may not even be scheduled in that window —
-	// which flaked TestPolicyLifecycle ("condition not reached"). Even 5s was
-	// occasionally starved when the cross-tenant-isolation job runs every
-	// package's -race tests in parallel next to the 12-image build + eBPF-QEMU
-	// jobs, so the budget is 30s. The loop returns the INSTANT fn() is true, so
-	// this never slows the happy path — it only widens the worst-case wait
-	// before declaring a genuine break, fully absorbing scheduler/-race jitter.
+	// Bounded synchronization with the off-hot-path policy refresh. DPR-482
+	// reproduces invalidation racing a stale in-flight fetch deterministically;
+	// extending this polling deadline cannot repair that cache race.
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if fn() {
