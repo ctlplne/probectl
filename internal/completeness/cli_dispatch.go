@@ -59,7 +59,7 @@ func (v *Validator) validateGenericCLISpine() error {
 	if runRawWithStdin == nil || !runRawOperationWithStdinExecutesRequest(runRawWithStdin.Body) {
 		return fmt.Errorf("generic CLI dispatcher: runRawOperationWithStdin must securely execute the tenant-scoped HTTP client request")
 	}
-	return nil
+	return v.validateFlowCSVSpine()
 }
 
 func cmdSurfaceWithStdinHasExactSpine(body *ast.BlockStmt) bool {
@@ -222,6 +222,10 @@ const runRawOperationWithStdinSpine = `{
 	bodyFile := fs.String("body-file", "", "JSON request body path; - reads stdin (sensitive bodies require a 0600 file or stdin)")
 	query := queryFlag{}
 	fs.Var(&query, "query", "query parameter k=v (repeatable)")
+	var maxDownloadBytes int64 = 256 << 20
+	if op.VerifiedDownload {
+		fs.Int64Var(&maxDownloadBytes, "max-bytes", maxDownloadBytes, "maximum prepared CSV bytes; raise to match the operator's export budget")
+	}
 	sessionCookieFile := cfg.SessionCookieFile
 	if op.SessionAuth {
 		fs.StringVar(&sessionCookieFile, "session-cookie-file", cfg.SessionCookieFile, "owner-only file holding the tenant user's probectl session cookie (env PROBECTL_SESSION_COOKIE_FILE)")
@@ -274,9 +278,17 @@ const runRawOperationWithStdinSpine = `{
 		err  error
 	)
 	if bodyFileSet {
-		body, err = readSensitiveRequestBody(*bodyFile, stdin)
+		limit := maxSensitiveRequestBodyBytes
+		if op.MaxBodyBytes > 0 {
+			limit = op.MaxBodyBytes
+		}
+		body, err = readRequestBody(*bodyFile, stdin, limit, op.ExactJSON)
 	} else {
-		body, err = parseBody(*bodyRaw)
+		if op.ExactJSON && strings.TrimSpace(*bodyRaw) != "" {
+			body, err = parseExactBody([]byte(*bodyRaw), op.MaxBodyBytes)
+		} else {
+			body, err = parseBody(*bodyRaw)
+		}
 	}
 	if err != nil {
 		label := "--body"
@@ -286,8 +298,30 @@ const runRawOperationWithStdinSpine = `{
 		fmt.Fprintln(stderr, "invalid "+label+": "+err.Error())
 		return 2
 	}
+	if op.VerifiedDownload {
+		if body != nil || maxDownloadBytes < 1 {
+			fmt.Fprintln(stderr, "CSV download needs no body and a positive --max-bytes budget")
+			return 2
+		}
+		if err := newClient(cfg).downloadFlowCSV(path, maxDownloadBytes, stdout); err != nil {
+			return fail(stderr, err)
+		}
+		return 0
+	}
 	var out any
-	if err := newClient(cfg).do(op.Method, path, body, &out); err != nil {
+	if op.ExactJSON {
+		var raw json.RawMessage
+		if err := newClient(cfg).do(op.Method, path, body, &raw); err != nil {
+			return fail(stderr, err)
+		}
+		if len(raw) > 0 {
+			decoder := json.NewDecoder(bytes.NewReader(raw))
+			decoder.UseNumber()
+			if err := decoder.Decode(&out); err != nil {
+				return fail(stderr, err)
+			}
+		}
+	} else if err := newClient(cfg).do(op.Method, path, body, &out); err != nil {
 		return fail(stderr, err)
 	}
 	if code := printGenericColumns(stdout, out, cfg.JSON, op.Method, op.Columns); code != 0 {

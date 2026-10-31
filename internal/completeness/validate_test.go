@@ -1194,6 +1194,10 @@ func fixtureRepo(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	csvSource, err := os.ReadFile(filepath.Join("..", "cli", "flow_csv_download.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	files := map[string]string{
 		"internal/control/openapi.json":                `{"paths":{"/v1/foo":{"get":{"responses":{}}}}}`,
 		"internal/control/server.go":                   "package control\nfunc New() { s.foo = buildFoo }\n",
@@ -1212,6 +1216,7 @@ func fixtureRepo(t *testing.T) string {
 		"internal/cli/commands.go":                     "package cli\nfunc cmdTest(cfg int, args []string, stdout, stderr int) int { if len(args) == 0 { fmt.Fprintln(stderr, \"test: expected a subcommand (list|get|create|delete|path|path-history)\"); return 2 }; c := newClient(cfg); switch args[0] { case \"list\": return runRawOperation() } }\nfunc cmdAgent(cfg int, args []string, stdout, stderr int) int { if len(args) == 0 { fmt.Fprintln(stderr, \"agent: expected a subcommand (list|get|delete)\"); return 2 }; c := newClient(cfg); switch args[0] { case \"list\": return runRawOperation() } }\nfunc cmdLifecycle(cfg int, args []string, stdout, stderr int) int { return cmdSurface(cfg, surfaceCommands[\"lifecycle\"], args, stdout, stderr) }\n",
 		"internal/cli/cli.go":                          "package cli\nfunc RunWithStdin(args []string) int { cfg := Config{ BaseURL: envOr(getenv, \"PROBECTL_API_URL\", \"https://localhost:8443\"), Token: getenv(\"PROBECTL_API_TOKEN\"), Tenant: getenv(\"PROBECTL_TENANT\"), Locale: i18n.Resolve(getenv(\"PROBECTL_LOCALE\")), SessionCookieFile: getenv(\"PROBECTL_SESSION_COOKIE_FILE\"), CAFile: getenv(\"PROBECTL_CA_FILE\") }; args, cfg.JSON = extractBoolFlag(args, \"--json\"); if len(args) == 1 && (args[0] == \"-h\" || args[0] == \"--help\") { usage(stdout, cfg.Locale); return 0 }; fs := flag.NewFlagSet(\"probectl\", flag.ContinueOnError); fs.SetOutput(stderr); fs.Usage = func() { usage(stderr, cfg.Locale) }; fs.StringVar(&cfg.BaseURL, \"url\", cfg.BaseURL, \"control-plane API base URL (env PROBECTL_API_URL)\"); fs.StringVar(&cfg.Token, \"token\", cfg.Token, \"API auth token, sent as Bearer (env PROBECTL_API_TOKEN)\"); fs.StringVar(&cfg.Tenant, \"tenant\", cfg.Tenant, \"tenant UUID, sent as X-Probectl-Tenant (env PROBECTL_TENANT)\"); fs.StringVar(&cfg.CAFile, \"ca-file\", cfg.CAFile, \"PEM CA bundle that verifies the control plane's certificate (env PROBECTL_CA_FILE); default: the OS trust store\"); if err := fs.Parse(args); err != nil { return 2 }; rest := fs.Args(); if len(rest) == 0 { return 2 }; switch rest[0] { case \"test\": return cmdTest(cfg, rest[1:], stdout, stderr); case \"agent\": return cmdAgent(cfg, rest[1:], stdout, stderr); case \"lifecycle\": return cmdLifecycle(cfg, rest[1:], stdout, stderr); default: if spec, ok := surfaceCommands[rest[0]]; ok { return cmdSurfaceWithStdin(cfg, spec, rest[1:], stdin, stdout, stderr) }; return 2 } }\n",
 		"internal/cli/generic.go":                      string(genericSource),
+		"internal/cli/flow_csv_download.go":            string(csvSource),
 		"cmd/foo/main.go":                              "package main\nfunc main() { BuildFoo() }\nfunc BuildFoo() {}\n",
 		"cmd/probectl-control/main.go":                 "package main\nfunc main() { runServe() }\n",
 		"cmd/probectl-control/serve_runtime.go":        "package main\nfunc runServe() { control.New() }\n",

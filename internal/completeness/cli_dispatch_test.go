@@ -465,38 +465,63 @@ func TestGenericCommandCalleeMustExecuteRawOperation(t *testing.T) {
 		},
 		{
 			name:        "sensitive stdin discarded",
-			old:         `body, err = readSensitiveRequestBody(*bodyFile, stdin)`,
-			replacement: `body, err = readSensitiveRequestBody(*bodyFile, bytes.NewReader(nil))`,
+			old:         `body, err = readRequestBody(*bodyFile, stdin, limit, op.ExactJSON)`,
+			replacement: `body, err = readRequestBody(*bodyFile, bytes.NewReader(nil), limit, op.ExactJSON)`,
 			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "request unreachable",
-			old:         `if err := newClient(cfg).do(op.Method, path, body, &out);`,
-			replacement: `return 2; if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			old:         `if err := newClient(cfg).do(op.Method, path, body, &raw);`,
+			replacement: `return 2; if err := newClient(cfg).do(op.Method, path, body, &raw);`,
 			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "operation rewritten",
-			old:         `if err := newClient(cfg).do(op.Method, path, body, &out);`,
-			replacement: `op = wrongOperation; if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			old:         `if err := newClient(cfg).do(op.Method, path, body, &raw);`,
+			replacement: `op = wrongOperation; if err := newClient(cfg).do(op.Method, path, body, &raw);`,
 			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "path rewritten through pointer alias",
-			old:         `if err := newClient(cfg).do(op.Method, path, body, &out);`,
-			replacement: `pathAlias := &path; *pathAlias = "/v1/wrong-operation"; if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			old:         `if err := newClient(cfg).do(op.Method, path, body, &raw);`,
+			replacement: `pathAlias := &path; *pathAlias = "/v1/wrong-operation"; if err := newClient(cfg).do(op.Method, path, body, &raw);`,
 			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "path rewritten through call side effect",
-			old:         `if err := newClient(cfg).do(op.Method, path, body, &out);`,
-			replacement: `fmt.Sscan("/v1/wrong-operation", &path); if err := newClient(cfg).do(op.Method, path, body, &out);`,
+			old:         `if err := newClient(cfg).do(op.Method, path, body, &raw);`,
+			replacement: `fmt.Sscan("/v1/wrong-operation", &path); if err := newClient(cfg).do(op.Method, path, body, &raw);`,
 			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
 			name:        "request arguments rewritten",
-			old:         `newClient(cfg).do(op.Method, path, body, &out)`,
-			replacement: `newClient(cfg).do(wrong.Method, "/v1/wrong", body, &out)`,
+			old:         `newClient(cfg).do(op.Method, path, body, &raw)`,
+			replacement: `newClient(cfg).do(wrong.Method, "/v1/wrong", body, &raw)`,
+			want:        "securely execute the tenant-scoped HTTP client request",
+		},
+
+		{
+			name:        "exact response loses number precision",
+			old:         `decoder.UseNumber()`,
+			replacement: `decoder = json.NewDecoder(bytes.NewReader(raw))`,
+			want:        "securely execute the tenant-scoped HTTP client request",
+		},
+		{
+			name:        "exact file body becomes lossy",
+			old:         `readRequestBody(*bodyFile, stdin, limit, op.ExactJSON)`,
+			replacement: `readRequestBody(*bodyFile, stdin, limit, false)`,
+			want:        "securely execute the tenant-scoped HTTP client request",
+		},
+		{
+			name:        "CSV request replaces caller credentials",
+			old:         `newClient(cfg).downloadFlowCSV(path, maxDownloadBytes, stdout)`,
+			replacement: `newClient(Config{}).downloadFlowCSV(path, maxDownloadBytes, stdout)`,
+			want:        "securely execute the tenant-scoped HTTP client request",
+		},
+		{
+			name:        "CSV request ignores caller byte budget",
+			old:         `newClient(cfg).downloadFlowCSV(path, maxDownloadBytes, stdout)`,
+			replacement: `newClient(cfg).downloadFlowCSV(path, 1<<60, stdout)`,
 			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 	} {
@@ -615,5 +640,44 @@ func mutateCLIAndAddDecoyComment(t *testing.T, path, old, replacement string) {
 	mutated += "\n// decoy deleted dispatcher text: " + old + "\n"
 	if err := os.WriteFile(path, []byte(mutated), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNativeGenericRequestSpineMatchesShippingSource(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "../cli/generic.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range file.Decls {
+		fn, ok := declaration.(*ast.FuncDecl)
+		if ok && fn.Name.Name == "runRawOperationWithStdin" {
+			if !runRawOperationWithStdinExecutesRequest(fn.Body) {
+				t.Fatal("exact native JSON and verified-download dispatcher is rejected by stale spine")
+			}
+			return
+		}
+	}
+	t.Fatal("shipping raw dispatcher missing")
+}
+
+// The verified download is a separate HTTP path. Its actual caller,origin,
+// allocation bounds,length,digest and stdout ordering remain part of the seal.
+func TestGenericVerifiedCSVDelegateRejectsUnsafeMutations(t *testing.T) {
+	for _, tc := range []struct{ name, old, replacement string }{
+		{"default HTTP client", `hc := c.requestHTTPClient(target, false)`, `hc := http.DefaultClient`},
+		{"caller origin discarded", `resolveAPIURL(c.cfg.BaseURL, path)`, `resolveAPIURL("https://untrusted.invalid", path)`},
+		{"wrong request verb", `http.NewRequest(http.MethodGet, target.String(), nil)`, `http.NewRequest(http.MethodPost, target.String(), nil)`},
+		{"unbounded body", `io.LimitReader(response.Body, maxBytes)`, `response.Body`},
+		{"length verification removed", `if n != response.ContentLength {`, `if false {`},
+		{"digest verification removed", `if !crypto.ConstantTimeEqual(digest, expected) {`, `if false {`},
+		{"output precedes verification", `file, err := os.CreateTemp("", "probectl-flow-csv-download-*")`, `_, _ = io.Copy(output, response.Body); file, err := os.CreateTemp("", "probectl-flow-csv-download-*")`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fixtureRepo(t)
+			writeFixtureMutation(t, filepath.Join(root, "internal/cli/flow_csv_download.go"), tc.old, tc.replacement)
+			if _, err := NewValidator(root); err == nil || !strings.Contains(err.Error(), "verified CSV download") {
+				t.Fatalf("unsafe CSV delegate accepted or misclassified: %v", err)
+			}
+		})
 	}
 }
