@@ -151,6 +151,7 @@ services:
       - ./clickhouse-backups.xml:/etc/clickhouse-server/config.d/backups.xml:ro
       - chsecrets:/run/probectl-clickhouse:ro
       - ./prod/clickhouse/tls.xml:/etc/clickhouse-server/config.d/probectl-tls.xml:ro
+      - ./prod/clickhouse/resources.xml:/etc/clickhouse-server/config.d/probectl-resources.xml:ro
       - ./prod/clickhouse/users.xml:/etc/clickhouse-server/users.d/probectl-tenant-setting.xml:ro
       - ./prod/clickhouse/client.xml:/etc/clickhouse-client/config.xml:ro
     healthcheck:

@@ -1,0 +1,20 @@
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+<!-- Use of this source code is governed by the Business Source License 1.1
+     in the LICENSE file at the root of this repository; on its Change Date
+     each version converts to the Mozilla Public License 2.0. -->
+<clickhouse>
+  <!-- Fit background maintenance to the durable profile's 4 GiB default.
+       Preserve foreground query budgets and the server/container ceilings.
+       Both merges and mutations remain enabled. Smaller blocks also bound
+       compaction buffers for the wide internal metric log. -->
+  <background_pool_size>2</background_pool_size>
+  <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+  <merges_mutations_memory_usage_soft_limit>1073741824</merges_mutations_memory_usage_soft_limit>
+  <merge_tree>
+    <merge_max_block_size>1024</merge_max_block_size>
+    <!-- These positive thresholds must fit pool size times concurrency. -->
+    <number_of_free_entries_in_pool_to_lower_max_size_of_merge>2</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+    <number_of_free_entries_in_pool_to_execute_mutation>1</number_of_free_entries_in_pool_to_execute_mutation>
+    <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>1</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+  </merge_tree>
+</clickhouse>

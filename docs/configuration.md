@@ -2936,9 +2936,27 @@ resource ceilings. They are **Compose-file interpolation variables** (consumed b
 | `PROBECTL_CONTROL_PIDS_LIMIT` | `512` | Process/thread ceiling (`pids_limit`) for the control service. |
 | `PROBECTL_POSTGRES_MEM_LIMIT` | `1g` | Memory ceiling for the bundled Postgres. Raise for a large database. |
 | `PROBECTL_NATS_MEM_LIMIT` | `1g` | Durable profile (`probectl.prod.yml`) only: memory ceiling for the NATS JetStream bus. |
-| `PROBECTL_CLICKHOUSE_MEM_LIMIT` | `4g` | Durable profile only: memory ceiling for ClickHouse (the telemetry stores). Raise for larger ingest volumes. |
+| `PROBECTL_CLICKHOUSE_MEM_LIMIT` | `4g` | Durable profile only: memory ceiling for ClickHouse (the telemetry stores). The mounted maintenance profile below bounds background work for this default. |
 | `PROBECTL_PROMETHEUS_MEM_LIMIT` | `2g` | Durable profile only: memory ceiling for Prometheus (the TSDB). |
 | `PROBECTL_PROMETHEUS_RETENTION` | `30d` | Durable profile only: Prometheus `--storage.tsdb.retention.time`, how long metric series are kept on the `promdata` volume. |
+
+The durable Compose profile mounts `prod/clickhouse/resources.xml` read-only.
+For its default 4 GiB ClickHouse container, background compaction uses two
+threads (up to four scheduled merge/mutation tasks), 1 GiB soft memory admission
+and 1,024-row merge blocks. Smaller blocks reduce the buffers required by wide
+internal tables such as `system.metric_log`. The soft limit prevents admission
+of new maintenance work; it does not cancel tasks already running. Metric logs,
+merges, mutations and retention remain enabled. Foreground Explorer query limits
+and the server/container memory ceilings are unchanged.
+
+Changing the background thread pool downward requires a ClickHouse restart.
+Keep its data volume when applying the profile. Larger deployments can provide
+a reviewed resource XML override after measuring maintenance and query demand;
+keep the MergeTree free-entry thresholds within pool size times the concurrency
+ratio so the server can start and mutations can run. These are internal
+maintenance controls, not limits on dimensions, rows or retention. The settings
+and startup constraint are documented in the shipped [ClickHouse 24.8 source](https://github.com/ClickHouse/ClickHouse/blob/v24.8.14.39-lts/src/Storages/MergeTree/MergeTreeSettings.cpp).
+
 
 Every service in this stack ships hardened (RTO-03): the control plane and the
 `certgen`/`migrate` one-shots run the distroless control image with a read-only
