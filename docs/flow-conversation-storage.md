@@ -273,3 +273,25 @@ projection and controller integration remain required. This step deletes
 nothing and grants no completion or intent-clear authority. Bounded job/leaf
 purge, complete all-plane/self-erasure receipts, stable directory identity,
 retention, key lifecycle and positive orphan recovery still precede activation.
+
+
+Bounded subject selection now binds the exact pending plan and generation.
+A source-free physical purge rechecks that intent and zero unacknowledged
+activity under writer, audit and epoch locks before locking an exact selected
+leaf. The original metadata and both ciphertext members must still match.
+Changed records, new children or uncertain prior progress require fresh source
+selection rather than an assumed successful replay.
+
+Each transaction removes at most the positive job-row resource from all input
+and proposal references before deleting one leaf. Proposal references are not
+unique. Remaining references preserve the message; a leaf delete requires zero
+children and jobs. Whole-family before/deleted/remaining counts and mandatory
+audit reconcile atomically, including a final check after the audit appender.
+Audit or count failure rolls back. No decryption or historical creator grant
+is needed for this already-selected physical step.
+
+Batch counts describe private storage progress only. Complete native semantic
+validation, independently current controller credentials, stable directory
+identity, durable all-plane/self-erasure receipts, keys, retention and positive
+orphan recovery remain required. The pending intent stays set; this primitive
+introduces no finish/clear authority or product migration.

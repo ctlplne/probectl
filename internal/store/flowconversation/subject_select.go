@@ -27,6 +27,7 @@ type subjectMatchFactory func(context.Context, SubjectErasurePlan) (subjectDocum
 // This bounded set holds exact original ciphertext pairs, not decoded source,
 // a completed erasure receipt or permission to clear the durable intent.
 type subjectLeafSelection struct {
+	pending   Invalidation
 	leaves    []StoredMessage
 	scanned   int64
 	exhausted bool
@@ -67,6 +68,7 @@ func (j *Journal) selectSubjectLeaves(ctx context.Context, codec *Codec, pending
 		// never publish a partial set as a successful empty/complete scan.
 		return subjectLeafSelection{}, err
 	}
+	result.pending = pending
 	return result, nil
 }
 
