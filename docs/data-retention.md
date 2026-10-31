@@ -139,3 +139,8 @@ require clean transport completion and discard an interrupted download, even
 if a gzip member decodes successfully: a later audit or authorization check
 can still refuse the export. Retry with current authority after the underlying
 failure is resolved. This streaming behavior adds no history-size cap.
+
+Subject portability refuses an unreadable tenant governance policy before
+archive output or telemetry-source reads. A missing optional policy is allowed;
+a configured policy that fails to load cannot silently become an unredacted
+export. Known forced redaction and explicitly requested redaction still apply.
