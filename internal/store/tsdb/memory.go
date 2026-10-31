@@ -9,6 +9,7 @@ package tsdb
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"sort"
 	"strconv"
@@ -351,4 +352,36 @@ func seriesMatchesSubject(s Series, tenantID, subject string) bool {
 		}
 	}
 	return false
+}
+
+// TenantSnapshot reads one tenant's current metric series at the storage layer.
+// It refuses an oversized lookup rather than returning an incomplete join.
+func (m *Memory) TenantSnapshot(ctx context.Context, tenant, prefix string, limit int) ([]Series, error) {
+	if tenant == "" {
+		return nil, ErrTenantRequired
+	}
+	if limit < 1 {
+		return nil, errors.New("tsdb: tenant snapshot requires a positive bound")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Series, 0, min(limit, 256))
+	for _, entry := range m.entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if entry.s.Labels[TenantLabel] != tenant || !strings.HasPrefix(entry.s.Metric, prefix) {
+			continue
+		}
+		if len(out) >= limit {
+			return nil, errors.New("tsdb: tenant snapshot budget exceeded")
+		}
+		copySeries := entry.s
+		copySeries.Labels = make(map[string]string, len(entry.s.Labels))
+		for k, v := range entry.s.Labels {
+			copySeries.Labels[k] = v
+		}
+		out = append(out, copySeries)
+	}
+	return out, nil
 }

@@ -40,6 +40,7 @@ import { Page } from './RoutePage'
 import { TimeSeries } from '../components/TimeSeries'
 import { SavedViews } from './listControls'
 import { ExplainView } from './ExplainView'
+import { NativeFlowPage } from './NativeFlowPage'
 import { pivotHref } from './pivotContext'
 import styles from './explorer.module.css'
 
@@ -487,6 +488,15 @@ function timeSeriesFromRows(
 }
 
 export function ExplorerPage() {
+  const [params] = useSearchParams()
+  return params.get('native_flow') === '1' || params.has('flow_view') ? (
+    <NativeFlowPage />
+  ) : (
+    <LegacyExplorerPage />
+  )
+}
+
+function LegacyExplorerPage() {
   const [params, setParams] = useSearchParams()
   const schema = useExplorerSchema()
   const run = useExplorerQuery()
@@ -660,6 +670,7 @@ export function ExplorerPage() {
     <Page
       title="Explorer"
       subtitle="Ask a question, see the exact query grammar, and keep every result tenant-scoped."
+      actions={<Link to="/explore?native_flow=1">Open native flow explorer</Link>}
     >
       <Card data-explorer-workspace>
         <CardHeader

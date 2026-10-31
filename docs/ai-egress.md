@@ -111,17 +111,70 @@ Every such POST passes one checkpoint on its way out. The `EgressGate`
 think of an airport terminal with three departure doors but one customs desk:
 whichever door you came through, the same desk applies the same checks and
 writes the same manifest, and the manifest records *categories* of goods,
-never their contents. The three doors:
+never their contents. The surfaces are:
 
 - the **remote RCA model** (`docs/ai-rca.md`) — RCA is root-cause analysis,
   the Ask pipeline;
 - **MCP tool results** (`docs/mcp.md`) — MCP, the Model Context Protocol, is
   how external AI apps call tools; an MCP caller *is* an external AI client,
   so the data tools return to it is egress just as surely as a prompt is;
-- the **test-authoring model** (`docs/ai-authoring.md`).
+- the **test-authoring model** (`docs/ai-authoring.md`);
+- **native flow plan proposals** (`internal/ai/flow_question_model.go`). This
+  component sends the question, explicitly selected parent query settings and
+  server clock/profile locale/timezone as redacted data. Its system instructions
+  contain the public typed grammar and registry. It accepts a validated proposed
+  read plan or clarification, with no store or tool execution capability. The
+  calling service must independently enforce current source permissions,
+  tenant scope, retention, saved-filter revisions and query cost before execution.
 
 The audit event records which door it came through:
-`surface = rca | mcp | author`.
+`surface = rca | mcp | author | flow_question`.
+
+Native flow proposals use the explicit budgeted completion method through the
+same hardened adapter, resilience and egress gate. Positive operator settings
+under `PROBECTL_FLOW_QUESTION_*` bound syntax/context, provider response bytes and
+output tokens; see [configuration](configuration.md). These are resource policies,
+independent of the native query's dimensions, conditions, retention and result
+reach. Native Ollama requests disable input truncation and context shifting.
+Only complete assistant text is accepted; tools, refusals, unknown completion
+states and truncated replies cannot become native plans. Thinking blocks never
+enter the returned plan text. Explicit provider token/context truncation is also
+refused on the existing synthesis/authoring path. RCA can use its clearly marked
+builtin fallback, without caching the truncated remote result. Recognized output
+resource refusals do not mark the shared provider unhealthy; network/status and
+other protocol failures retain the circuit breaker's normal behavior.
+
+Caller cancellation and caller-owned deadlines preserve the shared provider's
+existing health state. They return no cached synthesis or builtin fallback.
+The adapter's own timeout still counts as an upstream failure. Documented model
+refusals remain non-executable responses from a reachable provider; malformed
+refusal metadata remains a protocol failure. A canceled half-open probe releases
+only its own admission, without claiming that the upstream has recovered.
+
+The internal proposal decoder also has a request-private literal-reference
+boundary: a whole reference object may supply only a predicate value, resolved
+locally before the same native validation. It does not interpolate strings or
+resolve saved-filter identifiers, and it checks expanded bytes before allocation.
+The internal planner now collects complete quoted values, policy-recognized
+words and every recognized native filter operand, using native lexer offsets
+even beside an operator. Parent and independently parsed intent predicates use
+whole private references in a bounded context encoder. Previous narrative and
+derived output are omitted. Both actual gate and adapter redaction policies
+are previewed, and both still run at dispatch. An unresolved custom pattern
+cannot silently change context: the planner requests clarification, or returns
+an explicitly labeled complete offline proposal when native parsing established
+the entire query. Unknown remote adapters without a redaction profile fail closed.
+
+The server derives `needs_confirmation`; a model cannot supply or clear it.
+Complete normalized plan, comparison and display equality with the independent
+native parser is required to avoid confirmation, and an unconfirmed parent stays
+unconfirmed. Operand presence alone never proves boolean or field/operator
+meaning. Other valid native proposals remain inspectable and require explicit
+confirmation of the exact plan revision before execution. This flag grants no
+tenant, source or credential authority. FX-1 uses this planner through stateless
+requests and the shared authorized execution service. Private conversation
+history and its background workers are parked outside FX-1; no question or
+proposal is stored by this planning path.
 
 The wiring is what makes this a guarantee rather than a convention. Every gate
 is built by **one constructor** in the control plane, so every surface draws
@@ -193,14 +246,14 @@ closed** — on any error, doubt, or missing piece the result is "deny", never
    allow/deny and the reason.) A remote RCA attempt refused before egress
    appends `ai.remote_egress_denied` with `allowed=false` and one bounded reason
    (`policy_unavailable`, `policy_error`, or `consent_missing`). This applies to
-   both RCA and remote test-authoring attempts; authoring cannot return from a
+   RCA, remote test-authoring and native flow proposal attempts; these cannot return from a
    known-tenant consent or policy denial before that durable receipt exists.
    The attempted model receives zero calls and the audit never copies the
    policy error, policy text, prompt, or telemetry content. The append is part
    of the gate, not best-effort
    bookkeeping: if the immutable audit store is missing or rejects the write,
    probectl returns a temporary-unavailable error and does **not** dispatch to
-   the remote RCA/authoring adapter or release an MCP result. A local log warning
+   a remote RCA/authoring/planning adapter or release an MCP result. A local log warning
    makes the storage fault diagnosable, but it can never substitute for the
    tenant's durable record.
 

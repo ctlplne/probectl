@@ -6,6 +6,30 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import type { FlowExplorerResult, FlowExplorerSchema, FlowQueryPlan } from './flowExplorer'
+import type { FlowQueryViewDefinition } from './flowViews'
+
+export interface FlowQuestionProposal {
+  status: 'ready' | 'clarify' | 'refused'
+  plan?: FlowQueryPlan
+  comparison?: FlowQueryViewDefinition['comparison']
+  previous?: { from: string; to: string }
+  display?: FlowQueryViewDefinition['display']
+  guidance?: string
+  assumptions?: string[]
+  needs_confirmation?: boolean
+}
+
+export function useExplorerFlowPlan() {
+  return useMutation({
+    mutationFn: (question: string) =>
+      apiFetch<{ proposal: FlowQuestionProposal }>('/explorer/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'flow', question, plan_only: true }),
+      }),
+  })
+}
 
 export type ExplorerSource =
   | 'flow'
@@ -16,9 +40,10 @@ export type ExplorerSource =
   | 'tls'
   | 'cost'
   | 'slo'
-export type ExplorerVisualization = 'table' | 'bar' | 'line' | 'timeline' | 'topology'
+export type ExplorerVisualization = 'table' | 'bar' | 'line' | 'timeline' | 'matrix' | 'topology'
 
 export interface ExplorerQuery {
+  flow?: FlowQueryPlan
   template?: string
   question: string
   source: ExplorerSource
@@ -30,6 +55,16 @@ export interface ExplorerQuery {
   measures: string[]
   visualization: ExplorerVisualization
   limit: number
+}
+
+export interface FlowPaging {
+  snapshot_id: string
+  expires_at: string
+  selected_rows: number
+  offset: number
+  page_size: number
+  more: boolean
+  next_cursor?: string
 }
 
 export interface ExplorerTemplate {
@@ -44,6 +79,7 @@ export interface ExplorerTemplate {
 }
 
 export interface ExplorerSchema {
+  flow?: FlowExplorerSchema
   templates: ExplorerTemplate[]
   visualizations: ExplorerVisualization[]
   comparison_sources?: ExplorerSource[]
@@ -57,7 +93,7 @@ export interface ExplorerColumn {
 }
 
 export interface ExplorerExecutionReceipt {
-  contract_version: 'explorer-execution/v1'
+  contract_version: 'explorer-execution/v1' | 'flow-explorer-execution/v2'
   recipe: string
   source: ExplorerSource
   tenant_scoped: true
@@ -84,7 +120,7 @@ export interface ExplorerExecutionReceipt {
 }
 
 export interface ExplorerComparisonExecutionReceipt {
-  contract_version: 'explorer-comparison-execution/v1'
+  contract_version: 'explorer-comparison-execution/v1' | 'flow-explorer-comparison-execution/v2'
   tenant_scoped: true
   current: ExplorerExecutionReceipt
   previous: ExplorerExecutionReceipt
@@ -99,6 +135,8 @@ export interface ExplorerComparisonExecutionReceipt {
 }
 
 export interface ExplorerResult {
+  flow_paging?: FlowPaging
+  flow?: FlowExplorerResult
   query: ExplorerQuery
   preview: string
   columns: ExplorerColumn[]
@@ -124,7 +162,21 @@ export type ExplorerDeltaState =
 export interface ExplorerComparisonRow {
   group: Record<string, string>
   measure: string
-  aggregation: 'sum' | 'mean'
+  aggregation:
+    | 'sum'
+    | 'mean'
+    | 'exact_distinct'
+    | 'avg'
+    | 'p95'
+    | 'p99'
+    | 'max'
+    | 'total'
+    | 'bucket_total'
+  other?: boolean
+  current_value_str?: string
+  previous_value_str?: string
+  delta_str?: string
+  percent_change_str?: string
   current_value: number | null
   previous_value: number | null
   delta: number | null
@@ -133,7 +185,13 @@ export interface ExplorerComparisonRow {
 }
 
 export interface ExplorerComparisonResult {
-  contract_version: 'explorer-comparison/v1'
+  flow_paging?: FlowPaging
+  flow?: {
+    current: FlowExplorerResult
+    previous: FlowExplorerResult
+    membership: 'shared_top_groups_ranked_by_larger_period_value'
+  }
+  contract_version: 'explorer-comparison/v1' | 'flow-explorer-comparison/v2'
   current: ExplorerQuery
   previous: ExplorerQuery
   current_preview: string
@@ -149,9 +207,9 @@ export interface ExplorerComparisonResult {
   execution: ExplorerComparisonExecutionReceipt
 }
 
-export function useExplorerSchema() {
+export function useExplorerSchema(identity?: string) {
   return useQuery({
-    queryKey: ['explorer', 'schema'],
+    queryKey: identity ? ['explorer', 'schema', identity] : ['explorer', 'schema'],
     queryFn: () => apiFetch<ExplorerSchema>('/explorer/schema'),
   })
 }
@@ -167,6 +225,46 @@ export function useExplorerQuery() {
   })
 }
 
+export function useExplorerFlowQuery() {
+  return useMutation({
+    mutationFn: (flow: FlowQueryPlan) =>
+      apiFetch<ExplorerResult>('/explorer/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'flow', flow }),
+      }),
+  })
+}
+
+export function useExplorerFlowComparison() {
+  return useMutation({
+    mutationFn: ({
+      flow,
+      ...previous
+    }: {
+      flow: FlowQueryPlan
+      previous_from: string
+      previous_to: string
+    }) =>
+      apiFetch<ExplorerComparisonResult>('/explorer/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: { source: 'flow', flow }, ...previous }),
+      }),
+  })
+}
+
+export function useExplorerFlowPage() {
+  return useMutation({
+    mutationFn: (cursor: string) =>
+      apiFetch<ExplorerResult>('/explorer/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'flow', flow: { cursor } }),
+      }),
+  })
+}
+
 export function useExplorerComparison() {
   return useMutation({
     mutationFn: (request: ExplorerComparisonRequest) =>
@@ -174,6 +272,17 @@ export function useExplorerComparison() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
+      }),
+  })
+}
+
+export function useExplorerFlowComparisonPage() {
+  return useMutation({
+    mutationFn: (cursor: string) =>
+      apiFetch<ExplorerComparisonResult>('/explorer/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: { source: 'flow', flow: { cursor } } }),
       }),
   })
 }

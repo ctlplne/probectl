@@ -158,9 +158,32 @@ func (c *GatedCompleter) Name() string { return c.inner.Name() }
 // authenticated principal on ctx — absent principal = no egress (fail
 // closed), exactly like an unauthenticated API call.
 func (c *GatedCompleter) Complete(ctx context.Context, system, user string) (string, error) {
+	return c.complete(ctx, system, user, "author")
+}
+
+// complete is shared by trusted author/planner construction only. The surface
+// is a fixed call-site label, never read from model output or user metadata.
+func (c *GatedCompleter) complete(ctx context.Context, system, user, surface string) (string, error) {
+	return c.completeUsing(ctx, system, user, surface, c.inner.Complete)
+}
+
+func (c *GatedCompleter) completeWithBudget(ctx context.Context, system, user, surface string, budget CompletionBudget) (string, error) {
+	if err := budget.Validate(); err != nil {
+		return "", err
+	}
+	inner, ok := c.inner.(BudgetedRemoteCompleter)
+	if !ok {
+		return "", ErrFlowQuestionModelUnavailable
+	}
+	return c.completeUsing(ctx, system, user, surface, func(ctx context.Context, system, user string) (string, error) {
+		return inner.CompleteWithBudget(ctx, system, user, budget)
+	})
+}
+
+func (c *GatedCompleter) completeUsing(ctx context.Context, system, user, surface string, call func(context.Context, string, string) (string, error)) (string, error) {
 	rm, ok := c.inner.(RemoteEgresser)
 	if !ok || !rm.RemoteEgress() {
-		return c.inner.Complete(ctx, system, user) // local model: exempt
+		return call(ctx, system, user) // local model: exempt
 	}
 	p := auth.PrincipalFrom(ctx)
 	if p == nil || p.TenantID == "" {
@@ -170,7 +193,7 @@ func (c *GatedCompleter) Complete(ctx context.Context, system, user string) (str
 		TenantID: p.TenantID,
 		Endpoint: rm.Endpoint(),
 		Model:    c.inner.Name(),
-		Surface:  "author",
+		Surface:  surface,
 	}
 	if err := c.gate.AuthorizeAttempt(ctx, ev); err != nil {
 		return "", err
@@ -180,7 +203,7 @@ func (c *GatedCompleter) Complete(ctx context.Context, system, user string) (str
 	}
 	// The adapter redacts again on its own remote path (defense in depth);
 	// masking is stable so double application cannot leak or churn tokens.
-	out, err := c.inner.Complete(ctx, system, c.gate.RedactForTenant(user, p.TenantID))
+	out, err := call(ctx, system, c.gate.RedactForTenant(user, p.TenantID))
 	if err != nil {
 		return "", err
 	}

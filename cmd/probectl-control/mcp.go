@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	aimcp "github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
@@ -41,10 +42,18 @@ func newMCPStdioRuntime(
 	log *slog.Logger,
 	db *store.DB,
 	pathStore pathstore.Store,
+	sources ...control.AISources,
 ) mcpStdioRuntime {
 	gate := newFairnessGate(cfg, db.Pool())
+	var egressGate *ai.EgressGate
+	if len(sources) > 0 && sources[0].NativeFlow != nil {
+		sources[0].NativeFlow.WithFairness(gate)
+		egressGate = sources[0].NativeFlow.AIEgressGate()
+	} else {
+		egressGate = control.NewAIEgressGate(cfg, log, db.Pool())
+	}
 	return mcpStdioRuntime{
-		server:   control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, control.NewAIEgressGate(cfg, log, db.Pool()), gate, nil),
+		server:   control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, egressGate, gate, nil, sources...),
 		fairGate: gate,
 	}
 }
@@ -92,7 +101,12 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	// remediation is nil on the lightweight stdio transport: the propose tool
 	// is inert here (the full proposal workflow rides the HTTP transport wired
 	// through attachEE). A core file can never import ee/.
-	runtime := newMCPStdioRuntime(cfg, log, db, pathStore)
+	sources, closeSources, err := buildMCPFlowSources(cfg, log, db, pathStore)
+	if err != nil {
+		return err
+	}
+	defer closeSources()
+	runtime := newMCPStdioRuntime(cfg, log, db, pathStore, sources)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Info("mcp stdio session", "tenant", p.TenantID, "user", p.UserID)

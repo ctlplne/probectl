@@ -67,6 +67,8 @@ func TestMCPResultTypesDoNotCarryUncheckedMaps(t *testing.T) {
 		IncidentResult{}, IncidentSignal{},
 		CorrelationResult{}, PlaneSignals{},
 		ProposalResult{},
+		NativeFlowQuestionResult{}, NativeFlowQuestionProposal{}, NativeFlowQuestionPeriod{},
+		NativeFlowResult{}, NativeFlowRow{}, NativeFlowPoint{}, NativeFlowCell{}, NativeFlowValue{}, NativeFlowDimension{}, NativeFlowRevision{}, NativeFlowCoverage{}, NativeFlowPaging{}, NativeFlowQueryResult{}, NativeFlowComparisonRow{}, NativeFlowComparisonResult{}, NativeFlowExecution{}, NativeFlowFilter{}, NativeFlowFilterPage{}, NativeFlowView{}, NativeFlowViewPage{}, NativeFlowMutationResult{}, NativeFlowField{}, NativeFlowCalculation{}, NativeFlowMetric{}, NativeFlowLimits{}, NativeFlowDefaults{}, NativeFlowStatistics{}, NativeFlowSchemaResult{}, NativeFlowCSVResult{},
 	}
 	for _, v := range types {
 		rt := reflect.TypeOf(v)
@@ -93,17 +95,18 @@ func TestMCPResultTypesDoNotCarryUncheckedMaps(t *testing.T) {
 // listed today's eight methods would be a denylist and would pass the moment a
 // ninth arrived.
 func TestBackendReturnsDeclaredTypes(t *testing.T) {
-	bt := reflect.TypeOf((*Backend)(nil)).Elem()
-	anyType := reflect.TypeOf((*any)(nil)).Elem()
-	for i := range bt.NumMethod() {
-		m := bt.Method(i)
-		ft := m.Type
-		for r := range ft.NumOut() {
-			out := ft.Out(r)
-			if out == anyType {
-				t.Errorf("Backend.%s returns `any`: the MCP surface would again publish whatever "+
-					"struct the control plane had at hand, bounded only by a byte cap. Declare a "+
-					"result type in results.go and project into it", m.Name)
+	for _, bt := range []reflect.Type{reflect.TypeOf((*Backend)(nil)).Elem(), reflect.TypeOf((*NativeFlowBackend)(nil)).Elem()} {
+		anyType := reflect.TypeOf((*any)(nil)).Elem()
+		for i := range bt.NumMethod() {
+			m := bt.Method(i)
+			ft := m.Type
+			for r := range ft.NumOut() {
+				out := ft.Out(r)
+				if out == anyType {
+					t.Errorf("Backend.%s returns `any`: the MCP surface would again publish whatever "+
+						"struct the control plane had at hand, bounded only by a byte cap. Declare a "+
+						"result type in results.go and project into it", m.Name)
+				}
 			}
 		}
 	}

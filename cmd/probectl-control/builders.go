@@ -381,18 +381,7 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	if cfg.FlowRetentionDays == 0 {
 		log.Warn("FLOW RETENTION DISABLED: PROBECTL_FLOW_RETENTION_DAYS=0 — flows are kept FOREVER and the flow table will grow without bound. Set a finite value (default 90) unless you have an explicit retention requirement.")
 	}
-	// TENANT-102: DB-level reader scoping. When enabled, reads attach the
-	// per-request tenant custom setting and the reader row policy constrains
-	// the query path even if app-layer WHERE scoping is bypassed.
-	if err := installCHReaderPolicy(chReaderSpec{scopingOn: cfg.FlowCHTenantScoping, readerUser: cfg.FlowCHReaderUser,
-		storeURL: cfg.FlowStoreURL, plane: "flowstore", finding: "TENANT-102", readerAuth: readerAuth}, log,
-		func(reader *http.Client) (chReaderLane, bool) {
-			ch, ok := flowStore.(*flowstore.ClickHouse)
-			if !ok {
-				return nil, false
-			}
-			return ch.WithTenantScoping(true).WithReader(reader), true
-		}); err != nil {
+	if err := scopeConfiguredFlowReads(cfg, log, readerAuth, flowStore); err != nil {
 		return fail(err)
 	}
 

@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -102,24 +103,33 @@ func (m *ResilientModel) cacheHitCount() uint64 { return m.cacheHits.Load() }
 
 // Synthesize: cache → breaker(remote with timeout) → builtin fallback.
 func (m *ResilientModel) Synthesize(ctx context.Context, in SynthesisInput) (Synthesis, error) {
+	if err := ctx.Err(); err != nil {
+		return Synthesis{}, err
+	}
 	key := synthKey(ctx, m.remote.Name(), in)
 	if syn, ok := m.cache.get(key, in); ok {
+		if err := ctx.Err(); err != nil {
+			return Synthesis{}, err
+		}
 		m.cacheHits.Add(1)
 		return syn, nil
 	}
 
 	var syn Synthesis
-	err := m.br.Do(func() error {
+	err := m.br.DoWithOutcome(func() (breaker.Outcome, error) {
 		tctx := ctx
 		if m.timeout > 0 {
 			var cancel context.CancelFunc
 			tctx, cancel = context.WithTimeout(ctx, m.timeout)
 			defer cancel()
 		}
-		var serr error
-		syn, serr = m.remote.Synthesize(tctx, in)
-		return serr
+		var err error
+		syn, err = m.remote.Synthesize(tctx, in)
+		return modelHealthOutcome(ctx, err), err
 	})
+	if callerErr := ctx.Err(); callerErr != nil {
+		return Synthesis{}, callerErr
+	}
 	if err == nil {
 		m.cache.put(key, in, syn)
 		return syn, nil
@@ -130,10 +140,17 @@ func (m *ResilientModel) Synthesize(ctx context.Context, in SynthesisInput) (Syn
 	if ferr != nil {
 		return Synthesis{}, err // fallback itself failed: surface the ORIGINAL provider error
 	}
+	if callerErr := ctx.Err(); callerErr != nil {
+		return Synthesis{}, callerErr
+	}
 	m.degraded.Add(1)
 	fsyn.Degraded = true
 	reason := "provider error"
 	switch {
+	case errors.Is(err, ErrModelCompletionBudget):
+		reason = "model output resource limit"
+	case errors.Is(err, ErrModelCompletionRefused):
+		reason = "model declined this question"
 	case err == breaker.ErrOpen:
 		reason = "provider circuit open"
 	case ctx.Err() != nil || isDeadline(err):
@@ -153,19 +170,58 @@ func (m *ResilientModel) Complete(ctx context.Context, system, user string) (str
 	if !ok {
 		return "", ErrEgressDenied // not a chat-capable adapter
 	}
+	return m.completeUsing(ctx, func(ctx context.Context) (string, error) {
+		return rc.Complete(ctx, system, user)
+	})
+}
+
+func (m *ResilientModel) CompleteWithBudget(ctx context.Context, system, user string, budget CompletionBudget) (string, error) {
+	if err := budget.Validate(); err != nil {
+		return "", err
+	}
+	rc, ok := m.remote.(BudgetedRemoteCompleter)
+	if !ok {
+		return "", ErrFlowQuestionModelUnavailable
+	}
+	out, err := m.completeUsing(ctx, func(ctx context.Context) (string, error) {
+		return rc.CompleteWithBudget(ctx, system, user, budget)
+	})
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+func (m *ResilientModel) completeUsing(ctx context.Context, call func(context.Context) (string, error)) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	var out string
-	err := m.br.Do(func() error {
+	err := m.br.DoWithOutcome(func() (breaker.Outcome, error) {
 		tctx := ctx
 		if m.timeout > 0 {
 			var cancel context.CancelFunc
 			tctx, cancel = context.WithTimeout(ctx, m.timeout)
 			defer cancel()
 		}
-		var cerr error
-		out, cerr = rc.Complete(tctx, system, user)
-		return cerr
+		var err error
+		out, err = call(tctx)
+		return modelHealthOutcome(ctx, err), err
 	})
+	if callerErr := ctx.Err(); callerErr != nil {
+		return "", callerErr
+	}
 	return out, err
+}
+
+func modelHealthOutcome(caller context.Context, err error) breaker.Outcome {
+	if callerErr := caller.Err(); callerErr != nil && (err == nil || errors.Is(err, callerErr)) {
+		return breaker.OutcomeNeutral
+	}
+	if err == nil || errors.Is(err, ErrModelCompletionBudget) || errors.Is(err, ErrModelCompletionRefused) {
+		return breaker.OutcomeSuccess // A responding server, including known application refusals.
+	}
+	return breaker.OutcomeFailure
 }
 
 func isDeadline(err error) bool {

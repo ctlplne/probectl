@@ -1155,13 +1155,9 @@ type ExplorerComparisonExecutionReceipt struct {
 	TotalMs         int                               `json:"total_ms"`
 }
 
-// The query carries the current absolute window. The previous window is explicit and independently validated. Tenant scope is never accepted in the body.
-type ExplorerComparisonRequest struct {
-	PreviousFrom string        `json:"previous_from"`
-	PreviousTo   string        `json:"previous_to"`
-	Query        ExplorerQuery `json:"query"`
-}
+type ExplorerComparisonRequest any
 
+// Native flow comparisons page selected GROUPS, independently of metric count. Each page expands its groups to metric rows; Other/totals and shared chart/matrix populations remain global. Frozen pages and CSV never rerun statistics. Missing periods are explicit; *_str values preserve exact decimals.
 type ExplorerComparisonResult struct {
 	ContractVersion   string                             `json:"contract_version"`
 	Current           ExplorerQuery                      `json:"current"`
@@ -1169,6 +1165,8 @@ type ExplorerComparisonResult struct {
 	CurrentTruncated  bool                               `json:"current_truncated"`
 	EvidencePath      string                             `json:"evidence_path"`
 	Execution         ExplorerComparisonExecutionReceipt `json:"execution"`
+	Flow              map[string]any                     `json:"flow,omitempty"`
+	FlowPaging        map[string]any                     `json:"flow_paging,omitempty"`
 	Groupings         []string                           `json:"groupings"`
 	Previous          ExplorerQuery                      `json:"previous"`
 	PreviousPreview   string                             `json:"previous_preview"`
@@ -1180,14 +1178,19 @@ type ExplorerComparisonResult struct {
 }
 
 type ExplorerComparisonRow struct {
-	Aggregation   string            `json:"aggregation"`
-	CurrentValue  *float64          `json:"current_value"`
-	Delta         *float64          `json:"delta"`
-	DeltaState    string            `json:"delta_state"`
-	Group         map[string]string `json:"group"`
-	Measure       string            `json:"measure"`
-	PercentChange *float64          `json:"percent_change"`
-	PreviousValue *float64          `json:"previous_value"`
+	Aggregation      string            `json:"aggregation"`
+	CurrentValue     *float64          `json:"current_value"`
+	CurrentValueStr  string            `json:"current_value_str,omitempty"`
+	Delta            *float64          `json:"delta"`
+	DeltaState       string            `json:"delta_state"`
+	DeltaStr         string            `json:"delta_str,omitempty"`
+	Group            map[string]string `json:"group"`
+	Measure          string            `json:"measure"`
+	Other            *bool             `json:"other,omitempty"`
+	PercentChange    *float64          `json:"percent_change"`
+	PercentChangeStr string            `json:"percent_change_str,omitempty"`
+	PreviousValue    *float64          `json:"previous_value"`
+	PreviousValueStr string            `json:"previous_value_str,omitempty"`
 }
 
 // The normalized time and row bounds enforced by the server.
@@ -1229,10 +1232,12 @@ type ExplorerExecutionTimings struct {
 type ExplorerQuery struct {
 	Dimensions    []string          `json:"dimensions,omitempty"`
 	Filters       map[string]string `json:"filters,omitempty"`
+	Flow          FlowQueryOptions  `json:"flow,omitempty"`
 	From          string            `json:"from,omitempty"`
 	Groupings     []string          `json:"groupings,omitempty"`
 	Limit         int               `json:"limit,omitempty"`
 	Measures      []string          `json:"measures,omitempty"`
+	PlanOnly      *bool             `json:"plan_only,omitempty"`
 	Question      string            `json:"question"`
 	Source        string            `json:"source"`
 	Template      string            `json:"template,omitempty"`
@@ -1244,6 +1249,8 @@ type ExplorerResult struct {
 	Columns      []ExplorerColumn         `json:"columns"`
 	EvidencePath string                   `json:"evidence_path"`
 	Execution    ExplorerExecutionReceipt `json:"execution"`
+	Flow         FlowExplorerResult       `json:"flow,omitempty"`
+	FlowPaging   map[string]any           `json:"flow_paging,omitempty"`
 	Preview      string                   `json:"preview"`
 	Query        ExplorerQuery            `json:"query"`
 	Rows         []map[string]any         `json:"rows"`
@@ -1253,6 +1260,7 @@ type ExplorerResult struct {
 
 type ExplorerSchemaResponse struct {
 	ComparisonSources []string           `json:"comparison_sources"`
+	Flow              FlowExplorerSchema `json:"flow"`
 	MaxRows           int                `json:"max_rows"`
 	Templates         []ExplorerTemplate `json:"templates"`
 	Visualizations    []string           `json:"visualizations"`
@@ -1351,6 +1359,64 @@ type FlowCapacityPoint struct {
 	Ts       string  `json:"ts,omitempty"`
 }
 
+type FlowExplorerMatrixCell struct {
+	Column      map[string]string `json:"column"`
+	ColumnOther bool              `json:"column_other"`
+	Metrics     map[string]string `json:"metrics"`
+	Row         map[string]string `json:"row"`
+	RowOther    bool              `json:"row_other"`
+}
+
+type FlowExplorerPoint struct {
+	DurationSeconds string            `json:"duration_seconds"`
+	Group           map[string]string `json:"group"`
+	Metrics         map[string]string `json:"metrics"`
+	Other           bool              `json:"other"`
+	Ts              string            `json:"ts"`
+}
+
+type FlowExplorerQuerySpec FlowQueryOptions
+
+// Independent detail and chart selections. Other/totals summarize the remainder without summing distinct-group counts. series has up to40 requested group identities; other_series is separate and consumes no requested group slot. Sparse bucket data includes an explicit bucket width and actual final duration; absent buckets are zero observations. Matrix columns are ranked inside selected top rows. Execution/read/memory/response budgets refuse without partial data.
+type FlowExplorerResult struct {
+	ChartOther          map[string]any           `json:"chart_other,omitempty"`
+	ChartRows           []FlowExplorerRow        `json:"chart_rows,omitempty"`
+	Coverage            map[string]any           `json:"coverage,omitempty"`
+	DetailLimited       bool                     `json:"detail_limited"`
+	Matrix              []FlowExplorerMatrixCell `json:"matrix"`
+	MatrixColumns       []FlowExplorerRow        `json:"matrix_columns,omitempty"`
+	MatrixRows          []FlowExplorerRow        `json:"matrix_rows,omitempty"`
+	Other               FlowExplorerRow          `json:"other,omitempty"`
+	OtherSeries         []FlowExplorerPoint      `json:"other_series"`
+	Query               FlowQueryOptions         `json:"query"`
+	ResolutionSeconds   int                      `json:"resolution_seconds"`
+	Rows                []FlowExplorerRow        `json:"rows"`
+	SavedFilterVersions map[string]int           `json:"saved_filter_versions,omitempty"`
+	Series              []FlowExplorerPoint      `json:"series"`
+	Source              string                   `json:"source"`
+	TotalGroups         int                      `json:"total_groups"`
+	TotalSeries         []FlowExplorerPoint      `json:"total_series,omitempty"`
+	Totals              map[string]string        `json:"totals"`
+}
+
+// Exact nonnegative decimal strings. Integer counters and whole-window distinct totals remain exact; fractional statistics use18 places truncated toward zero. Synthetic Other is structural and cannot collide with a real label named Other.
+type FlowExplorerRow struct {
+	Group   map[string]string `json:"group"`
+	Metrics map[string]string `json:"metrics"`
+	Other   bool              `json:"other"`
+}
+
+type FlowExplorerSchema struct {
+	ContractVersion any               `json:"contract_version"`
+	Defaults        map[string]any    `json:"defaults"`
+	Fields          []FlowQueryField  `json:"fields"`
+	Limits          map[string]any    `json:"limits"`
+	Metrics         []map[string]any  `json:"metrics"`
+	RenderCost      FlowMCPRenderCost `json:"render_cost"`
+	Statistics      map[string]any    `json:"statistics"`
+	TimeRange       string            `json:"time_range"`
+}
+
 type FlowFilter struct {
 	Field string `json:"field"`
 	Value string `json:"value"`
@@ -1390,6 +1456,145 @@ type FlowIngestQualityResponse struct {
 
 type FlowIngestQualityState string
 
+// Effective operator-only native MCP allocation admission. Informational; clients cannot override costs. Legacy tool limits remain unchanged.
+type FlowMCPRenderCost struct {
+	McpCsvPageBytes int `json:"mcp_csv_page_bytes"`
+	McpResultNodes  int `json:"mcp_result_nodes"`
+	McpSourceBytes  int `json:"mcp_source_bytes"`
+	McpWireBytes    int `json:"mcp_wire_bytes"`
+}
+
+// Presentation of authorized frozen data only; no tenant/source/permission/cost authority. Relative height tokens and responsive1–4columns. Settings for a different visualization are retained without changing that visualization.
+type FlowQueryDisplay struct {
+	ChartHeight       string   `json:"chart_height,omitempty"`
+	ChartsPerRow      int      `json:"charts_per_row,omitempty"`
+	HorizonScale      string   `json:"horizon_scale,omitempty"`
+	LogMetrics        []string `json:"log_metrics,omitempty"`
+	OneChartPerSeries *bool    `json:"one_chart_per_series,omitempty"`
+	PercentBasis      string   `json:"percent_basis,omitempty"`
+	SyncAxes          *bool    `json:"sync_axes,omitempty"`
+	TimeStyle         string   `json:"time_style,omitempty"`
+	TotalOverlay      *bool    `json:"total_overlay,omitempty"`
+}
+
+type FlowQueryField struct {
+	LegacyHourlyAvailable bool     `json:"legacy_hourly_available"`
+	Name                  string   `json:"name"`
+	Operators             []string `json:"operators"`
+	RawAvailable          bool     `json:"raw_available"`
+	RequiredPermission    string   `json:"required_permission,omitempty"`
+	RollupAvailable       bool     `json:"rollup_available"`
+	Type                  string   `json:"type"`
+}
+
+// Include/exclude Boolean group; at most250 total conditions, saved refs and children per group. At most1000 expanded conditions and depth5 for the whole query, revalidated during and after tenant-first saved-filter resolution. An omitted root means no filter; empty groups are refused.
+type FlowQueryFilterGroup struct {
+	Conditions []FlowQueryPredicate `json:"conditions,omitempty"`
+	Groups     []map[string]any     `json:"groups,omitempty"`
+	Match      string               `json:"match,omitempty"`
+	Mode       string               `json:"mode,omitempty"`
+	Saved      []map[string]any     `json:"saved,omitempty"`
+}
+
+// Exactly one primary and at most three secondary chart metrics. Additional table metrics may use every registered measure/calculation combination. bucket_total applies only to distinct metrics; it sums time-slice cardinalities while total counts whole-window identities.
+type FlowQueryMetric struct {
+	Calculation string `json:"calculation,omitempty"`
+	Measure     string `json:"measure"`
+	Role        string `json:"role,omitempty"`
+}
+
+// The native flow plan. Authenticated scope and server cost budgets are absent from client input. The outer Explorer envelope supplies authoritative time, groupings, visualization and limit when present. Table detail supports50000 selected rows; chart detail350; requested chart groups40, with Other separately represented. No fixed day cap: tenant retention and actual source coverage govern range/resolution. The store refuses missing rollup coverage instead of manufacturing data. Cursor/page controls bind a shared result snapshot; data-series overrides remain subject to coverage.
+type FlowQueryOptions struct {
+	BucketSeconds    int                  `json:"bucket_seconds,omitempty"`
+	Cursor           string               `json:"cursor,omitempty"`
+	Dataseries       string               `json:"dataseries,omitempty"`
+	Filter           FlowQueryFilterGroup `json:"filter,omitempty"`
+	From             string               `json:"from,omitempty"`
+	GroupBy          []string             `json:"group_by,omitempty"`
+	Ipv4PrefixLength int                  `json:"ipv4_prefix_length,omitempty"`
+	Ipv6PrefixLength int                  `json:"ipv6_prefix_length,omitempty"`
+	MatrixDepth      int                  `json:"matrix_depth,omitempty"`
+	MatrixWith       []string             `json:"matrix_with,omitempty"`
+	Metrics          []FlowQueryMetric    `json:"metrics,omitempty"`
+	PageSize         int                  `json:"page_size,omitempty"`
+	RowLimit         int                  `json:"row_limit,omitempty"`
+	SeriesDepth      int                  `json:"series_depth,omitempty"`
+	To               string               `json:"to,omitempty"`
+	View             string               `json:"view,omitempty"`
+}
+
+// Values are typed and canonicalized by the field registry. Each value is at most65536 UTF-8 bytes; regex patterns at most1024 bytes in the supported RE2 syntax. Empty exact string/address/prefix values match unassigned stored values.
+type FlowQueryPredicate struct {
+	Field  string   `json:"field"`
+	Op     string   `json:"op"`
+	Values []string `json:"values"`
+}
+
+// Complete reusable native flow query, not cached telemetry or authorization. At most2MiB canonical definition; current field/reference permissions rechecked. No transient cursor.
+type FlowQueryViewDefinition struct {
+	AutoRefreshSeconds int              `json:"auto_refresh_seconds,omitempty"`
+	Comparison         map[string]any   `json:"comparison,omitempty"`
+	Description        string           `json:"description,omitempty"`
+	Display            FlowQueryDisplay `json:"display,omitempty"`
+	Labels             []string         `json:"labels,omitempty"`
+	Name               string           `json:"name"`
+	Plan               map[string]any   `json:"plan,omitempty"`
+	Time               map[string]any   `json:"time,omitempty"`
+	Visibility         string           `json:"visibility,omitempty"`
+}
+
+// Keyset page bounded by rows and8MiB; next explicitly reports remaining configuration.
+type FlowQueryViewPage struct {
+	Items []SavedFlowQueryView `json:"items"`
+	Next  string               `json:"next,omitempty"`
+}
+
+type FlowQuestionInput struct {
+	Question string `json:"question"`
+}
+
+// Validated configuration only, with server-derived time bounds and previous period. Clarify/refused have guidance and no executable plan. No telemetry is read or conversation saved.
+type FlowQuestionProposal struct {
+	Assumptions       []string         `json:"assumptions,omitempty"`
+	Comparison        map[string]any   `json:"comparison,omitempty"`
+	Display           FlowQueryDisplay `json:"display,omitempty"`
+	Guidance          string           `json:"guidance,omitempty"`
+	NeedsConfirmation *bool            `json:"needs_confirmation,omitempty"`
+	Plan              FlowQueryOptions `json:"plan,omitempty"`
+	Previous          map[string]any   `json:"previous,omitempty"`
+	Status            string           `json:"status"`
+}
+
+type FlowQuestionResult struct {
+	Proposal FlowQuestionProposal `json:"proposal"`
+}
+
+type FlowSavedFilter struct {
+	CreatedAt   string               `json:"created_at"`
+	Description string               `json:"description"`
+	Expression  FlowQueryFilterGroup `json:"expression"`
+	Id          string               `json:"id"`
+	Name        string               `json:"name"`
+	UpdatedAt   string               `json:"updated_at"`
+	UpdatedBy   string               `json:"updated_by"`
+	Version     int                  `json:"version"`
+	VersionText string               `json:"version_text"`
+}
+
+// POST omits version; PUT requires the last observed version. Tenant and identifier cannot be supplied in the body. Byte limits apply to UTF-8 encoding; expression shares the query grammar and expanded bounds. Body at most2MiB.
+type FlowSavedFilterInput struct {
+	Description string               `json:"description,omitempty"`
+	Expression  FlowQueryFilterGroup `json:"expression"`
+	Name        string               `json:"name"`
+	Version     int                  `json:"version,omitempty"`
+	VersionText string               `json:"version_text,omitempty"`
+}
+
+type FlowSavedFilterPage struct {
+	Items []FlowSavedFilter `json:"items"`
+	Next  string            `json:"next,omitempty"`
+}
+
 type FlowSeriesPoint struct {
 	Bytes         int    `json:"bytes"`
 	Detail        string `json:"detail,omitempty"`
@@ -1398,6 +1603,13 @@ type FlowSeriesPoint struct {
 	Key           string `json:"key"`
 	Packets       int    `json:"packets"`
 	Ts            string `json:"ts"`
+}
+
+// MCP companion to complete authenticated CSV export. Paging ends between complete records; every cell traverses mandatory redaction. No total record reduction.
+type FlowSnapshotMCPExportInput struct {
+	PageSize     int    `json:"page_size,omitempty"`
+	RecordOffset int    `json:"record_offset,omitempty"`
+	SnapshotId   string `json:"snapshot_id"`
 }
 
 type FlowTopList struct {
@@ -2040,6 +2252,24 @@ type SIEMStatus struct {
 	Summary               string   `json:"summary"`
 	TlsRequired           bool     `json:"tls_required"`
 	TokenConfigured       bool     `json:"token_configured"`
+}
+
+// Create omits version. Replace requires the observed exact decimal-text version. Only the authenticated owner may mutate a view, including tenant-shared views.
+type SaveFlowQueryViewRequest struct {
+	Definition FlowQueryViewDefinition `json:"definition"`
+	Version    string                  `json:"version,omitempty"`
+}
+
+// Tenant from authentication, scope omitted from JSON. Creator-private by default; tenant visibility grants authorized same-tenant reading, never mutation ownership. Favorites and recent-opened state belong to the current user.
+type SavedFlowQueryView struct {
+	CreatedAt    string                  `json:"created_at"`
+	Definition   FlowQueryViewDefinition `json:"definition"`
+	Favorite     bool                    `json:"favorite"`
+	Id           string                  `json:"id"`
+	LastOpenedAt string                  `json:"last_opened_at,omitempty"`
+	OwnerId      string                  `json:"owner_id"`
+	UpdatedAt    string                  `json:"updated_at"`
+	Version      string                  `json:"version"`
 }
 
 // A point-in-time snapshot of this control-plane process. It is deployment-local and contains no tenant identity, labels, or telemetry.
@@ -3831,15 +4061,279 @@ func (c *Client) CompareExplorerPeriods(ctx context.Context, req CompareExplorer
 	return &out, nil
 }
 
-// Run one structured Explorer query against tenant-scoped telemetry
-type QueryExplorerRequest struct {
-	Body *ExplorerQuery `json:"-"`
+// List reusable flow filters in the current tenant
+type ListFlowQueryFiltersRequest struct {
+	After *string `json:"-"`
+	Limit *int    `json:"-"`
 }
 
-func (c *Client) QueryExplorer(ctx context.Context, req QueryExplorerRequest) (*ExplorerResult, error) {
+func (c *Client) ListFlowQueryFilters(ctx context.Context, req ListFlowQueryFiltersRequest) (*FlowSavedFilterPage, error) {
+	path := "/v1/explorer/flow-filters"
+	query := url.Values{}
+	if req.After != nil {
+		query.Set("after", formatQueryValue(*req.After))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out FlowSavedFilterPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create a reusable flow filter
+type CreateFlowQueryFilterRequest struct {
+	Body *FlowSavedFilterInput `json:"-"`
+}
+
+func (c *Client) CreateFlowQueryFilter(ctx context.Context, req CreateFlowQueryFilterRequest) (*FlowSavedFilter, error) {
+	path := "/v1/explorer/flow-filters"
+	query := url.Values{}
+	var out FlowSavedFilter
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read a reusable flow filter
+type GetFlowQueryFilterRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetFlowQueryFilter(ctx context.Context, req GetFlowQueryFilterRequest) (*FlowSavedFilter, error) {
+	path := "/v1/explorer/flow-filters/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out FlowSavedFilter
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Replace an observed reusable flow-filter version
+type UpdateFlowQueryFilterRequest struct {
+	Id   string                `json:"-"`
+	Body *FlowSavedFilterInput `json:"-"`
+}
+
+func (c *Client) UpdateFlowQueryFilter(ctx context.Context, req UpdateFlowQueryFilterRequest) (*FlowSavedFilter, error) {
+	path := "/v1/explorer/flow-filters/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out FlowSavedFilter
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Delete an observed reusable flow-filter version
+type DeleteFlowQueryFilterRequest struct {
+	Id      string `json:"-"`
+	Version *int   `json:"-"`
+}
+
+func (c *Client) DeleteFlowQueryFilter(ctx context.Context, req DeleteFlowQueryFilterRequest) error {
+	path := "/v1/explorer/flow-filters/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Version != nil {
+		query.Set("version", formatQueryValue(*req.Version))
+	}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Export a frozen private flow result as exact CSV
+type DownloadFlowSnapshotCsvRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) DownloadFlowSnapshotCsv(ctx context.Context, req DownloadFlowSnapshotCsvRequest) ([]byte, error) {
+	path := "/v1/explorer/flow-snapshots/{id}/csv"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doRaw(ctx, http.MethodGet, path, query, nil)
+}
+
+// Browse complete private and tenant-shared queries
+type ListFlowQueryViewsRequest struct {
+	After      *string `json:"-"`
+	Limit      *int    `json:"-"`
+	Search     *string `json:"-"`
+	Label      *string `json:"-"`
+	Visibility *string `json:"-"`
+	Owner      *string `json:"-"`
+	Sort       *string `json:"-"`
+	Tab        *string `json:"-"`
+}
+
+func (c *Client) ListFlowQueryViews(ctx context.Context, req ListFlowQueryViewsRequest) (*FlowQueryViewPage, error) {
+	path := "/v1/explorer/flow-views"
+	query := url.Values{}
+	if req.After != nil {
+		query.Set("after", formatQueryValue(*req.After))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Search != nil {
+		query.Set("search", formatQueryValue(*req.Search))
+	}
+	if req.Label != nil {
+		query.Set("label", formatQueryValue(*req.Label))
+	}
+	if req.Visibility != nil {
+		query.Set("visibility", formatQueryValue(*req.Visibility))
+	}
+	if req.Owner != nil {
+		query.Set("owner", formatQueryValue(*req.Owner))
+	}
+	if req.Sort != nil {
+		query.Set("sort", formatQueryValue(*req.Sort))
+	}
+	if req.Tab != nil {
+		query.Set("tab", formatQueryValue(*req.Tab))
+	}
+	var out FlowQueryViewPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Save a complete native query
+type CreateFlowQueryViewRequest struct {
+	Body *SaveFlowQueryViewRequest `json:"-"`
+}
+
+func (c *Client) CreateFlowQueryView(ctx context.Context, req CreateFlowQueryViewRequest) (*SavedFlowQueryView, error) {
+	path := "/v1/explorer/flow-views"
+	query := url.Values{}
+	var out SavedFlowQueryView
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Open a complete authorized saved query
+type GetFlowQueryViewRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetFlowQueryView(ctx context.Context, req GetFlowQueryViewRequest) (*SavedFlowQueryView, error) {
+	path := "/v1/explorer/flow-views/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out SavedFlowQueryView
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Replace an owned query at its observed revision
+type UpdateFlowQueryViewRequest struct {
+	Id   string                    `json:"-"`
+	Body *SaveFlowQueryViewRequest `json:"-"`
+}
+
+func (c *Client) UpdateFlowQueryView(ctx context.Context, req UpdateFlowQueryViewRequest) (*SavedFlowQueryView, error) {
+	path := "/v1/explorer/flow-views/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out SavedFlowQueryView
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Delete an owned query at its observed revision
+type DeleteFlowQueryViewRequest struct {
+	Id      string  `json:"-"`
+	Version *string `json:"-"`
+}
+
+func (c *Client) DeleteFlowQueryView(ctx context.Context, req DeleteFlowQueryViewRequest) error {
+	path := "/v1/explorer/flow-views/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Version != nil {
+		query.Set("version", formatQueryValue(*req.Version))
+	}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Set the current user favorite
+type SetFlowQueryViewFavoriteRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) SetFlowQueryViewFavorite(ctx context.Context, req SetFlowQueryViewFavoriteRequest) error {
+	path := "/v1/explorer/flow-views/{id}/preferences"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodPut, path, query, req.Body, nil)
+}
+
+// Execute the current authorized saved query
+type RunFlowQueryViewRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) RunFlowQueryView(ctx context.Context, req RunFlowQueryViewRequest) (*any, error) {
+	path := "/v1/explorer/flow-views/{id}/query"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Run one structured Explorer query against tenant-scoped telemetry
+type QueryExplorerRequest struct {
+	Body *any `json:"-"`
+}
+
+func (c *Client) QueryExplorer(ctx context.Context, req QueryExplorerRequest) (*any, error) {
 	path := "/v1/explorer/query"
 	query := url.Values{}
-	var out ExplorerResult
+	var out any
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}

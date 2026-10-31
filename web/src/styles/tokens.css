@@ -236,6 +236,9 @@
   --border-width-thin: 1px;
   --border-width-strong: 3px;
 
+  /* Numeric cell shading supplements exact text in dense matrix views. */
+  --viz-heat-max-opacity: 0.18;
+
   --density-comfortable: 1.25rem;
 
   --motion-fast: 160ms;
@@ -262,6 +265,16 @@
   --viz-series-4-dash: 10 3 2 3;
   --viz-series-5-dash: 2 4;
   --viz-series-6-dash: 12 4;
+  --viz-comparison-previous-dash: 6 4;
+  --viz-total-color: var(--foreground);
+  --viz-total-width: 3;
+  --viz-stack-fill-alpha: 0.18;
+  /* Five opaque density bands progress toward the theme foreground. */
+  --viz-horizon-band-1: color-mix(in srgb, hsl(var(--chart-1)) 100%, hsl(var(--foreground)));
+  --viz-horizon-band-2: color-mix(in srgb, hsl(var(--chart-1)) 80%, hsl(var(--foreground)));
+  --viz-horizon-band-3: color-mix(in srgb, hsl(var(--chart-1)) 60%, hsl(var(--foreground)));
+  --viz-horizon-band-4: color-mix(in srgb, hsl(var(--chart-1)) 40%, hsl(var(--foreground)));
+  --viz-horizon-band-5: color-mix(in srgb, hsl(var(--chart-1)) 20%, hsl(var(--foreground)));
   --viz-state-observed-border: solid;
   --viz-state-estimated-border: dashed;
   --viz-state-missing-border: dotted;
@@ -272,6 +285,7 @@
   --layout-content-max: 1320px;
   --layout-dialog-inset-block: 12vh;
   --layout-dialog-scroll-max-block: 32vh;
+  --layout-matrix-scroll-max-block: 70vh;
   --layout-palette-inset-block: 14vh;
 
   /* Stacking. */

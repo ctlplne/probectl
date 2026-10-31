@@ -22,6 +22,18 @@ import (
 // ErrOpen is returned when a call is short-circuited by an open breaker.
 var ErrOpen = errors.New("breaker: open (upstream unhealthy; short-circuited)")
 
+var ErrInvalidOutcome = errors.New("breaker: invalid health outcome")
+
+// Outcome classifies upstream health independently of the caller's error.
+// Neutral preserves existing health when a caller aborts without learning it.
+type Outcome uint8
+
+const (
+	OutcomeSuccess Outcome = iota + 1
+	OutcomeFailure
+	OutcomeNeutral
+)
+
 // State is the breaker's current state (for metrics/diagnostics).
 type State string
 
@@ -71,7 +83,21 @@ func New(threshold int, cooldown time.Duration) *Breaker {
 // fn should return an error only for UPSTREAM-DOWN conditions (transport
 // errors) — application-level responses are the caller's concern.
 func (b *Breaker) Do(fn func() error) error {
+	return b.DoWithOutcome(func() (Outcome, error) {
+		err := fn()
+		if err != nil {
+			return OutcomeFailure, err
+		}
+		return OutcomeSuccess, nil
+	})
+}
+
+// DoWithOutcome preserves the callback error while classifying health in trusted
+// code. A neutral callback neither clears nor increments failures, nor changes
+// an open cooldown. Its own half-open probe admission is still released.
+func (b *Breaker) DoWithOutcome(fn func() (Outcome, error)) error {
 	b.mu.Lock()
+	probe := false
 	if b.open {
 		if b.now().Before(b.openUntil) {
 			b.mu.Unlock()
@@ -88,16 +114,25 @@ func (b *Breaker) Do(fn func() error) error {
 			return ErrOpen
 		}
 		b.probing = true
+		probe = true
 	}
 	// Closed, or the single elected half-open probe.
 	b.mu.Unlock()
 
-	err := fn()
+	outcome, err := fn()
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.probing = false // the probe (if any) has resolved; release the gate
-	if err != nil {
+	if probe {
+		b.probing = false // Only the callback owning the probe may release it.
+	}
+	if outcome != OutcomeSuccess && outcome != OutcomeFailure && outcome != OutcomeNeutral {
+		outcome, err = OutcomeFailure, errors.Join(ErrInvalidOutcome, err)
+	}
+	if outcome == OutcomeNeutral {
+		return err
+	}
+	if outcome == OutcomeFailure {
 		b.consec++
 		if !b.open && b.consec >= b.threshold {
 			b.open = true
@@ -111,7 +146,7 @@ func (b *Breaker) Do(fn func() error) error {
 	b.consec = 0
 	b.open = false
 	b.openUntil = time.Time{}
-	return nil
+	return err
 }
 
 // Stats snapshots the breaker.

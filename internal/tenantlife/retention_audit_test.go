@@ -180,6 +180,7 @@ func TestRetentionAuditIntentFailurePreventsEveryPrune(t *testing.T) {
 	}{
 		{"sessions", func() error { return engine.sweepSessionRetention(context.Background(), policy) }},
 		{"flows", func() error { return engine.sweepFlowRetention(context.Background(), policy) }},
+		{"flow_query_cache", func() error { return engine.sweepFlowSnapshotRetention(context.Background(), policy) }},
 		{"otel", func() error { return engine.sweepOtelRetention(context.Background(), policy) }},
 		{"ebpf", func() error { return engine.sweepEBPFRetention(context.Background(), policy) }},
 		{"path", func() error { return engine.sweepPathRetention(context.Background(), policy) }},
@@ -195,14 +196,14 @@ func TestRetentionAuditIntentFailurePreventsEveryPrune(t *testing.T) {
 	}
 
 	for store, want := range map[string]int{
-		"sessions": 1, "flows": 1, "otel": 1, "ebpf": 1, "path": 1,
+		"sessions": 1, "flows": 1, "flow_query_cache": 1, "otel": 1, "ebpf": 1, "path": 1,
 		"ai_answers": 1, "topology": 1, "endpoint": 1, "endpoint_events": 1,
 	} {
 		if auditedStores[store] != want {
 			t.Errorf("%s intent attempts = %d, want %d", store, auditedStores[store], want)
 		}
 	}
-	if len(auditedStores) != 9 {
+	if len(auditedStores) != 10 {
 		t.Fatalf("audited destructive stores = %+v", auditedStores)
 	}
 	for store, calls := range map[string][]string{

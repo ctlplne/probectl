@@ -1,0 +1,247 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+package control
+
+import (
+	"math/big"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
+)
+
+func nativeFlowProjectionError() error {
+	return apierror.Unavailable("native flow result projection is unavailable")
+}
+
+func nativeFlowDimensions(fields []string, values map[string]string, other bool) ([]mcp.NativeFlowDimension, error) {
+	result := make([]mcp.NativeFlowDimension, 0, len(fields))
+	if other {
+		return result, nil
+	}
+	for _, field := range fields {
+		if _, ok := flow.LookupQueryField(field); !ok {
+			return nil, nativeFlowProjectionError()
+		}
+		value, ok := values[field]
+		if !ok {
+			return nil, nativeFlowProjectionError()
+		}
+		result = append(result, mcp.NativeFlowDimension{Field: field, Value: value})
+	}
+	return result, nil
+}
+func nativeFlowValues(metrics []flow.QueryMetric, values map[string]string, plotted bool) ([]mcp.NativeFlowValue, error) {
+	result := make([]mcp.NativeFlowValue, 0, len(metrics))
+	for _, metric := range metrics {
+		if plotted && metric.Role == "additional" {
+			continue
+		}
+		key := metric.Measure + ":" + metric.Calculation
+		value, ok := values[key]
+		if ok {
+			if len(value) > 256 || !flowCSVDecimal.MatchString(value) {
+				return nil, nativeFlowProjectionError()
+			}
+		}
+		result = append(result, mcp.NativeFlowValue{Metric: key, Value: value, Defined: ok})
+	}
+	return result, nil
+}
+func nativeFlowRows(rows []flowstore.PlanRow, fields []string, metrics []flow.QueryMetric) ([]mcp.NativeFlowRow, error) {
+	result := make([]mcp.NativeFlowRow, 0, len(rows))
+	for _, row := range rows {
+		group, err := nativeFlowDimensions(fields, row.Group, row.Other)
+		if err != nil {
+			return nil, err
+		}
+		values, err := nativeFlowValues(metrics, row.Metrics, false)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, mcp.NativeFlowRow{Group: group, Other: row.Other, Metrics: values})
+	}
+	return result, nil
+}
+func nativeFlowSummary(row *flowstore.PlanRow, fields []string, metrics []flow.QueryMetric) (*mcp.NativeFlowRow, error) {
+	if row == nil {
+		return nil, nil
+	}
+	rows, err := nativeFlowRows([]flowstore.PlanRow{*row}, fields, metrics)
+	if err != nil {
+		return nil, err
+	}
+	return &rows[0], nil
+}
+func nativeFlowPoints(points []flowstore.PlanPoint, fields []string, metrics []flow.QueryMetric) ([]mcp.NativeFlowPoint, error) {
+	result := make([]mcp.NativeFlowPoint, 0, len(points))
+	for _, point := range points {
+		group, err := nativeFlowDimensions(fields, point.Group, point.Other || len(point.Group) == 0)
+		if err != nil {
+			return nil, err
+		}
+		values, err := nativeFlowValues(metrics, point.Metrics, true)
+		if err != nil {
+			return nil, err
+		}
+		if len(point.DurationSeconds) > 256 || !flowCSVDecimal.MatchString(point.DurationSeconds) {
+			return nil, nativeFlowProjectionError()
+		}
+		duration, ok := new(big.Rat).SetString(point.DurationSeconds)
+		if point.TS.IsZero() || !ok || duration.Sign() <= 0 {
+			return nil, nativeFlowProjectionError()
+		}
+		result = append(result, mcp.NativeFlowPoint{Group: group, Other: point.Other, TS: point.TS, DurationSeconds: point.DurationSeconds, Metrics: values})
+	}
+	return result, nil
+}
+
+func projectNativeFlow(source flowstore.PlanResult) (mcp.NativeFlowResult, error) {
+	if (source.Source != "raw" && source.Source != "rollup") || source.ResolutionSeconds < 1 || source.TotalGroups < 0 || source.Query.From.IsZero() || source.Query.To.IsZero() || source.Query.View == "" || len(source.Query.Metrics) == 0 {
+		return mcp.NativeFlowResult{}, nativeFlowProjectionError()
+	}
+	query, err := flow.NormalizeQueryPlan(source.Query, time.Now())
+	if err != nil {
+		return mcp.NativeFlowResult{}, nativeFlowProjectionError()
+	}
+	out := mcp.NativeFlowResult{Query: query, Source: source.Source, ResolutionSeconds: source.ResolutionSeconds, TotalGroups: source.TotalGroups, DetailLimited: source.DetailLimited}
+	if source.Coverage != nil {
+		fields := []string{}
+		for _, field := range source.Coverage.Fields {
+			if _, ok := flow.LookupQueryField(field); ok {
+				fields = append(fields, field)
+			}
+		}
+		out.Coverage = &mcp.NativeFlowCoverage{Fields: fields, ResolutionSeconds: source.Coverage.ResolutionSeconds, CompleteInputs: source.Coverage.CompleteInputs}
+	}
+	ids := make([]string, 0, len(source.SavedFilterVersions))
+	for id := range source.SavedFilterVersions {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out.FilterVersions = []mcp.NativeFlowRevision{}
+	for _, id := range ids {
+		version := source.SavedFilterVersions[id]
+		if version < 1 {
+			return mcp.NativeFlowResult{}, nativeFlowProjectionError()
+		}
+		out.FilterVersions = append(out.FilterVersions, mcp.NativeFlowRevision{ID: id, Version: strconv.FormatInt(version, 10)})
+	}
+	if out.Rows, err = nativeFlowRows(source.Rows, query.GroupBy, query.Metrics); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	if out.ChartRows, err = nativeFlowRows(source.ChartRows, query.GroupBy, query.Metrics); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	if out.MatrixRows, err = nativeFlowRows(source.MatrixRows, query.GroupBy, query.Metrics); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	if out.MatrixColumns, err = nativeFlowRows(source.MatrixColumns, query.MatrixWith, query.Metrics); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	if out.Other, err = nativeFlowSummary(source.Other, query.GroupBy, query.Metrics); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	if out.ChartOther, err = nativeFlowSummary(source.ChartOther, query.GroupBy, query.Metrics); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	if out.Totals, err = nativeFlowValues(query.Metrics, source.Totals, false); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	if out.Series, err = nativeFlowPoints(source.Series, query.GroupBy, query.Metrics); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	if out.OtherSeries, err = nativeFlowPoints(source.OtherSeries, query.GroupBy, query.Metrics); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	if out.TotalSeries, err = nativeFlowPoints(source.TotalSeries, nil, query.Metrics); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
+	out.Matrix = []mcp.NativeFlowCell{}
+	for _, cell := range source.Matrix {
+		row, err := nativeFlowDimensions(query.GroupBy, cell.Row, cell.RowOther)
+		if err != nil {
+			return mcp.NativeFlowResult{}, err
+		}
+		column, err := nativeFlowDimensions(query.MatrixWith, cell.Column, cell.ColumnOther)
+		if err != nil {
+			return mcp.NativeFlowResult{}, err
+		}
+		values, err := nativeFlowValues(query.Metrics, cell.Metrics, false)
+		if err != nil {
+			return mcp.NativeFlowResult{}, err
+		}
+		out.Matrix = append(out.Matrix, mcp.NativeFlowCell{Row: row, Column: column, RowOther: cell.RowOther, ColumnOther: cell.ColumnOther, Metrics: values})
+	}
+	return out, nil
+}
+func nativeFlowPaging(source *flowSnapshotPaging) *mcp.NativeFlowPaging {
+	if source == nil {
+		return nil
+	}
+	return &mcp.NativeFlowPaging{SnapshotID: source.SnapshotID, ExpiresAt: source.ExpiresAt, SelectedRows: source.SelectedRows, Offset: source.Offset, PageSize: source.PageSize, More: source.More, NextCursor: source.NextCursor}
+}
+func projectNativeFlowQuery(source explorerResult) (mcp.NativeFlowQueryResult, error) {
+	if source.Flow == nil {
+		return mcp.NativeFlowQueryResult{}, nativeFlowProjectionError()
+	}
+	data, err := projectNativeFlow(*source.Flow)
+	if err != nil {
+		return mcp.NativeFlowQueryResult{}, err
+	}
+	return mcp.NativeFlowQueryResult{Flow: data, Paging: nativeFlowPaging(source.FlowPaging)}, nil
+}
+func projectNativeFlowComparison(source explorerComparisonResult) (mcp.NativeFlowComparisonResult, error) {
+	if source.Flow == nil {
+		return mcp.NativeFlowComparisonResult{}, nativeFlowProjectionError()
+	}
+	now, err := projectNativeFlow(source.Flow.Current)
+	if err != nil {
+		return mcp.NativeFlowComparisonResult{}, err
+	}
+	before, err := projectNativeFlow(source.Flow.Previous)
+	if err != nil {
+		return mcp.NativeFlowComparisonResult{}, err
+	}
+	rows := make([]mcp.NativeFlowComparisonRow, 0, len(source.Rows))
+	selected := map[string]bool{}
+	for _, metric := range now.Query.Metrics {
+		selected[metric.Measure+":"+metric.Calculation] = true
+	}
+	for _, row := range source.Rows {
+		if !selected[row.Measure] {
+			return mcp.NativeFlowComparisonResult{}, nativeFlowProjectionError()
+		}
+		for index, value := range []*string{row.CurrentExact, row.PreviousExact, row.DeltaExact, row.PercentExact} {
+			if value != nil {
+				valid := len(*value) <= 256 && flowCSVDecimal.MatchString(*value)
+				if index >= 2 {
+					valid = len(*value) <= 256 && flowCSVSignedDecimal.MatchString(*value)
+				}
+				if !valid {
+					return mcp.NativeFlowComparisonResult{}, nativeFlowProjectionError()
+				}
+			}
+		}
+		group, err := nativeFlowDimensions(now.Query.GroupBy, row.Group, row.Other)
+		if err != nil {
+			return mcp.NativeFlowComparisonResult{}, err
+		}
+		rows = append(rows, mcp.NativeFlowComparisonRow{Group: group, Other: row.Other, Metric: row.Measure, Calculation: row.Aggregation, Current: row.CurrentExact, Previous: row.PreviousExact, Delta: row.DeltaExact, PercentChange: row.PercentExact, State: row.DeltaState})
+	}
+	return mcp.NativeFlowComparisonResult{ContractVersion: source.ContractVersion, Current: now, Previous: before, Rows: rows, Membership: source.Flow.Membership, Paging: nativeFlowPaging(source.FlowPaging)}, nil
+}
+func projectNativeFlowFilter(source flow.SavedQueryFilter) mcp.NativeFlowFilter {
+	return mcp.NativeFlowFilter{ID: source.ID, Version: strconv.FormatInt(source.Version, 10), Name: source.Name, Description: source.Description, Expression: source.Expression, CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt}
+}
+func projectNativeFlowView(source flow.SavedQueryView) mcp.NativeFlowView {
+	return mcp.NativeFlowView{ID: source.ID, OwnerID: source.OwnerID, Version: source.Version, Definition: source.Definition, CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt, Favorite: source.Favorite, LastOpenedAt: source.LastOpenedAt}
+}

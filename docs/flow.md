@@ -257,8 +257,28 @@ the flow store (`internal/store/flowstore/clickhouse.go`):
   queryable for long-term cost and trend views. Each rollup already retains its
   contributing exporter identity, so observation multiplicity remains
   derivable without a schema migration. A controlled backfill path
-  rebuilds a tenant+window idempotently by deleting that rollup window first,
-  then re-materializing duplicate-safe hourly facts from raw rows;
+  appends still-retained raw inputs for a tenant+window. Stable row identities
+  deduplicate repeated inputs. Catch-up never deletes the destination window:
+  aged-out raw rows cannot rebuild retained history;
+- native Explorer's version6 migration retains complete inputs alongside the
+  existing hourly fields. `coverage_version=1` means the original fields and
+  timestamps are present. The added exact columns inherit
+  `PROBECTL_FLOW_RETENTION_DAYS`; a tighter tenant clock clears them before raw
+  deletion. They then report `coverage_version=0`: only the original hourly
+  fields and resolution are available. This preserves the prior retention
+  default. Explicit `0` remains the keep-forever opt-out;
+- query results report their actual source and retained-input coverage. Auto
+  uses actual raw coverage and selected resolution, with no fixed day cap.
+  Requests for expired raw input, missing historical dimensions or unsupported
+  resolution return `flow_query_coverage_unavailable`, never invented zero
+  fields or a silently shortened time range. A retention change during a raw
+  query triggers a retained-input retry within the original query deadline;
+- portability includes raw `flows.jsonl` and, when deployed,
+  `flow_rollups.jsonl` with its own `retained_flows` manifest count and coverage
+  marker. These physical sources may overlap; their counts are not additive
+  traffic totals. Subject export uses the same exact retained identity predicate
+  as erasure. Redacted bundles omit the internal `subject_keys` array, which
+  duplicates heterogeneous identity values;
 - a `memory` store (the default) implements the same `Store` contract for the
   lightweight / single-node deploy, and is the reference implementation the
   ClickHouse SQL must agree with (the two share one local anomaly model, so both
@@ -270,6 +290,206 @@ In siloed/hybrid isolation, a per-tenant ClickHouse database holds that tenant's
 `probectl_flows` table; the store routes each tenant to its target and **fails
 closed** on any routing error rather than landing a siloed tenant's rows in the
 pooled table.
+
+## Native flow Explorer (preview)
+
+`POST /v1/explorer/query` accepts the structured `flow` plan advertised by
+`GET /v1/explorer/schema`. Tenant scope comes from authentication. Queries
+require `ai.query` and `flow.read`; current device interface names additionally
+require `metrics.read`. Reusable filters are tenant-owned; changing them
+requires `flow.filters.write`. There is no user SQL.
+
+The grammar supports eight grouping dimensions, eight dimensions on each matrix
+axis, nested all/any include/exclude filters, and exact decimal statistics.
+A table can select 50,000 groups; charts can select 350 detail groups and 40
+plotted groups plus a separate Other series. Matrix columns are ranked within
+the selected row population. Time bounds may cover any available retained
+history; unavailable historical fields/resolutions produce a coverage refusal.
+Execution/read/memory/storage budgets refuse explicitly rather than silently
+shortening a query or returning partial statistics.
+
+The deployment operator sets native query cost policy with
+`PROBECTL_FLOW_QUERY_*` in the [configuration reference](configuration.md).
+The serving process and standalone MCP use the same policy, and REST/MCP schema
+discovery reports its current values. These settings do not change selected-row,
+dimension or retention reach. Zero is refused at startup. The existing
+ClickHouse response-allocation default stays 64 MiB; native flow can use an
+explicit, positive operator budget with the same fail-closed sentinel read.
+
+For non-table queries, `total_series` contains source-authoritative bucket
+observations over every matching tenant input, independently of selected chart
+groups, matrix axes and Other. Each point has an empty group and `other=false`.
+Distinct identities are evaluated together in that bucket; adding group unique
+counts would overcount identities shared between groups. Absent buckets represent
+zero observed matching flow, and the final point carries its actual partial-bucket
+duration. Current and previous streams remain frozen across snapshot pages and
+replicas. Whole-window `totals` retain the selected statistical calculations;
+table queries return an empty `total_series`. The prepared group CSV exports
+whole-window totals, rather than a separate bucket-series CSV format.
+
+Table results use shared encrypted, creator-private snapshots. A page contains
+up to 5,000 selected groups. `flow_paging` identifies the snapshot, its expiry,
+selected-group count, offset and next cursor. Other/totals and chart/matrix
+membership describe the complete frozen result. Late ingestion and edits to
+saved filters do not change later pages. Continue with only:
+
+```json
+{"source":"flow","flow":{"cursor":"<next_cursor>"}}
+```
+
+`POST /v1/explorer/compare` uses the same query plus explicit `previous_from`
+and `previous_to`. Both periods share selected group and matrix-axis membership;
+Other is recomputed from each period's underlying identities. Missing periods
+remain missing, rather than becoming zero measurements. Comparison pages count
+**groups**, independently of how many metrics each group expands into. Continue
+with only `{"query":{"source":"flow","flow":{"cursor":"<next_cursor>"}}}`.
+A query cursor cannot be used on the comparison endpoint or vice versa.
+
+`GET /v1/explorer/flow-snapshots/{id}/csv` exports every selected group from the
+same frozen result, with explicit `detail`, `other` and `totals` record types.
+Single-query metrics are columns; comparison records name the metric/calculation
+and exact current/previous/delta/percent values. Empty comparison values denote
+a missing period. Exact decimal strings preserve counters above JavaScript's
+integer range. Untrusted label cells are neutralized against spreadsheet
+formulas. All chunks, current permissions, both periods' input coverage and the
+export audit are checked before successful headers. Verify `Content-Length` and
+`X-Probectl-SHA256` before accepting a downloaded file.
+
+The CLI shares these operations:
+
+```sh
+probectl explorer query --body-file query.json
+probectl explorer compare --body-file comparison.json
+probectl explorer snapshot-csv <snapshot_id> > flows.csv
+```
+
+The CSV client stages and verifies the complete download before writing stdout.
+Its default 256 MiB download budget can be set with `--max-bytes`; this is
+independent of the generic JSON response byte budget.
+
+Snapshots default to a 15-minute lifetime, bounded further by actual contributing
+input expiry, with a 512 MiB tenant cache budget, 128 MiB per snapshot and
+64 MiB per encrypted object. They require at-rest encryption, shared Postgres and
+object storage, and at least four total Postgres connections for the nested
+writer/cache/audit coordination (the deployment default remains 25). Tenant
+retention changes, subject erasure and source pruning invalidate derived caches;
+ordinary portability exports source flow data and excludes transient cache keys.
+A missing, expired or invalidated result requires a fresh query. Snapshots grant
+no permission to another owner or tenant, and are not share links.
+
+### Complete saved queries
+
+The preview complete-query API preserves a native plan, metadata/labels,
+visibility, time mode, optional previous window and refresh setting. This is
+separate from transient result snapshots and the legacy flat inventory views.
+
+```text
+GET    /v1/explorer/flow-views
+POST   /v1/explorer/flow-views
+GET    /v1/explorer/flow-views/{id}
+PUT    /v1/explorer/flow-views/{id}
+DELETE /v1/explorer/flow-views/{id}?version=<observed_version>
+PUT    /v1/explorer/flow-views/{id}/preferences
+POST   /v1/explorer/flow-views/{id}/query
+```
+
+Create/update bodies contain `definition` and, for updates, the observed
+`version`. Versions are decimal **strings**, including above JavaScript's exact
+integer range. Create omits the version. Delete uses that same exact text in its
+query parameter. A definition contains `name`, `description`, `labels`,
+`visibility` (`private` default or `tenant`), `plan`, `time`, optional
+`comparison`, and `auto_refresh_seconds` (0,60,90,120). `time.mode=lookback`
+requires `lookback_seconds` of at least60; absolute mode uses plan bounds.
+`comparison.mode` is `absolute` (explicit `from`/`to`) or `preceding` (the equal
+period immediately before the current window). Relative bounds are materialized
+from one server clock at execution. A saved definition cannot contain a result
+cursor.
+
+Reads/runs require `ai.query`, `flow.read` and any joined-field permissions,
+including those in current tenant-resolved saved filters. Creating, updating or
+deleting additionally requires `flow.views.write`, initially seeded to system
+administrators. Only the creator may update/delete; tenant sharing grants
+source-authorized reading while preserving ownership. Favorites and recent-open
+state are private to each reader. The preference body is `{"favorite":true}` or
+`false`; successful run admission records that user's recent-open state.
+
+List filters include `search`, `label`, `visibility`, `owner`, `sort`
+(`name`, `created_at`, `updated_at`) and `tab` (`all`, `favorites`, `recents`).
+Use `after` and `limit` (1–1000) to follow the explicit `next` cursor. Row and
+8MiB response budgets bound a page without concealing later views. Definitions
+use the same2MiB grammar-byte budget; view data and private preferences each have
+a64MiB per-tenant storage budget. Quota/audit failures refuse atomically.
+
+Run accepts no overrides and dispatches through the existing native query or
+comparison service. It returns the same frozen paging and CSV result identity,
+with current source/reference permissions rechecked. These are API/CLI surfaces;
+native saved-query controls remain part of the Explorer preview build.
+
+CLI operations are `explorer view-list`, `view-get`, `view-create`,
+`view-update`, `view-delete`, `view-favorite` and `view-run`. Mutations take JSON
+through `--body-file`; delete takes `--query version=<text>`. Ordinary/subject
+portability includes saved configuration, while subject/full erasure deletes
+matching views/preferences and preserves sibling tenants.
+
+### Saved chart display
+
+For time queries, `display.time_style` selects `line` (the default),
+`stacked_area`, `stacked_columns` or `percent_area`. Each comparison period stacks separately.
+The stack adds displayed group observations: unique identities can overlap
+between groups, so its height is not a deduplicated global total. A total
+overlay remains an independent source statistic. Previous stacks use dashed
+outlines. Columns span the source bucket's actual interval, including a partial
+final bucket; snapshots missing valid interval metadata require a fresh query.
+Column pointer values come from each period's containing source interval;
+the readout clock follows the pointer on the aligned current-period axis.
+The exact sample inspector, keyboard readouts and CSV keep the original source
+values. Logarithmic fill boundaries at zero clip to the plot edge without
+changing those observations.
+
+Percentage area uses a linear 0–100% axis. `display.percent_basis` selects
+`returned` (default: all returned chart groups, including Other) or `visible`
+(the groups currently shown). Hiding groups with the returned basis leaves
+their share unpainted; the visible basis recomputes shares. Generated charts
+share this same denominator rather than treating each facet as its own total.
+Unique identities can overlap across groups, so these are shares of group
+observations. Zero or absent denominators have no defined percentage; exact
+source zeros remain inspectable. Source total overlays use separate absolute
+figures, where saved logarithmic choices still apply. The sample inspector,
+keyboard readouts and CSV retain the original source values.
+The filled steps follow actual source bucket intervals, including isolated
+observations and partial final buckets, and leave undefined intervals empty.
+Pointer values select the containing interval independently for each period.
+Older results without valid interval metadata require a fresh query.
+
+A complete saved query may include `display`. `total_overlay` draws the
+source-authoritative `total_series` over time plots, or the whole-period
+`totals` reference on bar charts. Current and previous totals remain separate.
+An old frozen result without total-stream metadata requires a fresh query;
+the UI does not invent a total by adding group statistics.
+
+Time plots also accept `log_metrics` (selected plotted `measure:calculation`
+keys), `sync_axes`, `one_chart_per_series`, `charts_per_row` (1–4, default 1)
+and `chart_height` (`short`, `medium`, `tall`; default `medium`). Generated
+charts include every visible selected group and Other, with responsive columns.
+Logarithmic geometry omits nonpositive coordinates while exact sample tables
+and keyboard readouts retain their original values. A plot without positive
+values falls back to its complete paged sample table. Synchronized axes use a
+shared numeric range; mixed logarithmic/linear metrics use positive bounds and
+disclose values outside that range.
+Logarithmic grid lines and labels stay spaced for readable short charts;
+this does not remove any observations from exact tables or keyboard readouts.
+
+Changing display settings does not rerun a frozen query. Save changes persists
+them through the ordinary owner/version/audit checks. Group hide/show/solo
+choices remain temporary and do not change snapshots, CSV or independent totals.
+These controls apply to bar/time views; matrix and table views retain their own
+exact result presentation.
+
+The production-build Chromium gate includes a separate synthetic native-flow
+matrix in `native_flow_checks`: bar, line and matrix in both themes at desktop
+and touch-mobile sizes. Missing, duplicate or failed cases fail the gate. This
+checks rendered behavior and accessibility; authenticated sender/store isolation
+requires the separate real-stack proofs.
 
 ## Query API (tenant-scoped, `flow.read`)
 
@@ -393,3 +613,21 @@ in the producer catalog (placement, service files, the full
 producer-to-first-data path), `deploy/agent/probectl-flow-agent.example.yml`
 for the YAML form of every key, and [`configuration.md`](configuration.md) for
 the full `PROBECTL_FLOW_*` reference.
+
+
+Horizon uses five opaque folded bands in equal-height group lanes. The saved
+`display.time_style=horizon` and `display.horizon_scale=shared|lane` select a
+common amplitude across visible groups (default) or a separate amplitude per
+group. Current and previous observations always share their group's amplitude,
+including generated facets. Source totals stay on separate absolute figures;
+logarithmic settings apply there. The numbered lane legend includes amplitudes;
+exact sample inspection, pointer/keyboard values and CSV retain source counts and
+previous timestamps. Zero draws a baseline; missing observations leave a gap.
+Bands cover actual bucket intervals, including isolated and partial buckets.
+The plot grows with lane count to keep labels readable in both themes.
+
+The REST filter and saved-query handlers use typed context services that also
+check tenant identity, current permissions and source grants before storage.
+Saved queries additionally enforce the authenticated owner or explicit tenant
+sharing; favorites and recents belong to each user. The shared service boundary
+does not add a new MCP tool: native MCP wiring and protocol proof remain in progress.

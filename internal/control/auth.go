@@ -48,6 +48,8 @@ const (
 	permOrgWrite           = "org.write"
 	permChangeRead         = "change.read"
 	permFlowRead           = "flow.read"
+	permFlowFiltersWrite   = "flow.filters.write"
+	permFlowViewsWrite     = "flow.views.write"
 	permMetricsRead        = "metrics.read"
 	permMetricsWrite       = "metrics.write"
 	permCMDBRead           = "cmdb.read"
@@ -78,7 +80,7 @@ var allPermissionKeys = []string{
 	permIncidentRead, permIncidentWrite,
 	permOrgRead, permOrgWrite,
 	permChangeRead,
-	permFlowRead,
+	permFlowRead, permFlowFiltersWrite, permFlowViewsWrite,
 	permMetricsWrite, permCMDBRead, permThreatRead,
 	permDirectoryRead, permDirectoryWrite,
 	permLifecycleExp, permLifecycleErase,
@@ -412,7 +414,8 @@ func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Pr
 		return nil, store.ErrInvalidToken
 	}
 	ctx := r.Context()
-	res, err := store.NewMCPTokens(s.pool).AuthenticateFull(ctx, crypto.Hash([]byte(token)))
+	acceptedHash := crypto.Hash([]byte(token))
+	res, err := store.NewMCPTokens(s.pool).AuthenticateFull(ctx, acceptedHash)
 	if err != nil {
 		return nil, err
 	}
@@ -424,13 +427,10 @@ func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Pr
 	if err != nil {
 		return nil, err
 	}
-	p := auth.PrincipalWithPermissionGrants(
-		// AUTHZ-20: mark this principal as bearer-resolved so human-gated actions
-		// (remediation approval) can refuse an API/MCP token standing in for a
-		// deliberate human authorizer.
-		&auth.Principal{TenantID: tenantID, UserID: userID, ViaBearerToken: true},
-		grants,
-	)
+	p, err := principalFromMCPAuthentication(res, grants)
+	if err != nil {
+		return nil, err
+	}
 	// A token for a deprovisioned user is rejected as unauthenticated, not
 	// merely stripped of permissions (AUTHZ-02).
 	if err := s.inTenantID(ctx, tenantID, func(ctx context.Context, sc tenancy.Scope) error {

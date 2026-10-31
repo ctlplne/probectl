@@ -363,6 +363,8 @@ func (rt *serveRuntime) buildAPIServer() error {
 		// process-memory defaults.
 		WithDeviceOps(device.NewPostgresOpsStore(rt.db.Pool())).
 		WithInventoryViews(inventory.NewPostgresViewStore(rt.db.Pool())).
+		WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(rt.db.Pool(), 0, audit.TenantRecord)).
+		WithFlowQueryViews(flow.NewPostgresQueryViewStore(rt.db.Pool(), 0, audit.TenantRecord)).
 		WithCost(rt.costEngine).
 		WithCarbon(rt.carbonEngine).
 		// PLAT-09: external-backend reachability probes so an outage of the bus,
@@ -610,6 +612,21 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	if err := attachEE(rt.gctx, rt.srv, rt.cfg, rt.log, rt.lic, rt.db.Pool(), rt.latestResults,
 		rt.flowStore, rt.pathCH, rt.ebpfStore, rt.otelStore, rt.endpointStore, rt.lifeEngine,
 		worm, rt.secretsResolver, rt.fairGate, rt.topoStore, rt.singletons); err != nil {
+		return err
+	}
+	cache, err := configuredFlowSnapshotCache(rt.cfg)
+	if err != nil {
+		return err
+	}
+	// Resolve the final edition/isolation router after attachEE installs it.
+	rt.srv.WithFlowSnapshotStorage(control.FlowSnapshotStorage{
+		Pool: rt.db.Pool(), Objects: rt.objectStore, Router: tenancy.CurrentRouter(),
+		Fence: rt.writerFence, DeploymentRetentionDays: rt.cfg.FlowRetentionDays, Cache: cache,
+	})
+	if err := rt.singletons.Register("flow-snapshot-expiry", func(ctx context.Context, token cluster.LeaseToken) error {
+		rt.lifeEngine.RunFlowSnapshotExpiry(tenancy.WithTxGuard(ctx, cluster.LeaseGuard(token)), time.Minute)
+		return nil
+	}); err != nil {
 		return err
 	}
 	channelDeps, err := control.BuildAlertChannelDeps(rt.cfg, rt.secretsResolver.Resolve, rt.log)
@@ -966,7 +983,7 @@ func (rt *serveRuntime) startEdgeTransports() error {
 	mcpSrv := control.NewMCPServerWithPolicyLoader(rt.cfg, rt.log, rt.db.Pool(), rt.pathStore, rt.cfg.MCPRatePerMin,
 		rt.srv.AIEgressGate(), rt.fairGate, rt.srv.RemediationService(),
 		rt.srv.MCPPolicyLoader(),
-		control.AISources{Metrics: rt.tsdbWriter, Flow: rt.flowStore, Topology: rt.topoStore})
+		control.AISources{Metrics: rt.tsdbWriter, Flow: rt.flowStore, Topology: rt.topoStore, NativeFlow: rt.srv})
 	handler := mcpSrv.HTTPHandler(rt.srv.MCPAuthenticator())
 	rt.g.Go(func() error { return serveMCPHTTP(rt.gctx, rt.cfg.MCPHTTPAddr, tlsCfg, handler, rt.log) })
 	return nil

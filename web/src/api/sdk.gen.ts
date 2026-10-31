@@ -1014,7 +1014,7 @@ export interface Error {
   error: ErrorDetail
 }
 
-export type ErrorCode = "internal" | "bad_request" | "validation" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unavailable" | "rate_limited" | "too_large" | "writer_unavailable" | "quota_exceeded" | "tenant_suspended" | "tenant_offboarded" | "license_read_only" | "approvals_disabled" | "blast_radius_exceeded" | "blast_radius_unknown" | "not_proposed" | "unsupported_media_type" | "private_target_denied" | "cross_origin_denied" | "tenant_quarantined"
+export type ErrorCode = "internal" | "bad_request" | "validation" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unavailable" | "rate_limited" | "too_large" | "writer_unavailable" | "quota_exceeded" | "tenant_suspended" | "tenant_offboarded" | "license_read_only" | "approvals_disabled" | "blast_radius_exceeded" | "blast_radius_unknown" | "not_proposed" | "unsupported_media_type" | "private_target_denied" | "cross_origin_denied" | "tenant_quarantined" | "flow_query_budget_exceeded" | "flow_query_coverage_unavailable"
 
 export interface ErrorDetail {
   code: ErrorCode
@@ -1053,26 +1053,24 @@ export interface ExplorerColumn {
 
 export interface ExplorerComparisonExecutionReceipt {
   alignment: ExplorerAlignmentExecutionReceipt
-  contract_version: string
+  contract_version: "explorer-comparison-execution/v1" | "flow-explorer-comparison-execution/v2"
   current: ExplorerExecutionReceipt
   previous: ExplorerExecutionReceipt
   tenant_scoped: boolean
   total_ms: number
 }
 
-export interface ExplorerComparisonRequest {
-  previous_from: string
-  previous_to: string
-  query: ExplorerQuery
-}
+export type ExplorerComparisonRequest = JsonValue
 
 export interface ExplorerComparisonResult {
-  contract_version: string
+  contract_version: "explorer-comparison/v1" | "flow-explorer-comparison/v2"
   current: ExplorerQuery
   current_preview: string
   current_truncated: boolean
   evidence_path: string
   execution: ExplorerComparisonExecutionReceipt
+  flow?: JsonObject
+  flow_paging?: JsonObject
   groupings: string[]
   previous: ExplorerQuery
   previous_preview: string
@@ -1084,14 +1082,19 @@ export interface ExplorerComparisonResult {
 }
 
 export interface ExplorerComparisonRow {
-  aggregation: "sum" | "mean"
+  aggregation: "sum" | "mean" | "exact_distinct" | "avg" | "p95" | "p99" | "max" | "total" | "bucket_total"
   current_value: number | null
+  current_value_str?: string
   delta: number | null
   delta_state: "comparable" | "zero_baseline" | "missing_current" | "missing_previous"
+  delta_str?: string
   group: { [key: string]: string }
   measure: string
+  other?: boolean
   percent_change: number | null
+  percent_change_str?: string
   previous_value: number | null
+  previous_value_str?: string
 }
 
 export interface ExplorerExecutionBounds {
@@ -1108,7 +1111,7 @@ export interface ExplorerExecutionProjection {
 
 export interface ExplorerExecutionReceipt {
   bounds: ExplorerExecutionBounds
-  contract_version: string
+  contract_version: "explorer-execution/v1" | "flow-explorer-execution/v2"
   filter_keys: string[]
   projection: ExplorerExecutionProjection
   recipe: string
@@ -1130,21 +1133,25 @@ export interface ExplorerExecutionTimings {
 export interface ExplorerQuery {
   dimensions?: string[]
   filters?: { [key: string]: string }
+  flow?: FlowQueryOptions
   from?: string
   groupings?: string[]
   limit?: number
   measures?: string[]
+  plan_only?: boolean
   question: string
   source: "flow" | "changes" | "path" | "topology" | "endpoints" | "tls" | "cost" | "slo"
   template?: string
   to?: string
-  visualization?: "table" | "bar" | "line" | "timeline" | "topology"
+  visualization?: "table" | "bar" | "line" | "timeline" | "matrix" | "topology"
 }
 
 export interface ExplorerResult {
   columns: ExplorerColumn[]
   evidence_path: string
   execution: ExplorerExecutionReceipt
+  flow?: FlowExplorerResult
+  flow_paging?: JsonObject
   preview: string
   query: ExplorerQuery
   rows: JsonObject[]
@@ -1154,6 +1161,7 @@ export interface ExplorerResult {
 
 export interface ExplorerSchemaResponse {
   comparison_sources: ("flow" | "changes" | "topology" | "endpoints" | "tls")[]
+  flow: FlowExplorerSchema
   max_rows: number
   templates: ExplorerTemplate[]
   visualizations: string[]
@@ -1250,6 +1258,62 @@ export interface FlowCapacityPoint {
   ts?: string
 }
 
+export interface FlowExplorerMatrixCell {
+  column: { [key: string]: string }
+  column_other: boolean
+  metrics: { [key: string]: string }
+  row: { [key: string]: string }
+  row_other: boolean
+}
+
+export interface FlowExplorerPoint {
+  duration_seconds: string
+  group: { [key: string]: string }
+  metrics: { [key: string]: string }
+  other: boolean
+  ts: string
+}
+
+export type FlowExplorerQuerySpec = FlowQueryOptions
+
+export interface FlowExplorerResult {
+  chart_other?: FlowExplorerRow
+  chart_rows?: FlowExplorerRow[]
+  coverage?: JsonObject
+  detail_limited: boolean
+  matrix: FlowExplorerMatrixCell[]
+  matrix_columns?: FlowExplorerRow[]
+  matrix_rows?: FlowExplorerRow[]
+  other?: FlowExplorerRow
+  other_series: FlowExplorerPoint[]
+  query: FlowQueryOptions
+  resolution_seconds: number
+  rows: FlowExplorerRow[]
+  saved_filter_versions?: { [key: string]: number }
+  series: FlowExplorerPoint[]
+  source: string
+  total_groups: number
+  total_series?: FlowExplorerPoint[]
+  totals: { [key: string]: string }
+}
+
+export interface FlowExplorerRow {
+  group: { [key: string]: string }
+  metrics: { [key: string]: string }
+  other: boolean
+}
+
+export interface FlowExplorerSchema {
+  contract_version: JsonValue
+  defaults: JsonObject
+  fields: FlowQueryField[]
+  limits: JsonObject
+  metrics: JsonObject[]
+  render_cost: FlowMCPRenderCost
+  statistics: JsonObject
+  time_range: string
+}
+
 export interface FlowFilter {
   field: "src" | "dst" | "src_asn" | "dst_asn" | "as_name" | "group_as_name" | "src_country" | "dst_country" | "port" | "group_port" | "protocol" | "exporter"
   value: string
@@ -1289,6 +1353,135 @@ export interface FlowIngestQualityResponse {
 
 export type FlowIngestQualityState = "healthy" | "degraded" | "stale"
 
+export interface FlowMCPRenderCost {
+  mcp_csv_page_bytes: number
+  mcp_result_nodes: number
+  mcp_source_bytes: number
+  mcp_wire_bytes: number
+}
+
+export interface FlowQueryDisplay {
+  chart_height?: "short" | "medium" | "tall"
+  charts_per_row?: number
+  horizon_scale?: "shared" | "lane"
+  log_metrics?: string[]
+  one_chart_per_series?: boolean
+  percent_basis?: "returned" | "visible"
+  sync_axes?: boolean
+  time_style?: "line" | "stacked_area" | "stacked_columns" | "percent_area" | "horizon"
+  total_overlay?: boolean
+}
+
+export interface FlowQueryField {
+  legacy_hourly_available: boolean
+  name: string
+  operators: ("eq" | "ne" | "in" | "not_in" | "contains" | "not_contains" | "regex" | "not_regex" | "gt" | "lt" | "bit_and" | "cidr" | "not_cidr" | "between" | "not_between" | "has_any" | "has_none")[]
+  raw_available: boolean
+  required_permission?: string
+  rollup_available: boolean
+  type: "text" | "address" | "prefix" | "unsigned" | "timestamp" | "flags"
+}
+
+export interface FlowQueryFilterGroup {
+  conditions?: FlowQueryPredicate[]
+  groups?: JsonObject[]
+  match?: "all" | "any" | "and" | "or"
+  mode?: "include" | "exclude"
+  saved?: JsonObject[]
+}
+
+export interface FlowQueryMetric {
+  calculation?: "avg" | "p95" | "p99" | "max" | "total" | "bucket_total"
+  measure: "bps" | "pps" | "fps" | "bytes" | "packets" | "flows" | "unique_src" | "unique_dst" | "unique_src_port" | "unique_dst_port" | "unique_src_asn" | "unique_dst_asn" | "unique_src_country" | "unique_dst_country"
+  role?: "primary" | "secondary" | "additional"
+}
+
+export interface FlowQueryOptions {
+  bucket_seconds?: number
+  cursor?: string
+  dataseries?: "auto" | "raw" | "rollup"
+  filter?: FlowQueryFilterGroup
+  from?: string
+  group_by?: string[]
+  ipv4_prefix_length?: number
+  ipv6_prefix_length?: number
+  matrix_depth?: number
+  matrix_with?: string[]
+  metrics?: FlowQueryMetric[]
+  page_size?: number
+  row_limit?: number
+  series_depth?: number
+  to?: string
+  view?: "table" | "bar" | "line" | "timeline" | "matrix"
+}
+
+export interface FlowQueryPredicate {
+  field: string
+  op: "eq" | "ne" | "in" | "not_in" | "contains" | "not_contains" | "regex" | "not_regex" | "gt" | "lt" | "bit_and" | "cidr" | "not_cidr" | "between" | "not_between" | "has_any" | "has_none"
+  values: string[]
+}
+
+export interface FlowQueryViewDefinition {
+  auto_refresh_seconds?: number
+  comparison?: JsonObject
+  description?: string
+  display?: FlowQueryDisplay
+  labels?: string[]
+  name: string
+  plan?: FlowQueryOptions & JsonValue
+  time?: JsonObject
+  visibility?: "private" | "tenant"
+}
+
+export interface FlowQueryViewPage {
+  items: SavedFlowQueryView[]
+  next?: string
+}
+
+export interface FlowQuestionInput {
+  question: string
+}
+
+export interface FlowQuestionProposal {
+  assumptions?: string[]
+  comparison?: JsonObject
+  display?: FlowQueryDisplay
+  guidance?: string
+  needs_confirmation?: boolean
+  plan?: FlowQueryOptions
+  previous?: JsonObject
+  status: "ready" | "clarify" | "refused"
+}
+
+export interface FlowQuestionResult {
+  proposal: FlowQuestionProposal
+}
+
+export interface FlowSavedFilter {
+  created_at: string
+  description: string
+  expression: FlowQueryFilterGroup
+  id: string
+  name: string
+  updated_at: string
+  updated_by: string
+  version: number
+  version_text: string
+}
+
+export interface FlowSavedFilterInput {
+  description?: string
+  expression: FlowQueryFilterGroup
+  name: string
+  version?: number
+  version_text?: string
+}
+
+export interface FlowSavedFilterPage {
+  items: FlowSavedFilter[]
+  next?: string
+}
+
 export interface FlowSeriesPoint {
   bytes: number
   detail?: string
@@ -1297,6 +1490,12 @@ export interface FlowSeriesPoint {
   key: string
   packets: number
   ts: string
+}
+
+export interface FlowSnapshotMCPExportInput {
+  page_size?: number
+  record_offset?: number
+  snapshot_id: string
 }
 
 export interface FlowTopList {
@@ -1925,6 +2124,22 @@ export interface SIEMStatus {
   summary: string
   tls_required: boolean
   token_configured: boolean
+}
+
+export interface SaveFlowQueryViewRequest {
+  definition: FlowQueryViewDefinition
+  version?: string
+}
+
+export interface SavedFlowQueryView {
+  created_at: string
+  definition: FlowQueryViewDefinition
+  favorite: boolean
+  id: string
+  last_opened_at?: string
+  owner_id: string
+  updated_at: string
+  version: string
 }
 
 export interface SelfMetricsSnapshot {
@@ -2655,11 +2870,102 @@ export interface CompareExplorerPeriodsRequest {
 
 export type CompareExplorerPeriodsResponse = ExplorerComparisonResult
 
-export interface QueryExplorerRequest {
-  body: ExplorerQuery
+export interface ListFlowQueryFiltersRequest {
+  after?: string
+  limit?: number
 }
 
-export type QueryExplorerResponse = ExplorerResult
+export type ListFlowQueryFiltersResponse = FlowSavedFilterPage
+
+export interface CreateFlowQueryFilterRequest {
+  body: FlowSavedFilterInput
+}
+
+export type CreateFlowQueryFilterResponse = FlowSavedFilter
+
+export interface GetFlowQueryFilterRequest {
+  id: string
+}
+
+export type GetFlowQueryFilterResponse = FlowSavedFilter
+
+export interface UpdateFlowQueryFilterRequest {
+  id: string
+  body: FlowSavedFilterInput
+}
+
+export type UpdateFlowQueryFilterResponse = FlowSavedFilter
+
+export interface DeleteFlowQueryFilterRequest {
+  id: string
+  version: number
+}
+
+export type DeleteFlowQueryFilterResponse = void
+
+export interface DownloadFlowSnapshotCsvRequest {
+  id: string
+}
+
+export type DownloadFlowSnapshotCsvResponse = Response
+
+export interface ListFlowQueryViewsRequest {
+  after?: string
+  limit?: number
+  search?: string
+  label?: string
+  visibility?: "private" | "tenant"
+  owner?: string
+  sort?: "name" | "created_at" | "updated_at"
+  tab?: "all" | "favorites" | "recents"
+}
+
+export type ListFlowQueryViewsResponse = FlowQueryViewPage
+
+export interface CreateFlowQueryViewRequest {
+  body: SaveFlowQueryViewRequest
+}
+
+export type CreateFlowQueryViewResponse = SavedFlowQueryView
+
+export interface GetFlowQueryViewRequest {
+  id: string
+}
+
+export type GetFlowQueryViewResponse = SavedFlowQueryView
+
+export interface UpdateFlowQueryViewRequest {
+  id: string
+  body: SaveFlowQueryViewRequest
+}
+
+export type UpdateFlowQueryViewResponse = SavedFlowQueryView
+
+export interface DeleteFlowQueryViewRequest {
+  id: string
+  version: string
+}
+
+export type DeleteFlowQueryViewResponse = void
+
+export interface SetFlowQueryViewFavoriteRequest {
+  id: string
+  body: JsonObject
+}
+
+export type SetFlowQueryViewFavoriteResponse = void
+
+export interface RunFlowQueryViewRequest {
+  id: string
+}
+
+export type RunFlowQueryViewResponse = JsonValue
+
+export interface QueryExplorerRequest {
+  body: JsonValue
+}
+
+export type QueryExplorerResponse = JsonValue
 
 export interface GetExplorerSchemaRequest {
 }
@@ -3942,6 +4248,105 @@ export class ProbectlSDKClient {
     let path = "/v1/explorer/compare"
     const query = new URLSearchParams()
     return this.requestJSON<CompareExplorerPeriodsResponse>("POST", path, query, request.body)
+  }
+
+  async listFlowQueryFilters(request: ListFlowQueryFiltersRequest = {}): Promise<ListFlowQueryFiltersResponse> {
+    let path = "/v1/explorer/flow-filters"
+    const query = new URLSearchParams()
+    if (request.after !== undefined) query.set("after", String(request.after))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListFlowQueryFiltersResponse>("GET", path, query, undefined)
+  }
+
+  async createFlowQueryFilter(request: CreateFlowQueryFilterRequest): Promise<CreateFlowQueryFilterResponse> {
+    let path = "/v1/explorer/flow-filters"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateFlowQueryFilterResponse>("POST", path, query, request.body)
+  }
+
+  async getFlowQueryFilter(request: GetFlowQueryFilterRequest): Promise<GetFlowQueryFilterResponse> {
+    let path = "/v1/explorer/flow-filters/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetFlowQueryFilterResponse>("GET", path, query, undefined)
+  }
+
+  async updateFlowQueryFilter(request: UpdateFlowQueryFilterRequest): Promise<UpdateFlowQueryFilterResponse> {
+    let path = "/v1/explorer/flow-filters/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<UpdateFlowQueryFilterResponse>("PUT", path, query, request.body)
+  }
+
+  async deleteFlowQueryFilter(request: DeleteFlowQueryFilterRequest): Promise<DeleteFlowQueryFilterResponse> {
+    let path = "/v1/explorer/flow-filters/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.version !== undefined) query.set("version", String(request.version))
+    await this.request("DELETE", path, query, undefined)
+  }
+
+  async downloadFlowSnapshotCsv(request: DownloadFlowSnapshotCsvRequest): Promise<DownloadFlowSnapshotCsvResponse> {
+    let path = "/v1/explorer/flow-snapshots/{id}/csv"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.request("GET", path, query, undefined)
+  }
+
+  async listFlowQueryViews(request: ListFlowQueryViewsRequest = {}): Promise<ListFlowQueryViewsResponse> {
+    let path = "/v1/explorer/flow-views"
+    const query = new URLSearchParams()
+    if (request.after !== undefined) query.set("after", String(request.after))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.search !== undefined) query.set("search", String(request.search))
+    if (request.label !== undefined) query.set("label", String(request.label))
+    if (request.visibility !== undefined) query.set("visibility", String(request.visibility))
+    if (request.owner !== undefined) query.set("owner", String(request.owner))
+    if (request.sort !== undefined) query.set("sort", String(request.sort))
+    if (request.tab !== undefined) query.set("tab", String(request.tab))
+    return this.requestJSON<ListFlowQueryViewsResponse>("GET", path, query, undefined)
+  }
+
+  async createFlowQueryView(request: CreateFlowQueryViewRequest): Promise<CreateFlowQueryViewResponse> {
+    let path = "/v1/explorer/flow-views"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateFlowQueryViewResponse>("POST", path, query, request.body)
+  }
+
+  async getFlowQueryView(request: GetFlowQueryViewRequest): Promise<GetFlowQueryViewResponse> {
+    let path = "/v1/explorer/flow-views/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetFlowQueryViewResponse>("GET", path, query, undefined)
+  }
+
+  async updateFlowQueryView(request: UpdateFlowQueryViewRequest): Promise<UpdateFlowQueryViewResponse> {
+    let path = "/v1/explorer/flow-views/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<UpdateFlowQueryViewResponse>("PUT", path, query, request.body)
+  }
+
+  async deleteFlowQueryView(request: DeleteFlowQueryViewRequest): Promise<DeleteFlowQueryViewResponse> {
+    let path = "/v1/explorer/flow-views/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.version !== undefined) query.set("version", String(request.version))
+    await this.request("DELETE", path, query, undefined)
+  }
+
+  async setFlowQueryViewFavorite(request: SetFlowQueryViewFavoriteRequest): Promise<SetFlowQueryViewFavoriteResponse> {
+    let path = "/v1/explorer/flow-views/{id}/preferences"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("PUT", path, query, request.body)
+  }
+
+  async runFlowQueryView(request: RunFlowQueryViewRequest): Promise<RunFlowQueryViewResponse> {
+    let path = "/v1/explorer/flow-views/{id}/query"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<RunFlowQueryViewResponse>("POST", path, query, undefined)
   }
 
   async queryExplorer(request: QueryExplorerRequest): Promise<QueryExplorerResponse> {

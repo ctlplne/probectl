@@ -42,6 +42,9 @@ import (
 // flow store, or topology engine; missing sources degrade to "no evidence from
 // that plane" rather than widening or failing the query.
 type AISources struct {
+	// NativeFlow binds the existing fully configured server; never a client value.
+	NativeFlow *Server
+
 	Metrics   tsdb.Writer
 	Flow      flowstore.Store
 	Topology  topology.Store

@@ -404,6 +404,12 @@ func RedactRow(pol Policy, row map[string]any) {
 }
 
 func redactExportValue(pol Policy, key string, v any) any {
+	// Retained-flow erasure indexes duplicate heterogeneous identity columns.
+	// A redacted export must not retain an unclassified second copy of them.
+	if strings.EqualFold(key, "subject_keys") {
+		return nil
+	}
+
 	if cat, ok := columnCategory(key); ok {
 		strategy := pol.StrategyFor(cat)
 		if strategy == StrategyNone {

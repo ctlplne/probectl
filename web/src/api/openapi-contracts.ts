@@ -29,6 +29,85 @@ export interface APICallContract {
 
 export const API_CALL_CONTRACTS = [
   {
+    file: 'api/flowFilters.ts',
+    method: 'GET',
+    path: '`/explorer/flow-filters?limit=100&after=${encodeURIComponent(after)}`',
+    response: 'FlowFilterPage',
+    generated: 'ListFlowQueryFiltersResponse',
+  },
+  {
+    file: 'api/flowFilters.ts',
+    method: 'PUT',
+    path: '`/explorer/flow-filters/${encodeURIComponent(id)}`',
+    response: 'SavedFlowFilter',
+    generated: 'UpdateFlowQueryFilterResponse',
+  },
+  {
+    file: 'api/flowFilters.ts',
+    method: 'POST',
+    path: '/explorer/flow-filters',
+    response: 'SavedFlowFilter',
+    generated: 'CreateFlowQueryFilterResponse',
+  },
+  {
+    file: 'api/flowFilters.ts',
+    method: 'DELETE',
+    path: '`/explorer/flow-filters/${encodeURIComponent(id)}?version=${encodeURIComponent(version_text)}`',
+    response: 'void',
+    generated: 'DeleteFlowQueryFilterResponse',
+  },
+  {
+    file: 'api/flowViews.ts',
+    method: 'GET',
+    path: '`/explorer/flow-views?${params}`',
+    response: 'FlowQueryViewPage',
+    generated: 'ListFlowQueryViewsResponse',
+  },
+  {
+    file: 'api/flowViews.ts',
+    method: 'GET',
+    path: '`/explorer/flow-views/${encodeURIComponent(id!)}`',
+    response: 'SavedFlowQueryView',
+    generated: 'GetFlowQueryViewResponse',
+  },
+  {
+    file: 'api/flowViews.ts',
+    method: 'PUT',
+    path: '`/explorer/flow-views/${encodeURIComponent(id)}`',
+    response: 'SavedFlowQueryView',
+    generated: 'UpdateFlowQueryViewResponse',
+  },
+  {
+    file: 'api/flowViews.ts',
+    method: 'POST',
+    path: '/explorer/flow-views',
+    response: 'SavedFlowQueryView',
+    generated: 'CreateFlowQueryViewResponse',
+  },
+  {
+    file: 'api/flowViews.ts',
+    method: 'DELETE',
+    path: '`/explorer/flow-views/${encodeURIComponent(id)}?version=${encodeURIComponent(version)}`',
+    response: 'void',
+    generated: 'DeleteFlowQueryViewResponse',
+  },
+  {
+    file: 'api/flowViews.ts',
+    method: 'PUT',
+    path: '`/explorer/flow-views/${encodeURIComponent(id)}/preferences`',
+    response: 'void',
+    generated: 'SetFlowQueryViewFavoriteResponse',
+  },
+  {
+    file: 'api/flowViews.ts',
+    method: 'POST',
+    path: '`/explorer/flow-views/${encodeURIComponent(id)}/query`',
+    response: 'ExplorerResult | ExplorerComparisonResult',
+    generated: 'RunFlowQueryViewResponse',
+    reason:
+      'OpenAPI returns either a current-period result or a comparison; the view model retains that discriminated native result union.',
+  },
+  {
     file: 'api/coverage.ts',
     method: 'GET',
     path: '/coverage/vantages',
@@ -455,6 +534,15 @@ export const API_CALL_CONTRACTS = [
     path: '/explorer/query',
     response: 'ExplorerResult',
     generated: 'QueryExplorerResponse',
+  },
+  {
+    file: 'api/explorer.ts',
+    method: 'POST',
+    path: '/explorer/query',
+    response: '{ proposal: FlowQuestionProposal }',
+    generated: 'QueryExplorerResponse',
+    reason:
+      'plan_only selects the FlowQuestionResult branch of the documented proposal/result union; the adapter narrows by its explicit request mode.',
   },
   {
     file: 'api/identity.ts',

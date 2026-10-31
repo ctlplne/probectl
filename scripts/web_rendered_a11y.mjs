@@ -10,6 +10,12 @@
 // reference viewport. It also records raw LCP/INP samples for J1-J6; the
 // separate checker owns and enforces the canonical p75 budgets.
 
+import {
+  nativeFlowSelfTest,
+  runNativeFlowChecks,
+  validateNativeFlowMatrix,
+} from "./web_rendered_native_flow.mjs";
+
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -2289,11 +2295,21 @@ async function stickyOpacityChecks(page) {
             .join("");
           if (!own) return false;
           const childStyle = getComputedStyle(child);
-          if (childStyle.visibility === "hidden" || childStyle.display === "none") return false;
-          if (childStyle.backdropFilter && childStyle.backdropFilter !== "none") return false;
+          if (
+            childStyle.visibility === "hidden" ||
+            childStyle.display === "none"
+          )
+            return false;
+          if (childStyle.backdropFilter && childStyle.backdropFilter !== "none")
+            return false;
           // Walk up to the nearest ancestor that paints, stopping at the layer.
-          for (let node = child; node && node !== el.parentElement; node = node.parentElement) {
-            if (alphaOf(getComputedStyle(node).backgroundColor) >= 0.9) return false;
+          for (
+            let node = child;
+            node && node !== el.parentElement;
+            node = node.parentElement
+          ) {
+            if (alphaOf(getComputedStyle(node).backgroundColor) >= 0.9)
+              return false;
           }
           return true;
         });
@@ -2302,7 +2318,10 @@ async function stickyOpacityChecks(page) {
           `${el.tagName.toLowerCase()} pass-through ${style.position} layer holds text on nothing opaque: ` +
             seeThrough
               .slice(0, 3)
-              .map((c) => `${c.tagName.toLowerCase()} "${(c.textContent || "").trim().slice(0, 24)}"`)
+              .map(
+                (c) =>
+                  `${c.tagName.toLowerCase()} "${(c.textContent || "").trim().slice(0, 24)}"`,
+              )
               .join(", "),
         );
         continue;
@@ -3002,8 +3021,8 @@ async function deviceConfigDiffChecks(page, viewportName, axeSource) {
         : "nothing",
       sameKey: Boolean(
         active &&
-          element.dataset?.focusKey &&
-          active.dataset?.focusKey === element.dataset.focusKey,
+        element.dataset?.focusKey &&
+        active.dataset?.focusKey === element.dataset.focusKey,
       ),
     };
   });
@@ -3543,6 +3562,9 @@ async function main() {
     viewports,
     routes,
     checks: [],
+    native_flow_checks: [],
+    native_flow_source:
+      "simulation: synthetic API/current production build; no SSO/sender/storage isolation claim",
     failures,
   };
   let performanceReceipt = {
@@ -3856,12 +3878,44 @@ async function main() {
         }
       }
     }
+    const nativeFlow = await runNativeFlowChecks({
+      browser,
+      baseURL,
+      axeSource,
+      receiptDir: receiptRoot,
+      themes,
+      viewports,
+      schema: JSON.parse(
+        await readFile(
+          join(webRoot, "src/test/flowExplorerSchema.json"),
+          "utf8",
+        ),
+      ),
+      helpers: {
+        fetchStubSource,
+        runAxe,
+        blockingAxeResults,
+        targetAndTabChecks,
+        horizontalOverflowCheck,
+        interactiveClippingCheck,
+      },
+    });
+    a11yReceipt.native_flow_checks = nativeFlow.checks;
+    failures.push(...nativeFlow.failures);
     performanceReceipt = await runPerformanceProfile(browser, baseURL);
   } catch (error) {
     failures.push(
       `browser gate aborted: ${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
+    // Even an aborted route sweep cannot leave an unrun native matrix green.
+    failures.push(
+      ...validateNativeFlowMatrix(
+        a11yReceipt.native_flow_checks,
+        themes,
+        viewports,
+      ).filter((failure) => !failures.includes(failure)),
+    );
     a11yReceipt.status = failures.length === 0 ? "pass" : "fail";
     await writeReceipt(a11yReceiptPath, a11yReceipt);
     await writeReceipt(performanceReceiptPath, performanceReceipt);
@@ -3879,7 +3933,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    `rendered browser a11y OK (${routes.length} native routes x ${themes.length} themes x ${viewports.length} viewports)`,
+    `rendered browser a11y OK (${routes.length} native routes x ${themes.length} themes x ${viewports.length} viewports; ${a11yReceipt.native_flow_checks.length} native flow cases)`,
   );
   console.log(`rendered a11y receipt: ${a11yReceiptPath}`);
   console.log(`web performance receipt: ${performanceReceiptPath}`);
@@ -3943,6 +3997,7 @@ function assertSchemaValue(value, schema, path) {
 }
 
 async function selfTest() {
+  nativeFlowSelfTest();
   const example = appURL("http://127.0.0.1:4173", "/onboarding");
   if (example !== "http://127.0.0.1:4173/ui/onboarding") {
     throw new Error(`self-check failed: shipping route resolved to ${example}`);
@@ -3974,7 +4029,9 @@ async function selfTest() {
   // matrix, not just exist.
   if (
     !scriptSource.includes("async function clippedChromeChecks(page)") ||
-    !scriptSource.includes("record.clippedChrome = await clippedChromeChecks(page)")
+    !scriptSource.includes(
+      "record.clippedChrome = await clippedChromeChecks(page)",
+    )
   ) {
     throw new Error(
       "self-check failed: the clipped-chrome rule is not wired into the route matrix",
@@ -4024,8 +4081,26 @@ async function selfTest() {
   );
 }
 
-const run = process.argv.includes("--selftest") ? selfTest : main;
-run().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+// Development runners import these exact checks rather than a stale copy.
+// The shipped entry point always runs the complete route/native/perf matrix.
+export {
+  fetchStubSource,
+  startVite,
+  runAxe,
+  blockingAxeResults,
+  targetAndTabChecks,
+  horizontalOverflowCheck,
+  interactiveClippingCheck,
+  selfCheck,
+};
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  const run = process.argv.includes("--selftest") ? selfTest : main;
+  run().catch((err) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}

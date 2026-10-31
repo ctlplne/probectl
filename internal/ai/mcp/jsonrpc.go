@@ -12,18 +12,23 @@ const jsonRPCVersion = "2.0"
 
 // rpcRequest is a JSON-RPC 2.0 request (or notification, when ID is absent).
 type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
+	JSONRPC  string          `json:"jsonrpc"`
+	ID       json.RawMessage `json:"id,omitempty"`
+	Method   string          `json:"method"`
+	Params   json.RawMessage `json:"params,omitempty"`
+	protocol requestProtocol
 }
 
 // rpcResponse is a JSON-RPC 2.0 response.
 type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Result  any             `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
+	JSONRPC    string          `json:"jsonrpc"`
+	ID         json.RawMessage `json:"id,omitempty"`
+	Result     any             `json:"result,omitempty"`
+	Error      *rpcError       `json:"error,omitempty"`
+	wireBudget int
+	nodeBudget int
+	finalize   func()
+	prepared   bool
 }
 
 type rpcError struct {
@@ -53,8 +58,21 @@ func errorResponse(id json.RawMessage, code int, msg string) *rpcResponse {
 	return &rpcResponse{JSONRPC: jsonRPCVersion, ID: id, Error: &rpcError{Code: code, Message: msg}}
 }
 
+func marshalResponse(v *rpcResponse) ([]byte, error) {
+	limit, nodes := maxMCPToolResultBytes, maxMCPToolResultNodes
+	if v != nil {
+		if v.wireBudget > 0 {
+			limit = v.wireBudget
+		}
+		if v.nodeBudget > 0 {
+			nodes = v.nodeBudget
+		}
+	}
+	return marshalBoundedJSONNodes(v, limit, false, nodes)
+}
+
 func marshal(v *rpcResponse) []byte {
-	b, err := marshalBoundedJSON(v, maxMCPToolResultBytes, false)
+	b, err := marshalResponse(v)
 	if err != nil {
 		// Never echo a caller-controlled ID or source error on the exceptional
 		// path. This fixed response itself goes through the same source and

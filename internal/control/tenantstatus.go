@@ -140,15 +140,19 @@ func (s *Server) WithTenantStatus(src TenantStatusSource) *Server {
 // credential tomorrow), and TestQuarantinedTenantIsRefusedAtTheAPIWithAnActionableError
 // exercises it through exactly that path. The boundary itself is the router.
 func (s *Server) checkTenantLifecycle(r *http.Request, tenantID string) error {
+	return checkTenantLifecycleContext(r.Context(), s.tenantStatus, tenantID)
+}
+
+func checkTenantLifecycleContext(ctx context.Context, source TenantStatusSource, tenantID string) error {
 	if tenantID != "" {
 		if qerr, quarantined := quarantineAPIError(tenancy.CheckQuarantine(tenantID)); quarantined {
 			return qerr
 		}
 	}
-	if s.tenantStatus == nil || tenantID == "" {
+	if source == nil || tenantID == "" {
 		return nil
 	}
-	status, err := s.tenantStatus.TenantStatus(r.Context(), tenantID)
+	status, err := source.TenantStatus(ctx, tenantID)
 	if err != nil {
 		// AUTHZ-22: the lifecycle state is unknown (no cached value, lookup
 		// failed). Fail closed with a retryable 503 (the registered "unavailable"

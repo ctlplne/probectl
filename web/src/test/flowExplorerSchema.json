@@ -1,0 +1,574 @@
+{
+  "contract_version": "flow-explorer/v2",
+  "defaults": {
+    "bucket_seconds": 60,
+    "ipv4_prefix_length": 24,
+    "ipv6_prefix_length": 48,
+    "row_limit": 100,
+    "series_depth": 40
+  },
+  "fields": [
+    {
+      "name": "agent_id",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "exporter",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "obs_domain",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "protocol",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "ts",
+      "type": "timestamp",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "start_ts",
+      "type": "timestamp",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "src_addr",
+      "type": "address",
+      "operators": [
+        "eq",
+        "ne",
+        "in",
+        "not_in",
+        "cidr",
+        "not_cidr",
+        "contains",
+        "not_contains",
+        "regex",
+        "not_regex"
+      ],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "dst_addr",
+      "type": "address",
+      "operators": [
+        "eq",
+        "ne",
+        "in",
+        "not_in",
+        "cidr",
+        "not_cidr",
+        "contains",
+        "not_contains",
+        "regex",
+        "not_regex"
+      ],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "src_port",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "dst_port",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "transport",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "net_type",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "in_if",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "out_if",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "vlan",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "tos",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "tcp_flags",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "next_hop",
+      "type": "address",
+      "operators": [
+        "eq",
+        "ne",
+        "in",
+        "not_in",
+        "cidr",
+        "not_cidr",
+        "contains",
+        "not_contains",
+        "regex",
+        "not_regex"
+      ],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "raw_bytes",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "raw_packets",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "sampling",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "bytes_scaled",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "packets_scaled",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "src_asn",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "src_as_name",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "src_country",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "dst_asn",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "dst_as_name",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "dst_country",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "row_id",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "src_prefix",
+      "type": "prefix",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "dst_prefix",
+      "type": "prefix",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": true,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "dscp",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "tcp_flag_names",
+      "type": "flags",
+      "operators": [
+        "eq",
+        "ne",
+        "in",
+        "not_in",
+        "has_any",
+        "has_none",
+        "bit_and",
+        "contains",
+        "not_contains",
+        "regex",
+        "not_regex"
+      ],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true
+    },
+    {
+      "name": "in_if_name",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "metrics.read"
+    },
+    {
+      "name": "out_if_name",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "metrics.read"
+    }
+  ],
+  "limits": {
+    "execution_seconds": 5,
+    "grammar_bytes": 2097152,
+    "interface_items": 10000,
+    "intermediate_groups": 500000,
+    "max_bucket_seconds": 604800,
+    "max_chart_rows": 350,
+    "max_chart_series": 40,
+    "max_expanded_conditions": 1000,
+    "max_filter_depth": 5,
+    "max_group_entries": 250,
+    "max_groups": 8,
+    "max_matrix_depth": 15,
+    "max_matrix_dimensions": 8,
+    "max_page_rows": 5000,
+    "max_regex_bytes": 1024,
+    "max_table_rows": 50000,
+    "max_value_bytes": 65536,
+    "max_values_per_predicate": 1000,
+    "memory_bytes": 536870912,
+    "min_bucket_seconds": 60,
+    "read_bytes": 268435456,
+    "read_rows": 5000000,
+    "response_bytes": 67108864,
+    "threads": 2
+  },
+  "metrics": [
+    {
+      "name": "bps",
+      "unit": "bit/s",
+      "calculations": ["avg", "p95", "p99", "max", "total"],
+      "calculation_units": {
+        "avg": "bit/s",
+        "max": "bit/s",
+        "p95": "bit/s",
+        "p99": "bit/s",
+        "total": "byte"
+      }
+    },
+    {
+      "name": "pps",
+      "unit": "packet/s",
+      "calculations": ["avg", "p95", "p99", "max", "total"],
+      "calculation_units": {
+        "avg": "packet/s",
+        "max": "packet/s",
+        "p95": "packet/s",
+        "p99": "packet/s",
+        "total": "packet"
+      }
+    },
+    {
+      "name": "fps",
+      "unit": "flow/s",
+      "calculations": ["avg", "p95", "p99", "max", "total"],
+      "calculation_units": {
+        "avg": "flow/s",
+        "max": "flow/s",
+        "p95": "flow/s",
+        "p99": "flow/s",
+        "total": "flow"
+      }
+    },
+    {
+      "name": "bytes",
+      "unit": "byte",
+      "calculations": ["avg", "p95", "p99", "max", "total"],
+      "calculation_units": {
+        "avg": "byte",
+        "max": "byte",
+        "p95": "byte",
+        "p99": "byte",
+        "total": "byte"
+      }
+    },
+    {
+      "name": "packets",
+      "unit": "packet",
+      "calculations": ["avg", "p95", "p99", "max", "total"],
+      "calculation_units": {
+        "avg": "packet",
+        "max": "packet",
+        "p95": "packet",
+        "p99": "packet",
+        "total": "packet"
+      }
+    },
+    {
+      "name": "flows",
+      "unit": "flow",
+      "calculations": ["avg", "p95", "p99", "max", "total"],
+      "calculation_units": {
+        "avg": "flow",
+        "max": "flow",
+        "p95": "flow",
+        "p99": "flow",
+        "total": "flow"
+      }
+    },
+    {
+      "name": "unique_src",
+      "unit": "IP",
+      "distinct_field": "src_addr",
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
+      "calculation_units": {
+        "avg": "IP",
+        "bucket_total": "IP-observations",
+        "max": "IP",
+        "p95": "IP",
+        "p99": "IP",
+        "total": "IP"
+      }
+    },
+    {
+      "name": "unique_src_port",
+      "unit": "port",
+      "distinct_field": "src_port",
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
+      "calculation_units": {
+        "avg": "port",
+        "bucket_total": "port-observations",
+        "max": "port",
+        "p95": "port",
+        "p99": "port",
+        "total": "port"
+      }
+    },
+    {
+      "name": "unique_src_asn",
+      "unit": "ASN",
+      "distinct_field": "src_asn",
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
+      "calculation_units": {
+        "avg": "ASN",
+        "bucket_total": "ASN-observations",
+        "max": "ASN",
+        "p95": "ASN",
+        "p99": "ASN",
+        "total": "ASN"
+      }
+    },
+    {
+      "name": "unique_src_country",
+      "unit": "country",
+      "distinct_field": "src_country",
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
+      "calculation_units": {
+        "avg": "country",
+        "bucket_total": "country-observations",
+        "max": "country",
+        "p95": "country",
+        "p99": "country",
+        "total": "country"
+      }
+    },
+    {
+      "name": "unique_dst",
+      "unit": "IP",
+      "distinct_field": "dst_addr",
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
+      "calculation_units": {
+        "avg": "IP",
+        "bucket_total": "IP-observations",
+        "max": "IP",
+        "p95": "IP",
+        "p99": "IP",
+        "total": "IP"
+      }
+    },
+    {
+      "name": "unique_dst_port",
+      "unit": "port",
+      "distinct_field": "dst_port",
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
+      "calculation_units": {
+        "avg": "port",
+        "bucket_total": "port-observations",
+        "max": "port",
+        "p95": "port",
+        "p99": "port",
+        "total": "port"
+      }
+    },
+    {
+      "name": "unique_dst_asn",
+      "unit": "ASN",
+      "distinct_field": "dst_asn",
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
+      "calculation_units": {
+        "avg": "ASN",
+        "bucket_total": "ASN-observations",
+        "max": "ASN",
+        "p95": "ASN",
+        "p99": "ASN",
+        "total": "ASN"
+      }
+    },
+    {
+      "name": "unique_dst_country",
+      "unit": "country",
+      "distinct_field": "dst_country",
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
+      "calculation_units": {
+        "avg": "country",
+        "bucket_total": "country-observations",
+        "max": "country",
+        "p95": "country",
+        "p99": "country",
+        "total": "country"
+      }
+    }
+  ],
+  "statistics": {
+    "decimal_places": 18,
+    "decimal_rounding": "toward zero",
+    "distinct_bucket_total": "sum of per-bucket distinct counts",
+    "distinct_total": "whole-window exact identities",
+    "percentile": "nearest rank, including idle zero buckets",
+    "rate_average": "duration weighted"
+  },
+  "time_range": "tenant retention and source coverage; no fixed day cap",
+  "render_cost": {
+    "mcp_source_bytes": 33554432,
+    "mcp_wire_bytes": 134217728,
+    "mcp_result_nodes": 4194304,
+    "mcp_csv_page_bytes": 2097152
+  }
+}

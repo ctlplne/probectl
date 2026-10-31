@@ -321,6 +321,13 @@ describe('alert-to-postmortem round trip (X11)', () => {
     expect(await screen.findByRole('heading', { name: 'Incidents' })).toBeInTheDocument()
     expect(interactions).toBeLessThanOrEqual(8)
 
+    // The /me-resolved sign-in hint is routing context, separate from the
+    // tenant-free incident pivot. Wait for its effect rather than racing it.
+    await waitFor(() =>
+      expect(currentURL().searchParams.get('login_tenant')).toBe(
+        '00000000-0000-4000-8000-000000000001',
+      ),
+    )
     const url = currentURL()
     const context = parsePivotContext(url.searchParams).context
     expect(url.pathname).toBe('/incidents')
@@ -330,7 +337,10 @@ describe('alert-to-postmortem round trip (X11)', () => {
       to: LAST_SEEN,
       returnTo: '/alerts?alert_state=firing&alert=eval%3Aroundtrip-series',
     })
-    expect(url.search.toLowerCase()).not.toContain('tenant')
+    const contextOnly = new URLSearchParams(url.search)
+    contextOnly.delete('login_tenant')
+    expect(contextOnly.toString().toLowerCase()).not.toContain('tenant')
+    expect(url.search).not.toContain(incident.tenant_id)
     expect(
       requests.filter((request) =>
         ['/v1/alerts/active/ack', '/v1/alerts/active/silence'].includes(request.path),

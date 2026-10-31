@@ -12,10 +12,14 @@ import (
 )
 
 type apiOp struct {
-	Method      string
-	Path        string
-	ArgName     string
-	Description string
+	// ExactJSON preserves integer tokens on structured Explorer requests/results.
+	ExactJSON        bool
+	MaxBodyBytes     int64
+	VerifiedDownload bool
+	Method           string
+	Path             string
+	ArgName          string
+	Description      string
 	// SensitiveBody marks credential-bearing requests whose JSON must never be
 	// supplied through --body (and therefore exposed in argv / shell history).
 	// These operations accept only --body-file, with "-" meaning stdin.
@@ -193,9 +197,22 @@ var surfaceCommands = map[string]surfaceCommand{
 		"status": {Method: http.MethodGet, Path: "/v1/editions"},
 	}},
 	"explorer": {Name: "explorer", Summary: "structured and natural-language telemetry explorer", Ops: map[string]apiOp{
-		"schema":  {Method: http.MethodGet, Path: "/v1/explorer/schema"},
-		"query":   {Method: http.MethodPost, Path: "/v1/explorer/query", Description: "return exact rows plus a sanitized tenant-scoped logical execution receipt"},
-		"compare": {Method: http.MethodPost, Path: "/v1/explorer/compare", Description: "return aligned windows plus sanitized source and alignment execution receipts"},
+		"schema":        {Method: http.MethodGet, Path: "/v1/explorer/schema", ExactJSON: true},
+		"query":         {Method: http.MethodPost, Path: "/v1/explorer/query", ExactJSON: true, MaxBodyBytes: 2 << 20, Description: "return exact rows plus a sanitized tenant-scoped logical execution receipt, or a stateless proposal with {source:flow,plan_only:true,question:...}; review then execute explicitly; --body-file accepts the complete flow grammar (8 groupings, matrix, nested filters, metrics, range and page controls)"},
+		"compare":       {Method: http.MethodPost, Path: "/v1/explorer/compare", ExactJSON: true, MaxBodyBytes: 2 << 20, Description: "return aligned windows plus sanitized source and alignment execution receipts"},
+		"snapshot-csv":  {Method: http.MethodGet, Path: "/v1/explorer/flow-snapshots/{id}/csv", ArgName: "id", VerifiedDownload: true, Description: "download the complete frozen CSV after verifying its length and SHA-256; --max-bytes adjusts the local export budget"},
+		"view-list":     {Method: http.MethodGet, Path: "/v1/explorer/flow-views", ExactJSON: true, Description: "page private and tenant-shared complete queries; --query search=,label=,visibility=,owner=,sort=,tab=,after=,limit="},
+		"view-get":      {Method: http.MethodGet, Path: "/v1/explorer/flow-views/{id}", ArgName: "id", ExactJSON: true},
+		"view-create":   {Method: http.MethodPost, Path: "/v1/explorer/flow-views", ExactJSON: true, MaxBodyBytes: 2 << 20, Description: "save a complete definition; requires flow.views.write"},
+		"view-update":   {Method: http.MethodPut, Path: "/v1/explorer/flow-views/{id}", ArgName: "id", ExactJSON: true, MaxBodyBytes: 2 << 20, Description: "replace definition with its exact decimal-text version"},
+		"view-delete":   {Method: http.MethodDelete, Path: "/v1/explorer/flow-views/{id}", ArgName: "id", ExactJSON: true, Description: "delete own query; --query version=N is required"},
+		"view-favorite": {Method: http.MethodPut, Path: "/v1/explorer/flow-views/{id}/preferences", ArgName: "id", ExactJSON: true, Description: "set private favorite with a boolean favorite body"},
+		"view-run":      {Method: http.MethodPost, Path: "/v1/explorer/flow-views/{id}/query", ArgName: "id", ExactJSON: true, Description: "execute current saved definition and comparison; no overrides"},
+		"filter-list":   {Method: http.MethodGet, Path: "/v1/explorer/flow-filters", ExactJSON: true, Description: "list tenant-shared reusable filters; --query after= and --query limit= page results"},
+		"filter-get":    {Method: http.MethodGet, Path: "/v1/explorer/flow-filters/{id}", ArgName: "id", ExactJSON: true},
+		"filter-create": {Method: http.MethodPost, Path: "/v1/explorer/flow-filters", ExactJSON: true, MaxBodyBytes: 2 << 20, Description: "save name, description and nested expression; requires flow.filters.write"},
+		"filter-update": {Method: http.MethodPut, Path: "/v1/explorer/flow-filters/{id}", ArgName: "id", ExactJSON: true, MaxBodyBytes: 2 << 20, Description: "replace name, description and expression with the observed version"},
+		"filter-delete": {Method: http.MethodDelete, Path: "/v1/explorer/flow-filters/{id}", ArgName: "id", ExactJSON: true, Description: "delete one observed filter version; --query version=N is required"},
 	}},
 	"endpoint": {Name: "endpoint", Summary: "endpoint/DEM fleet", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/endpoints"},

@@ -8,7 +8,7 @@
 // tiny, dependency-FREE Prometheus text-exposition registry (CONTRIBUTING.md —
 // no new dependency for this). "probectl observes probectl" (§8): the control
 // plane and collector binaries expose their OWN operational health here, never
-// tenant data. Every series is a process/aggregate counter or gauge, so
+// tenant data. Every series is a process/aggregate counter, gauge or fixed histogram, so
 // /metrics carries no per-tenant values and needs no tenant scoping.
 //
 // The format is the Prometheus text exposition format (v0.0.4): each metric
@@ -34,6 +34,7 @@ type Registry struct {
 	counterFns map[string]*gaugeFunc
 	gauges     map[string]*gaugeFunc
 	lgauges    map[string]*labeledGauge
+	histograms map[string]*Histogram
 	help       map[string]string
 	startTime  time.Time
 	version    string
@@ -66,6 +67,7 @@ func New(version, commit string) *Registry {
 		counterFns: map[string]*gaugeFunc{},
 		gauges:     map[string]*gaugeFunc{},
 		lgauges:    map[string]*labeledGauge{},
+		histograms: map[string]*Histogram{},
 		help:       map[string]string{},
 		startTime:  time.Now(),
 		version:    version,
@@ -235,6 +237,16 @@ func (r *Registry) Handler() http.Handler {
 			for _, v := range lg.values {
 				fmt.Fprintf(w, "%s{%s=%q} %g\n", n, lg.label, v, lg.fn(v))
 			}
+		}
+
+		// Fixed histograms (sorted).
+		hnames := make([]string, 0, len(r.histograms))
+		for name := range r.histograms {
+			hnames = append(hnames, name)
+		}
+		sort.Strings(hnames)
+		for _, name := range hnames {
+			r.histograms[name].write(w, name)
 		}
 
 		// Registered gauges (sorted).

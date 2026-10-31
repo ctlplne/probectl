@@ -97,7 +97,7 @@
       ],
       "name": "AI RCA + NL query",
       "status": "delivered",
-      "evidence": "`internal/ai` · *rca-eval*"
+      "evidence": "`internal/ai` · *rca-eval* · `internal/control/ai_flow_question.go` (stateless flow proposals; no stored conversation history)"
     },
     {
       "ids": [
@@ -129,7 +129,7 @@
       ],
       "name": "Flow analytics",
       "status": "delivered",
-      "evidence": "`internal/flow`"
+      "evidence": "`internal/flow`, `internal/control/explorer_flow.go`, `web/src/routes/NativeFlowPage.tsx` · native flow builder/charts and explicit structured execution; query reach governed by the shared registry"
     },
     {
       "ids": [

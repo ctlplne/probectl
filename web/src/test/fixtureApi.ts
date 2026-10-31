@@ -4,6 +4,8 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
+import flowExplorerSchema from './flowExplorerSchema.json'
+
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -1553,6 +1555,7 @@ export function fixtureFetch(
     if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
     if (path === '/v1/explorer/schema')
       return jsonResponse({
+        flow: flowExplorerSchema,
         templates: sampleExplorerTemplates,
         visualizations: ['table', 'bar', 'line', 'timeline', 'topology'],
         comparison_sources: ['flow', 'changes', 'topology', 'endpoints', 'tls'],
@@ -1561,6 +1564,7 @@ export function fixtureFetch(
     if (path === '/v1/explorer/compare') {
       const request = JSON.parse(String(init?.body)) as {
         query: {
+          flow?: unknown
           template?: string
           question: string
           source: string
@@ -1576,6 +1580,17 @@ export function fixtureFetch(
         previous_from: string
         previous_to: string
       }
+      if (request.query.flow)
+        return jsonResponse(
+          {
+            error: {
+              code: 'unavailable',
+              message:
+                'Native record-flow execution requires a connected control plane; this read-only preview supplies grammar only.',
+            },
+          },
+          503,
+        )
       const template = sampleExplorerTemplates.find((item) => item.id === request.query.template)
       return jsonResponse({
         contract_version: 'explorer-comparison/v1',
@@ -1635,6 +1650,8 @@ export function fixtureFetch(
     }
     if (path === '/v1/explorer/query') {
       const query = JSON.parse(String(init?.body)) as {
+        plan_only?: boolean
+        flow?: unknown
         template?: string
         question: string
         source: string
@@ -1647,6 +1664,28 @@ export function fixtureFetch(
         visualization: string
         limit: number
       }
+      if (query.plan_only)
+        return jsonResponse(
+          {
+            error: {
+              code: 'unavailable',
+              message:
+                'Stateless flow planning requires a connected control plane; this read-only preview supplies grammar only.',
+            },
+          },
+          503,
+        )
+      if (query.flow)
+        return jsonResponse(
+          {
+            error: {
+              code: 'unavailable',
+              message:
+                'Native record-flow execution requires a connected control plane; this read-only preview supplies grammar only.',
+            },
+          },
+          503,
+        )
       // Timeline/line results carry a real time column (mirrors the server,
       // which adds the bucket timestamp for time visualizations) so the S11
       // TimeSeries upgrade path renders in the design loop.

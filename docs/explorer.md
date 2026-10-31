@@ -2,6 +2,46 @@
 
 # Explorer
 
+
+## Stateless flow questions
+
+In the native flow workspace, **Ask a flow question → Preview query plan** proposes
+registered flow grammar. Review its bounds, filters, metrics, comparison and assumptions
+in the builder, then choose **Run flow query** to read telemetry. A clarification or
+refusal does not execute or alter the builder. Applying a proposal disables auto-refresh
+until you explicitly run it. Questions and answers are not saved as conversation history.
+Saving a query remains a separate action that stores its structured configuration.
+
+The same request is available through REST and CLI:
+
+```json
+{"source":"flow","plan_only":true,"question":"show bps all rows"}
+```
+
+Send it to `POST /v1/explorer/query`, or put it in a file and use
+`probectl explorer query --body-file question.json`. The response has a `proposal`
+with status `ready`, `clarify` or `refused`. A ready proposal carries a validated
+`plan`, optional `comparison`/derived `previous`, display settings and assumptions.
+It is configuration, not a query result or an authorization grant. Submit the reviewed
+plan as `{"source":"flow","flow":...}` to execute, or use `/v1/explorer/compare`
+with the explicit previous bounds. Planning accepts only source, question and plan_only;
+no tenant selector, stored parent, execution overrides or user SQL.
+
+MCP exposes `flow_explorer_plan` with `{"question":"show bps all rows"}`. It returns
+the same proposal shape; explicitly call `flow_explorer_query` or `flow_explorer_compare`
+to execute. Both permissions `ai.query` and `flow.read` and current ABAC policy are
+required. Joined metadata requires its own current read permission. Execution rechecks
+all source, saved-filter, retention, cost and tenant restrictions.
+
+The default planner is deterministic and offline. Configured model inference uses the
+existing shared AI egress consent, redaction and audit gate. Revoked consent refuses
+publication. Authenticated user/tenant timezone and locale plus one server clock supply
+time context; a question never supplies authority. Operator planning budgets bound
+bytes, tokens, nesting and model response allocation; the existing 2 MiB Explorer
+transport budget also applies. These resource limits do not reduce structured query
+reach or impose a fixed day cap.
+
+
 Explorer is probectl's shared query workbench at `/explore`. It joins a natural-language
 question to a small structured grammar: time, source/plane, dimensions, exact filters,
 groupings, measures, visualization, and row limit. The readable preview is the query receipt;

@@ -26,7 +26,7 @@ var productionConfigGlobs = []string{
 	"../internal/agent/config.go",
 	"../internal/browsercanary/*.go",
 	"../internal/cli/cli.go",
-	"../internal/config/config.go",
+	"../internal/config/*.go",
 	"../internal/device/config.go",
 	"../internal/device/creds.go",
 	"../internal/device/secretscreds.go",
@@ -158,6 +158,35 @@ func TestConfigurationParityRejectsPlantedDrift(t *testing.T) {
 	)
 	if len(missing) != 0 || len(stale) != 1 || stale[0] != "PROBECTL_PLANTED_STALE_KEY" {
 		t.Fatalf("stale-key self-check = missing %v stale %v", missing, stale)
+	}
+}
+
+func TestProductionConfigInventoryIncludesSplitLoaders(t *testing.T) {
+	keys := productionEnvKeys(t)
+	for _, key := range []string{"PROBECTL_FLOW_QUERY_TIMEOUT", "PROBECTL_FLOW_MCP_WIRE_BYTES", "PROBECTL_FLOW_SNAPSHOT_MAX_BYTES", "PROBECTL_FLOW_QUESTION_MODEL_MAX_OUTPUT_TOKENS"} {
+		if _, exists := keys[key]; !exists {
+			t.Fatalf("production loader helper was omitted from environment inventory: %s", key)
+		}
+	}
+}
+
+func TestConfigurationParityRejectsDriftFromLoaderHelper(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "loader_helper.go")
+	if err := os.WriteFile(path, []byte(`package config
+func loadExtra(l *loader) { l.str("PROBECTL_PLANTED_HELPER_KEY", "") }
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]struct{}{}
+	collectGoEnvKeys(t, path, keys)
+	missing, stale := configurationParityViolations(keys, "")
+	if len(missing) != 1 || missing[0] != "PROBECTL_PLANTED_HELPER_KEY" || len(stale) != 0 {
+		t.Fatalf("undocumented helper key did not fail: missing=%v stale=%v", missing, stale)
+	}
+	doc := "`PROBECTL_PLANTED_HELPER_KEY` `PROBECTL_PLANTED_STALE_KEY`"
+	missing, stale = configurationParityViolations(keys, doc)
+	if len(missing) != 0 || len(stale) != 1 || stale[0] != "PROBECTL_PLANTED_STALE_KEY" {
+		t.Fatalf("stale key was exempted by helper inventory: missing=%v stale=%v", missing, stale)
 	}
 }
 

@@ -247,7 +247,7 @@ describe('topology + what-if (S43)', () => {
     ).toBeInTheDocument()
   }, 20_000)
 
-  test('time travel: picking a time refetches with ?at=', async () => {
+  test('UTC time travel: picking a time refetches with ?at=', async () => {
     const fetcher = stub()
     vi.stubGlobal('fetch', fetcher)
     renderApp('/topology')
@@ -256,7 +256,7 @@ describe('topology + what-if (S43)', () => {
     await userEvent.click(screen.getByText(/history & filters/i))
     const input = screen.getByLabelText(/as of/i)
     const selectedTime = '2026-06-04T11:00'
-    const expectedAt = new Date(selectedTime).toISOString()
+    const expectedAt = '2026-06-04T11:00:00.000Z'
     fireEvent.change(input, { target: { value: selectedTime } })
     await waitFor(() => {
       const urls = (

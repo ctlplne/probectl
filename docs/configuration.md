@@ -101,7 +101,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_DATABASE_URL`             | *(required; no default)*                                             | PostgreSQL URL (`postgres://` or `postgresql://`; keyword/value DSNs are rejected). Direct binary startup fails closed when it is absent; Compose and Helm supply it explicitly. `multi-tenant`/`regulated` profiles require server-certificate verification on writer and read-replica URLs: `sslmode=verify-ca` or `verify-full` **with** `sslrootcert` set (a trust anchor); server-unverified or plaintext modes (`require`, `prefer`, `allow`, `disable`, or omitted) are rejected because `require` encrypts but trusts any presented certificate (CRY-05). These profiles also reject query-string `host=` overrides so pgx cannot replace the TLS-checked authority. Explicit dev-only `sslmode=require`/`disable` remains accepted under the `single` profile |
 | `PROBECTL_MIGRATE_DATABASE_URL`     | *(empty = use `PROBECTL_DATABASE_URL`)*                              | TEN-01: separate PRIVILEGED DSN used ONLY to apply schema migrations (which `CREATE SCHEMA`/`ROLE`/`EXTENSION`). The serving control plane connects with the least-privilege runtime login in `PROBECTL_DATABASE_URL` (NOSUPERUSER, NOBYPASSRLS) and never serves a request through this one, so a superuser serve login cannot silently disable tenant RLS. With siloed isolation licensed it also runs the silo schemas' DDL (provisioning and the startup catch-up), which the serve login cannot; without it a siloed tenant is refused. Empty keeps the single-login behaviour (migrations use `PROBECTL_DATABASE_URL`) |
 | `PROBECTL_DANGEROUS_ALLOW_SUPERUSER_DB` | `false`                                                          | TEN-01 escape hatch: by default the control plane REFUSES to serve as a SUPERUSER/BYPASSRLS Postgres login, because such a login silently disables the storage-layer tenant isolation (guardrail 7.1). Set `true` ONLY to override that fail-closed posture check (dangerous; never in production) |
-| `PROBECTL_DATABASE_MAX_CONNS`       | `25`                                                               | max pool connections (2–1000). One session is reserved by the singleton advisory-lock lease, leaving at least one for work; per-tier sizing (SCALE-009): small/single-node `25`; medium `50`; large/multi-tenant `100+` — size to `instances × max_conns ≤ Postgres max_connections` with headroom for migrations/admin |
+| `PROBECTL_DATABASE_MAX_CONNS`       | `25`                                                               | max pool connections (2–1000). One session is reserved by the singleton advisory-lock lease. Flow Explorer result snapshots and their coordinated retention/erasure require at least `4` total connections (the singleton plus three workers); smaller pools receive an explicit resource refusal. Snapshot instances sharing a pool share admission before acquiring leases. Per-tier sizing (SCALE-009): small/single-node `25`; medium `50`; large/multi-tenant `100+` — size to `instances × max_conns ≤ Postgres max_connections` with headroom for migrations/admin |
 | `PROBECTL_DATABASE_MIN_CONNS`       | `2`                                                                | min (warm) pool connections — keeps a couple of conns open so the first request after idle skips the connect+TLS cold start. Production profiles may raise this |
 | `PROBECTL_DATABASE_CONNECT_TIMEOUT` | `5s`                                                              | per-connection connect timeout               |
 | `PROBECTL_MIGRATE_ON_BOOT`          | `false`                                                            | apply migrations during `serve` startup      |
@@ -1791,10 +1791,41 @@ The **control plane** consumes that flow topic, optionally enriches each record
 with ASN/geo, and persists to the flow store behind `/v1/flows/*` (top-talkers /
 capacity / anomalies). These are control-plane keys (not flow-agent keys):
 
+Native flow cost budgets are deployment settings shared by the serving process
+and standalone MCP. Every value must be positive; zero never means unlimited.
+They bound work independently of the eight-dimension grammar, 50,000-row paged
+table reach and retention-covered time range. A refusal returns no partial
+result. The authenticated Explorer schema reports the configured cost policy;
+query input cannot override it. Other telemetry stores retain their existing
+response allocation defaults.
+
 | Variable                        | Default  | Meaning                                                             |
 | -------------------------------- | -------- | -------------------------------------------------------------------- |
 | `PROBECTL_FLOWSTORE_MODE`         | `memory` | where flow records live: `memory` (lightweight/single-binary) \| `clickhouse` (durable, high-cardinality) |
 | `PROBECTL_FLOWSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** in clickhouse mode. `multi-tenant`/`regulated` profiles require `https://` |
+| `PROBECTL_FLOW_QUERY_TIMEOUT` | `5s` | native flow store-operation deadline; comparison has a bounded six-pass envelope |
+| `PROBECTL_FLOW_QUERY_MAX_READ_BYTES` | `268435456` | per-query uncompressed ClickHouse read budget and reference-store allocation accounting |
+| `PROBECTL_FLOW_QUERY_MAX_READ_ROWS` | `5000000` | examined source rows; tenant scope applies before reference-store accounting |
+| `PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES` | `67108864` | authenticated ClickHouse response allocation budget; sentinel overflow refuses the entire result |
+| `PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES` | `536870912` | ClickHouse query memory; reference aggregation also respects its read-byte budget |
+| `PROBECTL_FLOW_QUERY_MAX_INTERMEDIATE_GROUPS` | `500000` | internal aggregation/result work; overflow throws, with no partial result |
+| `PROBECTL_FLOW_QUERY_MAX_INTERFACE_ITEMS` | `10000` | tenant-local interface-name lookup admission; reference telemetry sample admission is ten times this value |
+| `PROBECTL_FLOW_QUERY_MAX_THREADS` | `2` | ClickHouse threads per native flow query; shared tenant fairness still applies |
+| `PROBECTL_FLOW_SNAPSHOT_LIFETIME` | `15m` | private result-cache lifetime, further bounded by contributing input retention; expiry and lifecycle checks still apply |
+| `PROBECTL_FLOW_SNAPSHOT_TENANT_BYTES` | `536870912` | aggregate private result-cache charge per tenant |
+| `PROBECTL_FLOW_SNAPSHOT_MAX_BYTES` | `134217728` | materialization/charge admission for one frozen query or comparison |
+| `PROBECTL_FLOW_SNAPSHOT_OBJECT_BYTES` | `67108864` | admission for each encrypted result object; records never truncate to fit |
+| `PROBECTL_FLOW_SNAPSHOT_EXPORT_BYTES` | `268435456` | complete authenticated CSV preparation budget; a refusal publishes no partial export |
+| `PROBECTL_FLOW_MCP_SOURCE_BYTES` | `33554432` | native MCP source JSON and post-redaction byte admission; legacy tools retain their 1 MiB bound |
+| `PROBECTL_FLOW_MCP_WIRE_BYTES` | `134217728` | complete native JSON-RPC response, including text/structured copies and framing; refuses atomically |
+| `PROBECTL_FLOW_MCP_RESULT_NODES` | `4194304` | native result structural admission before JSON encoding; legacy tools retain 64 Ki nodes |
+| `PROBECTL_FLOW_MCP_CSV_PAGE_BYTES` | `2097152` | native CSV page record-encoding budget; ends between complete records and continues without reducing total export reach |
+| `PROBECTL_FLOW_QUESTION_MAX_BYTES` | `8388608` | native question/planner context and typed proposal byte admission; full encoded context is checked without truncation |
+| `PROBECTL_FLOW_QUESTION_MAX_TOKENS` | `1048576` | syntactic lexer/JSON structural tokens, distinct from model billing/output tokens |
+| `PROBECTL_FLOW_QUESTION_MAX_NESTING` | `32` | planner syntax/JSON nesting resource budget; native filter depth and field/operator guards still apply |
+| `PROBECTL_FLOW_QUESTION_MODEL_MAX_RESPONSE_BYTES` | `16777216` | complete provider HTTP success body for native plan proposals; overflow releases no partial text or plan; error-body drains remain bounded at1MiB |
+| `PROBECTL_FLOW_QUESTION_MODEL_MAX_OUTPUT_TOKENS` | `16384` | finite positive native completion output resource policy; configure within the selected model's documented capacity; no provider maximum is inferred |
+| `PROBECTL_FLOW_QUESTION_MODEL_OPENAI_TOKEN_PARAMETER` | `max_completion_tokens` | OpenAI-compatible token-limit parameter; explicitly choose legacy `max_tokens` if the endpoint requires it; no automatic unbounded retry |
 | `PROBECTL_EBPFSTORE_MODE`         | `memory` | where eBPF flow/L7 service-edge aggregates live: `memory` (lightweight/single-binary) \| `clickhouse` (durable history) |
 | `PROBECTL_EBPFSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** when `PROBECTL_EBPFSTORE_MODE=clickhouse`. `multi-tenant`/`regulated` profiles require `https://` |
 | `PROBECTL_ENDPOINTSTORE_MODE`     | `memory` | where event-shaped endpoint/DEM observations live: `memory` (lightweight) \| `clickhouse` (production durable history and restart recovery). Numeric endpoint metrics always use the configured TSDB |
@@ -2186,6 +2217,11 @@ recover it. See [`mcp.md`](mcp.md).
 | `PROBECTL_MCP_TLS_CERT_FILE` | (none)  | PEM server certificate (required to enable HTTP)              |
 | `PROBECTL_MCP_TLS_KEY_FILE`  | (none)  | PEM server private key (required to enable HTTP)              |
 | `PROBECTL_MCP_RATE_PER_MIN`  | `120`   | per-tenant tool-call rate limit (0 disables)                  |
+| `PROBECTL_MCP_ALLOWED_ORIGINS` | empty | comma-separated trusted serialized HTTP(S) browser origins, e.g. `https://mcp-client.example`; absent Origin remains valid for authenticated native clients, every present Origin is refused by default. Exact scheme/host/port policy; no wildcard, userinfo, paths, queries, fragments or opaque/null origins. Listener TLS and bearer authorization remain required. |
+| `PROBECTL_MCP_STDIO_WORKERS` | `2` | Versioned2025/2026 stdio requests executing per stream; operator cost policy, integer 1–10,000. Queued work reloads credentials before execution; request metadata cannot change this setting. |
+| `PROBECTL_MCP_STDIO_QUEUED` | `8` | Versioned2025/2026 stdio requests waiting per stream; operator cost policy, integer 1–10,000. A full queue refuses new requests while the reader continues to process cancellation. Closing stdin cancels active and queued work. |
+| `PROBECTL_MCP_HTTP_WORK_TIMEOUT` | `1m` | Positive operator deadline for legacy2025 HTTP work, at most24h. Legacy disconnect does not cancel its request; explicit cancellation or this deadline does. Native source time/read/memory limits and fairness remain unchanged. Modern2026 work still cancels directly on disconnect. |
+| `PROBECTL_MCP_HTTP_ACTIVE_REQUESTS` | `1024` | Live legacy2025 HTTP requests admitted per process, integer 1–1,000,000. A full pool refuses new work; cancellation targets the authenticated tenant/user/credential and exact active request ID. No result-row or query-retention reach change. |
 
 Setting `PROBECTL_MCP_HTTP_ADDR` without the TLS files fails config validation — the
 MCP endpoint is never anonymous plaintext.

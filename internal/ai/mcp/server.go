@@ -52,14 +52,21 @@ type ServerInfo struct {
 // Server is probectl's MCP server: a transport-agnostic JSON-RPC handler over the
 // read-only tool catalog. Handle is the single entry point both transports use.
 type Server struct {
-	tools        map[string]Tool
-	order        []string
-	limiter      *rateLimiter
-	info         ServerInfo
-	log          *slog.Logger
-	gate         *ai.EgressGate
-	audit        CallAudit
-	policyLoader PolicyLoader
+	tools              map[string]Tool
+	order              []string
+	limiter            *rateLimiter
+	info               ServerInfo
+	log                *slog.Logger
+	gate               *ai.EgressGate
+	audit              CallAudit
+	policyLoader       PolicyLoader
+	nativeEnabled      bool
+	nativeRenderBudget NativeFlowRenderBudget
+	httpOrigins        map[string]struct{}
+	httpOriginsInvalid bool
+	stdioLimits        StdioLimits
+	httpWorkBudget     HTTPWorkBudget
+	legacyHTTP         *legacyHTTPRegistry
 }
 
 const (
@@ -128,11 +135,15 @@ func WithPolicyLoader(load PolicyLoader) Option {
 // gate denies every tool call (fail closed).
 func New(backend Backend, gate *ai.EgressGate, opts ...Option) *Server {
 	s := &Server{
-		tools:   map[string]Tool{},
-		limiter: newRateLimiter(120),
-		info:    ServerInfo{Name: "probectl", Version: version.Get().Version},
-		log:     slog.Default(),
-		gate:    gate,
+		tools:              map[string]Tool{},
+		limiter:            newRateLimiter(120),
+		info:               ServerInfo{Name: "probectl", Version: version.Get().Version},
+		log:                slog.Default(),
+		gate:               gate,
+		nativeRenderBudget: DefaultNativeFlowRenderBudget(),
+		stdioLimits:        DefaultStdioLimits(),
+		httpWorkBudget:     DefaultHTTPWorkBudget(),
+		legacyHTTP:         &legacyHTTPRegistry{active: map[legacyHTTPKey]*legacyHTTPJob{}},
 	}
 	for _, t := range buildTools(backend) {
 		s.tools[t.Name] = t
@@ -147,9 +158,27 @@ func New(backend Backend, gate *ai.EgressGate, opts ...Option) *Server {
 // Handle processes one JSON-RPC message under the principal's tenant + RBAC and
 // returns the response bytes — or nil for a notification (which gets no reply).
 func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []byte {
-	var req rpcRequest
-	if err := json.Unmarshal(raw, &req); err != nil {
-		return marshal(errorResponse(nil, codeParse, "parse error"))
+	req, failure := decodeRPC(raw, false)
+	if failure != nil {
+		return marshal(s.prepareResponse(req, failure))
+	}
+	return s.handleRequest(ctx, p, req, raw)
+}
+
+func (s *Server) handleRequest(ctx context.Context, p *auth.Principal, req rpcRequest, raw []byte) []byte {
+	if req.Method == "tools/call" && s.isNativeCall(raw) {
+		if err := nativeJSONSyntax(raw, 4<<20); err != nil {
+			return marshal(errorResponse(nil, codeInvalidParams, "invalid native request JSON"))
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(req.Params, &fields) != nil {
+			return marshal(errorResponse(req.ID, codeInvalidParams, "invalid native tool parameters"))
+		}
+		for key := range fields {
+			if key != "name" && key != "arguments" && key != "_meta" {
+				return marshal(errorResponse(req.ID, codeInvalidParams, "unknown native tool parameter"))
+			}
+		}
 	}
 	if len(req.ID) > maxMCPRequestIDBytes {
 		// The ID is caller-controlled and is echoed by JSON-RPC. Refuse it
@@ -159,10 +188,21 @@ func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []by
 	}
 	notification := len(req.ID) == 0
 	resp := s.dispatch(ctx, p, req)
+	resp = s.prepareResponse(req, resp)
+	if resp != nil && resp.finalize != nil {
+		defer resp.finalize()
+	}
 	if notification || resp == nil {
 		return nil
 	}
-	return marshal(resp)
+	if ctx.Err() != nil {
+		return marshal(s.prepareResponse(req, errorResponse(req.ID, codeUnavailable, "request was canceled")))
+	}
+	encoded := marshal(resp)
+	if ctx.Err() != nil {
+		return marshal(s.prepareResponse(req, errorResponse(req.ID, codeUnavailable, "request was canceled")))
+	}
+	return encoded
 }
 
 func (s *Server) dispatch(ctx context.Context, p *auth.Principal, req rpcRequest) *rpcResponse {
@@ -174,8 +214,17 @@ func (s *Server) dispatch(ctx context.Context, p *auth.Principal, req rpcRequest
 		return errorResponse(req.ID, codeUnauthorized, "no tenant on principal")
 	}
 	switch req.Method {
+	case "server/discover":
+		return resultResponse(req.ID, s.discoverResult())
 	case "initialize":
-		return resultResponse(req.ID, s.initializeResult())
+		if req.protocol.modern {
+			return errorResponse(req.ID, codeMethodNotFound, "method not found")
+		}
+		result := s.initializeResult()
+		if req.protocol.version == legacyProtocolVersion {
+			result["protocolVersion"] = legacyProtocolVersion
+		}
+		return resultResponse(req.ID, result)
 	case "notifications/initialized":
 		return nil // a notification — no response
 	case "ping":
@@ -217,7 +266,7 @@ func (s *Server) listTools(ctx context.Context, p *auth.Principal) (map[string]a
 	rbacTools := make([]Tool, 0, len(s.order))
 	for _, name := range s.order {
 		t := s.tools[name]
-		if !p.Has(t.Permission) {
+		if (t.RequiresUser && strings.TrimSpace(p.UserID) == "") || missingToolPermission(p, t) != "" {
 			continue
 		}
 		rbacTools = append(rbacTools, t)
@@ -231,7 +280,7 @@ func (s *Server) listTools(ctx context.Context, p *auth.Principal) (map[string]a
 	}
 	tools := make([]toolDescriptor, 0, len(rbacTools))
 	for _, t := range rbacTools {
-		if !auth.Authorize(p, t.Permission, policies, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
+		if !toolPoliciesAllow(p, t, policies) {
 			continue
 		}
 		tools = append(tools, toolDescriptor{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
@@ -239,16 +288,25 @@ func (s *Server) listTools(ctx context.Context, p *auth.Principal) (map[string]a
 	return map[string]any{"tools": tools}, nil
 }
 
-func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest) *rpcResponse {
+func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest) (response *rpcResponse) {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
-	if err := json.Unmarshal(req.Params, &params); err != nil {
+	if req.protocol.modern || req.protocol.version == legacyProtocolVersion {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(req.Params, &fields) != nil || json.Unmarshal(fields["name"], &params.Name) != nil || params.Name == "" {
+			return errorResponse(req.ID, codeInvalidParams, "invalid params")
+		}
+		params.Arguments = fields["arguments"]
+	} else if json.Unmarshal(req.Params, &params) != nil {
 		return errorResponse(req.ID, codeInvalidParams, "invalid params")
 	}
 	t, ok := s.tools[params.Name]
 	if !ok {
+		if req.protocol.modern || req.protocol.version == legacyProtocolVersion {
+			return errorResponse(req.ID, codeInvalidParams, "unknown tool")
+		}
 		return errorResponse(req.ID, codeMethodNotFound, "unknown tool: "+params.Name)
 	}
 	// Every outcome below is audited (AIRCA-003): who, tenant, tool, result.
@@ -275,11 +333,17 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	// Tenant boundary FIRST (in dispatch), then RBAC, then the tenant's ABAC
 	// deny-override policies. A caller without the RBAC baseline never triggers a
 	// policy lookup, and a policy-load failure never degrades to RBAC-only access.
-	if !p.Has(t.Permission) {
+	if t.RequiresUser && strings.TrimSpace(p.UserID) == "" {
+		if err := emit(CallPhaseTerminal, false, "identity"); err != nil {
+			return auditUnavailable()
+		}
+		return errorResponse(req.ID, codeUnauthorized, "user identity required")
+	}
+	if missing := missingToolPermission(p, t); missing != "" {
 		if err := emit(CallPhaseTerminal, false, "permission"); err != nil {
 			return auditUnavailable()
 		}
-		return errorResponse(req.ID, codeForbidden, "missing permission: "+t.Permission)
+		return errorResponse(req.ID, codeForbidden, "missing permission: "+missing)
 	}
 	policies, err := s.loadPolicies(ctx, p.TenantID)
 	if err != nil {
@@ -289,11 +353,18 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		}
 		return errorResponse(req.ID, codeUnavailable, "authorization policy is temporarily unavailable")
 	}
-	if !auth.Authorize(p, t.Permission, policies, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
+	if !toolPoliciesAllow(p, t, policies) {
 		if err := emit(CallPhaseTerminal, false, "permission"); err != nil {
 			return auditUnavailable()
 		}
 		return errorResponse(req.ID, codeForbidden, "denied by an attribute policy: "+t.Permission)
+	}
+	publicationPolicies, err := publicationPolicySnapshot(ctx, policies)
+	if err != nil {
+		if auditErr := emit(CallPhaseTerminal, false, "policy"); auditErr != nil {
+			return auditUnavailable()
+		}
+		return errorResponse(req.ID, codeUnavailable, "authorization policy is temporarily unavailable")
 	}
 	if !s.limiter.allow(p.TenantID) {
 		if err := emit(CallPhaseTerminal, false, "rate"); err != nil {
@@ -335,12 +406,60 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	if err := emit(CallPhaseAdmission, true, ""); err != nil {
 		return auditUnavailable()
 	}
+	if t.Native && s.nativeRenderBudget.Validate() != nil {
+		if err := emit(CallPhaseTerminal, false, "configuration"); err != nil {
+			return auditUnavailable()
+		}
+		return errorResponse(req.ID, codeUnavailable, "native result budgets are unavailable")
+	}
+	if t.Admit != nil {
+		release, err := t.Admit(ctx, p)
+		if err != nil {
+			if auditErr := emit(CallPhaseTerminal, false, terminalToolDenial(err)); auditErr != nil {
+				return auditUnavailable()
+			}
+			if errors.Is(err, fairness.ErrQueryConcurrency) || errors.Is(err, fairness.ErrQueryBudget) {
+				return errorResponse(req.ID, codeRateLimited, "rate limit exceeded; retry after backoff")
+			}
+			return errorResponse(req.ID, codeUnavailable, "query admission unavailable")
+		}
+		defer func() {
+			if response != nil {
+				response.finalize = release
+			} else if release != nil {
+				release()
+			}
+		}()
+	}
+	if err := reportProgress(ctx, 0); err != nil {
+		if auditErr := emit(CallPhaseTerminal, false, "progress_unavailable"); auditErr != nil {
+			return auditUnavailable()
+		}
+		return errorResponse(req.ID, codeUnavailable, "request progress is unavailable")
+	}
 	out, err := t.Invoke(ctx, p, params.Arguments)
+	return s.finishToolCall(ctx, p, req, t, params.Name, publicationPolicies, out, err, emit)
+}
+
+// finishToolCall retains the post-execution ordering: cancellation, error handling,
+// bounded redaction, live authority, progress, framing and durable egress audit.
+func (s *Server) finishToolCall(ctx context.Context, p *auth.Principal, req rpcRequest, t Tool, toolName string, publicationPolicies map[string]bool, out any, invokeErr error, emit func(string, bool, string) error) (response *rpcResponse) {
+	err := invokeErr
+	auditUnavailable := func() *rpcResponse {
+		return errorResponse(req.ID, codeUnavailable, "durable audit is temporarily unavailable")
+	}
+	if ctx.Err() != nil {
+		if auditErr := emit(CallPhaseTerminal, false, "canceled"); auditErr != nil {
+			return auditUnavailable()
+		}
+		return errorResponse(req.ID, codeUnavailable, "request was canceled")
+	}
 	if err != nil {
 		// A tool error is returned as an isError tool result (MCP idiom) so the
-		// model can react. Dependency text can contain credentials or private
-		// source details, so neither the response nor logs include it.
-		s.log.Warn("mcp tool invocation failed", "tenant_id", p.TenantID, "tool", params.Name, "error_class", ErrorClass(err))
+		// model can react. Dependency error text may contain credentials, SQL
+		// or private source details, so both logs and wire omit it. Logs retain
+		// only a bounded error class alongside the known caller/tool identity.
+		s.log.Warn("mcp tool invocation failed", "tenant_id", p.TenantID, "tool", toolName, "error_class", ErrorClass(err))
 		if auditErr := emit(CallPhaseTerminal, false, terminalToolDenial(err)); auditErr != nil {
 			return auditUnavailable()
 		}
@@ -351,16 +470,65 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		if errors.Is(err, fairness.ErrQueryConcurrency) || errors.Is(err, fairness.ErrQueryBudget) {
 			return errorResponse(req.ID, codeRateLimited, "rate limit exceeded; retry after backoff")
 		}
+		if t.Native {
+			return resultResponse(req.ID, toolResult(nativeFailureMessage(err), nil, true))
+		}
 		return resultResponse(req.ID, toolResult("tool execution failed", nil, true))
 	}
-	res, rerr := s.redactedResult(p.TenantID, out)
+	res, rerr := s.redactedToolResult(p.TenantID, out, t.Native)
 	if rerr != nil {
 		if auditErr := emit(CallPhaseTerminal, false, "result_encoding"); auditErr != nil {
 			return auditUnavailable()
 		}
+		if t.Native && errors.Is(rerr, errToolResultTooLarge) {
+			return resultResponse(req.ID, toolResult(nativeResultBudgetMessage, nil, true))
+		}
 		return errorResponse(req.ID, codeInternal, "tool result encoding failed")
 	}
+	if ctx.Err() != nil {
+		if auditErr := emit(CallPhaseTerminal, false, "canceled"); auditErr != nil {
+			return auditUnavailable()
+		}
+		return errorResponse(req.ID, codeUnavailable, "request was canceled")
+	}
 	// The result is now bounded and redacted but has not left the process.
+	if err := s.guardToolPublication(ctx, p, publicationPolicies); err != nil {
+		if auditErr := emit(CallPhaseTerminal, false, "authorization_changed"); auditErr != nil {
+			return auditUnavailable()
+		}
+		return errorResponse(req.ID, codeForbidden, "request authorization is no longer valid")
+	}
+	if err := reportProgress(ctx, 1); err != nil {
+		if auditErr := emit(CallPhaseTerminal, false, "progress_unavailable"); auditErr != nil {
+			return auditUnavailable()
+		}
+		return errorResponse(req.ID, codeUnavailable, "request progress is unavailable")
+	}
+	response = resultResponse(req.ID, res)
+	response = s.prepareResponse(req, response)
+	if t.Native {
+		response.wireBudget = s.nativeRenderBudget.WireBytes - req.protocol.frameReserve
+		response.nodeBudget = s.nativeRenderBudget.Nodes
+		if response.wireBudget <= 0 {
+			if auditErr := emit(CallPhaseTerminal, false, "result_encoding"); auditErr != nil {
+				return auditUnavailable()
+			}
+			return resultResponse(req.ID, toolResult(nativeResultBudgetMessage, nil, true))
+		}
+	} else if req.protocol.frameReserve > 0 {
+		response.wireBudget = maxMCPToolResultBytes - req.protocol.frameReserve
+	}
+	// Include framing and the caller's bounded ID before a successful egress
+	// receipt. A result that fits alone may exceed the complete RPC envelope.
+	if _, err := marshalResponse(response); err != nil {
+		if auditErr := emit(CallPhaseTerminal, false, "result_encoding"); auditErr != nil {
+			return auditUnavailable()
+		}
+		if t.Native && errors.Is(err, errToolResultTooLarge) {
+			return resultResponse(req.ID, toolResult(nativeResultBudgetMessage, nil, true))
+		}
+		return errorResponse(req.ID, codeInternal, "tool result encoding failed")
+	}
 	// Persist the external-egress receipt before returning it to either wire.
 	if err := s.gate.Emit(ctx, ai.EgressEvent{
 		TenantID: p.TenantID,
@@ -368,7 +536,7 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		Model:    "mcp",
 		Surface:  "mcp",
 	}); err != nil {
-		s.log.Warn("mcp durable egress audit unavailable", "tenant_id", p.TenantID, "tool", params.Name, "error_class", ErrorClass(err))
+		s.log.Warn("mcp durable egress audit unavailable", "tenant_id", p.TenantID, "tool", toolName, "error_class", ErrorClass(err))
 		if auditErr := emit(CallPhaseTerminal, false, "egress_audit"); auditErr != nil {
 			return auditUnavailable()
 		}
@@ -377,7 +545,7 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 	if err := emit(CallPhaseTerminal, true, ""); err != nil {
 		return auditUnavailable()
 	}
-	return resultResponse(req.ID, res)
+	return response
 }
 
 func terminalToolDenial(err error) string {
@@ -403,25 +571,44 @@ func (s *Server) loadPolicies(ctx context.Context, tenantID string) ([]auth.Poli
 // the redacted structured content — the un-redacted object never reaches
 // the wire. Masking happens on the JSON encoding; tenant-scoped deterministic
 // tokens keep the JSON valid and values correlatable only inside the tenant.
-func (s *Server) redactedResult(tenantID string, out any) (map[string]any, error) {
-	b, err := marshalBoundedJSON(out, maxMCPToolResultBytes, true)
+func (s *Server) redactedToolResult(tenantID string, out any, native bool) (map[string]any, error) {
+	sourceBytes, wireBytes, nodes := maxMCPToolResultBytes, maxMCPToolResultBytes, maxMCPToolResultNodes
+	if native {
+		if err := s.nativeRenderBudget.Validate(); err != nil {
+			return nil, err
+		}
+		sourceBytes, wireBytes, nodes = s.nativeRenderBudget.SourceBytes, s.nativeRenderBudget.WireBytes, s.nativeRenderBudget.Nodes
+	}
+	b, err := marshalBoundedJSONNodes(out, sourceBytes, !native, nodes)
 	if err != nil {
 		return nil, err
 	}
 	red := s.gate.RedactForTenant(string(b), tenantID)
-	if len(red) > maxMCPToolResultBytes {
+	if len(red) > sourceBytes {
 		return nil, errToolResultTooLarge
 	}
-	result := map[string]any{
-		"content":           []map[string]any{{"type": "text", "text": red}},
-		"structuredContent": json.RawMessage(red),
-	}
-	// The MCP result intentionally carries two representations. Bound their
-	// combined serialized form too, not only the source object.
-	if _, err := marshalBoundedJSON(result, maxMCPToolResultBytes, false); err != nil {
+	result := map[string]any{"content": []map[string]any{{"type": "text", "text": red}}, "structuredContent": json.RawMessage(red)}
+	if _, err := marshalBoundedJSONNodes(result, wireBytes, false, nodes); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+func missingToolPermission(p *auth.Principal, t Tool) string {
+	for _, permission := range append([]string{t.Permission}, t.ExtraPermissions...) {
+		if !p.Has(permission) {
+			return permission
+		}
+	}
+	return ""
+}
+func toolPoliciesAllow(p *auth.Principal, t Tool, policies []auth.Policy) bool {
+	for _, permission := range append([]string{t.Permission}, t.ExtraPermissions...) {
+		if !auth.Authorize(p, permission, policies, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
+			return false
+		}
+	}
+	return true
 }
 
 type boundedJSONBuffer struct {
@@ -441,7 +628,8 @@ func (b *boundedJSONBuffer) Write(p []byte) (int, error) {
 // structural nodes. The walk itself is bounded: a wide container is refused
 // from Len before its children are queued, and pointer cycles consume nodes
 // until they hit the fixed ceiling.
-func validateJSONSourceBudget(v any, maxSourceBytes int) error {
+
+func validateJSONSourceBudgetNodes(v any, maxSourceBytes, maxNodes int) error {
 	if maxSourceBytes <= 0 {
 		return errToolResultTooLarge
 	}
@@ -456,7 +644,7 @@ func validateJSONSourceBudget(v any, maxSourceBytes int) error {
 		return true
 	}
 	reserveChildren := func(n int) bool {
-		return n >= 0 && n <= maxMCPToolResultNodes-nodes-len(stack)
+		return n >= 0 && n <= maxNodes-nodes-len(stack)
 	}
 
 	for len(stack) > 0 {
@@ -464,8 +652,8 @@ func validateJSONSourceBudget(v any, maxSourceBytes int) error {
 		value := stack[last]
 		stack = stack[:last]
 		nodes++
-		if nodes > maxMCPToolResultNodes || !value.IsValid() {
-			if nodes > maxMCPToolResultNodes {
+		if nodes > maxNodes || !value.IsValid() {
+			if nodes > maxNodes {
 				return errToolResultTooLarge
 			}
 			continue
@@ -566,7 +754,10 @@ func validateJSONSourceBudget(v any, maxSourceBytes int) error {
 }
 
 func marshalBoundedJSON(v any, maxBytes int, indent bool) ([]byte, error) {
-	if err := validateJSONSourceBudget(v, maxBytes); err != nil {
+	return marshalBoundedJSONNodes(v, maxBytes, indent, maxMCPToolResultNodes)
+}
+func marshalBoundedJSONNodes(v any, maxBytes int, indent bool, maxNodes int) ([]byte, error) {
+	if err := validateJSONSourceBudgetNodes(v, maxBytes, maxNodes); err != nil {
 		return nil, err
 	}
 	dst := &boundedJSONBuffer{max: maxBytes}
@@ -603,4 +794,19 @@ func toolResult(text string, structured any, isErr bool) map[string]any {
 		res["isError"] = true
 	}
 	return res
+}
+
+// The larger authenticated body allowance belongs only to declared native tools.
+func (s *Server) isNativeCall(raw []byte) bool {
+	req, failure := decodeRPC(raw, false)
+	if failure != nil || req.Method != "tools/call" {
+		return false
+	}
+	var params map[string]json.RawMessage
+	var name string
+	if json.Unmarshal(req.Params, &params) != nil || json.Unmarshal(params["name"], &name) != nil {
+		return false
+	}
+	tool, ok := s.tools[name]
+	return ok && tool.Native
 }

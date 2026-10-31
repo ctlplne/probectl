@@ -21,6 +21,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/cost"
 	"github.com/ctlplne/probectl/internal/endpoint"
+	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
@@ -94,6 +95,8 @@ type explorerResult struct {
 	EvidencePath string                   `json:"evidence_path"`
 	Truncated    bool                     `json:"truncated"`
 	Execution    explorerExecutionReceipt `json:"execution"`
+	Flow         *flowstore.PlanResult    `json:"flow,omitempty"`
+	FlowPaging   *flowSnapshotPaging      `json:"flow_paging,omitempty"`
 }
 
 type explorerComparisonRequest struct {
@@ -111,6 +114,11 @@ type explorerComparisonRow struct {
 	Delta         *float64          `json:"delta"`
 	PercentChange *float64          `json:"percent_change"`
 	DeltaState    string            `json:"delta_state"`
+	Other         bool              `json:"other,omitempty"`
+	CurrentExact  *string           `json:"current_value_str,omitempty"`
+	PreviousExact *string           `json:"previous_value_str,omitempty"`
+	DeltaExact    *string           `json:"delta_str,omitempty"`
+	PercentExact  *string           `json:"percent_change_str,omitempty"`
 }
 
 type explorerComparisonResult struct {
@@ -128,6 +136,8 @@ type explorerComparisonResult struct {
 	PreviousTruncated bool                               `json:"previous_truncated"`
 	RowsTruncated     bool                               `json:"rows_truncated"`
 	Execution         explorerComparisonExecutionReceipt `json:"execution"`
+	Flow              *flowExplorerComparisonData        `json:"flow,omitempty"`
+	FlowPaging        *flowSnapshotPaging                `json:"flow_paging,omitempty"`
 }
 
 // handleExplorerSchema returns the fixed grammar and discoverable J3 recipes.
@@ -142,6 +152,7 @@ func (s *Server) handleExplorerSchema(w http.ResponseWriter, r *http.Request) er
 		"visualizations":     []string{"table", "bar", "line", "timeline", "topology"},
 		"comparison_sources": []ai.ExplorerSource{ai.ExplorerFlow, ai.ExplorerChanges, ai.ExplorerTopology, ai.ExplorerEndpoints, ai.ExplorerTLS},
 		"max_rows":           500,
+		"flow":               s.nativeFlowSchema(),
 	})
 	return nil
 }
@@ -160,8 +171,22 @@ func (s *Server) handleExplorerQuery(w http.ResponseWriter, r *http.Request) err
 		return apierror.Unauthorized("authentication required")
 	}
 	var raw ai.ExplorerQuery
-	if err := decodeJSONLimit(r, 1<<16, &raw); err != nil {
+	if err := decodeJSONLimit(r, flow.MaxPlanGrammarBytes, &raw); err != nil {
 		return err
+	}
+	if raw.PlanOnly {
+		if raw.Source != ai.ExplorerFlow || raw.Template != "" || raw.Flow != nil || !raw.From.IsZero() || !raw.To.IsZero() || len(raw.Dimensions)+len(raw.Filters)+len(raw.Groupings)+len(raw.Measures) != 0 || raw.Visualization != "" || raw.Limit != 0 {
+			return apierror.Validation("plan_only accepts only source flow and question")
+		}
+		proposal, err := s.planFlowQuestion(r.Context(), p, raw.Question)
+		if err != nil {
+			return err
+		}
+		writeJSON(w, http.StatusOK, proposal)
+		return nil
+	}
+	if raw.Flow != nil && raw.Flow.Cursor != "" {
+		return s.handleResumeFlowSnapshot(w, r, p, raw)
 	}
 	query, err := ai.NormalizeExplorerQuery(raw, time.Now())
 	if err != nil {
@@ -183,6 +208,9 @@ func (s *Server) handleExplorerQuery(w http.ResponseWriter, r *http.Request) err
 		return apierror.Forbidden("an attribute policy denies the selected Explorer source")
 	}
 
+	if ai.IsRecordFlowQuery(query) {
+		return s.handleRecordFlowQuery(w, r, p, query)
+	}
 	filtered, execution, err := s.executeExplorerBounded(r.Context(), p.TenantID, query)
 	if err != nil {
 		s.log.Warn("explorer query failed", "tenant_id", p.TenantID, "source", query.Source, "error", err)
@@ -212,8 +240,14 @@ func (s *Server) handleExplorerComparison(w http.ResponseWriter, r *http.Request
 		return apierror.Unauthorized("authentication required")
 	}
 	var raw explorerComparisonRequest
-	if err := decodeJSONLimit(r, 1<<16, &raw); err != nil {
+	if err := decodeJSONLimit(r, flow.MaxPlanGrammarBytes, &raw); err != nil {
 		return err
+	}
+	if raw.Query.Flow != nil && strings.TrimSpace(raw.Query.Flow.Cursor) != "" {
+		if !raw.PreviousFrom.IsZero() || !raw.PreviousTo.IsZero() {
+			return apierror.Validation("a flow comparison continuation cannot change previous bounds")
+		}
+		return s.handleResumeFlowComparisonSnapshot(w, r, p, raw.Query)
 	}
 	current, err := ai.NormalizeExplorerQuery(raw.Query, time.Now())
 	if err != nil {
@@ -254,6 +288,9 @@ func (s *Server) handleExplorerComparison(w http.ResponseWriter, r *http.Request
 		return apierror.Forbidden("this role cannot read the selected Explorer source")
 	}
 
+	if ai.IsRecordFlowQuery(current) {
+		return s.handleRecordFlowComparison(w, r, p, current, previous)
+	}
 	comparisonStarted := time.Now()
 	currentRows, currentExecution, err := s.executeExplorerBounded(r.Context(), p.TenantID, current)
 	if err != nil {

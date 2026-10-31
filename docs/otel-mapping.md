@@ -189,3 +189,38 @@ to two rules: it may emit only OTel-standard (or ECS-aligned) or `probectl.*`
 names, and it must carry the tenant. The OTLP layer (`internal/otel/otlp`) then
 turns these attribute sets into OTLP `ResourceMetrics` for export and ingest;
 see [`otlp.md`](otlp.md) for that side.
+
+## Native flow explorer self-observability
+
+The shared typed services emit process aggregates on the credential-protected
+`/metrics` surface. `internal/otel/flow_explorer.go` declares their OTel semantic
+names before emission, following the pinned1.27 general naming/UCUM conventions.
+These are application-service operations, including validation, projection,
+snapshot validity and mandatory audit work. They are separate from database
+client durations. CSV preparation ends before transport writes; query success
+is not an external delivery receipt.
+
+For each fixed operation `plan`, `query`, `comparison`, `page`, `comparison_page`, and
+`csv_prepare`:
+
+| OTel name | Instrument / unit | Prometheus mapping |
+| --- | --- | --- |
+| `probectl.flow.explorer.<operation>.operations` | monotonic Counter / `{operation}` | dots to underscores, `_total`; `outcome` maps to `probectl.flow.explorer.outcome` |
+| `probectl.flow.explorer.<operation>.duration` | Histogram / `s` | dots to underscores, `_seconds`; cumulative buckets, sum and count |
+| `probectl.flow.explorer.<operation>.active` | non-monotonic active-work gauge / `{operation}` | dots to underscores |
+
+Outcomes are fixed: `success`, `validation`, `budget`, `coverage`, `canceled`,
+`unavailable`, `authorization`. Failure with an observed canceled/deadline
+context uses `canceled`/`budget` even when the public error was safely generalized.
+Internal comparison passes do not add logical queries. Fairness rejections
+before service invocation retain the separate existing fairness metrics.
+Duration buckets in seconds are0.001,0.005,0.01,0.05,0.1,0.5,1,5,10,30,60,+Inf;
+only counts are retained. Per process, these six operations have132 fixed
+series, independent of tenant/query cardinality.
+
+No tenant/user identifiers, questions, filter values, cursors, source rows,
+dependency errors or SQL appear in these metric names or labels. `budget`
+counts service cost refusals; configured policy is not actual examined rows or
+bytes. Missing ClickHouse scan statistics are not invented. This adds no
+listener or automatic outbound exporter. Existing consent, TLS, audit,
+transport limits and tenant storage isolation remain enforced independently.

@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/flow"
 )
 
 // ExplorerSource is a bounded, operator-facing telemetry source. It is not a
@@ -32,6 +34,7 @@ const (
 // ExplorerQuery is the shared structured grammar used by the API and web UI.
 // Tenant is deliberately absent: authentication is the only source of scope.
 type ExplorerQuery struct {
+	PlanOnly      bool              `json:"plan_only,omitempty"`
 	Template      string            `json:"template,omitempty"`
 	Question      string            `json:"question"`
 	Source        ExplorerSource    `json:"source"`
@@ -43,6 +46,7 @@ type ExplorerQuery struct {
 	Measures      []string          `json:"measures"`
 	Visualization string            `json:"visualization"`
 	Limit         int               `json:"limit"`
+	Flow          *flow.QueryPlan   `json:"flow,omitempty"`
 }
 
 // ExplorerTemplate is a discoverable recipe for a canonical operator question.
@@ -77,6 +81,9 @@ func ExplorerTemplates() []ExplorerTemplate {
 // NormalizeExplorerQuery validates and bounds an untrusted query. Fields are
 // allow-listed per source, so the Explorer cannot become an arbitrary query DSL.
 func NormalizeExplorerQuery(q ExplorerQuery, now time.Time) (ExplorerQuery, error) {
+	if q.PlanOnly {
+		return ExplorerQuery{}, errors.New("plan-only requests require the stateless planning path")
+	}
 	q.Template = strings.TrimSpace(q.Template)
 	q.Question = strings.TrimSpace(q.Question)
 	if q.Question == "" || len(q.Question) > 500 {
@@ -85,6 +92,14 @@ func NormalizeExplorerQuery(q ExplorerQuery, now time.Time) (ExplorerQuery, erro
 	allowed, ok := explorerFields[q.Source]
 	if !ok {
 		return ExplorerQuery{}, fmt.Errorf("unsupported explorer source %q", q.Source)
+	}
+	if q.Flow != nil {
+		if q.From.IsZero() {
+			q.From = q.Flow.From
+		}
+		if q.To.IsZero() {
+			q.To = q.Flow.To
+		}
 	}
 	if q.To.IsZero() {
 		q.To = now.UTC()
@@ -96,9 +111,31 @@ func NormalizeExplorerQuery(q ExplorerQuery, now time.Time) (ExplorerQuery, erro
 	} else {
 		q.From = q.From.UTC()
 	}
+	if q.Flow != nil && q.Source != ExplorerFlow {
+		return ExplorerQuery{}, errors.New("flow options require the flow source")
+	}
+	if IsRecordFlowQuery(q) {
+		plan, err := ExplorerFlowSpec(q, now)
+		if err != nil {
+			return ExplorerQuery{}, err
+		}
+		q.From, q.To = plan.From, plan.To
+		q.Dimensions = append([]string{}, plan.GroupBy...)
+		q.Groupings = append([]string{}, plan.GroupBy...)
+		q.Measures = []string{}
+		for _, metric := range plan.Metrics {
+			q.Measures = append(q.Measures, metric.Measure+":"+metric.Calculation)
+		}
+		q.Limit = plan.RowLimit
+		q.Visualization = plan.View
+		q.Flow = &plan
+		q.Filters = map[string]string{}
+		return q, nil
+	}
 	if q.From.After(q.To) || q.To.Sub(q.From) > 90*24*time.Hour {
 		return ExplorerQuery{}, errors.New("explorer time range must be ordered and no longer than 90 days")
 	}
+
 	var err error
 	if q.Dimensions, err = cleanExplorerFields(q.Dimensions, allowed.dimensions, 8, "dimension"); err != nil {
 		return ExplorerQuery{}, err

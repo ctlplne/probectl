@@ -24,6 +24,8 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/govern"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -131,6 +133,7 @@ const (
 	subjectTableProjectMatches
 	subjectTableNoSubject
 	subjectTableRetainEncryptedEvidence
+	subjectTableDerivedFlowCache
 )
 
 type subjectTablePolicy struct {
@@ -154,6 +157,7 @@ type subjectTablePolicy struct {
 // audit_events is projected because mutating an old hash-chain row would
 // destroy the evidence.
 var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
+
 	"abac_policies": {plane: "postgres:abac_policies", disposition: subjectTableNoSubject},
 	"agent_enroll_tokens": {
 		plane: "postgres:agent_enroll_tokens", disposition: subjectTableDeleteMatches,
@@ -280,6 +284,26 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// free-text log bodies). Like device_configs it is tenant operational state
 	// rather than DSAR per-subject data, removed on full-tenant erase via CASCADE.
 	"device_syslog": {plane: "postgres:device_syslog", disposition: subjectTableNoSubject},
+	// Saved expressions can contain addresses or operator-entered identities.
+	// Remove matching configuration on subject erasure; full erasure discovers
+	// the tenant-owned table and exports/deletes it through the ordinary path.
+	"flow_query_filters": {
+		plane: "postgres:flow_query_filters", disposition: subjectTableDeleteMatches,
+		exact: []string{"updated_by"}, contains: []string{"name", "description", "expression"},
+	},
+	"flow_query_views": {
+		plane: "postgres:flow_query_views", disposition: subjectTableDeleteMatches,
+		exact: []string{"owner_id"}, contains: []string{"name", "definition"},
+	},
+	"flow_query_view_preferences": {
+		plane: "postgres:flow_query_view_preferences", disposition: subjectTableDeleteMatches,
+		exact: []string{"owner_id"},
+	},
+	// These contain encrypted result/cursor keys, not portable source data.
+	// Subject erasure invalidates and physically purges the entire tenant cache
+	// under its own durable lease, after validating the destructive selector.
+	"flow_snapshots":       {plane: "flow_query_cache", disposition: subjectTableDerivedFlowCache},
+	"flow_snapshot_epochs": {plane: "flow_query_cache", disposition: subjectTableDerivedFlowCache},
 	"flow_ingest_quality_receipts": {
 		plane: "postgres:flow_ingest_quality_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id", "exporter_address"},
@@ -390,6 +414,7 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 		Redacted:      redact,
 		Notes: []string{
 			"Subject export filters only rows inside this tenant; it is not a cross-tenant search.",
+			ordinaryPortabilityFlowCacheNote,
 			"Immutable audit rows keep their chain fields but are serialized through the canonical privacy projection; the matching hash-only erasure marker remains portable evidence.",
 		},
 	}
@@ -480,16 +505,46 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 		policies[table.name] = table.policy
 	}
 	tctx := tenancy.WithTenant(x.ctx, tenancy.ID(x.tenantID))
+	var flowAliases subjectAliasSet
+	for _, table := range tables {
+		if flowQuerySubjectTable(table) {
+			if err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+				captured, err := e.captureSubjectAliases(ctx, sc, x.subject)
+				flowAliases = captured.aliases
+				return err
+			}); err != nil {
+				return fmt.Errorf("tenantlife: capture flow configuration export aliases: %w", err)
+			}
+			break
+		}
+	}
 	subject := []byte(strings.ToLower(x.subject))
 	subjectHash := audit.SubjectErasureHash(x.tenantID, x.subject)
 	for _, table := range tables {
 		policy := policies[table]
+
+		if policy.disposition == subjectTableDerivedFlowCache {
+			x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: policy.plane, Status: SubjectStatusCoveredByPlane, Notes: ordinaryPortabilityFlowCacheNote})
+			continue
+		}
 		if policy.disposition == subjectTableRetainEncryptedEvidence {
 			x.man.Planes = append(x.man.Planes, SubjectPlaneResult{
 				Plane:  policy.plane,
 				Status: SubjectStatusRetainedIR,
 				Notes:  "excluded from ordinary subject export; retained ciphertext is revealable only through audited IR separation of duty",
 			})
+			continue
+		}
+		if flowQuerySubjectTable(table) {
+			count, err := streamPlaneToTar(x.tw, "postgres/"+table+".jsonl", x.man.ExportedAt, x.redact, x.pol, func(w io.Writer) (int64, error) {
+				return e.exportFlowQuerySubject(tctx, x.tenantID, table, flowAliases, w)
+			})
+			if err != nil {
+				return fmt.Errorf("tenantlife: decoded subject export %s: %w", table, err)
+			}
+			if count > 0 {
+				x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "postgres:" + table, Status: SubjectStatusExported, Rows: count})
+			}
 			continue
 		}
 		var buf bytes.Buffer
@@ -572,6 +627,16 @@ func (e *Engine) exportSubjectFlows(x *subjectExportContext) error {
 		return err
 	}
 	x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "flows", Status: SubjectStatusExported, Rows: n})
+	if retained, ok := flowstore.RetainedExporterOf(e.flows); ok {
+		n, err := streamPlaneToTar(x.tw, "flow_rollups.jsonl", x.man.ExportedAt, x.redact, x.pol, func(w io.Writer) (int64, error) {
+			return retained.ExportRetainedSubject(x.ctx, x.tenantID, x.subject, w)
+		})
+		if err != nil {
+			return fmt.Errorf("tenantlife: subject export retained flows: %w", err)
+		}
+		x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "flow_rollups", Status: SubjectStatusExported, Rows: n, Notes: "retained-input coverage marker preserved; may overlap raw flows"})
+	}
+
 	return nil
 }
 
@@ -774,6 +839,44 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		return e.finalizeSubjectErasureReport(ctx, actor, rep)
 	}
 
+	mutate := func(ctx context.Context) error {
+		e.eraseSubjectTelemetry(ctx, tenantID, subject, &rep)
+		if !subjectErasurePlanesComplete(rep.Planes) {
+			return fmt.Errorf("tenantlife: source erasure incomplete; result cache remains invalidated")
+		}
+		return nil
+	}
+	if e.pool != nil || e.flowSnapshots != nil {
+		lifecycle := e.flowSnapshots
+		if lifecycle == nil {
+			lifecycle = flowsnapshot.NewLifecycle(e.pool, e.objects, tenancy.NewPostgresWriterFence(e.pool))
+		}
+		if err := lifecycle.Invalidate(ctx, tenantID, mutate); err != nil {
+			fail("flow_query_cache", err.Error())
+		} else {
+			rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "flow_query_cache", Status: SubjectStatusDeleted, Remaining: 0, Notes: "derived result objects verified absent in both tenant namespaces; prior cursors invalidated"})
+		}
+	} else {
+		_ = mutate(ctx)
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "flow_query_cache", Status: SubjectStatusNotDeployed, Notes: "durable result cache not deployed"})
+	}
+
+	// Derive completeness from the final plane receipts instead of relying on
+	// every branch to remember a side effect. This is fail closed for deployed
+	// backends that honestly report not_capable and for any future unknown
+	// erasure status.
+	return e.finalizeSubjectErasureReport(ctx, actor, rep)
+}
+
+// eraseSubjectTelemetry runs only after selector validation and, when deployed,
+// inside the result-cache invalidation lease. Cache builders cannot race this
+// deletion into a newly published result containing erased input.
+func (e *Engine) eraseSubjectTelemetry(ctx context.Context, tenantID, subject string, rep *SubjectErasureReport) {
+	fail := func(plane, note string) {
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: plane, Status: SubjectStatusFailed, Remaining: -1, Notes: note})
+		rep.Complete = false
+	}
+
 	if fd, ok := e.flows.(flowSubjectDeleter); ok {
 		deleted, remaining, err := fd.DeleteSubject(ctx, tenantID, subject)
 		if err != nil {
@@ -875,12 +978,6 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 	} else {
 		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "endpoint", Status: SubjectStatusNotCapable, Notes: "endpoint latest-view backend is deployed but not subject-erase capable; age-out follows derived identity retention"})
 	}
-
-	// Derive completeness from the final plane receipts instead of relying on
-	// every branch to remember a side effect. This is fail closed for deployed
-	// backends that honestly report not_capable and for any future unknown
-	// erasure status.
-	return e.finalizeSubjectErasureReport(ctx, actor, rep)
 }
 
 func (e *Engine) finalizeSubjectErasureReport(
@@ -975,6 +1072,10 @@ func (e *Engine) eraseSubjectPostgres(
 			switch table.policy.disposition {
 			case subjectTableProjectMatches:
 				continue
+			case subjectTableDerivedFlowCache:
+				// The cache lease and physical object purge run after directory
+				// validation; never delete the generation row here.
+				continue
 			case subjectTableNoSubject:
 				out = append(out, SubjectPlaneResult{
 					Plane: table.policy.plane, Status: SubjectStatusCoveredByPlane,
@@ -985,6 +1086,18 @@ func (e *Engine) eraseSubjectPostgres(
 				out = append(out, SubjectPlaneResult{
 					Plane: table.policy.plane, Status: SubjectStatusRetainedIR,
 					Notes: "encrypted incident-response evidence retained; ordinary subject lifecycle cannot read, decrypt, or delete it",
+				})
+				continue
+			}
+			if flowQuerySubjectTable(table.name) {
+				deleted, remaining, err := eraseFlowQuerySubjectRows(ctx, sc, table.name, aliases)
+				if err != nil {
+					return fmt.Errorf("erase decoded subject configuration in %s: %w", table.name, err)
+				}
+				out = append(out, SubjectPlaneResult{
+					Plane: table.policy.plane, Status: SubjectStatusDeleted,
+					Deleted: deleted, Remaining: remaining,
+					Notes: "classified exact identity and decoded text/JSON matches count-verified after deletion",
 				})
 				continue
 			}
@@ -1068,7 +1181,8 @@ func classifySubjectPostgresTables(tables []string) ([]classifiedSubjectTable, e
 			valid = len(policy.exact)+len(policy.contains) > 0
 		case subjectTableProjectMatches,
 			subjectTableNoSubject,
-			subjectTableRetainEncryptedEvidence:
+			subjectTableRetainEncryptedEvidence,
+			subjectTableDerivedFlowCache:
 			valid = len(policy.exact) == 0 && len(policy.contains) == 0
 		default:
 			valid = false

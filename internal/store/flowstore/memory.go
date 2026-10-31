@@ -22,10 +22,12 @@ import (
 // Rows are bounded (FIFO eviction) so an unconsumed dev deployment cannot grow
 // without limit.
 type Memory struct {
-	mu   sync.Mutex
-	rows []memoryRow
-	seen map[string]int
-	max  int
+	mu                 sync.Mutex
+	rows               []memoryRow
+	seen               map[string]int
+	max                int
+	explorerInterfaces ExplorerInterfaceSource
+	explorerBudget     ExplorerBudget
 }
 
 type memoryRow struct {

@@ -40,8 +40,9 @@ type EgressEvent struct {
 	EvidenceCount int
 	Planes        []string // sorted, de-duplicated evidence planes (data categories)
 	// Surface is the egress path: "rca" (remote synthesis model), "author"
-	// (test-authoring model), or "mcp" (tool results to an external AI
-	// client). One gate, three doors — the audit says which (AIRCA-001).
+	// (test-authoring model), "flow_question" (native flow plan proposal), or
+	// "mcp" (tool results to an external AI client). One shared gate; the
+	// audit identifies the surface (AIRCA-001).
 	Surface string
 	// Denied is true when the gate refused the attempted external call before
 	// any tenant evidence left the deployment. DenialReason is a bounded

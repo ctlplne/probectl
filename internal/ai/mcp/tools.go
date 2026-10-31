@@ -19,11 +19,16 @@ import (
 // permission a caller must hold, and its invoke function (which calls the
 // backend). The schemas are the documented contract.
 type Tool struct {
-	Name        string
-	Description string
-	InputSchema json.RawMessage
-	Permission  string
-	Invoke      func(ctx context.Context, p *auth.Principal, args json.RawMessage) (any, error)
+	Name             string
+	Description      string
+	InputSchema      json.RawMessage
+	Permission       string
+	ExtraPermissions []string
+	RequiresUser     bool
+	Native           bool
+	Query            bool
+	Admit            NativeFlowAdmission
+	Invoke           func(ctx context.Context, p *auth.Principal, args json.RawMessage) (any, error)
 }
 
 // Permission keys gating each tool (mirror internal/ai + internal/control). The

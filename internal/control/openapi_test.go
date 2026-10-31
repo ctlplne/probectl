@@ -520,6 +520,8 @@ func TestOpenAPIRolloutPathParameters(t *testing.T) {
 }
 
 var collectionPaginationContracts = map[string]string{
+	"/v1/explorer/flow-filters":      "cursor",
+	"/v1/explorer/flow-views":        "cursor",
 	"/v1/explorer/schema":            "bounded",
 	"/v1/tests":                      "cursor",
 	"/v1/agents":                     "cursor",

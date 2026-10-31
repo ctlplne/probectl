@@ -112,6 +112,9 @@
   gap: var(--space-2) var(--space-4);
   font-size: var(--font-size-caption);
   color: hsl(var(--muted-foreground));
+  max-height: calc(var(--space-8) * 3);
+  overflow: auto;
+  flex-shrink: 0;
 }
 
 .readoutTime {
@@ -123,7 +126,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .readoutValue {
@@ -144,6 +148,41 @@
 
 /* Visible only when canvas is unavailable; otherwise the sr-only twin serves
  * assistive tech (the honest, non-visual encoding of the same samples). */
+.fallbackRegion {
+  max-width: 100%;
+  max-height: calc(var(--space-8) * 3);
+  overflow: auto;
+}
+
+.sampleActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block: var(--space-2);
+}
+
+.instructions,
+.inspector {
+  flex-shrink: 0;
+  font-size: var(--font-size-caption);
+  color: hsl(var(--muted-foreground));
+}
+
+.instructions {
+  margin: 0;
+}
+
+.inspector summary {
+  cursor: pointer;
+  padding-block: var(--space-2);
+}
+
+.inspector summary:focus-visible,
+.fallbackRegion:focus-visible {
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
+  outline-offset: var(--focus-ring-offset);
+}
+
 .fallbackTable {
   width: 100%;
   border-collapse: collapse;
@@ -168,4 +207,20 @@
 .fallbackTable thead th {
   color: hsl(var(--muted-foreground));
   font-weight: var(--font-weight-semibold);
+}
+
+.horizonBands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.horizonBands span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.horizonBands i {
+  display: inline-block;
+  width: var(--space-4);
+  height: var(--space-3);
 }

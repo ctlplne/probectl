@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
@@ -102,10 +103,40 @@ func newMCPServer(
 	// AIRCA-001/003: every tool call is consent-gated + redacted by the
 	// caller-provided egress gate and audited to the tenant stream — including
 	// denials. In the HTTP server this is the same pointer RCA and authoring use.
-	return mcp.New(backend, aiGate,
-		mcp.WithRateLimit(ratePerMin), mcp.WithLogger(log),
-		mcp.WithPolicyLoader(policyLoader),
-		mcp.WithCallAudit(mcpCallAuditor(pool, log)))
+	options := []mcp.Option{mcp.WithRateLimit(ratePerMin), mcp.WithLogger(log), mcp.WithPolicyLoader(policyLoader), mcp.WithCallAudit(mcpCallAuditor(pool, log))}
+	if cfg != nil {
+		options = append(options, mcp.WithHTTPOrigins(cfg.MCPAllowedOrigins))
+		limits := mcp.DefaultStdioLimits()
+		if cfg.MCPStdioWorkers != 0 {
+			limits.Workers = cfg.MCPStdioWorkers
+		}
+		if cfg.MCPStdioQueued != 0 {
+			limits.Queued = cfg.MCPStdioQueued
+		}
+		options = append(options, mcp.WithStdioLimits(limits))
+		httpBudget := mcp.DefaultHTTPWorkBudget()
+		if cfg.MCPHTTPWorkTimeout != 0 {
+			httpBudget.Timeout = cfg.MCPHTTPWorkTimeout
+		}
+		if cfg.MCPHTTPActiveRequests != 0 {
+			httpBudget.ActiveRequests = cfg.MCPHTTPActiveRequests
+		}
+		options = append(options, mcp.WithHTTPWorkBudget(httpBudget))
+	}
+	renderBudget := configuredNativeFlowRenderBudget(cfg)
+	if src.NativeFlow != nil {
+		renderBudget = src.NativeFlow.flowRenderBudget
+	}
+	options = append(options, mcp.WithNativeFlowRenderBudget(renderBudget))
+	if src.NativeFlow != nil {
+		schemas, err := nativeFlowToolSchemas()
+		if err != nil {
+			log.Error("native MCP flow schemas are unavailable", "error_class", mcp.ErrorClass(err))
+		} else {
+			options = append(options, mcp.WithNativeFlowBackend(nativeMCPFlowBackend{src.NativeFlow}, schemas, src.NativeFlow.beginNativeMCPQuery))
+		}
+	}
+	return mcp.New(backend, aiGate, options...)
 }
 
 // MCPPolicyLoader exposes the HTTP control plane's ABAC cache to the colocated
@@ -420,7 +451,8 @@ type mcpAuthenticator struct {
 }
 
 func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*auth.Principal, error) {
-	res, err := store.NewMCPTokens(a.pool).AuthenticateFull(ctx, crypto.Hash([]byte(bearer)))
+	acceptedHash := crypto.Hash([]byte(bearer))
+	res, err := store.NewMCPTokens(a.pool).AuthenticateFull(ctx, acceptedHash)
 	if err != nil {
 		return nil, err
 	}
@@ -430,34 +462,17 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 	if err := tenancy.CheckQuarantine(tenantID); err != nil {
 		return nil, err
 	}
-	// AUTHZ-12: the MCP listener must apply the same tenant lifecycle and MFA
-	// gates as every /v1 route (requirePermissionMode) — otherwise a suspended
-	// or offboarded tenant's token keeps reading telemetry and running AI tools
-	// over MCP, and MFA-required deployments still allow single-factor bearer
-	// tokens. Keyed strictly by the token's OWN tenant.
-	if a.status != nil {
-		switch status, serr := a.status.TenantStatus(ctx, tenantID); {
-		case serr != nil:
-			// degrade open: lifecycle gating must not amplify a DB blip.
-		case status == "suspended":
-			return nil, fmt.Errorf("%w: tenant is suspended", mcp.ErrForbidden)
-		case status == "offboarding", status == "deleted":
-			return nil, fmt.Errorf("%w: tenant is offboarded", mcp.ErrForbidden)
-		}
-	}
-	// MCP tokens are single-factor bearer credentials: when the deployment
-	// requires MFA they are refused outright (no second factor is ever asserted).
-	if a.requireMFA {
-		return nil, fmt.Errorf("%w: multi-factor authentication required", mcp.ErrForbidden)
+	if err := a.checkTenantPolicy(ctx, tenantID); err != nil {
+		return nil, err
 	}
 	grants, err := permLoader{pool: a.pool}.ForUser(ctx, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
-	p := auth.PrincipalWithPermissionGrants(
-		&auth.Principal{TenantID: tenantID, UserID: userID},
-		grants,
-	)
+	p, err := principalFromMCPAuthentication(res, grants)
+	if err != nil {
+		return nil, err
+	}
 	var directoryAttributes map[string]string
 	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		u, err := (store.Users{}).Get(ctx, sc, userID)
@@ -480,6 +495,22 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 	// too, not the owner's full RBAC.
 	p = narrowPrincipalToScopes(p, res.Scopes)
 	return p, nil
+}
+
+// checkTenantPolicy runs after the credential resolves its own tenant and before
+// loading user/grant data. A payload tenant can never select the policy source.
+func (a mcpAuthenticator) checkTenantPolicy(ctx context.Context, tenantID string) error {
+	if err := checkTenantLifecycleContext(ctx, a.status, tenantID); err != nil {
+		var domain *apierror.Error
+		if errors.As(err, &domain) && domain.Kind == apierror.KindForbidden {
+			return fmt.Errorf("%w: %s", mcp.ErrForbidden, domain.Message)
+		}
+		return err
+	}
+	if a.requireMFA {
+		return fmt.Errorf("%w: multi-factor authentication required", mcp.ErrForbidden)
+	}
+	return nil
 }
 
 // ProposeRemediation implements the proposal-only MCP tool (S-EE5). It
@@ -509,4 +540,10 @@ func (b mcpBackend) ProposeRemediation(ctx context.Context, p *auth.Principal, k
 		ProposedBy: prop.ProposedBy,
 		CreatedAt:  prop.CreatedAt,
 	}, nil
+}
+
+// Credential verification precedes this projection. Preserve only the current
+// tenant/user and grants; stateless requests create no worker/history origin.
+func principalFromMCPAuthentication(result store.AuthResult, grants []auth.PermissionGrant) (*auth.Principal, error) {
+	return auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: result.TenantID, UserID: result.UserID, ViaBearerToken: true}, grants), nil
 }

@@ -20,6 +20,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/govern"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -27,7 +28,8 @@ import (
 //
 //	manifest.json            counts, object inventory, format notes
 //	postgres/<table>.jsonl   ordinary tenant-owned rows, one JSON object per line
-//	flows.jsonl              every flow record (streamed from the flow store)
+//	flows.jsonl              raw flow records (streamed from the flow store)
+//	flow_rollups.jsonl       retained inputs with explicit coverage_version
 //	endpoint_events.jsonl    every endpoint/DEM event
 //	otel_spans.jsonl         every OTLP span, and every OTLP log record
 //	otel_logs.jsonl
@@ -48,6 +50,12 @@ import (
 
 const ordinaryPortabilityIRPolicyNote = "Ordinary portability exports never include encrypted incident-response attribution. Investigation access, where applicable, is only through the audited IR-investigator path. This policy statement does not indicate whether any records exist."
 
+const ordinaryPortabilityFlowCacheNote = "Ephemeral Explorer result snapshots and their encrypted cursor/data keys are excluded. Exported source telemetry and reusable query configuration permit recomputation; cached results are not a second retention store."
+
+func ephemeralFlowSnapshotTable(table string) bool {
+	return table == "flow_snapshots" || table == "flow_snapshot_epochs"
+}
+
 // Manifest describes one export bundle.
 type Manifest struct {
 	FormatVersion  int              `json:"format_version"`
@@ -55,6 +63,7 @@ type Manifest struct {
 	ExportedAt     time.Time        `json:"exported_at"`
 	Tables         map[string]int64 `json:"tables"` // table -> row count
 	Flows          int64            `json:"flows"`
+	RetainedFlows  int64            `json:"retained_flows"`
 	EndpointEvents int64            `json:"endpoint_events"`
 	OtelSpans      int64            `json:"otel_spans"`
 	OtelLogs       int64            `json:"otel_logs"`
@@ -77,7 +86,7 @@ type ObjectRef struct {
 // inside the tenant's own scope (RLS + silo routing) — the export path
 // cannot see another tenant's rows by construction.
 func (e *Engine) Export(ctx context.Context, tenantID string, w io.Writer) (Manifest, error) {
-	return e.export(ctx, tenantID, w, false)
+	return e.exportBundle(ctx, tenantID, w, false)
 }
 
 // ExportRedacted is Export with optional data-governance redaction (S-EE3):
@@ -85,10 +94,10 @@ func (e *Engine) Export(ctx context.Context, tenantID string, w io.Writer) (Mani
 // PII-class columns (IPs-as-PII, emails, geo, …) and flow records are masked
 // per the tenant's classification before they leave the deployment.
 func (e *Engine) ExportRedacted(ctx context.Context, tenantID string, w io.Writer, redact bool) (Manifest, error) {
-	return e.export(ctx, tenantID, w, redact)
+	return e.exportBundle(ctx, tenantID, w, redact)
 }
 
-func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redact bool) (Manifest, error) {
+func (e *Engine) exportBundle(ctx context.Context, tenantID string, w io.Writer, redact bool) (Manifest, error) {
 	ctx = tenancy.WithSiloTableLock(ctx) // D-73: a long multi-transaction read of every table
 	// Resolve the effective redaction policy. A request for redaction (or a
 	// policy that forces it) uses the tenant's governance policy, defaulting to
@@ -116,6 +125,7 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 			"Hourly flow and path rollups are derived aggregates and are not bundled; the raw rows they summarize are, for as long as those rows are retained.",
 			"Immutable audit rows keep their tenant, sequence, timestamp, and chain fields; erased identities are emitted only through the canonical audit privacy projection.",
 			ordinaryPortabilityIRPolicyNote,
+			ordinaryPortabilityFlowCacheNote,
 		},
 		Redacted: redact,
 	}
@@ -198,6 +208,15 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 		}
 	}
 
+	if retained, ok := flowstore.RetainedExporterOf(e.flows); ok {
+		n, err := streamPlaneToTar(tw, "flow_rollups.jsonl", man.ExportedAt, redact, pol, func(w io.Writer) (int64, error) { return retained.ExportRetainedTenant(ctx, tenantID, w) })
+		if err != nil {
+			return man, fmt.Errorf("tenantlife: export retained flows: %w", err)
+		}
+		man.RetainedFlows = n
+		man.Notes = append(man.Notes, "flow_rollups.jsonl preserves retained input and coverage_version. Raw and retained sources can overlap; their physical row counts must not be added as traffic totals. coverage_version=0 identifies older hourly input with unavailable fields; version1 retains complete input.")
+	}
+
 	// 2b) Durable endpoint/DEM event history (tenant-scoped by the store).
 	// The endpoint history is unbounded (GAP-05): the store streams it row by
 	// row and we stage it through a temp file so neither the store read nor the
@@ -232,6 +251,9 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 				return man, fmt.Errorf("tenantlife: list objects: %w", err)
 			}
 			for _, k := range keys {
+				if strings.HasPrefix(k, "flow-explorer/snapshots/") {
+					continue
+				}
 				size, _, _ := objects.Stat(ctx, k)
 				man.Objects = append(man.Objects, ObjectRef{Key: objects.Key(k), Size: size})
 			}
@@ -348,7 +370,7 @@ func (e *Engine) exportTelemetryPlanes(ctx context.Context, tw *tar.Writer, tena
 func ordinaryPortabilityExportTables(tables []string) []string {
 	exportable := make([]string, 0, len(tables))
 	for _, table := range tables {
-		if retainedCryptoShreddedEvidenceTables[table] {
+		if retainedCryptoShreddedEvidenceTables[table] || ephemeralFlowSnapshotTable(table) || strings.HasPrefix(table, "flow_conversation_") {
 			continue
 		}
 		exportable = append(exportable, table)

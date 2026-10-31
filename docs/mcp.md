@@ -12,7 +12,7 @@ to any compliant server without bespoke integration code.
 probectl ships an MCP server so AI clients — Claude Desktop, an agent framework,
 your own tool-using app — can query probectl directly, in the client's own "call
 a tool" idiom: *your* AI asking *your* self-hosted platform about *your* network.
-It exposes a small catalog of **read-and-propose** tools scoped by **tenant,
+It exposes tools scoped by **tenant,
 RBAC, and ABAC** over two transports (a **transport** is simply the channel the
 messages travel over):
 
@@ -20,12 +20,24 @@ messages travel over):
   stdin/stdout (how Claude Desktop runs it).
 - **HTTP** — network-reachable; TLS-only and bearer-authenticated.
 
-Under the hood it's a thin, dependency-free **JSON-RPC 2.0** server speaking MCP
-revision `2024-11-05`. JSON-RPC is the minimal remote-procedure-call convention
+HTTP browser clients also need an explicit trusted Origin in
+`PROBECTL_MCP_ALLOWED_ORIGINS`, a comma-separated list of serialized HTTP(S)
+origins such as `https://mcp-client.example`. The default refuses every present
+Origin. Native clients may omit Origin and still authenticate normally. The
+policy compares canonical scheme/host/port tuples; request Host and forwarded
+headers never grant trust. Duplicate, opaque/null, wildcard, credential-bearing,
+path/query/fragment and unlisted origins fail before credential or data reads.
+Invalid configuration fails closed. Redacted diagnostics report only the
+configured entry count. This guard does not change the advertised protocol
+revision or enable another listener.
+
+Under the hood it's a thin, dependency-free **JSON-RPC 2.0** server. The released
+baseline speaks MCP revision `2024-11-05`; modern development work is described
+in the native preview section below. JSON-RPC is the minimal remote-procedure-call convention
 MCP builds on: each message is a small JSON document naming a `method` and its
 `params`, and each reply carries the matching `id` — that is the entire wire
-format. The tools are mostly read-only; the one write-ish tool is
-**proposal-only** and can never act on its own (details below).
+format. The initial catalog reads data and files human-gated proposals. The native flow
+preview also manages authorized saved-query configuration and personal preferences.
 
 ## Security model: tenant first, then RBAC, then ABAC
 
@@ -112,15 +124,14 @@ whose backing store isn't wired in a deployment (e.g. flows/BGP without
 ClickHouse) return an empty result with a note rather than failing — so a client
 gets a clean "nothing here" instead of an error.
 
-Every tool result is encoded through a 1 MiB ceiling after redaction, including
+Initial-catalog tool results use a 1 MiB ceiling after redaction, including
 the MCP text and `structuredContent` representations together. Oversized
 results fail closed instead of being materialized on the wire. `list_tests`
 also uses the shared query-fairness gate and fetches only one 201-row sentinel
 page so its 200-row truncation receipt is exact without loading the full tenant
 catalog.
 
-**About `propose_remediation`.** This is the one tool that writes anything, and it
-is built so it *cannot* be dangerous. It only ever creates a `state=proposed`
+**About `propose_remediation`.** This tool only creates a guarded proposal. It only ever creates a `state=proposed`
 suggestion — a reroute suggestion, a traffic-shift suggestion, a ticket, or a
 trustctl renewal request — that a human must approve through the authenticated UI.
 Think of it as a suggestion box bolted to the wall: the AI can drop a note in, but
@@ -184,6 +195,12 @@ credential again before every nonblank request frame, applying current token,
 user, tenant-lifecycle, MFA and permission state. The stream remains bound to its
 initial tenant and user; a changed identity or failed refresh refuses the request
 without falling back to old grants. Client metadata cannot change that identity.
+When the tenant lifecycle source has no known state and returns an error,
+authentication fails closed with a retryable unavailable response. HTTP returns
+503; stdio returns the negotiated protocol's unavailable error. The shared
+lifecycle cache retains its normal last-known-state behavior. A bad credential
+remains unauthorized, and a known suspension, offboarding or MFA policy refusal
+remains forbidden. Dependency diagnostics are never returned to the client.
 What stdio *deliberately* trusts
 is the **local invoking process**: anyone who can spawn the binary with that env var
 **is** the principal the token names — workstation process isolation is the
@@ -332,10 +349,124 @@ Three absences, each deliberate:
 
 - **No tenant argument, anywhere.** Isolation is by construction, not by a
   parameter a caller could set.
-- **No autonomous action.** The only write tool is proposal-only and human-gated;
-  the server never executes a remediation.
+- **No autonomous network action.** Saved-query writes change configuration or
+  personal preferences. Remediation stays proposal-only and human-gated.
 - **No anonymous network exposure.** The HTTP transport refuses to start without
   TLS, and every call is bearer-authenticated and consent-gated.
+
+## Native flow preview
+
+The colocated HTTP server binds native flow tools to its existing control-server
+services. These use the same registry, tenant-scoped readers, source permissions,
+private frozen snapshots and configuration stores as REST, CLI and the native UI.
+The server advertises these tools only when that native binding exists. All
+require an authenticated user plus both `ai.query` and `flow.read` for discovery
+and invocation. A current ABAC denial of either permission also applies.
+
+| Operations | Tools | Additional permission |
+| --- | --- | --- |
+| Stateless natural-language proposal | `flow_explorer_plan` | No execution/history; same joined-field grants and model consent gate |
+| Registry, query, comparison | `flow_explorer_schema`, `flow_explorer_query`, `flow_explorer_compare` | Source-specific grants for selected joined fields |
+| Complete CSV records | `flow_explorer_csv` | Current original grants and creator identity |
+| Frozen continuation | `flow_explorer_page`, `flow_explorer_comparison_page` | Current original grants and creator identity |
+| Reusable filter reads | `flow_filter_list`, `flow_filter_get` | Current grants for referenced fields |
+| Reusable filter writes | `flow_filter_save`, `flow_filter_delete` | `flow.filters.write` |
+| Saved-query reads/execution | `flow_view_list`, `flow_view_get`, `flow_view_run` | Private owner or explicit tenant sharing, with current source grants |
+| Saved-query writes | `flow_view_save`, `flow_view_delete` | `flow.views.write` and ownership for updates/deletion |
+| Personal preference | `flow_view_favorite` | Affects only the authenticated subject |
+
+Save operations create without an ID/revision and update with the exact observed
+revision. Revision tokens and measurement values are decimal strings. Shared
+read access does not grant configuration writes. Native input schemas derive from
+the committed API; unknown fields, duplicates, case aliases and trailing JSON are
+refused. No input carries tenant, source permissions, SQL or resource-budget authority.
+
+Results project selected registry dimensions and measurements into explicit
+ordered entries. For example, a measurement is
+`{"metric":"bytes:total","value":"9007199254740993","defined":true}`.
+A missing source measurement has `defined:false`; an observed zero has the exact
+value `"0"`. Original timestamps retain nanoseconds. Independent source totals,
+Other, matrix axes and both comparison periods remain separate. Internal storage
+clocks, tenant IDs, SQL previews and cache/filesystem paths are excluded.
+
+Native requests admit the full API grammar within a 4 MiB authenticated HTTP
+body and the shared 2 MiB plan/configuration grammar budget. Initial-catalog HTTP
+requests retain their 1 MiB body limit. Native output has server-owned 32 MiB
+source, 128 MiB combined wire and 4,194,304 structural-node ceilings; the final JSON-RPC
+encoding preserves these budgets. Oversized work refuses atomically. Query
+admission remains held through encoding and releases on errors/cancellation.
+Consent, redaction and durable audits apply to every native invocation. No
+response is published after the handler observes request cancellation.
+
+Native failures include a fixed public code and guidance for query budgets,
+source coverage, invalid grammar, missing/expired private results and stale
+configuration revisions. Messages never echo dependency text or source values.
+A transport-budget refusal asks for smaller pages or coarser buckets; it does
+not publish a partial result. Legacy tool failure messages remain unchanged.
+
+`flow_explorer_csv` accepts `snapshot_id`, `record_offset` (default0) and
+`page_size` (default/max5000). It returns CSV `columns` and complete `records`;
+follow `next_record` until absent to export every selected group, Other and totals.
+Comparison exports include one record per group/metric. The server privately
+prepares and validates the complete CSV on every call; records are projected
+while its read lease holds and source validity is checked again afterward.
+Pages also have a2MiB record encoding budget and can contain fewer than
+`page_size` records; `next_record` always identifies the next complete record.
+Cells are never split or encoded as opaque binary, so mandatory redaction still
+inspects each value. Reconstruct CSV by writing the columns once, then each
+page's records with a CSV writer. `source_bytes` and `source_sha256` identify
+the complete original authenticated CSV, before MCP redaction; they are source
+provenance, not checksums of the redacted MCP response. The API/CLI byte export
+continues to supply an exact byte digest.
+
+Native rendering costs are operator-configurable with
+`PROBECTL_FLOW_MCP_SOURCE_BYTES` (32 MiB), `PROBECTL_FLOW_MCP_WIRE_BYTES`
+(128 MiB complete RPC), `PROBECTL_FLOW_MCP_RESULT_NODES` (4 Mi nodes), and
+`PROBECTL_FLOW_MCP_CSV_PAGE_BYTES` (2 MiB of encoded records per page).
+All must be positive and sentinel-safe; zero never disables admission. REST
+and MCP registry `render_cost` reports the effective values. HTTP and stdio
+use the same immutable policy. Clients cannot override it. A refusal returns
+no partial telemetry; complete response framing is checked before successful
+egress audit. Legacy tools retain their existing smaller limits. These costs
+do not change the query grammar, retention range or total paged/CSV row reach.
+
+This preview has local declared-projection, tenant/owner, large-grammar and
+full-page checks, plus paired actual TLS native50k-page and revocation proofs
+with real PostgreSQL/FS and durable audits (reference telemetry fixtures).
+The development transport implements modern `2026-07-28` metadata/discovery
+and legacy `2025-11-25` initialization over TLS HTTP and stdio. Existing
+`2024-11-05` behavior remains. Local TLS and pipe tests cover the wire boundaries;
+external client interoperability, the current real-store replay and the combined
+real-sender/SSO/store receipt remain in progress. Natural-language flow queries
+use the stateless planning path; private conversation history is parked. These
+development results are not a release support claim. The existing `query_flows`
+tool continues its eBPF/events role.
+
+Modern HTTP requires matching version/method/name headers and per-request
+metadata. Closing its response cancels that request. Versioned stdio uses a
+bounded worker pool and queue, refreshes the bound credential on every frame
+and before queued execution, and accepts explicit cancellation without waiting
+for stdout. Active IDs and progress tokens cannot collide; EOF cancels work.
+Legacy stdio requires initialize/initialized before tool reads and cannot cancel
+its initialize request. Modern requests remain independent when interleaved.
+
+Legacy HTTP uses temporary per-request contexts, without issuing session IDs or
+server-to-client requests. It accepts notifications with an empty202 response;
+GET/DELETE return405. Legacy disconnect does not cancel work. Explicit
+cancellation targets only the same authenticated tenant/user/credential and
+request ID on the handling process; unknown requests on another replica are
+ignored. No distributed cancellation or replay is promised. Native query limits
+and tenant fairness still apply, together with the operator work deadline and
+active-request budget documented in configuration.md. A disconnected stream
+receives no further output.
+
+Before legacy HTTP tool output and successful egress audit, the transport
+rechecks the real credential and its tenant/user/MFA/grants/attributes. The tool
+also compares a frozen authority snapshot of the tenant ABAC policies against
+the current policy set, including policies for joined metadata. Changed or
+unavailable authority refuses the complete result with a fixed audited reason.
+Display names, policy row order and duplicate grants do not create false
+permission changes. Protocol metadata never supplies identity or resource costs.
 
 ## See also
 

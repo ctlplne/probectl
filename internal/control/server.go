@@ -23,6 +23,7 @@ import (
 	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/ai/author"
+	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -50,6 +51,7 @@ import (
 	"github.com/ctlplne/probectl/internal/slo"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
+	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/otelstore"
 	"github.com/ctlplne/probectl/internal/store/pathstore"
@@ -114,8 +116,10 @@ type Server struct {
 
 	// AI assistant (S24). The RCA analyzer over the S23 query engine; always set
 	// (built-in air-gapped model + incidents evidence when a pool is present).
-	analyzer   *ai.Analyzer
-	egressGate *ai.EgressGate
+	analyzer               *ai.Analyzer
+	egressGate             *ai.EgressGate
+	flowQuestionPlanner    ai.FlowQuestionPlanner
+	flowQuestionPlannerErr error
 
 	// AI test authoring + auto-discovery (S26). Always set (heuristic by default,
 	// model-backed when configured).
@@ -136,13 +140,16 @@ type Server struct {
 
 	// Flow analytics store (S38). Defaults to in-memory; main attaches the
 	// configured store (ClickHouse in production) via WithFlowStore.
-	flowStore       flowstore.Store
-	flowQuality     flow.QualityStore
-	otelStore       otelstore.Store
-	deviceOps       device.OpsStore
-	deviceNeighbors device.NeighborStore
-	deviceOutcomes  device.CollectionOutcomeStore
-	deviceTraps     device.TrapEventStore
+	flowStore          flowstore.Store
+	flowRenderBudget   mcp.NativeFlowRenderBudget
+	flowSnapshots      *flowsnapshot.Service
+	flowSnapshotSource *flowSnapshotSource
+	flowQuality        flow.QualityStore
+	otelStore          otelstore.Store
+	deviceOps          device.OpsStore
+	deviceNeighbors    device.NeighborStore
+	deviceOutcomes     device.CollectionOutcomeStore
+	deviceTraps        device.TrapEventStore
 
 	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
 	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
@@ -188,8 +195,10 @@ type Server struct {
 
 	// Endpoint DEM views (S-FE4): the snapshot store the endpoint-view consumer
 	// maintains. Set via WithEndpointViews; nil reports collector_running=false.
-	endpointViews  endpoint.ViewReader
-	inventoryViews inventory.ViewStore
+	endpointViews    endpoint.ViewReader
+	inventoryViews   inventory.ViewStore
+	flowQueryFilters flow.QueryFilterStore
+	flowQueryViews   flow.QueryViewStore
 
 	// Latest synthetic results (S-FE5): newest full result per (type, target,
 	// agent). Set via WithLatestResults; nil reports collector_running=false.
@@ -356,7 +365,8 @@ type Server struct {
 
 	// metrics is the self-observability registry exposed at /metrics
 	// (OPS-005). Process/aggregate health only — never tenant data.
-	metrics *metrics.Registry
+	metrics              *metrics.Registry
+	flowOperationMetrics map[string]*flowOperationMetrics
 
 	// requireMFA (SEC-005): when set (PROBECTL_REQUIRE_MFA), requirePermission
 	// refuses any session the IdP did not assert a second factor for. Default
@@ -505,6 +515,7 @@ func (s *Server) WithDeviceTraps(st device.TrapEventStore) *Server {
 func (s *Server) WithFlowStore(fs flowstore.Store) *Server {
 	if fs != nil {
 		s.flowStore = fs
+		flowstore.AttachExplorerInterfaces(fs, explorerDeviceInterfaces{server: s})
 		s.rebuildAnalyzer()
 	}
 	return s
@@ -533,14 +544,18 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	}
 	v := version.Get()
 	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover,
-		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), deviceOps: device.NewMemoryOpsStore(), inventoryViews: inventory.NewMemoryViewStore(), startedAt: time.Now(),
+		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), deviceOps: device.NewMemoryOpsStore(), inventoryViews: inventory.NewMemoryViewStore(), flowQueryFilters: flow.NewMemoryQueryFilterStore(0), startedAt: time.Now(),
 		requireMFA: cfg.RequireMFA, metrics: metrics.New(v.Version, v.Commit),
 		scimLimiter: newKeyLimiter(scimDefaultRatePerMin), scimMaxUsers: scimDefaultMaxUsersPerTenant,
 		scimMaxGroups:   scimDefaultMaxGroupsPerTenant,
 		irRevealLimiter: newKeyLimiter(3)}
+	s.flowQueryViews = flow.NewMemoryQueryViewStore(flowViewFilterReader{s}, 0)
+	s.flowRenderBudget = configuredNativeFlowRenderBudget(cfg)
+	flowstore.AttachExplorerInterfaces(s.flowStore, explorerDeviceInterfaces{server: s})
 	s.registerAuditRetentionMetrics()
 	s.registerEnrollmentFailureMetrics()
 	s.registerSelfObservabilityMetrics()
+	s.registerFlowQueryMetrics()
 	s.enrollmentFailureAudit = s.persistEnrollmentFailure
 	s.identityAudit = s.persistIdentityAudit
 
@@ -583,6 +598,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	// redaction, audit — shared by RCA, test authoring, and (via
 	// NewMCPServer) the MCP surface in the HTTP control-plane process.
 	s.egressGate = NewAIEgressGate(cfg, log, pool)
+	s.flowQuestionPlanner, s.flowQuestionPlannerErr = BuildFlowQuestionPlanner(cfg, log, s.egressGate)
 
 	// AI assistant (S24): RCA analyzer over the S23 query engine, grounded in the
 	// tenant-scoped incident store and synthesized by the configured model.
@@ -882,4 +898,22 @@ func loopbackAddr(addr string) bool {
 	}
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	return ip != nil && ip.IsLoopback()
+}
+
+// WithFlowQueryFilters binds tenant-scoped reusable flow configuration. The
+// durable implementation uses FORCE RLS and the lifecycle writer fence.
+func (s *Server) WithFlowQueryFilters(store flow.QueryFilterStore) *Server {
+	if store != nil {
+		s.flowQueryFilters = store
+	}
+	return s
+}
+
+// WithFlowQueryViews binds durable complete-query configuration. The production
+// store enforces tenant scope, visibility and ownership before decoding plans.
+func (s *Server) WithFlowQueryViews(store flow.QueryViewStore) *Server {
+	if store != nil {
+		s.flowQueryViews = store
+	}
+	return s
 }

@@ -216,7 +216,6 @@ func TestFlowRollupBackfillControlIsRoutedAndBound(t *testing.T) {
 	joined := strings.Join(queries, "\n")
 	mu.Unlock()
 	for _, want := range []string{
-		"DELETE FROM probectl_t_roll.probectl_flow_rollups_hour WHERE tenant_id={tenant:String}",
 		"INSERT INTO probectl_t_roll.probectl_flow_rollups_hour",
 		"FROM probectl_t_roll.probectl_flows",
 		"WHERE tenant_id={tenant:String}",
@@ -225,6 +224,9 @@ func TestFlowRollupBackfillControlIsRoutedAndBound(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("backfill SQL missing %q:\n%s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "DELETE FROM probectl_t_roll.probectl_flow_rollups_hour") {
+		t.Fatal("catch-up must preserve aged-out rollup rows")
 	}
 }
 

@@ -64,12 +64,32 @@ var ErrResponseTooLarge = fmt.Errorf("chclient: clickhouse response exceeds %d-b
 // shared-transport seam), so the bound holds for flowstore, ebpfstore,
 // pathstore, and otelstore on the path the consumer actually calls.
 func ReadResponseBody(r io.Reader) ([]byte, error) {
-	body, err := io.ReadAll(io.LimitReader(r, MaxResponseBytes+1))
+	return ReadResponseBodyBounded(r, MaxResponseBytes)
+}
+
+type responseBudgetOverflow struct{ limit int64 }
+
+func (e responseBudgetOverflow) Error() string {
+	return fmt.Sprintf("chclient: clickhouse response exceeds %d-byte limit", e.limit)
+}
+func (e responseBudgetOverflow) Unwrap() error { return ErrResponseTooLarge }
+
+// ReadResponseBodyBounded accepts a trusted operation-specific allocation
+// budget. The default helper retains its existing limit for all other stores.
+// Zero never disables admission; the sentinel must fit the host allocation type.
+func ReadResponseBodyBounded(r io.Reader, limit int64) ([]byte, error) {
+	if limit <= 0 || limit >= int64(^uint(0)>>1) {
+		return nil, fmt.Errorf("chclient: response byte budget must be positive and sentinel-safe")
+	}
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("chclient: read clickhouse response: %w", err)
 	}
-	if len(body) > MaxResponseBytes {
-		return nil, ErrResponseTooLarge
+	if int64(len(body)) > limit {
+		if limit == MaxResponseBytes {
+			return nil, ErrResponseTooLarge
+		}
+		return nil, responseBudgetOverflow{limit: limit}
 	}
 	return body, nil
 }
@@ -149,11 +169,50 @@ func (c *Conn) BreakerFor(base string) *breaker.Breaker {
 // (base "" = the pooled default). The response escapes to the caller, which
 // must close it.
 func (c *Conn) Do(base string, req *http.Request) (*http.Response, error) {
+	return c.do(base, req, false)
+}
+
+// DoBudgetedQuery serves a trusted, read-only registry query with explicit
+// execution/read/memory/group limits. A recognized HTTP 500 cost refusal proves
+// a responding server; it must not trip a shared breaker for sibling tenants.
+// The refusal response still reaches the caller unchanged. Transport failures,
+// HTTP 429/503, ClickHouse 202 overload, unknown errors and ordinary Do retain
+// their existing RESIL-005 breaker behavior.
+func (c *Conn) DoBudgetedQuery(base string, req *http.Request) (*http.Response, error) {
+	return c.do(base, req, true)
+}
+
+func queryBudgetRefusal(response *http.Response) bool {
+	if response.StatusCode != http.StatusInternalServerError {
+		return false
+	}
+	codes := response.Header.Values("X-ClickHouse-Exception-Code")
+	if len(codes) != 1 {
+		return false
+	}
+	switch codes[0] {
+	case "158", "159", "160", "191", "241", "307", "396":
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Conn) do(base string, req *http.Request, budgetedQuery bool) (*http.Response, error) {
+	if req == nil || req.URL == nil {
+		return nil, errors.New("chclient: request URL is required")
+	}
+	if err := req.Context().Err(); err != nil {
+		return nil, err
+	}
 	var resp *http.Response
-	err := c.BreakerFor(base).Do(func() error {
+	err := c.BreakerFor(base).DoWithOutcome(func() (breaker.Outcome, error) {
 		r, e := c.client.Do(req) //nolint:bodyclose // escapes to the caller
 		if e != nil {
-			return e
+			if callerErr := req.Context().Err(); callerErr != nil && errors.Is(e, callerErr) {
+				return breaker.OutcomeNeutral, e
+			}
+			return breaker.OutcomeFailure, e
 		}
 		resp = r
 		// RESIL-005: a completed-but-5xx/429 response is an upstream fault.
@@ -161,9 +220,12 @@ func (c *Conn) Do(base string, req *http.Request) (*http.Response, error) {
 		// the response — Do strips the sentinel below so the caller can read
 		// the body/status.
 		if serverFault(r.StatusCode) {
-			return errServerError
+			if budgetedQuery && req.Method == http.MethodPost && queryBudgetRefusal(r) {
+				return breaker.OutcomeSuccess, nil
+			}
+			return breaker.OutcomeFailure, errServerError
 		}
-		return nil
+		return breaker.OutcomeSuccess, nil
 	})
 	if errors.Is(err, errServerError) {
 		err = nil

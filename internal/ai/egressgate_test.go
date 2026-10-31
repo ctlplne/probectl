@@ -9,6 +9,9 @@ package ai
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -330,24 +333,39 @@ func TestRedactPolicyKnobs(t *testing.T) {
 // the inbound MCP HTTP transport. A new AI integration must go through the
 // gate package or fail here.
 func TestNoAIClientOutsideGate(t *testing.T) {
-	allowed := map[string]bool{
-		"model_http.go": true, // THE adapter (redacts + RemoteEgress-reports)
-		"mcp/http.go":   true, // inbound transport (serves, never dials AI)
+	serverHTTP := map[string]bool{
+		"mcp/http.go":          true,
+		"mcp/http_legacy.go":   true,
+		"mcp/http_protocol.go": true,
+		"mcp/origin.go":        true,
 	}
 	var offenders []string
 	root := "."
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 		src, rerr := os.ReadFile(path)
 		if rerr != nil {
-			return nil
+			return rerr
 		}
 		text := string(src)
 		rel := filepath.ToSlash(path)
-		if strings.Contains(text, `"net/http"`) && !allowed[rel] {
-			offenders = append(offenders, rel+" imports net/http")
+		if strings.Contains(text, `"net/http"`) && rel != "model_http.go" {
+			if !serverHTTP[rel] {
+				offenders = append(offenders, rel+" imports net/http")
+			} else {
+				selectors, parseErr := serverOnlyHTTPSelectors(src)
+				if parseErr != nil {
+					return parseErr
+				}
+				for _, selector := range selectors {
+					offenders = append(offenders, rel+" uses outbound/unreviewed HTTP symbol "+selector)
+				}
+			}
 		}
 		for _, marker := range []string{"api.openai.com", "api.anthropic.com"} {
 			if strings.Contains(text, marker) && rel != "model_http.go" {
@@ -356,8 +374,74 @@ func TestNoAIClientOutsideGate(t *testing.T) {
 		}
 		return nil
 	})
+	if err != nil {
+		t.Fatal("AI egress source inventory could not be verified", err)
+	}
 	if len(offenders) > 0 {
 		t.Fatalf("AI client surface outside the gate/adapter (AIRCA-001 — route through EgressGate):\n%s",
 			strings.Join(offenders, "\n"))
+	}
+}
+
+// Exact inbound files may use reviewed server symbols, not an unrestricted
+// net/http exemption. Aliasing, storing a client function or using Client /
+// DefaultTransport still fails even without a directly visible dial call.
+func serverOnlyHTTPSelectors(src []byte) ([]string, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), "server.go", src, 0)
+	if err != nil {
+		return nil, errors.New("server-only HTTP source could not be parsed")
+	}
+	alias := ""
+	for _, imp := range file.Imports {
+		if imp.Path.Value != `"net/http"` {
+			continue
+		}
+		alias = "http"
+		if imp.Name != nil {
+			alias = imp.Name.Name
+		}
+		if alias == "." || alias == "_" {
+			return []string{"ambiguous HTTP import"}, nil
+		}
+	}
+	allowed := map[string]bool{"Request": true, "ResponseWriter": true, "Header": true, "Handler": true, "HandlerFunc": true, "Error": true, "NewResponseController": true}
+	var forbidden []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		name, ok := selector.X.(*ast.Ident)
+		if !ok || name.Name != alias {
+			return true
+		}
+		symbol := selector.Sel.Name
+		if !allowed[symbol] && !strings.HasPrefix(symbol, "Status") && !strings.HasPrefix(symbol, "Method") {
+			forbidden = append(forbidden, symbol)
+		}
+		return true
+	})
+	return forbidden, nil
+}
+
+func TestInboundHTTPAllowanceStillRejectsOutboundClients(t *testing.T) {
+	for _, source := range []string{
+		`package p; import "net/http"; var send=http.Get`,
+		`package p; import "net/http"; var build=http.NewRequest`,
+		`package p; import h "net/http"; var client=h.Client{}`,
+		`package p; import "net/http"; var transport=http.DefaultTransport`,
+		`package p; import . "net/http"; var send=Get`,
+	} {
+		forbidden, err := serverOnlyHTTPSelectors([]byte(source))
+		if err != nil || len(forbidden) == 0 {
+			t.Fatal("inbound exception allowed an outbound client")
+		}
+	}
+	valid := `package p; import "net/http"; func handler(w http.ResponseWriter,r *http.Request){http.Error(w,"forbidden",http.StatusForbidden)}`
+	if forbidden, err := serverOnlyHTTPSelectors([]byte(valid)); err != nil || len(forbidden) != 0 {
+		t.Fatal("actual server-only symbols refused", err, forbidden)
+	}
+	if _, err := serverOnlyHTTPSelectors([]byte("not valid Go")); err == nil {
+		t.Fatal("unverifiable HTTP source passed")
 	}
 }

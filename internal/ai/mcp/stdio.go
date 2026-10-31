@@ -45,6 +45,9 @@ func (s *Server) ServeAuthenticatedStdio(ctx context.Context, r io.Reader, w io.
 	return s.ServeStdio(ctx, r, w, p, refresh)
 }
 func (s *Server) serveStdio(ctx context.Context, r io.Reader, w io.Writer, initial *auth.Principal, refresh func(context.Context) (*auth.Principal, error)) error {
+	if err := s.stdioLimits.Validate(); err != nil {
+		return err
+	}
 	tenant, user := "", ""
 	if initial != nil {
 		tenant, user = initial.TenantID, initial.UserID
@@ -58,6 +61,9 @@ func (s *Server) serveStdio(ctx context.Context, r io.Reader, w io.Writer, initi
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			continue
+		}
+		if req, _ := decodeRPC(line, false); req.protocol.modern || req.protocol.version == legacyProtocolVersion {
+			return s.serveVersionedStdio(ctx, scanner, line, r, w, initial, tenant, user, refresh)
 		}
 		principal := initial
 		var resp []byte
@@ -73,11 +79,7 @@ func (s *Server) serveStdio(ctx context.Context, r io.Reader, w io.Writer, initi
 				case len(req.ID) > maxMCPRequestIDBytes:
 					resp = marshal(errorResponse(nil, codeInvalidRequest, "request id exceeds size limit"))
 				case len(req.ID) > 0:
-					code, message := codeUnauthorized, "credential is invalid or no longer authorized"
-					if errors.Is(err, ErrForbidden) {
-						code, message = codeForbidden, "credential is forbidden by current policy"
-					}
-					resp = marshal(errorResponse(req.ID, code, message))
+					resp = marshal(stdioAuthFailure(req.ID, err))
 				}
 				if resp != nil {
 					if _, err := w.Write(append(resp, '\n')); err != nil {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -173,7 +174,8 @@ func TestMCPServerToolsTenantScopedAndTokenAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.NewMCPTokens(db.Pool()).Create(ctx, tenant, userID, "test", crypto.Hash([]byte(token))); err != nil {
+	_, err = store.NewMCPTokens(db.Pool()).Create(ctx, tenant, userID, "test", crypto.Hash([]byte(token)))
+	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}
 	princ, err := NewMCPAuthenticator(db.Pool(), nil, false).Authenticate(ctx, token)
@@ -183,6 +185,10 @@ func TestMCPServerToolsTenantScopedAndTokenAuth(t *testing.T) {
 	if princ.TenantID != tenant || princ.UserID != userID {
 		t.Errorf("token resolved to tenant=%s user=%s, want %s/%s", princ.TenantID, princ.UserID, tenant, userID)
 	}
+	if !princ.ViaBearerToken {
+		t.Fatal("actual MCP bearer authentication lost the human-action boundary")
+	}
+
 	if _, err := NewMCPAuthenticator(db.Pool(), nil, false).Authenticate(ctx, "bogus-token"); err == nil {
 		t.Error("an invalid token must fail authentication")
 	}
@@ -480,6 +486,14 @@ func TestMCPAuthenticatorEnforcesTenantLifecycleAndMFA(t *testing.T) {
 	// Active tenant, no MFA requirement → authenticates.
 	if _, err := authn(false).Authenticate(ctx, token); err != nil {
 		t.Fatalf("active tenant must authenticate over MCP: %v", err)
+	}
+	// A fresh replica cannot treat an unreadable lifecycle source as active.
+	// The token still resolves through real PG; only the policy read is faulted.
+	unknown := NewMCPAuthenticator(db.Pool(), failingTenantStatus{}, false)
+	principal, err := unknown.Authenticate(ctx, token)
+	var unavailable *apierror.Error
+	if principal != nil || !errors.As(err, &unavailable) || unavailable.Kind != apierror.KindUnavailable {
+		t.Fatalf("unknown lifecycle authenticated an actual token: principal=%v error=%v", principal != nil, err)
 	}
 	// MFA-required deployment → the single-factor MCP token is refused (403).
 	if _, err := authn(true).Authenticate(ctx, token); !errors.Is(err, mcp.ErrForbidden) {

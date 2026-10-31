@@ -242,7 +242,7 @@ capabilities:
     api: {refs: ["api:POST /v1/ai/ask", "api:POST /v1/explorer/query"]}
     cli: {refs: ["cli:probectl ai ask", "cli:probectl explorer query"]}
     ui: {refs: ["ui:F13@/ask", "ui:F13@/explore"]}
-    docs: {refs: ["file:docs/ai-rca.md#AI root-cause analysis"]}
+    docs: {refs: ["file:docs/ai-rca.md#AI root-cause analysis", "file:docs/explorer.md#Stateless flow questions"]}
     config_keys: {refs: ["config:PROBECTL_AI_MODEL_PROVIDER", "config:PROBECTL_AI_MAX_EVIDENCE"]}
     telemetry: {refs: ["file:internal/ai"]}
     real_stack_proof: {refs: ["test:internal/ai/realstack_integration_test.go#TestAIRootCauseRealStack"]}

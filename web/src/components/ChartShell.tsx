@@ -17,7 +17,7 @@ export function ChartShell({
   title: ReactNode
   toolbar?: ReactNode
   legend?: ReactNode
-  height?: number
+  height?: number | string
   children: ReactNode
 }) {
   return (

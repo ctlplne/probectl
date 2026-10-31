@@ -77,6 +77,12 @@ func TestFlowTenantReadWithoutReaderFailsClosed(t *testing.T) {
 	if _, err := c.ExportTenant(ctx, "tenant-a", io.Discard); !errors.Is(err, chclient.ErrReaderRequired) {
 		t.Fatalf("export err = %v, want ErrReaderRequired", err)
 	}
+	if _, err := c.ExportRetainedTenant(ctx, "tenant-a", io.Discard); !errors.Is(err, chclient.ErrReaderRequired) {
+		t.Fatalf("retained export without reader: %v", err)
+	}
+	if _, err := c.ExportRetainedSubject(ctx, "tenant-a", "subject", io.Discard); !errors.Is(err, chclient.ErrReaderRequired) {
+		t.Fatalf("retained subject without reader: %v", err)
+	}
 	if reqs := srv.Requests("SELECT"); len(reqs) != 0 {
 		t.Fatalf("a refused read still reached ClickHouse: %+v", reqs)
 	}

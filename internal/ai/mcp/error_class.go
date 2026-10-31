@@ -49,3 +49,8 @@ func ErrorClass(err error) string {
 	}
 	return "dependency"
 }
+
+func authenticationUnavailable(err error) bool {
+	var domain *apierror.Error
+	return errors.As(err, &domain) && domain.Kind == apierror.KindUnavailable
+}

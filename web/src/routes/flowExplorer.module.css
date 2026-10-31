@@ -1,0 +1,282 @@
+.stack {
+  display: grid;
+  gap: var(--space-4);
+}
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.summary dt {
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-caption);
+}
+.summary dd {
+  margin: 0;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-8) * 7)), 1fr));
+  gap: var(--space-4);
+  align-items: end;
+}
+.row,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+}
+.row > :first-child {
+  min-width: min(100%, calc(var(--space-8) * 5));
+}
+.group {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+}
+.group legend {
+  padding-inline: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+.condition {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  background: hsl(var(--muted));
+}
+.condition legend {
+  font-size: var(--font-size-caption);
+  padding-inline: var(--space-2);
+}
+.operand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+.hint {
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-sm);
+}
+.link {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.visual {
+  margin: 0;
+  padding: var(--space-4);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-panel);
+}
+.visual figcaption {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+.bars {
+  display: grid;
+  gap: var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+.barRow {
+  display: grid;
+  gap: var(--space-1);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.barTrack {
+  position: relative;
+  height: var(--space-3);
+  background: hsl(var(--muted));
+}
+.totalMarker {
+  position: absolute;
+  inset-block: 0;
+  border-inline-start: calc(var(--viz-total-width) * var(--border-width-thin)) solid
+    hsl(var(--viz-total-color));
+}
+.chartGrid {
+  --flow-chart-columns: 1;
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+  min-width: 0;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(
+      min(
+        100%,
+        max(
+          calc(var(--space-8) * 5),
+          calc(
+            (100% - (var(--flow-chart-columns) - 1) * var(--space-4)) / var(--flow-chart-columns)
+          )
+        )
+      ),
+      1fr
+    )
+  );
+}
+.chartGrid > * {
+  min-width: 0;
+}
+.bars > li {
+  --flow-series-color: hsl(var(--chart-1));
+}
+.currentBar,
+.previousBar {
+  height: 100%;
+  background: var(--flow-series-color);
+}
+.previousBar {
+  border-block: var(--border-width-thin) dashed hsl(var(--foreground));
+}
+.chartControls {
+  min-width: 0;
+}
+.chartControls summary {
+  cursor: pointer;
+  padding-block: var(--space-2);
+}
+.chartGroupRegion {
+  max-height: calc(var(--space-8) * 5);
+  overflow: auto;
+  margin-block-start: var(--space-3);
+}
+.chartGroupList {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+.chartGroupList li {
+  display: grid;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.chartControls summary:focus-visible,
+.chartGroupRegion:focus-visible {
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
+  outline-offset: var(--focus-ring-offset);
+}
+.tupleButton {
+  white-space: normal;
+  height: auto;
+  min-height: var(--density-control-block);
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+.matrixRegion {
+  --matrix-header-block: 0;
+  --matrix-row-inline: 0;
+  isolation: isolate;
+  scroll-padding-block-start: var(--matrix-header-block);
+  scroll-padding-inline-start: var(--matrix-row-inline);
+  overflow: auto;
+  max-height: min(calc(var(--space-8) * 20), var(--layout-matrix-scroll-max-block));
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-panel);
+}
+.matrixRegion:focus-visible {
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
+}
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+.matrix caption {
+  text-align: start;
+  padding: var(--space-3);
+  font-weight: var(--font-weight-semibold);
+}
+.matrix th,
+.matrix td {
+  min-width: calc(var(--space-8) * 2.5);
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  overflow-wrap: anywhere;
+  text-align: start;
+  vertical-align: top;
+}
+.matrix th {
+  background: hsl(var(--muted));
+}
+.matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+.matrix th[scope='row'],
+.matrix thead th:first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  width: calc(var(--space-8) * 2.5);
+  max-width: calc(var(--space-8) * 2.5);
+  z-index: var(--z-sticky);
+}
+.matrix thead th:first-child {
+  z-index: var(--z-overlay);
+}
+.axisHeader {
+  display: grid;
+  gap: var(--space-2);
+  max-width: calc(var(--space-8) * 2.5);
+}
+.axisDetails summary {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: var(--density-control-block);
+  cursor: pointer;
+}
+.axisDetails summary:focus-visible {
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
+  outline-offset: var(--focus-ring-offset);
+}
+.axisSummary {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.axisValues {
+  max-height: calc(var(--space-8) * 4);
+  overflow: auto;
+}
+.axisValues:focus-visible {
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
+  outline-offset: var(--focus-ring-offset);
+}
+.axisDetails dl {
+  margin: 0;
+  font-weight: var(--font-weight-regular);
+}
+.axisDetails dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.matrix td {
+  --flow-cell-strength: 0;
+  --flow-cell-opacity: calc(var(--flow-cell-strength) * var(--viz-heat-max-opacity));
+  background: hsl(var(--chart-1) / var(--flow-cell-opacity));
+}
+@media (pointer: coarse) {
+  .tupleButton {
+    min-height: var(--density-touch-target);
+  }
+  .axisDetails summary {
+    min-height: var(--density-touch-target);
+  }
+}

@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -124,10 +125,22 @@ func (m *HTTPModel) Name() string {
 // the seam other AI tasks reuse — e.g. test authoring (S26) — without coupling to
 // the RCA-specific Synthesize prompt/parsing.
 func (m *HTTPModel) Complete(ctx context.Context, system, user string) (string, error) {
-	if m.remote {
-		user = redactTextForTenant(user, m.redact, redactionTenantFromContext(ctx)) // C8: nothing un-redacted leaves
+	user, err := m.redactCompletionPrompt(ctx, user)
+	if err != nil {
+		return "", err
 	}
 	return m.chat(ctx, system, user)
+}
+
+func (m *HTTPModel) CompleteWithBudget(ctx context.Context, system, user string, budget CompletionBudget) (string, error) {
+	if err := budget.Validate(); err != nil {
+		return "", err
+	}
+	user, err := m.redactCompletionPrompt(ctx, user)
+	if err != nil {
+		return "", err
+	}
+	return m.chatWithBudget(ctx, system, user, &budget)
 }
 
 // synthDTO is the structured answer probectl asks every remote model to return, so
@@ -239,19 +252,23 @@ func userPrompt(in SynthesisInput) string {
 // chat dispatches one synthesis request to the configured backend and returns the
 // model's text content.
 func (m *HTTPModel) chat(ctx context.Context, system, user string) (string, error) {
+	return m.chatWithBudget(ctx, system, user, nil)
+}
+
+func (m *HTTPModel) chatWithBudget(ctx context.Context, system, user string, budget *CompletionBudget) (string, error) {
 	switch m.kind {
 	case KindOllama:
-		return m.ollamaChat(ctx, system, user)
+		return m.ollamaChat(ctx, system, user, budget)
 	case KindOpenAI:
-		return m.openAIChat(ctx, system, user)
+		return m.openAIChat(ctx, system, user, budget)
 	case KindAnthropic:
-		return m.anthropicChat(ctx, system, user)
+		return m.anthropicChat(ctx, system, user, budget)
 	default:
 		return "", fmt.Errorf("ai: unsupported model kind %q", m.kind)
 	}
 }
 
-func (m *HTTPModel) ollamaChat(ctx context.Context, system, user string) (string, error) {
+func (m *HTTPModel) ollamaChat(ctx context.Context, system, user string, budget *CompletionBudget) (string, error) {
 	body := map[string]any{
 		"model":  m.model,
 		"stream": false,
@@ -261,18 +278,34 @@ func (m *HTTPModel) ollamaChat(ctx context.Context, system, user string) (string
 			{"role": "user", "content": user},
 		},
 	}
+	if budget != nil {
+		body["options"] = map[string]int{"num_predict": budget.OutputTokens}
+		body["truncate"], body["shift"] = false, false
+	}
 	var out struct {
 		Message struct {
-			Content string `json:"content"`
+			Role      string            `json:"role"`
+			Content   string            `json:"content"`
+			ToolCalls []json.RawMessage `json:"tool_calls"`
 		} `json:"message"`
+		Done       *bool  `json:"done"`
+		DoneReason string `json:"done_reason"`
 	}
-	if err := m.post(ctx, m.endpoint+"/api/chat", nil, body, &out); err != nil {
+	if err := m.postCompletion(ctx, m.endpoint+"/api/chat", nil, body, &out, budget); err != nil {
 		return "", err
+	}
+	if out.DoneReason == "length" {
+		return "", truncatedCompletion()
+	}
+	if budget != nil {
+		if out.Done == nil || !*out.Done || out.DoneReason != "stop" || out.Message.Role != "assistant" || out.Message.Content == "" || len(out.Message.ToolCalls) != 0 {
+			return "", ErrModelCompletionIncomplete
+		}
 	}
 	return out.Message.Content, nil
 }
 
-func (m *HTTPModel) openAIChat(ctx context.Context, system, user string) (string, error) {
+func (m *HTTPModel) openAIChat(ctx context.Context, system, user string, budget *CompletionBudget) (string, error) {
 	body := map[string]any{
 		"model":           m.model,
 		"temperature":     0,
@@ -282,27 +315,57 @@ func (m *HTTPModel) openAIChat(ctx context.Context, system, user string) (string
 			{"role": "user", "content": user},
 		},
 	}
+	if budget != nil {
+		body[budget.OpenAITokenParameter] = budget.OutputTokens
+	}
 	headers := map[string]string{}
 	if m.token != "" {
 		headers["Authorization"] = "Bearer " + m.token
 	}
 	var out struct {
 		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Role         string            `json:"role"`
+				Content      string            `json:"content"`
+				Refusal      json.RawMessage   `json:"refusal"`
+				ToolCalls    []json.RawMessage `json:"tool_calls"`
+				FunctionCall json.RawMessage   `json:"function_call"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := m.post(ctx, m.endpoint+"/v1/chat/completions", headers, body, &out); err != nil {
+	if err := m.postCompletion(ctx, m.endpoint+"/v1/chat/completions", headers, body, &out, budget); err != nil {
 		return "", err
 	}
 	if len(out.Choices) == 0 {
 		return "", fmt.Errorf("ai: model returned no choices")
 	}
+	if budget != nil && (len(out.Choices) != 1 || out.Choices[0].Message.Role != "assistant" || len(out.Choices[0].Message.ToolCalls) != 0 || nonNullModelField(out.Choices[0].Message.FunctionCall)) {
+		return "", ErrModelCompletionIncomplete
+	}
+	if out.Choices[0].FinishReason == "length" {
+		return "", truncatedCompletion()
+	}
+	if out.Choices[0].FinishReason == "content_filter" {
+		return "", refusedCompletion()
+	}
+	if nonNullModelField(out.Choices[0].Message.Refusal) {
+		var refusal string
+		if json.Unmarshal(out.Choices[0].Message.Refusal, &refusal) != nil || strings.TrimSpace(refusal) == "" {
+			return "", ErrModelCompletionIncomplete
+		}
+		return "", refusedCompletion()
+	}
+	if budget != nil {
+		choice := out.Choices[0]
+		if len(out.Choices) != 1 || choice.FinishReason != "stop" || choice.Message.Role != "assistant" || choice.Message.Content == "" || nonNullModelField(choice.Message.Refusal) || nonNullModelField(choice.Message.FunctionCall) || len(choice.Message.ToolCalls) != 0 {
+			return "", ErrModelCompletionIncomplete
+		}
+	}
 	return out.Choices[0].Message.Content, nil
 }
 
-func (m *HTTPModel) anthropicChat(ctx context.Context, system, user string) (string, error) {
+func (m *HTTPModel) anthropicChat(ctx context.Context, system, user string, budget *CompletionBudget) (string, error) {
 	body := map[string]any{
 		"model":      m.model,
 		"max_tokens": 1024,
@@ -311,18 +374,52 @@ func (m *HTTPModel) anthropicChat(ctx context.Context, system, user string) (str
 			{"role": "user", "content": user},
 		},
 	}
+	if budget != nil {
+		body["max_tokens"] = budget.OutputTokens
+	}
 	headers := map[string]string{"anthropic-version": "2023-06-01"}
 	if m.token != "" {
 		headers["x-api-key"] = m.token
 	}
 	var out struct {
-		Content []struct {
+		Role       string `json:"role"`
+		StopReason string `json:"stop_reason"`
+		Content    []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 	}
-	if err := m.post(ctx, m.endpoint+"/v1/messages", headers, body, &out); err != nil {
+	if err := m.postCompletion(ctx, m.endpoint+"/v1/messages", headers, body, &out, budget); err != nil {
 		return "", err
+	}
+	if budget != nil && out.Role != "assistant" {
+		return "", ErrModelCompletionIncomplete
+	}
+	if out.StopReason == "max_tokens" || out.StopReason == "model_context_window_exceeded" {
+		return "", truncatedCompletion()
+	}
+	if out.StopReason == "refusal" {
+		return "", refusedCompletion()
+	}
+	if budget != nil {
+		if out.StopReason != "end_turn" || out.Role != "assistant" {
+			return "", ErrModelCompletionIncomplete
+		}
+		var text strings.Builder
+		for _, block := range out.Content {
+			switch block.Type {
+			case "text":
+				text.WriteString(block.Text)
+			case "thinking", "redacted_thinking":
+				// Model reasoning is neither a proposed plan nor user-visible data.
+			default:
+				return "", ErrModelCompletionIncomplete
+			}
+		}
+		if text.Len() == 0 {
+			return "", ErrModelCompletionIncomplete
+		}
+		return text.String(), nil
 	}
 	for _, c := range out.Content {
 		if c.Type == "text" {
@@ -352,6 +449,15 @@ const maxModelResponseBodyBytes int64 = 1 << 20
 // content: drain a bounded amount for connection hygiene, but never propagate
 // that content through errors, logs, or API wrappers.
 func (m *HTTPModel) post(ctx context.Context, endpoint string, headers map[string]string, reqBody, out any) error {
+	return m.postCompletion(ctx, endpoint, headers, reqBody, out, nil)
+}
+
+func nonNullModelField(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	return len(raw) != 0 && !bytes.Equal(raw, []byte("null"))
+}
+
+func (m *HTTPModel) postCompletion(ctx context.Context, endpoint string, headers map[string]string, reqBody, out any, budget *CompletionBudget) error {
 	raw, err := json.Marshal(reqBody)
 	if err != nil {
 		return err
@@ -373,8 +479,15 @@ func (m *HTTPModel) post(ctx context.Context, endpoint string, headers map[strin
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxModelResponseBodyBytes))
 		return fmt.Errorf("ai: %s model provider returned HTTP status %d", modelProviderCategory(m.kind), resp.StatusCode)
 	}
-	data, err := httpbody.ReadLimited(resp.Body, maxModelResponseBodyBytes)
+	limit := maxModelResponseBodyBytes
+	if budget != nil {
+		limit = budget.ResponseBytes
+	}
+	data, err := httpbody.ReadLimited(resp.Body, limit)
 	if err != nil {
+		if budget != nil && errors.Is(err, httpbody.ErrTooLarge) {
+			return errors.Join(ErrModelCompletionBudget, httpbody.ErrTooLarge)
+		}
 		return fmt.Errorf("ai: read bounded model response: %w", err)
 	}
 	return json.Unmarshal(data, out)

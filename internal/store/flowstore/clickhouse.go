@@ -288,6 +288,8 @@ func rollupTableFor(t Target) (string, error) {
 // ClickHouse persists flows over the ClickHouse HTTP interface (pathstore
 // pattern: zero driver dependencies; https URL = TLS in transit).
 type ClickHouse struct {
+	explorerInterfaces ExplorerInterfaceSource
+	explorerBudget     ExplorerBudget
 	// conn is the shared ClickHouse transport (CODE-006): TLS-hardened client,
 	// JSONEachRow decode, and a circuit breaker PER routed silo BaseURL
 	// (SCALE-021 — one down silo never trips another), now owned by chclient.
@@ -419,6 +421,7 @@ func chMigrationsFor(table string) []chmigrate.Migration {
 			Destructive:   true,
 			Justification: "replace only rollup rows whose raw source still exists, preserving aged-out history while backfilling subject keys; then recreate the materialized view",
 		},
+		fullRollupMigration(table, rollupTable, rollupView),
 	}
 }
 
@@ -463,6 +466,9 @@ func NewClickHouseWithClient(rawURL string, retentionDays int, client *http.Clie
 			return nil, fmt.Errorf("flowstore: apply retention TTL: %w", err)
 		}
 	}
+	if err := c.configureFullRollupRetention(ctx, "", sharedFlowRollupsTable, retentionDays); err != nil {
+		return nil, fmt.Errorf("flowstore: complete-input retention: %w", err)
+	}
 	return c, nil
 }
 
@@ -506,6 +512,13 @@ func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retenti
 		if err := c.exec(ctx, t.BaseURL, ttl, nil, nil); err != nil {
 			return fmt.Errorf("flowstore: tenant retention TTL: %w", err)
 		}
+	}
+	rollup, err := rollupTableFor(t)
+	if err != nil {
+		return err
+	}
+	if err := c.configureFullRollupRetention(ctx, t.BaseURL, rollup, retentionDays); err != nil {
+		return fmt.Errorf("flowstore: tenant complete-input retention: %w", err)
 	}
 	return nil
 }
@@ -871,8 +884,9 @@ type HourlyRollup struct {
 	Flows     uint64    `json:"flows"`
 }
 
-// backfillRollups rebuilds one tenant's hourly flow summaries for [from, to).
-// It deletes the tenant+window rollups first so manual catch-up is idempotent.
+// backfillRollups appends still-retained input for one tenant/window. The
+// destination deduplicates by stable row identity. Never clear the time window:
+// older rollups may be the only remaining copy after raw retention (DPR-412).
 func (c *ClickHouse) backfillRollups(ctx context.Context, tenantID string, from, to time.Time) error {
 	if tenantID == "" {
 		return ErrNoTenant
@@ -893,12 +907,7 @@ func (c *ClickHouse) backfillRollups(ctx context.Context, tenantID string, from,
 		return err
 	}
 	p := chParams{"tenant": tenantID, "from": chTimeParam(from), "to": chTimeParam(to)}
-	if err := c.exec(ctx, t.BaseURL,
-		"DELETE FROM "+rollup+" WHERE tenant_id={tenant:String} AND bucket >= toStartOfHour({from:DateTime64(3)}) AND bucket < toStartOfHour({to:DateTime64(3)}) SETTINGS mutations_sync=2",
-		p, nil); err != nil {
-		return fmt.Errorf("flowstore: delete rollup backfill window: %w", err)
-	}
-	return c.exec(ctx, t.BaseURL, flowRollupBackfillSQL(table, rollup), p, nil)
+	return c.exec(ctx, t.BaseURL, fullRollupBackfillSQL(table, rollup), p, nil)
 }
 
 func flowRollupBackfillSQL(table, rollup string) string {
@@ -1208,7 +1217,19 @@ func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string
 		}
 		remaining += n
 	}
-	return before - remaining, remaining, nil
+	rawRemaining := remaining
+	rollup, err := rollupTableFor(t)
+	if err != nil {
+		return 0, -1, err
+	}
+	rows, err := c.query(ctx, t.BaseURL, "SELECT count() AS n FROM "+rollup+" WHERE "+flowRollupSubjectPredicate(), p)
+	if err != nil {
+		return 0, -1, err
+	}
+	if len(rows) > 0 {
+		remaining += chCount(rows[0]["n"])
+	}
+	return before - rawRemaining, remaining, nil
 }
 
 // DeleteTenantBefore removes one tenant's flows older than cutoff (S-T5
@@ -1223,6 +1244,9 @@ func (c *ClickHouse) DeleteTenantBefore(ctx context.Context, tenantID string, cu
 	}
 	table, err := tableFor(t)
 	if err != nil {
+		return err
+	}
+	if err := c.expireCompleteRollupInputs(ctx, t, tenantID, cutoff); err != nil {
 		return err
 	}
 	return c.exec(ctx, t.BaseURL,

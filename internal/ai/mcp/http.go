@@ -44,7 +44,7 @@ type Authenticator interface {
 // ErrForbidden marks an Authenticate failure that is a policy refusal rather
 // than a bad token — a suspended/offboarded tenant or an unmet MFA requirement
 // (AUTHZ-12). The handler maps it to 403, matching the /v1 edge; every other
-// authentication error maps to 401.
+// authentication error maps to 401, except typed unavailable failures (503).
 var ErrForbidden = errors.New("mcp: forbidden")
 
 // HTTPHandler returns the MCP-over-HTTP handler — the network transport. It is
@@ -54,6 +54,18 @@ var ErrForbidden = errors.New("mcp: forbidden")
 // guardrail 12). Treats the request body as untrusted input.
 func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.httpWorkBudget.Validate() != nil || s.legacyHTTP == nil {
+			http.Error(w, "HTTP work policy is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if s.httpOriginsInvalid {
+			http.Error(w, "HTTP origin policy is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !s.allowsHTTPOrigin(r) {
+			http.Error(w, "origin is not allowed", http.StatusForbidden)
+			return
+		}
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -67,6 +79,7 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 		}
 		p, err := authn.Authenticate(r.Context(), bearer)
 		if err != nil || p == nil || p.TenantID == "" {
+			s.legacyHTTP.cancelCredential(bearer)
 			if err != nil {
 				s.log.Warn("mcp authentication failed", "error_class", ErrorClass(err))
 			}
@@ -74,6 +87,10 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 			// required) is 403 like /v1; a bad/expired/disabled token is 401.
 			if errors.Is(err, ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			if authenticationUnavailable(err) {
+				http.Error(w, "authentication policy is temporarily unavailable", http.StatusServiceUnavailable)
 				return
 			}
 			// D-62: a quarantined tenant is refused with the actionable cause,
@@ -87,7 +104,11 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
-		body, err := httpbody.ReadLimited(r.Body, 1<<20)
+		limit := int64(1 << 20)
+		if s.nativeEnabled {
+			limit = 4 << 20
+		}
+		body, err := httpbody.ReadLimited(r.Body, limit)
 		if err != nil {
 			if errors.Is(err, httpbody.ErrTooLarge) {
 				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
@@ -96,7 +117,78 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 			http.Error(w, "read error", http.StatusBadRequest)
 			return
 		}
-		resp := s.Handle(r.Context(), p, body)
+		if len(body) > 1<<20 && !s.isNativeCall(body) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		versionValues := headerValues(r.Header, "MCP-Protocol-Version")
+		version, _ := singleHeaderValue(versionValues)
+		req, failure := decodeRPC(body, modernVersionHeader(version) || len(versionValues) > 1)
+		if !req.protocol.modern && version == legacyProtocolVersion {
+			req, failure = decodeLegacy2025RPC(body)
+		}
+		if !req.protocol.modern && req.protocol.version == legacyProtocolVersion {
+			if notice, _ := stdioNotification(body); notice && (req.Method == notificationCanceled || boundedJSONObjectSyntax(body, 4<<20, false) == nil) {
+				failure = nil // malformed cancellation is ignored, valid notices are accepted
+			}
+			if failure == nil {
+				failure = validateLegacyHTTP(r, req)
+			}
+			if failure != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write(marshal(s.prepareResponse(req, failure)))
+				return
+			}
+			s.serveLegacyHTTP(w, r, authn, p, bearer, body, req)
+			return
+		}
+		if failure == nil && req.protocol.modern {
+			failure = validateModernHTTP(r, req)
+		}
+		if failure != nil {
+			w.Header().Set("Content-Type", "application/json")
+			if req.protocol.modern {
+				w.WriteHeader(modernHTTPStatus(failure.Error.Code))
+			}
+			_, _ = w.Write(marshal(s.prepareResponse(req, failure)))
+			return
+		}
+		requestCtx := r.Context()
+		streaming := false
+		if req.protocol.modern && len(req.protocol.progress) > 0 {
+			req.protocol.frameReserve = 8
+			requestCtx = withProgressEmitter(requestCtx, func(stage int) error {
+				if err := r.Context().Err(); err != nil {
+					return err
+				}
+				message, err := progressMessage(req.protocol.progress, stage)
+				if err != nil {
+					return err
+				}
+				if !streaming {
+					w.Header().Set("Content-Type", "text/event-stream")
+					w.Header().Set("Cache-Control", "no-store")
+					w.Header().Set("X-Accel-Buffering", "no")
+					streaming = true
+				}
+				if err := writeSSE(w, message); err != nil {
+					return err
+				}
+				return http.NewResponseController(w).Flush()
+			})
+		}
+		resp := s.handleRequest(requestCtx, p, req, body)
+		if req.protocol.modern && r.Context().Err() != nil {
+			return
+		}
+		if streaming {
+			if resp != nil {
+				_ = writeSSE(w, resp)
+				_ = http.NewResponseController(w).Flush()
+			}
+			return
+		}
 		if resp == nil {
 			w.WriteHeader(http.StatusAccepted) // a notification — no body
 			return
@@ -106,9 +198,11 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 		// a client's standard transport-level backoff triggers without having to
 		// parse the JSON-RPC body. Other responses keep HTTP 200 (JSON-RPC
 		// carries their status in the body, the protocol's contract).
-		if rpcErrorCode(resp) == codeRateLimited {
+		if rpcErrorCode(resp) == codeRateLimited || rpcErrorCode(resp) == codeModernRateLimited {
 			w.Header().Set("Retry-After", "60")
 			w.WriteHeader(http.StatusTooManyRequests)
+		} else if req.protocol.modern {
+			w.WriteHeader(modernHTTPStatus(rpcErrorCode(resp)))
 		}
 		_, _ = w.Write(resp)
 	})

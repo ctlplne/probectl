@@ -49,6 +49,7 @@ import (
 	"github.com/ctlplne/probectl/internal/objectstore"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/endpointstore"
+	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -202,6 +203,9 @@ type Engine struct {
 	ebpf              EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
 	sessions          SessionRetentionPruner
 	sessionReplayTTL  time.Duration
+	flowSnapshots     interface {
+		Invalidate(context.Context, string, func(context.Context) error) error
+	}
 	// aiAnswerRetention is the same tenant-scoped prune seam as the Postgres
 	// implementation below. Tests inject it to prove audit ordering without
 	// requiring a database; production leaves it nil and uses InTenant.
@@ -249,6 +253,13 @@ type Engine struct {
 	// values are a hard upper bound for tenant policy; zero is keep-forever
 	// and therefore permits any finite, representable tenant tightening.
 	auditRetentionMaximum time.Duration
+}
+
+// WithFlowSnapshots shares the result-cache service's objects/admission with
+// lifecycle maintenance. It never changes the outer tenant writer boundary.
+func (e *Engine) WithFlowSnapshots(lifecycle flowsnapshot.PreparedLifecycle) *Engine {
+	e.flowSnapshots = lifecycle
+	return e
 }
 
 // New wires the engine. flows/objects/tsdb may be nil (that store absent in
@@ -1408,7 +1419,7 @@ func (e *Engine) SetRetention(ctx context.Context, p RetentionPolicy, actor stri
 	if e.appendRetentionPolicyAudit == nil {
 		return errRetentionAuditUnavailable
 	}
-	return tenancy.InTenant(ctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+	prepare := func(ctx context.Context, sc tenancy.Scope) error {
 		if err := upsertRetentionPolicy(ctx, sc, p); err != nil {
 			return err
 		}
@@ -1423,7 +1434,16 @@ func (e *Engine) SetRetention(ctx context.Context, p RetentionPolicy, actor stri
 			return fmt.Errorf("tenantlife: append retention policy audit: %w", err)
 		}
 		return nil
-	})
+	}
+	lifecycle := flowsnapshot.NewLifecycle(e.pool, e.objects, tenancy.NewPostgresWriterFence(e.pool))
+	if e.flowSnapshots != nil {
+		var ok bool
+		lifecycle, ok = e.flowSnapshots.(flowsnapshot.PreparedLifecycle)
+		if !ok {
+			return errors.New("tenantlife: prepared result-cache invalidation unavailable")
+		}
+	}
+	return lifecycle.InvalidatePrepared(ctx, p.TenantID, prepare, func(context.Context) error { return nil })
 }
 
 func retentionPolicyAuditData(p RetentionPolicy) map[string]any {
@@ -1552,7 +1572,8 @@ func (e *Engine) SweepRetention(ctx context.Context) error {
 				       tr.object_retention_days, tr.derived_identity_retention_days
 				  FROM tenants t
 				  LEFT JOIN tenant_retention tr ON tr.tenant_id = t.id
-				 WHERE t.status <> 'deleted'
+				 WHERE t.status IN ('active','suspended')
+				   AND t.audit_write_fenced_at IS NULL
 			 ORDER BY t.id`)
 		if err != nil {
 			return err
@@ -1586,6 +1607,7 @@ func (e *Engine) sweepRetentionPolicies(ctx context.Context, policies []retentio
 	for _, p := range policies {
 		err := errors.Join(
 			e.sweepSessionRetention(ctx, p),
+			e.sweepFlowSnapshotRetention(ctx, p),
 			e.sweepFlowRetention(ctx, p),
 			e.sweepOtelRetention(ctx, p),
 			e.sweepEBPFRetention(ctx, p),
@@ -1660,8 +1682,39 @@ func (e *Engine) sweepFlowRetention(ctx context.Context, p retentionSweepPolicy)
 	}
 	return e.runRetentionPrune(ctx, p.tenant, "flows", cutoff, days, "tenant_policy", nil,
 		func() (int64, error) {
-			return 0, e.flows.DeleteTenantBefore(ctx, p.tenant, cutoff)
+			mutate := func(ctx context.Context) error { return e.flows.DeleteTenantBefore(ctx, p.tenant, cutoff) }
+			if e.pool == nil && e.flowSnapshots == nil {
+				return 0, mutate(ctx)
+			}
+			lifecycle := e.flowSnapshots
+			if lifecycle == nil {
+				lifecycle = flowsnapshot.NewLifecycle(e.pool, e.objects, tenancy.NewPostgresWriterFence(e.pool))
+			}
+			return 0, lifecycle.Invalidate(ctx, p.tenant, mutate)
 		})
+}
+
+// Reclaim only a bounded batch per tenant/cycle. Expired and abandoned pending
+// results retain their charge until the exact owned object prefix is empty.
+// The standing intent audit must succeed before even cache data is deleted.
+func (e *Engine) sweepFlowSnapshotRetention(ctx context.Context, p retentionSweepPolicy) error {
+	if e.pool == nil {
+		return nil
+	}
+	return e.runRetentionPrune(ctx, p.tenant, "flow_query_cache", e.now(), 0, "snapshot_expiry", map[string]any{"max_snapshots": 1000}, func() (int64, error) {
+		var lifecycle any = e.flowSnapshots
+		if lifecycle == nil {
+			lifecycle = flowsnapshot.NewLifecycle(e.pool, e.objects, tenancy.NewPostgresWriterFence(e.pool))
+		}
+		maintenance, ok := lifecycle.(interface {
+			SweepTenant(context.Context, string, int) (int, error)
+		})
+		if !ok {
+			return 0, errors.New("tenantlife: result-cache expiry maintenance unavailable")
+		}
+		deleted, err := maintenance.SweepTenant(ctx, p.tenant, 1000)
+		return int64(deleted), err
+	})
 }
 
 func (e *Engine) sweepOtelRetention(ctx context.Context, p retentionSweepPolicy) error {

@@ -23,6 +23,26 @@ type infiniteReader struct {
 	served int
 }
 
+func TestReadResponseBodyTrustedBudgetSentinelAndInvalidLimits(t *testing.T) {
+	const limit = 23
+	body, err := ReadResponseBodyBounded(strings.NewReader(strings.Repeat("a", limit)), limit)
+	if err != nil || len(body) != limit {
+		t.Fatal("exact configured response refused", err)
+	}
+	r := &infiniteReader{b: 'x'}
+	body, err = ReadResponseBodyBounded(r, limit)
+	if !errors.Is(err, ErrResponseTooLarge) || body != nil || r.served != limit+1 {
+		t.Fatal("configured response did not stop at its overflow sentinel", err)
+	}
+	for _, invalid := range []int64{-1, 0, int64(^uint(0) >> 1)} {
+		r := &infiniteReader{b: 'x'}
+		body, err := ReadResponseBodyBounded(r, invalid)
+		if err == nil || body != nil || r.served != 0 {
+			t.Fatal("invalid byte budget read source data")
+		}
+	}
+}
+
 func (r *infiniteReader) Read(p []byte) (int, error) {
 	for i := range p {
 		p[i] = r.b

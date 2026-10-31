@@ -49,10 +49,13 @@ func printOperationUsage(w io.Writer, op apiOp) {
 	if op.SensitiveBody {
 		fmt.Fprint(w, " --body-file <0600-file|->")
 	} else {
-		fmt.Fprint(w, " [--body JSON]")
+		fmt.Fprint(w, " [--body JSON | --body-file <0600-file|->]")
 	}
 	if op.SessionAuth {
 		fmt.Fprint(w, " --session-cookie-file <0600-file>")
+	}
+	if op.VerifiedDownload {
+		fmt.Fprint(w, " [--max-bytes N]")
 	}
 	fmt.Fprintln(w)
 }
@@ -69,6 +72,9 @@ func cmdAPIWithStdin(cfg Config, args []string, stdin io.Reader, stdout, stderr 
 	method := strings.ToUpper(args[0])
 	path := args[1]
 	op := apiOp{Method: method, Path: path}
+	if method == http.MethodGet && pathMatchesTemplate("/v1/explorer/flow-snapshots/{id}/csv", requestPath(path)) {
+		op.VerifiedDownload = true
+	}
 	if providerOp, ok := sensitiveProviderOperation(method, cfg.BaseURL, path); ok {
 		op.SensitiveBody = providerOp.SensitiveBody
 	}
@@ -188,6 +194,10 @@ func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Read
 	bodyFile := fs.String("body-file", "", "JSON request body path; - reads stdin (sensitive bodies require a 0600 file or stdin)")
 	query := queryFlag{}
 	fs.Var(&query, "query", "query parameter k=v (repeatable)")
+	var maxDownloadBytes int64 = 256 << 20
+	if op.VerifiedDownload {
+		fs.Int64Var(&maxDownloadBytes, "max-bytes", maxDownloadBytes, "maximum prepared CSV bytes; raise to match the operator's export budget")
+	}
 	sessionCookieFile := cfg.SessionCookieFile
 	if op.SessionAuth {
 		fs.StringVar(&sessionCookieFile, "session-cookie-file", cfg.SessionCookieFile,
@@ -244,9 +254,17 @@ func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Read
 		err  error
 	)
 	if bodyFileSet {
-		body, err = readSensitiveRequestBody(*bodyFile, stdin)
+		limit := maxSensitiveRequestBodyBytes
+		if op.MaxBodyBytes > 0 {
+			limit = op.MaxBodyBytes
+		}
+		body, err = readRequestBody(*bodyFile, stdin, limit, op.ExactJSON)
 	} else {
-		body, err = parseBody(*bodyRaw)
+		if op.ExactJSON && strings.TrimSpace(*bodyRaw) != "" {
+			body, err = parseExactBody([]byte(*bodyRaw), op.MaxBodyBytes)
+		} else {
+			body, err = parseBody(*bodyRaw)
+		}
 	}
 	if err != nil {
 		label := "--body"
@@ -256,8 +274,30 @@ func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Read
 		fmt.Fprintln(stderr, "invalid "+label+": "+err.Error())
 		return 2
 	}
+	if op.VerifiedDownload {
+		if body != nil || maxDownloadBytes < 1 {
+			fmt.Fprintln(stderr, "CSV download needs no body and a positive --max-bytes budget")
+			return 2
+		}
+		if err := newClient(cfg).downloadFlowCSV(path, maxDownloadBytes, stdout); err != nil {
+			return fail(stderr, err)
+		}
+		return 0
+	}
 	var out any
-	if err := newClient(cfg).do(op.Method, path, body, &out); err != nil {
+	if op.ExactJSON {
+		var raw json.RawMessage
+		if err := newClient(cfg).do(op.Method, path, body, &raw); err != nil {
+			return fail(stderr, err)
+		}
+		if len(raw) > 0 {
+			decoder := json.NewDecoder(bytes.NewReader(raw))
+			decoder.UseNumber()
+			if err := decoder.Decode(&out); err != nil {
+				return fail(stderr, err)
+			}
+		}
+	} else if err := newClient(cfg).do(op.Method, path, body, &out); err != nil {
 		return fail(stderr, err)
 	}
 	if code := printGenericColumns(stdout, out, cfg.JSON, op.Method, op.Columns); code != 0 {
@@ -291,7 +331,7 @@ func verdictIsFalse(field string, out any) bool {
 	return isBool && !b
 }
 
-func readSensitiveRequestBody(filename string, stdin io.Reader) (any, error) {
+func readRequestBody(filename string, stdin io.Reader, limit int64, exact bool) (any, error) {
 	var (
 		raw []byte
 		err error
@@ -300,10 +340,10 @@ func readSensitiveRequestBody(filename string, stdin io.Reader) (any, error) {
 		if stdin == nil {
 			return nil, fmt.Errorf("stdin is unavailable")
 		}
-		raw, err = httpbody.ReadLimited(stdin, maxSensitiveRequestBodyBytes)
+		raw, err = httpbody.ReadLimited(stdin, limit)
 		if err != nil {
 			if err == httpbody.ErrTooLarge {
-				return nil, fmt.Errorf("stdin exceeds %d-byte limit", maxSensitiveRequestBodyBytes)
+				return nil, fmt.Errorf("stdin exceeds %d-byte limit", limit)
 			}
 			return nil, fmt.Errorf("read stdin: %w", err)
 		}
@@ -311,7 +351,7 @@ func readSensitiveRequestBody(filename string, stdin io.Reader) (any, error) {
 		if strings.TrimSpace(filename) == "" {
 			return nil, fmt.Errorf("path is required")
 		}
-		raw, err = readOwnerOnlyCLIFile(filename, maxSensitiveRequestBodyBytes)
+		raw, err = readOwnerOnlyCLIFile(filename, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -321,6 +361,9 @@ func readSensitiveRequestBody(filename string, stdin io.Reader) (any, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("request body is empty")
 	}
+	if exact {
+		return parseExactBody(raw, limit)
+	}
 	var body any
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return nil, err
@@ -329,6 +372,22 @@ func readSensitiveRequestBody(filename string, stdin io.Reader) (any, error) {
 		return nil, fmt.Errorf("request body must be one JSON object")
 	}
 	return body, nil
+}
+
+// parseExactBody copies the validated bytes before the caller wipes its input.
+// JSON numbers (including optimistic versions) never pass through float64.
+func parseExactBody(raw []byte, limit int64) (any, error) {
+	if limit <= 0 {
+		limit = maxSensitiveRequestBodyBytes
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("request exceeds %d-byte limit", limit)
+	}
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '{' || !json.Valid(raw) {
+		return nil, fmt.Errorf("request body must be one JSON object")
+	}
+	return append(json.RawMessage{}, raw...), nil
 }
 
 func parseBody(raw string) (any, error) {

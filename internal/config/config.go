@@ -474,6 +474,31 @@ type Config struct {
 	// entry cap for the shared open-data cache.
 	FlowStoreMode string
 	FlowStoreURL  string
+	// Operator cost admission for native flow queries; no field is public SQL
+	// or a selected-row/time-range limit. Zero environment values are refused.
+	FlowQueryExecutionLimit         time.Duration
+	FlowQueryReadBytes              int
+	FlowQueryReadRows               int
+	FlowQueryResponseBytes          int
+	FlowQueryMemoryBytes            int
+	FlowQueryIntermediateGroups     int
+	FlowQueryInterfaceItems         int
+	FlowQueryThreads                int
+	FlowSnapshotLifetime            time.Duration
+	FlowSnapshotTenantBytes         int
+	FlowSnapshotBytes               int
+	FlowSnapshotObjectBytes         int
+	FlowSnapshotExportBytes         int
+	FlowMCPSourceBytes              int
+	FlowMCPWireBytes                int
+	FlowMCPResultNodes              int
+	FlowMCPCSVPageBytes             int
+	FlowQuestionMaxBytes            int
+	FlowQuestionMaxTokens           int
+	FlowQuestionMaxNesting          int
+	FlowQuestionModelResponseBytes  int
+	FlowQuestionModelOutputTokens   int
+	FlowQuestionModelTokenParameter string
 	// OTelStoreMode/URL/RetentionDays (ARCH-001): where externally-ingested
 	// OTLP traces + logs live (memory | clickhouse; retention in days).
 	OTelStoreMode     string
@@ -685,10 +710,15 @@ type Config struct {
 	// and bearer-authenticated (guardrail 12). The stdio transport is local
 	// (probectl-control mcp-stdio) and reads its token from PROBECTL_MCP_TOKEN.
 	// MCPRatePerMin caps per-tenant tool-call volume.
-	MCPHTTPAddr    string
-	MCPTLSCertFile string
-	MCPTLSKeyFile  string
-	MCPRatePerMin  int
+	MCPHTTPAddr           string
+	MCPTLSCertFile        string
+	MCPTLSKeyFile         string
+	MCPRatePerMin         int
+	MCPAllowedOrigins     []string
+	MCPStdioWorkers       int
+	MCPStdioQueued        int
+	MCPHTTPWorkTimeout    time.Duration
+	MCPHTTPActiveRequests int
 
 	// Security / threat (S27): TLS/cert posture over already-captured TLS (S13/S21).
 	// TrustctlURL deep-links cert findings to trustctl for renewal; TLSExpiryWarning
@@ -1152,6 +1182,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.ClickHouseReaderBasicAuthFile = l.str("PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE", "")
 	cfg.FlowStoreMode = l.enum("PROBECTL_FLOWSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.FlowStoreURL = l.str("PROBECTL_FLOWSTORE_URL", "")
+	loadFlowQueryConfig(l, cfg)
 	cfg.OTelStoreMode = l.enum("PROBECTL_OTELSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.OTelStoreURL = l.str("PROBECTL_OTELSTORE_URL", "")
 	cfg.OTelRetentionDays = l.intRange("PROBECTL_OTEL_RETENTION_DAYS", 30, 0, 3650)
@@ -1288,6 +1319,21 @@ func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.MCPTLSCertFile = l.str("PROBECTL_MCP_TLS_CERT_FILE", "")
 	cfg.MCPTLSKeyFile = l.str("PROBECTL_MCP_TLS_KEY_FILE", "")
 	cfg.MCPRatePerMin = l.intRange("PROBECTL_MCP_RATE_PER_MIN", 120, 0, 100000)
+	cfg.MCPStdioWorkers = l.intRange("PROBECTL_MCP_STDIO_WORKERS", 2, 1, 10000)
+	cfg.MCPStdioQueued = l.intRange("PROBECTL_MCP_STDIO_QUEUED", 8, 1, 10000)
+	cfg.MCPHTTPWorkTimeout = l.dur("PROBECTL_MCP_HTTP_WORK_TIMEOUT", time.Minute)
+	if cfg.MCPHTTPWorkTimeout <= 0 || cfg.MCPHTTPWorkTimeout > 24*time.Hour {
+		l.errf("PROBECTL_MCP_HTTP_WORK_TIMEOUT must be positive and at most24h")
+	}
+	cfg.MCPHTTPActiveRequests = l.intRange("PROBECTL_MCP_HTTP_ACTIVE_REQUESTS", 1024, 1, 1000000)
+	for _, value := range l.list("PROBECTL_MCP_ALLOWED_ORIGINS") {
+		origin, err := auth.CanonicalHTTPOrigin(value)
+		if err != nil {
+			l.errf("PROBECTL_MCP_ALLOWED_ORIGINS: each entry must be a serialized HTTP(S) origin without credentials, paths or wildcard")
+			continue
+		}
+		cfg.MCPAllowedOrigins = append(cfg.MCPAllowedOrigins, origin)
+	}
 }
 
 func loadFeaturePlaneConfig(l *loader, cfg *Config) {
@@ -2172,25 +2218,52 @@ func (c *Config) LogValue() slog.Value {
 // cannot leak because it is simply not on the list.
 func (c *Config) Redacted() map[string]any {
 	return map[string]any{
-		"http_addr":                   c.HTTPAddr,
-		"database_url":                redactURL(c.DatabaseURL),
-		"database_read_url":           redactURL(c.DatabaseReadURL),
-		"database_max_conns":          c.DatabaseMaxConns,
-		"database_min_conns":          c.DatabaseMinConns,
-		"migrate_on_boot":             c.MigrateOnBoot,
-		"log_level":                   c.LogLevel,
-		"log_format":                  c.LogFormat,
-		"theme_overrides_configured":  len(c.ThemeOverrides) > 0,
-		"auth_mode":                   c.AuthMode,
-		"hsts_enabled":                c.HSTSEnabled,
-		"tls_enabled":                 c.TLSEnabled(),
-		"agent_transport":             c.AgentTransportEnabled(),
-		"bus_mode":                    c.BusMode,
-		"tsdb_mode":                   c.TSDBMode,
-		"otlp_enabled":                c.OTLPEnabled(),
-		"otlp_freshness_enabled":      len(c.OTLPFreshnessHMACKey) == crypto.KeySize,
-		"ai_model_enabled":            c.AIModelEnabled(),
-		"mcp_enabled":                 c.MCPEnabled(),
+		"http_addr":                  c.HTTPAddr,
+		"database_url":               redactURL(c.DatabaseURL),
+		"database_read_url":          redactURL(c.DatabaseReadURL),
+		"database_max_conns":         c.DatabaseMaxConns,
+		"database_min_conns":         c.DatabaseMinConns,
+		"migrate_on_boot":            c.MigrateOnBoot,
+		"log_level":                  c.LogLevel,
+		"log_format":                 c.LogFormat,
+		"theme_overrides_configured": len(c.ThemeOverrides) > 0,
+		"auth_mode":                  c.AuthMode,
+		"hsts_enabled":               c.HSTSEnabled,
+		"tls_enabled":                c.TLSEnabled(),
+		"agent_transport":            c.AgentTransportEnabled(),
+		"bus_mode":                   c.BusMode,
+		"tsdb_mode":                  c.TSDBMode,
+		"otlp_enabled":               c.OTLPEnabled(),
+		"otlp_freshness_enabled":     len(c.OTLPFreshnessHMACKey) == crypto.KeySize,
+		"ai_model_enabled":           c.AIModelEnabled(),
+		"mcp_enabled":                c.MCPEnabled(),
+		"mcp_allowed_origin_count":   len(c.MCPAllowedOrigins),
+		"mcp_stdio_cost": map[string]any{
+			"workers": c.MCPStdioWorkers, "queued": c.MCPStdioQueued,
+		},
+		"mcp_http_work_cost": map[string]any{
+			"timeout": c.MCPHTTPWorkTimeout.String(), "active_requests": c.MCPHTTPActiveRequests,
+		},
+		"flow_query_cost": map[string]any{
+			"timeout": c.FlowQueryExecutionLimit.String(), "read_bytes": c.FlowQueryReadBytes,
+			"read_rows": c.FlowQueryReadRows, "response_bytes": c.FlowQueryResponseBytes,
+			"memory_bytes": c.FlowQueryMemoryBytes, "intermediate_groups": c.FlowQueryIntermediateGroups,
+			"interface_items": c.FlowQueryInterfaceItems, "threads": c.FlowQueryThreads,
+		},
+		"flow_snapshot_cost": map[string]any{
+			"lifetime": c.FlowSnapshotLifetime.String(), "tenant_bytes": c.FlowSnapshotTenantBytes,
+			"snapshot_bytes": c.FlowSnapshotBytes, "object_bytes": c.FlowSnapshotObjectBytes,
+			"export_bytes": c.FlowSnapshotExportBytes,
+		},
+		"flow_mcp_render_cost": map[string]any{
+			"source_bytes": c.FlowMCPSourceBytes, "wire_bytes": c.FlowMCPWireBytes,
+			"result_nodes": c.FlowMCPResultNodes, "csv_page_bytes": c.FlowMCPCSVPageBytes,
+		},
+		"flow_question_cost": map[string]any{
+			"bytes": c.FlowQuestionMaxBytes, "syntactic_tokens": c.FlowQuestionMaxTokens,
+			"nesting": c.FlowQuestionMaxNesting, "model_response_bytes": c.FlowQuestionModelResponseBytes,
+			"model_output_tokens": c.FlowQuestionModelOutputTokens, "openai_token_parameter": c.FlowQuestionModelTokenParameter,
+		},
 		"oidc_issuer":                 c.OIDCIssuer, // an issuer URL is not a secret
 		"region":                      c.Region,
 		"regions":                     c.Regions,
