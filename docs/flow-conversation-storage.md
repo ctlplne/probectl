@@ -106,6 +106,11 @@ independently audited lifecycle path. Zero active jobs is not complete erasure.
 There is no finish/clear operation yet: complete source/result/key counts and
 positive distributed drain/crash/orphan recovery proofs precede activation.
 
+Pending-state database failures remain retryable storage errors. They are
+checked separately from current operational authority and never enter the
+authorization-denial normalizer. An unavailable state read cannot enter the
+maintenance callback or become proof of a permanent authority loss.
+
 Before runtime persistence is enabled, integration must include counted tenant
 and subject portability, verifiable erasure, retention, worker drain and late
 writer fencing, paired key rotation and key inventory. The disposable schema in

@@ -200,7 +200,7 @@ func (j *Journal) WithInvalidationLease(ctx context.Context, pending Invalidatio
 	if pending.value == nil || pending.value.tenant != tenant || !validMaintenanceRequest(pending.value.request) || pending.value.generation == 0 || fn == nil {
 		return ErrMessageDenied
 	}
-	check := func(ctx context.Context, tenant string) error {
+	check := func(ctx context.Context) error {
 		current, err := j.ResumeInvalidation(ctx, pending.value.request, authorize)
 		if err != nil {
 			return err
@@ -210,5 +210,18 @@ func (j *Journal) WithInvalidationLease(ctx context.Context, pending Invalidatio
 		}
 		return nil
 	}
-	return j.WithMaintenanceLease(ctx, check, fn)
+	// Pending-state SQL is independent from operational authority. Never pass
+	// its retryable storage error through the authorization-denial normalizer.
+	if err := check(ctx); err != nil {
+		return err
+	}
+	return j.WithMaintenanceLease(ctx, authorize, func(ctx context.Context) error {
+		if err := check(ctx); err != nil {
+			return err
+		}
+		if err := fn(ctx); err != nil {
+			return err
+		}
+		return check(ctx)
+	})
 }

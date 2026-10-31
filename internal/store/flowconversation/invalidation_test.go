@@ -93,3 +93,15 @@ func TestInvalidationPrivateObjectsNeverBecomeWireAuthority(t *testing.T) {
 		t.Fatal("JSON fabricated a lifecycle plan", err)
 	}
 }
+
+func TestInvalidationUnavailableStateRemainsRetryable(t *testing.T) {
+	f := newMessageCodecFixture(t)
+	request := maintenanceRequestFixture(f)
+	pending := Invalidation{&invalidation{tenant: f.scope.TenantID, request: request, generation: 2}}
+	var journal *Journal
+	entered := false
+	err := journal.WithInvalidationLease(f.context, pending, func(ctx context.Context, _ string) error { return ctx.Err() }, func(context.Context) error { entered = true; return nil })
+	if !errors.Is(err, ErrJournalUnavailable) || entered {
+		t.Fatal("unavailable pending-state storage was relabeled as operational denial", err)
+	}
+}

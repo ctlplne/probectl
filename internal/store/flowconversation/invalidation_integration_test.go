@@ -322,6 +322,26 @@ func TestHistoryJournalPostgresDurableInvalidation(t *testing.T) {
 		t.Fatal("successful metadata callback cleared unverified invalidation", err)
 	}
 
+	t.Run("pending state SQL failure remains retryable", func(t *testing.T) {
+		if _, err := admin.Exec(ctx, `REVOKE SELECT ON flow_conversation_epochs FROM probectl_app`); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := admin.Exec(cleanup, `GRANT SELECT ON flow_conversation_epochs TO probectl_app`); err != nil {
+				t.Error("owned epoch SELECT restore failed", err)
+			}
+		})
+		entered := false
+		if err := journal.WithInvalidationLease(operational, pending, allow, func(context.Context) error { entered = true; return nil }); !errors.Is(err, ErrJournalUnavailable) || entered {
+			t.Fatal("pending metadata SQL failure became authority denial or entered cleanup", err)
+		}
+		if batch, err := journal.CancelInvalidated(operational, pending, CancellationBudget{Rows: 1, TimeLimit: time.Second}, allow); batch != (CancellationBatch{}) || !errors.Is(err, ErrJournalUnavailable) {
+			t.Fatal("retryable pending-state failure became permanent cancellation", err)
+		}
+	})
+
 	t.Run("lease connection loss cannot clear durable refusal", func(t *testing.T) {
 		replicaPool, err := pgxpool.NewWithConfig(t.Context(), pool.Config().Copy())
 		if err != nil {
