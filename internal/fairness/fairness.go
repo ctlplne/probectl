@@ -225,10 +225,11 @@ type tenantState struct {
 	ingest  map[string]*Counters
 	queries QueryCounters
 
-	policy         Policy
-	policyFetched  time.Time
-	policyKnown    bool
-	policyFetching bool
+	policy                 Policy
+	policyFetched          time.Time
+	policyKnown            bool
+	policyFetching         bool
+	policyFetchInvalidated bool
 
 	// lastSeen is the last time this tenant touched the gate (an admit or a
 	// query). The amortized idle sweep (SCALE-002 / RED-003b) evicts state idle
@@ -418,10 +419,18 @@ func (g *Gate) refresh(tenantID string) {
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 	st := g.state(sh, tenantID)
+	st.policyFetching = false
+	if st.policyFetchInvalidated {
+		// A provider update happened after this fetch began. Its snapshot may
+		// predate the write, so leave the cache stale and let the next call
+		// fetch current policy. Never install the old result for a full TTL.
+		st.policyFetchInvalidated = false
+		st.policyKnown = false
+		return
+	}
 	st.policy = eff
 	st.policyKnown = true
 	st.policyFetched = g.now()
-	st.policyFetching = false
 }
 
 // EffectivePolicy is the tenant's policy as enforced right now (defaults +
@@ -440,6 +449,9 @@ func (g *Gate) Invalidate(tenantID string) {
 	defer sh.mu.Unlock()
 	if st, ok := sh.tenants[tenantID]; ok {
 		st.policyKnown = false
+		if st.policyFetching {
+			st.policyFetchInvalidated = true
+		}
 	}
 }
 
