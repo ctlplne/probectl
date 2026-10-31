@@ -82,6 +82,30 @@ ancestry, current source permissions and privacy policy before planning or
 publication, then revalidate the exact attempt at sensitive boundaries. These
 storage primitives cannot substitute for those checks.
 
+Tenant-family read and exclusive maintenance leases coordinate bounded private
+callbacks without holding writer/audit/epoch/job mutation locks across IO. The
+read lease captures the current operation generation and rechecks it around
+nested work and callback return. Nested exact-identity contexts expire when
+their owning callback drains and cannot revive a released SQL lease. Pool-wide
+admission reserves connections for short working transactions.
+
+A separate durable invalidating flag binds tenant, internal operation UUID,
+fixed purpose and the exact immutable lifecycle-plan digest. Begin atomically
+advances the operation generation and appends audit. Exact retries resume the
+same intent; conflicting plans and audit failures refuse. All ordinary history
+and worker paths reject pending state. Independently authorized resume needs
+no creator credential, source SELECT or decryption key. Lost advisory leases
+cannot clear the durable intent.
+
+Cancellation sweeps use positive operator row/time resources, span owners only
+within the same tenant, refuse counter overflow and atomically audit changed
+metadata. They report canceled/still-active job counts without selecting source
+or imposing a total-backlog cap. Begin and ordinary-writer cancellation precede
+full-tenant audit/offboarding fences. Later destructive phases require the
+independently audited lifecycle path. Zero active jobs is not complete erasure.
+There is no finish/clear operation yet: complete source/result/key counts and
+positive distributed drain/crash/orphan recovery proofs precede activation.
+
 Before runtime persistence is enabled, integration must include counted tenant
 and subject portability, verifiable erasure, retention, worker drain and late
 writer fencing, paired key rotation and key inventory. The disposable schema in

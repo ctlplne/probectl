@@ -78,8 +78,8 @@ func (j *Journal) FailDispatch(ctx context.Context, candidate DispatchCandidate,
 			if err := audit.LockTenantStream(ctx, sc.Q, id.tenant); err != nil {
 				return err
 			}
-			var epoch uint64
-			if err := sc.Q.QueryRow(ctx, `SELECT generation FROM flow_conversation_epochs WHERE tenant_id=$1::uuid FOR UPDATE`, id.tenant).Scan(&epoch); err != nil {
+			epoch, err := activeConversationEpoch(ctx, sc, epochUpdate)
+			if err != nil {
 				return err
 			}
 			if epoch != value.scope.Epoch {

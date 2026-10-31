@@ -244,18 +244,7 @@ func candidateEpoch(ctx context.Context, sc tenancy.Scope) (uint64, error) {
 	if _, _, err := bindRequestOwner(ctx, sc); err != nil {
 		return 0, err
 	}
-	var generation uint64
-	err := sc.Q.QueryRow(ctx, `SELECT generation FROM flow_conversation_epochs WHERE tenant_id=$1::uuid`, sc.Tenant.String()).Scan(&generation)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 1, nil
-	}
-	if err != nil {
-		return 0, journalError(ctx, err)
-	}
-	if generation == 0 || generation > math.MaxInt64 {
-		return 0, ErrMessageIntegrity
-	}
-	return generation, nil
+	return activeConversationEpoch(ctx, sc, epochRead)
 }
 
 // AdmitInput atomically appends one immutable input, its queued job and audit.
@@ -308,8 +297,8 @@ func (j *Journal) admitInput(ctx context.Context, sc tenancy.Scope, prepared Pre
 	if _, err := sc.Q.Exec(ctx, `INSERT INTO flow_conversation_epochs(tenant_id,generation) VALUES($1::uuid,1) ON CONFLICT (tenant_id) DO NOTHING`, sc.Tenant.String()); err != nil {
 		return journalError(ctx, err)
 	}
-	var generation uint64
-	if err := sc.Q.QueryRow(ctx, `SELECT generation FROM flow_conversation_epochs WHERE tenant_id=$1::uuid FOR UPDATE`, sc.Tenant.String()).Scan(&generation); err != nil {
+	generation, err := activeConversationEpoch(ctx, sc, epochUpdate)
+	if err != nil {
 		return journalError(ctx, err)
 	}
 	if generation != in.scope.Epoch {

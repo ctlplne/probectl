@@ -114,12 +114,9 @@ func (j *Journal) workerMutation(ctx context.Context, id historyIdentity, fn fun
 			if err := audit.LockTenantStream(ctx, sc.Q, id.tenant); err != nil {
 				return err
 			}
-			var epoch uint64
-			if err := sc.Q.QueryRow(ctx, `SELECT generation FROM flow_conversation_epochs WHERE tenant_id=$1::uuid FOR UPDATE`, id.tenant).Scan(&epoch); err != nil {
+			epoch, err := activeConversationEpoch(ctx, sc, epochUpdate)
+			if err != nil {
 				return err
-			}
-			if epoch == 0 || epoch > math.MaxInt64 {
-				return ErrMessageIntegrity
 			}
 			return fn(ctx, sc, epoch)
 		})
@@ -247,7 +244,7 @@ func (w *Worker) CheckLease(ctx context.Context, lease WorkLease, authorize Auth
 		}
 		var live bool
 		err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM flow_conversation_jobs j,flow_conversation_messages m,flow_conversation_epochs e WHERE `+liveLeasePredicate+`
-          AND e.tenant_id=j.tenant_id AND e.generation=j.epoch)`, leaseArguments(lease.value)...).Scan(&live)
+          AND e.tenant_id=j.tenant_id AND e.generation=j.epoch AND NOT e.invalidating)`, leaseArguments(lease.value)...).Scan(&live)
 		if err == nil && !live {
 			return ErrJournalLease
 		}

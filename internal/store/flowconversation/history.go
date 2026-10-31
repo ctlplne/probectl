@@ -8,14 +8,12 @@ package flowconversation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -176,6 +174,9 @@ func (j *Journal) Lookup(ctx context.Context, conversation string, revision Revi
 		if _, _, err := bindRequestOwner(ctx, sc); err != nil {
 			return err
 		}
+		if _, err := activeConversationEpoch(ctx, sc, epochShare); err != nil {
+			return err
+		}
 		var err error
 		result, _, err = scanStoredMessage(ctx, sc.Q.QueryRow(ctx, `SELECT `+historyColumns+`
           FROM flow_conversation_messages WHERE tenant_id=$1::uuid AND owner_id=$2::uuid AND conversation_id=$3::uuid
@@ -268,18 +269,7 @@ func (j *Journal) Page(ctx context.Context, conversation string, cursor *History
 }
 
 func historyGeneration(ctx context.Context, sc tenancy.Scope) (uint64, error) {
-	var generation uint64
-	err := sc.Q.QueryRow(ctx, `SELECT generation FROM flow_conversation_epochs WHERE tenant_id=$1::uuid FOR SHARE`, sc.Tenant.String()).Scan(&generation)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 1, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	if generation == 0 || generation > math.MaxInt64 {
-		return 0, ErrMessageIntegrity
-	}
-	return generation, nil
+	return activeConversationEpoch(ctx, sc, epochShare)
 }
 
 // Length and cumulative page cost are computed server-side; ciphertext that
