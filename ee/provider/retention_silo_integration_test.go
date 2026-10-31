@@ -62,8 +62,8 @@ func (retentionIntegrationIRLifecycle) RecordFailure(
 }
 
 func TestSiloRetentionStaysProviderOwned(t *testing.T) {
-	pool := pgPool(t)
-	defer pool.Close()
+	db, _ := planeDB(t)
+	pool := db.Pool()
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
