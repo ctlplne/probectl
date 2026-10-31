@@ -150,6 +150,11 @@ func recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
+				// net/http owns this sentinel: closing/resetting the response is
+				// required after a streaming handler has already emitted bytes.
+				if rec == http.ErrAbortHandler {
+					panic(http.ErrAbortHandler)
+				}
 				logging.FromContext(r.Context()).Error("panic recovered",
 					"panic", fmt.Sprint(rec), "path", r.URL.Path)
 				writeError(w, r, apierror.Internal("internal error"))

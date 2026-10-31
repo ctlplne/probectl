@@ -82,17 +82,15 @@ func (s *Server) handleLifecycleExport(w http.ResponseWriter, r *http.Request) e
 	if err != nil {
 		return err
 	}
-	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", `attachment; filename="probectl-tenant-export.tar.gz"`)
+	download := &lifecycleDownloadWriter{destination: w, filename: "probectl-tenant-export.tar.gz"}
 	// S-EE3: ?redact=true masks PII-class values per the tenant's governance
 	// policy (and the policy itself can force redaction).
 	redact := r.URL.Query().Get("redact") == "true"
-	if _, err := e.ExportRedacted(r.Context(), tid, w, redact); err != nil {
-		// Headers are committed; the truncated stream is the failure signal.
+	if _, err := e.ExportRedacted(r.Context(), tid, download, redact); err != nil {
 		s.log.Error("tenant export failed", "tenant_id", tid, "error", err.Error())
-		return nil
+		return download.finish(err)
 	}
-	return nil
+	return download.finish(nil)
 }
 
 type lifecycleSubjectExportRequest struct {
@@ -120,13 +118,12 @@ func (s *Server) handleLifecycleSubjectExport(w http.ResponseWriter, r *http.Req
 	if strings.TrimSpace(in.Subject) == "" {
 		return apierror.Validation("subject is required")
 	}
-	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", `attachment; filename="probectl-subject-export.tar.gz"`)
-	if _, err := e.ExportSubject(r.Context(), tid, in.Subject, w, in.Redact); err != nil {
+	download := &lifecycleDownloadWriter{destination: w, filename: "probectl-subject-export.tar.gz"}
+	if _, err := e.ExportSubject(r.Context(), tid, in.Subject, download, in.Redact); err != nil {
 		s.log.Error("subject export failed", "tenant_id", tid, "error", err.Error())
-		return nil
+		return download.finish(err)
 	}
-	return nil
+	return download.finish(nil)
 }
 
 // lifecycleStatus is the retention + residency view (the tenant-settings

@@ -129,3 +129,13 @@ semantics. Current inventory IDs: `audit-evidence`, `ai-artifacts`,
 - If they ask about backups or SIEM, give the probectl attestation/cursor plus
   the operator's SIEM or backup policy. probectl cannot truthfully promise the
   destination deleted its copy.
+
+### Portability download failures
+
+Tenant and subject exports set download headers only when archive bytes begin.
+A failure before output returns an ordinary API error. A failure after output
+starts closes the HTTP/1 response or resets its HTTP/2 stream. Clients must
+require clean transport completion and discard an interrupted download, even
+if a gzip member decodes successfully: a later audit or authorization check
+can still refuse the export. Retry with current authority after the underlying
+failure is resolved. This streaming behavior adds no history-size cap.
