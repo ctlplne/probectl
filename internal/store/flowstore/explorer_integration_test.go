@@ -855,3 +855,38 @@ func TestExplorerClickHouseRealRetentionClock(t *testing.T) {
 		t.Fatalf("explicit keep-forever did not remove the earlier column clock: %+v %v", rows, err)
 	}
 }
+
+func TestExplorerClickHouseRealRawCoveragePaired(t *testing.T) {
+	store := explorerIntegrationStore(t)
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	red, blue := "probectl-qa-beta-raw-coverage-red-"+suffix, "probectl-qa-beta-raw-coverage-blue-"+suffix
+	t.Cleanup(func() {
+		_, _ = store.DeleteTenant(context.Background(), red)
+		_, _ = store.DeleteTenant(context.Background(), blue)
+	})
+	own := explorerFixtureRow(red)
+	other := own
+	other.TenantID = blue
+	other.BytesScaled = 999999
+	if err := store.Insert(t.Context(), []Row{own, other}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tenant := range []string{red, blue} {
+		for _, source := range []string{"raw", "auto"} {
+			result, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: flow.QueryPlan{From: own.TS.Add(-time.Minute), To: own.TS.Add(time.Minute), DataSeries: source, GroupBy: []string{"src_addr"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Source != "raw" || result.ResolutionSeconds != flow.MinPlanBucketSeconds || result.Coverage == nil || !result.Coverage.CompleteInputs || result.Coverage.ResolutionSeconds != flow.MinPlanBucketSeconds || !reflect.DeepEqual(result.Coverage.Fields, allPlanFields()) {
+				t.Fatal("raw source omitted its complete retained input descriptor", tenant, source, result.Coverage, result.ResolutionSeconds)
+			}
+			expected := "12300"
+			if tenant == blue {
+				expected = "999999"
+			}
+			if len(result.Rows) != 1 || result.Totals["bytes:total"] != expected {
+				t.Fatal("raw coverage query crossed tenant or changed exact data", tenant, source)
+			}
+		}
+	}
+}

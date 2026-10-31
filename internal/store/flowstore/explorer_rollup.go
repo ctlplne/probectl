@@ -157,7 +157,7 @@ func (c *ClickHouse) planSourceFor(ctx context.Context, target Target, lane chcl
 		if beforeRaw > 0 {
 			return planSource{}, &PlanCoverageError{Reason: "this range includes retained history beyond raw coverage; choose auto or rollup", ResolutionSeconds: 60}
 		}
-		return planSource{table: raw, kind: "raw"}, nil
+		return planSource{table: raw, kind: "raw", coverage: &PlanSourceCoverage{Fields: allPlanFields(), ResolutionSeconds: flow.MinPlanBucketSeconds, CompleteInputs: true}}, nil
 	}
 	coverage := &PlanSourceCoverage{Fields: allPlanFields(), ResolutionSeconds: 60, CompleteInputs: true}
 	if legacy > 0 {
