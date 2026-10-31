@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -62,6 +63,29 @@ func newPostgresFixture(t *testing.T) *postgresFixture {
 		testsupport.SkipOrFatal(t, "snapshot PostgreSQL unavailable")
 		return nil
 	}
+	// SweepRetention enumerates all active tenants in its database. Keep
+	// deliberate audit faults in other integration fixtures outside this
+	// fixture's population; never filter their errors in the production sweep.
+	server := admin
+	database := fmt.Sprintf("probectl_qa_beta_fx1_snapshot_%d", time.Now().UnixNano())
+	quotedDatabase := pgx.Identifier{database}.Sanitize()
+	if _, err := server.Exec(ctx, `CREATE DATABASE `+quotedDatabase); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := server.Exec(cleanup, `DROP DATABASE IF EXISTS `+quotedDatabase+` WITH (FORCE)`); err != nil {
+			t.Errorf("own snapshot database cleanup: %v", err)
+		}
+	})
+	adminConfig := server.Config()
+	adminConfig.ConnConfig.Database = database
+	admin, err = pgxpool.NewWithConfig(ctx, adminConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(admin.Close)
 	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, admin); err != nil {
 		t.Fatalf("migration: %v", err)
 	}
@@ -73,6 +97,7 @@ func newPostgresFixture(t *testing.T) *postgresFixture {
 		}
 		// Admission must prevent nested-lease starvation even at the smallest
 		// supported pool, including a concurrent lifecycle instance.
+		configuration.ConnConfig.Database = database
 		configuration.MaxConns = 4
 		pool, err = pgxpool.NewWithConfig(ctx, configuration)
 		if err != nil {
@@ -658,5 +683,23 @@ func TestSnapshotsPostgresRealBackgroundExpiryReclaimsObjectsAndCharge(t *testin
 	}
 	if _, err := other.Resume(ctx, blueScope, blue.NextCursor, allowPostgresSnapshot); err != nil {
 		t.Fatalf("expiry maintenance affected live sibling: %v", err)
+	}
+}
+
+func TestSnapshotsPostgresRealFixturesIsolateRetentionPopulations(t *testing.T) {
+	first := newPostgresFixture(t)
+	if first == nil {
+		return
+	}
+	second := newPostgresFixture(t)
+	if second == nil {
+		return
+	}
+	var foreign int
+	if err := second.admin.QueryRow(t.Context(), `SELECT count(*) FROM tenants WHERE id=$1::uuid OR id=$2::uuid`, first.red.ID, first.blue.ID).Scan(&foreign); err != nil {
+		t.Fatal(err)
+	}
+	if foreign != 0 {
+		t.Fatal("snapshot retention fixture shares another fixture's sweep population")
 	}
 }
