@@ -596,6 +596,36 @@ export function FlowPlanBuilder({
           onChange={(event) => onChange({ ipv6_prefix_length: Number(event.target.value) })}
         />
       </div>
+      <details className={styles.group}>
+        <summary>Retained dimension coverage</summary>
+        <p>
+          Retained input fields:{' '}
+          {schema.fields
+            .filter((field) => field.rollup_available)
+            .map((field) => field.name.replace(/_/g, ' '))
+            .join(', ') || 'None'}
+          .
+        </p>
+        <p>
+          Older hourly schema fields:{' '}
+          {schema.fields
+            .filter((field) => field.legacy_hourly_available)
+            .map((field) => field.name.replace(/_/g, ' '))
+            .join(', ') || 'None'}
+          .
+        </p>
+        <p>
+          Raw-only fields:{' '}
+          {schema.fields
+            .filter((field) => field.raw_available && !field.rollup_available)
+            .map((field) => field.name.replace(/_/g, ' '))
+            .join(', ') || 'None'}
+          .
+        </p>
+        <p className={styles.hint}>
+          Coverage and access for the selected time range are checked when you run the query.
+        </p>
+      </details>
       {plan.view === 'matrix' && (
         <>
           <DimensionPicker

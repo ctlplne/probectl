@@ -177,6 +177,11 @@ use `/ui/explore?native_flow=1` for an unsaved query. Loading a saved native vie
 restores its configuration;choose **Run flow query** to execute. Every page and
 CSV download rechecks current owner,tenant,source and joined-field permissions.
 
+Open **Retained dimension coverage** in the native flow builder to see fields
+available in retained inputs, fields in the older hourly schema, and fields
+that require raw inputs. These lists follow the current registry. Running the
+query still checks coverage for the selected time range and current access.
+
 ## Operator and CLI examples
 
 ```sh

@@ -34,6 +34,34 @@ function Harness({ initial }: { initial?: FlowQueryPlan }) {
 }
 
 describe('native flow plan controls', () => {
+  test('discloses retained and legacy dimension availability from the registry', async () => {
+    const user = userEvent.setup()
+    const coverageSchema: FlowExplorerSchema = {
+      ...schema,
+      fields: schema.fields.map((field) => ({
+        ...field,
+        rollup_available: field.name !== 'row_id',
+        legacy_hourly_available: field.name === 'protocol',
+      })),
+    }
+    render(
+      <FlowPlanBuilder
+        plan={{ group_by: ['protocol'], view: 'table' }}
+        schema={coverageSchema}
+        filters={[]}
+        onChange={() => undefined}
+      />,
+    )
+    await user.click(screen.getByText('Retained dimension coverage'))
+    const retained = screen.getByText(/^Retained input fields:/)
+    expect(retained).toHaveTextContent('protocol')
+    expect(retained).not.toHaveTextContent('row id')
+    expect(screen.getByText(/^Raw-only fields:/)).toHaveTextContent('row id')
+    expect(screen.getByText(/^Older hourly schema fields:/)).toHaveTextContent(
+      'Older hourly schema fields: protocol.',
+    )
+  })
+
   test('offers all eight dimensions on both axes and independent reach controls', async () => {
     const user = userEvent.setup()
     render(<Harness />)
