@@ -304,11 +304,11 @@ capabilities:
     engine: {refs: ["file:internal/flow", "file:internal/store/flowstore/explorer_plan.go"]}
     binary: {refs: ["file:cmd/probectl-flow-agent/main.go#func run"]}
     api: {refs: ["api:GET /v1/flows/top", "api:GET /v1/flows/ingest-quality", "api:GET /v1/explorer/schema", "api:POST /v1/explorer/query", "api:POST /v1/explorer/compare", "api:GET /v1/explorer/flow-views", "api:POST /v1/explorer/flow-views", "api:GET /v1/explorer/flow-filters", "api:POST /v1/explorer/flow-filters", "api:GET /v1/explorer/flow-snapshots/{id}/csv"]}
-    cli: {refs: ["cli:probectl flow top", "cli:probectl flow quality", "cli:probectl explorer query", "cli:probectl explorer compare", "cli:probectl explorer view-run <id>", "cli:probectl explorer filter-list", "cli:probectl explorer snapshot-csv <id>"]}
+    cli: {refs: ["cli:probectl flow top", "cli:probectl flow quality", "cli:probectl explorer query", "cli:probectl explorer compare", "cli:probectl explorer view-run", "cli:probectl explorer filter-list", "cli:probectl explorer snapshot-csv"]}
     ui: {refs: ["ui:F17@/planes/flow", "ui:F17@/explore"]}
     docs: {refs: ["file:docs/flow.md#Flow analytics", "file:docs/explorer.md#Stateless flow questions"]}
     config_keys: {refs: ["config:PROBECTL_FLOW_CONFIG", "config:PROBECTL_FLOW_NETFLOW_LISTEN", "config:PROBECTL_FLOW_QUERY_TIMEOUT", "config:PROBECTL_FLOW_QUERY_MAX_READ_BYTES", "config:PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES"]}
-    telemetry: {refs: ["file:internal/flow", "file:internal/otel/flow_explorer.go"]}
+    telemetry: {refs: ["file:internal/flow", "file:internal/control/explorer_flow_metrics.go"]}
     real_stack_proof: {refs: ["test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack"]}
     migration: {refs: ["file:migrations/0132_flow_query_filters.sql", "file:migrations/0133_flow_snapshots.sql", "file:migrations/0134_flow_query_views.sql"]}
 
