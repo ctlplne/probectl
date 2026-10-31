@@ -129,7 +129,7 @@
       ],
       "name": "Flow analytics",
       "status": "delivered",
-      "evidence": "`internal/flow`, `internal/control/explorer_flow.go`, `web/src/routes/NativeFlowPage.tsx` · native flow builder/charts and explicit structured execution; query reach governed by the shared registry"
+      "evidence": "`internal/flow`, `internal/store/flowstore`, `internal/control/explorer_flow.go`, `web/src/routes/NativeFlowPage.tsx` · native registry, builder/charts, saved filters/views, frozen paging/CSV and stateless proposals; `TestNativeFlowExplorerRealStack` binds constructed protocol senders, REST/CLI/MCP and rendered query receipt in the integration profile; CI development transport is distinct from production TLS image proofs"
     },
     {
       "ids": [

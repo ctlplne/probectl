@@ -2,7 +2,6 @@
 
 # Explorer
 
-
 ## Stateless flow questions
 
 In the native flow workspace, **Ask a flow question → Preview query plan** proposes
@@ -41,7 +40,6 @@ bytes, tokens, nesting and model response allocation; the existing 2 MiB Explore
 transport budget also applies. These resource limits do not reduce structured query
 reach or impose a fixed day cap.
 
-
 Explorer is probectl's shared query workbench at `/explore`. It joins a natural-language
 question to a small structured grammar: time, source/plane, dimensions, exact filters,
 groupings, measures, visualization, and row limit. The readable preview is the query receipt;
@@ -61,9 +59,11 @@ normalizes its display.
 `GET /v1/explorer/schema` returns the fixed catalog of ten recipes. `POST
 /v1/explorer/query` accepts an `ExplorerQuery` and returns normalized rows, exact columns, a
 readable preview, bounded value suggestions, truncation state, the native evidence path, and a
-sanitized logical execution receipt. Queries are limited to 500 rows, 12 exact filters, a
-90-day time range, and an allow-listed vocabulary per source. Explorer is intentionally not
-arbitrary SQL, PromQL, or ClickHouse syntax.
+sanitized logical execution receipt. Legacy recipe queries retain their500-row,
+12-exact-filter and90-day limits. The native flow workspace uses the richer
+[flow grammar](flow.md#native-flow-explorer-preview):50,000 selected table groups,
+eight dimensions on either matrix axis,and any range covered by tenant retention.
+It has no90-day cap. No source accepts arbitrary SQL,PromQL or ClickHouse syntax.
 
 Supported sources are `flow`, `changes`, `path`, `topology`, `endpoints`, `tls`, `cost`, and
 `slo`. Each is dispatched to the production store already used by its native screen. Store
@@ -91,14 +91,16 @@ and SLO currently expose latest/current state through Explorer, so the schema om
 `comparison_sources` and the comparison endpoint rejects them rather than pretending a current
 snapshot is historical data.
 
-Both input windows and the aligned output stay under the query's bounded row limit (at most
-500). `current_truncated`, `previous_truncated`, and `rows_truncated` make a partial result
+For legacy recipe comparison,both input windows and the aligned output stay under
+the query's bounded row limit (at most500). Native flow comparison uses a shared
+selected population of up to50,000 table groups and explicit Other statistics;
+see the native flow contract for frozen pagination and complete source coverage. `current_truncated`, `previous_truncated`, and `rows_truncated` make a partial result
 explicit. Narrow both windows or add a filter before interpreting a partial delta.
 
 ## Logical execution receipt
 
-Every query response includes `execution` with contract
-`explorer-execution/v1`. It is a server-authored “nutrition label” for the work
+Legacy recipe query responses include `execution` with contract
+`explorer-execution/v1`;native flow uses `flow-explorer-execution/v2`. It is a server-authored “nutrition label” for the work
 that just completed:
 
 - allow-listed recipe and logical source;
@@ -110,7 +112,8 @@ that just completed:
   truncation reason;
 - source, response-shaping, and total elapsed milliseconds.
 
-Comparison responses include `explorer-comparison-execution/v1`: the current
+Legacy comparison responses include `explorer-comparison-execution/v1`;native
+flow uses `flow-explorer-comparison-execution/v2`: the current
 and previous receipts plus the bounded alignment row count, truncation reason,
 and timing. The native Explorer page exposes these facts in a keyboard-operable
 details panel for normal, empty, partial, and one-sided results. The generic CLI
@@ -143,12 +146,14 @@ indistinguishable from a missing ID (`404 saved view not found`).
 
 Saved views restore the source, dimensions, groupings, measures, visualization, exact filter,
 and absolute time bounds. A comparison also restores both previous-window bounds; those dates
-encode comparison mode within the existing 12-field saved-view limit. Loading a view restores
+encode comparison mode within the legacy12-field saved-view limit. Native flow
+uses complete saved-query definitions at `/v1/explorer/flow-views`,rather than
+the flat inventory-view format. Loading a view restores
 the worksheet; choose **Run query** or **Compare periods** to fetch fresh authorized results.
 
 ## Context and evidence
 
-The stable view link contains the recipe, source, dimensions, groupings, measures,
+Legacy recipe links contain the recipe, source, dimensions, groupings, measures,
 visualization, row limit, absolute UTC time range, exact filters, and—when enabled—the
 explicit previous UTC window. Custom grammar survives reopening even without a recipe.
 It never contains tenant identity or credentials; authentication routing context is ignored
@@ -164,6 +169,13 @@ explanation never hides the source values.
 Back and Forward restore and execute the selected URL's worksheet. Typing an unsent draft
 does not trigger another request. Older recipe-only links remain readable, including links
 whose parameter order or UTC timestamp formatting differs from newly generated links.
+
+Native flow URLs contain a saved `flow_view` ID within the authenticated tenant;
+they do not grant access to another owner's private definition or share a cached
+result. Open **Native flow Explorer (preview)** from the all-plane Explorer,or
+use `/ui/explore?native_flow=1` for an unsaved query. Loading a saved native view
+restores its configuration;choose **Run flow query** to execute. Every page and
+CSV download rechecks current owner,tenant,source and joined-field permissions.
 
 ## Operator and CLI examples
 

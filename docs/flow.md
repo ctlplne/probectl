@@ -308,6 +308,20 @@ history; unavailable historical fields/resolutions produce a coverage refusal.
 Execution/read/memory/storage budgets refuse explicitly rather than silently
 shortening a query or returning partial statistics.
 
+Filters support equals/not equals,case-insensitive contains/not contains,RE2
+match/no match,greater/less than,bitwise AND,CIDR membership and port ranges.
+Groups support nested all/any and include/exclude,plus reusable saved filters.
+The structural guards are250entries per group,1,000expanded conditions,five
+levels and1KiB per regex. These bounds supplement execution and fairness limits.
+
+Metrics include bits/s,packets/s,flows/s,sampling-corrected bytes and packets,
+and unique source/destination IPs,ports,ASNs and countries. Each supports average,
+p95,p99,maximum and total,with exact decimal text. Charts have one primary and up
+to three secondary metrics;additional table selections are bounded by the registry.
+Bucket widths run from one minute to one week. Explicit previous periods need not
+be adjacent. Longer ranges automatically select retained rollup inputs,or refuse
+if the requested fields/resolution are unavailable;the UI reports that coverage.
+
 The deployment operator sets native query cost policy with
 `PROBECTL_FLOW_QUERY_*` in the [configuration reference](configuration.md).
 The serving process and standalone MCP use the same policy, and REST/MCP schema
@@ -422,8 +436,10 @@ a64MiB per-tenant storage budget. Quota/audit failures refuse atomically.
 
 Run accepts no overrides and dispatches through the existing native query or
 comparison service. It returns the same frozen paging and CSV result identity,
-with current source/reference permissions rechecked. These are API/CLI surfaces;
-native saved-query controls remain part of the Explorer preview build.
+with current source/reference permissions rechecked. The same definitions are
+available in the native Explorer preview:private/shared view libraries,labels,
+favorites,comparison,chart controls and explicit Run. URLs carry the saved
+configuration ID,never an authorization grant or a shared result snapshot.
 
 CLI operations are `explorer view-list`, `view-get`, `view-create`,
 `view-update`, `view-delete`, `view-favorite` and `view-run`. Mutations take JSON

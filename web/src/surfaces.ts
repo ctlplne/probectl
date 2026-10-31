@@ -117,6 +117,16 @@ const AI_LIVE_RECEIPT: SurfaceLiveReceipt = {
   note: 'The integration lane gives two tenants different faults in the shipped stores (a BGP hijack plus a service outage correlated into one incident; a route leak) and asks why through the API, CLI and Ask page: the builtin adapter answers locally, every citation resolves to the tenant’s own incident signal, BGP event, Prometheus series or topology node, and the Explorer reads only the caller’s path and topology rows.',
 }
 
+const EXPLORER_LIVE_RECEIPT: SurfaceLiveReceipt = {
+  status: 'static-only',
+  evidence: [
+    'ci:.github/workflows/ci.yml:make test-integration',
+    'test:internal/ai/realstack_integration_test.go:TestAIRootCauseRealStack',
+    'test:internal/flow/realstack_integration_test.go:TestNativeFlowExplorerRealStack',
+  ],
+  note: 'Pending actual native receipt execution. The older AI receipt proves path/topology recipes only; native flow requires its own protocol-sender, REST/CLI/MCP and rendered Explorer proof. Development CI transport and production TLS image receipts have separate scopes.',
+}
+
 const EBPF_LIVE_RECEIPT: SurfaceLiveReceipt = {
   status: 'live-green',
   evidence: [
@@ -345,7 +355,7 @@ export const SURFACES: SurfaceDecl[] = [
   },
   {
     capability: 'Structured telemetry Explorer + logical execution receipts',
-    featureIds: ['F13'],
+    featureIds: ['F13', 'F17'],
     sprint: 'X7',
     kind: 'native',
     route: '/explore',
@@ -354,8 +364,11 @@ export const SURFACES: SurfaceDecl[] = [
       'openapi:/v1/explorer/compare',
       'cli:probectl explorer query',
       'cli:probectl explorer compare',
+      'file:web/src/routes/NativeFlowPage.tsx',
+      'openapi:/v1/explorer/flow-views',
+      'openapi:/v1/explorer/flow-filters',
     ],
-    liveReceipt: AI_LIVE_RECEIPT,
+    liveReceipt: EXPLORER_LIVE_RECEIPT,
   },
   {
     capability: 'Curated dashboards + tenant-safe PDF/CSV reporting',

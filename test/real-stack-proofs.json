@@ -231,6 +231,13 @@
       "capabilities": [
         "F40"
       ]
+    },
+    {
+      "ref": "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F17"
+      ]
     }
   ]
 }
