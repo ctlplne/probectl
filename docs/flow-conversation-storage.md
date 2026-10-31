@@ -190,3 +190,30 @@ This is a private storage primitive, not enabled public conversation storage.
 The real initiating-credential/Engine composition, honest HTTP failures,
 subject portability/erasure, retention, paired key lifecycle, positive orphan
 fencing and retained native results remain required before activation.
+
+
+## Immutable subject-erasure plans (private foundation)
+
+`Codec.PrepareSubjectErasurePlan` freezes a trimmed subject and normalized,
+sorted aliases already validated by an independently authorized lifecycle
+operation. The private selector includes random salt; its digest binds an
+operation without exposing low-entropy subject guesses through bookkeeping.
+The plan refuses public JSON and formatting and grants no message access.
+
+`Journal.BeginSubjectInvalidation` atomically stores its encrypted selector,
+exact operation ID, purpose, binding, generation advance and mandatory audit.
+Tenant encryption authenticates the tenant, operation, purpose and binding;
+keyless plaintext is refused. The disposable fixture keeps this ciphertext in
+`flow_conversation_epochs.operation_plan`. It is not a product migration.
+
+`Journal.ResumeSubjectInvalidation` requires the exact internal operation UUID
+and fresh independent authority before decrypting and again after verifying the
+canonical selector and digest. A restart uses those frozen aliases rather than
+re-resolving a changed directory. Different plans and corrupt, oversized,
+missing or unavailable-key envelopes refuse. An exact retry preserves one
+intent and audit event; audit failure rolls back the complete transition.
+
+These methods neither admit matching message source nor prove actual drain,
+delete records or clear the refusal marker. Complete subject matching and
+erasure, retention, key inventory/rewrap including the plan envelope, and
+positive orphan recovery remain required before private persistence is enabled.

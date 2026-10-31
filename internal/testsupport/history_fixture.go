@@ -26,7 +26,8 @@ func InstallFlowHistoryFixture(ctx context.Context, t testing.TB, admin *pgxpool
 		t.Fatal("history fixture requires the canonical owner boundary plan")
 	}
 	statements := []string{
-		`CREATE TABLE public.flow_conversation_epochs(tenant_id uuid PRIMARY KEY REFERENCES public.tenants(id) ON DELETE CASCADE,generation bigint NOT NULL CHECK(generation>0),invalidating boolean NOT NULL DEFAULT false,operation_id uuid,operation_kind text,operation_binding bytea,
+		`CREATE TABLE public.flow_conversation_epochs(tenant_id uuid PRIMARY KEY REFERENCES public.tenants(id) ON DELETE CASCADE,generation bigint NOT NULL CHECK(generation>0),invalidating boolean NOT NULL DEFAULT false,operation_id uuid,operation_kind text,operation_binding bytea,operation_plan text,
+		  CHECK(operation_plan IS NULL OR (invalidating AND operation_kind='subject_erase' AND length(operation_plan)>0)),
           CHECK((NOT invalidating AND operation_id IS NULL AND operation_kind IS NULL AND operation_binding IS NULL) OR
             (invalidating AND operation_id IS NOT NULL AND operation_kind IS NOT NULL AND operation_kind IN ('tenant_erase','subject_erase','retention','key_rotation') AND operation_binding IS NOT NULL AND octet_length(operation_binding)=32)))`,
 		`CREATE TABLE public.flow_conversation_messages(tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,owner_id uuid NOT NULL,conversation_id uuid NOT NULL,message_id uuid NOT NULL,revision bigint NOT NULL CHECK(revision>0),epoch bigint NOT NULL CHECK(epoch>0),parent_message_id uuid,parent_revision bigint,kind text NOT NULL,frozen_at text NOT NULL,expires_at timestamptz,private_header text NOT NULL,private_payload text NOT NULL,position bigint NOT NULL CHECK(position>0),

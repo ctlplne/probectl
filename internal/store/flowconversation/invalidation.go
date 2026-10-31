@@ -83,6 +83,10 @@ func authorizeMaintenance(ctx context.Context, tenant string, authorize Authoriz
 // clear itself on timeout. Full-tenant callers begin before their audit fence;
 // later phases require separately authorized lifecycle receipts.
 func (j *Journal) BeginInvalidation(ctx context.Context, request MaintenanceRequest, authorize AuthorizeMaintenance) (Invalidation, error) {
+	return j.beginInvalidation(ctx, request, "", authorize)
+}
+
+func (j *Journal) beginInvalidation(ctx context.Context, request MaintenanceRequest, plan string, authorize AuthorizeMaintenance) (Invalidation, error) {
 	tenant, err := maintenanceTenant(ctx)
 	if err != nil {
 		return Invalidation{}, err
@@ -123,7 +127,16 @@ func (j *Journal) BeginInvalidation(ctx context.Context, request MaintenanceRequ
 				return ErrJournalGeneration
 			}
 			next := state.generation + 1
-			changed, err := sc.Q.Exec(ctx, `UPDATE flow_conversation_epochs SET generation=$2,invalidating=true,operation_id=$3::uuid,operation_kind=$4,operation_binding=$5 WHERE tenant_id=$1::uuid AND generation=$6 AND NOT invalidating`, tenant, int64(next), request.ID, string(request.Kind), request.Binding[:], int64(state.generation))
+			query := `UPDATE flow_conversation_epochs SET generation=$2,invalidating=true,operation_id=$3::uuid,operation_kind=$4,operation_binding=$5 WHERE tenant_id=$1::uuid AND generation=$6 AND NOT invalidating`
+			args := []any{tenant, int64(next), request.ID, string(request.Kind), request.Binding[:], int64(state.generation)}
+			if plan != "" {
+				if request.Kind != MaintenanceSubjectErase {
+					return ErrMessageIntegrity
+				}
+				query = `UPDATE flow_conversation_epochs SET generation=$2,invalidating=true,operation_id=$3::uuid,operation_kind=$4,operation_binding=$5,operation_plan=$7 WHERE tenant_id=$1::uuid AND generation=$6 AND NOT invalidating`
+				args = append(args, plan)
+			}
+			changed, err := sc.Q.Exec(ctx, query, args...)
 			if err != nil {
 				return err
 			}
