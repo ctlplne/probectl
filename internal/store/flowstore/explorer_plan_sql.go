@@ -41,6 +41,10 @@ func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		return "", nil, errors.New("invalid flow query table")
 	}
 	params := chParams{"from": plan.From.Format("2006-01-02 15:04:05.999999999"), "to": plan.To.Format("2006-01-02 15:04:05.999999999"), "prefix4": strconv.Itoa(*plan.IPv4PrefixLength), "prefix6": strconv.Itoa(*plan.IPv6PrefixLength), "width_ns": strconv.FormatInt(int64(time.Duration(plan.BucketSeconds)*time.Second), 10), "window_ns": strconv.FormatInt(int64(plan.To.Sub(plan.From)), 10)}
+	params["detail_limit"] = strconv.Itoa(plan.RowLimit)
+	params["series_limit"] = strconv.Itoa(plan.SeriesDepth)
+	params["matrix_depth"] = strconv.Itoa(plan.MatrixDepth)
+
 	tuples := []any{}
 	exporters := make([]string, 0, len(names))
 	for exporter := range names {
@@ -158,13 +162,13 @@ func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		}
 		return sql
 	}
-	outputs := []string{output("detail", "ranked", "rk<="+strconv.Itoa(plan.RowLimit), "toInt64(-1)", "'0'", "ng")}
+	outputs := []string{output("detail", "ranked", "rk<={detail_limit:UInt64}", "toInt64(-1)", "'0'", "ng")}
 	zeroMetrics := make([]string, len(plan.Metrics))
 	for i := range zeroMetrics {
 		zeroMetrics[i] = "'0'"
 	}
 	outputs = append(outputs, "SELECT 'counts' AS kind,"+empty+" AS g,"+empty+" AS c,toUInt8(0) AS o,toUInt8(0) AS p,toInt64(-1) AS bi,'0' AS duration,["+strings.Join(zeroMetrics, ",")+"] AS metrics,toUInt64(uniqExact(filtered.g)) AS total_groups,if(count()=0,'',toString(min(event_time),'UTC')) AS oldest_input FROM filtered")
-	input("other_input", empty, empty, "1", "0", "filtered.g NOT IN (SELECT g FROM ranked WHERE rk<="+strconv.Itoa(plan.RowLimit)+")")
+	input("other_input", empty, empty, "1", "0", "filtered.g NOT IN (SELECT g FROM ranked WHERE rk<={detail_limit:UInt64})")
 	ctes = append(ctes, planStatsSQL("other", "other_input", plan)...)
 	outputs = append(outputs, output("other", "other_stats", "", "toInt64(-1)", "'0'", "toUInt64(0)"))
 	input("total_input", empty, empty, "0", "0", "")
@@ -183,7 +187,7 @@ func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		outputs = append(outputs, output("total_point", "total_points", "", "bucket_index", "toString(duration_ns)", "toUInt64(0)"))
 	}
 	if plan.View != "table" && plan.View != "matrix" {
-		chartTop := "SELECT g FROM " + globalRank + " WHERE rk<=" + strconv.Itoa(plan.SeriesDepth)
+		chartTop := "SELECT g FROM " + globalRank + " WHERE rk<={series_limit:UInt64}"
 		if selectedChart != nil {
 			encoded, err := json.Marshal(selectedChart)
 			if err != nil {
@@ -202,7 +206,7 @@ func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		outputs = append(outputs, output("point", "chart_points", "", "bucket_index", "toString(duration_ns)", "toUInt64(0)"))
 	}
 	if plan.View == "matrix" {
-		rowTop := "SELECT g FROM " + globalRank + " WHERE rk<=" + strconv.Itoa(plan.MatrixDepth)
+		rowTop := "SELECT g FROM " + globalRank + " WHERE rk<={matrix_depth:UInt64}"
 		if selectedMatrixRows != nil {
 			encoded, err := json.Marshal(selectedMatrixRows)
 			if err != nil {
@@ -224,13 +228,13 @@ func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string,
 			params["selected_columns"] = string(encoded)
 			ctes = append(ctes, "column_ranked AS (SELECT *,indexOf(JSONExtract({selected_columns:String},'Array(Array(String))'),g) AS rk FROM column_stats WHERE g IN (SELECT arrayJoin(JSONExtract({selected_columns:String},'Array(Array(String))'))))")
 		}
-		columnTop := "SELECT g FROM column_ranked WHERE rk<=" + strconv.Itoa(plan.MatrixDepth)
+		columnTop := "SELECT g FROM column_ranked WHERE rk<={matrix_depth:UInt64}"
 		if selectedColumns != nil {
 			// Preserve pinned membership even when a column occurs only in
 			// this period's Other rows and has no conditioned statistics.
 			columnTop = "SELECT arrayJoin(JSONExtract({selected_columns:String},'Array(Array(String))'))"
 		}
-		outputs = append(outputs, output("matrix_column", "column_ranked", "rk<="+strconv.Itoa(plan.MatrixDepth), "toInt64(-1)", "'0'", "toUInt64(0)"))
+		outputs = append(outputs, output("matrix_column", "column_ranked", "rk<={matrix_depth:UInt64}", "toInt64(-1)", "'0'", "toUInt64(0)"))
 		input("matrix_input", "if(filtered.g IN ("+rowTop+"),filtered.g,"+empty+")", "if(filtered.c IN ("+columnTop+"),filtered.c,"+empty+")", "filtered.g NOT IN ("+rowTop+")", "filtered.c NOT IN ("+columnTop+")", "")
 		ctes = append(ctes, planStatsSQL("matrix", "matrix_input", plan)...)
 		outputs = append(outputs, output("matrix", "matrix_stats", "", "toInt64(-1)", "'0'", "toUInt64(0)"))

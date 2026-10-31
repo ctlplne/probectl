@@ -137,3 +137,44 @@ func TestExplorerPlanDecoderRefusesBadMetricWidthAndBucketBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerPlanRankingDepthsAreServerBound(t *testing.T) {
+	from := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	for _, view := range []string{"table", "line", "matrix"} {
+		t.Run(view, func(t *testing.T) {
+			plan := flow.QueryPlan{From: from, To: from.Add(time.Hour), GroupBy: []string{"src_addr"}, View: view, RowLimit: 137, PageSize: 100, SeriesDepth: 17, MatrixDepth: 13}
+			if view == "matrix" {
+				plan.MatrixWith = []string{"dst_addr"}
+			}
+			first, bound, err := planSQL(plan, "probectl_flows", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for key, want := range map[string]string{"detail_limit": "137", "series_limit": "17", "matrix_depth": "13"} {
+				if bound[key] != want {
+					t.Fatalf("%s was not server-bound: got %q,want %q", key, bound[key], want)
+				}
+			}
+			if !strings.Contains(first, "rk<={detail_limit:UInt64}") {
+				t.Fatal("detail ranking lost typed parameter")
+			}
+			if view == "line" && !strings.Contains(first, "rk<={series_limit:UInt64}") {
+				t.Fatal("chart ranking lost typed parameter")
+			}
+			if view == "matrix" && !strings.Contains(first, "rk<={matrix_depth:UInt64}") {
+				t.Fatal("matrix ranking lost typed parameter")
+			}
+			plan.RowLimit, plan.SeriesDepth, plan.MatrixDepth = 199, 29, 11
+			second, changed, err := planSQL(plan, "probectl_flows", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if second != first {
+				t.Fatal("changing public ranking depths changed SQL structure")
+			}
+			if changed["detail_limit"] != "199" || changed["series_limit"] != "29" || changed["matrix_depth"] != "11" {
+				t.Fatal("ranking parameter values did not follow the normalized plan")
+			}
+		})
+	}
+}

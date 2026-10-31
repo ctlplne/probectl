@@ -236,6 +236,14 @@ func TestExplorerPlanFiftyThousandDetailsSeparateFromFortyChartSeries(t *testing
 		rows[i] = r
 	}
 	store := NewMemory()
+	// This is a correctness oracle under race instrumentation and package
+	// contention. Keep a finite test-only budget; production defaults and
+	// dedicated deadline/refusal tests remain unchanged.
+	budget := DefaultExplorerBudget()
+	budget.ExecutionLimit = 30 * time.Second
+	if err := AttachExplorerBudget(store, budget); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Insert(t.Context(), rows); err != nil {
 		t.Fatal(err)
 	}
