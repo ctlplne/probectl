@@ -31,8 +31,12 @@ Because the gate wraps the *consumer* (not the bus), it behaves identically
 whether the bus is Kafka, the durable lightweight mode (NATS/JetStream) or the volatile in-process one. The meter names match
 the metering vocabulary — `results_ingested`, `flow_events`, `ingest_bytes` —
 so metering, quotas, and fairness all agree on what one "unit" is; fairness adds
-a fourth meter of its own, `device_metrics` (the SNMP/gNMI device plane), which
-is bounded here but is not a billing meter. Shed messages are **not** counted
+processing meters of its own, including `device_metrics` (the SNMP/gNMI device
+plane) and `ndr_flow_events` (secondary flow/eBPF detection). These are bounded
+here and are not billing meters. Storage `flow_events` and detection
+`ndr_flow_events` each use the configured flow rate and burst independently.
+Delivery of one bus record to the second consumer must not spend the storage
+consumer's credits again; both stages still shed their own over-rate work. Shed messages are **not** counted
 for billing (billing reflects stored work); fairness accounting records the
 shed separately.
 

@@ -73,3 +73,43 @@ func TestNDRConsumerFairnessBounded(t *testing.T) {
 		t.Fatalf("quiet tenant produced no detection — starved by the noisy neighbor (isolation broken)")
 	}
 }
+
+// TestNDRFairnessDoesNotSpendStorageFlowBudget checks the shared-gate wiring
+// used by both real consumer groups. Independent work stages keep the same
+// per-tenant ceiling, but may not consume each other's admission credits.
+func TestNDRFairnessDoesNotSpendStorageFlowBudget(t *testing.T) {
+	for _, order := range []string{"storage-first", "ndr-first"} {
+		t.Run(order, func(t *testing.T) {
+			ctx := t.Context()
+			gate := fairness.NewGate(fairness.Policy{FlowEventsPerSec: 1, BurstSeconds: 1}, nil)
+			ndr := NewNDRConsumer(nil, nil, nil, intelTestLog()).WithFairness(gate)
+			storage := func(tenant string, n int) bool { return gate.AdmitN(ctx, tenant, fairness.MeterFlowEvents, int64(n)) }
+			detect := func(tenant string, n int) bool { return !ndr.admitFlows(ctx, map[string]int{tenant: n})[tenant] }
+			first, second := storage, detect
+			if order == "ndr-first" {
+				first, second = detect, storage
+			}
+			// An oversized first batch is admitted on the existing deficit contract;
+			// the long deficit makes the assertions independent of scheduler timing.
+			if !first("red", 10000) {
+				t.Fatal("fresh first stage refused its initial batch")
+			}
+			if !second("red", 10000) {
+				t.Fatal("secondary consumer spent the other stage's flow budget")
+			}
+			if storage("red", 1) || detect("red", 1) {
+				t.Fatal("independent stage budget became unbounded after deficit")
+			}
+			if !storage("blue", 1) || !detect("blue", 1) {
+				t.Fatal("noisy tenant or sibling stage starved the quiet tenant")
+			}
+			state := gate.SnapshotTenant(ctx, "red").Ingest
+			for _, meter := range []string{fairness.MeterFlowEvents, "ndr_flow_events"} {
+				counts := state[meter]
+				if counts.AdmittedUnits != 10000 || counts.ShedUnits != 1 {
+					t.Fatalf("%s lost independent stage accounting: %+v", meter, counts)
+				}
+			}
+		})
+	}
+}

@@ -2780,7 +2780,7 @@ a bound is admission-controlled (shed + counted), never silently corrupted.
 | Key | Default | Description |
 | --- | --- | --- |
 | `PROBECTL_FAIRNESS_RESULTS_PER_SEC` | `1000` | per-tenant result-message admission rate. Explicit `0` = unlimited |
-| `PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC` | `10000` | per-tenant flow-record admission rate. Explicit `0` = unlimited |
+| `PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC` | `10000` | per-tenant flow-record admission rate, applied independently to storage (`flow_events`) and secondary detection (`ndr_flow_events`). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `2097152` | per-tenant ingest byte rate (2 MiB/s). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | per-tenant SNMP/gNMI device-sample admission rate. Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC` | `5000` | per-tenant OTLP metric/trace/log series admission rate (SCALE-003). Explicit `0` = unlimited |

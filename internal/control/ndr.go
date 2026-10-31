@@ -91,7 +91,9 @@ type NDRConsumer struct {
 	// fairness gate — a tenant flooding its flow lane could saturate the threat
 	// engine and starve every other tenant's detection latency. gate bounds
 	// per-tenant flow/eBPF admission before ObserveFlow, identical to the
-	// storage flow pipeline's contract. nil = unbounded (tests / opt-out).
+	// storage flow pipeline's rate contract. Its independent meter prevents a
+	// second delivery to this consumer group spending storage's credits again.
+	// nil = unbounded (tests / opt-out).
 	gate *fairness.Gate
 	shed atomic.Uint64 // flow/eBPF records shed by the per-tenant fairness gate
 }
@@ -123,7 +125,7 @@ func (cs *NDRConsumer) admitFlows(ctx context.Context, counts map[string]int) ma
 		if tenant == "" {
 			continue
 		}
-		if !cs.gate.AdmitN(ctx, tenant, fairness.MeterFlowEvents, int64(n)) {
+		if !cs.gate.AdmitN(ctx, tenant, fairness.MeterNDRFlowEvents, int64(n)) {
 			if shed == nil {
 				shed = make(map[string]bool, 1)
 			}

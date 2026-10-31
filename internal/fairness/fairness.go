@@ -62,15 +62,19 @@ import (
 	"time"
 )
 
-// Meter names bounded by the ingest gate — the S-T3 usage vocabulary, so
-// metering, quotas, and fairness agree about what a unit is.
+// Fixed admission meter names. Storage meters use the S-T3 usage vocabulary;
+// secondary processing meters have independent bounds and are not usage billing.
 const (
-	MeterResults       = "results_ingested" // result messages admitted to the pipeline
-	MeterFlowEvents    = "flow_events"      // flow records admitted to the flow store
-	MeterBytes         = "ingest_bytes"     // result payload bytes admitted
-	MeterDeviceMetrics = "device_metrics"   // device samples admitted (SCALE-005)
-	MeterOTLPSeries    = "otlp_series"      // OTLP metric/trace/log series admitted (SCALE-003)
-	meterQueries       = "queries"          // query-budget bucket (internal)
+	MeterResults    = "results_ingested" // result messages admitted to the pipeline
+	MeterFlowEvents = "flow_events"      // flow records admitted to the flow store
+	// MeterNDRFlowEvents independently bounds the secondary detection consumer
+	// at FlowEventsPerSec, without spending storage ingest credits a second time.
+	// This processing meter is not a billable usage meter.
+	MeterNDRFlowEvents = "ndr_flow_events"
+	MeterBytes         = "ingest_bytes"   // result payload bytes admitted
+	MeterDeviceMetrics = "device_metrics" // device samples admitted (SCALE-005)
+	MeterOTLPSeries    = "otlp_series"    // OTLP metric/trace/log series admitted (SCALE-003)
+	meterQueries       = "queries"        // query-budget bucket (internal)
 )
 
 // Policy is the per-tenant fairness contract (the S-T7 "quotas / limits /
@@ -155,7 +159,7 @@ func (p Policy) rateFor(meter string) float64 {
 	switch meter {
 	case MeterResults:
 		return p.ResultsPerSec
-	case MeterFlowEvents:
+	case MeterFlowEvents, MeterNDRFlowEvents:
 		return p.FlowEventsPerSec
 	case MeterBytes:
 		return p.IngestBytesPerSec

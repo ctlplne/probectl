@@ -9341,7 +9341,8 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "description": "The authenticated tenant's current policy and per-meter admission counters. Storage flow_events and secondary detection ndr_flow_events each use the configured flow_events_per_sec and burst_seconds independently; a secondary consumer delivery does not debit storage twice. ndr_flow_events is processing accounting, not billable usage. Query budgets, tenant isolation and each consumer's rate enforcement remain independent."
       }
     },
     "/v1/governance/policy": {
