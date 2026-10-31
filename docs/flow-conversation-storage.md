@@ -253,3 +253,23 @@ unknown families and route drift refuse before source. This validation also
 covers metadata-only paths; source-free erasure still needs no private payload
 SELECT or decryption key. An eventual outer commit error cannot substitute for
 refusing an unsafe read before it opens authenticated data.
+
+
+Exact-pending subject selection now scans fixed tenant-keyset pages over all
+stored messages, including expired ciphertext. Unmatched pages advance to the
+actual end; filling a bounded selection is explicitly incomplete. Every
+candidate and complete ancestor chain requires current independent privacy
+authority, authenticated decryption and a mandatory application document
+validator/matcher. Owner or direct matches do not bypass complete document and
+immediate-edge checks. Unknown source, keys, ancestry or resources return no
+partial selection.
+
+SQL readers close before application matching or crypto. Per-page ciphertext
+resources include ancestors; selected leaves retain only bounded exact
+immutable metadata and original encrypted pairs for a later compare-and-swap.
+Borrowed bodies and matcher state drain before activity retirement. Generic
+fixture classification proves storage traversal only; production native
+projection and controller integration remain required. This step deletes
+nothing and grants no completion or intent-clear authority. Bounded job/leaf
+purge, complete all-plane/self-erasure receipts, stable directory identity,
+retention, key lifecycle and positive orphan recovery still precede activation.
