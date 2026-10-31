@@ -54,7 +54,7 @@ type workLease struct {
 	scope                    MessageScope
 	job, worker              string
 	generation, cancellation uint64
-	until                    time.Time
+	until, deadline          time.Time
 	proposal                 *Revision
 }
 
@@ -74,6 +74,16 @@ func (lease WorkLease) Until() time.Time {
 		return time.Time{}
 	}
 	return lease.value.until
+}
+
+// Deadline is the conservative in-process monotonic IO fence projected from
+// PostgreSQL's clock. Until remains the absolute database timestamp for CAS;
+// callers must not assume the database and application wall clocks agree.
+func (lease WorkLease) Deadline() time.Time {
+	if lease.value == nil {
+		return time.Time{}
+	}
+	return lease.value.deadline
 }
 
 // Proposal is recovery metadata, never confirmation or execution authority.
@@ -152,6 +162,8 @@ func (w *Worker) ClaimInput(ctx context.Context, conversation string, input Revi
 		claim := &workLease{identity: id, scope: MessageScope{TenantID: id.tenant, OwnerID: id.owner, ConversationID: conversation, MessageID: input.MessageID, Revision: input.Revision, Epoch: epoch}, job: job, worker: w.id}
 		var proposalID *string
 		var proposalRevision *int64
+		var databaseClock time.Time
+		sent := time.Now()
 		err = sc.Q.QueryRow(ctx, `WITH now AS MATERIALIZED (SELECT clock_timestamp() AS at)
           UPDATE flow_conversation_jobs j SET status='processing',worker_id=$4::uuid,lease_generation=j.lease_generation+1,
             lease_until=LEAST(now.at+$5::bigint*interval '1 microsecond',m.expires_at)
@@ -159,10 +171,14 @@ func (w *Worker) ClaimInput(ctx context.Context, conversation string, input Revi
           WHERE j.tenant_id=$1::uuid AND j.owner_id=$2::uuid AND j.job_id=$3::uuid
             AND (m.tenant_id,m.owner_id,m.conversation_id,m.message_id,m.revision)=(j.tenant_id,j.owner_id,j.conversation_id,j.input_message_id,j.input_revision)
             AND (m.expires_at IS NULL OR m.expires_at>now.at)
-          RETURNING j.lease_generation,j.cancel_revision,j.lease_until,j.proposal_message_id,j.proposal_revision`, id.tenant, id.owner, job, w.id, w.lease.Microseconds()).Scan(&claim.generation, &claim.cancellation, &claim.until, &proposalID, &proposalRevision)
+          RETURNING j.lease_generation,j.cancel_revision,j.lease_until,j.proposal_message_id,j.proposal_revision,now.at`, id.tenant, id.owner, job, w.id, w.lease.Microseconds()).Scan(&claim.generation, &claim.cancellation, &claim.until, &proposalID, &proposalRevision, &databaseClock)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrJournalLease
 		}
+		if err != nil {
+			return err
+		}
+		claim.deadline, err = projectFlowLeaseDeadline(sent, databaseClock, claim.until, w.lease)
 		if err != nil {
 			return err
 		}
@@ -258,14 +274,21 @@ func (w *Worker) Renew(ctx context.Context, lease WorkLease, authorize Authorize
 		}
 		args := append(leaseArguments(value), w.lease.Microseconds())
 		renewed := *value
-		err := sc.Q.QueryRow(ctx, `UPDATE flow_conversation_jobs j
-		  SET lease_until=LEAST(clock_timestamp()+$12::bigint*interval '1 microsecond',m.expires_at),lease_generation=j.lease_generation+1
-          FROM flow_conversation_messages m WHERE `+liveLeasePredicate+`
+		var databaseClock time.Time
+		sent := time.Now()
+		err := sc.Q.QueryRow(ctx, `WITH now AS MATERIALIZED (SELECT clock_timestamp() AS at)
+          UPDATE flow_conversation_jobs j
+		  SET lease_until=LEAST(now.at+$12::bigint*interval '1 microsecond',m.expires_at),lease_generation=j.lease_generation+1
+          FROM flow_conversation_messages m,now WHERE `+liveLeasePredicate+`
 		  AND j.lease_generation<9223372036854775807
-		  RETURNING j.lease_until,j.lease_generation`, args...).Scan(&renewed.until, &renewed.generation)
+		  RETURNING j.lease_until,j.lease_generation,now.at`, args...).Scan(&renewed.until, &renewed.generation, &databaseClock)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrJournalLease
 		}
+		if err != nil {
+			return err
+		}
+		renewed.deadline, err = projectFlowLeaseDeadline(sent, databaseClock, renewed.until, w.lease)
 		if err != nil {
 			return err
 		}

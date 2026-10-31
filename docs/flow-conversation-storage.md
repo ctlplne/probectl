@@ -44,6 +44,16 @@ and audit. It preserves the processing state: a proposal is not a completed
 answer or permission to execute a query. Takeover returns the same proposal
 reference for recovery.
 
+Claims and renewals return two separate lease deadlines. `Until()` is the
+absolute PostgreSQL timestamp required for exact storage compare-and-swap.
+`Deadline()` is a conservative process deadline for context-bound IO. It uses
+the authoritative remaining duration from the same database clock read that
+updates the lease, anchored to the earlier local monotonic query-send time.
+Application/database clock skew cannot lengthen the permitted work. Lock and
+network delay can shorten it. Invalid or unexpectedly unbounded database
+durations refuse the lease. Callers must still enforce operation/privacy
+bounds, replace only a confirmed current lease, and drain actual work.
+
 Restart discovery binds one tenant and owner at the storage layer and returns
 only bounded job metadata and an opaque encrypted minimal header. It never
 selects the payload column. Per-page rows, header bytes and time bound cost;
