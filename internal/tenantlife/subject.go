@@ -1294,10 +1294,95 @@ func (e *Engine) captureSubjectAliases(
 	sc tenancy.Scope,
 	subject string,
 ) (capturedSubjectAliases, error) {
-	aliases, _, err := e.resolveSubjectDirectory(ctx, sc, subject)
+	aliases := newSubjectAliasSet(subject)
 	captured := capturedSubjectAliases{aliases: aliases}
+	normalizedSubject := strings.ToLower(strings.TrimSpace(subject))
+	var identities []subjectIdentity
+
+	exists, err := e.subjectTableExists(ctx, sc, "users")
 	if err != nil {
+		return captured, fmt.Errorf("discover users table: %w", err)
+	}
+	if !exists {
+		return captured, fmt.Errorf("tenantlife: users table is missing from tenant schema")
+	}
+	rows, err := sc.Q.Query(ctx, `
+		SELECT id::text, email, COALESCE(user_name, ''), COALESCE(external_id, '')
+		  FROM users
+		 WHERE lower(id::text) = $1
+		    OR lower(email) = $1
+		    OR lower(COALESCE(user_name, '')) = $1
+		    OR lower(COALESCE(external_id, '')) = $1`,
+		normalizedSubject)
+	if err != nil {
+		return captured, fmt.Errorf("capture user subject aliases: %w", err)
+	}
+	for rows.Next() {
+		var id, email, userName, externalID string
+		if err := rows.Scan(&id, &email, &userName, &externalID); err != nil {
+			rows.Close()
+			return captured, err
+		}
+		identities = append(identities, subjectIdentity{
+			kind: "user", id: id, email: email, userName: userName, externalID: externalID,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
 		return captured, err
+	}
+	rows.Close()
+
+	exists, err = e.subjectTableExists(ctx, sc, "service_accounts")
+	if err != nil {
+		return captured, fmt.Errorf("discover service_accounts table: %w", err)
+	}
+	if !exists {
+		return captured, fmt.Errorf("tenantlife: service_accounts table is missing from tenant schema")
+	}
+	rows, err = sc.Q.Query(ctx, `
+		SELECT id::text, name
+		  FROM service_accounts
+		 WHERE lower(id::text) = $1 OR lower(name) = $1`,
+		normalizedSubject)
+	if err != nil {
+		return captured, fmt.Errorf("capture service-account subject aliases: %w", err)
+	}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return captured, err
+		}
+		identities = append(identities, subjectIdentity{kind: "service_account", id: id, name: name})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return captured, err
+	}
+	rows.Close()
+
+	if len(identities) > 1 {
+		return captured, fmt.Errorf(
+			"tenantlife: subject identifier is ambiguous across %d directory identities; use an exact UUID",
+			len(identities),
+		)
+	}
+	if len(identities) == 0 && !isSafeContainsIdentifier(subject) {
+		return captured, fmt.Errorf(
+			"tenantlife: subject does not resolve to one exact identity and is not an unambiguous email, UUID, IP address, or URI",
+		)
+	}
+	if len(identities) == 1 {
+		identity := identities[0]
+		aliases.add(identity.id)
+		if identity.kind == "user" {
+			aliases.add(identity.email)
+			aliases.add(identity.userName)
+			aliases.add(identity.externalID)
+		} else {
+			aliases.add(identity.name)
+		}
 	}
 
 	// Locator rows added for silo-safe pre-tenant authentication reference a
@@ -1324,14 +1409,14 @@ func (e *Engine) captureSubjectAliases(
 			dst: &captured.mcpTokenIDs,
 		},
 	} {
-		exists, err := e.subjectTableExists(ctx, sc, credentialTable.name)
+		exists, err = e.subjectTableExists(ctx, sc, credentialTable.name)
 		if err != nil {
 			return captured, fmt.Errorf("discover %s table: %w", credentialTable.name, err)
 		}
 		if !exists {
 			return captured, fmt.Errorf("tenantlife: %s table is missing from tenant schema", credentialTable.name)
 		}
-		rows, err := sc.Q.Query(ctx, credentialTable.sql, aliases.normalizedValues())
+		rows, err = sc.Q.Query(ctx, credentialTable.sql, aliases.normalizedValues())
 		if err != nil {
 			return captured, fmt.Errorf("capture %s subject aliases: %w", credentialTable.name, err)
 		}

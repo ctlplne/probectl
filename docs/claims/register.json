@@ -538,19 +538,15 @@
     "docs/runbooks/tenant-offboarding.md",
     "docs/scim-abac.md",
     "docs/security/tenant-isolation.md",
-    "docs/security/threat-model.md",
-    "docs/flow-conversation-storage.md"
+    "docs/security/threat-model.md"
    ],
    "code": [
     "internal/tenancy/writefence.go",
     "internal/tenancy/posture.go",
-    "migrations",
-    "internal/store/flowconversation/journal.go",
-    "internal/store/flowconversation/tenant_erase.go"
+    "migrations"
    ],
    "proof": [
-    "make:test-isolation",
-    "test:internal/store/flowconversation/subject_operation_integration_test.go#TestHistoryJournalPostgresSubjectPendingSourceRechecksFamilyAfterLeaseLoss"
+    "make:test-isolation"
    ]
   },
   {
@@ -627,7 +623,7 @@
   {
    "id": "CLM-VERDICT-COVERAGE",
    "kind": "capability",
-   "statement": "Every surface that reports what probectl observed also reports what was observing. Each one carries a provenance declaration \u2014 whether the producer behind it exists and is running for this tenant (collector_running, ingest_running, correlation_running, change_ingest_configured, agent_transport_running, coverage, methodology, measurement_fidelity, silent_planes, freshness) \u2014 and, where it applies a bound, a completeness declaration (effective_limit, truncated, next_cursor). An empty answer therefore never has to be read as good news: the reader is told whether nothing was wrong or nothing was measuring. Surfaces that return rows the caller created declare nothing, because an empty list there is unambiguous. The web UI turns those fields into what a person sees, and a producer that is not running is shown as blocked rather than as a zero-valued chart.",
+   "statement": "Every surface that reports what probectl observed also reports what was observing. Each one carries a provenance declaration — whether the producer behind it exists and is running for this tenant (collector_running, ingest_running, correlation_running, change_ingest_configured, agent_transport_running, coverage, methodology, measurement_fidelity, silent_planes, freshness) — and, where it applies a bound, a completeness declaration (effective_limit, truncated, next_cursor). An empty answer therefore never has to be read as good news: the reader is told whether nothing was wrong or nothing was measuring. Surfaces that return rows the caller created declare nothing, because an empty list there is unambiguous. The web UI turns those fields into what a person sees, and a producer that is not running is shown as blocked rather than as a zero-valued chart.",
    "pattern": "verdict coverage|nothing was measuring|was observing|producer that is not running",
    "surfaces": [
     "docs/verdict-coverage.md"
