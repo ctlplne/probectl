@@ -8,6 +8,7 @@ package flowconversation
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,6 +36,7 @@ type operationLease struct {
 	journal    *Journal
 	owner      historyIdentity
 	generation uint64
+	activity   *activityRef
 	mu         sync.Mutex
 	closed     bool
 	readers    sync.WaitGroup
@@ -93,7 +95,7 @@ func (j *Journal) WithReadLease(ctx context.Context, authorize AuthorizeHistory,
 		}
 		return id.authorize(ctx, authorize)
 	}
-	err = j.operationLease(ctx, id.tenant, false, func(ctx context.Context) error {
+	err = j.operationLease(ctx, id.tenant, false, func(ctx context.Context) (operationError error) {
 		if err := id.authorize(ctx, authorize); err != nil {
 			return err
 		}
@@ -101,10 +103,28 @@ func (j *Journal) WithReadLease(ctx context.Context, authorize AuthorizeHistory,
 		if err != nil {
 			return err
 		}
-		lease := &operationLease{journal: j, owner: id, generation: generation}
+		state, err := activityRuntimeFor(j.pool)
+		if err != nil {
+			return err
+		}
+		ref, err := state.reserve(ctx, id.tenant, id.owner)
+		if err != nil {
+			return err
+		}
+		if err := j.registerActivity(ctx, id, ref, generation); err != nil {
+			if !ref.attempted {
+				state.abandonUnstarted(ref)
+				return err
+			}
+			return errors.Join(err, j.finishActivity(ctx, ref))
+		}
+		lease := &operationLease{journal: j, owner: id, generation: generation, activity: ref}
 		owned, cancel := context.WithCancel(ctx)
-		defer lease.finish(cancel)
+		defer func() { lease.finish(cancel); operationError = errors.Join(operationError, j.finishActivity(ctx, ref)) }()
 		current := context.WithValue(owned, operationLeaseKey{}, lease)
+		if err := j.checkOperationEpoch(current, generation); err != nil {
+			return err
+		}
 		if err := fn(current); err != nil {
 			return err
 		}

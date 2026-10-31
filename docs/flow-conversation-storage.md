@@ -111,6 +111,30 @@ checked separately from current operational authority and never enter the
 authorization-denial normalizer. An unavailable state read cannot enter the
 maintenance callback or become proof of a permanent authority loss.
 
+Source callbacks now register a separate audited tenant/owner activity row
+before opening private data. The record contains operation/instance IDs and an
+operation epoch, not source, credentials or grants. Current journal operations
+under that context require its exact active registration. A restrictive DELETE
+policy prevents active records from disappearing under lifecycle owner binding;
+startup and silo guard plans enforce it and deny table-wide truncation. Records
+have no job/message/user cascade. Final registry tombstoning also needs explicit
+activity zero-count integration.
+
+Only the process's private reference can acknowledge its own actual callback,
+nested work and buffer drain. Retirement and audit are atomic; offboarded/fenced
+tenants use the separate provider lifecycle stream instead of appending tenant
+audit after its fence. Failed acknowledgements retain source-free local retry
+references with bounded same-tenant backpressure. Independently authorized
+retries cannot adopt another instance's source or creator credential. The exact
+pending-intent barrier checks durable unacknowledged activity before destructive
+callbacks, even if the original SQL family lease was lost.
+
+An unknown crashed instance remains pending after its session ends, after job
+cancellation and regardless of age. The owned subprocess crash test proves this
+refusal, not a completed product crash-recovery procedure. Positive orphan
+instance fencing, complete artifact/key counts and full lifecycle/public service
+integration remain mandatory before persistence is enabled.
+
 Before runtime persistence is enabled, integration must include counted tenant
 and subject portability, verifiable erasure, retention, worker drain and late
 writer fencing, paired key rotation and key inventory. The disposable schema in

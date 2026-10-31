@@ -39,6 +39,8 @@ func Install(ctx context.Context, t testing.TB, admin *pgxpool.Pool) {
           CHECK((proposal_message_id IS NULL)=(proposal_revision IS NULL)),
           FOREIGN KEY(tenant_id,owner_id,conversation_id,proposal_message_id,proposal_revision) REFERENCES public.flow_conversation_messages(tenant_id,owner_id,conversation_id,message_id,revision) ON DELETE CASCADE,
           FOREIGN KEY(tenant_id,owner_id,conversation_id,input_message_id,input_revision) REFERENCES public.flow_conversation_messages(tenant_id,owner_id,conversation_id,message_id,revision) ON DELETE CASCADE)`,
+		`CREATE TABLE public.flow_conversation_activity(tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE RESTRICT,owner_id uuid NOT NULL,operation_id uuid NOT NULL,instance_id uuid NOT NULL,epoch bigint NOT NULL CHECK(epoch>0),started_at timestamptz NOT NULL DEFAULT clock_timestamp(),drained_at timestamptz,
+          PRIMARY KEY(tenant_id,owner_id,operation_id),UNIQUE(tenant_id,operation_id))`,
 	}
 	created := []string{}
 	t.Cleanup(func() {
@@ -54,7 +56,7 @@ func Install(ctx context.Context, t testing.TB, admin *pgxpool.Pool) {
 		if _, err := admin.Exec(ctx, statement); err != nil {
 			t.Fatal("journal fixture table already exists or cannot be created", err)
 		}
-		created = append(created, []string{"flow_conversation_epochs", "flow_conversation_messages", "flow_conversation_jobs"}[i])
+		created = append(created, []string{"flow_conversation_epochs", "flow_conversation_messages", "flow_conversation_jobs", "flow_conversation_activity"}[i])
 	}
 	for _, table := range created {
 		for _, statement := range []string{
@@ -65,6 +67,11 @@ func Install(ctx context.Context, t testing.TB, admin *pgxpool.Pool) {
 			`CREATE POLICY tenant_isolation ON public.` + table + ` USING(tenant_id=NULLIF(current_setting('probectl.tenant_id',true),'')::uuid) WITH CHECK(tenant_id=NULLIF(current_setting('probectl.tenant_id',true),'')::uuid)`,
 		} {
 			if _, err := admin.Exec(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if table == "flow_conversation_activity" {
+			if _, err := admin.Exec(ctx, `CREATE TRIGGER tenant_audit_write_fence BEFORE INSERT ON public.flow_conversation_activity FOR EACH ROW EXECUTE FUNCTION public.probectl_enforce_tenant_audit_write_fence()`); err != nil {
 				t.Fatal(err)
 			}
 		}

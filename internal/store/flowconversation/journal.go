@@ -176,17 +176,22 @@ func sameRequestOrigin(a, b auth.WorkerCredentialRef) bool {
 // Journal owns routed tenant transactions and the canonical writer fence.
 // No method executes model/crypto/auth callbacks while holding mutation locks.
 type Journal struct {
-	pool   *pgxpool.Pool
-	fence  tenancy.WriterFence
-	record func(context.Context, tenancy.Scope, string, string, string, map[string]any) error
+	pool           *pgxpool.Pool
+	fence          tenancy.WriterFence
+	record         func(context.Context, tenancy.Scope, string, string, string, map[string]any) error
+	recordProvider func(context.Context, tenancy.Querier, string, string, string, map[string]any) error
 }
 
 func NewJournal(pool *pgxpool.Pool) *Journal {
-	return &Journal{pool: pool, fence: tenancy.NewPostgresWriterFence(pool), record: audit.TenantRecord}
+	return &Journal{pool: pool, fence: tenancy.NewPostgresWriterFence(pool), record: audit.TenantRecord,
+		recordProvider: func(ctx context.Context, q tenancy.Querier, actor, action, target string, data map[string]any) error {
+			_, err := audit.ProviderAppendTx(ctx, q, actor, action, target, data)
+			return err
+		}}
 }
 
 func (j *Journal) available() error {
-	if j == nil || j.pool == nil || j.fence == nil || j.record == nil {
+	if j == nil || j.pool == nil || j.fence == nil || j.record == nil || j.recordProvider == nil {
 		return ErrJournalUnavailable
 	}
 	return nil
@@ -196,7 +201,12 @@ func (j *Journal) scoped(ctx context.Context, fn func(context.Context, tenancy.S
 	if err := j.available(); err != nil {
 		return err
 	}
-	return tenancy.InTenant(tenancy.WithSiloTableLock(ctx), j.pool, fn)
+	return tenancy.InTenant(tenancy.WithSiloTableLock(ctx), j.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := j.checkActivityContext(ctx, sc); err != nil {
+			return err
+		}
+		return fn(ctx, sc)
+	})
 }
 
 func bindRequestOwner(ctx context.Context, sc tenancy.Scope) (string, auth.WorkerCredentialRef, error) {
@@ -371,7 +381,7 @@ func journalError(ctx context.Context, err error) error {
 	if errors.As(err, &databaseError) && (databaseError.Code == "23505" || databaseError.Code == "23503") {
 		return ErrJournalConflict
 	}
-	if errors.Is(err, ErrMessageDenied) || errors.Is(err, ErrMessageIntegrity) || errors.Is(err, ErrMessageBudget) || errors.Is(err, ErrJournalConflict) || errors.Is(err, ErrJournalGeneration) || errors.Is(err, ErrJournalUnavailable) || errors.Is(err, ErrJournalLease) {
+	if errors.Is(err, ErrMessageDenied) || errors.Is(err, ErrMessageIntegrity) || errors.Is(err, ErrMessageBudget) || errors.Is(err, ErrJournalConflict) || errors.Is(err, ErrJournalGeneration) || errors.Is(err, ErrJournalUnavailable) || errors.Is(err, ErrJournalLease) || errors.Is(err, ErrJournalDraining) {
 		return err
 	}
 	return ErrJournalUnavailable

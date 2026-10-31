@@ -42,3 +42,23 @@ func TestHistoryOwnerPredicateExactGroupingNeverWidensTenant(t *testing.T) {
 		t.Fatal("regrouping probe no longer defeats the old conjunction-only normalizer")
 	}
 }
+
+func TestActivityDeletionGuardIsRestrictiveAndExact(t *testing.T) {
+	for _, expr := range []string{"drained_at IS NOT NULL", "(drained_at IS NOT NULL)"} {
+		if !exactActivityDeleteExpression(&expr) {
+			t.Fatal("exact drained-row deletion guard refused")
+		}
+	}
+	for _, expr := range []string{"true", "drained_at IS NULL", "drained_at IS NOT NULL OR true", "(drained_at IS NOT NULL) AND false"} {
+		if exactActivityDeleteExpression(&expr) {
+			t.Fatal("widened/changed activity deletion guard accepted")
+		}
+	}
+	if exactActivityDeleteExpression(nil) {
+		t.Fatal("missing drain deletion policy accepted")
+	}
+	plan := FlowHistoryOwnerBoundaryPlan("owned", "flow_conversation_activity")
+	if len(plan) != 4 || !strings.Contains(plan[3], "AS RESTRICTIVE FOR DELETE TO PUBLIC USING (drained_at IS NOT NULL)") {
+		t.Fatal("silo activity restoration omitted active-row deletion guard")
+	}
+}

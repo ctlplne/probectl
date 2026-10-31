@@ -22,10 +22,10 @@ const FlowHistoryOwnerPredicate = `tenant_id = NULLIF(current_setting('probectl.
     AND (owner_id = NULLIF(current_setting('probectl.flow_history_owner', true), '')::uuid
          OR current_setting('probectl.flow_history_lifecycle', true) = 'authorized')`
 
-// FlowHistoryOwnerTable names only source/job tables in the private history family.
+// FlowHistoryOwnerTable names source/job/activity tables in the private history family.
 // Operational tenant epochs remain protected by the ordinary tenant policy.
 func FlowHistoryOwnerTable(table string) bool {
-	return table == "flow_conversation_messages" || table == "flow_conversation_jobs"
+	return table == "flow_conversation_messages" || table == "flow_conversation_jobs" || table == "flow_conversation_activity"
 }
 
 // FlowHistoryOwnerBoundaryPlan installs the same owner guard on initial and restored silos.
@@ -40,12 +40,17 @@ func FlowHistoryOwnerBoundaryPlan(schema, table string) []string {
 		identifier = pgx.Identifier{schema, table}
 	}
 	quoted := identifier.Sanitize()
-	return []string{
+	plan := []string{
 		"DROP POLICY IF EXISTS flow_history_owner ON " + quoted,
 		"CREATE POLICY flow_history_owner ON " + quoted + " AS RESTRICTIVE\n" +
 			"  FOR ALL TO PUBLIC\n  USING (" + FlowHistoryOwnerPredicate + ")\n" +
 			"  WITH CHECK (" + FlowHistoryOwnerPredicate + ")",
 	}
+	if table == "flow_conversation_activity" {
+		plan = append(plan, "DROP POLICY IF EXISTS flow_history_drained_delete ON "+quoted,
+			"CREATE POLICY flow_history_drained_delete ON "+quoted+" AS RESTRICTIVE FOR DELETE TO PUBLIC USING (drained_at IS NOT NULL)")
+	}
+	return plan
 }
 
 // PostgreSQL deparses the fixed policy with explicit text casts and grouping.
@@ -123,6 +128,9 @@ func AssertFlowHistoryOwnerGuard(ctx context.Context, q postureQuerier, schema, 
       WHERE n.nspname=$1 AND c.relname=$2 AND c.relkind IN ('r','p')`, schema, table).Scan(&columns, &forced, &policy, &providerDenied, &using, &check)
 	if err != nil || !columns || !forced || !policy || !providerDenied || !exactHistoryOwnerExpression(using) || !exactHistoryOwnerExpression(check) {
 		return fmt.Errorf("isolation posture: private history guard refused for %q.%q (refusing to start)", schema, table)
+	}
+	if table == "flow_conversation_activity" {
+		return assertHistoryActivityDeleteGuard(ctx, q, schema)
 	}
 	return nil
 }
