@@ -8007,7 +8007,7 @@
             "description": "Export failed before body output. Standard API error; no attachment is returned."
           }
         },
-        "description": "Streams a tenant-scoped portability archive. Before body output, engine failures return the standard API error response without attachment headers. After output begins, a failure aborts the HTTP/1 connection or resets the HTTP/2 stream; clients must treat a transport read error as an incomplete export and discard the download, even if a gzip member can be decoded."
+        "description": "Streams a tenant-scoped portability archive. Before body output, engine failures return the standard API error response without attachment headers. After output begins, a failure aborts the HTTP/1 connection or resets the HTTP/2 stream; clients must treat a transport read error as an incomplete export and discard the download, even if a gzip member can be decoded. An unreadable tenant governance policy refuses export before archive output; an absent optional policy remains permitted."
       }
     },
     "/v1/lifecycle/subjects/erase": {

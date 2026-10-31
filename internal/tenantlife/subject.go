@@ -374,7 +374,10 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 	if subject == "" {
 		return SubjectManifest{}, fmt.Errorf("tenantlife: subject export requires a non-empty subject")
 	}
-	pol := govern.PolicyFor(ctx, tenantID)
+	pol, policyErr := govern.PolicyForStrict(ctx, tenantID)
+	if policyErr != nil {
+		return SubjectManifest{}, fmt.Errorf("tenantlife: subject export governance policy read failed: %w", policyErr)
+	}
 	redact = redact || pol.RedactExport
 	if redact && pol.RedactFrom == govern.ClassUnset {
 		pol = govern.DefaultPIIPolicy()
