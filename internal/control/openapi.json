@@ -16250,7 +16250,6 @@
       "ExplorerQuery": {
         "type": "object",
         "required": [
-          "question",
           "source"
         ],
         "properties": {
@@ -16259,7 +16258,7 @@
           },
           "question": {
             "type": "string",
-            "description": "Legacy executable recipes accept 1–500 characters. plan_only uses operator question and transport resource budgets."
+            "description": "Optional receipt label for an explicit native flow plan (defaults to Native flow query); required 1–500-character question for legacy executable recipes. plan_only requires a question and uses operator question/transport budgets."
           },
           "source": {
             "type": "string",
@@ -16372,6 +16371,25 @@
                   "minLength": 1
                 }
               }
+            }
+          },
+          {
+            "if": {
+              "not": {
+                "required": [
+                  "flow"
+                ],
+                "properties": {
+                  "source": {
+                    "const": "flow"
+                  }
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "question"
+              ]
             }
           }
         ]

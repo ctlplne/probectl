@@ -86,6 +86,11 @@ func NormalizeExplorerQuery(q ExplorerQuery, now time.Time) (ExplorerQuery, erro
 	}
 	q.Template = strings.TrimSpace(q.Template)
 	q.Question = strings.TrimSpace(q.Question)
+	if q.Question == "" && q.Source == ExplorerFlow && q.Flow != nil {
+		// Native execution is explicit in the structured plan. The legacy
+		// recipe label is a receipt, not additional query intent or authority.
+		q.Question = "Native flow query"
+	}
 	if q.Question == "" || len(q.Question) > 500 {
 		return ExplorerQuery{}, errors.New("explorer question is required (1-500 characters)")
 	}

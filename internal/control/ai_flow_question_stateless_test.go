@@ -7,6 +7,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 type statelessFlowPlannerProbe struct {
@@ -147,6 +149,66 @@ func TestFlowQuestionStatelessProductionBuiltinAndSafeFailures(t *testing.T) {
 		var domain *apierror.Error
 		if !errors.As(err, &domain) || strings.Contains(err.Error(), "private-provider-detail") {
 			t.Fatal("provider error crossed public boundary")
+		}
+	}
+}
+
+// Exercise the exact UI/CLI execution envelope against real handler services,
+// with a second tenant's rows present rather than a successful fetch fixture.
+func TestNativeFlowStructuredExecutionOmitsLegacyQuestionLabel(t *testing.T) {
+	const red = "00000000-0000-0000-0000-000000000001"
+	const blue = "00000000-0000-0000-0000-000000000002"
+	source := flowstore.NewMemory()
+	plan := statelessFlowReady().Plan
+	plan.RowLimit = 10
+	plan.PageSize = 10
+	if err := source.Insert(t.Context(), []flowstore.Row{
+		{TenantID: red, TS: plan.From.Add(time.Minute), SrcAddr: "192.0.2.1", BytesScaled: 100, PacketsScaled: 1},
+		{TenantID: blue, TS: plan.From.Add(time.Minute), SrcAddr: "FOREIGN-NATIVE-ROW", BytesScaled: 9999, PacketsScaled: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv := testServer(fakePinger{}).WithFlowStore(source)
+	p := statelessFlowPrincipal(red)
+	query := map[string]any{"source": "flow", "flow": plan}
+	for _, compare := range []bool{false, true} {
+		body := any(query)
+		path := "/v1/explorer/query"
+		if compare {
+			path = "/v1/explorer/compare"
+			body = map[string]any{"query": query, "previous_from": plan.From.Add(-time.Hour), "previous_to": plan.From}
+		}
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(encoded))
+		req = req.WithContext(auth.WithPrincipal(req.Context(), p))
+		rec := httptest.NewRecorder()
+		if compare {
+			err = srv.handleExplorerComparison(rec, req)
+		} else {
+			err = srv.handleExplorerQuery(rec, req)
+		}
+		if err != nil || rec.Code != http.StatusOK {
+			t.Fatal("native client envelope did not execute", path, err)
+		}
+		var actual flowstore.PlanResult
+		if compare {
+			var result explorerComparisonResult
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || result.Flow == nil {
+				t.Fatal("native comparison result missing", err)
+			}
+			actual = result.Flow.Current
+		} else {
+			var result explorerResult
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || result.Flow == nil {
+				t.Fatal("native query result missing", err)
+			}
+			actual = *result.Flow
+		}
+		if len(actual.Rows) != 1 || actual.Rows[0].Group["src_addr"] != "192.0.2.1" || actual.Rows[0].Metrics["bytes:total"] != "100" || actual.Totals["bytes:total"] != "100" {
+			t.Fatal("native execution lost exact own rows or crossed tenant scope", path)
 		}
 	}
 }

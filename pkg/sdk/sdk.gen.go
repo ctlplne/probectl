@@ -1238,7 +1238,7 @@ type ExplorerQuery struct {
 	Limit         int               `json:"limit,omitempty"`
 	Measures      []string          `json:"measures,omitempty"`
 	PlanOnly      *bool             `json:"plan_only,omitempty"`
-	Question      string            `json:"question"`
+	Question      string            `json:"question,omitempty"`
 	Source        string            `json:"source"`
 	Template      string            `json:"template,omitempty"`
 	To            string            `json:"to,omitempty"`

@@ -1139,7 +1139,7 @@ export interface ExplorerQuery {
   limit?: number
   measures?: string[]
   plan_only?: boolean
-  question: string
+  question?: string
   source: "flow" | "changes" | "path" | "topology" | "endpoints" | "tls" | "cost" | "slo"
   template?: string
   to?: string
