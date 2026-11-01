@@ -153,10 +153,12 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 	// and provenance inside the same physical tenant and routing context on
 	// both first provision and catch-up. Older schemas have no import tables.
 	if owned["nms_import_sources"] && owned["nms_import_plans"] &&
+		owned["nms_import_pages"] &&
 		owned["nms_import_rows"] && owned["nms_import_provenance"] {
 		keys = append(keys,
 			foreignKey{"nms_import_sources", "fx2b_source_context_fk", "tenant_id, context_id", "entity_contexts", "tenant_id, id"},
 			foreignKey{"nms_import_plans", "fx2b_plan_source_fk", "tenant_id, context_id, source_id", "nms_import_sources", "tenant_id, context_id, id"},
+			foreignKey{"nms_import_pages", "fx2b_page_plan_fk", "tenant_id, context_id, plan_id", "nms_import_plans", "tenant_id, context_id, id"},
 			foreignKey{"nms_import_rows", "fx2b_row_plan_fk", "tenant_id, context_id, plan_id", "nms_import_plans", "tenant_id, context_id, id"},
 			foreignKey{"nms_import_rows", "fx2b_row_entity_fk", "tenant_id, context_id, target_entity_id", "entities", "tenant_id, context_id, id"},
 			foreignKey{"nms_import_provenance", "fx2b_provenance_source_fk", "tenant_id, context_id, source_id", "nms_import_sources", "tenant_id, context_id, id"},

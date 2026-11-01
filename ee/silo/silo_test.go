@@ -114,7 +114,7 @@ func TestProvisionPlan(t *testing.T) {
 }
 
 func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
-	tables := []string{"tests", "entity_contexts", "entity_path_test_contexts", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_links", "incidents", "incident_signals", "incident_correlation_overrides", "entity_fault_receipts", "nms_import_sources", "nms_import_plans", "nms_import_rows", "nms_import_provenance"}
+	tables := []string{"tests", "entity_contexts", "entity_path_test_contexts", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_links", "incidents", "incident_signals", "incident_correlation_overrides", "entity_fault_receipts", "nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_rows", "nms_import_provenance"}
 	for name, plan := range map[string][]string{
 		"provision": ProvisionPlan("t_abc", tables),
 		"catch-up":  CatchUpPlan("t_abc", Catalog{TenantTables: tables}),
@@ -173,6 +173,7 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "fx2_fault_receipt_incident_fk" FOREIGN KEY (tenant_id, incident_id) REFERENCES "t_abc"."incidents" (tenant_id, id)`,
 				`ADD CONSTRAINT "fx2b_source_context_fk" FOREIGN KEY (tenant_id, context_id) REFERENCES "t_abc"."entity_contexts" (tenant_id, id)`,
 				`ADD CONSTRAINT "fx2b_plan_source_fk" FOREIGN KEY (tenant_id, context_id, source_id) REFERENCES "t_abc"."nms_import_sources" (tenant_id, context_id, id)`,
+				`ADD CONSTRAINT "fx2b_page_plan_fk" FOREIGN KEY (tenant_id, context_id, plan_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id)`,
 				`ADD CONSTRAINT "fx2b_row_plan_fk" FOREIGN KEY (tenant_id, context_id, plan_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id)`,
 				`ADD CONSTRAINT "fx2b_row_entity_fk" FOREIGN KEY (tenant_id, context_id, target_entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id) ON DELETE SET NULL (target_entity_id)`,
 				`ADD CONSTRAINT "fx2b_provenance_source_fk" FOREIGN KEY (tenant_id, context_id, source_id) REFERENCES "t_abc"."nms_import_sources" (tenant_id, context_id, id)`,
@@ -190,8 +191,8 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 					t.Fatalf("registry silo plan missing %s", want)
 				}
 			}
-			if strings.Count(joined, `conrelid = '"t_abc".`) != 37 {
-				t.Fatalf("registry and import silo plan did not make all thirty-seven foreign keys and checks idempotent")
+			if strings.Count(joined, `conrelid = '"t_abc".`) != 38 {
+				t.Fatalf("registry and import silo plan did not make all thirty-eight foreign keys and checks idempotent")
 			}
 			if !strings.Contains(joined, `CREATE TRIGGER entity_path_retarget AFTER UPDATE OF target ON "t_abc"."tests"`) ||
 				!strings.Contains(joined, `ALTER TABLE "t_abc"."tests" ENABLE ALWAYS TRIGGER entity_path_retarget`) {

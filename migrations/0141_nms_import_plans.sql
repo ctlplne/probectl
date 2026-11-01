@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS nms_import_plans (
     source_generation_hash text NOT NULL CHECK (source_generation_hash ~ '^[0-9a-f]{64}$'),
     policy_version integer NOT NULL CHECK (policy_version > 0),
     row_count bigint NOT NULL CHECK (row_count >= 0),
-    state text NOT NULL DEFAULT 'preview' CHECK (state IN ('preview', 'applying', 'applied', 'stale')),
+    state text NOT NULL DEFAULT 'capturing' CHECK (state IN ('capturing', 'preview', 'applying', 'applied', 'stale')),
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     expires_at timestamptz NOT NULL,
     PRIMARY KEY (tenant_id, context_id, id),
@@ -46,6 +46,27 @@ CREATE TABLE IF NOT EXISTS nms_import_plans (
 );
 CREATE INDEX IF NOT EXISTS nms_import_plans_tenant_source_idx
     ON nms_import_plans(tenant_id, context_id, source_id, created_at DESC, id);
+
+-- One committed page receipt per capture ordinal. The service inserts this
+-- alongside its normalized rows in a tenant transaction, using a hash of
+-- normalized fields only. A retry can compare that hash without persisting
+-- raw vendor JSON, credentials, URLs or pagination links. No row or source
+-- address can select a destination context.
+CREATE TABLE IF NOT EXISTS nms_import_pages (
+    tenant_id uuid NOT NULL,
+    context_id uuid NOT NULL,
+    plan_id uuid NOT NULL,
+    page_number bigint NOT NULL CHECK (page_number >= 0),
+    resource_kind text NOT NULL CHECK (resource_kind IN ('devices', 'nodes', 'groups', 'rules', 'hosts', 'probes')),
+    first_row bigint NOT NULL CHECK (first_row >= 0),
+    row_count bigint NOT NULL CHECK (row_count >= 0),
+    page_hash text NOT NULL CHECK (page_hash ~ '^[0-9a-f]{64}$'),
+    committed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (tenant_id, context_id, plan_id, page_number),
+    FOREIGN KEY (tenant_id, context_id, plan_id)
+        REFERENCES nms_import_plans(tenant_id, context_id, id) ON DELETE CASCADE,
+    CHECK (first_row <= 9223372036854775807 - row_count)
+);
 
 -- The application validates these fields against a fixed allowlist before
 -- insert. Raw source JSON, rules, macros, passwords and notification targets
@@ -121,7 +142,7 @@ DO $nms_import_rls$
 DECLARE table_name text;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'nms_import_sources', 'nms_import_plans', 'nms_import_rows',
+        'nms_import_sources', 'nms_import_plans', 'nms_import_pages', 'nms_import_rows',
         'nms_import_provenance'
     ] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', table_name);
