@@ -58,6 +58,17 @@ CREATE TABLE IF NOT EXISTS nms_import_rows (
     external_id text NOT NULL CHECK (octet_length(external_id) BETWEEN 1 AND 256),
     label text CHECK (label IS NULL OR octet_length(label) BETWEEN 1 AND 256),
     address text CHECK (address IS NULL OR octet_length(address) BETWEEN 1 AND 255),
+    hostname text CHECK (hostname IS NULL OR octet_length(hostname) BETWEEN 1 AND 256),
+    parent_external_id text CHECK (parent_external_id IS NULL OR octet_length(parent_external_id) BETWEEN 1 AND 256),
+    location_id text CHECK (location_id IS NULL OR octet_length(location_id) BETWEEN 1 AND 256),
+    location_label text CHECK (location_label IS NULL OR octet_length(location_label) BETWEEN 1 AND 256),
+    group_ids text[] NOT NULL DEFAULT '{}'::text[]
+        CHECK (cardinality(group_ids) <= 256
+               AND array_position(group_ids, NULL) IS NULL
+               AND octet_length(array_to_string(group_ids, ',')) <= 65536
+               AND array_to_string(group_ids, ',') ~ '^[0-9a-f,]*$'),
+    poll_seconds bigint CHECK (poll_seconds IS NULL OR poll_seconds BETWEEN 1 AND 604800),
+    severity text CHECK (severity IS NULL OR severity IN ('ok', 'warning', 'critical')),
     target_entity_id uuid,
     action text NOT NULL CHECK (action IN ('create', 'update', 'conflict', 'skip', 'unmapped')),
     unmapped_codes text[] NOT NULL DEFAULT '{}'::text[]
@@ -92,7 +103,11 @@ CREATE TABLE IF NOT EXISTS nms_import_provenance (
     FOREIGN KEY (tenant_id, context_id, source_id)
         REFERENCES nms_import_sources(tenant_id, context_id, id) ON DELETE CASCADE,
     FOREIGN KEY (tenant_id, context_id, plan_id, source_id)
-        REFERENCES nms_import_plans(tenant_id, context_id, id, source_id) ON DELETE CASCADE,
+        REFERENCES nms_import_plans(tenant_id, context_id, id, source_id)
+        ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY (tenant_id, context_id, plan_id, object_kind, external_id)
+        REFERENCES nms_import_rows(tenant_id, context_id, plan_id, object_kind, external_id)
+        ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
     FOREIGN KEY (tenant_id, context_id, entity_id)
         REFERENCES entities(tenant_id, context_id, id) ON DELETE CASCADE
 );
