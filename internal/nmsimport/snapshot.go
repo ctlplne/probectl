@@ -17,6 +17,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // A source page is independently bounded. Callers can request more pages;
@@ -44,6 +45,7 @@ type Row struct {
 	Address       string   `json:"address,omitempty"`
 	LocationID    string   `json:"location_id,omitempty"`
 	GroupIDs      []string `json:"group_ids,omitempty"`
+	Severity      string   `json:"severity,omitempty"`
 	UnmappedCodes []string `json:"unmapped_codes,omitempty"`
 }
 
@@ -58,7 +60,7 @@ type Snapshot struct {
 
 func decodePage(r io.Reader, target any) error {
 	data, err := io.ReadAll(io.LimitReader(r, maxPageBytes+1))
-	if err != nil || len(data) > maxPageBytes {
+	if err != nil || len(data) > maxPageBytes || !utf8.Valid(data) {
 		return ErrInvalidPage
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -71,8 +73,9 @@ func decodePage(r io.Reader, target any) error {
 	return nil
 }
 
-// sourceID accepts the documented JSON string or integer shapes while
-// rejecting zero, booleans, floats and unbounded IDs without echoing them.
+// sourceID accepts documented numeric strings or integers and canonicalizes
+// leading zeroes. Required IDs reject zero at their call sites; optional site
+// and operation IDs may use it. Invalid forms never appear in error text.
 type sourceID string
 
 func (id *sourceID) UnmarshalJSON(data []byte) error {
@@ -86,17 +89,17 @@ func (id *sourceID) UnmarshalJSON(data []byte) error {
 			return ErrInvalidPage
 		}
 	} else {
-		n, err := strconv.ParseUint(string(data), 10, 64)
-		if err != nil {
-			return ErrInvalidPage
-		}
-		text = strconv.FormatUint(n, 10)
+		text = string(data)
 	}
 	text = strings.TrimSpace(text)
 	if text == "" || len(text) > 256 {
 		return ErrInvalidPage
 	}
-	*id = sourceID(text)
+	n, err := strconv.ParseUint(text, 10, 64)
+	if err != nil {
+		return ErrInvalidPage
+	}
+	*id = sourceID(strconv.FormatUint(n, 10))
 	return nil
 }
 
@@ -122,7 +125,7 @@ func safeAddress(text string) string {
 }
 
 // parseLibreNMSDevices reads one documented /api/v0/devices response. The
-// caller pages and snapshots the source before applying anything; this parser
+// caller captures and snapshots the source before applying anything; this parser
 // retains source IDs and safe display fields but ignores credential fields.
 func parseLibreNMSDevices(r io.Reader) (Snapshot, error) {
 	var page struct {
@@ -139,10 +142,15 @@ func parseLibreNMSDevices(r io.Reader) (Snapshot, error) {
 		return Snapshot{}, ErrInvalidPage
 	}
 	out := Snapshot{Source: LibreNMS, Rows: make([]Row, 0, len(page.Devices))}
+	seen := make(map[string]struct{}, len(page.Devices))
 	for _, device := range page.Devices {
 		if device.ID == "" || device.ID == "0" {
 			return Snapshot{}, ErrInvalidPage
 		}
+		if _, duplicate := seen[string(device.ID)]; duplicate {
+			return Snapshot{}, ErrInvalidPage
+		}
+		seen[string(device.ID)] = struct{}{}
 		label := safeLabel(device.Display)
 		if label == "" {
 			label = safeLabel(device.Hostname)
@@ -163,6 +171,100 @@ func parseLibreNMSDevices(r io.Reader) (Snapshot, error) {
 		}
 		if row.LocationID == "" {
 			row.UnmappedCodes = append(row.UnmappedCodes, "site_unmapped")
+		}
+		out.Rows = append(out.Rows, row)
+	}
+	return out, nil
+}
+
+// parseLibreNMSGroups reads the documented array-wrapped devicegroups list.
+// Membership is fetched through a separate endpoint, so every row records
+// that it is still missing; a dynamic predicate is never executed or copied.
+func parseLibreNMSGroups(r io.Reader) (Snapshot, error) {
+	var page []struct {
+		Status string `json:"status"`
+		Groups []struct {
+			ID      sourceID        `json:"id"`
+			Name    string          `json:"name"`
+			Pattern json.RawMessage `json:"pattern"`
+		} `json:"groups"`
+	}
+	if err := decodePage(r, &page); err != nil || len(page) != 1 || page[0].Status != "ok" || page[0].Groups == nil {
+		return Snapshot{}, ErrInvalidPage
+	}
+	out := Snapshot{Source: LibreNMS, Rows: make([]Row, 0, len(page[0].Groups))}
+	seen := make(map[string]struct{}, len(page[0].Groups))
+	for _, group := range page[0].Groups {
+		id := string(group.ID)
+		if id == "" || id == "0" {
+			return Snapshot{}, ErrInvalidPage
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return Snapshot{}, ErrInvalidPage
+		}
+		seen[id] = struct{}{}
+		row := Row{Kind: "group", ExternalID: id, Label: safeLabel(group.Name),
+			UnmappedCodes: []string{"membership_not_captured"}}
+		if row.Label == "" {
+			row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
+		}
+		var pattern string
+		if len(group.Pattern) != 0 && string(group.Pattern) != "null" {
+			if json.Unmarshal(group.Pattern, &pattern) != nil {
+				return Snapshot{}, ErrInvalidPage
+			}
+			if strings.TrimSpace(pattern) != "" {
+				row.UnmappedCodes = append(row.UnmappedCodes, "dynamic_predicate_unmapped")
+			}
+		}
+		out.Rows = append(out.Rows, row)
+	}
+	return out, nil
+}
+
+// parseLibreNMSRules reads /api/v0/rules without retaining the source rule
+// expression, extra JSON, operation, transport, runbook URL or credentials.
+// No rule is considered mapped until an explicit finite rule compiler exists.
+func parseLibreNMSRules(r io.Reader) (Snapshot, error) {
+	var page struct {
+		Status string `json:"status"`
+		Rules  []struct {
+			ID               sourceID        `json:"id"`
+			Name             string          `json:"name"`
+			Severity         string          `json:"severity"`
+			AlertOperationID sourceID        `json:"alert_operation_id"`
+			Operations       json.RawMessage `json:"operations"`
+		} `json:"rules"`
+	}
+	if err := decodePage(r, &page); err != nil || page.Status != "ok" || page.Rules == nil {
+		return Snapshot{}, ErrInvalidPage
+	}
+	out := Snapshot{Source: LibreNMS, Rows: make([]Row, 0, len(page.Rules))}
+	seen := make(map[string]struct{}, len(page.Rules))
+	for _, rule := range page.Rules {
+		id := string(rule.ID)
+		if id == "" || id == "0" {
+			return Snapshot{}, ErrInvalidPage
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return Snapshot{}, ErrInvalidPage
+		}
+		seen[id] = struct{}{}
+		row := Row{Kind: "rule", ExternalID: id, Label: safeLabel(rule.Name),
+			UnmappedCodes: []string{"expression_unmapped"}}
+		if row.Label == "" {
+			row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
+		}
+		switch strings.ToLower(strings.TrimSpace(rule.Severity)) {
+		case "ok", "warning", "critical":
+			row.Severity = strings.ToLower(strings.TrimSpace(rule.Severity))
+		default:
+			row.UnmappedCodes = append(row.UnmappedCodes, "severity_unmapped")
+		}
+		if rule.AlertOperationID != "" && rule.AlertOperationID != "0" {
+			row.UnmappedCodes = append(row.UnmappedCodes, "delivery_unmapped")
+		} else if operations := bytes.TrimSpace(rule.Operations); len(operations) != 0 && string(operations) != "null" && string(operations) != "[]" {
+			row.UnmappedCodes = append(row.UnmappedCodes, "delivery_unmapped")
 		}
 		out.Rows = append(out.Rows, row)
 	}
@@ -209,6 +311,7 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 		return Snapshot{}, ErrInvalidPage
 	}
 	groupIDs := make(map[string]string, len(export.Zabbix.Groups))
+	seenGroupIDs := make(map[string]struct{}, len(export.Zabbix.Groups))
 	for _, group := range export.Zabbix.Groups {
 		id, name := strings.TrimSpace(group.UUID), safeLabel(group.Name)
 		if id == "" || len(id) > 256 || name == "" {
@@ -217,14 +320,23 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 		if _, exists := groupIDs[name]; exists {
 			return Snapshot{}, ErrInvalidPage
 		}
+		if _, duplicate := seenGroupIDs[id]; duplicate {
+			return Snapshot{}, ErrInvalidPage
+		}
+		seenGroupIDs[id] = struct{}{}
 		groupIDs[name] = id
 		out.Rows = append(out.Rows, Row{Kind: "group", ExternalID: id, Label: name})
 	}
+	seenHostIDs := make(map[string]struct{}, len(export.Zabbix.Hosts))
 	for _, host := range export.Zabbix.Hosts {
 		id := strings.TrimSpace(host.Host)
 		if id == "" || len(id) > 256 {
 			return Snapshot{}, ErrInvalidPage
 		}
+		if _, duplicate := seenHostIDs[id]; duplicate {
+			return Snapshot{}, ErrInvalidPage
+		}
+		seenHostIDs[id] = struct{}{}
 		label := safeLabel(host.Name)
 		if label == "" {
 			label = safeLabel(id)
