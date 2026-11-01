@@ -108,6 +108,12 @@ paths = ['''docs/diligence/known-risks\.md''']
 id = "generic-api-key"
 
 [[rules.allowlists]]
+description = "FX-2b: a long Go condition comparing two fixed silo foreign-key names is an identifier-only false positive. This exact commit and file contain no credential; later edits remain scanned."
+condition = "AND"
+commits = ['''059ff6be5b95463cb72e7b20cec09690a477ccec''']
+paths = ['''ee/silo/planner\.go''']
+
+[[rules.allowlists]]
 description = "Historical CI compose-render fixture: exact commits + path + documented 64-byte throwaway value must all match."
 condition = "AND"
 commits = [
