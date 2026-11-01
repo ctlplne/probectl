@@ -48,6 +48,7 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             l7redact (shared L7 data-minimisation rules: modes, route templating) ·
             license (offline edition gating) · lifecycle (zero-downtime upgrade) ·
             logging (structured slog setup) · metrics (self-observability) ·
+            nmsimport (bounded incumbent NMS source decoding) ·
             notify (on-call/notification wiring) · objectstore (per-tenant blob store) ·
             opendata (open-data enrichment) · otel (OTel semconv mapping) ·
             outage (collective outage view) · path (ECMP/MPLS path discovery) ·
