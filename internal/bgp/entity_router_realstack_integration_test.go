@@ -73,7 +73,7 @@ func TestFX2FRREdgeFourPlaneRealStack(t *testing.T) {
 	emitEdgeFlow(t, lab, exporter)
 	awaitShippedEdgeFlow(t, st, registration, address, observed)
 	awaitEdgeFlowEvidence(t, st, registration, address, deviceAgentID, supportID)
-	startEdgeBMPEvidence(t, st, lab, registration, address, supportID)
+	startEdgeBMPEvidence(t, st, lab, registration, address, deviceAgentID, supportID)
 	second := registerSecondRouterTenant(t, st, registration)
 	secondAgentID := startShippedEdgeSNMP(t, st, second, "blue", address, community)
 	awaitEdgeSNMPEvidence(t, st, second, secondAgentID, address)
@@ -659,7 +659,7 @@ func awaitEdgeFlowEvidence(t *testing.T, st *shipped.Stack, reg edgeFlowRegistra
 }
 
 func currentEdgeSNMPSupport(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration,
-	address, deviceAgentID, supportID string, flowObservedAt time.Time) bool {
+	address, deviceAgentID, supportID string, observedAt time.Time) bool {
 	t.Helper()
 	code, payload := st.Do(t, reg.cookie, http.MethodGet,
 		"/v1/entities?context_id="+reg.contextID+"&limit=100", nil)
@@ -682,7 +682,7 @@ func currentEdgeSNMPSupport(t *testing.T, st *shipped.Stack, reg edgeFlowRegistr
 				item.Alias.Kind == entity.AddressAlias && item.Alias.Value == address &&
 				item.SourceKey.AgentID == deviceAgentID &&
 				item.SourceKey.Kind == entity.DeviceTarget && item.SourceKey.SourceRef == address &&
-				!item.ObservedAt.After(flowObservedAt) {
+				!item.ObservedAt.After(observedAt) {
 				return true
 			}
 		}
@@ -811,7 +811,7 @@ func discoverEdgePath(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration,
 // BMP route frame. The listener's separate entity SVID may report only its
 // own registered router source; current SNMP support selects the device.
 func startEdgeBMPEvidence(t *testing.T, st *shipped.Stack, lab *routingLab,
-	reg edgeFlowRegistration, edgeIP, supportID string) {
+	reg edgeFlowRegistration, edgeIP, deviceAgentID, initialSupportID string) {
 	t.Helper()
 	tn := &bgpTenant{slug: "fx2-router", id: reg.tenantID, cookie: reg.cookie,
 		router: "rtr-a", prefix: prefixA}
@@ -883,6 +883,13 @@ func startEdgeBMPEvidence(t *testing.T, st *shipped.Stack, lab *routingLab,
 		})
 	bridgeBMP(t, lab.bmpAddr(t, tn.router), tn.listenAddr, tn.routerTLS(t, st))
 	tn.awaitListener(t, "FX-2 FRR rtr-a's route from edge", "route_observation")
+	last := "no BMP evidence returned"
+	matched := false
+	defer func() {
+		if !matched {
+			t.Logf("FX-2 BMP join diagnostic: %s; initial SNMP support %s", last, initialSupportID)
+		}
+	}()
 	shipped.Await(t, "FX-2 authenticated BMP peer with SNMP support", 45*time.Second, func() bool {
 		code, payload := st.Do(t, reg.cookie, http.MethodGet,
 			"/v1/entities/"+reg.deviceID+"/evidence?context_id="+reg.contextID+"&limit=100", nil)
@@ -895,10 +902,18 @@ func startEdgeBMPEvidence(t *testing.T, st *shipped.Stack, lab *routingLab,
 			return false
 		}
 		for _, item := range page.Items {
+			if item.SourceKey.Kind == entity.BMPPeer {
+				last = fmt.Sprintf("current=%t alias=%s:%s agent=%s configured=%s support=%s",
+					item.Current, item.Alias.Kind, item.Alias.Value, item.SourceKey.AgentID,
+					item.SourceKey.SourceRef, item.SupportEvidenceID)
+			}
 			if item.Current && item.Alias.Kind == entity.AddressAlias &&
 				item.Alias.Value == edgeIP && item.SourceKey.AgentID == tn.collectorID &&
 				item.SourceKey.Kind == entity.BMPPeer && item.SourceKey.SourceRef == tn.routerID &&
-				item.SupportEvidenceID == supportID && item.OriginSerial != "" {
+				item.SupportEvidenceID != "" && item.OriginSerial != "" &&
+				currentEdgeSNMPSupport(t, st, reg, edgeIP, deviceAgentID,
+					item.SupportEvidenceID, item.ObservedAt) {
+				matched = true
 				return true
 			}
 		}
