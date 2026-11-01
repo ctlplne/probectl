@@ -926,8 +926,8 @@ func pipeBMP(ctx context.Context, routerAddr, listenerAddr string, cfg *tls.Conf
 
 // routingLab is four FRRouting containers on their own docker network.
 type routingLab struct {
-	name, network string
-	ip            map[string]string
+	name, network, gateway string
+	ip                     map[string]string
 }
 
 var labRouters = []string{"edge", "rrc", "rtr-a", "rtr-b"}
@@ -952,9 +952,12 @@ func startRoutingLabNamed(t *testing.T, name string) *routingLab {
 	var subnet string
 	for i := 0; i < 8 && subnet == ""; i++ {
 		candidate := fmt.Sprintf("10.231.%d.0/24", (time.Now().Nanosecond()/1000+i*37)%250+1)
-		out, err := exec.Command("docker", "network", "create", "--subnet", candidate, lab.network).CombinedOutput()
+		gateway := strings.TrimSuffix(candidate, "0/24") + "1"
+		out, err := exec.Command("docker", "network", "create", "--subnet", candidate,
+			"--gateway", gateway, lab.network).CombinedOutput()
 		if err == nil {
 			subnet = candidate
+			lab.gateway = gateway
 		} else if !strings.Contains(string(out), "overlap") {
 			t.Fatalf("docker network create %s: %v %s", lab.network, err, out)
 		}
