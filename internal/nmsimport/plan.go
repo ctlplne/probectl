@@ -97,9 +97,9 @@ func normalizePlanPage(tenantID, contextID, sourceInstance, generationHash strin
 		id := row.ExternalID
 		reviewOnly := len(row.UnmappedCodes) > 0
 		if id == "" {
-			if snapshot.Source != Zabbix ||
-				!(row.Kind == "poll_item" && hasCode(row.UnmappedCodes, "item_id_unavailable") ||
-					row.Kind == "rule" && hasCode(row.UnmappedCodes, "trigger_id_unavailable")) {
+			missingItemID := row.Kind == "poll_item" && hasCode(row.UnmappedCodes, "item_id_unavailable")
+			missingTriggerID := row.Kind == "rule" && hasCode(row.UnmappedCodes, "trigger_id_unavailable")
+			if snapshot.Source != Zabbix || (!missingItemID && !missingTriggerID) {
 				return nil, ErrInvalidPage
 			}
 			hash := crypto.Default.Hash([]byte("probectl:nms-review-key:v1\x00" + tenantID + "\x00" +
