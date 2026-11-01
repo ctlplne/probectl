@@ -375,7 +375,7 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 	if _, err := pool.Exec(ctx, `DROP INDEX CONCURRENTLY `+schemaA+`.`+quoteIdent(scopedIndex)); err != nil {
 		t.Fatalf("simulate old silo override index: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `CREATE UNIQUE INDEX CONCURRENTLY `+schemaA+`."legacy_override_raw_idx"
+	if _, err := pool.Exec(ctx, `CREATE UNIQUE INDEX CONCURRENTLY "legacy_override_raw_idx"
 		ON `+schemaA+`.incident_correlation_overrides
 		(tenant_id,source_incident_id,plane,kind,target,prefix) WHERE active`); err != nil {
 		t.Fatalf("install old silo override index: %v", err)
