@@ -253,17 +253,41 @@ func parseLibreNMSLocations(r io.Reader) (Snapshot, error) {
 	return out, nil
 }
 
+type libreNMSGroup struct {
+	ID      sourceID        `json:"id"`
+	Name    string          `json:"name"`
+	Pattern json.RawMessage `json:"pattern"`
+}
+
+func libreNMSGroupRow(group libreNMSGroup) (Row, error) {
+	id := string(group.ID)
+	if id == "" || id == "0" {
+		return Row{}, ErrInvalidPage
+	}
+	row := Row{Kind: "group", ExternalID: id, Label: safeLabel(group.Name),
+		UnmappedCodes: []string{"membership_not_captured"}}
+	if row.Label == "" {
+		row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
+	}
+	var pattern string
+	if len(group.Pattern) != 0 && string(group.Pattern) != "null" {
+		if json.Unmarshal(group.Pattern, &pattern) != nil {
+			return Row{}, ErrInvalidPage
+		}
+		if strings.TrimSpace(pattern) != "" {
+			row.UnmappedCodes = append(row.UnmappedCodes, "dynamic_predicate_unmapped")
+		}
+	}
+	return row, nil
+}
+
 // parseLibreNMSGroups reads the documented array-wrapped devicegroups list.
 // Membership is fetched through a separate endpoint, so every row records
 // that it is still missing; a dynamic predicate is never executed or copied.
 func parseLibreNMSGroups(r io.Reader) (Snapshot, error) {
 	var page []struct {
-		Status string `json:"status"`
-		Groups []struct {
-			ID      sourceID        `json:"id"`
-			Name    string          `json:"name"`
-			Pattern json.RawMessage `json:"pattern"`
-		} `json:"groups"`
+		Status string          `json:"status"`
+		Groups []libreNMSGroup `json:"groups"`
 	}
 	if err := decodePage(r, &page); err != nil || len(page) != 1 || page[0].Status != "ok" || page[0].Groups == nil {
 		return Snapshot{}, ErrInvalidPage
@@ -271,31 +295,49 @@ func parseLibreNMSGroups(r io.Reader) (Snapshot, error) {
 	out := Snapshot{Source: LibreNMS, Rows: make([]Row, 0, len(page[0].Groups))}
 	seen := make(map[string]struct{}, len(page[0].Groups))
 	for _, group := range page[0].Groups {
-		id := string(group.ID)
-		if id == "" || id == "0" {
+		row, err := libreNMSGroupRow(group)
+		if err != nil {
 			return Snapshot{}, ErrInvalidPage
 		}
-		if _, duplicate := seen[id]; duplicate {
+		if _, duplicate := seen[row.ExternalID]; duplicate {
 			return Snapshot{}, ErrInvalidPage
 		}
-		seen[id] = struct{}{}
-		row := Row{Kind: "group", ExternalID: id, Label: safeLabel(group.Name),
-			UnmappedCodes: []string{"membership_not_captured"}}
-		if row.Label == "" {
-			row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
-		}
-		var pattern string
-		if len(group.Pattern) != 0 && string(group.Pattern) != "null" {
-			if json.Unmarshal(group.Pattern, &pattern) != nil {
-				return Snapshot{}, ErrInvalidPage
-			}
-			if strings.TrimSpace(pattern) != "" {
-				row.UnmappedCodes = append(row.UnmappedCodes, "dynamic_predicate_unmapped")
-			}
-		}
+		seen[row.ExternalID] = struct{}{}
 		out.Rows = append(out.Rows, row)
 	}
 	return out, nil
+}
+
+type libreNMSRule struct {
+	ID               sourceID        `json:"id"`
+	Name             string          `json:"name"`
+	Severity         string          `json:"severity"`
+	AlertOperationID sourceID        `json:"alert_operation_id"`
+	Operations       json.RawMessage `json:"operations"`
+}
+
+func libreNMSRuleRow(rule libreNMSRule) (Row, error) {
+	id := string(rule.ID)
+	if id == "" || id == "0" {
+		return Row{}, ErrInvalidPage
+	}
+	row := Row{Kind: "rule", ExternalID: id, Label: safeLabel(rule.Name),
+		UnmappedCodes: []string{"expression_unmapped"}}
+	if row.Label == "" {
+		row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
+	}
+	switch strings.ToLower(strings.TrimSpace(rule.Severity)) {
+	case "ok", "warning", "critical":
+		row.Severity = strings.ToLower(strings.TrimSpace(rule.Severity))
+	default:
+		row.UnmappedCodes = append(row.UnmappedCodes, "severity_unmapped")
+	}
+	if rule.AlertOperationID != "" && rule.AlertOperationID != "0" {
+		row.UnmappedCodes = append(row.UnmappedCodes, "delivery_unmapped")
+	} else if operations := bytes.TrimSpace(rule.Operations); len(operations) != 0 && string(operations) != "null" && string(operations) != "[]" {
+		row.UnmappedCodes = append(row.UnmappedCodes, "delivery_unmapped")
+	}
+	return row, nil
 }
 
 // parseLibreNMSRules reads /api/v0/rules without retaining the source rule
@@ -303,14 +345,8 @@ func parseLibreNMSGroups(r io.Reader) (Snapshot, error) {
 // No rule is considered mapped until an explicit finite rule compiler exists.
 func parseLibreNMSRules(r io.Reader) (Snapshot, error) {
 	var page struct {
-		Status string `json:"status"`
-		Rules  []struct {
-			ID               sourceID        `json:"id"`
-			Name             string          `json:"name"`
-			Severity         string          `json:"severity"`
-			AlertOperationID sourceID        `json:"alert_operation_id"`
-			Operations       json.RawMessage `json:"operations"`
-		} `json:"rules"`
+		Status string         `json:"status"`
+		Rules  []libreNMSRule `json:"rules"`
 	}
 	if err := decodePage(r, &page); err != nil || page.Status != "ok" || page.Rules == nil {
 		return Snapshot{}, ErrInvalidPage
@@ -318,30 +354,14 @@ func parseLibreNMSRules(r io.Reader) (Snapshot, error) {
 	out := Snapshot{Source: LibreNMS, Rows: make([]Row, 0, len(page.Rules))}
 	seen := make(map[string]struct{}, len(page.Rules))
 	for _, rule := range page.Rules {
-		id := string(rule.ID)
-		if id == "" || id == "0" {
+		row, err := libreNMSRuleRow(rule)
+		if err != nil {
 			return Snapshot{}, ErrInvalidPage
 		}
-		if _, duplicate := seen[id]; duplicate {
+		if _, duplicate := seen[row.ExternalID]; duplicate {
 			return Snapshot{}, ErrInvalidPage
 		}
-		seen[id] = struct{}{}
-		row := Row{Kind: "rule", ExternalID: id, Label: safeLabel(rule.Name),
-			UnmappedCodes: []string{"expression_unmapped"}}
-		if row.Label == "" {
-			row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
-		}
-		switch strings.ToLower(strings.TrimSpace(rule.Severity)) {
-		case "ok", "warning", "critical":
-			row.Severity = strings.ToLower(strings.TrimSpace(rule.Severity))
-		default:
-			row.UnmappedCodes = append(row.UnmappedCodes, "severity_unmapped")
-		}
-		if rule.AlertOperationID != "" && rule.AlertOperationID != "0" {
-			row.UnmappedCodes = append(row.UnmappedCodes, "delivery_unmapped")
-		} else if operations := bytes.TrimSpace(rule.Operations); len(operations) != 0 && string(operations) != "null" && string(operations) != "[]" {
-			row.UnmappedCodes = append(row.UnmappedCodes, "delivery_unmapped")
-		}
+		seen[row.ExternalID] = struct{}{}
 		out.Rows = append(out.Rows, row)
 	}
 	return out, nil

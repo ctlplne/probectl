@@ -97,6 +97,80 @@ func TestLibreNMSUnpagedLocationStreamEmitsBoundedUnassignedSites(t *testing.T) 
 	}
 }
 
+func TestLibreNMSGroupAndRuleStreamsKeepOnlyReviewFields(t *testing.T) {
+	var groups strings.Builder
+	groups.WriteString(`[{"status":"ok","message":"source-only-message","groups":[`)
+	for i := range maxCaptureRowsPerPage + 1 {
+		if i > 0 {
+			groups.WriteByte(',')
+		}
+		fmt.Fprintf(&groups, `{"id":%d,"name":"Group %d","pattern":"source-only-predicate","desc":"source-only-description"}`,
+			i+1, i+1)
+	}
+	fmt.Fprintf(&groups, `],"count":%d}]`, maxCaptureRowsPerPage+1)
+	var pages []int
+	err := streamLibreNMSGroups(strings.NewReader(groups.String()), func(page Snapshot) error {
+		pages = append(pages, len(page.Rows))
+		for _, row := range page.Rows {
+			if row.Kind != "group" || !strings.Contains(strings.Join(row.UnmappedCodes, ","), "membership_not_captured") ||
+				!strings.Contains(strings.Join(row.UnmappedCodes, ","), "dynamic_predicate_unmapped") {
+				t.Fatalf("group lost review-only status: %+v", row)
+			}
+		}
+		wire, err := json.Marshal(page)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(wire), "source-only-") {
+			t.Fatal("group source predicate or description escaped into capture")
+		}
+		return nil
+	})
+	if err != nil || len(pages) != 2 || pages[0] != maxCaptureRowsPerPage || pages[1] != 1 {
+		t.Fatalf("unpaged group inventory was capped or malformed: pages=%v err=%v", pages, err)
+	}
+	rules := `{"status":"ok","message":"source-only-message","count":1,"rules":[{"id":"7","name":"Edge alert","severity":"critical","rule":"source-only-expression","operations":[{"transports":[{"text":"source-only-secret"}]}]}]}`
+	var rulePage Snapshot
+	if err := streamLibreNMSRules(strings.NewReader(rules), func(page Snapshot) error {
+		rulePage = page
+		return nil
+	}); err != nil || len(rulePage.Rows) != 1 {
+		t.Fatalf("rule stream failed: page=%+v err=%v", rulePage, err)
+	}
+	rule := rulePage.Rows[0]
+	if rule.Kind != "rule" || rule.ExternalID != "7" || rule.Severity != "critical" ||
+		!strings.Contains(strings.Join(rule.UnmappedCodes, ","), "expression_unmapped") ||
+		!strings.Contains(strings.Join(rule.UnmappedCodes, ","), "delivery_unmapped") {
+		t.Fatalf("rule lost review-only status: %+v", rule)
+	}
+	wire, err := json.Marshal(rulePage)
+	if err != nil || strings.Contains(string(wire), "source-only-") {
+		t.Fatalf("rule source expression or transport escaped into capture: err=%v", err)
+	}
+}
+
+func TestLibreNMSGroupAndRuleStreamsRejectPartialEnvelope(t *testing.T) {
+	for _, raw := range []string{
+		`[{"status":"ok","groups":[]},{"status":"ok","groups":[]}]`,
+		`{"status":"ok","groups":[]}`,
+		`[{"status":"ok","groups":[{"id":1},{"id":"01"}]}]`,
+		`[{"status":"ok","groups":[],"count":1}]`,
+	} {
+		if err := streamLibreNMSGroups(strings.NewReader(raw), func(Snapshot) error { return nil }); !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("partial group envelope accepted: %q: %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		`{"status":"ok","rules":[{"id":1}],"count":2}`,
+		`{"status":"ok","rules":[{"id":1},{"id":"01"}]}`,
+		`{"status":"error","rules":[]}`,
+	} {
+		if err := streamLibreNMSRules(strings.NewReader(raw), func(Snapshot) error { return nil }); !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("partial rule envelope accepted: %q: %v", raw, err)
+		}
+	}
+}
+
 func TestLibreNMSUnpagedStreamRefusesIncompleteOrChangedSource(t *testing.T) {
 	for _, raw := range []string{
 		`{"status":"ok","devices":[{"device_id":1}],"count":2}`,
