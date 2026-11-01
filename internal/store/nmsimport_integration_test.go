@@ -344,6 +344,27 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 				return err
 			})
 	}
+	if err := tryA(`INSERT INTO nms_import_capture_steps
+		(tenant_id,context_id,plan_id,resource_kind,start_page,end_page,start_row,end_row)
+		VALUES ($1,$2,$3,'devices',0,1,0,0)`, a.ID, contextA, planA); err != nil {
+		t.Fatalf("own capture step rejected: %v", err)
+	}
+	if err := tryA(`INSERT INTO nms_import_capture_steps
+		(tenant_id,context_id,plan_id,resource_kind,start_page,end_page,start_row,end_row)
+		VALUES ($1,$2,$3,'devices',0,1,0,0)`, b.ID, contextA, planB); err == nil {
+		t.Fatal("tenant A wrote tenant B's capture step")
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var visible int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_capture_steps
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`, b.ID, contextA, planB).Scan(&visible); err != nil {
+			return err
+		}
+		if visible != 0 {
+			return fmt.Errorf("foreign capture step visible under tenant RLS")
+		}
+		return nil
+	})
 	if err := tryA(`INSERT INTO nms_import_pages
 		(tenant_id,context_id,plan_id,page_number,resource_kind,first_row,row_count,page_hash)
 		VALUES ($1,$2,$3,0,'devices',0,1,$4)`,

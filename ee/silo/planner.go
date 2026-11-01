@@ -166,6 +166,10 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 			foreignKey{"nms_import_provenance", "fx2b_provenance_row_fk", "tenant_id, context_id, plan_id, object_kind, external_id", "nms_import_rows", "tenant_id, context_id, plan_id, object_kind, external_id"},
 			foreignKey{"nms_import_provenance", "fx2b_provenance_entity_fk", "tenant_id, context_id, entity_id", "entities", "tenant_id, context_id, id"},
 		)
+		if owned["nms_import_capture_steps"] {
+			keys = append(keys, foreignKey{"nms_import_capture_steps", "fx2b_capture_step_plan_fk",
+				"tenant_id, context_id, plan_id", "nms_import_plans", "tenant_id, context_id, id"})
+		}
 	}
 	// Existing silos can predate the public (tenant_id,id) index. A global
 	// tests.id primary key is insufficient for the composite FK, so install

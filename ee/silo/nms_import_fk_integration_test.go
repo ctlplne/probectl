@@ -98,6 +98,16 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		a, contextA, planA, strings.Repeat("c", 64)); err != nil {
 		t.Fatalf("silo own capture page: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_capture_steps
+		(tenant_id,context_id,plan_id,resource_kind,start_page,end_page,start_row,end_row)
+		VALUES ($1,$2,$3,'devices',0,1,0,1)`, a, contextOther, planA); err == nil {
+		t.Fatal("silo capture step accepted a plan from another routing context")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_capture_steps
+		(tenant_id,context_id,plan_id,resource_kind,start_page,end_page,start_row,end_row)
+		VALUES ($1,$2,$3,'devices',0,1,0,1)`, a, contextA, planA); err != nil {
+		t.Fatalf("silo own capture step: %v", err)
+	}
 	for name, entityID := range map[string]string{
 		"other context": entityOther,
 		"other tenant":  entityB,
