@@ -85,8 +85,13 @@ func FuzzMCPHandle(f *testing.F) {
 			t.Fatalf("response contains both result and error: %s", resp)
 		}
 		if reqOK && len(req.ID) > 0 && (principal == nil || principal.TenantID == "") {
-			if parsed.Error == nil || parsed.Error.Code != codeUnauthorized {
-				t.Fatalf("tenantless request code = %+v, want unauthorized; response %s", parsed.Error, resp)
+			wantCode := codeUnauthorized
+			decoded, _ := decodeRPC(raw, false)
+			if decoded.protocol.modern || decoded.protocol.version == legacyProtocolVersion {
+				wantCode = codeModernUnauthorized
+			}
+			if parsed.Error == nil || parsed.Error.Code != wantCode {
+				t.Fatalf("tenantless request code = %+v, want %d; response %s", parsed.Error, wantCode, resp)
 			}
 		}
 	})
