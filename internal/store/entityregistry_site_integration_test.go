@@ -56,7 +56,7 @@ func TestAgentSiteEvidenceRequiresTenantAndOperatorContext(t *testing.T) {
 		inTenant(ctx, t, pool, tenantID, func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
 				(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
-                VALUES ($1,$2,$3,$4,$3::text,$4::text)`,
+                VALUES ($1,$2,$3,$4,$3::uuid::text,$4::uuid::text)`,
 				tenantID, contextID, siteID, uuid.NewString()); err != nil {
 				return err
 			}
@@ -97,7 +97,7 @@ func TestAgentSiteEvidenceRequiresTenantAndOperatorContext(t *testing.T) {
 	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
 			(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
-                VALUES ($1,$2,$3,$4,$3::text,$4::text)`,
+                VALUES ($1,$2,$3,$4,$3::uuid::text,$4::uuid::text)`,
 			a.ID, otherContext, uuid.NewString(), uuid.NewString())
 		return err
 	})

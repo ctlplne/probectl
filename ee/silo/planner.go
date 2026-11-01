@@ -151,14 +151,16 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 	// Existing silos can predate the public (tenant_id,id) index. A global
 	// tests.id primary key is insufficient for the composite FK, so install
 	// its tenant-aware target before adding the path binding constraint.
+	// PostgreSQL places an index in its table's schema. Its CREATE INDEX name
+	// must be unqualified even when the table is schema-qualified.
 	plan := []string{"CREATE UNIQUE INDEX IF NOT EXISTS " +
-		quoteIdent(schema) + `."fx2_tests_tenant_id_id_uidx" ON ` +
+		`"fx2_tests_tenant_id_id_uidx" ON ` +
 		quoteIdent(schema) + `."tests" (tenant_id, id)`,
-		"CREATE UNIQUE INDEX IF NOT EXISTS " + quoteIdent(schema) +
-			`."fx2_incidents_tenant_id_id_uidx" ON ` + quoteIdent(schema) +
+		"CREATE UNIQUE INDEX IF NOT EXISTS " +
+			`"fx2_incidents_tenant_id_id_uidx" ON ` + quoteIdent(schema) +
 			`."incidents" (tenant_id, id)`,
-		"CREATE UNIQUE INDEX IF NOT EXISTS " + quoteIdent(schema) +
-			`."fx2_incident_signals_tenant_id_id_uidx" ON ` + quoteIdent(schema) +
+		"CREATE UNIQUE INDEX IF NOT EXISTS " +
+			`"fx2_incident_signals_tenant_id_id_uidx" ON ` + quoteIdent(schema) +
 			`."incident_signals" (tenant_id, id)`}
 	for _, table := range []string{"incidents", "incident_signals", "incident_correlation_overrides"} {
 		child := quoteIdent(schema) + "." + quoteIdent(table)
