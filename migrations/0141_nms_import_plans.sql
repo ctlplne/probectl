@@ -94,7 +94,8 @@ CREATE TABLE IF NOT EXISTS nms_import_rows (
     poll_seconds bigint CHECK (poll_seconds IS NULL OR poll_seconds BETWEEN 1 AND 604800),
     severity text CHECK (severity IS NULL OR severity IN ('ok', 'warning', 'critical')),
     target_entity_id uuid,
-    action text NOT NULL CHECK (action IN ('create', 'update', 'conflict', 'skip', 'unmapped')),
+    action text NOT NULL DEFAULT 'captured'
+        CHECK (action IN ('captured', 'create', 'update', 'conflict', 'skip', 'unmapped')),
     unmapped_codes text[] NOT NULL DEFAULT '{}'::text[]
         CHECK (cardinality(unmapped_codes) <= 32
                AND array_position(unmapped_codes, NULL) IS NULL
