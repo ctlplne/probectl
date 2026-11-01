@@ -43,7 +43,7 @@ import (
 // receipt; the runtime gate remains before promotion.
 func TestFX2FRREdgeFourPlaneRealStack(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("the shipped control plane needs a host route to FRR edge's private Docker bridge")
+		testsupport.SkipOrFatal(t, "the shipped control plane needs a Linux host route to FRR edge's private Docker bridge")
 	}
 	lab := startRoutingLabNamed(t, "probectl-qa-beta-fx2-router-"+strconv.FormatInt(time.Now().UnixNano()%1e8, 36))
 	community := startEdgeSNMP(t, lab)

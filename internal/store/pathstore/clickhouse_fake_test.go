@@ -23,7 +23,9 @@ func TestClickHouseBatchStoresDiscoveryTimeBeforeFlush(t *testing.T) {
 	var mu sync.Mutex
 	var inserts []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Query().Get("query"), "INSERT INTO") {
+		// Migration bookkeeping also uses INSERT, but has no path-row body.
+		// Check only the two data inserts whose discovery clock is under test.
+		if strings.HasPrefix(r.URL.Query().Get("query"), "INSERT INTO probectl_path_") {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				t.Errorf("read ClickHouse insert: %v", err)
@@ -50,8 +52,8 @@ func TestClickHouseBatchStoresDiscoveryTimeBeforeFlush(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(inserts) == 0 {
-		t.Fatal("no ClickHouse path rows were inserted")
+	if len(inserts) != 2 {
+		t.Fatalf("ClickHouse path inserts = %d, want hops and links", len(inserts))
 	}
 	for _, body := range inserts {
 		if !strings.Contains(body, formatCHTime(observedAt)) {

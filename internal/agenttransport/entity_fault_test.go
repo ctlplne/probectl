@@ -15,6 +15,7 @@ import (
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
@@ -59,9 +60,9 @@ func TestFaultAdapterRequiresLiveVerifiedEvidenceSender(t *testing.T) {
 	if _, err := validateEntityFaults(ctx(unverified), identity, []*agentv1.EntityFaultObservation{item}); err == nil {
 		t.Fatal("unverified gRPC peer authored an incident fault")
 	}
-	forged := *item
+	forged := proto.Clone(item).(*agentv1.EntityFaultObservation)
 	forged.ConfiguredRef = "10.42.0.2"
-	if _, err := validateEntityFaults(ctx(state), identity, []*agentv1.EntityFaultObservation{&forged}); err == nil {
+	if _, err := validateEntityFaults(ctx(state), identity, []*agentv1.EntityFaultObservation{forged}); err == nil {
 		t.Fatal("configured source selected another device fault target")
 	}
 	wrongTenant := identity
