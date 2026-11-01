@@ -23,19 +23,26 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/entity"
 	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
 	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
 	"github.com/ctlplne/probectl/internal/pipeline"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/ebpfstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/topology"
 )
 
@@ -80,14 +87,101 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) error {
 		snap = graph.SnapshotAt(at)
 	}
 	viz := topology.ToViz(snap)
-	writeJSON(w, http.StatusOK, map[string]any{
+	projection := map[string]any{}
+	if contextID := r.URL.Query().Get("context_id"); contextID != "" {
+		if s.pool == nil {
+			return apierror.Unavailable("entity registry is not configured")
+		}
+		if err := s.authorize(r.Context(), auth.PrincipalFrom(r.Context()),
+			"entities.read", auth.RBACGlobal, nil); err != nil {
+			return err
+		}
+		checkedAt, truncated, err := s.projectTopologyEntities(r, tid, contextID, &viz)
+		if err != nil {
+			return err
+		}
+		projection["canonical_context_id"] = contextID
+		projection["canonical_projection_current_at"] = checkedAt
+		projection["canonical_projection_truncated"] = truncated
+	}
+	response := map[string]any{
 		"topology_running": true,
 		"at":               snap.At.UTC(),
 		"nodes":            viz.Nodes,
 		"edges":            viz.Edges,
 		"coverage":         topology.SnapshotCoverage(snap),
-	})
+	}
+	for key, value := range projection {
+		response[key] = value
+	}
+	writeJSON(w, http.StatusOK, response)
 	return nil
+}
+
+// projectTopologyEntities preserves stable graph node IDs for what-if and
+// historical reads. Only an explicit operator context adds a current,
+// bounded canonical projection; unresolved and conflicting IPs stay visible.
+func (s *Server) projectTopologyEntities(r *http.Request, tenantID, contextID string,
+	viz *topology.Viz) (time.Time, bool, error) {
+	scope, err := (entity.Scope{TenantID: tenantID, ContextID: contextID}).Normalize()
+	if err != nil {
+		return time.Time{}, false, entityAPIError(err)
+	}
+	principal := auth.PrincipalFrom(r.Context())
+	resource, err := s.entityResource(tenancy.WithTenant(r.Context(), tenancy.ID(tenantID)), scope)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if err := s.authorize(r.Context(), principal, ai.PermEntitiesRead,
+		auth.RBACGlobal, resource); err != nil {
+		return time.Time{}, false, err
+	}
+	const maxProjectionAddresses = 640
+	addresses := make([]string, 0, min(len(viz.Nodes), maxProjectionAddresses))
+	seen := make(map[string]bool)
+	nodeAddresses := make(map[int]string)
+	truncated := false
+	for i, node := range viz.Nodes {
+		value := ""
+		for _, prefix := range []string{"device:", "hop:", "host:"} {
+			if rest, ok := strings.CutPrefix(node.ID, prefix); ok {
+				value = rest
+				break
+			}
+		}
+		address, err := netip.ParseAddr(value)
+		if err != nil || address.Zone() != "" {
+			continue
+		}
+		canonical := address.Unmap().String()
+		if !seen[canonical] {
+			if len(addresses) == maxProjectionAddresses {
+				truncated = true
+				continue
+			}
+			seen[canonical] = true
+			addresses = append(addresses, canonical)
+		}
+		nodeAddresses[i] = canonical
+	}
+	results, err := store.NewEntityRegistry(s.pool).ResolveAddresses(
+		tenancy.WithTenant(r.Context(), tenancy.ID(tenantID)), scope, addresses)
+	if err != nil {
+		return time.Time{}, false, entityAPIError(err)
+	}
+	for _, result := range results {
+		if err := s.authorizeEntityResolution(r.Context(), principal, result, resource); err != nil {
+			return time.Time{}, false, err
+		}
+	}
+	for i, address := range nodeAddresses {
+		result := results[address]
+		viz.Nodes[i].CanonicalStatus = string(result.Status)
+		if result.Status == entity.Resolved {
+			viz.Nodes[i].CanonicalEntityID = result.EntityID
+		}
+	}
+	return time.Now().UTC(), truncated, nil
 }
 
 // whatIfRequest is the simulation request: the node or edge id to fail.

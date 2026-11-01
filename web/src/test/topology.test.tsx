@@ -5,11 +5,11 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { renderApp } from './renderApp'
-import { defaultFetch, jsonResponse } from './fetchStub'
+import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
 import type { TopologyResponse, WhatIfImpact } from '../api/topology'
 
 /** S43 surface (PR1): the topology graph + what-if simulation. */
@@ -98,6 +98,97 @@ function stub() {
 }
 
 describe('topology + what-if (S43)', () => {
+  test('canonical context projection keeps paired tenants and conflicts explicit', async () => {
+    const cases = [
+      {
+        tenant: '00000000-0000-4000-8000-000000000101',
+        context: '00000000-0000-4000-8000-000000000201',
+        identity: '',
+        status: 'conflict' as const,
+      },
+      {
+        tenant: '00000000-0000-4000-8000-000000000102',
+        context: '00000000-0000-4000-8000-000000000202',
+        identity: '00000000-0000-4000-8000-000000000302',
+        status: 'resolved' as const,
+      },
+    ]
+    for (const fixture of cases) {
+      const rest = defaultFetch()
+      const requests: string[] = []
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), 'https://probectl.test')
+        requests.push(url.toString())
+        if (pathOf(input) === '/v1/entity-contexts') {
+          return jsonResponse({
+            items: [
+              {
+                tenant_id: fixture.tenant,
+                context_id: fixture.context,
+                site_id: fixture.tenant,
+                vrf_id: fixture.context,
+                site_label: fixture.tenant,
+                vrf_label: fixture.context,
+              },
+            ],
+          })
+        }
+        if (pathOf(input) === '/v1/topology') {
+          return jsonResponse({
+            topology_running: true,
+            at: '2026-11-01T04:00:00Z',
+            nodes: [
+              {
+                id: 'hop:10.0.0.1',
+                kind: 'hop',
+                label: '10.0.0.1',
+                ...(url.searchParams.get('context_id')
+                  ? {
+                      canonical_status: fixture.status,
+                      ...(fixture.identity ? { canonical_entity_id: fixture.identity } : {}),
+                    }
+                  : {}),
+              },
+            ],
+            edges: [],
+            ...(url.searchParams.get('context_id')
+              ? {
+                  canonical_context_id: fixture.context,
+                  canonical_projection_current_at: '2026-11-01T04:25:00Z',
+                  canonical_projection_truncated: false,
+                }
+              : {}),
+          })
+        }
+        return rest(input, init)
+      })
+      renderApp('/topology', {
+        me: {
+          tenant_id: fixture.tenant,
+          permissions: ['topology.read', 'entities.read', 'metrics.read'],
+        },
+      })
+      await screen.findByRole('group', { name: /topology graph/i })
+      await userEvent.click(screen.getByText(/history & filters/i))
+      fireEvent.change(screen.getByRole('combobox', { name: 'Canonical routing context' }), {
+        target: { value: fixture.context },
+      })
+      await waitFor(() =>
+        expect(
+          requests.some((url) => new URL(url).searchParams.get('context_id') === fixture.context),
+        ).toBe(true),
+      )
+      expect(await screen.findByText(/Canonical identities are current as of/)).toBeInTheDocument()
+      const graph = screen.getByRole('group', { name: /topology graph/i })
+      await userEvent.click(within(graph).getByRole('button', { name: 'hop 10.0.0.1' }))
+      expect(await screen.findByText('Current canonical identity')).toBeInTheDocument()
+      expect(screen.getByText(fixture.status)).toBeInTheDocument()
+      if (fixture.identity) expect(screen.getByText(fixture.identity)).toBeInTheDocument()
+      else expect(screen.queryByText(cases[1].identity)).not.toBeInTheDocument()
+      expect(requests.every((url) => !new URL(url).searchParams.has('tenant_id'))).toBe(true)
+      cleanup()
+    }
+  })
   test('populated topology renders the same physical adjacency as device evidence', async () => {
     vi.stubGlobal('fetch', defaultFetch())
     renderApp('/topology')

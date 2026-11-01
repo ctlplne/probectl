@@ -39,6 +39,9 @@ import { filterValue } from './urlFilters'
 import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import { IdentityConflictsCard } from './IdentityConflictsCard'
+import { useAuth } from '../auth/useAuth'
+import { useEntityContexts } from '../api/entities'
+import { useI18n } from '../i18n/useI18n'
 
 const TOPOLOGY_FILTER_DEFAULTS = {
   topo_q: '',
@@ -52,13 +55,56 @@ const TOPOLOGY_FILTER_DEFAULTS = {
  * the what-if failure simulation. The functional view; PR2+ iterates layout/
  * drill-down/change-overlay polish (design-led, multi-PR). */
 export function TopologyPage() {
+  const { t } = useI18n()
+  const { permissions, tenant } = useAuth()
   const [params, setParams] = useSearchParams()
+  // A routing-context UUID is meaningful only in the tenant where it was
+  // selected. Drop the URL selection on a live tenant switch, and suppress
+  // the old canonical lookup in the first render before the URL is updated.
+  const contextTenant = useRef(tenant.id)
+  const contextFromPreviousTenant = contextTenant.current !== tenant.id
+  useEffect(() => {
+    if (!contextFromPreviousTenant) return
+    if (!params.has('entity_context')) {
+      // Keep the guard active until the router has committed the clean URL.
+      contextTenant.current = tenant.id
+      return
+    }
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous)
+        next.delete('entity_context')
+        return next
+      },
+      { replace: true },
+    )
+  }, [contextFromPreviousTenant, params, setParams, tenant.id])
   const parsedPivot = useMemo(() => parsePivotContext(params), [params])
   const pivotContext = parsedPivot.context
   const initialAt = topologyTime(params, pivotContext)
   const [at, setAt] = useState(initialAt) // '' = live
   const [timeInput, setTimeInput] = useState(toUTCDateTimeInput(initialAt))
-  const { data, isPending, isError } = useTopology(at || undefined)
+  const contextID =
+    !contextFromPreviousTenant && permissions.includes('entities.read')
+      ? (params.get('entity_context') ?? '')
+      : ''
+  const contexts = useEntityContexts(tenant.id, permissions.includes('entities.read'))
+  const contextOptions = useMemo(() => {
+    const known = (contexts.data?.pages ?? []).flatMap((page) =>
+      page.items.map((item) => ({
+        value: item.context_id,
+        label: `${item.site_label} / ${item.vrf_label}`,
+      })),
+    )
+    if (contextID && !known.some((item) => item.value === contextID)) {
+      known.unshift({
+        value: contextID,
+        label: t('entity.topology.selectedContext', { id: contextID }),
+      })
+    }
+    return known
+  }, [contexts.data, contextID, t])
+  const { data, isPending, isError } = useTopology(at || undefined, true, contextID)
   const comparisonAt =
     at && pivotContext.from && pivotContext.from !== at ? pivotContext.from : undefined
   const comparison = useTopology(comparisonAt, Boolean(at))
@@ -223,6 +269,31 @@ export function TopologyPage() {
           <strong>History &amp; filters</strong>
         </summary>
         <div className={styles.controlsBody}>
+          {permissions.includes('entities.read') ? (
+            <>
+              <Select
+                label={t('entity.topology.routingContext')}
+                value={contextID}
+                onChange={(event) => {
+                  const next = new URLSearchParams(params)
+                  if (event.target.value) next.set('entity_context', event.target.value)
+                  else next.delete('entity_context')
+                  setParams(next, { replace: true })
+                }}
+                options={[{ value: '', label: t('entity.topology.rawOnly') }, ...contextOptions]}
+              />
+              {contexts.hasNextPage ? (
+                <Button
+                  onClick={() => void contexts.fetchNextPage()}
+                  disabled={contexts.isFetchingNextPage}
+                >
+                  {contexts.isFetchingNextPage
+                    ? t('entity.topology.loadingContexts')
+                    : t('entity.topology.loadMoreContexts')}
+                </Button>
+              ) : null}
+            </>
+          ) : null}
           <TopologyToolbar
             at={at}
             timeInput={timeInput}
@@ -255,6 +326,18 @@ export function TopologyPage() {
           />
         </div>
       </details>
+
+      {contextID && data?.canonical_projection_current_at ? (
+        <p>
+          {t('entity.topology.currentAsOf')}{' '}
+          <time dateTime={data.canonical_projection_current_at}>
+            {new Date(data.canonical_projection_current_at).toLocaleString()}
+          </time>
+          {'.'}
+          {at ? ` ${t('entity.topology.historicalGraph')}` : ''}
+          {data.canonical_projection_truncated ? ` ${t('entity.topology.truncated')}` : ''}
+        </p>
+      ) : null}
 
       {at && comparison.isError ? (
         <ErrorState
@@ -1074,6 +1157,7 @@ function TopologySidePanel({
   at: string
   onSimulate: (target: string) => void
 }) {
+  const { t } = useI18n()
   return (
     <div className={styles.side}>
       <Card>
@@ -1098,6 +1182,20 @@ function TopologySidePanel({
                 </dd>
                 <dt>Label</dt>
                 <dd>{selected.label}</dd>
+                {selected.canonical_status ? (
+                  <>
+                    <dt>{t('entity.topology.currentIdentity')}</dt>
+                    <dd>
+                      {t(`entity.topology.status.${selected.canonical_status}`)}
+                      {selected.canonical_entity_id ? (
+                        <>
+                          {' '}
+                          · <code>{selected.canonical_entity_id}</code>
+                        </>
+                      ) : null}
+                    </dd>
+                  </>
+                ) : null}
                 <dt>Site</dt>
                 <dd>{selected.site || 'none'}</dd>
                 <dt>Tags</dt>

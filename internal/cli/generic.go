@@ -90,6 +90,13 @@ func cmdSurfaceWithStdin(cfg Config, spec surfaceCommand, args []string, stdin i
 		printSurfaceUsage(stderr, spec)
 		return 2
 	}
+	// Entity administration has two explicit subgroups. Keep the operation
+	// catalogue flat for route parity while accepting the documented CLI shape.
+	if spec.Name == "entities" && len(args) >= 2 &&
+		((args[0] == "contexts" && (args[1] == "create" || args[1] == "list")) ||
+			(args[0] == "sources" && args[1] == "assign")) {
+		args = append([]string{args[0] + "-" + args[1]}, args[2:]...)
+	}
 	op, ok := spec.Ops[args[0]]
 	if !ok {
 		fmt.Fprintf(stderr, "%s: unknown subcommand %q\n", spec.Name, args[0])

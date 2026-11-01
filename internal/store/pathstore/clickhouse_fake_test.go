@@ -9,12 +9,59 @@ package pathstore
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
+
+func TestClickHouseBatchStoresDiscoveryTimeBeforeFlush(t *testing.T) {
+	f := &fakeCH{deleted: map[string]bool{}}
+	var mu sync.Mutex
+	var inserts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Query().Get("query"), "INSERT INTO") {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read ClickHouse insert: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			mu.Lock()
+			inserts = append(inserts, string(body))
+			mu.Unlock()
+		}
+		f.handler().ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	ch, err := newClickHouse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedAt := time.Date(2026, 11, 1, 9, 48, 12, 345000000, time.UTC)
+	if err := ch.SaveBatch(context.Background(), []PathItem{{
+		TenantID: "tenant-a", P: samplePath(), ObservedAt: observedAt,
+		TrustedDiscoveryTime: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(inserts) == 0 {
+		t.Fatal("no ClickHouse path rows were inserted")
+	}
+	for _, body := range inserts {
+		if !strings.Contains(body, formatCHTime(observedAt)) {
+			t.Fatalf("batch flush replaced discovery time: %s", body)
+		}
+		if strings.Contains(body, `"responder"`) && !strings.Contains(body, `"discovery_clock_verified":1`) {
+			t.Fatalf("path hop lost database-clock provenance: %s", body)
+		}
+	}
+}
 
 // fakeCH speaks just enough of the ClickHouse HTTP protocol for the tenancy
 // paths (U-026/U-027) to run without a server: DDL/INSERT/DELETE are 200s,

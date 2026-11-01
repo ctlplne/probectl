@@ -311,6 +311,8 @@ func TestBMPRepeatedRouteObservationIsSuppressedWithinWindow(t *testing.T) {
 				WithBMPReadTimeout(time.Second),
 				WithBMPEventSuppression(tc.window),
 				WithBMPIssuedIdentityVerifier(allowBMPIdentity),
+				WithBMPTenantLane("tenant-a", "test-lane"),
+				WithBMPEntityEvidence("listener-auth", fakeBMPEvidence{}),
 			)
 			done := make(chan error, 1)
 			go func() { done <- listener.handleConn(context.Background(), server, nil) }()
@@ -329,6 +331,9 @@ func TestBMPRepeatedRouteObservationIsSuppressedWithinWindow(t *testing.T) {
 			}
 			_ = client.Close()
 			<-done
+			if got := len(listener.evidenceQueue); got != len(tc.frames) {
+				t.Fatalf("verified peer observations queued for evidence = %d, want %d even when a route event was suppressed", got, len(tc.frames))
+			}
 		})
 	}
 }

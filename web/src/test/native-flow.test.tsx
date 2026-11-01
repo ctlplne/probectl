@@ -108,7 +108,7 @@ function view(name = 'Red private view'): SavedFlowQueryView {
   }
 }
 
-function IdentityHarness() {
+function IdentityHarness({ withEntities = false }: { withEntities?: boolean }) {
   const [tenant, setTenant] = useState('red')
   return (
     <AuthContext.Provider
@@ -116,7 +116,13 @@ function IdentityHarness() {
         tenant: { id: tenant, name: tenant, slug: tenant },
         tenants: [],
         user: { id: 'operator', name: 'Operator', email: 'operator@local.test' },
-        permissions: ['flow.read', 'ai.query', 'flow.views.write', 'flow.filters.write'],
+        permissions: [
+          'flow.read',
+          'ai.query',
+          'flow.views.write',
+          'flow.filters.write',
+          ...(withEntities ? ['entities.read'] : []),
+        ],
         switchTenant: () => {},
         signOut: () => {},
       }}
@@ -127,11 +133,11 @@ function IdentityHarness() {
   )
 }
 
-function mount(path = '/explore?native_flow=1', basename?: string) {
+function mount(path = '/explore?native_flow=1', basename?: string, withEntities = false) {
   return render(
     <Providers>
       <MemoryRouter basename={basename} initialEntries={[path]}>
-        <IdentityHarness />
+        <IdentityHarness withEntities={withEntities} />
       </MemoryRouter>
     </Providers>,
   )
@@ -373,6 +379,65 @@ describe('native flow workspace', () => {
     expect(await screen.findByText('9007199254740993')).toBeInTheDocument()
     expect(requests).toHaveLength(2)
     expect(screen.getByText('18446744073709551617')).toBeInTheDocument()
+  })
+
+  test('native flow result exposes only its observed IPs for an explicit tenant-context identity pivot', async () => {
+    const contextID = '00000000-0000-4000-8000-000000000221'
+    const deviceID = '00000000-0000-4000-8000-000000000331'
+    const requests: string[] = []
+    const base = defaultFetch()
+    fixture(async (input) => {
+      const path = pathOf(input)
+      requests.push(String(input))
+      if (path === '/v1/explorer/flow-views') return jsonResponse({ items: [] })
+      if (path === '/v1/explorer/query') return jsonResponse(result(0, 1))
+      if (path === '/v1/entity-contexts')
+        return jsonResponse({
+          items: [
+            {
+              tenant_id: 'red',
+              context_id: contextID,
+              site_id: contextID,
+              vrf_id: contextID,
+              site_label: 'West',
+              vrf_label: 'Customer A',
+            },
+          ],
+        })
+      if (path === '/v1/entities/resolve') {
+        const url = new URL(String(input), 'http://localhost')
+        expect(url.searchParams.get('context_id')).toBe(contextID)
+        expect(url.searchParams.get('kind')).toBe('address')
+        expect(url.searchParams.get('value')).toBe('192.0.0.0')
+        expect(url.searchParams.has('tenant_id')).toBe(false)
+        return jsonResponse({
+          status: 'resolved',
+          entity_id: deviceID,
+          candidates: [],
+          more_candidates: false,
+          scope: { tenant_id: 'red', context_id: contextID },
+          alias: { kind: 'address', value: '192.0.0.0' },
+        })
+      }
+      return base(input)
+    })
+    const user = userEvent.setup()
+    mount('/explore?native_flow=1', undefined, true)
+    await user.click(await screen.findByRole('button', { name: 'Run flow query' }))
+    expect(await screen.findByText('Current identity pivot')).toBeInTheDocument()
+    expect(requests.some((url) => url.includes('/entities/resolve'))).toBe(false)
+    await screen.findByRole('option', { name: 'West / Customer A' })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Observed IP' }), {
+      target: { value: '192.0.0.0' },
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Routing context' }), {
+      target: { value: contextID },
+    })
+    await user.click(screen.getByRole('button', { name: 'Resolve current identity' }))
+    expect(await screen.findByText(deviceID)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Switch fixture identity' }))
+    await waitFor(() => expect(screen.queryByText(deviceID)).not.toBeInTheDocument())
+    expect(screen.queryByText('Current identity pivot')).not.toBeInTheDocument()
   })
 
   test('keeps share links ID-only under the UI basename and sends exact view revisions', async () => {

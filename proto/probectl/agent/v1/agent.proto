@@ -2,9 +2,10 @@ syntax = "proto3";
 
 // AgentService is the agent <-> control-plane transport. Every RPC requires
 // mTLS; the caller's tenant and agent id are derived from the verified client
-// certificate's SPIFFE id (spiffe://probectl/tenant/<t>/agent/<a>) — never trusted
-// from the request body (F50: an agent belongs to exactly one tenant, so every
-// result it emits is tenant-attributable at the source).
+// certificate's SPIFFE id (spiffe://probectl/tenant/<t>/<plane>/<a>) — never
+// trusted from the request body. Existing agent and eBPF RPCs remain plane
+// scoped; D-179's entity-plane credential can call only SubmitEntityEvidence.
+// Every result or evidence claim is tenant-attributable at the source.
 //
 // Backward compatibility: fields are additive-only. Never renumber or reuse a
 // field tag; a CI `buf breaking` check enforces this.
@@ -58,6 +59,11 @@ service AgentService {
   // plane appends agent.l7_capture.posture to the tenant's hash-chained audit
   // stream when an agent first reports consented capture or changes mode.
   rpc ReportL7Posture(ReportL7PostureRequest) returns (ReportL7PostureResponse);
+  // SubmitEntityEvidence accepts a bounded batch of observational identifiers
+  // from the evidence-only mTLS certificate plane (D-179). The verified peer
+  // supplies tenant and agent; the operator-owned registry supplies context
+  // and canonical entity. No field in this request may choose those identities.
+  rpc SubmitEntityEvidence(SubmitEntityEvidenceRequest) returns (SubmitEntityEvidenceResponse);
 }
 
 message RegisterRequest {
@@ -216,4 +222,50 @@ message ReportL7PostureResponse {
   // true when the report changed the recorded posture (and, when material,
   // appended agent.l7_capture.posture to the tenant's audit chain).
   bool changed = 1;
+}
+
+// A collector-generated observation UUID is an idempotency key within its
+// authenticated source. It is never a tenant, agent, context or entity key.
+message EntityEvidenceObservation {
+  string observation_id = 1;
+  string source_kind = 2;       // device_target | flow_exporter | path_agent | bmp_peer | agent_site
+  string configured_ref = 3;   // must match the operator-owned assignment
+  string alias_kind = 4;        // typed observation, e.g. address or snmp_device_id
+  string alias_value = 5;       // untrusted; validated and normalized server-side
+  string source_ref = 6;        // original plane identifier retained for provenance
+  int64 observed_unix_nanos = 7;
+  string origin_serial = 8;     // BMP only: exact verified router SVID serial
+  string interface_name = 9;    // SNMP interface claim only: observed ifName
+  string interface_description = 10; // SNMP interface claim only: observed ifDescr
+  string neighbor_protocol = 11; // LLDP or CDP, never routing authority
+  uint32 neighbor_local_if_index = 12; // full SNMP ifIndex on the local device
+  string neighbor_local_port_id = 13;
+  string neighbor_remote_port_id = 14;
+  string neighbor_chassis_id = 15;
+  string neighbor_device_name = 16;
+  string neighbor_management_address = 17; // observed IP, not a context selector
+}
+
+// A bounded fault observation shares the evidence-only RPC and live mTLS
+// sender. No tenant, agent, context, canonical entity or arbitrary severity is
+// accepted from the payload; the server derives those or leaves identity
+// unresolved. The UUID makes retries idempotent.
+message EntityFaultObservation {
+  string observation_id = 1;
+  string source_kind = 2;      // device_target | flow_exporter; BMP needs router-origin proof
+  string configured_ref = 3;  // operator-assigned source, never context authority
+  string target_address = 4;  // observed IP, not a context selector
+  string kind = 5;            // bounded server-known fault kind for that source
+  int64 observed_unix_nanos = 6;
+}
+
+message SubmitEntityEvidenceRequest {
+  repeated EntityEvidenceObservation observations = 1;
+  repeated EntityFaultObservation faults = 2; // 1–64 combined; message size is also bounded
+}
+
+message SubmitEntityEvidenceResponse {
+  uint32 accepted = 1;   // canonical claims persisted or idempotent replays
+  uint32 unresolved = 2; // no current source/anchor or ambiguous server-side match
+  uint32 faults_persisted = 3; // persisted in the tenant incident stream, including unresolved identity
 }

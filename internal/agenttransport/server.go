@@ -22,8 +22,11 @@ import (
 	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/fairness"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
+	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/lifecycle"
+	"github.com/ctlplne/probectl/internal/metrics"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/version"
 )
@@ -112,9 +115,9 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 	// expires. Starts empty (no effect); the control plane refreshes it from
 	// the agent registry via RevocationList().
 	revocations := crypto.NewRevocationList()
-	// D-43 S9: the listener admits agents and eBPF collectors; every RPC
-	// authorizes its plane (service.authenticate: agents only;
-	// authenticateEBPFCollector: the L7 policy calls only).
+	// D-43 S9/D-179: the listener admits agent, eBPF and evidence-only
+	// collectors; every RPC authorizes its plane. Evidence identities may
+	// call only SubmitEntityEvidence once the FX-2 service is wired.
 	tlsConfig, err := crypto.ServerMTLSConfigRevocable(certFile, keyFile, caFile, revocations)
 	if err != nil {
 		return nil, fmt.Errorf("agent transport tls: %w", err)
@@ -130,6 +133,7 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 		// consults, so a per-RPC revocation recheck refuses an agent revoked
 		// after its long-lived stream was established (see service.authenticate).
 		revocations: revocations,
+		fairness:    fairness.NewGate(fairness.DefaultPolicy(), nil),
 	}
 	if pool != nil {
 		// Default fence over the shared pool; the runtime replaces it with the
@@ -173,6 +177,41 @@ func (s *Server) RevocationList() *crypto.RevocationList { return s.revocations 
 func (s *Server) WithWriterFence(f tenancy.WriterFence) *Server {
 	if f != nil {
 		s.svc.fence = f
+	}
+	return s
+}
+
+// WithFairness shares the deployment's tenant admission/accounting gate with
+// the restricted evidence RPC. Nil keeps New's bounded local default.
+func (s *Server) WithFairness(g *fairness.Gate) *Server {
+	if g != nil {
+		s.svc.fairness = g
+	}
+	return s
+}
+
+// WithFaultCorrelator keeps a bounded evidence fault on the authenticated
+// mTLS path through tenant-scoped correlation. Nil leaves fault admission closed.
+func (s *Server) WithFaultCorrelator(c *incident.Correlator) *Server {
+	if c != nil {
+		s.svc.entityFaultCorrelator = c
+	}
+	return s
+}
+
+// WithMetrics exports evidence admission using fixed outcome labels only.
+// Tenant, agent, source address and canonical entity IDs never become metric
+// labels; the control plane's existing /metrics endpoint owns this registry.
+func (s *Server) WithMetrics(reg *metrics.Registry) *Server {
+	if reg != nil {
+		s.svc.entityEvidenceBatches = reg.LabeledCounter(
+			"probectl_entity_evidence_batches_total",
+			"Restricted mTLS entity evidence batches by outcome.",
+			"outcome", []string{"accepted", "partial", "unresolved", "rejected"})
+		s.svc.entityEvidenceObservations = reg.LabeledCounter(
+			"probectl_entity_evidence_observations_total",
+			"Entity observations accepted or left unresolved by the registry.",
+			"outcome", []string{"accepted", "unresolved"})
 	}
 	return s
 }

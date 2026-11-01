@@ -30,6 +30,16 @@ agent:
     site: iad-branch-07
   heartbeat_interval: 30s
 
+# Optional FX-2 canonical site evidence. Issue a separate entity-plane SVID
+# for this registered agent and assign its agent_site source to a site/context
+# in Admin. The ordinary agent certificate above cannot call the evidence RPC.
+# evidence:
+#   control_addr: control.probectl.local:9443
+#   cert_file: /var/lib/probectl-agent/entity-identity/cert.pem
+#   key_file: /var/lib/probectl-agent/entity-identity/key.pem
+#   ca_file: /var/lib/probectl-agent/entity-identity/server-ca.pem
+#   server_name: control.probectl.local
+
 buffer:
   # Disk-backed store-and-forward queue: results buffer here while the control
   # plane is unreachable and drain on reconnect.

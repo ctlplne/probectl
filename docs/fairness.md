@@ -64,7 +64,7 @@ unlimited.
 
 | Field | Meaning |
 |---|---|
-| `results_per_sec` | result messages admitted per second |
+| `results_per_sec` | result messages admitted per second; the FX-2 identity-evidence RPC uses the same numeric rate in its own `entity_evidence` tenant bucket, so evidence never spends raw-result credits |
 | `flow_events_per_sec` | flow records admitted per second |
 | `ingest_bytes_per_sec` | result payload bytes admitted per second |
 | `device_metrics_per_sec` | device (SNMP/gNMI) samples admitted per second |
@@ -133,7 +133,7 @@ enforced.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `PROBECTL_FAIRNESS_RESULTS_PER_SEC` | `1000` | per-tenant result rate |
+| `PROBECTL_FAIRNESS_RESULTS_PER_SEC` | `1000` | per-tenant result rate and the separate identity-evidence claim rate |
 | `PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC` | `10000` | per-tenant flow-record rate |
 | `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `2097152` (2 MiB/s) | per-tenant ingest byte rate |
 | `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | per-tenant device (SNMP/gNMI) sample rate |

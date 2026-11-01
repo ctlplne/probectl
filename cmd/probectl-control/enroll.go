@@ -273,11 +273,11 @@ func runEnrollToken(ctx context.Context, cfg *config.Config, db *store.DB, args 
 func runRegisterCollector(ctx context.Context, cfg *config.Config, db *store.DB, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("register-collector", flag.ContinueOnError)
 	token := fs.String("token", "", "one-time enroll token (pjt_...; REQUIRED)")
-	plane := fs.String("plane", "", "collector plane: bgp | bmp | ebpf | flow | device | endpoint (REQUIRED)")
+	plane := fs.String("plane", "", "collector plane: bgp | bmp | ebpf | flow | device | endpoint | entity (REQUIRED)")
 	hostname := fs.String("hostname", "", "operator label / source host")
-	csrFile := fs.String("csr", "", "BMP router CSR PEM file (required for plane=bmp)")
-	certOut := fs.String("cert-out", "", "write issued BMP leaf+intermediate chain here")
-	caOut := fs.String("ca-out", "", "write BMP trust bundle here")
+	csrFile := fs.String("csr", "", "CSR PEM file (required for plane=bmp or entity)")
+	certOut := fs.String("cert-out", "", "write issued leaf+intermediate chain here")
+	caOut := fs.String("ca-out", "", "write issuing trust bundle here")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -285,13 +285,13 @@ func runRegisterCollector(ctx context.Context, cfg *config.Config, db *store.DB,
 		return fmt.Errorf("-token and -plane are required (mint a token with enroll-token)")
 	}
 	var csrPEM string
-	if *plane == "bmp" {
+	if *plane == "bmp" || *plane == "entity" {
 		if *csrFile == "" || *certOut == "" || *caOut == "" {
-			return fmt.Errorf("plane=bmp requires -csr, -cert-out, and -ca-out")
+			return fmt.Errorf("plane=%s requires -csr, -cert-out, and -ca-out", *plane)
 		}
 		raw, err := os.ReadFile(*csrFile)
 		if err != nil {
-			return fmt.Errorf("read BMP router CSR: %w", err)
+			return fmt.Errorf("read collector CSR: %w", err)
 		}
 		csrPEM = string(raw)
 	}
@@ -313,10 +313,18 @@ func runRegisterCollector(ctx context.Context, cfg *config.Config, db *store.DB,
 	}
 	// AUD-09: audit the registration (agent id, never any key material) in the
 	// tenant and provider streams, matching the register-collector API route.
-	if err := auditCredentialOneShot(ctx, db.Pool(), id.TenantID, "collector.registered", id.AgentID, map[string]any{"plane": id.Plane, "hostname": *hostname}); err != nil {
+	action := "collector.registered"
+	if id.Plane == "entity" {
+		action = "collector.evidence_svid_issued"
+	}
+	if err := auditCredentialOneShot(ctx, db.Pool(), id.TenantID, action, id.AgentID, map[string]any{"plane": id.Plane, "hostname": *hostname}); err != nil {
 		return err
 	}
-	fmt.Println("collector registered. Configure the collector with:")
+	if id.Plane == "entity" {
+		fmt.Println("additional evidence SVID issued for an existing collector:")
+	} else {
+		fmt.Println("collector registered. Configure the collector with:")
+	}
 	fmt.Println("  tenant_id:", id.TenantID)
 	fmt.Println("  agent_id: ", id.AgentID)
 	fmt.Println("  plane:    ", id.Plane)
@@ -328,10 +336,10 @@ func runRegisterCollector(ctx context.Context, cfg *config.Config, db *store.DB,
 	}
 	if id.SVID != nil {
 		if err := os.WriteFile(*certOut, []byte(id.SVID.CertPEM), 0o600); err != nil {
-			return fmt.Errorf("write BMP certificate: %w", err)
+			return fmt.Errorf("write collector certificate: %w", err)
 		}
 		if err := os.WriteFile(*caOut, []byte(id.SVID.CABundle), 0o644); err != nil {
-			return fmt.Errorf("write BMP trust bundle: %w", err)
+			return fmt.Errorf("write collector trust bundle: %w", err)
 		}
 		fmt.Println("  spiffe_id:", id.SVID.SPIFFEID)
 		fmt.Println("  serial:   ", id.SVID.Serial)
@@ -342,6 +350,9 @@ func runRegisterCollector(ctx context.Context, cfg *config.Config, db *store.DB,
 	if id.Plane == "bmp" {
 		fmt.Println("install the issued certificate with the CSR's existing private key on the BMP router;")
 		fmt.Println("the listener admits only this exact registry-issued tenant/plane/serial identity.")
+	} else if id.Plane == "entity" {
+		fmt.Println("install this certificate with the CSR's private key on the existing collector;")
+		fmt.Println("it may call only SubmitEntityEvidence, and the bus identity remains unchanged.")
 	} else {
 		fmt.Println("stamp agent_id on every record the collector publishes to the bus;")
 		fmt.Println("the control plane verifies it against this registry row (TENANT-101).")

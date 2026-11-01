@@ -79,13 +79,19 @@ type Runtime struct {
 	cfg Config
 	srv *http.Server
 
-	collections *basemetrics.Counter
-	published   *basemetrics.Counter
-	errors      *basemetrics.Counter
-	timeouts    *basemetrics.Counter
-	rejections  *basemetrics.Counter
-	quarantined *basemetrics.Counter
-	bmpUnsupp   *basemetrics.Counter
+	collections              *basemetrics.Counter
+	published                *basemetrics.Counter
+	errors                   *basemetrics.Counter
+	timeouts                 *basemetrics.Counter
+	rejections               *basemetrics.Counter
+	quarantined              *basemetrics.Counter
+	bmpUnsupp                *basemetrics.Counter
+	entityEvidenceAccepted   *basemetrics.Counter
+	entityEvidenceUnresolved *basemetrics.Counter
+	entityEvidenceErrors     *basemetrics.Counter
+	entityEvidenceQueueDrops *basemetrics.Counter
+	entityFaultAccepted      *basemetrics.Counter
+	entityFaultErrors        *basemetrics.Counter
 
 	// Central test sync (G9): the applied version, failed pulls, and bundles or
 	// tests refused by reason (fixed reason codes, never tenant data).
@@ -114,15 +120,21 @@ func New(component, version, commit string, cfg Config) (*Runtime, error) {
 	}
 	reg := basemetrics.New(version, commit)
 	r := &Runtime{
-		cfg:         cfg,
-		reg:         reg,
-		collections: reg.Counter("probectl_agent_collections_total", "Probe or collector batches attempted by this agent process."),
-		published:   reg.Counter("probectl_agent_published_total", "Results or batches accepted by this agent process's output transport."),
-		errors:      reg.Counter("probectl_agent_errors_total", "Probe, collection, buffer, or publish errors observed by this agent process."),
-		timeouts:    reg.Counter("probectl_agent_session_timeouts_total", "Inbound collector sessions closed after a bounded handshake or read timeout."),
-		rejections:  reg.Counter("probectl_agent_session_rejections_total", "Inbound collector sessions rejected by the process-wide concurrency bound."),
-		quarantined: reg.Counter("probectl_agent_quarantined_total", "Undecodable buffered result frames sidelined to the quarantine sidecar so draining can resume (ING-28)."),
-		bmpUnsupp:   reg.Counter("probectl_agent_bmp_unsupported_updates_total", "BMP updates rejected by the v4-unicast parser (ADD-PATH / IPv6 / withdrawal) instead of fabricating or dropping routes (ING-27)."),
+		cfg:                      cfg,
+		reg:                      reg,
+		collections:              reg.Counter("probectl_agent_collections_total", "Probe or collector batches attempted by this agent process."),
+		published:                reg.Counter("probectl_agent_published_total", "Results or batches accepted by this agent process's output transport."),
+		errors:                   reg.Counter("probectl_agent_errors_total", "Probe, collection, buffer, or publish errors observed by this agent process."),
+		timeouts:                 reg.Counter("probectl_agent_session_timeouts_total", "Inbound collector sessions closed after a bounded handshake or read timeout."),
+		rejections:               reg.Counter("probectl_agent_session_rejections_total", "Inbound collector sessions rejected by the process-wide concurrency bound."),
+		quarantined:              reg.Counter("probectl_agent_quarantined_total", "Undecodable buffered result frames sidelined to the quarantine sidecar so draining can resume (ING-28)."),
+		bmpUnsupp:                reg.Counter("probectl_agent_bmp_unsupported_updates_total", "BMP updates rejected by the v4-unicast parser (ADD-PATH / IPv6 / withdrawal) instead of fabricating or dropping routes (ING-27)."),
+		entityEvidenceAccepted:   reg.Counter("probectl_agent_entity_evidence_accepted_total", "Canonical evidence observations accepted by the restricted sender-bound mTLS RPC."),
+		entityEvidenceUnresolved: reg.Counter("probectl_agent_entity_evidence_unresolved_total", "Evidence observations left unresolved by absent or ambiguous operator mappings."),
+		entityEvidenceErrors:     reg.Counter("probectl_agent_entity_evidence_errors_total", "Restricted canonical evidence RPC attempts that failed; raw telemetry remains on its existing bus path."),
+		entityEvidenceQueueDrops: reg.Counter("probectl_agent_entity_evidence_queue_drops_total", "Optional canonical evidence batches dropped before RPC admission without delaying raw telemetry."),
+		entityFaultAccepted:      reg.Counter("probectl_agent_entity_faults_accepted_total", "Sender-bound fault observations accepted by the restricted mTLS evidence RPC."),
+		entityFaultErrors:        reg.Counter("probectl_agent_entity_faults_errors_total", "Optional sender-bound fault RPC attempts that failed; raw telemetry remains independent."),
 		testSyncFailures: reg.Counter("probectl_agent_testsync_fetch_failures_total",
 			"Central test-bundle pulls that failed (transport or control-plane error); the agent kept its last verified set."),
 		testSyncRefused: reg.LabeledCounter("probectl_agent_testsync_refused_total",
@@ -228,6 +240,46 @@ func (r *Runtime) Collection(n uint64) {
 func (r *Runtime) Error() {
 	if r != nil {
 		r.errors.Inc()
+	}
+}
+
+// EntityEvidence records the bounded evidence channel's outcome without
+// address, source, tenant or canonical-entity labels (OTel sensitive IDs stay
+// off metric dimensions). Raw bus publish counters remain independent.
+func (r *Runtime) EntityEvidence(accepted, unresolved int, err error) {
+	if r == nil {
+		return
+	}
+	if err != nil {
+		r.entityEvidenceErrors.Inc()
+		return
+	}
+	if accepted > 0 {
+		r.entityEvidenceAccepted.Add(uint64(accepted))
+	}
+	if unresolved > 0 {
+		r.entityEvidenceUnresolved.Add(uint64(unresolved))
+	}
+}
+
+// EntityFault records a fixed-outcome signal admission without identifying
+// tenant, source, target or entity in a metric label.
+func (r *Runtime) EntityFault(err error) {
+	if r == nil {
+		return
+	}
+	if err != nil {
+		r.entityFaultErrors.Inc()
+		return
+	}
+	r.entityFaultAccepted.Inc()
+}
+
+// EntityEvidenceQueueDrop counts optional join loss without tenant/source
+// metric labels. Raw transport delivery remains a separate signal.
+func (r *Runtime) EntityEvidenceQueueDrop() {
+	if r != nil {
+		r.entityEvidenceQueueDrops.Inc()
 	}
 }
 

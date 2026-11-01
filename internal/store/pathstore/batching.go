@@ -55,8 +55,10 @@ type BatchingSaver struct {
 }
 
 type pendingPath struct {
-	tenantID string
-	p        *path.Path
+	tenantID             string
+	p                    *path.Path
+	observedAt           time.Time
+	trustedDiscoveryTime bool
 }
 
 // batchSaver is the optional fast path a backend can implement (the
@@ -77,8 +79,10 @@ type partitionedBatchSaver interface {
 
 // PathItem is one queued discovery.
 type PathItem struct {
-	TenantID string
-	P        *path.Path
+	TenantID             string
+	P                    *path.Path
+	ObservedAt           time.Time // discovery start, never the later batch flush time
+	TrustedDiscoveryTime bool      // true only for a PostgreSQL-clock capture
 }
 
 // NewBatchingSaver wraps inner with the window (default 100ms) and max batch
@@ -97,7 +101,7 @@ func NewBatchingSaver(inner Store, log *slog.Logger, window time.Duration, maxBa
 }
 
 // Save enqueues and returns; the window flusher persists.
-func (b *BatchingSaver) Save(_ context.Context, tenantID string, p *path.Path) error {
+func (b *BatchingSaver) Save(ctx context.Context, tenantID string, p *path.Path) error {
 	if tenantID == "" {
 		return ErrNoTenant
 	}
@@ -106,7 +110,11 @@ func (b *BatchingSaver) Save(_ context.Context, tenantID string, p *path.Path) e
 		b.mu.Unlock()
 		return errBatchingSaverClosed
 	}
-	b.pending = append(b.pending, pendingPath{tenantID: tenantID, p: p})
+	observedAt, trusted := discoveryStartedAt(ctx)
+	b.pending = append(b.pending, pendingPath{
+		tenantID: tenantID, p: p, observedAt: observedAt,
+		trustedDiscoveryTime: trusted,
+	})
 	full := len(b.pending) >= b.max
 	if b.timer == nil && !full {
 		b.timer = time.AfterFunc(b.window, b.flushBackground)
@@ -177,7 +185,8 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 	if pbs, ok := b.inner.(partitionedBatchSaver); ok {
 		items := make([]PathItem, len(batch))
 		for i, q := range batch {
-			items[i] = PathItem{TenantID: q.tenantID, P: q.p}
+			items[i] = PathItem{TenantID: q.tenantID, P: q.p, ObservedAt: q.observedAt,
+				TrustedDiscoveryTime: q.trustedDiscoveryTime}
 		}
 		fenced, err := pbs.SaveBatchPartitioned(ctx, items)
 		var partial *PartialBatchError
@@ -226,7 +235,8 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 	if bs, ok := b.inner.(batchSaver); ok {
 		items := make([]PathItem, len(batch))
 		for i, q := range batch {
-			items[i] = PathItem{TenantID: q.tenantID, P: q.p}
+			items[i] = PathItem{TenantID: q.tenantID, P: q.p, ObservedAt: q.observedAt,
+				TrustedDiscoveryTime: q.trustedDiscoveryTime}
 		}
 		if err := bs.SaveBatch(ctx, items); err != nil {
 			var partial *PartialBatchError

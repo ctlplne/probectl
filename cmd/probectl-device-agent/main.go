@@ -34,10 +34,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/agent"
 	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/secrets"
 	"github.com/ctlplne/probectl/internal/version"
@@ -154,10 +156,57 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	var evidenceClient *agent.EvidenceClient
+	if cfg.Evidence.Enabled() {
+		if err := agent.ValidateEvidenceRotation(cfg.Evidence.RotateURL,
+			cfg.Evidence.CertFile, cfg.Evidence.KeyFile, cfg.Evidence.CAFile); err != nil {
+			return fmt.Errorf("device evidence renewal: %w", err)
+		}
+		client, err := agent.DialEntityEvidence(cfg.Evidence.ControlAddr,
+			cfg.Evidence.CertFile, cfg.Evidence.KeyFile, cfg.Evidence.CAFile,
+			cfg.Evidence.ServerName)
+		if err != nil {
+			return fmt.Errorf("device canonical evidence identity: %w", err)
+		}
+		defer client.Close()
+		evidenceClient = client
+		certTenant, certAgent := client.Identity()
+		if certTenant != cfg.TenantID || certAgent != cfg.AgentID {
+			return fmt.Errorf("device canonical evidence SVID does not match configured tenant and agent")
+		}
+		rt.WithEntityEvidence(observedDeviceEvidence{client: client, metrics: metricsRuntime})
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if cfg.Evidence.Enabled() {
+		go agent.RotationLoopOnSuccess(ctx, log, cfg.Evidence.RotateURL,
+			cfg.Evidence.CertFile, cfg.Evidence.KeyFile, cfg.Evidence.CAFile, 0,
+			func() {
+				if err := evidenceClient.ReconnectAfterRotation(); err != nil {
+					log.Warn("device evidence connection renewal failed", "error", err.Error())
+				}
+				rt.RefreshEvidenceAfterRotation()
+			})
+	}
 	return metricsRuntime.RunTogether(ctx, rt.Run)
+}
+
+type observedDeviceEvidence struct {
+	client  *agent.EvidenceClient
+	metrics *agentmetrics.Runtime
+}
+
+func (o observedDeviceEvidence) Submit(ctx context.Context, observations []entity.Observation) (int, int, error) {
+	accepted, unresolved, err := o.client.Submit(ctx, observations)
+	o.metrics.EntityEvidence(accepted, unresolved, err)
+	return accepted, unresolved, err
+}
+
+func (o observedDeviceEvidence) SubmitFault(ctx context.Context, fault entity.FaultObservation) error {
+	err := o.client.SubmitFault(ctx, fault)
+	o.metrics.EntityFault(err)
+	return err
 }
 
 func runDiscover(args []string) error {

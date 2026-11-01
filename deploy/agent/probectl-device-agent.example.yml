@@ -15,6 +15,19 @@ bus:
   mode: memory # memory | kafka
   brokers: []  # kafka mode, e.g. ["kafka-1:9092", "kafka-2:9092"]
 
+# Optional D-179 canonical evidence channel over the EXISTING control-plane
+# agent gRPC/mTLS listener. Obtain a one-time token pinned to this agent_id,
+# issue an extra plane=entity SVID with a collector-owned CSR, then set all
+# five required fields below. Without it, raw metrics still flow but canonical joins
+# stay unresolved. The private key remains on this collector host.
+# evidence:
+#   control_addr: "control.example:9443"
+#   rotate_url: "https://control.example:8443"
+#   cert_file: /var/lib/probectl-device/entity-identity/cert.pem
+#   key_file: /var/lib/probectl-device/entity-identity/key.pem
+#   ca_file: /var/lib/probectl-device/entity-identity/server-ca.pem
+#   server_name: control.example
+
 # Optional SNMP trap receiver. It is off by default; when enabled, every source
 # must name a credential resolved at runtime. The community/passphrases never go
 # in this file.

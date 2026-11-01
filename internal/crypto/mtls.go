@@ -20,9 +20,9 @@ import (
 // certificate against the CA bundle in caFile. This is the agent-transport server
 // policy consumed by the gRPC server in S4. Non-mTLS connections are rejected.
 func ServerMTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
-	// D-43 S9: the agent gRPC listener's handshake admits an agent or an
-	// eBPF-collector identity (never a BMP router); every RPC then
-	// authorizes its plane.
+	// D-43 S9/D-179: the agent gRPC listener's handshake admits an agent,
+	// eBPF collector or evidence-only collector (never a BMP router); every
+	// RPC then authorizes its plane.
 	return serverMTLSConfig(certFile, keyFile, caFile, requireAgentChannelPlane)
 }
 
@@ -138,8 +138,8 @@ func requirePinnedTrustDomain(rawCerts [][]byte, _ [][]*x509.Certificate) error 
 	return requireSPIFFEPlane(rawCerts, SPIFFEIDFromCert)
 }
 
-// requireAgentChannelPlane admits an agent or an eBPF-collector identity at
-// the agent listener's handshake (D-43 S9); RPCs authorize the plane.
+// requireAgentChannelPlane admits agent, eBPF or evidence-only identities at
+// the agent listener's handshake (D-43 S9, D-179); RPCs authorize the plane.
 func requireAgentChannelPlane(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 	return requireSPIFFEPlane(rawCerts, AgentChannelSPIFFEIDFromCert)
 }

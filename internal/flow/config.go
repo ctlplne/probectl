@@ -52,6 +52,47 @@ type CloudImportConfig struct {
 	Path     string `yaml:"path"`
 }
 
+// EvidenceConfig enables the restricted, sender-bound entity channel for
+// explicitly configured exporter IPs. The UDP listener ACL remains a separate
+// admission control and can be broader than this canonical evidence list.
+type EvidenceConfig struct {
+	ControlAddr string   `yaml:"control_addr"`
+	RotateURL   string   `yaml:"rotate_url"`
+	CertFile    string   `yaml:"cert_file"`
+	KeyFile     string   `yaml:"key_file"`
+	CAFile      string   `yaml:"ca_file"`
+	ServerName  string   `yaml:"server_name"`
+	Exporters   []string `yaml:"exporters"`
+}
+
+func (e EvidenceConfig) Enabled() bool {
+	return e.ControlAddr != "" || e.RotateURL != "" || e.CertFile != "" || e.KeyFile != "" ||
+		e.CAFile != "" || e.ServerName != "" || len(e.Exporters) != 0
+}
+
+func (e EvidenceConfig) validate() error {
+	if !e.Enabled() {
+		return nil
+	}
+	if e.ControlAddr == "" || e.RotateURL == "" || e.CertFile == "" || e.KeyFile == "" ||
+		e.CAFile == "" || len(e.Exporters) == 0 {
+		return errors.New("flow: evidence requires control_addr, rotate_url, cert_file, key_file, ca_file and exporters together")
+	}
+	seen := make(map[netip.Addr]struct{}, len(e.Exporters))
+	for _, raw := range e.Exporters {
+		addr, err := netip.ParseAddr(raw)
+		if err != nil || addr.Zone() != "" || addr.IsUnspecified() || addr.IsMulticast() {
+			return fmt.Errorf("flow: evidence exporter %q must be a literal unicast IP", raw)
+		}
+		addr = addr.Unmap()
+		if _, ok := seen[addr]; ok {
+			return fmt.Errorf("flow: duplicate evidence exporter %q", raw)
+		}
+		seen[addr] = struct{}{}
+	}
+	return nil
+}
+
 // Config is the flow-collector configuration: a YAML file with PROBECTL_FLOW_*
 // environment overrides. Every key is documented in docs/configuration.md.
 type Config struct {
@@ -64,7 +105,8 @@ type Config struct {
 	TenantID string `yaml:"tenant_id"`
 	AgentID  string `yaml:"agent_id"`
 
-	Bus BusConfig `yaml:"bus"`
+	Bus      BusConfig      `yaml:"bus"`
+	Evidence EvidenceConfig `yaml:"evidence,omitempty"`
 
 	// NetFlow serves v5 AND v9 (version-sniffed) on one socket; IPFIX and
 	// sFlow have their own IANA ports. Disable any listener you don't run.
@@ -201,6 +243,15 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	set("PROBECTL_FLOW_TENANT", &c.TenantID)
 	set("PROBECTL_FLOW_BUS_NAMESPACE", &c.Bus.Namespace)
 	set("PROBECTL_FLOW_AGENT_ID", &c.AgentID)
+	set("PROBECTL_FLOW_EVIDENCE_CONTROL_ADDR", &c.Evidence.ControlAddr)
+	set("PROBECTL_FLOW_EVIDENCE_ROTATE_URL", &c.Evidence.RotateURL)
+	set("PROBECTL_FLOW_EVIDENCE_CERT_FILE", &c.Evidence.CertFile)
+	set("PROBECTL_FLOW_EVIDENCE_KEY_FILE", &c.Evidence.KeyFile)
+	set("PROBECTL_FLOW_EVIDENCE_CA_FILE", &c.Evidence.CAFile)
+	set("PROBECTL_FLOW_EVIDENCE_SERVER_NAME", &c.Evidence.ServerName)
+	if v := getenv("PROBECTL_FLOW_EVIDENCE_EXPORTERS"); v != "" {
+		c.Evidence.Exporters = splitCSV(v)
+	}
 	set("PROBECTL_FLOW_BUS_MODE", &c.Bus.Mode)
 	if v := getenv("PROBECTL_FLOW_BUS_BROKERS"); v != "" {
 		c.Bus.Brokers = splitCSV(v)
@@ -233,6 +284,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 
 // Validate enforces the invariants New depends on.
 func (c *Config) Validate() error {
+	if err := c.Evidence.validate(); err != nil {
+		return err
+	}
 	if c.TenantID == "" {
 		return errors.New("flow: tenant_id is required (PROBECTL_FLOW_TENANT)")
 	}
@@ -240,6 +294,9 @@ func (c *Config) Validate() error {
 		return errors.New("flow: bounded agent_id is required (PROBECTL_FLOW_AGENT_ID)")
 	}
 	cloud := c.cloudImportEnabled()
+	if cloud && c.Evidence.Enabled() {
+		return errors.New("flow: cloud import cannot use UDP exporter evidence")
+	}
 	if !c.NetFlow.Enabled && !c.IPFIX.Enabled && !c.SFlow.Enabled && !cloud {
 		return errors.New("flow: no listener or cloud import enabled")
 	}

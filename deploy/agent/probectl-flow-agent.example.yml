@@ -9,6 +9,19 @@ apiVersion: probectl.io/flow-agent/v1
 tenant_id: "00000000-0000-0000-0000-000000000001" # REQUIRED — every record is tenant-bound (F50)
 agent_id: "" # default: OS hostname
 
+# Optional FX-2 canonical evidence. Use a separately enrolled entity-plane
+# certificate for this exact tenant/agent, and list literal exporter IPs.
+# UDP source ACLs below can be broader; only these exact IPs make evidence.
+# An evidence outage leaves raw flow events on the bus.
+# evidence:
+#   control_addr: "127.0.0.1:8443"
+#   rotate_url: "https://probectl-control.local:8443"
+#   cert_file: "/var/lib/probectl-flow/entity-identity/cert.pem"
+#   key_file: "/var/lib/probectl-flow/entity-identity/key.pem"
+#   ca_file: "/var/lib/probectl-flow/entity-identity/server-ca.pem"
+#   server_name: "probectl-control.local"
+#   exporters: ["192.0.2.7"]
+
 bus:
   mode: memory # memory | kafka
   brokers: []  # kafka mode, e.g. ["kafka-1:9092", "kafka-2:9092"]

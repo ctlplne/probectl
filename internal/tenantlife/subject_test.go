@@ -361,6 +361,14 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		"flow_query_view_preferences",
 		"flow_snapshots",
 		"flow_snapshot_epochs",
+		"entity_contexts",
+		"entity_path_test_contexts",
+		"entity_agent_contexts",
+		"entity_source_contexts",
+		"entities",
+		"entity_evidence",
+		"entity_links",
+		"entity_fault_receipts",
 		"roles",
 		"ir_attribution_records",
 	})
@@ -374,13 +382,18 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 	if byName["audit_events"] != subjectTableProjectMatches {
 		t.Fatalf("audit_events disposition = %d, want append-only projection", byName["audit_events"])
 	}
-	for _, table := range []string{"users", "ai_feedback", "incident_correlation_overrides", "flow_query_filters", "flow_query_views", "flow_query_view_preferences"} {
+	for _, table := range []string{"users", "ai_feedback", "incident_correlation_overrides", "flow_query_filters", "flow_query_views", "flow_query_view_preferences", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_fault_receipts"} {
 		if byName[table] != subjectTableDeleteMatches {
 			t.Fatalf("%s disposition = %d, want count-verified deletion", table, byName[table])
 		}
 	}
 	if byName["roles"] != subjectTableNoSubject {
 		t.Fatalf("roles disposition = %d, want explicit no-subject classification", byName["roles"])
+	}
+	for _, table := range []string{"entity_contexts", "entity_path_test_contexts", "entity_links"} {
+		if byName[table] != subjectTableNoSubject {
+			t.Fatalf("%s disposition = %d, want UUID-only no-subject classification", table, byName[table])
+		}
 	}
 	for _, table := range []string{"flow_snapshots", "flow_snapshot_epochs"} {
 		if byName[table] != subjectTableDerivedFlowCache {

@@ -169,6 +169,30 @@ untrusted ingestion surface (see
   re-verifies each batch's claimed tenant against the agent registry and drops
   unverifiable batches fail-closed.
 
+FX-2's optional canonical evidence channel requires an additional `entity`
+plane mTLS certificate for the registered collector and literal exporter IPs
+in `evidence.exporters`. Only a successful raw bus batch from an exact listed
+UDP source can queue evidence. The separate RPC proves which **collector**
+submitted the observation; UDP source IP is still untrusted and does not prove
+the exporting device's identity. A current operator source assignment is
+required. A context-bound operator anchor resolves the device directly; without
+one, a unique current SNMP observation of that exporter address in the same
+tenant/context may support the inferred device. The exact supporting evidence
+ID is stored and rechecked on every current read. A conflict, expiry or rebind
+retires the inference while raw flow remains available.
+The evidence worker is one batch deep and sends at most 64 observations per
+RPC. A slow or unavailable RPC counts an evidence drop/error without delaying
+raw flow delivery. Accepted exporter/domain identity is refreshed after 12
+hours, before its 24-hour current-evidence expiry. An unavailable RPC retries
+after one minute; a wholly unresolved batch also retries after one minute.
+A partly accepted batch retries after one hour so accepted aliases are not
+rewritten for every flow packet. Failed and wholly unresolved RPCs do not mark
+identity current. A flow record more than 11 hours old stays raw only, so a
+delayed timestamp cannot create evidence that expires before the next refresh.
+The worker discards stale records before deduplicating exporter/domain keys,
+allowing a fresh record later in the same batch to refresh identity. Cloud
+flow-log imports never create exporter evidence.
+
 ## Enrichment (opt-in)
 
 Raw flow records often lack the AS number and country of an IP — the **AS**
@@ -216,6 +240,17 @@ The state matrix is deterministic:
 | local queue loss | `degraded` | reduce local ingest pressure |
 | local bus delivery loss | `degraded` | verify the local bus |
 | last accepted packet older than three minutes | `stale` | verify exporter delivery |
+
+FX-2's optional entity channel can also submit a `flow.exporter_silent`
+signal from this existing stale state. It requires an exact configured
+exporter IP and every observed protocol for that exporter to be stale; an
+exporter never seen by the collector has no measured silence claim. The
+optional fault is suppressed when a protocol window is invalid, a recovery
+packet arrived after a queued stale window, or bounded quality-window eviction
+made the queued window incomplete. A later complete stale window may signal.
+The quality receipt and raw flow bus do not wait on the bounded mTLS fault queue.
+Faults carry no tenant, agent, routing-context or canonical-entity selector;
+the verified evidence SVID and current operator assignment supply those.
 
 Privacy is structural. Rejected-source addresses never enter the aggregator.
 Raw datagrams, decoded five-tuples, credentials, and free-form error strings are

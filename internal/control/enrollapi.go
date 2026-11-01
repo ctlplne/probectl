@@ -237,7 +237,12 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			Config:       collectorConfig(id.Plane, id.TenantID, id.AgentID, collectionProfile, busNamespace),
 			SVID:         id.SVID,
 		}
-		return s.recordAudit(ctx, sc, r, "collector.registered", id.AgentID, map[string]any{
+		action := "collector.registered"
+		if id.Plane == "entity" {
+			action = "collector.evidence_svid_issued"
+			out.Capabilities = []string{"evidence"}
+		}
+		return s.recordAudit(ctx, sc, r, action, id.AgentID, map[string]any{
 			"plane": id.Plane, "hostname": hostname, "collection_profile": collectionProfile,
 		})
 	})
@@ -249,10 +254,12 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			return apierror.Unauthorized("invalid enrollment token")
 		case errors.Is(err, enroll.ErrInvalidCollectorPlane):
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCollectorPlane, enrollmentSurfaceCollector, tenantID)
-			return apierror.BadRequest("collector plane must be one of: bgp, bmp, flow, device, ebpf, endpoint")
+			return apierror.BadRequest("collector plane must be one of: bgp, bmp, flow, device, ebpf, endpoint, entity")
+		case errors.Is(err, enroll.ErrEvidencePinRequired):
+			return apierror.BadRequest("entity evidence registration requires a token pinned to an existing agent")
 		case errors.Is(err, enroll.ErrBadCSR):
 			s.recordEnrollmentFailure(r, enrollmentFailureInvalidCSR, enrollmentSurfaceCollector, tenantID)
-			return apierror.BadRequest("collector registration requires a valid csr_pem (required for bmp; optional for ebpf, which then receives an agent-channel SVID)")
+			return apierror.BadRequest("collector registration requires a valid csr_pem (required for bmp and entity; optional for ebpf)")
 		case errors.Is(err, enroll.ErrRevoked):
 			s.authLimiter.Fail("ip:" + s.clientIP(r))
 			s.recordEnrollmentFailure(r, enrollmentFailureRevokedIdentity, enrollmentSurfaceCollector, tenantID)
@@ -292,6 +299,11 @@ func collectorCollectionProfile(plane, raw string) (string, error) {
 }
 
 func collectorConfig(plane, tenantID, agentID, collectionProfile, busNamespace string) collectorConfigHint {
+	if plane == "entity" {
+		// An evidence SVID is an extra credential for an existing collector,
+		// not a second bus collector or a separate startup command.
+		return collectorConfigHint{Env: map[string]string{}, YAML: map[string]any{}}
+	}
 	h := collectorConfigHint{Env: map[string]string{}, YAML: map[string]any{"tenant_id": tenantID}}
 	// DPR-049: agent-published planes publish on the tenant's namespaced lane
 	// (strict-lane mode refuses the shared lane); say which one. Every

@@ -27,9 +27,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/ctlplne/probectl/internal/agent"
 	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/flow/cloudflow"
 	"github.com/ctlplne/probectl/internal/logging"
@@ -102,8 +104,55 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	var evidenceClient *agent.EvidenceClient
+	if cfg.Evidence.Enabled() {
+		if err := agent.ValidateEvidenceRotation(cfg.Evidence.RotateURL,
+			cfg.Evidence.CertFile, cfg.Evidence.KeyFile, cfg.Evidence.CAFile); err != nil {
+			return fmt.Errorf("flow evidence renewal: %w", err)
+		}
+		client, err := agent.DialEntityEvidence(cfg.Evidence.ControlAddr,
+			cfg.Evidence.CertFile, cfg.Evidence.KeyFile, cfg.Evidence.CAFile,
+			cfg.Evidence.ServerName)
+		if err != nil {
+			return fmt.Errorf("flow evidence identity: %w", err)
+		}
+		defer client.Close()
+		evidenceClient = client
+		tenantID, agentID := client.Identity()
+		if tenantID != cfg.TenantID || agentID != cfg.AgentID {
+			return fmt.Errorf("flow evidence certificate does not match configured tenant and agent")
+		}
+		collector.WithEntityEvidence(observedFlowEvidence{client: client, metrics: metricsRuntime})
+		go agent.RotationLoopOnSuccess(ctx, log, cfg.Evidence.RotateURL,
+			cfg.Evidence.CertFile, cfg.Evidence.KeyFile, cfg.Evidence.CAFile, 0,
+			func() {
+				if err := evidenceClient.ReconnectAfterRotation(); err != nil {
+					log.Warn("flow evidence connection renewal failed", "error", err.Error())
+				}
+				collector.RefreshEvidenceAfterRotation()
+			})
+	}
 	return metricsRuntime.RunTogether(ctx, collector.Run)
 }
+
+type observedFlowEvidence struct {
+	client  *agent.EvidenceClient
+	metrics *agentmetrics.Runtime
+}
+
+func (o observedFlowEvidence) Submit(ctx context.Context, observations []entity.Observation) (int, int, error) {
+	accepted, unresolved, err := o.client.Submit(ctx, observations)
+	o.metrics.EntityEvidence(accepted, unresolved, err)
+	return accepted, unresolved, err
+}
+
+func (o observedFlowEvidence) SubmitFaults(ctx context.Context, faults []entity.FaultObservation) (int, error) {
+	accepted, err := o.client.SubmitFaults(ctx, faults)
+	o.metrics.EntityFault(err)
+	return accepted, err
+}
+
+func (o observedFlowEvidence) QueueDrop() { o.metrics.EntityEvidenceQueueDrop() }
 
 func runCloudImport(ctx context.Context, cfg *flow.Config, emitter flow.Emitter, log *slog.Logger) error {
 	var r io.Reader = os.Stdin

@@ -21,16 +21,21 @@ import {
   LoadingState,
   Select,
   StatusDot,
+  Table,
   TopologyPreview,
   useToast,
 } from '../components'
+import { useAuth } from '../auth/useAuth'
 import { useTests } from '../api/tests'
+import { useAssignPathTestContext, useEntityContexts } from '../api/entities'
 import {
   usePath,
+  usePathEntities,
   useDiscoverPath,
   usePathHistory,
   type PathMeasurementFidelity,
   type PathSnapshot,
+  type PathEntityHop,
 } from '../api/paths'
 import { severityTone, useChanges, useIncidents } from '../api/incidents'
 import type { MessageKey } from '../i18n/messages'
@@ -85,6 +90,7 @@ function overlapsTimeWindow(start: string, end: string, from?: string, to?: stri
 
 export function PathPage() {
   const { t } = useI18n()
+  const { permissions, tenant } = useAuth()
   const tests = useTests()
   const [params, setParams] = useSearchParams()
   const parsedPivot = useMemo(() => parsePivotContext(params), [params])
@@ -138,6 +144,51 @@ export function PathPage() {
     ? rounds.find((round) => round.id === requestedComparisonID && round.id !== selectedRound?.id)
     : undefined
   const displayedPath = selectedRound?.path ?? path.data
+  const pathEntities = usePathEntities(
+    testId,
+    tenant.id,
+    permissions.includes('entities.read') && Boolean(displayedPath),
+  )
+  const canAssignPathContext =
+    permissions.includes('entities.read') && permissions.includes('agent.write')
+  const contexts = useEntityContexts(tenant.id, canAssignPathContext)
+  const assignPathContext = useAssignPathTestContext(tenant.id, testId)
+  const [pathContextSelection, setPathContextSelection] = useState<{
+    tenantID: string
+    testID: string
+    value: string
+  } | null>(null)
+  // A tenant switch can render once before effects run. Only a selection
+  // made for this exact tenant/test may authorize a context assignment.
+  const pathContextChoice =
+    pathContextSelection?.tenantID === tenant.id && pathContextSelection.testID === testId
+      ? pathContextSelection.value
+      : ''
+  const contextOptions = useMemo(() => {
+    const known = (contexts.data?.pages ?? []).flatMap((page) =>
+      page.items.map((item) => ({
+        value: item.context_id,
+        label: `${item.site_label} / ${item.vrf_label}`,
+      })),
+    )
+    const current = pathEntities.data?.context_id
+    if (current && !known.some((item) => item.value === current)) {
+      known.unshift({ value: current, label: `Current context ${current}` })
+    }
+    return known
+  }, [contexts.data, pathEntities.data?.context_id])
+  useEffect(() => {
+    if (
+      (pathEntities.data?.status === 'current' || pathEntities.data?.status === 'awaiting_trace') &&
+      pathEntities.data.context_id
+    ) {
+      setPathContextSelection({
+        tenantID: tenant.id,
+        testID: testId ?? '',
+        value: pathEntities.data.context_id,
+      })
+    }
+  }, [tenant.id, testId, pathEntities.data?.status, pathEntities.data?.context_id])
   const pathNodes = useMemo(
     () => (displayedPath ? layoutPath(displayedPath).nodes : []),
     [displayedPath],
@@ -556,6 +607,122 @@ export function PathPage() {
                 <span>Review evidence first; path analysis never changes the network.</span>
               </div>
             </section>
+          ) : null}
+
+          {displayedPath && permissions.includes('entities.read') ? (
+            <Card data-path-entities>
+              <CardHeader
+                title="Current path identity"
+                description="A path traced after context assignment is joined to current evidence. Earlier rounds remain raw history."
+              />
+              <CardBody>
+                {canAssignPathContext ? (
+                  <div className={styles.toolbar}>
+                    <Select
+                      label="Routing context for this test"
+                      value={pathContextChoice}
+                      onChange={(event) =>
+                        setPathContextSelection({
+                          tenantID: tenant.id,
+                          testID: testId ?? '',
+                          value: event.target.value,
+                        })
+                      }
+                      options={contextOptions}
+                    />
+                    <Button
+                      disabled={!testId || !pathContextChoice || assignPathContext.isPending}
+                      onClick={() =>
+                        assignPathContext.mutate(pathContextChoice, {
+                          onSuccess: () =>
+                            push({ tone: 'success', title: 'Path context assigned' }),
+                          onError: (error) =>
+                            push({
+                              tone: 'danger',
+                              title: 'Path context assignment failed',
+                              message: error.message,
+                            }),
+                        })
+                      }
+                    >
+                      Assign context
+                    </Button>
+                    {contexts.hasNextPage ? (
+                      <Button
+                        variant="secondary"
+                        disabled={contexts.isFetchingNextPage}
+                        onClick={() => {
+                          void contexts.fetchNextPage()
+                        }}
+                      >
+                        Load more contexts
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {pathEntities.isPending ? (
+                  <LoadingState label="Resolving path responders…" />
+                ) : pathEntities.isError ? (
+                  <ErrorState description="Path identities are unavailable with the current evidence permissions." />
+                ) : pathEntities.data?.status === 'unbound' ? (
+                  <EmptyState
+                    icon="path"
+                    title="Routing context not assigned"
+                    description="An operator must bind this test to a site and VRF before a responder IP can be matched to a canonical entity."
+                  />
+                ) : pathEntities.data?.status === 'awaiting_trace' ? (
+                  <EmptyState
+                    icon="path"
+                    title="Run a new path discovery"
+                    description="This test has a routing context, but its saved traces started before that assignment. Discover the path again to resolve current responders."
+                  />
+                ) : (
+                  <>
+                    <p>
+                      Context <code>{pathEntities.data?.context_id}</code> ·{' '}
+                      {pathEntities.data?.items.length ?? 0} responders
+                      {pathEntities.data?.truncated ? ' · bounded result' : ''}
+                    </p>
+                    <Table<PathEntityHop>
+                      caption="Latest path responders and current canonical identity"
+                      columns={[
+                        { key: 'hop', header: 'Hop', render: (row) => row.ttl },
+                        {
+                          key: 'ip',
+                          header: 'Responder IP',
+                          render: (row) => <code>{row.ip}</code>,
+                        },
+                        {
+                          key: 'identity',
+                          header: 'Current identity',
+                          render: (row) => (
+                            <>
+                              <Badge
+                                tone={row.resolution.status === 'resolved' ? 'success' : 'warning'}
+                              >
+                                {row.resolution.status}
+                              </Badge>{' '}
+                              {row.resolution.entity_id ? (
+                                <code>{row.resolution.entity_id}</code>
+                              ) : null}
+                            </>
+                          ),
+                        },
+                      ]}
+                      rows={pathEntities.data?.items.slice(0, 100) ?? []}
+                      rowKey={(row) => `${row.ttl}:${row.ip}`}
+                      empty="No responder address was observed."
+                    />
+                    {(pathEntities.data?.items.length ?? 0) > 100 ? (
+                      <p>
+                        Showing the first 100 responders. Use the CLI or API for the full bounded
+                        result.
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </CardBody>
+            </Card>
           ) : null}
 
           <div className={styles.grid}>

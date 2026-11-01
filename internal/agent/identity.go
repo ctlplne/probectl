@@ -272,6 +272,10 @@ func Rotate(ctx context.Context, server, certFile, keyFile, caFile string) (time
 	if err != nil {
 		return time.Time{}, err
 	}
+	oldID, err := crypto.RegisteredSPIFFEIDFromCert(leaf)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("rotate: current identity: %w", err)
+	}
 	csrPEM, newKeyPEM, err := crypto.CreateCSR(leaf.Subject.CommonName)
 	if err != nil {
 		return time.Time{}, err
@@ -292,6 +296,15 @@ func Rotate(ctx context.Context, server, certFile, keyFile, caFile string) (time
 	if err != nil {
 		return time.Time{}, err
 	}
+	newLeaf, err := firstCert([]byte(id.CertPEM))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("rotate: issued identity: %w", err)
+	}
+	newID, err := crypto.RegisteredSPIFFEIDFromCert(newLeaf)
+	if err != nil || newID != oldID || id.SPIFFEID != oldID.String() ||
+		id.TenantID != oldID.TenantID || id.AgentID != oldID.AgentID {
+		return time.Time{}, fmt.Errorf("rotate: issued identity changed tenant, agent or plane")
+	}
 	// G9: validate the test-bundle key BEFORE replacing the identity, so an
 	// unusable key refuses the whole rotation instead of half-applying it.
 	if err := checkTestSyncPublicKey(id.TestSyncPublicKey); err != nil {
@@ -309,11 +322,59 @@ func Rotate(ctx context.Context, server, certFile, keyFile, caFile string) (time
 	return id.NotAfter, nil
 }
 
+// ValidateEvidenceRotation makes an optional collector's short-lived entity
+// SVID renewable as one atomic identity unit. The separate server trust file
+// stays outside the rotated issuing-CA bundle, and the endpoint must be TLS.
+func ValidateEvidenceRotation(server, certFile, keyFile, serverCAFile string) error {
+	if _, err := enrollmentEndpoint(server, "/enroll/agent/rotate", false); err != nil {
+		return fmt.Errorf("evidence rotation endpoint: %w", err)
+	}
+	dir := filepath.Clean(filepath.Dir(certFile))
+	if filepath.Clean(filepath.Dir(keyFile)) != dir ||
+		filepath.Clean(filepath.Dir(serverCAFile)) != dir ||
+		filepath.Base(certFile) != IdentityCertFile ||
+		filepath.Base(keyFile) != IdentityKeyFile ||
+		filepath.Base(serverCAFile) != IdentityServerCAFile {
+		return fmt.Errorf("evidence rotation requires cert.pem, key.pem and server-ca.pem in one dedicated directory")
+	}
+	return nil
+}
+
+// ValidateDistinctIdentityDirs prevents a rotated evidence unit from swapping
+// the ordinary agent or listener certificate through a path or symlink alias.
+func ValidateDistinctIdentityDirs(evidenceCertFile, ordinaryCertFile string) error {
+	evidenceDir, err := filepath.Abs(filepath.Dir(evidenceCertFile))
+	if err != nil {
+		return err
+	}
+	ordinaryDir, err := filepath.Abs(filepath.Dir(ordinaryCertFile))
+	if err != nil {
+		return err
+	}
+	if evidenceDir == ordinaryDir {
+		return fmt.Errorf("evidence identity directory must differ from ordinary identity directory")
+	}
+	resolvedEvidence, evidenceErr := filepath.EvalSymlinks(evidenceDir)
+	resolvedOrdinary, ordinaryErr := filepath.EvalSymlinks(ordinaryDir)
+	if evidenceErr == nil && ordinaryErr == nil && resolvedEvidence == resolvedOrdinary {
+		return fmt.Errorf("evidence and ordinary identity directories resolve to the same directory")
+	}
+	return nil
+}
+
 // RotationLoop rotates the identity at ~2/3 of its remaining lifetime,
 // checking every interval (default 1m). It never gives up: a failed rotation
 // retries on the next tick while the current SVID is still valid, and logs
 // loudly once past the rotation point.
 func RotationLoop(ctx context.Context, log *slog.Logger, server, certFile, keyFile, caFile string, interval time.Duration) {
+	RotationLoopOnSuccess(ctx, log, server, certFile, keyFile, caFile, interval, nil)
+}
+
+// RotationLoopOnSuccess lets optional evidence senders refresh their current
+// observations immediately after the new SVID is atomically installed. The
+// callback must be nonblocking; raw telemetry never waits on it.
+func RotationLoopOnSuccess(ctx context.Context, log *slog.Logger, server, certFile, keyFile, caFile string,
+	interval time.Duration, onSuccess func()) {
 	if interval <= 0 {
 		interval = time.Minute
 	}
@@ -340,11 +401,14 @@ func RotationLoop(ctx context.Context, log *slog.Logger, server, certFile, keyFi
 		}
 		notAfter, err := Rotate(ctx, server, certFile, keyFile, caFile)
 		if err != nil {
-			log.Error("identity rotation FAILED (will retry; ingest stops if the SVID expires)",
+			log.Error("identity rotation FAILED (will retry; this identity is refused after expiry)",
 				"error", err.Error(), "expires", leaf.NotAfter.UTC().Format(time.RFC3339))
 			continue
 		}
 		log.Info("agent SVID rotated", "not_after", notAfter.UTC().Format(time.RFC3339))
+		if onSuccess != nil {
+			onSuccess()
+		}
 	}
 }
 

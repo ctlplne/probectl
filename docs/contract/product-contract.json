@@ -24,7 +24,7 @@
       ],
       "name": "Path visualization",
       "status": "delivered",
-      "evidence": "`internal/path`, web hero view"
+      "evidence": "`internal/path`, web hero view; FX-2 operator-bound current hop identity uses `internal/control/pathentities.go` and `web/src/routes/PathPage.tsx`."
     },
     {
       "ids": [
@@ -41,7 +41,7 @@
       ],
       "name": "BGP monitoring",
       "status": "delivered",
-      "evidence": "`analyzer/`, `internal/bgp`"
+      "evidence": "`analyzer/`, `internal/bgp`; FX-2 BMP peer observations use `internal/bgp/bmp_entity_evidence.go` with an independent router SVID."
     },
     {
       "ids": [
@@ -65,7 +65,7 @@
       ],
       "name": "Dashboards and incident timeline",
       "status": "delivered",
-      "evidence": "`internal/incident`, `web/`; dense Operator/Executive dashboards plus tenant-safe saved views and scheduled local-inbox PDF/CSV reporting use `migrations/0061_dashboard_reporting.sql`, `internal/store/dashboardreports.go`, `internal/control/dashboardreporting.go`"
+      "evidence": "`internal/incident`, `web/`; dense Operator/Executive dashboards plus tenant-safe saved views and scheduled local-inbox PDF/CSV reporting use `migrations/0061_dashboard_reporting.sql`, `internal/store/dashboardreports.go`, `internal/control/dashboardreporting.go`; FX-2 verified tenant/context/entity correlation uses `migrations/0137_incident_entity_identity.sql` and `internal/control/incidents.go`."
     },
     {
       "ids": [
@@ -129,7 +129,7 @@
       ],
       "name": "Flow analytics",
       "status": "delivered",
-      "evidence": "`internal/flow`, `internal/store/flowstore`, `internal/control/explorer_flow.go`, `web/src/routes/NativeFlowPage.tsx` · native registry, builder/charts, saved filters/views, frozen paging/CSV and stateless proposals; `TestNativeFlowExplorerRealStack` binds constructed protocol senders, REST/CLI/MCP and rendered query receipt in the integration profile; CI development transport is distinct from production TLS image proofs"
+      "evidence": "`internal/flow`, `internal/store/flowstore`, `internal/control/explorer_flow.go`, `web/src/routes/NativeFlowPage.tsx` · native registry, builder/charts, saved filters/views, frozen paging/CSV and stateless proposals; `TestNativeFlowExplorerRealStack` binds constructed protocol senders, REST/CLI/MCP and rendered query receipt in the integration profile; CI development transport is distinct from production TLS image proofs. FX-2 exporter identity uses `internal/flow/entity_evidence.go` and the current Explorer pivot."
     },
     {
       "ids": [
@@ -137,7 +137,7 @@
       ],
       "name": "Device telemetry",
       "status": "delivered",
-      "evidence": "`internal/device` (SNMP + gNMI)"
+      "evidence": "`internal/device` (SNMP + gNMI); FX-2 SNMP/interface/LLDP identity evidence uses `internal/device/entity_evidence.go` and the operator registry card."
     },
     {
       "ids": [
@@ -313,7 +313,7 @@
       ],
       "name": "Live topology graph",
       "status": "delivered",
-      "evidence": "`internal/topology` (versioned, what-if; ADR U-047)"
+      "evidence": "`internal/topology` (versioned, what-if; ADR U-047); FX-2 current tenant/context entity pivots use `internal/entity`, `migrations/0136_entity_registry.sql` and `docs/entity-registry.md`."
     },
     {
       "ids": [

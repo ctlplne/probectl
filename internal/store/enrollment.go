@@ -281,7 +281,7 @@ func (a AgentIdentities) KnownSerial(ctx context.Context, tenantID, agentID, ser
 	var n int
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		return sc.Q.QueryRow(ctx,
-			`SELECT count(*) FROM agent_identities WHERE tenant_id = $1 AND agent_id = $2 AND serial = $3`,
+			`SELECT count(*) FROM agent_identities WHERE tenant_id = $1 AND agent_id = $2 AND serial = $3 AND revoked_at IS NULL`,
 			tenantID, agentID, serial).Scan(&n)
 	})
 	return n > 0, err
@@ -301,7 +301,7 @@ func (a AgentIdentities) KnownIssuedIdentity(ctx context.Context, tenantID, agen
 			  WHERE tenant_id = $1
 			    AND agent_id = $2
 			    AND spiffe_id = $3
-			    AND serial = $4`,
+			    AND serial = $4 AND revoked_at IS NULL`,
 			tenantID, agentID, spiffeID, serial).Scan(&n)
 	})
 	return n > 0, err
@@ -353,9 +353,20 @@ func (a AgentIdentities) RevokeAgent(ctx context.Context, tenantID, agentID, rev
 	// TENANT-009: known tenant => run the whole operator revocation UNDER
 	// InTenant so RLS confines every statement to this tenant.
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		// Evidence-SVID issuance share-locks the registered agent while it
+		// records a serial. Take the update lock before reading/revoking serials
+		// so a concurrent issuance is either included or refused. A deleted
+		// agent may still have identities to revoke, so no row is allowed.
+		var present int
+		lockErr := sc.Q.QueryRow(ctx, `SELECT 1 FROM agents
+			WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, agentID).Scan(&present)
+		if lockErr != nil && !errors.Is(lockErr, pgx.ErrNoRows) {
+			return lockErr
+		}
 		if _, err := sc.Q.Exec(ctx,
 			`UPDATE agent_identities SET revoked_at = now(), revoked_by = $3
-			  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NULL`,
+			  WHERE tenant_id = $1 AND agent_id = $2
+			    AND (revoked_at IS NULL OR revoked_by = 'entity_registry_delete')`,
 			tenantID, agentID, revokedBy); err != nil {
 			return err
 		}
@@ -411,6 +422,24 @@ func (a AgentIdentities) RevokeAgent(ctx context.Context, tenantID, agentID, rev
 				serials = append(serials, item.serial)
 			}
 		}
+		// FX-2: the same transaction closes the agent's one-context binding
+		// and every configured source. Historical evidence remains for citations,
+		// but the registry's current-assignment join must stop resolving it.
+		// A future-dated assignment closes at its start (an empty interval).
+		if _, err := sc.Q.Exec(ctx, `UPDATE entity_agent_contexts
+			SET expires_at = GREATEST(statement_timestamp(), assigned_at)
+			WHERE tenant_id = $1 AND agent_id = $2
+			  AND (expires_at IS NULL OR expires_at > statement_timestamp())`,
+			tenantID, agentID); err != nil {
+			return err
+		}
+		if _, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts
+			SET expires_at = GREATEST(statement_timestamp(), assigned_at)
+			WHERE tenant_id = $1 AND agent_id = $2
+			  AND (expires_at IS NULL OR expires_at > statement_timestamp())`,
+			tenantID, agentID); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -427,7 +456,8 @@ func (a AgentIdentities) IsAgentRevoked(ctx context.Context, tenantID, agentID s
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		return sc.Q.QueryRow(ctx,
 			`SELECT count(*) FROM agent_identities
-			  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL`,
+			  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL
+			    AND revoked_by IS DISTINCT FROM 'entity_registry_delete'`,
 			tenantID, agentID).Scan(&n)
 	})
 	return n > 0, err

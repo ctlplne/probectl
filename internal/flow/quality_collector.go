@@ -9,6 +9,7 @@ package flow
 import (
 	"context"
 	"encoding/binary"
+	"net/netip"
 	"sort"
 	"time"
 )
@@ -104,6 +105,9 @@ func (c *Collector) observeQualityPacket(
 			}
 			if !first {
 				delete(c.quality, oldestKey)
+				// A queued stale snapshot can lose a later recovery packet to
+				// this bounded table. Mark the loss for the optional fault worker.
+				c.qualityEvictedAt = at
 			}
 		}
 		row = &qualityWindow{
@@ -266,12 +270,19 @@ func (c *Collector) emitQualityReceipts(ctx context.Context, at time.Time) {
 	// exporters stay fresh (docs/guardrails.md G12-N, CONTRIBUTING.md).
 	valid := receipts[:0]
 	var invalid int
+	invalidExporters := make(map[string]struct{})
 	for _, receipt := range receipts {
-		if _, err := ValidateQualityReceipt(receipt); err != nil {
+		normalized, err := ValidateQualityReceipt(receipt)
+		if err != nil {
 			invalid++
+			exporter := receipt.ExporterAddress
+			if addr, parseErr := netip.ParseAddr(exporter); parseErr == nil {
+				exporter = addr.Unmap().String()
+			}
+			invalidExporters[exporter] = struct{}{}
 			continue
 		}
-		valid = append(valid, receipt)
+		valid = append(valid, normalized)
 	}
 	if invalid > 0 {
 		c.stats.QualityInvalidReceipts.Add(uint64(invalid))
@@ -280,6 +291,30 @@ func (c *Collector) emitQualityReceipts(ctx context.Context, at time.Time) {
 	}
 	if len(valid) == 0 {
 		return
+	}
+	if _, ok := c.evidence.(FlowFaultEmitter); ok && c.faultQueue != nil {
+		configuredReceipts := make([]QualityReceipt, 0, len(valid))
+		for _, receipt := range valid {
+			// A dropped protocol window leaves the exporter state unknown.
+			// One stale valid window must not become a false silence fault
+			// when another observed protocol was invalid this tick.
+			if _, incomplete := invalidExporters[receipt.ExporterAddress]; incomplete {
+				continue
+			}
+			if _, configured := c.evidenceSources[receipt.ExporterAddress]; configured {
+				configuredReceipts = append(configuredReceipts, receipt)
+			}
+		}
+		if len(configuredReceipts) != 0 {
+			select {
+			case c.faultQueue <- configuredReceipts:
+			default:
+				c.stats.EvidenceQueueDrops.Add(1)
+				if counter, ok := c.evidence.(interface{ QueueDrop() }); ok {
+					counter.QueueDrop()
+				}
+			}
+		}
 	}
 	if err := emitter.EmitQuality(ctx, valid); err != nil {
 		c.restoreQuality(valid)

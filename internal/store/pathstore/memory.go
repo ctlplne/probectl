@@ -27,19 +27,37 @@ type Memory struct {
 func NewMemory() *Memory { return &Memory{saved: map[string][]Snapshot{}} }
 
 // Save retains a copy of the path under its tenant.
-func (m *Memory) Save(_ context.Context, tenantID string, p *path.Path) error {
-	if tenantID == "" {
-		return ErrNoTenant
-	}
-	id, err := randomID()
-	if err != nil {
-		return err
+func (m *Memory) Save(ctx context.Context, tenantID string, p *path.Path) error {
+	observedAt, trusted := discoveryStartedAt(ctx)
+	return m.SaveBatch(ctx, []PathItem{{
+		TenantID: tenantID, P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
+	}})
+}
+
+// SaveBatch retains the discovery's enqueue time even if a batch is flushed
+// after an operator changes its routing-context binding.
+func (m *Memory) SaveBatch(_ context.Context, items []PathItem) error {
+	for _, item := range items {
+		if item.TenantID == "" {
+			return ErrNoTenant
+		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.saved[tenantID] = append(m.saved[tenantID], Snapshot{
-		ID: id, ObservedAt: time.Now().UTC(), Path: clonePath(p),
-	})
+	for _, item := range items {
+		id, err := randomID()
+		if err != nil {
+			return err
+		}
+		observedAt := item.ObservedAt
+		if observedAt.IsZero() {
+			observedAt = time.Now().UTC()
+		}
+		m.saved[item.TenantID] = append(m.saved[item.TenantID], Snapshot{
+			ID: id, ObservedAt: observedAt, Path: clonePath(item.P),
+			TrustedDiscoveryTime: item.TrustedDiscoveryTime,
+		})
+	}
 	return nil
 }
 
@@ -63,7 +81,8 @@ func (m *Memory) ExportTenantHops(_ context.Context, tenantID string, w io.Write
 	enc := json.NewEncoder(w)
 	var n int64
 	for _, round := range m.rounds(tenantID) {
-		for _, row := range hopRows(tenantID, round.ID, formatCHTime(round.ObservedAt), &round.Path) {
+		for _, row := range hopRows(tenantID, round.ID, formatCHTime(round.ObservedAt),
+			round.TrustedDiscoveryTime, &round.Path) {
 			if err := enc.Encode(row); err != nil {
 				return n, err
 			}

@@ -22,10 +22,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/agent"
 	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
 	"github.com/ctlplne/probectl/internal/bgp"
 	"github.com/ctlplne/probectl/internal/bus"
 	probectlc "github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -60,6 +62,12 @@ func run() error {
 	agentID := fs.String("agent-id", os.Getenv("PROBECTL_BMP_AGENT_ID"), "this listener's registered collector id (DPR-084): with -tenant-id, the listener heartbeats its own fleet entry so the fleet view can say online/offline about it; empty = no heartbeat")
 	tenantID := fs.String("tenant-id", os.Getenv("PROBECTL_BMP_TENANT_ID"), "the tenant that registered this listener as a collector (DPR-084); required with -agent-id")
 	busNamespace := fs.String("bus-namespace", os.Getenv("PROBECTL_BMP_BUS_NAMESPACE"), "publish on this tenant's own lane (probectl.<ns>.bgp.events, printed by collector registration) and serve only -tenant-id's routers; required where strict tenant lanes are on (DPR-049, WIRE-001)")
+	evidenceAddr := fs.String("evidence-control-addr", os.Getenv("PROBECTL_BMP_EVIDENCE_CONTROL_ADDR"), "restricted entity evidence mTLS listener")
+	evidenceCert := fs.String("evidence-cert", os.Getenv("PROBECTL_BMP_EVIDENCE_CERT_FILE"), "entity-plane client certificate")
+	evidenceKey := fs.String("evidence-key", os.Getenv("PROBECTL_BMP_EVIDENCE_KEY_FILE"), "matching entity-plane private key")
+	evidenceCA := fs.String("evidence-ca", os.Getenv("PROBECTL_BMP_EVIDENCE_CA_FILE"), "trusted control-plane CA bundle")
+	evidenceServerName := fs.String("evidence-server-name", os.Getenv("PROBECTL_BMP_EVIDENCE_SERVER_NAME"), "expected control-plane DNS name")
+	evidenceRotateURL := fs.String("evidence-rotate-url", os.Getenv("PROBECTL_BMP_EVIDENCE_ROTATE_URL"), "HTTPS control-plane URL for evidence SVID renewal")
 	handshakeTimeoutRaw := fs.String("handshake-timeout", envOr("PROBECTL_BMP_HANDSHAKE_TIMEOUT", bgp.DefaultBMPHandshakeTimeout.String()), "maximum unauthenticated mTLS handshake time")
 	readTimeoutRaw := fs.String("read-timeout", envOr("PROBECTL_BMP_READ_TIMEOUT", bgp.DefaultBMPReadTimeout.String()), "maximum time for a BMP frame in progress (header + payload once its first byte arrived)")
 	idleTimeoutRaw := fs.String("idle-timeout", envOr("PROBECTL_BMP_IDLE_TIMEOUT", bgp.DefaultBMPIdleTimeout.String()), "maximum quiet time between frames on an authenticated session; 0 = unbounded (TCP keepalive detects dead peers)")
@@ -246,6 +254,36 @@ func run() error {
 	if *agentID != "" {
 		log.Info("bmp listener heartbeat enabled (DPR-084)", "agent_id", *agentID, "tenant_id", *tenantID, "interval", bmpHeartbeatInterval.String())
 	}
+	evidenceEnabled := *evidenceAddr != "" || *evidenceRotateURL != "" || *evidenceCert != "" || *evidenceKey != "" ||
+		*evidenceCA != "" || *evidenceServerName != ""
+	var evidenceOption bgp.BMPOption
+	var evidenceClient *agent.EvidenceClient
+	if evidenceEnabled {
+		if *evidenceAddr == "" || *evidenceRotateURL == "" || *evidenceCert == "" || *evidenceKey == "" ||
+			*evidenceCA == "" || *agentID == "" || *tenantID == "" || *busNamespace == "" {
+			return fmt.Errorf("bgp bmp: entity evidence requires all mTLS paths, an HTTPS rotation URL, a registered listener and an exact tenant bus lane")
+		}
+		if err := agent.ValidateEvidenceRotation(*evidenceRotateURL,
+			*evidenceCert, *evidenceKey, *evidenceCA); err != nil {
+			return fmt.Errorf("bgp bmp: entity evidence renewal: %w", err)
+		}
+		if err := agent.ValidateDistinctIdentityDirs(*evidenceCert, *certFile); err != nil {
+			return fmt.Errorf("bgp bmp: %w", err)
+		}
+		client, err := agent.DialEntityEvidence(*evidenceAddr, *evidenceCert,
+			*evidenceKey, *evidenceCA, *evidenceServerName)
+		if err != nil {
+			return fmt.Errorf("bgp bmp: entity evidence identity: %w", err)
+		}
+		defer client.Close()
+		evidenceClient = client
+		certTenant, certAgent := client.Identity()
+		if certTenant != *tenantID || certAgent != *agentID {
+			return fmt.Errorf("bgp bmp: entity evidence SVID does not match lane tenant and listener agent")
+		}
+		evidenceOption = bgp.WithBMPEntityEvidence(*agentID,
+			observedBMPEvidence{client: client, metrics: metricsRuntime})
+	}
 	return metricsRuntime.RunTogether(ctx, func(ctx context.Context) error {
 		go func() {
 			_ = feed.Run(ctx)
@@ -260,7 +298,7 @@ func run() error {
 				})
 			}, log)
 		}
-		return bgp.NewBMPListener(ln, b, *collector, log,
+		options := []bgp.BMPOption{
 			bgp.WithBMPHandshakeTimeout(handshakeTimeout),
 			bgp.WithBMPReadTimeout(readTimeout),
 			bgp.WithBMPIdleTimeout(idleTimeout),
@@ -278,9 +316,37 @@ func run() error {
 			bgp.WithBMPRevocationList(revocations),
 			bgp.WithBMPIssuedIdentityVerifier(verifyIssued),
 			bgp.WithBMPTenantLane(laneTenant, *busNamespace),
-		).Serve(ctx)
+		}
+		if evidenceOption != nil {
+			options = append(options, evidenceOption)
+		}
+		listener := bgp.NewBMPListener(ln, b, *collector, log, options...)
+		if evidenceEnabled {
+			go agent.RotationLoopOnSuccess(ctx, log, *evidenceRotateURL,
+				*evidenceCert, *evidenceKey, *evidenceCA, 0,
+				func() {
+					if err := evidenceClient.ReconnectAfterRotation(); err != nil {
+						log.Warn("bmp evidence connection renewal failed", "error", err.Error())
+					}
+					listener.RefreshEvidenceAfterRotation()
+				})
+		}
+		return listener.Serve(ctx)
 	})
 }
+
+type observedBMPEvidence struct {
+	client  *agent.EvidenceClient
+	metrics *agentmetrics.Runtime
+}
+
+func (o observedBMPEvidence) Submit(ctx context.Context, observations []entity.Observation) (int, int, error) {
+	accepted, unresolved, err := o.client.Submit(ctx, observations)
+	o.metrics.EntityEvidence(accepted, unresolved, err)
+	return accepted, unresolved, err
+}
+
+func (o observedBMPEvidence) QueueDrop() { o.metrics.EntityEvidenceQueueDrop() }
 
 func parsePositiveBMPDuration(label, raw string) (time.Duration, error) {
 	value, err := time.ParseDuration(strings.TrimSpace(raw))

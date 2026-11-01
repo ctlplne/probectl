@@ -166,6 +166,16 @@ time/filter context to the source screen, and “Explain this view” uses the t
 AI evidence engine. The exact result table remains available beside both paths so a chart or
 explanation never hides the source values.
 
+FX-2 adds an on-demand **Current identity pivot** beside the exact result
+table. It offers up to 100 IP literals already present in the authorized rows;
+the reader chooses one and an operator-owned routing context before any
+canonical lookup runs. `GET /v1/entities/resolve` uses the authenticated tenant,
+that explicit context and current evidence, checks `entities.read` and every
+returned source-plane permission, and shows resolved, conflicting or unresolved
+state with provenance. The original Explorer row, query receipt and historical
+time are never relabelled. A tenant switch clears the selected context and
+does not reuse the previous tenant's resolution cache.
+
 Back and Forward restore and execute the selected URL's worksheet. Typing an unsent draft
 does not trigger another request. Older recipe-only links remain readable, including links
 whose parameter order or UTC timestamp formatting differs from newly generated links.

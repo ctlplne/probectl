@@ -6,9 +6,10 @@
 
 // AgentService is the agent <-> control-plane transport. Every RPC requires
 // mTLS; the caller's tenant and agent id are derived from the verified client
-// certificate's SPIFFE id (spiffe://probectl/tenant/<t>/agent/<a>) — never trusted
-// from the request body (F50: an agent belongs to exactly one tenant, so every
-// result it emits is tenant-attributable at the source).
+// certificate's SPIFFE id (spiffe://probectl/tenant/<t>/<plane>/<a>) — never
+// trusted from the request body. Existing agent and eBPF RPCs remain plane
+// scoped; D-179's entity-plane credential can call only SubmitEntityEvidence.
+// Every result or evidence claim is tenant-attributable at the source.
 //
 // Backward compatibility: fields are additive-only. Never renumber or reuse a
 // field tag; a CI `buf breaking` check enforces this.
@@ -28,16 +29,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_Register_FullMethodName         = "/probectl.agent.v1.AgentService/Register"
-	AgentService_Attest_FullMethodName           = "/probectl.agent.v1.AgentService/Attest"
-	AgentService_Heartbeat_FullMethodName        = "/probectl.agent.v1.AgentService/Heartbeat"
-	AgentService_StreamConfig_FullMethodName     = "/probectl.agent.v1.AgentService/StreamConfig"
-	AgentService_StreamResults_FullMethodName    = "/probectl.agent.v1.AgentService/StreamResults"
-	AgentService_PollCoordination_FullMethodName = "/probectl.agent.v1.AgentService/PollCoordination"
-	AgentService_ReportEndpoint_FullMethodName   = "/probectl.agent.v1.AgentService/ReportEndpoint"
-	AgentService_FetchTestBundle_FullMethodName  = "/probectl.agent.v1.AgentService/FetchTestBundle"
-	AgentService_FetchL7Policy_FullMethodName    = "/probectl.agent.v1.AgentService/FetchL7Policy"
-	AgentService_ReportL7Posture_FullMethodName  = "/probectl.agent.v1.AgentService/ReportL7Posture"
+	AgentService_Register_FullMethodName             = "/probectl.agent.v1.AgentService/Register"
+	AgentService_Attest_FullMethodName               = "/probectl.agent.v1.AgentService/Attest"
+	AgentService_Heartbeat_FullMethodName            = "/probectl.agent.v1.AgentService/Heartbeat"
+	AgentService_StreamConfig_FullMethodName         = "/probectl.agent.v1.AgentService/StreamConfig"
+	AgentService_StreamResults_FullMethodName        = "/probectl.agent.v1.AgentService/StreamResults"
+	AgentService_PollCoordination_FullMethodName     = "/probectl.agent.v1.AgentService/PollCoordination"
+	AgentService_ReportEndpoint_FullMethodName       = "/probectl.agent.v1.AgentService/ReportEndpoint"
+	AgentService_FetchTestBundle_FullMethodName      = "/probectl.agent.v1.AgentService/FetchTestBundle"
+	AgentService_FetchL7Policy_FullMethodName        = "/probectl.agent.v1.AgentService/FetchL7Policy"
+	AgentService_ReportL7Posture_FullMethodName      = "/probectl.agent.v1.AgentService/ReportL7Posture"
+	AgentService_SubmitEntityEvidence_FullMethodName = "/probectl.agent.v1.AgentService/SubmitEntityEvidence"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -89,6 +91,11 @@ type AgentServiceClient interface {
 	// plane appends agent.l7_capture.posture to the tenant's hash-chained audit
 	// stream when an agent first reports consented capture or changes mode.
 	ReportL7Posture(ctx context.Context, in *ReportL7PostureRequest, opts ...grpc.CallOption) (*ReportL7PostureResponse, error)
+	// SubmitEntityEvidence accepts a bounded batch of observational identifiers
+	// from the evidence-only mTLS certificate plane (D-179). The verified peer
+	// supplies tenant and agent; the operator-owned registry supplies context
+	// and canonical entity. No field in this request may choose those identities.
+	SubmitEntityEvidence(ctx context.Context, in *SubmitEntityEvidenceRequest, opts ...grpc.CallOption) (*SubmitEntityEvidenceResponse, error)
 }
 
 type agentServiceClient struct {
@@ -211,6 +218,16 @@ func (c *agentServiceClient) ReportL7Posture(ctx context.Context, in *ReportL7Po
 	return out, nil
 }
 
+func (c *agentServiceClient) SubmitEntityEvidence(ctx context.Context, in *SubmitEntityEvidenceRequest, opts ...grpc.CallOption) (*SubmitEntityEvidenceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SubmitEntityEvidenceResponse)
+	err := c.cc.Invoke(ctx, AgentService_SubmitEntityEvidence_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -260,6 +277,11 @@ type AgentServiceServer interface {
 	// plane appends agent.l7_capture.posture to the tenant's hash-chained audit
 	// stream when an agent first reports consented capture or changes mode.
 	ReportL7Posture(context.Context, *ReportL7PostureRequest) (*ReportL7PostureResponse, error)
+	// SubmitEntityEvidence accepts a bounded batch of observational identifiers
+	// from the evidence-only mTLS certificate plane (D-179). The verified peer
+	// supplies tenant and agent; the operator-owned registry supplies context
+	// and canonical entity. No field in this request may choose those identities.
+	SubmitEntityEvidence(context.Context, *SubmitEntityEvidenceRequest) (*SubmitEntityEvidenceResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -299,6 +321,9 @@ func (UnimplementedAgentServiceServer) FetchL7Policy(context.Context, *FetchL7Po
 }
 func (UnimplementedAgentServiceServer) ReportL7Posture(context.Context, *ReportL7PostureRequest) (*ReportL7PostureResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReportL7Posture not implemented")
+}
+func (UnimplementedAgentServiceServer) SubmitEntityEvidence(context.Context, *SubmitEntityEvidenceRequest) (*SubmitEntityEvidenceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SubmitEntityEvidence not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -483,6 +508,24 @@ func _AgentService_ReportL7Posture_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_SubmitEntityEvidence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitEntityEvidenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).SubmitEntityEvidence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_SubmitEntityEvidence_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).SubmitEntityEvidence(ctx, req.(*SubmitEntityEvidenceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -521,6 +564,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportL7Posture",
 			Handler:    _AgentService_ReportL7Posture_Handler,
+		},
+		{
+			MethodName: "SubmitEntityEvidence",
+			Handler:    _AgentService_SubmitEntityEvidence_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

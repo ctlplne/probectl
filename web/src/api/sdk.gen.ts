@@ -279,6 +279,10 @@ export interface AnomalyTrainingWindow {
   start?: string
 }
 
+export interface AssignEntityPathContextInput {
+  context_id: string
+}
+
 export interface AuditEvent {
   action: string
   actor: string
@@ -427,7 +431,7 @@ export interface CollectorRegisterRequest {
   collection_profile?: "minimal" | "standard" | "topology-rich"
   csr_pem?: string
   hostname?: string
-  plane: "bgp" | "bmp" | "flow" | "device" | "ebpf" | "endpoint"
+  plane: "bgp" | "bmp" | "flow" | "device" | "ebpf" | "endpoint" | "entity"
   token: string
 }
 
@@ -436,7 +440,7 @@ export interface CollectorRegistration {
   capabilities: string[]
   config: CollectorConfigHint
   hostname?: string
-  plane: "bgp" | "bmp" | "flow" | "device" | "ebpf" | "endpoint"
+  plane: "bgp" | "bmp" | "flow" | "device" | "ebpf" | "endpoint" | "entity"
   svid?: RegisteredSVID
   tenant_id: string
 }
@@ -530,6 +534,17 @@ export interface CreateAPITokenRequest {
   expires_in_hours?: number
   name: string
   scopes?: string[]
+}
+
+export interface CreateCanonicalEntityInput {
+  context_id: string
+  kind: "device" | "interface" | "address" | "prefix" | "service" | "site" | "customer"
+  label: string
+}
+
+export interface CreateEntityContextInput {
+  site_label: string
+  vrf_label: string
 }
 
 export interface CreatedAPIToken {
@@ -1008,6 +1023,137 @@ export interface EBPFServiceMap {
   effective_limit?: number
   items?: EBPFServiceEdge[]
   source?: string
+}
+
+export interface EntityClaim {
+  alias: JsonObject
+  entity_id: string
+  entity_kind: string
+  evidence_id: string
+  observed_at: string
+  scope: EntityScope
+  source: string
+  source_key: JsonObject
+  source_ref: string
+  support_evidence_id?: string
+}
+
+export interface EntityContext {
+  context_id: string
+  created_at?: string
+  site_id: string
+  site_label: string
+  tenant_id: string
+  vrf_id: string
+  vrf_label: string
+}
+
+export interface EntityContextPage {
+  items: EntityContext[]
+  next_cursor?: string
+}
+
+export interface EntityEvidencePage {
+  entity_id: string
+  items: EntityEvidenceRecord[]
+  next_cursor?: string
+  scope: EntityScope
+}
+
+export interface EntityEvidenceRecord {
+  alias: JsonObject
+  current: boolean
+  expires_at?: string
+  id: string
+  interface_description?: string
+  interface_name?: string
+  neighbor_chassis_id?: string
+  neighbor_device_name?: string
+  neighbor_local_if_index?: number
+  neighbor_local_port_id?: string
+  neighbor_management_address?: string
+  neighbor_protocol?: "lldp" | "cdp"
+  neighbor_remote_port_id?: string
+  observation_id: string
+  observed_at: string
+  origin_serial?: string
+  source: string
+  source_key: JsonObject
+  source_ref: string
+  support_evidence_id?: string
+}
+
+export interface EntityLinkPage {
+  entity_id: string
+  items: EntityLinkRecord[]
+  next_cursor?: string
+  scope: EntityScope
+}
+
+export interface EntityLinkRecord {
+  evidence_id: string
+  from_entity_id: string
+  id: string
+  kind: "physical" | "inferred" | "routing" | "contains" | "serves" | "assigned_to"
+  observed_at: string
+  source_kind: "device_target" | "flow_exporter" | "path_agent" | "bmp_peer" | "agent_site"
+  to_entity_id: string
+}
+
+export interface EntityPage {
+  items: EntityRecord[]
+  next_cursor?: string
+  scope: EntityScope
+}
+
+export interface EntityPathContextBinding {
+  context_id: string
+  test_id: string
+}
+
+export interface EntityPathHop {
+  ip: string
+  resolution: EntityResolution
+  ttl: number
+}
+
+export interface EntityPathResult {
+  context_id?: string
+  items: EntityPathHop[]
+  status: "unbound" | "awaiting_trace" | "current"
+  test_id: string
+  truncated?: boolean
+}
+
+export interface EntityRecord {
+  created_at: string
+  id: string
+  kind: "device" | "interface" | "address" | "prefix" | "service" | "site" | "customer"
+  label: string
+  scope: EntityScope
+  updated_at: string
+}
+
+export interface EntityResolution {
+  alias: JsonObject
+  candidates?: EntityClaim[]
+  entity_id?: string
+  more_candidates: boolean
+  scope: EntityScope
+  status: "unresolved" | "resolved" | "conflict"
+}
+
+export interface EntityScope {
+  context_id: string
+  tenant_id: string
+}
+
+export interface EntitySourceAssignment {
+  agent_id: string
+  anchor_entity_id?: string
+  context_id: string
+  source_kind: "device_target" | "flow_exporter" | "path_agent" | "bmp_peer" | "agent_site"
+  source_ref: string
 }
 
 export interface Error {
@@ -2033,7 +2179,7 @@ export interface RegisteredSVID {
   ca_bundle: string
   cert_pem: string
   not_after: string
-  plane: "agent" | "bmp"
+  plane: "agent" | "bmp" | "ebpf" | "entity"
   serial: string
   spiffe_id: string
   tenant_id: string
@@ -2864,6 +3010,72 @@ export interface ListEndpointsRequest {
 
 export type ListEndpointsResponse = JsonObject
 
+export interface ListCanonicalEntitiesRequest {
+  contextId: string
+  cursor?: string
+  limit?: number
+}
+
+export type ListCanonicalEntitiesResponse = EntityPage
+
+export interface CreateCanonicalEntityRequest {
+  body: CreateCanonicalEntityInput
+}
+
+export type CreateCanonicalEntityResponse = EntityRecord
+
+export interface ResolveEntityAliasRequest {
+  contextId: string
+  kind: "address" | "prefix" | "snmp_device_id" | "snmp_interface_id" | "physical_neighbor_id" | "flow_exporter_id" | "bmp_peer_id" | "path_hop_id" | "agent_site_id" | "site_key" | "customer_key" | "service_key"
+  value: string
+}
+
+export type ResolveEntityAliasResponse = EntityResolution
+
+export interface GetCanonicalEntityRequest {
+  id: string
+  contextId: string
+}
+
+export type GetCanonicalEntityResponse = EntityRecord
+
+export interface ListCanonicalEntityEvidenceRequest {
+  id: string
+  contextId: string
+  cursor?: string
+  limit?: number
+}
+
+export type ListCanonicalEntityEvidenceResponse = EntityEvidencePage
+
+export interface ListCanonicalEntityLinksRequest {
+  id: string
+  contextId: string
+  cursor?: string
+  limit?: number
+}
+
+export type ListCanonicalEntityLinksResponse = EntityLinkPage
+
+export interface ListEntityContextsRequest {
+  limit?: number
+  cursor?: string
+}
+
+export type ListEntityContextsResponse = EntityContextPage
+
+export interface CreateEntityContextRequest {
+  body: CreateEntityContextInput
+}
+
+export type CreateEntityContextResponse = EntityContext
+
+export interface AssignEntitySourceRequest {
+  body: EntitySourceAssignment
+}
+
+export type AssignEntitySourceResponse = EntitySourceAssignment
+
 export interface CompareExplorerPeriodsRequest {
   body: ExplorerComparisonRequest
 }
@@ -3510,6 +3722,13 @@ export interface DeleteTestRequest {
 
 export type DeleteTestResponse = void
 
+export interface AssignPathTestEntityContextRequest {
+  id: string
+  body: AssignEntityPathContextInput
+}
+
+export type AssignPathTestEntityContextResponse = EntityPathContextBinding
+
 export interface GetTestPathRequest {
   id: string
 }
@@ -3521,6 +3740,12 @@ export interface DiscoverTestPathRequest {
 }
 
 export type DiscoverTestPathResponse = Path
+
+export interface GetPathEntitiesRequest {
+  id: string
+}
+
+export type GetPathEntitiesResponse = EntityPathResult
 
 export interface ListTestPathHistoryRequest {
   id: string
@@ -3554,6 +3779,7 @@ export type ListTlsPostureResponse = JsonObject
 
 export interface GetTopologyRequest {
   at?: string
+  contextId?: string
 }
 
 export type GetTopologyResponse = JsonObject
@@ -4242,6 +4468,78 @@ export class ProbectlSDKClient {
     let path = "/v1/endpoints"
     const query = new URLSearchParams()
     return this.requestJSON<ListEndpointsResponse>("GET", path, query, undefined)
+  }
+
+  async listCanonicalEntities(request: ListCanonicalEntitiesRequest): Promise<ListCanonicalEntitiesResponse> {
+    let path = "/v1/entities"
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListCanonicalEntitiesResponse>("GET", path, query, undefined)
+  }
+
+  async createCanonicalEntity(request: CreateCanonicalEntityRequest): Promise<CreateCanonicalEntityResponse> {
+    let path = "/v1/entities"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateCanonicalEntityResponse>("POST", path, query, request.body)
+  }
+
+  async resolveEntityAlias(request: ResolveEntityAliasRequest): Promise<ResolveEntityAliasResponse> {
+    let path = "/v1/entities/resolve"
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.kind !== undefined) query.set("kind", String(request.kind))
+    if (request.value !== undefined) query.set("value", String(request.value))
+    return this.requestJSON<ResolveEntityAliasResponse>("GET", path, query, undefined)
+  }
+
+  async getCanonicalEntity(request: GetCanonicalEntityRequest): Promise<GetCanonicalEntityResponse> {
+    let path = "/v1/entities/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    return this.requestJSON<GetCanonicalEntityResponse>("GET", path, query, undefined)
+  }
+
+  async listCanonicalEntityEvidence(request: ListCanonicalEntityEvidenceRequest): Promise<ListCanonicalEntityEvidenceResponse> {
+    let path = "/v1/entities/{id}/evidence"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListCanonicalEntityEvidenceResponse>("GET", path, query, undefined)
+  }
+
+  async listCanonicalEntityLinks(request: ListCanonicalEntityLinksRequest): Promise<ListCanonicalEntityLinksResponse> {
+    let path = "/v1/entities/{id}/links"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListCanonicalEntityLinksResponse>("GET", path, query, undefined)
+  }
+
+  async listEntityContexts(request: ListEntityContextsRequest = {}): Promise<ListEntityContextsResponse> {
+    let path = "/v1/entity-contexts"
+    const query = new URLSearchParams()
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    return this.requestJSON<ListEntityContextsResponse>("GET", path, query, undefined)
+  }
+
+  async createEntityContext(request: CreateEntityContextRequest): Promise<CreateEntityContextResponse> {
+    let path = "/v1/entity-contexts"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateEntityContextResponse>("POST", path, query, request.body)
+  }
+
+  async assignEntitySource(request: AssignEntitySourceRequest): Promise<AssignEntitySourceResponse> {
+    let path = "/v1/entity-source-contexts"
+    const query = new URLSearchParams()
+    return this.requestJSON<AssignEntitySourceResponse>("PUT", path, query, request.body)
   }
 
   async compareExplorerPeriods(request: CompareExplorerPeriodsRequest): Promise<CompareExplorerPeriodsResponse> {
@@ -4959,6 +5257,13 @@ export class ProbectlSDKClient {
     await this.request("DELETE", path, query, undefined)
   }
 
+  async assignPathTestEntityContext(request: AssignPathTestEntityContextRequest): Promise<AssignPathTestEntityContextResponse> {
+    let path = "/v1/tests/{id}/entity-context"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<AssignPathTestEntityContextResponse>("PUT", path, query, request.body)
+  }
+
   async getTestPath(request: GetTestPathRequest): Promise<GetTestPathResponse> {
     let path = "/v1/tests/{id}/path"
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
@@ -4971,6 +5276,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<DiscoverTestPathResponse>("POST", path, query, undefined)
+  }
+
+  async getPathEntities(request: GetPathEntitiesRequest): Promise<GetPathEntitiesResponse> {
+    let path = "/v1/tests/{id}/path/entities"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetPathEntitiesResponse>("GET", path, query, undefined)
   }
 
   async listTestPathHistory(request: ListTestPathHistoryRequest): Promise<ListTestPathHistoryResponse> {
@@ -5012,6 +5324,7 @@ export class ProbectlSDKClient {
     let path = "/v1/topology"
     const query = new URLSearchParams()
     if (request.at !== undefined) query.set("at", String(request.at))
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
     return this.requestJSON<GetTopologyResponse>("GET", path, query, undefined)
   }
 

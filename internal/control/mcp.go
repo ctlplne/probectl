@@ -31,7 +31,8 @@ import (
 )
 
 // NewMCPServer builds probectl's MCP server (S25) over the tenant-scoped stores,
-// the S23 query engine, and the S24 RCA analyzer. The tools are read-only; the
+// the S23 query engine, and the S24 RCA analyzer. Entity configuration tools
+// perform audited, explicit operator writes; other tools are read-only. The
 // tenant boundary, RBAC, and tenant ABAC deny policies are enforced at the MCP
 // layer, with tenant + RBAC enforced again at the engine/stores (defense in
 // depth).
@@ -128,6 +129,9 @@ func newMCPServer(
 		renderBudget = src.NativeFlow.flowRenderBudget
 	}
 	options = append(options, mcp.WithNativeFlowRenderBudget(renderBudget))
+	if pool != nil {
+		options = append(options, mcp.WithEntityBackend(mcpEntityBackend{pool: pool, pathStore: pathStore, policyLoader: policyLoader}))
+	}
 	if src.NativeFlow != nil {
 		schemas, err := nativeFlowToolSchemas()
 		if err != nil {

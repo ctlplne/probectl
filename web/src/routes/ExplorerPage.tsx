@@ -40,6 +40,7 @@ import { Page } from './RoutePage'
 import { TimeSeries } from '../components/TimeSeries'
 import { SavedViews } from './listControls'
 import { ExplainView } from './ExplainView'
+import { EntityCurrentPivot, observedIPs } from './EntityCurrentPivot'
 import { NativeFlowPage } from './NativeFlowPage'
 import { pivotHref } from './pivotContext'
 import styles from './explorer.module.css'
@@ -550,6 +551,7 @@ function LegacyExplorerPage() {
       })),
     [run.data?.columns],
   )
+  const currentPivotIPs = useMemo(() => observedIPs(run.data?.rows ?? []), [run.data?.rows])
   const comparisonColumns = useMemo<Column<ExplorerComparisonRow>[]>(
     () => [
       ...(comparisonRun.data?.groupings ?? []).map((grouping) => ({
@@ -1018,6 +1020,7 @@ function LegacyExplorerPage() {
               rowKey={(row) => JSON.stringify(row)}
               empty="No authorized rows matched this query."
             />
+            <EntityCurrentPivot ips={currentPivotIPs} source="explorer" />
             {run.data.truncated ? (
               <p className={styles.note}>
                 Results were capped. Narrow the time range or add a filter.

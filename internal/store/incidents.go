@@ -22,17 +22,27 @@ import (
 type Incidents struct{}
 
 const incidentCols = `id::text, tenant_id::text, status, severity, title, target, prefix,
-	started_at, last_seen_at, resolved_at, signal_count`
+	started_at, last_seen_at, resolved_at, signal_count,
+	entity_context_id::text, entity_id::text, identity_lookup_attempted`
 
 const correlationOverrideCols = `id::text, tenant_id::text, source_incident_id::text,
 	detached_incident_id::text, source_signal_id::text, plane, kind, target, prefix,
-	reason, active, created_by, created_at, reversed_by, reversal_reason, reversed_at`
+	reason, active, created_by, created_at, reversed_by, reversal_reason, reversed_at,
+	entity_context_id::text, entity_id::text, identity_lookup_attempted`
 
 func scanIncident(row interface{ Scan(...any) error }, inc *incident.Incident) error {
 	var status, severity string
+	var contextID, entityID *string
 	if err := row.Scan(&inc.ID, &inc.TenantID, &status, &severity, &inc.Title, &inc.Target,
-		&inc.Prefix, &inc.StartedAt, &inc.LastSeenAt, &inc.ResolvedAt, &inc.SignalCount); err != nil {
+		&inc.Prefix, &inc.StartedAt, &inc.LastSeenAt, &inc.ResolvedAt, &inc.SignalCount,
+		&contextID, &entityID, &inc.IdentityLookupAttempted); err != nil {
 		return err
+	}
+	if contextID != nil {
+		inc.IdentityContextID = *contextID
+	}
+	if entityID != nil {
+		inc.IdentityEntityID = *entityID
 	}
 	inc.Status = incident.Status(status)
 	inc.Severity = incident.Severity(severity)
@@ -44,11 +54,13 @@ func (Incidents) Create(ctx context.Context, s tenancy.Scope, in incident.Incide
 	var inc incident.Incident
 	err := scanIncident(s.Q.QueryRow(ctx,
 		`INSERT INTO incidents
-		   (tenant_id, status, severity, severity_rank, title, target, prefix, started_at, last_seen_at, signal_count)
-		 VALUES ($1, 'open', $2, $3, $4, $5, $6, $7, $8, 0)
+		   (tenant_id, status, severity, severity_rank, title, target, prefix, started_at, last_seen_at, signal_count,
+		    entity_context_id, entity_id, identity_lookup_attempted)
+		 VALUES ($1, 'open', $2, $3, $4, $5, $6, $7, $8, 0, NULLIF($9,'')::uuid, NULLIF($10,'')::uuid, $11)
 		 RETURNING `+incidentCols,
 		s.Tenant.String(), string(in.Severity), incident.SeverityRank(in.Severity),
-		in.Title, in.Target, in.Prefix, in.StartedAt, in.LastSeenAt), &inc)
+		in.Title, in.Target, in.Prefix, in.StartedAt, in.LastSeenAt,
+		in.IdentityContextID, in.IdentityEntityID, in.IdentityLookupAttempted), &inc)
 	if err != nil {
 		return nil, mapWriteErr("incident", err)
 	}
@@ -134,7 +146,8 @@ func (Incidents) Get(ctx context.Context, s tenancy.Scope, id string) (*incident
 		return nil, notFound("incident", err)
 	}
 	rows, err := s.Q.Query(ctx,
-		`SELECT id::text, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at
+		`SELECT id::text, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at,
+		        entity_context_id::text, entity_id::text, identity_lookup_attempted
 		 FROM incident_signals WHERE incident_id = $1 ORDER BY occurred_at, id LIMIT $2`,
 		id, incident.MaxSignalsPerRead+1)
 	if err != nil {
@@ -150,9 +163,17 @@ func (Incidents) Get(ctx context.Context, s tenancy.Scope, id string) (*incident
 		var sig incident.Signal
 		var severity string
 		var attrs []byte
+		var contextID, entityID *string
 		if err := rows.Scan(&sig.ID, &sig.Plane, &sig.Kind, &severity, &sig.Title, &sig.Summary,
-			&sig.Target, &sig.Prefix, &attrs, &sig.OccurredAt); err != nil {
+			&sig.Target, &sig.Prefix, &attrs, &sig.OccurredAt,
+			&contextID, &entityID, &sig.IdentityLookupAttempted); err != nil {
 			return nil, err
+		}
+		if contextID != nil {
+			sig.IdentityContextID = *contextID
+		}
+		if entityID != nil {
+			sig.IdentityEntityID = *entityID
 		}
 		sig.Severity = incident.Severity(severity)
 		sig.TenantID = inc.TenantID
@@ -182,13 +203,24 @@ func (Incidents) Get(ctx context.Context, s tenancy.Scope, id string) (*incident
 }
 
 func scanCorrelationOverride(row interface{ Scan(...any) error }, override *incident.CorrelationOverride) error {
-	return row.Scan(
+	var contextID, entityID *string
+	if err := row.Scan(
 		&override.ID, &override.TenantID, &override.SourceIncidentID,
 		&override.DetachedIncidentID, &override.SourceSignalID, &override.Plane,
 		&override.Kind, &override.Target, &override.Prefix, &override.Reason,
 		&override.Active, &override.CreatedBy, &override.CreatedAt,
 		&override.ReversedBy, &override.ReversalReason, &override.ReversedAt,
-	)
+		&contextID, &entityID, &override.IdentityLookupAttempted,
+	); err != nil {
+		return err
+	}
+	if contextID != nil {
+		override.IdentityContextID = *contextID
+	}
+	if entityID != nil {
+		override.IdentityEntityID = *entityID
+	}
+	return nil
 }
 
 // ActiveCorrelationOverrides returns active exclusions matching this exact
@@ -198,8 +230,13 @@ func (Incidents) ActiveCorrelationOverrides(ctx context.Context, s tenancy.Scope
 	rows, err := s.Q.Query(ctx, `SELECT `+correlationOverrideCols+`
 		FROM incident_correlation_overrides
 		WHERE tenant_id = $1 AND active AND plane = $2 AND kind = $3 AND target = $4 AND prefix = $5
+		  AND (NOT identity_lookup_attempted OR entity_id IS NOT NULL)
+		  AND identity_lookup_attempted = $6
+		  AND entity_context_id IS NOT DISTINCT FROM NULLIF($7,'')::uuid
+		  AND entity_id IS NOT DISTINCT FROM NULLIF($8,'')::uuid
 		ORDER BY created_at DESC`,
-		s.Tenant.String(), sig.Plane, sig.Kind, sig.Target, sig.Prefix)
+		s.Tenant.String(), sig.Plane, sig.Kind, sig.Target, sig.Prefix,
+		sig.IdentityLookupAttempted, sig.IdentityContextID, sig.IdentityEntityID)
 	if err != nil {
 		return nil, err
 	}
@@ -249,14 +286,23 @@ func (Incidents) CreateUngroupOverride(ctx context.Context, s tenancy.Scope, sou
 	var source incident.Signal
 	var severity string
 	var attrs []byte
-	err := s.Q.QueryRow(ctx, `SELECT id::text, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at
+	var contextID, entityID *string
+	err := s.Q.QueryRow(ctx, `SELECT id::text, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at,
+		entity_context_id::text, entity_id::text, identity_lookup_attempted
 		FROM incident_signals WHERE id = $1 AND incident_id = $2`, sourceSignalID, sourceIncidentID).Scan(
 		&source.ID, &source.Plane, &source.Kind, &severity, &source.Title,
-		&source.Summary, &source.Target, &source.Prefix, &attrs, &source.OccurredAt)
+		&source.Summary, &source.Target, &source.Prefix, &attrs, &source.OccurredAt,
+		&contextID, &entityID, &source.IdentityLookupAttempted)
 	if err != nil {
 		return nil, nil, notFound("incident signal", err)
 	}
 	source.TenantID = s.Tenant.String()
+	if contextID != nil {
+		source.IdentityContextID = *contextID
+	}
+	if entityID != nil {
+		source.IdentityEntityID = *entityID
+	}
 	source.Severity = incident.Severity(severity)
 	source.Attributes = map[string]string{}
 	if len(attrs) > 0 {
@@ -275,7 +321,11 @@ func (Incidents) CreateUngroupOverride(ctx context.Context, s tenancy.Scope, sou
 	if err := s.Q.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM incident_correlation_overrides
 		WHERE source_incident_id = $1 AND plane = $2 AND kind = $3 AND target = $4 AND prefix = $5 AND active
-	)`, sourceIncidentID, source.Plane, source.Kind, source.Target, source.Prefix).Scan(&exists); err != nil {
+		  AND identity_lookup_attempted=$6
+		  AND entity_context_id IS NOT DISTINCT FROM NULLIF($7,'')::uuid
+		  AND entity_id IS NOT DISTINCT FROM NULLIF($8,'')::uuid
+	)`, sourceIncidentID, source.Plane, source.Kind, source.Target, source.Prefix,
+		source.IdentityLookupAttempted, source.IdentityContextID, source.IdentityEntityID).Scan(&exists); err != nil {
 		return nil, nil, err
 	}
 	if exists {
@@ -286,6 +336,8 @@ func (Incidents) CreateUngroupOverride(ctx context.Context, s tenancy.Scope, sou
 		TenantID: s.Tenant.String(), Status: incident.StatusOpen, Severity: source.Severity,
 		Title: source.Title, Target: source.Target, Prefix: source.Prefix,
 		StartedAt: source.OccurredAt, LastSeenAt: source.OccurredAt,
+		IdentityContextID: source.IdentityContextID, IdentityEntityID: source.IdentityEntityID,
+		IdentityLookupAttempted: source.IdentityLookupAttempted,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -293,11 +345,14 @@ func (Incidents) CreateUngroupOverride(ctx context.Context, s tenancy.Scope, sou
 	var override incident.CorrelationOverride
 	err = scanCorrelationOverride(s.Q.QueryRow(ctx, `INSERT INTO incident_correlation_overrides
 		(tenant_id, source_incident_id, detached_incident_id, source_signal_id,
-		 plane, kind, target, prefix, reason, active, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10)
+		 plane, kind, target, prefix, reason, active, created_by,
+		 entity_context_id, entity_id, identity_lookup_attempted)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10,
+		        NULLIF($11,'')::uuid, NULLIF($12,'')::uuid, $13)
 		RETURNING `+correlationOverrideCols,
 		s.Tenant.String(), sourceIncidentID, child.ID, sourceSignalID,
-		source.Plane, source.Kind, source.Target, source.Prefix, strings.TrimSpace(reason), actor), &override)
+		source.Plane, source.Kind, source.Target, source.Prefix, strings.TrimSpace(reason), actor,
+		source.IdentityContextID, source.IdentityEntityID, source.IdentityLookupAttempted), &override)
 	if err != nil {
 		return nil, nil, mapWriteErr("incident correlation override", err)
 	}
@@ -413,11 +468,14 @@ func (Incidents) AppendSignal(ctx context.Context, s tenancy.Scope, incidentID s
 	}
 	tag, err := s.Q.Exec(ctx,
 		`INSERT INTO incident_signals
-		   (tenant_id, incident_id, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at, fingerprint)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
+		   (tenant_id, incident_id, plane, kind, severity, title, summary, target, prefix, attributes, occurred_at, fingerprint,
+		    entity_context_id, entity_id, identity_lookup_attempted)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12,
+	         NULLIF($13,'')::uuid, NULLIF($14,'')::uuid, $15)
 		 ON CONFLICT (incident_id, fingerprint) WHERE fingerprint <> '' DO NOTHING`,
 		s.Tenant.String(), incidentID, sig.Plane, sig.Kind, string(sig.Severity),
-		sig.Title, sig.Summary, sig.Target, sig.Prefix, attrs, sig.OccurredAt, sig.Fingerprint())
+		sig.Title, sig.Summary, sig.Target, sig.Prefix, attrs, sig.OccurredAt, sig.Fingerprint(),
+		sig.IdentityContextID, sig.IdentityEntityID, sig.IdentityLookupAttempted)
 	if err != nil {
 		return nil, err
 	}

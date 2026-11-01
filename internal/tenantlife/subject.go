@@ -271,6 +271,39 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		exact:    []string{"agent_id", "device_address", "source_address", "auth_principal"},
 		contains: []string{"varbinds"},
 	},
+	// FX-2 routing keys are opaque UUIDs. Operator-owned site/VRF labels
+	// live on contexts, entity names on entities, and source aliases on
+	// evidence rows. Parent deletion cascades links/evidence.
+	// Site/VRF labels are operator-owned infrastructure names, like projects
+	// and organizations. Subject erasure must not cascade an entire routing
+	// context and all its independent telemetry because one label matched.
+	"entity_contexts":           {plane: "postgres:entity_contexts", disposition: subjectTableNoSubject},
+	"entity_path_test_contexts": {plane: "postgres:entity_path_test_contexts", disposition: subjectTableNoSubject},
+	"entity_agent_contexts": {
+		plane: "postgres:entity_agent_contexts", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id"},
+	},
+	"entity_source_contexts": {
+		plane: "postgres:entity_source_contexts", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id"}, contains: []string{"source_ref"},
+	},
+	"entities": {
+		plane: "postgres:entities", disposition: subjectTableDeleteMatches,
+		exact:    []string{"source_agent_id"},
+		contains: []string{"label", "configured_ref"},
+	},
+	"entity_evidence": {
+		plane: "postgres:entity_evidence", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id", "origin_serial"},
+		contains: []string{"alias_value", "source_ref", "configured_ref", "interface_name", "interface_description",
+			"neighbor_local_port_id", "neighbor_remote_port_id", "neighbor_chassis_id",
+			"neighbor_device_name", "neighbor_management_address"},
+	},
+	"entity_links": {plane: "postgres:entity_links", disposition: subjectTableNoSubject},
+	"entity_fault_receipts": {
+		plane: "postgres:entity_fault_receipts", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id"}, contains: []string{"source_ref"},
+	},
 	// WEB-26: migrations 0104/0105 added three durable tenant-owned device tables
 	// that subject erasure was failing closed on because they were unclassified.
 	// device_configs is a per-device configuration archive (device target, source,

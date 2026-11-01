@@ -6,9 +6,10 @@
 
 // AgentService is the agent <-> control-plane transport. Every RPC requires
 // mTLS; the caller's tenant and agent id are derived from the verified client
-// certificate's SPIFFE id (spiffe://probectl/tenant/<t>/agent/<a>) — never trusted
-// from the request body (F50: an agent belongs to exactly one tenant, so every
-// result it emits is tenant-attributable at the source).
+// certificate's SPIFFE id (spiffe://probectl/tenant/<t>/<plane>/<a>) — never
+// trusted from the request body. Existing agent and eBPF RPCs remain plane
+// scoped; D-179's entity-plane credential can call only SubmitEntityEvidence.
+// Every result or evidence claim is tenant-attributable at the source.
 //
 // Backward compatibility: fields are additive-only. Never renumber or reuse a
 // field tag; a CI `buf breaking` check enforces this.
@@ -1351,6 +1352,380 @@ func (x *ReportL7PostureResponse) GetChanged() bool {
 	return false
 }
 
+// A collector-generated observation UUID is an idempotency key within its
+// authenticated source. It is never a tenant, agent, context or entity key.
+type EntityEvidenceObservation struct {
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	ObservationId             string                 `protobuf:"bytes,1,opt,name=observation_id,json=observationId,proto3" json:"observation_id,omitempty"`
+	SourceKind                string                 `protobuf:"bytes,2,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`          // device_target | flow_exporter | path_agent | bmp_peer | agent_site
+	ConfiguredRef             string                 `protobuf:"bytes,3,opt,name=configured_ref,json=configuredRef,proto3" json:"configured_ref,omitempty"` // must match the operator-owned assignment
+	AliasKind                 string                 `protobuf:"bytes,4,opt,name=alias_kind,json=aliasKind,proto3" json:"alias_kind,omitempty"`             // typed observation, e.g. address or snmp_device_id
+	AliasValue                string                 `protobuf:"bytes,5,opt,name=alias_value,json=aliasValue,proto3" json:"alias_value,omitempty"`          // untrusted; validated and normalized server-side
+	SourceRef                 string                 `protobuf:"bytes,6,opt,name=source_ref,json=sourceRef,proto3" json:"source_ref,omitempty"`             // original plane identifier retained for provenance
+	ObservedUnixNanos         int64                  `protobuf:"varint,7,opt,name=observed_unix_nanos,json=observedUnixNanos,proto3" json:"observed_unix_nanos,omitempty"`
+	OriginSerial              string                 `protobuf:"bytes,8,opt,name=origin_serial,json=originSerial,proto3" json:"origin_serial,omitempty"`                               // BMP only: exact verified router SVID serial
+	InterfaceName             string                 `protobuf:"bytes,9,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`                            // SNMP interface claim only: observed ifName
+	InterfaceDescription      string                 `protobuf:"bytes,10,opt,name=interface_description,json=interfaceDescription,proto3" json:"interface_description,omitempty"`      // SNMP interface claim only: observed ifDescr
+	NeighborProtocol          string                 `protobuf:"bytes,11,opt,name=neighbor_protocol,json=neighborProtocol,proto3" json:"neighbor_protocol,omitempty"`                  // LLDP or CDP, never routing authority
+	NeighborLocalIfIndex      uint32                 `protobuf:"varint,12,opt,name=neighbor_local_if_index,json=neighborLocalIfIndex,proto3" json:"neighbor_local_if_index,omitempty"` // full SNMP ifIndex on the local device
+	NeighborLocalPortId       string                 `protobuf:"bytes,13,opt,name=neighbor_local_port_id,json=neighborLocalPortId,proto3" json:"neighbor_local_port_id,omitempty"`
+	NeighborRemotePortId      string                 `protobuf:"bytes,14,opt,name=neighbor_remote_port_id,json=neighborRemotePortId,proto3" json:"neighbor_remote_port_id,omitempty"`
+	NeighborChassisId         string                 `protobuf:"bytes,15,opt,name=neighbor_chassis_id,json=neighborChassisId,proto3" json:"neighbor_chassis_id,omitempty"`
+	NeighborDeviceName        string                 `protobuf:"bytes,16,opt,name=neighbor_device_name,json=neighborDeviceName,proto3" json:"neighbor_device_name,omitempty"`
+	NeighborManagementAddress string                 `protobuf:"bytes,17,opt,name=neighbor_management_address,json=neighborManagementAddress,proto3" json:"neighbor_management_address,omitempty"` // observed IP, not a context selector
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *EntityEvidenceObservation) Reset() {
+	*x = EntityEvidenceObservation{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EntityEvidenceObservation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EntityEvidenceObservation) ProtoMessage() {}
+
+func (x *EntityEvidenceObservation) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EntityEvidenceObservation.ProtoReflect.Descriptor instead.
+func (*EntityEvidenceObservation) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *EntityEvidenceObservation) GetObservationId() string {
+	if x != nil {
+		return x.ObservationId
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetSourceKind() string {
+	if x != nil {
+		return x.SourceKind
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetConfiguredRef() string {
+	if x != nil {
+		return x.ConfiguredRef
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetAliasKind() string {
+	if x != nil {
+		return x.AliasKind
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetAliasValue() string {
+	if x != nil {
+		return x.AliasValue
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetSourceRef() string {
+	if x != nil {
+		return x.SourceRef
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetObservedUnixNanos() int64 {
+	if x != nil {
+		return x.ObservedUnixNanos
+	}
+	return 0
+}
+
+func (x *EntityEvidenceObservation) GetOriginSerial() string {
+	if x != nil {
+		return x.OriginSerial
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetInterfaceName() string {
+	if x != nil {
+		return x.InterfaceName
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetInterfaceDescription() string {
+	if x != nil {
+		return x.InterfaceDescription
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetNeighborProtocol() string {
+	if x != nil {
+		return x.NeighborProtocol
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetNeighborLocalIfIndex() uint32 {
+	if x != nil {
+		return x.NeighborLocalIfIndex
+	}
+	return 0
+}
+
+func (x *EntityEvidenceObservation) GetNeighborLocalPortId() string {
+	if x != nil {
+		return x.NeighborLocalPortId
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetNeighborRemotePortId() string {
+	if x != nil {
+		return x.NeighborRemotePortId
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetNeighborChassisId() string {
+	if x != nil {
+		return x.NeighborChassisId
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetNeighborDeviceName() string {
+	if x != nil {
+		return x.NeighborDeviceName
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetNeighborManagementAddress() string {
+	if x != nil {
+		return x.NeighborManagementAddress
+	}
+	return ""
+}
+
+// A bounded fault observation shares the evidence-only RPC and live mTLS
+// sender. No tenant, agent, context, canonical entity or arbitrary severity is
+// accepted from the payload; the server derives those or leaves identity
+// unresolved. The UUID makes retries idempotent.
+type EntityFaultObservation struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ObservationId     string                 `protobuf:"bytes,1,opt,name=observation_id,json=observationId,proto3" json:"observation_id,omitempty"`
+	SourceKind        string                 `protobuf:"bytes,2,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`          // device_target | flow_exporter; BMP needs router-origin proof
+	ConfiguredRef     string                 `protobuf:"bytes,3,opt,name=configured_ref,json=configuredRef,proto3" json:"configured_ref,omitempty"` // operator-assigned source, never context authority
+	TargetAddress     string                 `protobuf:"bytes,4,opt,name=target_address,json=targetAddress,proto3" json:"target_address,omitempty"` // observed IP, not a context selector
+	Kind              string                 `protobuf:"bytes,5,opt,name=kind,proto3" json:"kind,omitempty"`                                        // bounded server-known fault kind for that source
+	ObservedUnixNanos int64                  `protobuf:"varint,6,opt,name=observed_unix_nanos,json=observedUnixNanos,proto3" json:"observed_unix_nanos,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *EntityFaultObservation) Reset() {
+	*x = EntityFaultObservation{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EntityFaultObservation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EntityFaultObservation) ProtoMessage() {}
+
+func (x *EntityFaultObservation) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EntityFaultObservation.ProtoReflect.Descriptor instead.
+func (*EntityFaultObservation) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *EntityFaultObservation) GetObservationId() string {
+	if x != nil {
+		return x.ObservationId
+	}
+	return ""
+}
+
+func (x *EntityFaultObservation) GetSourceKind() string {
+	if x != nil {
+		return x.SourceKind
+	}
+	return ""
+}
+
+func (x *EntityFaultObservation) GetConfiguredRef() string {
+	if x != nil {
+		return x.ConfiguredRef
+	}
+	return ""
+}
+
+func (x *EntityFaultObservation) GetTargetAddress() string {
+	if x != nil {
+		return x.TargetAddress
+	}
+	return ""
+}
+
+func (x *EntityFaultObservation) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EntityFaultObservation) GetObservedUnixNanos() int64 {
+	if x != nil {
+		return x.ObservedUnixNanos
+	}
+	return 0
+}
+
+type SubmitEntityEvidenceRequest struct {
+	state         protoimpl.MessageState       `protogen:"open.v1"`
+	Observations  []*EntityEvidenceObservation `protobuf:"bytes,1,rep,name=observations,proto3" json:"observations,omitempty"`
+	Faults        []*EntityFaultObservation    `protobuf:"bytes,2,rep,name=faults,proto3" json:"faults,omitempty"` // 1–64 combined; message size is also bounded
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubmitEntityEvidenceRequest) Reset() {
+	*x = SubmitEntityEvidenceRequest{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitEntityEvidenceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitEntityEvidenceRequest) ProtoMessage() {}
+
+func (x *SubmitEntityEvidenceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitEntityEvidenceRequest.ProtoReflect.Descriptor instead.
+func (*SubmitEntityEvidenceRequest) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *SubmitEntityEvidenceRequest) GetObservations() []*EntityEvidenceObservation {
+	if x != nil {
+		return x.Observations
+	}
+	return nil
+}
+
+func (x *SubmitEntityEvidenceRequest) GetFaults() []*EntityFaultObservation {
+	if x != nil {
+		return x.Faults
+	}
+	return nil
+}
+
+type SubmitEntityEvidenceResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Accepted        uint32                 `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`                                      // canonical claims persisted or idempotent replays
+	Unresolved      uint32                 `protobuf:"varint,2,opt,name=unresolved,proto3" json:"unresolved,omitempty"`                                  // no current source/anchor or ambiguous server-side match
+	FaultsPersisted uint32                 `protobuf:"varint,3,opt,name=faults_persisted,json=faultsPersisted,proto3" json:"faults_persisted,omitempty"` // persisted in the tenant incident stream, including unresolved identity
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SubmitEntityEvidenceResponse) Reset() {
+	*x = SubmitEntityEvidenceResponse{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitEntityEvidenceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitEntityEvidenceResponse) ProtoMessage() {}
+
+func (x *SubmitEntityEvidenceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitEntityEvidenceResponse.ProtoReflect.Descriptor instead.
+func (*SubmitEntityEvidenceResponse) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *SubmitEntityEvidenceResponse) GetAccepted() uint32 {
+	if x != nil {
+		return x.Accepted
+	}
+	return 0
+}
+
+func (x *SubmitEntityEvidenceResponse) GetUnresolved() uint32 {
+	if x != nil {
+		return x.Unresolved
+	}
+	return 0
+}
+
+func (x *SubmitEntityEvidenceResponse) GetFaultsPersisted() uint32 {
+	if x != nil {
+		return x.FaultsPersisted
+	}
+	return 0
+}
+
 var File_probectl_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_probectl_agent_v1_agent_proto_rawDesc = "" +
@@ -1442,11 +1817,51 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x16ReportL7PostureRequest\x12=\n" +
 	"\aposture\x18\x01 \x01(\v2#.probectl.agent.v1.L7CapturePostureR\aposture\"3\n" +
 	"\x17ReportL7PostureResponse\x12\x18\n" +
-	"\achanged\x18\x01 \x01(\bR\achanged*S\n" +
+	"\achanged\x18\x01 \x01(\bR\achanged\"\x8c\x06\n" +
+	"\x19EntityEvidenceObservation\x12%\n" +
+	"\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n" +
+	"\vsource_kind\x18\x02 \x01(\tR\n" +
+	"sourceKind\x12%\n" +
+	"\x0econfigured_ref\x18\x03 \x01(\tR\rconfiguredRef\x12\x1d\n" +
+	"\n" +
+	"alias_kind\x18\x04 \x01(\tR\taliasKind\x12\x1f\n" +
+	"\valias_value\x18\x05 \x01(\tR\n" +
+	"aliasValue\x12\x1d\n" +
+	"\n" +
+	"source_ref\x18\x06 \x01(\tR\tsourceRef\x12.\n" +
+	"\x13observed_unix_nanos\x18\a \x01(\x03R\x11observedUnixNanos\x12#\n" +
+	"\rorigin_serial\x18\b \x01(\tR\foriginSerial\x12%\n" +
+	"\x0einterface_name\x18\t \x01(\tR\rinterfaceName\x123\n" +
+	"\x15interface_description\x18\n" +
+	" \x01(\tR\x14interfaceDescription\x12+\n" +
+	"\x11neighbor_protocol\x18\v \x01(\tR\x10neighborProtocol\x125\n" +
+	"\x17neighbor_local_if_index\x18\f \x01(\rR\x14neighborLocalIfIndex\x123\n" +
+	"\x16neighbor_local_port_id\x18\r \x01(\tR\x13neighborLocalPortId\x125\n" +
+	"\x17neighbor_remote_port_id\x18\x0e \x01(\tR\x14neighborRemotePortId\x12.\n" +
+	"\x13neighbor_chassis_id\x18\x0f \x01(\tR\x11neighborChassisId\x120\n" +
+	"\x14neighbor_device_name\x18\x10 \x01(\tR\x12neighborDeviceName\x12>\n" +
+	"\x1bneighbor_management_address\x18\x11 \x01(\tR\x19neighborManagementAddress\"\xf2\x01\n" +
+	"\x16EntityFaultObservation\x12%\n" +
+	"\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n" +
+	"\vsource_kind\x18\x02 \x01(\tR\n" +
+	"sourceKind\x12%\n" +
+	"\x0econfigured_ref\x18\x03 \x01(\tR\rconfiguredRef\x12%\n" +
+	"\x0etarget_address\x18\x04 \x01(\tR\rtargetAddress\x12\x12\n" +
+	"\x04kind\x18\x05 \x01(\tR\x04kind\x12.\n" +
+	"\x13observed_unix_nanos\x18\x06 \x01(\x03R\x11observedUnixNanos\"\xb2\x01\n" +
+	"\x1bSubmitEntityEvidenceRequest\x12P\n" +
+	"\fobservations\x18\x01 \x03(\v2,.probectl.agent.v1.EntityEvidenceObservationR\fobservations\x12A\n" +
+	"\x06faults\x18\x02 \x03(\v2).probectl.agent.v1.EntityFaultObservationR\x06faults\"\x85\x01\n" +
+	"\x1cSubmitEntityEvidenceResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\rR\baccepted\x12\x1e\n" +
+	"\n" +
+	"unresolved\x18\x02 \x01(\rR\n" +
+	"unresolved\x12)\n" +
+	"\x10faults_persisted\x18\x03 \x01(\rR\x0ffaultsPersisted*S\n" +
 	"\aA2ARole\x12\x18\n" +
 	"\x14A2A_ROLE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12A2A_ROLE_RESPONDER\x10\x01\x12\x16\n" +
-	"\x12A2A_ROLE_INITIATOR\x10\x022\xdf\a\n" +
+	"\x12A2A_ROLE_INITIATOR\x10\x022\xd8\b\n" +
 	"\fAgentService\x12S\n" +
 	"\bRegister\x12\".probectl.agent.v1.RegisterRequest\x1a#.probectl.agent.v1.RegisterResponse\x12M\n" +
 	"\x06Attest\x12 .probectl.agent.v1.AttestRequest\x1a!.probectl.agent.v1.AttestResponse\x12V\n" +
@@ -1457,7 +1872,8 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x0eReportEndpoint\x12(.probectl.agent.v1.ReportEndpointRequest\x1a).probectl.agent.v1.ReportEndpointResponse\x12h\n" +
 	"\x0fFetchTestBundle\x12).probectl.agent.v1.FetchTestBundleRequest\x1a*.probectl.agent.v1.FetchTestBundleResponse\x12b\n" +
 	"\rFetchL7Policy\x12'.probectl.agent.v1.FetchL7PolicyRequest\x1a(.probectl.agent.v1.FetchL7PolicyResponse\x12h\n" +
-	"\x0fReportL7Posture\x12).probectl.agent.v1.ReportL7PostureRequest\x1a*.probectl.agent.v1.ReportL7PostureResponseBDZBgithub.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1b\x06proto3"
+	"\x0fReportL7Posture\x12).probectl.agent.v1.ReportL7PostureRequest\x1a*.probectl.agent.v1.ReportL7PostureResponse\x12w\n" +
+	"\x14SubmitEntityEvidence\x12..probectl.agent.v1.SubmitEntityEvidenceRequest\x1a/.probectl.agent.v1.SubmitEntityEvidenceResponseBDZBgithub.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_probectl_agent_v1_agent_proto_rawDescOnce sync.Once
@@ -1472,65 +1888,73 @@ func file_probectl_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_probectl_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_probectl_agent_v1_agent_proto_goTypes = []any{
-	(A2ARole)(0),                     // 0: probectl.agent.v1.A2ARole
-	(*RegisterRequest)(nil),          // 1: probectl.agent.v1.RegisterRequest
-	(*RegisterResponse)(nil),         // 2: probectl.agent.v1.RegisterResponse
-	(*AttestRequest)(nil),            // 3: probectl.agent.v1.AttestRequest
-	(*AttestResponse)(nil),           // 4: probectl.agent.v1.AttestResponse
-	(*HeartbeatRequest)(nil),         // 5: probectl.agent.v1.HeartbeatRequest
-	(*HeartbeatResponse)(nil),        // 6: probectl.agent.v1.HeartbeatResponse
-	(*StreamConfigRequest)(nil),      // 7: probectl.agent.v1.StreamConfigRequest
-	(*StreamConfigResponse)(nil),     // 8: probectl.agent.v1.StreamConfigResponse
-	(*StreamResultsRequest)(nil),     // 9: probectl.agent.v1.StreamResultsRequest
-	(*StreamResultsResponse)(nil),    // 10: probectl.agent.v1.StreamResultsResponse
-	(*PollCoordinationRequest)(nil),  // 11: probectl.agent.v1.PollCoordinationRequest
-	(*PollCoordinationResponse)(nil), // 12: probectl.agent.v1.PollCoordinationResponse
-	(*A2ATask)(nil),                  // 13: probectl.agent.v1.A2ATask
-	(*ReportEndpointRequest)(nil),    // 14: probectl.agent.v1.ReportEndpointRequest
-	(*ReportEndpointResponse)(nil),   // 15: probectl.agent.v1.ReportEndpointResponse
-	(*FetchTestBundleRequest)(nil),   // 16: probectl.agent.v1.FetchTestBundleRequest
-	(*FetchTestBundleResponse)(nil),  // 17: probectl.agent.v1.FetchTestBundleResponse
-	(*FetchL7PolicyRequest)(nil),     // 18: probectl.agent.v1.FetchL7PolicyRequest
-	(*FetchL7PolicyResponse)(nil),    // 19: probectl.agent.v1.FetchL7PolicyResponse
-	(*L7CapturePosture)(nil),         // 20: probectl.agent.v1.L7CapturePosture
-	(*ReportL7PostureRequest)(nil),   // 21: probectl.agent.v1.ReportL7PostureRequest
-	(*ReportL7PostureResponse)(nil),  // 22: probectl.agent.v1.ReportL7PostureResponse
-	nil,                              // 23: probectl.agent.v1.RegisterRequest.LabelsEntry
-	nil,                              // 24: probectl.agent.v1.AttestRequest.PlatformEntry
+	(A2ARole)(0),                         // 0: probectl.agent.v1.A2ARole
+	(*RegisterRequest)(nil),              // 1: probectl.agent.v1.RegisterRequest
+	(*RegisterResponse)(nil),             // 2: probectl.agent.v1.RegisterResponse
+	(*AttestRequest)(nil),                // 3: probectl.agent.v1.AttestRequest
+	(*AttestResponse)(nil),               // 4: probectl.agent.v1.AttestResponse
+	(*HeartbeatRequest)(nil),             // 5: probectl.agent.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),            // 6: probectl.agent.v1.HeartbeatResponse
+	(*StreamConfigRequest)(nil),          // 7: probectl.agent.v1.StreamConfigRequest
+	(*StreamConfigResponse)(nil),         // 8: probectl.agent.v1.StreamConfigResponse
+	(*StreamResultsRequest)(nil),         // 9: probectl.agent.v1.StreamResultsRequest
+	(*StreamResultsResponse)(nil),        // 10: probectl.agent.v1.StreamResultsResponse
+	(*PollCoordinationRequest)(nil),      // 11: probectl.agent.v1.PollCoordinationRequest
+	(*PollCoordinationResponse)(nil),     // 12: probectl.agent.v1.PollCoordinationResponse
+	(*A2ATask)(nil),                      // 13: probectl.agent.v1.A2ATask
+	(*ReportEndpointRequest)(nil),        // 14: probectl.agent.v1.ReportEndpointRequest
+	(*ReportEndpointResponse)(nil),       // 15: probectl.agent.v1.ReportEndpointResponse
+	(*FetchTestBundleRequest)(nil),       // 16: probectl.agent.v1.FetchTestBundleRequest
+	(*FetchTestBundleResponse)(nil),      // 17: probectl.agent.v1.FetchTestBundleResponse
+	(*FetchL7PolicyRequest)(nil),         // 18: probectl.agent.v1.FetchL7PolicyRequest
+	(*FetchL7PolicyResponse)(nil),        // 19: probectl.agent.v1.FetchL7PolicyResponse
+	(*L7CapturePosture)(nil),             // 20: probectl.agent.v1.L7CapturePosture
+	(*ReportL7PostureRequest)(nil),       // 21: probectl.agent.v1.ReportL7PostureRequest
+	(*ReportL7PostureResponse)(nil),      // 22: probectl.agent.v1.ReportL7PostureResponse
+	(*EntityEvidenceObservation)(nil),    // 23: probectl.agent.v1.EntityEvidenceObservation
+	(*EntityFaultObservation)(nil),       // 24: probectl.agent.v1.EntityFaultObservation
+	(*SubmitEntityEvidenceRequest)(nil),  // 25: probectl.agent.v1.SubmitEntityEvidenceRequest
+	(*SubmitEntityEvidenceResponse)(nil), // 26: probectl.agent.v1.SubmitEntityEvidenceResponse
+	nil,                                  // 27: probectl.agent.v1.RegisterRequest.LabelsEntry
+	nil,                                  // 28: probectl.agent.v1.AttestRequest.PlatformEntry
 }
 var file_probectl_agent_v1_agent_proto_depIdxs = []int32{
-	23, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
-	24, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
+	27, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
+	28, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
 	13, // 2: probectl.agent.v1.PollCoordinationResponse.task:type_name -> probectl.agent.v1.A2ATask
 	0,  // 3: probectl.agent.v1.A2ATask.role:type_name -> probectl.agent.v1.A2ARole
 	20, // 4: probectl.agent.v1.ReportL7PostureRequest.posture:type_name -> probectl.agent.v1.L7CapturePosture
-	1,  // 5: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
-	3,  // 6: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
-	5,  // 7: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
-	7,  // 8: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
-	9,  // 9: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
-	11, // 10: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
-	14, // 11: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
-	16, // 12: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
-	18, // 13: probectl.agent.v1.AgentService.FetchL7Policy:input_type -> probectl.agent.v1.FetchL7PolicyRequest
-	21, // 14: probectl.agent.v1.AgentService.ReportL7Posture:input_type -> probectl.agent.v1.ReportL7PostureRequest
-	2,  // 15: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
-	4,  // 16: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
-	6,  // 17: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
-	8,  // 18: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
-	10, // 19: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
-	12, // 20: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
-	15, // 21: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
-	17, // 22: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
-	19, // 23: probectl.agent.v1.AgentService.FetchL7Policy:output_type -> probectl.agent.v1.FetchL7PolicyResponse
-	22, // 24: probectl.agent.v1.AgentService.ReportL7Posture:output_type -> probectl.agent.v1.ReportL7PostureResponse
-	15, // [15:25] is the sub-list for method output_type
-	5,  // [5:15] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	23, // 5: probectl.agent.v1.SubmitEntityEvidenceRequest.observations:type_name -> probectl.agent.v1.EntityEvidenceObservation
+	24, // 6: probectl.agent.v1.SubmitEntityEvidenceRequest.faults:type_name -> probectl.agent.v1.EntityFaultObservation
+	1,  // 7: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
+	3,  // 8: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
+	5,  // 9: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
+	7,  // 10: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
+	9,  // 11: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
+	11, // 12: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
+	14, // 13: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
+	16, // 14: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
+	18, // 15: probectl.agent.v1.AgentService.FetchL7Policy:input_type -> probectl.agent.v1.FetchL7PolicyRequest
+	21, // 16: probectl.agent.v1.AgentService.ReportL7Posture:input_type -> probectl.agent.v1.ReportL7PostureRequest
+	25, // 17: probectl.agent.v1.AgentService.SubmitEntityEvidence:input_type -> probectl.agent.v1.SubmitEntityEvidenceRequest
+	2,  // 18: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
+	4,  // 19: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
+	6,  // 20: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
+	8,  // 21: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
+	10, // 22: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
+	12, // 23: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
+	15, // 24: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
+	17, // 25: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
+	19, // 26: probectl.agent.v1.AgentService.FetchL7Policy:output_type -> probectl.agent.v1.FetchL7PolicyResponse
+	22, // 27: probectl.agent.v1.AgentService.ReportL7Posture:output_type -> probectl.agent.v1.ReportL7PostureResponse
+	26, // 28: probectl.agent.v1.AgentService.SubmitEntityEvidence:output_type -> probectl.agent.v1.SubmitEntityEvidenceResponse
+	18, // [18:29] is the sub-list for method output_type
+	7,  // [7:18] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_probectl_agent_v1_agent_proto_init() }
@@ -1544,7 +1968,7 @@ func file_probectl_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_agent_v1_agent_proto_rawDesc), len(file_probectl_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   24,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

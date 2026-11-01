@@ -108,6 +108,33 @@ type BusConfig struct {
 	Namespace string `yaml:"namespace"`
 }
 
+// EvidenceConfig opts this collector into D-179's sender-bound canonical
+// evidence channel. Raw device metrics keep their existing bus path when it is
+// absent or the evidence service is unavailable.
+type EvidenceConfig struct {
+	ControlAddr string `yaml:"control_addr"`
+	RotateURL   string `yaml:"rotate_url"`
+	CertFile    string `yaml:"cert_file"`
+	KeyFile     string `yaml:"key_file"`
+	CAFile      string `yaml:"ca_file"`
+	ServerName  string `yaml:"server_name"`
+}
+
+func (e EvidenceConfig) Enabled() bool {
+	return e.ControlAddr != "" || e.RotateURL != "" || e.CertFile != "" || e.KeyFile != "" ||
+		e.CAFile != "" || e.ServerName != ""
+}
+
+func (e EvidenceConfig) validate() error {
+	if !e.Enabled() {
+		return nil
+	}
+	if e.ControlAddr == "" || e.RotateURL == "" || e.CertFile == "" || e.KeyFile == "" || e.CAFile == "" {
+		return errors.New("device: evidence requires control_addr, rotate_url, cert_file, key_file and ca_file together")
+	}
+	return nil
+}
+
 // Config is the device-telemetry collector configuration: a YAML file with
 // PROBECTL_DEVICE_* environment overrides. Every key is documented in
 // docs/configuration.md.
@@ -119,7 +146,8 @@ type Config struct {
 	TenantID string `yaml:"tenant_id"`
 	AgentID  string `yaml:"agent_id"`
 
-	Bus BusConfig `yaml:"bus"`
+	Bus      BusConfig      `yaml:"bus"`
+	Evidence EvidenceConfig `yaml:"evidence,omitempty"`
 
 	// CollectionProfile selects one compiled evidence budget for every target.
 	// Empty preserves the pre-profile explicit configuration behavior.
@@ -208,6 +236,24 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	if v := getenv("PROBECTL_DEVICE_AGENT_ID"); v != "" {
 		c.AgentID = v
 	}
+	if v := getenv("PROBECTL_DEVICE_EVIDENCE_CONTROL_ADDR"); v != "" {
+		c.Evidence.ControlAddr = v
+	}
+	if v := getenv("PROBECTL_DEVICE_EVIDENCE_ROTATE_URL"); v != "" {
+		c.Evidence.RotateURL = v
+	}
+	if v := getenv("PROBECTL_DEVICE_EVIDENCE_CERT_FILE"); v != "" {
+		c.Evidence.CertFile = v
+	}
+	if v := getenv("PROBECTL_DEVICE_EVIDENCE_KEY_FILE"); v != "" {
+		c.Evidence.KeyFile = v
+	}
+	if v := getenv("PROBECTL_DEVICE_EVIDENCE_CA_FILE"); v != "" {
+		c.Evidence.CAFile = v
+	}
+	if v := getenv("PROBECTL_DEVICE_EVIDENCE_SERVER_NAME"); v != "" {
+		c.Evidence.ServerName = v
+	}
 	if v := getenv("PROBECTL_DEVICE_BUS_MODE"); v != "" {
 		c.Bus.Mode = v
 	}
@@ -293,6 +339,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 func (c *Config) Validate() error {
 	if c.TenantID == "" {
 		return errors.New("device: tenant_id is required (PROBECTL_DEVICE_TENANT)")
+	}
+	if err := c.Evidence.validate(); err != nil {
+		return err
 	}
 	if len(c.profileEnvErrors) > 0 {
 		return fmt.Errorf("device: invalid profile override: %s", strings.Join(c.profileEnvErrors, "; "))

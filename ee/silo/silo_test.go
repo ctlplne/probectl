@@ -113,6 +113,89 @@ func TestProvisionPlan(t *testing.T) {
 	assertTenantWriteFencePlan(t, joined, "tests")
 }
 
+func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
+	tables := []string{"tests", "entity_contexts", "entity_path_test_contexts", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_links", "incidents", "incident_signals", "incident_correlation_overrides", "entity_fault_receipts"}
+	for name, plan := range map[string][]string{
+		"provision": ProvisionPlan("t_abc", tables),
+		"catch-up":  CatchUpPlan("t_abc", Catalog{TenantTables: tables}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			joined := strings.Join(plan, "\n")
+			lastCopy := -1
+			for _, table := range tables {
+				copyAt := strings.Index(joined, `CREATE TABLE IF NOT EXISTS "t_abc"."`+table+`"`)
+				if copyAt < 0 {
+					t.Fatalf("registry silo plan missing %s table", table)
+				}
+				if copyAt > lastCopy {
+					lastCopy = copyAt
+				}
+			}
+			firstFK := strings.Index(joined, `ADD CONSTRAINT "fx2_context_tenant_fk"`)
+			if lastCopy < 0 || firstFK < lastCopy {
+				t.Fatalf("registry foreign keys precede silo table copies: %s", joined)
+			}
+			indexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "t_abc"."fx2_tests_tenant_id_id_uidx"`)
+			if indexAt < lastCopy || indexAt > firstFK {
+				t.Fatalf("path test FK target index must follow silo copies and precede foreign keys")
+			}
+			incidentIndexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "t_abc"."fx2_incidents_tenant_id_id_uidx"`)
+			if incidentIndexAt < lastCopy || incidentIndexAt > firstFK {
+				t.Fatal("signal FK target index must follow silo copies and precede foreign keys")
+			}
+			signalIndexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "t_abc"."fx2_incident_signals_tenant_id_id_uidx"`)
+			if signalIndexAt < lastCopy || signalIndexAt > firstFK {
+				t.Fatal("override signal FK target index must follow silo copies and precede foreign keys")
+			}
+			for _, want := range []string{
+				`ADD CONSTRAINT "fx2_context_tenant_fk" FOREIGN KEY (tenant_id) REFERENCES public.tenants (id)`,
+				`ADD CONSTRAINT "fx2_path_test_fk" FOREIGN KEY (tenant_id, test_id) REFERENCES "t_abc"."tests" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_path_context_fk" FOREIGN KEY (tenant_id, context_id) REFERENCES "t_abc"."entity_contexts" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_agent_context_fk" FOREIGN KEY (tenant_id, context_id) REFERENCES "t_abc"."entity_contexts" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_source_context_fk" FOREIGN KEY (tenant_id, context_id) REFERENCES "t_abc"."entity_contexts" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_source_agent_context_fk" FOREIGN KEY (tenant_id, agent_id, context_id) REFERENCES "t_abc"."entity_agent_contexts" (tenant_id, agent_id, context_id) ON UPDATE CASCADE`,
+				`ADD CONSTRAINT "fx2_source_anchor_fk" FOREIGN KEY (tenant_id, context_id, anchor_entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id) ON DELETE SET NULL (anchor_entity_id)`,
+				`ADD CONSTRAINT "fx2_entity_context_fk" FOREIGN KEY (tenant_id, context_id) REFERENCES "t_abc"."entity_contexts" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_interface_parent_fk" FOREIGN KEY (tenant_id, context_id, parent_entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id)`,
+				`ADD CONSTRAINT "fx2_evidence_entity_fk" FOREIGN KEY (tenant_id, context_id, entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id)`,
+				`ADD CONSTRAINT "fx2_evidence_support_fk" FOREIGN KEY (tenant_id, context_id, support_evidence_id) REFERENCES "t_abc"."entity_evidence" (tenant_id, context_id, id)`,
+				`ADD CONSTRAINT "fx2_link_from_fk" FOREIGN KEY (tenant_id, context_id, from_entity_id)`,
+				`ADD CONSTRAINT "fx2_link_to_fk" FOREIGN KEY (tenant_id, context_id, to_entity_id)`,
+				`ADD CONSTRAINT "fx2_link_evidence_fk" FOREIGN KEY (tenant_id, context_id, evidence_id)`,
+				`ADD CONSTRAINT "fx2_incident_entity_fk" FOREIGN KEY (tenant_id, entity_context_id, entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id) ON DELETE SET NULL (entity_id)`,
+				`ADD CONSTRAINT "fx2_signal_entity_fk" FOREIGN KEY (tenant_id, entity_context_id, entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id) ON DELETE SET NULL (entity_id)`,
+				`ADD CONSTRAINT "fx2_signal_incident_fk" FOREIGN KEY (tenant_id, incident_id) REFERENCES "t_abc"."incidents" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_override_entity_fk" FOREIGN KEY (tenant_id, entity_context_id, entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id) ON DELETE SET NULL (entity_id)`,
+				`ADD CONSTRAINT "fx2_override_source_fk" FOREIGN KEY (tenant_id, source_incident_id) REFERENCES "t_abc"."incidents" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_override_detached_fk" FOREIGN KEY (tenant_id, detached_incident_id) REFERENCES "t_abc"."incidents" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_override_signal_fk" FOREIGN KEY (tenant_id, source_signal_id) REFERENCES "t_abc"."incident_signals" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_fault_receipt_tenant_fk" FOREIGN KEY (tenant_id) REFERENCES public.tenants (id)`,
+				`ADD CONSTRAINT "fx2_fault_receipt_incident_fk" FOREIGN KEY (tenant_id, incident_id) REFERENCES "t_abc"."incidents" (tenant_id, id)`,
+				`ADD CONSTRAINT "fx2_incidents_entity_pair_ck" CHECK (entity_id IS NULL OR entity_context_id IS NOT NULL)`,
+				`ADD CONSTRAINT "fx2_incident_signals_entity_pair_ck" CHECK (entity_id IS NULL OR entity_context_id IS NOT NULL)`,
+				`ADD CONSTRAINT "fx2_incident_correlation_overrides_entity_pair_ck" CHECK (entity_id IS NULL OR entity_context_id IS NOT NULL)`,
+				`ADD CONSTRAINT "fx2_incidents_identity_lookup_ck" CHECK (entity_context_id IS NULL OR identity_lookup_attempted)`,
+				`ADD CONSTRAINT "fx2_incident_signals_identity_lookup_ck" CHECK (entity_context_id IS NULL OR identity_lookup_attempted)`,
+				`ADD CONSTRAINT "fx2_incident_correlation_overrides_identity_lookup_ck" CHECK (entity_context_id IS NULL OR identity_lookup_attempted)`,
+			} {
+				if !strings.Contains(joined, want) {
+					t.Fatalf("registry silo plan missing %s", want)
+				}
+			}
+			if strings.Count(joined, `conrelid = '"t_abc".`) != 29 {
+				t.Fatalf("registry silo plan did not make all twenty-nine foreign keys and checks idempotent")
+			}
+			if !strings.Contains(joined, `CREATE TRIGGER entity_path_retarget AFTER UPDATE OF target ON "t_abc"."tests"`) ||
+				!strings.Contains(joined, `ALTER TABLE "t_abc"."tests" ENABLE ALWAYS TRIGGER entity_path_retarget`) {
+				t.Fatal("path retarget invalidation trigger was not installed in the silo")
+			}
+		})
+	}
+	if joined := strings.Join(ProvisionPlan("t_abc", []string{"agents", "tests"}), "\n"); strings.Contains(joined, "fx2_") {
+		t.Fatal("old product versions cannot plan FX-2 foreign keys")
+	}
+}
+
 // TestCatchUpPlan pins the drift recipe: a missing table gets the full
 // per-table provision; a missing column gets an expand-only ADD COLUMN.
 func TestCatchUpPlan(t *testing.T) {

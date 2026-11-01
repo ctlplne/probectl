@@ -12,9 +12,11 @@ import "time"
 // (and the UI) render. It is layout-agnostic — node positions are computed
 // client-side from the node/edge set.
 type VizNode struct {
-	ID    string `json:"id"`
-	Kind  string `json:"kind"`
-	Label string `json:"label"`
+	ID                string `json:"id"`
+	Kind              string `json:"kind"`
+	Label             string `json:"label"`
+	CanonicalEntityID string `json:"canonical_entity_id,omitempty"`
+	CanonicalStatus   string `json:"canonical_status,omitempty"`
 }
 
 type VizEdge struct {

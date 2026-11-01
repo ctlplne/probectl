@@ -9,6 +9,8 @@ package otel
 import (
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/entity"
+
 	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
 	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 	ebpfv1 "github.com/ctlplne/probectl/internal/gen/probectl/ebpf/v1"
@@ -117,6 +119,18 @@ func TestAllSignalMappingsConform(t *testing.T) {
 			TenantId: "t", AgentId: "a", DeviceAddress: "192.0.2.1", DeviceName: "core-sw1",
 			Source: "snmp", IfIndex: 3, IfName: "eth0",
 			Name: "probectl.device.if.in.octets", Value: 1, Unit: "octets",
+		}),
+		"entity_fault": EntityFaultAttributes("t", "a", entity.FaultObservation{
+			ID: "55e143c5-c63c-4e0e-974a-f29631bb5233",
+			Source: entity.SourceKey{AgentID: "a", Kind: entity.DeviceTarget,
+				SourceRef: "192.0.2.1"},
+			Target: "192.0.2.1", Kind: entity.FaultDevicePollFailed,
+		}),
+		"flow_exporter_fault": EntityFaultAttributes("t", "a", entity.FaultObservation{
+			ID: "95e143c5-c63c-4e0e-974a-f29631bb5233",
+			Source: entity.SourceKey{AgentID: "a", Kind: entity.FlowExporter,
+				SourceRef: "192.0.2.7"},
+			Target: "192.0.2.7", Kind: entity.FaultFlowExporterSilent,
 		}),
 		"netflow": netFlowAttributes(&flowv1.FlowRecord{
 			TenantId: "t", AgentId: "a", ExporterAddress: "203.0.113.10", FlowProtocol: "netflow9",

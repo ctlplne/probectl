@@ -96,6 +96,31 @@ func TestAUTHZ15PolicyResourceKeyValidation(t *testing.T) {
 			want: http.StatusUnprocessableEntity,
 		},
 		{
+			name: "entity context scoped read is accepted",
+			body: `{"name":"entity-context","effect":"deny","permission":"entities.read","resource":{"context_id":"00000000-0000-4000-8000-000000000201"},"enabled":true}`,
+			want: http.StatusCreated,
+		},
+		{
+			name: "entity site scoped write is accepted",
+			body: `{"name":"entity-site","effect":"deny","permission":"agent.write","resource":{"site_label":"West DC"},"enabled":true}`,
+			want: http.StatusCreated,
+		},
+		{
+			name: "entity source plane context is accepted",
+			body: `{"name":"entity-flow","effect":"deny","permission":"flow.read","resource":{"vrf_id":"00000000-0000-4000-8000-000000000301"},"enabled":true}`,
+			want: http.StatusCreated,
+		},
+		{
+			name: "entity context on unrelated permission remains rejected",
+			body: `{"name":"dead-context","effect":"deny","permission":"test.write","resource":{"context_id":"00000000-0000-4000-8000-000000000201"},"enabled":true}`,
+			want: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "wildcard cannot combine hierarchy and entity keys",
+			body: `{"name":"dead-mixed","effect":"deny","permission":"*","resource":{"org":"org-1","context_id":"00000000-0000-4000-8000-000000000201"},"enabled":true}`,
+			want: http.StatusUnprocessableEntity,
+		},
+		{
 			name: "deny org-scoped on org.read is accepted (hierarchy route supplies it)",
 			body: `{"name":"live","effect":"deny","permission":"org.read","resource":{"org":"org-1"},"priority":10,"enabled":true}`,
 			want: http.StatusCreated,

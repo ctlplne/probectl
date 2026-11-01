@@ -38,6 +38,7 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             deliveryaudit (independent signed delivery evidence) ·
             device (SNMP/device telemetry plane) · docslint (doc-accuracy tests) ·
             ebpf (eBPF host agent) · endpoint (endpoint/DEM agent) ·
+            entity (tenant/context identity registry and conflict resolution) ·
             evidence (signed offline incident packages) ·
             enroll (agent trust root/enrollment) · fairness (per-tenant admission fairness) ·
             flow (NetFlow/sFlow/IPFIX plane) · gen (generated code: protobuf/gNMI/prometheus) ·

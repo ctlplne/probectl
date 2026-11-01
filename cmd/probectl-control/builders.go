@@ -37,6 +37,7 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/lifecycle"
 	"github.com/ctlplne/probectl/internal/metrics"
@@ -990,6 +991,8 @@ func startAgentTransport(
 	a2aBroker *a2a.Broker,
 	srv *control.Server,
 	enrollSvc *enroll.Service,
+	fairGate *fairness.Gate,
+	correlator *incident.Correlator,
 	writerFence tenancy.WriterFence,
 	testBundles agenttransport.TestBundles,
 	log *slog.Logger,
@@ -1002,6 +1005,11 @@ func startAgentTransport(
 		return fmt.Errorf("agent transport: %w", err)
 	}
 	grpcSrv.WithWriterFence(writerFence)
+	grpcSrv.WithFairness(fairGate)
+	grpcSrv.WithFaultCorrelator(correlator)
+	if srv != nil {
+		grpcSrv.WithMetrics(srv.Metrics())
+	}
 	// G9 (D-41): agents pull their tenant's signed test set over this mTLS
 	// listener; nil keeps central test distribution off.
 	grpcSrv.WithTestBundles(testBundles)

@@ -22,6 +22,15 @@ func related(inc *Incident, sig Signal, window time.Duration) bool {
 	if !withinWindow(sig.OccurredAt, inc.StartedAt, inc.LastSeenAt, window) {
 		return false
 	}
+	if inc.IdentityLookupAttempted || sig.IdentityLookupAttempted {
+		// An authenticated lookup that was unresolved or unavailable cannot
+		// silently fall back to a reused RFC1918 address, even after restart.
+		return inc.IdentityLookupAttempted && sig.IdentityLookupAttempted &&
+			inc.TenantID == sig.TenantID && inc.IdentityContextID != "" &&
+			inc.IdentityEntityID != "" &&
+			inc.IdentityContextID == sig.IdentityContextID &&
+			inc.IdentityEntityID == sig.IdentityEntityID
+	}
 	return targetsRelated(inc.Target, inc.Prefix, sig.Target, sig.Prefix)
 }
 

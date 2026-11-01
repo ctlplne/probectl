@@ -334,6 +334,9 @@ func chMigrationsFor(hopsV1, linksV1, hopsV2, linksV2 string) []chmigrate.Migrat
 			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS trace_count UInt32 DEFAULT 0",
 			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS max_hops UInt32 DEFAULT 0",
 		}},
+		{Version: 6, Name: "path_verified_discovery_clock", Statements: []string{
+			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS discovery_clock_verified UInt8 DEFAULT 0",
+		}},
 	}
 }
 
@@ -410,30 +413,31 @@ func NewClickHouseRetainedWithClient(rawURL string, retentionDays int, client *h
 }
 
 type hopRow struct {
-	TenantID             string   `json:"tenant_id"`
-	PathID               string   `json:"path_id"`
-	Target               string   `json:"target"`
-	TargetIP             string   `json:"target_ip"`
-	Mode                 string   `json:"mode"`
-	TraceCount           int      `json:"trace_count"`
-	MaxHops              int      `json:"max_hops"`
-	FidelityVersion      int      `json:"fidelity_version"`
-	ProbeTransport       string   `json:"probe_transport"`
-	AcquisitionMode      string   `json:"acquisition_mode"`
-	TimingSource         string   `json:"timing_source"`
-	HopVisibility        string   `json:"hop_visibility"`
-	KernelTimestamping   uint8    `json:"kernel_timestamping"`
-	HardwareTimestamping uint8    `json:"hardware_timestamping"`
-	TS                   string   `json:"ts"`
-	TTL                  int      `json:"ttl"`
-	Responder            string   `json:"responder"`
-	Sent                 int      `json:"sent"`
-	Received             int      `json:"received"`
-	LossRatio            float64  `json:"loss_ratio"`
-	RTTMin               float64  `json:"rtt_min_ms"`
-	RTTAvg               float64  `json:"rtt_avg_ms"`
-	RTTMax               float64  `json:"rtt_max_ms"`
-	MPLS                 []uint32 `json:"mpls_labels"`
+	TenantID               string   `json:"tenant_id"`
+	PathID                 string   `json:"path_id"`
+	Target                 string   `json:"target"`
+	TargetIP               string   `json:"target_ip"`
+	Mode                   string   `json:"mode"`
+	TraceCount             int      `json:"trace_count"`
+	MaxHops                int      `json:"max_hops"`
+	FidelityVersion        int      `json:"fidelity_version"`
+	ProbeTransport         string   `json:"probe_transport"`
+	AcquisitionMode        string   `json:"acquisition_mode"`
+	TimingSource           string   `json:"timing_source"`
+	HopVisibility          string   `json:"hop_visibility"`
+	KernelTimestamping     uint8    `json:"kernel_timestamping"`
+	HardwareTimestamping   uint8    `json:"hardware_timestamping"`
+	DiscoveryClockVerified uint8    `json:"discovery_clock_verified"`
+	TS                     string   `json:"ts"`
+	TTL                    int      `json:"ttl"`
+	Responder              string   `json:"responder"`
+	Sent                   int      `json:"sent"`
+	Received               int      `json:"received"`
+	LossRatio              float64  `json:"loss_ratio"`
+	RTTMin                 float64  `json:"rtt_min_ms"`
+	RTTAvg                 float64  `json:"rtt_avg_ms"`
+	RTTMax                 float64  `json:"rtt_max_ms"`
+	MPLS                   []uint32 `json:"mpls_labels"`
 }
 
 type linkRow struct {
@@ -448,7 +452,7 @@ type linkRow struct {
 
 // hopRows and linkRows are one discovery round as stored: the rows SaveBatch
 // inserts, and the rows every backend's tenant export emits.
-func hopRows(tenantID, pathID, ts string, p *path.Path) []hopRow {
+func hopRows(tenantID, pathID, ts string, trustedDiscoveryTime bool, p *path.Path) []hopRow {
 	fidelity := path.MeasurementFidelity{}
 	if p.MeasurementFidelity != nil {
 		fidelity = *p.MeasurementFidelity
@@ -466,8 +470,9 @@ func hopRows(tenantID, pathID, ts string, p *path.Path) []hopRow {
 				FidelityVersion: fidelity.Version, ProbeTransport: fidelity.ProbeTransport,
 				AcquisitionMode: fidelity.AcquisitionMode, TimingSource: fidelity.TimingSource,
 				HopVisibility: fidelity.HopVisibility, KernelTimestamping: boolByte(fidelity.KernelTimestamping),
-				HardwareTimestamping: boolByte(fidelity.HardwareTimestamping),
-				TS:                   ts, TTL: h.TTL, Responder: n.IP, Sent: n.Sent, Received: n.Received, LossRatio: n.LossRatio,
+				HardwareTimestamping:   boolByte(fidelity.HardwareTimestamping),
+				DiscoveryClockVerified: boolByte(trustedDiscoveryTime),
+				TS:                     ts, TTL: h.TTL, Responder: n.IP, Sent: n.Sent, Received: n.Received, LossRatio: n.LossRatio,
 				RTTMin: n.RTTMinMs, RTTAvg: n.RTTAvgMs, RTTMax: n.RTTMaxMs, MPLS: labels,
 			})
 		}
@@ -529,7 +534,10 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 	if tenantID == "" {
 		return ErrNoTenant
 	}
-	return c.SaveBatch(ctx, []PathItem{{TenantID: tenantID, P: p}})
+	observedAt, trusted := discoveryStartedAt(ctx)
+	return c.SaveBatch(ctx, []PathItem{{
+		TenantID: tenantID, P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
+	}})
 }
 
 // SaveBatch persists MANY discoveries in one insert per table (Sprint 14,
@@ -562,9 +570,13 @@ func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
 		if err != nil {
 			return err
 		}
-		ts := time.Now().UTC().Format("2006-01-02 15:04:05.000")
+		observedAt := it.ObservedAt
+		if observedAt.IsZero() {
+			observedAt = time.Now().UTC() // direct, unbatched Save
+		}
+		ts := formatCHTime(observedAt)
 		henc, lenc := json.NewEncoder(&b.hops), json.NewEncoder(&b.links)
-		for _, row := range hopRows(it.TenantID, pathID, ts, it.P) {
+		for _, row := range hopRows(it.TenantID, pathID, ts, it.TrustedDiscoveryTime, it.P) {
 			if err := henc.Encode(row); err != nil {
 				return err
 			}
@@ -876,7 +888,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		}
 	}
 	metaRows, err := c.queryScoped(ctx, t, tenantID,
-		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, any(trace_count) AS trace_count, any(max_hops) AS max_hops, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, max(ts) AS observed_at FROM "+hopsT+
+		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, any(trace_count) AS trace_count, any(max_hops) AS max_hops, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, min(discovery_clock_verified) AS discovery_clock_verified, max(ts) AS observed_at FROM "+hopsT+
 			" WHERE "+where+" GROUP BY path_id ORDER BY observed_at DESC, path_id DESC LIMIT {limit:UInt32}",
 		params)
 	if err != nil {
@@ -894,8 +906,9 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 			continue
 		}
 		snapshots = append(snapshots, Snapshot{
-			ID:         id,
-			ObservedAt: parseCHTime(row["observed_at"]),
+			ID:                   id,
+			ObservedAt:           parseCHTime(row["observed_at"]),
+			TrustedDiscoveryTime: chToInt(row["discovery_clock_verified"]) == 1,
 			Path: path.Path{
 				Target: target, TargetIP: chToString(row["target_ip"]), Mode: chToString(row["mode"]),
 				TraceCount: chToInt(row["trace_count"]), MaxHops: chToInt(row["max_hops"]),

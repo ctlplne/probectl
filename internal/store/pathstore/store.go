@@ -24,9 +24,10 @@ var ErrNoTenant = errors.New("pathstore: tenant_id is required (refusing an unsc
 // is never sufficient authorization because every read is also constrained by
 // tenant_id and target in the store.
 type Snapshot struct {
-	ID         string    `json:"id"`
-	ObservedAt time.Time `json:"observed_at"`
-	Path       path.Path `json:"path"`
+	ID                   string    `json:"id"`
+	ObservedAt           time.Time `json:"observed_at"`
+	Path                 path.Path `json:"path"`
+	TrustedDiscoveryTime bool      `json:"-"` // captured from the binding database before tracing
 }
 
 // HistoryQuery bounds a snapshot read. IDs are used by stable shared views;
@@ -36,6 +37,26 @@ type HistoryQuery struct {
 	To    time.Time
 	Limit int
 	IDs   []string
+}
+
+type discoveryStartedAtKey struct{}
+
+// WithDiscoveryStartedAt carries the control plane's PostgreSQL clock reading
+// from before a trace began. Path/context bindings use that same clock, so a
+// context assigned during a trace cannot authorize its earlier observations.
+// This value is server-owned and is never parsed from a request payload.
+func WithDiscoveryStartedAt(ctx context.Context, startedAt time.Time) context.Context {
+	if startedAt.IsZero() {
+		return ctx
+	}
+	return context.WithValue(ctx, discoveryStartedAtKey{}, startedAt.UTC())
+}
+
+func discoveryStartedAt(ctx context.Context) (time.Time, bool) {
+	if startedAt, ok := ctx.Value(discoveryStartedAtKey{}).(time.Time); ok && !startedAt.IsZero() {
+		return startedAt, true
+	}
+	return time.Now().UTC(), false
 }
 
 // Store persists and serves discovered Paths, tenant-scoped.

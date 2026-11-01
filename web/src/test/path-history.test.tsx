@@ -5,11 +5,12 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { pivotHref } from '../routes/pivotContext'
 import { pathRounds, stubPathHistoryFetch } from './pathHistoryFixture'
+import type { MeasuredRequest } from './journeys/measurement'
 
 function stubClipboard() {
   const writeText = vi.fn().mockResolvedValue(undefined)
@@ -21,6 +22,68 @@ function stubClipboard() {
 }
 
 describe('path history', () => {
+  test('current path identity keeps paired tenants with the same private hop separate', async () => {
+    const red = {
+      tenant: '00000000-0000-4000-8000-000000000101',
+      context: '00000000-0000-4000-8000-000000000201',
+      entity: '00000000-0000-4000-8000-000000000301',
+    }
+    const blue = {
+      tenant: '00000000-0000-4000-8000-000000000102',
+      context: '00000000-0000-4000-8000-000000000202',
+      entity: '00000000-0000-4000-8000-000000000302',
+    }
+    const redRequests: MeasuredRequest[] = []
+    stubPathHistoryFetch(redRequests, red)
+    renderApp('/path', {
+      me: { tenant_id: red.tenant, permissions: ['test.read', 'entities.read', 'agent.write'] },
+    })
+    const redCard = (await screen.findByText(red.entity)).closest('[data-path-entities]')
+    expect(redCard).toHaveTextContent('10.0.0.2')
+    expect(redRequests.every((request) => !request.url.includes('tenant_id='))).toBe(true)
+    cleanup()
+
+    const blueRequests: MeasuredRequest[] = []
+    stubPathHistoryFetch(blueRequests, blue)
+    renderApp('/path', {
+      me: { tenant_id: blue.tenant, permissions: ['test.read', 'entities.read', 'agent.write'] },
+    })
+    const blueCard = (await screen.findByText(blue.entity)).closest('[data-path-entities]')
+    expect(blueCard).toHaveTextContent('10.0.0.2')
+    expect(blueCard).not.toHaveTextContent(red.entity)
+    expect(blueRequests.every((request) => !request.url.includes('tenant_id='))).toBe(true)
+  })
+
+  test('keeps an unbound private-address path unresolved on the identity surface', async () => {
+    stubPathHistoryFetch()
+    renderApp('/path', { me: { permissions: ['test.read', 'entities.read', 'agent.write'] } })
+    const card = await screen.findByText('Current path identity')
+    await waitFor(() =>
+      expect(card.closest('[data-path-entities]')).toHaveTextContent(
+        'Routing context not assigned',
+      ),
+    )
+    expect(screen.queryByRole('table', { name: /latest path responders/i })).not.toBeInTheDocument()
+  })
+
+  test('asks for a fresh trace after assigning a routing context', async () => {
+    const context = '00000000-0000-4000-8000-000000000209'
+    stubPathHistoryFetch([], undefined, context)
+    renderApp('/path', { me: { permissions: ['test.read', 'entities.read', 'agent.write'] } })
+    const card = await screen.findByText('Current path identity')
+    await waitFor(() =>
+      expect(card.closest('[data-path-entities]')).toHaveTextContent('Run a new path discovery'),
+    )
+    await waitFor(() =>
+      expect(
+        within(card.closest('[data-path-entities]') as HTMLElement).getByLabelText(
+          'Routing context for this test',
+        ),
+      ).toHaveValue(context),
+    )
+    expect(screen.queryByRole('table', { name: /latest path responders/i })).not.toBeInTheDocument()
+  })
+
   test('scrubs rounds and distinguishes common, changed, and unique responders', async () => {
     const user = userEvent.setup()
     stubPathHistoryFetch()

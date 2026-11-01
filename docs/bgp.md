@@ -213,6 +213,29 @@ regulated profiles refuse BGP events on the shared lane, so there you run one
 listener per tenant; a single-profile deployment may leave it empty and serve
 every tenant's routers from one listener on the shared lane.
 
+FX-2 canonical peer evidence is optional and requires the tenant-lane form:
+register the listener itself, enroll a separate `entity`-plane mTLS certificate
+for that exact tenant/listener ID, and set `PROBECTL_BMP_EVIDENCE_CONTROL_ADDR`,
+`_CERT_FILE`, `_KEY_FILE` and `_CA_FILE` (plus optional `_SERVER_NAME`). The
+listener sends bounded peer address/ASN observations only after a route event
+publishes. Its source reference is the router ID from the verified router
+certificate and each claim pins that certificate's serial, never a BMP header
+claim. Revoking or replacing that serial makes its prior evidence historical;
+the peer address/ASN remain untrusted
+observations. An operator assignment binds that authenticated router source
+to the listener's context. It may name an explicit canonical device; otherwise
+only one current independent SNMP observation of the peer address in that same
+tenant/context can support an inferred device. The exact SNMP evidence row is
+stored and rechecked for expiry, rebind and conflict on every current read.
+A slow or unavailable evidence
+RPC cannot delay raw BGP publishing; a bounded queue drops only optional joins.
+An unchanged accepted peer refreshes its current evidence after 12 hours;
+partially unresolved claims retry hourly; wholly unresolved claims and
+transport failures retry after one minute. This bounds durable evidence growth when a router sends frequent
+route updates. Delayed observations older than 11 hours never refresh current
+identity.
+Multi-tenant shared-lane listeners cannot enable canonical evidence.
+
 The two PostgreSQL logins the listener needs — `bmp_registry`, a member of
 `probectl_app` so the tenant-scoped identity lookup can assume that role, and
 `bmp_revocation`, granted only the execute-only revocation role — are created

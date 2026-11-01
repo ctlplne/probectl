@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -68,6 +69,7 @@ var (
 	ErrIdentityFixed = errors.New("enroll: rotation cannot change identity")
 	// ErrInvalidCollectorPlane refuses ambiguous bus-collector registrations.
 	ErrInvalidCollectorPlane = errors.New("enroll: invalid collector plane")
+	ErrEvidencePinRequired   = errors.New("enroll: evidence certificate requires a token pinned to an existing agent")
 	// ErrRevoked refuses any issuance for an operator-revoked agent identity
 	// (Sprint 12, WIRE-003): no resurrection by re-enrollment or rotation.
 	ErrRevoked = errors.New("enroll: agent identity is revoked")
@@ -528,10 +530,10 @@ func (s *Service) Enroll(ctx context.Context, req Request) (*Identity, error) {
 	return s.issue(ctx, tenantID, agentID, hostname, req.Version, req.CSRPEM, "agent", nil, "" /* first issuance */)
 }
 
-// CollectorIdentity is what a bus-only collector gets from registration: a
-// UUID agent id (and its tenant) to stamp on the records it publishes. No
-// certificate — these collectors authenticate to the bus separately; the
-// registry row is what the control-plane tenant-binding verifies against.
+// CollectorIdentity is what a bus collector gets from registration: a UUID
+// agent id and its tenant to stamp on records. BMP/eBPF may receive their
+// existing plane SVID; plane=entity returns an additional evidence-only SVID
+// for an already registered, pinned agent without changing its bus identity.
 type CollectorIdentity struct {
 	TenantID string    `json:"tenant_id"`
 	AgentID  string    `json:"agent_id"`
@@ -539,15 +541,11 @@ type CollectorIdentity struct {
 	SVID     *Identity `json:"svid,omitempty"`
 }
 
-// RegisterCollector is the sanctioned registration path for bus-publishing
-// collectors: the BGP, eBPF, flow, device, and endpoint planes (ARCH-011). They
-// publish straight to the bus rather than streaming over the agent gRPC, so
-// they never went through Enroll and had NO registry row; the tenant-binding
-// then rejected their batches fail-closed. RegisterCollector consumes a
-// one-time enroll token, mints a UUID identity, and writes the agents-registry
-// row, returning the UUID for the collector to stamp on its records. It issues
-// no certificate (bus auth is separate); that is the only difference from
-// Enroll.
+// RegisterCollector registers bus-publishing BGP, eBPF, flow, device and
+// endpoint collectors (ARCH-011), or uses plane=entity with a pinned token
+// and CSR to add a restricted evidence SVID to an existing collector. It
+// consumes a one-time tenant-bound token. Bus planes mint an agent registry ID
+// to stamp on raw records; BMP/eBPF can also receive their own plane SVID.
 func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane, csrPEM string) (*CollectorIdentity, error) {
 	if !strings.HasPrefix(token, "pjt_") {
 		return nil, ErrInvalidToken
@@ -557,7 +555,7 @@ func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane,
 	if err != nil {
 		return nil, err
 	}
-	if plane == "bmp" && strings.TrimSpace(csrPEM) == "" {
+	if (plane == "bmp" || plane == "entity") && strings.TrimSpace(csrPEM) == "" {
 		return nil, ErrBadCSR
 	}
 	tenantID, pinned, err := store.NewEnrollTokens(s.pool).Consume(ctx, crypto.Hash([]byte(token)), hostname)
@@ -587,7 +585,7 @@ func (s *Service) RegisterCollectorForTenant(ctx context.Context, expectedTenant
 	if err != nil {
 		return nil, err
 	}
-	if plane == "bmp" && strings.TrimSpace(csrPEM) == "" {
+	if (plane == "bmp" || plane == "entity") && strings.TrimSpace(csrPEM) == "" {
 		return nil, ErrBadCSR
 	}
 	pinned, err := store.NewEnrollTokens(s.pool).ConsumeForTenant(ctx, expectedTenantID, crypto.Hash([]byte(token)), hostname)
@@ -604,7 +602,7 @@ func (s *Service) RegisterCollectorForTenant(ctx context.Context, expectedTenant
 func NormalizeCollectorPlane(plane string) (string, error) {
 	plane = strings.ToLower(strings.TrimSpace(plane))
 	switch plane {
-	case "bgp", "bmp", "flow", "device", "ebpf", "endpoint":
+	case "bgp", "bmp", "flow", "device", "ebpf", "endpoint", "entity":
 		return plane, nil
 	default:
 		return "", ErrInvalidCollectorPlane
@@ -612,6 +610,36 @@ func NormalizeCollectorPlane(plane string) (string, error) {
 }
 
 func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostname, plane, csrPEM string) (*CollectorIdentity, error) {
+	if plane == "entity" {
+		// This is an ADDITIONAL credential for an already enrolled collector or
+		// path agent. Requiring a pinned one-use token keeps it on the original
+		// agent ID without minting a new bus producer or consuming another quota
+		// slot. A multi-VRF collector uses separate registered IDs (D-180).
+		if pinned == "" {
+			return nil, ErrEvidencePinRequired
+		}
+		var agent *store.Agent
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				var lookupErr error
+				agent, lookupErr = (store.Agents{}).Get(ctx, sc, pinned)
+				return lookupErr
+			})
+		if err != nil || agent == nil {
+			return nil, ErrEvidencePinRequired
+		}
+		if revoked, rerr := store.NewAgentIdentities(s.pool).IsAgentRevoked(ctx, tenantID, pinned); rerr != nil {
+			return nil, rerr
+		} else if revoked || agent.Status == "revoked" {
+			return nil, refuseTenant(tenantID, ErrRevoked)
+		}
+		svid, err := s.issue(ctx, tenantID, pinned, hostname, "", csrPEM, "entity", nil, "")
+		if err != nil {
+			return nil, err
+		}
+		return &CollectorIdentity{TenantID: tenantID, AgentID: pinned,
+			Plane: "entity", SVID: svid}, nil
+	}
 	agentID := pinned
 	if agentID == "" {
 		var err error
@@ -808,6 +836,10 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 		// D-43 S9: the eBPF collector's own plane — the agent listener
 		// admits it to the L7 policy calls only.
 		spiffe = crypto.EBPFSPIFFEID(tenantID, agentID)
+	case "entity":
+		// D-179: this credential reaches only the bounded identity-evidence
+		// RPC. It cannot register, stream results or fetch L7 policy.
+		spiffe = crypto.EntitySPIFFEID(tenantID, agentID)
 	default:
 		return nil, refuseTenant(tenantID, ErrInvalidCollectorPlane)
 	}
@@ -824,10 +856,28 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
+			if plane == "entity" {
+				// Registration was checked before CSR signing. Lock and recheck
+				// the collector here so a concurrent DELETE cannot leave a fresh
+				// evidence SVID behind for a missing agent ID
+				// (docs/guardrails.md G7-1, G7-4).
+				var status string
+				err := sc.Q.QueryRow(ctx, `SELECT status FROM agents
+					WHERE tenant_id=$1 AND id=$2 FOR SHARE`, tenantID, agentID).Scan(&status)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return ErrEvidencePinRequired
+				}
+				if err != nil {
+					return err
+				}
+				if status == "revoked" {
+					return ErrRevoked
+				}
+			}
 			if err := store.NewAgentIdentities(s.pool).Record(ctx, tenantID, agentID, spiffe, serialHex, notAfter, rotatedFrom); err != nil {
 				return err
 			}
-			if rotatedFrom == "" {
+			if rotatedFrom == "" && plane != "entity" {
 				name := hostname
 				if name == "" {
 					name = agentID

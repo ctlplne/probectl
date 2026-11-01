@@ -19,6 +19,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/agentlabel"
 	"github.com/ctlplne/probectl/internal/configschema"
+	"github.com/ctlplne/probectl/internal/entity"
 )
 
 const (
@@ -61,6 +62,7 @@ type Config struct {
 	Identity      IdentityConfig      `yaml:"identity"`
 	Enroll        EnrollConfig        `yaml:"enroll"`
 	Agent         Meta                `yaml:"agent"`
+	Evidence      EvidenceConfig      `yaml:"evidence,omitempty"`
 	Buffer        BufferConfig        `yaml:"buffer"`
 	ArtifactStore ArtifactStoreConfig `yaml:"artifact_store"`
 	Browser       BrowserConfig       `yaml:"browser"`
@@ -189,6 +191,42 @@ type Meta struct {
 	Capabilities      []string          `yaml:"capabilities"`
 	Labels            map[string]string `yaml:"labels,omitempty"`
 	HeartbeatInterval Duration          `yaml:"heartbeat_interval"`
+}
+
+// EvidenceConfig opts the synthetic agent's observed site label into the
+// restricted D-179 identity RPC. This certificate is separate from the agent
+// plane's test/heartbeat/result SVID and cannot call those methods.
+type EvidenceConfig struct {
+	ControlAddr string `yaml:"control_addr"`
+	CertFile    string `yaml:"cert_file"`
+	KeyFile     string `yaml:"key_file"`
+	CAFile      string `yaml:"ca_file"`
+	ServerName  string `yaml:"server_name"`
+}
+
+func (e EvidenceConfig) Enabled() bool {
+	return e.ControlAddr != "" || e.CertFile != "" || e.KeyFile != "" ||
+		e.CAFile != "" || e.ServerName != ""
+}
+
+func (e EvidenceConfig) validate() error {
+	if !e.Enabled() {
+		return nil
+	}
+	if e.ControlAddr == "" || e.CertFile == "" || e.KeyFile == "" || e.CAFile == "" {
+		return fmt.Errorf("config: evidence.control_addr, cert_file, key_file and ca_file are required together")
+	}
+	if filepath.Dir(e.CertFile) != filepath.Dir(e.KeyFile) ||
+		filepath.Dir(e.CertFile) != filepath.Dir(e.CAFile) ||
+		e.CertFile == e.KeyFile || e.CertFile == e.CAFile || e.KeyFile == e.CAFile {
+		return fmt.Errorf("config: evidence certificate, key and CA must be distinct files in one dedicated directory")
+	}
+	if filepath.Base(e.CertFile) != IdentityCertFile ||
+		filepath.Base(e.KeyFile) != IdentityKeyFile ||
+		filepath.Base(e.CAFile) != IdentityServerCAFile {
+		return fmt.Errorf("config: evidence identity uses cert.pem, key.pem and server-ca.pem in its dedicated directory for atomic rotation")
+	}
+	return nil
 }
 
 // BufferConfig is the store-and-forward buffer.
@@ -377,6 +415,11 @@ func (c *Config) applyEnv() {
 	override("PROBECTL_AGENT_CANARY_CA_DIR", &c.TLS.CanaryCADir)
 	override("PROBECTL_AGENT_TLS_KEY_FILE", &c.TLS.KeyFile)
 	override("PROBECTL_AGENT_TLS_CA_FILE", &c.TLS.CAFile)
+	override("PROBECTL_AGENT_EVIDENCE_CONTROL_ADDR", &c.Evidence.ControlAddr)
+	override("PROBECTL_AGENT_EVIDENCE_CERT_FILE", &c.Evidence.CertFile)
+	override("PROBECTL_AGENT_EVIDENCE_KEY_FILE", &c.Evidence.KeyFile)
+	override("PROBECTL_AGENT_EVIDENCE_CA_FILE", &c.Evidence.CAFile)
+	override("PROBECTL_AGENT_EVIDENCE_SERVER_NAME", &c.Evidence.ServerName)
 	override("PROBECTL_AGENT_BUFFER_DIR", &c.Buffer.Dir)
 	override("PROBECTL_AGENT_OBJECTSTORE_DIR", &c.ArtifactStore.Dir)
 	override("PROBECTL_AGENT_OBJECTSTORE_MODE", &c.ArtifactStore.Mode)
@@ -546,6 +589,31 @@ func (c *Config) validate() error {
 		return fmt.Errorf("config: agent.labels: %w", err)
 	}
 	c.Agent.Labels = labels
+	if err := c.Evidence.validate(); err != nil {
+		return err
+	}
+	if c.Evidence.Enabled() && c.Agent.Labels["site"] == "" {
+		return fmt.Errorf("config: agent.labels.site is required for evidence")
+	}
+	if c.Evidence.Enabled() {
+		if err := ValidateDistinctIdentityDirs(c.Evidence.CertFile, c.TLS.CertFile); err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
+	}
+	if c.Evidence.Enabled() && (c.Identity.Server == "" ||
+		(c.Identity.AutoRotate != nil && !*c.Identity.AutoRotate)) {
+		return fmt.Errorf("config: evidence requires identity.server and automatic SVID rotation")
+	}
+	if c.Evidence.Enabled() {
+		if err := ValidateEvidenceRotation(c.Identity.Server,
+			c.Evidence.CertFile, c.Evidence.KeyFile, c.Evidence.CAFile); err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
+		if _, err := (entity.AliasKey{Kind: entity.AgentSiteAlias,
+			Value: c.Agent.Labels["site"]}).Normalize(); err != nil {
+			return fmt.Errorf("config: agent.labels.site cannot be canonical evidence: %w", err)
+		}
+	}
 	if c.Identity.Server != "" {
 		if _, err := enrollmentEndpoint(c.Identity.Server, "/enroll/agent/rotate", false); err != nil {
 			return fmt.Errorf("config: identity.server: %w", err)

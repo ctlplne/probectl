@@ -95,6 +95,12 @@ func (svc *service) authenticateEBPFCollector(ctx context.Context) (crypto.SPIFF
 	return svc.authenticatePlane(ctx, crypto.EBPFSPIFFEIDFromCert)
 }
 
+// authenticateEntityEvidence accepts only D-179's evidence-only SVID. Agent,
+// eBPF and BMP credentials cannot use the canonical registry write RPC.
+func (svc *service) authenticateEntityEvidence(ctx context.Context) (crypto.SPIFFEID, error) {
+	return svc.authenticatePlane(ctx, crypto.EntitySPIFFEIDFromCert)
+}
+
 func (svc *service) authenticatePlane(ctx context.Context, parse func(*x509.Certificate) (crypto.SPIFFEID, error)) (crypto.SPIFFEID, error) {
 	id, err := planeIdentityFromContext(ctx, parse)
 	if err != nil {

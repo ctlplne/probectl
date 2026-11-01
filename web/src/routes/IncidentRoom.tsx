@@ -56,6 +56,7 @@ import { appPath } from '../lib/links'
 import { isApiStatus } from '../api/client'
 import { useAuth } from '../auth/useAuth'
 import { InvestigationJournal } from './InvestigationJournal'
+import { EntityCurrentPivot, observedIPs } from './EntityCurrentPivot'
 
 interface PlaneGroup {
   id: string
@@ -184,6 +185,18 @@ export function IncidentRoom({
   )
   const selectedSourceID = sourceIDForSelection(pivotContext)
   const selectedSignal = signalRows.find((row) => row.id === selectedSourceID)
+  const currentPivotIPs = useMemo(
+    () =>
+      selectedSignal
+        ? observedIPs([
+            {
+              target: selectedSignal.signal.target,
+              ...selectedSignal.signal.attributes,
+            },
+          ])
+        : [],
+    [selectedSignal?.signal],
+  )
   const selectedChange = changes.data?.find((candidate) => candidate.event.id === selectedSourceID)
   const clockItems = useMemo<IncidentClockItem[]>(() => {
     const items: IncidentClockItem[] = signalRows.map((row) => ({
@@ -684,6 +697,10 @@ export function IncidentRoom({
             configHref={configHref}
             t={t}
           />
+
+          {!sharedArtifactID ? (
+            <EntityCurrentPivot ips={currentPivotIPs} source="incident" />
+          ) : null}
 
           {!sharedArtifactID ? (
             <CorrelationDecision

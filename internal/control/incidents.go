@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,14 +16,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 	bgpv1 "github.com/ctlplne/probectl/internal/gen/probectl/bgp/v1"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/pipeline"
 	"github.com/ctlplne/probectl/internal/siem"
 	"github.com/ctlplne/probectl/internal/store"
@@ -37,6 +42,116 @@ type pgIncidentStore struct {
 
 type pgIncidentTxStore struct {
 	scope tenancy.Scope
+}
+
+// ClaimFaultReceipt runs inside the tenant's advisory-locked correlation
+// transaction. A completed claim returns its original incident, including
+// after that incident is resolved. The unique key is scoped by tenant and the
+// mTLS-derived agent; conflicting reuse of one UUID is rejected.
+func (p pgIncidentTxStore) ClaimFaultReceipt(ctx context.Context,
+	source incident.AuthenticatedIdentitySource, observationID string,
+	sig incident.Signal) (*incident.Incident, error) {
+	if err := p.requireTenant(source.TenantID()); err != nil {
+		return nil, err
+	}
+	// The preliminary RPC identity lookup is outside this transaction. Lock
+	// the exact issued sender row here, before a receipt or incident write, so
+	// concurrent revocation serializes with the fault. An old observation
+	// cannot be authenticated by a certificate issued after it occurred.
+	var issued int
+	err := p.scope.Q.QueryRow(ctx, `SELECT 1 FROM agent_identities i
+		WHERE i.tenant_id=$1 AND i.agent_id=$2 AND i.serial=$3
+		  AND i.spiffe_id=$4 AND i.revoked_at IS NULL
+		  AND i.issued_at<=$5 AND i.not_after>$5
+		  AND i.not_after>statement_timestamp()
+		  AND NOT EXISTS (SELECT 1 FROM agent_identities revoked
+		      WHERE revoked.tenant_id=i.tenant_id AND revoked.agent_id=i.agent_id
+		        AND revoked.revoked_at IS NOT NULL
+		        AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')
+		FOR SHARE OF i`, source.TenantID(), source.AgentID(),
+		source.CertificateSerial(),
+		crypto.EntitySPIFFEID(source.TenantID(), source.AgentID()),
+		sig.OccurredAt).Scan(&issued)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, incident.ErrFaultIdentityInactive
+	}
+	if err != nil {
+		return nil, fmt.Errorf("check entity fault sender: %w", err)
+	}
+	// A sender certificate proves an agent, not authority over every source
+	// name it can put in an RPC. Require a current operator assignment for
+	// this exact source at both observation and ingest time. Hold its rows
+	// through correlation so a concurrent removal cannot authorize a fault.
+	var assigned int
+	err = p.scope.Q.QueryRow(ctx, `SELECT 1 FROM entity_source_contexts m
+		JOIN entity_agent_contexts a ON
+		 (a.tenant_id,a.agent_id,a.context_id)=(m.tenant_id,m.agent_id,m.context_id)
+		WHERE m.tenant_id=$1 AND m.agent_id=$2
+		  AND m.source_kind=$3 AND m.source_ref=$4
+		  AND m.assigned_at<=$5 AND m.assigned_at<=statement_timestamp()
+		  AND (m.expires_at IS NULL OR
+		       (m.expires_at>$5 AND m.expires_at>statement_timestamp()))
+		  AND a.assigned_at<=$5 AND a.assigned_at<=statement_timestamp()
+		  AND (a.expires_at IS NULL OR
+		       (a.expires_at>$5 AND a.expires_at>statement_timestamp()))
+		FOR SHARE OF m,a`, source.TenantID(), source.AgentID(),
+		source.SourceKind(), source.SourceRef(), sig.OccurredAt).Scan(&assigned)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, incident.ErrFaultSourceInactive
+	}
+	if err != nil {
+		return nil, fmt.Errorf("check entity fault source: %w", err)
+	}
+	tag, err := p.scope.Q.Exec(ctx,
+		`INSERT INTO entity_fault_receipts
+		 (tenant_id,agent_id,observation_id,source_kind,source_ref,payload_fingerprint)
+		 VALUES ($1,$2,$3::uuid,$4,$5,$6)
+		 ON CONFLICT (tenant_id,agent_id,observation_id) DO NOTHING`,
+		source.TenantID(), source.AgentID(), observationID,
+		source.SourceKind(), source.SourceRef(), sig.Fingerprint())
+	if err != nil {
+		return nil, fmt.Errorf("claim entity fault receipt: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil, nil
+	}
+	var kind, ref, fingerprint string
+	var incidentID *string
+	if err := p.scope.Q.QueryRow(ctx,
+		`SELECT source_kind,source_ref,payload_fingerprint,incident_id::text
+		 FROM entity_fault_receipts
+		 WHERE tenant_id=$1 AND agent_id=$2 AND observation_id=$3::uuid`,
+		source.TenantID(), source.AgentID(), observationID).
+		Scan(&kind, &ref, &fingerprint, &incidentID); err != nil {
+		return nil, fmt.Errorf("read entity fault receipt: %w", err)
+	}
+	if kind != source.SourceKind() || ref != source.SourceRef() ||
+		fingerprint != sig.Fingerprint() {
+		return nil, incident.ErrFaultObservationConflict
+	}
+	if incidentID == nil {
+		return nil, errors.New("entity fault receipt has no committed incident")
+	}
+	return (store.Incidents{}).Get(ctx, p.scope, *incidentID)
+}
+
+func (p pgIncidentTxStore) CompleteFaultReceipt(ctx context.Context,
+	source incident.AuthenticatedIdentitySource, observationID, incidentID string) error {
+	if err := p.requireTenant(source.TenantID()); err != nil {
+		return err
+	}
+	tag, err := p.scope.Q.Exec(ctx,
+		`UPDATE entity_fault_receipts SET incident_id=$4::uuid
+		 WHERE tenant_id=$1 AND agent_id=$2 AND observation_id=$3::uuid
+		   AND incident_id IS NULL`,
+		source.TenantID(), source.AgentID(), observationID, incidentID)
+	if err != nil {
+		return fmt.Errorf("complete entity fault receipt: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return errors.New("entity fault receipt was not completed exactly once")
+	}
+	return nil
 }
 
 func (p pgIncidentStore) OpenIncidents(ctx context.Context, tenant string) ([]*incident.Incident, error) {
@@ -131,6 +246,90 @@ func (p pgIncidentTxStore) requireTenant(tenant string) error {
 		return fmt.Errorf("incident transaction store: tenant mismatch %q != %q", tenant, p.scope.Tenant.String())
 	}
 	return nil
+}
+
+// ResolveSignalIdentity runs under the incident advisory lock and the same
+// FORCE-RLS transaction as correlation. Only an mTLS-authenticated source may
+// enter this path; the source assignment, exact SVID serial and current
+// evidence are all rechecked here. A missing/ambiguous address retains only
+// its verified routing context, which suppresses raw RFC1918 matching.
+func (p pgIncidentTxStore) ResolveSignalIdentity(ctx context.Context,
+	source incident.AuthenticatedIdentitySource, sig incident.Signal) (incident.IdentityResolution, error) {
+	if err := p.requireTenant(source.TenantID()); err != nil {
+		return incident.IdentityResolution{}, err
+	}
+	if err := p.requireTenant(sig.TenantID); err != nil {
+		return incident.IdentityResolution{}, err
+	}
+	key, err := (entity.SourceKey{AgentID: source.AgentID(),
+		Kind: entity.SourceKind(source.SourceKind()), SourceRef: source.SourceRef()}).Normalize()
+	if err != nil {
+		return incident.IdentityResolution{}, err
+	}
+	var contextID string
+	err = p.scope.Q.QueryRow(ctx, `SELECT m.context_id::text
+		FROM entity_source_contexts m
+		JOIN entity_agent_contexts a ON
+		 (a.tenant_id,a.agent_id,a.context_id)=(m.tenant_id,m.agent_id,m.context_id)
+		JOIN agent_identities sender ON
+		 (sender.tenant_id,sender.agent_id)=(m.tenant_id,m.agent_id)
+		WHERE m.tenant_id=$1 AND m.agent_id=$2
+		  AND m.source_kind=$3 AND m.source_ref=$4
+		  AND sender.serial=$5 AND sender.spiffe_id=$6
+		  AND sender.revoked_at IS NULL
+		  AND sender.issued_at<= $7 AND sender.not_after>$7
+		  AND sender.not_after>statement_timestamp()
+		  AND m.assigned_at<= $7 AND m.assigned_at<=statement_timestamp()
+		  AND (m.expires_at IS NULL OR
+		       (m.expires_at>$7 AND m.expires_at>statement_timestamp()))
+		  AND a.assigned_at<= $7 AND a.assigned_at<=statement_timestamp()
+		  AND (a.expires_at IS NULL OR
+		       (a.expires_at>$7 AND a.expires_at>statement_timestamp()))
+		  AND NOT EXISTS (SELECT 1 FROM agent_identities revoked
+		      WHERE revoked.tenant_id=m.tenant_id AND revoked.agent_id=m.agent_id
+		        AND revoked.revoked_at IS NOT NULL
+		        AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')
+		FOR SHARE OF m,a,sender`, sig.TenantID, key.AgentID,
+		string(key.Kind), key.SourceRef, source.CertificateSerial(),
+		crypto.EntitySPIFFEID(sig.TenantID, key.AgentID), sig.OccurredAt).Scan(&contextID)
+	if err == pgx.ErrNoRows {
+		return incident.IdentityResolution{}, nil
+	}
+	if err != nil {
+		return incident.IdentityResolution{}, err
+	}
+	identity := incident.IdentityResolution{ContextID: contextID}
+	host := path.TargetHost(sig.Target)
+	alias, err := (entity.AliasKey{Kind: entity.AddressAlias, Value: host}).Normalize()
+	if err != nil {
+		return identity, nil // a prefix/DNS target has no address join
+	}
+	resolution, err := store.ResolveAliasInScope(ctx, p.scope,
+		entity.Scope{TenantID: sig.TenantID, ContextID: contextID}, alias)
+	if err != nil {
+		return identity, err
+	}
+	if resolution.Status == entity.Resolved {
+		// A unique address elsewhere in this VRF is not proof that this
+		// authenticated producer observed that device. Require a current row
+		// from this exact source and evidence SVID before using the canonical
+		// ID for correlation. The broader alias resolver already proved that
+		// the address has exactly one current entity in this tenant/context.
+		// The source check shares the resolver's parent-device projection and
+		// current independent-support rules, then locks that exact evidence
+		// row through the correlation commit. A stale reanchored or inferred
+		// row cannot borrow another sender's current address claim.
+		fromSender, err := store.CurrentSourceAddressInScope(ctx, p.scope,
+			entity.Scope{TenantID: sig.TenantID, ContextID: contextID}, alias,
+			key, source.CertificateSerial(), resolution.EntityID, sig.OccurredAt)
+		if err != nil {
+			return identity, err
+		}
+		if fromSender {
+			identity.EntityID = resolution.EntityID
+		}
+	}
+	return identity, nil
 }
 
 func (p pgIncidentStore) WithTenantCorrelationLock(ctx context.Context, tenant string, fn func(context.Context, incident.Store) error) error {

@@ -26,6 +26,13 @@ Path, Topology, and every Plane tab. That action sends the view's X3 context
 (absolute time range, filters, and authorized entity selection) and renders the
 answer in an inline inspector; it does not navigate away or reset the operator's
 view.
+The incident evidence inspector also offers an on-demand FX-2 **Current
+identity pivot** for an IP in the selected cited signal. The operator chooses
+a routing context; the resolver then checks the authenticated tenant,
+`entities.read` and each source-plane read permission before returning a
+current canonical ID or an explicit conflict/unresolved state. This lookup
+does not edit the cited signal, its event time or the RCA answer. Shared
+incident artifacts do not run this live pivot.
 Two properties make it unusual:
 
 - **It is sovereign-capable: the default "engine" is not an LLM.** An **LLM**

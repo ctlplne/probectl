@@ -210,6 +210,20 @@ a deployment outgrows a single process.
   at `?at=`), in the layout-agnostic node/edge shape plus the coverage block.
   Permission: `topology.read`. (When topology isn't wired on a deployment, the
   endpoint returns `topology_running: false` with empty node/edge lists.)
+- `GET /v1/topology?context_id=<routing-context-uuid>` adds a **current** FX-2
+  canonical annotation to valid device/hop/host address nodes. Stable graph IDs
+  and historical `?at` snapshots remain unchanged. Each checked node says
+  `resolved`, `conflict` or `unresolved`; only a unique match has a canonical
+  entity ID. The response gives the lookup time and marks truncation after
+  640 distinct addresses, so an unchecked tail is never mistaken for
+  unresolved identity. This opt-in read also requires `entities.read` and every
+  returned source plane's read permission; a denied source refuses the full
+  projection. The Topology page has an explicit routing-context selector.
+  The entity registry also retains evidence-backed LLDP/CDP physical links
+  for audit. Those rows are observed history, not an extra live graph feed;
+  the current topology continues to use its bounded neighbor snapshots. A
+  neighbor evidence row's `current` flag confirms its local source mapping and
+  SVID, not that the remote cable still exists or resolves uniquely now.
 - `POST /v1/topology/whatif {target, at?}` — the simulated impact for failing one
   node or edge. Permission: `topology.read`. The response names affected path
   tests by their observed agent and target, reports broken/rerouted routes,

@@ -17,6 +17,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/entity"
 )
 
 // Emitter receives normalized record batches from the collector. The bus
@@ -46,12 +48,17 @@ type Stats struct {
 	// counted rather than failing the whole batch — distinct from
 	// QualityEmitErrors (a transient bus failure that is retried, not dropped).
 	QualityInvalidReceipts atomic.Uint64
+	EvidenceAccepted       atomic.Uint64
+	EvidenceUnresolved     atomic.Uint64
+	EvidenceErrors         atomic.Uint64
+	EvidenceQueueDrops     atomic.Uint64
 }
 
 // StatsSnapshot is a point-in-time copy for logging/tests.
 type StatsSnapshot struct {
 	Packets, Records, DecodeErrors, TemplateMisses, QueueDrops, EmitErrors, SourceDrops, DroppedRecords uint64
 	QualityReceipts, QualityEmitErrors, QualityInvalidReceipts                                          uint64
+	EvidenceAccepted, EvidenceUnresolved, EvidenceErrors, EvidenceQueueDrops                            uint64
 }
 
 // Collector binds the configured UDP listeners, decodes datagrams into
@@ -92,9 +99,38 @@ type Collector struct {
 	sourceACLs map[string][]netip.Prefix // protocol name -> allowed exporter CIDRs
 	done       chan struct{}
 
-	qualityMu       sync.Mutex
-	quality         map[qualityKey]*qualityWindow
-	qualityInterval time.Duration
+	qualityMu        sync.Mutex
+	quality          map[qualityKey]*qualityWindow
+	qualityEvictedAt time.Time
+	qualityInterval  time.Duration
+	evidence         EvidenceEmitter
+	evidenceQueue    chan []Record
+	faultQueue       chan []QualityReceipt
+	evidenceReset    chan struct{}
+	evidenceSources  map[string]struct{}
+}
+
+// EvidenceEmitter sends only bounded canonical observations through the
+// restricted mTLS channel. The flow bus path never waits on it.
+type EvidenceEmitter interface {
+	Submit(context.Context, []entity.Observation) (accepted, unresolved int, err error)
+}
+
+// WithEntityEvidence must be called before Start. The configured exporter set
+// is exact and separate from the UDP listener ACL.
+func (c *Collector) WithEntityEvidence(emitter EvidenceEmitter) {
+	c.evidence = emitter
+	if emitter == nil {
+		return
+	}
+	c.evidenceQueue = make(chan []Record, 1)
+	c.faultQueue = make(chan []QualityReceipt, 1)
+	c.evidenceReset = make(chan struct{}, 1)
+	c.evidenceSources = make(map[string]struct{}, len(c.cfg.Evidence.Exporters))
+	for _, raw := range c.cfg.Evidence.Exporters {
+		addr, _ := netip.ParseAddr(raw) // Validate already checked literals.
+		c.evidenceSources[addr.Unmap().String()] = struct{}{}
+	}
 }
 
 // New validates cfg and builds a collector.
@@ -175,6 +211,9 @@ func (c *Collector) Start(ctx context.Context) error {
 			"workers", workers, "tenant", c.cfg.TenantID)
 	}
 	go c.flushLoop(ctx)
+	if c.evidence != nil {
+		go c.evidenceLoop(ctx)
+	}
 	return nil
 }
 
@@ -228,6 +267,10 @@ func (c *Collector) StatsSnapshot() StatsSnapshot {
 		QualityReceipts:        c.stats.QualityReceipts.Load(),
 		QualityEmitErrors:      c.stats.QualityEmitErrors.Load(),
 		QualityInvalidReceipts: c.stats.QualityInvalidReceipts.Load(),
+		EvidenceAccepted:       c.stats.EvidenceAccepted.Load(),
+		EvidenceUnresolved:     c.stats.EvidenceUnresolved.Load(),
+		EvidenceErrors:         c.stats.EvidenceErrors.Load(),
+		EvidenceQueueDrops:     c.stats.EvidenceQueueDrops.Load(),
 	}
 }
 
@@ -353,6 +396,8 @@ func (c *Collector) flushLoop(ctx context.Context) {
 				"emit_errors", s.EmitErrors, "source_drops", s.SourceDrops, "dropped_records", s.DroppedRecords,
 				"quality_receipts", s.QualityReceipts, "quality_emit_errors", s.QualityEmitErrors,
 				"quality_invalid_receipts", s.QualityInvalidReceipts,
+				"evidence_accepted", s.EvidenceAccepted, "evidence_unresolved", s.EvidenceUnresolved,
+				"evidence_errors", s.EvidenceErrors, "evidence_queue_drops", s.EvidenceQueueDrops,
 				"templates", c.dec.TemplateCount())
 		}
 	}
@@ -372,6 +417,18 @@ func (c *Collector) flushBatch(ctx context.Context, batch []Record) {
 		return
 	}
 	c.stats.Records.Add(uint64(len(batch)))
+	if c.evidence != nil {
+		// The queue is intentionally one batch deep. A slow evidence RPC can
+		// lose an optional join, but cannot block raw flow bus delivery.
+		select {
+		case c.evidenceQueue <- batch:
+		default:
+			c.stats.EvidenceQueueDrops.Add(1)
+			if counter, ok := c.evidence.(interface{ QueueDrop() }); ok {
+				counter.QueueDrop()
+			}
+		}
+	}
 }
 
 func (c *Collector) now() time.Time {

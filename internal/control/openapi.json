@@ -40,6 +40,10 @@
       "description": "BGP/routing event read model, tenant-scoped through the incident timeline."
     },
     {
+      "name": "entities",
+      "description": "Tenant and routing-context scoped canonical identity and provenance."
+    },
+    {
       "name": "devices",
       "description": "Device telemetry inventory and latest metric summaries."
     },
@@ -743,6 +747,25 @@
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
           }
+        }
+      }
+    },
+    "/v1/tests/{id}/path/entities": {
+      "get": {
+        "x-required-permission": "test.read",
+        "x-additional-permissions": ["entities.read", "source-specific evidence read"],
+        "operationId": "getPathEntities",
+        "summary": "Resolve current path responders in the test's assigned routing context",
+        "description": "The control-plane trace remains raw. This view requires test.read, entities.read and each returned source's read permission. It uses an operator-owned test/context binding and a discovery that started strictly after that binding, both timed by PostgreSQL; older or same-millisecond rounds cannot inherit a newly assigned context. Current tenant-scoped evidence resolves the responders; unbound or retargeted tests report unbound, and ambiguous addresses stay conflicts. Results are current joins, not historical-at-discovery identity claims.",
+        "tags": ["paths", "entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"$ref": "#/components/parameters/IdPath"}
+        ],
+        "responses": {
+          "200": {"description": "Current path identity join, explicit unbound status or awaiting a trace after context assignment.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityPathResult"}}}},
+          "403": {"description": "Tenant, test, entity or evidence-source read denied."},
+          "404": {"description": "Unknown test."}
         }
       }
     },
@@ -3859,6 +3882,184 @@
         }
       }
     },
+    "/v1/entities": {
+      "get": {
+        "x-required-permission": "entities.read",
+        "operationId": "listCanonicalEntities",
+        "summary": "List canonical entities in one tenant routing context",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}}
+        ],
+        "responses": {
+          "200": {"description": "One bounded page in the caller tenant and routing context.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityPage"}}}},
+          "403": {"description": "Tenant, RBAC or ABAC denial."}
+        },
+        "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
+      },
+      "post": {
+        "x-required-permission": "agent.write",
+        "operationId": "createCanonicalEntity",
+        "summary": "Create an operator-managed canonical entity in one routing context",
+        "description": "The authenticated tenant is the outer boundary; the context must already exist in that tenant. The server mints the canonical UUID and appends a tenant audit event in the same RLS transaction.",
+        "tags": ["entities"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateCanonicalEntityInput"}}}},
+        "responses": {
+          "201": {"description": "Canonical entity created in the caller tenant.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityRecord"}}}},
+          "403": {"description": "Tenant or agent.write permission denied."}
+        }
+      }
+    },
+    "/v1/entities/resolve": {
+      "get": {
+        "x-required-permission": "entities.read",
+        "operationId": "resolveEntityAlias",
+        "summary": "Resolve a typed alias within one tenant routing context",
+        "description": "Tenant comes from authentication. Address evidence on an SNMP interface resolves to its parent device while the interface retains the original IP evidence. Each candidate source additionally requires its source-plane permission; an unauthorized candidate rejects the entire read rather than returning a misleading partial match.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "kind", "in": "query", "required": true, "schema": {"type": "string", "enum": ["address", "prefix", "snmp_device_id", "snmp_interface_id", "physical_neighbor_id", "flow_exporter_id", "bmp_peer_id", "path_hop_id", "agent_site_id", "site_key", "customer_key", "service_key"]}},
+          {"name": "value", "in": "query", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 1024}}
+        ],
+        "responses": {
+          "200": {"description": "Resolved, conflicting or unresolved identity with bounded provenance.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityResolution"}}}},
+          "403": {"description": "Tenant, RBAC or ABAC denial, including a source-plane permission denial."}
+        },
+        "x-probectl-pagination": {"mode": "bounded", "max_items": 3, "reason": "At most three representative candidates; more_candidates marks truncation."}
+      }
+    },
+    "/v1/entities/{id}/evidence": {
+      "get": {
+        "x-required-permission": "entities.read",
+        "operationId": "listCanonicalEntityEvidence",
+        "summary": "Page one entity's original and current source evidence",
+        "description": "The authenticated tenant and explicit routing context confine every row. Each source additionally requires its plane read permission; any denied source rejects the full page.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}}
+        ],
+        "responses": {
+          "200": {"description": "One bounded page of original evidence and current-assignment state.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityEvidencePage"}}}},
+          "403": {"description": "Tenant, RBAC, ABAC or source-plane permission denial."},
+          "404": {"description": "No entity in the caller tenant and routing context."}
+        },
+        "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
+      }
+    },
+    "/v1/entities/{id}/links": {
+      "get": {
+        "x-required-permission": "entities.read",
+        "operationId": "listCanonicalEntityLinks",
+        "summary": "Page one entity's typed evidence-backed relationships",
+        "description": "Incoming and outgoing links stay in the authenticated tenant and explicit routing context. Each source additionally requires its plane read permission; any denied source rejects the full page.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}}
+        ],
+        "responses": {
+          "200": {"description": "One bounded page of typed, evidence-backed links.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityLinkPage"}}}},
+          "403": {"description": "Tenant, RBAC, ABAC or source-plane permission denial."},
+          "404": {"description": "No entity in the caller tenant and routing context."}
+        },
+        "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
+      }
+    },
+    "/v1/entities/{id}": {
+      "get": {
+        "x-required-permission": "entities.read",
+        "operationId": "getCanonicalEntity",
+        "summary": "Get an operator-managed canonical entity in one routing context",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "The caller tenant's canonical entity in the requested context.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityRecord"}}}},
+          "404": {"description": "No entity in the caller tenant and routing context."}
+        }
+      }
+    },
+    "/v1/entity-contexts": {
+      "get": {
+        "x-required-permission": "entities.read",
+        "operationId": "listEntityContexts",
+        "summary": "Page the caller tenant's configured site/VRF routing contexts",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Bounded tenant routing-context page.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityContextPage"}}}},
+          "403": {"description": "Tenant or entities.read permission denied."}
+        },
+        "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
+      },
+      "post": {
+        "x-required-permission": "agent.write",
+        "operationId": "createEntityContext",
+        "summary": "Create an operator-configured site/VRF routing context",
+        "description": "Tenant comes from authentication. Operators provide site and VRF names; the server derives repeatable tenant-owned site/VRF UUIDs and mints the context UUID. Names never select a routing context from packets. The write and audit append share one FORCE-RLS transaction.",
+        "tags": ["entities"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateEntityContextInput"}}}},
+        "responses": {
+          "201": {"description": "Tenant routing context created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityContext"}}}},
+          "403": {"description": "Tenant or agent.write permission denied."}
+        }
+      }
+    },
+    "/v1/tests/{id}/entity-context": {
+      "put": {
+        "x-required-permission": "agent.write",
+        "operationId": "assignPathTestEntityContext",
+        "summary": "Bind a tenant path test to an operator-owned routing context",
+        "description": "The current path engine runs in the control plane and stores rounds by tenant and normalized destination. The authenticated tenant's test and routing context are joined by tenant-composite foreign keys in FORCE-RLS storage. Only one test per tenant destination can hold a routing-context binding; changing a test target makes the old binding inactive until reassigned. A responding hop IP cannot choose a context. Mutation and audit append share one transaction.",
+        "tags": ["entities", "paths"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AssignEntityPathContextInput"}}}},
+        "responses": {
+          "200": {"description": "Test routing context assigned.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityPathContextBinding"}}}},
+          "403": {"description": "Tenant or agent.write permission denied."},
+          "409": {"description": "Another test in this tenant already binds the normalized path destination."}
+        }
+      }
+    },
+    "/v1/entity-source-contexts": {
+      "put": {
+        "x-required-permission": "agent.write",
+        "operationId": "assignEntitySource",
+        "summary": "Bind one registered evidence agent and configured source to its routing context",
+        "description": "The authenticated tenant and registered agent are checked in FORCE-RLS storage. One agent identity can author one routing context. An optional canonical anchor must belong to that same tenant/context; an unanchored flow/BMP source needs exact unique current SNMP support in that context, while other unanchored sources stay unresolved. The source assignment and audit append commit together.",
+        "tags": ["entities"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntitySourceAssignment"}}}},
+        "responses": {
+          "200": {"description": "Tenant-scoped source assignment stored.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntitySourceAssignment"}}}},
+          "403": {"description": "Tenant or agent.write permission denied."}
+        }
+      }
+    },
     "/v1/devices": {
       "get": {
         "x-required-permission": "metrics.read",
@@ -6177,12 +6378,13 @@
     "/v1/topology": {
       "get": {
         "x-required-permission": "topology.read",
+        "x-additional-permissions": ["entities.read when context_id is set", "source-specific evidence read for canonical candidates"],
         "operationId": "getTopology",
         "summary": "Topology dependency graph (S43)",
         "tags": [
           "topology"
         ],
-        "description": "The caller's tenant's dependency graph (agents, hops, hosts, services, prefixes, ASes, devices) in a layout-agnostic node/edge shape, live or AS IT WAS at ?at= (the versioned-graph contract). Includes the per-plane coverage block (path/flow/routing/device edge counts + honesty notes) so the operator can see what the graph actually contains. topology_running=false distinguishes an unwired store.",
+        "description": "The caller's tenant's dependency graph (agents, hops, hosts, services, prefixes, ASes, devices) in a layout-agnostic node/edge shape, live or AS IT WAS at ?at= (the versioned-graph contract). An explicit context_id adds a bounded CURRENT canonical entity projection beside stable graph IDs; a historical graph remains historical while that annotation is labelled with its current lookup time. Conflicts stay explicit and a graph beyond 640 distinct address nodes marks projection truncation. The projection also requires entities.read and every returned source-plane read permission. Includes the per-plane coverage block (path/flow/routing/device edge counts + honesty notes). topology_running=false distinguishes an unwired store.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -6196,6 +6398,13 @@
               "type": "string",
               "format": "date-time"
             }
+          },
+          {
+            "name": "context_id",
+            "in": "query",
+            "required": false,
+            "description": "Explicit operator-owned routing context UUID for current canonical annotations; omitted returns the raw topology only.",
+            "schema": {"type": "string", "format": "uuid"}
           }
         ],
         "responses": {
@@ -6226,6 +6435,12 @@
                           },
                           "label": {
                             "type": "string"
+                          },
+                          "canonical_entity_id": {
+                            "type": "string", "format": "uuid"
+                          },
+                          "canonical_status": {
+                            "type": "string", "enum": ["resolved", "conflict", "unresolved"]
                           }
                         }
                       }
@@ -6252,7 +6467,10 @@
                     },
                     "coverage": {
                       "type": "object"
-                    }
+                    },
+                    "canonical_context_id": {"type": "string", "format": "uuid"},
+                    "canonical_projection_current_at": {"type": "string", "format": "date-time"},
+                    "canonical_projection_truncated": {"type": "boolean"}
                   }
                 }
               }
@@ -11384,8 +11602,8 @@
       "post": {
         "x-required-permission": "agent.write",
         "operationId": "registerCollector",
-        "summary": "Register a tenant-scoped bus collector from a one-time enrollment token",
-        "description": "Consumes a tenant-scoped one-time token inside the caller tenant. Bus-collector planes receive a registry identity to stamp on records; plane=bmp additionally requires csr_pem and returns a registry-issued /bmp/<router-id> SVID for router mTLS. plane=ebpf accepts an optional csr_pem and then returns a registry-issued /ebpf/<agent-id> SVID bound to the collector's own agent_id, which the agent listener admits to the L7 policy calls only (FetchL7Policy, ReportL7Posture — never as a synthetic agent), so the tenant's L7 capture redaction floor reaches the collector and its capture posture reaches the tenant's audit chain (D-43); the private key never leaves the collector host.",
+        "summary": "Register a collector or issue its additional evidence certificate from a one-time enrollment token",
+        "description": "Consumes a tenant-scoped one-time token inside the caller tenant. Bus-collector planes receive a registry identity to stamp on records; plane=bmp requires csr_pem and returns a /bmp/ SVID for router mTLS. plane=ebpf accepts an optional csr_pem and returns an /ebpf/ SVID for L7 policy calls (D-43). plane=entity requires a CSR and a one-time token pinned to an existing agent_id; it issues an additional evidence-only /entity/ SVID for SubmitEntityEvidence, without creating a new bus collector or changing the existing registry identity. Every private key stays on its collector host.",
         "tags": [
           "agents"
         ],
@@ -17717,6 +17935,208 @@
           }
         }
       },
+      "EntityScope": {
+        "type": "object",
+        "required": ["tenant_id", "context_id"],
+        "properties": {
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "context_id": {"type": "string", "format": "uuid"}
+        }
+      },
+      "CreateEntityContextInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["site_label", "vrf_label"],
+        "properties": {
+          "site_label": {"type": "string", "minLength": 1, "maxLength": 128},
+          "vrf_label": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "EntityContext": {
+        "type": "object",
+        "required": ["tenant_id", "context_id", "site_id", "vrf_id", "site_label", "vrf_label"],
+        "properties": {
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "context_id": {"type": "string", "format": "uuid"},
+          "site_id": {"type": "string", "format": "uuid"},
+          "vrf_id": {"type": "string", "format": "uuid"},
+          "site_label": {"type": "string"},
+          "vrf_label": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "EntityContextPage": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/EntityContext"}},
+          "next_cursor": {"type": "string", "format": "uuid"}
+        }
+      },
+      "AssignEntityPathContextInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["context_id"],
+        "properties": {"context_id": {"type": "string", "format": "uuid"}}
+      },
+      "EntityPathContextBinding": {
+        "type": "object",
+        "required": ["test_id", "context_id"],
+        "properties": {
+          "test_id": {"type": "string", "format": "uuid"},
+          "context_id": {"type": "string", "format": "uuid"}
+        }
+      },
+      "EntityPathHop": {
+        "type": "object",
+        "required": ["ttl", "ip", "resolution"],
+        "properties": {
+          "ttl": {"type": "integer"},
+          "ip": {"type": "string", "format": "ipv4"},
+          "resolution": {"$ref": "#/components/schemas/EntityResolution"}
+        }
+      },
+      "EntityPathResult": {
+        "type": "object",
+        "required": ["test_id", "status", "items"],
+        "properties": {
+          "test_id": {"type": "string", "format": "uuid"},
+          "context_id": {"type": "string", "format": "uuid"},
+          "status": {"type": "string", "enum": ["unbound", "awaiting_trace", "current"]},
+          "items": {"type": "array", "maxItems": 640, "items": {"$ref": "#/components/schemas/EntityPathHop"}},
+          "truncated": {"type": "boolean"}
+        }
+      },
+      "CreateCanonicalEntityInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["context_id", "kind", "label"],
+        "properties": {
+          "context_id": {"type": "string", "format": "uuid"},
+          "kind": {"type": "string", "enum": ["device", "interface", "address", "prefix", "service", "site", "customer"]},
+          "label": {"type": "string", "minLength": 1, "maxLength": 1024}
+        }
+      },
+      "EntitySourceAssignment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent_id", "source_kind", "source_ref", "context_id"],
+        "properties": {
+          "agent_id": {"type": "string", "format": "uuid"},
+          "source_kind": {"type": "string", "enum": ["device_target", "flow_exporter", "path_agent", "bmp_peer", "agent_site"]},
+          "source_ref": {"type": "string", "minLength": 1, "maxLength": 1024},
+          "context_id": {"type": "string", "format": "uuid"},
+          "anchor_entity_id": {"type": "string", "format": "uuid"}
+        }
+      },
+      "EntityRecord": {
+        "type": "object",
+        "required": ["scope", "id", "kind", "label", "created_at", "updated_at"],
+        "properties": {
+          "scope": {"$ref": "#/components/schemas/EntityScope"},
+          "id": {"type": "string", "format": "uuid"},
+          "kind": {"type": "string", "enum": ["device", "interface", "address", "prefix", "service", "site", "customer"]},
+          "label": {"type": "string", "minLength": 1, "maxLength": 1024},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "EntityPage": {
+        "type": "object",
+        "required": ["scope", "items"],
+        "properties": {
+          "scope": {"$ref": "#/components/schemas/EntityScope"},
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/EntityRecord"}},
+          "next_cursor": {"type": "string", "format": "uuid"}
+        }
+      },
+      "EntityEvidenceRecord": {
+        "type": "object",
+        "required": ["id", "observation_id", "alias", "source", "source_ref", "source_key", "observed_at", "current"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "observation_id": {"type": "string", "format": "uuid"},
+          "alias": {"type": "object", "required": ["kind", "value"], "properties": {"kind": {"type": "string"}, "value": {"type": "string"}}},
+          "source": {"type": "string"},
+          "source_ref": {"type": "string"},
+          "source_key": {"type": "object", "required": ["agent_id", "source_kind", "source_ref"], "properties": {"agent_id": {"type": "string"}, "source_kind": {"type": "string"}, "source_ref": {"type": "string"}}},
+          "origin_serial": {"type": "string", "description": "Exact verified BMP router certificate serial; absent on other planes or historical rows without a router SVID."},
+          "support_evidence_id": {"type": "string", "format": "uuid", "description": "Exact independent SNMP address evidence supporting an inferred flow or BMP device. Current status rechecks its source, certificate, expiry and uniqueness."},
+          "interface_name": {"type": "string", "description": "Observed SNMP ifName for an interface claim; never an identity key."},
+          "interface_description": {"type": "string", "description": "Observed SNMP ifDescr for an interface claim; never an identity key."},
+          "neighbor_protocol": {"type": "string", "enum": ["lldp", "cdp"], "description": "Protocol of a physical neighbor claim."},
+          "neighbor_local_if_index": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+          "neighbor_local_port_id": {"type": "string"},
+          "neighbor_remote_port_id": {"type": "string"},
+          "neighbor_chassis_id": {"type": "string"},
+          "neighbor_device_name": {"type": "string"},
+          "neighbor_management_address": {"type": "string", "description": "Observed remote management IP; never a tenant or routing-context selector."},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "expires_at": {"type": "string", "format": "date-time"},
+          "current": {"type": "boolean"}
+        }
+      },
+      "EntityEvidencePage": {
+        "type": "object",
+        "required": ["scope", "entity_id", "items"],
+        "properties": {
+          "scope": {"$ref": "#/components/schemas/EntityScope"},
+          "entity_id": {"type": "string", "format": "uuid"},
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/EntityEvidenceRecord"}},
+          "next_cursor": {"type": "string", "format": "uuid"}
+        }
+      },
+      "EntityLinkRecord": {
+        "type": "object",
+        "required": ["id", "from_entity_id", "to_entity_id", "evidence_id", "kind", "source_kind", "observed_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "from_entity_id": {"type": "string", "format": "uuid"},
+          "to_entity_id": {"type": "string", "format": "uuid"},
+          "evidence_id": {"type": "string", "format": "uuid"},
+          "kind": {"type": "string", "enum": ["physical", "inferred", "routing", "contains", "serves", "assigned_to"]},
+          "source_kind": {"type": "string", "enum": ["device_target", "flow_exporter", "path_agent", "bmp_peer", "agent_site"]},
+          "observed_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "EntityLinkPage": {
+        "type": "object",
+        "required": ["scope", "entity_id", "items"],
+        "properties": {
+          "scope": {"$ref": "#/components/schemas/EntityScope"},
+          "entity_id": {"type": "string", "format": "uuid"},
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/EntityLinkRecord"}},
+          "next_cursor": {"type": "string", "format": "uuid"}
+        }
+      },
+      "EntityClaim": {
+        "type": "object",
+        "required": ["scope", "alias", "entity_id", "entity_kind", "evidence_id", "source", "source_ref", "source_key", "observed_at"],
+        "properties": {
+          "scope": {"$ref": "#/components/schemas/EntityScope"},
+          "alias": {"type": "object", "required": ["kind", "value"], "properties": {"kind": {"type": "string"}, "value": {"type": "string"}}},
+          "entity_id": {"type": "string", "format": "uuid"},
+          "entity_kind": {"type": "string"},
+          "evidence_id": {"type": "string", "format": "uuid"},
+          "support_evidence_id": {"type": "string", "format": "uuid", "description": "Current independent SNMP evidence supporting this inferred flow/BMP candidate; reading it also requires the device-plane permission."},
+          "source": {"type": "string"},
+          "source_ref": {"type": "string"},
+          "source_key": {"type": "object", "required": ["agent_id", "source_kind", "source_ref"], "properties": {"agent_id": {"type": "string"}, "source_kind": {"type": "string"}, "source_ref": {"type": "string"}}},
+          "observed_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "EntityResolution": {
+        "type": "object",
+        "required": ["scope", "alias", "status", "more_candidates"],
+        "properties": {
+          "scope": {"$ref": "#/components/schemas/EntityScope"},
+          "alias": {"type": "object", "required": ["kind", "value"], "properties": {"kind": {"type": "string"}, "value": {"type": "string"}}},
+          "status": {"type": "string", "enum": ["unresolved", "resolved", "conflict"]},
+          "entity_id": {"type": "string", "format": "uuid"},
+          "candidates": {"type": "array", "maxItems": 3, "items": {"$ref": "#/components/schemas/EntityClaim"}},
+          "more_candidates": {"type": "boolean"}
+        }
+      },
       "DeviceInventory": {
         "type": "object",
         "description": "One managed network device visible in the tenant topology graph.",
@@ -20594,7 +21014,8 @@
               "flow",
               "device",
               "ebpf",
-              "endpoint"
+              "endpoint",
+              "entity"
             ]
           },
           "hostname": {
@@ -20603,7 +21024,7 @@
           },
           "csr_pem": {
             "type": "string",
-            "description": "Collector-owned PKCS#10 CSR PEM. Required for plane=bmp; optional for plane=ebpf, which then receives an agent-channel SVID (D-43). The private key never leaves the collector host."
+            "description": "Collector-owned PKCS#10 CSR PEM. Required for plane=bmp and plane=entity; optional for plane=ebpf. The entity plane additionally requires a token pinned to an existing agent ID. The private key never leaves the collector host."
           },
           "collection_profile": {
             "type": "string",
@@ -20670,7 +21091,9 @@
             "type": "string",
             "enum": [
               "agent",
-              "bmp"
+              "bmp",
+              "ebpf",
+              "entity"
             ]
           },
           "serial": {
@@ -20709,7 +21132,8 @@
               "flow",
               "device",
               "ebpf",
-              "endpoint"
+              "endpoint",
+              "entity"
             ]
           },
           "hostname": {
@@ -20726,7 +21150,7 @@
           },
           "svid": {
             "$ref": "#/components/schemas/RegisteredSVID",
-            "description": "Present only for plane=bmp."
+            "description": "Present for plane=bmp, plane=entity, and plane=ebpf with a CSR."
           }
         },
         "required": [

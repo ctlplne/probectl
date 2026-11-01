@@ -93,6 +93,12 @@ type Signal struct {
 	Prefix     string            `json:"prefix,omitempty"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 	OccurredAt time.Time         `json:"occurred_at"`
+	// Server-resolved correlation authority is persisted in dedicated columns.
+	// Free-form Attributes and bus payloads may contain claimed IDs but never
+	// populate these fields at the Ingest boundary.
+	IdentityContextID       string `json:"-"`
+	IdentityEntityID        string `json:"-"`
+	IdentityLookupAttempted bool   `json:"-"`
 }
 
 // Fingerprint identifies THIS event: the same tenant, plane, kind, target,
@@ -131,27 +137,35 @@ func (s Signal) Fingerprint() string {
 // independently visible incident created from it. Active remains true until an
 // explicit reversal.
 type CorrelationOverride struct {
-	ID                 string     `json:"id"`
-	TenantID           string     `json:"tenant_id"`
-	SourceIncidentID   string     `json:"source_incident_id"`
-	DetachedIncidentID string     `json:"detached_incident_id"`
-	SourceSignalID     string     `json:"source_signal_id"`
-	Plane              string     `json:"plane"`
-	Kind               string     `json:"kind"`
-	Target             string     `json:"target,omitempty"`
-	Prefix             string     `json:"prefix,omitempty"`
-	Reason             string     `json:"reason"`
-	Active             bool       `json:"active"`
-	CreatedBy          string     `json:"created_by"`
-	CreatedAt          time.Time  `json:"created_at"`
-	ReversedBy         string     `json:"reversed_by,omitempty"`
-	ReversalReason     string     `json:"reversal_reason,omitempty"`
-	ReversedAt         *time.Time `json:"reversed_at,omitempty"`
+	ID                 string `json:"id"`
+	TenantID           string `json:"tenant_id"`
+	SourceIncidentID   string `json:"source_incident_id"`
+	DetachedIncidentID string `json:"detached_incident_id"`
+	SourceSignalID     string `json:"source_signal_id"`
+	Plane              string `json:"plane"`
+	Kind               string `json:"kind"`
+	Target             string `json:"target,omitempty"`
+	Prefix             string `json:"prefix,omitempty"`
+	// Server-resolved match scope. An override for one VRF must not detach an
+	// otherwise identical raw address in another VRF of the same tenant.
+	IdentityContextID       string     `json:"-"`
+	IdentityEntityID        string     `json:"-"`
+	IdentityLookupAttempted bool       `json:"-"`
+	Reason                  string     `json:"reason"`
+	Active                  bool       `json:"active"`
+	CreatedBy               string     `json:"created_by"`
+	CreatedAt               time.Time  `json:"created_at"`
+	ReversedBy              string     `json:"reversed_by,omitempty"`
+	ReversalReason          string     `json:"reversal_reason,omitempty"`
+	ReversedAt              *time.Time `json:"reversed_at,omitempty"`
 }
 
 func (o CorrelationOverride) Matches(sig Signal) bool {
-	return o.Active && o.TenantID == sig.TenantID && o.Plane == sig.Plane && o.Kind == sig.Kind &&
-		o.Target == sig.Target && o.Prefix == sig.Prefix
+	return o.Active && (!o.IdentityLookupAttempted || o.IdentityEntityID != "") &&
+		o.TenantID == sig.TenantID && o.Plane == sig.Plane && o.Kind == sig.Kind &&
+		o.Target == sig.Target && o.Prefix == sig.Prefix &&
+		o.IdentityLookupAttempted == sig.IdentityLookupAttempted &&
+		o.IdentityContextID == sig.IdentityContextID && o.IdentityEntityID == sig.IdentityEntityID
 }
 
 // ErrNoCorrelationKey is returned when a signal carries neither Target nor
@@ -179,18 +193,21 @@ func (s Signal) validateCorrelationKey() error {
 
 // Incident groups related signals. Signals is its timeline (populated on read).
 type Incident struct {
-	ID          string     `json:"id"`
-	TenantID    string     `json:"tenant_id"`
-	Status      Status     `json:"status"`
-	Severity    Severity   `json:"severity"`
-	Title       string     `json:"title"`
-	Target      string     `json:"target,omitempty"`
-	Prefix      string     `json:"prefix,omitempty"`
-	StartedAt   time.Time  `json:"started_at"`
-	LastSeenAt  time.Time  `json:"last_seen_at"`
-	ResolvedAt  *time.Time `json:"resolved_at,omitempty"`
-	SignalCount int        `json:"signal_count"`
-	Signals     []Signal   `json:"signals,omitempty"`
+	ID                      string     `json:"id"`
+	TenantID                string     `json:"tenant_id"`
+	Status                  Status     `json:"status"`
+	Severity                Severity   `json:"severity"`
+	Title                   string     `json:"title"`
+	Target                  string     `json:"target,omitempty"`
+	Prefix                  string     `json:"prefix,omitempty"`
+	StartedAt               time.Time  `json:"started_at"`
+	LastSeenAt              time.Time  `json:"last_seen_at"`
+	ResolvedAt              *time.Time `json:"resolved_at,omitempty"`
+	SignalCount             int        `json:"signal_count"`
+	IdentityContextID       string     `json:"-"`
+	IdentityEntityID        string     `json:"-"`
+	IdentityLookupAttempted bool       `json:"-"`
+	Signals                 []Signal   `json:"signals,omitempty"`
 	// SignalsTruncated is explicit coverage metadata for bounded incident-room
 	// reads. SignalsLimit states the server cap when truncation occurred.
 	SignalsTruncated bool `json:"signals_truncated"`
@@ -207,14 +224,17 @@ func newIncident(sig Signal) *Incident {
 		target = sig.Prefix
 	}
 	return &Incident{
-		TenantID:    sig.TenantID,
-		Status:      StatusOpen,
-		Severity:    sig.Severity,
-		Title:       sig.Title,
-		Target:      target,
-		Prefix:      sig.Prefix,
-		StartedAt:   sig.OccurredAt,
-		LastSeenAt:  sig.OccurredAt,
-		SignalCount: 0, // incremented as signals are appended
+		TenantID:                sig.TenantID,
+		Status:                  StatusOpen,
+		Severity:                sig.Severity,
+		Title:                   sig.Title,
+		Target:                  target,
+		Prefix:                  sig.Prefix,
+		StartedAt:               sig.OccurredAt,
+		LastSeenAt:              sig.OccurredAt,
+		SignalCount:             0, // incremented as signals are appended
+		IdentityContextID:       sig.IdentityContextID,
+		IdentityEntityID:        sig.IdentityEntityID,
+		IdentityLookupAttempted: sig.IdentityLookupAttempted,
 	}
 }

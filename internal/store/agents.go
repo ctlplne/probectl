@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -467,6 +468,37 @@ func (Agents) Rename(ctx context.Context, s tenancy.Scope, id, name string) (*Ag
 // Delete deregisters an agent. The agent will re-create its registration if it
 // reconnects; this removes the current record (e.g. for a decommissioned host).
 func (Agents) Delete(ctx context.Context, s tenancy.Scope, id string) error {
+	// Serialize with evidence-SVID issuance, which holds this row FOR SHARE
+	// while recording the new serial. Without an upfront lock, a delete could
+	// revoke existing serials, then miss a newly inserted one before removing
+	// the agent row (docs/guardrails.md G7-1, G7-4).
+	var lockedID string
+	if err := s.Q.QueryRow(ctx, `SELECT id::text FROM agents
+		WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, s.Tenant.String(), id).Scan(&lockedID); err != nil {
+		return notFound("agent", err)
+	}
+	// An old evidence SVID can remain valid until certificate expiry. Retire
+	// its exact certificate as well as operator assignments in this tenant
+	// transaction. A later raw-agent re-registration with the same id must not
+	// reactivate that old evidence certificate (G7-1, G7-4). This marker is
+	// intentionally distinct from an operator's whole-agent revocation.
+	if _, err := s.Q.Exec(ctx, `UPDATE agent_identities
+		SET revoked_at=statement_timestamp(), revoked_by='entity_registry_delete'
+		WHERE tenant_id=$1 AND agent_id=$2 AND revoked_at IS NULL
+		  AND spiffe_id=$3`, s.Tenant.String(), id,
+		crypto.EntitySPIFFEID(s.Tenant.String(), id)); err != nil {
+		return err
+	}
+	if _, err := s.Q.Exec(ctx, `UPDATE entity_source_contexts
+		SET expires_at=GREATEST(assigned_at, statement_timestamp())
+		WHERE tenant_id=$1 AND agent_id=$2 AND expires_at IS NULL`, s.Tenant.String(), id); err != nil {
+		return err
+	}
+	if _, err := s.Q.Exec(ctx, `UPDATE entity_agent_contexts
+		SET expires_at=GREATEST(assigned_at, statement_timestamp())
+		WHERE tenant_id=$1 AND agent_id=$2 AND expires_at IS NULL`, s.Tenant.String(), id); err != nil {
+		return err
+	}
 	tag, err := s.Q.Exec(ctx, `DELETE FROM agents WHERE id = $1`, id)
 	if err != nil {
 		return err

@@ -40,14 +40,16 @@ var errUnsupportedResultEnvelopeVersion = errors.New("agent: unsupported result 
 // drains the buffer to the control plane — reconnecting with backoff so probing
 // is never blocked by an outage.
 type Agent struct {
-	cfg         *Config
-	log         *slog.Logger
-	buffer      *Buffer
-	host        *Host
-	coordinator *Coordinator
-	metrics     *agentmetrics.Runtime
-	sync        *testSyncer // central test sync (G9); nil = local canaries only
-	reg         *canary.Registry
+	cfg               *Config
+	log               *slog.Logger
+	buffer            *Buffer
+	host              *Host
+	coordinator       *Coordinator
+	metrics           *agentmetrics.Runtime
+	siteEvidence      SiteEvidenceEmitter
+	siteEvidenceReset chan struct{}
+	sync              *testSyncer // central test sync (G9); nil = local canaries only
+	reg               *canary.Registry
 	// nextSyncProbe rate-limits looking for a test-bundle key that arrives
 	// after start (delivered by an identity rotation); forward goroutine only.
 	nextSyncProbe time.Time
@@ -120,6 +122,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { a.host.Run(gctx); return nil })
 	g.Go(func() error { return a.forward(gctx) })
+	if a.siteEvidence != nil && a.cfg.Agent.Labels["site"] != "" {
+		g.Go(func() error { a.runSiteEvidence(gctx); return nil })
+	}
 	if a.coordinator != nil {
 		g.Go(func() error { return a.coordinator.Run(gctx) })
 	}

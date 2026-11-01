@@ -30,9 +30,12 @@ import (
 	"github.com/ctlplne/probectl/internal/agentlabel"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/fairness"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/lifecycle"
+	"github.com/ctlplne/probectl/internal/metrics"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/usage"
@@ -141,6 +144,15 @@ type service struct {
 	// (S-a9f9db46): INJECTED from the runtime like every other plane's — never
 	// constructed ad hoc per call — so the write-fence inventory sees it.
 	fence tenancy.WriterFence
+	// Evidence RPCs use a separate tenant bucket from raw result admission.
+	// New() installs bounded defaults; the runtime injects its shared gate.
+	fairness *fairness.Gate
+	// Fixed-outcome counters only: no tenant, address or entity metric labels.
+	entityEvidenceBatches      map[string]*metrics.Counter
+	entityEvidenceObservations map[string]*metrics.Counter
+	// The restricted evidence RPC may submit a bounded fault observation with
+	// its live mTLS sender. It never trusts a bus payload for this identity.
+	entityFaultCorrelator *incident.Correlator
 
 	// revocations is the SAME registry-driven mTLS deny-list the handshake
 	// consults (U-038). mTLS checks it once, at connect; CRY-01 re-checks it on

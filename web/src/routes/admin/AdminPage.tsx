@@ -45,6 +45,7 @@ import { useSecretsHealth, type SecretBackendHealth } from '../../api/secrets'
 import { RemediationCard, KeysCard } from './AdminCards'
 import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
 import { IdentityCard } from './IdentityCard'
+import { EntityRegistryCard } from './EntityRegistryCard'
 import { HierarchyCard } from './HierarchyCard'
 import { SIEMPostureCard } from './SIEMPostureCard'
 import { RolloutCard } from './RolloutCard'
@@ -1104,6 +1105,7 @@ export function AdminPage() {
       <DeviceCollectionOutcomesCard />
       <SecretBackendsCard />
       <IdentityCard />
+      <EntityRegistryCard />
       <KeysCard />
       <LifecycleCard />
       <RemediationCard />

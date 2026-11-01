@@ -25,6 +25,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/bus"
 	probectlc "github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/wire"
 )
 
@@ -145,6 +146,11 @@ type BMPListener struct {
 	// tenant's routers and publishes on that tenant's namespaced lane.
 	laneTenant    string
 	laneNamespace string
+	evidenceAgent string
+	evidence      BMPEvidenceEmitter
+	evidenceQueue chan bmpPeerEvidence
+	evidenceReset chan struct{}
+	evidenceDrops atomic.Uint64
 
 	// Pre-auth admission (ING-11): a small semaphore bounding concurrent
 	// unauthenticated handshakes, held only until promotion, plus per-source-IP
@@ -187,6 +193,26 @@ type BMPSessionMetrics interface {
 	// (ADD-PATH / IPv6 / withdrawal) instead of fabricating or dropping it
 	// (ING-27).
 	UnsupportedUpdate()
+}
+
+// BMPEvidenceEmitter submits only the listener's bounded canonical peer
+// observations through its separate entity-plane mTLS identity.
+type BMPEvidenceEmitter interface {
+	Submit(context.Context, []entity.Observation) (accepted, unresolved int, err error)
+}
+
+// WithBMPEntityEvidence is valid only for a tenant-lane-bound listener. The
+// listener SVID authenticates this collector; each source reference is the
+// independently authenticated router SVID, never a BMP peer header field.
+func WithBMPEntityEvidence(listenerAgentID string, emitter BMPEvidenceEmitter) BMPOption {
+	return func(l *BMPListener) {
+		l.evidenceAgent = listenerAgentID
+		l.evidence = emitter
+		if emitter != nil {
+			l.evidenceQueue = make(chan bmpPeerEvidence, 128)
+			l.evidenceReset = make(chan struct{}, 1)
+		}
+	}
 }
 
 // BMPOption customizes a BMPListener.
@@ -404,6 +430,9 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 	if l.verifyIssued == nil {
 		return errors.New("bgp bmp: issued-identity registry verifier is required")
 	}
+	if l.evidence != nil && (l.laneTenant == "" || l.laneNamespace == "" || l.evidenceAgent == "") {
+		return errors.New("bgp bmp: canonical evidence requires an exact tenant lane and registered listener agent")
+	}
 	if l.laneNamespace != "" || l.laneTenant != "" {
 		if l.laneTenant == "" || l.laneNamespace == "" {
 			return errors.New("bgp bmp: a tenant lane needs both the tenant id and its bus namespace")
@@ -411,6 +440,9 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 		if _, err := bus.TopicFor(l.laneNamespace, bus.BGPEventsTopic); err != nil {
 			return fmt.Errorf("bgp bmp: tenant lane namespace: %w", err)
 		}
+	}
+	if l.evidence != nil {
+		go l.evidenceLoop(ctx)
 	}
 	go func() {
 		<-ctx.Done()
@@ -881,6 +913,15 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 				"origin_asn", ev.NewOriginASN,
 				"peer_asn", ev.PeerASN,
 			)
+		}
+		// An unchanged route can be suppressed on the raw event lane while
+		// still being a fresh, authenticated observation of this BMP peer.
+		// The evidence worker applies its own bounded refresh interval.
+		if len(obs.routes) > 0 {
+			l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID,
+				routerAgentID: id.AgentID, routerSerial: id.Serial,
+				peerAddress: obs.peer.Address,
+				peerASN:     obs.peer.ASN, observedAt: l.now().UTC()})
 		}
 	}
 }

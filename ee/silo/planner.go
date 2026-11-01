@@ -70,6 +70,8 @@ func TenantOwned(tables []string) []string {
 // quoteIdent renders a safe double-quoted identifier.
 func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
 
+func quoteLiteral(s string) string { return `'` + strings.ReplaceAll(s, `'`, `''`) + `'` }
+
 // ProvisionPlan renders the ordered DDL that creates (or completes — every
 // statement is idempotent) a tenant's silo schema:
 //
@@ -96,6 +98,117 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 	for _, t := range TenantOwned(tenantTables) {
 		plan = append(plan, provisionTablePlan(schema, t)...)
 	}
+	plan = append(plan, entityRegistryForeignKeyPlan(schema, tenantTables)...)
+	return plan
+}
+
+// CREATE TABLE LIKE INCLUDING ALL copies CHECK/PK/UNIQUE but not foreign keys.
+// FX-2's tenant/context composite references must therefore be installed
+// after all seven registry tables have been copied into a physical silo. Each
+// statement is idempotent for both provision and catch-up.
+func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
+	owned := make(map[string]bool, len(tables))
+	for _, table := range TenantOwned(tables) {
+		owned[table] = true
+	}
+	for _, table := range []string{"entity_contexts", "entity_path_test_contexts", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_links", "tests", "incidents", "incident_signals", "incident_correlation_overrides"} {
+		if !owned[table] {
+			return nil // Registry not yet present in this product version.
+		}
+	}
+	type foreignKey struct {
+		table, name, columns, parent, parentColumns string
+	}
+	keys := []foreignKey{
+		{"entity_contexts", "fx2_context_tenant_fk", "tenant_id", "public.tenants", "id"},
+		{"entity_path_test_contexts", "fx2_path_test_fk", "tenant_id, test_id", "tests", "tenant_id, id"},
+		{"entity_path_test_contexts", "fx2_path_context_fk", "tenant_id, context_id", "entity_contexts", "tenant_id, id"},
+		{"entity_agent_contexts", "fx2_agent_context_fk", "tenant_id, context_id", "entity_contexts", "tenant_id, id"},
+		{"entity_source_contexts", "fx2_source_context_fk", "tenant_id, context_id", "entity_contexts", "tenant_id, id"},
+		{"entity_source_contexts", "fx2_source_agent_context_fk", "tenant_id, agent_id, context_id", "entity_agent_contexts", "tenant_id, agent_id, context_id"},
+		{"entity_source_contexts", "fx2_source_anchor_fk", "tenant_id, context_id, anchor_entity_id", "entities", "tenant_id, context_id, id"},
+		{"entities", "fx2_entity_context_fk", "tenant_id, context_id", "entity_contexts", "tenant_id, id"},
+		{"entities", "fx2_interface_parent_fk", "tenant_id, context_id, parent_entity_id", "entities", "tenant_id, context_id, id"},
+		{"entity_evidence", "fx2_evidence_entity_fk", "tenant_id, context_id, entity_id", "entities", "tenant_id, context_id, id"},
+		{"entity_evidence", "fx2_evidence_support_fk", "tenant_id, context_id, support_evidence_id", "entity_evidence", "tenant_id, context_id, id"},
+		{"entity_links", "fx2_link_from_fk", "tenant_id, context_id, from_entity_id", "entities", "tenant_id, context_id, id"},
+		{"entity_links", "fx2_link_to_fk", "tenant_id, context_id, to_entity_id", "entities", "tenant_id, context_id, id"},
+		{"entity_links", "fx2_link_evidence_fk", "tenant_id, context_id, evidence_id", "entity_evidence", "tenant_id, context_id, id"},
+		{"incidents", "fx2_incident_entity_fk", "tenant_id, entity_context_id, entity_id", "entities", "tenant_id, context_id, id"},
+		{"incident_signals", "fx2_signal_entity_fk", "tenant_id, entity_context_id, entity_id", "entities", "tenant_id, context_id, id"},
+		{"incident_signals", "fx2_signal_incident_fk", "tenant_id, incident_id", "incidents", "tenant_id, id"},
+		{"incident_correlation_overrides", "fx2_override_entity_fk", "tenant_id, entity_context_id, entity_id", "entities", "tenant_id, context_id, id"},
+		{"incident_correlation_overrides", "fx2_override_source_fk", "tenant_id, source_incident_id", "incidents", "tenant_id, id"},
+		{"incident_correlation_overrides", "fx2_override_detached_fk", "tenant_id, detached_incident_id", "incidents", "tenant_id, id"},
+		{"incident_correlation_overrides", "fx2_override_signal_fk", "tenant_id, source_signal_id", "incident_signals", "tenant_id, id"},
+	}
+	if owned["entity_fault_receipts"] {
+		keys = append(keys,
+			foreignKey{"entity_fault_receipts", "fx2_fault_receipt_tenant_fk", "tenant_id", "public.tenants", "id"},
+			foreignKey{"entity_fault_receipts", "fx2_fault_receipt_incident_fk", "tenant_id, incident_id", "incidents", "tenant_id, id"},
+		)
+	}
+	// Existing silos can predate the public (tenant_id,id) index. A global
+	// tests.id primary key is insufficient for the composite FK, so install
+	// its tenant-aware target before adding the path binding constraint.
+	plan := []string{"CREATE UNIQUE INDEX IF NOT EXISTS " +
+		quoteIdent(schema) + `."fx2_tests_tenant_id_id_uidx" ON ` +
+		quoteIdent(schema) + `."tests" (tenant_id, id)`,
+		"CREATE UNIQUE INDEX IF NOT EXISTS " + quoteIdent(schema) +
+			`."fx2_incidents_tenant_id_id_uidx" ON ` + quoteIdent(schema) +
+			`."incidents" (tenant_id, id)`,
+		"CREATE UNIQUE INDEX IF NOT EXISTS " + quoteIdent(schema) +
+			`."fx2_incident_signals_tenant_id_id_uidx" ON ` + quoteIdent(schema) +
+			`."incident_signals" (tenant_id, id)`}
+	for _, table := range []string{"incidents", "incident_signals", "incident_correlation_overrides"} {
+		child := quoteIdent(schema) + "." + quoteIdent(table)
+		name := "fx2_" + table + "_entity_pair_ck"
+		plan = append(plan, fmt.Sprintf(`DO $fx2_silo_ck$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = %s::regclass AND conname = %s) THEN
+        ALTER TABLE %s ADD CONSTRAINT %s CHECK (entity_id IS NULL OR entity_context_id IS NOT NULL);
+    END IF;
+END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(name)))
+		name = "fx2_" + table + "_identity_lookup_ck"
+		plan = append(plan, fmt.Sprintf(`DO $fx2_silo_ck$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = %s::regclass AND conname = %s) THEN
+        ALTER TABLE %s ADD CONSTRAINT %s CHECK (entity_context_id IS NULL OR identity_lookup_attempted);
+    END IF;
+END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(name)))
+	}
+	for _, key := range keys {
+		child := quoteIdent(schema) + "." + quoteIdent(key.table)
+		parent := quoteIdent(schema) + "." + quoteIdent(key.parent)
+		if key.parent == "public.tenants" {
+			parent = `public.tenants`
+		}
+		onUpdate := ""
+		if key.name == "fx2_source_agent_context_fk" {
+			onUpdate = " ON UPDATE CASCADE"
+		}
+		onDelete := " ON DELETE CASCADE"
+		if key.name == "fx2_source_anchor_fk" {
+			onDelete = " ON DELETE SET NULL (anchor_entity_id)"
+		}
+		if key.name == "fx2_incident_entity_fk" || key.name == "fx2_signal_entity_fk" || key.name == "fx2_override_entity_fk" {
+			onDelete = " ON DELETE SET NULL (entity_id)"
+		}
+		plan = append(plan, fmt.Sprintf(`DO $fx2_silo_fk$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = %s::regclass AND conname = %s) THEN
+        ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s (%s)%s%s;
+    END IF;
+END $fx2_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
+			quoteIdent(key.name), key.columns, parent, key.parentColumns, onUpdate, onDelete))
+	}
+	// CREATE TABLE LIKE does not copy triggers. Keep the path-target edit
+	// invalidation inside the silo schema as well as in public, including on
+	// catch-up of a silo that predates FX-2.
+	tests := quoteIdent(schema) + `."tests"`
+	plan = append(plan,
+		"DROP TRIGGER IF EXISTS entity_path_retarget ON "+tests,
+		"CREATE TRIGGER entity_path_retarget AFTER UPDATE OF target ON "+tests+
+			" FOR EACH ROW EXECUTE FUNCTION public.entity_clear_path_binding_on_retarget()",
+		"ALTER TABLE "+tests+" ENABLE ALWAYS TRIGGER entity_path_retarget",
+	)
 	return plan
 }
 
@@ -294,6 +407,7 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 			repairTenantBoundaryPlan(schema, q+"."+quoteIdent(t), t)...,
 		)
 	}
+	plan = append(plan, entityRegistryForeignKeyPlan(schema, cat.TenantTables)...)
 	return plan
 }
 

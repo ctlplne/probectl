@@ -8,12 +8,18 @@ package incident
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 )
 
 // DefaultWindow is the correlation time window when none is configured.
@@ -47,6 +53,80 @@ type Store interface {
 type TransactionalStore interface {
 	Store
 	WithTenantCorrelationLock(ctx context.Context, tenant string, fn func(context.Context, Store) error) error
+}
+
+// FaultReceiptStore is available only inside a durable tenant correlation
+// transaction. It prevents a re-sent evidence RPC from opening another
+// incident after the original one was resolved.
+type FaultReceiptStore interface {
+	ClaimFaultReceipt(context.Context, AuthenticatedIdentitySource, string, Signal) (*Incident, error)
+	CompleteFaultReceipt(context.Context, AuthenticatedIdentitySource, string, string) error
+}
+
+var ErrFaultObservationConflict = errors.New("incident: fault observation ID reused with different evidence")
+var ErrFaultIdentityInactive = errors.New("incident: fault sender identity is not active for the observation")
+var ErrFaultSourceInactive = errors.New("incident: fault source assignment is not active for the observation")
+
+// AuthenticatedIdentitySource is constructed by trusted transport code from
+// the mTLS state of an evidence-plane RPC. Its fields are private so a bus
+// payload cannot directly stamp a tenant, agent or certificate serial.
+// SourceRef remains an observation until the tenant-scoped store confirms its
+// current operator assignment. Callers must take TLS state from the live gRPC
+// peer, never from a message field or reconstructed certificate.
+type AuthenticatedIdentitySource struct {
+	tenantID          string
+	agentID           string
+	sourceKind        string
+	sourceRef         string
+	certificateSerial string
+}
+
+// AuthenticatedSourceFromTLS reads the peer certificate already verified by
+// the existing mTLS listener. The caller must pass the live transport state;
+// the lookup transaction rechecks the exact issued serial and revocation
+// before treating it as current authority.
+func AuthenticatedSourceFromTLS(state tls.ConnectionState,
+	sourceKind, sourceRef string) (AuthenticatedIdentitySource, error) {
+	if !state.HandshakeComplete || len(state.PeerCertificates) == 0 ||
+		len(state.VerifiedChains) == 0 || len(state.VerifiedChains[0]) == 0 ||
+		sourceKind == "" || sourceRef == "" {
+		return AuthenticatedIdentitySource{}, errors.New("incident: verified evidence peer is required")
+	}
+	leaf := state.PeerCertificates[0]
+	if leaf == nil || len(leaf.Raw) == 0 ||
+		!leaf.Equal(state.VerifiedChains[0][0]) ||
+		leaf.SerialNumber == nil || leaf.SerialNumber.Sign() <= 0 ||
+		time.Now().Before(leaf.NotBefore) || !time.Now().Before(leaf.NotAfter) {
+		return AuthenticatedIdentitySource{}, errors.New("incident: evidence certificate is not current")
+	}
+	id, err := crypto.EntitySPIFFEIDFromCert(leaf)
+	if err != nil {
+		return AuthenticatedIdentitySource{}, err
+	}
+	return AuthenticatedIdentitySource{tenantID: id.TenantID, agentID: id.AgentID,
+		sourceKind: sourceKind, sourceRef: sourceRef,
+		certificateSerial: leaf.SerialNumber.Text(16)}, nil
+}
+
+func (s AuthenticatedIdentitySource) TenantID() string          { return s.tenantID }
+func (s AuthenticatedIdentitySource) AgentID() string           { return s.agentID }
+func (s AuthenticatedIdentitySource) SourceKind() string        { return s.sourceKind }
+func (s AuthenticatedIdentitySource) SourceRef() string         { return s.sourceRef }
+func (s AuthenticatedIdentitySource) CertificateSerial() string { return s.certificateSerial }
+
+// IdentityResolution is the result of a store lookup in the correlation
+// transaction. ContextID may be set without EntityID when evidence is
+// ambiguous; this suppresses raw-address fallback without picking a device.
+type IdentityResolution struct {
+	ContextID string
+	EntityID  string
+}
+
+// SignalIdentityResolver is optional for stores that cannot resolve current
+// canonical evidence. It must derive context/entity from trusted source
+// registration and current evidence inside the tenant correlation transaction.
+type SignalIdentityResolver interface {
+	ResolveSignalIdentity(context.Context, AuthenticatedIdentitySource, Signal) (IdentityResolution, error)
 }
 
 // Observer is notified of an incident lifecycle transition during Ingest: opened
@@ -122,6 +202,55 @@ func (c *Correlator) notify(ctx context.Context, inc *Incident, opened bool) {
 // It fails closed if the signal carries no tenant (guardrail 1) or no
 // correlation key (S-9d415bb9).
 func (c *Correlator) Ingest(ctx context.Context, sig Signal) (*Incident, error) {
+	return c.ingest(ctx, sig, nil, "")
+}
+
+// IngestAuthenticated is for a transport that already authenticated an
+// evidence-plane sender. A registry error preserves the signal as unresolved
+// and prevents raw private-address grouping; raw telemetry admission is not
+// coupled to this optional identity lookup.
+func (c *Correlator) IngestAuthenticated(ctx context.Context, sig Signal,
+	source AuthenticatedIdentitySource) (*Incident, error) {
+	if source.tenantID == "" || source.tenantID != sig.TenantID ||
+		source.agentID == "" || source.sourceKind == "" ||
+		source.sourceRef == "" || source.certificateSerial == "" {
+		return nil, errors.New("incident: authenticated identity source is incomplete or tenant-mismatched")
+	}
+	return c.ingest(ctx, sig, &source, "")
+}
+
+// IngestAuthenticatedFault requires a durable tenant receipt. The observation
+// UUID is an idempotency key, not a tenant or routing authority. The live TLS
+// source and current registry evidence still decide whether identity resolves.
+func (c *Correlator) IngestAuthenticatedFault(ctx context.Context, sig Signal,
+	source AuthenticatedIdentitySource, observationID string) (*Incident, error) {
+	if source.tenantID == "" || source.tenantID != sig.TenantID ||
+		source.agentID == "" || source.sourceKind == "" ||
+		source.sourceRef == "" || source.certificateSerial == "" {
+		return nil, errors.New("incident: authenticated fault source is incomplete or tenant-mismatched")
+	}
+	id, err := uuid.Parse(observationID)
+	if err != nil || id == uuid.Nil || id.Version() != 4 ||
+		sig.Attributes[entity.AttrFaultObservationID] != id.String() {
+		return nil, errors.New("incident: fault observation ID is invalid or inconsistent")
+	}
+	if _, ok := c.store.(TransactionalStore); !ok {
+		return nil, errors.New("incident: durable fault receipt transaction is required")
+	}
+	// Resource identity in the incident's OTel-shaped evidence is stamped from
+	// the verified peer too; a caller's attribute map cannot impersonate it.
+	sig.Attributes = cloneAttributes(sig.Attributes)
+	sig.Attributes["probectl.tenant.id"] = source.tenantID
+	sig.Attributes["probectl.agent.id"] = source.agentID
+	sig.Attributes[entity.AttrSourceKind] = source.sourceKind
+	return c.ingest(ctx, sig, &source, id.String())
+}
+
+func (c *Correlator) ingest(ctx context.Context, sig Signal,
+	source *AuthenticatedIdentitySource, faultObservationID string) (*Incident, error) {
+	// These columns are set only by the server-side resolver under the tenant
+	// correlation lock. A caller's free-form JSON/attributes cannot stamp them.
+	sig.IdentityContextID, sig.IdentityEntityID, sig.IdentityLookupAttempted = "", "", false
 	if sig.TenantID == "" {
 		return nil, errors.New("incident: signal has no tenant_id")
 	}
@@ -153,15 +282,19 @@ func (c *Correlator) Ingest(ctx context.Context, sig Signal) (*Incident, error) 
 		sig.Severity = SeverityInfo
 	}
 
-	updated, opened, err := c.correlateLocked(ctx, sig)
+	var replayed bool
+	updated, opened, err := c.correlateLocked(ctx, sig, source, faultObservationID, &replayed)
 	if err != nil {
 		return nil, err
 	}
-	c.notify(ctx, updated, opened)
+	if !replayed {
+		c.notify(ctx, updated, opened)
+	}
 	return updated, nil
 }
 
-func (c *Correlator) correlateLocked(ctx context.Context, sig Signal) (*Incident, bool, error) {
+func (c *Correlator) correlateLocked(ctx context.Context, sig Signal,
+	source *AuthenticatedIdentitySource, faultObservationID string, replayed *bool) (*Incident, bool, error) {
 	// CORRECT-013: hold the per-tenant lock across the whole read→correlate→
 	// create sequence so concurrent signals for one tenant cannot both open a
 	// fresh incident for the same event. Observer work happens after this helper
@@ -177,11 +310,11 @@ func (c *Correlator) correlateLocked(ctx context.Context, sig Signal) (*Incident
 	)
 	if txStore, ok := c.store.(TransactionalStore); ok {
 		err = txStore.WithTenantCorrelationLock(ctx, sig.TenantID, func(txCtx context.Context, txStore Store) error {
-			updated, opened, err = c.ingestWithStore(txCtx, txStore, sig)
+			updated, opened, err = c.ingestWithStore(txCtx, txStore, sig, source, faultObservationID, replayed)
 			return err
 		})
 	} else {
-		updated, opened, err = c.ingestWithStore(ctx, c.store, sig)
+		updated, opened, err = c.ingestWithStore(ctx, c.store, sig, source, faultObservationID, replayed)
 	}
 	if err != nil {
 		return nil, false, err
@@ -189,7 +322,39 @@ func (c *Correlator) correlateLocked(ctx context.Context, sig Signal) (*Incident
 	return updated, opened, nil
 }
 
-func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal) (*Incident, bool, error) {
+func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal,
+	source *AuthenticatedIdentitySource, faultObservationID string, replayed *bool) (*Incident, bool, error) {
+	var receipt FaultReceiptStore
+	if faultObservationID != "" {
+		var ok bool
+		receipt, ok = st.(FaultReceiptStore)
+		if !ok || source == nil {
+			return nil, false, errors.New("incident: tenant transaction has no fault receipt store")
+		}
+		prior, err := receipt.ClaimFaultReceipt(ctx, *source, faultObservationID, sig)
+		if err != nil {
+			return nil, false, err
+		}
+		if prior != nil {
+			*replayed = true
+			return prior, false, nil
+		}
+	}
+	if source != nil {
+		sig.IdentityLookupAttempted = true
+		if resolver, ok := st.(SignalIdentityResolver); ok {
+			identity, err := resolver.ResolveSignalIdentity(ctx, *source, sig)
+			if err != nil {
+				c.log.Warn("incident identity lookup unavailable; keeping signal ungrouped",
+					"tenant_id", sig.TenantID, "plane", sig.Plane)
+			} else if identity.EntityID == "" || identity.ContextID != "" {
+				sig.IdentityContextID, sig.IdentityEntityID = identity.ContextID, identity.EntityID
+			} else {
+				c.log.Warn("incident identity lookup returned incomplete tuple; keeping signal ungrouped",
+					"tenant_id", sig.TenantID, "plane", sig.Plane)
+			}
+		}
+	}
 	overrides, err := st.ActiveCorrelationOverrides(ctx, sig.TenantID, sig)
 	if err != nil {
 		// An unavailable override store must be loud: silently ignoring operator
@@ -210,6 +375,11 @@ func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal) 
 			if err != nil {
 				return nil, false, fmt.Errorf("incident: append signal: %w", err)
 			}
+			if receipt != nil {
+				if err := receipt.CompleteFaultReceipt(ctx, *source, faultObservationID, updated.ID); err != nil {
+					return nil, false, err
+				}
+			}
 			c.log.Info("signal correlated to incident",
 				"incident_id", inc.ID, "plane", sig.Plane, "kind", sig.Kind, "tenant_id", sig.TenantID)
 			return updated, false, nil
@@ -224,6 +394,11 @@ func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal) 
 	updated, err := st.AppendSignal(ctx, sig.TenantID, created.ID, sig)
 	if err != nil {
 		return nil, false, fmt.Errorf("incident: append first signal: %w", err)
+	}
+	if receipt != nil {
+		if err := receipt.CompleteFaultReceipt(ctx, *source, faultObservationID, updated.ID); err != nil {
+			return nil, false, err
+		}
 	}
 	c.log.Info("opened incident",
 		"incident_id", created.ID, "plane", sig.Plane, "kind", sig.Kind, "tenant_id", sig.TenantID)
@@ -243,8 +418,13 @@ func withCorrelationExplanation(sig Signal, parent *Incident, window time.Durati
 	sig.Attributes = cloneAttributes(sig.Attributes)
 	sig.Attributes["correlation.state"] = "grouped"
 	sig.Attributes["correlation.parent_incident_id"] = parent.ID
-	sig.Attributes["correlation.reason"] = "within_window_and_shared_target_or_prefix"
-	sig.Attributes["correlation.rule"] = "time_target_prefix_v1"
+	if sig.IdentityLookupAttempted {
+		sig.Attributes["correlation.reason"] = "within_window_and_same_verified_entity"
+		sig.Attributes["correlation.rule"] = "verified_entity_context_v1"
+	} else {
+		sig.Attributes["correlation.reason"] = "within_window_and_shared_target_or_prefix"
+		sig.Attributes["correlation.rule"] = "time_target_prefix_v1"
+	}
 	sig.Attributes["correlation.window_seconds"] = fmt.Sprintf("%.0f", window.Seconds())
 	freshness := sig.OccurredAt.Sub(parent.LastSeenAt)
 	if freshness < 0 {
@@ -267,7 +447,14 @@ func withRootCorrelationExplanation(sig Signal, root *Incident, overrides []Corr
 	sig.Attributes["correlation.state"] = "root"
 	sig.Attributes["correlation.parent_incident_id"] = root.ID
 	sig.Attributes["correlation.reason"] = "no_related_open_incident"
-	sig.Attributes["correlation.rule"] = "time_target_prefix_v1"
+	switch {
+	case sig.IdentityEntityID != "":
+		sig.Attributes["correlation.rule"] = "verified_entity_context_v1"
+	case sig.IdentityLookupAttempted:
+		sig.Attributes["correlation.rule"] = "identity_unresolved_v1"
+	default:
+		sig.Attributes["correlation.rule"] = "time_target_prefix_v1"
+	}
 	sig.Attributes["correlation.freshness_seconds"] = "0"
 	sig.Attributes["correlation.match_confidence"] = "1.00"
 	sig.Attributes["correlation.confidence_scope"] = "deterministic_match_not_root_cause_probability"

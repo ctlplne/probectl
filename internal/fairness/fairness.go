@@ -65,8 +65,11 @@ import (
 // Fixed admission meter names. Storage meters use the S-T3 usage vocabulary;
 // secondary processing meters have independent bounds and are not usage billing.
 const (
-	MeterResults    = "results_ingested" // result messages admitted to the pipeline
-	MeterFlowEvents = "flow_events"      // flow records admitted to the flow store
+	MeterResults = "results_ingested" // result messages admitted to the pipeline
+	// MeterEntityEvidence has its own bucket and accounting. It uses the
+	// results rate policy, so identity RPCs cannot consume raw-result credits.
+	MeterEntityEvidence = "entity_evidence"
+	MeterFlowEvents     = "flow_events" // flow records admitted to the flow store
 	// MeterNDRFlowEvents independently bounds the secondary detection consumer
 	// at FlowEventsPerSec, without spending storage ingest credits a second time.
 	// This processing meter is not a billable usage meter.
@@ -157,7 +160,7 @@ func (p Policy) merged(def Policy) Policy {
 
 func (p Policy) rateFor(meter string) float64 {
 	switch meter {
-	case MeterResults:
+	case MeterResults, MeterEntityEvidence:
 		return p.ResultsPerSec
 	case MeterFlowEvents, MeterNDRFlowEvents:
 		return p.FlowEventsPerSec

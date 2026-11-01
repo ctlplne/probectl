@@ -280,6 +280,17 @@ because a new project has no existing project ID to match. `org.read` and `*`
 can use `org`, `team`, or `project`; unrelated permissions still reject those
 keys rather than accepting a policy that cannot be enforced.
 
+Entity operations expose stored `context_id`, `site_id`, `vrf_id`, `site_label`
+and `vrf_label` as ABAC resource keys. The keys are accepted for
+`entities.read`, the entity source-plane read permissions, `agent.write`, and
+`*`; unrelated permissions reject them. A `context_id` policy applies to
+existing context reads and assignments; context creation has no ID yet, so
+creation checks the normalized, tenant-derived site/VRF labels and IDs.
+Source-plane keys on entity evidence and identity pivots do not change the
+authorization of raw telemetry routes, which have no routing context.
+Hierarchy and entity keys cannot be combined in one policy because no route
+supplies both groups.
+
 
 `GET /v1/me` keeps `permissions` tenant-wide. Its separate
 `has_scoped_grants` flag reports valid resource-scoped RBAC grants for the

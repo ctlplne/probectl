@@ -61,16 +61,16 @@ capabilities:
     name: Path visualization
     status: delivered
     owner: web/quality
-    engine: {refs: ["file:internal/path"]}
+    engine: {refs: ["file:internal/path", "file:internal/entity"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#pathstore.WithTenantWriteFence("]}
-    api: {refs: ["api:GET /v1/tests/{id}/path", "api:GET /v1/tests/{id}/path/history"]}
-    cli: {refs: ["cli:probectl test path <id>", "cli:probectl test path-history <id>"]}
+    api: {refs: ["api:GET /v1/tests/{id}/path", "api:GET /v1/tests/{id}/path/history", "api:GET /v1/tests/{id}/path/entities"]}
+    cli: {refs: ["cli:probectl test path <id>", "cli:probectl test path-history <id>", "cli:probectl entities path-resolve"]}
     ui: {refs: ["ui:F3@/path"]}
     docs: {refs: ["file:docs/topology.md#Topology graph"]}
     config_keys: {refs: ["config:PROBECTL_HOP_GEO_FILE"]}
     telemetry: {refs: ["file:internal/store/pathstore/batching.go"]}
     real_stack_proof: {refs: ["test:internal/path/realstack_integration_test.go#TestPathVisualizationRealStack"]}
-    migration: &no_migration {none_by_design: "Uses an existing shared store or is stateless; no capability-specific relational schema migration is required."}
+    migration: {refs: ["file:migrations/0136_entity_registry.sql"]}
 
   - id: F4
     name: HTTP tests
@@ -85,7 +85,7 @@ capabilities:
     config_keys: *api_config
     telemetry: {refs: ["file:internal/canary/canary.go"]}
     real_stack_proof: {refs: ["test:internal/canary/realstack_integration_test.go#TestSyntheticProbesRealStack"]}
-    migration: *no_migration
+    migration: &no_migration {none_by_design: "Uses an existing shared store or is stateless; no capability-specific relational schema migration is required."}
 
   - id: F5
     name: DNS tests
@@ -113,7 +113,7 @@ capabilities:
     name: BGP monitoring
     status: delivered
     owner: incident/API
-    engine: {refs: ["file:internal/bgp", "file:analyzer/probectl_analyzer"]}
+    engine: {refs: ["file:internal/bgp", "file:internal/bgp/bmp_entity_evidence.go", "file:analyzer/probectl_analyzer"]}
     binary: {refs: ["file:cmd/probectl-bmp-listener/main.go#func run", "file:cmd/probectl-control/bgp_analyzer.go#func runBGPAnalyzer"]}
     api: {refs: ["api:GET /v1/bgp/events"]}
     cli: {refs: ["cli:probectl bgp events", "cli:probectl bgp setup"]}
@@ -122,7 +122,7 @@ capabilities:
     config_keys: {refs: ["config:PROBECTL_BGP_ANALYZER_CONFIG", "config:PROBECTL_BMP_LISTEN_ADDR"]}
     telemetry: {refs: ["file:internal/bgp"]}
     real_stack_proof: {refs: ["test:internal/bgp/realstack_integration_test.go#TestBGPMonitoringRealStack"]}
-    migration: *no_migration
+    migration: {refs: ["file:migrations/0136_entity_registry.sql"]}
 
   - id: F7
     name: Open-data enrichment
@@ -164,7 +164,7 @@ capabilities:
     name: Dashboards and incident timeline
     status: delivered
     owner: platform/release
-    engine: {refs: ["file:internal/incident", "file:internal/reporting"]}
+    engine: {refs: ["file:internal/incident", "file:internal/entity", "file:internal/reporting"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildDashboardReportSupervisor("]}
     api: {refs: ["api:GET /v1/incidents", "api:GET /v1/dashboards"]}
     cli: {refs: ["cli:probectl incident list", "cli:probectl dashboard list"]}
@@ -173,7 +173,7 @@ capabilities:
     config_keys: *api_config
     telemetry: {refs: ["file:internal/incident"]}
     real_stack_proof: {refs: ["test:internal/control/crossplane_e2e_integration_test.go#TestCrossPlaneCorrelationE2E", "test:internal/control/dashboardreporting_integration_test.go#TestDashboardExportAuditAndTenantIsolation"]}
-    migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql"]}
+    migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql", "file:migrations/0137_incident_entity_identity.sql", "file:migrations/0140_entity_fault_receipts.sql"]}
 
   - id: F10
     name: Control plane, REST/gRPC, and CLI
@@ -301,16 +301,16 @@ capabilities:
     status: delivered
     evidence_status: complete
     owner: platform/release
-    engine: {refs: ["file:internal/flow", "file:internal/store/flowstore/explorer_plan.go"]}
+    engine: {refs: ["file:internal/flow", "file:internal/flow/entity_evidence.go", "file:internal/store/flowstore/explorer_plan.go"]}
     binary: {refs: ["file:cmd/probectl-flow-agent/main.go#func run"]}
-    api: {refs: ["api:GET /v1/flows/top", "api:GET /v1/flows/ingest-quality", "api:GET /v1/explorer/schema", "api:POST /v1/explorer/query", "api:POST /v1/explorer/compare", "api:GET /v1/explorer/flow-views", "api:POST /v1/explorer/flow-views", "api:GET /v1/explorer/flow-filters", "api:POST /v1/explorer/flow-filters", "api:GET /v1/explorer/flow-snapshots/{id}/csv"]}
-    cli: {refs: ["cli:probectl flow top", "cli:probectl flow quality", "cli:probectl explorer query", "cli:probectl explorer compare", "cli:probectl explorer view-run", "cli:probectl explorer filter-list", "cli:probectl explorer snapshot-csv"]}
+    api: {refs: ["api:GET /v1/flows/top", "api:GET /v1/flows/ingest-quality", "api:GET /v1/explorer/schema", "api:POST /v1/explorer/query", "api:POST /v1/explorer/compare", "api:GET /v1/explorer/flow-views", "api:POST /v1/explorer/flow-views", "api:GET /v1/explorer/flow-filters", "api:POST /v1/explorer/flow-filters", "api:GET /v1/explorer/flow-snapshots/{id}/csv", "api:GET /v1/entities/resolve"]}
+    cli: {refs: ["cli:probectl flow top", "cli:probectl flow quality", "cli:probectl explorer query", "cli:probectl explorer compare", "cli:probectl explorer view-run", "cli:probectl explorer filter-list", "cli:probectl explorer snapshot-csv", "cli:probectl entities resolve"]}
     ui: {refs: ["ui:F17@/planes/flow", "ui:F17@/explore"]}
     docs: {refs: ["file:docs/flow.md#Flow analytics", "file:docs/explorer.md#Stateless flow questions"]}
     config_keys: {refs: ["config:PROBECTL_FLOW_CONFIG", "config:PROBECTL_FLOW_NETFLOW_LISTEN", "config:PROBECTL_FLOW_QUERY_TIMEOUT", "config:PROBECTL_FLOW_QUERY_MAX_READ_BYTES", "config:PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES"]}
     telemetry: {refs: ["file:internal/flow", "file:internal/control/explorer_flow_metrics.go"]}
     real_stack_proof: {refs: ["test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack"]}
-    migration: {refs: ["file:migrations/0132_flow_query_filters.sql", "file:migrations/0133_flow_snapshots.sql", "file:migrations/0134_flow_query_views.sql"]}
+    migration: {refs: ["file:migrations/0132_flow_query_filters.sql", "file:migrations/0133_flow_snapshots.sql", "file:migrations/0134_flow_query_views.sql", "file:migrations/0136_entity_registry.sql"]}
 
   # F18's real-stack receipt runs each tenant's shipped probectl-device-agent
   # against its own real SNMP agent (net-snmp snmpd, one per tenant: SNMPv3
@@ -326,16 +326,16 @@ capabilities:
     name: Device telemetry
     status: delivered
     owner: product research/MSP
-    engine: {refs: ["file:internal/device"]}
+    engine: {refs: ["file:internal/device", "file:internal/device/entity_evidence.go"]}
     binary: {refs: ["file:cmd/probectl-device-agent/main.go#func run"]}
-    api: {refs: ["api:GET /v1/devices", "api:GET /v1/device/metrics", "api:GET /v1/device/traps"]}
-    cli: {refs: ["cli:probectl device list", "cli:probectl device metrics", "cli:probectl device traps"]}
+    api: {refs: ["api:GET /v1/devices", "api:GET /v1/device/metrics", "api:GET /v1/device/traps", "api:GET /v1/entities", "api:GET /v1/entities/resolve"]}
+    cli: {refs: ["cli:probectl device list", "cli:probectl device metrics", "cli:probectl device traps", "cli:probectl entities list", "cli:probectl entities resolve"]}
     ui: {refs: ["ui:F18@/planes/device"]}
     docs: {refs: ["file:docs/device-telemetry.md#Device / streaming telemetry"]}
     config_keys: {refs: ["config:PROBECTL_DEVICE_CONFIG", "config:PROBECTL_DEVICE_TARGET"]}
     telemetry: {refs: ["file:internal/device"]}
     real_stack_proof: {refs: ["test:internal/device/realstack_integration_test.go#TestDeviceTelemetryRealStack"]}
-    migration: {refs: ["file:migrations/0066_device_neighbor_evidence.sql", "file:migrations/0067_device_collection_outcomes.sql", "file:migrations/0126_device_traps.sql"]}
+    migration: {refs: ["file:migrations/0066_device_neighbor_evidence.sql", "file:migrations/0067_device_collection_outcomes.sql", "file:migrations/0126_device_traps.sql", "file:migrations/0136_entity_registry.sql"]}
 
   - id: F19
     name: Internet-outage view
@@ -681,16 +681,16 @@ capabilities:
     name: Live topology graph
     status: delivered
     owner: platform/release
-    engine: {refs: ["file:internal/topology"]}
+    engine: {refs: ["file:internal/topology", "file:internal/entity"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#WithTopology(rt.topoStore)"]}
-    api: {refs: ["api:GET /v1/topology", "api:POST /v1/topology/whatif"]}
-    cli: {refs: ["cli:probectl topology show", "cli:probectl topology whatif"]}
+    api: {refs: ["api:GET /v1/topology", "api:POST /v1/topology/whatif", "api:GET /v1/entities", "api:GET /v1/entities/resolve"]}
+    cli: {refs: ["cli:probectl topology show", "cli:probectl topology whatif", "cli:probectl entities list", "cli:probectl entities resolve"]}
     ui: {refs: ["ui:F40@/topology"]}
-    docs: {refs: ["file:docs/topology.md#Topology graph"]}
+    docs: {refs: ["file:docs/topology.md#Topology graph", "file:docs/entity-registry.md"]}
     config_keys: {refs: ["config:PROBECTL_TOPOLOGY_ENGINE", "config:PROBECTL_TOPOLOGY_WHATIF_TIMEOUT"]}
     telemetry: {refs: ["file:internal/control/topologyapi.go"]}
     real_stack_proof: {refs: ["test:internal/topology/realstack_integration_test.go#TestTopologyGraphRealStack"]}
-    migration: *no_migration
+    migration: {refs: ["file:migrations/0136_entity_registry.sql", "file:migrations/0137_incident_entity_identity.sql"]}
 
   - id: F41
     name: FinOps/egress cost

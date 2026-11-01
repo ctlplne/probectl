@@ -6,6 +6,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, ApiError } from './client'
+import type { EntityPathHop, EntityPathResult } from './sdk.gen'
 
 export interface MPLSLabel {
   label: number
@@ -80,6 +81,20 @@ export interface PathHistoryOptions {
   roundIds?: string[]
 }
 
+export type PathEntityHop = EntityPathHop
+export type PathEntityResult = EntityPathResult
+
+/** Current identity join for the latest raw path. Server checks test, entity
+ * and every returned evidence source permission independently. */
+export function usePathEntities(testId: string | undefined, tenantID: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['path-entities', tenantID, testId],
+    enabled: !!testId && enabled,
+    queryFn: () =>
+      apiFetch<EntityPathResult>(`/tests/${encodeURIComponent(testId ?? '')}/path/entities`),
+  })
+}
+
 function normalizePath(path: Path): Path {
   return {
     ...path,
@@ -145,6 +160,7 @@ export function useDiscoverPath(testId: string | undefined) {
     onSuccess: (p) => {
       qc.setQueryData(['path', testId], p)
       void qc.invalidateQueries({ queryKey: ['path-history', testId] })
+      void qc.invalidateQueries({ queryKey: ['path-entities'] })
     },
   })
 }

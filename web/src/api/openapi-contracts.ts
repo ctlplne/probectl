@@ -777,6 +777,20 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/paths.ts',
+    method: 'GET',
+    path: "`/tests/${encodeURIComponent(testId ?? '')}/path/entities`",
+    response: 'EntityPathResult',
+    generated: 'GetPathEntitiesResponse',
+  },
+  {
+    file: 'api/entities.ts',
+    method: 'PUT',
+    path: "`/tests/${encodeURIComponent(testID ?? '')}/entity-context`",
+    response: 'EntityPathContextBinding',
+    generated: 'AssignPathTestEntityContextResponse',
+  },
+  {
+    file: 'api/paths.ts',
     method: 'POST',
     path: "`/tests/${encodeURIComponent(testId ?? '')}/path`",
     response: 'Path',

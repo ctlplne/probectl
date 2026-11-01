@@ -14,6 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/entity"
 )
 
 // Stats are the collector's monotonic counters (probectl observes probectl).
@@ -30,6 +32,9 @@ type Stats struct {
 	NeighborEmitErrors          atomic.Uint64
 	CollectionOutcomes          atomic.Uint64
 	CollectionOutcomeEmitErrors atomic.Uint64
+	EvidenceAccepted            atomic.Uint64
+	EvidenceUnresolved          atomic.Uint64
+	EvidenceErrors              atomic.Uint64
 	// CredErrors counts per-cycle credential re-resolutions that failed (S41:
 	// the cycle is SKIPPED — fail closed, never poll with stale material).
 	CredErrors atomic.Uint64
@@ -51,9 +56,15 @@ type Runtime struct {
 	emit  Emitter
 	log   *slog.Logger
 
-	correlator *Correlator
-	traps      TrapStore
-	stats      Stats
+	correlator    *Correlator
+	traps         TrapStore
+	evidence      EvidenceEmitter
+	stats         Stats
+	evidenceMu    sync.Mutex
+	evidenceLast  map[string]entityEvidenceSnapshot
+	evidenceEpoch uint64 // a rotation cannot be overwritten by an in-flight old-SVID RPC
+	faultLast     map[string]time.Time
+	faultPending  map[string]entity.FaultObservation
 
 	// counterCache tracks the last emitted value of each cumulative counter
 	// (CORRECT-001). When a device reboots, counters wrap to zero, producing a
@@ -118,6 +129,9 @@ func (r *Runtime) StatsSnapshot() map[string]uint64 {
 		"neighbor_emit_errors":           r.stats.NeighborEmitErrors.Load(),
 		"collection_outcomes":            r.stats.CollectionOutcomes.Load(),
 		"collection_outcome_emit_errors": r.stats.CollectionOutcomeEmitErrors.Load(),
+		"entity_evidence_accepted":       r.stats.EvidenceAccepted.Load(),
+		"entity_evidence_unresolved":     r.stats.EvidenceUnresolved.Load(),
+		"entity_evidence_errors":         r.stats.EvidenceErrors.Load(),
 	}
 }
 
@@ -256,7 +270,9 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	conn, err := r.dialSNMP(dev, cred)
 	if err != nil {
 		r.stats.PollErrors.Add(1)
-		r.emitFailedOutcomes(ctx, dev, time.Now().UTC(), CollectionReasonTransportUnreachable)
+		failedAt := time.Now().UTC()
+		r.emitFailedOutcomes(ctx, dev, failedAt, CollectionReasonTransportUnreachable)
+		r.emitSNMPFault(ctx, dev, failedAt)
 		r.log.Warn("snmp dial failed", "device", dev.Address, "error", err.Error())
 		return
 	}
@@ -267,12 +283,15 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	if err != nil {
 		r.stats.PollErrors.Add(1)
 		r.emitFailedOutcomes(ctx, dev, observedAt, CollectionReasonBasePollFailed)
+		r.emitSNMPFault(ctx, dev, observedAt)
 		r.log.Warn("snmp poll failed", "device", dev.Address, "error", err.Error())
 		return
 	}
+	r.clearSNMPFault(dev.Address)
 	r.correlator.UpdateAt(inv, observedAt)
 	r.pruneCorrelator(observedAt)
 
+	var observedNeighbors []NeighborEvidence
 	if dev.Neighbors {
 		neighbors, attempts, err := pollSNMPNeighborAttempts(conn, dev, r.cfg.TenantID, r.cfg.AgentID, inv, observedAt)
 		for _, attempt := range attempts {
@@ -295,6 +314,7 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 			} else {
 				r.stats.NeighborSnapshots.Add(1)
 				r.stats.Neighbors.Add(uint64(len(neighbors)))
+				observedNeighbors = neighbors
 			}
 		}
 	}
@@ -315,6 +335,7 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 		return
 	}
 	r.stats.Metrics.Add(uint64(len(metrics)))
+	r.emitSNMPEntityEvidence(ctx, dev, inv, observedNeighbors, observedAt)
 }
 
 type collectionOutcomeKey struct {

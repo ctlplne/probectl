@@ -4,7 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { apiDownload } from '../api/client'
 import {
@@ -47,6 +47,7 @@ import {
 } from './flowResults'
 import { FlowViewLibrary } from './FlowViewLibrary'
 import { FlowFilterLibrary } from './FlowFilterLibrary'
+import { EntityCurrentPivot, observedIPs } from './EntityCurrentPivot'
 import { Page } from './RoutePage'
 import styles from './flowExplorer.module.css'
 
@@ -329,6 +330,10 @@ function FlowWorkspace({ identity }: { identity: string }) {
   const plan = definition.plan ?? {}
   const primary = result && (isFlowComparison(result) ? result.flow?.current : result.flow)
   const previous = result && isFlowComparison(result) ? result.flow?.previous : undefined
+  const currentPivotIPs = useMemo(
+    () => (primary ? observedIPs(primary.rows.map((row) => row.group)) : []),
+    [primary],
+  )
   const patchPlan = (patch: Partial<FlowQueryPlan>) => {
     const next = { ...plan, ...patch }
     const known = (next.metrics ?? [])
@@ -675,6 +680,7 @@ function FlowWorkspace({ identity }: { identity: string }) {
                 result={result}
                 onDrill={drill}
               />
+              <EntityCurrentPivot ips={currentPivotIPs} source="explorer" />
               <div className={styles.actions}>
                 <Button
                   disabled={busy || !history.length}

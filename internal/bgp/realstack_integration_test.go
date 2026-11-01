@@ -933,11 +933,18 @@ type routingLab struct {
 var labRouters = []string{"edge", "rrc", "rtr-a", "rtr-b"}
 
 func startRoutingLab(t *testing.T) *routingLab {
+	return startRoutingLabNamed(t, "")
+}
+
+func startRoutingLabNamed(t *testing.T, name string) *routingLab {
 	t.Helper()
 	if out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").CombinedOutput(); err != nil {
 		testsupport.SkipOrFatal(t, "the BGP receipt runs real BGP speakers in docker: %v %s", err, out)
 	}
-	lab := &routingLab{name: os.Getenv("PROBECTL_TEST_BGP_LAB_NAME")}
+	lab := &routingLab{name: name}
+	if lab.name == "" {
+		lab.name = os.Getenv("PROBECTL_TEST_BGP_LAB_NAME")
+	}
 	if lab.name == "" {
 		lab.name = "probectl-it-bgp-" + strconv.FormatInt(time.Now().UnixNano()%1e8, 36)
 	}

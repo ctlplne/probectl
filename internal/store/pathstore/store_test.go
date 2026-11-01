@@ -162,7 +162,7 @@ func TestLegacyClickHouseRowLeavesMeasurementFidelityUnknown(t *testing.T) {
 func TestHopRowsPreserveDiscoveryCounts(t *testing.T) {
 	p := samplePath()
 	p.TraceCount, p.MaxHops = 2, 30
-	rows := hopRows("tenant-a", "round-a", "2026-10-26 00:00:00.000", p)
+	rows := hopRows("tenant-a", "round-a", "2026-10-26 00:00:00.000", false, p)
 	raw, err := json.Marshal(rows)
 	if err != nil {
 		t.Fatal(err)

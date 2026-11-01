@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -165,6 +164,28 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return err
 	}
+	// Serialize with context assignment, which holds FOR SHARE on this test
+	// until commit. The FOR UPDATE read waits for an in-flight assignment (or
+	// makes one wait), then captures the same database clock used by bindings.
+	// A remote control-plane clock or delayed ClickHouse batch cannot give an
+	// earlier trace a later context.
+	var discoveryStartedAt time.Time
+	var lockedTarget string
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := sc.Q.QueryRow(ctx, `SELECT target FROM tests
+			WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tid, r.PathValue("id")).Scan(&lockedTarget); err != nil {
+			return err
+		}
+		return sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&discoveryStartedAt)
+	}); err != nil {
+		return apierror.Internal("path discovery clock unavailable").Wrap(err)
+	}
+	if path.TargetHost(lockedTarget) != target {
+		return apierror.Conflict("test target changed during path discovery setup")
+	}
+	if discoveryStartedAt.IsZero() {
+		return apierror.Internal("path discovery clock unavailable")
+	}
 
 	cfg := pathDiscoveryConfig(traceTarget)
 	dctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
@@ -175,7 +196,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	}
 	normalizePathCollections(p)
 	stampPathVantage(p)
-	if err := s.pathStore.Save(r.Context(), tid, p); err != nil {
+	if err := s.pathStore.Save(pathstore.WithDiscoveryStartedAt(r.Context(), discoveryStartedAt), tid, p); err != nil {
 		return apierror.Internal("path save failed").Wrap(err)
 	}
 	// Fold the discovery into the dependency graph (S43): the path plane
@@ -301,19 +322,7 @@ func pathDiscoveryError(target string, err error) error {
 //
 // A URL is recognized as a URL first; only then does host:port apply.
 func pathHost(target string) string {
-	target = strings.TrimSpace(target)
-	if strings.Contains(target, "://") {
-		if u, err := url.Parse(target); err == nil && u.Host != "" {
-			// Hostname() drops the port and the brackets around a literal IPv6.
-			if h := u.Hostname(); h != "" {
-				return h
-			}
-		}
-	}
-	if h, _, err := net.SplitHostPort(target); err == nil && h != "" {
-		return h
-	}
-	return target
+	return path.TargetHost(target)
 }
 
 // pathDiscoveryConfig is the trace an API path discovery runs. It prefers a

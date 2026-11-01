@@ -89,7 +89,11 @@ const pathTest = {
   updated_at: '2026-07-14T11:00:00Z',
 }
 
-export function stubPathHistoryFetch(requests: MeasuredRequest[] = []) {
+export function stubPathHistoryFetch(
+  requests: MeasuredRequest[] = [],
+  identity?: { tenant: string; context: string; entity: string },
+  awaitingContext?: string,
+) {
   const base = defaultFetch()
   vi.stubGlobal(
     'fetch',
@@ -111,6 +115,49 @@ export function stubPathHistoryFetch(requests: MeasuredRequest[] = []) {
       if (pathname === '/v1/tests/t1/path' && method === 'GET') {
         return jsonResponse(samplePath)
       }
+      if (pathname === '/v1/tests/t1/path/entities' && method === 'GET') {
+        return jsonResponse(
+          identity
+            ? {
+                test_id: 't1',
+                context_id: identity.context,
+                status: 'current',
+                items: [
+                  {
+                    ttl: 2,
+                    ip: '10.0.0.2',
+                    resolution: {
+                      scope: { tenant_id: identity.tenant, context_id: identity.context },
+                      alias: { kind: 'address', value: '10.0.0.2' },
+                      status: 'resolved',
+                      entity_id: identity.entity,
+                      candidates: [],
+                      more_candidates: false,
+                    },
+                  },
+                ],
+              }
+            : awaitingContext
+              ? { test_id: 't1', context_id: awaitingContext, status: 'awaiting_trace', items: [] }
+              : { test_id: 't1', status: 'unbound', items: [] },
+        )
+      }
+      if (pathname === '/v1/entity-contexts' && method === 'GET') {
+        return jsonResponse({
+          items: identity
+            ? [
+                {
+                  tenant_id: identity.tenant,
+                  context_id: identity.context,
+                  site_id: identity.tenant,
+                  vrf_id: identity.context,
+                  site_label: identity.tenant,
+                  vrf_label: identity.context,
+                },
+              ]
+            : [],
+        })
+      }
       if (pathname === '/v1/tests/t1/path/history' && method === 'GET') {
         const ids = url.searchParams.getAll('round_id')
         return jsonResponse({
@@ -118,7 +165,7 @@ export function stubPathHistoryFetch(requests: MeasuredRequest[] = []) {
         })
       }
       if (pathname === '/v1/incidents' && method === 'GET') {
-        return jsonResponse({ items: [pathIncident] })
+        return jsonResponse({ items: identity ? [] : [pathIncident] })
       }
       if (pathname === '/v1/incidents/inc-path' && method === 'GET') {
         return jsonResponse(pathIncident)

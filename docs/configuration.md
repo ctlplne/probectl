@@ -398,6 +398,23 @@ never select a tenant. Keys are normalized to lower case (maximum 32 labels,
 63-byte keys, 128-byte values). probectl never infers these values from an IP
 address and never calls a geolocation service.
 
+FX-2 can optionally attest the `site` label as source evidence over the
+existing agent gRPC listener. Configure the separate `evidence` block with
+`control_addr`, an evidence-only `/entity/` certificate and key, a trusted CA
+file and optional `server_name`. Keep those three identity files in their own
+directory, separate from the ordinary agent identity: atomic certificate
+rotation switches one directory's current version at a time. Use
+`cert.pem`, `key.pem` and `server-ca.pem` there; rotation stores the issuing
+agent CA bundle separately as `ca.pem` and must never replace the server
+trust bundle. Set `identity.server` for automatic evidence renewal. The four
+required fields must be supplied
+together, and `agent.labels.site` must be set. The evidence SVID must name the
+same tenant and registered agent as the ordinary agent certificate; an
+operator must assign that `agent_site` source (source reference = agent ID)
+to one context and site anchor before it becomes canonical. Missing or
+unresolved evidence does not stop tests, heartbeat or raw results. Accepted
+site identity refreshes after 12 hours; failures retry after one minute.
+
 ```yaml
 agent:
   capabilities: ["icmp", "tcp", "dns", "http"]
@@ -416,6 +433,11 @@ mounting a full file is awkward:
 | `PROBECTL_AGENT_TLS_CERT_FILE` | `tls.cert_file` | the agent's mTLS client certificate (PEM) |
 | `PROBECTL_AGENT_TLS_KEY_FILE` | `tls.key_file` | the agent's mTLS client key (PEM) |
 | `PROBECTL_AGENT_TLS_CA_FILE` | `tls.ca_file` | the CA that signed the control plane's server cert (PEM) |
+| `PROBECTL_AGENT_EVIDENCE_CONTROL_ADDR` | `evidence.control_addr` | optional existing agent gRPC listener for sender-bound site evidence |
+| `PROBECTL_AGENT_EVIDENCE_CERT_FILE` | `evidence.cert_file` | separate evidence-only `/entity/` SVID certificate for this registered agent |
+| `PROBECTL_AGENT_EVIDENCE_KEY_FILE` | `evidence.key_file` | local evidence-only private key, never sent to the control plane |
+| `PROBECTL_AGENT_EVIDENCE_CA_FILE` | `evidence.ca_file` | trusted control-plane CA for the evidence mTLS connection |
+| `PROBECTL_AGENT_EVIDENCE_SERVER_NAME` | `evidence.server_name` | optional TLS DNS name override for that connection |
 | `PROBECTL_AGENT_BUFFER_DIR` | `buffer.dir` | on-disk store-and-forward directory (see below) |
 | `PROBECTL_AGENT_OBJECTSTORE_MODE` | `artifact_store.mode` (`filesystem`) | `filesystem` fallback or durable `s3`/MinIO mode. |
 | `PROBECTL_AGENT_OBJECTSTORE_DIR` | `artifact_store.dir` | optional filesystem-mode directory for browser artifacts. |
@@ -1154,11 +1176,25 @@ same identity tables and uses the existing rotation and agent-revocation API.
 This is entirely operator-local: no external identity service or phone-home
 path is introduced.
 
+The BMP evidence certificate and key must be `cert.pem` and `key.pem` in a
+dedicated identity directory, separate from the BMP listener's TLS certificate
+directory. The evidence `ca_file` is that directory's `server-ca.pem`; it
+verifies the HTTPS rotation endpoint and the gRPC server. Rotation atomically
+swaps only the evidence SVID and writes its issuing CA to `ca.pem`. A failed
+renewal leaves raw BMP events on their tenant lane; canonical evidence stops
+resolving when the old SVID expires.
+
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `PROBECTL_BMP_LISTEN_ADDR` | (none) | BMP TCP listen address, for example `:1179`; required |
 | `PROBECTL_BMP_AGENT_ID` | (none) | this listener's registered collector id (`register-collector -plane bmp` output). With `PROBECTL_BMP_TENANT_ID` the listener heartbeats its own fleet entry once a minute through its registry connection, so the fleet view says `online`/`offline` about it instead of freezing at registration time (DPR-084). Empty = no heartbeat |
 | `PROBECTL_BMP_TENANT_ID` | (none) | the tenant that registered the listener as a collector; required together with `PROBECTL_BMP_AGENT_ID`. The registry login must be able to update `agents.last_seen_at` under that tenant's row-level security (the `probectl_app` membership the registry role already needs) |
+| `PROBECTL_BMP_EVIDENCE_CONTROL_ADDR` | (none) | optional restricted entity evidence RPC on the existing agent mTLS listener; requires all evidence paths, registered listener ID, tenant ID and exact bus lane |
+| `PROBECTL_BMP_EVIDENCE_ROTATE_URL` | (none) | required with evidence: HTTPS control-plane base URL for automatic renewal of the separate 24-hour entity SVID at two thirds of its life |
+| `PROBECTL_BMP_EVIDENCE_CERT_FILE` | (none) | separately enrolled entity-plane certificate for this listener's tenant and agent |
+| `PROBECTL_BMP_EVIDENCE_KEY_FILE` | (none) | matching entity-plane private key path |
+| `PROBECTL_BMP_EVIDENCE_CA_FILE` | (none) | trusted control-plane CA bundle; verification is mandatory |
+| `PROBECTL_BMP_EVIDENCE_SERVER_NAME` | (none) | optional expected control-plane DNS name |
 | `PROBECTL_BMP_TLS_CERT_FILE` | (none) | server certificate PEM; required |
 | `PROBECTL_BMP_TLS_KEY_FILE` | (none) | server private key PEM; required |
 | `PROBECTL_BMP_TLS_CA_FILE` | (none) | CA bundle that signs router/client certificates; required |
@@ -1741,12 +1777,25 @@ standard ports (NetFlow `:2055`, IPFIX `:4739`, sFlow `:6343`). See
 design, so every datagram is treated as untrusted and the collector should sit
 **adjacent to its exporters** (not exposed to the wider network).
 
+For flow evidence, keep `cert.pem`, `key.pem` and `server-ca.pem` in one
+dedicated writable identity directory. The last file verifies both the gRPC
+server and the HTTPS rotation endpoint; the issuing CA bundle lands separately
+as `ca.pem` during atomic renewal. A failed renewal never delays raw flow
+batches; canonical joins expire with the old evidence SVID.
+
 | Variable                          | Default     | Meaning                                                        |
 | --------------------------------- | ----------- | --------------------------------------------------------------- |
 | `PROBECTL_FLOW_CONFIG`             | (none)      | path to the YAML config (`-config` flag overrides)              |
 | `PROBECTL_FLOW_TENANT`             | (required)  | the tenant every flow record is stamped with — refuses to start without it |
 | `PROBECTL_FLOW_BUS_NAMESPACE`      | (none)      | publish this agent's batches on its tenant's siloed bus lane (`probectl.<ns>.flow.events`) instead of the shared topic; a malformed value refuses start. The same key exists for the other agents: `PROBECTL_DEVICE_BUS_NAMESPACE`, `PROBECTL_EBPF_BUS_NAMESPACE`, `PROBECTL_ENDPOINT_BUS_NAMESPACE` |
 | `PROBECTL_FLOW_AGENT_ID`           | OS hostname | collector identifier                                            |
+| `PROBECTL_FLOW_EVIDENCE_CONTROL_ADDR` | (none) | existing agent mTLS listener for restricted canonical evidence; requires all evidence credentials and exact exporters |
+| `PROBECTL_FLOW_EVIDENCE_ROTATE_URL` | (none) | required with evidence: HTTPS control-plane base URL for automatic renewal of the separate 24-hour entity SVID at two thirds of its life |
+| `PROBECTL_FLOW_EVIDENCE_CERT_FILE` | (none) | entity-plane client certificate, pinned to the configured tenant and agent |
+| `PROBECTL_FLOW_EVIDENCE_KEY_FILE` | (none) | matching entity-plane private key path |
+| `PROBECTL_FLOW_EVIDENCE_CA_FILE` | (none) | trusted control-plane CA bundle; server certificate verification is mandatory |
+| `PROBECTL_FLOW_EVIDENCE_SERVER_NAME` | (none) | optional expected control-plane DNS name |
+| `PROBECTL_FLOW_EVIDENCE_EXPORTERS` | (none) | comma-separated literal unicast exporter IPs allowed to produce canonical evidence; CIDRs and duplicates are refused |
 | `PROBECTL_FLOW_BUS_MODE`           | `memory`    | `memory` (volatile, dev only) \| `nats` (durable lightweight) \| `kafka`                                             |
 | `PROBECTL_FLOW_BUS_BROKERS`        | (none)      | comma-separated Kafka brokers (kafka mode)                      |
 | `PROBECTL_FLOW_NETFLOW_ENABLED`    | `true`      | serve NetFlow v5 **and** v9 (version-sniffed) on one socket     |
@@ -1917,11 +1966,31 @@ keeps the legacy explicit behavior. Run `probectl-device-agent config-check
 credential- and tenant-free effective plan; neither command opens a network
 connection.
 
+FX-2's optional top-level `evidence` block (`control_addr`, `rotate_url`,
+`cert_file`, `key_file`, `ca_file`, optional `server_name`) sends SNMP target,
+sysName, interface and LLDP/CDP observations over the existing agent mTLS
+listener. All five required fields must be set together. The evidence certificate is a
+separate `/entity/` SVID issued from a one-time enrollment token pinned to the
+same registered `agent_id`; the configured tenant and agent must equal its
+certificate identity. The private key stays on the collector. A missing
+mapping, canonical anchor or evidence service leaves the new identity join
+unresolved while the original device metrics still publish to the bus.
+Keep `cert.pem`, `key.pem` and `server-ca.pem` in one dedicated writable
+directory. The HTTPS rotation endpoint renews the 24-hour SVID at two thirds
+of its life; the independent server trust file remains stable across atomic
+certificate/key swaps.
+
 | Variable                       | Default     | Meaning                                                          |
 | ------------------------------- | ----------- | ----------------------------------------------------------------- |
 | `PROBECTL_DEVICE_CONFIG`         | (none)      | path to the YAML config (`-config` flag overrides)                |
 | `PROBECTL_DEVICE_TENANT`         | (required)  | the tenant every device metric is stamped with — refuses to start without it |
 | `PROBECTL_DEVICE_AGENT_ID`       | OS hostname | agent identifier                                                  |
+| `PROBECTL_DEVICE_EVIDENCE_CONTROL_ADDR` | (none) | optional existing agent gRPC listener host:port for sender-bound entity evidence; requires all evidence credential files |
+| `PROBECTL_DEVICE_EVIDENCE_ROTATE_URL` | (none) | required with evidence: HTTPS control-plane base URL for automatic renewal of its separate entity SVID |
+| `PROBECTL_DEVICE_EVIDENCE_CERT_FILE` | (none) | local evidence-only `/entity/` SVID certificate file; tenant and agent must match this collector's config |
+| `PROBECTL_DEVICE_EVIDENCE_KEY_FILE` | (none) | local evidence-only private key file, never copied to the control plane |
+| `PROBECTL_DEVICE_EVIDENCE_CA_FILE` | (none) | trusted control-plane CA bundle for the evidence mTLS connection |
+| `PROBECTL_DEVICE_EVIDENCE_SERVER_NAME` | (address host) | optional TLS server-name override; certificate verification stays required |
 | `PROBECTL_DEVICE_BUS_MODE`       | `memory`    | `memory` (volatile, dev only) \| `nats` (durable lightweight) \| `kafka`                                               |
 | `PROBECTL_DEVICE_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                        |
 | `PROBECTL_DEVICE_BUS_NAMESPACE`  | (none)      | publish on this tenant's siloed bus lane instead of the shared topic (siloed deployments) |
@@ -2779,7 +2848,7 @@ a bound is admission-controlled (shed + counted), never silently corrupted.
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `PROBECTL_FAIRNESS_RESULTS_PER_SEC` | `1000` | per-tenant result-message admission rate. Explicit `0` = unlimited |
+| `PROBECTL_FAIRNESS_RESULTS_PER_SEC` | `1000` | per-tenant result-message admission rate and separate FX-2 `entity_evidence` claim rate. Each has its own bucket and counters; evidence cannot spend result credits. Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC` | `10000` | per-tenant flow-record admission rate, applied independently to storage (`flow_events`) and secondary detection (`ndr_flow_events`). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `2097152` | per-tenant ingest byte rate (2 MiB/s). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | per-tenant SNMP/gNMI device-sample admission rate. Explicit `0` = unlimited |

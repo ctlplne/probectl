@@ -358,6 +358,10 @@ type AnomalyTrainingWindow struct {
 	Start   string `json:"start,omitempty"`
 }
 
+type AssignEntityPathContextInput struct {
+	ContextId string `json:"context_id"`
+}
+
 // One record in the tenant's hash-chained, tamper-evident audit log. Privacy erasure is a projection: actor/target/data can be returned as erased tokens, while prev_hash/hash remain the raw-chain proof.
 type AuditEvent struct {
 	Action    string         `json:"action"`
@@ -614,6 +618,17 @@ type CreateAPITokenRequest struct {
 	ExpiresInHours int      `json:"expires_in_hours,omitempty"`
 	Name           string   `json:"name"`
 	Scopes         []string `json:"scopes,omitempty"`
+}
+
+type CreateCanonicalEntityInput struct {
+	ContextId string `json:"context_id"`
+	Kind      string `json:"kind"`
+	Label     string `json:"label"`
+}
+
+type CreateEntityContextInput struct {
+	SiteLabel string `json:"site_label"`
+	VrfLabel  string `json:"vrf_label"`
 }
 
 type CreatedAPIToken struct {
@@ -1099,6 +1114,137 @@ type EBPFServiceMap struct {
 	EffectiveLimit int               `json:"effective_limit,omitempty"`
 	Items          []EBPFServiceEdge `json:"items,omitempty"`
 	Source         string            `json:"source,omitempty"`
+}
+
+type EntityClaim struct {
+	Alias             map[string]any `json:"alias"`
+	EntityId          string         `json:"entity_id"`
+	EntityKind        string         `json:"entity_kind"`
+	EvidenceId        string         `json:"evidence_id"`
+	ObservedAt        string         `json:"observed_at"`
+	Scope             EntityScope    `json:"scope"`
+	Source            string         `json:"source"`
+	SourceKey         map[string]any `json:"source_key"`
+	SourceRef         string         `json:"source_ref"`
+	SupportEvidenceId string         `json:"support_evidence_id,omitempty"`
+}
+
+type EntityContext struct {
+	ContextId string `json:"context_id"`
+	CreatedAt string `json:"created_at,omitempty"`
+	SiteId    string `json:"site_id"`
+	SiteLabel string `json:"site_label"`
+	TenantId  string `json:"tenant_id"`
+	VrfId     string `json:"vrf_id"`
+	VrfLabel  string `json:"vrf_label"`
+}
+
+type EntityContextPage struct {
+	Items      []EntityContext `json:"items"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+type EntityEvidencePage struct {
+	EntityId   string                 `json:"entity_id"`
+	Items      []EntityEvidenceRecord `json:"items"`
+	NextCursor string                 `json:"next_cursor,omitempty"`
+	Scope      EntityScope            `json:"scope"`
+}
+
+type EntityEvidenceRecord struct {
+	Alias                     map[string]any `json:"alias"`
+	Current                   bool           `json:"current"`
+	ExpiresAt                 string         `json:"expires_at,omitempty"`
+	Id                        string         `json:"id"`
+	InterfaceDescription      string         `json:"interface_description,omitempty"`
+	InterfaceName             string         `json:"interface_name,omitempty"`
+	NeighborChassisId         string         `json:"neighbor_chassis_id,omitempty"`
+	NeighborDeviceName        string         `json:"neighbor_device_name,omitempty"`
+	NeighborLocalIfIndex      int            `json:"neighbor_local_if_index,omitempty"`
+	NeighborLocalPortId       string         `json:"neighbor_local_port_id,omitempty"`
+	NeighborManagementAddress string         `json:"neighbor_management_address,omitempty"`
+	NeighborProtocol          string         `json:"neighbor_protocol,omitempty"`
+	NeighborRemotePortId      string         `json:"neighbor_remote_port_id,omitempty"`
+	ObservationId             string         `json:"observation_id"`
+	ObservedAt                string         `json:"observed_at"`
+	OriginSerial              string         `json:"origin_serial,omitempty"`
+	Source                    string         `json:"source"`
+	SourceKey                 map[string]any `json:"source_key"`
+	SourceRef                 string         `json:"source_ref"`
+	SupportEvidenceId         string         `json:"support_evidence_id,omitempty"`
+}
+
+type EntityLinkPage struct {
+	EntityId   string             `json:"entity_id"`
+	Items      []EntityLinkRecord `json:"items"`
+	NextCursor string             `json:"next_cursor,omitempty"`
+	Scope      EntityScope        `json:"scope"`
+}
+
+type EntityLinkRecord struct {
+	EvidenceId   string `json:"evidence_id"`
+	FromEntityId string `json:"from_entity_id"`
+	Id           string `json:"id"`
+	Kind         string `json:"kind"`
+	ObservedAt   string `json:"observed_at"`
+	SourceKind   string `json:"source_kind"`
+	ToEntityId   string `json:"to_entity_id"`
+}
+
+type EntityPage struct {
+	Items      []EntityRecord `json:"items"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+	Scope      EntityScope    `json:"scope"`
+}
+
+type EntityPathContextBinding struct {
+	ContextId string `json:"context_id"`
+	TestId    string `json:"test_id"`
+}
+
+type EntityPathHop struct {
+	Ip         string           `json:"ip"`
+	Resolution EntityResolution `json:"resolution"`
+	Ttl        int              `json:"ttl"`
+}
+
+type EntityPathResult struct {
+	ContextId string          `json:"context_id,omitempty"`
+	Items     []EntityPathHop `json:"items"`
+	Status    string          `json:"status"`
+	TestId    string          `json:"test_id"`
+	Truncated *bool           `json:"truncated,omitempty"`
+}
+
+type EntityRecord struct {
+	CreatedAt string      `json:"created_at"`
+	Id        string      `json:"id"`
+	Kind      string      `json:"kind"`
+	Label     string      `json:"label"`
+	Scope     EntityScope `json:"scope"`
+	UpdatedAt string      `json:"updated_at"`
+}
+
+type EntityResolution struct {
+	Alias          map[string]any `json:"alias"`
+	Candidates     []EntityClaim  `json:"candidates,omitempty"`
+	EntityId       string         `json:"entity_id,omitempty"`
+	MoreCandidates bool           `json:"more_candidates"`
+	Scope          EntityScope    `json:"scope"`
+	Status         string         `json:"status"`
+}
+
+type EntityScope struct {
+	ContextId string `json:"context_id"`
+	TenantId  string `json:"tenant_id"`
+}
+
+type EntitySourceAssignment struct {
+	AgentId        string `json:"agent_id"`
+	AnchorEntityId string `json:"anchor_entity_id,omitempty"`
+	ContextId      string `json:"context_id"`
+	SourceKind     string `json:"source_kind"`
+	SourceRef      string `json:"source_ref"`
 }
 
 // The standard error envelope returned by every endpoint.
@@ -3280,7 +3426,7 @@ func (c *Client) CmdbLookup(ctx context.Context, req CmdbLookupRequest) (map[str
 	return out, nil
 }
 
-// Register a tenant-scoped bus collector from a one-time enrollment token
+// Register a collector or issue its additional evidence certificate from a one-time enrollment token
 type RegisterCollectorRequest struct {
 	Body *CollectorRegisterRequest `json:"-"`
 }
@@ -4044,6 +4190,210 @@ func (c *Client) ListEndpoints(ctx context.Context, req ListEndpointsRequest) (m
 		return nil, err
 	}
 	return out, nil
+}
+
+// List canonical entities in one tenant routing context
+type ListCanonicalEntitiesRequest struct {
+	ContextId *string `json:"-"`
+	Cursor    *string `json:"-"`
+	Limit     *int    `json:"-"`
+}
+
+func (c *Client) ListCanonicalEntities(ctx context.Context, req ListCanonicalEntitiesRequest) (*EntityPage, error) {
+	path := "/v1/entities"
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out EntityPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create an operator-managed canonical entity in one routing context
+type CreateCanonicalEntityRequest struct {
+	Body *CreateCanonicalEntityInput `json:"-"`
+}
+
+func (c *Client) CreateCanonicalEntity(ctx context.Context, req CreateCanonicalEntityRequest) (*EntityRecord, error) {
+	path := "/v1/entities"
+	query := url.Values{}
+	var out EntityRecord
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Resolve a typed alias within one tenant routing context
+type ResolveEntityAliasRequest struct {
+	ContextId *string `json:"-"`
+	Kind      *string `json:"-"`
+	Value     *string `json:"-"`
+}
+
+func (c *Client) ResolveEntityAlias(ctx context.Context, req ResolveEntityAliasRequest) (*EntityResolution, error) {
+	path := "/v1/entities/resolve"
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.Kind != nil {
+		query.Set("kind", formatQueryValue(*req.Kind))
+	}
+	if req.Value != nil {
+		query.Set("value", formatQueryValue(*req.Value))
+	}
+	var out EntityResolution
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Get an operator-managed canonical entity in one routing context
+type GetCanonicalEntityRequest struct {
+	Id        string  `json:"-"`
+	ContextId *string `json:"-"`
+}
+
+func (c *Client) GetCanonicalEntity(ctx context.Context, req GetCanonicalEntityRequest) (*EntityRecord, error) {
+	path := "/v1/entities/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	var out EntityRecord
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Page one entity's original and current source evidence
+type ListCanonicalEntityEvidenceRequest struct {
+	Id        string  `json:"-"`
+	ContextId *string `json:"-"`
+	Cursor    *string `json:"-"`
+	Limit     *int    `json:"-"`
+}
+
+func (c *Client) ListCanonicalEntityEvidence(ctx context.Context, req ListCanonicalEntityEvidenceRequest) (*EntityEvidencePage, error) {
+	path := "/v1/entities/{id}/evidence"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out EntityEvidencePage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Page one entity's typed evidence-backed relationships
+type ListCanonicalEntityLinksRequest struct {
+	Id        string  `json:"-"`
+	ContextId *string `json:"-"`
+	Cursor    *string `json:"-"`
+	Limit     *int    `json:"-"`
+}
+
+func (c *Client) ListCanonicalEntityLinks(ctx context.Context, req ListCanonicalEntityLinksRequest) (*EntityLinkPage, error) {
+	path := "/v1/entities/{id}/links"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out EntityLinkPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Page the caller tenant's configured site/VRF routing contexts
+type ListEntityContextsRequest struct {
+	Limit  *int    `json:"-"`
+	Cursor *string `json:"-"`
+}
+
+func (c *Client) ListEntityContexts(ctx context.Context, req ListEntityContextsRequest) (*EntityContextPage, error) {
+	path := "/v1/entity-contexts"
+	query := url.Values{}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	var out EntityContextPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create an operator-configured site/VRF routing context
+type CreateEntityContextRequest struct {
+	Body *CreateEntityContextInput `json:"-"`
+}
+
+func (c *Client) CreateEntityContext(ctx context.Context, req CreateEntityContextRequest) (*EntityContext, error) {
+	path := "/v1/entity-contexts"
+	query := url.Values{}
+	var out EntityContext
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Bind one registered evidence agent and configured source to its routing context
+type AssignEntitySourceRequest struct {
+	Body *EntitySourceAssignment `json:"-"`
+}
+
+func (c *Client) AssignEntitySource(ctx context.Context, req AssignEntitySourceRequest) (*EntitySourceAssignment, error) {
+	path := "/v1/entity-source-contexts"
+	query := url.Values{}
+	var out EntitySourceAssignment
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Compare two explicit Explorer windows inside one tenant
@@ -5890,6 +6240,26 @@ func (c *Client) DeleteTest(ctx context.Context, req DeleteTestRequest) error {
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
+// Bind a tenant path test to an operator-owned routing context
+type AssignPathTestEntityContextRequest struct {
+	Id   string                        `json:"-"`
+	Body *AssignEntityPathContextInput `json:"-"`
+}
+
+func (c *Client) AssignPathTestEntityContext(ctx context.Context, req AssignPathTestEntityContextRequest) (*EntityPathContextBinding, error) {
+	path := "/v1/tests/{id}/entity-context"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out EntityPathContextBinding
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Latest discovered network path for a test (path-viz data)
 type GetTestPathRequest struct {
 	Id string `json:"-"`
@@ -5923,6 +6293,25 @@ func (c *Client) DiscoverTestPath(ctx context.Context, req DiscoverTestPathReque
 	query := url.Values{}
 	var out Path
 	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Resolve current path responders in the test's assigned routing context
+type GetPathEntitiesRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetPathEntities(ctx context.Context, req GetPathEntitiesRequest) (*EntityPathResult, error) {
+	path := "/v1/tests/{id}/path/entities"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out EntityPathResult
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -6023,7 +6412,8 @@ func (c *Client) ListTlsPosture(ctx context.Context, req ListTlsPostureRequest) 
 
 // Topology dependency graph (S43)
 type GetTopologyRequest struct {
-	At *string `json:"-"`
+	At        *string `json:"-"`
+	ContextId *string `json:"-"`
 }
 
 func (c *Client) GetTopology(ctx context.Context, req GetTopologyRequest) (map[string]any, error) {
@@ -6031,6 +6421,9 @@ func (c *Client) GetTopology(ctx context.Context, req GetTopologyRequest) (map[s
 	query := url.Values{}
 	if req.At != nil {
 		query.Set("at", formatQueryValue(*req.At))
+	}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
 	}
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {

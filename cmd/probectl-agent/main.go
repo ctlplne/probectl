@@ -185,6 +185,26 @@ func run() error {
 		return err
 	}
 	a.WithMetrics(metricsRuntime)
+	var evidenceClient *agent.EvidenceClient
+	if cfg.Evidence.Enabled() {
+		client, err := agent.DialEntityEvidence(cfg.Evidence.ControlAddr,
+			cfg.Evidence.CertFile, cfg.Evidence.KeyFile, cfg.Evidence.CAFile,
+			cfg.Evidence.ServerName)
+		if err != nil {
+			return fmt.Errorf("agent site evidence identity: %w", err)
+		}
+		defer client.Close()
+		evidenceClient = client
+		regular, err := crypto.SPIFFEIDFromCertFile(cfg.TLS.CertFile)
+		if err != nil {
+			return fmt.Errorf("agent identity for site evidence: %w", err)
+		}
+		tenantID, agentID := client.Identity()
+		if tenantID != regular.TenantID || agentID != regular.AgentID {
+			return fmt.Errorf("site evidence certificate does not match the registered agent tenant and ID")
+		}
+		a.WithSiteEvidence(client)
+	}
 
 	// Automatic SVID rotation (Sprint 11): rotate the on-disk identity at
 	// ~2/3 of its lifetime; the mTLS client hot-reloads the swap.
@@ -192,6 +212,20 @@ func run() error {
 		go agent.RotationLoop(ctx, log, cfg.Identity.Server,
 			cfg.TLS.CertFile, cfg.TLS.KeyFile, cfg.TLS.CAFile, 0)
 		log.Info("automatic SVID rotation enabled", "server", cfg.Identity.Server)
+		if cfg.Evidence.Enabled() {
+			// The evidence identity has its own versioned directory. The
+			// existing rotation endpoint preserves its entity plane and agent
+			// ID; the ordinary agent credential is never replaced by this loop.
+			go agent.RotationLoopOnSuccess(ctx, log, cfg.Identity.Server,
+				cfg.Evidence.CertFile, cfg.Evidence.KeyFile, cfg.Evidence.CAFile, 0,
+				func() {
+					if err := evidenceClient.ReconnectAfterRotation(); err != nil {
+						log.Warn("site evidence connection renewal failed", "error", err.Error())
+					}
+					a.RefreshSiteEvidenceAfterRotation()
+				})
+			log.Info("automatic evidence SVID rotation enabled", "server", cfg.Identity.Server)
+		}
 	}
 	return metricsRuntime.RunTogether(ctx, a.Run)
 }

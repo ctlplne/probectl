@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -323,28 +324,59 @@ func (s *Server) handleListPolicies(w http.ResponseWriter, r *http.Request) erro
 // be silently unenforced (docs/guardrails.md G7-5). The tenant-boundary key is
 // supplied on every resource path; org/team/project are only ever attached by
 // hierarchy reads and child creation (hierarchyapi.go), while evaluating a hierarchy
-// permission. attrsSubset can never match a key the request does not carry, so
+// permission. Entity keys are supplied on context-bound entity routes from a
+// forced-RLS context row. attrsSubset can never match a key the request does not carry, so
 // any other resource key would make the policy dead weight — a deny that looks
 // enforced but is not. Reject it at creation (422) rather than accept a lie.
 func validatePolicyResourceKeys(p auth.Policy) error {
+	hasHierarchy, hasEntity := false, false
 	for k := range p.Resource {
 		if k == auth.ResourceTenantKey {
 			continue
 		}
 		if isHierarchyResourceKey(k) && isHierarchyScopedPermission(p.Permission) {
+			hasHierarchy = true
+			continue
+		}
+		if isEntityResourceKey(k) && isEntityScopedPermission(p.Permission) {
+			hasEntity = true
 			continue
 		}
 		// Child creation resolves an existing org/team parent. No creation
 		// route has an existing project ID, so project-scoped writes remain
 		// rejected rather than accepting a policy that can never match.
 		if p.Permission == permOrgWrite && (k == string(auth.ScopeOrganization) || k == string(auth.ScopeTeam)) {
+			hasHierarchy = true
 			continue
 		}
 		return apierror.Validation("resource key " + strconv.Quote(k) +
 			" is not supplied by any route for permission " + strconv.Quote(p.Permission) +
-			"; tenant is supported for every permission; org/team/project for org.read or wildcard; org/team for org.write")
+			"; tenant is supported for every permission; org/team/project for org.read or wildcard; org/team for org.write; entity context keys for entity operations")
+	}
+	if hasHierarchy && hasEntity {
+		return apierror.Validation("hierarchy and entity resource keys cannot be combined; no route supplies both")
 	}
 	return nil
+}
+
+func isEntityResourceKey(k string) bool {
+	switch k {
+	case "context_id", "site_id", "vrf_id", "site_label", "vrf_label":
+		return true
+	default:
+		return false
+	}
+}
+
+func isEntityScopedPermission(permission string) bool {
+	switch permission {
+	case "*", ai.PermEntitiesRead, permAgentWrite,
+		ai.PermMetricsRead, permFlowRead, permTestRead,
+		ai.PermEventsRead, permAgentRead:
+		return true
+	default:
+		return false
+	}
 }
 
 // isHierarchyResourceKey reports whether k is one of the org/team/project scope

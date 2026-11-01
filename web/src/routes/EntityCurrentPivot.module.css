@@ -1,0 +1,26 @@
+/* SPDX-License-Identifier: BUSL-1.1 */
+/* Use of this source code is governed by the Business Source License 1.1
+ * in the LICENSE file at the root of this repository; on its Change Date
+ * each version converts to the Mozilla Public License 2.0. */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.controls > :first-child,
+.controls > :nth-child(2) {
+  flex: 1 1 var(--layout-sidebar-width);
+}
+
+.result {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.result p {
+  margin: 0;
+}

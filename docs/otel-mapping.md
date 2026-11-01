@@ -174,6 +174,23 @@ The one
 standard key it can reuse is the collector peer's address →
 `network.peer.address`.
 
+## Sender-bound entity fault (`SubmitEntityEvidence`)
+
+`internal/otel/entity_fault.go` maps the restricted evidence RPC's fault
+observation at its first emission into the incident stream. The live mTLS
+peer supplies resource `probectl.tenant.id` and `probectl.agent.id`; the
+validated observation supplies `probectl.entity.fault.observation_id`,
+`probectl.entity.fault.kind` and `probectl.entity.source.kind`. The configured
+source reference stays in the tenant receipt/resolver and is not copied to
+the incident's attribute map. The observed address uses the existing
+`probectl.device.address` for a failed SNMP target,
+`probectl.flow.exporter.address` for a silent exporter. The SNMP case also sets
+`probectl.device.source=snmp`. These identifiers remain incident evidence
+inside the tenant; aggregate agent/control metrics have fixed outcomes and
+no tenant, source, target or entity labels. The device fault producer is
+drafted; flow fault production, BMP router-origin proof, and runtime
+conformance remain open. BMP fault claims currently fail closed.
+
 ## Path / traceroute (`PathSummary`)
 
 Mapping in `internal/otel/path.go` (`PathAttributes`): the target IP uses the

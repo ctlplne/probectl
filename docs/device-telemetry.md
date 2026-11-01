@@ -592,3 +592,61 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
   `TestIdentityConflictAPIIngestsCompetingSourcesAndIsTenantScoped` prove
   interface addresses survive poll → protobuf bus → tenant-local conflict
   detection.
+
+## Canonical entity evidence (FX-2)
+
+The optional `evidence` config uses a second, evidence-only `/entity/` SVID on
+the existing agent gRPC/mTLS listener. Mint a one-time enrollment token pinned
+to the device collector's registered `agent_id`, issue that SVID with a CSR
+generated and held on the collector host, and configure its certificate, key,
+control-plane CA and listener address. The certificate's tenant and agent must
+match the collector's config. A missing or partial evidence credential refuses
+the evidence channel; no private key is sent to the server.
+
+After a successful SNMP poll and raw metric publish, the collector sends the
+configured target address, sysName, each interface's full uint32 ifIndex,
+ifName and ifDescr, and interface addresses in batches of at most 64. It
+keeps the target address as the configured source reference and the original
+SNMP field as provenance. A uniquely mapped interface is a separate entity
+under the operator-anchored device, joined by a `contains` link backed by the
+original poll evidence. The same ifIndex in another tenant, VRF or device
+never selects that interface.
+An observed interface IP is kept on that interface's evidence page when its
+ifIndex entity exists. Current address resolution projects the parent device
+for flow, BMP and path joins, so the configured target and one of its interface
+IPs cannot create a false two-entity conflict. Reanchoring a source leaves an
+old ifIndex IP unresolved instead of moving it to the newly anchored device.
+The collector validates each complete claim before batching it. A malformed
+SNMP label or description is skipped for canonical evidence without rejecting
+the valid claims from that poll or changing the raw metric outcome.
+An unchanged identity snapshot is sent at most once per 12 hours after an
+all-resolved RPC response; a changed interface, address or neighbor is sent
+on the next poll. The server's current-evidence window lasts 24 hours from
+the observation, so routine refresh precedes expiry without adding one
+durable row per minute of stable polling. A transport failure retries on the
+next poll. If every claim is unresolved, the same stable snapshot retries on
+the next poll. A partly accepted snapshot retries after one hour, rather than
+rewriting its accepted aliases every minute;
+changed identity evidence still sends on the next poll.
+
+When the same successful poll also publishes LLDP/CDP neighbor snapshots, the
+collector may send each bounded neighbor claim over the same restricted mTLS
+channel. The registry keeps the original protocol, local/remote port IDs,
+chassis ID, remote name and management address. It makes a `physical` link
+from the mapped local interface to the remote device only when current SNMP
+evidence resolves that remote address (or, without an address, its sysName) to
+exactly one device in the same tenant and routing context. Missing local
+ifIndex, missing remote identity, duplicate addresses/names, stale source
+assignments and revoked evidence leave the neighbor raw and unlinked. A
+`physical` link is a historical evidence-backed sighting; its timestamp is
+not a claim that the cable remains live after a source or certificate expires.
+
+The server uses
+its current operator-owned source/context and canonical anchor to decide
+whether a claim can join an entity. The packet cannot choose tenant, routing
+context or entity. Missing/revoked mappings and an unavailable evidence RPC
+leave canonical joins unresolved; the original bus metrics continue to flow.
+`entity_evidence_accepted`, `entity_evidence_unresolved` and
+`entity_evidence_errors` in the agent stats, plus the corresponding
+`probectl_agent_entity_evidence_*_total` counters on `/metrics`, show this
+channel's outcome without putting addresses or entity IDs in metric labels.

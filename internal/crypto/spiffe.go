@@ -51,6 +51,12 @@ func EBPFSPIFFEID(tenantID, collectorID string) string {
 	return SPIFFEID{TrustDomain: TrustDomain, TenantID: tenantID, AgentID: collectorID, Plane: "ebpf"}.String()
 }
 
+// EntitySPIFFEID is the D-179 evidence-only identity. It can enter the agent
+// listener but may call only SubmitEntityEvidence, never agent or L7 RPCs.
+func EntitySPIFFEID(tenantID, collectorID string) string {
+	return SPIFFEID{TrustDomain: TrustDomain, TenantID: tenantID, AgentID: collectorID, Plane: "entity"}.String()
+}
+
 // String renders the SPIFFE URI.
 func (id SPIFFEID) String() string {
 	plane := id.Plane
@@ -79,6 +85,11 @@ func ParseBMPSPIFFEID(uri string) (SPIFFEID, error) {
 // ParseEBPFSPIFFEID parses only a probectl eBPF-collector SPIFFE URI.
 func ParseEBPFSPIFFEID(uri string) (SPIFFEID, error) {
 	return parseSPIFFEIDForPlane(uri, "ebpf")
+}
+
+// ParseEntitySPIFFEID accepts only the restricted identity-evidence plane.
+func ParseEntitySPIFFEID(uri string) (SPIFFEID, error) {
+	return parseSPIFFEIDForPlane(uri, "entity")
 }
 
 func parseSPIFFEIDForPlane(uri, plane string) (SPIFFEID, error) {
@@ -138,15 +149,22 @@ func EBPFSPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
 	return spiffeIDFromCert(cert, ParseEBPFSPIFFEID)
 }
 
-// AgentChannelSPIFFEIDFromCert accepts the two identities the agent gRPC
-// listener admits at the handshake: an agent, or an eBPF collector. Each RPC
-// then authorizes its plane (the eBPF collector is allowed the L7 policy calls
-// only).
+// EntitySPIFFEIDFromCert extracts one canonical evidence-only URI SAN.
+func EntitySPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
+	return spiffeIDFromCert(cert, ParseEntitySPIFFEID)
+}
+
+// AgentChannelSPIFFEIDFromCert accepts the identities the agent gRPC listener
+// admits at the handshake: agent, eBPF collector or evidence-only collector.
+// Every RPC must then authorize its own plane.
 func AgentChannelSPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
 	if id, err := SPIFFEIDFromCert(cert); err == nil {
 		return id, nil
 	}
-	return EBPFSPIFFEIDFromCert(cert)
+	if id, err := EBPFSPIFFEIDFromCert(cert); err == nil {
+		return id, nil
+	}
+	return EntitySPIFFEIDFromCert(cert)
 }
 
 // RegisteredSPIFFEIDFromCert extracts either supported enrollment-registry
@@ -157,6 +175,9 @@ func RegisteredSPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
 		return id, nil
 	}
 	if id, err := EBPFSPIFFEIDFromCert(cert); err == nil {
+		return id, nil
+	}
+	if id, err := EntitySPIFFEIDFromCert(cert); err == nil {
 		return id, nil
 	}
 	return BMPSPIFFEIDFromCert(cert)
@@ -184,6 +205,11 @@ func SPIFFEIDFromCertFile(path string) (SPIFFEID, error) {
 // EBPFSPIFFEIDFromCertFile is SPIFFEIDFromCertFile for the eBPF-collector plane.
 func EBPFSPIFFEIDFromCertFile(path string) (SPIFFEID, error) {
 	return spiffeIDFromCertFile(path, EBPFSPIFFEIDFromCert)
+}
+
+// EntitySPIFFEIDFromCertFile reads a collector's evidence-only certificate.
+func EntitySPIFFEIDFromCertFile(path string) (SPIFFEID, error) {
+	return spiffeIDFromCertFile(path, EntitySPIFFEIDFromCert)
 }
 
 func spiffeIDFromCertFile(path string, parse func(*x509.Certificate) (SPIFFEID, error)) (SPIFFEID, error) {

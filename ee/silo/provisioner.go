@@ -561,6 +561,9 @@ func (p *Provisioner) Provision(ctx context.Context, tenantID, residency string,
 		if err := p.execPlan(ctx, ProvisionPlan(SchemaName(tenantID), cat.TenantTables)); err != nil {
 			return err
 		}
+		if err := p.ensureIncidentOverrideIdentityIndex(ctx, SchemaName(tenantID)); err != nil {
+			return err
+		}
 	case tenancy.IsolationHybrid:
 		// no Postgres leg
 	default:
@@ -593,7 +596,7 @@ func (p *Provisioner) CatchUpSchema(ctx context.Context, tenantID string) error 
 			return err
 		}
 	}
-	return nil
+	return p.ensureIncidentOverrideIdentityIndex(ctx, schema)
 }
 
 // CatchUp brings a siloed tenant's schema up to the current public shape
