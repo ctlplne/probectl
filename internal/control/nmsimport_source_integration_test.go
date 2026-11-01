@@ -95,6 +95,11 @@ func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing
 		return apiReq(t, h, http.MethodPost, "/v1/nms-imports/live-plans", f.tenant,
 			map[string]string{"context_id": f.contextID, "instance_ref": "same-lab"})
 	}
+	srv.cfg.NMSImportApprovedCIDRs = nil
+	if response := start(left); response.Code != http.StatusServiceUnavailable || requests.Load() != 0 {
+		t.Fatalf("removed deployment policy started live plan: %d %s", response.Code, response.Body.String())
+	}
+	srv.cfg.NMSImportApprovedCIDRs = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
 	planIDs := make(map[string]bool)
 	for _, f := range []fixture{left, right} {
 		response := start(f)

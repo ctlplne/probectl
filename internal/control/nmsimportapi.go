@@ -121,6 +121,9 @@ func (s *Server) handleStartNMSImportLivePlan(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		return err
 	}
+	if s.cfg == nil || len(s.cfg.NMSImportApprovedCIDRs) == 0 || s.cfg.NMSImportRefPrefix == "" {
+		return apierror.Unavailable("live NMS import is not configured")
+	}
 	planID, err := s.nmsImportCaptureStore(r).StartConfiguredLibreNMSPlan(ctx,
 		contextID, req.InstanceRef)
 	switch {
