@@ -185,6 +185,15 @@ func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 	if err != nil {
 		return "", ErrInvalidPage
 	}
+	return s.appendSnapshot(ctx, contextID, planID, pageNumber, resource, firstRow, tenantID, meta, snapshot)
+}
+
+// appendSnapshot is shared by bounded source pages and the unpaged LibreNMS
+// stream. The caller has loaded the plan through FORCE RLS; the locked write
+// transaction below rechecks that exact tenant, context and plan state.
+func (s CaptureStore) appendSnapshot(ctx context.Context, contextID, planID string,
+	pageNumber int64, resource string, firstRow int64, tenantID string,
+	meta captureMeta, snapshot Snapshot) (string, error) {
 	if len(snapshot.Rows) > maxCaptureRowsPerPage {
 		return "", ErrInvalidPage
 	}

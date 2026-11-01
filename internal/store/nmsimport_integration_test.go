@@ -393,3 +393,113 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		return nil
 	})
 }
+
+func TestNMSImportLibreNMSStreamSealsOnlyCompleteTenantCapture(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	t.Cleanup(pool.Close)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	a, err := NewTenants(pool).Create(ctx, "import-stream-a-"+suffix, "Stream A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewTenants(pool).Create(ctx, "import-stream-b-"+suffix, "Stream B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM tenants WHERE id=ANY($1::uuid[])`, []string{a.ID, b.ID}); err != nil {
+			t.Errorf("remove import stream tenants: %v", err)
+		}
+	})
+	routingContext := uuid.NewString()
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
+			(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
+			VALUES ($1,$2,$3,$4,'stream site','stream vrf')`,
+			a.ID, routingContext, uuid.NewString(), uuid.NewString())
+		return err
+	})
+	auditEvents := 0
+	capturer := nmsimport.NewCaptureStore(pool, func(_ context.Context, sc tenancy.Scope,
+		_, _ string, _ map[string]any) error {
+		if sc.Tenant.String() != a.ID {
+			return errors.New("stream capture crossed the tenant audit boundary")
+		}
+		auditEvents++
+		return nil
+	})
+	scopeA := tenancy.WithTenant(ctx, tenancy.ID(a.ID))
+	start := func(instance string) string {
+		t.Helper()
+		id, err := capturer.StartPlan(scopeA, routingContext, nmsimport.LibreNMS,
+			instance, strings.Repeat("b", 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	completePlan := start("stream-complete")
+	complete := `{"status":"ok","devices":[
+		{"device_id":17,"display":"Edge A","ip":"10.42.0.1","location_id":5,"community":"source-only-secret"},
+		{"device_id":18,"display":"Edge B","ip":"10.42.0.2","location_id":5}],"count":2}`
+	if _, err := capturer.CaptureLibreNMSDevices(tenancy.WithTenant(ctx, tenancy.ID(b.ID)),
+		routingContext, completePlan, strings.NewReader(complete)); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign tenant captured own source stream: %v", err)
+	}
+	sealedHash, err := capturer.CaptureLibreNMSDevices(scopeA, routingContext,
+		completePlan, strings.NewReader(complete))
+	if err != nil || len(sealedHash) != 64 {
+		t.Fatalf("complete source stream did not seal: hash=%q err=%v", sealedHash, err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var state string
+		var pages, rows int
+		var leaked bool
+		if err := sc.Q.QueryRow(ctx, `SELECT state FROM nms_import_plans WHERE id=$1`, completePlan).Scan(&state); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_pages WHERE plan_id=$1`, completePlan).Scan(&pages); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows WHERE plan_id=$1`, completePlan).Scan(&rows); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nms_import_rows
+			WHERE plan_id=$1 AND row_to_json(nms_import_rows)::text LIKE '%source-only-secret%')`,
+			completePlan).Scan(&leaked); err != nil {
+			return err
+		}
+		if state != "sealed" || pages != 1 || rows != 2 || leaked {
+			return fmt.Errorf("bad stream capture: state=%s pages=%d rows=%d leaked=%v", state, pages, rows, leaked)
+		}
+		return nil
+	})
+	partialPlan := start("stream-partial")
+	if _, err := capturer.CaptureLibreNMSDevices(scopeA, routingContext, partialPlan,
+		strings.NewReader(`{"devices":[{"device_id":19,"display":"Edge C","ip":"10.42.0.3","location_id":5}],"status":"error"}`)); !errors.Is(err, nmsimport.ErrInvalidPage) {
+		t.Fatalf("invalid final response published a capture: %v", err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var state string
+		if err := sc.Q.QueryRow(ctx, `SELECT state FROM nms_import_plans WHERE id=$1`, partialPlan).Scan(&state); err != nil {
+			return err
+		}
+		if state != "capturing" {
+			return fmt.Errorf("invalid source stream became actionable: %s", state)
+		}
+		return nil
+	})
+	if _, err := capturer.CaptureLibreNMSDevices(scopeA, routingContext, partialPlan,
+		strings.NewReader(`{"devices":[{"device_id":19,"display":"Edge C","ip":"10.42.0.3","location_id":5}],"status":"ok","count":1}`)); err != nil {
+		t.Fatalf("exact capture retry did not finish the inert plan: %v", err)
+	}
+	emptyPlan := start("stream-empty")
+	if _, err := capturer.CaptureLibreNMSDevices(scopeA, routingContext, emptyPlan,
+		strings.NewReader(`{"status":"ok","devices":[],"count":0}`)); err != nil {
+		t.Fatalf("complete empty source refused: %v", err)
+	}
+	if auditEvents != 9 { // three starts; complete, partial and empty pages; three seals, no duplicate retry page
+		t.Fatalf("missing or duplicated tenant audit events: %d", auditEvents)
+	}
+}

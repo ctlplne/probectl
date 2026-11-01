@@ -104,7 +104,9 @@ func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
 			if token, err := decoder.Token(); err != nil || token != json.Delim(']') {
 				return ErrInvalidPage
 			}
-			if len(rows) > 0 {
+			// A complete empty source still needs one zero-row receipt before
+			// Seal can distinguish it from a source that never captured.
+			if len(rows) > 0 || total == 0 {
 				if err := emit(Snapshot{Source: LibreNMS, Rows: rows}); err != nil {
 					return err
 				}

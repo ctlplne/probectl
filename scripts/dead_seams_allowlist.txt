@@ -137,6 +137,7 @@ symbol github.com/ctlplne/probectl/internal/tenantcrypto.Reset — process-globa
 symbol github.com/ctlplne/probectl/internal/nmsimport.NewCaptureStore — FX-2b draft capture constructor; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.StartPlan — FX-2b draft plan creation; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.AppendPage — FX-2b draft page capture; direct tenant-isolation test uses it until the authorized route is wired
+symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreNMSDevices — FX-2b draft unpaged source capture; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.Seal — FX-2b draft snapshot seal; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/govern.Reset — process-global reset for governance test hermeticity
 symbol github.com/ctlplne/probectl/internal/alert.SeverityCritical — severity vocabulary member constructed by dependent packages' fixtures
