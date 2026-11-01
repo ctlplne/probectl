@@ -89,6 +89,24 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 				return err
 			})
 	}
+	if err := tryA(`INSERT INTO nms_import_pages
+		(tenant_id,context_id,plan_id,page_number,resource_kind,first_row,row_count,page_hash)
+		VALUES ($1,$2,$3,0,'devices',0,1,$4)`,
+		a.ID, contextA, planB, strings.Repeat("c", 64)); err == nil {
+		t.Fatal("capture page accepted another tenant's plan")
+	}
+	if err := tryA(`INSERT INTO nms_import_pages
+		(tenant_id,context_id,plan_id,page_number,resource_kind,first_row,row_count,page_hash)
+		VALUES ($1,$2,$3,0,'devices',0,1,$4)`,
+		a.ID, contextA, planA, strings.Repeat("c", 64)); err != nil {
+		t.Fatalf("own capture page: %v", err)
+	}
+	if err := tryA(`INSERT INTO nms_import_pages
+		(tenant_id,context_id,plan_id,page_number,resource_kind,first_row,row_count,page_hash)
+		VALUES ($1,$2,$3,0,'devices',0,1,$4)`,
+		a.ID, contextA, planA, strings.Repeat("d", 64)); err == nil {
+		t.Fatal("duplicate capture page replaced its original hash")
+	}
 	if err := tryA(`INSERT INTO nms_import_sources
 		(tenant_id,context_id,id,source_kind,instance_ref)
 		VALUES ($1,$2,$3,'librenms','https://nms/?token=secret')`,
@@ -145,7 +163,7 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextA, planA); err == nil {
 		t.Fatal("applied provenance was erased by deleting its plan")
 	}
-	for _, table := range []string{"nms_import_sources", "nms_import_plans", "nms_import_rows", "nms_import_provenance"} {
+	for _, table := range []string{"nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_rows", "nms_import_provenance"} {
 		inTenant(ctx, t, pool, b.ID, func(ctx context.Context, sc tenancy.Scope) error {
 			var n int
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM `+table+` WHERE tenant_id=$1`, a.ID).Scan(&n); err != nil {
