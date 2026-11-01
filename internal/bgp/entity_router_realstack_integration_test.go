@@ -9,6 +9,7 @@
 package bgp_test
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -968,6 +969,10 @@ func startEdgeIPFIXExporter(t *testing.T, lab *routingLab, destination string) s
 	lab.docker(t, "create", "--name", name,
 		"--network", "container:"+lab.container("edge"), "--cap-add", "NET_RAW",
 		image, "softflowd", "-d", "-N", "-i", "eth0", "-v", "10",
+		// softflowd 1.1.0 sets a zero pcap timeout without immediate mode.
+		// A small ring plus a bounded traffic burst makes libpcap deliver a
+		// complete block on the low-rate CI bridge before dump-flows runs.
+		"-B", "65536",
 		"-n", destination,
 		"-c", "/tmp/softflowd.ctl")
 	lab.docker(t, "start", name)
@@ -984,7 +989,13 @@ func emitEdgeFlow(t *testing.T, lab *routingLab, exporterContainer string) {
 	// edge to its reachable rtr-a peer. A host-to-edge probe can use a local
 	// bridge path that does not exercise the exporter's captured interface.
 	lab.docker(t, "exec", exporterContainer, "softflowctl", "-c", "/tmp/softflowd.ctl", "delete-all")
-	lab.docker(t, "exec", exporterContainer, "ping", "-c", "3", "-W", "1", lab.ip["rtr-a"])
+	trafficContext, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	probe, err := exec.CommandContext(trafficContext, "docker", "exec", exporterContainer,
+		"ping", "-A", "-q", "-c", "4096", "-s", "1200", "-W", "1", lab.ip["rtr-a"]).CombinedOutput()
+	if err != nil {
+		t.Fatalf("edge traffic burst failed: %v: %.512s", err, probe)
+	}
 	deadline := time.Now().Add(10 * time.Second)
 	var dump []byte
 	var dumpErr error
