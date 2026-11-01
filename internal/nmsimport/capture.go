@@ -192,13 +192,14 @@ func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 			FROM nms_import_pages WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
 			ORDER BY page_number DESC LIMIT 1`, tenantID, contextID, planID).
 			Scan(&lastPage, &lastFirst, &lastCount)
-		if errors.Is(err, pgx.ErrNoRows) {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
 			if pageNumber != 0 || firstRow != 0 {
 				return ErrInvalidPage
 			}
-		} else if err != nil {
+		case err != nil:
 			return err
-		} else if pageNumber <= lastPage {
+		case pageNumber <= lastPage:
 			var storedResource, storedHash string
 			var storedFirst, storedCount int64
 			err := sc.Q.QueryRow(ctx, `SELECT resource_kind,first_row,row_count,page_hash
@@ -210,8 +211,8 @@ func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 				return ErrInvalidPage
 			}
 			return nil
-		} else if lastPage == math.MaxInt64 || pageNumber != lastPage+1 ||
-			lastFirst > math.MaxInt64-lastCount || firstRow != lastFirst+lastCount {
+		case lastPage == math.MaxInt64 || pageNumber != lastPage+1 ||
+			lastFirst > math.MaxInt64-lastCount || firstRow != lastFirst+lastCount:
 			return ErrInvalidPage
 		}
 		if firstRow > math.MaxInt64-int64(len(rows)) {

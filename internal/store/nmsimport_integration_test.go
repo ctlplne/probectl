@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -161,6 +162,9 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		}
 		return nil
 	})
+	if _, err := capturer.Seal(captureA, contextA, capturePlan, math.MaxInt64, 2); !errors.Is(err, nmsimport.ErrInvalidPage) {
+		t.Fatalf("fabricated page total was accepted: %v", err)
+	}
 	sealedHash, err := capturer.Seal(captureA, contextA, capturePlan, 2, 2)
 	if err != nil || len(sealedHash) != 64 {
 		t.Fatalf("seal complete capture: hash=%q err=%v", sealedHash, err)
