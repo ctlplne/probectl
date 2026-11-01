@@ -979,8 +979,11 @@ func startEdgeIPFIXExporter(t *testing.T, lab *routingLab, destination string) s
 
 func emitEdgeFlow(t *testing.T, lab *routingLab, exporterContainer string) {
 	t.Helper()
+	// The SNMP sidecar already proved that it listens on edge's UDP/161 in
+	// this network namespace. A closed port returns asynchronous ICMP errors
+	// to a connected UDP socket and can abort this live-flow fixture mid-send.
 	traffic, err := net.DialUDP("udp4", &net.UDPAddr{IP: labBridgeGateway(t, lab)},
-		&net.UDPAddr{IP: net.ParseIP(lab.ip["edge"]), Port: 9999})
+		&net.UDPAddr{IP: net.ParseIP(lab.ip["edge"]), Port: 161})
 	if err != nil {
 		t.Fatalf("send live traffic through edge: %v", err)
 	}
