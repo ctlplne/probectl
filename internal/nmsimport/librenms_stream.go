@@ -117,52 +117,9 @@ func streamLibreNMSList(raw io.Reader, listField string, arrayWrapped bool,
 				return ErrInvalidPage
 			}
 			haveList = true
-			if token, err := decoder.Token(); err != nil || token != json.Delim('[') {
-				return ErrInvalidPage
-			}
-			rows := make([]Row, 0, maxCaptureRowsPerPage)
-			seen := make(map[string]struct{}, maxCaptureRowsPerPage)
-			for {
-				budget.reset()
-				if !decoder.More() {
-					break
-				}
-				budget.reset()
-				var value json.RawMessage
-				if decoder.Decode(&value) != nil || len(value) > maxPageBytes || !utf8.Valid(value) {
-					return ErrInvalidPage
-				}
-				row, err := parse(value)
-				if err != nil {
-					return ErrInvalidPage
-				}
-				if _, duplicate := seen[row.ExternalID]; duplicate {
-					return ErrInvalidPage
-				}
-				seen[row.ExternalID] = struct{}{}
-				rows = append(rows, row)
-				if total == math.MaxInt64 {
-					return ErrInvalidPage
-				}
-				total++
-				if len(rows) == maxCaptureRowsPerPage {
-					if err := emit(Snapshot{Source: LibreNMS, Rows: rows}); err != nil {
-						return err
-					}
-					rows = make([]Row, 0, maxCaptureRowsPerPage)
-					seen = make(map[string]struct{}, maxCaptureRowsPerPage)
-				}
-			}
-			budget.reset()
-			if token, err := decoder.Token(); err != nil || token != json.Delim(']') {
-				return ErrInvalidPage
-			}
-			// A complete empty source still needs one zero-row receipt before
-			// Seal can distinguish it from a source that never captured.
-			if len(rows) > 0 || total == 0 {
-				if err := emit(Snapshot{Source: LibreNMS, Rows: rows}); err != nil {
-					return err
-				}
+			total, err = streamLibreNMSRows(decoder, budget, parse, emit)
+			if err != nil {
+				return err
 			}
 		default:
 			return ErrInvalidPage
@@ -184,6 +141,61 @@ func streamLibreNMSList(raw io.Reader, listField string, arrayWrapped bool,
 		return ErrInvalidPage
 	}
 	return nil
+}
+
+// streamLibreNMSRows emits one bounded normalized page at a time. The caller
+// validates the enclosing status and count before it seals any captured pages.
+func streamLibreNMSRows(decoder *json.Decoder, budget *captureValueReader,
+	parse func(json.RawMessage) (Row, error), emit func(Snapshot) error) (int64, error) {
+	if token, err := decoder.Token(); err != nil || token != json.Delim('[') {
+		return 0, ErrInvalidPage
+	}
+	rows := make([]Row, 0, maxCaptureRowsPerPage)
+	seen := make(map[string]struct{}, maxCaptureRowsPerPage)
+	var total int64
+	for {
+		budget.reset()
+		if !decoder.More() {
+			break
+		}
+		budget.reset()
+		var value json.RawMessage
+		if decoder.Decode(&value) != nil || len(value) > maxPageBytes || !utf8.Valid(value) {
+			return 0, ErrInvalidPage
+		}
+		row, err := parse(value)
+		if err != nil {
+			return 0, ErrInvalidPage
+		}
+		if _, duplicate := seen[row.ExternalID]; duplicate {
+			return 0, ErrInvalidPage
+		}
+		seen[row.ExternalID] = struct{}{}
+		rows = append(rows, row)
+		if total == math.MaxInt64 {
+			return 0, ErrInvalidPage
+		}
+		total++
+		if len(rows) == maxCaptureRowsPerPage {
+			if err := emit(Snapshot{Source: LibreNMS, Rows: rows}); err != nil {
+				return 0, err
+			}
+			rows = make([]Row, 0, maxCaptureRowsPerPage)
+			seen = make(map[string]struct{}, maxCaptureRowsPerPage)
+		}
+	}
+	budget.reset()
+	if token, err := decoder.Token(); err != nil || token != json.Delim(']') {
+		return 0, ErrInvalidPage
+	}
+	// A complete empty source still needs one zero-row receipt before Seal can
+	// distinguish it from a source that never captured.
+	if len(rows) > 0 || total == 0 {
+		if err := emit(Snapshot{Source: LibreNMS, Rows: rows}); err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
 }
 
 // The JSON decoder may read ahead, but this reader supplies at most 4 KiB at
