@@ -144,19 +144,49 @@ func safeZabbixUUID(raw string) string {
 	return strings.ToLower(raw)
 }
 
+type libreNMSDevice struct {
+	ID         sourceID `json:"device_id"`
+	Hostname   string   `json:"hostname"`
+	Display    string   `json:"display"`
+	IP         string   `json:"ip"`
+	LocationID sourceID `json:"location_id"`
+}
+
+func libreNMSDeviceRow(device libreNMSDevice) (Row, error) {
+	if device.ID == "" || device.ID == "0" {
+		return Row{}, ErrInvalidPage
+	}
+	label := safeLabel(device.Display)
+	if label == "" {
+		label = safeLabel(device.Hostname)
+	}
+	row := Row{Kind: "device", ExternalID: string(device.ID), Label: label,
+		Address: safeAddress(device.IP), LocationID: string(device.LocationID)}
+	if row.LocationID == "0" {
+		row.LocationID = ""
+	}
+	if row.Address == "" {
+		row.Address = safeAddress(device.Hostname)
+	}
+	if row.Address == "" {
+		row.UnmappedCodes = append(row.UnmappedCodes, "missing_ip_address")
+	}
+	if row.Label == "" {
+		row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
+	}
+	if row.LocationID == "" {
+		row.UnmappedCodes = append(row.UnmappedCodes, "site_unmapped")
+	}
+	return row, nil
+}
+
 // parseLibreNMSDevices reads one documented /api/v0/devices response. The
 // caller captures and snapshots the source before applying anything; this parser
 // retains source IDs and safe display fields but ignores credential fields.
 func parseLibreNMSDevices(r io.Reader) (Snapshot, error) {
 	var page struct {
-		Status  string `json:"status"`
-		Devices []struct {
-			ID         sourceID `json:"device_id"`
-			Hostname   string   `json:"hostname"`
-			Display    string   `json:"display"`
-			IP         string   `json:"ip"`
-			LocationID sourceID `json:"location_id"`
-		} `json:"devices"`
+		Status  string           `json:"status"`
+		Devices []libreNMSDevice `json:"devices"`
 	}
 	if err := decodePage(r, &page); err != nil || page.Status != "ok" || page.Devices == nil {
 		return Snapshot{}, ErrInvalidPage
@@ -164,34 +194,14 @@ func parseLibreNMSDevices(r io.Reader) (Snapshot, error) {
 	out := Snapshot{Source: LibreNMS, Rows: make([]Row, 0, len(page.Devices))}
 	seen := make(map[string]struct{}, len(page.Devices))
 	for _, device := range page.Devices {
-		if device.ID == "" || device.ID == "0" {
+		row, err := libreNMSDeviceRow(device)
+		if err != nil {
 			return Snapshot{}, ErrInvalidPage
 		}
-		if _, duplicate := seen[string(device.ID)]; duplicate {
+		if _, duplicate := seen[row.ExternalID]; duplicate {
 			return Snapshot{}, ErrInvalidPage
 		}
-		seen[string(device.ID)] = struct{}{}
-		label := safeLabel(device.Display)
-		if label == "" {
-			label = safeLabel(device.Hostname)
-		}
-		row := Row{Kind: "device", ExternalID: string(device.ID), Label: label,
-			Address: safeAddress(device.IP), LocationID: string(device.LocationID)}
-		if row.LocationID == "0" {
-			row.LocationID = ""
-		}
-		if row.Address == "" {
-			row.Address = safeAddress(device.Hostname)
-		}
-		if row.Address == "" {
-			row.UnmappedCodes = append(row.UnmappedCodes, "missing_ip_address")
-		}
-		if row.Label == "" {
-			row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
-		}
-		if row.LocationID == "" {
-			row.UnmappedCodes = append(row.UnmappedCodes, "site_unmapped")
-		}
+		seen[row.ExternalID] = struct{}{}
 		out.Rows = append(out.Rows, row)
 	}
 	return out, nil
