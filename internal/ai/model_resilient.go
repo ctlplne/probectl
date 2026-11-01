@@ -215,7 +215,10 @@ func (m *ResilientModel) completeUsing(ctx context.Context, call func(context.Co
 }
 
 func modelHealthOutcome(caller context.Context, err error) breaker.Outcome {
-	if callerErr := caller.Err(); callerErr != nil && (err == nil || errors.Is(err, callerErr)) {
+	// A canceled caller owns the abort even when the transport/parser reports
+	// a secondary error from the truncated response body. The model's own
+	// timeout uses a child context, so it still counts as provider failure.
+	if caller.Err() != nil {
 		return breaker.OutcomeNeutral
 	}
 	if err == nil || errors.Is(err, ErrModelCompletionBudget) || errors.Is(err, ErrModelCompletionRefused) {

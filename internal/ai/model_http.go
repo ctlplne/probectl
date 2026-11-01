@@ -472,11 +472,17 @@ func (m *HTTPModel) postCompletion(ctx context.Context, endpoint string, headers
 	}
 	resp, err := m.client.Do(req)
 	if err != nil {
+		if callerErr := ctx.Err(); callerErr != nil {
+			return callerErr
+		}
 		return fmt.Errorf("ai: model request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxModelResponseBodyBytes))
+		if callerErr := ctx.Err(); callerErr != nil {
+			return callerErr
+		}
 		return fmt.Errorf("ai: %s model provider returned HTTP status %d", modelProviderCategory(m.kind), resp.StatusCode)
 	}
 	limit := maxModelResponseBodyBytes
@@ -484,13 +490,20 @@ func (m *HTTPModel) postCompletion(ctx context.Context, endpoint string, headers
 		limit = budget.ResponseBytes
 	}
 	data, err := httpbody.ReadLimited(resp.Body, limit)
+	if callerErr := ctx.Err(); callerErr != nil {
+		return callerErr
+	}
 	if err != nil {
 		if budget != nil && errors.Is(err, httpbody.ErrTooLarge) {
 			return errors.Join(ErrModelCompletionBudget, httpbody.ErrTooLarge)
 		}
 		return fmt.Errorf("ai: read bounded model response: %w", err)
 	}
-	return json.Unmarshal(data, out)
+	err = json.Unmarshal(data, out)
+	if callerErr := ctx.Err(); callerErr != nil {
+		return callerErr
+	}
+	return err
 }
 
 // extractJSON pulls the first JSON object out of a model reply, tolerating code
