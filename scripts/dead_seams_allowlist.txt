@@ -128,6 +128,16 @@ symbol github.com/ctlplne/probectl/internal/store.EntityRegistry.PathTestContext
 symbol github.com/ctlplne/probectl/internal/store.EntityRegistry.ResolveSourceContext — control and store isolation tests prove operator-assigned source context and foreign-source refusal; production evidence resolution uses the sender-bound detail path
 symbol github.com/ctlplne/probectl/internal/tenantcrypto.NewEnvelopeSealer — sealer constructor used by ee and backup test suites
 symbol github.com/ctlplne/probectl/internal/tenantcrypto.Reset — process-global reset for crypto test hermeticity (test-order independence)
+
+# ---- FX-2b draft capture path; remove each entry as its route is wired -----
+# The draft branch runs exact CI after each coherent slice. These exports are
+# exercised by a real PostgreSQL integration test before the tenant-authorized
+# preview routes exist. The gate rejects stale entries once production calls
+# them, so none may survive final FX-2b landing.
+symbol github.com/ctlplne/probectl/internal/nmsimport.NewCaptureStore — FX-2b draft capture constructor; direct tenant-isolation test uses it until the authorized route is wired
+symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.StartPlan — FX-2b draft plan creation; direct tenant-isolation test uses it until the authorized route is wired
+symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.AppendPage — FX-2b draft page capture; direct tenant-isolation test uses it until the authorized route is wired
+symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.Seal — FX-2b draft snapshot seal; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/govern.Reset — process-global reset for governance test hermeticity
 symbol github.com/ctlplne/probectl/internal/alert.SeverityCritical — severity vocabulary member constructed by dependent packages' fixtures
 symbol github.com/ctlplne/probectl/internal/remediation.StateApplied — remediation state vocabulary member asserted by ee workflow tests
