@@ -185,6 +185,18 @@ func TestZabbixInvalidNestedUUIDsStayUnmappedWithoutEcho(t *testing.T) {
 	}
 }
 
+func TestSafeAddressRejectsZoneAndCanonicalizesMappedIPv4(t *testing.T) {
+	for input, want := range map[string]string{
+		"fe80::1%en0":      "",
+		"::ffff:10.42.0.1": "10.42.0.1",
+		"10.42.0.1":        "10.42.0.1",
+	} {
+		if got := safeAddress(input); got != want {
+			t.Errorf("safeAddress(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
