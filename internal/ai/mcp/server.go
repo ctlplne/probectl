@@ -162,6 +162,9 @@ func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []by
 	// only a bounded response ID so notifications remain silent; malformed
 	// envelopes receive the same authorization error with a null ID.
 	if p == nil || p.TenantID == "" {
+		if len(raw) > 4<<20 {
+			return marshal(errorResponse(nil, codeUnauthorized, "no tenant on principal"))
+		}
 		var envelope struct {
 			ID json.RawMessage `json:"id"`
 		}
@@ -174,7 +177,12 @@ func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []by
 		} else if _, valid := requestIDKey(envelope.ID); !valid {
 			envelope.ID = nil
 		}
-		return marshal(errorResponse(envelope.ID, codeUnauthorized, "no tenant on principal"))
+		// Authentication has already failed. Read protocol intent solely to
+		// choose the negotiated error-code vocabulary; never return a decode
+		// failure or dispatch an unauthenticated request.
+		request, _ := decodeRPC(raw, false)
+		request.ID = envelope.ID
+		return marshal(s.prepareResponse(request, errorResponse(envelope.ID, codeUnauthorized, "no tenant on principal")))
 	}
 	req, failure := decodeRPC(raw, false)
 	if failure != nil {
