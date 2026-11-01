@@ -48,14 +48,15 @@ func NewCaptureStore(pool *pgxpool.Pool, audit CaptureAudit) CaptureStore {
 }
 
 type captureMeta struct {
-	source       Kind
-	instance     string
-	generation   string
-	policy       int
-	state        string
-	snapshotHash string
-	rowCount     int64
-	expires      time.Time
+	source        Kind
+	instance      string
+	generation    string
+	configVersion int64
+	policy        int
+	state         string
+	snapshotHash  string
+	rowCount      int64
+	expires       time.Time
 }
 
 const capturePolicyVersion = 1
@@ -107,17 +108,18 @@ func (s CaptureStore) StartPlan(ctx context.Context, contextID string,
 			tenantID, contextID, sourceID, string(source), instanceRef); err != nil {
 			return captureStartErr(err)
 		}
-		if err := sc.Q.QueryRow(ctx, `SELECT id::text FROM nms_import_sources
+		var configVersion int64
+		if err := sc.Q.QueryRow(ctx, `SELECT id::text,config_version FROM nms_import_sources
 			WHERE tenant_id=$1 AND context_id=$2 AND source_kind=$3 AND instance_ref=$4`,
-			tenantID, contextID, string(source), instanceRef).Scan(&sourceID); err != nil {
+			tenantID, contextID, string(source), instanceRef).Scan(&sourceID, &configVersion); err != nil {
 			return err
 		}
 		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_plans
 			(tenant_id,context_id,id,source_id,snapshot_hash,source_generation_hash,
-			 policy_version,row_count,expires_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,0,clock_timestamp()+interval '24 hours')`,
+			 policy_version,row_count,source_config_version,expires_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,clock_timestamp()+interval '24 hours')`,
 			tenantID, contextID, planID, sourceID, initialHash,
-			generationHash, capturePolicyVersion); err != nil {
+			generationHash, capturePolicyVersion, configVersion); err != nil {
 			return captureStartErr(err)
 		}
 		return s.audit(ctx, sc, "nms_import.capture_started", planID,
@@ -213,7 +215,8 @@ func (s CaptureStore) appendSnapshot(ctx context.Context, contextID, planID stri
 			return err
 		}
 		if locked.source != meta.source || locked.instance != meta.instance ||
-			locked.generation != meta.generation || locked.policy != meta.policy ||
+			locked.generation != meta.generation || locked.configVersion != meta.configVersion ||
+			locked.policy != meta.policy ||
 			locked.snapshotHash != meta.snapshotHash || locked.rowCount != meta.rowCount ||
 			!locked.expires.Equal(meta.expires) || locked.state != "capturing" {
 			return ErrPlanUnavailable
@@ -280,20 +283,28 @@ func (s CaptureStore) appendSnapshot(ctx context.Context, contextID, planID stri
 }
 
 func loadCaptureMeta(ctx context.Context, sc tenancy.Scope, contextID, planID string, lock bool) (captureMeta, error) {
-	query := `SELECT s.source_kind,s.instance_ref,p.source_generation_hash,p.policy_version,p.state,
+	query := `SELECT s.source_kind,s.instance_ref,p.source_generation_hash,
+		p.source_config_version,s.config_version,p.policy_version,p.state,
 		p.snapshot_hash,p.row_count,p.expires_at
 		FROM nms_import_plans p JOIN nms_import_sources s
 		  ON s.tenant_id=p.tenant_id AND s.context_id=p.context_id AND s.id=p.source_id
 		WHERE p.tenant_id=$1 AND p.context_id=$2 AND p.id=$3 AND p.expires_at>clock_timestamp()`
 	if lock {
-		query += ` FOR UPDATE OF p`
+		// A source reconfiguration cannot race this page or seal write. The
+		// plan and source versions are checked under both row locks.
+		query += ` FOR UPDATE OF p, s`
 	}
 	var meta captureMeta
 	var kind string
+	var currentConfigVersion int64
 	err := sc.Q.QueryRow(ctx, query, sc.Tenant.String(), contextID, planID).
-		Scan(&kind, &meta.instance, &meta.generation, &meta.policy, &meta.state,
+		Scan(&kind, &meta.instance, &meta.generation, &meta.configVersion,
+			&currentConfigVersion, &meta.policy, &meta.state,
 			&meta.snapshotHash, &meta.rowCount, &meta.expires)
 	if errors.Is(err, pgx.ErrNoRows) {
+		return captureMeta{}, ErrPlanUnavailable
+	}
+	if err == nil && meta.configVersion != currentConfigVersion {
 		return captureMeta{}, ErrPlanUnavailable
 	}
 	meta.source = Kind(kind)

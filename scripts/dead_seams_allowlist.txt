@@ -141,6 +141,7 @@ symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreN
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreNMSDevicesAndLocations — FX-2b draft mixed-source capture; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreNMSInventory — FX-2b draft complete-source capture; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.NewLibreNMSHTTPSource — FX-2b draft HTTPS source constructor; source-client tests use it until the tenant-bound source route is wired
+symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.ConfigureLibreNMSHTTPSource — FX-2b draft tenant source configuration; direct isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/govern.Reset — process-global reset for governance test hermeticity
 symbol github.com/ctlplne/probectl/internal/alert.SeverityCritical — severity vocabulary member constructed by dependent packages' fixtures
 symbol github.com/ctlplne/probectl/internal/remediation.StateApplied — remediation state vocabulary member asserted by ee workflow tests
