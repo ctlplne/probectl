@@ -66,6 +66,10 @@ const aliasKinds = [
   'service_key',
 ] as const
 
+function displayAliasValue(value: unknown): string {
+  return typeof value === 'string' ? value : '[unavailable]'
+}
+
 export function EntityRegistryCard() {
   const { permissions, tenant } = useAuth()
   if (!permissions.includes('entities.read')) return null
@@ -330,9 +334,9 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
                               .flatMap((page) => page.items)
                               .map((item) => (
                                 <li key={item.id}>
-                                  <code>{String(item.alias['kind'])}</code>:{' '}
-                                  <code>{String(item.alias['value'])}</code> · {item.source} ·{' '}
-                                  <code>{item.source_ref}</code> ·{' '}
+                                  <code>{displayAliasValue(item.alias['kind'])}</code>:{' '}
+                                  <code>{displayAliasValue(item.alias['value'])}</code> ·{' '}
+                                  {item.source} · <code>{item.source_ref}</code> ·{' '}
                                   {item.interface_name ? (
                                     <>
                                       ifName <code>{item.interface_name}</code> ·{' '}

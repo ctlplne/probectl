@@ -17998,11 +17998,12 @@
       },
       "EntityPathResult": {
         "type": "object",
-        "required": ["test_id", "status", "items"],
+        "required": ["test_id", "status", "coverage", "items"],
         "properties": {
           "test_id": {"type": "string", "format": "uuid"},
           "context_id": {"type": "string", "format": "uuid"},
           "status": {"type": "string", "enum": ["unbound", "awaiting_trace", "current"]},
+          "coverage": {"type": "string", "enum": ["no_bound_context", "no_post_binding_trace", "registered_sources_only"], "description": "No identity claim is made when unbound or before a verified post-binding trace; current joins cover only registered evidence sources."},
           "items": {"type": "array", "maxItems": 640, "items": {"$ref": "#/components/schemas/EntityPathHop"}},
           "truncated": {"type": "boolean"}
         }

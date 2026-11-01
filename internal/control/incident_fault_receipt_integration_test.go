@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -35,7 +35,7 @@ func faultReceiptTestSource(t *testing.T, tenant, agent string) incident.Authent
 	if err != nil {
 		t.Fatal(err)
 	}
-	serialID := uuid.New()
+	serialID := gouuid.New()
 	leaf := &x509.Certificate{Raw: []byte(tenant + agent), URIs: []*url.URL{uri},
 		SerialNumber: new(big.Int).SetBytes(serialID[:]), NotBefore: time.Now().Add(-time.Minute),
 		NotAfter: time.Now().Add(time.Hour)}
@@ -51,13 +51,13 @@ func faultReceiptTestSource(t *testing.T, tenant, agent string) incident.Authent
 
 func bindFaultReceiptTestSource(t *testing.T, db *store.DB, tenant, agent string) {
 	t.Helper()
-	contextID := uuid.NewString()
+	contextID := gouuid.NewString()
 	err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.ID(tenant)),
 		db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
 			(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
 			VALUES ($1,$2,$3,$4,'fault-site','fault-vrf')`,
-				tenant, contextID, uuid.NewString(), uuid.NewString()); err != nil {
+				tenant, contextID, gouuid.NewString(), gouuid.NewString()); err != nil {
 				return err
 			}
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts
@@ -85,7 +85,7 @@ func TestFaultReceiptSurvivesResolutionAndBindsTenant(t *testing.T) {
 			t.Errorf("remove fault receipt tenants: %v", err)
 		}
 	})
-	id := uuid.NewString()
+	id := gouuid.NewString()
 	ats := make(map[string]time.Time)
 	signal := func(tenant string) incident.Signal {
 		return incident.Signal{TenantID: tenant, Plane: "device", Kind: "device.poll_failed",
@@ -114,7 +114,7 @@ func TestFaultReceiptSurvivesResolutionAndBindsTenant(t *testing.T) {
 	}
 	bindFaultReceiptTestSource(t, db, a, "agent-a")
 	ats[a] = time.Now().Add(time.Millisecond).UTC().Truncate(time.Microsecond)
-	beforeID := uuid.NewString()
+	beforeID := gouuid.NewString()
 	before := signal(a)
 	before.OccurredAt = beforeAssignment
 	before.Attributes[entity.AttrFaultObservationID] = beforeID
@@ -139,7 +139,7 @@ func TestFaultReceiptSurvivesResolutionAndBindsTenant(t *testing.T) {
 	if err != nil || first == nil || first.SignalCount != 1 {
 		t.Fatalf("first durable fault: %+v %v", first, err)
 	}
-	preIssueID := uuid.NewString()
+	preIssueID := gouuid.NewString()
 	preIssue := signal(a)
 	preIssue.OccurredAt = ats[a].Add(-time.Hour)
 	preIssue.Attributes[entity.AttrFaultObservationID] = preIssueID
@@ -185,7 +185,7 @@ func TestFaultReceiptSurvivesResolutionAndBindsTenant(t *testing.T) {
 			_, err := sc.Q.Exec(ctx, `INSERT INTO entity_fault_receipts
 				(tenant_id,agent_id,observation_id,source_kind,source_ref,payload_fingerprint,incident_id)
 				VALUES ($1,'agent-x',$2,'device_target','10.42.0.1',$3,$4)`,
-				a, uuid.NewString(), signal(a).Fingerprint(), foreign.ID)
+				a, gouuid.NewString(), signal(a).Fingerprint(), foreign.ID)
 			return err
 		}); err == nil {
 		t.Fatal("fault receipt referenced another tenant's incident")

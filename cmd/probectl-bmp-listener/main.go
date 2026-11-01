@@ -121,27 +121,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if *listenAddr == "" {
-		return fmt.Errorf("PROBECTL_BMP_LISTEN_ADDR or --listen is required")
-	}
-	if *certFile == "" || *keyFile == "" || *caFile == "" {
-		return fmt.Errorf("BMP listener requires --tls-cert, --tls-key, and --tls-ca")
-	}
-	if *databaseURL == "" {
-		return fmt.Errorf("PROBECTL_BMP_DATABASE_URL or --database-url is required for issued-identity verification")
-	}
-	if *revocationDatabaseURL == "" {
-		return fmt.Errorf("PROBECTL_BMP_REVOCATION_DATABASE_URL or --revocation-database-url is required")
-	}
-	if err := validateBMPDatabaseURLs(*databaseURL, *revocationDatabaseURL); err != nil {
+	laneTenant, err := validateBMPRequired(*listenAddr, *certFile, *keyFile, *caFile,
+		*databaseURL, *revocationDatabaseURL, *busNamespace, *tenantID)
+	if err != nil {
 		return err
-	}
-	if *busNamespace != "" && *tenantID == "" {
-		return fmt.Errorf("PROBECTL_BMP_BUS_NAMESPACE binds the listener to one tenant's lane; PROBECTL_BMP_TENANT_ID (--tenant-id) is required with it")
-	}
-	laneTenant := "" // only a lane-bound listener restricts which tenant's routers it serves
-	if *busNamespace != "" {
-		laneTenant = *tenantID
 	}
 
 	log := logging.New(os.Stdout, envOr("PROBECTL_BMP_LOG_LEVEL", "info"), envOr("PROBECTL_BMP_LOG_FORMAT", "json"))
@@ -248,41 +231,19 @@ func run() error {
 		"revocation_refresh", revocationRefresh,
 		"revocations_loaded", revocations.Size(),
 	)
-	if (*agentID == "") != (*tenantID == "") {
-		return fmt.Errorf("bgp bmp: -agent-id and -tenant-id must be set together")
+	if err := announceBMPHeartbeat(log, *agentID, *tenantID); err != nil {
+		return err
 	}
-	if *agentID != "" {
-		log.Info("bmp listener heartbeat enabled (DPR-084)", "agent_id", *agentID, "tenant_id", *tenantID, "interval", bmpHeartbeatInterval.String())
+	evidenceConfig := bmpEvidenceConfig{addr: *evidenceAddr, rotateURL: *evidenceRotateURL,
+		cert: *evidenceCert, key: *evidenceKey, ca: *evidenceCA,
+		serverName: *evidenceServerName, agentID: *agentID, tenantID: *tenantID,
+		busNamespace: *busNamespace, listenerCert: *certFile}
+	evidenceClient, evidenceOption, err := configureBMPEvidence(evidenceConfig, metricsRuntime)
+	if err != nil {
+		return err
 	}
-	evidenceEnabled := *evidenceAddr != "" || *evidenceRotateURL != "" || *evidenceCert != "" || *evidenceKey != "" ||
-		*evidenceCA != "" || *evidenceServerName != ""
-	var evidenceOption bgp.BMPOption
-	var evidenceClient *agent.EvidenceClient
-	if evidenceEnabled {
-		if *evidenceAddr == "" || *evidenceRotateURL == "" || *evidenceCert == "" || *evidenceKey == "" ||
-			*evidenceCA == "" || *agentID == "" || *tenantID == "" || *busNamespace == "" {
-			return fmt.Errorf("bgp bmp: entity evidence requires all mTLS paths, an HTTPS rotation URL, a registered listener and an exact tenant bus lane")
-		}
-		if err := agent.ValidateEvidenceRotation(*evidenceRotateURL,
-			*evidenceCert, *evidenceKey, *evidenceCA); err != nil {
-			return fmt.Errorf("bgp bmp: entity evidence renewal: %w", err)
-		}
-		if err := agent.ValidateDistinctIdentityDirs(*evidenceCert, *certFile); err != nil {
-			return fmt.Errorf("bgp bmp: %w", err)
-		}
-		client, err := agent.DialEntityEvidence(*evidenceAddr, *evidenceCert,
-			*evidenceKey, *evidenceCA, *evidenceServerName)
-		if err != nil {
-			return fmt.Errorf("bgp bmp: entity evidence identity: %w", err)
-		}
-		defer client.Close()
-		evidenceClient = client
-		certTenant, certAgent := client.Identity()
-		if certTenant != *tenantID || certAgent != *agentID {
-			return fmt.Errorf("bgp bmp: entity evidence SVID does not match lane tenant and listener agent")
-		}
-		evidenceOption = bgp.WithBMPEntityEvidence(*agentID,
-			observedBMPEvidence{client: client, metrics: metricsRuntime})
+	if evidenceClient != nil {
+		defer evidenceClient.Close()
 	}
 	return metricsRuntime.RunTogether(ctx, func(ctx context.Context) error {
 		go func() {
@@ -321,9 +282,9 @@ func run() error {
 			options = append(options, evidenceOption)
 		}
 		listener := bgp.NewBMPListener(ln, b, *collector, log, options...)
-		if evidenceEnabled {
-			go agent.RotationLoopOnSuccess(ctx, log, *evidenceRotateURL,
-				*evidenceCert, *evidenceKey, *evidenceCA, 0,
+		if evidenceClient != nil {
+			go agent.RotationLoopOnSuccess(ctx, log, evidenceConfig.rotateURL,
+				evidenceConfig.cert, evidenceConfig.key, evidenceConfig.ca, 0,
 				func() {
 					if err := evidenceClient.ReconnectAfterRotation(); err != nil {
 						log.Warn("bmp evidence connection renewal failed", "error", err.Error())
@@ -333,6 +294,77 @@ func run() error {
 		}
 		return listener.Serve(ctx)
 	})
+}
+
+func announceBMPHeartbeat(log *slog.Logger, agentID, tenantID string) error {
+	if (agentID == "") != (tenantID == "") {
+		return fmt.Errorf("bgp bmp: -agent-id and -tenant-id must be set together")
+	}
+	if agentID != "" {
+		log.Info("bmp listener heartbeat enabled (DPR-084)", "agent_id", agentID, "tenant_id", tenantID, "interval", bmpHeartbeatInterval.String())
+	}
+	return nil
+}
+
+// A tenant lane limits the router certificates this listener may serve.
+func validateBMPRequired(listenAddr, certFile, keyFile, caFile, databaseURL,
+	revocationDatabaseURL, busNamespace, tenantID string) (string, error) {
+	if listenAddr == "" {
+		return "", fmt.Errorf("PROBECTL_BMP_LISTEN_ADDR or --listen is required")
+	}
+	if certFile == "" || keyFile == "" || caFile == "" {
+		return "", fmt.Errorf("BMP listener requires --tls-cert, --tls-key, and --tls-ca")
+	}
+	if databaseURL == "" {
+		return "", fmt.Errorf("PROBECTL_BMP_DATABASE_URL or --database-url is required for issued-identity verification")
+	}
+	if revocationDatabaseURL == "" {
+		return "", fmt.Errorf("PROBECTL_BMP_REVOCATION_DATABASE_URL or --revocation-database-url is required")
+	}
+	if err := validateBMPDatabaseURLs(databaseURL, revocationDatabaseURL); err != nil {
+		return "", err
+	}
+	if busNamespace != "" && tenantID == "" {
+		return "", fmt.Errorf("PROBECTL_BMP_BUS_NAMESPACE binds the listener to one tenant's lane; PROBECTL_BMP_TENANT_ID (--tenant-id) is required with it")
+	}
+	if busNamespace != "" {
+		return tenantID, nil
+	}
+	return "", nil
+}
+
+type bmpEvidenceConfig struct {
+	addr, rotateURL, cert, key, ca, serverName    string
+	agentID, tenantID, busNamespace, listenerCert string
+}
+
+func configureBMPEvidence(cfg bmpEvidenceConfig, metrics *agentmetrics.Runtime) (*agent.EvidenceClient, bgp.BMPOption, error) {
+	enabled := cfg.addr != "" || cfg.rotateURL != "" || cfg.cert != "" || cfg.key != "" ||
+		cfg.ca != "" || cfg.serverName != ""
+	if !enabled {
+		return nil, nil, nil
+	}
+	if cfg.addr == "" || cfg.rotateURL == "" || cfg.cert == "" || cfg.key == "" ||
+		cfg.ca == "" || cfg.agentID == "" || cfg.tenantID == "" || cfg.busNamespace == "" {
+		return nil, nil, fmt.Errorf("bgp bmp: entity evidence requires all mTLS paths, an HTTPS rotation URL, a registered listener and an exact tenant bus lane")
+	}
+	if err := agent.ValidateEvidenceRotation(cfg.rotateURL, cfg.cert, cfg.key, cfg.ca); err != nil {
+		return nil, nil, fmt.Errorf("bgp bmp: entity evidence renewal: %w", err)
+	}
+	if err := agent.ValidateDistinctIdentityDirs(cfg.cert, cfg.listenerCert); err != nil {
+		return nil, nil, fmt.Errorf("bgp bmp: %w", err)
+	}
+	client, err := agent.DialEntityEvidence(cfg.addr, cfg.cert, cfg.key, cfg.ca, cfg.serverName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("bgp bmp: entity evidence identity: %w", err)
+	}
+	certTenant, certAgent := client.Identity()
+	if certTenant != cfg.tenantID || certAgent != cfg.agentID {
+		_ = client.Close()
+		return nil, nil, fmt.Errorf("bgp bmp: entity evidence SVID does not match lane tenant and listener agent")
+	}
+	return client, bgp.WithBMPEntityEvidence(cfg.agentID,
+		observedBMPEvidence{client: client, metrics: metrics}), nil
 }
 
 type observedBMPEvidence struct {

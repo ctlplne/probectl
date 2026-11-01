@@ -79,6 +79,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/siem/status":                verdictSurface,
 	"GET /v1/slos":                       verdictSurface,
 	"GET /v1/tests/{id}/path/history":    verdictSurface,
+	"GET /v1/tests/{id}/path/entities":   verdictSurface,
 	"GET /v1/threat/detections":          verdictSurface,
 	"GET /v1/tls/posture":                verdictSurface,
 
@@ -95,6 +96,10 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/directory/roles":             recordSurface,
 	"GET /v1/directory/scim-tokens":       recordSurface,
 	"GET /v1/directory/users":             recordSurface,
+	"GET /v1/entity-contexts":             recordSurface,
+	"GET /v1/entities":                    recordSurface,
+	"GET /v1/entities/{id}/evidence":      recordSurface,
+	"GET /v1/entities/{id}/links":         recordSurface,
 	"GET /v1/hierarchy":                   recordSurface,
 	"GET /v1/incidents/{id}/journal":      recordSurface,
 	"GET /v1/inventory/views":             recordSurface,

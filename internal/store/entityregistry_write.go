@@ -97,313 +97,27 @@ func (s *EntityRegistry) WriteEvidenceBatch(ctx context.Context, authenticatedAg
 				accepted++
 				continue
 			}
-			var originNotAfter time.Time
-			if claim.Source.Kind == entity.BMPPeer {
-				// A queued observation must still name the exact live router
-				// certificate that supplied its BMP frame. A replacement SVID
-				// cannot reactivate evidence from a revoked/deleted old serial.
-				var originActive int
-				err := sc.Q.QueryRow(ctx, `SELECT 1,not_after FROM agent_identities
-					WHERE tenant_id=$1 AND agent_id=$2 AND spiffe_id=$3
-					  AND serial=$4 AND revoked_at IS NULL
-					  AND issued_at <= $5 AND not_after > $5
-					  AND not_after > clock_timestamp()
-					FOR SHARE`, tenant.String(), claim.Source.SourceRef,
-					crypto.BMPSPIFFEID(tenant.String(), claim.Source.SourceRef),
-					claim.OriginSerial, claim.ObservedAt).Scan(&originActive, &originNotAfter)
-				if errors.Is(err, pgx.ErrNoRows) {
-					unresolved++
-					continue
-				}
-				if err != nil {
-					return err
-				}
+			authority, ready, err := resolveEvidenceAuthority(ctx, sc, tenant.String(),
+				authenticatedAgentID, claim, senderNotAfter)
+			if err != nil {
+				return err
 			}
-			var contextID string
-			var anchorID, anchorKind *string
-			var sourceAssignedAt, agentAssignedAt time.Time
-			var sourceExpiresAt, agentExpiresAt *time.Time
-			err = sc.Q.QueryRow(ctx, `
-				SELECT m.context_id::text, m.anchor_entity_id::text, n.kind,
-				       m.assigned_at,m.expires_at,a.assigned_at,a.expires_at
-				  FROM entity_source_contexts m
-				  JOIN entity_agent_contexts a ON
-				       (a.tenant_id,a.agent_id,a.context_id)=
-				       (m.tenant_id,m.agent_id,m.context_id)
-				  LEFT JOIN entities n ON
-				       (n.tenant_id,n.context_id,n.id)=
-				       (m.tenant_id,m.context_id,m.anchor_entity_id)
-				 WHERE m.tenant_id=$1 AND m.agent_id=$2
-				   AND m.source_kind=$3 AND m.source_ref=$4
-				   AND NOT EXISTS (
-				       SELECT 1 FROM agent_identities i
-				        WHERE i.tenant_id=m.tenant_id AND i.agent_id=m.agent_id
-				          AND i.revoked_at IS NOT NULL
-				          AND i.revoked_by IS DISTINCT FROM 'entity_registry_delete')
-			 FOR UPDATE OF m,a`,
-				tenant.String(), authenticatedAgentID, string(claim.Source.Kind),
-				claim.Source.SourceRef).Scan(&contextID, &anchorID, &anchorKind,
-				&sourceAssignedAt, &sourceExpiresAt, &agentAssignedAt, &agentExpiresAt)
-			if errors.Is(err, pgx.ErrNoRows) {
+			if !ready {
 				unresolved++
 				continue
 			}
+			endpoint, ready, err := resolveEvidenceEndpoint(ctx, sc, tenant.String(),
+				authenticatedAgentID, claim, authority)
 			if err != nil {
 				return err
 			}
-			var writeAt time.Time
-			if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&writeAt); err != nil {
-				return err
-			}
-			if !writeAt.Before(senderNotAfter) ||
-				(claim.Source.Kind == entity.BMPPeer && !writeAt.Before(originNotAfter)) ||
-				sourceAssignedAt.After(writeAt) || agentAssignedAt.After(writeAt) ||
-				// A later operator binding cannot retroactively assign an earlier
-				// observation to a VRF. This also closes a rebind/backdate path.
-				sourceAssignedAt.After(claim.ObservedAt) ||
-				agentAssignedAt.After(claim.ObservedAt) ||
-				(sourceExpiresAt != nil && !writeAt.Before(*sourceExpiresAt)) ||
-				(agentExpiresAt != nil && !writeAt.Before(*agentExpiresAt)) {
+			if !ready {
 				unresolved++
 				continue
 			}
-			supportID := ""
-			if anchorID == nil || anchorKind == nil {
-				if claim.Source.Kind != entity.FlowExporter && claim.Source.Kind != entity.BMPPeer {
-					unresolved++
-					continue
-				}
-				address, err := inferredObservationAddress(claim)
-				if err != nil {
-					return err
-				}
-				deviceID, exactSupportID, err := independentSNMPSupport(ctx, sc,
-					tenant.String(), contextID, address, claim.ObservedAt)
-				if err != nil {
-					return err
-				}
-				if deviceID == "" {
-					unresolved++
-					continue
-				}
-				deviceKind := string(entity.Device)
-				anchorID, anchorKind, supportID = &deviceID, &deviceKind, exactSupportID
-			}
-			if claim.Source.Kind == entity.AgentSite {
-				if *anchorKind != string(entity.Site) {
-					return entity.ErrInvalidClaim
-				}
-			} else if *anchorKind != string(entity.Device) {
-				return entity.ErrInvalidClaim
-			}
-			entityID := *anchorID
-			interfaceClaim := claim.Alias.Kind == entity.SNMPInterfaceAlias
-			neighborClaim := claim.Alias.Kind == entity.PhysicalNeighborAlias
-			if claim.Source.Kind == entity.DeviceTarget && claim.Alias.Kind == entity.AddressAlias {
-				// The SNMP address belongs to the observed interface when its
-				// ifIndex claim created one. Keep the address on that interface
-				// for detail, while address resolution projects its parent device
-				// for flow/BMP/path joins. An invalid or absent interface cannot
-				// make an address escape the operator's device anchor.
-				if indexText, hasIndex := strings.CutPrefix(claim.SourceRef, "snmp:ifIndex:"); hasIndex {
-					index, parseErr := strconv.ParseUint(indexText, 10, 32)
-					if parseErr != nil || index == 0 || strconv.FormatUint(index, 10) != indexText {
-						return entity.ErrInvalidClaim
-					}
-					var interfaceID, parentID string
-					err := sc.Q.QueryRow(ctx, `SELECT id::text,parent_entity_id::text FROM entities
-						WHERE tenant_id=$1 AND context_id=$2 AND kind='interface'
-						  AND source_agent_id=$3 AND configured_ref=$4 AND interface_index=$5
-						FOR SHARE`, tenant.String(), contextID, authenticatedAgentID,
-						claim.Source.SourceRef, int64(index)).Scan(&interfaceID, &parentID)
-					if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-						return err
-					}
-					if err == nil {
-						if parentID != *anchorID {
-							// A reanchored source cannot launder an old ifIndex IP
-							// into a different canonical device.
-							unresolved++
-							continue
-						}
-						entityID = interfaceID
-					}
-				}
-			}
-			neighborRemoteID := ""
-			neighborOrphaned := false
-			if interfaceClaim {
-				if claim.Source.Kind != entity.DeviceTarget {
-					return entity.ErrInvalidClaim
-				}
-				index, err := strconv.ParseUint(claim.Alias.Value, 10, 32)
-				if err != nil || index == 0 {
-					return entity.ErrInvalidClaim
-				}
-				var parentID string
-				err = sc.Q.QueryRow(ctx, `SELECT id::text,parent_entity_id::text
-					FROM entities WHERE tenant_id=$1 AND context_id=$2
-					AND source_agent_id=$3 AND configured_ref=$4
-					AND interface_index=$5 FOR UPDATE`, tenant.String(), contextID,
-					authenticatedAgentID, claim.Source.SourceRef, int64(index)).Scan(&entityID, &parentID)
-				if errors.Is(err, pgx.ErrNoRows) {
-					entityID, err = newRegistryID()
-					if err != nil {
-						return err
-					}
-					// Entity listing needs only entities.read. Keep the raw
-					// ifName/ifDescr on the metrics.read-gated evidence page.
-					label := "ifIndex " + claim.Alias.Value
-					_, err = sc.Q.Exec(ctx, `INSERT INTO entities
-						(tenant_id,context_id,id,kind,label,parent_entity_id,
-						 source_agent_id,configured_ref,interface_index)
-						VALUES ($1,$2,$3,'interface',$4,$5,$6,$7,$8)`,
-						tenant.String(), contextID, entityID, label, *anchorID,
-						authenticatedAgentID, claim.Source.SourceRef, int64(index))
-					if err != nil {
-						return err
-					}
-				} else if err != nil {
-					return err
-				} else if parentID != *anchorID {
-					// Reanchoring the same source to a different device cannot
-					// silently move an old ifIndex identity to that device.
-					unresolved++
-					continue
-				}
-			}
-			if neighborClaim {
-				// The local ifIndex has meaning only inside this authenticated
-				// collector's configured device. Never infer it from a port name.
-				err := sc.Q.QueryRow(ctx, `SELECT id::text FROM entities
-					WHERE tenant_id=$1 AND context_id=$2 AND kind='interface'
-					  AND parent_entity_id=$3 AND source_agent_id=$4
-					  AND configured_ref=$5 AND interface_index=$6`,
-					tenant.String(), contextID, *anchorID, authenticatedAgentID,
-					claim.Source.SourceRef, int64(claim.NeighborLocalIfIndex)).Scan(&entityID)
-				if errors.Is(err, pgx.ErrNoRows) {
-					unresolved++
-					continue
-				}
-				if err != nil {
-					return err
-				}
-				// A replay of an already persisted observation compares against
-				// the original endpoint and metadata below. A later conflicting
-				// remote lookup must not turn a changed UUID payload into a
-				// harmless "unresolved" response.
-				var priorEvidenceID string
-				err = sc.Q.QueryRow(ctx, `SELECT e.id::text,COALESCE(l.to_entity_id::text,'')
-					FROM entity_evidence e LEFT JOIN entity_links l ON
-					 (l.tenant_id,l.context_id,l.evidence_id)=
-					 (e.tenant_id,e.context_id,e.id)
-					 AND l.kind='physical'
-					WHERE e.tenant_id=$1 AND e.agent_id=$2
-					 AND e.source_kind=$3 AND e.configured_ref=$4
-					 AND e.observation_id=$5
-					FOR SHARE OF e`,
-					tenant.String(), authenticatedAgentID, string(claim.Source.Kind),
-					claim.Source.SourceRef, claim.ID).Scan(&priorEvidenceID, &neighborRemoteID)
-				if errors.Is(err, pgx.ErrNoRows) {
-					kind, value := entity.SNMPDeviceAlias, claim.NeighborDeviceName
-					if claim.NeighborAddress != "" {
-						kind, value = entity.AddressAlias, claim.NeighborAddress
-					}
-					neighborRemoteID, err = resolveNeighborRemote(ctx, sc, tenant.String(),
-						contextID, kind, value)
-				} else if err == nil && neighborRemoteID == "" {
-					// Deleting the remote canonical device cascades its physical
-					// link, but retains this original local LLDP observation.
-					// A byte-identical retry must not reattach it to a new device
-					// that later acquired the same address.
-					neighborOrphaned = true
-				}
-				if err != nil {
-					return err
-				}
-				if (neighborRemoteID == "" && !neighborOrphaned) || neighborRemoteID == *anchorID {
-					unresolved++
-					continue
-				}
-			}
-			// Random evidence PKs come through internal/crypto. The observation
-			// UUID is a client idempotency key, never the canonical evidence PK.
-			evidenceID, err := newRegistryID()
-			if err != nil {
+			if err := persistEvidenceClaim(ctx, sc, tenant.String(), authenticatedAgentID,
+				certificateSerial, claim, authority, endpoint); err != nil {
 				return err
-			}
-			var inserted string
-			err = sc.Q.QueryRow(ctx, `
-				INSERT INTO entity_evidence
-				 (tenant_id,context_id,id,observation_id,entity_id,
-				  alias_kind,alias_value,source,source_ref,agent_id,
-				  source_kind,configured_ref,observed_at,expires_at,sender_serial,origin_serial,
-				  interface_name,interface_description,
-				  neighbor_protocol,neighbor_local_if_index,neighbor_local_port_id,
-				  neighbor_remote_port_id,neighbor_chassis_id,neighbor_device_name,
-				  neighbor_management_address,support_evidence_id)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-			        NULLIF($16,'')::text,NULLIF($17,'')::text,NULLIF($18,'')::text,
-			        NULLIF($19,'')::text,NULLIF($20,0)::bigint,NULLIF($21,'')::text,
-			        NULLIF($22,'')::text,NULLIF($23,'')::text,NULLIF($24,'')::text,
-			        NULLIF($25,'')::text,NULLIF($26,'')::uuid)
-				ON CONFLICT (tenant_id,agent_id,source_kind,configured_ref,observation_id)
-				DO NOTHING RETURNING id::text`,
-				tenant.String(), contextID, evidenceID, claim.ID, entityID,
-				string(claim.Alias.Kind), claim.Alias.Value, string(claim.Source.Kind),
-				claim.SourceRef, authenticatedAgentID, string(claim.Source.Kind),
-				claim.Source.SourceRef, claim.ObservedAt,
-				claim.ObservedAt.Add(evidenceFreshness), certificateSerial,
-				claim.OriginSerial, claim.InterfaceName,
-				claim.InterfaceDescription, claim.NeighborProtocol,
-				int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
-				claim.NeighborRemotePortID, claim.NeighborChassisID,
-				claim.NeighborDeviceName, claim.NeighborAddress, supportID).Scan(&inserted)
-			if err == nil {
-				if interfaceClaim {
-					linkID, err := newRegistryID()
-					if err != nil {
-						return err
-					}
-					if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_links
-						(tenant_id,context_id,id,from_entity_id,to_entity_id,
-						 evidence_id,kind,observed_at)
-						VALUES ($1,$2,$3,$4,$5,$6,'contains',$7)`,
-						tenant.String(), contextID, linkID, *anchorID, entityID,
-						evidenceID, claim.ObservedAt); err != nil {
-						return err
-					}
-				}
-				if neighborClaim {
-					linkID, err := newRegistryID()
-					if err != nil {
-						return err
-					}
-					if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_links
-						(tenant_id,context_id,id,from_entity_id,to_entity_id,
-						 evidence_id,kind,observed_at)
-						VALUES ($1,$2,$3,$4,$5,$6,'physical',$7)`,
-						tenant.String(), contextID, linkID, entityID,
-						neighborRemoteID, evidenceID, claim.ObservedAt); err != nil {
-						return err
-					}
-				}
-				accepted++
-				continue
-			}
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return err
-			}
-			// Another writer inserted this UUID after our first point lookup.
-			// Compare only immutable collector fields: the server may have
-			// selected different current support while both writes raced.
-			found, same, err = existingEvidenceClaim(ctx, sc, tenant.String(),
-				authenticatedAgentID, certificateSerial, claim)
-			if err != nil {
-				return err
-			}
-			if !found || !same {
-				return entity.ErrConflictingEvidence
 			}
 			accepted++
 		}
@@ -413,6 +127,337 @@ func (s *EntityRegistry) WriteEvidenceBatch(ctx context.Context, authenticatedAg
 		return 0, 0, err
 	}
 	return accepted, unresolved, nil
+}
+
+type evidenceAuthority struct {
+	contextID string
+	anchorID  string
+	supportID string
+}
+
+type evidenceEndpoint struct {
+	entityID         string
+	neighborRemoteID string
+	interfaceClaim   bool
+	neighborClaim    bool
+}
+
+// Resolve current operator authority while the tenant transaction holds the
+// exact sender certificate row. A missing/rebound assignment is unresolved.
+func resolveEvidenceAuthority(ctx context.Context, sc tenancy.Scope, tenantID,
+	agentID string, claim entity.Observation, senderNotAfter time.Time) (evidenceAuthority, bool, error) {
+	var originNotAfter time.Time
+	if claim.Source.Kind == entity.BMPPeer {
+		// A queued observation must still name the exact live router
+		// certificate that supplied its BMP frame. A replacement SVID
+		// cannot reactivate evidence from a revoked/deleted old serial.
+		var originActive int
+		err := sc.Q.QueryRow(ctx, `SELECT 1,not_after FROM agent_identities
+				WHERE tenant_id=$1 AND agent_id=$2 AND spiffe_id=$3
+				  AND serial=$4 AND revoked_at IS NULL
+				  AND issued_at <= $5 AND not_after > $5
+				  AND not_after > clock_timestamp()
+				FOR SHARE`, tenantID, claim.Source.SourceRef,
+			crypto.BMPSPIFFEID(tenantID, claim.Source.SourceRef),
+			claim.OriginSerial, claim.ObservedAt).Scan(&originActive, &originNotAfter)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return evidenceAuthority{}, false, nil
+		}
+		if err != nil {
+			return evidenceAuthority{}, false, err
+		}
+	}
+	var contextID string
+	var anchorID, anchorKind *string
+	var sourceAssignedAt, agentAssignedAt time.Time
+	var sourceExpiresAt, agentExpiresAt *time.Time
+	err := sc.Q.QueryRow(ctx, `
+			SELECT m.context_id::text, m.anchor_entity_id::text, n.kind,
+			       m.assigned_at,m.expires_at,a.assigned_at,a.expires_at
+			  FROM entity_source_contexts m
+			  JOIN entity_agent_contexts a ON
+			       (a.tenant_id,a.agent_id,a.context_id)=
+			       (m.tenant_id,m.agent_id,m.context_id)
+			  LEFT JOIN entities n ON
+			       (n.tenant_id,n.context_id,n.id)=
+			       (m.tenant_id,m.context_id,m.anchor_entity_id)
+			 WHERE m.tenant_id=$1 AND m.agent_id=$2
+			   AND m.source_kind=$3 AND m.source_ref=$4
+			   AND NOT EXISTS (
+			       SELECT 1 FROM agent_identities i
+			        WHERE i.tenant_id=m.tenant_id AND i.agent_id=m.agent_id
+			          AND i.revoked_at IS NOT NULL
+			          AND i.revoked_by IS DISTINCT FROM 'entity_registry_delete')
+		 FOR UPDATE OF m,a`,
+		tenantID, agentID, string(claim.Source.Kind),
+		claim.Source.SourceRef).Scan(&contextID, &anchorID, &anchorKind,
+		&sourceAssignedAt, &sourceExpiresAt, &agentAssignedAt, &agentExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return evidenceAuthority{}, false, nil
+	}
+	if err != nil {
+		return evidenceAuthority{}, false, err
+	}
+	var writeAt time.Time
+	if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&writeAt); err != nil {
+		return evidenceAuthority{}, false, err
+	}
+	if !writeAt.Before(senderNotAfter) ||
+		(claim.Source.Kind == entity.BMPPeer && !writeAt.Before(originNotAfter)) ||
+		sourceAssignedAt.After(writeAt) || agentAssignedAt.After(writeAt) ||
+		// A later operator binding cannot retroactively assign an earlier
+		// observation to a VRF. This also closes a rebind/backdate path.
+		sourceAssignedAt.After(claim.ObservedAt) ||
+		agentAssignedAt.After(claim.ObservedAt) ||
+		(sourceExpiresAt != nil && !writeAt.Before(*sourceExpiresAt)) ||
+		(agentExpiresAt != nil && !writeAt.Before(*agentExpiresAt)) {
+		return evidenceAuthority{}, false, nil
+	}
+	supportID := ""
+	if anchorID == nil || anchorKind == nil {
+		if claim.Source.Kind != entity.FlowExporter && claim.Source.Kind != entity.BMPPeer {
+			return evidenceAuthority{}, false, nil
+		}
+		address, err := inferredObservationAddress(claim)
+		if err != nil {
+			return evidenceAuthority{}, false, err
+		}
+		deviceID, exactSupportID, err := independentSNMPSupport(ctx, sc,
+			tenantID, contextID, address, claim.ObservedAt)
+		if err != nil {
+			return evidenceAuthority{}, false, err
+		}
+		if deviceID == "" {
+			return evidenceAuthority{}, false, nil
+		}
+		deviceKind := string(entity.Device)
+		anchorID, anchorKind, supportID = &deviceID, &deviceKind, exactSupportID
+	}
+	if claim.Source.Kind == entity.AgentSite {
+		if *anchorKind != string(entity.Site) {
+			return evidenceAuthority{}, false, entity.ErrInvalidClaim
+		}
+	} else if *anchorKind != string(entity.Device) {
+		return evidenceAuthority{}, false, entity.ErrInvalidClaim
+	}
+	return evidenceAuthority{contextID: contextID, anchorID: *anchorID, supportID: supportID}, true, nil
+}
+
+// The endpoint is selected under the same tenant and assignment locks as its
+// authority; collector aliases cannot create cross-context identity.
+func resolveEvidenceEndpoint(ctx context.Context, sc tenancy.Scope, tenantID,
+	agentID string, claim entity.Observation, authority evidenceAuthority) (evidenceEndpoint, bool, error) {
+	entityID := authority.anchorID
+	interfaceClaim := claim.Alias.Kind == entity.SNMPInterfaceAlias
+	neighborClaim := claim.Alias.Kind == entity.PhysicalNeighborAlias
+	if claim.Source.Kind == entity.DeviceTarget && claim.Alias.Kind == entity.AddressAlias {
+		// The SNMP address belongs to the observed interface when its
+		// ifIndex claim created one. Keep the address on that interface
+		// for detail, while address resolution projects its parent device
+		// for flow/BMP/path joins. An invalid or absent interface cannot
+		// make an address escape the operator's device anchor.
+		if indexText, hasIndex := strings.CutPrefix(claim.SourceRef, "snmp:ifIndex:"); hasIndex {
+			index, parseErr := strconv.ParseUint(indexText, 10, 32)
+			if parseErr != nil || index == 0 || strconv.FormatUint(index, 10) != indexText {
+				return evidenceEndpoint{}, false, entity.ErrInvalidClaim
+			}
+			var interfaceID, parentID string
+			err := sc.Q.QueryRow(ctx, `SELECT id::text,parent_entity_id::text FROM entities
+					WHERE tenant_id=$1 AND context_id=$2 AND kind='interface'
+					  AND source_agent_id=$3 AND configured_ref=$4 AND interface_index=$5
+					FOR SHARE`, tenantID, authority.contextID, agentID,
+				claim.Source.SourceRef, int64(index)).Scan(&interfaceID, &parentID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return evidenceEndpoint{}, false, err
+			}
+			if err == nil {
+				if parentID != authority.anchorID {
+					// A reanchored source cannot launder an old ifIndex IP
+					// into a different canonical device.
+					return evidenceEndpoint{}, false, nil
+				}
+				entityID = interfaceID
+			}
+		}
+	}
+	neighborRemoteID := ""
+	neighborOrphaned := false
+	if interfaceClaim {
+		if claim.Source.Kind != entity.DeviceTarget {
+			return evidenceEndpoint{}, false, entity.ErrInvalidClaim
+		}
+		index, err := strconv.ParseUint(claim.Alias.Value, 10, 32)
+		if err != nil || index == 0 {
+			return evidenceEndpoint{}, false, entity.ErrInvalidClaim
+		}
+		var parentID string
+		err = sc.Q.QueryRow(ctx, `SELECT id::text,parent_entity_id::text
+				FROM entities WHERE tenant_id=$1 AND context_id=$2
+				AND source_agent_id=$3 AND configured_ref=$4
+				AND interface_index=$5 FOR UPDATE`, tenantID, authority.contextID,
+			agentID, claim.Source.SourceRef, int64(index)).Scan(&entityID, &parentID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			entityID, err = newRegistryID()
+			if err != nil {
+				return evidenceEndpoint{}, false, err
+			}
+			// Entity listing needs only entities.read. Keep the raw
+			// ifName/ifDescr on the metrics.read-gated evidence page.
+			label := "ifIndex " + claim.Alias.Value
+			_, err = sc.Q.Exec(ctx, `INSERT INTO entities
+					(tenant_id,context_id,id,kind,label,parent_entity_id,
+					 source_agent_id,configured_ref,interface_index)
+					VALUES ($1,$2,$3,'interface',$4,$5,$6,$7,$8)`,
+				tenantID, authority.contextID, entityID, label, authority.anchorID,
+				agentID, claim.Source.SourceRef, int64(index))
+			if err != nil {
+				return evidenceEndpoint{}, false, err
+			}
+		} else if err != nil {
+			return evidenceEndpoint{}, false, err
+		} else if parentID != authority.anchorID {
+			// Reanchoring the same source to a different device cannot
+			// silently move an old ifIndex identity to that device.
+			return evidenceEndpoint{}, false, nil
+		}
+	}
+	if neighborClaim {
+		// The local ifIndex has meaning only inside this authenticated
+		// collector's configured device. Never infer it from a port name.
+		err := sc.Q.QueryRow(ctx, `SELECT id::text FROM entities
+				WHERE tenant_id=$1 AND context_id=$2 AND kind='interface'
+				  AND parent_entity_id=$3 AND source_agent_id=$4
+				  AND configured_ref=$5 AND interface_index=$6`,
+			tenantID, authority.contextID, authority.anchorID, agentID,
+			claim.Source.SourceRef, int64(claim.NeighborLocalIfIndex)).Scan(&entityID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return evidenceEndpoint{}, false, nil
+		}
+		if err != nil {
+			return evidenceEndpoint{}, false, err
+		}
+		// A replay of an already persisted observation compares against
+		// the original endpoint and metadata below. A later conflicting
+		// remote lookup must not turn a changed UUID payload into a
+		// harmless "unresolved" response.
+		var priorEvidenceID string
+		err = sc.Q.QueryRow(ctx, `SELECT e.id::text,COALESCE(l.to_entity_id::text,'')
+				FROM entity_evidence e LEFT JOIN entity_links l ON
+				 (l.tenant_id,l.context_id,l.evidence_id)=
+				 (e.tenant_id,e.context_id,e.id)
+				 AND l.kind='physical'
+				WHERE e.tenant_id=$1 AND e.agent_id=$2
+				 AND e.source_kind=$3 AND e.configured_ref=$4
+				 AND e.observation_id=$5
+				FOR SHARE OF e`,
+			tenantID, agentID, string(claim.Source.Kind),
+			claim.Source.SourceRef, claim.ID).Scan(&priorEvidenceID, &neighborRemoteID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			kind, value := entity.SNMPDeviceAlias, claim.NeighborDeviceName
+			if claim.NeighborAddress != "" {
+				kind, value = entity.AddressAlias, claim.NeighborAddress
+			}
+			neighborRemoteID, err = resolveNeighborRemote(ctx, sc, tenantID,
+				authority.contextID, kind, value)
+		} else if err == nil && neighborRemoteID == "" {
+			// Deleting the remote canonical device cascades its physical
+			// link, but retains this original local LLDP observation.
+			// A byte-identical retry must not reattach it to a new device
+			// that later acquired the same address.
+			neighborOrphaned = true
+		}
+		if err != nil {
+			return evidenceEndpoint{}, false, err
+		}
+		if (neighborRemoteID == "" && !neighborOrphaned) || neighborRemoteID == authority.anchorID {
+			return evidenceEndpoint{}, false, nil
+		}
+	}
+	return evidenceEndpoint{entityID: entityID, neighborRemoteID: neighborRemoteID,
+		interfaceClaim: interfaceClaim, neighborClaim: neighborClaim}, true, nil
+}
+
+func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agentID,
+	serial string, claim entity.Observation, authority evidenceAuthority, endpoint evidenceEndpoint) error {
+	// Random evidence PKs come through internal/crypto. The observation
+	// UUID is a client idempotency key, never the canonical evidence PK.
+	evidenceID, err := newRegistryID()
+	if err != nil {
+		return err
+	}
+	var inserted string
+	err = sc.Q.QueryRow(ctx, `
+			INSERT INTO entity_evidence
+			 (tenant_id,context_id,id,observation_id,entity_id,
+			  alias_kind,alias_value,source,source_ref,agent_id,
+			  source_kind,configured_ref,observed_at,expires_at,sender_serial,origin_serial,
+			  interface_name,interface_description,
+			  neighbor_protocol,neighbor_local_if_index,neighbor_local_port_id,
+			  neighbor_remote_port_id,neighbor_chassis_id,neighbor_device_name,
+			  neighbor_management_address,support_evidence_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
+		        NULLIF($16,'')::text,NULLIF($17,'')::text,NULLIF($18,'')::text,
+		        NULLIF($19,'')::text,NULLIF($20,0)::bigint,NULLIF($21,'')::text,
+		        NULLIF($22,'')::text,NULLIF($23,'')::text,NULLIF($24,'')::text,
+		        NULLIF($25,'')::text,NULLIF($26,'')::uuid)
+			ON CONFLICT (tenant_id,agent_id,source_kind,configured_ref,observation_id)
+			DO NOTHING RETURNING id::text`,
+		tenantID, authority.contextID, evidenceID, claim.ID, endpoint.entityID,
+		string(claim.Alias.Kind), claim.Alias.Value, string(claim.Source.Kind),
+		claim.SourceRef, agentID, string(claim.Source.Kind),
+		claim.Source.SourceRef, claim.ObservedAt,
+		claim.ObservedAt.Add(evidenceFreshness), serial,
+		claim.OriginSerial, claim.InterfaceName,
+		claim.InterfaceDescription, claim.NeighborProtocol,
+		int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
+		claim.NeighborRemotePortID, claim.NeighborChassisID,
+		claim.NeighborDeviceName, claim.NeighborAddress, authority.supportID).Scan(&inserted)
+	if err == nil {
+		if endpoint.interfaceClaim {
+			linkID, err := newRegistryID()
+			if err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_links
+					(tenant_id,context_id,id,from_entity_id,to_entity_id,
+					 evidence_id,kind,observed_at)
+					VALUES ($1,$2,$3,$4,$5,$6,'contains',$7)`,
+				tenantID, authority.contextID, linkID, authority.anchorID, endpoint.entityID,
+				evidenceID, claim.ObservedAt); err != nil {
+				return err
+			}
+		}
+		if endpoint.neighborClaim {
+			linkID, err := newRegistryID()
+			if err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_links
+					(tenant_id,context_id,id,from_entity_id,to_entity_id,
+					 evidence_id,kind,observed_at)
+					VALUES ($1,$2,$3,$4,$5,$6,'physical',$7)`,
+				tenantID, authority.contextID, linkID, endpoint.entityID,
+				endpoint.neighborRemoteID, evidenceID, claim.ObservedAt); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	// Another writer inserted this UUID after our first point lookup.
+	// Compare only immutable collector fields: the server may have
+	// selected different current support while both writes raced.
+	found, same, err := existingEvidenceClaim(ctx, sc, tenantID,
+		agentID, serial, claim)
+	if err != nil {
+		return err
+	}
+	if !found || !same {
+		return entity.ErrConflictingEvidence
+	}
+	return nil
 }
 
 // The tenant/agent/source/UUID index makes this a bounded point lookup. The

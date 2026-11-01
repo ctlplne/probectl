@@ -30,7 +30,7 @@ import (
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/incident"
-	"github.com/ctlplne/probectl/internal/path"
+	pathstore "github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
@@ -698,9 +698,9 @@ func discoverEdgePath(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration,
 	if code != http.StatusOK {
 		t.Fatalf("discover FX-2 edge path: HTTP %d: %.300s", code, payload)
 	}
-	var trace path.Path
+	var trace pathstore.Path
 	if err := json.Unmarshal(payload, &trace); err != nil || trace.TargetIP != address ||
-		trace.Vantage != path.VantageControlPlane || !trace.DestinationReached {
+		trace.Vantage != pathstore.VantageControlPlane || !trace.DestinationReached {
 		t.Fatalf("FX-2 trace did not reach actual edge %s: %+v, %v", address, trace, err)
 	}
 	var observed bool

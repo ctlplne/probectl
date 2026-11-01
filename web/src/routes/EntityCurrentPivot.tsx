@@ -11,34 +11,6 @@ import { Button, Card, CardBody, CardHeader, ErrorState, LoadingState, Select } 
 import { useI18n } from '../i18n/useI18n'
 import styles from './EntityCurrentPivot.module.css'
 
-function isIPLiteral(value: string): boolean {
-  if (value.length > 64) return false
-  if (/^(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2})){3}$/.test(value)) {
-    return value.split('.').every((part) => Number(part) <= 255)
-  }
-  if (!value.includes(':') || !/^[0-9a-fA-F:.]+$/.test(value)) return false
-  try {
-    // The URL parser validates bracketed IPv6 locally; no request is made.
-    return new URL(`http://[${value}]/`).hostname !== ''
-  } catch {
-    return false
-  }
-}
-
-// Only values already present in an authorized row or cited signal become
-// options. The 100-option limit bounds a large Explorer result's UI work.
-export function observedIPs(rows: ReadonlyArray<Record<string, unknown>>, limit = 100): string[] {
-  const found = new Set<string>()
-  for (const row of rows) {
-    for (const value of Object.values(row)) {
-      if (typeof value !== 'string' || !isIPLiteral(value)) continue
-      found.add(value)
-      if (found.size >= limit) return [...found]
-    }
-  }
-  return [...found]
-}
-
 export function EntityCurrentPivot({
   ips,
   source,
@@ -79,6 +51,7 @@ function AuthorizedEntityCurrentPivot({
     ip: string
     contextID: string
   } | null>(null)
+  const ipsKey = ips.join('|')
   // A tenant switch renders once before effects reset local controls. Do not
   // dispatch that transient render's old context to the new tenant's API.
   const active = submitted?.tenantID === tenantID ? submitted : null
@@ -103,7 +76,7 @@ function AuthorizedEntityCurrentPivot({
   useEffect(() => {
     setIP('')
     setSubmitted(null)
-  }, [ips.join('|'), tenantID])
+  }, [ipsKey, tenantID])
   useEffect(() => {
     setContextID('')
     setSubmitted(null)

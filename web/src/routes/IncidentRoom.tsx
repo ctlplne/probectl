@@ -56,7 +56,8 @@ import { appPath } from '../lib/links'
 import { isApiStatus } from '../api/client'
 import { useAuth } from '../auth/useAuth'
 import { InvestigationJournal } from './InvestigationJournal'
-import { EntityCurrentPivot, observedIPs } from './EntityCurrentPivot'
+import { EntityCurrentPivot } from './EntityCurrentPivot'
+import { observedIPs } from './entityObservedIPs'
 
 interface PlaneGroup {
   id: string
@@ -195,7 +196,7 @@ export function IncidentRoom({
             },
           ])
         : [],
-    [selectedSignal?.signal],
+    [selectedSignal],
   )
   const selectedChange = changes.data?.find((candidate) => candidate.event.id === selectedSourceID)
   const clockItems = useMemo<IncidentClockItem[]>(() => {

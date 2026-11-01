@@ -686,7 +686,7 @@ capabilities:
     api: {refs: ["api:GET /v1/topology", "api:POST /v1/topology/whatif", "api:GET /v1/entities", "api:GET /v1/entities/resolve"]}
     cli: {refs: ["cli:probectl topology show", "cli:probectl topology whatif", "cli:probectl entities list", "cli:probectl entities resolve"]}
     ui: {refs: ["ui:F40@/topology"]}
-    docs: {refs: ["file:docs/topology.md#Topology graph", "file:docs/entity-registry.md"]}
+    docs: {refs: ["file:docs/topology.md#Topology graph", "file:docs/entity-registry.md#Canonical entity registry (FX-2)"]}
     config_keys: {refs: ["config:PROBECTL_TOPOLOGY_ENGINE", "config:PROBECTL_TOPOLOGY_WHATIF_TIMEOUT"]}
     telemetry: {refs: ["file:internal/control/topologyapi.go"]}
     real_stack_proof: {refs: ["test:internal/topology/realstack_integration_test.go#TestTopologyGraphRealStack"]}

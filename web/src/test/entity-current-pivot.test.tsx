@@ -10,7 +10,8 @@ import { axe } from 'jest-axe'
 import { expect, test, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../auth/AuthProvider'
 import { I18nProvider } from '../i18n/I18nProvider'
-import { EntityCurrentPivot, observedIPs } from '../routes/EntityCurrentPivot'
+import { EntityCurrentPivot } from '../routes/EntityCurrentPivot'
+import { observedIPs } from '../routes/entityObservedIPs'
 import { jsonResponse, pathOf } from './fetchStub'
 
 test('current pivot offers only bounded literal IPs from authorized rows', () => {

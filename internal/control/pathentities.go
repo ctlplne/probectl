@@ -71,7 +71,7 @@ func (s *Server) handleGetPathEntities(w http.ResponseWriter, r *http.Request) e
 	binding, err := registry.PathTestBinding(ctx, tid, r.PathValue("id"))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"test_id": r.PathValue("id"), "status": "unbound", "items": []pathEntityHop{},
+			"test_id": r.PathValue("id"), "status": "unbound", "coverage": "no_bound_context", "items": []pathEntityHop{},
 		})
 		return nil
 	}
@@ -96,7 +96,7 @@ func (s *Server) handleGetPathEntities(w http.ResponseWriter, r *http.Request) e
 	if !found {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"test_id": r.PathValue("id"), "context_id": scope.ContextID,
-			"status": "awaiting_trace", "items": []pathEntityHop{},
+			"status": "awaiting_trace", "coverage": "no_post_binding_trace", "items": []pathEntityHop{},
 		})
 		return nil
 	}
@@ -146,7 +146,7 @@ func (s *Server) handleGetPathEntities(w http.ResponseWriter, r *http.Request) e
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"test_id": r.PathValue("id"), "context_id": scope.ContextID,
-		"status": "current", "items": items, "truncated": truncated,
+		"status": "current", "coverage": "registered_sources_only", "items": items, "truncated": truncated,
 	})
 	return nil
 }

@@ -47,7 +47,8 @@ import {
 } from './flowResults'
 import { FlowViewLibrary } from './FlowViewLibrary'
 import { FlowFilterLibrary } from './FlowFilterLibrary'
-import { EntityCurrentPivot, observedIPs } from './EntityCurrentPivot'
+import { EntityCurrentPivot } from './EntityCurrentPivot'
+import { observedIPs } from './entityObservedIPs'
 import { Page } from './RoutePage'
 import styles from './flowExplorer.module.css'
 

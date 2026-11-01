@@ -604,11 +604,18 @@ func missingToolPermission(p *auth.Principal, t Tool) string {
 }
 func toolPoliciesAllow(p *auth.Principal, t Tool, policies []auth.Policy) bool {
 	for _, permission := range append([]string{t.Permission}, t.ExtraPermissions...) {
-		if !auth.Authorize(p, permission, policies, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
+		if !ResourceAllowed(p, permission, policies, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
 			return false
 		}
 	}
 	return true
+}
+
+// ResourceAllowed is the MCP authorization chokepoint for a source row or
+// context after the tenant's policies have been loaded fail closed. Entity
+// backends use it for each source-specific result after the tool-level check.
+func ResourceAllowed(p *auth.Principal, permission string, policies []auth.Policy, resource map[string]string) bool {
+	return auth.Authorize(p, permission, policies, resource)
 }
 
 type boundedJSONBuffer struct {

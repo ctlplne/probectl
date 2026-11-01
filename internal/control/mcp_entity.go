@@ -51,7 +51,7 @@ func (b mcpEntityBackend) EntityContextList(ctx context.Context, p *auth.Princip
 		NextCursor: page.NextCursor}
 	for _, item := range page.Items {
 		resource := entityContextResource(item)
-		if !auth.Authorize(p, "entities.read", policies, resource) {
+		if !mcp.ResourceAllowed(p, "entities.read", policies, resource) {
 			return mcp.EntityContextListResult{}, apierror.Forbidden("entity routing context is not authorized")
 		}
 		out.Items = append(out.Items, mcp.EntityContextResult{ContextID: item.ContextID,
@@ -74,7 +74,7 @@ func (b mcpEntityBackend) EntityContextCreate(ctx context.Context, p *auth.Princ
 	if err != nil {
 		return mcp.EntityContextResult{}, err
 	}
-	if !auth.Authorize(p, "agent.write", policies, entityContextResource(attributes)) {
+	if !mcp.ResourceAllowed(p, "agent.write", policies, entityContextResource(attributes)) {
 		return mcp.EntityContextResult{}, apierror.Forbidden("entity context creation is not authorized")
 	}
 	var out mcp.EntityContextResult
@@ -196,7 +196,7 @@ func (b mcpEntityBackend) requireEntityContext(ctx context.Context, p *auth.Prin
 	if err != nil {
 		return err
 	}
-	if !auth.Authorize(p, permission, policies, resource) {
+	if !mcp.ResourceAllowed(p, permission, policies, resource) {
 		return apierror.Forbidden("entity routing context is not authorized")
 	}
 	return nil
@@ -213,12 +213,12 @@ func (b mcpEntityBackend) entityResource(ctx context.Context, scope entity.Scope
 func entityMCPSourceAllowed(p *auth.Principal, policies []auth.Policy,
 	resource map[string]string, kind entity.SourceKind) bool {
 	permission := entitySourcePermission(kind)
-	return permission != "" && auth.Authorize(p, permission, policies, resource)
+	return permission != "" && mcp.ResourceAllowed(p, permission, policies, resource)
 }
 
 func entityMCPResolutionAllowed(p *auth.Principal, policies []auth.Policy,
 	result entity.Resolution, resource map[string]string) bool {
-	if !auth.Authorize(p, "entities.read", policies, resource) {
+	if !mcp.ResourceAllowed(p, "entities.read", policies, resource) {
 		return false
 	}
 	for _, candidate := range result.Candidates {
@@ -259,7 +259,7 @@ func (b mcpEntityBackend) EntityEvidenceList(ctx context.Context, p *auth.Princi
 	if err != nil {
 		return mcp.EntityEvidenceListResult{}, err
 	}
-	if !auth.Authorize(p, "entities.read", policies, resource) {
+	if !mcp.ResourceAllowed(p, "entities.read", policies, resource) {
 		return mcp.EntityEvidenceListResult{}, apierror.Forbidden("entity routing context is not authorized")
 	}
 	out := mcp.EntityEvidenceListResult{EntityID: page.EntityID,
@@ -312,7 +312,7 @@ func (b mcpEntityBackend) EntityLinkList(ctx context.Context, p *auth.Principal,
 	if err != nil {
 		return mcp.EntityLinkListResult{}, err
 	}
-	if !auth.Authorize(p, "entities.read", policies, resource) {
+	if !mcp.ResourceAllowed(p, "entities.read", policies, resource) {
 		return mcp.EntityLinkListResult{}, apierror.Forbidden("entity routing context is not authorized")
 	}
 	out := mcp.EntityLinkListResult{EntityID: page.EntityID,
@@ -431,7 +431,7 @@ func (b mcpEntityBackend) EntityPathResolve(ctx context.Context, p *auth.Princip
 	if err != nil {
 		return mcp.EntityPathResult{}, err
 	}
-	if !auth.Authorize(p, permTestRead, policies,
+	if !mcp.ResourceAllowed(p, permTestRead, policies,
 		map[string]string{auth.ResourceTenantKey: p.TenantID}) {
 		return mcp.EntityPathResult{}, apierror.Forbidden("test read is required for path identity")
 	}
@@ -455,8 +455,8 @@ func (b mcpEntityBackend) EntityPathResolve(ctx context.Context, p *auth.Princip
 	if err != nil {
 		return mcp.EntityPathResult{}, err
 	}
-	if !auth.Authorize(p, "entities.read", policies, resource) ||
-		!auth.Authorize(p, permTestRead, policies, resource) {
+	if !mcp.ResourceAllowed(p, "entities.read", policies, resource) ||
+		!mcp.ResourceAllowed(p, permTestRead, policies, resource) {
 		return mcp.EntityPathResult{}, apierror.Forbidden("path identity routing context is not authorized")
 	}
 	// The existence read above can race with a retarget. Resolve history from

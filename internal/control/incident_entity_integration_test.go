@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -41,14 +41,14 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 			t.Errorf("remove incident identity tenants: %v", err)
 		}
 	})
-	contextA, contextOther := uuid.NewString(), uuid.NewString()
-	entityA, entityOther, entityB := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	contextA, contextOther := gouuid.NewString(), gouuid.NewString()
+	entityA, entityOther, entityB := gouuid.NewString(), gouuid.NewString(), gouuid.NewString()
 	type sender struct {
 		tenant, contextID, entityID, agent, serial, target string
 	}
 	seed := func(tenant, routingContext, entityID, agent, target string) sender {
 		t.Helper()
-		serialNumber, ok := new(big.Int).SetString(strings.ReplaceAll(uuid.NewString(), "-", ""), 16)
+		serialNumber, ok := new(big.Int).SetString(strings.ReplaceAll(gouuid.NewString(), "-", ""), 16)
 		if !ok || serialNumber.Sign() <= 0 {
 			t.Fatal("invalid fixture serial")
 		}
@@ -63,7 +63,7 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 				(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
 				VALUES ($1,$2,$3,$4,$5,$6)
 				ON CONFLICT (tenant_id,id) DO NOTHING`, tenant, routingContext,
-				uuid.NewString(), uuid.NewString(), "site-"+routingContext, "vrf-"+routingContext); err != nil {
+				gouuid.NewString(), gouuid.NewString(), "site-"+routingContext, "vrf-"+routingContext); err != nil {
 				return err
 			}
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entities
@@ -87,7 +87,7 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 				 source,source_ref,agent_id,source_kind,configured_ref,observed_at,sender_serial)
 				VALUES ($1,$2,$3,$3,$4,'address',$5,
 				        'snmp','router',$6,'device_target',$5,clock_timestamp(),$7)`,
-				tenant, routingContext, uuid.NewString(), entityID, target, agent, serial)
+				tenant, routingContext, gouuid.NewString(), entityID, target, agent, serial)
 			return err
 		}); err != nil {
 			t.Fatalf("seed verified incident source %s: %v", agent, err)
@@ -97,7 +97,7 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 	red := seed(a, contextA, entityA, "snmp-red", "10.42.0.1")
 	otherVRF := seed(a, contextOther, entityOther, "snmp-red-other-vrf", "10.42.0.1")
 	blue := seed(b, contextA, entityB, "snmp-blue", "10.42.0.1")
-	neighborID := uuid.NewString()
+	neighborID := gouuid.NewString()
 	_ = seed(a, contextA, neighborID, "snmp-red-neighbor", "10.42.0.9")
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	firstCorrelator := BuildCorrelator(db.Pool(), 5*time.Minute, logger)
@@ -138,7 +138,7 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 		t.Helper()
 		ctx := tenancy.WithTenant(context.Background(), tenancy.ID(s.tenant))
 		if err := tenancy.InTenant(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
-			interfaceID := uuid.NewString()
+			interfaceID := gouuid.NewString()
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entities
 				(tenant_id,context_id,id,kind,label,parent_entity_id,
 				 source_agent_id,configured_ref,interface_index)
@@ -151,7 +151,7 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 				 source,source_ref,agent_id,source_kind,configured_ref,observed_at,sender_serial)
 				VALUES ($1,$2,$3,$3,$4,'address','10.42.0.254',
 				        'snmp','snmp:ifIndex:7',$5,'device_target',$6,clock_timestamp(),$7)`,
-				s.tenant, s.contextID, uuid.NewString(), interfaceID, s.agent, s.target, s.serial)
+				s.tenant, s.contextID, gouuid.NewString(), interfaceID, s.agent, s.target, s.serial)
 			return err
 		}); err != nil {
 			t.Fatalf("seed interface address for %s: %v", s.tenant, err)
@@ -189,7 +189,7 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 	// the same router. Its fault must join the SNMP-rooted incident through the
 	// verified tenant/context/entity tuple, not by a coincidental raw address.
 	flowAgent, flowTarget := "flow-red", "10.42.0.254"
-	flowSerialNumber, ok := new(big.Int).SetString(strings.ReplaceAll(uuid.NewString(), "-", ""), 16)
+	flowSerialNumber, ok := new(big.Int).SetString(strings.ReplaceAll(gouuid.NewString(), "-", ""), 16)
 	if !ok || flowSerialNumber.Sign() <= 0 {
 		t.Fatal("invalid flow sender fixture serial")
 	}
@@ -215,7 +215,7 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 			 source,source_ref,agent_id,source_kind,configured_ref,observed_at,sender_serial)
 			VALUES ($1,$2,$3,$3,$4,'address',$5,
 			        'flow','flow:ipfix:domain:7',$6,'flow_exporter',$5,clock_timestamp(),$7)`,
-			a, contextA, uuid.NewString(), entityA, flowTarget, flowAgent, flowSerial)
+			a, contextA, gouuid.NewString(), entityA, flowTarget, flowAgent, flowSerial)
 		return err
 	}); err != nil {
 		t.Fatalf("seed independent flow sender: %v", err)
@@ -234,7 +234,7 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	faultID := uuid.NewString()
+	faultID := gouuid.NewString()
 	flowFault := incident.Signal{TenantID: a, Plane: "flow",
 		Kind: "flow.exporter_silent", Target: flowTarget, OccurredAt: time.Now(),
 		Attributes: map[string]string{entity.AttrFaultObservationID: faultID}}
@@ -313,7 +313,7 @@ func TestIncidentVerifiedIdentitySurvivesRestartAndSeparatesContexts(t *testing.
 			 source,source_ref,agent_id,source_kind,configured_ref,observed_at,sender_serial)
 			VALUES ($1,$2,$3,$3,$4,'address','10.42.0.77',
 			        'snmp','router',$5,'device_target','10.42.0.1',clock_timestamp(),$6)`,
-				a, contextA, uuid.NewString(), entityA, red.agent, red.serial)
+				a, contextA, gouuid.NewString(), entityA, red.agent, red.serial)
 			return err
 		}); err != nil {
 		t.Fatalf("seed later address evidence: %v", err)

@@ -39,6 +39,11 @@ Earlier rounds lack a proven routing context and return `awaiting_trace` with
 no current responders. ClickHouse's millisecond precision also leaves a same-millisecond
 round in that state. A fresh trace makes the view available. REST, CLI, MCP and
 the Path page share this boundary; raw path history stays raw.
+The REST path identity response declares `coverage`: `no_bound_context`,
+`no_post_binding_trace`, or `registered_sources_only`. An empty current join
+therefore never claims that unregistered devices or silent collectors do not
+exist. Entity, evidence, link and context pages are bounded registry records;
+an empty page describes the registry, not complete network coverage.
 Path rounds written before the PostgreSQL-clock marker shipped retain their raw
 history but cannot pass the current join, even if an old control-plane clock
 dated one after an assignment. New discovery rows carry that server-owned

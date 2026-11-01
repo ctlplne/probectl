@@ -60,88 +60,9 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 	if err != nil {
 		return Observation{}, err
 	}
-	// A sender-bound collector may observe only identifiers from its own
-	// configured source family. Otherwise a compromised flow or BMP collector
-	// could author an SNMP/interface or site alias against its operator anchor.
-	switch o.Source.Kind {
-	case DeviceTarget:
-		switch o.Alias.Kind {
-		case AddressAlias, PrefixAlias, SNMPDeviceAlias, SNMPInterfaceAlias, PhysicalNeighborAlias:
-		default:
-			return Observation{}, ErrInvalidClaim
-		}
-	case FlowExporter:
-		if o.Alias.Kind != AddressAlias && o.Alias.Kind != FlowExporterAlias {
-			return Observation{}, ErrInvalidClaim
-		}
-		addr, err := netip.ParseAddr(o.Source.SourceRef)
-		if err != nil || addr.Zone() != "" || addr.IsUnspecified() || addr.IsMulticast() ||
-			addr.Unmap().String() != o.Source.SourceRef {
-			return Observation{}, ErrInvalidClaim
-		}
-		if o.Alias.Kind == AddressAlias && o.Alias.Value != o.Source.SourceRef {
-			return Observation{}, ErrInvalidClaim
-		}
-		if o.Alias.Kind == FlowExporterAlias {
-			prefix := o.Source.SourceRef + "/"
-			if !strings.HasPrefix(o.Alias.Value, prefix) {
-				return Observation{}, ErrInvalidClaim
-			}
-			parts := strings.Split(strings.TrimPrefix(o.Alias.Value, prefix), "/")
-			if len(parts) != 2 {
-				return Observation{}, ErrInvalidClaim
-			}
-			switch parts[0] {
-			case "netflow5", "netflow9", "ipfix", "sflow5":
-			default:
-				return Observation{}, ErrInvalidClaim
-			}
-			domain, err := strconv.ParseUint(parts[1], 10, 32)
-			if err != nil || strconv.FormatUint(domain, 10) != parts[1] {
-				return Observation{}, ErrInvalidClaim
-			}
-			if strings.TrimSpace(o.SourceRef) != "flow:"+parts[0]+":domain:"+parts[1] {
-				return Observation{}, ErrInvalidClaim
-			}
-		}
-	case BMPPeer:
-		if o.Alias.Kind != AddressAlias && o.Alias.Kind != BMPPeerAlias {
-			return Observation{}, ErrInvalidClaim
-		}
-		provenance := "bmp:router:" + o.Source.SourceRef + ":peer-asn:"
-		if !strings.HasPrefix(strings.TrimSpace(o.SourceRef), provenance) {
-			return Observation{}, ErrInvalidClaim
-		}
-		asnText := strings.TrimPrefix(strings.TrimSpace(o.SourceRef), provenance)
-		asn, err := strconv.ParseUint(asnText, 10, 32)
-		if err != nil || strconv.FormatUint(asn, 10) != asnText {
-			return Observation{}, ErrInvalidClaim
-		}
-		if o.Alias.Kind == BMPPeerAlias {
-			index := strings.LastIndex(o.Alias.Value, "/as")
-			if index < 1 || o.Alias.Value[index+3:] != asnText {
-				return Observation{}, ErrInvalidClaim
-			}
-			addr, err := netip.ParseAddr(o.Alias.Value[:index])
-			if err != nil || addr.Zone() != "" || addr.IsUnspecified() || addr.IsMulticast() ||
-				addr.Unmap().String() != o.Alias.Value[:index] {
-				return Observation{}, ErrInvalidClaim
-			}
-		}
-	case PathAgent:
-		if o.Alias.Kind != AddressAlias && o.Alias.Kind != PathHopAlias {
-			return Observation{}, ErrInvalidClaim
-		}
-	case AgentSite:
-		if o.Alias.Kind != AgentSiteAlias {
-			return Observation{}, ErrInvalidClaim
-		}
-		if o.Source.SourceRef != o.Source.AgentID ||
-			strings.TrimSpace(o.SourceRef) != "agent:label:site" {
-			return Observation{}, ErrInvalidClaim
-		}
-	default:
-		return Observation{}, ErrInvalidClaim
+	// A sender-bound collector may observe only its configured source family.
+	if err := validateObservationFamily(o); err != nil {
+		return Observation{}, err
 	}
 	o.SourceRef = strings.TrimSpace(o.SourceRef)
 	if o.SourceRef == "" || len(o.SourceRef) > 1024 ||
@@ -149,16 +70,128 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 		return Observation{}, ErrInvalidClaim
 	}
 	o.OriginSerial = strings.TrimSpace(o.OriginSerial)
+	if err := validateOriginSerial(o); err != nil {
+		return Observation{}, err
+	}
+	if err := validateInterfaceObservation(o); err != nil {
+		return Observation{}, err
+	}
+	o, err = normalizeNeighborObservation(o)
+	if err != nil {
+		return Observation{}, err
+	}
+	if o.ObservedAt.IsZero() || o.ObservedAt.After(now.Add(5*time.Minute)) ||
+		o.ObservedAt.Before(now.Add(-7*24*time.Hour)) {
+		return Observation{}, ErrInvalidClaim
+	}
+	// PostgreSQL timestamps store microseconds. Canonicalize before the
+	// idempotency comparison so a nanosecond input replays identically.
+	o.ObservedAt = o.ObservedAt.UTC().Truncate(time.Microsecond)
+	return o, nil
+}
+
+func validateObservationFamily(o Observation) error {
+	switch o.Source.Kind {
+	case DeviceTarget:
+		switch o.Alias.Kind {
+		case AddressAlias, PrefixAlias, SNMPDeviceAlias, SNMPInterfaceAlias, PhysicalNeighborAlias:
+			return nil
+		}
+	case FlowExporter:
+		return validateFlowObservation(o)
+	case BMPPeer:
+		return validateBMPObservation(o)
+	case PathAgent:
+		if o.Alias.Kind == AddressAlias || o.Alias.Kind == PathHopAlias {
+			return nil
+		}
+	case AgentSite:
+		if o.Alias.Kind == AgentSiteAlias && o.Source.SourceRef == o.Source.AgentID &&
+			strings.TrimSpace(o.SourceRef) == "agent:label:site" {
+			return nil
+		}
+	}
+	return ErrInvalidClaim
+}
+
+func validateFlowObservation(o Observation) error {
+	if o.Alias.Kind != AddressAlias && o.Alias.Kind != FlowExporterAlias {
+		return ErrInvalidClaim
+	}
+	addr, err := netip.ParseAddr(o.Source.SourceRef)
+	if err != nil || addr.Zone() != "" || addr.IsUnspecified() || addr.IsMulticast() ||
+		addr.Unmap().String() != o.Source.SourceRef {
+		return ErrInvalidClaim
+	}
+	if o.Alias.Kind == AddressAlias {
+		if o.Alias.Value != o.Source.SourceRef {
+			return ErrInvalidClaim
+		}
+		return nil
+	}
+	prefix := o.Source.SourceRef + "/"
+	if !strings.HasPrefix(o.Alias.Value, prefix) {
+		return ErrInvalidClaim
+	}
+	parts := strings.Split(strings.TrimPrefix(o.Alias.Value, prefix), "/")
+	if len(parts) != 2 {
+		return ErrInvalidClaim
+	}
+	switch parts[0] {
+	case "netflow5", "netflow9", "ipfix", "sflow5":
+	default:
+		return ErrInvalidClaim
+	}
+	domain, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil || strconv.FormatUint(domain, 10) != parts[1] ||
+		strings.TrimSpace(o.SourceRef) != "flow:"+parts[0]+":domain:"+parts[1] {
+		return ErrInvalidClaim
+	}
+	return nil
+}
+
+func validateBMPObservation(o Observation) error {
+	if o.Alias.Kind != AddressAlias && o.Alias.Kind != BMPPeerAlias {
+		return ErrInvalidClaim
+	}
+	provenance := "bmp:router:" + o.Source.SourceRef + ":peer-asn:"
+	if !strings.HasPrefix(strings.TrimSpace(o.SourceRef), provenance) {
+		return ErrInvalidClaim
+	}
+	asnText := strings.TrimPrefix(strings.TrimSpace(o.SourceRef), provenance)
+	asn, err := strconv.ParseUint(asnText, 10, 32)
+	if err != nil || strconv.FormatUint(asn, 10) != asnText {
+		return ErrInvalidClaim
+	}
+	if o.Alias.Kind == BMPPeerAlias {
+		index := strings.LastIndex(o.Alias.Value, "/as")
+		if index < 1 || o.Alias.Value[index+3:] != asnText {
+			return ErrInvalidClaim
+		}
+		addr, err := netip.ParseAddr(o.Alias.Value[:index])
+		if err != nil || addr.Zone() != "" || addr.IsUnspecified() || addr.IsMulticast() ||
+			addr.Unmap().String() != o.Alias.Value[:index] {
+			return ErrInvalidClaim
+		}
+	}
+	return nil
+}
+
+func validateOriginSerial(o Observation) error {
 	if o.Source.Kind == BMPPeer {
 		if len(o.OriginSerial) == 0 || len(o.OriginSerial) > 128 ||
 			strings.IndexFunc(o.OriginSerial, func(r rune) bool {
 				return r < '0' || (r > '9' && r < 'a') || r > 'f'
 			}) >= 0 {
-			return Observation{}, ErrInvalidClaim
+			return ErrInvalidClaim
 		}
 	} else if o.OriginSerial != "" {
-		return Observation{}, ErrInvalidClaim
+		return ErrInvalidClaim
 	}
+	return nil
+}
+
+func validateInterfaceObservation(o Observation) error {
 	if o.Alias.Kind == SNMPInterfaceAlias {
 		if o.Source.Kind != DeviceTarget ||
 			o.SourceRef != "snmp:ifIndex:"+o.Alias.Value ||
@@ -168,11 +201,15 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 			!utf8.ValidString(o.InterfaceDescription) ||
 			strings.IndexFunc(o.InterfaceName, unicode.IsControl) >= 0 ||
 			strings.IndexFunc(o.InterfaceDescription, unicode.IsControl) >= 0 {
-			return Observation{}, ErrInvalidClaim
+			return ErrInvalidClaim
 		}
 	} else if o.InterfaceName != "" || o.InterfaceDescription != "" {
-		return Observation{}, ErrInvalidClaim
+		return ErrInvalidClaim
 	}
+	return nil
+}
+
+func normalizeNeighborObservation(o Observation) (Observation, error) {
 	if o.Alias.Kind == PhysicalNeighborAlias {
 		if o.Source.Kind != DeviceTarget || o.Alias.Value != o.SourceRef ||
 			!strings.HasPrefix(o.SourceRef, "neighbor:") ||
@@ -202,12 +239,5 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 		o.NeighborAddress != "" {
 		return Observation{}, ErrInvalidClaim
 	}
-	if o.ObservedAt.IsZero() || o.ObservedAt.After(now.Add(5*time.Minute)) ||
-		o.ObservedAt.Before(now.Add(-7*24*time.Hour)) {
-		return Observation{}, ErrInvalidClaim
-	}
-	// PostgreSQL timestamps store microseconds. Canonicalize before the
-	// idempotency comparison so a nanosecond input replays identically.
-	o.ObservedAt = o.ObservedAt.UTC().Truncate(time.Microsecond)
 	return o, nil
 }
