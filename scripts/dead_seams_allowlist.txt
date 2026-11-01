@@ -136,14 +136,10 @@ symbol github.com/ctlplne/probectl/internal/tenantcrypto.Reset — process-globa
 # them, so none may survive final FX-2b landing.
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.StartPlan — FX-2b draft plan creation; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.AppendPage — FX-2b draft page capture; direct tenant-isolation test uses it until the authorized route is wired
-symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreNMSDevices — FX-2b draft unpaged source capture; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreNMSDevicesAndLocations — FX-2b draft mixed-source capture; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreNMSInventory — FX-2b draft complete-source capture; direct tenant-isolation test uses it until the authorized route is wired
-symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.ConfigureLibreNMSHTTPSource — FX-2b draft tenant source configuration; direct isolation test uses it until the authorized route is wired
-symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.DisableLibreNMSHTTPSource — FX-2b draft source egress disable; direct isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureConfiguredLibreNMSDevices — FX-2b draft live-device proof; direct real-source test uses it until the full authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureConfiguredLibreNMSInventory — FX-2b draft complete live-source capture; direct real-source test uses it until the authorized route is wired
-symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.OpenConfiguredLibreNMSMembership — FX-2b draft captured-name membership read; direct isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/govern.Reset — process-global reset for governance test hermeticity
 symbol github.com/ctlplne/probectl/internal/alert.SeverityCritical — severity vocabulary member constructed by dependent packages' fixtures
 symbol github.com/ctlplne/probectl/internal/remediation.StateApplied — remediation state vocabulary member asserted by ee workflow tests

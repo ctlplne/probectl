@@ -76,12 +76,19 @@ type Config struct {
 	// path run as a SUPERUSER/BYPASSRLS Postgres login (TEN-01). Default false:
 	// such a login bypasses RLS on bare-pool paths, so boot fails closed. For
 	// non-production sandboxes only.
-	AllowSuperuserDB    bool
-	DatabaseReadURL     string // optional read-replica endpoint (S-EE2); empty = reads use the writer
-	HopGeoFile          string // optional operator-supplied CIDR→location table for path hop geo; empty = no enrichment
-	DatabaseMaxConns    int32
-	DatabaseMinConns    int32
-	DatabaseConnTimeout time.Duration
+	AllowSuperuserDB bool
+	DatabaseReadURL  string // optional read-replica endpoint (S-EE2); empty = reads use the writer
+	HopGeoFile       string // optional operator-supplied CIDR→location table for path hop geo; empty = no enrichment
+	// Live NMS import is off unless the deployment supplies both explicit
+	// destination CIDRs and a tenant-namespaced secret-reference prefix. A
+	// tenant's source configuration can narrow this policy, never widen it.
+	NMSImportApprovedCIDRs []netip.Prefix
+	NMSImportRefPrefix     string
+	NMSImportCAFile        string
+	NMSImportTimeout       time.Duration
+	DatabaseMaxConns       int32
+	DatabaseMinConns       int32
+	DatabaseConnTimeout    time.Duration
 
 	// Multi-region / HA (S-EE2). All optional; a single-region deployment
 	// leaves Region empty and the cluster layer is inert (writes always
@@ -1078,6 +1085,17 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.AllowSuperuserDB = l.boolean("PROBECTL_DANGEROUS_ALLOW_SUPERUSER_DB", false)
 	cfg.DatabaseReadURL = l.str("PROBECTL_DATABASE_READ_URL", "")
 	cfg.HopGeoFile = l.str("PROBECTL_HOP_GEO_FILE", "")
+	for _, raw := range l.list("PROBECTL_NMS_IMPORT_APPROVED_CIDRS") {
+		prefix, err := netip.ParsePrefix(raw)
+		if err != nil || !prefix.IsValid() || prefix.Addr().Zone() != "" {
+			l.errf("PROBECTL_NMS_IMPORT_APPROVED_CIDRS must contain valid CIDRs")
+			continue
+		}
+		cfg.NMSImportApprovedCIDRs = append(cfg.NMSImportApprovedCIDRs, prefix.Masked())
+	}
+	cfg.NMSImportRefPrefix = l.str("PROBECTL_NMS_IMPORT_REF_PREFIX", "")
+	cfg.NMSImportCAFile = l.str("PROBECTL_NMS_IMPORT_CA_FILE", "")
+	cfg.NMSImportTimeout = l.dur("PROBECTL_NMS_IMPORT_TIMEOUT", 10*time.Second)
 	// SCALE-009: warmer pool defaults for high fan-in API + consumers.
 	// One session is reserved for the cluster singleton advisory lock; at least
 	// one more must remain for the singleton tasks and request path.
@@ -1459,6 +1477,7 @@ func validateBusTransport(l *loader, cfg *Config) {
 }
 
 func validateConfig(l *loader, cfg *Config) {
+	validateNMSImportConfig(l, cfg)
 	if err := branding.ValidateOverrides(cfg.ThemeOverrides); err != nil {
 		l.errf("PROBECTL_THEME_OVERRIDES: %v", err)
 	}
@@ -1548,6 +1567,33 @@ func validateConfig(l *loader, cfg *Config) {
 	if strings.TrimSpace(cfg.DatabaseReadURL) != "" {
 		if _, err := parseDatabaseURL(cfg.DatabaseReadURL); err != nil {
 			l.errf("PROBECTL_DATABASE_READ_URL must be a postgres:// or postgresql:// URL")
+		}
+	}
+}
+
+func validateNMSImportConfig(l *loader, cfg *Config) {
+	if cfg.NMSImportTimeout <= 0 || cfg.NMSImportTimeout > 30*time.Second {
+		l.errf("PROBECTL_NMS_IMPORT_TIMEOUT must be positive and at most 30s")
+	}
+	active := len(cfg.NMSImportApprovedCIDRs) > 0 || cfg.NMSImportRefPrefix != "" || cfg.NMSImportCAFile != ""
+	if !active {
+		return
+	}
+	if len(cfg.NMSImportApprovedCIDRs) == 0 || cfg.NMSImportRefPrefix == "" {
+		l.errf("live NMS import requires both PROBECTL_NMS_IMPORT_APPROVED_CIDRS and PROBECTL_NMS_IMPORT_REF_PREFIX")
+	}
+	prefix := cfg.NMSImportRefPrefix
+	validScheme := false
+	for _, scheme := range []string{"vault:", "cyberark:", "aws:", "azure:", "gcp:"} {
+		validScheme = validScheme || strings.HasPrefix(prefix, scheme)
+	}
+	if prefix != "" && (!validScheme || strings.Count(prefix, "{tenant}") != 1 ||
+		!strings.HasSuffix(prefix, "/") || strings.ContainsAny(prefix, " \\?%\t\r\n")) {
+		l.errf("PROBECTL_NMS_IMPORT_REF_PREFIX must be a tenant-namespaced secret reference ending in / with one {tenant} token")
+	}
+	if cfg.NMSImportCAFile != "" {
+		if _, err := crypto.HardenedClientTLSConfigWithCAFile(cfg.NMSImportCAFile); err != nil {
+			l.errf("PROBECTL_NMS_IMPORT_CA_FILE must be a readable PEM certificate bundle")
 		}
 	}
 }
