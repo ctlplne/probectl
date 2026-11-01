@@ -445,6 +445,30 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 		t.Fatalf("pre-assignment observation became canonical: accepted=%d unresolved=%d err=%v",
 			accepted, unresolved, err)
 	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts
+			SET anchor_entity_id=$1
+			WHERE tenant_id=$2 AND agent_id=$3 AND context_id=$4`,
+			entityA2, a.ID, source.AgentID, ctxA2)
+		return err
+	})
+	// Moving this fixture's assignment clock forward correctly retires its
+	// earlier evidence. A new observation at the stored assignment instant
+	// restores only this tenant/context's current resolution.
+	var assignedAt time.Time
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx, `SELECT assigned_at FROM entity_source_contexts
+			WHERE tenant_id=$1 AND agent_id=$2 AND source_kind=$3 AND source_ref=$4`,
+			a.ID, source.AgentID, string(source.Kind), source.SourceRef).Scan(&assignedAt)
+	})
+	postAssignment := entity.Observation{ID: uuid.NewString(), Source: source,
+		Alias: key, SourceRef: "snmp:post-assignment", ObservedAt: assignedAt}
+	if accepted, unresolved, err := repo.WriteEvidenceBatch(
+		tenancy.WithTenant(ctx, tenancy.ID(a.ID)), source.AgentID,
+		serials[a.ID+source.AgentID], []entity.Observation{postAssignment}); err != nil || accepted != 1 || unresolved != 0 {
+		t.Fatalf("post-assignment observation: accepted=%d unresolved=%d err=%v",
+			accepted, unresolved, err)
+	}
 	for _, tc := range []struct {
 		tenant, routingContext, want string
 	}{
@@ -481,6 +505,12 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts
 			SET anchor_entity_id=$1 WHERE tenant_id=$2 AND agent_id='collector-a1'`,
 			entityA1, a.ID)
+		return err
+	})
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts
+			SET anchor_entity_id=NULL WHERE tenant_id=$1 AND agent_id=$2`,
+			a.ID, source.AgentID)
 		return err
 	})
 	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {

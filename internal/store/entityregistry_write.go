@@ -398,7 +398,7 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 			  neighbor_management_address,support_evidence_id)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
 		        NULLIF($16,'')::text,NULLIF($17,'')::text,NULLIF($18,'')::text,
-		        NULLIF($19,'')::text,NULLIF($20,0)::bigint,NULLIF($21,'')::text,
+		        NULLIF($19,'')::text,NULLIF($20::bigint,0::bigint),NULLIF($21,'')::text,
 		        NULLIF($22,'')::text,NULLIF($23,'')::text,NULLIF($24,'')::text,
 		        NULLIF($25,'')::text,NULLIF($26,'')::uuid)
 			ON CONFLICT (tenant_id,agent_id,source_kind,configured_ref,observation_id)
