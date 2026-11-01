@@ -540,6 +540,65 @@ func TestNMSImportLibreNMSStreamSealsOnlyCompleteTenantCapture(t *testing.T) {
 	if auditEvents != 9 { // three starts; complete, partial and empty pages; three seals, no duplicate retry page
 		t.Fatalf("missing or duplicated tenant audit events: %d", auditEvents)
 	}
+	mixedPlan := start("stream-devices-locations")
+	mixedSites := `{"locations":[{"id":5,"location":"West DC","notes":"source-only-site-secret"}],"status":"ok","count":1}`
+	if hash, err := capturer.CaptureLibreNMSDevicesAndLocations(scopeA, routingContext,
+		mixedPlan, strings.NewReader(complete), strings.NewReader(mixedSites)); err != nil || len(hash) != 64 {
+		t.Fatalf("complete device/location stream did not seal: hash=%q err=%v", hash, err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var state, kind, label string
+		var pages, rows int
+		var leaked bool
+		if err := sc.Q.QueryRow(ctx, `SELECT state FROM nms_import_plans WHERE id=$1`, mixedPlan).Scan(&state); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_pages WHERE plan_id=$1`, mixedPlan).Scan(&pages); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows WHERE plan_id=$1`, mixedPlan).Scan(&rows); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT object_kind,label FROM nms_import_rows
+			WHERE plan_id=$1 AND external_id='5'`, mixedPlan).Scan(&kind, &label); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nms_import_rows
+			WHERE plan_id=$1 AND row_to_json(nms_import_rows)::text LIKE '%source-only-site-secret%')`,
+			mixedPlan).Scan(&leaked); err != nil {
+			return err
+		}
+		if state != "sealed" || pages != 2 || rows != 3 || kind != "site" || label != "West DC" || leaked {
+			return fmt.Errorf("mixed stream capture: state=%s pages=%d rows=%d kind=%s label=%s leaked=%v",
+				state, pages, rows, kind, label, leaked)
+		}
+		return nil
+	})
+	if auditEvents != 13 { // mixed start, device page, location page and seal each append once
+		t.Fatalf("mixed stream duplicated or omitted tenant audit events: %d", auditEvents)
+	}
+	incompleteMixed := start("stream-missing-locations")
+	if _, err := capturer.CaptureLibreNMSDevicesAndLocations(scopeA, routingContext,
+		incompleteMixed, strings.NewReader(complete),
+		strings.NewReader(`{"status":"error","locations":[]}`)); !errors.Is(err, nmsimport.ErrInvalidPage) {
+		t.Fatalf("invalid location response published a mixed plan: %v", err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var state string
+		var pages int
+		if err := sc.Q.QueryRow(ctx, `SELECT state FROM nms_import_plans WHERE id=$1`,
+			incompleteMixed).Scan(&state); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_pages WHERE plan_id=$1`,
+			incompleteMixed).Scan(&pages); err != nil {
+			return err
+		}
+		if state != "capturing" || pages != 1 {
+			return fmt.Errorf("incomplete mixed stream became actionable: state=%s pages=%d", state, pages)
+		}
+		return nil
+	})
 }
 
 type observedImportReader struct {
