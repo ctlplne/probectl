@@ -130,6 +130,20 @@ func safeAddress(text string) string {
 	return addr.String()
 }
 
+// Zabbix's exported group/item/trigger UUIDs are 32 hex digits. Never copy
+// arbitrary source text into an identifier that preview or provenance echoes.
+func safeZabbixUUID(raw string) string {
+	if len(raw) != 32 {
+		return ""
+	}
+	for _, char := range raw {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') && (char < 'A' || char > 'F') {
+			return ""
+		}
+	}
+	return strings.ToLower(raw)
+}
+
 // parseLibreNMSDevices reads one documented /api/v0/devices response. The
 // caller captures and snapshots the source before applying anything; this parser
 // retains source IDs and safe display fields but ignores credential fields.
@@ -319,8 +333,8 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 	groupIDs := make(map[string]string, len(export.Zabbix.Groups))
 	seenGroupIDs := make(map[string]struct{}, len(export.Zabbix.Groups))
 	for _, group := range export.Zabbix.Groups {
-		id, name := strings.TrimSpace(group.UUID), safeLabel(group.Name)
-		if id == "" || len(id) > 256 || name == "" {
+		id, name := safeZabbixUUID(group.UUID), safeLabel(group.Name)
+		if id == "" || name == "" {
 			return Snapshot{}, ErrInvalidPage
 		}
 		if _, exists := groupIDs[name]; exists {
@@ -335,8 +349,8 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 	}
 	seenHostIDs := make(map[string]struct{}, len(export.Zabbix.Hosts))
 	for _, host := range export.Zabbix.Hosts {
-		id := strings.TrimSpace(host.Host)
-		if id == "" || len(id) > 256 {
+		id := safeLabel(host.Host)
+		if id == "" {
 			return Snapshot{}, ErrInvalidPage
 		}
 		if _, duplicate := seenHostIDs[id]; duplicate {
@@ -376,19 +390,17 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 		}
 		out.Rows = append(out.Rows, row)
 		for _, item := range host.Items {
-			itemID := strings.TrimSpace(item.UUID)
+			itemID := safeZabbixUUID(item.UUID)
 			codes := []string{"poll_item_unmapped"}
-			if itemID == "" || len(itemID) > 256 {
-				itemID = ""
+			if itemID == "" {
 				codes = append(codes, "item_id_unavailable")
 			}
 			out.Rows = append(out.Rows, Row{Kind: "poll_item", ExternalID: itemID,
 				UnmappedCodes: codes})
 			for _, trigger := range item.Triggers {
-				triggerID := strings.TrimSpace(trigger.UUID)
+				triggerID := safeZabbixUUID(trigger.UUID)
 				codes := []string{"expression_unmapped"}
-				if triggerID == "" || len(triggerID) > 256 {
-					triggerID = ""
+				if triggerID == "" {
 					codes = append(codes, "trigger_id_unavailable")
 				}
 				out.Rows = append(out.Rows, Row{Kind: "rule", ExternalID: triggerID,
