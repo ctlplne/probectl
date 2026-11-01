@@ -144,6 +144,7 @@ symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.ConfigureLibr
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.DisableLibreNMSHTTPSource — FX-2b draft source egress disable; direct isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureConfiguredLibreNMSDevices — FX-2b draft live-device proof; direct real-source test uses it until the full authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureConfiguredLibreNMSInventory — FX-2b draft complete live-source capture; direct real-source test uses it until the authorized route is wired
+symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.ListSealedRows — FX-2b draft redacted preview paging; direct tenant-isolation test uses it until the authorized read route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.OpenConfiguredLibreNMSMembership — FX-2b draft captured-name membership read; direct isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/govern.Reset — process-global reset for governance test hermeticity
 symbol github.com/ctlplne/probectl/internal/alert.SeverityCritical — severity vocabulary member constructed by dependent packages' fixtures

@@ -10,6 +10,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -303,6 +304,28 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+	firstRows, err := capturer.ListSealedRows(scopeA, contextID, fullPlan, -1, 2)
+	if err != nil || firstRows.RowCount != 5 || len(firstRows.Items) != 2 ||
+		firstRows.NextCursor == nil || len(firstRows.SnapshotHash) != 64 {
+		t.Fatalf("sealed tenant rows did not page: page=%+v err=%v", firstRows, err)
+	}
+	secondRows, err := capturer.ListSealedRows(scopeA, contextID, fullPlan, *firstRows.NextCursor, 2)
+	if err != nil || len(secondRows.Items) != 2 || secondRows.NextCursor == nil ||
+		secondRows.Items[0].Number <= firstRows.Items[1].Number {
+		t.Fatalf("sealed rows repeated or escaped page: page=%+v err=%v", secondRows, err)
+	}
+	lastRows, err := capturer.ListSealedRows(scopeA, contextID, fullPlan, *secondRows.NextCursor, 2)
+	if err != nil || len(lastRows.Items) != 1 || lastRows.NextCursor != nil ||
+		lastRows.Items[0].Number <= secondRows.Items[1].Number {
+		t.Fatalf("sealed rows omitted final candidate: page=%+v err=%v", lastRows, err)
+	}
+	visible, err := json.Marshal([]nmsimport.SealedRowsPage{firstRows, secondRows, lastRows})
+	if err != nil || strings.Contains(string(visible), "source-only-") {
+		t.Fatalf("sealed row page copied secret or rule body: %v", err)
+	}
+	if _, err := capturer.ListSealedRows(scopeB, contextID, fullPlan, -1, 2); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign tenant read sealed rows: %v", err)
 	}
 	if requests.Load() != 14 || resolver.resolves != 14 || resolver.releases != 14 {
 		t.Fatalf("full source capture lost a fixed endpoint or token release: requests=%d resolver=%+v",
