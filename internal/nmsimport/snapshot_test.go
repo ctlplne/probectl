@@ -40,6 +40,36 @@ func TestLibreNMSPagePreservesSourceIDWithoutCredentialOrContext(t *testing.T) {
 	}
 }
 
+func TestLibreNMSLocationsBecomeUnassignedSitesWithoutSourceMetadata(t *testing.T) {
+	page := `{"status":"ok","locations":[
+		{"id":"5","location":"West DC","lat":"12.3","lng":"45.6","notes":"secret-note-123"},
+		{"id":6,"location":"\n"}],"count":2}`
+	got, err := parseLibreNMSLocations(strings.NewReader(page))
+	if err != nil || len(got.Rows) != 2 || got.Rows[0].Kind != "site" ||
+		got.Rows[0].ExternalID != "5" || got.Rows[0].Label != "West DC" ||
+		got.Rows[1].ExternalID != "6" || !contains(got.Rows[1].UnmappedCodes, "missing_safe_label") {
+		t.Fatalf("location source identity or unmapped label lost: %+v err=%v", got, err)
+	}
+	wire, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"secret-note-123", "12.3", "45.6", "context_id", "tenant_id"} {
+		if strings.Contains(string(wire), forbidden) {
+			t.Fatalf("source metadata %q escaped into site candidate", forbidden)
+		}
+	}
+	for _, invalid := range []string{
+		`{"status":"error","locations":[]}`,
+		`{"status":"ok","locations":[{"id":5,"location":"a"},{"id":"05","location":"b"}]}`,
+		`{"status":"ok","locations":[{"id":5,"location":"a"}],"count":2}`,
+	} {
+		if _, err := parseLibreNMSLocations(strings.NewReader(invalid)); !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("invalid location list accepted: %v", err)
+		}
+	}
+}
+
 func TestZabbixExportKeepsGroupUUIDAndListsNestedUnmappedTrigger(t *testing.T) {
 	page := `{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"748ad4d098d447d492bb935c907f652f","name":"WAN"}],
 	"hosts":[{"host":"edge-r1","name":"Edge R1","groups":[{"name":"WAN"}],

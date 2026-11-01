@@ -233,6 +233,42 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		auditActions["nms_import.capture_sealed"] != 1 {
 		t.Fatalf("capture audit actions duplicated or omitted: %+v", auditActions)
 	}
+	// A complete source plan can bind device and location pages without
+	// letting the location label pick a destination routing context.
+	locationsPlan, err := capturer.StartPlan(captureA, contextA, nmsimport.LibreNMS,
+		"lab-locations", strings.Repeat("d", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appendPage(captureA, contextA, locationsPlan, 0, 0, page); err != nil {
+		t.Fatalf("capture mixed-plan device page: %v", err)
+	}
+	locations := `{"status":"ok","locations":[{"id":5,"location":"West DC","notes":"secret-note-123"}],"count":1}`
+	if _, err := capturer.AppendPage(captureA, contextA, locationsPlan, 1,
+		"locations", 1, strings.NewReader(locations)); err != nil {
+		t.Fatalf("capture mixed-plan location page: %v", err)
+	}
+	if _, err := capturer.Seal(captureA, contextA, locationsPlan, 2, 2); err != nil {
+		t.Fatalf("seal device and location source snapshot: %v", err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var kind, label string
+		var leaked bool
+		if err := sc.Q.QueryRow(ctx, `SELECT object_kind,label FROM nms_import_rows
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND row_number=1`,
+			a.ID, contextA, locationsPlan).Scan(&kind, &label); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nms_import_rows
+			WHERE plan_id=$1 AND row_to_json(nms_import_rows)::text LIKE '%secret-note-123%')`,
+			locationsPlan).Scan(&leaked); err != nil {
+			return err
+		}
+		if kind != "site" || label != "West DC" || leaked {
+			t.Fatalf("location row lost site identity or retained source metadata: kind=%q label=%q leaked=%v", kind, label, leaked)
+		}
+		return nil
+	})
 	if _, err := appendPage(captureA, contextA, capturePlan, 2, 2, page); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
 		t.Fatalf("sealed plan accepted another page: %v", err)
 	}

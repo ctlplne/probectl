@@ -304,6 +304,8 @@ func parseCapturePage(source Kind, resource string, raw io.Reader) (Snapshot, er
 	switch {
 	case source == LibreNMS && resource == "devices":
 		return parseLibreNMSDevices(raw)
+	case source == LibreNMS && resource == "locations":
+		return parseLibreNMSLocations(raw)
 	case source == LibreNMS && resource == "groups":
 		return parseLibreNMSGroups(raw)
 	case source == LibreNMS && resource == "rules":

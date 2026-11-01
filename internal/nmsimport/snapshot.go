@@ -207,6 +207,42 @@ func parseLibreNMSDevices(r io.Reader) (Snapshot, error) {
 	return out, nil
 }
 
+// parseLibreNMSLocations reads one /api/v0/resources/locations response. A
+// location is a source site candidate, never a routing-context assignment.
+// The operating fetcher must stream this unpaged list for large inventories.
+func parseLibreNMSLocations(r io.Reader) (Snapshot, error) {
+	var page struct {
+		Status    string `json:"status"`
+		Count     *int64 `json:"count"`
+		Locations []struct {
+			ID       sourceID `json:"id"`
+			Location string   `json:"location"`
+		} `json:"locations"`
+	}
+	if err := decodePage(r, &page); err != nil || page.Status != "ok" || page.Locations == nil ||
+		(page.Count != nil && (*page.Count < 0 || *page.Count != int64(len(page.Locations)))) {
+		return Snapshot{}, ErrInvalidPage
+	}
+	out := Snapshot{Source: LibreNMS, Rows: make([]Row, 0, len(page.Locations))}
+	seen := make(map[string]struct{}, len(page.Locations))
+	for _, location := range page.Locations {
+		id := string(location.ID)
+		if id == "" || id == "0" {
+			return Snapshot{}, ErrInvalidPage
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return Snapshot{}, ErrInvalidPage
+		}
+		seen[id] = struct{}{}
+		row := Row{Kind: "site", ExternalID: id, Label: safeLabel(location.Location)}
+		if row.Label == "" {
+			row.UnmappedCodes = []string{"missing_safe_label"}
+		}
+		out.Rows = append(out.Rows, row)
+	}
+	return out, nil
+}
+
 // parseLibreNMSGroups reads the documented array-wrapped devicegroups list.
 // Membership is fetched through a separate endpoint, so every row records
 // that it is still missing; a dynamic predicate is never executed or copied.
