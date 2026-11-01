@@ -8,10 +8,12 @@ package nmsimport
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -77,4 +79,46 @@ func (s CaptureStore) ConfigureLibreNMSHTTPSource(ctx context.Context, contextID
 		return "", err
 	}
 	return sourceID, nil
+}
+
+// DisableLibreNMSHTTPSource stops new source requests and advances the
+// version so an unfinished capture cannot publish pages from old credentials.
+// A request already in flight holds a source-row read lock until its response
+// starts; disabling waits for that lock and takes effect at commit.
+func (s CaptureStore) DisableLibreNMSHTTPSource(ctx context.Context,
+	contextID, instanceRef string) error {
+	if s.pool == nil || s.audit == nil {
+		return ErrCaptureAuditUnavailable
+	}
+	contextUUID, err := uuid.Parse(contextID)
+	if err != nil || contextUUID == uuid.Nil || !safeInstanceRef(instanceRef) {
+		return ErrPlanUnavailable
+	}
+	contextID = contextUUID.String()
+	return tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var sourceID string
+		var enabled bool
+		err := sc.Q.QueryRow(ctx, `SELECT id::text,fetch_enabled FROM nms_import_sources
+			WHERE tenant_id=$1 AND context_id=$2 AND source_kind='librenms'
+			  AND instance_ref=$3 FOR UPDATE`, sc.Tenant.String(), contextID,
+			instanceRef).Scan(&sourceID, &enabled)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrPlanUnavailable
+		}
+		if err != nil {
+			return err
+		}
+		if !enabled {
+			return nil
+		}
+		if _, err := sc.Q.Exec(ctx, `UPDATE nms_import_sources
+			SET fetch_enabled=false,config_version=config_version+1
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`,
+			sc.Tenant.String(), contextID, sourceID); err != nil {
+			return ErrSourceUnavailable
+		}
+		return s.audit(ctx, sc, "nms_import.source_disabled", sourceID,
+			map[string]any{"context_id": contextID, "source_kind": LibreNMS,
+				"fetch_enabled": false})
+	})
 }

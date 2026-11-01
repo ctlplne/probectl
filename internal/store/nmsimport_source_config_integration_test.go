@@ -245,6 +245,26 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatalf("tenant source requests or token leases lost: requests=%d resolver=%+v",
 			requests.Load(), resolver)
 	}
+	if err := capturer.DisableLibreNMSHTTPSource(scopeB, contextID, "config-lab"); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign tenant disabled source: %v", err)
+	}
+	failAudit = true
+	if err := capturer.DisableLibreNMSHTTPSource(scopeA, contextID, "config-lab"); !errors.Is(err, auditFailure) {
+		t.Fatalf("source disable survived audit failure: %v", err)
+	}
+	failAudit = false
+	if err := capturer.DisableLibreNMSHTTPSource(scopeA, contextID, "config-lab"); err != nil {
+		t.Fatal(err)
+	}
+	afterDisable := auditEvents
+	if err := capturer.DisableLibreNMSHTTPSource(scopeA, contextID, "config-lab"); err != nil || auditEvents != afterDisable {
+		t.Fatalf("idempotent disable duplicated audit: events=%d err=%v", auditEvents, err)
+	}
+	if _, err := capturer.OpenConfiguredLibreNMS(scopeA, contextID, currentPlan,
+		"devices", policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) || requests.Load() != 2 || resolver.resolves != 2 {
+		t.Fatalf("disabled source reached network or resolver: requests=%d resolves=%d err=%v",
+			requests.Load(), resolver.resolves, err)
+	}
 }
 
 type importSourceTokenResolver struct{ resolves, releases int }
