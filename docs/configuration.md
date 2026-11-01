@@ -1617,6 +1617,18 @@ Journey-critical parity is currently served by the CLI:
 | SLO and cost posture | `probectl slo list|export`, `probectl cost summary` | `/v1/slos*`, `/v1/cost/summary` |
 | Tenant lifecycle portability and erasure | `probectl lifecycle export --redact`, `probectl lifecycle erase --body JSON` | `/v1/lifecycle*` |
 | Tenant identity-provider settings | `probectl identity settings|set-settings` | `/v1/identity/settings` |
+| Incumbent NMS import capture | `probectl nms-import configure-source|disable-source|start-live|rows` | `/v1/nms-imports/*` |
+
+The NMS import routes bind a configured LibreNMS source to a tenant routing
+context. `configure-source` requires a `0600` JSON body file containing
+`context_id`, `instance_ref`, `https_origin`, and a tenant-scoped
+`credential_ref`; the CLI refuses inline `--body` for this operation, including
+through `probectl api`. `start-live` accepts `context_id` and `instance_ref` and
+returns an inert capture plan without fetching the source or writing a device.
+`rows <plan-id> --query context_id=<context-id>` pages only redacted rows of a
+sealed plan. Source configuration, plan start, and row read require the
+corresponding `nms.import.write` or `nms.import.read` permission in the stored
+context. An empty deployment egress policy disables live source configuration.
 
 ```bash
 probectl test list

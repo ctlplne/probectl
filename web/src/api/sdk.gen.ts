@@ -2062,6 +2062,31 @@ export interface Me {
   user_id: string
 }
 
+export interface NMSImportSealedRow {
+  address?: string
+  external_id: string
+  group_ids: string[]
+  hostname?: string
+  label?: string
+  location_id?: string
+  location_label?: string
+  object_kind: "device" | "site" | "group" | "membership" | "poll_setting" | "alert_rule"
+  parent_external_id?: string
+  poll_seconds?: number
+  row_number: number
+  severity?: "ok" | "warning" | "critical"
+  unmapped_codes: string[]
+}
+
+export interface NMSImportSealedRowsPage {
+  context_id: string
+  items: NMSImportSealedRow[]
+  next_cursor?: number
+  plan_id: string
+  row_count: number
+  snapshot_hash: string
+}
+
 export interface OnboardingFinding {
   href: string
   observed_at: string
@@ -3486,6 +3511,34 @@ export interface GetMeRequest {
 }
 
 export type GetMeResponse = Me
+
+export interface StartConfiguredLibreNmsImportPlanRequest {
+  body: JsonObject
+}
+
+export type StartConfiguredLibreNmsImportPlanResponse = JsonObject
+
+export interface ConfigureLibreNmsImportSourceRequest {
+  body: JsonObject
+}
+
+export type ConfigureLibreNmsImportSourceResponse = JsonObject
+
+export interface DisableLibreNmsImportSourceRequest {
+  instance: string
+  body: JsonObject
+}
+
+export type DisableLibreNmsImportSourceResponse = void
+
+export interface ListNmsImportSealedRowsRequest {
+  id: string
+  contextId: string
+  limit?: number
+  cursor?: number
+}
+
+export type ListNmsImportSealedRowsResponse = NMSImportSealedRowsPage
 
 export interface GetOnboardingProgressRequest {
 }
@@ -4992,6 +5045,35 @@ export class ProbectlSDKClient {
     let path = "/v1/me"
     const query = new URLSearchParams()
     return this.requestJSON<GetMeResponse>("GET", path, query, undefined)
+  }
+
+  async startConfiguredLibreNmsImportPlan(request: StartConfiguredLibreNmsImportPlanRequest): Promise<StartConfiguredLibreNmsImportPlanResponse> {
+    let path = "/v1/nms-imports/live-plans"
+    const query = new URLSearchParams()
+    return this.requestJSON<StartConfiguredLibreNmsImportPlanResponse>("POST", path, query, request.body)
+  }
+
+  async configureLibreNmsImportSource(request: ConfigureLibreNmsImportSourceRequest): Promise<ConfigureLibreNmsImportSourceResponse> {
+    let path = "/v1/nms-imports/sources"
+    const query = new URLSearchParams()
+    return this.requestJSON<ConfigureLibreNmsImportSourceResponse>("POST", path, query, request.body)
+  }
+
+  async disableLibreNmsImportSource(request: DisableLibreNmsImportSourceRequest): Promise<DisableLibreNmsImportSourceResponse> {
+    let path = "/v1/nms-imports/sources/{instance}/disable"
+    path = path.replace("{instance}", encodeURIComponent(String(request.instance)))
+    const query = new URLSearchParams()
+    await this.request("POST", path, query, request.body)
+  }
+
+  async listNmsImportSealedRows(request: ListNmsImportSealedRowsRequest): Promise<ListNmsImportSealedRowsResponse> {
+    let path = "/v1/nms-imports/{id}/rows"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    return this.requestJSON<ListNmsImportSealedRowsResponse>("GET", path, query, undefined)
   }
 
   async getOnboardingProgress(): Promise<GetOnboardingProgressResponse> {

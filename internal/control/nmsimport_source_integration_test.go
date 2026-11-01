@@ -90,10 +90,34 @@ func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing
 		t.Fatalf("sources collided or configuration called vendor: a=%s b=%s requests=%d",
 			left.sourceID, right.sourceID, requests.Load())
 	}
+	start := func(f fixture) *httptest.ResponseRecorder {
+		t.Helper()
+		return apiReq(t, h, http.MethodPost, "/v1/nms-imports/live-plans", f.tenant,
+			map[string]string{"context_id": f.contextID, "instance_ref": "same-lab"})
+	}
+	planIDs := make(map[string]bool)
+	for _, f := range []fixture{left, right} {
+		response := start(f)
+		var out struct {
+			PlanID string `json:"plan_id"`
+			State  string `json:"state"`
+		}
+		if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &out) != nil ||
+			out.PlanID == "" || out.State != "capturing" || planIDs[out.PlanID] {
+			t.Fatalf("start tenant source plan: %d %s", response.Code, response.Body.String())
+		}
+		planIDs[out.PlanID] = true
+	}
+	if requests.Load() != 0 {
+		t.Fatal("starting an inert plan contacted the vendor")
+	}
 	wrongContext := left
 	wrongContext.contextID = right.contextID
 	if response := configure(wrongContext, ref(a)); response.Code != http.StatusNotFound {
 		t.Fatalf("foreign routing context disclosed: %d %s", response.Code, response.Body.String())
+	}
+	if response := start(wrongContext); response.Code != http.StatusNotFound {
+		t.Fatalf("foreign routing context started a plan: %d %s", response.Code, response.Body.String())
 	}
 	if response := configure(left, "env:UNSAFE_SECRET"); response.Code != http.StatusBadRequest ||
 		strings.Contains(response.Body.String(), "UNSAFE_SECRET") {
@@ -115,10 +139,16 @@ func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing
 	if response := disable(left); response.Code != http.StatusForbidden {
 		t.Fatalf("context ABAC did not deny source disable: %d %s", response.Code, response.Body.String())
 	}
+	if response := start(left); response.Code != http.StatusForbidden {
+		t.Fatalf("context ABAC did not deny plan start: %d %s", response.Code, response.Body.String())
+	}
 	for i := 0; i < 2; i++ {
 		if response := disable(right); response.Code != http.StatusNoContent {
 			t.Fatalf("idempotent source disable: %d %s", response.Code, response.Body.String())
 		}
+	}
+	if response := start(right); response.Code != http.StatusNotFound {
+		t.Fatalf("disabled source started a plan: %d %s", response.Code, response.Body.String())
 	}
 	if requests.Load() != 0 {
 		t.Fatalf("source configuration or disable made %d vendor requests", requests.Load())

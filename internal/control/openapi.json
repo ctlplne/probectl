@@ -3995,6 +3995,33 @@
         }
       }
     },
+    "/v1/nms-imports/live-plans": {
+      "post": {
+        "x-required-permission": "nms.import.write",
+        "operationId": "startConfiguredLibreNMSImportPlan",
+        "summary": "Start an inert capture plan from an enabled LibreNMS source",
+        "description": "The authenticated tenant and stored routing context determine authority. The source row is locked through plan creation so disable or reconfiguration cannot race its version binding. No credential is resolved and no vendor request is made. A complete capture and human review are required before any destination write.",
+        "tags": ["entities"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "additionalProperties": false,
+          "required": ["context_id", "instance_ref"],
+          "properties": {
+            "context_id": {"type": "string", "format": "uuid"},
+            "instance_ref": {"type": "string", "minLength": 1, "maxLength": 128}
+          }
+        }}}},
+        "responses": {
+          "201": {"description": "Inert plan started with an opaque ID.", "content": {"application/json": {"schema": {
+            "type": "object", "required": ["plan_id", "state"],
+            "properties": {"plan_id": {"type": "string", "format": "uuid"}, "state": {"type": "string", "enum": ["capturing"]}}
+          }}}},
+          "400": {"description": "Invalid source instance or routing context."},
+          "403": {"description": "Import write permission denied in this context."},
+          "404": {"description": "Enabled source or routing context not found in this tenant."}
+        }
+      }
+    },
     "/v1/nms-imports/sources": {
       "post": {
         "x-required-permission": "nms.import.write",

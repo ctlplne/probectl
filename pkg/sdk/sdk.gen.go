@@ -2181,6 +2181,31 @@ type Me struct {
 	UserId          string   `json:"user_id"`
 }
 
+type NMSImportSealedRow struct {
+	Address          string   `json:"address,omitempty"`
+	ExternalId       string   `json:"external_id"`
+	GroupIds         []string `json:"group_ids"`
+	Hostname         string   `json:"hostname,omitempty"`
+	Label            string   `json:"label,omitempty"`
+	LocationId       string   `json:"location_id,omitempty"`
+	LocationLabel    string   `json:"location_label,omitempty"`
+	ObjectKind       string   `json:"object_kind"`
+	ParentExternalId string   `json:"parent_external_id,omitempty"`
+	PollSeconds      int      `json:"poll_seconds,omitempty"`
+	RowNumber        int      `json:"row_number"`
+	Severity         string   `json:"severity,omitempty"`
+	UnmappedCodes    []string `json:"unmapped_codes"`
+}
+
+type NMSImportSealedRowsPage struct {
+	ContextId    string               `json:"context_id"`
+	Items        []NMSImportSealedRow `json:"items"`
+	NextCursor   int                  `json:"next_cursor,omitempty"`
+	PlanId       string               `json:"plan_id"`
+	RowCount     int                  `json:"row_count"`
+	SnapshotHash string               `json:"snapshot_hash"`
+}
+
 type OnboardingFinding struct {
 	Href       string `json:"href"`
 	ObservedAt string `json:"observed_at"`
@@ -5570,6 +5595,83 @@ func (c *Client) GetMe(ctx context.Context, req GetMeRequest) (*Me, error) {
 	path := "/v1/me"
 	query := url.Values{}
 	var out Me
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Start an inert capture plan from an enabled LibreNMS source
+type StartConfiguredLibreNmsImportPlanRequest struct {
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) StartConfiguredLibreNmsImportPlan(ctx context.Context, req StartConfiguredLibreNmsImportPlanRequest) (map[string]any, error) {
+	path := "/v1/nms-imports/live-plans"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Configure one tenant and routing-context owned LibreNMS HTTPS import source
+type ConfigureLibreNmsImportSourceRequest struct {
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) ConfigureLibreNmsImportSource(ctx context.Context, req ConfigureLibreNmsImportSourceRequest) (map[string]any, error) {
+	path := "/v1/nms-imports/sources"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Disable live fetching for one tenant import source
+type DisableLibreNmsImportSourceRequest struct {
+	Instance string          `json:"-"`
+	Body     *map[string]any `json:"-"`
+}
+
+func (c *Client) DisableLibreNmsImportSource(ctx context.Context, req DisableLibreNmsImportSourceRequest) error {
+	path := "/v1/nms-imports/sources/{instance}/disable"
+	if req.Instance == "" {
+		return fmt.Errorf("instance is required")
+	}
+	path = strings.ReplaceAll(path, "{instance}", url.PathEscape(req.Instance))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodPost, path, query, req.Body, nil)
+}
+
+// Page the redacted rows of one sealed import capture
+type ListNmsImportSealedRowsRequest struct {
+	Id        string  `json:"-"`
+	ContextId *string `json:"-"`
+	Limit     *int    `json:"-"`
+	Cursor    *int    `json:"-"`
+}
+
+func (c *Client) ListNmsImportSealedRows(ctx context.Context, req ListNmsImportSealedRowsRequest) (*NMSImportSealedRowsPage, error) {
+	path := "/v1/nms-imports/{id}/rows"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	var out NMSImportSealedRowsPage
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

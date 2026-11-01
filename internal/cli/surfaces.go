@@ -173,6 +173,16 @@ var surfaceCommands = map[string]surfaceCommand{
 		"path-resolve": {Method: http.MethodGet, Path: "/v1/tests/{id}/path/entities", ArgName: "id",
 			Description: "show current canonical identity evidence for this test's path responders in its bound context"},
 	}},
+	"nms-import": {Name: "nms-import", Summary: "tenant-scoped incumbent NMS import", Ops: map[string]apiOp{
+		"rows": {Method: http.MethodGet, Path: "/v1/nms-imports/{id}/rows", ArgName: "id",
+			Description: "page redacted sealed source rows; requires --query context_id=<routing-context UUID>"},
+		"configure-source": {Method: http.MethodPost, Path: "/v1/nms-imports/sources", SensitiveBody: true,
+			Description: "configure a LibreNMS HTTPS origin and tenant secret reference; use --body-file <0600-file|->"},
+		"disable-source": {Method: http.MethodPost, Path: "/v1/nms-imports/sources/{instance}/disable", ArgName: "instance",
+			Description: "disable source egress and invalidate unfinished captures; --body with context_id"},
+		"start-live": {Method: http.MethodPost, Path: "/v1/nms-imports/live-plans",
+			Description: "start an inert plan from an enabled source; --body with context_id and instance_ref"},
+	}},
 	"change": {Name: "change", Summary: "change correlation events", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/changes"},
 	}},

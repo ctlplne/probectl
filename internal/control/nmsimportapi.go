@@ -40,6 +40,13 @@ func (s *Server) nmsImportContext(r *http.Request, contextID, permission string)
 	return ctx, scope.ContextID, nil
 }
 
+func (s *Server) nmsImportCaptureStore(r *http.Request) nmsimport.CaptureStore {
+	return nmsimport.NewCaptureStore(s.pool,
+		func(ctx context.Context, sc tenancy.Scope, action, target string, data map[string]any) error {
+			return s.recordAudit(ctx, sc, r, action, target, data)
+		})
+}
+
 // A tenant may nominate an approved HTTPS origin and a reference inside its
 // deployment-owned namespace. The policy is not taken from the request. No
 // network call or credential resolution occurs during configuration.
@@ -60,11 +67,7 @@ func (s *Server) handleConfigureNMSImportSource(w http.ResponseWriter, r *http.R
 	if s.cfg == nil || len(s.cfg.NMSImportApprovedCIDRs) == 0 || s.cfg.NMSImportRefPrefix == "" {
 		return apierror.Unavailable("live NMS import is not configured")
 	}
-	capturer := nmsimport.NewCaptureStore(s.pool,
-		func(ctx context.Context, sc tenancy.Scope, action, target string, data map[string]any) error {
-			return s.recordAudit(ctx, sc, r, action, target, data)
-		})
-	sourceID, err := capturer.ConfigureLibreNMSHTTPSource(ctx, contextID,
+	sourceID, err := s.nmsImportCaptureStore(r).ConfigureLibreNMSHTTPSource(ctx, contextID,
 		req.InstanceRef, req.Origin, req.CredentialRef, s.cfg.NMSImportRefPrefix,
 		s.cfg.NMSImportApprovedCIDRs, s.cfg.NMSImportCAFile, s.cfg.NMSImportTimeout)
 	switch {
@@ -92,11 +95,7 @@ func (s *Server) handleDisableNMSImportSource(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		return err
 	}
-	capturer := nmsimport.NewCaptureStore(s.pool,
-		func(ctx context.Context, sc tenancy.Scope, action, target string, data map[string]any) error {
-			return s.recordAudit(ctx, sc, r, action, target, data)
-		})
-	err = capturer.DisableLibreNMSHTTPSource(ctx, contextID, r.PathValue("instance"))
+	err = s.nmsImportCaptureStore(r).DisableLibreNMSHTTPSource(ctx, contextID, r.PathValue("instance"))
 	switch {
 	case errors.Is(err, nmsimport.ErrPlanUnavailable):
 		return apierror.NotFound("import source not found in this routing context")
@@ -104,6 +103,35 @@ func (s *Server) handleDisableNMSImportSource(w http.ResponseWriter, r *http.Req
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// A live plan binds an enabled source/version inside the tenant transaction;
+// starting it never resolves credentials or contacts the source. Its rows
+// remain inert until a separate complete capture and human review.
+func (s *Server) handleStartNMSImportLivePlan(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		ContextID   string `json:"context_id"`
+		InstanceRef string `json:"instance_ref"`
+	}
+	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
+		return err
+	}
+	ctx, contextID, err := s.nmsImportContext(r, req.ContextID, permNMSImportWrite)
+	if err != nil {
+		return err
+	}
+	planID, err := s.nmsImportCaptureStore(r).StartConfiguredLibreNMSPlan(ctx,
+		contextID, req.InstanceRef)
+	switch {
+	case errors.Is(err, nmsimport.ErrPlanUnavailable):
+		return apierror.NotFound("enabled import source not found in this routing context")
+	case errors.Is(err, nmsimport.ErrInvalidPage):
+		return apierror.BadRequest("invalid import source instance")
+	case err != nil:
+		return err
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"plan_id": planID, "state": "capturing"})
 	return nil
 }
 

@@ -140,6 +140,9 @@ func sensitiveProviderOperationPath(method, path string) (apiOp, bool) {
 	// concatenates into the protected route even though it omitted the leading
 	// slash. Classify that spelling conservatively before any argv body is read.
 	canonicalPath := pathpkg.Clean("/" + strings.TrimLeft(parsed.Path, "/"))
+	if method == http.MethodPost && canonicalPath == "/v1/nms-imports/sources" {
+		return apiOp{Method: method, Path: canonicalPath, SensitiveBody: true}, true
+	}
 	for _, op := range surfaceCommands["provider"].Ops {
 		if op.SensitiveBody && strings.EqualFold(op.Method, method) && op.Path == canonicalPath {
 			return op, true

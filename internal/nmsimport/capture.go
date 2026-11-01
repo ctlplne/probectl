@@ -8,6 +8,7 @@ package nmsimport
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"io"
 	"math"
@@ -70,6 +71,25 @@ const maxCaptureRowsPerPage = 10_000
 // A handler must check the actor's import permission before calling it.
 func (s CaptureStore) StartPlan(ctx context.Context, contextID string,
 	source Kind, instanceRef, generationHash string) (string, error) {
+	return s.startPlan(ctx, contextID, source, instanceRef, generationHash, false)
+}
+
+// StartConfiguredLibreNMSPlan starts an inert plan only from an enabled source
+// already configured in this tenant and context. A fresh internal generation
+// nonce separates independent captures; the sealed snapshot hash later proves
+// their actual normalized content. The source row stays locked through plan
+// insertion so disable/reconfiguration cannot race its version binding.
+func (s CaptureStore) StartConfiguredLibreNMSPlan(ctx context.Context,
+	contextID, instanceRef string) (string, error) {
+	nonce, err := crypto.Random(32)
+	if err != nil {
+		return "", err
+	}
+	return s.startPlan(ctx, contextID, LibreNMS, instanceRef, hex.EncodeToString(nonce), true)
+}
+
+func (s CaptureStore) startPlan(ctx context.Context, contextID string,
+	source Kind, instanceRef, generationHash string, requireConfigured bool) (string, error) {
 	if s.pool == nil || s.audit == nil {
 		return "", ErrCaptureAuditUnavailable
 	}
@@ -102,16 +122,26 @@ func (s CaptureStore) StartPlan(ctx context.Context, contextID string,
 		if err != nil {
 			return err
 		}
-		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_sources
+		if !requireConfigured {
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_sources
 			(tenant_id,context_id,id,source_kind,instance_ref) VALUES ($1,$2,$3,$4,$5)
 			ON CONFLICT (tenant_id,context_id,source_kind,instance_ref) DO NOTHING`,
-			tenantID, contextID, sourceID, string(source), instanceRef); err != nil {
-			return captureStartErr(err)
+				tenantID, contextID, sourceID, string(source), instanceRef); err != nil {
+				return captureStartErr(err)
+			}
 		}
 		var configVersion int64
-		if err := sc.Q.QueryRow(ctx, `SELECT id::text,config_version FROM nms_import_sources
-			WHERE tenant_id=$1 AND context_id=$2 AND source_kind=$3 AND instance_ref=$4`,
-			tenantID, contextID, string(source), instanceRef).Scan(&sourceID, &configVersion); err != nil {
+		query := `SELECT id::text,config_version FROM nms_import_sources
+			WHERE tenant_id=$1 AND context_id=$2 AND source_kind=$3 AND instance_ref=$4`
+		if requireConfigured {
+			query += ` AND fetch_enabled AND config_version>0`
+		}
+		query += ` FOR SHARE`
+		if err := sc.Q.QueryRow(ctx, query, tenantID, contextID,
+			string(source), instanceRef).Scan(&sourceID, &configVersion); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrPlanUnavailable
+			}
 			return err
 		}
 		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_plans
