@@ -119,9 +119,13 @@ symbol github.com/ctlplne/probectl/internal/tenantlife.Engine.Export — superse
 symbol github.com/ctlplne/probectl/internal/audit.ProviderHeadSeq — provider-chain head probe consumed by ee/silo isolation suites
 symbol github.com/ctlplne/probectl/internal/notify.Dispatcher.Drain — connector-drain hook consumed by cmd shutdown tests
 symbol github.com/ctlplne/probectl/internal/siem.Forwarder.Stats — forwarder counters asserted by cmd SIEM wiring tests
-symbol github.com/ctlplne/probectl/internal/fairness.DefaultPolicy — policy baseline referenced by dependent packages' fairness tests
 symbol github.com/ctlplne/probectl/internal/fairness.Gate.EffectivePolicy — effective-policy probe asserted by cmd fairness tests
 symbol github.com/ctlplne/probectl/internal/tenantcrypto.AddOpener — envelope-opener registration used by ee/tenantkeys BYOK tests
+
+# ---- FX-2 tenant-bound identity verification seams --------------------------
+symbol github.com/ctlplne/probectl/internal/incident.Correlator.IngestAuthenticated — cross-package incident integration tests prove current identity joins for authenticated non-fault signals; production faults use IngestAuthenticatedFault with a durable observation receipt
+symbol github.com/ctlplne/probectl/internal/store.EntityRegistry.PathTestContext — tenant-isolation integration tests read back the assigned routing context without exposing raw SQL; production path projection reads PathTestBinding with its assignment time
+symbol github.com/ctlplne/probectl/internal/store.EntityRegistry.ResolveSourceContext — control and store isolation tests prove operator-assigned source context and foreign-source refusal; production evidence resolution uses the sender-bound detail path
 symbol github.com/ctlplne/probectl/internal/tenantcrypto.NewEnvelopeSealer — sealer constructor used by ee and backup test suites
 symbol github.com/ctlplne/probectl/internal/tenantcrypto.Reset — process-global reset for crypto test hermeticity (test-order independence)
 symbol github.com/ctlplne/probectl/internal/govern.Reset — process-global reset for governance test hermeticity
