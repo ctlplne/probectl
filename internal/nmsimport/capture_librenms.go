@@ -61,24 +61,26 @@ func (s CaptureStore) CaptureLibreNMSDevicesAndLocations(ctx context.Context,
 // responses leave the partial plan inert and fail closed.
 func (s CaptureStore) CaptureLibreNMSInventory(ctx context.Context, contextID, planID string,
 	devices, locations, groups, rules io.Reader, memberships []LibreNMSMembershipList) (string, error) {
+	return s.captureLibreNMSInventory(ctx, contextID, planID, devices, locations,
+		groups, rules, memberships, nil)
+}
+
+func (s CaptureStore) captureLibreNMSInventory(ctx context.Context, contextID, planID string,
+	devices, locations, groups, rules io.Reader, memberships []LibreNMSMembershipList,
+	verify func() error) (string, error) {
 	groupIDs := make(map[string]bool)
 	groupNames := make(map[string]string)
 	lists := []libreNMSCaptureList{
 		{"devices", devices, streamLibreNMSDevices},
 		{"locations", locations, streamLibreNMSLocations},
 		{"groups", groups, func(raw io.Reader, emit func(Snapshot) error) error {
-			return streamLibreNMSGroups(raw, func(snapshot Snapshot) error {
-				for i, row := range snapshot.Rows {
+			return streamCapturedLibreNMSGroups(raw, func(snapshot Snapshot) error {
+				for _, row := range snapshot.Rows {
 					if _, duplicate := groupIDs[row.ExternalID]; duplicate {
 						return ErrInvalidPage
 					}
 					groupIDs[row.ExternalID] = false
 					groupNames[row.ExternalID] = row.Label
-					for j, code := range snapshot.Rows[i].UnmappedCodes {
-						if code == "membership_not_captured" {
-							snapshot.Rows[i].UnmappedCodes[j] = "group_unmapped"
-						}
-					}
 				}
 				return emit(snapshot)
 			})
@@ -110,9 +112,25 @@ func (s CaptureStore) CaptureLibreNMSInventory(ctx context.Context, contextID, p
 				return ErrInvalidPage
 			}
 		}
+		if verify != nil {
+			return verify()
+		}
 		return nil
 	}
 	return s.captureLibreNMSLists(ctx, contextID, planID, complete, lists...)
+}
+
+func streamCapturedLibreNMSGroups(raw io.Reader, emit func(Snapshot) error) error {
+	return streamLibreNMSGroups(raw, func(snapshot Snapshot) error {
+		for i := range snapshot.Rows {
+			for j, code := range snapshot.Rows[i].UnmappedCodes {
+				if code == "membership_not_captured" {
+					snapshot.Rows[i].UnmappedCodes[j] = "group_unmapped"
+				}
+			}
+		}
+		return emit(snapshot)
+	})
 }
 
 // The plan must have been started by an authorized caller for this LibreNMS

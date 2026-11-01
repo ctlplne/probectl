@@ -72,8 +72,10 @@ func (s CaptureStore) CaptureConfiguredLibreNMSInventory(ctx context.Context,
 			GroupID: id, GroupName: groupNames[id], Raw: newReader("membership", id),
 		})
 	}
-	return s.CaptureLibreNMSInventory(ctx, contextID, planID,
-		devices, locations, groups, rules, memberships)
+	return s.captureLibreNMSInventory(ctx, contextID, planID,
+		devices, locations, groups, rules, memberships, func() error {
+			return s.verifyConfiguredLibreNMSInventory(ctx, contextID, planID, policy, ids)
+		})
 }
 
 func streamLibreNMSLiveGroups(raw io.Reader, emit func(Snapshot) error) error {

@@ -170,8 +170,8 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatalf("stale source plan became actionable: %s", state)
 	}
 
-	var requests, groupRequests, memberRequests atomic.Int32
-	var drift atomic.Bool
+	var requests, deviceRequests, groupRequests, memberRequests atomic.Int32
+	var drift, deviceDrift atomic.Bool
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.Header.Get("Authorization") != "Bearer fixture" {
@@ -179,7 +179,11 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		}
 		switch r.URL.EscapedPath() {
 		case "/api/v0/devices":
-			_, _ = io.WriteString(w, `{"status":"ok","devices":[{"device_id":17,"display":"Edge","ip":"10.0.0.1","community":"source-only-secret"}],"count":1}`)
+			label := "Edge"
+			if deviceRequests.Add(1)%2 == 0 && deviceDrift.Load() {
+				label = "Edge changed"
+			}
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"status":"ok","devices":[{"device_id":17,"display":%q,"ip":"10.0.0.1","community":"source-only-secret"}],"count":1}`, label))
 		case "/api/v0/resources/locations":
 			_, _ = io.WriteString(w, `{"status":"ok","locations":[{"id":5,"location":"West"}],"count":1}`)
 		case "/api/v0/devicegroups":
@@ -300,18 +304,41 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if requests.Load() != 9 || resolver.resolves != 9 || resolver.releases != 9 {
+	if requests.Load() != 14 || resolver.resolves != 14 || resolver.releases != 14 {
 		t.Fatalf("full source capture lost a fixed endpoint or token release: requests=%d resolver=%+v",
 			requests.Load(), resolver)
 	}
-	drift.Store(true)
-	driftPlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+	deviceDrift.Store(true)
+	devicePlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
 		"config-lab", strings.Repeat("e", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := capturer.CaptureConfiguredLibreNMSInventory(scopeA, contextID,
-		driftPlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) || memberRequests.Load() != 2 {
+		devicePlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) {
+		t.Fatalf("source device changed between capture and replay: %v", err)
+	}
+	if err := tenancy.InTenant(scopeA, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var state string
+		if err := sc.Q.QueryRow(ctx, `SELECT state FROM nms_import_plans WHERE id=$1`, devicePlan).Scan(&state); err != nil {
+			return err
+		}
+		if state != "capturing" {
+			return fmt.Errorf("drifted source plan became actionable: %s", state)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deviceDrift.Store(false)
+	drift.Store(true)
+	driftPlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+		"config-lab", strings.Repeat("f", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := capturer.CaptureConfiguredLibreNMSInventory(scopeA, contextID,
+		driftPlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) || memberRequests.Load() != 3 {
 		t.Fatalf("renamed source group fetched a membership or sealed: members=%d err=%v",
 			memberRequests.Load(), err)
 	}
