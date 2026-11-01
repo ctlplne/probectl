@@ -41,12 +41,12 @@ func TestLibreNMSPagePreservesSourceIDWithoutCredentialOrContext(t *testing.T) {
 }
 
 func TestZabbixExportKeepsGroupUUIDAndListsNestedUnmappedTrigger(t *testing.T) {
-	page := `{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"group-uuid-1","name":"WAN"}],
+	page := `{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"748ad4d098d447d492bb935c907f652f","name":"WAN"}],
 	"hosts":[{"host":"edge-r1","name":"Edge R1","groups":[{"name":"WAN"}],
 	"interfaces":[{"ip":"10.0.0.1","interface_ref":"if1"}],
 	"macros":[{"macro":"{$SNMP_COMMUNITY}","value":"secret-macro-123"}],
-	"items":[{"uuid":"item-uuid-1","key":"if.in","delay":"30s",
-	"triggers":[{"uuid":"trigger-uuid-1","name":"Down","expression":"secret-expression-456","url":"https://secret.invalid/hook"}]}]}]}}`
+	"items":[{"uuid":"11111111222233334444555555555555","key":"if.in","delay":"30s",
+	"triggers":[{"uuid":"aaaaaaaabbbbccccddddffffffffffff","name":"Down","expression":"secret-expression-456","url":"https://secret.invalid/hook"}]}]}]}}`
 	got, err := parseZabbixHosts(strings.NewReader(page))
 	if err != nil {
 		t.Fatal(err)
@@ -54,9 +54,9 @@ func TestZabbixExportKeepsGroupUUIDAndListsNestedUnmappedTrigger(t *testing.T) {
 	if got.Version != "7.4" || len(got.Rows) != 4 {
 		t.Fatalf("expected group, host, item and trigger rows: %+v", got)
 	}
-	if got.Rows[0].ExternalID != "group-uuid-1" || got.Rows[1].ExternalID != "edge-r1" ||
+	if got.Rows[0].ExternalID != "748ad4d098d447d492bb935c907f652f" || got.Rows[1].ExternalID != "edge-r1" ||
 		got.Rows[1].Address != "10.0.0.1" || len(got.Rows[1].GroupIDs) != 1 ||
-		got.Rows[1].GroupIDs[0] != "group-uuid-1" || got.Rows[3].ExternalID != "trigger-uuid-1" ||
+		got.Rows[1].GroupIDs[0] != "748ad4d098d447d492bb935c907f652f" || got.Rows[3].ExternalID != "aaaaaaaabbbbccccddddffffffffffff" ||
 		!contains(got.Rows[3].UnmappedCodes, "expression_unmapped") {
 		t.Fatalf("documented identity or unmapped status lost: %+v", got.Rows)
 	}
@@ -154,12 +154,33 @@ func TestMalformedSourcePageFailsWithoutEchoingInput(t *testing.T) {
 
 func TestZabbixExportRejectsAmbiguousSourceKeys(t *testing.T) {
 	for _, raw := range []string{
-		`{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"g1","name":"A"},{"uuid":"g1","name":"B"}],"hosts":[]}}`,
+		`{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"A"},{"uuid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"B"}],"hosts":[]}}`,
 		`{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge"},{"host":"edge"}]}}`,
+		`{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"secret-token-123","name":"A"}],"hosts":[]}}`,
 	} {
 		_, err := parseZabbixHosts(strings.NewReader(raw))
 		if !errors.Is(err, ErrInvalidPage) {
 			t.Fatalf("ambiguous import identity accepted: %v", err)
+		}
+	}
+}
+
+func TestZabbixInvalidNestedUUIDsStayUnmappedWithoutEcho(t *testing.T) {
+	raw := `{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge",
+		"items":[{"uuid":"secret-item-id-123","triggers":[{"uuid":"secret-trigger-id-456","expression":"secret-expression-789"}]}]}]}}`
+	got, err := parseZabbixHosts(strings.NewReader(raw))
+	if err != nil || len(got.Rows) != 3 || got.Rows[1].ExternalID != "" || got.Rows[2].ExternalID != "" ||
+		!contains(got.Rows[1].UnmappedCodes, "item_id_unavailable") ||
+		!contains(got.Rows[2].UnmappedCodes, "trigger_id_unavailable") {
+		t.Fatalf("invalid nested UUID was not held unmapped: %+v, %v", got, err)
+	}
+	wire, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"secret-item-id-123", "secret-trigger-id-456", "secret-expression-789"} {
+		if strings.Contains(string(wire), secret) {
+			t.Fatalf("invalid source UUID or expression %q escaped into preview", secret)
 		}
 	}
 }
