@@ -104,8 +104,9 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 
 // CREATE TABLE LIKE INCLUDING ALL copies CHECK/PK/UNIQUE but not foreign keys.
 // FX-2's tenant/context composite references must therefore be installed
-// after all seven registry tables have been copied into a physical silo. Each
-// statement is idempotent for both provision and catch-up.
+// after all tenant tables have been copied into a physical silo. This also
+// repairs the FX-2b import references. Each statement is idempotent for both
+// provision and catch-up.
 func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 	owned := make(map[string]bool, len(tables))
 	for _, table := range TenantOwned(tables) {
@@ -146,6 +147,21 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 		keys = append(keys,
 			foreignKey{"entity_fault_receipts", "fx2_fault_receipt_tenant_fk", "tenant_id", "public.tenants", "id"},
 			foreignKey{"entity_fault_receipts", "fx2_fault_receipt_incident_fk", "tenant_id, incident_id", "incidents", "tenant_id, id"},
+		)
+	}
+	// CREATE TABLE LIKE omits every import FK. Keep source plans, row targets
+	// and provenance inside the same physical tenant and routing context on
+	// both first provision and catch-up. Older schemas have no import tables.
+	if owned["nms_import_sources"] && owned["nms_import_plans"] &&
+		owned["nms_import_rows"] && owned["nms_import_provenance"] {
+		keys = append(keys,
+			foreignKey{"nms_import_sources", "fx2b_source_context_fk", "tenant_id, context_id", "entity_contexts", "tenant_id, id"},
+			foreignKey{"nms_import_plans", "fx2b_plan_source_fk", "tenant_id, context_id, source_id", "nms_import_sources", "tenant_id, context_id, id"},
+			foreignKey{"nms_import_rows", "fx2b_row_plan_fk", "tenant_id, context_id, plan_id", "nms_import_plans", "tenant_id, context_id, id"},
+			foreignKey{"nms_import_rows", "fx2b_row_entity_fk", "tenant_id, context_id, target_entity_id", "entities", "tenant_id, context_id, id"},
+			foreignKey{"nms_import_provenance", "fx2b_provenance_source_fk", "tenant_id, context_id, source_id", "nms_import_sources", "tenant_id, context_id, id"},
+			foreignKey{"nms_import_provenance", "fx2b_provenance_plan_source_fk", "tenant_id, context_id, plan_id, source_id", "nms_import_plans", "tenant_id, context_id, id, source_id"},
+			foreignKey{"nms_import_provenance", "fx2b_provenance_entity_fk", "tenant_id, context_id, entity_id", "entities", "tenant_id, context_id, id"},
 		)
 	}
 	// Existing silos can predate the public (tenant_id,id) index. A global
@@ -191,6 +207,9 @@ END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(n
 		}
 		if key.name == "fx2_incident_entity_fk" || key.name == "fx2_signal_entity_fk" || key.name == "fx2_override_entity_fk" {
 			onDelete = " ON DELETE SET NULL (entity_id)"
+		}
+		if key.name == "fx2b_row_entity_fk" {
+			onDelete = " ON DELETE SET NULL (target_entity_id)"
 		}
 		plan = append(plan, fmt.Sprintf(`DO $fx2_silo_fk$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = %s::regclass AND conname = %s) THEN
