@@ -18,7 +18,7 @@ func TestLibreNMSPagePreservesSourceIDWithoutCredentialOrContext(t *testing.T) {
 		{"device_id":"17","hostname":"edge-r1","display":"Edge R1","ip":"10.0.0.1","location_id":null,"community":"secret-community-123"},
 		{"device_id":18,"hostname":"edge-r2","ip":"10.0.0.2","location_id":5,"authpass":"secret-auth-456"}
 	]}`
-	got, err := ParseLibreNMSDevices(strings.NewReader(page))
+	got, err := parseLibreNMSDevices(strings.NewReader(page))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestZabbixExportKeepsGroupUUIDAndListsNestedUnmappedTrigger(t *testing.T) {
 	"macros":[{"macro":"{$SNMP_COMMUNITY}","value":"secret-macro-123"}],
 	"items":[{"uuid":"item-uuid-1","key":"if.in","delay":"30s",
 	"triggers":[{"uuid":"trigger-uuid-1","name":"Down","expression":"secret-expression-456","url":"https://secret.invalid/hook"}]}]}]}}`
-	got, err := ParseZabbixHosts(strings.NewReader(page))
+	got, err := parseZabbixHosts(strings.NewReader(page))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestMalformedSourcePageFailsWithoutEchoingInput(t *testing.T) {
 		`{"status":"ok","devices":[{"device_id":0,"community":"secret-token-123"}]}`,
 		`{"status":"ok","devices":[]}{"extra":"secret-token-123"}`,
 	} {
-		_, err := ParseLibreNMSDevices(strings.NewReader(page))
+		_, err := parseLibreNMSDevices(strings.NewReader(page))
 		if !errors.Is(err, ErrInvalidPage) || strings.Contains(err.Error(), "secret-token-123") {
 			t.Fatalf("invalid source page must fail closed without echo: %v", err)
 		}

@@ -121,10 +121,10 @@ func safeAddress(text string) string {
 	return addr.String()
 }
 
-// ParseLibreNMSDevices reads one documented /api/v0/devices response. The
+// parseLibreNMSDevices reads one documented /api/v0/devices response. The
 // caller pages and snapshots the source before applying anything; this parser
 // retains source IDs and safe display fields but ignores credential fields.
-func ParseLibreNMSDevices(r io.Reader) (Snapshot, error) {
+func parseLibreNMSDevices(r io.Reader) (Snapshot, error) {
 	var page struct {
 		Status  string `json:"status"`
 		Devices []struct {
@@ -169,11 +169,11 @@ func ParseLibreNMSDevices(r io.Reader) (Snapshot, error) {
 	return out, nil
 }
 
-// ParseZabbixHosts reads one JSON host configuration export. The documented
+// parseZabbixHosts reads one JSON host configuration export. The documented
 // JSON form is sufficient to carry host, group and direct-trigger metadata;
 // YAML/XML are separate adapters. Macro values and trigger expressions are
 // never decoded into the safe snapshot or error text.
-func ParseZabbixHosts(r io.Reader) (Snapshot, error) {
+func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 	var export struct {
 		Zabbix struct {
 			Version string `json:"version"`
