@@ -75,9 +75,16 @@ func TestLibreNMSUnpagedStreamRefusesIncompleteOrChangedSource(t *testing.T) {
 		func(Snapshot) error { return denied }); !errors.Is(err, denied) {
 		t.Fatalf("capture callback failure was hidden: %v", err)
 	}
+	var emptyPages int
 	if err := streamLibreNMSDevices(strings.NewReader(`{"status":"ok","devices":[],"count":0}`),
-		func(Snapshot) error { return errors.New("empty list should not emit a page") }); err != nil {
-		t.Fatalf("empty source refused: %v", err)
+		func(page Snapshot) error {
+			emptyPages++
+			if len(page.Rows) != 0 {
+				return errors.New("empty source emitted a row")
+			}
+			return nil
+		}); err != nil || emptyPages != 1 {
+		t.Fatalf("empty source needs one zero-row receipt: pages=%d err=%v", emptyPages, err)
 	}
 }
 
