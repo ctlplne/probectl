@@ -108,8 +108,15 @@ func TestInflightStoreCancellationPreservesPriorFailure(t *testing.T) {
 }
 
 func TestStoreClientOwnTimeoutStillTripsInfrastructureBreaker(t *testing.T) {
-	upstream := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	release := make(chan struct{})
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+		// Keep the handler from sending an implicit 200 before the client
+		// observes its own timeout and records the transport failure.
+		<-release
+	}))
 	defer upstream.Close()
+	defer close(release)
 	client := upstream.Client()
 	client.Timeout = 50 * time.Millisecond
 	conn := NewWithClient(client)
