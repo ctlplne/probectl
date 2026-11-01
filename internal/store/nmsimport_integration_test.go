@@ -87,8 +87,39 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	seedPlan(b.ID, contextA, sourceB, planB)
 	// The capture service must use the same RLS and compound-FK boundary as
 	// direct storage writes. Its source page has no authority to set context.
-	capturer := nmsimport.NewCaptureStore(pool)
+	auditErr := errors.New("tenant audit append failed")
+	auditActions := map[string]int{}
+	var failAuditAction string
+	capturer := nmsimport.NewCaptureStore(pool, func(_ context.Context, _ tenancy.Scope,
+		action, target string, details map[string]any) error {
+		if target == "" || details["context_id"] != contextA {
+			return errors.New("capture audit lost its plan or routing context")
+		}
+		if action == failAuditAction {
+			return auditErr
+		}
+		auditActions[action]++
+		return nil
+	})
 	captureA := tenancy.WithTenant(ctx, tenancy.ID(a.ID))
+	failAuditAction = "nms_import.capture_started"
+	if _, err := capturer.StartPlan(captureA, contextA, nmsimport.LibreNMS,
+		"audit-reject", strings.Repeat("b", 64)); !errors.Is(err, auditErr) {
+		t.Fatalf("plan creation did not roll back with its tenant audit: %v", err)
+	}
+	failAuditAction = ""
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var count int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_sources
+			WHERE tenant_id=$1 AND context_id=$2 AND instance_ref='audit-reject'`,
+			a.ID, contextA).Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			t.Fatal("failed audit left a source configuration behind")
+		}
+		return nil
+	})
 	capturePlan, err := capturer.StartPlan(captureA, contextA, nmsimport.LibreNMS,
 		"lab", strings.Repeat("b", 64))
 	if err != nil {
@@ -114,6 +145,13 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	if _, err := appendPage(captureA, contextA, capturePlan, 1, 1, secondPage); err != nil {
 		t.Fatalf("next contiguous capture page: %v", err)
 	}
+	thirdPage := strings.Replace(strings.Replace(page, `"device_id":17`, `"device_id":19`, 1),
+		"Edge R1", "Edge R3", 1)
+	failAuditAction = "nms_import.page_captured"
+	if _, err := appendPage(captureA, contextA, capturePlan, 2, 2, thirdPage); !errors.Is(err, auditErr) {
+		t.Fatalf("page capture did not roll back with its tenant audit: %v", err)
+	}
+	failAuditAction = ""
 	if retry, err := appendPage(captureA, contextA, capturePlan, 0, 0, page); err != nil || retry != pageHash {
 		t.Fatalf("earlier page retry changed capture: hash=%q err=%v", retry, err)
 	}
@@ -165,12 +203,34 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	if _, err := capturer.Seal(captureA, contextA, capturePlan, math.MaxInt64, 2); !errors.Is(err, nmsimport.ErrInvalidPage) {
 		t.Fatalf("fabricated page total was accepted: %v", err)
 	}
+	failAuditAction = "nms_import.capture_sealed"
+	if _, err := capturer.Seal(captureA, contextA, capturePlan, 2, 2); !errors.Is(err, auditErr) {
+		t.Fatalf("seal did not fail with its tenant audit: %v", err)
+	}
+	failAuditAction = ""
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var state string
+		if err := sc.Q.QueryRow(ctx, `SELECT state FROM nms_import_plans
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextA, capturePlan).
+			Scan(&state); err != nil {
+			return err
+		}
+		if state != "capturing" {
+			t.Fatalf("failed audit published a sealed plan: %q", state)
+		}
+		return nil
+	})
 	sealedHash, err := capturer.Seal(captureA, contextA, capturePlan, 2, 2)
 	if err != nil || len(sealedHash) != 64 {
 		t.Fatalf("seal complete capture: hash=%q err=%v", sealedHash, err)
 	}
 	if retry, err := capturer.Seal(captureA, contextA, capturePlan, 2, 2); err != nil || retry != sealedHash {
 		t.Fatalf("exact seal retry changed hash: %q %v", retry, err)
+	}
+	if auditActions["nms_import.capture_started"] != 1 ||
+		auditActions["nms_import.page_captured"] != 2 ||
+		auditActions["nms_import.capture_sealed"] != 1 {
+		t.Fatalf("capture audit actions duplicated or omitted: %+v", auditActions)
 	}
 	if _, err := appendPage(captureA, contextA, capturePlan, 2, 2, page); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
 		t.Fatalf("sealed plan accepted another page: %v", err)
