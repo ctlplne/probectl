@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"io"
 	"math"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -44,6 +45,28 @@ func streamLibreNMSGroups(raw io.Reader, emit func(Snapshot) error) error {
 			return Row{}, ErrInvalidPage
 		}
 		return libreNMSGroupRow(group)
+	}, emit)
+}
+
+// The documented per-group endpoint returns an array-wrapped, unpaged list
+// of device IDs. The caller must supply a group ID from the previously
+// captured group list, never this lower-trust response. Each pair stays a
+// separate review candidate so the device row's bounded group_ids field
+// cannot silently cap membership.
+func streamLibreNMSGroupMembers(raw io.Reader, groupID string, emit func(Snapshot) error) error {
+	id, err := strconv.ParseUint(groupID, 10, 64)
+	if err != nil || id == 0 || strconv.FormatUint(id, 10) != groupID {
+		return ErrInvalidPage
+	}
+	return streamLibreNMSList(raw, "devices", true, func(value json.RawMessage) (Row, error) {
+		var member struct {
+			DeviceID sourceID `json:"device_id"`
+		}
+		if json.Unmarshal(value, &member) != nil || member.DeviceID == "" || member.DeviceID == "0" {
+			return Row{}, ErrInvalidPage
+		}
+		return Row{Kind: "membership", ExternalID: groupID + ":" + string(member.DeviceID),
+			UnmappedCodes: []string{"group_unmapped"}}, nil
 	}, emit)
 }
 

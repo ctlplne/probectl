@@ -171,6 +171,58 @@ func TestLibreNMSGroupAndRuleStreamsRejectPartialEnvelope(t *testing.T) {
 	}
 }
 
+func TestLibreNMSGroupMembershipStreamKeepsEveryEdgeWithoutSourceData(t *testing.T) {
+	var source strings.Builder
+	source.WriteString(`[{"status":"ok","message":"source-only-message","devices":[`)
+	for i := range maxCaptureRowsPerPage + 1 {
+		if i > 0 {
+			source.WriteByte(',')
+		}
+		fmt.Fprintf(&source, `{"device_id":%d,"community":"source-only-secret"}`, i+1)
+	}
+	fmt.Fprintf(&source, `],"count":%d}]`, maxCaptureRowsPerPage+1)
+	var pages []int
+	var last Row
+	err := streamLibreNMSGroupMembers(strings.NewReader(source.String()), "7", func(page Snapshot) error {
+		pages = append(pages, len(page.Rows))
+		last = page.Rows[len(page.Rows)-1]
+		wire, err := json.Marshal(page)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(wire), "source-only-") {
+			t.Fatal("membership source message or device credential escaped into capture")
+		}
+		for _, row := range page.Rows {
+			if row.Kind != "membership" || len(row.UnmappedCodes) != 1 || row.UnmappedCodes[0] != "group_unmapped" {
+				t.Fatalf("member must remain a separate review candidate: %+v", row)
+			}
+		}
+		return nil
+	})
+	if err != nil || len(pages) != 2 || pages[0] != maxCaptureRowsPerPage || pages[1] != 1 ||
+		last.ExternalID != fmt.Sprintf("7:%d", maxCaptureRowsPerPage+1) {
+		t.Fatalf("group membership was capped or lost its parent: pages=%v last=%+v err=%v", pages, last, err)
+	}
+	for _, groupID := range []string{"", "0", "07", "-7", "7/other"} {
+		if err := streamLibreNMSGroupMembers(strings.NewReader(`[{"status":"ok","devices":[]}]`),
+			groupID, func(Snapshot) error { return nil }); !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("noncanonical group ID %q accepted: %v", groupID, err)
+		}
+	}
+	for _, raw := range []string{
+		`[{"status":"ok","devices":[{"device_id":1}],"count":2}]`,
+		`[{"status":"ok","devices":[{"device_id":1},{"device_id":"01"}]}]`,
+		`[{"status":"ok","devices":[{"device_id":0}]}]`,
+		`{"status":"ok","devices":[]}`,
+	} {
+		if err := streamLibreNMSGroupMembers(strings.NewReader(raw), "7",
+			func(Snapshot) error { return nil }); !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("invalid membership response accepted: %q: %v", raw, err)
+		}
+	}
+}
+
 func TestLibreNMSUnpagedStreamRefusesIncompleteOrChangedSource(t *testing.T) {
 	for _, raw := range []string{
 		`{"status":"ok","devices":[{"device_id":1}],"count":2}`,
