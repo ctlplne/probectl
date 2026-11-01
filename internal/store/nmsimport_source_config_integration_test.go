@@ -475,13 +475,14 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	}
 	deviceDrift.Store(false)
 	drift.Store(true)
+	membersBeforeRenamed := memberRequests.Load()
 	driftPlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
 		"config-lab", strings.Repeat("f", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := capturer.CaptureConfiguredLibreNMSInventory(scopeA, contextID,
-		driftPlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) || memberRequests.Load() != 6 {
+		driftPlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) || memberRequests.Load() != membersBeforeRenamed {
 		t.Fatalf("renamed source group fetched a membership or sealed: members=%d err=%v",
 			memberRequests.Load(), err)
 	}

@@ -147,7 +147,7 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 			if signalIndexAt < lastCopy || signalIndexAt > firstFK {
 				t.Fatal("override signal FK target index must follow silo copies and precede foreign keys")
 			}
-			for _, want := range []string{
+			wants := []string{
 				`ADD CONSTRAINT "fx2_context_tenant_fk" FOREIGN KEY (tenant_id) REFERENCES public.tenants (id)`,
 				`ADD CONSTRAINT "fx2_path_test_fk" FOREIGN KEY (tenant_id, test_id) REFERENCES "t_abc"."tests" (tenant_id, id)`,
 				`ADD CONSTRAINT "fx2_path_context_fk" FOREIGN KEY (tenant_id, context_id) REFERENCES "t_abc"."entity_contexts" (tenant_id, id)`,
@@ -187,13 +187,14 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "fx2_incidents_identity_lookup_ck" CHECK (entity_context_id IS NULL OR identity_lookup_attempted)`,
 				`ADD CONSTRAINT "fx2_incident_signals_identity_lookup_ck" CHECK (entity_context_id IS NULL OR identity_lookup_attempted)`,
 				`ADD CONSTRAINT "fx2_incident_correlation_overrides_identity_lookup_ck" CHECK (entity_context_id IS NULL OR identity_lookup_attempted)`,
-			} {
+			}
+			for _, want := range wants {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("registry silo plan missing %s", want)
 				}
 			}
-			if strings.Count(joined, `conrelid = '"t_abc".`) != 38 {
-				t.Fatalf("registry and import silo plan did not make all thirty-eight foreign keys and checks idempotent")
+			if got := strings.Count(joined, `conrelid = '"t_abc".`); got != len(wants) {
+				t.Fatalf("registry and import silo plan has %d idempotent constraints; want %d", got, len(wants))
 			}
 			if !strings.Contains(joined, `CREATE TRIGGER entity_path_retarget AFTER UPDATE OF target ON "t_abc"."tests"`) ||
 				!strings.Contains(joined, `ALTER TABLE "t_abc"."tests" ENABLE ALWAYS TRIGGER entity_path_retarget`) {
