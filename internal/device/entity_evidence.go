@@ -310,16 +310,14 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 			r.evidenceLast = make(map[string]entityEvidenceSnapshot)
 		}
 		snapshot := entityEvidenceSnapshot{fingerprint: fingerprint}
-		if allResolved {
+		switch {
+		case allResolved:
 			snapshot.sentAt = time.Now()
-		} else if acceptedAny {
+		case acceptedAny:
 			// The RPC reports aggregate outcomes, so we cannot isolate the
 			// unresolved claim yet. Retry a stable inventory hourly instead of
 			// writing every accepted alias once per one-minute poll.
 			snapshot.retryAt = time.Now()
-		} else {
-			// Nothing was accepted, so the next poll may retry without
-			// duplicating durable evidence.
 		}
 		r.evidenceLast[dev.Address] = snapshot
 		r.evidenceMu.Unlock()

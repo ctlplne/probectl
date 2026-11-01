@@ -292,7 +292,7 @@ func (c *Collector) emitQualityReceipts(ctx context.Context, at time.Time) {
 	if len(valid) == 0 {
 		return
 	}
-	if _, ok := c.evidence.(FlowFaultEmitter); ok && c.faultQueue != nil {
+	if _, ok := c.evidence.(FaultEmitter); ok && c.faultQueue != nil {
 		configuredReceipts := make([]QualityReceipt, 0, len(valid))
 		for _, receipt := range valid {
 			// A dropped protocol window leaves the exporter state unknown.

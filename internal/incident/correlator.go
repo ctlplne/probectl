@@ -344,12 +344,13 @@ func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal,
 		sig.IdentityLookupAttempted = true
 		if resolver, ok := st.(SignalIdentityResolver); ok {
 			identity, err := resolver.ResolveSignalIdentity(ctx, *source, sig)
-			if err != nil {
+			switch {
+			case err != nil:
 				c.log.Warn("incident identity lookup unavailable; keeping signal ungrouped",
 					"tenant_id", sig.TenantID, "plane", sig.Plane)
-			} else if identity.EntityID == "" || identity.ContextID != "" {
+			case identity.EntityID == "" || identity.ContextID != "":
 				sig.IdentityContextID, sig.IdentityEntityID = identity.ContextID, identity.EntityID
-			} else {
+			default:
 				c.log.Warn("incident identity lookup returned incomplete tuple; keeping signal ungrouped",
 					"tenant_id", sig.TenantID, "plane", sig.Plane)
 			}

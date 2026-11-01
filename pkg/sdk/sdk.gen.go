@@ -1210,6 +1210,7 @@ type EntityPathHop struct {
 
 type EntityPathResult struct {
 	ContextId string          `json:"context_id,omitempty"`
+	Coverage  string          `json:"coverage"`
 	Items     []EntityPathHop `json:"items"`
 	Status    string          `json:"status"`
 	TestId    string          `json:"test_id"`

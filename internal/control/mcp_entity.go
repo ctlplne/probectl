@@ -416,7 +416,7 @@ func (b mcpEntityBackend) EntityPathContextAssign(ctx context.Context, p *auth.P
 	}); err != nil {
 		return mcp.EntityPathContextResult{}, entityAdminError(err)
 	}
-	return mcp.EntityPathContextResult{TestID: input.TestID, ContextID: input.ContextID}, nil
+	return mcp.EntityPathContextResult(input), nil
 }
 
 func (b mcpEntityBackend) EntityPathResolve(ctx context.Context, p *auth.Principal, input mcp.EntityPathResolveInput) (mcp.EntityPathResult, error) {

@@ -347,13 +347,14 @@ func runRegisterCollector(ctx context.Context, cfg *config.Config, db *store.DB,
 		fmt.Println("  ca_bundle:", *caOut)
 	}
 	fmt.Println()
-	if id.Plane == "bmp" {
+	switch id.Plane {
+	case "bmp":
 		fmt.Println("install the issued certificate with the CSR's existing private key on the BMP router;")
 		fmt.Println("the listener admits only this exact registry-issued tenant/plane/serial identity.")
-	} else if id.Plane == "entity" {
+	case "entity":
 		fmt.Println("install this certificate with the CSR's private key on the existing collector;")
 		fmt.Println("it may call only SubmitEntityEvidence, and the bus identity remains unchanged.")
-	} else {
+	default:
 		fmt.Println("stamp agent_id on every record the collector publishes to the bus;")
 		fmt.Println("the control plane verifies it against this registry row (TENANT-101).")
 	}

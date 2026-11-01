@@ -70,7 +70,7 @@ func TestEntityMCPAuthorizationPrecedesBackend(t *testing.T) {
 	if got := listedToolNames(t, handle(t, s, reader, 1, "tools/list", nil)); !got["entity_list"] || !got["entity_context_list"] ||
 		!got["entity_evidence_list"] || !got["entity_link_list"] ||
 		got["entity_source_assign"] || got["entity_context_create"] || got["entity_create"] || got["entity_path_context_assign"] {
-		t.Fatalf("reader tool catalogue=%v", got)
+		t.Fatalf("reader tool catalog=%v", got)
 	}
 	if code, _ := errCode(handle(t, s, reader, 2, "tools/call", map[string]any{
 		"name": "entity_source_assign", "arguments": map[string]any{"context_id": "ctx"},

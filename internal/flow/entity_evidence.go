@@ -36,9 +36,9 @@ const (
 	flowFaultPendingMaxAge      = 6 * 24 * time.Hour
 )
 
-// FlowFaultEmitter is optional. The bounded quality worker never sends a
+// FaultEmitter is optional. The bounded quality worker never sends a
 // fault through the raw UDP/bus path or blocks raw flow publication on RPC.
-type FlowFaultEmitter interface {
+type FaultEmitter interface {
 	SubmitFaults(context.Context, []entity.FaultObservation) (int, error)
 }
 
@@ -127,7 +127,7 @@ func (c *Collector) evidenceLoop(ctx context.Context) {
 // persistent outage refreshes within the normal 10-minute correlation window.
 func (c *Collector) sendFlowFaults(ctx context.Context, receipts []QualityReceipt,
 	lastFault map[string]time.Time, pending map[string]entity.FaultObservation) {
-	emitter, ok := c.evidence.(FlowFaultEmitter)
+	emitter, ok := c.evidence.(FaultEmitter)
 	if !ok {
 		return
 	}

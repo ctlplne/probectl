@@ -1119,6 +1119,7 @@ export interface EntityPathHop {
 
 export interface EntityPathResult {
   context_id?: string
+  coverage: "no_bound_context" | "no_post_binding_trace" | "registered_sources_only"
   items: EntityPathHop[]
   status: "unbound" | "awaiting_trace" | "current"
   test_id: string
