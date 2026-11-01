@@ -3995,6 +3995,29 @@
         }
       }
     },
+    "/v1/nms-imports/{id}/rows": {
+      "get": {
+        "x-required-permission": "nms.import.read",
+        "operationId": "listNMSImportSealedRows",
+        "summary": "Page the redacted rows of one sealed import capture",
+        "description": "The authenticated tenant and operator-selected routing context are resolved before policy checks. FORCE-RLS storage confines the source and plan. These are inert source candidates: no create, update, merge or approval is implied. Missing, expired, reconfigured and foreign plans share one not-found response. The read is audited.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+          {"name": "cursor", "in": "query", "schema": {"type": "integer", "minimum": 0, "format": "int64"}}
+        ],
+        "responses": {
+          "200": {"description": "At most 100 redacted source rows from a sealed tenant plan.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NMSImportSealedRowsPage"}}}},
+          "400": {"description": "Invalid routing context, cursor or limit."},
+          "403": {"description": "Import read permission denied in this routing context."},
+          "404": {"description": "No sealed current import plan in this tenant and routing context."}
+        },
+        "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
+      }
+    },
     "/v1/entity-contexts": {
       "get": {
         "x-required-permission": "entities.read",
@@ -17950,6 +17973,37 @@
         "properties": {
           "site_label": {"type": "string", "minLength": 1, "maxLength": 128},
           "vrf_label": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "NMSImportSealedRow": {
+        "type": "object",
+        "required": ["row_number", "object_kind", "external_id", "group_ids", "unmapped_codes"],
+        "properties": {
+          "row_number": {"type": "integer", "minimum": 0, "format": "int64"},
+          "object_kind": {"type": "string", "enum": ["device", "site", "group", "membership", "poll_setting", "alert_rule"]},
+          "external_id": {"type": "string", "maxLength": 256},
+          "label": {"type": "string", "maxLength": 256},
+          "address": {"type": "string", "maxLength": 255},
+          "hostname": {"type": "string", "maxLength": 253},
+          "parent_external_id": {"type": "string", "maxLength": 256},
+          "location_id": {"type": "string", "maxLength": 256},
+          "location_label": {"type": "string", "maxLength": 256},
+          "group_ids": {"type": "array", "maxItems": 256, "items": {"type": "string"}},
+          "poll_seconds": {"type": "integer", "minimum": 1, "maximum": 604800, "format": "int64"},
+          "severity": {"type": "string", "enum": ["ok", "warning", "critical"]},
+          "unmapped_codes": {"type": "array", "maxItems": 32, "items": {"type": "string"}}
+        }
+      },
+      "NMSImportSealedRowsPage": {
+        "type": "object",
+        "required": ["context_id", "plan_id", "snapshot_hash", "row_count", "items"],
+        "properties": {
+          "context_id": {"type": "string", "format": "uuid"},
+          "plan_id": {"type": "string", "format": "uuid"},
+          "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "row_count": {"type": "integer", "minimum": 0, "format": "int64"},
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/NMSImportSealedRow"}},
+          "next_cursor": {"type": "integer", "minimum": 0, "format": "int64"}
         }
       },
       "EntityContext": {

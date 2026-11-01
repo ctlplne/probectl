@@ -64,7 +64,10 @@ func (s CaptureStore) ListSealedRows(ctx context.Context, contextID, planID stri
 	contextID, planID = contextUUID.String(), planUUID.String()
 	page := SealedRowsPage{ContextID: contextID, PlanID: planID, Items: []SealedRow{}}
 	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		meta, err := loadCaptureMeta(ctx, sc, contextID, planID, false)
+		// Hold the source/plan version until this page has been read. A
+		// concurrent disable cannot commit between the version check and row
+		// lookup and then leave a stale page looking current.
+		meta, err := loadCaptureMeta(ctx, sc, contextID, planID, true)
 		if err != nil {
 			return err
 		}

@@ -217,6 +217,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/tests/{id}/path/entities":              auditWrapped(auditFacetSensitiveRead),
 	"PUT /v1/tests/{id}/entity-context":             auditExplicit(auditFacetMutation, "entity.path_context.assigned"),
 	"GET /v1/entity-contexts":                       auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/nms-imports/{id}/rows":                 auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/entity-contexts":                      auditExplicit(auditFacetMutation, "entity.context.created"),
 	"PUT /v1/entity-source-contexts":                auditExplicit(auditFacetMutation, "entity.source.assigned"),
 	"GET /v1/entities":                              auditWrapped(auditFacetSensitiveRead),

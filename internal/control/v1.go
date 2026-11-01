@@ -102,6 +102,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/entities/{id}", s.handleGetEntity, ai.PermEntitiesRead},
 		{http.MethodPost, "/v1/entity-contexts", s.handleCreateEntityContext, permAgentWrite},
 		{http.MethodGet, "/v1/entity-contexts", s.handleListEntityContexts, ai.PermEntitiesRead},
+		{http.MethodGet, "/v1/nms-imports/{id}/rows", s.handleListNMSImportRows, permNMSImportRead},
 		{http.MethodPut, "/v1/entity-source-contexts", s.handleAssignEntitySource, permAgentWrite},
 		{http.MethodPut, "/v1/tests/{id}/entity-context", s.handleAssignPathTestContext, permAgentWrite},
 		{http.MethodGet, "/v1/tests/{id}/path/entities", s.handleGetPathEntities, permTestRead},
