@@ -108,6 +108,12 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		a.ID, contextA, planA, entityA); err != nil {
 		t.Fatalf("own plan row: %v", err)
 	}
+	if err := tryA(`INSERT INTO nms_import_provenance
+		(tenant_id,context_id,source_id,object_kind,external_id,entity_id,plan_id)
+		VALUES ($1,$2,$3,'device','18',$4,$5)`,
+		a.ID, contextA, sourceA, entityA, planA); err == nil {
+		t.Fatal("provenance accepted an absent plan row")
+	}
 	for _, tc := range []struct {
 		name, source, plan, entity string
 	}{
@@ -128,6 +134,10 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		VALUES ($1,$2,$3,'device','17',$4,$5)`,
 		a.ID, contextA, sourceA, entityA, planA); err != nil {
 		t.Fatalf("own provenance: %v", err)
+	}
+	if err := tryA(`DELETE FROM nms_import_plans
+		WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextA, planA); err == nil {
+		t.Fatal("applied provenance was erased by deleting its plan")
 	}
 	for _, table := range []string{"nms_import_sources", "nms_import_plans", "nms_import_rows", "nms_import_provenance"} {
 		inTenant(ctx, t, pool, b.ID, func(ctx context.Context, sc tenancy.Scope) error {

@@ -161,6 +161,7 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 			foreignKey{"nms_import_rows", "fx2b_row_entity_fk", "tenant_id, context_id, target_entity_id", "entities", "tenant_id, context_id, id"},
 			foreignKey{"nms_import_provenance", "fx2b_provenance_source_fk", "tenant_id, context_id, source_id", "nms_import_sources", "tenant_id, context_id, id"},
 			foreignKey{"nms_import_provenance", "fx2b_provenance_plan_source_fk", "tenant_id, context_id, plan_id, source_id", "nms_import_plans", "tenant_id, context_id, id, source_id"},
+			foreignKey{"nms_import_provenance", "fx2b_provenance_row_fk", "tenant_id, context_id, plan_id, object_kind, external_id", "nms_import_rows", "tenant_id, context_id, plan_id, object_kind, external_id"},
 			foreignKey{"nms_import_provenance", "fx2b_provenance_entity_fk", "tenant_id, context_id, entity_id", "entities", "tenant_id, context_id, id"},
 		)
 	}
@@ -212,6 +213,11 @@ END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(n
 		}
 		if key.name == "fx2b_row_entity_fk" {
 			onDelete = " ON DELETE SET NULL (target_entity_id)"
+		}
+		if key.name == "fx2b_provenance_plan_source_fk" || key.name == "fx2b_provenance_row_fk" {
+			// An applied plan remains while provenance cites it. A deferred FK
+			// still allows a whole-tenant cascade to remove both records.
+			onDelete = " ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED"
 		}
 		plan = append(plan, fmt.Sprintf(`DO $fx2_silo_fk$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = %s::regclass AND conname = %s) THEN

@@ -105,6 +105,12 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		a, contextA, planA, entityA); err != nil {
 		t.Fatalf("silo own row: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_provenance
+		(tenant_id,context_id,source_id,object_kind,external_id,entity_id,plan_id)
+		VALUES ($1,$2,$3,'device','18',$4,$5)`,
+		a, contextA, sourceA, entityA, planA); err == nil {
+		t.Fatal("silo provenance accepted an absent plan row")
+	}
 	for _, tc := range []struct{ name, source, entity string }{
 		{"wrong source for plan", sourceOther, entityA},
 		{"other context entity", sourceA, entityOther},
@@ -122,5 +128,9 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		VALUES ($1,$2,$3,'device','17',$4,$5)`,
 		a, contextA, sourceA, entityA, planA); err != nil {
 		t.Fatalf("silo own provenance: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM `+schemaA+`.nms_import_plans
+		WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a, contextA, planA); err == nil {
+		t.Fatal("silo provenance was erased by deleting its plan")
 	}
 }

@@ -176,7 +176,8 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "fx2b_row_plan_fk" FOREIGN KEY (tenant_id, context_id, plan_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id)`,
 				`ADD CONSTRAINT "fx2b_row_entity_fk" FOREIGN KEY (tenant_id, context_id, target_entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id) ON DELETE SET NULL (target_entity_id)`,
 				`ADD CONSTRAINT "fx2b_provenance_source_fk" FOREIGN KEY (tenant_id, context_id, source_id) REFERENCES "t_abc"."nms_import_sources" (tenant_id, context_id, id)`,
-				`ADD CONSTRAINT "fx2b_provenance_plan_source_fk" FOREIGN KEY (tenant_id, context_id, plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id)`,
+				`ADD CONSTRAINT "fx2b_provenance_plan_source_fk" FOREIGN KEY (tenant_id, context_id, plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
+				`ADD CONSTRAINT "fx2b_provenance_row_fk" FOREIGN KEY (tenant_id, context_id, plan_id, object_kind, external_id) REFERENCES "t_abc"."nms_import_rows" (tenant_id, context_id, plan_id, object_kind, external_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT "fx2b_provenance_entity_fk" FOREIGN KEY (tenant_id, context_id, entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id) ON DELETE CASCADE`,
 				`ADD CONSTRAINT "fx2_incidents_entity_pair_ck" CHECK (entity_id IS NULL OR entity_context_id IS NOT NULL)`,
 				`ADD CONSTRAINT "fx2_incident_signals_entity_pair_ck" CHECK (entity_id IS NULL OR entity_context_id IS NOT NULL)`,
@@ -189,8 +190,8 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 					t.Fatalf("registry silo plan missing %s", want)
 				}
 			}
-			if strings.Count(joined, `conrelid = '"t_abc".`) != 36 {
-				t.Fatalf("registry and import silo plan did not make all thirty-six foreign keys and checks idempotent")
+			if strings.Count(joined, `conrelid = '"t_abc".`) != 37 {
+				t.Fatalf("registry and import silo plan did not make all thirty-seven foreign keys and checks idempotent")
 			}
 			if !strings.Contains(joined, `CREATE TRIGGER entity_path_retarget AFTER UPDATE OF target ON "t_abc"."tests"`) ||
 				!strings.Contains(joined, `ALTER TABLE "t_abc"."tests" ENABLE ALWAYS TRIGGER entity_path_retarget`) {
