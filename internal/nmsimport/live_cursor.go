@@ -90,7 +90,7 @@ func (s CaptureStore) AcquireConfiguredLibreNMSStage(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		if !enabled || step.Stage == "complete" {
+		if !enabled {
 			return ErrPlanUnavailable
 		}
 		if leaseBusy {

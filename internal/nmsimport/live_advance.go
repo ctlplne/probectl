@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,10 +22,11 @@ import (
 // LiveCaptureProgress reports only the server-selected stage and bounded
 // receipt range. It never echoes a source URL, credential, raw row or lease.
 type LiveCaptureProgress struct {
-	CompletedStage string
-	NextStage      string
-	Pages          int64
-	Rows           int64
+	CompletedStage string `json:"completed_stage"`
+	NextStage      string `json:"next_stage"`
+	Pages          int64  `json:"pages"`
+	Rows           int64  `json:"rows"`
+	SnapshotHash   string `json:"snapshot_hash,omitempty"`
 }
 
 // CaptureNextConfiguredLibreNMSStage makes exactly one configured HTTPS
@@ -45,11 +47,21 @@ func (s CaptureStore) CaptureNextConfiguredLibreNMSStage(ctx context.Context,
 		defer cancel()
 		_ = s.ReleaseConfiguredLibreNMSStage(cleanup, contextID, planID, step)
 	}()
+	if step.Stage == "complete" {
+		hash, err := s.sealCompletedConfiguredLibreNMS(ctx, contextID, planID, step)
+		if err != nil {
+			return LiveCaptureProgress{}, err
+		}
+		return LiveCaptureProgress{CompletedStage: "complete", NextStage: "sealed",
+			SnapshotHash: hash}, nil
+	}
+	verify := strings.HasPrefix(step.Stage, "verify_")
+	resource := strings.TrimPrefix(step.Stage, "verify_")
 	var body io.ReadCloser
-	if step.Stage == "memberships" {
+	if resource == "memberships" {
 		body, err = s.OpenConfiguredLibreNMSMembership(ctx, contextID, planID, step.GroupID, policy)
 	} else {
-		body, err = s.OpenConfiguredLibreNMS(ctx, contextID, planID, step.Stage, policy)
+		body, err = s.OpenConfiguredLibreNMS(ctx, contextID, planID, resource, policy)
 	}
 	if err != nil {
 		return LiveCaptureProgress{}, err
@@ -63,11 +75,18 @@ func (s CaptureStore) CaptureNextConfiguredLibreNMSStage(ctx context.Context,
 		meta, readErr = loadCaptureMeta(ctx, sc, contextID, planID, false)
 		return readErr
 	})
-	if err != nil || meta.source != LibreNMS || meta.state != "capturing" {
+	if err != nil {
+		return LiveCaptureProgress{}, err
+	}
+	if meta.source != LibreNMS || meta.state != "capturing" {
 		return LiveCaptureProgress{}, ErrPlanUnavailable
 	}
+	if verify {
+		return s.verifyConfiguredLibreNMSStage(ctx, contextID, planID,
+			step, resource, body, tenantID, meta)
+	}
 	page, row := step.StartPage, step.StartRow
-	stream := liveLibreNMSStream(step.Stage, step.GroupID)
+	stream := liveLibreNMSStream(resource, step.GroupID)
 	if stream == nil {
 		return LiveCaptureProgress{}, ErrPlanUnavailable
 	}
@@ -76,7 +95,7 @@ func (s CaptureStore) CaptureNextConfiguredLibreNMSStage(ctx context.Context,
 			return ErrInvalidPage
 		}
 		if _, err := s.appendSnapshot(ctx, contextID, planID, page,
-			step.Stage, row, tenantID, meta, snapshot, step.leaseHash()); err != nil {
+			resource, row, tenantID, meta, snapshot, step.leaseHash()); err != nil {
 			return err
 		}
 		page++
@@ -87,6 +106,62 @@ func (s CaptureStore) CaptureNextConfiguredLibreNMSStage(ctx context.Context,
 		return LiveCaptureProgress{}, err
 	}
 	return s.finishConfiguredLibreNMSStage(ctx, contextID, planID, step, page, row)
+}
+
+func (s CaptureStore) sealCompletedConfiguredLibreNMS(ctx context.Context,
+	contextID, planID string, step LiveCaptureStep) (string, error) {
+	err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		meta, err := loadCaptureMeta(ctx, sc, contextID, planID, false)
+		if err != nil {
+			return err
+		}
+		if meta.source != LibreNMS || meta.configVersion == 0 || meta.state != "capturing" {
+			return ErrPlanUnavailable
+		}
+		var valid bool
+		err = sc.Q.QueryRow(ctx, `SELECT coalesce(capture_lease_hash=$4 AND
+			capture_lease_until>clock_timestamp(),false)
+			FROM nms_import_plans WHERE tenant_id=$1 AND context_id=$2 AND id=$3
+			  AND capture_stage='complete' AND capture_start_page=$5 AND capture_start_row=$6`,
+			sc.Tenant.String(), contextID, planID, step.leaseHash(),
+			step.StartPage, step.StartRow).Scan(&valid)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrPlanUnavailable
+		}
+		if err != nil {
+			return err
+		}
+		if !valid {
+			return ErrPlanUnavailable
+		}
+		var total, unverified, groupSteps, rows int64
+		err = sc.Q.QueryRow(ctx, `SELECT count(*),
+			count(*) FILTER (WHERE verified_at IS NULL),
+			count(*) FILTER (WHERE resource_kind='memberships'),
+			coalesce(sum(end_row-start_row),0)
+			FROM nms_import_capture_steps
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`,
+			sc.Tenant.String(), contextID, planID).
+			Scan(&total, &unverified, &groupSteps, &rows)
+		if err != nil {
+			return err
+		}
+		var groups int64
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND object_kind='group'`,
+			sc.Tenant.String(), contextID, planID).Scan(&groups); err != nil {
+			return err
+		}
+		if total != 4+groups || unverified != 0 || groupSteps != groups ||
+			rows != step.StartRow {
+			return ErrInvalidPage
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return s.Seal(ctx, contextID, planID, step.StartPage, step.StartRow)
 }
 
 func liveLibreNMSStream(stage, groupID string) func(io.Reader, func(Snapshot) error) error {

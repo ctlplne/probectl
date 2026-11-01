@@ -412,7 +412,46 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	for _, stage := range []string{"verify_devices", "verify_locations", "verify_groups",
+		"verify_memberships", "verify_rules"} {
+		progress, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA,
+			contextID, stagedPlan, policy)
+		if err != nil || progress.CompletedStage != stage || progress.Pages != 1 ||
+			progress.Rows != 1 {
+			t.Fatalf("staged replay: stage=%q pages=%d rows=%d err=%v",
+				progress.CompletedStage, progress.Pages, progress.Rows, err)
+		}
+	}
+	sealed, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA,
+		contextID, stagedPlan, policy)
+	if err != nil || sealed.CompletedStage != "complete" || sealed.NextStage != "sealed" ||
+		len(sealed.SnapshotHash) != 64 {
+		t.Fatalf("verified staged capture did not seal: stage=%q next=%q hash=%q err=%v",
+			sealed.CompletedStage, sealed.NextStage, sealed.SnapshotHash, err)
+	}
+	if _, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA, contextID,
+		stagedPlan, policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("sealed staged capture advanced twice: %v", err)
+	}
+	driftStagePlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+		"config-lab", strings.Repeat("2", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		if _, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA,
+			contextID, driftStagePlan, policy); err != nil {
+			t.Fatalf("first-pass staged drift fixture: %v", err)
+		}
+	}
 	deviceDrift.Store(true)
+	if _, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA,
+		contextID, driftStagePlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) {
+		t.Fatalf("changed staged replay passed verification: %v", err)
+	}
+	if _, err := capturer.ListSealedRows(scopeA, contextID, driftStagePlan, -1, 2); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("drifted staged plan exposed a preview: %v", err)
+	}
 	devicePlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
 		"config-lab", strings.Repeat("e", 64))
 	if err != nil {
@@ -442,7 +481,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := capturer.CaptureConfiguredLibreNMSInventory(scopeA, contextID,
-		driftPlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) || memberRequests.Load() != 4 {
+		driftPlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) || memberRequests.Load() != 6 {
 		t.Fatalf("renamed source group fetched a membership or sealed: members=%d err=%v",
 			memberRequests.Load(), err)
 	}

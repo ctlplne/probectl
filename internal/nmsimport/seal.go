@@ -113,7 +113,8 @@ func (s CaptureStore) Seal(ctx context.Context, contextID, planID string,
 			}
 			return nil
 		}
-		updated, err := sc.Q.Exec(ctx, `UPDATE nms_import_plans SET snapshot_hash=$4,row_count=$5,state='sealed'
+		updated, err := sc.Q.Exec(ctx, `UPDATE nms_import_plans SET snapshot_hash=$4,row_count=$5,
+			state='sealed',capture_lease_hash=NULL,capture_lease_until=NULL
 			WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND state='capturing'`,
 			tenantID, contextID, planID, sealedHash, expectedRows)
 		if err != nil {
