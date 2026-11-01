@@ -10,6 +10,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/nmsimport"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -82,6 +84,75 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	}
 	seedPlan(a.ID, contextA, sourceA, planA)
 	seedPlan(b.ID, contextA, sourceB, planB)
+	// The capture service must use the same RLS and compound-FK boundary as
+	// direct storage writes. Its source page has no authority to set context.
+	capturePlan := uuid.NewString()
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_plans
+			(tenant_id,context_id,id,source_id,snapshot_hash,source_generation_hash,
+			 policy_version,row_count,expires_at)
+			VALUES ($1,$2,$3,$4,$5,$6,1,0,clock_timestamp()+interval '1 hour')`,
+			a.ID, contextA, capturePlan, sourceA, strings.Repeat("a", 64), strings.Repeat("b", 64))
+		return err
+	})
+	capturer := nmsimport.NewCaptureStore(pool)
+	page := `{"status":"ok","devices":[{"device_id":17,"display":"Edge R1","ip":"10.42.0.1","community":"source-only-secret"}]}`
+	captureA := tenancy.WithTenant(ctx, tenancy.ID(a.ID))
+	appendPage := func(scope context.Context, routingContext, plan string, pageNo, firstRow int64, payload string) (string, error) {
+		return capturer.AppendPage(scope, routingContext, plan, pageNo, "devices", firstRow, strings.NewReader(payload))
+	}
+	pageHash, err := appendPage(captureA, contextA, capturePlan, 0, 0, page)
+	if err != nil || len(pageHash) != 64 {
+		t.Fatalf("capture own page: hash=%q err=%v", pageHash, err)
+	}
+	if retry, err := appendPage(captureA, contextA, capturePlan, 0, 0, page); err != nil || retry != pageHash {
+		t.Fatalf("exact retry changed capture: hash=%q err=%v", retry, err)
+	}
+	changed := strings.Replace(page, "Edge R1", "Changed R1", 1)
+	for name, candidate := range map[string]struct {
+		scope, routingContext, plan, payload string
+		pageNo, firstRow                     int64
+		errWant                              error
+	}{
+		"foreign tenant":      {b.ID, contextA, capturePlan, page, 0, 0, nmsimport.ErrPlanUnavailable},
+		"foreign context":     {a.ID, contextOther, capturePlan, page, 0, 0, nmsimport.ErrPlanUnavailable},
+		"changed retry":       {a.ID, contextA, capturePlan, changed, 0, 0, nmsimport.ErrInvalidPage},
+		"skipped page":        {a.ID, contextA, capturePlan, page, 2, 1, nmsimport.ErrInvalidPage},
+		"duplicate source ID": {a.ID, contextA, capturePlan, page, 1, 1, nmsimport.ErrInvalidPage},
+	} {
+		_, err := appendPage(tenancy.WithTenant(ctx, tenancy.ID(candidate.scope)), candidate.routingContext,
+			candidate.plan, candidate.pageNo, candidate.firstRow, candidate.payload)
+		if !errors.Is(err, candidate.errWant) {
+			t.Fatalf("%s: got %v, want %v", name, err, candidate.errWant)
+		}
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var pageCount, rowCount int
+		var label, action string
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_pages WHERE plan_id=$1`, capturePlan).
+			Scan(&pageCount); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*),max(label),max(action)
+			FROM nms_import_rows WHERE plan_id=$1`, capturePlan).
+			Scan(&rowCount, &label, &action); err != nil {
+			return err
+		}
+		if pageCount != 1 || rowCount != 1 || label != "Edge R1" || action != "captured" {
+			t.Fatalf("capture/retry wrote unexpected rows: pages=%d rows=%d label=%q action=%q",
+				pageCount, rowCount, label, action)
+		}
+		var rawLeak bool
+		if err := sc.Q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM nms_import_rows
+			WHERE plan_id=$1 AND row_to_json(nms_import_rows)::text LIKE '%source-only-secret%')`,
+			capturePlan).Scan(&rawLeak); err != nil {
+			return err
+		}
+		if rawLeak {
+			t.Fatal("source credential escaped into normalized capture")
+		}
+		return nil
+	})
 	tryA := func(sql string, args ...any) error {
 		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(a.ID)), pool,
 			func(ctx context.Context, sc tenancy.Scope) error {
@@ -187,4 +258,34 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 			return nil
 		})
 	}
+	// A target removed during ordinary tenant operation invalidates its old
+	// import row and provenance. It must not require a SET NULL write when
+	// full-tenant deletion later cascades through the same FK.
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := sc.Q.Exec(ctx, `DELETE FROM entities
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextA, entityA); err != nil {
+			return err
+		}
+		var rows, provenance, plans int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`, a.ID, contextA, planA).
+			Scan(&rows); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_provenance
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`, a.ID, contextA, planA).
+			Scan(&provenance); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_plans
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextA, planA).
+			Scan(&plans); err != nil {
+			return err
+		}
+		if rows != 0 || provenance != 0 || plans != 1 {
+			t.Fatalf("target deletion left stale import binding: rows=%d provenance=%d plans=%d",
+				rows, provenance, plans)
+		}
+		return nil
+	})
 }
