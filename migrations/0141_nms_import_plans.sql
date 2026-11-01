@@ -107,8 +107,11 @@ CREATE TABLE IF NOT EXISTS nms_import_rows (
     UNIQUE (tenant_id, context_id, plan_id, object_kind, external_id),
     FOREIGN KEY (tenant_id, context_id, plan_id)
         REFERENCES nms_import_plans(tenant_id, context_id, id) ON DELETE CASCADE,
+    -- A removed target invalidates the old plan row and its hash. Cascading
+    -- also lets full-tenant erasure delete entities and plans in one transaction
+    -- without an ON DELETE SET NULL update after the tenant write fence closes.
     FOREIGN KEY (tenant_id, context_id, target_entity_id)
-        REFERENCES entities(tenant_id, context_id, id) ON DELETE SET NULL (target_entity_id),
+        REFERENCES entities(tenant_id, context_id, id) ON DELETE CASCADE,
     CHECK ((state = 'applied') = (applied_at IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS nms_import_rows_tenant_state_idx

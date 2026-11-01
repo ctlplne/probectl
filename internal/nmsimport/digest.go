@@ -79,3 +79,47 @@ func (d *planDigest) hexSum() (string, error) {
 	}
 	return hex.EncodeToString(d.sum), nil
 }
+
+// normalizedPageHash identifies one committed capture page for exact retries.
+// It binds the plan scope, source generation, policy, page ordinal and resource
+// before folding the redacted rows. An empty page still has a distinct receipt.
+func normalizedPageHash(tenantID, contextID, instanceRef, generationHash string,
+	source Kind, policyVersion int, resource string, pageNumber, firstRow int64,
+	rows []planRow) (string, error) {
+	if pageNumber < 0 || firstRow < 0 || !knownResource(source, resource) {
+		return "", ErrInvalidPage
+	}
+	digest, err := newPlanDigest(tenantID, contextID, instanceRef, generationHash, source, policyVersion)
+	if err != nil {
+		return "", err
+	}
+	header := append([]byte(nil), digest.sum...)
+	header = append(header, 0)
+	header = append(header, "page:v1\x00"...)
+	header = append(header, resource...)
+	header = append(header, 0)
+	header = strconv.AppendInt(header, pageNumber, 10)
+	header = append(header, 0)
+	header = strconv.AppendInt(header, firstRow, 10)
+	digest.sum = crypto.Default.Hash(header)
+	digest.nextRow = firstRow
+	if err := digest.appendPage(rows); err != nil {
+		return "", err
+	}
+	return digest.hexSum()
+}
+
+func knownResource(source Kind, resource string) bool {
+	switch source {
+	case LibreNMS:
+		return resource == "devices" || resource == "groups" || resource == "rules"
+	case Zabbix:
+		return resource == "hosts"
+	case Orion:
+		return resource == "nodes" || resource == "groups" || resource == "rules"
+	case PRTG:
+		return resource == "devices" || resource == "groups" || resource == "probes"
+	default:
+		return false
+	}
+}

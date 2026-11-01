@@ -99,3 +99,57 @@ func TestPlanDigestRejectsUnboundHeader(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizedPageHashBindsRetryIdentity(t *testing.T) {
+	const tenant = "00000000-0000-4000-8000-000000000001"
+	const context = "00000000-0000-4000-8000-000000000003"
+	const generation = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	rows := []planRow{{RowNumber: 2, ObjectKind: "device", ExternalID: "17", Label: "Router 1"}}
+	hash := func(tenantID, resource string, pageNumber, firstRow int64, data []planRow) (string, error) {
+		return normalizedPageHash(tenantID, context, "lab", generation, LibreNMS, 1,
+			resource, pageNumber, firstRow, data)
+	}
+	want, err := hash(tenant, "devices", 1, 2, rows)
+	if err != nil || len(want) != 64 {
+		t.Fatalf("page receipt = %q, %v", want, err)
+	}
+	if retry, err := hash(tenant, "devices", 1, 2, rows); err != nil || retry != want {
+		t.Fatalf("exact retry changed receipt: %q, %v", retry, err)
+	}
+	changed := []planRow{{RowNumber: 2, ObjectKind: "device", ExternalID: "17", Label: "Router 2"}}
+	for name, candidate := range map[string]struct {
+		tenant, resource string
+		page, firstRow   int64
+		rows             []planRow
+	}{
+		"tenant":  {"00000000-0000-4000-8000-000000000002", "devices", 1, 2, rows},
+		"page":    {tenant, "devices", 2, 2, rows},
+		"content": {tenant, "devices", 1, 2, changed},
+		"empty":   {tenant, "devices", 1, 2, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := hash(candidate.tenant, candidate.resource, candidate.page, candidate.firstRow, candidate.rows)
+			if err != nil || got == want {
+				t.Fatalf("different page shared receipt: %q, %v", got, err)
+			}
+		})
+	}
+	if _, err := hash(tenant, "rules", 1, 2, rows); err != nil {
+		t.Fatalf("valid LibreNMS resource refused: %v", err)
+	}
+	for _, invalid := range []struct {
+		resource string
+		page     int64
+		firstRow int64
+		rows     []planRow
+	}{
+		{"hosts", 1, 2, rows},
+		{"devices", -1, 2, rows},
+		{"devices", 1, -1, rows},
+		{"devices", 1, 2, []planRow{{RowNumber: 3, ObjectKind: "device", ExternalID: "17"}}},
+	} {
+		if _, err := hash(tenant, invalid.resource, invalid.page, invalid.firstRow, invalid.rows); err == nil {
+			t.Fatalf("accepted invalid page receipt: %+v", invalid)
+		}
+	}
+}
