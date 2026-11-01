@@ -22,6 +22,14 @@ type libreNMSCaptureList struct {
 	stream   func(io.Reader, func(Snapshot) error) error
 }
 
+// LibreNMSMembershipList is one complete response for a group ID taken from
+// the operator-selected source's group inventory. The caller, not the source
+// body, chooses this ID; capture rejects missing, duplicate and foreign IDs.
+type LibreNMSMembershipList struct {
+	GroupID string
+	Raw     io.Reader
+}
+
 // CaptureLibreNMSDevices consumes the documented unpaged device-list response
 // into bounded tenant transactions, then seals only a complete, valid response.
 // This device-only seam is useful for a focused capture proof. A full inventory
@@ -29,6 +37,7 @@ type libreNMSCaptureList struct {
 func (s CaptureStore) CaptureLibreNMSDevices(ctx context.Context,
 	contextID, planID string, raw io.Reader) (string, error) {
 	return s.captureLibreNMSLists(ctx, contextID, planID,
+		nil,
 		libreNMSCaptureList{"devices", raw, streamLibreNMSDevices})
 }
 
@@ -39,8 +48,67 @@ func (s CaptureStore) CaptureLibreNMSDevices(ctx context.Context,
 func (s CaptureStore) CaptureLibreNMSDevicesAndLocations(ctx context.Context,
 	contextID, planID string, devices, locations io.Reader) (string, error) {
 	return s.captureLibreNMSLists(ctx, contextID, planID,
+		nil,
 		libreNMSCaptureList{"devices", devices, streamLibreNMSDevices},
 		libreNMSCaptureList{"locations", locations, streamLibreNMSLocations})
+}
+
+// CaptureLibreNMSInventory captures each supported inventory plane and every
+// group's separate device membership list before sealing. This list is a
+// manifest from the trusted source client, not a way for vendor JSON to name
+// a tenant, context, credential, group or destination. Missing membership
+// responses leave the partial plan inert and fail closed.
+func (s CaptureStore) CaptureLibreNMSInventory(ctx context.Context, contextID, planID string,
+	devices, locations, groups, rules io.Reader, memberships []LibreNMSMembershipList) (string, error) {
+	groupIDs := make(map[string]bool)
+	lists := []libreNMSCaptureList{
+		{"devices", devices, streamLibreNMSDevices},
+		{"locations", locations, streamLibreNMSLocations},
+		{"groups", groups, func(raw io.Reader, emit func(Snapshot) error) error {
+			return streamLibreNMSGroups(raw, func(snapshot Snapshot) error {
+				for i, row := range snapshot.Rows {
+					if _, duplicate := groupIDs[row.ExternalID]; duplicate {
+						return ErrInvalidPage
+					}
+					groupIDs[row.ExternalID] = false
+					for j, code := range snapshot.Rows[i].UnmappedCodes {
+						if code == "membership_not_captured" {
+							snapshot.Rows[i].UnmappedCodes[j] = "group_unmapped"
+						}
+					}
+				}
+				return emit(snapshot)
+			})
+		}},
+		{"rules", rules, streamLibreNMSRules},
+	}
+	for _, member := range memberships {
+		member := member
+		lists = append(lists, libreNMSCaptureList{"memberships", member.Raw,
+			func(raw io.Reader, emit func(Snapshot) error) error {
+				seen, known := groupIDs[member.GroupID]
+				if !known || seen {
+					return ErrInvalidPage
+				}
+				if err := streamLibreNMSGroupMembers(raw, member.GroupID, emit); err != nil {
+					return err
+				}
+				groupIDs[member.GroupID] = true
+				return nil
+			}})
+	}
+	complete := func() error {
+		if len(groupIDs) != len(memberships) {
+			return ErrInvalidPage
+		}
+		for _, seen := range groupIDs {
+			if !seen {
+				return ErrInvalidPage
+			}
+		}
+		return nil
+	}
+	return s.captureLibreNMSLists(ctx, contextID, planID, complete, lists...)
 }
 
 // The plan must have been started by an authorized caller for this LibreNMS
@@ -48,7 +116,7 @@ func (s CaptureStore) CaptureLibreNMSDevicesAndLocations(ctx context.Context,
 // tenant, context, credential or destination. A retry replays every previous
 // chunk and rejects any changed prefix before appending new rows.
 func (s CaptureStore) captureLibreNMSLists(ctx context.Context,
-	contextID, planID string, lists ...libreNMSCaptureList) (string, error) {
+	contextID, planID string, complete func() error, lists ...libreNMSCaptureList) (string, error) {
 	if s.pool == nil || s.audit == nil {
 		return "", ErrCaptureAuditUnavailable
 	}
@@ -109,6 +177,11 @@ func (s CaptureStore) captureLibreNMSLists(ctx context.Context,
 			return nil
 		})
 		if err != nil {
+			return "", err
+		}
+	}
+	if complete != nil {
+		if err := complete(); err != nil {
 			return "", err
 		}
 	}

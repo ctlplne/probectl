@@ -599,6 +599,60 @@ func TestNMSImportLibreNMSStreamSealsOnlyCompleteTenantCapture(t *testing.T) {
 		}
 		return nil
 	})
+	fullPlan := start("stream-full-inventory")
+	groups := `[{"status":"ok","groups":[{"id":7,"name":"WAN","pattern":"source-only-predicate"}],"count":1}]`
+	rules := `{"status":"ok","rules":[{"id":9,"name":"Link down","rule":"source-only-expression"}],"count":1}`
+	members := `[{"status":"ok","devices":[{"device_id":17,"community":"source-only-membership-secret"}],"count":1}]`
+	memberLists := []nmsimport.LibreNMSMembershipList{{GroupID: "7", Raw: strings.NewReader(members)}}
+	if _, err := capturer.CaptureLibreNMSInventory(scopeA, routingContext, fullPlan,
+		strings.NewReader(complete), strings.NewReader(mixedSites), strings.NewReader(groups),
+		strings.NewReader(rules), memberLists); err != nil {
+		t.Fatalf("complete five-resource inventory did not seal: %v", err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var state, kind, unmapped string
+		var pages, rows int
+		var leaked bool
+		if err := sc.Q.QueryRow(ctx, `SELECT state FROM nms_import_plans WHERE id=$1`, fullPlan).Scan(&state); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_pages WHERE plan_id=$1`, fullPlan).Scan(&pages); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows WHERE plan_id=$1`, fullPlan).Scan(&rows); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT object_kind,unmapped_codes[1] FROM nms_import_rows
+			WHERE plan_id=$1 AND external_id='7:17'`, fullPlan).Scan(&kind, &unmapped); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nms_import_rows
+			WHERE plan_id=$1 AND row_to_json(nms_import_rows)::text LIKE '%source-only-%')`, fullPlan).Scan(&leaked); err != nil {
+			return err
+		}
+		if state != "sealed" || pages != 5 || rows != 6 || kind != "membership" ||
+			unmapped != "group_unmapped" || leaked {
+			return fmt.Errorf("full inventory lost a review-only membership or leaked source data: state=%s pages=%d rows=%d kind=%s unmapped=%s leaked=%v",
+				state, pages, rows, kind, unmapped, leaked)
+		}
+		return nil
+	})
+	missingMemberPlan := start("stream-missing-member-list")
+	if _, err := capturer.CaptureLibreNMSInventory(scopeA, routingContext, missingMemberPlan,
+		strings.NewReader(complete), strings.NewReader(mixedSites), strings.NewReader(groups),
+		strings.NewReader(rules), nil); !errors.Is(err, nmsimport.ErrInvalidPage) {
+		t.Fatalf("missing membership list sealed a partial inventory: %v", err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var state string
+		if err := sc.Q.QueryRow(ctx, `SELECT state FROM nms_import_plans WHERE id=$1`, missingMemberPlan).Scan(&state); err != nil {
+			return err
+		}
+		if state != "capturing" {
+			return fmt.Errorf("missing membership list published plan: %s", state)
+		}
+		return nil
+	})
 }
 
 type observedImportReader struct {

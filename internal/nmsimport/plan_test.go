@@ -90,3 +90,40 @@ func TestNormalizePlanPageRejectsUnsafeOrAmbiguousRows(t *testing.T) {
 		t.Fatal("accepted a snapshot under another configured source kind")
 	}
 }
+
+func TestNormalizeLibreNMSMembershipIsScopedReviewOnly(t *testing.T) {
+	const tenant = "00000000-0000-4000-8000-000000000001"
+	const routingContext = "00000000-0000-4000-8000-000000000003"
+	const generation = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	base := Row{Kind: "membership", ExternalID: "7:11", UnmappedCodes: []string{"group_unmapped"}}
+	snapshot := Snapshot{Source: LibreNMS, Rows: []Row{base}}
+	rows, err := normalizePlanPage(tenant, routingContext, "lab", generation, LibreNMS, snapshot, 4)
+	if err != nil || len(rows) != 1 || rows[0].ObjectKind != "membership" ||
+		rows[0].ExternalID != "7:11" || rows[0].RowNumber != 4 || !rows[0].ReviewOnly {
+		t.Fatalf("membership must stay scoped and inert: rows=%+v err=%v", rows, err)
+	}
+	for _, id := range []string{"", "0:11", "07:11", "7:0", "7:011", "7:11:12", "7:secret"} {
+		candidate := base
+		candidate.ExternalID = id
+		if _, err := normalizePlanPage(tenant, routingContext, "lab", generation,
+			LibreNMS, Snapshot{Source: LibreNMS, Rows: []Row{candidate}}, 4); err == nil {
+			t.Errorf("accepted invalid membership identity %q", id)
+		}
+	}
+	for name, mutate := range map[string]func(*Row){
+		"source data": func(r *Row) { r.Label = "secret" },
+		"address":     func(r *Row) { r.Address = "10.0.0.1" },
+		"actionable":  func(r *Row) { r.UnmappedCodes = nil },
+	} {
+		candidate := base
+		mutate(&candidate)
+		if _, err := normalizePlanPage(tenant, routingContext, "lab", generation,
+			LibreNMS, Snapshot{Source: LibreNMS, Rows: []Row{candidate}}, 4); err == nil {
+			t.Errorf("accepted %s in membership", name)
+		}
+	}
+	if _, err := normalizePlanPage(tenant, routingContext, "lab", generation,
+		Zabbix, Snapshot{Source: Zabbix, Rows: []Row{base}}, 4); err == nil {
+		t.Fatal("accepted LibreNMS membership under another source kind")
+	}
+}

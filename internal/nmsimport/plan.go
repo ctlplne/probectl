@@ -88,6 +88,9 @@ func normalizePlanPage(tenantID, contextID, sourceInstance, generationHash strin
 		if kind == "" || !safePlanFields(row) {
 			return nil, ErrInvalidPage
 		}
+		if kind == "membership" && (sourceKind != LibreNMS || !safeMembershipRow(row)) {
+			return nil, ErrInvalidPage
+		}
 		if (row.Label == "" && len(row.UnmappedCodes) == 0) ||
 			(kind == "device" && row.Address == "" && row.Hostname == "" &&
 				!hasCode(row.UnmappedCodes, "missing_ip_address") &&
@@ -152,7 +155,7 @@ func safeInstanceRef(value string) bool {
 
 func planKind(kind string) string {
 	switch kind {
-	case "device", "group", "site":
+	case "device", "group", "site", "membership":
 		return kind
 	case "probe":
 		return "site"
@@ -163,6 +166,25 @@ func planKind(kind string) string {
 	default:
 		return ""
 	}
+}
+
+// A membership is a review-only pair from two captured source inventories.
+// It has no target entity, address, predicate or authority to create a group.
+func safeMembershipID(value string) bool {
+	group, device, ok := strings.Cut(value, ":")
+	return ok && canonicalSourceNumber(group) && canonicalSourceNumber(device)
+}
+
+func safeMembershipRow(row Row) bool {
+	return safeMembershipID(row.ExternalID) && row.Label == "" && row.Address == "" &&
+		row.Hostname == "" && row.ParentID == "" && row.LocationID == "" &&
+		row.LocationLabel == "" && len(row.GroupIDs) == 0 && row.PollSeconds == 0 &&
+		row.Severity == "" && len(row.UnmappedCodes) == 1 && row.UnmappedCodes[0] == "group_unmapped"
+}
+
+func canonicalSourceNumber(value string) bool {
+	n, err := strconv.ParseUint(value, 10, 64)
+	return err == nil && n != 0 && strconv.FormatUint(n, 10) == value
 }
 
 func safePlanFields(row Row) bool {
