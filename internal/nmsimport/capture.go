@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -33,12 +34,95 @@ type CaptureStore struct{ pool *pgxpool.Pool }
 func NewCaptureStore(pool *pgxpool.Pool) CaptureStore { return CaptureStore{pool: pool} }
 
 type captureMeta struct {
-	source     Kind
-	instance   string
-	generation string
-	policy     int
-	state      string
-	expires    time.Time
+	source       Kind
+	instance     string
+	generation   string
+	policy       int
+	state        string
+	snapshotHash string
+	rowCount     int64
+	expires      time.Time
+}
+
+const capturePolicyVersion = 1
+
+// This is a transaction/page budget, not a cap on an import's total rows.
+// Streaming export adapters split larger inventories into more pages.
+const maxCaptureRowsPerPage = 10_000
+
+// StartPlan binds a source instance and one capture plan to the operator's
+// selected routing context. This does not read the source or import a device.
+// A handler must check the actor's import permission before calling it.
+func (s CaptureStore) StartPlan(ctx context.Context, contextID string,
+	source Kind, instanceRef, generationHash string) (string, error) {
+	contextUUID, err := uuid.Parse(contextID)
+	if err != nil || contextUUID == uuid.Nil || !knownSource(source) ||
+		!safeInstanceRef(instanceRef) || len(generationHash) != 64 || !lowerHex(generationHash) {
+		return "", ErrInvalidPage
+	}
+	contextID = contextUUID.String()
+	sourceID, err := captureUUID()
+	if err != nil {
+		return "", err
+	}
+	planID, err := captureUUID()
+	if err != nil {
+		return "", err
+	}
+	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		tenantUUID, err := uuid.Parse(sc.Tenant.String())
+		if err != nil || tenantUUID == uuid.Nil {
+			return ErrPlanUnavailable
+		}
+		tenantID := tenantUUID.String()
+		digest, err := newPlanDigest(tenantID, contextID, instanceRef,
+			generationHash, source, capturePolicyVersion)
+		if err != nil {
+			return ErrInvalidPage
+		}
+		initialHash, err := digest.hexSum()
+		if err != nil {
+			return err
+		}
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_sources
+			(tenant_id,context_id,id,source_kind,instance_ref) VALUES ($1,$2,$3,$4,$5)
+			ON CONFLICT (tenant_id,context_id,source_kind,instance_ref) DO NOTHING`,
+			tenantID, contextID, sourceID, string(source), instanceRef); err != nil {
+			return captureStartErr(err)
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT id::text FROM nms_import_sources
+			WHERE tenant_id=$1 AND context_id=$2 AND source_kind=$3 AND instance_ref=$4`,
+			tenantID, contextID, string(source), instanceRef).Scan(&sourceID); err != nil {
+			return err
+		}
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_plans
+			(tenant_id,context_id,id,source_id,snapshot_hash,source_generation_hash,
+			 policy_version,row_count,expires_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,0,clock_timestamp()+interval '24 hours')`,
+			tenantID, contextID, planID, sourceID, initialHash,
+			generationHash, capturePolicyVersion); err != nil {
+			return captureStartErr(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return planID, nil
+}
+
+func captureUUID() (string, error) {
+	raw, err := crypto.Random(16)
+	if err != nil {
+		return "", err
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	id, err := uuid.FromBytes(raw)
+	if err != nil {
+		return "", err
+	}
+	return id.String(), nil
 }
 
 // AppendPage parses one bounded source page, then commits its redacted rows
@@ -79,6 +163,9 @@ func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 	if err != nil {
 		return "", ErrInvalidPage
 	}
+	if len(snapshot.Rows) > maxCaptureRowsPerPage {
+		return "", ErrInvalidPage
+	}
 	rows, err := normalizePlanPage(tenantID, contextID, meta.instance, meta.generation,
 		meta.source, snapshot, firstRow)
 	if err != nil {
@@ -96,6 +183,7 @@ func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 		}
 		if locked.source != meta.source || locked.instance != meta.instance ||
 			locked.generation != meta.generation || locked.policy != meta.policy ||
+			locked.snapshotHash != meta.snapshotHash || locked.rowCount != meta.rowCount ||
 			!locked.expires.Equal(meta.expires) || locked.state != "capturing" {
 			return ErrPlanUnavailable
 		}
@@ -157,7 +245,8 @@ func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 }
 
 func loadCaptureMeta(ctx context.Context, sc tenancy.Scope, contextID, planID string, lock bool) (captureMeta, error) {
-	query := `SELECT s.source_kind,s.instance_ref,p.source_generation_hash,p.policy_version,p.state,p.expires_at
+	query := `SELECT s.source_kind,s.instance_ref,p.source_generation_hash,p.policy_version,p.state,
+		p.snapshot_hash,p.row_count,p.expires_at
 		FROM nms_import_plans p JOIN nms_import_sources s
 		  ON s.tenant_id=p.tenant_id AND s.context_id=p.context_id AND s.id=p.source_id
 		WHERE p.tenant_id=$1 AND p.context_id=$2 AND p.id=$3 AND p.expires_at>clock_timestamp()`
@@ -167,7 +256,8 @@ func loadCaptureMeta(ctx context.Context, sc tenancy.Scope, contextID, planID st
 	var meta captureMeta
 	var kind string
 	err := sc.Q.QueryRow(ctx, query, sc.Tenant.String(), contextID, planID).
-		Scan(&kind, &meta.instance, &meta.generation, &meta.policy, &meta.state, &meta.expires)
+		Scan(&kind, &meta.instance, &meta.generation, &meta.policy, &meta.state,
+			&meta.snapshotHash, &meta.rowCount, &meta.expires)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return captureMeta{}, ErrPlanUnavailable
 	}
@@ -206,6 +296,19 @@ func captureWriteErr(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23505" || pgErr.Code == "23514") {
 		return ErrInvalidPage
+	}
+	return err
+}
+
+func captureStartErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == "23503" {
+			return ErrPlanUnavailable
+		}
+		if pgErr.Code == "23505" || pgErr.Code == "23514" {
+			return ErrInvalidPage
+		}
 	}
 	return err
 }

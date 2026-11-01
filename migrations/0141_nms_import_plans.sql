@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS nms_import_plans (
     source_generation_hash text NOT NULL CHECK (source_generation_hash ~ '^[0-9a-f]{64}$'),
     policy_version integer NOT NULL CHECK (policy_version > 0),
     row_count bigint NOT NULL CHECK (row_count >= 0),
-    state text NOT NULL DEFAULT 'capturing' CHECK (state IN ('capturing', 'preview', 'applying', 'applied', 'stale')),
+    state text NOT NULL DEFAULT 'capturing' CHECK (state IN ('capturing', 'sealed', 'preview', 'applying', 'applied', 'stale')),
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     expires_at timestamptz NOT NULL,
     PRIMARY KEY (tenant_id, context_id, id),

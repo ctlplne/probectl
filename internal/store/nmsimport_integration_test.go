@@ -86,18 +86,18 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	seedPlan(b.ID, contextA, sourceB, planB)
 	// The capture service must use the same RLS and compound-FK boundary as
 	// direct storage writes. Its source page has no authority to set context.
-	capturePlan := uuid.NewString()
-	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_plans
-			(tenant_id,context_id,id,source_id,snapshot_hash,source_generation_hash,
-			 policy_version,row_count,expires_at)
-			VALUES ($1,$2,$3,$4,$5,$6,1,0,clock_timestamp()+interval '1 hour')`,
-			a.ID, contextA, capturePlan, sourceA, strings.Repeat("a", 64), strings.Repeat("b", 64))
-		return err
-	})
 	capturer := nmsimport.NewCaptureStore(pool)
-	page := `{"status":"ok","devices":[{"device_id":17,"display":"Edge R1","ip":"10.42.0.1","community":"source-only-secret"}]}`
 	captureA := tenancy.WithTenant(ctx, tenancy.ID(a.ID))
+	capturePlan, err := capturer.StartPlan(captureA, contextA, nmsimport.LibreNMS,
+		"lab", strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatalf("start tenant-scoped capture plan: %v", err)
+	}
+	if _, err := capturer.StartPlan(captureA, uuid.NewString(), nmsimport.LibreNMS,
+		"lab", strings.Repeat("b", 64)); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("unknown routing context started a plan: %v", err)
+	}
+	page := `{"status":"ok","devices":[{"device_id":17,"display":"Edge R1","ip":"10.42.0.1","community":"source-only-secret"}]}`
 	appendPage := func(scope context.Context, routingContext, plan string, pageNo, firstRow int64, payload string) (string, error) {
 		return capturer.AppendPage(scope, routingContext, plan, pageNo, "devices", firstRow, strings.NewReader(payload))
 	}
@@ -108,6 +108,14 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	if retry, err := appendPage(captureA, contextA, capturePlan, 0, 0, page); err != nil || retry != pageHash {
 		t.Fatalf("exact retry changed capture: hash=%q err=%v", retry, err)
 	}
+	secondPage := strings.Replace(strings.Replace(page, `"device_id":17`, `"device_id":18`, 1),
+		"Edge R1", "Edge R2", 1)
+	if _, err := appendPage(captureA, contextA, capturePlan, 1, 1, secondPage); err != nil {
+		t.Fatalf("next contiguous capture page: %v", err)
+	}
+	if retry, err := appendPage(captureA, contextA, capturePlan, 0, 0, page); err != nil || retry != pageHash {
+		t.Fatalf("earlier page retry changed capture: hash=%q err=%v", retry, err)
+	}
 	changed := strings.Replace(page, "Edge R1", "Changed R1", 1)
 	for name, candidate := range map[string]struct {
 		scope, routingContext, plan, payload string
@@ -117,8 +125,8 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		"foreign tenant":      {b.ID, contextA, capturePlan, page, 0, 0, nmsimport.ErrPlanUnavailable},
 		"foreign context":     {a.ID, contextOther, capturePlan, page, 0, 0, nmsimport.ErrPlanUnavailable},
 		"changed retry":       {a.ID, contextA, capturePlan, changed, 0, 0, nmsimport.ErrInvalidPage},
-		"skipped page":        {a.ID, contextA, capturePlan, page, 2, 1, nmsimport.ErrInvalidPage},
-		"duplicate source ID": {a.ID, contextA, capturePlan, page, 1, 1, nmsimport.ErrInvalidPage},
+		"skipped page":        {a.ID, contextA, capturePlan, page, 3, 2, nmsimport.ErrInvalidPage},
+		"duplicate source ID": {a.ID, contextA, capturePlan, page, 2, 2, nmsimport.ErrInvalidPage},
 	} {
 		_, err := appendPage(tenancy.WithTenant(ctx, tenancy.ID(candidate.scope)), candidate.routingContext,
 			candidate.plan, candidate.pageNo, candidate.firstRow, candidate.payload)
@@ -138,7 +146,7 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 			Scan(&rowCount, &label, &action); err != nil {
 			return err
 		}
-		if pageCount != 1 || rowCount != 1 || label != "Edge R1" || action != "captured" {
+		if pageCount != 2 || rowCount != 2 || label != "Edge R2" || action != "captured" {
 			t.Fatalf("capture/retry wrote unexpected rows: pages=%d rows=%d label=%q action=%q",
 				pageCount, rowCount, label, action)
 		}
@@ -153,6 +161,38 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		}
 		return nil
 	})
+	sealedHash, err := capturer.Seal(captureA, contextA, capturePlan, 2, 2)
+	if err != nil || len(sealedHash) != 64 {
+		t.Fatalf("seal complete capture: hash=%q err=%v", sealedHash, err)
+	}
+	if retry, err := capturer.Seal(captureA, contextA, capturePlan, 2, 2); err != nil || retry != sealedHash {
+		t.Fatalf("exact seal retry changed hash: %q %v", retry, err)
+	}
+	if _, err := appendPage(captureA, contextA, capturePlan, 2, 2, page); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("sealed plan accepted another page: %v", err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var state, storedHash string
+		var storedRows int64
+		if err := sc.Q.QueryRow(ctx, `SELECT state,snapshot_hash,row_count FROM nms_import_plans
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextA, capturePlan).
+			Scan(&state, &storedHash, &storedRows); err != nil {
+			return err
+		}
+		if state != "sealed" || storedHash != sealedHash || storedRows != 2 {
+			t.Fatalf("sealed plan published wrong metadata: state=%q hash=%q rows=%d", state, storedHash, storedRows)
+		}
+		return nil
+	})
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE nms_import_pages SET page_hash=$4
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND page_number=1`,
+			a.ID, contextA, capturePlan, strings.Repeat("c", 64))
+		return err
+	})
+	if _, err := capturer.Seal(captureA, contextA, capturePlan, 2, 2); !errors.Is(err, nmsimport.ErrInvalidPage) {
+		t.Fatalf("tampered page receipt retained a valid sealed plan: %v", err)
+	}
 	tryA := func(sql string, args ...any) error {
 		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(a.ID)), pool,
 			func(ctx context.Context, sc tenancy.Scope) error {
