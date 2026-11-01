@@ -140,6 +140,9 @@ symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreN
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreNMSInventory — FX-2b draft complete-source capture; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureConfiguredLibreNMSDevices — FX-2b draft live-device proof; direct real-source test uses it until the full authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureConfiguredLibreNMSInventory — FX-2b draft complete live-source capture; direct real-source test uses it until the authorized route is wired
+symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.AcquireConfiguredLibreNMSStage — FX-2b draft one-endpoint lease; direct tenant-isolation test uses it until the advance route is wired
+symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.ReleaseConfiguredLibreNMSStage — FX-2b draft failed-endpoint release; direct tenant-isolation test uses it until the advance route is wired
+symbol github.com/ctlplne/probectl/internal/nmsimport.LiveCaptureStep.Zeroize — FX-2b draft in-memory lease cleanup; direct tenant-isolation test uses it until the advance route is wired
 symbol github.com/ctlplne/probectl/internal/govern.Reset — process-global reset for governance test hermeticity
 symbol github.com/ctlplne/probectl/internal/alert.SeverityCritical — severity vocabulary member constructed by dependent packages' fixtures
 symbol github.com/ctlplne/probectl/internal/remediation.StateApplied — remediation state vocabulary member asserted by ee workflow tests

@@ -219,6 +219,41 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := capturer.AcquireConfiguredLibreNMSStage(scopeB, contextID, currentPlan); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign tenant acquired live capture step: %v", err)
+	}
+	failAudit = true
+	if _, err := capturer.AcquireConfiguredLibreNMSStage(scopeA, contextID, currentPlan); !errors.Is(err, auditFailure) {
+		t.Fatalf("capture lease survived audit failure: %v", err)
+	}
+	failAudit = false
+	step, err := capturer.AcquireConfiguredLibreNMSStage(scopeA, contextID, currentPlan)
+	defer step.Zeroize()
+	if err != nil || step.Stage != "devices" || step.GroupID != "" ||
+		step.StartPage != 0 || step.StartRow != 0 {
+		t.Fatalf("first live capture step: stage=%q group=%q page=%d row=%d err=%v",
+			step.Stage, step.GroupID, step.StartPage, step.StartRow, err)
+	}
+	if _, err := capturer.AcquireConfiguredLibreNMSStage(scopeA, contextID, currentPlan); !errors.Is(err, nmsimport.ErrCaptureBusy) {
+		t.Fatalf("parallel capture acquired the same step: %v", err)
+	}
+	if err := capturer.ReleaseConfiguredLibreNMSStage(scopeB, contextID, currentPlan, step); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign tenant released capture lease: %v", err)
+	}
+	if err := capturer.ReleaseConfiguredLibreNMSStage(scopeA, contextID, currentPlan, step); err != nil {
+		t.Fatalf("own capture lease release: %v", err)
+	}
+	step.Zeroize()
+	retried, err := capturer.AcquireConfiguredLibreNMSStage(scopeA, contextID, currentPlan)
+	defer retried.Zeroize()
+	if err != nil || retried.Stage != "devices" || retried.StartPage != 0 {
+		t.Fatalf("released capture step could not retry: stage=%q page=%d err=%v",
+			retried.Stage, retried.StartPage, err)
+	}
+	if err := capturer.ReleaseConfiguredLibreNMSStage(scopeA, contextID, currentPlan, retried); err != nil {
+		t.Fatal(err)
+	}
+	retried.Zeroize()
 	resolver := &importSourceTokenResolver{}
 	policy := nmsimport.LibreNMSFetchPolicy{ApprovedCIDRs: loopback, CAFile: caFile,
 		AllowedRefPrefix: prefix, Resolver: resolver, Timeout: time.Second}
