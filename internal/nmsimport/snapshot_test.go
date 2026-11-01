@@ -71,15 +71,95 @@ func TestZabbixExportKeepsGroupUUIDAndListsNestedUnmappedTrigger(t *testing.T) {
 	}
 }
 
+func TestLibreNMSGroupAndRulePagesKeepIDsWithoutExecutingSourcePolicy(t *testing.T) {
+	groups := `[{"status":"ok","count":2,"groups":[
+		{"id":"7","name":"Edge routers","pattern":"%devices.status = 1 && secret-pattern-123"},
+		{"id":8,"name":"Core switches","pattern":""}
+	]}]`
+	gotGroups, err := parseLibreNMSGroups(strings.NewReader(groups))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotGroups.Rows) != 2 || gotGroups.Rows[0].ExternalID != "7" || gotGroups.Rows[1].ExternalID != "8" ||
+		!contains(gotGroups.Rows[0].UnmappedCodes, "dynamic_predicate_unmapped") ||
+		!contains(gotGroups.Rows[1].UnmappedCodes, "membership_not_captured") {
+		t.Fatalf("group identity or unmapped policy lost: %+v", gotGroups.Rows)
+	}
+	rules := `{"status":"ok","count":2,"rules":[
+		{"id":"31","name":"Interface down","severity":"critical","rule":"secret-expression-456",
+		 "alert_operation_id":12,"operations":[{"transports":[{"text":"https://secret.invalid/hook"}]}]},
+		{"id":32,"name":"Unknown priority","severity":"emergency","rule":"secret-expression-789"}
+	]}`
+	gotRules, err := parseLibreNMSRules(strings.NewReader(rules))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotRules.Rows) != 2 || gotRules.Rows[0].ExternalID != "31" || gotRules.Rows[1].ExternalID != "32" ||
+		gotRules.Rows[0].Severity != "critical" ||
+		!contains(gotRules.Rows[0].UnmappedCodes, "expression_unmapped") ||
+		!contains(gotRules.Rows[0].UnmappedCodes, "delivery_unmapped") ||
+		!contains(gotRules.Rows[1].UnmappedCodes, "severity_unmapped") {
+		t.Fatalf("rule identity or unmapped policy lost: %+v", gotRules.Rows)
+	}
+	for _, snapshot := range []Snapshot{gotGroups, gotRules} {
+		wire, err := json.Marshal(snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{"secret-pattern-123", "secret-expression-456", "secret-expression-789", "https://secret.invalid/hook"} {
+			if strings.Contains(string(wire), forbidden) {
+				t.Fatalf("source expression or delivery target %q escaped into preview", forbidden)
+			}
+		}
+	}
+}
+
+func TestLibreNMSGroupAndRulePagesRejectMissingAndDuplicateIdentity(t *testing.T) {
+	for _, raw := range []string{
+		`[{"status":"ok","groups":[{"id":1,"name":"a"},{"id":"1","name":"b"}]}]`,
+		`[{"status":"ok","groups":[{"name":"a"}]}]`,
+		`{"status":"ok","rules":[{"id":1,"name":"a"},{"id":"1","name":"b"}]}`,
+		`{"status":"ok","rules":[{"name":"a"}]}`,
+	} {
+		var err error
+		if strings.HasPrefix(raw, "[") {
+			_, err = parseLibreNMSGroups(strings.NewReader(raw))
+		} else {
+			_, err = parseLibreNMSRules(strings.NewReader(raw))
+		}
+		if !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("invalid source identity accepted: %v", err)
+		}
+	}
+}
+
 func TestMalformedSourcePageFailsWithoutEchoingInput(t *testing.T) {
 	for _, page := range []string{
 		`{"status":"error","message":"secret-token-123","devices":[]}`,
 		`{"status":"ok","devices":[{"device_id":0,"community":"secret-token-123"}]}`,
+		`{"status":"ok","devices":[{"device_id":17},{"device_id":"017"}]}`,
 		`{"status":"ok","devices":[]}{"extra":"secret-token-123"}`,
 	} {
 		_, err := parseLibreNMSDevices(strings.NewReader(page))
 		if !errors.Is(err, ErrInvalidPage) || strings.Contains(err.Error(), "secret-token-123") {
 			t.Fatalf("invalid source page must fail closed without echo: %v", err)
+		}
+	}
+	badUTF8 := append([]byte(`{"status":"ok","devices":[{"device_id":1,"display":"`), 0xff)
+	badUTF8 = append(badUTF8, []byte(`"}]}`)...)
+	if _, err := parseLibreNMSDevices(strings.NewReader(string(badUTF8))); !errors.Is(err, ErrInvalidPage) {
+		t.Fatalf("lossy UTF-8 source accepted: %v", err)
+	}
+}
+
+func TestZabbixExportRejectsAmbiguousSourceKeys(t *testing.T) {
+	for _, raw := range []string{
+		`{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"g1","name":"A"},{"uuid":"g1","name":"B"}],"hosts":[]}}`,
+		`{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge"},{"host":"edge"}]}}`,
+	} {
+		_, err := parseZabbixHosts(strings.NewReader(raw))
+		if !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("ambiguous import identity accepted: %v", err)
 		}
 	}
 }
