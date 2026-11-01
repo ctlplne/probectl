@@ -86,6 +86,49 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	}
 	seedPlan(a.ID, contextA, sourceA, planA)
 	seedPlan(b.ID, contextA, sourceB, planB)
+	// Capture progress is stored on the FORCE-RLS plan row. A direct scoped
+	// update cannot advance or observe another tenant's matching context/plan.
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		updated, err := sc.Q.Exec(ctx, `UPDATE nms_import_plans SET
+			capture_stage='locations',capture_start_page=2,capture_start_row=10001,
+			capture_lease_hash=$3,capture_lease_until=clock_timestamp()+interval '30 seconds'
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$4`,
+			a.ID, contextA, strings.Repeat("c", 64), planA)
+		if err != nil {
+			return err
+		}
+		if updated.RowsAffected() != 1 {
+			return fmt.Errorf("own capture cursor update: rows=%d", updated.RowsAffected())
+		}
+		foreign, err := sc.Q.Exec(ctx, `UPDATE nms_import_plans SET capture_stage='complete'
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, b.ID, contextA, planB)
+		if err != nil {
+			return err
+		}
+		if foreign.RowsAffected() != 0 {
+			return fmt.Errorf("foreign capture cursor update: rows=%d", foreign.RowsAffected())
+		}
+		var visible int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_plans
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, b.ID, contextA, planB).Scan(&visible); err != nil {
+			return err
+		}
+		if visible != 0 {
+			return fmt.Errorf("foreign capture cursor visible under tenant RLS")
+		}
+		return nil
+	})
+	inTenant(ctx, t, pool, b.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var stage string
+		if err := sc.Q.QueryRow(ctx, `SELECT capture_stage FROM nms_import_plans
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, b.ID, contextA, planB).Scan(&stage); err != nil {
+			return err
+		}
+		if stage != "devices" {
+			return fmt.Errorf("foreign cursor changed to %q", stage)
+		}
+		return nil
+	})
 	// The capture service must use the same RLS and compound-FK boundary as
 	// direct storage writes. Its source page has no authority to set context.
 	auditErr := errors.New("tenant audit append failed")
