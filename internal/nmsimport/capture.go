@@ -31,6 +31,8 @@ var ErrPlanUnavailable = errors.New("nmsimport: capture plan unavailable")
 // audit writer; the source payload cannot supply or suppress it.
 var ErrCaptureAuditUnavailable = errors.New("nmsimport: capture audit unavailable")
 
+// CaptureAudit appends an actor-bound tenant audit event through the current
+// tenant transaction; returning an error rolls back the corresponding write.
 type CaptureAudit func(context.Context, tenancy.Scope, string, string, map[string]any) error
 
 // CaptureStore records only normalized, redacted source pages. The caller must
