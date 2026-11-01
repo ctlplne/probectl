@@ -1,0 +1,92 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+package nmsimport
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestNormalizePlanPageKeepsUnmappedObjectsWithoutSourceSecrets(t *testing.T) {
+	const raw = `{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"Routers"}],"hosts":[{"host":"r1","name":"Router 1","groups":[{"name":"Routers"}],"interfaces":[{"ip":"10.42.0.1","default":"1","useip":"1"}],"items":[{"key":"private.item","triggers":[{"expression":"SECRET-PREDICATE"}]}],"macros":[{"macro":"{$PASSWORD}","value":"SECRET-MACRO"}]}]}}`
+	snapshot, err := parseZabbixHosts(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const tenantA = "00000000-0000-4000-8000-000000000001"
+	const tenantB = "00000000-0000-4000-8000-000000000002"
+	const routingContext = "00000000-0000-4000-8000-000000000003"
+	const generation = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	a, err := normalizePlanPage(tenantA, routingContext, "lab", generation, Zabbix, snapshot, 10)
+	if err != nil || len(a) != 4 {
+		t.Fatalf("normalize = %v, %d rows", err, len(a))
+	}
+	if a[0].ObjectKind != "group" || a[1].ObjectKind != "device" ||
+		a[2].ObjectKind != "poll_setting" || a[3].ObjectKind != "alert_rule" {
+		t.Fatalf("unexpected plan row kinds: %+v", a)
+	}
+	for i := 2; i <= 3; i++ {
+		if a[i].RowNumber != int64(10+i) || !a[i].ReviewOnly ||
+			!strings.HasPrefix(a[i].ExternalID, "unmapped-") || len(a[i].ExternalID) != len("unmapped-")+32 {
+			t.Fatalf("missing source UUID became an apply candidate or raw ID: %+v", a[i])
+		}
+	}
+	if a[2].ExternalID == a[3].ExternalID {
+		t.Fatal("unmapped item and trigger share a review key")
+	}
+	b, err := normalizePlanPage(tenantB, routingContext, "lab", generation, Zabbix, snapshot, 10)
+	if err != nil || b[2].ExternalID == a[2].ExternalID {
+		t.Fatal("review key is not tenant bound")
+	}
+	encoded, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"SECRET-PREDICATE", "SECRET-MACRO", "{$PASSWORD}", "private.item"} {
+		if strings.Contains(string(encoded), secret) {
+			t.Fatalf("normalized plan echoed source-only content: %s", secret)
+		}
+	}
+}
+
+func TestNormalizePlanPageRejectsUnsafeOrAmbiguousRows(t *testing.T) {
+	const tenant = "00000000-0000-4000-8000-000000000001"
+	const routingContext = "00000000-0000-4000-8000-000000000003"
+	const generation = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	base := Snapshot{Source: LibreNMS, Rows: []Row{{Kind: "device", ExternalID: "17", Label: "router", Address: "10.42.0.1"}}}
+	for name, candidate := range map[string]Snapshot{
+		"duplicate ID": {Source: LibreNMS, Rows: []Row{
+			{Kind: "device", ExternalID: "17", Label: "router", Address: "10.42.0.1"},
+			{Kind: "device", ExternalID: "17", Label: "router", Address: "10.42.0.1"}}},
+		"raw reason": {Source: LibreNMS, Rows: []Row{{Kind: "device", ExternalID: "17", Label: "router", Address: "10.42.0.1",
+			UnmappedCodes: []string{"credential=secret"}}}},
+		"control label":       {Source: LibreNMS, Rows: []Row{{Kind: "device", ExternalID: "17", Label: "a\nb", Address: "10.42.0.1"}}},
+		"missing required ID": {Source: LibreNMS, Rows: []Row{{Kind: "device", ExternalID: "", Label: "router", Address: "10.42.0.1"}}},
+		"noncanonical group": {Source: Zabbix, Rows: []Row{{Kind: "device", ExternalID: "r1", Label: "router", Address: "10.42.0.1",
+			GroupIDs: []string{"SECRET-GROUP"}}}},
+		"URL hostname": {Source: PRTG, Rows: []Row{{Kind: "device", ExternalID: "17", Label: "router",
+			Hostname: "https://example.test/secret"}}},
+		"silent missing address": {Source: LibreNMS, Rows: []Row{{Kind: "device", ExternalID: "17", Label: "router"}}},
+	} {
+		if _, err := normalizePlanPage(tenant, routingContext, "lab", generation, candidate.Source, candidate, 0); err == nil {
+			t.Errorf("accepted %s", name)
+		}
+	}
+	if _, err := normalizePlanPage(tenant, routingContext, "lab", "bad", LibreNMS, base, 0); err == nil {
+		t.Fatal("accepted unbound generation hash")
+	}
+	if _, err := normalizePlanPage("not-a-tenant", routingContext, "lab", generation, LibreNMS, base, 0); err == nil {
+		t.Fatal("accepted invalid tenant scope")
+	}
+	if _, err := normalizePlanPage(tenant, routingContext, "https://nms/?token=secret", generation, LibreNMS, base, 0); err == nil {
+		t.Fatal("accepted a credential-shaped source instance reference")
+	}
+	if _, err := normalizePlanPage(tenant, routingContext, "lab", generation, Zabbix, base, 0); err == nil {
+		t.Fatal("accepted a snapshot under another configured source kind")
+	}
+}

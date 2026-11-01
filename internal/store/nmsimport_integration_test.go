@@ -89,6 +89,12 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 				return err
 			})
 	}
+	if err := tryA(`INSERT INTO nms_import_sources
+		(tenant_id,context_id,id,source_kind,instance_ref)
+		VALUES ($1,$2,$3,'librenms','https://nms/?token=secret')`,
+		a.ID, contextA, uuid.NewString()); err == nil {
+		t.Fatal("source instance accepted a credential-shaped URL")
+	}
 	for name, target := range map[string]string{
 		"other routing context": entityOther,
 		"other tenant":          entityB,

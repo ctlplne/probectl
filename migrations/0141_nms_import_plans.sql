@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS nms_import_sources (
     context_id uuid NOT NULL,
     id uuid NOT NULL,
     source_kind text NOT NULL CHECK (source_kind IN ('librenms', 'zabbix', 'orion', 'prtg')),
-    instance_ref text NOT NULL CHECK (octet_length(instance_ref) BETWEEN 1 AND 256),
+    instance_ref text NOT NULL CHECK (octet_length(instance_ref) BETWEEN 1 AND 128
+                                      AND instance_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]*$'),
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (tenant_id, context_id, id),
     UNIQUE (tenant_id, context_id, source_kind, instance_ref),
@@ -58,9 +59,11 @@ CREATE TABLE IF NOT EXISTS nms_import_rows (
     external_id text NOT NULL CHECK (octet_length(external_id) BETWEEN 1 AND 256),
     label text CHECK (label IS NULL OR octet_length(label) BETWEEN 1 AND 256),
     address text CHECK (address IS NULL OR octet_length(address) BETWEEN 1 AND 255),
-    hostname text CHECK (hostname IS NULL OR octet_length(hostname) BETWEEN 1 AND 256),
-    parent_external_id text CHECK (parent_external_id IS NULL OR octet_length(parent_external_id) BETWEEN 1 AND 256),
-    location_id text CHECK (location_id IS NULL OR octet_length(location_id) BETWEEN 1 AND 256),
+    hostname text CHECK (hostname IS NULL OR octet_length(hostname) BETWEEN 1 AND 253),
+    parent_external_id text CHECK (parent_external_id IS NULL OR
+                                   (octet_length(parent_external_id) BETWEEN 1 AND 256 AND parent_external_id ~ '^[0-9a-f]+$')),
+    location_id text CHECK (location_id IS NULL OR
+                            (octet_length(location_id) BETWEEN 1 AND 256 AND location_id ~ '^[0-9a-f]+$')),
     location_label text CHECK (location_label IS NULL OR octet_length(location_label) BETWEEN 1 AND 256),
     group_ids text[] NOT NULL DEFAULT '{}'::text[]
         CHECK (cardinality(group_ids) <= 256
