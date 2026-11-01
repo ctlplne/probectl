@@ -158,6 +158,24 @@ func New(backend Backend, gate *ai.EgressGate, opts ...Option) *Server {
 // Handle processes one JSON-RPC message under the principal's tenant + RBAC and
 // returns the response bytes — or nil for a notification (which gets no reply).
 func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []byte {
+	// A tenantless caller must learn nothing from protocol validation. Decode
+	// only a bounded response ID so notifications remain silent; malformed
+	// envelopes receive the same authorization error with a null ID.
+	if p == nil || p.TenantID == "" {
+		var envelope struct {
+			ID json.RawMessage `json:"id"`
+		}
+		parseErr := json.Unmarshal(raw, &envelope)
+		if parseErr == nil && len(envelope.ID) == 0 {
+			return nil
+		}
+		if parseErr != nil || len(envelope.ID) > maxMCPRequestIDBytes {
+			envelope.ID = nil
+		} else if _, valid := requestIDKey(envelope.ID); !valid {
+			envelope.ID = nil
+		}
+		return marshal(errorResponse(envelope.ID, codeUnauthorized, "no tenant on principal"))
+	}
 	req, failure := decodeRPC(raw, false)
 	if failure != nil {
 		return marshal(s.prepareResponse(req, failure))
