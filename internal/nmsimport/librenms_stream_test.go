@@ -52,6 +52,51 @@ func TestLibreNMSUnpagedDeviceStreamEmitsBoundedRedactedPages(t *testing.T) {
 	}
 }
 
+func TestLibreNMSUnpagedLocationStreamEmitsBoundedUnassignedSites(t *testing.T) {
+	var source strings.Builder
+	source.WriteString(`{"status":"ok","locations":[`)
+	for i := range maxCaptureRowsPerPage + 1 {
+		if i > 0 {
+			source.WriteByte(',')
+		}
+		fmt.Fprintf(&source, `{"id":%d,"location":"Site %d","notes":"source-only-secret"}`,
+			i+1, i+1)
+	}
+	fmt.Fprintf(&source, `],"count":%d}`, maxCaptureRowsPerPage+1)
+	var pages []int
+	var last Row
+	err := streamLibreNMSLocations(strings.NewReader(source.String()), func(page Snapshot) error {
+		pages = append(pages, len(page.Rows))
+		if page.Source != LibreNMS || len(page.Rows) > maxCaptureRowsPerPage {
+			t.Fatal("location stream emitted an invalid capture page")
+		}
+		last = page.Rows[len(page.Rows)-1]
+		wire, err := json.Marshal(page)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(wire), "source-only-secret") {
+			t.Fatal("source location metadata escaped into capture page")
+		}
+		return nil
+	})
+	if err != nil || len(pages) != 2 || pages[0] != maxCaptureRowsPerPage || pages[1] != 1 ||
+		last.Kind != "site" || last.ExternalID != fmt.Sprint(maxCaptureRowsPerPage+1) ||
+		last.Label != fmt.Sprintf("Site %d", maxCaptureRowsPerPage+1) {
+		t.Fatalf("unpaged locations lost or capped site candidates: pages=%v last=%+v err=%v",
+			pages, last, err)
+	}
+	for _, raw := range []string{
+		`{"status":"ok","locations":[{"id":1,"location":"West"}],"count":2}`,
+		`{"status":"ok","locations":[{"id":1},{"id":"01"}]}`,
+		`{"status":"error","locations":[]}`,
+	} {
+		if err := streamLibreNMSLocations(strings.NewReader(raw), func(Snapshot) error { return nil }); !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("invalid location stream accepted: %q: %v", raw, err)
+		}
+	}
+}
+
 func TestLibreNMSUnpagedStreamRefusesIncompleteOrChangedSource(t *testing.T) {
 	for _, raw := range []string{
 		`{"status":"ok","devices":[{"device_id":1}],"count":2}`,

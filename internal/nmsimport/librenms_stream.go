@@ -18,7 +18,33 @@ import (
 // capture page at a time. A failed read leaves the caller's plan inert: the
 // caller must seal it only after this function returns nil.
 func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
-	if raw == nil || emit == nil {
+	return streamLibreNMSList(raw, "devices", func(value json.RawMessage) (Row, error) {
+		var device libreNMSDevice
+		if json.Unmarshal(value, &device) != nil {
+			return Row{}, ErrInvalidPage
+		}
+		return libreNMSDeviceRow(device)
+	}, emit)
+}
+
+func streamLibreNMSLocations(raw io.Reader, emit func(Snapshot) error) error {
+	return streamLibreNMSList(raw, "locations", func(value json.RawMessage) (Row, error) {
+		var location libreNMSLocation
+		if json.Unmarshal(value, &location) != nil {
+			return Row{}, ErrInvalidPage
+		}
+		return libreNMSLocationRow(location)
+	}, emit)
+}
+
+// LibreNMS v0 documents no page parameter for either list. This decoder
+// limits each JSON value and commits at most one normalized capture page at a
+// time; a failed final status leaves the caller's plan inert until a complete
+// retry replays the same prefix. Raw source fields never cross emit.
+func streamLibreNMSList(raw io.Reader, listField string,
+	parse func(json.RawMessage) (Row, error), emit func(Snapshot) error) error {
+	if raw == nil || parse == nil || emit == nil ||
+		(listField != "devices" && listField != "locations") {
 		return ErrInvalidPage
 	}
 	budget := &captureValueReader{reader: raw}
@@ -27,7 +53,7 @@ func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
 	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
 		return ErrInvalidPage
 	}
-	var status, haveDevices, haveCount bool
+	var status, haveList, haveCount bool
 	var declaredCount, total int64
 	for {
 		budget.reset()
@@ -55,11 +81,11 @@ func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
 				return ErrInvalidPage
 			}
 			haveCount = true
-		case "devices":
-			if haveDevices {
+		case listField:
+			if haveList {
 				return ErrInvalidPage
 			}
-			haveDevices = true
+			haveList = true
 			if token, err := decoder.Token(); err != nil || token != json.Delim('[') {
 				return ErrInvalidPage
 			}
@@ -75,11 +101,7 @@ func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
 				if decoder.Decode(&value) != nil || len(value) > maxPageBytes || !utf8.Valid(value) {
 					return ErrInvalidPage
 				}
-				var device libreNMSDevice
-				if json.Unmarshal(value, &device) != nil {
-					return ErrInvalidPage
-				}
-				row, err := libreNMSDeviceRow(device)
+				row, err := parse(value)
 				if err != nil {
 					return ErrInvalidPage
 				}
@@ -120,7 +142,7 @@ func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
 		return ErrInvalidPage
 	}
 	budget.reset()
-	if _, err := decoder.Token(); err != io.EOF || !status || !haveDevices ||
+	if _, err := decoder.Token(); err != io.EOF || !status || !haveList ||
 		(haveCount && declaredCount != total) {
 		return ErrInvalidPage
 	}
@@ -129,7 +151,7 @@ func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
 
 // The JSON decoder may read ahead, but this reader supplies at most 4 KiB at
 // once. Resetting the budget per value bounds one decoded object to 64 MiB
-// plus that small read-ahead; it does not cap the number of devices.
+// plus that small read-ahead; it does not cap the number of source records.
 type captureValueReader struct {
 	reader    io.Reader
 	remaining int64
