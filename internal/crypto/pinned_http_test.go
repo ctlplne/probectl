@@ -67,13 +67,21 @@ func TestPinnedHTTPSClientKeepsTLSOriginAndRejectsUnapprovedEgress(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := blocked.Get(server.URL + "/ok"); err == nil {
+	response, err = blocked.Get(server.URL + "/ok")
+	if response != nil {
+		response.Body.Close()
+	}
+	if err == nil {
 		t.Fatal("unapproved resolved destination was dialed")
 	}
 	if requests != 2 {
 		t.Fatal("rejected destination reached source")
 	}
-	if _, err := client.Get(strings.Replace(server.URL, "127.0.0.1", "localhost", 1) + "/ok"); err == nil {
+	response, err = client.Get(strings.Replace(server.URL, "127.0.0.1", "localhost", 1) + "/ok")
+	if response != nil {
+		response.Body.Close()
+	}
+	if err == nil {
 		t.Fatal("alternate host was accepted by pinned client")
 	}
 }
