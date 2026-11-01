@@ -40,6 +40,8 @@ const (
 	permTenantRead         = "tenant.read"
 	permAgentRead          = "agent.read"
 	permAgentWrite         = "agent.write"
+	permNMSImportRead      = "nms.import.read"
+	permNMSImportWrite     = "nms.import.write"
 	permAlertRead          = "alert.read"
 	permAlertWrite         = "alert.write"
 	permIncidentRead       = "incident.read"
@@ -76,6 +78,7 @@ var allPermissionKeys = []string{
 	permTestRead, permTestWrite, permTestAllowPrivate, permTestInsecureTLS,
 	permTenantRead,
 	permAgentRead, permAgentWrite,
+	permNMSImportRead, permNMSImportWrite,
 	permAlertRead, permAlertWrite,
 	permIncidentRead, permIncidentWrite,
 	permOrgRead, permOrgWrite,
