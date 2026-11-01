@@ -944,11 +944,9 @@ func awaitShippedEdgeFlow(t *testing.T, st *shipped.Stack, reg edgeFlowRegistrat
 
 func labBridgeGateway(t *testing.T, lab *routingLab) net.IP {
 	t.Helper()
-	gateway := strings.TrimSpace(lab.docker(t, "network", "inspect", lab.network,
-		"--format", "{{range .IPAM.Config}}{{.Gateway}}{{end}}"))
-	gwIP := net.ParseIP(gateway)
+	gwIP := net.ParseIP(lab.gateway)
 	if gwIP == nil || gwIP.To4() == nil {
-		t.Fatalf("routing lab bridge gateway %q is not IPv4", gateway)
+		t.Fatalf("routing lab bridge gateway %q is not IPv4", lab.gateway)
 	}
 	return gwIP
 }
