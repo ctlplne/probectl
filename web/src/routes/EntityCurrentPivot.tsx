@@ -93,6 +93,9 @@ function AuthorizedEntityCurrentPivot({
         )}
       />
       <CardBody>
+        {contexts.isError ? (
+          <ErrorState description="Could not load tenant routing contexts for current identity." />
+        ) : null}
         <div className={styles.controls}>
           <Select
             label={t('entity.pivot.ip')}
@@ -116,7 +119,7 @@ function AuthorizedEntityCurrentPivot({
             options={contextOptions}
           />
           <Button
-            disabled={!ip || !contextID}
+            disabled={!ip || !contextID || contexts.isError}
             onClick={() => setSubmitted({ tenantID, ip, contextID })}
           >
             {t('entity.pivot.resolve')}

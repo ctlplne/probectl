@@ -618,6 +618,9 @@ export function PathPage() {
               <CardBody>
                 {canAssignPathContext ? (
                   <div className={styles.toolbar}>
+                    {contexts.isError ? (
+                      <ErrorState description="Could not load tenant routing contexts for this path test." />
+                    ) : null}
                     <Select
                       label="Routing context for this test"
                       value={pathContextChoice}
@@ -631,7 +634,12 @@ export function PathPage() {
                       options={contextOptions}
                     />
                     <Button
-                      disabled={!testId || !pathContextChoice || assignPathContext.isPending}
+                      disabled={
+                        !testId ||
+                        !pathContextChoice ||
+                        assignPathContext.isPending ||
+                        contexts.isError
+                      }
                       onClick={() =>
                         assignPathContext.mutate(pathContextChoice, {
                           onSuccess: () =>

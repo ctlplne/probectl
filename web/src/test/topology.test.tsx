@@ -182,7 +182,11 @@ describe('topology + what-if (S43)', () => {
       const graph = screen.getByRole('group', { name: /topology graph/i })
       await userEvent.click(within(graph).getByRole('button', { name: 'hop 10.0.0.1' }))
       expect(await screen.findByText('Current canonical identity')).toBeInTheDocument()
-      expect(screen.getByText(fixture.status)).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          (text, element) => element?.tagName === 'DD' && text.startsWith(fixture.status),
+        ),
+      ).toBeInTheDocument()
       if (fixture.identity) expect(screen.getByText(fixture.identity)).toBeInTheDocument()
       else expect(screen.queryByText(cases[1].identity)).not.toBeInTheDocument()
       expect(requests.every((url) => !new URL(url).searchParams.has('tenant_id'))).toBe(true)

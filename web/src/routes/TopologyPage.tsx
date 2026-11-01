@@ -271,6 +271,9 @@ export function TopologyPage() {
         <div className={styles.controlsBody}>
           {permissions.includes('entities.read') ? (
             <>
+              {contexts.isError ? (
+                <ErrorState description="Could not load tenant routing contexts for canonical topology." />
+              ) : null}
               <Select
                 label={t('entity.topology.routingContext')}
                 value={contextID}
