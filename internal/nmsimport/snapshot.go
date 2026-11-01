@@ -124,10 +124,10 @@ func safeLabel(text string) string {
 
 func safeAddress(text string) string {
 	addr, err := netip.ParseAddr(strings.TrimSpace(text))
-	if err != nil {
+	if err != nil || addr.Zone() != "" {
 		return ""
 	}
-	return addr.String()
+	return addr.Unmap().String()
 }
 
 // Zabbix's exported group/item/trigger UUIDs are 32 hex digits. Never copy
