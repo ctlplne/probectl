@@ -58,8 +58,17 @@ func TestCallerCancellationCannotPoisonSharedStoreTransport(t *testing.T) {
 
 func TestInflightStoreCancellationPreservesPriorFailure(t *testing.T) {
 	started, ended := make(chan struct{}), make(chan struct{})
-	upstream := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { close(started); <-r.Context().Done(); close(ended) }))
+	release := make(chan struct{})
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+		close(ended)
+		// Keep the handler from returning an implicit HTTP 200 before the
+		// client's canceled transport wins its own completion race.
+		<-release
+	}))
 	defer upstream.Close()
+	defer close(release)
 	conn := NewWithClient(upstream.Client())
 	_ = conn.def.DoWithOutcome(func() (breaker.Outcome, error) { return breaker.OutcomeFailure, errors.New("prior failure") })
 	before := conn.Stats()
