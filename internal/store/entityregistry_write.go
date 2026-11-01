@@ -296,7 +296,8 @@ func resolveEvidenceEndpoint(ctx context.Context, sc tenancy.Scope, tenantID,
 				AND source_agent_id=$3 AND configured_ref=$4
 				AND interface_index=$5 FOR UPDATE`, tenantID, authority.contextID,
 			agentID, claim.Source.SourceRef, int64(index)).Scan(&entityID, &parentID)
-		if errors.Is(err, pgx.ErrNoRows) {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
 			entityID, err = newRegistryID()
 			if err != nil {
 				return evidenceEndpoint{}, false, err
@@ -313,9 +314,9 @@ func resolveEvidenceEndpoint(ctx context.Context, sc tenancy.Scope, tenantID,
 			if err != nil {
 				return evidenceEndpoint{}, false, err
 			}
-		} else if err != nil {
+		case err != nil:
 			return evidenceEndpoint{}, false, err
-		} else if parentID != authority.anchorID {
+		case parentID != authority.anchorID:
 			// Reanchoring the same source to a different device cannot
 			// silently move an old ifIndex identity to that device.
 			return evidenceEndpoint{}, false, nil
