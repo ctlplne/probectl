@@ -22,20 +22,20 @@ import (
 // and context from the authenticated operator and choose the action after a
 // forced-RLS lookup. No source row can declare its own destination context.
 type planRow struct {
-	RowNumber     int64
-	ObjectKind    string
-	ExternalID    string
-	Label         string
-	Address       string
-	Hostname      string
-	ParentID      string
-	LocationID    string
-	LocationLabel string
-	GroupIDs      []string
-	PollSeconds   int64
-	Severity      string
-	UnmappedCodes []string
-	ReviewOnly    bool
+	RowNumber     int64    `json:"row_number"`
+	ObjectKind    string   `json:"object_kind"`
+	ExternalID    string   `json:"external_id"`
+	Label         string   `json:"label"`
+	Address       string   `json:"address"`
+	Hostname      string   `json:"hostname"`
+	ParentID      string   `json:"parent_id"`
+	LocationID    string   `json:"location_id"`
+	LocationLabel string   `json:"location_label"`
+	GroupIDs      []string `json:"group_ids"`
+	PollSeconds   int64    `json:"poll_seconds"`
+	Severity      string   `json:"severity"`
+	UnmappedCodes []string `json:"unmapped_codes"`
+	ReviewOnly    bool     `json:"review_only"`
 }
 
 var allowedUnmappedCodes = map[string]bool{
