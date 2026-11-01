@@ -979,27 +979,29 @@ func startEdgeIPFIXExporter(t *testing.T, lab *routingLab, destination string) s
 
 func emitEdgeFlow(t *testing.T, lab *routingLab, exporterContainer string) {
 	t.Helper()
-	// The SNMP sidecar already proved that it listens on edge's UDP/161 in
-	// this network namespace. A closed port returns asynchronous ICMP errors
-	// to a connected UDP socket and can abort this live-flow fixture mid-send.
-	traffic, err := net.DialUDP("udp4", &net.UDPAddr{IP: labBridgeGateway(t, lab)},
-		&net.UDPAddr{IP: net.ParseIP(lab.ip["edge"]), Port: 161})
-	if err != nil {
-		t.Fatalf("send live traffic through edge: %v", err)
-	}
-	for i := 0; i < 16; i++ {
-		if _, err := traffic.Write([]byte("fx2-router-identity-traffic")); err != nil {
-			_ = traffic.Close()
-			t.Fatalf("send live traffic through edge: %v", err)
-		}
-	}
-	_ = traffic.Close()
-	shipped.Await(t, "edge exporter to capture live traffic", 10*time.Second, func() bool {
-		out, err := exec.Command("docker", "exec", exporterContainer,
+	// The exporter shares edge's network namespace and captures eth0. Clear
+	// BGP setup traffic, then generate a real packet on that interface from
+	// edge to its reachable rtr-a peer. A host-to-edge probe can use a local
+	// bridge path that does not exercise the exporter's captured interface.
+	lab.docker(t, "exec", exporterContainer, "softflowctl", "-c", "/tmp/softflowd.ctl", "delete-all")
+	lab.docker(t, "exec", exporterContainer, "ping", "-c", "3", "-W", "1", lab.ip["rtr-a"])
+	deadline := time.Now().Add(10 * time.Second)
+	var dump []byte
+	var dumpErr error
+	for time.Now().Before(deadline) {
+		dump, dumpErr = exec.Command("docker", "exec", exporterContainer,
 			"softflowctl", "-c", "/tmp/softflowd.ctl", "dump-flows").Output()
-		return err == nil && strings.Contains(string(out), lab.ip["edge"])
-	})
-	lab.docker(t, "exec", exporterContainer, "softflowctl", "-c", "/tmp/softflowd.ctl", "expire-all")
+		if dumpErr == nil && strings.Contains(string(dump), lab.ip["edge"]) &&
+			strings.Contains(string(dump), lab.ip["rtr-a"]) && strings.Contains(string(dump), "proto:1") {
+			lab.docker(t, "exec", exporterContainer, "softflowctl", "-c", "/tmp/softflowd.ctl", "expire-all")
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	statistics, statisticsErr := exec.Command("docker", "exec", exporterContainer,
+		"softflowctl", "-c", "/tmp/softflowd.ctl", "statistics").CombinedOutput()
+	t.Fatalf("edge exporter did not capture edge-to-rtr-a ICMP on eth0: dump error=%v, dump=%.4096s; statistics error=%v, statistics=%.4096s",
+		dumpErr, dump, statisticsErr, statistics)
 }
 
 func startEdgeSNMP(t *testing.T, lab *routingLab) string {
