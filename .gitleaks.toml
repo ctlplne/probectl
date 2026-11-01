@@ -108,9 +108,9 @@ paths = ['''docs/diligence/known-risks\.md''']
 id = "generic-api-key"
 
 [[rules.allowlists]]
-description = "FX-2b: a long Go condition comparing two fixed silo foreign-key names is an identifier-only false positive. This exact commit and file contain no credential; later edits remain scanned."
+description = "FX-2b: a long Go condition comparing two fixed silo foreign-key names is an identifier-only false positive. The replayed commit has a byte-for-byte identical ee/silo/planner.go patch; both exact commits and this path contain no credential. Later edits remain scanned."
 condition = "AND"
-commits = ['''059ff6be5b95463cb72e7b20cec09690a477ccec''']
+commits = ['''059ff6be5b95463cb72e7b20cec09690a477ccec''', '''973913e593cfcba0fe47196995369419744f6f7d''']
 paths = ['''ee/silo/planner\.go''']
 
 [[rules.allowlists]]
