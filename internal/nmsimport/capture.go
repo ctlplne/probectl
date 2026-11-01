@@ -225,7 +225,7 @@ func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 // transaction below rechecks that exact tenant, context and plan state.
 func (s CaptureStore) appendSnapshot(ctx context.Context, contextID, planID string,
 	pageNumber int64, resource string, firstRow int64, tenantID string,
-	meta captureMeta, snapshot Snapshot) (string, error) {
+	meta captureMeta, snapshot Snapshot, activeLeaseHash ...string) (string, error) {
 	if len(snapshot.Rows) > maxCaptureRowsPerPage {
 		return "", ErrInvalidPage
 	}
@@ -250,6 +250,18 @@ func (s CaptureStore) appendSnapshot(ctx context.Context, contextID, planID stri
 			locked.snapshotHash != meta.snapshotHash || locked.rowCount != meta.rowCount ||
 			!locked.expires.Equal(meta.expires) || locked.state != "capturing" {
 			return ErrPlanUnavailable
+		}
+		if len(activeLeaseHash) > 0 {
+			var leaseValid bool
+			if err := sc.Q.QueryRow(ctx, `SELECT coalesce(capture_lease_hash=$4 AND
+				capture_lease_until>clock_timestamp(),false) FROM nms_import_plans
+				WHERE tenant_id=$1 AND context_id=$2 AND id=$3`,
+				tenantID, contextID, planID, activeLeaseHash[0]).Scan(&leaseValid); err != nil {
+				return err
+			}
+			if !leaseValid {
+				return ErrPlanUnavailable
+			}
 		}
 		var lastPage, lastFirst, lastCount int64
 		err = sc.Q.QueryRow(ctx, `SELECT page_number,first_row,row_count

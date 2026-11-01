@@ -366,6 +366,52 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatalf("full source capture lost a fixed endpoint or token release: requests=%d resolver=%+v",
 			requests.Load(), resolver)
 	}
+	stagedPlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+		"config-lab", strings.Repeat("1", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeForeignAdvance := requests.Load()
+	if _, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeB, contextID,
+		stagedPlan, policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) ||
+		requests.Load() != beforeForeignAdvance {
+		t.Fatalf("foreign staged capture reached source: requests=%d err=%v", requests.Load(), err)
+	}
+	for i, stage := range []string{"devices", "locations", "groups", "memberships", "rules"} {
+		progress, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA,
+			contextID, stagedPlan, policy)
+		if err != nil || progress.CompletedStage != stage || progress.Pages != 1 ||
+			progress.Rows != 1 {
+			t.Fatalf("staged endpoint %d: stage=%q pages=%d rows=%d err=%v",
+				i, progress.CompletedStage, progress.Pages, progress.Rows, err)
+		}
+	}
+	if err := tenancy.InTenant(scopeA, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var stage, state string
+		var receipts, rows int
+		if err := sc.Q.QueryRow(ctx, `SELECT capture_stage,state FROM nms_import_plans
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`,
+			a.ID, contextID, stagedPlan).Scan(&stage, &state); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_capture_steps
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`,
+			a.ID, contextID, stagedPlan).Scan(&receipts); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`,
+			a.ID, contextID, stagedPlan).Scan(&rows); err != nil {
+			return err
+		}
+		if stage != "verify_devices" || state != "capturing" || receipts != 5 || rows != 5 {
+			return fmt.Errorf("staged inventory advanced without replay: stage=%s state=%s receipts=%d rows=%d",
+				stage, state, receipts, rows)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	deviceDrift.Store(true)
 	devicePlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
 		"config-lab", strings.Repeat("e", 64))
@@ -396,7 +442,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := capturer.CaptureConfiguredLibreNMSInventory(scopeA, contextID,
-		driftPlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) || memberRequests.Load() != 3 {
+		driftPlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) || memberRequests.Load() != 4 {
 		t.Fatalf("renamed source group fetched a membership or sealed: members=%d err=%v",
 			memberRequests.Load(), err)
 	}
