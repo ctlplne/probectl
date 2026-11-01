@@ -36,41 +36,35 @@ func PinnedHTTPSClient(origin string, allowed []netip.Prefix, caFile string,
 			return nil, errors.New("crypto: pinned HTTPS egress CIDR invalid")
 		}
 	}
-	tlsConfig, err := HardenedClientTLSConfigWithCAFile(caFile)
+	client, err := HardenedHTTPClientWithCAFile(timeout, caFile)
 	if err != nil {
 		return nil, err
 	}
 	approved := append([]netip.Prefix(nil), allowed...)
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	transport := &http.Transport{
-		Proxy:             nil,
-		TLSClientConfig:   tlsConfig,
-		ForceAttemptHTTP2: true,
-		// Every request must re-resolve the configured hostname; a
-		// previously admitted socket cannot bypass a later DNS change.
-		DisableKeepAlives:     true,
-		ResponseHeaderTimeout: 15 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			dialHost, dialPort, err := net.SplitHostPort(address)
-			if err != nil || !strings.EqualFold(dialHost, host) || dialPort != port ||
-				(network != "tcp" && network != "tcp4" && network != "tcp6") {
-				return nil, errors.New("crypto: pinned HTTPS origin mismatch")
-			}
-			addresses, err := pinnedAddresses(ctx, host, approved)
-			if err != nil {
-				return nil, err
-			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(addresses[0].String(), port))
-		},
+	transport := client.Transport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.ForceAttemptHTTP2 = true
+	transport.DisableKeepAlives = true
+	transport.ResponseHeaderTimeout = 15 * time.Second
+	transport.TLSHandshakeTimeout = 10 * time.Second
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		dialHost, dialPort, err := net.SplitHostPort(address)
+		if err != nil || !strings.EqualFold(dialHost, host) || dialPort != port ||
+			(network != "tcp" && network != "tcp4" && network != "tcp6") {
+			return nil, errors.New("crypto: pinned HTTPS origin mismatch")
+		}
+		addresses, err := pinnedAddresses(ctx, host, approved)
+		if err != nil {
+			return nil, err
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(addresses[0].String(), port))
 	}
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
-		// A source response is untrusted; even a same-origin redirect would
-		// change the fixed endpoint and may forward its bearer credential.
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}, nil
+	client.Transport = transport
+	// A source response is untrusted; even a same-origin redirect would
+	// change the fixed endpoint and may forward its bearer credential.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return client, nil
 }
 
 func pinnedOrigin(raw string) (string, string, error) {
