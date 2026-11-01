@@ -165,9 +165,7 @@ func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []by
 		if len(raw) > 4<<20 {
 			return marshal(errorResponse(nil, codeUnauthorized, "no tenant on principal"))
 		}
-		var envelope struct {
-			ID json.RawMessage `json:"id"`
-		}
+		var envelope rpcRequest
 		parseErr := json.Unmarshal(raw, &envelope)
 		if parseErr == nil && len(envelope.ID) == 0 {
 			return nil

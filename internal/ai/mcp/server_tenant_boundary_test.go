@@ -37,6 +37,7 @@ func TestHandleTenantBoundaryPrecedesMalformedProtocol(t *testing.T) {
 		{"missing tenant malformed UTF-8", &auth.Principal{UserID: "u"}, malformedUTF8, false},
 		{"nil principal malformed UTF-8", nil, malformedUTF8, false},
 		{"missing tenant malformed JSON", &auth.Principal{UserID: "u"}, []byte(`{bad json`), false},
+		{"missing tenant invalid envelope field type", &auth.Principal{UserID: "u"}, []byte(`{"jsonrpC":0}`), false},
 		{"missing tenant notification", &auth.Principal{UserID: "u"}, []byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
