@@ -26,7 +26,7 @@ import (
 func TestNMSImportStorageIsolation(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	a, err := NewTenants(pool).Create(ctx, "import-a-"+suffix, "Import A")
 	if err != nil {
