@@ -123,7 +123,7 @@ func (s *EntityRegistry) WriteEvidenceBatch(ctx context.Context, authenticatedAg
 			var anchorID, anchorKind *string
 			var sourceAssignedAt, agentAssignedAt time.Time
 			var sourceExpiresAt, agentExpiresAt *time.Time
-			err := sc.Q.QueryRow(ctx, `
+			err = sc.Q.QueryRow(ctx, `
 				SELECT m.context_id::text, m.anchor_entity_id::text, n.kind,
 				       m.assigned_at,m.expires_at,a.assigned_at,a.expires_at
 				  FROM entity_source_contexts m
