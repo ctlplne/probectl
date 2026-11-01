@@ -653,6 +653,13 @@ func TestNMSImportLibreNMSStreamSealsOnlyCompleteTenantCapture(t *testing.T) {
 		}
 		return nil
 	})
+	foreignGroupPlan := start("stream-foreign-group")
+	foreignGroupBody := &observedImportReader{Reader: strings.NewReader(members)}
+	if _, err := capturer.CaptureLibreNMSInventory(scopeA, routingContext, foreignGroupPlan,
+		strings.NewReader(complete), strings.NewReader(mixedSites), strings.NewReader(groups),
+		strings.NewReader(rules), []nmsimport.LibreNMSMembershipList{{GroupID: "8", Raw: foreignGroupBody}}); !errors.Is(err, nmsimport.ErrInvalidPage) || foreignGroupBody.reads != 0 {
+		t.Fatalf("foreign group consumed a membership response: reads=%d err=%v", foreignGroupBody.reads, err)
+	}
 }
 
 type observedImportReader struct {
