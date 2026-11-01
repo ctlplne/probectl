@@ -47,6 +47,22 @@ func (s CaptureStore) Seal(ctx context.Context, contextID, planID string,
 		if meta.state != "capturing" && meta.state != "sealed" {
 			return ErrPlanUnavailable
 		}
+		// Reject fabricated totals before walking pages. A caller must not be
+		// able to turn a single captured page into an unbounded query loop.
+		var pageTotal, rowTotal int64
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_pages
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`,
+			tenantID, contextID, planID).Scan(&pageTotal); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`,
+			tenantID, contextID, planID).Scan(&rowTotal); err != nil {
+			return err
+		}
+		if pageTotal != expectedPages || rowTotal != expectedRows {
+			return ErrInvalidPage
+		}
 		digest, err := newPlanDigest(tenantID, contextID, meta.instance,
 			meta.generation, meta.source, meta.policy)
 		if err != nil {
@@ -82,20 +98,6 @@ func (s CaptureStore) Seal(ctx context.Context, contextID, planID string,
 			nextRow += rowCount
 		}
 		if nextRow != expectedRows {
-			return ErrInvalidPage
-		}
-		var pageTotal, rowTotal int64
-		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_pages
-			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`,
-			tenantID, contextID, planID).Scan(&pageTotal); err != nil {
-			return err
-		}
-		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
-			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`,
-			tenantID, contextID, planID).Scan(&rowTotal); err != nil {
-			return err
-		}
-		if pageTotal != expectedPages || rowTotal != expectedRows {
 			return ErrInvalidPage
 		}
 		sealedHash, err = digest.hexSum()
