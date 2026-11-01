@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS nms_import_pages (
     context_id uuid NOT NULL,
     plan_id uuid NOT NULL,
     page_number bigint NOT NULL CHECK (page_number >= 0),
-    resource_kind text NOT NULL CHECK (resource_kind IN ('devices', 'nodes', 'groups', 'rules', 'hosts', 'probes')),
+    resource_kind text NOT NULL CHECK (resource_kind IN ('devices', 'locations', 'nodes', 'groups', 'rules', 'hosts', 'probes')),
     first_row bigint NOT NULL CHECK (first_row >= 0),
     row_count bigint NOT NULL CHECK (row_count >= 0),
     page_hash text NOT NULL CHECK (page_hash ~ '^[0-9a-f]{64}$'),
