@@ -1617,7 +1617,7 @@ Journey-critical parity is currently served by the CLI:
 | SLO and cost posture | `probectl slo list|export`, `probectl cost summary` | `/v1/slos*`, `/v1/cost/summary` |
 | Tenant lifecycle portability and erasure | `probectl lifecycle export --redact`, `probectl lifecycle erase --body JSON` | `/v1/lifecycle*` |
 | Tenant identity-provider settings | `probectl identity settings|set-settings` | `/v1/identity/settings` |
-| Incumbent NMS import capture | `probectl nms-import configure-source|disable-source|start-live|rows` | `/v1/nms-imports/*` |
+| Incumbent NMS import capture | `probectl nms-import configure-source|disable-source|start-live|advance|rows` | `/v1/nms-imports/*` |
 
 The NMS import routes bind a configured LibreNMS source to a tenant routing
 context. `configure-source` requires a `0600` JSON body file containing
@@ -1625,6 +1625,12 @@ context. `configure-source` requires a `0600` JSON body file containing
 `credential_ref`; the CLI refuses inline `--body` for this operation, including
 through `probectl api`. `start-live` accepts `context_id` and `instance_ref` and
 returns an inert capture plan without fetching the source or writing a device.
+`advance <plan-id> --body '{"context_id":"<context-id>"}'` fetches exactly one
+server-selected LibreNMS endpoint. Repeat until `next_stage` is `sealed`; a
+second pass verifies the same redacted page hashes before the plan seals.
+An interrupted read can be retried from the same stage. Changed source content
+returns a conflict and leaves the plan inert. Capture does not assign actions,
+write destination entities, or enable imported alerts.
 `rows <plan-id> --query context_id=<context-id>` pages only redacted rows of a
 sealed plan. Source configuration, plan start, and row read require the
 corresponding `nms.import.write` or `nms.import.read` permission in the stored

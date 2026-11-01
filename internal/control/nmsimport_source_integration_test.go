@@ -24,6 +24,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/secrets"
 )
 
 func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing.T) {
@@ -36,8 +37,13 @@ func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing
 		}
 	})
 	var requests atomic.Int64
+	var invalidResponse atomic.Bool
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
+		if invalidResponse.Load() {
+			_, _ = w.Write([]byte(`{"status":"ok","devices":[`))
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
@@ -47,7 +53,7 @@ func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing
 		t.Fatal(err)
 	}
 	h := srv.Handler()
-	type fixture struct{ tenant, contextID, sourceID string }
+	type fixture struct{ tenant, contextID, sourceID, planID string }
 	makeContext := func(tenant string) fixture {
 		t.Helper()
 		response := apiReq(t, h, http.MethodPost, "/v1/entity-contexts", tenant,
@@ -101,8 +107,8 @@ func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing
 	}
 	srv.cfg.NMSImportApprovedCIDRs = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
 	planIDs := make(map[string]bool)
-	for _, f := range []fixture{left, right} {
-		response := start(f)
+	for _, f := range []*fixture{&left, &right} {
+		response := start(*f)
 		var out struct {
 			PlanID string `json:"plan_id"`
 			State  string `json:"state"`
@@ -112,6 +118,7 @@ func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing
 			t.Fatalf("start tenant source plan: %d %s", response.Code, response.Body.String())
 		}
 		planIDs[out.PlanID] = true
+		f.planID = out.PlanID
 	}
 	if requests.Load() != 0 {
 		t.Fatal("starting an inert plan contacted the vendor")
@@ -158,4 +165,39 @@ func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing
 	if requests.Load() != 0 {
 		t.Fatalf("source configuration or disable made %d vendor requests", requests.Load())
 	}
+	advance := func(f fixture, contextID string) *httptest.ResponseRecorder {
+		t.Helper()
+		return apiReq(t, h, http.MethodPost, "/v1/nms-imports/"+f.planID+"/advance",
+			f.tenant, map[string]string{"context_id": contextID})
+	}
+	if response := advance(left, right.contextID); response.Code != http.StatusNotFound || requests.Load() != 0 {
+		t.Fatalf("foreign context advanced source: %d requests=%d", response.Code, requests.Load())
+	}
+	if response := advance(left, left.contextID); response.Code != http.StatusForbidden || requests.Load() != 0 {
+		t.Fatalf("context policy allowed source advance: %d requests=%d", response.Code, requests.Load())
+	}
+	srv.abac = nil
+	if response := advance(left, left.contextID); response.Code != http.StatusServiceUnavailable || requests.Load() != 0 {
+		t.Fatalf("missing credential resolver reached source: %d requests=%d", response.Code, requests.Load())
+	}
+	srv.WithSecrets(nmsImportTestResolver{})
+	invalidResponse.Store(true)
+	if response := advance(left, left.contextID); response.Code != http.StatusConflict || requests.Load() != 1 ||
+		strings.Contains(response.Body.String(), "fixture") {
+		t.Fatalf("incomplete source response became actionable: %d requests=%d body=%s",
+			response.Code, requests.Load(), response.Body.String())
+	}
+}
+
+type nmsImportTestResolver struct{}
+
+func (nmsImportTestResolver) Health() []secrets.BackendHealth { return nil }
+
+func (nmsImportTestResolver) ResolveBytesUncached(context.Context, string) ([]byte, func(), error) {
+	value := []byte("fixture")
+	return value, func() {
+		for i := range value {
+			value[i] = 0
+		}
+	}, nil
 }

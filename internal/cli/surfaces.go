@@ -182,6 +182,8 @@ var surfaceCommands = map[string]surfaceCommand{
 			Description: "disable source egress and invalidate unfinished captures; --body with context_id"},
 		"start-live": {Method: http.MethodPost, Path: "/v1/nms-imports/live-plans",
 			Description: "start an inert plan from an enabled source; --body with context_id and instance_ref"},
+		"advance": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/advance", ArgName: "id",
+			Description: "capture or verify one bounded LibreNMS endpoint; --body with context_id"},
 	}},
 	"change": {Name: "change", Summary: "change correlation events", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/changes"},

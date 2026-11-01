@@ -138,6 +138,48 @@ func (s *Server) handleStartNMSImportLivePlan(w http.ResponseWriter, r *http.Req
 	return nil
 }
 
+// One authenticated request fetches only the server-selected next endpoint.
+// The source policy and credential resolver are deployment-owned, while the
+// tenant and routing context come from the principal and FORCE-RLS context.
+func (s *Server) handleAdvanceNMSImportLivePlan(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		ContextID string `json:"context_id"`
+	}
+	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
+		return err
+	}
+	ctx, contextID, err := s.nmsImportContext(r, req.ContextID, permNMSImportWrite)
+	if err != nil {
+		return err
+	}
+	if s.cfg == nil || len(s.cfg.NMSImportApprovedCIDRs) == 0 || s.cfg.NMSImportRefPrefix == "" {
+		return apierror.Unavailable("live NMS import is not configured")
+	}
+	resolver, ok := s.secretsHealth.(nmsimport.SourceTokenResolver)
+	if !ok {
+		return apierror.Unavailable("live NMS import credential resolver is unavailable")
+	}
+	progress, err := s.nmsImportCaptureStore(r).CaptureNextConfiguredLibreNMSStage(ctx,
+		contextID, r.PathValue("id"), nmsimport.LibreNMSFetchPolicy{
+			ApprovedCIDRs: s.cfg.NMSImportApprovedCIDRs, CAFile: s.cfg.NMSImportCAFile,
+			AllowedRefPrefix: s.cfg.NMSImportRefPrefix, Resolver: resolver,
+			Timeout: s.cfg.NMSImportTimeout})
+	switch {
+	case errors.Is(err, nmsimport.ErrPlanUnavailable):
+		return apierror.NotFound("import plan not found in this routing context")
+	case errors.Is(err, nmsimport.ErrCaptureBusy):
+		return apierror.Conflict("import capture step is already running")
+	case errors.Is(err, nmsimport.ErrSourceUnavailable):
+		return apierror.Unavailable("configured import source is unavailable")
+	case errors.Is(err, nmsimport.ErrInvalidPage):
+		return apierror.Conflict("source inventory changed or is invalid; capture remains inert")
+	case err != nil:
+		return err
+	}
+	writeJSON(w, http.StatusOK, progress)
+	return nil
+}
+
 // A sealed import row is still an inert source candidate. Resolve the stored
 // tenant context before RBAC/ABAC, then page only its FORCE-RLS plan rows. A
 // foreign context or plan has the same 404 without source-existence clues.
