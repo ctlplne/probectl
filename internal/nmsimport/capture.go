@@ -26,12 +26,24 @@ import (
 // has expired, or cannot accept capture pages. A handler maps it to one 404.
 var ErrPlanUnavailable = errors.New("nmsimport: capture plan unavailable")
 
+// ErrCaptureAuditUnavailable refuses a mutation that cannot append its tenant
+// audit event in the same transaction. A handler must inject the actor-bound
+// audit writer; the source payload cannot supply or suppress it.
+var ErrCaptureAuditUnavailable = errors.New("nmsimport: capture audit unavailable")
+
+type CaptureAudit func(context.Context, tenancy.Scope, string, string, map[string]any) error
+
 // CaptureStore records only normalized, redacted source pages. The caller must
 // authorize the operator's selected routing context before invoking it; the
 // source payload cannot select a tenant, context, credential or destination.
-type CaptureStore struct{ pool *pgxpool.Pool }
+type CaptureStore struct {
+	pool  *pgxpool.Pool
+	audit CaptureAudit
+}
 
-func NewCaptureStore(pool *pgxpool.Pool) CaptureStore { return CaptureStore{pool: pool} }
+func NewCaptureStore(pool *pgxpool.Pool, audit CaptureAudit) CaptureStore {
+	return CaptureStore{pool: pool, audit: audit}
+}
 
 type captureMeta struct {
 	source       Kind
@@ -55,6 +67,9 @@ const maxCaptureRowsPerPage = 10_000
 // A handler must check the actor's import permission before calling it.
 func (s CaptureStore) StartPlan(ctx context.Context, contextID string,
 	source Kind, instanceRef, generationHash string) (string, error) {
+	if s.pool == nil || s.audit == nil {
+		return "", ErrCaptureAuditUnavailable
+	}
 	contextUUID, err := uuid.Parse(contextID)
 	if err != nil || contextUUID == uuid.Nil || !knownSource(source) ||
 		!safeInstanceRef(instanceRef) || len(generationHash) != 64 || !lowerHex(generationHash) {
@@ -103,7 +118,9 @@ func (s CaptureStore) StartPlan(ctx context.Context, contextID string,
 			generationHash, capturePolicyVersion); err != nil {
 			return captureStartErr(err)
 		}
-		return nil
+		return s.audit(ctx, sc, "nms_import.capture_started", planID,
+			map[string]any{"context_id": contextID, "source_kind": source,
+				"source_id": sourceID, "generation_hash": generationHash})
 	})
 	if err != nil {
 		return "", err
@@ -131,6 +148,9 @@ func captureUUID() (string, error) {
 // No entity, rule, credential or agent registration is changed here.
 func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 	pageNumber int64, resource string, firstRow int64, raw io.Reader) (string, error) {
+	if s.pool == nil || s.audit == nil {
+		return "", ErrCaptureAuditUnavailable
+	}
 	contextUUID, err := uuid.Parse(contextID)
 	if err != nil || contextUUID == uuid.Nil {
 		return "", ErrPlanUnavailable
@@ -237,7 +257,10 @@ func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 				return captureWriteErr(err)
 			}
 		}
-		return nil
+		return s.audit(ctx, sc, "nms_import.page_captured", planID,
+			map[string]any{"context_id": contextID, "page_number": pageNumber,
+				"resource_kind": resource, "first_row": firstRow,
+				"row_count": len(rows), "page_hash": pageHash})
 	})
 	if err != nil {
 		return "", err

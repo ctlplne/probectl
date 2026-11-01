@@ -24,6 +24,9 @@ import (
 // the page and row totals observed at the end of a complete source capture.
 func (s CaptureStore) Seal(ctx context.Context, contextID, planID string,
 	expectedPages, expectedRows int64) (string, error) {
+	if s.pool == nil || s.audit == nil {
+		return "", ErrCaptureAuditUnavailable
+	}
 	contextUUID, err := uuid.Parse(contextID)
 	if err != nil || contextUUID == uuid.Nil || expectedPages < 1 || expectedRows < 0 {
 		return "", ErrInvalidPage
@@ -119,7 +122,9 @@ func (s CaptureStore) Seal(ctx context.Context, contextID, planID string,
 		if updated.RowsAffected() != 1 {
 			return ErrPlanUnavailable
 		}
-		return nil
+		return s.audit(ctx, sc, "nms_import.capture_sealed", planID,
+			map[string]any{"context_id": contextID, "snapshot_hash": sealedHash,
+				"page_count": expectedPages, "row_count": expectedRows})
 	})
 	if err != nil {
 		return "", err
