@@ -26,7 +26,9 @@ import (
 // body and transport details from a caller or audit event.
 var ErrSourceUnavailable = errors.New("nmsimport: source unavailable")
 
-type sourceTokenResolver interface {
+// SourceTokenResolver resolves a configured tenant reference just before a
+// source request and releases its plaintext bytes when headers are sent.
+type SourceTokenResolver interface {
 	ResolveBytesUncached(context.Context, string) ([]byte, func(), error)
 }
 
@@ -39,7 +41,7 @@ type LibreNMSHTTPSource struct {
 	origin        string
 	credentialRef string
 	client        *http.Client
-	resolver      sourceTokenResolver
+	resolver      SourceTokenResolver
 }
 
 // allowedRefPrefix is a deployment-owned namespace ending in "/" and
@@ -47,7 +49,7 @@ type LibreNMSHTTPSource struct {
 // A tenant-owned row may select a reference only within its own namespace;
 // it cannot resolve the control plane's environment or another tenant's key.
 func NewLibreNMSHTTPSource(tenantID, origin string, approved []netip.Prefix, caFile,
-	credentialRef, allowedRefPrefix string, resolver sourceTokenResolver,
+	credentialRef, allowedRefPrefix string, resolver SourceTokenResolver,
 	timeout time.Duration) (*LibreNMSHTTPSource, error) {
 	if resolver == nil || !allowedSourceRef(tenantID, allowedRefPrefix, credentialRef) {
 		return nil, ErrSourceUnavailable

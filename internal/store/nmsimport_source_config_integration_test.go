@@ -10,10 +10,17 @@ package store
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -162,4 +169,93 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	if state != "capturing" {
 		t.Fatalf("stale source plan became actionable: %s", state)
 	}
+
+	var requests atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Header.Get("Authorization") != "Bearer fixture" {
+			t.Error("source request lost its just-in-time bearer")
+		}
+		switch r.URL.EscapedPath() {
+		case "/api/v0/devices":
+			_, _ = io.WriteString(w, `{"status":"ok","devices":[],"count":0}`)
+		case "/api/v0/devicegroups/WAN":
+			_, _ = io.WriteString(w, `[{"status":"ok","devices":[],"count":0}]`)
+		default:
+			t.Errorf("unlisted source path requested: %s", r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	caFile := filepath.Join(t.TempDir(), "source-ca.pem")
+	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	if err := os.WriteFile(caFile, certificate, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loopback := []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
+	if _, err := capturer.ConfigureLibreNMSHTTPSource(scopeA, contextID, "config-lab",
+		server.URL, ref, prefix, loopback, caFile, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	currentPlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+		"config-lab", strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := &importSourceTokenResolver{}
+	policy := nmsimport.LibreNMSFetchPolicy{ApprovedCIDRs: loopback, CAFile: caFile,
+		AllowedRefPrefix: prefix, Resolver: resolver, Timeout: time.Second}
+	if _, err := capturer.OpenConfiguredLibreNMS(scopeB, contextID, currentPlan,
+		"devices", policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) || requests.Load() != 0 || resolver.resolves != 0 {
+		t.Fatalf("foreign tenant reached source: requests=%d resolves=%d err=%v", requests.Load(), resolver.resolves, err)
+	}
+	if _, err := capturer.OpenConfiguredLibreNMSMembership(scopeA, contextID,
+		currentPlan, "7", policy); !errors.Is(err, nmsimport.ErrSourceUnavailable) || requests.Load() != 0 {
+		t.Fatalf("uncaptured group reached source: requests=%d err=%v", requests.Load(), err)
+	}
+	failAudit = true
+	if _, err := capturer.OpenConfiguredLibreNMS(scopeA, contextID, currentPlan,
+		"devices", policy); !errors.Is(err, auditFailure) || requests.Load() != 0 {
+		t.Fatalf("audit failure sent source request: requests=%d err=%v", requests.Load(), err)
+	}
+	failAudit = false
+	group := `[ {"status":"ok","groups":[{"id":7,"name":"WAN"}],"count":1} ]`
+	if _, err := capturer.AppendPage(scopeA, contextID, currentPlan, 0, "groups", 0,
+		strings.NewReader(group)); err != nil {
+		t.Fatal(err)
+	}
+	for _, read := range []func() (io.ReadCloser, error){
+		func() (io.ReadCloser, error) {
+			return capturer.OpenConfiguredLibreNMS(scopeA, contextID, currentPlan, "devices", policy)
+		},
+		func() (io.ReadCloser, error) {
+			return capturer.OpenConfiguredLibreNMSMembership(scopeA, contextID, currentPlan, "7", policy)
+		},
+	} {
+		body, err := read()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.Copy(io.Discard, body); err != nil {
+			t.Fatal(err)
+		}
+		body.Close()
+	}
+	if requests.Load() != 2 || resolver.resolves != 2 || resolver.releases != 2 {
+		t.Fatalf("tenant source requests or token leases lost: requests=%d resolver=%+v",
+			requests.Load(), resolver)
+	}
+}
+
+type importSourceTokenResolver struct{ resolves, releases int }
+
+func (r *importSourceTokenResolver) ResolveBytesUncached(context.Context, string) ([]byte, func(), error) {
+	r.resolves++
+	value := []byte("fixture")
+	return value, func() {
+		for i := range value {
+			value[i] = 0
+		}
+		r.releases++
+	}, nil
 }
