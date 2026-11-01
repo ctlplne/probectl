@@ -72,7 +72,7 @@ func TestFX2FRREdgeFourPlaneRealStack(t *testing.T) {
 	observed := time.Now()
 	emitEdgeFlow(t, lab, exporter)
 	awaitShippedEdgeFlow(t, st, registration, address, observed)
-	awaitEdgeFlowEvidence(t, st, registration, address, supportID)
+	awaitEdgeFlowEvidence(t, st, registration, address, deviceAgentID, supportID)
 	startEdgeBMPEvidence(t, st, lab, registration, address, supportID)
 	second := registerSecondRouterTenant(t, st, registration)
 	secondAgentID := startShippedEdgeSNMP(t, st, second, "blue", address, community)
@@ -614,8 +614,15 @@ func awaitEdgeSNMPEvidence(t *testing.T, st *shipped.Stack, reg edgeFlowRegistra
 // before this live export; a raw bus event or self-supporting alias is not a
 // canonical join.
 func awaitEdgeFlowEvidence(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration,
-	address, supportID string) {
+	address, deviceAgentID, initialSupportID string) {
 	t.Helper()
+	last := "no flow evidence returned"
+	matched := false
+	defer func() {
+		if !matched {
+			t.Logf("FX-2 flow join diagnostic: %s; initial SNMP support %s", last, initialSupportID)
+		}
+	}()
 	shipped.Await(t, "sender-bound FX-2 flow evidence with SNMP support", 45*time.Second, func() bool {
 		code, payload := st.Do(t, reg.cookie, http.MethodGet,
 			"/v1/entities/"+reg.deviceID+"/evidence?context_id="+reg.contextID+"&limit=100", nil)
@@ -628,19 +635,59 @@ func awaitEdgeFlowEvidence(t *testing.T, st *shipped.Stack, reg edgeFlowRegistra
 			return false
 		}
 		for _, item := range page.Items {
+			if item.SourceKey.Kind == entity.FlowExporter {
+				last = fmt.Sprintf("current=%t alias=%s:%s agent=%s configured=%s support=%s",
+					item.Current, item.Alias.Kind, item.Alias.Value, item.SourceKey.AgentID,
+					item.SourceKey.SourceRef, item.SupportEvidenceID)
+			}
 			if item.Current && item.Alias.Kind == entity.AddressAlias &&
 				item.Alias.Value == address && item.SourceKey.AgentID == reg.agentID &&
 				item.SourceKey.Kind == entity.FlowExporter &&
 				item.SourceKey.SourceRef == address &&
 				strings.HasPrefix(item.SourceRef, "flow:ipfix:domain:") &&
-				item.SupportEvidenceID == supportID {
+				item.SupportEvidenceID != "" &&
+				currentEdgeSNMPSupport(t, st, reg, address, deviceAgentID,
+					item.SupportEvidenceID, item.ObservedAt) {
+				matched = true
 				return true
 			}
 		}
 		return false
 	})
-	t.Logf("FX-2 SNMP+flow join: current flow evidence for %s cites SNMP row %s on device %s",
-		address, supportID, reg.deviceID)
+	t.Logf("FX-2 SNMP+flow join: current flow evidence for %s cites an independently authenticated SNMP row on device %s",
+		address, reg.deviceID)
+}
+
+func currentEdgeSNMPSupport(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration,
+	address, deviceAgentID, supportID string, flowObservedAt time.Time) bool {
+	t.Helper()
+	code, payload := st.Do(t, reg.cookie, http.MethodGet,
+		"/v1/entities?context_id="+reg.contextID+"&limit=100", nil)
+	var nodes entity.Page
+	if code != http.StatusOK || json.Unmarshal(payload, &nodes) != nil {
+		return false
+	}
+	for _, node := range nodes.Items {
+		if node.Kind != entity.Interface && (node.Kind != entity.Device || node.ID != reg.deviceID) {
+			continue
+		}
+		code, payload := st.Do(t, reg.cookie, http.MethodGet,
+			"/v1/entities/"+node.ID+"/evidence?context_id="+reg.contextID+"&limit=100", nil)
+		var page entity.EvidencePage
+		if code != http.StatusOK || json.Unmarshal(payload, &page) != nil {
+			continue
+		}
+		for _, item := range page.Items {
+			if item.ID == supportID && item.Current &&
+				item.Alias.Kind == entity.AddressAlias && item.Alias.Value == address &&
+				item.SourceKey.AgentID == deviceAgentID &&
+				item.SourceKey.Kind == entity.DeviceTarget && item.SourceKey.SourceRef == address &&
+				!item.ObservedAt.After(flowObservedAt) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // A saved native flow query uses the same raw exporter row already proven in
