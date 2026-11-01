@@ -5647,6 +5647,26 @@ func (c *Client) DisableLibreNmsImportSource(ctx context.Context, req DisableLib
 	return c.doJSON(ctx, http.MethodPost, path, query, req.Body, nil)
 }
 
+// Capture or verify one configured LibreNMS endpoint
+type AdvanceConfiguredLibreNmsImportPlanRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) AdvanceConfiguredLibreNmsImportPlan(ctx context.Context, req AdvanceConfiguredLibreNmsImportPlanRequest) (map[string]any, error) {
+	path := "/v1/nms-imports/{id}/advance"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Page the redacted rows of one sealed import capture
 type ListNmsImportSealedRowsRequest struct {
 	Id        string  `json:"-"`

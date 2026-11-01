@@ -3531,6 +3531,13 @@ export interface DisableLibreNmsImportSourceRequest {
 
 export type DisableLibreNmsImportSourceResponse = void
 
+export interface AdvanceConfiguredLibreNmsImportPlanRequest {
+  id: string
+  body: JsonObject
+}
+
+export type AdvanceConfiguredLibreNmsImportPlanResponse = JsonObject
+
 export interface ListNmsImportSealedRowsRequest {
   id: string
   contextId: string
@@ -5064,6 +5071,13 @@ export class ProbectlSDKClient {
     path = path.replace("{instance}", encodeURIComponent(String(request.instance)))
     const query = new URLSearchParams()
     await this.request("POST", path, query, request.body)
+  }
+
+  async advanceConfiguredLibreNmsImportPlan(request: AdvanceConfiguredLibreNmsImportPlanRequest): Promise<AdvanceConfiguredLibreNmsImportPlanResponse> {
+    let path = "/v1/nms-imports/{id}/advance"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<AdvanceConfiguredLibreNmsImportPlanResponse>("POST", path, query, request.body)
   }
 
   async listNmsImportSealedRows(request: ListNmsImportSealedRowsRequest): Promise<ListNmsImportSealedRowsResponse> {
