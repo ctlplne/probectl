@@ -33,6 +33,7 @@ type Kind string
 const (
 	LibreNMS Kind = "librenms"
 	Zabbix   Kind = "zabbix"
+	Orion    Kind = "orion"
 )
 
 // Row is an allowlisted preview candidate. Arbitrary source JSON, macros,
@@ -44,7 +45,9 @@ type Row struct {
 	Label         string   `json:"label,omitempty"`
 	Address       string   `json:"address,omitempty"`
 	LocationID    string   `json:"location_id,omitempty"`
+	LocationLabel string   `json:"location_label,omitempty"`
 	GroupIDs      []string `json:"group_ids,omitempty"`
+	PollSeconds   int64    `json:"poll_seconds,omitempty"`
 	Severity      string   `json:"severity,omitempty"`
 	UnmappedCodes []string `json:"unmapped_codes,omitempty"`
 }
