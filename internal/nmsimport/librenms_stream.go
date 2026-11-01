@@ -1,0 +1,151 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+package nmsimport
+
+import (
+	"encoding/json"
+	"io"
+	"math"
+	"unicode/utf8"
+)
+
+// LibreNMS v0 returns the complete device list without a documented page
+// parameter. Bound each JSON value while decoding, then hand off at most one
+// capture page at a time. A failed read leaves the caller's plan inert: the
+// caller must seal it only after this function returns nil.
+func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
+	if raw == nil || emit == nil {
+		return ErrInvalidPage
+	}
+	budget := &captureValueReader{reader: raw}
+	decoder := json.NewDecoder(budget)
+	budget.reset()
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return ErrInvalidPage
+	}
+	var status, haveDevices, haveCount bool
+	var declaredCount, total int64
+	for {
+		budget.reset()
+		if !decoder.More() {
+			break
+		}
+		budget.reset()
+		token, err := decoder.Token()
+		if err != nil {
+			return ErrInvalidPage
+		}
+		field, ok := token.(string)
+		if !ok {
+			return ErrInvalidPage
+		}
+		budget.reset()
+		switch field {
+		case "status":
+			if status || decoder.Decode(&field) != nil || field != "ok" {
+				return ErrInvalidPage
+			}
+			status = true
+		case "count":
+			if haveCount || decoder.Decode(&declaredCount) != nil || declaredCount < 0 {
+				return ErrInvalidPage
+			}
+			haveCount = true
+		case "devices":
+			if haveDevices {
+				return ErrInvalidPage
+			}
+			haveDevices = true
+			if token, err := decoder.Token(); err != nil || token != json.Delim('[') {
+				return ErrInvalidPage
+			}
+			rows := make([]Row, 0, maxCaptureRowsPerPage)
+			seen := make(map[string]struct{}, maxCaptureRowsPerPage)
+			for {
+				budget.reset()
+				if !decoder.More() {
+					break
+				}
+				budget.reset()
+				var value json.RawMessage
+				if decoder.Decode(&value) != nil || len(value) > maxPageBytes || !utf8.Valid(value) {
+					return ErrInvalidPage
+				}
+				var device libreNMSDevice
+				if json.Unmarshal(value, &device) != nil {
+					return ErrInvalidPage
+				}
+				row, err := libreNMSDeviceRow(device)
+				if err != nil {
+					return ErrInvalidPage
+				}
+				if _, duplicate := seen[row.ExternalID]; duplicate {
+					return ErrInvalidPage
+				}
+				seen[row.ExternalID] = struct{}{}
+				rows = append(rows, row)
+				if total == math.MaxInt64 {
+					return ErrInvalidPage
+				}
+				total++
+				if len(rows) == maxCaptureRowsPerPage {
+					if err := emit(Snapshot{Source: LibreNMS, Rows: rows}); err != nil {
+						return err
+					}
+					rows = make([]Row, 0, maxCaptureRowsPerPage)
+					seen = make(map[string]struct{}, maxCaptureRowsPerPage)
+				}
+			}
+			budget.reset()
+			if token, err := decoder.Token(); err != nil || token != json.Delim(']') {
+				return ErrInvalidPage
+			}
+			if len(rows) > 0 {
+				if err := emit(Snapshot{Source: LibreNMS, Rows: rows}); err != nil {
+					return err
+				}
+			}
+		default:
+			return ErrInvalidPage
+		}
+	}
+	budget.reset()
+	if token, err := decoder.Token(); err != nil || token != json.Delim('}') {
+		return ErrInvalidPage
+	}
+	budget.reset()
+	if _, err := decoder.Token(); err != io.EOF || !status || !haveDevices ||
+		(haveCount && declaredCount != total) {
+		return ErrInvalidPage
+	}
+	return nil
+}
+
+// The JSON decoder may read ahead, but this reader supplies at most 4 KiB at
+// once. Resetting the budget per value bounds one decoded object to 64 MiB
+// plus that small read-ahead; it does not cap the number of devices.
+type captureValueReader struct {
+	reader    io.Reader
+	remaining int64
+}
+
+func (r *captureValueReader) reset() { r.remaining = maxPageBytes }
+
+func (r *captureValueReader) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, ErrInvalidPage
+	}
+	if len(p) > 4096 {
+		p = p[:4096]
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:int(r.remaining)]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	return n, err
+}
