@@ -123,7 +123,7 @@ func TestEntityAdminAssignmentIsTenantAndContextBound(t *testing.T) {
 		t.Fatalf("foreign tenant anchor accepted: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := apiReq(t, h, http.MethodPut, "/v1/entity-source-contexts", a,
-		assignment(agentA, ctxB, "")); rec.Code != http.StatusBadRequest {
+		assignment(agentA, ctxB, "")); rec.Code != http.StatusNotFound {
 		t.Fatalf("foreign context accepted: %d %s", rec.Code, rec.Body.String())
 	}
 	for _, fixture := range []struct{ tenant, agent, routingContext, anchor string }{

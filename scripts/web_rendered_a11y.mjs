@@ -3584,6 +3584,9 @@ async function main() {
         });
         await context.addInitScript(fetchStubSource(theme));
         for (const route of routes) {
+          // Keep the long CI matrix observable so a timeout identifies the
+          // route and theme rather than leaving only a cancelled job.
+          console.log(`a11y route ${viewport.name} ${theme} ${route}`);
           const record = {
             route,
             theme,

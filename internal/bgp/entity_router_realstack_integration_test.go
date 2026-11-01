@@ -88,7 +88,31 @@ func TestFX2FRREdgeFourPlaneRealStack(t *testing.T) {
 type edgeFlowRegistration struct {
 	tenantID, agentID, cookie, contextID, deviceID, operatorToken string
 	env                                                           map[string]string
-	certFile, keyFile                                             string
+	certFile, keyFile, caFile                                     string
+}
+
+// Evidence rotation atomically replaces a dedicated identity directory. The
+// shipped collector rejects arbitrary certificate names or a CA elsewhere.
+func writeRouterEvidenceFiles(t *testing.T, st *shipped.Stack, name, cert string, key []byte) (string, string, string) {
+	t.Helper()
+	dir := filepath.Join(st.Dir, name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ca, err := os.ReadFile(st.CAFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certFile, keyFile, caFile := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem"), filepath.Join(dir, "server-ca.pem")
+	for _, file := range []struct {
+		path string
+		data []byte
+	}{{certFile, []byte(cert)}, {keyFile, key}, {caFile, ca}} {
+		if err := os.WriteFile(file.path, file.data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return certFile, keyFile, caFile
 }
 
 // registerEdgeFlowEvidence uses the shipped public surfaces for BOTH the raw
@@ -160,14 +184,7 @@ func registerEdgeFlowEvidence(t *testing.T, st *shipped.Stack, exporterIP string
 		evidence.SVID.SPIFFEID != crypto.EntitySPIFFEID(tenant.ID, raw.AgentID) {
 		t.Fatal("pinned evidence registration did not preserve the raw flow tenant/agent")
 	}
-	certFile := filepath.Join(st.Dir, "fx2-edge-flow-evidence.crt")
-	keyFile := filepath.Join(st.Dir, "fx2-edge-flow-evidence.key")
-	if err := os.WriteFile(certFile, []byte(evidence.SVID.CertPEM), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(keyFile, key, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	certFile, keyFile, caFile := writeRouterEvidenceFiles(t, st, "fx2-edge-flow-evidence", evidence.SVID.CertPEM, key)
 	code, payload := st.Do(t, cookie, http.MethodPost, "/v1/entity-contexts",
 		map[string]string{"site_label": "FX-2 West DC", "vrf_label": "Customer A"})
 	if code != http.StatusCreated {
@@ -199,7 +216,7 @@ func registerEdgeFlowEvidence(t *testing.T, st *shipped.Stack, exporterIP string
 	return edgeFlowRegistration{tenantID: tenant.ID, agentID: raw.AgentID,
 		cookie: cookie, contextID: routing.ContextID, deviceID: device.ID,
 		operatorToken: op,
-		env:           raw.Config.Env, certFile: certFile, keyFile: keyFile}
+		env:           raw.Config.Env, certFile: certFile, keyFile: keyFile, caFile: caFile}
 }
 
 // The second tenant polls the same real private address with its own issued
@@ -499,14 +516,7 @@ func startShippedEdgeSNMP(t *testing.T, st *shipped.Stack, reg edgeFlowRegistrat
 	if code != http.StatusOK {
 		t.Fatalf("anchor FX-2 SNMP target: HTTP %d: %.300s", code, payload)
 	}
-	certFile := filepath.Join(st.Dir, "fx2-"+name+"-device-evidence.crt")
-	keyFile := filepath.Join(st.Dir, "fx2-"+name+"-device-evidence.key")
-	if err := os.WriteFile(certFile, []byte(evidence.SVID.CertPEM), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(keyFile, key, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	certFile, keyFile, caFile := writeRouterEvidenceFiles(t, st, "fx2-"+name+"-device-evidence", evidence.SVID.CertPEM, key)
 	env := raw.Config.Env
 	env["PROBECTL_DEVICE_BUS_MODE"] = "kafka"
 	env["PROBECTL_DEVICE_BUS_BROKERS"] = strings.Join(testsupport.KafkaBrokers(), ",")
@@ -524,7 +534,7 @@ func startShippedEdgeSNMP(t *testing.T, st *shipped.Stack, reg edgeFlowRegistrat
 	env["PROBECTL_DEVICE_EVIDENCE_ROTATE_URL"] = st.BaseURL + "/enroll/agent/rotate"
 	env["PROBECTL_DEVICE_EVIDENCE_CERT_FILE"] = certFile
 	env["PROBECTL_DEVICE_EVIDENCE_KEY_FILE"] = keyFile
-	env["PROBECTL_DEVICE_EVIDENCE_CA_FILE"] = st.CAFile
+	env["PROBECTL_DEVICE_EVIDENCE_CA_FILE"] = caFile
 	env["PROBECTL_DEVICE_EVIDENCE_SERVER_NAME"] = "localhost"
 	keys := make([]string, 0, len(env))
 	for key := range env {
@@ -797,14 +807,7 @@ func startEdgeBMPEvidence(t *testing.T, st *shipped.Stack, lab *routingLab,
 		evidence.SVID.SPIFFEID != crypto.EntitySPIFFEID(reg.tenantID, tn.collectorID) {
 		t.Fatalf("FX-2 BMP evidence registration lost exact listener identity: %v", err)
 	}
-	certFile := filepath.Join(st.Dir, "fx2-bmp-evidence.crt")
-	keyFile := filepath.Join(st.Dir, "fx2-bmp-evidence.key")
-	if err := os.WriteFile(certFile, []byte(evidence.SVID.CertPEM), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(keyFile, key, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	certFile, keyFile, caFile := writeRouterEvidenceFiles(t, st, "fx2-bmp-evidence", evidence.SVID.CertPEM, key)
 	logins := bmpLogins(t, st)
 	tn.listenAddr = shipped.FreeAddr(t)
 	tn.listenerLog = st.StartProcess(t, "fx2-bmp-listener",
@@ -827,7 +830,7 @@ func startEdgeBMPEvidence(t *testing.T, st *shipped.Stack, lab *routingLab,
 			"PROBECTL_BMP_EVIDENCE_ROTATE_URL=" + st.BaseURL + "/enroll/agent/rotate",
 			"PROBECTL_BMP_EVIDENCE_CERT_FILE=" + certFile,
 			"PROBECTL_BMP_EVIDENCE_KEY_FILE=" + keyFile,
-			"PROBECTL_BMP_EVIDENCE_CA_FILE=" + st.CAFile,
+			"PROBECTL_BMP_EVIDENCE_CA_FILE=" + caFile,
 			"PROBECTL_BMP_EVIDENCE_SERVER_NAME=localhost",
 		})
 	bridgeBMP(t, lab.bmpAddr(t, tn.router), tn.listenAddr, tn.routerTLS(t, st))
@@ -887,7 +890,7 @@ func startShippedEdgeFlow(t *testing.T, st *shipped.Stack, lab *routingLab, reg 
 	env["PROBECTL_FLOW_EVIDENCE_ROTATE_URL"] = st.BaseURL + "/enroll/agent/rotate"
 	env["PROBECTL_FLOW_EVIDENCE_CERT_FILE"] = reg.certFile
 	env["PROBECTL_FLOW_EVIDENCE_KEY_FILE"] = reg.keyFile
-	env["PROBECTL_FLOW_EVIDENCE_CA_FILE"] = st.CAFile
+	env["PROBECTL_FLOW_EVIDENCE_CA_FILE"] = reg.caFile
 	env["PROBECTL_FLOW_EVIDENCE_SERVER_NAME"] = "localhost"
 	env["PROBECTL_FLOW_EVIDENCE_EXPORTERS"] = lab.ip["edge"]
 	keys := make([]string, 0, len(env))

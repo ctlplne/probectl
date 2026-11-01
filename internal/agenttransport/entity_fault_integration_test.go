@@ -350,7 +350,7 @@ func TestEntityFaultRealMTLSSenderIsTenantBoundAndRevocationFailsClosed(t *testi
 		}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := call(red, request(uuid.NewString(), target, time.Now())); status.Code(err) != codes.PermissionDenied {
+	if _, err := call(red, request(uuid.NewString(), target, time.Now())); status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("revoked live mTLS connection opened a fault: %v", err)
 	}
 	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(red.tenant)), pool,

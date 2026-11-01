@@ -1617,7 +1617,10 @@ jobs:
     # Chromium + OS deps are controlled, not whatever happens to be on the
     # hosted runner.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The full native-route matrix grew with canonical identity surfaces.
+    # Keep every assertion and both themes, with room above the observed
+    # 20-minute cutoff so a slow hosted runner can finish the gate.
+    timeout-minutes: 35
     container: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
     defaults:
       run:
