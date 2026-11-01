@@ -111,12 +111,15 @@ func (s *LibreNMSHTTPSource) Open(ctx context.Context, resource string) (io.Read
 // list. Its caller binds that name to the source's canonical group ID before
 // storing membership pairs; this function never trusts a response-supplied URL.
 func (s *LibreNMSHTTPSource) OpenMembership(ctx context.Context, capturedGroupName string) (io.ReadCloser, error) {
-	if capturedGroupName == "" || safeLabel(capturedGroupName) != capturedGroupName ||
-		capturedGroupName == "." || capturedGroupName == ".." ||
-		strings.ContainsAny(capturedGroupName, "/\\%") {
+	if !validMembershipName(capturedGroupName) {
 		return nil, ErrSourceUnavailable
 	}
 	return s.openPath(ctx, "/api/v0/devicegroups/"+url.PathEscape(capturedGroupName))
+}
+
+func validMembershipName(name string) bool {
+	return name != "" && safeLabel(name) == name &&
+		name != "." && name != ".." && !strings.ContainsAny(name, "/\\%")
 }
 
 func (s *LibreNMSHTTPSource) openPath(ctx context.Context, path string) (io.ReadCloser, error) {

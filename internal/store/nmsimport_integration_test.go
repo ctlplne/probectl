@@ -603,7 +603,7 @@ func TestNMSImportLibreNMSStreamSealsOnlyCompleteTenantCapture(t *testing.T) {
 	groups := `[{"status":"ok","groups":[{"id":7,"name":"WAN","pattern":"source-only-predicate"}],"count":1}]`
 	rules := `{"status":"ok","rules":[{"id":9,"name":"Link down","rule":"source-only-expression"}],"count":1}`
 	members := `[{"status":"ok","devices":[{"device_id":17,"community":"source-only-membership-secret"}],"count":1}]`
-	memberLists := []nmsimport.LibreNMSMembershipList{{GroupID: "7", Raw: strings.NewReader(members)}}
+	memberLists := []nmsimport.LibreNMSMembershipList{{GroupID: "7", GroupName: "WAN", Raw: strings.NewReader(members)}}
 	if _, err := capturer.CaptureLibreNMSInventory(scopeA, routingContext, fullPlan,
 		strings.NewReader(complete), strings.NewReader(mixedSites), strings.NewReader(groups),
 		strings.NewReader(rules), memberLists); err != nil {
@@ -657,8 +657,15 @@ func TestNMSImportLibreNMSStreamSealsOnlyCompleteTenantCapture(t *testing.T) {
 	foreignGroupBody := &observedImportReader{Reader: strings.NewReader(members)}
 	if _, err := capturer.CaptureLibreNMSInventory(scopeA, routingContext, foreignGroupPlan,
 		strings.NewReader(complete), strings.NewReader(mixedSites), strings.NewReader(groups),
-		strings.NewReader(rules), []nmsimport.LibreNMSMembershipList{{GroupID: "8", Raw: foreignGroupBody}}); !errors.Is(err, nmsimport.ErrInvalidPage) || foreignGroupBody.reads != 0 {
+		strings.NewReader(rules), []nmsimport.LibreNMSMembershipList{{GroupID: "8", GroupName: "WAN", Raw: foreignGroupBody}}); !errors.Is(err, nmsimport.ErrInvalidPage) || foreignGroupBody.reads != 0 {
 		t.Fatalf("foreign group consumed a membership response: reads=%d err=%v", foreignGroupBody.reads, err)
+	}
+	renamedGroupPlan := start("stream-renamed-group")
+	renamedGroupBody := &observedImportReader{Reader: strings.NewReader(members)}
+	if _, err := capturer.CaptureLibreNMSInventory(scopeA, routingContext, renamedGroupPlan,
+		strings.NewReader(complete), strings.NewReader(mixedSites), strings.NewReader(groups),
+		strings.NewReader(rules), []nmsimport.LibreNMSMembershipList{{GroupID: "7", GroupName: "renamed", Raw: renamedGroupBody}}); !errors.Is(err, nmsimport.ErrInvalidPage) || renamedGroupBody.reads != 0 {
+		t.Fatalf("changed group name consumed a membership response: reads=%d err=%v", renamedGroupBody.reads, err)
 	}
 }
 

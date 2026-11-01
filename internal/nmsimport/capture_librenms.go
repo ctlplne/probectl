@@ -26,8 +26,9 @@ type libreNMSCaptureList struct {
 // the operator-selected source's group inventory. The caller, not the source
 // body, chooses this ID; capture rejects missing, duplicate and foreign IDs.
 type LibreNMSMembershipList struct {
-	GroupID string
-	Raw     io.Reader
+	GroupID   string
+	GroupName string // exact captured name binding for configured live fetch
+	Raw       io.Reader
 }
 
 // CaptureLibreNMSDevices consumes the documented unpaged device-list response
@@ -61,6 +62,7 @@ func (s CaptureStore) CaptureLibreNMSDevicesAndLocations(ctx context.Context,
 func (s CaptureStore) CaptureLibreNMSInventory(ctx context.Context, contextID, planID string,
 	devices, locations, groups, rules io.Reader, memberships []LibreNMSMembershipList) (string, error) {
 	groupIDs := make(map[string]bool)
+	groupNames := make(map[string]string)
 	lists := []libreNMSCaptureList{
 		{"devices", devices, streamLibreNMSDevices},
 		{"locations", locations, streamLibreNMSLocations},
@@ -71,6 +73,7 @@ func (s CaptureStore) CaptureLibreNMSInventory(ctx context.Context, contextID, p
 						return ErrInvalidPage
 					}
 					groupIDs[row.ExternalID] = false
+					groupNames[row.ExternalID] = row.Label
 					for j, code := range snapshot.Rows[i].UnmappedCodes {
 						if code == "membership_not_captured" {
 							snapshot.Rows[i].UnmappedCodes[j] = "group_unmapped"
@@ -80,14 +83,14 @@ func (s CaptureStore) CaptureLibreNMSInventory(ctx context.Context, contextID, p
 				return emit(snapshot)
 			})
 		}},
-		{"rules", rules, streamLibreNMSRules},
 	}
 	for _, member := range memberships {
 		member := member
 		lists = append(lists, libreNMSCaptureList{"memberships", member.Raw,
 			func(raw io.Reader, emit func(Snapshot) error) error {
 				seen, known := groupIDs[member.GroupID]
-				if !known || seen {
+				if !known || seen || member.GroupName == "" ||
+					groupNames[member.GroupID] != member.GroupName {
 					return ErrInvalidPage
 				}
 				if err := streamLibreNMSGroupMembers(raw, member.GroupID, emit); err != nil {
@@ -97,6 +100,7 @@ func (s CaptureStore) CaptureLibreNMSInventory(ctx context.Context, contextID, p
 				return nil
 			}})
 	}
+	lists = append(lists, libreNMSCaptureList{"rules", rules, streamLibreNMSRules})
 	complete := func() error {
 		if len(groupIDs) != len(memberships) {
 			return ErrInvalidPage

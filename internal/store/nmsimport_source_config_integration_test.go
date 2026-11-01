@@ -170,7 +170,8 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatalf("stale source plan became actionable: %s", state)
 	}
 
-	var requests atomic.Int32
+	var requests, groupRequests, memberRequests atomic.Int32
+	var drift atomic.Bool
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.Header.Get("Authorization") != "Bearer fixture" {
@@ -178,9 +179,20 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		}
 		switch r.URL.EscapedPath() {
 		case "/api/v0/devices":
-			_, _ = io.WriteString(w, `{"status":"ok","devices":[],"count":0}`)
+			_, _ = io.WriteString(w, `{"status":"ok","devices":[{"device_id":17,"display":"Edge","ip":"10.0.0.1","community":"source-only-secret"}],"count":1}`)
+		case "/api/v0/resources/locations":
+			_, _ = io.WriteString(w, `{"status":"ok","locations":[{"id":5,"location":"West"}],"count":1}`)
+		case "/api/v0/devicegroups":
+			name := "WAN"
+			if groupRequests.Add(1)%2 == 0 && drift.Load() {
+				name = "WAN-renamed"
+			}
+			_, _ = io.WriteString(w, fmt.Sprintf(`[{"status":"ok","groups":[{"id":7,"name":%q}],"count":1}]`, name))
+		case "/api/v0/rules":
+			_, _ = io.WriteString(w, `{"status":"ok","rules":[{"id":9,"name":"Link down","rule":"source-only-rule"}],"count":1}`)
 		case "/api/v0/devicegroups/WAN":
-			_, _ = io.WriteString(w, `[{"status":"ok","devices":[],"count":0}]`)
+			memberRequests.Add(1)
+			_, _ = io.WriteString(w, `[{"status":"ok","devices":[{"device_id":17}],"count":1}]`)
 		default:
 			t.Errorf("unlisted source path requested: %s", r.URL.EscapedPath())
 			w.WriteHeader(http.StatusNotFound)
@@ -258,6 +270,53 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatalf("live capture lost its source request or token lease: requests=%d resolver=%+v",
 			requests.Load(), resolver)
 	}
+	fullPlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+		"config-lab", strings.Repeat("d", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash, err := capturer.CaptureConfiguredLibreNMSInventory(scopeA, contextID,
+		fullPlan, policy); err != nil || len(hash) != 64 {
+		t.Fatalf("configured five-resource capture did not seal: hash=%q err=%v", hash, err)
+	}
+	if err := tenancy.InTenant(scopeA, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var state string
+		var rows int
+		var leaked bool
+		if err := sc.Q.QueryRow(ctx, `SELECT state FROM nms_import_plans WHERE id=$1`, fullPlan).Scan(&state); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows WHERE plan_id=$1`, fullPlan).Scan(&rows); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nms_import_rows
+			WHERE plan_id=$1 AND row_to_json(nms_import_rows)::text LIKE '%source-only-%')`, fullPlan).Scan(&leaked); err != nil {
+			return err
+		}
+		if state != "sealed" || rows != 5 || leaked {
+			return fmt.Errorf("live inventory lost rows or leaked source data: state=%s rows=%d leaked=%v", state, rows, leaked)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 9 || resolver.resolves != 9 || resolver.releases != 9 {
+		t.Fatalf("full source capture lost a fixed endpoint or token release: requests=%d resolver=%+v",
+			requests.Load(), resolver)
+	}
+	drift.Store(true)
+	driftPlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+		"config-lab", strings.Repeat("e", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := capturer.CaptureConfiguredLibreNMSInventory(scopeA, contextID,
+		driftPlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) || memberRequests.Load() != 2 {
+		t.Fatalf("renamed source group fetched a membership or sealed: members=%d err=%v",
+			memberRequests.Load(), err)
+	}
+	requestsBeforeDisable := requests.Load()
+	resolvesBeforeDisable := resolver.resolves
 	if err := capturer.DisableLibreNMSHTTPSource(scopeB, contextID, "config-lab"); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
 		t.Fatalf("foreign tenant disabled source: %v", err)
 	}
@@ -274,7 +333,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatalf("idempotent disable duplicated audit: events=%d err=%v", auditEvents, err)
 	}
 	if _, err := capturer.OpenConfiguredLibreNMS(scopeA, contextID, currentPlan,
-		"devices", policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) || requests.Load() != 3 || resolver.resolves != 3 {
+		"devices", policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) || requests.Load() != requestsBeforeDisable || resolver.resolves != resolvesBeforeDisable {
 		t.Fatalf("disabled source reached network or resolver: requests=%d resolves=%d err=%v",
 			requests.Load(), resolver.resolves, err)
 	}
