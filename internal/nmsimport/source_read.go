@@ -38,6 +38,21 @@ func (s CaptureStore) OpenConfiguredLibreNMS(ctx context.Context, contextID,
 	return s.openConfiguredLibreNMS(ctx, contextID, planID, resource, "", policy)
 }
 
+// CaptureConfiguredLibreNMSDevices is the focused live-source proof: it binds
+// one configured HTTPS response to the same tenant plan, bounded decoder,
+// page/audit transaction and inert seal as a streamed export. The full
+// multi-resource importer must capture locations, groups, memberships and
+// rules before publishing any preview or apply action.
+func (s CaptureStore) CaptureConfiguredLibreNMSDevices(ctx context.Context,
+	contextID, planID string, policy LibreNMSFetchPolicy) (string, error) {
+	body, err := s.OpenConfiguredLibreNMS(ctx, contextID, planID, "devices", policy)
+	if err != nil {
+		return "", err
+	}
+	defer body.Close()
+	return s.CaptureLibreNMSDevices(ctx, contextID, planID, body)
+}
+
 // OpenConfiguredLibreNMSMembership derives its group name from the captured,
 // tenant-owned group row. The caller supplies only a canonical group ID; a
 // lower-trust response or request cannot select an arbitrary URL segment.

@@ -245,6 +245,19 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatalf("tenant source requests or token leases lost: requests=%d resolver=%+v",
 			requests.Load(), resolver)
 	}
+	livePlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+		"config-lab", strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash, err := capturer.CaptureConfiguredLibreNMSDevices(scopeA, contextID,
+		livePlan, policy); err != nil || len(hash) != 64 {
+		t.Fatalf("configured HTTPS response did not seal a tenant capture: hash=%q err=%v", hash, err)
+	}
+	if requests.Load() != 3 || resolver.resolves != 3 || resolver.releases != 3 {
+		t.Fatalf("live capture lost its source request or token lease: requests=%d resolver=%+v",
+			requests.Load(), resolver)
+	}
 	if err := capturer.DisableLibreNMSHTTPSource(scopeB, contextID, "config-lab"); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
 		t.Fatalf("foreign tenant disabled source: %v", err)
 	}
@@ -261,7 +274,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatalf("idempotent disable duplicated audit: events=%d err=%v", auditEvents, err)
 	}
 	if _, err := capturer.OpenConfiguredLibreNMS(scopeA, contextID, currentPlan,
-		"devices", policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) || requests.Load() != 2 || resolver.resolves != 2 {
+		"devices", policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) || requests.Load() != 3 || resolver.resolves != 3 {
 		t.Fatalf("disabled source reached network or resolver: requests=%d resolves=%d err=%v",
 			requests.Load(), resolver.resolves, err)
 	}
