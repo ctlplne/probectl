@@ -579,8 +579,10 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entity_evidence`).Scan(&count); err != nil {
 			return err
 		}
-		if count != 5 {
-			t.Fatalf("predicate-free forced RLS count=%d, want 5", count)
+		// Five original rows, two retained unresolved reanchor attempts and
+		// the post-assignment observation all belong to tenant A.
+		if count != 8 {
+			t.Fatalf("predicate-free forced RLS count=%d, want 8", count)
 		}
 		tag, err := sc.Q.Exec(ctx, `DELETE FROM entity_evidence WHERE tenant_id=$1`, b.ID)
 		if err != nil {

@@ -76,8 +76,10 @@ func (p *Provisioner) ensureIncidentOverrideIdentityIndex(ctx context.Context, s
 				return fmt.Errorf("silo: discard invalid incident override index: %w", err)
 			}
 		}
+		// CREATE INDEX places the index in the table's schema; PostgreSQL
+		// rejects a schema-qualified index name even for a qualified table.
 		_, err = p.ddlPool().Exec(ctx, "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "+
-			quoteIdent(schema)+"."+quoteIdent(newIndex)+" ON "+
+			quoteIdent(newIndex)+" ON "+
 			quoteIdent(schema)+`."incident_correlation_overrides" `+
 			`(tenant_id,source_incident_id,plane,kind,target,prefix,`+
 			`identity_lookup_attempted,entity_context_id,entity_id) `+
