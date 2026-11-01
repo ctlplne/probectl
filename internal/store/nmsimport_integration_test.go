@@ -127,11 +127,23 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	}
 	if err := tryA(`INSERT INTO nms_import_rows
 		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
-		 address,target_entity_id,action)
-		VALUES ($1,$2,$3,0,'device','17','10.42.0.1',$4,'update')`,
+		 address,target_entity_id)
+		VALUES ($1,$2,$3,0,'device','17','10.42.0.1',$4)`,
 		a.ID, contextA, planA, entityA); err != nil {
 		t.Fatalf("own plan row: %v", err)
 	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var action string
+		if err := sc.Q.QueryRow(ctx, `SELECT action FROM nms_import_rows
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND row_number=0`,
+			a.ID, contextA, planA).Scan(&action); err != nil {
+			return err
+		}
+		if action != "captured" {
+			t.Fatalf("unreviewed source row became an apply action: %s", action)
+		}
+		return nil
+	})
 	if err := tryA(`INSERT INTO nms_import_provenance
 		(tenant_id,context_id,source_id,object_kind,external_id,entity_id,plan_id)
 		VALUES ($1,$2,$3,'device','18',$4,$5)`,
