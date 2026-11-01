@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -159,11 +160,14 @@ func (s *Server) handleAdvanceNMSImportLivePlan(w http.ResponseWriter, r *http.R
 	if !ok {
 		return apierror.Unavailable("live NMS import credential resolver is unavailable")
 	}
+	// Leave time for tenant page/audit transactions inside the listener's
+	// 15-second write deadline even when a deployment permits slower fetches.
+	fetchTimeout := min(s.cfg.NMSImportTimeout, 10*time.Second)
 	progress, err := s.nmsImportCaptureStore(r).CaptureNextConfiguredLibreNMSStage(ctx,
 		contextID, r.PathValue("id"), nmsimport.LibreNMSFetchPolicy{
 			ApprovedCIDRs: s.cfg.NMSImportApprovedCIDRs, CAFile: s.cfg.NMSImportCAFile,
 			AllowedRefPrefix: s.cfg.NMSImportRefPrefix, Resolver: resolver,
-			Timeout: s.cfg.NMSImportTimeout})
+			Timeout: fetchTimeout})
 	switch {
 	case errors.Is(err, nmsimport.ErrPlanUnavailable):
 		return apierror.NotFound("import plan not found in this routing context")
