@@ -63,13 +63,13 @@ func TestEntityCLIUsesAdministrativeRoutes(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"entities", "contexts", "list", "--query", "limit=25"},
+		{[]string{"entities", "contexts-list", "--query", "limit=25"},
 			"GET /v1/entity-contexts?limit=25"},
-		{[]string{"entities", "contexts", "create", "--body", `{"site_label":"West DC","vrf_label":"Customer A"}`},
+		{[]string{"entities", "contexts-create", "--body", `{"site_label":"West DC","vrf_label":"Customer A"}`},
 			"POST /v1/entity-contexts"},
 		{[]string{"entities", "create", "--body", `{"context_id":"` + id + `","kind":"device","label":"router"}`},
 			"POST /v1/entities"},
-		{[]string{"entities", "sources", "assign", "--body", `{"agent_id":"` + id + `","source_kind":"device_target","source_ref":"r1","context_id":"` + id + `"}`},
+		{[]string{"entities", "sources-assign", "--body", `{"agent_id":"` + id + `","source_kind":"device_target","source_ref":"r1","context_id":"` + id + `"}`},
 			"PUT /v1/entity-source-contexts"},
 		{[]string{"entities", "path-context-assign", id, "--body", `{"context_id":"` + id + `"}`},
 			"PUT /v1/tests/" + id + "/entity-context"},
