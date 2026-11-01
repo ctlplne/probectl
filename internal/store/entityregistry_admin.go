@@ -193,10 +193,10 @@ func (s *EntityRegistry) AssignEntitySource(ctx context.Context, sc tenancy.Scop
 	err = sc.Q.QueryRow(ctx, `SELECT status FROM agents
 		WHERE tenant_id=$1 AND id=$2
 		  AND NOT EXISTS (SELECT 1 FROM agent_identities i
-		                   WHERE i.tenant_id=$1 AND i.agent_id=$2
+		                   WHERE i.tenant_id=$1 AND i.agent_id=$3
 		                   AND i.revoked_at IS NOT NULL
 		                   AND i.revoked_by IS DISTINCT FROM 'entity_registry_delete')
-		FOR SHARE`, sc.Tenant.String(), agent).Scan(&status)
+		FOR SHARE`, sc.Tenant.String(), agent, agent).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) || status == "revoked" {
 		return ErrEntityAgentNotRegistered
 	}

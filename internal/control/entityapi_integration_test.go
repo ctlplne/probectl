@@ -60,7 +60,7 @@ func TestEntityAPIEnforcesTenantContextAndSourcePermissions(t *testing.T) {
 		err := tenancy.InTenant(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
 				(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
-                VALUES ($1,$2,$3,$4,$3::text,$4::text)
+                VALUES ($1,$2,$3,$4,$3::uuid::text,$4::uuid::text)
 				ON CONFLICT (tenant_id,id) DO NOTHING`, f.tenant, f.routingContext,
 				gouuid.NewString(), gouuid.NewString()); err != nil {
 				return err

@@ -135,15 +135,15 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 			if lastCopy < 0 || firstFK < lastCopy {
 				t.Fatalf("registry foreign keys precede silo table copies: %s", joined)
 			}
-			indexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "t_abc"."fx2_tests_tenant_id_id_uidx"`)
+			indexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "fx2_tests_tenant_id_id_uidx" ON "t_abc"."tests"`)
 			if indexAt < lastCopy || indexAt > firstFK {
 				t.Fatalf("path test FK target index must follow silo copies and precede foreign keys")
 			}
-			incidentIndexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "t_abc"."fx2_incidents_tenant_id_id_uidx"`)
+			incidentIndexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "fx2_incidents_tenant_id_id_uidx" ON "t_abc"."incidents"`)
 			if incidentIndexAt < lastCopy || incidentIndexAt > firstFK {
 				t.Fatal("signal FK target index must follow silo copies and precede foreign keys")
 			}
-			signalIndexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "t_abc"."fx2_incident_signals_tenant_id_id_uidx"`)
+			signalIndexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "fx2_incident_signals_tenant_id_id_uidx" ON "t_abc"."incident_signals"`)
 			if signalIndexAt < lastCopy || signalIndexAt > firstFK {
 				t.Fatal("override signal FK target index must follow silo copies and precede foreign keys")
 			}

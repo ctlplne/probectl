@@ -66,7 +66,7 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
 				(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
-                VALUES ($1,$2,$3,$4,$3::text,$4::text)`, tenant, routingContext, siteID, vrfID); err != nil {
+                VALUES ($1,$2,$3,$4,$3::uuid::text,$4::uuid::text)`, tenant, routingContext, siteID, vrfID); err != nil {
 				return err
 			}
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts
@@ -538,7 +538,7 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 		func(ctx context.Context, sc tenancy.Scope) error {
 			_, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
 				(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
-                VALUES ($1,$2,$3,$4,$3::text,$4::text)`,
+                VALUES ($1,$2,$3,$4,$3::uuid::text,$4::uuid::text)`,
 				b.ID, uuid.NewString(), siteID, defaultVRF)
 			return err
 		}); err == nil {

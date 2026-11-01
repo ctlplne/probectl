@@ -65,7 +65,7 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 		}
 		if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.entity_contexts
 			(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
-                VALUES ($1,$2,$3,$4,$3::text,$4::text)`,
+                VALUES ($1,$2,$3,$4,$3::uuid::text,$4::uuid::text)`,
 			tenant, routingContext, site, vrfID); err != nil {
 			t.Fatalf("seed silo context: %v", err)
 		}

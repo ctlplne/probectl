@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -356,12 +357,16 @@ func (a AgentIdentities) RevokeAgent(ctx context.Context, tenantID, agentID, rev
 		// Evidence-SVID issuance share-locks the registered agent while it
 		// records a serial. Take the update lock before reading/revoking serials
 		// so a concurrent issuance is either included or refused. A deleted
-		// agent may still have identities to revoke, so no row is allowed.
-		var present int
-		lockErr := sc.Q.QueryRow(ctx, `SELECT 1 FROM agents
-			WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, agentID).Scan(&present)
-		if lockErr != nil && !errors.Is(lockErr, pgx.ErrNoRows) {
-			return lockErr
+		// agent may still have identities to revoke, so an absent row is allowed.
+		// Legacy identity rows may use a non-UUID agent key; that key cannot
+		// name an agents.id row but still needs revocation.
+		if registeredID, parseErr := uuid.Parse(agentID); parseErr == nil {
+			var present int
+			lockErr := sc.Q.QueryRow(ctx, `SELECT 1 FROM agents
+				WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, registeredID).Scan(&present)
+			if lockErr != nil && !errors.Is(lockErr, pgx.ErrNoRows) {
+				return lockErr
+			}
 		}
 		if _, err := sc.Q.Exec(ctx,
 			`UPDATE agent_identities SET revoked_at = now(), revoked_by = $3

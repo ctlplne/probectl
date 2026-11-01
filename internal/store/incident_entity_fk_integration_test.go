@@ -46,7 +46,7 @@ func TestIncidentVerifiedEntityForeignKeysBindTenantAndContext(t *testing.T) {
 	for _, fixture := range []struct{ tenant, entity string }{{a.ID, entityA}, {b.ID, entityB}} {
 		if _, err := pool.Exec(ctx, `INSERT INTO entity_contexts
 			(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
-			VALUES ($1,$2,$3,$4,$3::text,$4::text)`, fixture.tenant, routingContext,
+			VALUES ($1,$2,$3,$4,$3::uuid::text,$4::uuid::text)`, fixture.tenant, routingContext,
 			uuid.NewString(), uuid.NewString()); err != nil {
 			t.Fatalf("seed incident routing context: %v", err)
 		}
