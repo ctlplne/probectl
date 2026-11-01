@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/secrets"
 )
@@ -40,9 +42,14 @@ type LibreNMSHTTPSource struct {
 	resolver      sourceTokenResolver
 }
 
-func NewLibreNMSHTTPSource(origin string, approved []netip.Prefix, caFile,
-	credentialRef string, resolver sourceTokenResolver, timeout time.Duration) (*LibreNMSHTTPSource, error) {
-	if resolver == nil || !secrets.IsRef(credentialRef) {
+// allowedRefPrefix is a deployment-owned namespace ending in "/" and
+// containing exactly one {tenant} token. An empty prefix disables live fetch.
+// A tenant-owned row may select a reference only within its own namespace;
+// it cannot resolve the control plane's environment or another tenant's key.
+func NewLibreNMSHTTPSource(tenantID, origin string, approved []netip.Prefix, caFile,
+	credentialRef, allowedRefPrefix string, resolver sourceTokenResolver,
+	timeout time.Duration) (*LibreNMSHTTPSource, error) {
+	if resolver == nil || !allowedSourceRef(tenantID, allowedRefPrefix, credentialRef) {
 		return nil, ErrSourceUnavailable
 	}
 	client, err := crypto.PinnedHTTPSClient(origin, approved, caFile, timeout)
@@ -51,6 +58,31 @@ func NewLibreNMSHTTPSource(origin string, approved []netip.Prefix, caFile,
 	}
 	return &LibreNMSHTTPSource{origin: strings.TrimSuffix(origin, "/"),
 		credentialRef: credentialRef, client: client, resolver: resolver}, nil
+}
+
+func allowedSourceRef(tenantID, prefix, ref string) bool {
+	tenant, err := uuid.Parse(tenantID)
+	if err != nil || tenant == uuid.Nil || tenant.String() != tenantID ||
+		strings.Count(prefix, "{tenant}") != 1 || !strings.HasSuffix(prefix, "/") ||
+		len(ref) > 512 || !secrets.IsRef(ref) || !secrets.IsRef(prefix) ||
+		strings.HasPrefix(ref, "env:") || strings.HasPrefix(prefix, "env:") {
+		return false
+	}
+	approvedPrefix := strings.Replace(prefix, "{tenant}", tenantID, 1)
+	if !strings.HasPrefix(ref, approvedPrefix) || len(ref) == len(approvedPrefix) {
+		return false
+	}
+	parsed, err := secrets.Parse(ref)
+	if err != nil || strings.ContainsAny(parsed.Path, "\\?%") ||
+		strings.ContainsAny(parsed.Field, "/\\?%") {
+		return false
+	}
+	for _, segment := range strings.Split(parsed.Path, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // Open returns a streaming response for a fixed resource. The caller closes

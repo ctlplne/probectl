@@ -117,14 +117,33 @@ func (b *observedSourceBody) Close() error               { b.closed = true; retu
 
 func TestLibreNMSHTTPSourceRequiresReferenceAndEgressPolicy(t *testing.T) {
 	resolver := &fixtureTokenResolver{}
-	for _, ref := range []string{"", "literal:fixture", "fixture"} {
-		if _, err := NewLibreNMSHTTPSource("https://nms.example", []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
-			"", ref, resolver, time.Second); !errors.Is(err, ErrSourceUnavailable) {
-			t.Fatalf("plaintext credential %q accepted: %v", ref, err)
+	const tenant = "11111111-1111-4111-8111-111111111111"
+	const prefix = "vault:secret/probectl/nms/{tenant}/"
+	allowed := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	for _, ref := range []string{"", "literal:fixture", "fixture", "env:SOURCE_TOKEN",
+		"vault:secret/probectl/nms/22222222-2222-4222-8222-222222222222/api",
+		"vault:secret/probectl/nms/11111111-1111-4111-8111-111111111111/../other",
+		"vault:secret/probectl/nms/11111111-1111-4111-8111-111111111111/%2e%2e/other"} {
+		if _, err := NewLibreNMSHTTPSource(tenant, "https://nms.example", allowed,
+			"", ref, prefix, resolver, time.Second); !errors.Is(err, ErrSourceUnavailable) {
+			t.Fatalf("unapproved credential reference accepted: %v", err)
 		}
 	}
-	if _, err := NewLibreNMSHTTPSource("https://nms.example", nil, "", "env:SOURCE_TOKEN",
-		resolver, time.Second); !errors.Is(err, ErrSourceUnavailable) {
+	const ref = "vault:secret/probectl/nms/11111111-1111-4111-8111-111111111111/api"
+	if _, err := NewLibreNMSHTTPSource(tenant, "https://nms.example", allowed,
+		"", ref, "", resolver, time.Second); !errors.Is(err, ErrSourceUnavailable) {
+		t.Fatal("source without deployment reference namespace accepted")
+	}
+	if _, err := NewLibreNMSHTTPSource(tenant, "https://nms.example", allowed,
+		"", ref, "vault:secret/probectl/nms/", resolver, time.Second); !errors.Is(err, ErrSourceUnavailable) {
+		t.Fatal("source without tenant-bound reference namespace accepted")
+	}
+	if _, err := NewLibreNMSHTTPSource(tenant, "https://nms.example", nil,
+		"", ref, prefix, resolver, time.Second); !errors.Is(err, ErrSourceUnavailable) {
 		t.Fatalf("source without deployment egress policy accepted: %v", err)
+	}
+	if _, err := NewLibreNMSHTTPSource(tenant, "https://nms.example", allowed,
+		"", ref, prefix, resolver, time.Second); err != nil {
+		t.Fatalf("tenant-bound source reference rejected: %v", err)
 	}
 }
