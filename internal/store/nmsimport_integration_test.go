@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 	"testing"
@@ -443,9 +444,10 @@ func TestNMSImportLibreNMSStreamSealsOnlyCompleteTenantCapture(t *testing.T) {
 	complete := `{"status":"ok","devices":[
 		{"device_id":17,"display":"Edge A","ip":"10.42.0.1","location_id":5,"community":"source-only-secret"},
 		{"device_id":18,"display":"Edge B","ip":"10.42.0.2","location_id":5}],"count":2}`
+	foreignInput := &observedImportReader{Reader: strings.NewReader(complete)}
 	if _, err := capturer.CaptureLibreNMSDevices(tenancy.WithTenant(ctx, tenancy.ID(b.ID)),
-		routingContext, completePlan, strings.NewReader(complete)); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
-		t.Fatalf("foreign tenant captured own source stream: %v", err)
+		routingContext, completePlan, foreignInput); !errors.Is(err, nmsimport.ErrPlanUnavailable) || foreignInput.reads != 0 {
+		t.Fatalf("foreign tenant consumed source before plan lookup: reads=%d err=%v", foreignInput.reads, err)
 	}
 	sealedHash, err := capturer.CaptureLibreNMSDevices(scopeA, routingContext,
 		completePlan, strings.NewReader(complete))
@@ -502,4 +504,14 @@ func TestNMSImportLibreNMSStreamSealsOnlyCompleteTenantCapture(t *testing.T) {
 	if auditEvents != 9 { // three starts; complete, partial and empty pages; three seals, no duplicate retry page
 		t.Fatalf("missing or duplicated tenant audit events: %d", auditEvents)
 	}
+}
+
+type observedImportReader struct {
+	io.Reader
+	reads int
+}
+
+func (r *observedImportReader) Read(p []byte) (int, error) {
+	r.reads++
+	return r.Reader.Read(p)
 }

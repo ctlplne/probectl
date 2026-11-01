@@ -35,6 +35,20 @@ func (s CaptureStore) CaptureLibreNMSDevices(ctx context.Context,
 		return "", ErrInvalidPage
 	}
 	contextID, planID = contextUUID.String(), planUUID.String()
+	// Resolve the caller's tenant and plan before consuming an untrusted
+	// source stream. Each emitted chunk rechecks the plan under FORCE RLS so
+	// a concurrent seal or expiry still stops subsequent writes.
+	var initial captureMeta
+	if err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var readErr error
+		initial, readErr = loadCaptureMeta(ctx, sc, contextID, planID, false)
+		return readErr
+	}); err != nil {
+		return "", err
+	}
+	if initial.source != LibreNMS || initial.state != "capturing" {
+		return "", ErrPlanUnavailable
+	}
 	var pageNumber, firstRow int64
 	err = streamLibreNMSDevices(raw, func(snapshot Snapshot) error {
 		if pageNumber == math.MaxInt64 || firstRow > math.MaxInt64-int64(len(snapshot.Rows)) {
