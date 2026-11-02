@@ -2063,8 +2063,8 @@ export interface Me {
 }
 
 export interface NMSImportReviewDiffItem {
-  action: "create" | "update" | "skip" | "unmapped"
-  changed_fields: "label"[]
+  action: "create" | "update" | "remove" | "skip" | "unmapped"
+  changed_fields: ("label" | "group" | "dynamic_predicate_unmapped" | "membership" | "membership_removed")[]
   current_label?: string
   external_id: string
   object_kind: "device" | "site" | "group" | "membership" | "poll_setting" | "alert_rule"
@@ -2085,7 +2085,7 @@ export interface NMSImportReviewDiffPage {
 }
 
 export interface NMSImportSealedRow {
-  action: "captured" | "create" | "update" | "conflict" | "skip" | "unmapped"
+  action: "captured" | "create" | "update" | "remove" | "conflict" | "skip" | "unmapped"
   address?: string
   applied_at?: string
   binding_plan_id?: string
