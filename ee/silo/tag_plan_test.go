@@ -28,8 +28,6 @@ func TestTagStoragePlanRepairsOldSiloBeforeTypedForeignKeys(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			joined := strings.Join(plan, "\n")
 			mustContain := []string{
-				`"entities_tenant_context_id_kind_uidx" ON "` + schema + `"."entities"`,
-				`"entity_sources_tenant_context_identity_uidx" ON "` + schema + `"."entity_source_contexts"`,
 				`INSERT INTO "` + schema + `"."entity_test_contexts"`,
 				`WHERE tenant_id='11111111-1111-4111-8111-111111111111'::uuid`,
 				`ADD CONSTRAINT "fx3_tag_assignment_entity_fk" FOREIGN KEY (tenant_id,context_id,entity_id,entity_kind)`,
@@ -44,10 +42,15 @@ func TestTagStoragePlanRepairsOldSiloBeforeTypedForeignKeys(t *testing.T) {
 					t.Errorf("missing silo tag guard %q", want)
 				}
 			}
-			indexAt := strings.Index(joined, `"entities_tenant_context_id_kind_uidx"`)
+			indexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "entities_tenant_context_id_kind_uidx"`)
 			fkAt := strings.Index(joined, `ADD CONSTRAINT "fx3_tag_assignment_entity_fk"`)
-			if indexAt < 0 || fkAt <= indexAt {
-				t.Fatal("entity kind index must precede typed assignment FK")
+			if name == "provision" {
+				if indexAt < 0 || fkAt <= indexAt ||
+					!strings.Contains(joined, `"entity_sources_tenant_context_identity_uidx" ON "`+schema+`"."entity_source_contexts"`) {
+					t.Fatal("new silo must create empty-table index targets before typed assignment FKs")
+				}
+			} else if indexAt >= 0 || strings.Contains(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "entity_sources_tenant_context_identity_uidx"`) {
+				t.Fatal("old silo catch-up must build existing-table indexes concurrently before its transaction")
 			}
 		})
 	}

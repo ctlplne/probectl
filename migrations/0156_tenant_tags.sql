@@ -3,16 +3,8 @@
 -- Use of this source code is governed by the Business Source License 1.1
 -- in the LICENSE file at the root of this repository; on its Change Date
 -- each version converts to the Mozilla Public License 2.0.
--- FX-3: typed, tenant-owned tag state. Keep this migration local until FX-2b
--- migrations 0141-0154 land; the present branch would otherwise have a gap.
-
--- lock-ok: these operator-owned identity tables are not telemetry partitions.
--- A short index build permits kind-qualified and source-qualified tag FKs.
-CREATE UNIQUE INDEX IF NOT EXISTS entities_tenant_context_id_kind_uidx
-    ON entities(tenant_id, context_id, id, kind);
-CREATE UNIQUE INDEX IF NOT EXISTS entity_sources_tenant_context_identity_uidx
-    ON entity_source_contexts
-        (tenant_id, context_id, agent_id, source_kind, source_ref);
+-- FX-3: typed, tenant-owned tag state. The FK target indexes on the existing
+-- identity tables were built online by 0155 before this transactional change.
 
 CREATE TABLE IF NOT EXISTS entity_test_contexts (
     tenant_id uuid NOT NULL,

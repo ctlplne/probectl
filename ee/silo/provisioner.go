@@ -590,6 +590,9 @@ func (p *Provisioner) CatchUpSchema(ctx context.Context, tenantID string) error 
 	if err != nil {
 		return err
 	}
+	if err := p.ensureTagStorageIndexes(ctx, schema, cat); err != nil {
+		return err
+	}
 	plan := CatchUpPlan(schema, cat)
 	if len(plan) > 0 {
 		p.log.Info("silo catch-up", "tenant", tenantID, "statements", len(plan))

@@ -12,9 +12,9 @@ import (
 )
 
 // tagStoragePlan restores the FKs and statement triggers that CREATE TABLE
-// LIKE cannot copy. It also supplies new unique FK targets to an old silo;
-// CatchUpPlan's normal column diff does not copy indexes on existing tables.
-func tagStoragePlan(schema string, tables []string) []string {
+// LIKE cannot copy. A new silo adds FK target indexes on its empty tables;
+// an old silo builds them concurrently before its catch-up transaction.
+func tagStoragePlan(schema string, tables []string, addIndexes bool) []string {
 	owned := make(map[string]bool, len(tables))
 	for _, table := range TenantOwned(tables) {
 		owned[table] = true
@@ -34,17 +34,20 @@ func tagStoragePlan(schema string, tables []string) []string {
 		return nil
 	}
 	q := quoteIdent(schema)
-	plan := []string{
-		"SELECT set_config('probectl.tenant_id', " + quoteLiteral(tenantID) + ", true)",
-		`CREATE UNIQUE INDEX IF NOT EXISTS "entities_tenant_context_id_kind_uidx" ON ` +
-			q + `."entities" (tenant_id, context_id, id, kind)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS "entity_sources_tenant_context_identity_uidx" ON ` +
-			q + `."entity_source_contexts" (tenant_id, context_id, agent_id, source_kind, source_ref)`,
-		`INSERT INTO ` + q + `."entity_test_contexts" (tenant_id,test_id,context_id)
-SELECT tenant_id,test_id,context_id FROM ` + q + `."entity_path_test_contexts"
-WHERE tenant_id=` + quoteLiteral(tenantID) + `::uuid
-ON CONFLICT (tenant_id,test_id) DO NOTHING`,
+	plan := []string{"SELECT set_config('probectl.tenant_id', " + quoteLiteral(tenantID) + ", true)"}
+	if addIndexes {
+		// New silos copy the current public shape into empty tables. An old
+		// silo builds these targets CONCURRENTLY before CatchUpPlan starts.
+		plan = append(plan,
+			`CREATE UNIQUE INDEX IF NOT EXISTS "entities_tenant_context_id_kind_uidx" ON `+
+				q+`."entities" (tenant_id, context_id, id, kind)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS "entity_sources_tenant_context_identity_uidx" ON `+
+				q+`."entity_source_contexts" (tenant_id, context_id, agent_id, source_kind, source_ref)`)
 	}
+	plan = append(plan, `INSERT INTO `+q+`."entity_test_contexts" (tenant_id,test_id,context_id)
+SELECT tenant_id,test_id,context_id FROM `+q+`."entity_path_test_contexts"
+WHERE tenant_id=`+quoteLiteral(tenantID)+`::uuid
+ON CONFLICT (tenant_id,test_id) DO NOTHING`)
 	type foreignKey struct {
 		child, name, columns, parent, parentColumns, action string
 	}
