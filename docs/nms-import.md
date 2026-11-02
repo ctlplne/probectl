@@ -35,9 +35,11 @@ with no approved policy, live fetching is disabled. See
    Group/member create remains source-keyed; a member can bind only an
    explicitly imported device from that same source and routing context.
    A later reviewed plan may repeat an identical source-keyed group and member
-   without duplicating them. A changed group label or dynamic-predicate marker
-   conflicts until an explicit refresh path is reviewed; missing members are
-   never silently removed.
+   without duplicating them. For a changed group label or dynamic-predicate
+   marker, choose `update` on that exact source-keyed group with no target ID;
+   the existing group's content and revision are frozen in the review hash.
+   A changed target conflicts before the write. Missing members are never
+   silently removed; member removal needs a separate reviewed choice.
    The selected entity target's identity fields and revision are fingerprinted
    in the reviewed row, so a later destination write can refuse a target
    changed after selection. A source address or label never selects an update
@@ -49,8 +51,9 @@ with no approved policy, live fetching is disabled. See
    comparison with `GET /v1/nms-imports/{id}/dry-run`, passing `context_id`,
    the exact `review_hash`, a limit of at most 100 and the returned cursor.
    Each entity create/update shows the proposed device or site label, and an
-   update shows its current exact target label. A group create shows its label
-   and retained predicate warning; a membership create shows its source
+   update shows its current exact target label. A group create or update shows
+   its current and proposed label, changed fields, and retained predicate
+   warning; a membership create shows its source
    group/device pair. Unsupported rows keep their unmapped codes. A deleted
    or changed exact target returns a conflict instead of a
    stale comparison. This dry run writes no entities, groups, polling settings,

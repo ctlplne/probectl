@@ -54,7 +54,8 @@ func (s CaptureStore) SetReviewChoices(ctx context.Context, contextID, planID,
 	seen := make(map[int64]bool, len(choices))
 	for _, choice := range choices {
 		if choice.RowNumber < 0 || seen[choice.RowNumber] ||
-			!validReviewChoice(choice) {
+			!(validReviewChoice(choice) ||
+				choice.Action == "update" && choice.TargetEntityID == "") {
 			return ErrInvalidReview
 		}
 		seen[choice.RowNumber] = true
@@ -104,6 +105,13 @@ func validReviewChoice(choice ReviewChoice) bool {
 	}
 }
 
+func validReviewChoiceForKind(kind string, choice ReviewChoice) bool {
+	if kind == "group" && choice.Action == "update" && choice.TargetEntityID == "" {
+		return true
+	}
+	return validReviewChoice(choice)
+}
+
 func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID,
 	sourceID string, choice ReviewChoice) (bool, error) {
 	var kind, externalID, label, hostname, address, oldAction, oldTarget, oldFingerprint string
@@ -123,6 +131,9 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 	}
 	if err != nil {
 		return false, err
+	}
+	if !validReviewChoiceForKind(kind, choice) {
+		return false, ErrInvalidReview
 	}
 	if choice.Action == "unmapped" && len(unmapped) == 0 {
 		return false, ErrInvalidReview
@@ -145,6 +156,13 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 			if sources != 2 {
 				return false, ErrInvalidReview
 			}
+		}
+		if kind == "group" && choice.Action == "update" {
+			group, err := readImportedGroupTarget(ctx, sc, contextID, sourceID, externalID)
+			if err != nil {
+				return false, err
+			}
+			fingerprint = group.fingerprint
 		}
 		if kind == "device" || kind == "site" {
 			var bound string
@@ -205,7 +223,7 @@ func reviewRowCanWrite(kind, action string, unmapped []string, label, hostname, 
 	case "device", "site":
 		return len(unmapped) == 0 && proposedEntityLabel(label, hostname, address) != ""
 	case "group":
-		if action != "create" || label == "" || hostname != "" || address != "" {
+		if (action != "create" && action != "update") || label == "" || hostname != "" || address != "" {
 			return false
 		}
 		if len(unmapped) == 1 {
@@ -250,6 +268,37 @@ func fingerprintReviewTarget(ctx context.Context, sc tenancy.Scope, contextID,
 	return hex.EncodeToString(crypto.Default.Hash([]byte(strings.Join(fields, "\x00")))), nil
 }
 
+type importedGroupTarget struct {
+	label       string
+	dynamic     bool
+	fingerprint string
+}
+
+// The exact source key, content and write revision bind a reviewed group
+// refresh. A changed or foreign group cannot be selected by its display name.
+func readImportedGroupTarget(ctx context.Context, sc tenancy.Scope, contextID,
+	sourceID, externalID string) (importedGroupTarget, error) {
+	var group importedGroupTarget
+	var planID string
+	var appliedAt time.Time
+	err := sc.Q.QueryRow(ctx, `SELECT label,dynamic_predicate_unmapped,
+		plan_id::text,applied_at FROM nms_import_groups
+		WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id=$4
+		FOR SHARE`, sc.Tenant.String(), contextID, sourceID, externalID).
+		Scan(&group.label, &group.dynamic, &planID, &appliedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return importedGroupTarget{}, ErrInvalidReview
+	}
+	if err != nil {
+		return importedGroupTarget{}, err
+	}
+	fields := []string{"probectl:nms-group-target:v1", sc.Tenant.String(),
+		contextID, sourceID, externalID, group.label, strconv.FormatBool(group.dynamic),
+		planID, appliedAt.UTC().Format(time.RFC3339Nano)}
+	group.fingerprint = hex.EncodeToString(crypto.Default.Hash([]byte(strings.Join(fields, "\x00"))))
+	return group, nil
+}
+
 // FinalizeReview freezes every explicit row decision into a tenant/context,
 // source-version and snapshot-bound hash. It performs no destination write.
 // A partial review cannot advance the plan to preview.
@@ -279,7 +328,7 @@ func (s CaptureStore) FinalizeReview(ctx context.Context, contextID, planID,
 			contextID + "\x00" + planID + "\x00" + snapshotHash + "\x00" +
 			strconv.FormatInt(meta.configVersion, 10)
 		sum := crypto.Default.Hash([]byte(header))
-		rows, err := sc.Q.Query(ctx, `SELECT row_number,action,
+		rows, err := sc.Q.Query(ctx, `SELECT row_number,object_kind,action,
 			coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
 			reviewed_at IS NOT NULL
 			FROM nms_import_rows WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
@@ -290,15 +339,15 @@ func (s CaptureStore) FinalizeReview(ctx context.Context, contextID, planID,
 		next := int64(0)
 		for rows.Next() {
 			var rowNumber int64
-			var action, target, fingerprint string
+			var kind, action, target, fingerprint string
 			var reviewed bool
-			if err := rows.Scan(&rowNumber, &action, &target, &fingerprint,
+			if err := rows.Scan(&rowNumber, &kind, &action, &target, &fingerprint,
 				&reviewed); err != nil {
 				rows.Close()
 				return err
 			}
 			if !reviewed || rowNumber != next ||
-				!validReviewChoice(ReviewChoice{Action: action, TargetEntityID: target}) ||
+				!validReviewChoiceForKind(kind, ReviewChoice{Action: action, TargetEntityID: target}) ||
 				(action == "update" && (len(fingerprint) != 64 || !lowerHex(fingerprint))) ||
 				(action != "update" && fingerprint != "") {
 				rows.Close()

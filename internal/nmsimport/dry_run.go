@@ -19,7 +19,7 @@ import (
 
 var ErrReviewStale = errors.New("nmsimport: reviewed destination changed")
 
-// ReviewDiffItem states exactly what the present device/site mapper would
+// ReviewDiffItem states exactly what the reviewed destination mapper would
 // write. Source addresses, group names and alert expressions never select a
 // destination. A blank current label means there is no selected target.
 type ReviewDiffItem struct {
@@ -133,7 +133,7 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 		for _, row := range candidate {
 			item := row.item
 			item.ChangedFields = []string{}
-			if !row.reviewed || !validReviewChoice(ReviewChoice{
+			if !row.reviewed || !validReviewChoiceForKind(item.Kind, ReviewChoice{
 				Action: item.Action, TargetEntityID: item.TargetID}) {
 				return ErrReviewStale
 			}
@@ -211,20 +211,26 @@ func reviewGroupDiff(ctx context.Context, sc tenancy.Scope, contextID, sourceID 
 	item := row.item
 	item.ProposedLabel = row.label
 	item.ChangedFields = []string{}
-	var oldLabel string
-	var oldDynamic bool
-	err := sc.Q.QueryRow(ctx, `SELECT label,dynamic_predicate_unmapped
-		FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2
-		  AND source_id=$3 AND external_id=$4`, sc.Tenant.String(),
-		contextID, sourceID, item.ExternalID).Scan(&oldLabel, &oldDynamic)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	group, err := readImportedGroupTarget(ctx, sc, contextID, sourceID, item.ExternalID)
+	if err != nil && !errors.Is(err, ErrInvalidReview) {
 		return ReviewDiffItem{}, err
 	}
-	if err == nil {
-		if oldLabel != row.label || oldDynamic != hasCode(item.UnmappedCodes, "dynamic_predicate_unmapped") {
+	if item.Action == "update" {
+		if err != nil || group.fingerprint != row.fingerprint {
 			return ReviewDiffItem{}, ErrReviewStale
 		}
-		item.CurrentLabel = oldLabel
+		item.CurrentLabel = group.label
+		if group.label != row.label {
+			item.ChangedFields = append(item.ChangedFields, "label")
+		}
+		if group.dynamic != hasCode(item.UnmappedCodes, "dynamic_predicate_unmapped") {
+			item.ChangedFields = append(item.ChangedFields, "dynamic_predicate_unmapped")
+		}
+	} else if err == nil {
+		if group.label != row.label || group.dynamic != hasCode(item.UnmappedCodes, "dynamic_predicate_unmapped") {
+			return ReviewDiffItem{}, ErrReviewStale
+		}
+		item.CurrentLabel = group.label
 	} else {
 		item.ChangedFields = []string{"group"}
 	}

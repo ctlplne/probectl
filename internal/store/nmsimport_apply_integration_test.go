@@ -421,5 +421,100 @@ func TestNMSImportApplyReviewTenantIsolationAndRetry(t *testing.T) {
 		if err != nil || repeated.State != "applied" || repeated.Remaining != 0 {
 			t.Fatalf("repeat identical group import tenant=%s: %+v err=%v", tenant, repeated, err)
 		}
+		// A changed label is an explicit, fingerprint-bound update of this
+		// source key. It cannot silently replace a group by display name.
+		renamedGroup := strings.Replace(group, `"name":"WAN"`, `"name":"WAN Transit"`, 1)
+		refreshPlan, err := capturer.StartPlan(tenantCtx, contextID, nmsimport.LibreNMS,
+			"groups-lab", strings.Repeat("2", 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		refreshSnapshot, err := capturer.CaptureLibreNMSInventory(tenantCtx, contextID,
+			refreshPlan, strings.NewReader(device), strings.NewReader(site),
+			strings.NewReader(renamedGroup), strings.NewReader(rule),
+			[]nmsimport.LibreNMSMembershipList{{GroupID: "7", GroupName: "WAN Transit",
+				Raw: strings.NewReader(member)}})
+		if err != nil {
+			t.Fatalf("capture renamed group tenant=%s: %v", tenant, err)
+		}
+		refreshChoices := []nmsimport.ReviewChoice{
+			{RowNumber: 0, Action: "update", TargetEntityID: deviceTarget},
+			{RowNumber: 1, Action: "update", TargetEntityID: siteTarget},
+			{RowNumber: 2, Action: "update"},
+			{RowNumber: 3, Action: "create"},
+			{RowNumber: 4, Action: "unmapped"},
+		}
+		if err := capturer.SetReviewChoices(tenantCtx, contextID, refreshPlan,
+			refreshSnapshot, refreshChoices); err != nil {
+			t.Fatalf("review renamed group tenant=%s: %v", tenant, err)
+		}
+		refreshReview, err := capturer.FinalizeReview(tenantCtx, contextID,
+			refreshPlan, refreshSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		refreshDiff, err := capturer.ListReviewDiff(tenantCtx, contextID,
+			refreshPlan, refreshReview, -1, 10)
+		if err != nil || len(refreshDiff.Items) != 5 ||
+			refreshDiff.Items[2].CurrentLabel != "WAN" ||
+			refreshDiff.Items[2].ProposedLabel != "WAN Transit" ||
+			strings.Join(refreshDiff.Items[2].ChangedFields, ",") != "label" ||
+			len(refreshDiff.Items[3].ChangedFields) != 0 {
+			t.Fatalf("renamed group dry run tenant=%s: %+v err=%v", tenant, refreshDiff, err)
+		}
+		if _, err := capturer.ApplyReview(tenantCtx, contextID,
+			refreshPlan, refreshSnapshot, refreshReview); err != nil {
+			t.Fatalf("apply renamed group tenant=%s: %v", tenant, err)
+		}
+		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var label, appliedPlan string
+			if err := sc.Q.QueryRow(ctx, `SELECT label,plan_id::text FROM nms_import_groups
+				WHERE tenant_id=$1 AND context_id=$2 AND external_id='7'`,
+				tenant, contextID).Scan(&label, &appliedPlan); err != nil {
+				return err
+			}
+			if label != "WAN Transit" || appliedPlan != refreshPlan {
+				t.Fatalf("group label refresh tenant=%s label=%q plan=%s", tenant, label, appliedPlan)
+			}
+			return nil
+		})
+		if tenant == a.ID {
+			staleGroup := strings.Replace(group, `"name":"WAN"`, `"name":"WAN Shifted"`, 1)
+			stalePlan, err := capturer.StartPlan(tenantCtx, contextID,
+				nmsimport.LibreNMS, "groups-lab", strings.Repeat("3", 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			staleSnapshot, err := capturer.CaptureLibreNMSInventory(tenantCtx, contextID,
+				stalePlan, strings.NewReader(device), strings.NewReader(site),
+				strings.NewReader(staleGroup), strings.NewReader(rule),
+				[]nmsimport.LibreNMSMembershipList{{GroupID: "7", GroupName: "WAN Shifted",
+					Raw: strings.NewReader(member)}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := capturer.SetReviewChoices(tenantCtx, contextID, stalePlan,
+				staleSnapshot, refreshChoices); err != nil {
+				t.Fatal(err)
+			}
+			staleReview, err := capturer.FinalizeReview(tenantCtx, contextID,
+				stalePlan, staleSnapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+				_, err := sc.Q.Exec(ctx, `UPDATE nms_import_groups SET label='WAN Manual'
+					WHERE tenant_id=$1 AND context_id=$2 AND external_id='7'`, tenant, contextID)
+				return err
+			})
+			if _, err := capturer.ListReviewDiff(tenantCtx, contextID,
+				stalePlan, staleReview, -1, 10); !errors.Is(err, nmsimport.ErrReviewStale) {
+				t.Fatalf("changed reviewed group still had a dry run: %v", err)
+			}
+			if _, err := capturer.ApplyReview(tenantCtx, contextID,
+				stalePlan, staleSnapshot, staleReview); !errors.Is(err, nmsimport.ErrReviewStale) {
+				t.Fatalf("changed reviewed group was overwritten: %v", err)
+			}
+		}
 	}
 }

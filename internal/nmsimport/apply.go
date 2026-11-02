@@ -134,7 +134,7 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 			return err
 		}
 		for _, row := range batch {
-			if !row.reviewed || !validReviewChoice(ReviewChoice{
+			if !row.reviewed || !validReviewChoiceForKind(row.kind, ReviewChoice{
 				Action: row.action, TargetEntityID: row.targetID}) {
 				return ErrReviewStale
 			}
@@ -225,10 +225,37 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 
 func applyGroupRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 	sourceID string, row applyRow) error {
-	if row.action != "create" || row.targetID != "" || row.fingerprint != "" {
+	if row.targetID != "" {
 		return ErrReviewStale
 	}
 	dynamic := hasCode(row.unmapped, "dynamic_predicate_unmapped")
+	if row.action == "update" {
+		group, err := readImportedGroupTarget(ctx, sc, contextID, sourceID, row.externalID)
+		if errors.Is(err, ErrInvalidReview) {
+			return ErrReviewStale
+		}
+		if err != nil {
+			return err
+		}
+		if group.fingerprint != row.fingerprint {
+			return ErrReviewStale
+		}
+		command, err := sc.Q.Exec(ctx, `UPDATE nms_import_groups SET
+			label=$5,dynamic_predicate_unmapped=$6,plan_id=$7,applied_at=clock_timestamp()
+			WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id=$4`,
+			sc.Tenant.String(), contextID, sourceID, row.externalID,
+			row.label, dynamic, planID)
+		if err != nil {
+			return err
+		}
+		if command.RowsAffected() != 1 {
+			return ErrReviewStale
+		}
+		return nil
+	}
+	if row.action != "create" || row.fingerprint != "" {
+		return ErrReviewStale
+	}
 	command, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_groups
 		(tenant_id,context_id,source_id,external_id,label,plan_id,dynamic_predicate_unmapped)
 		VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
