@@ -54,7 +54,7 @@ func TestNetBoxTenantPinPrecedesSourceAndCache(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		if r.URL.Query().Get("q") != "10.0.0.1" {
+		if r.URL.Query().Get("address") != "10.0.0.1" {
 			t.Errorf("unexpected lookup key: %s", r.URL.RawQuery)
 		}
 		source := r.URL.Query().Get("tenant_id")
