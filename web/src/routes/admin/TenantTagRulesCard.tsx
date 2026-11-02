@@ -70,7 +70,10 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
     if (!contextID && allContexts.length > 0) setContextID(allContexts[0].context_id)
   }, [allContexts, contextID])
   useEffect(() => {
-    if (!tagID && definitions.data?.items.length) setTagID(definitions.data.items[0].id)
+    if (!definitions.data) return
+    if (!definitions.data.items.some((item) => item.id === tagID)) {
+      setTagID(definitions.data.items[0]?.id ?? '')
+    }
   }, [definitions.data, tagID])
 
   function chooseContext(id: string) {

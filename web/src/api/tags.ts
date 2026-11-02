@@ -52,7 +52,11 @@ export function useDeleteTagDefinition(tenantID: string) {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch<void>(`/tags/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: tagKey(tenantID) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: tagKey(tenantID) })
+      // Deleting a key cascades to its context rules and manual assignments.
+      void client.invalidateQueries({ queryKey: ['tenant-tag-rules', tenantID] })
+    },
   })
 }
 
