@@ -1688,7 +1688,7 @@ type FlowQueryViewDefinition struct {
 	Labels             []string          `json:"labels,omitempty"`
 	Name               string            `json:"name"`
 	Plan               map[string]any    `json:"plan,omitempty"`
-	TagIDs             map[string]string `json:"tag_ids,omitempty"`
+	TagIds             map[string]string `json:"tag_ids,omitempty"`
 	Time               map[string]any    `json:"time,omitempty"`
 	Visibility         string            `json:"visibility,omitempty"`
 }
