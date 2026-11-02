@@ -7,6 +7,7 @@
 package flow
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"strings"
@@ -23,6 +24,30 @@ type QueryVocabulary struct {
 	tenantID string
 	byName   map[string]QueryField
 	tagIDs   map[string]bool
+}
+
+type queryVocabularyContextKey struct{}
+
+// WithQueryVocabulary binds a tenant-validated field registry to a single
+// saved-configuration operation. Storage can revalidate fields under its own
+// transaction without trusting a client-supplied key or process-global state.
+func WithQueryVocabulary(ctx context.Context, tenant string, vocabulary QueryVocabulary) (context.Context, error) {
+	if tenant == "" || vocabulary.tenantID != tenant {
+		return nil, tags.ErrScopeMismatch
+	}
+	return context.WithValue(ctx, queryVocabularyContextKey{}, vocabulary), nil
+}
+
+// QueryVocabularyFromContext refuses a registry from a different tenant.
+func QueryVocabularyFromContext(ctx context.Context, tenant string) (QueryVocabulary, bool, error) {
+	vocabulary, ok := ctx.Value(queryVocabularyContextKey{}).(QueryVocabulary)
+	if !ok {
+		return QueryVocabulary{}, false, nil
+	}
+	if tenant == "" || vocabulary.tenantID != tenant {
+		return QueryVocabulary{}, false, tags.ErrScopeMismatch
+	}
+	return vocabulary, true, nil
 }
 
 // NewTagQueryVocabulary accepts definitions only from a tenant-scoped read

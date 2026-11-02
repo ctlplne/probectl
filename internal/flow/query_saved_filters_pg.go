@@ -56,7 +56,7 @@ const queryFilterColumns = `id::text,tenant_id::text,name,description,expression
 
 type queryFilterScanner interface{ Scan(...any) error }
 
-func scanQueryFilter(row queryFilterScanner) (SavedQueryFilter, error) {
+func scanQueryFilter(ctx context.Context, row queryFilterScanner) (SavedQueryFilter, error) {
 	var item SavedQueryFilter
 	var expression []byte
 	if err := row.Scan(&item.ID, &item.TenantID, &item.Name, &item.Description, &expression, &item.Version, &item.UpdatedBy, &item.CreatedAt, &item.UpdatedAt); err != nil {
@@ -70,7 +70,7 @@ func scanQueryFilter(row queryFilterScanner) (SavedQueryFilter, error) {
 	if err := decoder.Decode(&item.Expression); err != nil {
 		return SavedQueryFilter{}, errors.New("stored flow filter expression is invalid")
 	}
-	return cloneSavedQueryFilter(item)
+	return cloneSavedQueryFilter(ctx, item)
 }
 
 func queryFilterStorageError(err error) error {
@@ -87,7 +87,7 @@ func queryFilterStorageError(err error) error {
 type scopedQueryFilterReader struct{ scope tenancy.Scope }
 
 func (r scopedQueryFilterReader) GetQueryFilter(ctx context.Context, tenant, id string) (SavedQueryFilter, error) {
-	item, err := scanQueryFilter(r.scope.Q.QueryRow(ctx, `SELECT `+queryFilterColumns+` FROM flow_query_filters WHERE tenant_id=$1::uuid AND id=$2::uuid`, tenant, id))
+	item, err := scanQueryFilter(ctx, r.scope.Q.QueryRow(ctx, `SELECT `+queryFilterColumns+` FROM flow_query_filters WHERE tenant_id=$1::uuid AND id=$2::uuid`, tenant, id))
 	return item, queryFilterStorageError(err)
 }
 
@@ -108,7 +108,7 @@ func (s *PostgresQueryFilterStore) SaveQueryFilter(ctx context.Context, tenant, 
 	if strings.TrimSpace(tenant) == "" || strings.TrimSpace(actor) == "" {
 		return SavedQueryFilter{}, errors.New("saved flow filter requires tenant and actor")
 	}
-	input, err := NormalizeSaveQueryFilter(input)
+	input, err := normalizeSaveQueryFilterForTenant(ctx, tenant, input)
 	if err != nil {
 		return SavedQueryFilter{}, err
 	}
@@ -132,7 +132,7 @@ func (s *PostgresQueryFilterStore) SaveQueryFilter(ctx context.Context, tenant, 
 			if previous.Version == math.MaxInt64 {
 				return ErrQueryFilterConflict
 			}
-			if _, err := ResolveQueryFilters(ctx, tenant, &input.Expression, scopedQueryFilterReader{scope}, input.ID); err != nil {
+			if _, err := resolveQueryFiltersForTenant(ctx, tenant, &input.Expression, scopedQueryFilterReader{scope}, input.ID); err != nil {
 				return err
 			}
 			expression, err := json.Marshal(input.Expression)
@@ -184,7 +184,7 @@ func (s *PostgresQueryFilterStore) SaveQueryFilter(ctx context.Context, tenant, 
 	if err != nil {
 		return SavedQueryFilter{}, queryFilterStorageError(err)
 	}
-	return cloneSavedQueryFilter(result)
+	return cloneSavedQueryFilter(ctx, result)
 }
 
 // ListQueryFilters returns an explicit next cursor rather than concealing a
@@ -202,7 +202,7 @@ func (s *PostgresQueryFilterStore) ListQueryFilters(ctx context.Context, tenant,
 		defer rows.Close()
 		bytesUsed := 0
 		for rows.Next() {
-			item, err := scanQueryFilter(rows)
+			item, err := scanQueryFilter(ctx, rows)
 			if err != nil {
 				return err
 			}

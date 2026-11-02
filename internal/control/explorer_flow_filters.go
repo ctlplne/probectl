@@ -48,6 +48,29 @@ func (s *Server) authorizeFlowFilterPrincipal(ctx context.Context, p *auth.Princ
 	return p, nil
 }
 
+func (s *Server) withFlowFilterVocabulary(ctx context.Context, p *auth.Principal) (context.Context, error) {
+	if s.pool == nil {
+		return ctx, nil
+	}
+	decision, err := s.decide(ctx, p, permTagsRead, auth.RBACGlobal,
+		map[string]string{auth.ResourceTenantKey: p.TenantID})
+	if err != nil {
+		return nil, err
+	}
+	if decision != auth.DecisionAllowed {
+		return ctx, nil
+	}
+	vocabulary, err := s.loadFlowQueryVocabulary(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	ctx, err = flow.WithQueryVocabulary(ctx, p.TenantID, vocabulary)
+	if err != nil {
+		return nil, apierror.Unavailable("tenant tag query scope is unavailable")
+	}
+	return ctx, nil
+}
+
 func mapFlowFilterError(err error) error {
 	switch {
 	case errors.Is(err, flow.ErrQueryFilterNotFound):
@@ -70,7 +93,17 @@ func (s *Server) authorizeSavedFlowFilterContext(ctx context.Context, p *auth.Pr
 }
 
 func (s *Server) authorizeFlowFilterExpressionContext(ctx context.Context, p *auth.Principal, expression *flow.QueryFilterGroup, updatingID string) error {
-	resolved, err := flow.ResolveQueryFilters(ctx, p.TenantID, expression, s.flowQueryFilters, updatingID)
+	vocabulary, bound, err := flow.QueryVocabularyFromContext(ctx, p.TenantID)
+	if err != nil {
+		return apierror.Unavailable("tenant tag query scope is unavailable")
+	}
+	var resolved flow.ResolvedQueryFilters
+	if bound {
+		resolved, err = flow.ResolveQueryFiltersWithVocabulary(ctx, p.TenantID, expression,
+			s.flowQueryFilters, updatingID, vocabulary)
+	} else {
+		resolved, err = flow.ResolveQueryFilters(ctx, p.TenantID, expression, s.flowQueryFilters, updatingID)
+	}
 	if err != nil {
 		if errors.Is(err, flow.ErrQueryFilterNotFound) {
 			return mapFlowFilterError(err)
@@ -184,6 +217,10 @@ func (s *Server) listFlowFilters(ctx context.Context, p *auth.Principal, after s
 	if err != nil {
 		return flow.QueryFilterPage{}, err
 	}
+	ctx, err = s.withFlowFilterVocabulary(ctx, p)
+	if err != nil {
+		return flow.QueryFilterPage{}, err
+	}
 	if len(after) > 128 {
 		return flow.QueryFilterPage{}, apierror.Validation("saved flow filter cursor exceeds 128 bytes")
 	}
@@ -206,6 +243,10 @@ func (s *Server) getFlowFilter(ctx context.Context, p *auth.Principal, id string
 	if err != nil {
 		return flow.SavedQueryFilter{}, err
 	}
+	ctx, err = s.withFlowFilterVocabulary(ctx, p)
+	if err != nil {
+		return flow.SavedQueryFilter{}, err
+	}
 	item, err := s.flowQueryFilters.GetQueryFilter(ctx, p.TenantID, id)
 	if err != nil {
 		return flow.SavedQueryFilter{}, mapFlowFilterError(err)
@@ -220,6 +261,10 @@ func (s *Server) saveFlowFilterDefinition(ctx context.Context, p *auth.Principal
 	if err != nil {
 		return flow.SavedQueryFilter{}, err
 	}
+	ctx, err = s.withFlowFilterVocabulary(ctx, p)
+	if err != nil {
+		return flow.SavedQueryFilter{}, err
+	}
 	if input.ID != "" {
 		previous, err := s.flowQueryFilters.GetQueryFilter(ctx, p.TenantID, input.ID)
 		if err != nil {
@@ -229,7 +274,15 @@ func (s *Server) saveFlowFilterDefinition(ctx context.Context, p *auth.Principal
 			return flow.SavedQueryFilter{}, apierror.Unavailable("saved flow filter storage scope is unavailable")
 		}
 	}
-	input, err = flow.NormalizeSaveQueryFilter(input)
+	vocabulary, bound, err := flow.QueryVocabularyFromContext(ctx, p.TenantID)
+	if err != nil {
+		return flow.SavedQueryFilter{}, apierror.Unavailable("tenant tag query scope is unavailable")
+	}
+	if bound {
+		input, err = flow.NormalizeSaveQueryFilterWithVocabulary(input, vocabulary)
+	} else {
+		input, err = flow.NormalizeSaveQueryFilter(input)
+	}
 	if err != nil {
 		if errors.Is(err, flow.ErrQueryFilterConflict) || errors.Is(err, flow.ErrQueryFilterStorageBudget) {
 			return flow.SavedQueryFilter{}, mapFlowFilterError(err)
@@ -250,6 +303,10 @@ func (s *Server) saveFlowFilterDefinition(ctx context.Context, p *auth.Principal
 }
 func (s *Server) deleteFlowFilter(ctx context.Context, p *auth.Principal, id string, versions []string) error {
 	p, err := s.authorizeFlowFilterPrincipal(ctx, p, true)
+	if err != nil {
+		return err
+	}
+	ctx, err = s.withFlowFilterVocabulary(ctx, p)
 	if err != nil {
 		return err
 	}

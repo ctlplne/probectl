@@ -73,6 +73,17 @@ func NewMemoryQueryFilterStore(maxBytesPerTenant int) *MemoryQueryFilterStore {
 // NormalizeSaveQueryFilter validates reusable configuration before transport authorization.
 // Stores repeat validation under their own mutation boundary.
 func NormalizeSaveQueryFilter(input SaveQueryFilter) (SaveQueryFilter, error) {
+	return normalizeSaveQueryFilter(input, NormalizeQueryFilterGroup)
+}
+
+func NormalizeSaveQueryFilterWithVocabulary(input SaveQueryFilter, vocabulary QueryVocabulary) (SaveQueryFilter, error) {
+	return normalizeSaveQueryFilter(input, func(group *QueryFilterGroup) (*QueryFilterGroup, error) {
+		return NormalizeQueryFilterGroupWithVocabulary(group, vocabulary)
+	})
+}
+
+func normalizeSaveQueryFilter(input SaveQueryFilter,
+	normalize func(*QueryFilterGroup) (*QueryFilterGroup, error)) (SaveQueryFilter, error) {
 	input.ID = strings.TrimSpace(input.ID)
 	input.Name = strings.TrimSpace(input.Name)
 	input.Description = strings.TrimSpace(input.Description)
@@ -82,7 +93,7 @@ func NormalizeSaveQueryFilter(input SaveQueryFilter) (SaveQueryFilter, error) {
 	if (input.ID == "" && input.Version != 0) || (input.ID != "" && input.Version < 1) {
 		return SaveQueryFilter{}, ErrQueryFilterConflict
 	}
-	expression, err := NormalizeQueryFilterGroup(&input.Expression)
+	expression, err := normalize(&input.Expression)
 	if err != nil {
 		return SaveQueryFilter{}, err
 	}
@@ -97,9 +108,41 @@ func NormalizeSaveQueryFilter(input SaveQueryFilter) (SaveQueryFilter, error) {
 	return input, nil
 }
 
-func cloneSavedQueryFilter(input SavedQueryFilter) (SavedQueryFilter, error) {
+func normalizeSaveQueryFilterForTenant(ctx context.Context, tenant string, input SaveQueryFilter) (SaveQueryFilter, error) {
+	vocabulary, bound, err := QueryVocabularyFromContext(ctx, tenant)
+	if err != nil {
+		return SaveQueryFilter{}, err
+	}
+	if bound {
+		return NormalizeSaveQueryFilterWithVocabulary(input, vocabulary)
+	}
+	return NormalizeSaveQueryFilter(input)
+}
+
+func resolveQueryFiltersForTenant(ctx context.Context, tenant string, input *QueryFilterGroup,
+	reader QueryFilterReader, updatingID string) (ResolvedQueryFilters, error) {
+	vocabulary, bound, err := QueryVocabularyFromContext(ctx, tenant)
+	if err != nil {
+		return ResolvedQueryFilters{}, err
+	}
+	if bound {
+		return ResolveQueryFiltersWithVocabulary(ctx, tenant, input, reader, updatingID, vocabulary)
+	}
+	return ResolveQueryFilters(ctx, tenant, input, reader, updatingID)
+}
+
+func cloneSavedQueryFilter(ctx context.Context, input SavedQueryFilter) (SavedQueryFilter, error) {
 	input.VersionText = strconv.FormatInt(input.Version, 10)
-	normalized, err := NormalizeQueryFilterGroup(&input.Expression)
+	vocabulary, bound, err := QueryVocabularyFromContext(ctx, input.TenantID)
+	if err != nil {
+		return SavedQueryFilter{}, err
+	}
+	var normalized *QueryFilterGroup
+	if bound {
+		normalized, err = NormalizeQueryFilterGroupWithVocabulary(&input.Expression, vocabulary)
+	} else {
+		normalized, err = NormalizeQueryFilterGroup(&input.Expression)
+	}
 	if err != nil {
 		return SavedQueryFilter{}, err
 	}
@@ -129,7 +172,7 @@ func (s *MemoryQueryFilterStore) GetQueryFilter(ctx context.Context, tenant, id 
 	if !ok {
 		return SavedQueryFilter{}, ErrQueryFilterNotFound
 	}
-	return cloneSavedQueryFilter(item)
+	return cloneSavedQueryFilter(ctx, item)
 }
 
 // lockedQueryFilterReader is used only under the memory store's mutation lock,
@@ -144,7 +187,7 @@ func (r lockedQueryFilterReader) GetQueryFilter(ctx context.Context, tenant, id 
 	if !ok {
 		return SavedQueryFilter{}, ErrQueryFilterNotFound
 	}
-	return cloneSavedQueryFilter(item)
+	return cloneSavedQueryFilter(ctx, item)
 }
 
 // SaveQueryFilter checks dependencies/cycles atomically with the write.
@@ -155,7 +198,7 @@ func (s *MemoryQueryFilterStore) SaveQueryFilter(ctx context.Context, tenant, ac
 	if strings.TrimSpace(tenant) == "" || strings.TrimSpace(actor) == "" {
 		return SavedQueryFilter{}, errors.New("saved flow filter requires tenant and actor")
 	}
-	input, err := NormalizeSaveQueryFilter(input)
+	input, err := normalizeSaveQueryFilterForTenant(ctx, tenant, input)
 	if err != nil {
 		return SavedQueryFilter{}, err
 	}
@@ -172,7 +215,7 @@ func (s *MemoryQueryFilterStore) SaveQueryFilter(ctx context.Context, tenant, ac
 			return SavedQueryFilter{}, ErrQueryFilterConflict
 		}
 	}
-	if _, err := ResolveQueryFilters(ctx, tenant, &input.Expression, lockedQueryFilterReader{s}, input.ID); err != nil {
+	if _, err := resolveQueryFiltersForTenant(ctx, tenant, &input.Expression, lockedQueryFilterReader{s}, input.ID); err != nil {
 		return SavedQueryFilter{}, err
 	}
 	now := s.now().UTC()
@@ -211,7 +254,7 @@ func (s *MemoryQueryFilterStore) SaveQueryFilter(ctx context.Context, tenant, ac
 		s.byTenant[tenant] = map[string]SavedQueryFilter{}
 	}
 	s.byTenant[tenant][id] = item
-	return cloneSavedQueryFilter(item)
+	return cloneSavedQueryFilter(ctx, item)
 }
 
 // ListQueryFilters pages stable IDs within one tenant. The following cursor is
@@ -238,7 +281,7 @@ func (s *MemoryQueryFilterStore) ListQueryFilters(ctx context.Context, tenant, a
 	page := QueryFilterPage{Items: []SavedQueryFilter{}}
 	bytesUsed := 0
 	for _, id := range ids {
-		item, err := cloneSavedQueryFilter(s.byTenant[tenant][id])
+		item, err := cloneSavedQueryFilter(ctx, s.byTenant[tenant][id])
 		if err != nil {
 			return QueryFilterPage{}, err
 		}

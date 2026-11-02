@@ -255,7 +255,7 @@ func TestStoredQueryScannerRejectsCorruptionBeforeReturningConfiguration(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter, err := scanQueryFilter(filterScanFixture{expression: expression, version: 1})
+	filter, err := scanQueryFilter(context.Background(), filterScanFixture{expression: expression, version: 1})
 	if err != nil || filter.TenantID != "red" || filter.VersionText != "1" {
 		t.Fatalf("valid stored filter failed: %+v %v", filter, err)
 	}
@@ -265,12 +265,12 @@ func TestStoredQueryScannerRejectsCorruptionBeforeReturningConfiguration(t *test
 		"unknown predicate": {expression: []byte(`{"conditions":[{"field":"tenant_id","op":"eq","values":["foreign"]}]}`), version: 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := scanQueryFilter(bad); err == nil {
+			if _, err := scanQueryFilter(context.Background(), bad); err == nil {
 				t.Fatal("corrupt saved filter returned to caller")
 			}
 		})
 	}
-	if _, err := scanQueryFilter(filterScanFixture{err: pgx.ErrNoRows}); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := scanQueryFilter(context.Background(), filterScanFixture{err: pgx.ErrNoRows}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("scanner hid missing row: %v", err)
 	}
 }

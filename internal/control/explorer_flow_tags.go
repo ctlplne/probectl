@@ -24,32 +24,55 @@ import (
 
 type flowTagQueryKey struct{}
 
-// flowQueryUsesTags inspects only field names. It grants no authority: the
-// tenant snapshot, permissions and store boundary validate the selected key.
-func flowQueryUsesTags(query ai.ExplorerQuery) bool {
+// flowQueryTagHints inspects only bounded field and reference names. It grants
+// no authority: the tenant snapshot, permissions and store boundary validate
+// the selected key. An oversized filter is rejected by normal normalization.
+func flowQueryTagHints(query ai.ExplorerQuery) (direct, saved bool) {
 	check := func(name string) bool {
 		return strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "tag.")
 	}
 	for _, name := range append(append([]string{}, query.Dimensions...), query.Groupings...) {
 		if check(name) {
-			return true
+			direct = true
 		}
 	}
 	for name := range query.Filters {
 		if check(name) {
-			return true
+			direct = true
 		}
 	}
 	if query.Flow == nil {
-		return false
+		return direct, false
 	}
-	for _, name := range append(append(append([]string{}, query.Flow.GroupBy...), query.Flow.MatrixWith...),
-		flow.QueryFilterFields(query.Flow.Filter)...) {
+	for _, name := range append(append([]string{}, query.Flow.GroupBy...), query.Flow.MatrixWith...) {
 		if check(name) {
-			return true
+			direct = true
 		}
 	}
-	return false
+	type node struct {
+		group *flow.QueryFilterGroup
+		depth int
+	}
+	stack := []node{{group: query.Flow.Filter, depth: 1}}
+	for visited := 0; len(stack) > 0 && visited < flow.MaxQueryPredicates; visited++ {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if current.group == nil || current.depth > flow.MaxQueryFilterDepth {
+			continue
+		}
+		for _, condition := range current.group.Conditions {
+			if check(condition.Field) {
+				direct = true
+			}
+		}
+		if len(current.group.Saved) > 0 {
+			saved = true
+		}
+		for i := range current.group.Groups {
+			stack = append(stack, node{group: &current.group.Groups[i], depth: current.depth + 1})
+		}
+	}
+	return direct, saved
 }
 
 // loadFlowTagQuery pins one tenant's definitions, ownership and tag rules at
@@ -117,6 +140,43 @@ func flowTagQueryContext(ctx context.Context, data *flowstore.TagQueryData) cont
 	return context.WithValue(ctx, flowTagQueryKey{}, data)
 }
 
+func (s *Server) savedFlowQueryUsesTags(ctx context.Context, principal *auth.Principal,
+	filter *flow.QueryFilterGroup) (bool, error) {
+	if s.pool == nil || filter == nil {
+		return false, nil
+	}
+	if err := s.authorizeNativeFlow(ctx, principal); err != nil {
+		return false, err
+	}
+	decision, err := s.decide(ctx, principal, permTagsRead, auth.RBACGlobal,
+		map[string]string{auth.ResourceTenantKey: principal.TenantID})
+	if err != nil || decision != auth.DecisionAllowed {
+		return false, err
+	}
+	vocabulary, err := s.loadFlowQueryVocabulary(ctx, principal)
+	if err != nil {
+		return false, err
+	}
+	ctx, err = flow.WithQueryVocabulary(ctx, principal.TenantID, vocabulary)
+	if err != nil {
+		return false, apierror.Unavailable("tenant tag query scope is unavailable")
+	}
+	resolved, err := flow.ResolveQueryFiltersWithVocabulary(ctx, principal.TenantID, filter,
+		s.flowQueryFilters, "", vocabulary)
+	if err != nil {
+		if errors.Is(err, flow.ErrQueryFilterNotFound) {
+			return false, apierror.NotFound("saved flow filter not found")
+		}
+		return false, apierror.Validation("saved flow filters could not be resolved within the query bounds")
+	}
+	for _, name := range flow.QueryFilterFields(resolved.Expression) {
+		if strings.HasPrefix(name, "tag.") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *Server) normalizeExplorerQuery(ctx context.Context, principal *auth.Principal,
 	raw ai.ExplorerQuery, now time.Time) (ai.ExplorerQuery, context.Context, error) {
 	if principal == nil || strings.TrimSpace(principal.TenantID) == "" {
@@ -133,12 +193,30 @@ func (s *Server) normalizeExplorerQuery(ctx context.Context, principal *auth.Pri
 	if err != nil {
 		return ai.ExplorerQuery{}, ctx, err
 	}
-	if data == nil && flowQueryUsesTags(raw) {
+	direct, saved := flowQueryTagHints(raw)
+	if data == nil && saved && !direct {
+		usesTag, detectErr := s.savedFlowQueryUsesTags(ctx, principal, raw.Flow.Filter)
+		if detectErr != nil {
+			return ai.ExplorerQuery{}, ctx, detectErr
+		}
+		direct = usesTag
+	}
+	if data == nil && direct {
 		data, err = s.loadFlowTagQuery(ctx, principal)
 		if err != nil {
 			return ai.ExplorerQuery{}, ctx, err
 		}
 		ctx = flowTagQueryContext(ctx, data)
+	}
+	if data != nil {
+		vocabulary, vocabErr := data.Vocabulary(principal.TenantID)
+		if vocabErr != nil {
+			return ai.ExplorerQuery{}, ctx, apierror.Unavailable("tenant tag query scope is unavailable")
+		}
+		ctx, err = flow.WithQueryVocabulary(ctx, principal.TenantID, vocabulary)
+		if err != nil {
+			return ai.ExplorerQuery{}, ctx, apierror.Unavailable("tenant tag query scope is unavailable")
+		}
 	}
 	var query ai.ExplorerQuery
 	if data == nil {
@@ -171,19 +249,30 @@ func (s *Server) flowQueryFields(ctx context.Context, principal *auth.Principal)
 	if decision != auth.DecisionAllowed {
 		return fields, nil
 	}
+	vocabulary, err := s.loadFlowQueryVocabulary(ctx, principal)
+	if err != nil {
+		return nil, err
+	}
+	return vocabulary.Fields()
+}
+
+func (s *Server) loadFlowQueryVocabulary(ctx context.Context, principal *auth.Principal) (flow.QueryVocabulary, error) {
+	if principal == nil || principal.TenantID == "" || s.pool == nil {
+		return flow.QueryVocabulary{}, apierror.Unavailable("tenant tag query schema is unavailable")
+	}
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(principal.TenantID))
 	var definitions []tags.Definition
-	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, scope tenancy.Scope) error {
+	err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, scope tenancy.Scope) error {
 		var loadErr error
 		definitions, loadErr = (store.TagDefinitions{}).List(ctx, scope)
 		return loadErr
 	})
 	if err != nil {
-		return nil, apierror.Unavailable("tenant tag query schema is unavailable")
+		return flow.QueryVocabulary{}, apierror.Unavailable("tenant tag query schema is unavailable")
 	}
 	vocabulary, err := flow.NewTagQueryVocabulary(principal.TenantID, definitions)
 	if err != nil {
-		return nil, apierror.Unavailable("tenant tag query schema is unavailable")
+		return flow.QueryVocabulary{}, apierror.Unavailable("tenant tag query schema is unavailable")
 	}
-	return vocabulary.Fields()
+	return vocabulary, nil
 }

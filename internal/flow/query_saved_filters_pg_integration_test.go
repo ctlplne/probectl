@@ -27,6 +27,7 @@ import (
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/migrate"
+	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantlife"
 	"github.com/ctlplne/probectl/internal/testsupport"
@@ -281,6 +282,39 @@ CREATE TRIGGER probectl_qa_beta_filter_audit_fault BEFORE INSERT ON audit_events
 	}
 	if _, err = st.GetQueryFilter(ctx, blue.ID, subjectBlue.ID); err != nil {
 		t.Fatalf("subject erasure touched sibling: %v", err)
+	}
+	var definition tags.Definition
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(red.ID)), pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			var createErr error
+			definition, createErr = (store.TagDefinitions{}).Create(ctx, scope, "customer")
+			return createErr
+		}); err != nil {
+		t.Fatal(err)
+	}
+	vocabulary, err := flow.NewTagQueryVocabulary(red.ID, []tags.Definition{definition})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tagCtx, err := flow.WithQueryVocabulary(ctx, red.ID, vocabulary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tagInput := flow.SaveQueryFilter{Name: "Customer blue", Expression: flow.QueryFilterGroup{
+		Conditions: []flow.QueryPredicate{{Field: "tag.customer", Op: flow.QueryEqual, Values: []string{"blue"}}}}}
+	tagSaved, err := st.SaveQueryFilter(tagCtx, red.ID, "operator@example.test", tagInput)
+	if err != nil {
+		t.Fatalf("save tenant tag filter: %v", err)
+	}
+	tagRead, err := restarted.GetQueryFilter(tagCtx, red.ID, tagSaved.ID)
+	if err != nil || tagRead.Expression.Conditions[0].Field != "tag.customer" {
+		t.Fatalf("tenant tag filter did not persist under RLS: %+v %v", tagRead, err)
+	}
+	if _, err := restarted.GetQueryFilter(ctx, red.ID, tagSaved.ID); err == nil {
+		t.Fatal("stored tag filter read without a tenant vocabulary")
+	}
+	if _, err := restarted.GetQueryFilter(tagCtx, blue.ID, tagSaved.ID); err == nil {
+		t.Fatal("foreign tenant read another tenant's tag filter")
 	}
 	if _, err = tenants.UpdateStatus(ctx, red.ID, "offboarding"); err != nil {
 		t.Fatal(err)

@@ -109,3 +109,41 @@ func TestTagSavedFilterResolutionKeepsTenantVocabulary(t *testing.T) {
 		t.Fatal("foreign saved filter accepted")
 	}
 }
+
+func TestSavedTagFilterStoreRevalidatesTenantVocabulary(t *testing.T) {
+	tenant, foreign := uuid.NewString(), uuid.NewString()
+	vocabulary, err := NewTagQueryVocabulary(tenant, []tags.Definition{
+		{TenantID: tenant, ID: uuid.NewString(), Key: "customer"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := WithQueryVocabulary(t.Context(), tenant, vocabulary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewMemoryQueryFilterStore(0)
+	input := SaveQueryFilter{Name: "customer", Expression: QueryFilterGroup{Conditions: []QueryPredicate{
+		{Field: "tag.customer", Op: QueryEqual, Values: []string{"blue"}},
+	}}}
+	if _, err := store.SaveQueryFilter(t.Context(), tenant, "actor", input); err == nil {
+		t.Fatal("native-only store accepted a tenant tag")
+	}
+	saved, err := store.SaveQueryFilter(ctx, tenant, "actor", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetQueryFilter(ctx, tenant, saved.ID)
+	if err != nil || got.Expression.Conditions[0].Field != "tag.customer" {
+		t.Fatalf("saved tag filter lost tenant field: %+v, %v", got, err)
+	}
+	if _, err := store.GetQueryFilter(t.Context(), tenant, saved.ID); err == nil {
+		t.Fatal("stored tag expression escaped its request-local vocabulary")
+	}
+	if _, err := store.GetQueryFilter(ctx, foreign, saved.ID); err == nil {
+		t.Fatal("foreign tenant read saved tag filter")
+	}
+	if _, err := WithQueryVocabulary(t.Context(), foreign, vocabulary); err == nil {
+		t.Fatal("foreign tenant bound another tenant's vocabulary")
+	}
+}

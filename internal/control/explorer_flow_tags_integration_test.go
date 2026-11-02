@@ -169,6 +169,32 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 	if _, code := read(a, "tags.read"); code != http.StatusForbidden {
 		t.Fatalf("withheld tags.read returned %d", code)
 	}
+	savedFilter := apiReq(t, srv.Handler(), http.MethodPost, "/v1/explorer/flow-filters", a,
+		map[string]any{"name": "Customer blue", "expression": map[string]any{
+			"conditions": []map[string]any{{"field": "tag.customer", "op": "eq", "values": []string{"blue"}}}}})
+	if savedFilter.Code != http.StatusCreated {
+		t.Fatalf("save tenant tag filter: %d %s", savedFilter.Code, savedFilter.Body.String())
+	}
+	var filterRow flow.SavedQueryFilter
+	if err := json.Unmarshal(savedFilter.Body.Bytes(), &filterRow); err != nil {
+		t.Fatal(err)
+	}
+	filteredPlan := plan
+	filteredPlan.GroupBy = []string{"exporter"}
+	filteredPlan.Filter = &flow.QueryFilterGroup{Saved: []flow.QuerySavedFilterRef{{ID: filterRow.ID}}}
+	filtered := apiReq(t, srv.Handler(), http.MethodPost, "/v1/explorer/query", a,
+		ai.ExplorerQuery{Source: ai.ExplorerFlow, Question: "Use saved customer filter", Flow: &filteredPlan})
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("saved tenant tag filter query: %d %s", filtered.Code, filtered.Body.String())
+	}
+	var filteredResult explorerResult
+	if err := json.Unmarshal(filtered.Body.Bytes(), &filteredResult); err != nil {
+		t.Fatal(err)
+	}
+	if filteredResult.Flow == nil || filteredResult.Flow.TagRevision != initialRevision ||
+		filteredResult.Flow.Totals["bytes:total"] != "100" {
+		t.Fatalf("saved tag filter lost tenant revision or selected wrong rows: %+v", filteredResult.Flow)
+	}
 	changed := apiReq(t, srv.Handler(), http.MethodPut, redRulePath+"/"+redRuleID, a,
 		map[string]any{"tag_id": redTagID, "target_kind": "exporter",
 			"match_kind": "cidr", "address_side": "exporter", "cidr": "192.0.2.0/24", "value": "green"})

@@ -62,6 +62,13 @@ func flowPlanPermissions(ctx context.Context, tenant string, plan flow.QueryPlan
 		return nil, err
 	}
 	if data == nil {
+		vocabulary, bound, err := flow.QueryVocabularyFromContext(ctx, tenant)
+		if err != nil {
+			return nil, apierror.Unavailable("tenant tag query scope is unavailable")
+		}
+		if bound {
+			return flow.QueryPlanPermissionsWithVocabulary(plan, vocabulary), nil
+		}
 		return flow.QueryPlanPermissions(plan), nil
 	}
 	vocabulary, err := data.Vocabulary(tenant)
