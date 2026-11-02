@@ -53,7 +53,13 @@ function readExportFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(new Error('Saved export page could not be read.'))
-    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Saved export page did not contain text.'))
+        return
+      }
+      resolve(reader.result)
+    }
     reader.readAsText(file)
   })
 }
@@ -284,7 +290,7 @@ function ImportContents({
       const records = Array.isArray(decoded)
         ? decoded
         : decoded && typeof decoded === 'object' && 'results' in decoded
-          ? (decoded as { results: unknown }).results
+          ? decoded.results
           : null
       if (!Array.isArray(records)) throw new Error('Export page has no documented row array.')
       await appendImportExportPage(

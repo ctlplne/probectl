@@ -282,10 +282,10 @@ const runRawOperationWithStdinSpine = `{
 		if op.MaxBodyBytes > 0 {
 			limit = op.MaxBodyBytes
 		}
-		body, err = readRequestBody(*bodyFile, stdin, limit, op.ExactJSON)
+		body, err = readRequestBody(*bodyFile, stdin, limit, op.ExactJSON, op.AllowJSONArray)
 	} else {
 		if op.ExactJSON && strings.TrimSpace(*bodyRaw) != "" {
-			body, err = parseExactBody([]byte(*bodyRaw), op.MaxBodyBytes)
+			body, err = parseExactBody([]byte(*bodyRaw), op.MaxBodyBytes, op.AllowJSONArray)
 		} else {
 			body, err = parseBody(*bodyRaw)
 		}

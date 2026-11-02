@@ -465,8 +465,8 @@ func TestGenericCommandCalleeMustExecuteRawOperation(t *testing.T) {
 		},
 		{
 			name:        "sensitive stdin discarded",
-			old:         `body, err = readRequestBody(*bodyFile, stdin, limit, op.ExactJSON)`,
-			replacement: `body, err = readRequestBody(*bodyFile, bytes.NewReader(nil), limit, op.ExactJSON)`,
+			old:         `body, err = readRequestBody(*bodyFile, stdin, limit, op.ExactJSON, op.AllowJSONArray)`,
+			replacement: `body, err = readRequestBody(*bodyFile, bytes.NewReader(nil), limit, op.ExactJSON, op.AllowJSONArray)`,
 			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
@@ -508,8 +508,8 @@ func TestGenericCommandCalleeMustExecuteRawOperation(t *testing.T) {
 		},
 		{
 			name:        "exact file body becomes lossy",
-			old:         `readRequestBody(*bodyFile, stdin, limit, op.ExactJSON)`,
-			replacement: `readRequestBody(*bodyFile, stdin, limit, false)`,
+			old:         `readRequestBody(*bodyFile, stdin, limit, op.ExactJSON, op.AllowJSONArray)`,
+			replacement: `readRequestBody(*bodyFile, stdin, limit, false, op.AllowJSONArray)`,
 			want:        "securely execute the tenant-scoped HTTP client request",
 		},
 		{
