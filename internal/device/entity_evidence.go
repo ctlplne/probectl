@@ -45,10 +45,10 @@ func identityFingerprint(target string, inv Inventory, neighbors []NeighborEvide
 	}
 	type neighborIdentity struct{ ID, ManagementAddress string }
 	snapshot := struct {
-		Target, SysName string
-		Interfaces      []interfaceIdentity
-		Neighbors       []neighborIdentity
-	}{Target: target, SysName: inv.SysName}
+		Target, SysName, SysDescr, PeerAddress string
+		Interfaces                             []interfaceIdentity
+		Neighbors                              []neighborIdentity
+	}{Target: target, SysName: inv.SysName, SysDescr: inv.SysDescr, PeerAddress: inv.peerAddress.String()}
 	indexes := make([]uint32, 0, len(inv.Interfaces))
 	for index := range inv.Interfaces {
 		indexes = append(indexes, index)
@@ -223,9 +223,20 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 			r.log.Error("device canonical evidence ID unavailable", "tenant_id", r.cfg.TenantID)
 			return false
 		}
-		claim, err := (entity.Observation{ID: id, Source: source,
+		observation := entity.Observation{ID: id, Source: source,
 			Alias: alias, SourceRef: originalRef, ObservedAt: at,
-			InterfaceName: ifName, InterfaceDescription: ifDescr}).Normalize(at)
+			InterfaceName: ifName, InterfaceDescription: ifDescr}
+		if originalRef == "snmp:configured-target" {
+			observation.SystemDescription = inv.SysDescr
+		}
+		claim, err := observation.Normalize(at)
+		if err != nil && observation.SystemDescription != "" {
+			// A malformed observational description must not suppress valid
+			// address or identity claims from the same SNMP poll.
+			observation.SystemDescription = ""
+			claim, err = observation.Normalize(at)
+			r.stats.EvidenceErrors.Add(1)
+		}
 		if err != nil {
 			return true // untrusted SNMP data cannot reject the other claims
 		}
@@ -235,8 +246,12 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 		}
 		return true
 	}
-	if _, err := netip.ParseAddr(dev.Address); err == nil {
-		if !add(entity.AliasKey{Kind: entity.AddressAlias, Value: dev.Address},
+	address, _ := netip.ParseAddr(dev.Address)
+	if !address.IsValid() {
+		address = inv.peerAddress
+	}
+	if address.IsValid() && address.Zone() == "" {
+		if !add(entity.AliasKey{Kind: entity.AddressAlias, Value: address.Unmap().String()},
 			"snmp:configured-target", "", "") {
 			return
 		}

@@ -98,6 +98,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 			SourceRef: item.GetSourceRef(), OriginSerial: item.GetOriginSerial(),
 			InterfaceName:        item.GetInterfaceName(),
 			InterfaceDescription: item.GetInterfaceDescription(),
+			SystemDescription:    item.GetSystemDescription(),
 			NeighborProtocol:     item.GetNeighborProtocol(),
 			NeighborLocalIfIndex: item.GetNeighborLocalIfIndex(),
 			NeighborLocalPortID:  item.GetNeighborLocalPortId(),

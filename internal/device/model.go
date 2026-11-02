@@ -104,4 +104,7 @@ type Inventory struct {
 	SysName    string
 	SysDescr   string
 	Interfaces map[uint32]Interface
+	// The connected SNMP peer, retained only inside this collector. A DNS
+	// target can report its actual observed IP without a query-time lookup.
+	peerAddress netip.Addr
 }

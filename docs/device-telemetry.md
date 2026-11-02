@@ -103,6 +103,20 @@ their normalized interface addresses in the tenant-keyed protobuf bus payload.
 Those addresses rebuild local topology/correlation evidence during replay; they
 do not become high-cardinality TSDB labels.
 
+The sender-bound entity evidence RPC also retains bounded SNMP `sysDescr`
+metadata on the configured-target address observation. A hostname-configured
+target uses the connected SNMP socket's observed peer address, so an empty
+`sysName` does not require an invented name or a query-time DNS lookup.
+Descriptions are limited to 1,024 UTF-8 bytes. DisplayString tabs and CR/LF are
+preserved; other controls and invalid text are rejected. The byte bound exceeds
+the [standard sysDescr length](https://www.rfc-editor.org/rfc/rfc3418.html#section-2);
+line breaks follow [DisplayString formatting](https://www.rfc-editor.org/rfc/rfc2579.html#section-2).
+Malformed descriptions do not suppress the poll's other valid identity claims.
+A changed description refreshes evidence immediately. The stored field is
+tenant-scoped, replay-checked observational metadata; it does not identify an
+entity, select a routing context or add a TSDB label. Raw evidence read surfaces
+do not add this field to their existing projections.
+
 **Planes › Device** reads the newest sample of every one of the tenant's
 series back (`GET /v1/device/metrics`, also `probectl device metrics`) and
 lays it out the way an operator reads a device, in its **Device telemetry**

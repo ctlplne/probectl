@@ -150,9 +150,10 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 			ID: observationID,
 			Source: entity.SourceKey{AgentID: agentID, Kind: entity.DeviceTarget,
 				SourceRef: "10.42.0.1"},
-			Alias:      key,
-			SourceRef:  "snmp:router",
-			ObservedAt: observed,
+			Alias:             key,
+			SourceRef:         "snmp:configured-target",
+			ObservedAt:        observed,
+			SystemDescription: "router OS for " + agentID,
 		}
 	}
 	for _, tc := range []struct{ tenantID, agentID string }{
@@ -168,7 +169,34 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 					tc.tenantID, attempt, accepted, unresolved, err)
 			}
 		}
+		changed := claim
+		changed.SystemDescription = "different router OS"
+		if _, _, err := repo.WriteEvidenceBatch(tenancy.WithTenant(ctx, tenancy.ID(tc.tenantID)), tc.agentID,
+			serials[tc.tenantID+tc.agentID], []entity.Observation{changed}); !errors.Is(err, entity.ErrConflictingEvidence) {
+			t.Fatalf("same-UUID replay changed retained system metadata: %v", err)
+		}
 		inTenant(ctx, t, pool, tc.tenantID, func(ctx context.Context, sc tenancy.Scope) error {
+			var description string
+			if err := sc.Q.QueryRow(ctx, `SELECT snmp_system_description FROM entity_evidence
+				WHERE tenant_id=$1 AND agent_id=$2 AND observation_id=$3`,
+				tc.tenantID, tc.agentID, observationID).Scan(&description); err != nil {
+				return err
+			}
+			if description != claim.SystemDescription {
+				t.Fatal("tenant evidence lost or crossed the system-description metadata")
+			}
+			foreign := a.ID
+			if tc.tenantID == a.ID {
+				foreign = b.ID
+			}
+			var count int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entity_evidence
+				WHERE tenant_id=$1 AND observation_id=$2 AND snmp_system_description IS NOT NULL`, foreign, observationID).Scan(&count); err != nil {
+				return err
+			}
+			if count != 0 {
+				t.Fatal("system-description metadata bypassed storage-layer tenant isolation")
+			}
 			var observedAt, expiresAt time.Time
 			if err := sc.Q.QueryRow(ctx, `SELECT observed_at,expires_at FROM entity_evidence
 				WHERE tenant_id=$1 AND agent_id=$2 AND observation_id=$3`,
@@ -182,6 +210,19 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 			return nil
 		})
 	}
+	// Both descriptions now exist. The first lane cannot read the second
+	// lane's metadata even when the observation UUID and private IP match.
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var count int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entity_evidence
+			WHERE tenant_id=$1 AND observation_id=$2 AND snmp_system_description IS NOT NULL`, b.ID, observationID).Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			t.Fatal("first tenant read the second tenant's retained system metadata")
+		}
+		return nil
+	})
 	for name, foreignParent := range map[string]string{
 		"other tenant":  entityB,
 		"other context": entityA2,

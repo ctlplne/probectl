@@ -1373,6 +1373,7 @@ type EntityEvidenceObservation struct {
 	NeighborChassisId         string                 `protobuf:"bytes,15,opt,name=neighbor_chassis_id,json=neighborChassisId,proto3" json:"neighbor_chassis_id,omitempty"`
 	NeighborDeviceName        string                 `protobuf:"bytes,16,opt,name=neighbor_device_name,json=neighborDeviceName,proto3" json:"neighbor_device_name,omitempty"`
 	NeighborManagementAddress string                 `protobuf:"bytes,17,opt,name=neighbor_management_address,json=neighborManagementAddress,proto3" json:"neighbor_management_address,omitempty"` // observed IP, not a context selector
+	SystemDescription         string                 `protobuf:"bytes,18,opt,name=system_description,json=systemDescription,proto3" json:"system_description,omitempty"`                           // bounded SNMP sysDescr on the configured-target address claim only
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -1522,6 +1523,13 @@ func (x *EntityEvidenceObservation) GetNeighborDeviceName() string {
 func (x *EntityEvidenceObservation) GetNeighborManagementAddress() string {
 	if x != nil {
 		return x.NeighborManagementAddress
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetSystemDescription() string {
+	if x != nil {
+		return x.SystemDescription
 	}
 	return ""
 }
@@ -1817,7 +1825,7 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x16ReportL7PostureRequest\x12=\n" +
 	"\aposture\x18\x01 \x01(\v2#.probectl.agent.v1.L7CapturePostureR\aposture\"3\n" +
 	"\x17ReportL7PostureResponse\x12\x18\n" +
-	"\achanged\x18\x01 \x01(\bR\achanged\"\x8c\x06\n" +
+	"\achanged\x18\x01 \x01(\bR\achanged\"\xbb\x06\n" +
 	"\x19EntityEvidenceObservation\x12%\n" +
 	"\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n" +
 	"\vsource_kind\x18\x02 \x01(\tR\n" +
@@ -1840,7 +1848,8 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x17neighbor_remote_port_id\x18\x0e \x01(\tR\x14neighborRemotePortId\x12.\n" +
 	"\x13neighbor_chassis_id\x18\x0f \x01(\tR\x11neighborChassisId\x120\n" +
 	"\x14neighbor_device_name\x18\x10 \x01(\tR\x12neighborDeviceName\x12>\n" +
-	"\x1bneighbor_management_address\x18\x11 \x01(\tR\x19neighborManagementAddress\"\xf2\x01\n" +
+	"\x1bneighbor_management_address\x18\x11 \x01(\tR\x19neighborManagementAddress\x12-\n" +
+	"\x12system_description\x18\x12 \x01(\tR\x11systemDescription\"\xf2\x01\n" +
 	"\x16EntityFaultObservation\x12%\n" +
 	"\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n" +
 	"\vsource_kind\x18\x02 \x01(\tR\n" +

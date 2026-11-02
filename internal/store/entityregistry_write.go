@@ -395,12 +395,12 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 			  interface_name,interface_description,
 			  neighbor_protocol,neighbor_local_if_index,neighbor_local_port_id,
 			  neighbor_remote_port_id,neighbor_chassis_id,neighbor_device_name,
-			  neighbor_management_address,support_evidence_id)
+			  neighbor_management_address,support_evidence_id,snmp_system_description)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
 		        NULLIF($16,'')::text,NULLIF($17,'')::text,NULLIF($18,'')::text,
 		        NULLIF($19,'')::text,NULLIF($20::bigint,0::bigint),NULLIF($21,'')::text,
 		        NULLIF($22,'')::text,NULLIF($23,'')::text,NULLIF($24,'')::text,
-		        NULLIF($25,'')::text,NULLIF($26,'')::uuid)
+		        NULLIF($25,'')::text,NULLIF($26,'')::uuid,NULLIF($27,'')::text)
 			ON CONFLICT (tenant_id,agent_id,source_kind,configured_ref,observation_id)
 			DO NOTHING RETURNING id::text`,
 		tenantID, authority.contextID, evidenceID, claim.ID, endpoint.entityID,
@@ -412,7 +412,8 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 		claim.InterfaceDescription, claim.NeighborProtocol,
 		int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
 		claim.NeighborRemotePortID, claim.NeighborChassisID,
-		claim.NeighborDeviceName, claim.NeighborAddress, authority.supportID).Scan(&inserted)
+		claim.NeighborDeviceName, claim.NeighborAddress, authority.supportID,
+		claim.SystemDescription).Scan(&inserted)
 	if err == nil {
 		if endpoint.interfaceClaim {
 			linkID, err := newRegistryID()
@@ -479,6 +480,7 @@ func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 		AND COALESCE(neighbor_chassis_id,'')=$18
 		AND COALESCE(neighbor_device_name,'')=$19
 		AND COALESCE(neighbor_management_address,'')=$20
+		AND COALESCE(snmp_system_description,'')=$21
 		FROM entity_evidence
 		WHERE tenant_id=$1 AND agent_id=$2 AND source_kind=$3
 		  AND configured_ref=$4 AND observation_id=$5
@@ -489,7 +491,7 @@ func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 		claim.InterfaceDescription, claim.NeighborProtocol,
 		int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
 		claim.NeighborRemotePortID, claim.NeighborChassisID,
-		claim.NeighborDeviceName, claim.NeighborAddress).Scan(&same)
+		claim.NeighborDeviceName, claim.NeighborAddress, claim.SystemDescription).Scan(&same)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, false, nil
 	}

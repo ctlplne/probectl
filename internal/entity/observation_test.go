@@ -14,6 +14,32 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestSNMPSystemDescriptionIsBoundedMetadataOnConfiguredTargetOnly(t *testing.T) {
+	now := time.Now().UTC()
+	base := Observation{ID: uuid.NewString(),
+		Source:    SourceKey{AgentID: "collector", Kind: DeviceTarget, SourceRef: "router.example"},
+		Alias:     AliasKey{Kind: AddressAlias, Value: "192.0.2.1"},
+		SourceRef: "snmp:configured-target", ObservedAt: now,
+		SystemDescription: "router OS\r\nversion\t1"}
+	if got, err := base.Normalize(now); err != nil || got.SystemDescription != base.SystemDescription {
+		t.Fatalf("valid system metadata lost: %v", err)
+	}
+	for _, edit := range []func(*Observation){
+		func(o *Observation) { o.Source.Kind = FlowExporter },
+		func(o *Observation) { o.Alias.Kind = SNMPDeviceAlias; o.Alias.Value = "router-a" },
+		func(o *Observation) { o.SourceRef = "snmp:ifIndex:7" },
+		func(o *Observation) { o.SystemDescription = "bad\x1bvalue" },
+		func(o *Observation) { o.SystemDescription = string([]byte{0xff}) },
+		func(o *Observation) { o.SystemDescription = strings.Repeat("x", 1025) },
+	} {
+		bad := base
+		edit(&bad)
+		if _, err := bad.Normalize(now); err == nil {
+			t.Fatal("untrusted or wrong-family system metadata was accepted")
+		}
+	}
+}
+
 func TestBMPObservationRequiresExactBoundedOriginSerial(t *testing.T) {
 	now := time.Now().UTC()
 	base := Observation{ID: uuid.NewString(),

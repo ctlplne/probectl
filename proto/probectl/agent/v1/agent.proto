@@ -244,6 +244,7 @@ message EntityEvidenceObservation {
   string neighbor_chassis_id = 15;
   string neighbor_device_name = 16;
   string neighbor_management_address = 17; // observed IP, not a context selector
+  string system_description = 18; // bounded SNMP sysDescr on the configured-target address claim only
 }
 
 // A bounded fault observation shares the evidence-only RPC and live mTLS

@@ -10,13 +10,16 @@ package silo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -212,6 +215,39 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 		b, contextA, evidenceB, entityB); err != nil {
 		t.Fatalf("seed foreign tenant support evidence: %v", err)
 	}
+	assertSystemDescriptionChecks := func() {
+		t.Helper()
+		for _, row := range []struct{ schema, tenant, id, value string }{
+			{schemaA, a, evidenceA, "OS for A\r\nversion\t1"}, {schemaB, b, evidenceB, "OS for B"},
+		} {
+			tag, err := pool.Exec(ctx, `UPDATE `+row.schema+`.entity_evidence
+				SET source_ref='snmp:configured-target',snmp_system_description=$3
+				WHERE tenant_id=$1 AND id=$2`, row.tenant, row.id, row.value)
+			if err != nil || tag.RowsAffected() != 1 {
+				t.Fatalf("silo rejected its own system metadata: %v", err)
+			}
+			var actual string
+			if err := pool.QueryRow(ctx, `SELECT snmp_system_description FROM `+row.schema+`.entity_evidence
+				WHERE tenant_id=$1 AND id=$2`, row.tenant, row.id).Scan(&actual); err != nil || actual != row.value {
+				t.Fatalf("silo metadata crossed or lost its own row: %v", err)
+			}
+		}
+		for _, bad := range []string{"bad\x1bvalue", strings.Repeat("x", 1025)} {
+			_, err := pool.Exec(ctx, `UPDATE `+schemaA+`.entity_evidence
+				SET snmp_system_description=$3 WHERE tenant_id=$1 AND id=$2`, a, evidenceA, bad)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+				t.Fatalf("silo metadata shape was not storage-enforced: %v", err)
+			}
+		}
+		_, err := pool.Exec(ctx, `UPDATE `+schemaA+`.entity_evidence
+			SET source_ref='unattested-source' WHERE tenant_id=$1 AND id=$2`, a, evidenceA)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+			t.Fatalf("silo system metadata escaped its configured-target family: %v", err)
+		}
+	}
+	assertSystemDescriptionChecks()
 	insertInferred := func(supportID string) error {
 		id := uuid.NewString()
 		_, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.entity_evidence
@@ -380,12 +416,18 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 		(tenant_id,source_incident_id,plane,kind,target,prefix) WHERE active`); err != nil {
 		t.Fatalf("install old silo override index: %v", err)
 	}
+	// Simulate an older physical silo. Catch-up must add both the nullable
+	// metadata column and the source-family CHECK, then remain idempotent.
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.entity_evidence DROP COLUMN snmp_system_description CASCADE`); err != nil {
+		t.Fatalf("simulate old silo system metadata: %v", err)
+	}
 	if err := prov.CatchUp(ctx, a); err != nil {
 		t.Fatalf("first entity silo catch-up: %v", err)
 	}
 	if err := prov.CatchUp(ctx, a); err != nil {
 		t.Fatalf("idempotent entity silo catch-up: %v", err)
 	}
+	assertSystemDescriptionChecks()
 	assertEntityRegistrySiloFKs(t, pool, SchemaName(a))
 	var scopedCount, legacyCount int
 	if err := pool.QueryRow(ctx, `SELECT

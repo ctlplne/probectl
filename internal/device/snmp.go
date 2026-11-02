@@ -75,6 +75,17 @@ func (c gosnmpConn) Get(oids []string) ([]gosnmp.SnmpPDU, error) {
 func (c gosnmpConn) BulkWalk(root string, fn gosnmp.WalkFunc) error { return c.g.BulkWalk(root, fn) }
 func (c gosnmpConn) Close() error                                   { return c.g.Conn.Close() }
 
+func (c gosnmpConn) peerAddress() netip.Addr {
+	if c.g == nil || c.g.Conn == nil || c.g.Conn.RemoteAddr() == nil {
+		return netip.Addr{}
+	}
+	peer, err := netip.ParseAddrPort(c.g.Conn.RemoteAddr().String())
+	if err != nil || peer.Addr().Zone() != "" {
+		return netip.Addr{}
+	}
+	return peer.Addr().Unmap()
+}
+
 // dialSNMP opens a v2c or v3 session per the device config + resolved
 // credential. SNMPv3 USM auth/priv runs inside gosnmp (protocol-mandated
 // algorithms, like a TLS handshake's crypto — the internal/crypto seam
@@ -149,6 +160,9 @@ func dialSNMP(dev Target, cred Credential) (snmpConn, error) {
 // independently — a vendor that lacks a MIB simply yields fewer metrics.
 func pollSNMP(conn snmpConn, dev Target, tenant, agent string, now time.Time) ([]Metric, Inventory, error) {
 	inv := Inventory{Device: dev.Address, Interfaces: map[uint32]Interface{}}
+	if peer, ok := conn.(interface{ peerAddress() netip.Addr }); ok {
+		inv.peerAddress = peer.peerAddress()
+	}
 	base := Metric{TenantID: tenant, AgentID: agent, Device: dev.Address, Source: SourceSNMP, At: now}
 	var out []Metric
 

@@ -144,15 +144,31 @@ func TestEntityFaultRealMTLSSenderIsTenantBoundAndRevocationFailsClosed(t *testi
 				ref = "flow:configured-exporter"
 			}
 			rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			observationID, description := uuid.NewString(), ""
+			if sourceKind == "device_target" {
+				description = "router OS for " + tenantID
+			}
 			response, err := rpc.SubmitEntityEvidence(rpcCtx,
 				&agentv1.SubmitEntityEvidenceRequest{Observations: []*agentv1.EntityEvidenceObservation{{
-					ObservationId: uuid.NewString(), SourceKind: sourceKind,
+					ObservationId: observationID, SourceKind: sourceKind,
 					ConfiguredRef: target, AliasKind: "address", AliasValue: target,
 					SourceRef: ref, ObservedUnixNanos: time.Now().UnixNano(),
+					SystemDescription: description,
 				}}})
 			cancel()
 			if err != nil || response.GetAccepted() != 1 || response.GetUnresolved() != 0 {
 				t.Fatalf("verified %s address evidence = %+v %v", sourceKind, response, err)
+			}
+			if description != "" {
+				var actual string
+				if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool,
+					func(ctx context.Context, sc tenancy.Scope) error {
+						return sc.Q.QueryRow(ctx, `SELECT snmp_system_description FROM entity_evidence
+							WHERE tenant_id=$1 AND agent_id=$2 AND observation_id=$3`,
+							tenantID, agentID, observationID).Scan(&actual)
+					}); err != nil || actual != description {
+					t.Fatalf("real mTLS source lost tenant-bound system metadata: %v", err)
+				}
 			}
 		}
 		return wireSender{tenant: tenantID, agent: agentID, serial: serial,

@@ -33,6 +33,9 @@ type Observation struct {
 	// never identity keys or routing context selectors.
 	InterfaceName        string
 	InterfaceDescription string
+	// SystemDescription is SNMP sysDescr on the configured-target address
+	// observation only. It never identifies an entity or selects a context.
+	SystemDescription    string
 	NeighborProtocol     string
 	NeighborLocalIfIndex uint32
 	NeighborLocalPortID  string
@@ -76,6 +79,12 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 	if err := validateInterfaceObservation(o); err != nil {
 		return Observation{}, err
 	}
+	if o.SystemDescription != "" && (o.Source.Kind != DeviceTarget ||
+		o.Alias.Kind != AddressAlias || o.SourceRef != "snmp:configured-target" ||
+		len(o.SystemDescription) > 1024 || !utf8.ValidString(o.SystemDescription) ||
+		strings.IndexFunc(o.SystemDescription, invalidSystemDescriptionControl) >= 0) {
+		return Observation{}, ErrInvalidClaim
+	}
 	o, err = normalizeNeighborObservation(o)
 	if err != nil {
 		return Observation{}, err
@@ -88,6 +97,12 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 	// idempotency comparison so a nanosecond input replays identically.
 	o.ObservedAt = o.ObservedAt.UTC().Truncate(time.Microsecond)
 	return o, nil
+}
+
+// DisplayString permits horizontal tabs and line breaks. Preserve those
+// observational bytes; other controls cannot enter metadata or rule facts.
+func invalidSystemDescriptionControl(r rune) bool {
+	return unicode.IsControl(r) && r != '\t' && r != '\r' && r != '\n'
 }
 
 func validateObservationFamily(o Observation) error {

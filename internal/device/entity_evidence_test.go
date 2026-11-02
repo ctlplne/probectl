@@ -12,11 +12,51 @@ import (
 	"io"
 	"log/slog"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/entity"
 )
+
+func TestSNMPDescriptionOnlyDNSTargetUsesObservedPeerAndRefreshesChangedMetadata(t *testing.T) {
+	recorded := &recordedDeviceEvidence{}
+	runtime := &Runtime{cfg: &Config{TenantID: "11111111-1111-4111-8111-111111111111",
+		AgentID: "22222222-2222-4222-8222-222222222222"}, evidence: recorded,
+		log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	inv := Inventory{Device: "forged-payload-address", SysDescr: "router OS",
+		peerAddress: netip.MustParseAddr("192.0.2.7")}
+	dev, now := Target{Address: "router.example"}, time.Now().UTC()
+	runtime.emitSNMPEntityEvidence(context.Background(), dev, inv, nil, now)
+	if len(recorded.claims) != 1 || recorded.claims[0].Alias.Kind != entity.AddressAlias ||
+		recorded.claims[0].Alias.Value != "192.0.2.7" || recorded.claims[0].Source.SourceRef != "router.example" ||
+		recorded.claims[0].SourceRef != "snmp:configured-target" || recorded.claims[0].SystemDescription != "router OS" {
+		t.Fatal("description-only DNS target lost its actual peer or invented a name/identity")
+	}
+	runtime.emitSNMPEntityEvidence(context.Background(), dev, inv, nil, now.Add(time.Minute))
+	if len(recorded.claims) != 1 {
+		t.Fatal("unchanged metadata rewrote evidence on the next poll")
+	}
+	inv.SysDescr = "upgraded router OS"
+	runtime.emitSNMPEntityEvidence(context.Background(), dev, inv, nil, now.Add(2*time.Minute))
+	if len(recorded.claims) != 2 || recorded.claims[1].SystemDescription != inv.SysDescr {
+		t.Fatal("changed system description waited for the identity refresh interval")
+	}
+}
+
+func TestMalformedSNMPSystemDescriptionDoesNotSuppressValidClaims(t *testing.T) {
+	for _, description := range []string{"bad\x1bvalue", strings.Repeat("x", 1025), string([]byte{0xff})} {
+		recorded := &recordedDeviceEvidence{}
+		runtime := &Runtime{cfg: &Config{TenantID: "11111111-1111-4111-8111-111111111111",
+			AgentID: "22222222-2222-4222-8222-222222222222"}, evidence: recorded,
+			log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		runtime.emitSNMPEntityEvidence(context.Background(), Target{Address: "192.0.2.1"},
+			Inventory{SysName: "edge-a", SysDescr: description}, nil, time.Now().UTC())
+		if len(recorded.claims) != 2 || recorded.claims[0].SystemDescription != "" || recorded.claims[1].Alias.Value != "edge-a" {
+			t.Fatal("malformed system description suppressed valid configured-target/name claims")
+		}
+	}
+}
 
 type recordedDeviceEvidence struct {
 	claims     []entity.Observation
@@ -112,7 +152,7 @@ func TestSNMPEvidenceUsesConfiguredSourceNotPacketRouting(t *testing.T) {
 	runtime := &Runtime{cfg: &Config{TenantID: "11111111-1111-4111-8111-111111111111",
 		AgentID: agentID}, evidence: recorded,
 		log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	inv := Inventory{Device: "203.0.113.99", SysName: "router-a",
+	inv := Inventory{Device: "203.0.113.99", SysName: "router-a", SysDescr: "router OS",
 		Interfaces: map[uint32]Interface{7: {Index: 7, Name: "xe-0/0/7", Descr: "uplink", Addrs: []netip.Addr{
 			netip.MustParseAddr("10.42.0.1"),
 			netip.MustParseAddr("2001:db8::1"),
@@ -136,6 +176,7 @@ func TestSNMPEvidenceUsesConfiguredSourceNotPacketRouting(t *testing.T) {
 		recorded.claims[2].Alias.Value != "7" ||
 		recorded.claims[2].InterfaceName != "xe-0/0/7" ||
 		recorded.claims[2].InterfaceDescription != "uplink" ||
+		recorded.claims[0].SystemDescription != "router OS" ||
 		recorded.claims[3].Alias.Value != "10.42.0.1" ||
 		recorded.claims[4].Alias.Value != "2001:db8::1" ||
 		recorded.claims[5].Alias.Kind != entity.PhysicalNeighborAlias ||

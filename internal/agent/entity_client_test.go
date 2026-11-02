@@ -99,6 +99,13 @@ func TestEvidenceClientRequiresExactPlaneAndAgent(t *testing.T) {
 		request.Observations[0].GetAliasValue() != "10.42.0.1" {
 		t.Fatalf("encoded evidence = %+v, %v", request, err)
 	}
+	systemClaim := item
+	systemClaim.SourceRef = "snmp:configured-target"
+	systemClaim.SystemDescription = "router OS"
+	request, err = client.encodeEvidence(time.Now(), []entity.Observation{systemClaim})
+	if err != nil || request.GetObservations()[0].GetSystemDescription() != "router OS" {
+		t.Fatalf("system description lost on evidence RPC: %v", err)
+	}
 	interfaceClaim := item
 	interfaceClaim.Alias = entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: "4294967295"}
 	interfaceClaim.SourceRef = "snmp:ifIndex:4294967295"
