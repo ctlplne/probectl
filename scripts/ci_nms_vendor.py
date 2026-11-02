@@ -240,7 +240,12 @@ def seed_librenms() -> dict:
             raise RuntimeError(f"LibreNMS {path} did not return status ok")
         return value, raw
 
-    call("/api/v0/locations", {"location": "Fixture East"})
+    # The pinned add_location handler requires coordinates even when the
+    # importer only reviews the location name and source ID.
+    call(
+        "/api/v0/locations",
+        {"location": "Fixture East", "lat": "0", "lng": "0"},
+    )
     locations, _ = call("/api/v0/resources/locations")
     found = [x for x in locations["locations"] if x.get("location") == "Fixture East"]
     if len(found) != 1:
@@ -261,6 +266,7 @@ def seed_librenms() -> dict:
         "/api/v0/devicegroups",
         {
             "name": "Fixture WAN",
+            "desc": "Isolated import fixture",
             "type": "static",
             "devices": [int(device_id)],
         },
