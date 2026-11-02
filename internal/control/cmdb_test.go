@@ -7,9 +7,11 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,9 +20,23 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/cmdb"
+	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+func TestCMDBStartupLogDoesNotExposeEndpointCredentials(t *testing.T) {
+	for _, provider := range []string{"netbox", "servicenow"} {
+		var output bytes.Buffer
+		BuildCMDB(&config.Config{CMDBProvider: provider,
+			CMDBURL:    "https://user:private-pass@cmdb.example?token=private-token",
+			CMDBSecret: "test-token", CMDBTable: "cmdb_ci"},
+			slog.New(slog.NewTextHandler(&output, nil)))
+		if strings.Contains(output.String(), "private-pass") || strings.Contains(output.String(), "private-token") {
+			t.Fatal("CMDB endpoint credentials reached a startup log")
+		}
+	}
+}
 
 // fakeCMDB resolves one IP and one hostname.
 type fakeCMDB struct{}

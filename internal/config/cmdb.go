@@ -6,7 +6,13 @@
 
 package config
 
-import "github.com/ctlplne/probectl/internal/cmdb"
+import (
+	"errors"
+	"net/url"
+	"strings"
+
+	"github.com/ctlplne/probectl/internal/cmdb"
+)
 
 func (l *loader) netBoxTenantMap() map[string]string {
 	const key = "PROBECTL_CMDB_NETBOX_TENANT_MAP"
@@ -15,4 +21,18 @@ func (l *loader) netBoxTenantMap() map[string]string {
 		l.errf("%s must map canonical tenant UUIDs to distinct positive NetBox tenant ID strings", key)
 	}
 	return bindings
+}
+
+// Credentials travel only in CMDBSecret, never in URLs or startup logs
+// (docs/guardrails.md G7-6).
+func validateCMDBEndpoint(raw string) error {
+	const name = "PROBECTL_CMDB_URL"
+	if err := validateHTTPSOrLoopbackHTTP(raw, name); err != nil {
+		return err
+	}
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || strings.Contains(raw, "#") {
+		return errors.New("PROBECTL_CMDB_URL must not contain credentials, query parameters or fragments; use PROBECTL_CMDB_SECRET")
+	}
+	return nil
 }
