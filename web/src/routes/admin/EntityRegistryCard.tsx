@@ -97,6 +97,7 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
     [allContexts, createdContext],
   )
   const [contextID, setContextID] = useState('')
+  const selectedContext = selectableContexts.find((item) => item.context_id === contextID)
   const [entityPage, setEntityPage] = useState(0)
   const [selectedID, setSelectedID] = useState('')
   const entities = useCanonicalEntities(tenantID, contextID)
@@ -236,6 +237,14 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
                 </Button>
               ) : null}
             </div>
+            {selectedContext ? (
+              <p>
+                Selected routing context:{' '}
+                <strong>
+                  {selectedContext.site_label} / {selectedContext.vrf_label}
+                </strong>
+              </p>
+            ) : null}
             {canWrite ? (
               <form className={styles.form} onSubmit={(event) => void onCreateContext(event)}>
                 <h3>Create routing context</h3>

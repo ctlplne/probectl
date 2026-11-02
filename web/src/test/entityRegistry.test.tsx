@@ -112,6 +112,9 @@ test('Admin entity registry keeps paired tenants in their own context and has na
     within(card as HTMLElement).getByRole('combobox', { name: 'Routing context' }),
   ).toHaveValue(blueContext)
   expect(
+    within(card as HTMLElement).getByText('West DC / Customer A', { selector: 'strong' }),
+  ).toBeInTheDocument()
+  expect(
     within(
       within(card as HTMLElement).getByRole('combobox', { name: 'Identifier kind' }),
     ).getByRole('option', { name: 'physical_neighbor_id' }),
