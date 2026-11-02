@@ -43,6 +43,16 @@ const (
 
 var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 var sourceRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+
+// ValidateKey applies the same tenant vocabulary rule to write requests and
+// immutable query snapshots. A stored tag can never shadow a native field.
+func ValidateKey(key string) error {
+	if !keyPattern.MatchString(key) || reservedKeys[key] || strings.HasPrefix(key, "probectl_") {
+		return ErrInvalid
+	}
+	return nil
+}
+
 var reservedKeys = map[string]bool{
 	"tenant_id": true, "agent_id": true, "bytes": true, "packets": true,
 	"flows": true, "src_addr": true, "dst_addr": true, "exporter": true,

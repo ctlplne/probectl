@@ -56,7 +56,7 @@ func TestEnsureSystemRolesSeedsAFreshTenantIdempotently(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			hasImportPermission := func(key string) bool {
+			hasPermission := func(key string) bool {
 				for _, permission := range perms {
 					if permission == key {
 						return true
@@ -64,11 +64,17 @@ func TestEnsureSystemRolesSeedsAFreshTenantIdempotently(t *testing.T) {
 				}
 				return false
 			}
-			if !hasImportPermission("nms.import.read") {
+			if !hasPermission("nms.import.read") {
 				return fmt.Errorf("%s must be able to read redacted import plans", r.Slug)
 			}
-			if hasImportPermission("nms.import.write") != (r.Slug == "admin") {
+			if hasPermission("nms.import.write") != (r.Slug == "admin") {
 				return fmt.Errorf("%s has unexpected NMS import write grant", r.Slug)
+			}
+			if !hasPermission("tags.read") {
+				return fmt.Errorf("%s must be able to read tenant tags", r.Slug)
+			}
+			if hasPermission("tags.write") != (r.Slug == "admin") {
+				return fmt.Errorf("%s has unexpected tag write grant", r.Slug)
 			}
 			switch r.Slug {
 			case "admin":

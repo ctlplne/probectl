@@ -10,7 +10,6 @@ import (
 	"net/netip"
 	"regexp"
 	"sort"
-	"strings"
 )
 
 // Snapshot is an immutable, revision-pinned view of one tenant and routing
@@ -72,8 +71,7 @@ func NewSnapshot(scope Scope, revision int64, definitions []Definition,
 		if def.TenantID != scope.TenantID {
 			return nil, ErrScopeMismatch
 		}
-		if !validUUID(def.ID) || !keyPattern.MatchString(def.Key) ||
-			reservedKeys[def.Key] || strings.HasPrefix(def.Key, "probectl_") {
+		if !validUUID(def.ID) || ValidateKey(def.Key) != nil {
 			return nil, ErrInvalid
 		}
 		if _, exists := s.definitions[def.ID]; exists || keys[def.Key] {
