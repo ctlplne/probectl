@@ -54,8 +54,8 @@ func (s CaptureStore) SetReviewChoices(ctx context.Context, contextID, planID,
 	seen := make(map[int64]bool, len(choices))
 	for _, choice := range choices {
 		if choice.RowNumber < 0 || seen[choice.RowNumber] ||
-			!(validReviewChoice(choice) ||
-				choice.Action == "update" && choice.TargetEntityID == "") {
+			!validReviewChoice(choice) &&
+				(choice.Action != "update" || choice.TargetEntityID != "") {
 			return ErrInvalidReview
 		}
 		seen[choice.RowNumber] = true

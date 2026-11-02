@@ -215,7 +215,8 @@ func reviewGroupDiff(ctx context.Context, sc tenancy.Scope, contextID, sourceID 
 	if err != nil && !errors.Is(err, ErrInvalidReview) {
 		return ReviewDiffItem{}, err
 	}
-	if item.Action == "update" {
+	switch {
+	case item.Action == "update":
 		if err != nil || group.fingerprint != row.fingerprint {
 			return ReviewDiffItem{}, ErrReviewStale
 		}
@@ -226,12 +227,12 @@ func reviewGroupDiff(ctx context.Context, sc tenancy.Scope, contextID, sourceID 
 		if group.dynamic != hasCode(item.UnmappedCodes, "dynamic_predicate_unmapped") {
 			item.ChangedFields = append(item.ChangedFields, "dynamic_predicate_unmapped")
 		}
-	} else if err == nil {
+	case err == nil:
 		if group.label != row.label || group.dynamic != hasCode(item.UnmappedCodes, "dynamic_predicate_unmapped") {
 			return ReviewDiffItem{}, ErrReviewStale
 		}
 		item.CurrentLabel = group.label
-	} else {
+	default:
 		item.ChangedFields = []string{"group"}
 	}
 	return item, nil
