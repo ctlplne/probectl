@@ -422,6 +422,8 @@ function apiPayload(path, method, pagePath = "") {
         "metrics.write",
         "tags.read",
         "tags.write",
+        "cmdb.read",
+        "entities.read",
       ],
     });
   if (path === "/v1/tags")
@@ -461,6 +463,21 @@ function apiPayload(path, method, pagePath = "") {
       target_kind: "device", target_id: "00000000-0000-0000-0000-000000000076",
       value: "gold", source: "manual",
     }] });
+  if (path === "/v1/entity-contexts/00000000-0000-0000-0000-000000000072/tag-imports/netbox/preview")
+    return json({
+      target: {
+        context_id: "00000000-0000-0000-0000-000000000072",
+        tag_id: "00000000-0000-0000-0000-000000000073",
+        tag_key: "customer", tag_revision: "9007199254740993",
+        target_kind: "exporter", target_id: "opaque-owned-exporter",
+        exporter_agent_id: "collector", exporter_source_ref: "192.0.2.10",
+      },
+      candidate: {
+        ci_id: "42", lookup_ci_id: "10", netbox_tenant_id: "7",
+        name: "owned-edge", field: "site", value: "NetBox reviewed candidate",
+        source_ref: "netbox:t7:ip10:d42:site",
+      },
+    });
   if (path === "/v1/tests") return json({ items: sampleTests });
   if (path === "/v1/tests/t1") return json(sampleTests[0]);
   if (path === "/v1/coverage/vantages")
@@ -2555,6 +2572,28 @@ async function dashboardScopeGeometryChecks(page, viewportName) {
 // G9: the Admin agents table's Tests column renders each central test-set
 // state the fixture carries, so the axe pass above audited those badges and
 // detail lines rather than an empty column.
+async function netBoxTagPreviewChecks(page, axeSource) {
+  const failures = [];
+  const card = page.locator("[data-tenant-netbox-tag-preview]");
+  if (!(await card.isVisible())) return ["NetBox tag preview did not render"];
+  await card.getByLabel("NetBox preview routing context", { exact: true })
+    .selectOption("00000000-0000-0000-0000-000000000072");
+  await card.getByLabel("NetBox exporter agent ID", { exact: true }).fill("collector");
+  await card.getByLabel("NetBox exporter address", { exact: true }).fill("192.0.2.10");
+  await card.getByRole("button", { name: "Preview NetBox value", exact: true }).click();
+  const table = card.getByRole("table", { name: "Fresh NetBox tag preview", exact: true });
+  await table.getByText("NetBox reviewed candidate", { exact: true }).waitFor();
+  if (!(await table.getByText("9007199254740993", { exact: true }).isVisible())) {
+    failures.push("NetBox tag revision lost precision");
+  }
+  const violations = blockingAxeResults(await runAxe(page, axeSource));
+  failures.push(...violations.map((violation) => `NetBox preview result: ${violation.id}`));
+  failures.push(...await targetAndTabChecks(page));
+  failures.push(...await horizontalOverflowCheck(page));
+  failures.push(...await interactiveClippingCheck(page));
+  return failures;
+}
+
 async function fleetTestSetChecks(page) {
   return page.evaluate(() => {
     const text = document.body.innerText;
@@ -3642,6 +3681,7 @@ async function main() {
             explorer: [],
             deviceReceipt: [],
             fleetTestSet: [],
+            netBoxTagPreview: [],
             flowReceipt: [],
             flowTopTalkers: [],
             deviceConfigDiff: [],
@@ -3769,6 +3809,10 @@ async function main() {
               if (!(await page.locator("[data-tenant-tag-assignments]").isVisible())) {
                 failures.push(`${viewport.name} ${theme} /admin: tenant tag assignments did not render`);
               }
+              record.netBoxTagPreview = await netBoxTagPreviewChecks(page, axeSource);
+              if (record.netBoxTagPreview.length > 0) {
+                failures.push(`${viewport.name} ${theme} /admin: NetBox tag preview violations\n  ${record.netBoxTagPreview.join("\n  ")}`);
+              }
               record.fleetTestSet = await fleetTestSetChecks(page);
               if (record.fleetTestSet.length > 0) {
                 failures.push(
@@ -3895,6 +3939,7 @@ async function main() {
             record.explorer.length === 0 &&
             record.deviceReceipt.length === 0 &&
             record.fleetTestSet.length === 0 &&
+            record.netBoxTagPreview.length === 0 &&
             record.flowReceipt.length === 0 &&
             record.flowTopTalkers.length === 0 &&
             record.deviceConfigDiff.length === 0 &&

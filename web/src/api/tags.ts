@@ -8,6 +8,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { apiFetch } from './client'
 import type {
   ManualTagAssignmentInput,
+  NetBoxTagPreview,
+  NetBoxTagPreviewInput,
   TagAssignment,
   TagAssignmentPage,
   TagDefinition,
@@ -19,6 +21,8 @@ import type {
 
 export type {
   ManualTagAssignmentInput,
+  NetBoxTagPreview,
+  NetBoxTagPreviewInput,
   TagAssignment,
   TagDefinition,
   TagRule,
@@ -30,6 +34,23 @@ const ruleKey = (tenantID: string, contextID: string) =>
   ['tenant-tag-rules', tenantID, contextID] as const
 const assignmentKey = (tenantID: string, contextID: string) =>
   ['tenant-tag-assignments', tenantID, contextID] as const
+
+/** A fresh source read, held by the current form only. Never share a completed
+ * preview through the tenant metadata query cache or use it as an assignment. */
+export function useNetBoxTagPreview(tenantID: string, contextID: string) {
+  return useMutation({
+    mutationKey: ['tenant-netbox-tag-preview', tenantID, contextID],
+    mutationFn: (input: NetBoxTagPreviewInput) =>
+      apiFetch<NetBoxTagPreview>(
+        `/entity-contexts/${encodeURIComponent(contextID)}/tag-imports/netbox/preview`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+          body: JSON.stringify(input),
+        },
+      ),
+  })
+}
 
 export function useTagDefinitions(tenantID: string) {
   return useQuery({

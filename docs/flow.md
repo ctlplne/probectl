@@ -788,3 +788,11 @@ provenance and the owned target's tag revision as a decimal string. This read
 writes no assignment and changes no canonical identity or telemetry. Fixture
 transport tests are not a live NetBox proof; the operation remains preview
 until its real-service receipt passes.
+
+In Admin, **NetBox tag preview** is visible with both read permissions. Choose
+a routing context and tag, enter the registered exporter agent/address, then
+select **Preview NetBox value**. Context discovery also needs `entities.read`;
+without it, enter an authorized routing context ID directly. The result shows
+the proposed value, source identity, provenance and exact tag revision. Changing
+the input, context, tag, user or tenant clears the result. Source failures never
+substitute cached enrichment. There is no apply action on this preview form.
