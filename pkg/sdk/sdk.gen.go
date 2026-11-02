@@ -1541,6 +1541,7 @@ type FlowExplorerResult struct {
 	SavedFilterVersions map[string]int           `json:"saved_filter_versions,omitempty"`
 	Series              []FlowExplorerPoint      `json:"series"`
 	Source              string                   `json:"source"`
+	TagRevision         int                      `json:"tag_revision,omitempty"`
 	TotalGroups         int                      `json:"total_groups"`
 	TotalSeries         []FlowExplorerPoint      `json:"total_series,omitempty"`
 	Totals              map[string]string        `json:"totals"`
@@ -1624,6 +1625,7 @@ type FlowQueryDisplay struct {
 	TotalOverlay      *bool    `json:"total_overlay,omitempty"`
 }
 
+// Native fields plus tenant-defined tag.<key> text fields when the authenticated caller has tags.read. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client.
 type FlowQueryField struct {
 	LegacyHourlyAvailable bool     `json:"legacy_hourly_available"`
 	Name                  string   `json:"name"`

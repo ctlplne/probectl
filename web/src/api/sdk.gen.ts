@@ -1439,6 +1439,7 @@ export interface FlowExplorerResult {
   saved_filter_versions?: { [key: string]: number }
   series: FlowExplorerPoint[]
   source: string
+  tag_revision?: number
   total_groups: number
   total_series?: FlowExplorerPoint[]
   totals: { [key: string]: string }
