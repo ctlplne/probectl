@@ -7,6 +7,10 @@
 -- This table records its source identity and the exact operator-owned target
 -- that was checked in the write transaction; it stores no source SQL,
 -- notification operation, channel or credential.
+-- lock-ok: alert_rules is an operator-scale configuration table with one row
+-- per human-authored rule, never a telemetry ingestion table. The short index
+-- lock cannot stall event ingestion; this key lets the tenant-qualified FK
+-- reject a cross-tenant alert binding at the storage boundary.
 CREATE UNIQUE INDEX IF NOT EXISTS alert_rules_tenant_id_id_idx
     ON alert_rules(tenant_id,id);
 
