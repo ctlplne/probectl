@@ -62,11 +62,15 @@ func (s *Server) handlePreviewNetBoxTag(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	candidate, err := s.cmdb.PreviewNetBoxTag(ctx, target.ExporterSourceRef, input.Field)
 	if err != nil {
-		if errors.Is(err, cmdb.ErrNoTagCandidate) {
-			return apierror.NotFound("no unambiguous NetBox tag candidate for the owned exporter")
-		}
-		return apierror.Unavailable("NetBox tag preview source or tenant binding is unavailable")
+		return netBoxTagPreviewError(err)
 	}
 	writeJSON(w, http.StatusOK, netBoxTagPreview{Target: target, Candidate: candidate})
 	return nil
+}
+
+func netBoxTagPreviewError(err error) error {
+	if errors.Is(err, cmdb.ErrNoTagCandidate) {
+		return apierror.NotFound("no unambiguous NetBox tag candidate for the owned exporter")
+	}
+	return apierror.Unavailable("NetBox tag preview source or tenant binding is unavailable")
 }

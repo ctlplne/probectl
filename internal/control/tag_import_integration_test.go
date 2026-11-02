@@ -21,6 +21,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/cmdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -93,6 +95,32 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 			out.Target.TagID != tagID || out.Target.TagRevision == "" || out.Target.ContextID != contextID {
 			t.Fatalf("tenant %s preview: %d %s", row.tenant, rec.Code, rec.Body.String())
 		}
+	}
+	backend := mcpNetBoxTagBackend{mcpTagBackend: mcpTagBackend{pool: db.Pool(),
+		policyLoader: func(context.Context, string) ([]auth.Policy, error) { return nil, nil }}, source: resolver}
+	previewInput := mcp.NetBoxTagPreviewInput{ContextID: contextID, TagID: tagID,
+		ExporterAgentID: "collector", ExporterSourceRef: "192.0.2.10", Field: "site"}
+	for _, row := range []struct{ tenant, value string }{{a, "site-7"}, {b, "site-8"}} {
+		reader := &auth.Principal{TenantID: row.tenant, UserID: "tag-reader",
+			Permissions: map[string]bool{permTagsRead: true, permCMDBRead: true}}
+		preview, err := backend.NetBoxTagPreview(context.Background(), reader, previewInput)
+		if err != nil || preview.Value != row.value || preview.TagID != tagID {
+			t.Fatalf("MCP tenant %s preview: %+v, %v", row.tenant, preview, err)
+		}
+		delete(reader.Permissions, permCMDBRead)
+		before := calls.Load()
+		if _, err := backend.NetBoxTagPreview(context.Background(), reader, previewInput); err == nil || calls.Load() != before {
+			t.Fatal("MCP source read survived cmdb.read revocation")
+		}
+	}
+	deniedBackend := backend
+	deniedBackend.policyLoader = func(context.Context, string) ([]auth.Policy, error) {
+		return []auth.Policy{{ID: uuid.NewString(), Enabled: true, Permission: permCMDBRead, Effect: auth.PolicyDeny}}, nil
+	}
+	beforePolicy := calls.Load()
+	if _, err := deniedBackend.NetBoxTagPreview(context.Background(), &auth.Principal{TenantID: a, UserID: "tag-reader",
+		Permissions: map[string]bool{permTagsRead: true, permCMDBRead: true}}, previewInput); err == nil || calls.Load() != beforePolicy {
+		t.Fatal("MCP ABAC denial reached NetBox source")
 	}
 	for _, row := range []struct {
 		input, withheld string

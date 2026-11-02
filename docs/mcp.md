@@ -510,3 +510,25 @@ tools show every unmapped row before any destination write.
 - `docs/ai-egress.md` — the consent/redaction/audit gate every tool call rides.
 - `docs/remediation.md` — the human-gated proposal workflow `propose_remediation` files into.
 - `docs/configuration.md` — the `PROBECTL_MCP_*` keys.
+
+## Tenant tag metadata
+
+`tag_definition_list`, `tag_rule_list` and `tag_assignment_list` are read-only,
+user-only tools requiring `tags.read`. Context reads require an owned routing
+context and its current ABAC grant. Assignment results omit imported source
+references and the encoded exporter target. No argument selects a tenant.
+
+When NetBox is configured, `tag_netbox_preview` additionally requires
+`cmdb.read`; it is hidden without either grant. Its inputs match the preview
+API plus `context_id`: an immutable tag ID, registered exporter agent/source
+pair, and `field` set to `role` or `site`. The backend resolves the unique owned
+exporter before any external read and freshly attests both the IP CI and its
+related device/VM under the deployment tenant mapping. Cached enrichment never
+authorizes the preview. The result contains the checked CI/value/provenance and
+an exact decimal tag revision, while omitting the packet address and encoded
+exporter target. Source errors, ambiguous ownership or current permission
+denials return no candidate. The operation writes no assignment.
+
+This source preview remains labelled preview until its real NetBox receipt
+passes. The shared MCP consent, response redaction and tenant audit gates apply
+on HTTP and stdio.
