@@ -219,3 +219,62 @@ func (s *Server) handleListNMSImportRows(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, page)
 	return nil
 }
+
+// Review choices are operator-authored, bounded and bound to the exact sealed
+// snapshot. The source cannot request a destination action or target entity.
+func (s *Server) handleSetNMSImportReviewChoices(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		ContextID    string                   `json:"context_id"`
+		SnapshotHash string                   `json:"snapshot_hash"`
+		Choices      []nmsimport.ReviewChoice `json:"choices"`
+	}
+	if err := decodeJSONLimit(r, 32<<10, &req); err != nil {
+		return err
+	}
+	ctx, contextID, err := s.nmsImportContext(r, req.ContextID, permNMSImportWrite)
+	if err != nil {
+		return err
+	}
+	err = s.nmsImportCaptureStore(r).SetReviewChoices(ctx, contextID,
+		r.PathValue("id"), req.SnapshotHash, req.Choices)
+	switch {
+	case errors.Is(err, nmsimport.ErrPlanUnavailable):
+		return apierror.NotFound("sealed import plan not found in this routing context")
+	case errors.Is(err, nmsimport.ErrInvalidReview):
+		return apierror.BadRequest("invalid import review choice")
+	case err != nil:
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// Finalization requires every row to have an explicit choice, then freezes a
+// hash of the choice set. It still performs no destination write.
+func (s *Server) handleFinalizeNMSImportReview(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		ContextID    string `json:"context_id"`
+		SnapshotHash string `json:"snapshot_hash"`
+	}
+	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
+		return err
+	}
+	ctx, contextID, err := s.nmsImportContext(r, req.ContextID, permNMSImportWrite)
+	if err != nil {
+		return err
+	}
+	hash, err := s.nmsImportCaptureStore(r).FinalizeReview(ctx, contextID,
+		r.PathValue("id"), req.SnapshotHash)
+	switch {
+	case errors.Is(err, nmsimport.ErrPlanUnavailable):
+		return apierror.NotFound("sealed import plan not found in this routing context")
+	case errors.Is(err, nmsimport.ErrInvalidReview):
+		return apierror.BadRequest("invalid import review request")
+	case errors.Is(err, nmsimport.ErrReviewIncomplete):
+		return apierror.Conflict("import review has unassigned rows")
+	case err != nil:
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"state": "preview", "review_hash": hash})
+	return nil
+}

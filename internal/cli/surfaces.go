@@ -184,6 +184,10 @@ var surfaceCommands = map[string]surfaceCommand{
 			Description: "start an inert plan from an enabled source; --body with context_id and instance_ref"},
 		"advance": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/advance", ArgName: "id",
 			Description: "capture or verify one bounded LibreNMS endpoint; --body with context_id"},
+		"review-choices": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/review-choices", ArgName: "id",
+			Description: "set at most 100 explicit source-row choices; --body with context_id, snapshot_hash and choices"},
+		"finalize-review": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/finalize-review", ArgName: "id",
+			Description: "freeze the complete dry-run choices; --body with context_id and snapshot_hash"},
 	}},
 	"change": {Name: "change", Summary: "change correlation events", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/changes"},

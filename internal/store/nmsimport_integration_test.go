@@ -294,6 +294,92 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	if _, err := capturer.Seal(captureA, contextA, locationsPlan, 2, 2); err != nil {
 		t.Fatalf("seal device and location source snapshot: %v", err)
 	}
+	// Review cannot be published until every source row has a separate,
+	// operator-owned choice. Neither a foreign tenant nor a wrong-kind target
+	// may turn vendor inventory into a canonical entity write.
+	locationHash, err := capturer.Seal(captureA, contextA, locationsPlan, 2, 2)
+	if err != nil {
+		t.Fatalf("read sealed location hash: %v", err)
+	}
+	if _, err := capturer.FinalizeReview(captureA, contextA, locationsPlan, locationHash); !errors.Is(err, nmsimport.ErrReviewIncomplete) {
+		t.Fatalf("partial review was published: %v", err)
+	}
+	choices := []nmsimport.ReviewChoice{{RowNumber: 0, Action: "unmapped"},
+		{RowNumber: 1, Action: "create"}}
+	if err := capturer.SetReviewChoices(tenancy.WithTenant(ctx, tenancy.ID(b.ID)),
+		contextA, locationsPlan, locationHash, choices); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign tenant reviewed source rows: %v", err)
+	}
+	if err := capturer.SetReviewChoices(captureA, contextOther, locationsPlan,
+		locationHash, choices); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign routing context reviewed source rows: %v", err)
+	}
+	wrongTarget := []nmsimport.ReviewChoice{{RowNumber: 0, Action: "unmapped"},
+		{RowNumber: 1, Action: "update", TargetEntityID: entityA}}
+	if err := capturer.SetReviewChoices(captureA, contextA, locationsPlan,
+		locationHash, wrongTarget); !errors.Is(err, nmsimport.ErrInvalidReview) {
+		t.Fatalf("device target accepted for source site: %v", err)
+	}
+	failAuditAction = "nms_import.review_choices_set"
+	if err := capturer.SetReviewChoices(captureA, contextA, locationsPlan,
+		locationHash, choices); !errors.Is(err, auditErr) {
+		t.Fatalf("review survived failed tenant audit: %v", err)
+	}
+	failAuditAction = ""
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var count int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND reviewed_at IS NOT NULL`,
+			a.ID, contextA, locationsPlan).Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			t.Fatal("failed review transaction left choices behind")
+		}
+		return nil
+	})
+	if err := capturer.SetReviewChoices(captureA, contextA, locationsPlan,
+		locationHash, choices); err != nil {
+		t.Fatalf("set explicit source-row review choices: %v", err)
+	}
+	if err := capturer.SetReviewChoices(captureA, contextA, locationsPlan,
+		locationHash, choices); err != nil || auditActions["nms_import.review_choices_set"] != 1 {
+		t.Fatalf("identical review retry duplicated audit: err=%v actions=%d", err,
+			auditActions["nms_import.review_choices_set"])
+	}
+	if _, err := capturer.FinalizeReview(captureA, contextA, locationsPlan,
+		strings.Repeat("0", 64)); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("wrong snapshot hash published review: %v", err)
+	}
+	reviewHash, err := capturer.FinalizeReview(captureA, contextA, locationsPlan, locationHash)
+	if err != nil || len(reviewHash) != 64 {
+		t.Fatalf("finalize reviewed snapshot: hash=%q err=%v", reviewHash, err)
+	}
+	if retry, err := capturer.FinalizeReview(captureA, contextA, locationsPlan, locationHash); err != nil || retry != reviewHash {
+		t.Fatalf("review retry changed frozen hash: hash=%q err=%v", retry, err)
+	}
+	if err := capturer.SetReviewChoices(captureA, contextA, locationsPlan,
+		locationHash, choices); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("frozen review accepted another choice: %v", err)
+	}
+	if _, err := capturer.ListSealedRows(captureA, contextA, locationsPlan, -1, 2); err != nil {
+		t.Fatalf("reviewed source preview became unreadable: %v", err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var entities, provenance int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entities
+			WHERE tenant_id=$1 AND context_id=$2`, a.ID, contextA).Scan(&entities); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_provenance
+			WHERE tenant_id=$1 AND context_id=$2`, a.ID, contextA).Scan(&provenance); err != nil {
+			return err
+		}
+		if entities != 1 || provenance != 0 {
+			t.Fatalf("inert review wrote destination: entities=%d provenance=%d", entities, provenance)
+		}
+		return nil
+	})
 	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
 		var kind, label string
 		var leaked bool

@@ -107,6 +107,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/nms-imports/live-plans", s.handleStartNMSImportLivePlan, permNMSImportWrite},
 		{http.MethodPost, "/v1/nms-imports/{id}/advance", s.handleAdvanceNMSImportLivePlan, permNMSImportWrite},
 		{http.MethodGet, "/v1/nms-imports/{id}/rows", s.handleListNMSImportRows, permNMSImportRead},
+		{http.MethodPost, "/v1/nms-imports/{id}/review-choices", s.handleSetNMSImportReviewChoices, permNMSImportWrite},
+		{http.MethodPost, "/v1/nms-imports/{id}/finalize-review", s.handleFinalizeNMSImportReview, permNMSImportWrite},
 		{http.MethodPut, "/v1/entity-source-contexts", s.handleAssignEntitySource, permAgentWrite},
 		{http.MethodPut, "/v1/tests/{id}/entity-context", s.handleAssignPathTestContext, permAgentWrite},
 		{http.MethodGet, "/v1/tests/{id}/path/entities", s.handleGetPathEntities, permTestRead},

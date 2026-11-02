@@ -4114,7 +4114,7 @@
         "x-required-permission": "nms.import.read",
         "operationId": "listNMSImportSealedRows",
         "summary": "Page the redacted rows of one sealed import capture",
-        "description": "The authenticated tenant and operator-selected routing context are resolved before policy checks. FORCE-RLS storage confines the source and plan. These are inert source candidates: no create, update, merge or approval is implied. Missing, expired, reconfigured and foreign plans share one not-found response. The read is audited.",
+        "description": "The authenticated tenant and operator-selected routing context are resolved before policy checks. FORCE-RLS storage confines the source and plan. These are redacted source candidates from a sealed or reviewed plan; no destination write is implied. Missing, expired, reconfigured and foreign plans share one not-found response. The read is audited.",
         "tags": ["entities"],
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},
@@ -4130,6 +4130,74 @@
           "404": {"description": "No sealed current import plan in this tenant and routing context."}
         },
         "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
+      }
+    },
+    "/v1/nms-imports/{id}/review-choices": {
+      "post": {
+        "x-required-permission": "nms.import.write",
+        "operationId": "setNMSImportReviewChoices",
+        "summary": "Record explicit dry-run choices for up to 100 sealed import rows",
+        "description": "The authenticated tenant and stored routing context determine authority before any row is changed. The supplied snapshot hash must equal the sealed redacted capture. An update target is an exact tenant/context entity ID, never a source address or label. Every choice and its actor audit event commit in one FORCE-RLS transaction. This operation writes no canonical entity, agent evidence or alert rule.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "additionalProperties": false,
+          "required": ["context_id", "snapshot_hash", "choices"],
+          "properties": {
+            "context_id": {"type": "string", "format": "uuid"},
+            "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "choices": {"type": "array", "minItems": 1, "maxItems": 100, "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["row_number", "action"],
+              "properties": {
+                "row_number": {"type": "integer", "format": "int64", "minimum": 0},
+                "action": {"type": "string", "enum": ["create", "update", "skip", "unmapped"]},
+                "target_entity_id": {"type": "string", "format": "uuid"}
+              }
+            }}
+          }
+        }}}},
+        "responses": {
+          "204": {"description": "Choices recorded; an identical retry is inert."},
+          "400": {"description": "Invalid row, action, target or batch size."},
+          "403": {"description": "Import write permission denied in this routing context."},
+          "404": {"description": "No current sealed plan in this tenant and routing context, or snapshot hash changed."}
+        }
+      }
+    },
+    "/v1/nms-imports/{id}/finalize-review": {
+      "post": {
+        "x-required-permission": "nms.import.write",
+        "operationId": "finalizeNMSImportReview",
+        "summary": "Freeze all reviewed import actions into a snapshot-bound hash",
+        "description": "Every redacted source row must have an explicit operator choice. The tenant transaction hashes the sealed snapshot, source configuration version and ordered choices, then marks the plan preview. It writes no destination entity, agent evidence or alert rule. A repeated call returns the same review hash.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "additionalProperties": false,
+          "required": ["context_id", "snapshot_hash"],
+          "properties": {
+            "context_id": {"type": "string", "format": "uuid"},
+            "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        }}}},
+        "responses": {
+          "200": {"description": "Inert reviewed plan with a frozen hash.", "content": {"application/json": {"schema": {
+            "type": "object", "additionalProperties": false,
+            "required": ["state", "review_hash"],
+            "properties": {"state": {"type": "string", "enum": ["preview"]}, "review_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+          }}}},
+          "400": {"description": "Invalid review request."},
+          "403": {"description": "Import write permission denied in this routing context."},
+          "404": {"description": "No current sealed plan in this tenant and routing context, or snapshot hash changed."},
+          "409": {"description": "One or more source rows still lack an explicit review choice."}
+        }
       }
     },
     "/v1/entity-contexts": {
@@ -18091,7 +18159,7 @@
       },
       "NMSImportSealedRow": {
         "type": "object",
-        "required": ["row_number", "object_kind", "external_id", "group_ids", "unmapped_codes"],
+        "required": ["row_number", "object_kind", "external_id", "group_ids", "unmapped_codes", "action", "reviewed"],
         "properties": {
           "row_number": {"type": "integer", "minimum": 0, "format": "int64"},
           "object_kind": {"type": "string", "enum": ["device", "site", "group", "membership", "poll_setting", "alert_rule"]},
@@ -18105,7 +18173,10 @@
           "group_ids": {"type": "array", "maxItems": 256, "items": {"type": "string"}},
           "poll_seconds": {"type": "integer", "minimum": 1, "maximum": 604800, "format": "int64"},
           "severity": {"type": "string", "enum": ["ok", "warning", "critical"]},
-          "unmapped_codes": {"type": "array", "maxItems": 32, "items": {"type": "string"}}
+          "unmapped_codes": {"type": "array", "maxItems": 32, "items": {"type": "string"}},
+          "action": {"type": "string", "enum": ["captured", "create", "update", "conflict", "skip", "unmapped"]},
+          "target_entity_id": {"type": "string", "format": "uuid"},
+          "reviewed": {"type": "boolean"}
         }
       },
       "NMSImportSealedRowsPage": {

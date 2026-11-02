@@ -37,7 +37,7 @@ func TestNMSImportSealedRowsRouteIsTenantAndContextBound(t *testing.T) {
 	})
 	capturer := nmsimport.NewCaptureStore(db.Pool(),
 		func(context.Context, tenancy.Scope, string, string, map[string]any) error { return nil })
-	type fixture struct{ tenant, contextID, planID, label string }
+	type fixture struct{ tenant, contextID, planID, snapshotHash, label string }
 	makeFixture := func(tenant, label string) fixture {
 		t.Helper()
 		response := apiReq(t, h, http.MethodPost, "/v1/entity-contexts", tenant,
@@ -54,11 +54,13 @@ func TestNMSImportSealedRowsRouteIsTenantAndContextBound(t *testing.T) {
 		}
 		body := `{"status":"ok","devices":[{"device_id":17,"display":"` + label +
 			`","ip":"10.42.0.1","community":"source-only-secret"}],"count":1}`
-		if _, err := capturer.CaptureLibreNMSDevices(ctx, routing.ContextID, planID,
-			strings.NewReader(body)); err != nil {
+		hash, err := capturer.CaptureLibreNMSDevices(ctx, routing.ContextID, planID,
+			strings.NewReader(body))
+		if err != nil {
 			t.Fatal(err)
 		}
-		return fixture{tenant: tenant, contextID: routing.ContextID, planID: planID, label: label}
+		return fixture{tenant: tenant, contextID: routing.ContextID, planID: planID,
+			snapshotHash: hash, label: label}
 	}
 	left, right := makeFixture(a, "Edge A"), makeFixture(b, "Edge B")
 	if left.contextID == right.contextID || left.planID == right.planID {
@@ -95,13 +97,56 @@ func TestNMSImportSealedRowsRouteIsTenantAndContextBound(t *testing.T) {
 			}
 		}
 	}
+	for _, own := range []fixture{left, right} {
+		base := "/v1/nms-imports/" + own.planID
+		finalizeBody := map[string]any{"context_id": own.contextID, "snapshot_hash": own.snapshotHash}
+		if response := apiReq(t, h, http.MethodPost, base+"/finalize-review", own.tenant, finalizeBody); response.Code != http.StatusConflict {
+			t.Fatalf("unreviewed plan became preview: %d %s", response.Code, response.Body.String())
+		}
+		choiceBody := map[string]any{"context_id": own.contextID,
+			"snapshot_hash": own.snapshotHash,
+			"choices":       []nmsimport.ReviewChoice{{RowNumber: 0, Action: "unmapped"}}}
+		other := left
+		if own.tenant == left.tenant {
+			other = right
+		}
+		if response := apiReq(t, h, http.MethodPost,
+			"/v1/nms-imports/"+other.planID+"/review-choices", own.tenant, choiceBody); response.Code != http.StatusNotFound {
+			t.Fatalf("foreign tenant reviewed plan: %d %s", response.Code, response.Body.String())
+		}
+		if response := apiReq(t, h, http.MethodPost,
+			"/v1/nms-imports/"+other.planID+"/finalize-review", own.tenant, finalizeBody); response.Code != http.StatusNotFound {
+			t.Fatalf("foreign tenant finalized plan: %d %s", response.Code, response.Body.String())
+		}
+		if response := apiReq(t, h, http.MethodPost, base+"/review-choices", own.tenant,
+			map[string]any{"context_id": own.contextID, "snapshot_hash": strings.Repeat("0", 64),
+				"choices": choiceBody["choices"]}); response.Code != http.StatusNotFound {
+			t.Fatalf("stale snapshot reviewed: %d %s", response.Code, response.Body.String())
+		}
+		if response := apiReq(t, h, http.MethodPost, base+"/review-choices", own.tenant, choiceBody); response.Code != http.StatusNoContent {
+			t.Fatalf("own review choices: %d %s", response.Code, response.Body.String())
+		}
+		if response := apiReq(t, h, http.MethodPost, base+"/finalize-review", own.tenant, finalizeBody); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"preview"`) {
+			t.Fatalf("own review finalize: %d %s", response.Code, response.Body.String())
+		}
+		response := apiReq(t, h, http.MethodGet,
+			base+"/rows?context_id="+own.contextID, own.tenant, nil)
+		var page nmsimport.SealedRowsPage
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &page) != nil ||
+			len(page.Items) != 1 || !page.Items[0].Reviewed || page.Items[0].Action != "unmapped" {
+			t.Fatalf("reviewed page lost decision: %d %s", response.Code, response.Body.String())
+		}
+	}
 	srv.abac = &abacCache{load: func(_ context.Context, tenant string) ([]auth.Policy, error) {
 		if tenant != a {
 			return nil, nil
 		}
 		return []auth.Policy{{Name: "deny west import rows", Enabled: true,
 			Effect: auth.PolicyDeny, Permission: permNMSImportRead,
-			Resource: map[string]string{"site_label": "West DC"}}}, nil
+			Resource: map[string]string{"site_label": "West DC"}},
+			{Name: "deny west import review", Enabled: true,
+				Effect: auth.PolicyDeny, Permission: permNMSImportWrite,
+				Resource: map[string]string{"site_label": "West DC"}}}, nil
 	}}
 	for _, check := range []struct {
 		fixture fixture
@@ -114,5 +159,10 @@ func TestNMSImportSealedRowsRouteIsTenantAndContextBound(t *testing.T) {
 			t.Fatalf("import context policy tenant=%s: %d %s",
 				check.fixture.tenant, response.Code, response.Body.String())
 		}
+	}
+	if response := apiReq(t, h, http.MethodPost,
+		"/v1/nms-imports/"+left.planID+"/finalize-review", left.tenant,
+		map[string]string{"context_id": left.contextID, "snapshot_hash": left.snapshotHash}); response.Code != http.StatusForbidden {
+		t.Fatalf("context policy allowed review finalize: %d %s", response.Code, response.Body.String())
 	}
 }

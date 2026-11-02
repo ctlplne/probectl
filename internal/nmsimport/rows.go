@@ -32,6 +32,9 @@ type SealedRow struct {
 	PollSeconds   int64    `json:"poll_seconds,omitempty"`
 	Severity      string   `json:"severity,omitempty"`
 	UnmappedCodes []string `json:"unmapped_codes"`
+	Action        string   `json:"action"`
+	TargetID      string   `json:"target_entity_id,omitempty"`
+	Reviewed      bool     `json:"reviewed"`
 }
 
 // SealedRowsPage is a bounded page from one inert plan snapshot.
@@ -71,14 +74,15 @@ func (s CaptureStore) ListSealedRows(ctx context.Context, contextID, planID stri
 		if err != nil {
 			return err
 		}
-		if meta.state != "sealed" {
+		if meta.state != "sealed" && meta.state != "preview" {
 			return ErrPlanUnavailable
 		}
 		page.SnapshotHash, page.RowCount = meta.snapshotHash, meta.rowCount
 		rows, err := sc.Q.Query(ctx, `SELECT row_number,object_kind,external_id,
 			coalesce(label,''),coalesce(address,''),coalesce(hostname,''),
 			coalesce(parent_external_id,''),coalesce(location_id,''),coalesce(location_label,''),
-			group_ids,coalesce(poll_seconds,0),coalesce(severity,''),unmapped_codes
+			group_ids,coalesce(poll_seconds,0),coalesce(severity,''),unmapped_codes,
+			action,coalesce(target_entity_id::text,''),reviewed_at IS NOT NULL
 			FROM nms_import_rows WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
 			AND row_number>$4 ORDER BY row_number LIMIT $5`,
 			sc.Tenant.String(), contextID, planID, after, limit+1)
@@ -91,7 +95,8 @@ func (s CaptureStore) ListSealedRows(ctx context.Context, contextID, planID stri
 			if err := rows.Scan(&item.Number, &item.Kind, &item.ExternalID,
 				&item.Label, &item.Address, &item.Hostname, &item.ParentID,
 				&item.LocationID, &item.LocationLabel, &item.GroupIDs,
-				&item.PollSeconds, &item.Severity, &item.UnmappedCodes); err != nil {
+				&item.PollSeconds, &item.Severity, &item.UnmappedCodes,
+				&item.Action, &item.TargetID, &item.Reviewed); err != nil {
 				return err
 			}
 			if len(page.Items) == limit {

@@ -1,0 +1,48 @@
+# Incumbent NMS import
+
+The LibreNMS importer reads one tenant's configured HTTPS source into a
+redacted, inert plan. The source record belongs to an operator-selected
+routing context. The control plane obtains the tenant from authentication and
+checks the context in FORCE-RLS storage before resolving a credential or
+contacting the source. The deployment must explicitly configure approved
+egress CIDRs, CA trust, a tenant-scoped secret-reference prefix and a timeout;
+with no approved policy, live fetching is disabled. See
+[`configuration.md`](configuration.md) for the `PROBECTL_NMS_IMPORT_*` keys.
+
+1. Configure a source with `POST /v1/nms-imports/sources` using `context_id`,
+   `instance_ref`, `https_origin` and `credential_ref`. The CLI operation is
+   `probectl nms-import configure-source --body-file <owner-only-file>`.
+   Credentials remain in the configured secret store; the API returns an
+   opaque source ID and never echoes the origin or reference.
+2. Start an inert plan with `POST /v1/nms-imports/live-plans`. Call
+   `POST /v1/nms-imports/{id}/advance` with its context ID until the final
+   response reports a `snapshot_hash`. Each call reads at most one
+   server-selected endpoint. A second pass compares normalized page hashes
+   because LibreNMS does not provide one atomic generation token across the
+   inventory endpoints. A failed or changed response leaves the plan inert.
+3. Page the redacted source rows with `GET /v1/nms-imports/{id}/rows`, passing
+   `context_id`, `limit` at most 100, and the returned cursor. Every row lists
+   the fields and fixed unmapped reason codes that survived normalization.
+   Raw rule expressions, notification destinations, communities, tokens and
+   macro values have no plan column.
+4. Submit explicit choices in batches of at most 100 to
+   `POST /v1/nms-imports/{id}/review-choices`, with `context_id`, the exact
+   `snapshot_hash`, and `{row_number,action,target_entity_id?}` entries.
+   A create or update is currently accepted only for an unambiguous device or
+   site candidate; update requires an exact entity ID in the same tenant and
+   routing context. A source address or label never selects an update target.
+   Choose `unmapped` for a row carrying unsupported fields, or `skip` after
+   reviewing it. Retrying identical choices is inert.
+5. `POST /v1/nms-imports/{id}/finalize-review` freezes a `review_hash` only
+   after every row has a choice. The plan enters `preview`. This is a dry run:
+   it does not write entities, groups, polling settings, alerts or agent
+   evidence. No apply operation is available yet.
+
+The bounded one-endpoint route has a ten-second source-fetch budget inside
+the listener deadline. LibreNMS v0 device lists have no documented page token;
+a source that cannot finish one list in that budget cannot complete a live
+plan by repeated requests. The importer must prove a larger real inventory
+before it can claim bulk readiness. Orion and PRTG parsing remains preview
+until live Windows trials; Zabbix export ingestion is not yet wired to a live
+source. Imported alert expressions and delivery targets remain unmapped and
+no imported alert can be enabled by this review path.

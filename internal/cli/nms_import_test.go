@@ -70,4 +70,20 @@ func TestNMSImportCLIKeepsReferenceOutOfArgvAndRoutesScopedReads(t *testing.T) {
 	if got := <-seen; got != "POST /v1/nms-imports/"+planID+"/advance" {
 		t.Fatalf("advance route = %q", got)
 	}
+	review := `{"context_id":"` + contextID + `","snapshot_hash":"` + strings.Repeat("a", 64) +
+		`","choices":[{"row_number":0,"action":"skip"}]}`
+	if _, stderr, code := run(t, srv, "nms-import", "review-choices", planID,
+		"--body", review); code != 0 || stderr != "" || len(seen) != 1 {
+		t.Fatalf("scoped review choices: exit=%d stderr=%q requests=%v", code, stderr, seen)
+	}
+	if got := <-seen; got != "POST /v1/nms-imports/"+planID+"/review-choices" {
+		t.Fatalf("review route = %q", got)
+	}
+	if _, stderr, code := run(t, srv, "nms-import", "finalize-review", planID,
+		"--body", `{"context_id":"`+contextID+`","snapshot_hash":"`+strings.Repeat("a", 64)+`"}`); code != 0 || stderr != "" || len(seen) != 1 {
+		t.Fatalf("scoped review finalize: exit=%d stderr=%q requests=%v", code, stderr, seen)
+	}
+	if got := <-seen; got != "POST /v1/nms-imports/"+planID+"/finalize-review" {
+		t.Fatalf("review finalize route = %q", got)
+	}
 }
