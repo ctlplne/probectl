@@ -112,7 +112,8 @@ func normalizedPageHash(tenantID, contextID, instanceRef, generationHash string,
 func knownResource(source Kind, resource string) bool {
 	switch source {
 	case LibreNMS:
-		return resource == "devices" || resource == "locations" || resource == "groups" || resource == "memberships" || resource == "rules"
+		return resource == "devices" || resource == "locations" || resource == "groups" ||
+			resource == "memberships" || resource == "member_removals" || resource == "rules"
 	case Zabbix:
 		return resource == "hosts"
 	case Orion:

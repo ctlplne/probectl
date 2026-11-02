@@ -54,6 +54,14 @@ function canCreateImportRow(row: ImportRow): boolean {
   return false
 }
 
+function canRemoveImportMember(row: ImportRow): boolean {
+  return (
+    row.object_kind === 'membership' &&
+    row.unmapped_codes.length === 1 &&
+    row.unmapped_codes[0] === 'member_removal_candidate'
+  )
+}
+
 export function NMSImportCard() {
   const { tenant, permissions } = useAuth()
   if (!permissions.includes('nms.import.read')) return null
@@ -292,6 +300,11 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
     },
     { key: 'action', header: 'Decision', render: (row) => row.action },
     {
+      key: 'changes',
+      header: 'Destination change',
+      render: (row) => (row.changed_fields.length > 0 ? row.changed_fields.join(', ') : 'None'),
+    },
+    {
       key: 'destination',
       header: 'Exact destination',
       render: (row) =>
@@ -374,6 +387,9 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                         ? [{ value: 'update', label: 'Update source group' }]
                         : []),
                   ]
+                : []),
+              ...(canRemoveImportMember(row)
+                ? [{ value: 'remove', label: 'Remove exact member' }]
                 : []),
               { value: 'skip', label: 'Skip' },
               ...(row.unmapped_codes.length > 0 ? [{ value: 'unmapped', label: 'Unmapped' }] : []),

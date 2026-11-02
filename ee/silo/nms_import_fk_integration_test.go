@@ -229,6 +229,24 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		DROP COLUMN target_fingerprint`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_rows
+		DROP CONSTRAINT IF EXISTS nms_import_rows_target_group_revision_check`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_rows
+		DROP COLUMN target_group_revision`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_groups
+		DROP CONSTRAINT IF EXISTS nms_import_groups_revision_plan_fk,
+		DROP CONSTRAINT IF EXISTS nms_import_groups_revision_check`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_groups
+		DROP COLUMN revision, DROP COLUMN revision_plan_id,
+		DROP COLUMN revision_plan_delta`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_plans
 		DROP CONSTRAINT IF EXISTS nms_import_plans_apply_verified_hash_check`); err != nil {
 		t.Fatal(err)
@@ -273,6 +291,31 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		  AND plan_id=$3 AND row_number=0`, a, contextA, planA,
 		strings.Repeat("d", 64)); err != nil {
 		t.Fatalf("caught-up silo rejected a valid target fingerprint: %v", err)
+	}
+	var groupRevision, groupDelta int64
+	if err := pool.QueryRow(ctx, `SELECT revision,revision_plan_delta FROM `+schemaA+`.nms_import_groups
+		WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id='7'`,
+		a, contextA, sourceA).Scan(&groupRevision, &groupDelta); err != nil ||
+		groupRevision != 0 || groupDelta != 0 {
+		t.Fatalf("caught-up silo missing group revision defaults: revision=%d delta=%d err=%v",
+			groupRevision, groupDelta, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_groups
+		SET revision=1,revision_plan_delta=1,revision_plan_id=$5
+		WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id=$4`,
+		a, contextA, sourceA, "7", uuid.NewString()); err == nil {
+		t.Fatal("caught-up silo accepted a revision plan outside its tenant/source")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_groups
+		SET revision=1,revision_plan_delta=1,revision_plan_id=$5
+		WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id=$4`,
+		a, contextA, sourceA, "7", planA); err != nil {
+		t.Fatalf("caught-up silo rejected exact revision plan: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_rows
+		SET target_group_revision=0 WHERE tenant_id=$1 AND context_id=$2
+		  AND plan_id=$3 AND row_number=0`, a, contextA, planA); err == nil {
+		t.Fatal("caught-up silo accepted a removal revision on a device update")
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
 		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)

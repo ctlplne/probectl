@@ -161,7 +161,11 @@ func (s CaptureStore) sealCompletedConfiguredLibreNMS(ctx context.Context,
 	if err != nil {
 		return "", err
 	}
-	return s.Seal(ctx, contextID, planID, step.StartPage, step.StartRow)
+	pages, rows, err := s.appendLiveMemberRemovalCandidates(ctx, contextID, planID, step)
+	if err != nil {
+		return "", err
+	}
+	return s.Seal(ctx, contextID, planID, pages, rows)
 }
 
 func liveLibreNMSStream(stage, groupID string) func(io.Reader, func(Snapshot) error) error {

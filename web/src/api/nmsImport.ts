@@ -57,7 +57,7 @@ export interface ImportDiffPage {
 
 export interface ImportChoice {
   row_number: number
-  action: 'create' | 'update' | 'skip' | 'unmapped'
+  action: 'create' | 'update' | 'remove' | 'skip' | 'unmapped'
   target_entity_id?: string
 }
 

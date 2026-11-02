@@ -172,7 +172,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	}
 
 	var requests, deviceRequests, groupRequests, memberRequests atomic.Int32
-	var drift, deviceDrift, reviewDrift atomic.Bool
+	var drift, deviceDrift, reviewDrift, memberOmitted atomic.Bool
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.Header.Get("Authorization") != "Bearer fixture" {
@@ -184,7 +184,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 			if deviceRequests.Add(1)%2 == 0 && deviceDrift.Load() {
 				label = "Edge changed"
 			}
-			_, _ = io.WriteString(w, fmt.Sprintf(`{"status":"ok","devices":[{"device_id":17,"display":%q,"ip":"10.0.0.1","community":"source-only-secret"}],"count":1}`, label))
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"status":"ok","devices":[{"device_id":17,"display":%q,"ip":"10.0.0.1","location_id":5,"community":"source-only-secret"}],"count":1}`, label))
 		case "/api/v0/resources/locations":
 			_, _ = io.WriteString(w, `{"status":"ok","locations":[{"id":5,"location":"West"}],"count":1}`)
 		case "/api/v0/devicegroups":
@@ -197,7 +197,11 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 			_, _ = io.WriteString(w, `{"status":"ok","rules":[{"id":9,"name":"Link down","rule":"source-only-rule"}],"count":1}`)
 		case "/api/v0/devicegroups/WAN":
 			memberRequests.Add(1)
-			_, _ = io.WriteString(w, `[{"status":"ok","devices":[{"device_id":17}],"count":1}]`)
+			if memberOmitted.Load() {
+				_, _ = io.WriteString(w, `[{"status":"ok","devices":[],"count":0}]`)
+			} else {
+				_, _ = io.WriteString(w, `[{"status":"ok","devices":[{"device_id":17}],"count":1}]`)
+			}
 		default:
 			t.Errorf("unlisted source path requested: %s", r.URL.EscapedPath())
 			w.WriteHeader(http.StatusNotFound)
@@ -437,8 +441,12 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	for index := range choices {
 		choices[index] = nmsimport.ReviewChoice{RowNumber: int64(index), Action: "skip"}
 	}
+	initialChoices := append([]nmsimport.ReviewChoice(nil), choices...)
+	for _, index := range []int{0, 1, 2, 3} {
+		initialChoices[index].Action = "create"
+	}
 	if err := capturer.SetReviewChoices(scopeA, contextID, stagedPlan,
-		sealed.SnapshotHash, choices); err != nil {
+		sealed.SnapshotHash, initialChoices); err != nil {
 		t.Fatalf("review staged source rows: %v", err)
 	}
 	reviewHash, err := capturer.FinalizeReview(scopeA, contextID, stagedPlan,
@@ -466,9 +474,82 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	}
 	applied, err := capturer.ApplyReview(scopeA, contextID, stagedPlan,
 		sealed.SnapshotHash, reviewHash)
-	if err != nil || applied.State != "applied" || applied.Skipped != 5 {
-		t.Fatalf("fresh reviewed source skip-only apply: %+v err=%v", applied, err)
+	if err != nil || applied.State != "applied" || applied.Applied != 4 || applied.Skipped != 1 {
+		t.Fatalf("fresh reviewed source group/member apply: %+v err=%v", applied, err)
 	}
+	// A later complete live capture may propose the one exact old member for
+	// removal. Its candidate is inert until the operator chooses remove and
+	// the source is replayed again immediately before apply.
+	memberOmitted.Store(true)
+	removalPlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+		"config-lab", strings.Repeat("6", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 11 {
+		if _, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA,
+			contextID, removalPlan, policy); err != nil {
+			t.Fatalf("capture complete removal source: %v", err)
+		}
+	}
+	removalRows, err := capturer.ListSealedRows(scopeA, contextID, removalPlan, -1, 20)
+	if err != nil || removalRows.RowCount != 5 || len(removalRows.Items) != 5 ||
+		removalRows.Items[4].Kind != "membership" ||
+		removalRows.Items[4].ExternalID != "7:17" ||
+		strings.Join(removalRows.Items[4].UnmappedCodes, ",") != "member_removal_candidate" {
+		t.Fatalf("complete source omitted exact removal candidate: %+v err=%v", removalRows, err)
+	}
+	removalChoices := append([]nmsimport.ReviewChoice(nil), choices...)
+	removalChoices[4].Action = "remove"
+	if err := capturer.SetReviewChoices(scopeB, contextID, removalPlan,
+		removalRows.SnapshotHash, removalChoices); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign tenant reviewed member removal: %v", err)
+	}
+	if err := capturer.SetReviewChoices(scopeA, contextID, removalPlan,
+		removalRows.SnapshotHash, removalChoices); err != nil {
+		t.Fatalf("review exact member removal: %v", err)
+	}
+	removalReview, err := capturer.FinalizeReview(scopeA, contextID, removalPlan,
+		removalRows.SnapshotHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removalDiff, err := capturer.ListReviewDiff(scopeA, contextID, removalPlan,
+		removalReview, -1, 20)
+	if err != nil || len(removalDiff.Items) != 5 ||
+		strings.Join(removalDiff.Items[4].ChangedFields, ",") != "membership_removed" {
+		t.Fatalf("reviewed exact removal diff: %+v err=%v", removalDiff, err)
+	}
+	if _, err := capturer.ApplyReview(scopeA, contextID, removalPlan,
+		removalRows.SnapshotHash, removalReview); !errors.Is(err, nmsimport.ErrReviewStale) {
+		t.Fatalf("member removed without source recheck: %v", err)
+	}
+	for range 5 {
+		if _, err := capturer.VerifyNextConfiguredLibreNMSForApply(scopeA,
+			contextID, removalPlan, removalRows.SnapshotHash, removalReview, policy); err != nil {
+			t.Fatalf("recheck missing member before removal: %v", err)
+		}
+	}
+	removed, err := capturer.ApplyReview(scopeA, contextID, removalPlan,
+		removalRows.SnapshotHash, removalReview)
+	if err != nil || removed.State != "applied" || removed.Applied != 1 || removed.Skipped != 4 {
+		t.Fatalf("apply reviewed exact removal: %+v err=%v", removed, err)
+	}
+	if err := tenancy.InTenant(scopeA, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var remaining int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_group_members
+			WHERE tenant_id=$1 AND context_id=$2 AND group_external_id='7'
+			  AND member_external_id='17'`, a.ID, contextID).Scan(&remaining); err != nil {
+			return err
+		}
+		if remaining != 0 {
+			return fmt.Errorf("reviewed member removal left %d exact members", remaining)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	memberOmitted.Store(false)
 	if _, err := capturer.VerifyNextConfiguredLibreNMSForApply(scopeA, contextID,
 		stagedPlan, sealed.SnapshotHash, reviewHash, policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
 		t.Fatalf("applied plan fetched source again: %v", err)

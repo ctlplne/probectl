@@ -38,8 +38,13 @@ with no approved policy, live fetching is disabled. See
    without duplicating them. For a changed group label or dynamic-predicate
    marker, choose `update` on that exact source-keyed group with no target ID;
    the existing group's content and revision are frozen in the review hash.
-   A changed target conflicts before the write. Missing members are never
-   silently removed; member removal needs a separate reviewed choice.
+   A changed target conflicts before the write. After a complete configured
+   live source capture and replay, an imported member missing from a captured
+   group appears as a `member_removal_candidate` row. Only an explicit
+   `remove` choice on that exact source-keyed pair can delete it. File and
+   partial captures cannot propose removals; absence alone never prunes a
+   group. The old member fingerprint and group revision are frozen in the
+   review hash, and a changed member or group refuses the write.
    The selected entity target's identity fields and revision are fingerprinted
    in the reviewed row, so a later destination write can refuse a target
    changed after selection. A source address or label never selects an update
@@ -53,8 +58,9 @@ with no approved policy, live fetching is disabled. See
    Each entity create/update shows the proposed device or site label, and an
    update shows its current exact target label. A group create or update shows
    its current and proposed label, changed fields, and retained predicate
-   warning; a membership create shows its source
-   group/device pair. Unsupported rows keep their unmapped codes. A deleted
+   warning; a membership create shows its source group/device pair. A reviewed
+   removal shows `membership_removed` for that same exact pair. Unsupported
+   rows keep their unmapped codes. A deleted
    or changed exact target returns a conflict instead of a
    stale comparison. This dry run writes no entities, groups, polling settings,
    alerts or agent evidence. After a partial apply, the same URL lists only
@@ -83,8 +89,9 @@ with no approved policy, live fetching is disabled. See
 
 Admin shows the source ID and each row's apply state and source-keyed binding,
 and refreshes that page after a chunk. Its review menu offers the exact
-source-group update without asking for an entity ID; device and site updates
-still require an exact canonical target ID.
+source-group update and candidate member removal without asking for an entity
+ID; device and site updates still require an exact canonical target ID. The
+destination comparison lists the changed fields before apply.
 
 MCP tools `nms_import_rows` and `nms_import_dry_run` page the same redacted
 source rows and frozen destination comparison. Both require `nms.import.read`

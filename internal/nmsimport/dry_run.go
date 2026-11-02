@@ -45,12 +45,13 @@ type ReviewDiffPage struct {
 }
 
 type reviewDiffRow struct {
-	item        ReviewDiffItem
-	label       string
-	hostname    string
-	address     string
-	fingerprint string
-	reviewed    bool
+	item          ReviewDiffItem
+	label         string
+	hostname      string
+	address       string
+	fingerprint   string
+	groupRevision int64
+	reviewed      bool
 }
 
 // ListReviewDiff is a bounded, read-only comparison of pending frozen choices. The
@@ -100,6 +101,7 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 		rows, err := sc.Q.Query(ctx, `SELECT row_number,object_kind,external_id,
 			coalesce(label,''),coalesce(hostname,''),coalesce(address,''),action,
 			coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
+			coalesce(target_group_revision,-1),
 			unmapped_codes,reviewed_at IS NOT NULL
 			FROM nms_import_rows WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
 			AND row_number>$4 AND ($6='preview' OR state='pending')
@@ -114,6 +116,7 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 			if err := rows.Scan(&row.item.RowNumber, &row.item.Kind,
 				&row.item.ExternalID, &row.label, &row.hostname, &row.address,
 				&row.item.Action, &row.item.TargetID, &row.fingerprint,
+				&row.groupRevision,
 				&row.item.UnmappedCodes, &row.reviewed); err != nil {
 				rows.Close()
 				return err
@@ -138,7 +141,7 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 				return ErrReviewStale
 			}
 			switch item.Action {
-			case "create", "update":
+			case "create", "update", "remove":
 				if !reviewRowCanWrite(item.Kind, item.Action, item.UnmappedCodes,
 					row.label, row.hostname, row.address) {
 					return ErrReviewStale
@@ -152,7 +155,12 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 					continue
 				}
 				if item.Kind == "membership" {
-					item, err = reviewMembershipDiff(ctx, sc, contextID, sourceID, row)
+					if item.Action == "remove" {
+						item, err = reviewMembershipRemovalDiff(ctx, sc, contextID,
+							sourceID, planID, row)
+					} else {
+						item, err = reviewMembershipDiff(ctx, sc, contextID, sourceID, row)
+					}
 					if err != nil {
 						return err
 					}

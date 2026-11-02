@@ -4248,7 +4248,7 @@
         "x-required-permission": "nms.import.write",
         "operationId": "applyNMSImportReview",
         "summary": "Apply one bounded chunk of a reviewed NMS import",
-        "description": "The authenticated tenant and selected routing context are checked before one FORCE-RLS transaction applies at most 100 frozen choices. A configured LibreNMS source requires a fresh complete source verification for each chunk; the proof is consumed by the transaction. Repeating an already completed plan is inert. No imported row can author agent evidence or enable an alert.",
+        "description": "The authenticated tenant and selected routing context are checked before one FORCE-RLS transaction applies at most 100 frozen choices. A configured LibreNMS source requires a fresh complete source verification for each chunk; the proof is consumed by the transaction. A reviewed removal deletes only the exact source-keyed member after its fingerprint and group revision are rechecked. Repeating an already completed plan is inert. No imported row can author agent evidence or enable an alert.",
         "tags": ["entities"],
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},
@@ -4291,7 +4291,7 @@
         "x-required-permission": "nms.import.read",
         "operationId": "listNMSImportReviewDiff",
         "summary": "Page the frozen import choices against exact current targets",
-        "description": "The authenticated tenant and operator-selected routing context are resolved before policy checks. The supplied review hash must equal the frozen choice set in FORCE-RLS storage. Device and site labels, static groups and explicit source-keyed memberships can be proposed; source addresses and labels never select a target. After a partial apply, only pending choices are returned. A missing or changed exact target refuses the entire page. This audited read writes no destination entity, agent evidence or alert rule.",
+        "description": "The authenticated tenant and operator-selected routing context are resolved before policy checks. The supplied review hash must equal the frozen choice set in FORCE-RLS storage. Device and site labels, static groups, explicit source-keyed membership creates and reviewed exact member removals can be proposed; source addresses and labels never select a target. After a partial apply, only pending choices are returned. A missing or changed exact target refuses the entire page. This audited read writes no destination entity, agent evidence or alert rule.",
         "tags": ["entities"],
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},
@@ -4316,7 +4316,7 @@
         "x-required-permission": "nms.import.write",
         "operationId": "setNMSImportReviewChoices",
         "summary": "Record explicit dry-run choices for up to 100 sealed import rows",
-        "description": "The authenticated tenant and stored routing context determine authority before any row is changed. The supplied snapshot hash must equal the sealed redacted capture. An update target is an exact tenant/context entity ID, never a source address or label. Every choice and its actor audit event commit in one FORCE-RLS transaction. This operation writes no canonical entity, agent evidence or alert rule.",
+        "description": "The authenticated tenant and stored routing context determine authority before any row is changed. The supplied snapshot hash must equal the sealed redacted capture. An update target is an exact tenant/context entity ID, never a source address or label. Remove is allowed only on a generated member-removal candidate from a complete configured LibreNMS capture. Every choice and its actor audit event commit in one FORCE-RLS transaction. This operation writes no canonical entity, agent evidence or alert rule.",
         "tags": ["entities"],
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},
@@ -4333,7 +4333,7 @@
               "required": ["row_number", "action"],
               "properties": {
                 "row_number": {"type": "integer", "format": "int64", "minimum": 0},
-                "action": {"type": "string", "enum": ["create", "update", "skip", "unmapped"]},
+                "action": {"type": "string", "enum": ["create", "update", "remove", "skip", "unmapped"]},
                 "target_entity_id": {"type": "string", "format": "uuid"}
               }
             }}
@@ -18353,7 +18353,7 @@
           "poll_seconds": {"type": "integer", "minimum": 1, "maximum": 604800, "format": "int64"},
           "severity": {"type": "string", "enum": ["ok", "warning", "critical"]},
           "unmapped_codes": {"type": "array", "maxItems": 32, "items": {"type": "string"}},
-          "action": {"type": "string", "enum": ["captured", "create", "update", "conflict", "skip", "unmapped"]},
+          "action": {"type": "string", "enum": ["captured", "create", "update", "remove", "conflict", "skip", "unmapped"]},
           "target_entity_id": {"type": "string", "format": "uuid"},
           "reviewed": {"type": "boolean"},
           "state": {"type": "string", "enum": ["pending", "applied", "skipped"]},
@@ -18382,11 +18382,11 @@
           "row_number": {"type": "integer", "minimum": 0, "format": "int64"},
           "object_kind": {"type": "string", "enum": ["device", "site", "group", "membership", "poll_setting", "alert_rule"]},
           "external_id": {"type": "string", "maxLength": 256},
-          "action": {"type": "string", "enum": ["create", "update", "skip", "unmapped"]},
+          "action": {"type": "string", "enum": ["create", "update", "remove", "skip", "unmapped"]},
           "target_entity_id": {"type": "string", "format": "uuid"},
           "current_label": {"type": "string", "maxLength": 1024},
           "proposed_label": {"type": "string", "maxLength": 256},
-          "changed_fields": {"type": "array", "maxItems": 1, "items": {"type": "string", "enum": ["label"]}},
+          "changed_fields": {"type": "array", "maxItems": 2, "items": {"type": "string", "enum": ["label", "group", "dynamic_predicate_unmapped", "membership", "membership_removed"]}},
           "unmapped_codes": {"type": "array", "maxItems": 32, "items": {"type": "string"}}
         }
       },

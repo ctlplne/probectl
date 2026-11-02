@@ -9,6 +9,7 @@ package nmsimport
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -29,17 +30,18 @@ type ApplyProgress struct {
 }
 
 type applyRow struct {
-	number      int64
-	kind        string
-	externalID  string
-	label       string
-	hostname    string
-	address     string
-	action      string
-	targetID    string
-	fingerprint string
-	unmapped    []string
-	reviewed    bool
+	number        int64
+	kind          string
+	externalID    string
+	label         string
+	hostname      string
+	address       string
+	action        string
+	targetID      string
+	fingerprint   string
+	groupRevision int64
+	unmapped      []string
+	reviewed      bool
 }
 
 // ApplyReview writes at most 100 frozen decisions in one tenant transaction.
@@ -109,6 +111,7 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 		rows, err := sc.Q.Query(ctx, `SELECT row_number,object_kind,external_id,
 			coalesce(label,''),coalesce(hostname,''),coalesce(address,''),action,
 			coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
+			coalesce(target_group_revision,-1),
 			unmapped_codes,reviewed_at IS NOT NULL
 			FROM nms_import_rows WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
 			  AND state='pending' ORDER BY row_number LIMIT 100 FOR UPDATE`,
@@ -121,7 +124,7 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 			var row applyRow
 			if err := rows.Scan(&row.number, &row.kind, &row.externalID,
 				&row.label, &row.hostname, &row.address, &row.action,
-				&row.targetID, &row.fingerprint, &row.unmapped,
+				&row.targetID, &row.fingerprint, &row.groupRevision, &row.unmapped,
 				&row.reviewed); err != nil {
 				rows.Close()
 				return err
@@ -134,51 +137,15 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 			return err
 		}
 		for _, row := range batch {
-			if !row.reviewed || !validReviewChoiceForKind(row.kind, ReviewChoice{
-				Action: row.action, TargetEntityID: row.targetID}) {
-				return ErrReviewStale
-			}
-			switch row.action {
-			case "skip", "unmapped":
-				if row.action == "unmapped" && len(row.unmapped) == 0 {
-					return ErrReviewStale
-				}
-				progress.Skipped++
-			case "create", "update":
-				if !reviewRowCanWrite(row.kind, row.action, row.unmapped,
-					row.label, row.hostname, row.address) {
-					return ErrReviewStale
-				}
-				var err error
-				switch row.kind {
-				case "device", "site":
-					err = applyEntityRow(ctx, sc, contextID, planID, sourceID, row)
-				case "group":
-					err = applyGroupRow(ctx, sc, contextID, planID, sourceID, row)
-				case "membership":
-					err = applyMembershipRow(ctx, sc, contextID, planID, sourceID, row)
-				}
-				if err != nil {
-					return err
-				}
-				progress.Applied++
-			default:
-				return ErrReviewStale
-			}
-			state, appliedAt := "skipped", false
-			if row.action == "create" || row.action == "update" {
-				state, appliedAt = "applied", true
-			}
-			command, err := sc.Q.Exec(ctx, `UPDATE nms_import_rows
-				SET state=$5,applied_at=CASE WHEN $6 THEN clock_timestamp() ELSE NULL END
-				WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND row_number=$4
-				  AND state='pending'`, sc.Tenant.String(), contextID, planID,
-				row.number, state, appliedAt)
+			applied, err := applyFrozenRow(ctx, sc, contextID, planID, sourceID,
+				meta.source == LibreNMS && meta.configVersion != 0, row)
 			if err != nil {
 				return err
 			}
-			if command.RowsAffected() != 1 {
-				return ErrReviewStale
+			if applied {
+				progress.Applied++
+			} else {
+				progress.Skipped++
 			}
 		}
 		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
@@ -223,6 +190,58 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 	return progress, nil
 }
 
+func applyFrozenRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
+	sourceID string, liveRemovalAllowed bool, row applyRow) (bool, error) {
+	if !row.reviewed || !validReviewChoiceForKind(row.kind, ReviewChoice{
+		Action: row.action, TargetEntityID: row.targetID}) ||
+		row.action == "remove" && !liveRemovalAllowed ||
+		row.action == "unmapped" && len(row.unmapped) == 0 {
+		return false, ErrReviewStale
+	}
+	state, applied := "skipped", false
+	switch row.action {
+	case "skip", "unmapped":
+	case "create", "update", "remove":
+		if !reviewRowCanWrite(row.kind, row.action, row.unmapped,
+			row.label, row.hostname, row.address) {
+			return false, ErrReviewStale
+		}
+		var err error
+		switch row.kind {
+		case "device", "site":
+			err = applyEntityRow(ctx, sc, contextID, planID, sourceID, row)
+		case "group":
+			err = applyGroupRow(ctx, sc, contextID, planID, sourceID, row)
+		case "membership":
+			if row.action == "remove" {
+				err = applyMemberRemovalRow(ctx, sc, contextID, planID, sourceID, row)
+			} else {
+				err = applyMembershipRow(ctx, sc, contextID, planID, sourceID, row)
+			}
+		default:
+			return false, ErrReviewStale
+		}
+		if err != nil {
+			return false, err
+		}
+		state, applied = "applied", true
+	default:
+		return false, ErrReviewStale
+	}
+	command, err := sc.Q.Exec(ctx, `UPDATE nms_import_rows
+		SET state=$5,applied_at=CASE WHEN $6 THEN clock_timestamp() ELSE NULL END
+		WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND row_number=$4
+		  AND state='pending'`, sc.Tenant.String(), contextID, planID,
+		row.number, state, applied)
+	if err != nil {
+		return false, err
+	}
+	if command.RowsAffected() != 1 {
+		return false, ErrReviewStale
+	}
+	return applied, nil
+}
+
 func applyGroupRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 	sourceID string, row applyRow) error {
 	if row.targetID != "" {
@@ -251,7 +270,7 @@ func applyGroupRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 		if command.RowsAffected() != 1 {
 			return ErrReviewStale
 		}
-		return nil
+		return advanceImportedGroupRevision(ctx, sc, contextID, sourceID, row.externalID, planID)
 	}
 	if row.action != "create" || row.fingerprint != "" {
 		return ErrReviewStale
@@ -330,6 +349,27 @@ func applyMembershipRow(ctx context.Context, sc tenancy.Scope, contextID, planID
 		if existingRow != row.externalID {
 			return ErrReviewStale
 		}
+		return nil
+	}
+	return advanceImportedGroupRevision(ctx, sc, contextID, sourceID, groupID, planID)
+}
+
+// Only an actual source-keyed group or member write advances this revision.
+// A no-op retry must not make a frozen removal appear stale.
+func advanceImportedGroupRevision(ctx context.Context, sc tenancy.Scope,
+	contextID, sourceID, groupID, planID string) error {
+	command, err := sc.Q.Exec(ctx, `UPDATE nms_import_groups SET
+		revision=revision+1,
+		revision_plan_delta=CASE WHEN revision_plan_id=$5 THEN revision_plan_delta+1 ELSE 1 END,
+		revision_plan_id=$5
+		WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id=$4
+		  AND revision<$6 AND revision_plan_delta<$6`, sc.Tenant.String(),
+		contextID, sourceID, groupID, planID, int64(math.MaxInt64))
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return ErrReviewStale
 	}
 	return nil
 }

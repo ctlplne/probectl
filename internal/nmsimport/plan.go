@@ -47,6 +47,7 @@ var allowedUnmappedCodes = map[string]bool{
 	"host_unmapped":              true,
 	"item_id_unavailable":        true,
 	"membership_not_captured":    true,
+	"member_removal_candidate":   true,
 	"missing_ip_address":         true,
 	"missing_safe_label":         true,
 	"multiple_primary_addresses": true,
@@ -179,7 +180,9 @@ func safeMembershipRow(row Row) bool {
 	return safeMembershipID(row.ExternalID) && row.Label == "" && row.Address == "" &&
 		row.Hostname == "" && row.ParentID == "" && row.LocationID == "" &&
 		row.LocationLabel == "" && len(row.GroupIDs) == 0 && row.PollSeconds == 0 &&
-		row.Severity == "" && len(row.UnmappedCodes) == 1 && row.UnmappedCodes[0] == "group_unmapped"
+		row.Severity == "" && len(row.UnmappedCodes) == 1 &&
+		(row.UnmappedCodes[0] == "group_unmapped" ||
+			row.UnmappedCodes[0] == "member_removal_candidate")
 }
 
 func canonicalSourceNumber(value string) bool {
