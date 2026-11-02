@@ -111,8 +111,8 @@ func validUUID(raw string) bool {
 	return err == nil && id != uuid.Nil && id.String() == raw
 }
 
-func validText(raw string, max int) bool {
-	if raw == "" || len(raw) > max || strings.TrimSpace(raw) != raw {
+func validText(raw string, maxBytes int) bool {
+	if raw == "" || len(raw) > maxBytes || strings.TrimSpace(raw) != raw {
 		return false
 	}
 	for _, r := range raw {
