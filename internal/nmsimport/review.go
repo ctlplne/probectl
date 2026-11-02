@@ -383,7 +383,7 @@ func (s CaptureStore) FinalizeReview(ctx context.Context, contextID, planID,
 			       WHERE g.tenant_id=m.tenant_id AND g.context_id=m.context_id
 			         AND g.plan_id=m.plan_id AND g.object_kind='group'
 			         AND g.external_id=split_part(m.external_id,':',1)
-			         AND g.action='create')
+			         AND g.action IN ('create','update'))
 			    OR NOT EXISTS (SELECT 1 FROM nms_import_rows d
 			       WHERE d.tenant_id=m.tenant_id AND d.context_id=m.context_id
 			         AND d.plan_id=m.plan_id AND d.object_kind='device'
