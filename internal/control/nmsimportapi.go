@@ -234,6 +234,38 @@ func (s *Server) handleVerifyNMSImportBeforeApply(w http.ResponseWriter, r *http
 	return nil
 }
 
+// Each request applies at most one frozen 100-row chunk. ApplyReview checks
+// the reviewed source and destination inside the same FORCE-RLS transaction;
+// a configured live source also needs a fresh one-chunk verification proof.
+func (s *Server) handleApplyNMSImportReview(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		ContextID    string `json:"context_id"`
+		SnapshotHash string `json:"snapshot_hash"`
+		ReviewHash   string `json:"review_hash"`
+	}
+	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
+		return err
+	}
+	ctx, contextID, err := s.nmsImportContext(r, req.ContextID, permNMSImportWrite)
+	if err != nil {
+		return err
+	}
+	progress, err := s.nmsImportCaptureStore(r).ApplyReview(ctx, contextID,
+		r.PathValue("id"), req.SnapshotHash, req.ReviewHash)
+	switch {
+	case errors.Is(err, nmsimport.ErrPlanUnavailable):
+		return apierror.NotFound("reviewed import plan not found in this routing context")
+	case errors.Is(err, nmsimport.ErrInvalidReview):
+		return apierror.BadRequest("invalid import apply request")
+	case errors.Is(err, nmsimport.ErrReviewStale):
+		return apierror.Conflict("import review, destination or source proof is stale")
+	case err != nil:
+		return err
+	}
+	writeJSON(w, http.StatusOK, progress)
+	return nil
+}
+
 // A sealed import row is still an inert source candidate. Resolve the stored
 // tenant context before RBAC/ABAC, then page only its FORCE-RLS plan rows. A
 // foreign context or plan has the same 404 without source-existence clues.

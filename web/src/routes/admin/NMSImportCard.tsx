@@ -9,12 +9,14 @@ import { useAuth } from '../../auth/useAuth'
 import { useEntityContexts } from '../../api/entities'
 import {
   advanceImportPlan,
+  applyImportReview,
   configureImportSource,
   finalizeImportReview,
   importDiff,
   importRows,
   setImportReviewChoices,
   startImportPlan,
+  verifyImportBeforeApply,
   type ImportChoice,
   type ImportDiffItem,
   type ImportDiffPage,
@@ -35,6 +37,18 @@ import styles from '../pages.module.css'
 
 type ChoiceAction = ImportChoice['action'] | ''
 type PendingChoice = { action: ChoiceAction; target_entity_id: string }
+
+function canCreateImportRow(row: ImportRow): boolean {
+  if (row.object_kind === 'device' || row.object_kind === 'site')
+    return row.unmapped_codes.length === 0
+  if (row.object_kind === 'group')
+    return Boolean(row.label) && row.unmapped_codes.includes('group_unmapped') &&
+      row.unmapped_codes.every((code) =>
+        code === 'group_unmapped' || code === 'dynamic_predicate_unmapped')
+  if (row.object_kind === 'membership')
+    return row.unmapped_codes.length === 1 && row.unmapped_codes[0] === 'group_unmapped'
+  return false
+}
 
 export function NMSImportCard() {
   const { tenant, permissions } = useAuth()
@@ -62,6 +76,8 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
   const [planID, setPlanID] = useState('')
   const [snapshotHash, setSnapshotHash] = useState('')
   const [reviewHash, setReviewHash] = useState('')
+  const [proofReady, setProofReady] = useState(false)
+  const [applyComplete, setApplyComplete] = useState(false)
   const [page, setPage] = useState<ImportRowsPage | null>(null)
   const [diffPage, setDiffPage] = useState<ImportDiffPage | null>(null)
   const [choices, setChoices] = useState<Record<number, PendingChoice>>({})
@@ -80,6 +96,8 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
     setPlanID('')
     setSnapshotHash('')
     setReviewHash('')
+    setProofReady(false)
+    setApplyComplete(false)
     setPage(null)
     setDiffPage(null)
     setChoices({})
@@ -138,6 +156,8 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
       setPlanID(result.plan_id)
       setSnapshotHash('')
       setReviewHash('')
+      setProofReady(false)
+      setApplyComplete(false)
       setPage(null)
       setDiffPage(null)
       setChoices({})
@@ -211,6 +231,8 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
     void run(async () => {
       const result = await finalizeImportReview(contextID, planID, snapshotHash)
       setReviewHash(result.review_hash)
+      setProofReady(false)
+      setApplyComplete(false)
       setDiffPage(await importDiff(contextID, planID, result.review_hash))
       setMessage(`Dry run frozen: ${result.review_hash}. No destination changed.`)
       const cursor = page && page.items.length > 0 ? page.items[0].row_number - 1 : undefined
@@ -220,8 +242,31 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
 
   function loadDiff(cursor?: number) {
     void run(async () => {
-      setDiffPage(await importDiff(contextID, planID, reviewHash, cursor))
-      setMessage('Frozen destination comparison loaded. No destination changed.')
+      const next = await importDiff(contextID, planID, reviewHash, cursor)
+      setDiffPage(next)
+      setSnapshotHash(next.snapshot_hash)
+      setMessage('Pending reviewed choices loaded. Reading this page made no destination change.')
+    })
+  }
+
+  function verifySource() {
+    void run(async () => {
+      setProofReady(false)
+      const result = await verifyImportBeforeApply(contextID, planID, snapshotHash, reviewHash)
+      setProofReady(result.ready)
+      setMessage(result.ready
+        ? 'Source recheck complete. Apply one reviewed chunk within 60 seconds.'
+        : `${result.verified_stage} rechecked; next source endpoint: ${result.next_stage}.`)
+    })
+  }
+
+  function applyChunk() {
+    void run(async () => {
+      const result = await applyImportReview(contextID, planID, snapshotHash, reviewHash)
+      setProofReady(false)
+      setApplyComplete(result.state === 'applied')
+      setMessage(`${result.applied} applied, ${result.skipped} skipped; ${result.remaining} rows remain. ` +
+        (result.state === 'applied' ? 'Import complete.' : 'Recheck the source before the next chunk.'))
     })
   }
 
@@ -285,11 +330,12 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
             }
             options={[
               { value: '', label: 'Choose action' },
-              ...((row.object_kind === 'device' || row.object_kind === 'site') &&
-              row.unmapped_codes.length === 0
+              ...(canCreateImportRow(row)
                 ? [
                     { value: 'create', label: 'Create' },
-                    { value: 'update', label: 'Update exact ID' },
+                    ...((row.object_kind === 'device' || row.object_kind === 'site')
+                      ? [{ value: 'update', label: 'Update exact ID' }]
+                      : []),
                   ]
                 : []),
               { value: 'skip', label: 'Skip' },
@@ -406,6 +452,8 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                   setPage(null)
                   setSnapshotHash('')
                   setReviewHash('')
+                  setProofReady(false)
+                  setApplyComplete(false)
                   setDiffPage(null)
                 }}
               />
@@ -459,6 +507,8 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                 value={reviewHash}
                 onChange={(event) => {
                   setReviewHash(event.target.value)
+                  setProofReady(false)
+                  setApplyComplete(false)
                   setDiffPage(null)
                 }}
               />
@@ -470,7 +520,8 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
           {diffPage ? (
             <div className={styles.stack}>
               <p>
-                {diffPage.row_count} reviewed rows. This comparison makes no destination changes.
+                {diffPage.row_count} reviewed source rows. Pending choices are shown here; reading
+                this comparison makes no destination change.
               </p>
               <Table
                 caption="Import destination comparison"
@@ -482,6 +533,16 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                 <Button onClick={() => loadDiff(diffPage.next_cursor)} disabled={busy}>
                   Next comparison page
                 </Button>
+              ) : null}
+              {canWrite && !applyComplete ? (
+                <div className={styles.row}>
+                  <Button onClick={verifySource} disabled={busy || !snapshotHash || !reviewHash}>
+                    Recheck next source endpoint
+                  </Button>
+                  <Button onClick={applyChunk} disabled={busy || !proofReady}>
+                    Apply one reviewed chunk
+                  </Button>
+                </div>
               ) : null}
             </div>
           ) : null}

@@ -4243,12 +4243,55 @@
         }
       }
     },
+    "/v1/nms-imports/{id}/apply": {
+      "post": {
+        "x-required-permission": "nms.import.write",
+        "operationId": "applyNMSImportReview",
+        "summary": "Apply one bounded chunk of a reviewed NMS import",
+        "description": "The authenticated tenant and selected routing context are checked before one FORCE-RLS transaction applies at most 100 frozen choices. A configured LibreNMS source requires a fresh complete source verification for each chunk; the proof is consumed by the transaction. Repeating an already completed plan is inert. No imported row can author agent evidence or enable an alert.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object", "additionalProperties": false,
+            "required": ["context_id", "snapshot_hash", "review_hash"],
+            "properties": {
+              "context_id": {"type": "string", "format": "uuid"},
+              "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "review_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }}}
+        },
+        "responses": {
+          "200": {"description": "One chunk committed or an already completed plan returned inertly.", "content": {"application/json": {"schema": {
+            "type": "object", "additionalProperties": false,
+            "required": ["state", "applied", "skipped", "remaining", "row_count", "review_hash"],
+            "properties": {
+              "state": {"type": "string", "enum": ["applying", "applied"]},
+              "applied": {"type": "integer", "minimum": 0},
+              "skipped": {"type": "integer", "minimum": 0},
+              "remaining": {"type": "integer", "format": "int64", "minimum": 0},
+              "row_count": {"type": "integer", "format": "int64", "minimum": 0},
+              "review_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }}}},
+          "400": {"description": "Invalid routing context, hashes or request."},
+          "403": {"description": "Import write permission denied in this routing context."},
+          "404": {"description": "No matching reviewed plan in the authenticated tenant and routing context."},
+          "409": {"description": "The reviewed plan, target or required live-source proof is stale."}
+        }
+      }
+    },
     "/v1/nms-imports/{id}/dry-run": {
       "get": {
         "x-required-permission": "nms.import.read",
         "operationId": "listNMSImportReviewDiff",
         "summary": "Page the frozen import choices against exact current targets",
-        "description": "The authenticated tenant and operator-selected routing context are resolved before policy checks. The supplied review hash must equal the frozen choice set in FORCE-RLS storage. Only device and site labels are proposed at this stage; source addresses and labels never select a target. A missing or changed exact target refuses the entire page. This audited dry run writes no destination entity, agent evidence or alert rule.",
+        "description": "The authenticated tenant and operator-selected routing context are resolved before policy checks. The supplied review hash must equal the frozen choice set in FORCE-RLS storage. Device and site labels, static groups and explicit source-keyed memberships can be proposed; source addresses and labels never select a target. After a partial apply, only pending choices are returned. A missing or changed exact target refuses the entire page. This audited read writes no destination entity, agent evidence or alert rule.",
         "tags": ["entities"],
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},

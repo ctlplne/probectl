@@ -50,7 +50,9 @@ with no approved policy, live fetching is disabled. See
    group/device pair. Unsupported rows keep their unmapped codes. A deleted
    or changed exact target returns a conflict instead of a
    stale comparison. This dry run writes no entities, groups, polling settings,
-   alerts or agent evidence. No apply operation is available yet.
+   alerts or agent evidence. After a partial apply, the same URL lists only
+   pending choices, so an interrupted import can be resumed with its exact
+   plan ID and review hash.
 6. After final review, call
    `POST /v1/nms-imports/{id}/verify-before-apply` with `context_id`, the
    exact `snapshot_hash` and `review_hash` until `ready` is true. The CLI
@@ -61,13 +63,20 @@ with no approved policy, live fetching is disabled. See
    that chunk consumes it, so another chunk needs a new complete pass.
    LibreNMS does not provide a source-wide generation token, so a source
    change between the final re-read and a destination transaction remains
-   possible. The current route never writes a destination, and no apply
-   operation is exposed yet.
+   possible. The verification route never writes a destination.
+7. Call `POST /v1/nms-imports/{id}/apply` with the same `context_id`,
+   `snapshot_hash` and `review_hash`. The CLI operation is
+   `probectl nms-import apply`. Each call commits at most 100 reviewed rows in
+   one tenant transaction with its audit event and returns `remaining`. For a
+   configured live source, one complete verification pass is required before
+   each chunk and is consumed by it. Repeat until `state` is `applied`;
+   repeating an already completed plan is inert. Source rows cannot enable
+   alerts, write agent evidence or install credentials. An unsupported row
+   remains explicitly skipped with its unmapped reason.
 
 The destination schema reserves a tenant/context/source-keyed group set and
 membership table. A membership can reference only a device with an exact
-applied import provenance in that same scope. These tables do not receive rows
-from the current capture or review routes; a group name or member address
+applied import provenance in that same scope. A group name or member address
 cannot select a routing context or canonical device.
 
 The bounded one-endpoint route has a ten-second source-fetch budget inside

@@ -5692,6 +5692,26 @@ func (c *Client) AdvanceConfiguredLibreNmsImportPlan(ctx context.Context, req Ad
 	return out, nil
 }
 
+// Apply one bounded chunk of a reviewed NMS import
+type ApplyNmsImportReviewRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) ApplyNmsImportReview(ctx context.Context, req ApplyNmsImportReviewRequest) (map[string]any, error) {
+	path := "/v1/nms-imports/{id}/apply"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Page the frozen import choices against exact current targets
 type ListNmsImportReviewDiffRequest struct {
 	Id         string  `json:"-"`

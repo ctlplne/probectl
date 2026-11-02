@@ -47,7 +47,7 @@ type SealedRowsPage struct {
 	NextCursor   *int64      `json:"next_cursor,omitempty"`
 }
 
-// ListSealedRows pages one inert, complete capture after FORCE-RLS plan and
+// ListSealedRows pages one complete capture after FORCE-RLS plan and
 // source-version checks. The authenticated caller supplies the tenant via
 // tenancy.WithTenant and must authorize nms.import.read for the context before
 // exposing this result at any route. A foreign or stale plan returns one 404.
@@ -74,7 +74,8 @@ func (s CaptureStore) ListSealedRows(ctx context.Context, contextID, planID stri
 		if err != nil {
 			return err
 		}
-		if meta.state != "sealed" && meta.state != "preview" {
+		if meta.state != "sealed" && meta.state != "preview" &&
+			meta.state != "applying" && meta.state != "applied" {
 			return ErrPlanUnavailable
 		}
 		page.SnapshotHash, page.RowCount = meta.snapshotHash, meta.rowCount

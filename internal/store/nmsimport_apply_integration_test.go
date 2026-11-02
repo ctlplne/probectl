@@ -259,6 +259,14 @@ func TestNMSImportApplyReviewTenantIsolationAndRetry(t *testing.T) {
 	if err != nil || first.State != "applying" || first.Applied != 100 || first.Remaining != 1 {
 		t.Fatalf("first bounded destination chunk: %+v err=%v", first, err)
 	}
+	pending, err := capturer.ListReviewDiff(aCtx, contextID, bulkPlan, bulkReview, -1, 100)
+	if err != nil || len(pending.Items) != 1 || pending.Items[0].RowNumber != 100 ||
+		pending.Items[0].Action != "create" {
+		t.Fatalf("partial apply did not expose only its pending choice: %+v err=%v", pending, err)
+	}
+	if _, err := capturer.ListSealedRows(aCtx, contextID, bulkPlan, 99, 2); err != nil {
+		t.Fatalf("partial apply hid the redacted source snapshot: %v", err)
+	}
 	second, err := capturer.ApplyReview(aCtx, contextID, bulkPlan, bulkSnapshot, bulkReview)
 	if err != nil || second.State != "applied" || second.Applied != 1 || second.Remaining != 0 {
 		t.Fatalf("last bounded destination chunk: %+v err=%v", second, err)
@@ -267,6 +275,9 @@ func TestNMSImportApplyReviewTenantIsolationAndRetry(t *testing.T) {
 	if err != nil || retry.Applied != 0 || auditCount != 5 {
 		t.Fatalf("bulk apply retry duplicated writes/audit: %+v audit=%d err=%v",
 			retry, auditCount, err)
+	}
+	if _, err := capturer.ListSealedRows(aCtx, contextID, bulkPlan, 99, 2); err != nil {
+		t.Fatalf("completed apply hid the redacted source snapshot: %v", err)
 	}
 	// A static imported set is source-keyed, scoped to the chosen routing
 	// context, and backed only by device provenance from that same tenant.

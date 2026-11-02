@@ -3563,6 +3563,13 @@ export interface AdvanceConfiguredLibreNmsImportPlanRequest {
 
 export type AdvanceConfiguredLibreNmsImportPlanResponse = JsonObject
 
+export interface ApplyNmsImportReviewRequest {
+  id: string
+  body: JsonObject
+}
+
+export type ApplyNmsImportReviewResponse = JsonObject
+
 export interface ListNmsImportReviewDiffRequest {
   id: string
   contextId: string
@@ -5134,6 +5141,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<AdvanceConfiguredLibreNmsImportPlanResponse>("POST", path, query, request.body)
+  }
+
+  async applyNmsImportReview(request: ApplyNmsImportReviewRequest): Promise<ApplyNmsImportReviewResponse> {
+    let path = "/v1/nms-imports/{id}/apply"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ApplyNmsImportReviewResponse>("POST", path, query, request.body)
   }
 
   async listNmsImportReviewDiff(request: ListNmsImportReviewDiffRequest): Promise<ListNmsImportReviewDiffResponse> {

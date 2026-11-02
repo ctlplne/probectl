@@ -188,6 +188,8 @@ var surfaceCommands = map[string]surfaceCommand{
 			Description: "capture or verify one bounded LibreNMS endpoint; --body with context_id"},
 		"verify-before-apply": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/verify-before-apply", ArgName: "id",
 			Description: "re-read one reviewed source endpoint; --body with context_id, snapshot_hash and review_hash"},
+		"apply": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/apply", ArgName: "id",
+			Description: "commit at most 100 reviewed rows; --body with context_id, snapshot_hash and review_hash"},
 		"review-choices": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/review-choices", ArgName: "id",
 			Description: "set at most 100 explicit source-row choices; --body with context_id, snapshot_hash and choices"},
 		"finalize-review": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/finalize-review", ArgName: "id",

@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -203,5 +204,101 @@ func TestNMSImportSealedRowsRouteIsTenantAndContextBound(t *testing.T) {
 		"/v1/nms-imports/"+left.planID+"/finalize-review", left.tenant,
 		map[string]string{"context_id": left.contextID, "snapshot_hash": left.snapshotHash}); response.Code != http.StatusForbidden {
 		t.Fatalf("context policy allowed review finalize: %d %s", response.Code, response.Body.String())
+	}
+}
+
+// The route uses the same tenant/context write boundary as capture and review.
+// Equal private addresses in two tenants never identify one destination.
+func TestNMSImportApplyRouteWritesOnlyReviewedTenantAndIsIdempotent(t *testing.T) {
+	srv, db := setupAPIServerWithLatest(t, nil)
+	h := srv.Handler()
+	a, b := freshTenant(t, db, "nms-apply-a"), freshTenant(t, db, "nms-apply-b")
+	t.Cleanup(func() {
+		if _, err := db.Pool().Exec(context.Background(),
+			`DELETE FROM tenants WHERE id=ANY($1::uuid[])`, []string{a, b}); err != nil {
+			t.Errorf("remove NMS apply fixtures: %v", err)
+		}
+	})
+	capturer := nmsimport.NewCaptureStore(db.Pool(),
+		func(context.Context, tenancy.Scope, string, string, map[string]any) error { return nil })
+	type fixture struct{ tenant, contextID, planID, snapshotHash, reviewHash string }
+	makeFixture := func(tenant, label string) fixture {
+		t.Helper()
+		response := apiReq(t, h, http.MethodPost, "/v1/entity-contexts", tenant,
+			map[string]string{"site_label": "Import DC", "vrf_label": "Private"})
+		var routing entity.ContextRecord
+		if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &routing) != nil {
+			t.Fatalf("create apply context: %d %s", response.Code, response.Body.String())
+		}
+		ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
+		planID, err := capturer.StartPlan(ctx, routing.ContextID, nmsimport.LibreNMS,
+			"apply-lab", strings.Repeat("a", 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := `{"status":"ok","devices":[{"device_id":17,"display":"` + label +
+			`","ip":"10.42.0.1","location_id":9,"community":"source-only-secret"}],"count":1}`
+		snapshotHash, err := capturer.CaptureLibreNMSDevices(ctx, routing.ContextID,
+			planID, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		base := "/v1/nms-imports/" + planID
+		choice := map[string]any{"context_id": routing.ContextID, "snapshot_hash": snapshotHash,
+			"choices": []nmsimport.ReviewChoice{{RowNumber: 0, Action: "create"}}}
+		if r := apiReq(t, h, http.MethodPost, base+"/review-choices", tenant, choice); r.Code != http.StatusNoContent {
+			t.Fatalf("review create: %d %s", r.Code, r.Body.String())
+		}
+		finalized := apiReq(t, h, http.MethodPost, base+"/finalize-review", tenant,
+			map[string]string{"context_id": routing.ContextID, "snapshot_hash": snapshotHash})
+		var frozen struct {
+			ReviewHash string `json:"review_hash"`
+		}
+		if finalized.Code != http.StatusOK || json.Unmarshal(finalized.Body.Bytes(), &frozen) != nil ||
+			len(frozen.ReviewHash) != 64 {
+			t.Fatalf("finalize create: %d %s", finalized.Code, finalized.Body.String())
+		}
+		return fixture{tenant, routing.ContextID, planID, snapshotHash, frozen.ReviewHash}
+	}
+	left, right := makeFixture(a, "Edge A"), makeFixture(b, "Edge B")
+	apply := func(actor, contextID string, f fixture, hash string) *httptest.ResponseRecorder {
+		t.Helper()
+		return apiReq(t, h, http.MethodPost, "/v1/nms-imports/"+f.planID+"/apply",
+			actor, map[string]string{"context_id": contextID,
+				"snapshot_hash": f.snapshotHash, "review_hash": hash})
+	}
+	if r := apply(a, left.contextID, right, right.reviewHash); r.Code != http.StatusNotFound {
+		t.Fatalf("foreign plan applied: %d %s", r.Code, r.Body.String())
+	}
+	if r := apply(a, right.contextID, left, left.reviewHash); r.Code != http.StatusNotFound {
+		t.Fatalf("foreign context applied: %d %s", r.Code, r.Body.String())
+	}
+	if r := apply(a, left.contextID, left, strings.Repeat("0", 64)); r.Code != http.StatusNotFound {
+		t.Fatalf("wrong review hash applied: %d %s", r.Code, r.Body.String())
+	}
+	for _, f := range []fixture{left, right} {
+		first := apply(f.tenant, f.contextID, f, f.reviewHash)
+		var progress nmsimport.ApplyProgress
+		if first.Code != http.StatusOK || json.Unmarshal(first.Body.Bytes(), &progress) != nil ||
+			progress.State != "applied" || progress.Applied != 1 || progress.Remaining != 0 {
+			t.Fatalf("tenant apply: %d %s", first.Code, first.Body.String())
+		}
+		retry := apply(f.tenant, f.contextID, f, f.reviewHash)
+		if retry.Code != http.StatusOK || json.Unmarshal(retry.Body.Bytes(), &progress) != nil ||
+			progress.Applied != 0 || progress.State != "applied" {
+			t.Fatalf("idempotent apply: %d %s", retry.Code, retry.Body.String())
+		}
+	}
+	for _, f := range []fixture{left, right} {
+		var count int
+		err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.ID(f.tenant)),
+			db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+				return sc.Q.QueryRow(ctx, `SELECT count(*) FROM entities
+					WHERE tenant_id=$1 AND context_id=$2 AND kind='device'`, f.tenant,
+					f.contextID).Scan(&count)
+			})
+		if err != nil || count != 1 {
+			t.Fatalf("tenant device count = %d, %v", count, err)
+		}
 	}
 }

@@ -906,6 +906,22 @@ export const API_CALL_CONTRACTS = [
     reason: 'The SDK generator represents this inline review hash response as JsonObject.',
   },
   {
+    file: 'api/nmsImport.ts',
+    method: 'POST',
+    path: '`/nms-imports/${encodeURIComponent(planID)}/verify-before-apply`',
+    response: 'ImportVerificationResponse',
+    generated: 'VerifyNmsImportBeforeApplyResponse',
+    reason: 'The SDK generator represents this inline verification response as JsonObject.',
+  },
+  {
+    file: 'api/nmsImport.ts',
+    method: 'POST',
+    path: '`/nms-imports/${encodeURIComponent(planID)}/apply`',
+    response: 'ImportApplyResponse',
+    generated: 'ApplyNmsImportReviewResponse',
+    reason: 'The SDK generator represents this inline apply progress as JsonObject.',
+  },
+  {
     file: 'api/paths.ts',
     method: 'POST',
     path: "`/tests/${encodeURIComponent(testId ?? '')}/path`",

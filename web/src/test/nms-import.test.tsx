@@ -95,6 +95,15 @@ test('Admin import requires explicit tenant-context review before an inert dry r
             },
           ],
         })
+      if (path === `/v1/nms-imports/${planID}/verify-before-apply`)
+        return jsonResponse({
+          verified_stage: 'rules', next_stage: 'ready', pages: 1, rows: 1, ready: true,
+        })
+      if (path === `/v1/nms-imports/${planID}/apply`) {
+        destinationWrites++
+        return jsonResponse({ state: 'applied', applied: 0, skipped: 1, remaining: 0,
+          row_count: 1, review_hash: reviewHash })
+      }
       if (path.includes('/apply')) destinationWrites++
       return fallback(input, init)
     }),
@@ -147,6 +156,15 @@ test('Admin import requires explicit tenant-context review before an inert dry r
   expect(requests.find((request) => request.path.endsWith('/review-choices'))?.body).toMatchObject({
     snapshot_hash: snapshotHash,
     choices: [{ row_number: 0, action: 'unmapped' }],
+  })
+  expect(region.getByRole('button', { name: 'Apply one reviewed chunk' })).toBeDisabled()
+  await userEvent.click(region.getByRole('button', { name: 'Recheck next source endpoint' }))
+  expect(await region.findByText(/Source recheck complete/)).toBeInTheDocument()
+  await userEvent.click(region.getByRole('button', { name: 'Apply one reviewed chunk' }))
+  expect(await region.findByText(/Import complete/)).toBeInTheDocument()
+  expect(destinationWrites).toBe(1)
+  expect(requests.find((request) => request.path.endsWith('/apply'))?.body).toMatchObject({
+    context_id: contextID, snapshot_hash: snapshotHash, review_hash: reviewHash,
   })
 
   cleanup()

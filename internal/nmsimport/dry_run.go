@@ -52,7 +52,7 @@ type reviewDiffRow struct {
 	reviewed    bool
 }
 
-// ListReviewDiff is a bounded, read-only dry run of the frozen review. The
+// ListReviewDiff is a bounded, read-only comparison of pending frozen choices. The
 // caller must authorize nms.import.read in the selected context. A changed
 // exact target refuses the whole page rather than displaying a stale merge.
 func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
@@ -72,7 +72,7 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 		if err != nil {
 			return err
 		}
-		if meta.state != "preview" {
+		if meta.state != "preview" && meta.state != "applying" {
 			return ErrPlanUnavailable
 		}
 		var frozenHash string
@@ -101,8 +101,9 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 			coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
 			unmapped_codes,reviewed_at IS NOT NULL
 			FROM nms_import_rows WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
-			AND row_number>$4 ORDER BY row_number LIMIT $5`, sc.Tenant.String(),
-			contextID, planID, after, limit+1)
+			AND row_number>$4 AND ($6='preview' OR state='pending')
+			ORDER BY row_number LIMIT $5`, sc.Tenant.String(),
+			contextID, planID, after, limit+1, meta.state)
 		if err != nil {
 			return err
 		}

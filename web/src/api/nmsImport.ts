@@ -74,6 +74,21 @@ export interface ImportFinalizeResponse {
   state: 'preview'
   review_hash: string
 }
+export interface ImportVerificationResponse {
+  verified_stage: string
+  next_stage: string
+  pages: number
+  rows: number
+  ready: boolean
+}
+export interface ImportApplyResponse {
+  state: 'applying' | 'applied'
+  applied: number
+  skipped: number
+  remaining: number
+  row_count: number
+  review_hash: string
+}
 
 const jsonInit = (method: string, body: unknown): RequestInit => ({
   method,
@@ -136,5 +151,29 @@ export function finalizeImportReview(contextID: string, planID: string, snapshot
   return apiFetch<ImportFinalizeResponse>(
     `/nms-imports/${encodeURIComponent(planID)}/finalize-review`,
     jsonInit('POST', { context_id: contextID, snapshot_hash: snapshotHash }),
+  )
+}
+
+export function verifyImportBeforeApply(
+  contextID: string,
+  planID: string,
+  snapshotHash: string,
+  reviewHash: string,
+) {
+  return apiFetch<ImportVerificationResponse>(
+    `/nms-imports/${encodeURIComponent(planID)}/verify-before-apply`,
+    jsonInit('POST', { context_id: contextID, snapshot_hash: snapshotHash, review_hash: reviewHash }),
+  )
+}
+
+export function applyImportReview(
+  contextID: string,
+  planID: string,
+  snapshotHash: string,
+  reviewHash: string,
+) {
+  return apiFetch<ImportApplyResponse>(
+    `/nms-imports/${encodeURIComponent(planID)}/apply`,
+    jsonInit('POST', { context_id: contextID, snapshot_hash: snapshotHash, review_hash: reviewHash }),
   )
 }
