@@ -379,6 +379,7 @@ func TestNMSImportApplyRouteWritesOnlyReviewedTenantAndIsIdempotent(t *testing.T
 	mcpServer := NewMCPServerWithPolicyLoader(&config.Config{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)), db.Pool(), nil, 0,
 		gate, nil, nil, nil)
+	bindings := make(map[string]string, 2)
 	for _, own := range []fixture{left, right} {
 		other := left
 		if own.tenant == left.tenant {
@@ -396,9 +397,27 @@ func TestNMSImportApplyRouteWritesOnlyReviewedTenantAndIsIdempotent(t *testing.T
 			strings.Contains(string(data), "source-only-secret") {
 			t.Fatalf("MCP applied provenance tenant=%s: %s", own.tenant, data)
 		}
+		bindings[own.tenant] = page.Items[0].BoundEntityID
+		rest := apiReq(t, h, http.MethodGet,
+			"/v1/nms-imports/"+own.planID+"/rows?context_id="+own.contextID,
+			own.tenant, nil)
+		var restPage nmsimport.SealedRowsPage
+		if rest.Code != http.StatusOK || json.Unmarshal(rest.Body.Bytes(), &restPage) != nil ||
+			len(restPage.Items) != 1 || restPage.SourceID != page.SourceID ||
+			restPage.Items[0].State != page.Items[0].State ||
+			restPage.Items[0].AppliedAt == nil ||
+			restPage.Items[0].BoundEntityID != page.Items[0].BoundEntityID ||
+			restPage.Items[0].BindingPlanID != page.Items[0].BindingPlanID ||
+			strings.Contains(rest.Body.String(), "source-only-secret") {
+			t.Fatalf("REST applied provenance tenant=%s: %d %s",
+				own.tenant, rest.Code, rest.Body.String())
+		}
 		if _, failed := nativeControlCall(t, mcpServer, principal, "nms_import_rows",
 			mcp.NMSImportRowsInput{ContextID: own.contextID, PlanID: other.planID}); !failed {
 			t.Fatalf("MCP exposed foreign applied provenance tenant=%s", own.tenant)
 		}
+	}
+	if bindings[a] == bindings[b] {
+		t.Fatalf("tenant applied bindings collided: %q", bindings[a])
 	}
 }
