@@ -116,7 +116,7 @@ func TestNetBoxLookupIPDeviceAndVM(t *testing.T) {
 		base := "http://" + r.Host
 		switch r.URL.Path {
 		case "/api/ipam/ip-addresses/":
-			if r.URL.Query().Get("q") != "10.0.0.1" {
+			if r.URL.Query().Get("address") != "10.0.0.1" {
 				t.Errorf("ip query = %q", r.URL.RawQuery)
 			}
 			fmt.Fprint(w, `{"count":1,"results":[{"id":101,"tenant":{"id":7},"display":"10.0.0.1/32","address":"10.0.0.1/32","dns_name":"core-sw1.acme.example","url":"`+base+`/api/ipam/ip-addresses/101/","assigned_object":{"device":{"name":"core-sw1","display":"core-sw1"}}}]}`)

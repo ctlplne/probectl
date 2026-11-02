@@ -23,7 +23,7 @@ import (
 // NetBox looks up CIs via the NetBox REST API. It is read-only and uses a
 // token-scoped integration account:
 //
-//	GET {base}/api/ipam/ip-addresses/?q={ip}
+//	GET {base}/api/ipam/ip-addresses/?address={ip}
 //	GET {base}/api/dcim/devices/?name={hostname}
 //	GET {base}/api/virtualization/virtual-machines/?name={hostname}
 //
@@ -79,7 +79,7 @@ func (n *NetBox) Lookup(ctx context.Context, key string) ([]CI, error) {
 func (n *NetBox) lookupIP(ctx context.Context, key, source string) ([]CI, error) {
 	q := url.Values{}
 	q.Set("tenant_id", source)
-	q.Set("q", key)
+	q.Set("address", key)
 	q.Set("limit", fmt.Sprint(maxCIsPerLookup))
 	var parsed struct {
 		Count   int    `json:"count"`
