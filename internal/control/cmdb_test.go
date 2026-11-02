@@ -19,6 +19,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/cmdb"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // fakeCMDB resolves one IP and one hostname.
@@ -183,6 +184,52 @@ func TestCMDBLookupOnlyAnswersForKeysTheTenantOwns(t *testing.T) {
 	}
 }
 
+func TestNetBoxLookupPinsEqualKeysToMappedSourceTenant(t *testing.T) {
+	const a = "11111111-1111-4111-8111-111111111111"
+	const b = "22222222-2222-4222-8222-222222222222"
+	var calls atomic.Int64
+	var down atomic.Bool
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if down.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		id := r.URL.Query().Get("tenant_id")
+		if id != "7" && id != "8" {
+			t.Errorf("NetBox query missing source tenant: %s", r.URL.RawQuery)
+		}
+		fmt.Fprintf(w, `{"count":1,"results":[{"id":1,"tenant":{"id":%s},"address":"10.0.0.1/32","dns_name":"ci-%s"}]}`, id, id)
+	}))
+	defer source.Close()
+	srv := testServer(fakePinger{}).WithCMDB(cmdb.NewResolver(cmdb.NewNetBox(source.URL, "test-token", map[string]string{a: "7", b: "8"}), time.Nanosecond))
+	srv.cmdbKeyOwner = func(_ *http.Request, key string) (bool, error) { return key == "10.0.0.1", nil }
+	lookup := func(tenant string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v1/cmdb/lookup?key=10.0.0.1", nil)
+		req.Header.Set("X-Probectl-Tenant", tenant)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	for _, row := range []struct{ tenant, own, foreign string }{{a, "ci-7", "ci-8"}, {b, "ci-8", "ci-7"}} {
+		rec := lookup(row.tenant)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), row.own) || strings.Contains(rec.Body.String(), row.foreign) {
+			t.Fatalf("equal key crossed tenant source: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	down.Store(true)
+	if rec := lookup(a); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "ci-7") || strings.Contains(rec.Body.String(), "ci-8") {
+		t.Fatalf("stale result crossed source ownership: %d %s", rec.Code, rec.Body.String())
+	}
+	before := calls.Load()
+	if rec := lookup("33333333-3333-4333-8333-333333333333"); rec.Code != http.StatusServiceUnavailable || strings.Contains(rec.Body.String(), "ci-7") || strings.Contains(rec.Body.String(), "ci-8") {
+		t.Fatalf("unmapped tenant obtained a cached source: %d %s", rec.Code, rec.Body.String())
+	}
+	if calls.Load() != before {
+		t.Fatal("unmapped tenant reached NetBox")
+	}
+}
+
 // TestCMDBLookupThroughNetBoxServesStaleWhenDown closes RTA-10: with a NetBox
 // provider configured, an OWNED key returns its CI; when NetBox is then down,
 // the lookup serves the STALE cache (a down CMDB must not break probectl); a
@@ -200,7 +247,7 @@ func TestCMDBLookupThroughNetBoxServesStaleWhenDown(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasPrefix(r.URL.Path, "/api/ipam/ip-addresses/") {
 			// NetBox IP shape (internal/cmdb/netbox.go lookupIP).
-			_, _ = w.Write([]byte(`{"results":[{"id":7,"address":"10.0.0.5/32","dns_name":"db-01","assigned_object":{"device":{"name":"db-01","display":"db-01"}}}]}`))
+			_, _ = w.Write([]byte(`{"count":1,"results":[{"id":7,"tenant":{"id":7},"address":"10.0.0.5/32","dns_name":"db-01","assigned_object":{"device":{"name":"db-01","display":"db-01"}}}]}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"results":[]}`))
@@ -209,7 +256,7 @@ func TestCMDBLookupThroughNetBoxServesStaleWhenDown(t *testing.T) {
 
 	// 1ns TTL: the first fetch caches, every later lookup is immediately stale,
 	// so the NetBox-down lookup below goes through the provider (error) path.
-	srv := testServer(fakePinger{}).WithCMDB(cmdb.NewResolver(cmdb.NewNetBox(ts.URL, "nb-token"), time.Nanosecond))
+	srv := testServer(fakePinger{}).WithCMDB(cmdb.NewResolver(cmdb.NewNetBox(ts.URL, "nb-token", map[string]string{tenancy.DefaultTenantID.String(): "7"}), time.Nanosecond))
 	srv.cmdbKeyOwner = func(_ *http.Request, key string) (bool, error) { return key == "10.0.0.5", nil }
 
 	// Owned key → 200 with the CI resolved from the NetBox double.

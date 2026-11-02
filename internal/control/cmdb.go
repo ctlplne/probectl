@@ -36,7 +36,7 @@ func BuildCMDB(cfg *config.Config, log *slog.Logger) *cmdb.Resolver {
 		return cmdb.NewResolver(cmdb.NewServiceNow(cfg.CMDBURL, cfg.CMDBTable, cfg.CMDBSecret), cfg.CMDBCacheTTL)
 	case "netbox":
 		log.Info("cmdb provider configured", "provider", "netbox", "url", cfg.CMDBURL)
-		return cmdb.NewResolver(cmdb.NewNetBox(cfg.CMDBURL, cfg.CMDBSecret), cfg.CMDBCacheTTL)
+		return cmdb.NewResolver(cmdb.NewNetBox(cfg.CMDBURL, cfg.CMDBSecret, cfg.CMDBNetBoxTenantMap), cfg.CMDBCacheTTL)
 	default:
 		// config.Load validates the enum; this is a defensive default.
 		log.Error("unknown CMDB provider ignored", "provider", cfg.CMDBProvider)
@@ -55,7 +55,8 @@ func (s *Server) cmdbReady() error {
 // handleCMDBLookup serves GET /v1/cmdb/lookup?key=<ip|hostname> — a direct,
 // RBAC-gated CI lookup (the operator's debugging surface).
 func (s *Server) handleCMDBLookup(w http.ResponseWriter, r *http.Request) error {
-	if _, err := s.principalTenant(r); err != nil {
+	tenantID, err := s.principalTenant(r)
+	if err != nil {
 		return err
 	}
 	if err := s.cmdbReady(); err != nil {
@@ -80,7 +81,7 @@ func (s *Server) handleCMDBLookup(w http.ResponseWriter, r *http.Request) error 
 		// Not 403: the answer must not confirm that the key exists somewhere.
 		return apierror.NotFound("no configuration item for that key in this tenant")
 	}
-	cis, lookupErr := s.cmdb.Lookup(r.Context(), key)
+	cis, lookupErr := s.cmdb.Lookup(tenancy.WithTenant(r.Context(), tenancy.ID(tenantID)), key)
 	if lookupErr != nil {
 		return apierror.Unavailable("CMDB lookup failed (provider unreachable)")
 	}
@@ -113,6 +114,10 @@ func (s *Server) tenantOwnsCMDBKey(r *http.Request, key string) (bool, error) {
 // handleIncidentCIs serves GET /v1/incidents/{id}/cis — the incident's
 // targets (incident + signal targets, tenant-scoped by RLS) correlated to CIs.
 func (s *Server) handleIncidentCIs(w http.ResponseWriter, r *http.Request) error {
+	tenantID, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
 	if err := s.cmdbReady(); err != nil {
 		return err
 	}
@@ -125,7 +130,7 @@ func (s *Server) handleIncidentCIs(w http.ResponseWriter, r *http.Request) error
 	}); err != nil {
 		return err
 	}
-	matches := s.cmdb.Correlate(r.Context(), incidentKeys(inc))
+	matches := s.cmdb.Correlate(tenancy.WithTenant(r.Context(), tenancy.ID(tenantID)), incidentKeys(inc))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"incident_id": inc.ID, "provider": s.cmdb.ProviderName(), "matches": emptyMatches(matches),
 	})
@@ -135,6 +140,10 @@ func (s *Server) handleIncidentCIs(w http.ResponseWriter, r *http.Request) error
 // handleAgentCI serves GET /v1/agents/{id}/ci — the agent (a probectl asset)
 // correlated to its CI by hostname.
 func (s *Server) handleAgentCI(w http.ResponseWriter, r *http.Request) error {
+	tenantID, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
 	if err := s.cmdbReady(); err != nil {
 		return err
 	}
@@ -147,7 +156,7 @@ func (s *Server) handleAgentCI(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
-	matches := s.cmdb.Correlate(r.Context(), []string{agent.Hostname, agent.Name})
+	matches := s.cmdb.Correlate(tenancy.WithTenant(r.Context(), tenancy.ID(tenantID)), []string{agent.Hostname, agent.Name})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"agent_id": agent.ID, "provider": s.cmdb.ProviderName(), "matches": emptyMatches(matches),
 	})

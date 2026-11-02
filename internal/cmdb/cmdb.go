@@ -87,21 +87,37 @@ func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
 	if key == "" {
 		return nil, nil
 	}
+	cacheKey := key
+	if scoped, ok := r.provider.(interface {
+		cacheScope(context.Context) (string, error)
+	}); ok {
+		scope, err := scoped.cacheScope(ctx)
+		if err != nil {
+			return nil, err
+		}
+		cacheKey = scope + "\x00" + key
+	}
 	r.mu.Lock()
-	entry, ok := r.cache[key]
+	entry, ok := r.cache[cacheKey]
 	r.mu.Unlock()
 	if ok && time.Since(entry.fetched) < r.ttl {
 		return entry.cis, nil
 	}
 	cis, err := r.lookupFresh(ctx, key)
 	if err != nil {
+		if errors.Is(err, ErrTenantBinding) {
+			r.mu.Lock()
+			delete(r.cache, cacheKey)
+			r.mu.Unlock()
+			return nil, err
+		}
 		if ok { // graceful degrade: stale beats nothing
 			return entry.cis, nil
 		}
 		return nil, errors.Join(ErrUnavailable, err)
 	}
 	r.mu.Lock()
-	r.cache[key] = cacheEntry{cis: cis, fetched: time.Now()} // negative results cached too
+	r.cache[cacheKey] = cacheEntry{cis: cis, fetched: time.Now()} // negative results cached too
 	r.mu.Unlock()
 	return cis, nil
 }

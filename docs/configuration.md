@@ -2237,6 +2237,23 @@ is the payments edge proxy, owned by team X". It is off unless configured:
 | `PROBECTL_CMDB_SECRET`      | (none)    | ServiceNow `user:password` or NetBox token for a read-only integration user (env only — never in files/logs) |
 | `PROBECTL_CMDB_TABLE`       | `cmdb_ci` | ServiceNow CI table queried via the Table API; ignored for NetBox      |
 | `PROBECTL_CMDB_CACHE_TTL`   | `10m`     | CI lookup cache TTL (a down CMDB serves stale entries)              |
+| `PROBECTL_CMDB_NETBOX_TENANT_MAP` | (none) | Deployment-owned JSON object mapping probectl tenant UUIDs to distinct NetBox tenant ID strings; required for every tenant using NetBox correlation |
+
+For NetBox, configure an explicit ownership mapping, for example
+`{"11111111-1111-4111-8111-111111111111":"7"}`. Each probectl tenant must map to
+its own NetBox tenant. Duplicate keys or source IDs and malformed IDs stop
+startup. A tenant without a binding gets no NetBox data. This applies in a
+single-tenant deployment as well as an MSP deployment. Only the deployment
+operator changes the map; restart the control plane to apply a change.
+
+Every NetBox lookup includes the mapped `tenant_id` filter and verifies that
+all returned devices, virtual machines or IP addresses attest that exact
+tenant. A matching hostname or private IP alone does not establish ownership.
+Unassigned CIs, conflicting ownership, partial pages and ambiguous responses
+are refused. Cached enrichment is scoped by both the probectl tenant and its
+NetBox tenant. An outage can serve that tenant's stale enrichment, but a known
+ownership mismatch evicts the old entry. Reviewed tag import requires a fresh
+source read; stale enrichment never authorizes an import.
 
 ### Cloud metric import
 
