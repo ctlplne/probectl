@@ -178,7 +178,7 @@ func (s *MemoryQueryViewStore) SaveQueryView(ctx context.Context, tenant, owner 
 	if err := queryViewScope(tenant, owner); err != nil {
 		return SavedQueryView{}, err
 	}
-	input, err := NormalizeSaveQueryView(input, s.now())
+	input, err := normalizeSaveQueryViewForTenant(ctx, tenant, input, s.now())
 	if err != nil {
 		return SavedQueryView{}, err
 	}
@@ -195,7 +195,7 @@ func (s *MemoryQueryViewStore) SaveQueryView(ctx context.Context, tenant, owner 
 			return SavedQueryView{}, ErrQueryViewConflict
 		}
 	}
-	if _, err := ResolveQueryFilters(ctx, tenant, input.Definition.Plan.Filter, s.filters, ""); err != nil {
+	if err := validateQueryViewTagsForTenant(ctx, tenant, input.Definition, s.filters); err != nil {
 		return SavedQueryView{}, err
 	}
 	revision := int64(0)

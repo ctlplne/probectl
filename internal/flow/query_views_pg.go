@@ -55,7 +55,7 @@ const queryViewColumns = `v.id::text,v.tenant_id::text,v.owner_id,v.definition,v
 const queryViewJoin = ` FROM flow_query_views v LEFT JOIN flow_query_view_preferences p ON p.tenant_id=v.tenant_id AND p.view_id=v.id AND p.owner_id=$2 `
 const queryViewVisibleSQL = `v.tenant_id=$1::uuid AND (v.owner_id=$2 OR v.visibility='tenant')`
 
-func scanQueryView(row queryFilterScanner) (SavedQueryView, error) {
+func scanQueryView(ctx context.Context, tenant string, row queryFilterScanner) (SavedQueryView, error) {
 	var item SavedQueryView
 	var definition []byte
 	var version int64
@@ -73,8 +73,14 @@ func scanQueryView(row queryFilterScanner) (SavedQueryView, error) {
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return SavedQueryView{}, errors.New("stored flow query has trailing content")
 	}
-	normalized, err := NormalizeQueryViewDefinition(item.Definition, time.Now())
+	if item.TenantID != tenant {
+		return SavedQueryView{}, ErrQueryViewNotFound
+	}
+	normalized, err := normalizeQueryViewDefinitionForTenant(ctx, tenant, item.Definition, time.Now())
 	if err != nil {
+		if len(item.Definition.TagIDs) > 0 {
+			return SavedQueryView{}, ErrQueryViewStaleTag
+		}
 		return SavedQueryView{}, errors.New("stored flow query is invalid")
 	}
 	item.Definition = normalized
@@ -93,7 +99,7 @@ func queryViewStorageError(err error) error {
 }
 
 func getScopedQueryView(ctx context.Context, sc tenancy.Scope, tenant, owner, id string) (SavedQueryView, error) {
-	return scanQueryView(sc.Q.QueryRow(ctx, `SELECT `+queryViewColumns+queryViewJoin+`WHERE `+queryViewVisibleSQL+` AND v.id=$3::uuid`, tenant, owner, id))
+	return scanQueryView(ctx, tenant, sc.Q.QueryRow(ctx, `SELECT `+queryViewColumns+queryViewJoin+`WHERE `+queryViewVisibleSQL+` AND v.id=$3::uuid`, tenant, owner, id))
 }
 
 func (s *PostgresQueryViewStore) GetQueryView(ctx context.Context, tenant, owner, id string) (SavedQueryView, error) {
@@ -117,7 +123,7 @@ func (s *PostgresQueryViewStore) SaveQueryView(ctx context.Context, tenant, owne
 	if err := queryViewScope(tenant, owner); err != nil {
 		return SavedQueryView{}, err
 	}
-	input, err := NormalizeSaveQueryView(input, s.now())
+	input, err := normalizeSaveQueryViewForTenant(ctx, tenant, input, s.now())
 	if err != nil {
 		return SavedQueryView{}, err
 	}
@@ -149,7 +155,7 @@ func (s *PostgresQueryViewStore) SaveQueryView(ctx context.Context, tenant, owne
 			if revision == math.MaxInt64 {
 				return ErrQueryViewConflict
 			}
-			if _, err := ResolveQueryFilters(ctx, tenant, input.Definition.Plan.Filter, scopedQueryFilterReader{sc}, ""); err != nil {
+			if err := validateQueryViewTagsForTenant(ctx, tenant, input.Definition, scopedQueryFilterReader{sc}); err != nil {
 				return err
 			}
 			encoded, err := json.Marshal(input.Definition)
@@ -271,7 +277,7 @@ func (s *PostgresQueryViewStore) ListQueryViews(ctx context.Context, tenant, own
 		defer rows.Close()
 		used := 0
 		for rows.Next() {
-			item, err := scanQueryView(rows)
+			item, err := scanQueryView(ctx, tenant, rows)
 			if err != nil {
 				return err
 			}

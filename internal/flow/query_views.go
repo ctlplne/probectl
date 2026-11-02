@@ -7,6 +7,7 @@
 package flow
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
@@ -21,6 +22,7 @@ var (
 	ErrQueryViewNotFound = errors.New("saved flow query not found")
 	ErrQueryViewConflict = errors.New("saved flow query version conflict")
 	ErrQueryViewBudget   = errors.New("saved flow query storage byte budget exceeded")
+	ErrQueryViewStaleTag = errors.New("saved flow query tag changed; refresh the view")
 )
 
 type QueryViewTime struct {
@@ -60,6 +62,9 @@ type QueryViewDefinition struct {
 	Comparison         *QueryViewComparison `json:"comparison,omitempty"`
 	AutoRefreshSeconds int                  `json:"auto_refresh_seconds"`
 	Display            *QueryViewDisplay    `json:"display,omitempty"`
+	// TagIDs pins the tenant's immutable definition IDs for every tag field in
+	// the saved plan. A later rename or replacement cannot silently retarget it.
+	TagIDs map[string]string `json:"tag_ids,omitempty"`
 }
 
 type SaveQueryView struct {
@@ -90,6 +95,66 @@ func QueryViewVersion(text string) (int64, error) {
 }
 
 func NormalizeSaveQueryView(input SaveQueryView, now time.Time) (SaveQueryView, error) {
+	return normalizeSaveQueryView(input, now, NormalizeQueryViewDefinition)
+}
+
+// NormalizeSaveQueryViewWithVocabulary accepts only fields from one tenant's
+// request-local tag registry. The caller must authenticate that tenant first.
+func NormalizeSaveQueryViewWithVocabulary(input SaveQueryView, now time.Time, vocabulary QueryVocabulary) (SaveQueryView, error) {
+	return normalizeSaveQueryView(input, now, func(definition QueryViewDefinition, at time.Time) (QueryViewDefinition, error) {
+		return NormalizeQueryViewDefinitionWithVocabulary(definition, at, vocabulary)
+	})
+}
+
+func normalizeSaveQueryViewForTenant(ctx context.Context, tenant string, input SaveQueryView, now time.Time) (SaveQueryView, error) {
+	vocabulary, bound, err := QueryVocabularyFromContext(ctx, tenant)
+	if err != nil {
+		return SaveQueryView{}, err
+	}
+	if bound {
+		return NormalizeSaveQueryViewWithVocabulary(input, now, vocabulary)
+	}
+	return NormalizeSaveQueryView(input, now)
+}
+
+func normalizeQueryViewDefinitionForTenant(ctx context.Context, tenant string, input QueryViewDefinition, now time.Time) (QueryViewDefinition, error) {
+	vocabulary, bound, err := QueryVocabularyFromContext(ctx, tenant)
+	if err != nil {
+		return QueryViewDefinition{}, err
+	}
+	if bound {
+		return NormalizeQueryViewDefinitionWithVocabulary(input, now, vocabulary)
+	}
+	return NormalizeQueryViewDefinition(input, now)
+}
+
+func validateQueryViewTagsForTenant(ctx context.Context, tenant string, definition QueryViewDefinition, reader QueryFilterReader) error {
+	vocabulary, bound, err := QueryVocabularyFromContext(ctx, tenant)
+	if err != nil {
+		return err
+	}
+	var resolved ResolvedQueryFilters
+	if bound {
+		resolved, err = ResolveQueryFiltersWithVocabulary(ctx, tenant, definition.Plan.Filter, reader, "", vocabulary)
+	} else {
+		resolved, err = ResolveQueryFilters(ctx, tenant, definition.Plan.Filter, reader, "")
+	}
+	if err != nil {
+		return err
+	}
+	if !bound {
+		if len(definition.TagIDs) > 0 {
+			return ErrQueryViewStaleTag
+		}
+		return nil
+	}
+	plan := definition.Plan
+	plan.Filter = resolved.Expression
+	return VerifyQueryViewTagIDs(definition.TagIDs, plan, vocabulary)
+}
+
+func normalizeSaveQueryView(input SaveQueryView, now time.Time,
+	normalize func(QueryViewDefinition, time.Time) (QueryViewDefinition, error)) (SaveQueryView, error) {
 	input.ID = strings.TrimSpace(input.ID)
 	if input.ID == "" {
 		if input.Version != "" {
@@ -98,7 +163,7 @@ func NormalizeSaveQueryView(input SaveQueryView, now time.Time) (SaveQueryView, 
 	} else if _, err := QueryViewVersion(input.Version); err != nil {
 		return SaveQueryView{}, err
 	}
-	normalized, err := NormalizeQueryViewDefinition(input.Definition, now)
+	normalized, err := normalize(input.Definition, now)
 	if err != nil {
 		return SaveQueryView{}, err
 	}
@@ -107,6 +172,17 @@ func NormalizeSaveQueryView(input SaveQueryView, now time.Time) (SaveQueryView, 
 }
 
 func NormalizeQueryViewDefinition(input QueryViewDefinition, now time.Time) (QueryViewDefinition, error) {
+	return normalizeQueryViewDefinition(input, now, MaterializeQueryView)
+}
+
+func NormalizeQueryViewDefinitionWithVocabulary(input QueryViewDefinition, now time.Time, vocabulary QueryVocabulary) (QueryViewDefinition, error) {
+	return normalizeQueryViewDefinition(input, now, func(definition QueryViewDefinition, at time.Time) (QueryPlan, *QueryPlan, error) {
+		return MaterializeQueryViewWithVocabulary(definition, at, vocabulary)
+	})
+}
+
+func normalizeQueryViewDefinition(input QueryViewDefinition, now time.Time,
+	materialize func(QueryViewDefinition, time.Time) (QueryPlan, *QueryPlan, error)) (QueryViewDefinition, error) {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Description = strings.TrimSpace(input.Description)
 	if input.Name == "" || len(input.Name) > 256 || len(input.Description) > 4096 {
@@ -146,7 +222,7 @@ func NormalizeQueryViewDefinition(input QueryViewDefinition, now time.Time) (Que
 	if input.Time.Mode == "" {
 		input.Time.Mode = "absolute"
 	}
-	plan, comparison, err := MaterializeQueryView(input, now)
+	plan, comparison, err := materialize(input, now)
 	if err != nil {
 		return QueryViewDefinition{}, err
 	}
@@ -182,6 +258,17 @@ func NormalizeQueryViewDefinition(input QueryViewDefinition, now time.Time) (Que
 // MaterializeQueryView uses one supplied clock for the current and previous
 // windows. No store read, tenant selection or resource-budget override occurs.
 func MaterializeQueryView(input QueryViewDefinition, now time.Time) (QueryPlan, *QueryPlan, error) {
+	return materializeQueryView(input, now, NormalizeQueryPlan)
+}
+
+func MaterializeQueryViewWithVocabulary(input QueryViewDefinition, now time.Time, vocabulary QueryVocabulary) (QueryPlan, *QueryPlan, error) {
+	return materializeQueryView(input, now, func(plan QueryPlan, at time.Time) (QueryPlan, error) {
+		return NormalizeQueryPlanWithVocabulary(plan, at, vocabulary)
+	})
+}
+
+func materializeQueryView(input QueryViewDefinition, now time.Time,
+	normalize func(QueryPlan, time.Time) (QueryPlan, error)) (QueryPlan, *QueryPlan, error) {
 	plan := input.Plan
 	if plan.Cursor != "" {
 		return QueryPlan{}, nil, errors.New("saved flow queries cannot contain a transient result cursor")
@@ -200,7 +287,7 @@ func MaterializeQueryView(input QueryViewDefinition, now time.Time) (QueryPlan, 
 	default:
 		return QueryPlan{}, nil, errors.New("saved flow query time mode must be absolute or lookback")
 	}
-	plan, err := NormalizeQueryPlan(plan, now)
+	plan, err := normalize(plan, now)
 	if err != nil {
 		return QueryPlan{}, nil, err
 	}
@@ -227,7 +314,7 @@ func MaterializeQueryView(input QueryViewDefinition, now time.Time) (QueryPlan, 
 	default:
 		return QueryPlan{}, nil, errors.New("saved query comparison mode must be absolute or preceding")
 	}
-	previous, err = NormalizeQueryPlan(previous, now)
+	previous, err = normalize(previous, now)
 	if err != nil {
 		return QueryPlan{}, nil, err
 	}

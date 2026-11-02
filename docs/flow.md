@@ -454,6 +454,16 @@ period immediately before the current window). Relative bounds are materialized
 from one server clock at execution. A saved definition cannot contain a result
 cursor.
 
+Tenant tag fields in a saved flow query require `tags.read`. The server records
+each referenced tag's immutable definition ID in the returned `tag_ids` map,
+including fields reached through saved filters. Clients do not choose these
+IDs. A rename, deletion, replacement under the old key, or a changed saved
+filter that introduces another tag makes the view stale and execution refuses
+with a conflict; create a refreshed view after reviewing the new definition.
+Runs use one tenant tag revision for both comparison periods. A new run applies
+current rules to retained history; frozen result pages keep their original
+revision and totals.
+
 Reads/runs require `ai.query`, `flow.read` and any joined-field permissions,
 including those in current tenant-resolved saved filters. Creating, updating or
 deleting additionally requires `flow.views.write`, initially seeded to system

@@ -36,6 +36,8 @@ func mapFlowViewError(err error) error {
 		return apierror.Conflict("saved flow query changed; refresh its exact version and retry")
 	case errors.Is(err, flow.ErrQueryViewBudget):
 		return apierror.Validation("saved flow query storage byte budget exceeded")
+	case errors.Is(err, flow.ErrQueryViewStaleTag):
+		return apierror.Conflict("saved flow query tag changed; refresh the view")
 	default:
 		return apierror.Unavailable("saved flow queries are temporarily unavailable")
 	}
@@ -73,12 +75,49 @@ func (s *Server) authorizeFlowViewContext(ctx context.Context, p *auth.Principal
 	return s.authorizeFlowViewDefinitionContext(ctx, p, item.Definition)
 }
 
-func (s *Server) authorizeFlowViewDefinitionContext(ctx context.Context, p *auth.Principal, definition flow.QueryViewDefinition) error {
-	plan, _, err := flow.MaterializeQueryView(definition, time.Now())
+func (s *Server) withFlowViewVocabulary(ctx context.Context, p *auth.Principal) (context.Context, error) {
+	if s.pool == nil {
+		return ctx, nil
+	}
+	decision, err := s.decide(ctx, p, permTagsRead, auth.RBACGlobal,
+		map[string]string{auth.ResourceTenantKey: p.TenantID})
 	if err != nil {
+		return nil, err
+	}
+	if decision != auth.DecisionAllowed {
+		return ctx, nil
+	}
+	vocabulary, err := s.loadFlowQueryVocabulary(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return flow.WithQueryVocabulary(ctx, p.TenantID, vocabulary)
+}
+
+func (s *Server) authorizeFlowViewDefinitionContext(ctx context.Context, p *auth.Principal, definition flow.QueryViewDefinition) error {
+	vocabulary, bound, err := flow.QueryVocabularyFromContext(ctx, p.TenantID)
+	if err != nil {
+		return apierror.Unavailable("tenant tag query scope is unavailable")
+	}
+	var plan flow.QueryPlan
+	if bound {
+		plan, _, err = flow.MaterializeQueryViewWithVocabulary(definition, time.Now(), vocabulary)
+	} else {
+		plan, _, err = flow.MaterializeQueryView(definition, time.Now())
+	}
+	if err != nil {
+		if len(definition.TagIDs) > 0 {
+			return mapFlowViewError(flow.ErrQueryViewStaleTag)
+		}
 		return apierror.Validation("saved flow query definition is invalid")
 	}
-	resolved, err := flow.ResolveQueryFilters(ctx, p.TenantID, plan.Filter, s.flowQueryFilters, "")
+	var resolved flow.ResolvedQueryFilters
+	if bound {
+		resolved, err = flow.ResolveQueryFiltersWithVocabulary(ctx, p.TenantID, plan.Filter,
+			s.flowQueryFilters, "", vocabulary)
+	} else {
+		resolved, err = flow.ResolveQueryFilters(ctx, p.TenantID, plan.Filter, s.flowQueryFilters, "")
+	}
 	if err != nil {
 		if errors.Is(err, flow.ErrQueryFilterNotFound) {
 			return mapFlowViewError(err)
@@ -86,6 +125,13 @@ func (s *Server) authorizeFlowViewDefinitionContext(ctx context.Context, p *auth
 		return apierror.Validation("saved flow query references are invalid or unavailable")
 	}
 	plan.Filter = resolved.Expression
+	if bound {
+		if err := flow.VerifyQueryViewTagIDs(definition.TagIDs, plan, vocabulary); err != nil {
+			return mapFlowViewError(err)
+		}
+	} else if len(definition.TagIDs) > 0 {
+		return apierror.Forbidden("saved flow query tag access requires tags.read")
+	}
 	return s.authorizeFlowMetadata(ctx, p, plan)
 }
 
@@ -274,6 +320,10 @@ func (s *Server) listFlowViews(ctx context.Context, p *auth.Principal, input flo
 	if err != nil {
 		return flow.QueryViewPage{}, err
 	}
+	ctx, err = s.withFlowViewVocabulary(ctx, p)
+	if err != nil {
+		return flow.QueryViewPage{}, err
+	}
 	input, err = flow.NormalizeQueryViewList(input)
 	if err != nil {
 		return flow.QueryViewPage{}, apierror.Validation(err.Error())
@@ -294,6 +344,10 @@ func (s *Server) getFlowViewByID(ctx context.Context, p *auth.Principal, id stri
 	if err != nil {
 		return flow.SavedQueryView{}, err
 	}
+	ctx, err = s.withFlowViewVocabulary(ctx, p)
+	if err != nil {
+		return flow.SavedQueryView{}, err
+	}
 	item, err := s.flowQueryViews.GetQueryView(ctx, p.TenantID, p.UserID, id)
 	if err != nil {
 		return flow.SavedQueryView{}, mapFlowViewError(err)
@@ -308,6 +362,10 @@ func (s *Server) saveFlowViewDefinition(ctx context.Context, p *auth.Principal, 
 	if err != nil {
 		return flow.SavedQueryView{}, err
 	}
+	ctx, err = s.withFlowViewVocabulary(ctx, p)
+	if err != nil {
+		return flow.SavedQueryView{}, err
+	}
 	if input.ID != "" {
 		previous, err := s.getFlowViewByID(ctx, p, input.ID)
 		if err != nil {
@@ -317,12 +375,35 @@ func (s *Server) saveFlowViewDefinition(ctx context.Context, p *auth.Principal, 
 			return flow.SavedQueryView{}, apierror.NotFound("saved flow query not found")
 		}
 	}
-	input, err = flow.NormalizeSaveQueryView(input, time.Now())
+	vocabulary, bound, err := flow.QueryVocabularyFromContext(ctx, p.TenantID)
+	if err != nil {
+		return flow.SavedQueryView{}, apierror.Unavailable("tenant tag query scope is unavailable")
+	}
+	if bound {
+		input, err = flow.NormalizeSaveQueryViewWithVocabulary(input, time.Now(), vocabulary)
+	} else {
+		input, err = flow.NormalizeSaveQueryView(input, time.Now())
+	}
 	if err != nil {
 		if errors.Is(err, flow.ErrQueryViewConflict) || errors.Is(err, flow.ErrQueryViewBudget) {
 			return flow.SavedQueryView{}, mapFlowViewError(err)
 		}
 		return flow.SavedQueryView{}, apierror.Validation("saved flow query definition is invalid")
+	}
+	if bound {
+		resolved, resolveErr := flow.ResolveQueryFiltersWithVocabulary(ctx, p.TenantID,
+			input.Definition.Plan.Filter, s.flowQueryFilters, "", vocabulary)
+		if resolveErr != nil {
+			return flow.SavedQueryView{}, apierror.Validation("saved flow query references are invalid or unavailable")
+		}
+		plan := input.Definition.Plan
+		plan.Filter = resolved.Expression
+		input.Definition.TagIDs, err = flow.QueryViewTagIDs(plan, vocabulary)
+		if err != nil {
+			return flow.SavedQueryView{}, mapFlowViewError(err)
+		}
+	} else if len(input.Definition.TagIDs) > 0 {
+		return flow.SavedQueryView{}, apierror.Forbidden("saved flow query tag access requires tags.read")
 	}
 	if err := s.authorizeFlowViewDefinitionContext(ctx, p, input.Definition); err != nil {
 		return flow.SavedQueryView{}, err
@@ -381,16 +462,49 @@ func (s *Server) runFlowView(ctx context.Context, p *auth.Principal, id string) 
 	if err != nil {
 		return flowViewExecution{}, err
 	}
+	ctx, err = s.withFlowViewVocabulary(ctx, p)
+	if err != nil {
+		return flowViewExecution{}, err
+	}
 	item, err := s.getFlowViewByID(ctx, p, id)
 	if err != nil {
 		return flowViewExecution{}, err
 	}
+	if len(item.Definition.TagIDs) > 0 {
+		data, loadErr := s.loadFlowTagQuery(ctx, p)
+		if loadErr != nil {
+			return flowViewExecution{}, loadErr
+		}
+		ctx = flowTagQueryContext(ctx, data)
+		vocabulary, vocabErr := data.Vocabulary(p.TenantID)
+		if vocabErr != nil {
+			return flowViewExecution{}, apierror.Unavailable("tenant tag query scope is unavailable")
+		}
+		ctx, err = flow.WithQueryVocabulary(ctx, p.TenantID, vocabulary)
+		if err != nil {
+			return flowViewExecution{}, apierror.Unavailable("tenant tag query scope is unavailable")
+		}
+		if err := s.authorizeFlowViewDefinitionContext(ctx, p, item.Definition); err != nil {
+			return flowViewExecution{}, err
+		}
+	}
 	now := time.Now()
-	plan, previous, err := flow.MaterializeQueryView(item.Definition, now)
+	vocabulary, bound, err := flow.QueryVocabularyFromContext(ctx, p.TenantID)
+	if err != nil {
+		return flowViewExecution{}, apierror.Unavailable("tenant tag query scope is unavailable")
+	}
+	var plan flow.QueryPlan
+	var previous *flow.QueryPlan
+	if bound {
+		plan, previous, err = flow.MaterializeQueryViewWithVocabulary(item.Definition, now, vocabulary)
+	} else {
+		plan, previous, err = flow.MaterializeQueryView(item.Definition, now)
+	}
 	if err != nil {
 		return flowViewExecution{}, apierror.Validation("saved flow query cannot be materialized")
 	}
-	current, err := ai.NormalizeExplorerQuery(ai.ExplorerQuery{Question: item.Definition.Name, Source: ai.ExplorerFlow, Flow: &plan}, now)
+	current, queryCtx, err := s.normalizeExplorerQuery(ctx, p,
+		ai.ExplorerQuery{Question: item.Definition.Name, Source: ai.ExplorerFlow, Flow: &plan}, now)
 	if err != nil {
 		return flowViewExecution{}, apierror.Validation("saved flow query cannot be normalized")
 	}
@@ -398,7 +512,7 @@ func (s *Server) runFlowView(ctx context.Context, p *auth.Principal, id string) 
 		return flowViewExecution{}, mapFlowViewError(err)
 	}
 	if previous == nil {
-		result, err := s.recordFlowQuery(ctx, p, current)
+		result, err := s.recordFlowQuery(queryCtx, p, current)
 		if err != nil {
 			return flowViewExecution{}, err
 		}
@@ -408,11 +522,11 @@ func (s *Server) runFlowView(ctx context.Context, p *auth.Principal, id string) 
 	before.From = previous.From
 	before.To = previous.To
 	before.Flow = previous
-	before, err = ai.NormalizeExplorerQuery(before, now)
+	before, queryCtx, err = s.normalizeExplorerQuery(queryCtx, p, before, now)
 	if err != nil {
 		return flowViewExecution{}, apierror.Validation("saved previous period is invalid")
 	}
-	result, err := s.recordFlowComparison(ctx, p, current, before)
+	result, err := s.recordFlowComparison(queryCtx, p, current, before)
 	if err != nil {
 		return flowViewExecution{}, err
 	}

@@ -23450,6 +23450,15 @@
           },
           "display": {
             "$ref": "#/components/schemas/FlowQueryDisplay"
+          },
+          "tag_ids": {
+            "type": "object",
+            "readOnly": true,
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Server-pinned immutable tenant tag IDs by query field. A rename, deletion or replacement requires the saved view to be refreshed."
           }
         },
         "description": "Complete reusable native flow query, not cached telemetry or authorization. At most2MiB canonical definition; current field/reference permissions rechecked. No transient cursor."

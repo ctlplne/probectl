@@ -102,6 +102,46 @@ func (v QueryVocabulary) Lookup(name string) (QueryField, bool) {
 	return field, true
 }
 
+// QueryViewTagIDs records the immutable definitions used by a fully expanded
+// saved query. A reference to a filter must be expanded before calling this.
+func QueryViewTagIDs(plan QueryPlan, vocabulary QueryVocabulary) (map[string]string, error) {
+	if vocabulary.tenantID == "" {
+		return nil, tags.ErrScopeMismatch
+	}
+	names := append(append([]string{}, plan.GroupBy...), plan.MatrixWith...)
+	names = append(names, QueryFilterFields(plan.Filter)...)
+	ids := map[string]string{}
+	for _, name := range names {
+		if !strings.HasPrefix(name, "tag.") {
+			continue
+		}
+		field, ok := vocabulary.Lookup(name)
+		if !ok || field.Derived != "tenant_tag" || field.TagID == "" {
+			return nil, ErrQueryViewStaleTag
+		}
+		ids[name] = field.TagID
+	}
+	return ids, nil
+}
+
+// VerifyQueryViewTagIDs rejects a rename, deletion, replacement or newly
+// introduced tag predicate in a referenced saved filter.
+func VerifyQueryViewTagIDs(saved map[string]string, plan QueryPlan, vocabulary QueryVocabulary) error {
+	current, err := QueryViewTagIDs(plan, vocabulary)
+	if err != nil {
+		return err
+	}
+	if len(current) != len(saved) {
+		return ErrQueryViewStaleTag
+	}
+	for name, id := range current {
+		if saved[name] != id {
+			return ErrQueryViewStaleTag
+		}
+	}
+	return nil
+}
+
 // Fields is safe for an authorized tenant schema response. Callers must check
 // tags.read before exposing the dynamic subset.
 func (v QueryVocabulary) Fields() ([]QueryField, error) {

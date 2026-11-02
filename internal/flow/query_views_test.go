@@ -13,7 +13,66 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/ctlplne/probectl/internal/tags"
 )
+
+func TestSavedQueryViewPinsTenantTagIdentityAndExpandedReferences(t *testing.T) {
+	tenant, foreign := uuid.NewString(), uuid.NewString()
+	firstID, replacementID := uuid.NewString(), uuid.NewString()
+	vocabulary, err := NewTagQueryVocabulary(tenant, []tags.Definition{{TenantID: tenant, ID: firstID, Key: "customer"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := WithQueryVocabulary(t.Context(), tenant, vocabulary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := queryViewFixture()
+	definition.Plan.GroupBy[0] = "tag.customer"
+	definition.Plan.Filter = &QueryFilterGroup{Saved: []QuerySavedFilterRef{{ID: "reference"}}}
+	filters := savedFilterFixture{tenant: {"reference": {ID: "reference", TenantID: tenant, Version: 1,
+		Expression: QueryFilterGroup{Conditions: []QueryPredicate{{Field: "tag.customer", Op: QueryEqual, Values: []string{"blue"}}}}}}}
+	resolved, err := ResolveQueryFiltersWithVocabulary(ctx, tenant, definition.Plan.Filter, filters, "", vocabulary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := definition.Plan
+	plan.Filter = resolved.Expression
+	definition.TagIDs, err = QueryViewTagIDs(plan, vocabulary)
+	if err != nil || definition.TagIDs["tag.customer"] != firstID {
+		t.Fatalf("saved tag binding missing: %+v, %v", definition.TagIDs, err)
+	}
+	store := NewMemoryQueryViewStore(filters, 0)
+	if _, err := store.SaveQueryView(t.Context(), tenant, "owner", SaveQueryView{Definition: definition}); err == nil {
+		t.Fatal("native-only store accepted a tag view")
+	}
+	saved, err := store.SaveQueryView(ctx, tenant, "owner", SaveQueryView{Definition: definition})
+	if err != nil || saved.Definition.TagIDs["tag.customer"] != firstID {
+		t.Fatalf("tenant tag view failed to save: %+v, %v", saved, err)
+	}
+	if _, err := store.GetQueryView(ctx, foreign, "owner", saved.ID); !errors.Is(err, ErrQueryViewNotFound) {
+		t.Fatalf("foreign tenant could read saved view: %v", err)
+	}
+	replacement, err := NewTagQueryVocabulary(tenant, []tags.Definition{{TenantID: tenant, ID: replacementID, Key: "customer"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacedCtx, err := WithQueryVocabulary(t.Context(), tenant, replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateQueryViewTagsForTenant(replacedCtx, tenant, saved.Definition, filters); !errors.Is(err, ErrQueryViewStaleTag) {
+		t.Fatalf("replacement retargeted saved tag view: %v", err)
+	}
+	filters[tenant]["reference"] = SavedQueryFilter{ID: "reference", TenantID: tenant, Version: 2,
+		Expression: QueryFilterGroup{Conditions: []QueryPredicate{{Field: "tag.other", Op: QueryEqual, Values: []string{"blue"}}}}}
+	if err := validateQueryViewTagsForTenant(ctx, tenant, saved.Definition, filters); err == nil {
+		t.Fatal("changed saved reference bypassed the pinned tag vocabulary")
+	}
+}
 
 func queryViewFixture() QueryViewDefinition {
 	at := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
