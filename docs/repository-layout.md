@@ -60,6 +60,7 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
             scim (SCIM 2.0 provisioning) · secrets (secret-backend integration) ·
             siem (SIEM export) · slo (OpenSLO engine) ·
             store (tenant-scoped datastore adapters) · support (support bundles/health) ·
+            tags (tenant-scoped current-rule metadata resolution) ·
             tenancy (tenant boundary: fences + posture) · tenantcrypto (per-tenant at-rest crypto seam) ·
             tenantlife (tenant lifecycle: export/erasure) · terraformprovider (Terraform provider core) ·
             testspec (synthetic-test schema) · testsupport (shared test helpers, no silent skips) ·
