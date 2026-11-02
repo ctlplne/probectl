@@ -144,46 +144,17 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 					return ErrReviewStale
 				}
 				if item.Kind == "group" {
-					item.ProposedLabel = row.label
-					var oldLabel string
-					var oldDynamic bool
-					err := sc.Q.QueryRow(ctx, `SELECT label,dynamic_predicate_unmapped
-						FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2
-						  AND source_id=$3 AND external_id=$4`, sc.Tenant.String(),
-						contextID, sourceID, item.ExternalID).Scan(&oldLabel, &oldDynamic)
-					if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					item, err = reviewGroupDiff(ctx, sc, contextID, sourceID, row)
+					if err != nil {
 						return err
-					}
-					if err == nil {
-						if oldLabel != row.label || oldDynamic != hasCode(item.UnmappedCodes, "dynamic_predicate_unmapped") {
-							return ErrReviewStale
-						}
-						item.CurrentLabel = oldLabel
-					} else {
-						item.ChangedFields = []string{"group"}
 					}
 					page.Items = append(page.Items, item)
 					continue
 				}
 				if item.Kind == "membership" {
-					groupID, deviceID, ok := strings.Cut(item.ExternalID, ":")
-					if !ok || !safeMembershipID(item.ExternalID) {
-						return ErrReviewStale
-					}
-					var oldRow string
-					err := sc.Q.QueryRow(ctx, `SELECT row_external_id FROM nms_import_group_members
-						WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3
-						  AND group_external_id=$4 AND member_external_id=$5`,
-						sc.Tenant.String(), contextID, sourceID, groupID, deviceID).Scan(&oldRow)
-					if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					item, err = reviewMembershipDiff(ctx, sc, contextID, sourceID, row)
+					if err != nil {
 						return err
-					}
-					if err == nil {
-						if oldRow != item.ExternalID {
-							return ErrReviewStale
-						}
-					} else {
-						item.ChangedFields = []string{"membership"}
 					}
 					page.Items = append(page.Items, item)
 					continue
@@ -233,6 +204,57 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 		return ReviewDiffPage{}, err
 	}
 	return page, nil
+}
+
+func reviewGroupDiff(ctx context.Context, sc tenancy.Scope, contextID, sourceID string,
+	row reviewDiffRow) (ReviewDiffItem, error) {
+	item := row.item
+	item.ProposedLabel = row.label
+	item.ChangedFields = []string{}
+	var oldLabel string
+	var oldDynamic bool
+	err := sc.Q.QueryRow(ctx, `SELECT label,dynamic_predicate_unmapped
+		FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2
+		  AND source_id=$3 AND external_id=$4`, sc.Tenant.String(),
+		contextID, sourceID, item.ExternalID).Scan(&oldLabel, &oldDynamic)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return ReviewDiffItem{}, err
+	}
+	if err == nil {
+		if oldLabel != row.label || oldDynamic != hasCode(item.UnmappedCodes, "dynamic_predicate_unmapped") {
+			return ReviewDiffItem{}, ErrReviewStale
+		}
+		item.CurrentLabel = oldLabel
+	} else {
+		item.ChangedFields = []string{"group"}
+	}
+	return item, nil
+}
+
+func reviewMembershipDiff(ctx context.Context, sc tenancy.Scope, contextID, sourceID string,
+	row reviewDiffRow) (ReviewDiffItem, error) {
+	item := row.item
+	item.ChangedFields = []string{}
+	groupID, deviceID, ok := strings.Cut(item.ExternalID, ":")
+	if !ok || !safeMembershipID(item.ExternalID) {
+		return ReviewDiffItem{}, ErrReviewStale
+	}
+	var oldRow string
+	err := sc.Q.QueryRow(ctx, `SELECT row_external_id FROM nms_import_group_members
+		WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3
+		  AND group_external_id=$4 AND member_external_id=$5`,
+		sc.Tenant.String(), contextID, sourceID, groupID, deviceID).Scan(&oldRow)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return ReviewDiffItem{}, err
+	}
+	if err == nil {
+		if oldRow != item.ExternalID {
+			return ReviewDiffItem{}, ErrReviewStale
+		}
+	} else {
+		item.ChangedFields = []string{"membership"}
+	}
+	return item, nil
 }
 
 func proposedEntityLabel(label, hostname, address string) string {
