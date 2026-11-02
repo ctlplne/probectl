@@ -60,6 +60,28 @@ except (URLError, TimeoutError):
     sys.exit(1)
 """
 
+# Invoke the pinned LibreNMS user command through its Laravel kernel. Its CLI
+# --password option would expose the fixture password in the process argv;
+# ArrayInput keeps the same command validation while reading the value on stdin.
+CREATE_LIBRENMS_USER = r"""
+require '/opt/librenms/vendor/autoload.php';
+$app = require '/opt/librenms/bootstrap/app.php';
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$password = stream_get_contents(STDIN, 4096);
+if ($password === false || strlen($password) < 20 || strlen($password) > 128) {
+    exit(2);
+}
+$input = new Symfony\Component\Console\Input\ArrayInput([
+    'command' => 'user:add',
+    'username' => 'fixture-admin',
+    '--password' => $password,
+    '--role' => ['admin'],
+]);
+$status = $kernel->handle($input, new Symfony\Component\Console\Output\NullOutput());
+$kernel->terminate($input, $status);
+exit($status);
+"""
+
 
 def docker(*args: str) -> str:
     command = [
@@ -180,24 +202,30 @@ def seed_librenms() -> dict:
     password = secrets.token_urlsafe(24)
     deadline = time.monotonic() + 180
     while True:
-        try:
-            docker(
-                "exec",
-                "-T",
-                "librenms",
-                "lnms",
-                "user:add",
-                "fixture-admin",
-                "--password",
-                password,
-                "--role",
-                "admin",
-            )
+        command = [
+            "docker",
+            "compose",
+            "--project-name",
+            PROJECT,
+            "--env-file",
+            str(RUNTIME / ".env"),
+            "-f",
+            str(COMPOSE),
+            "exec",
+            "-T",
+            "librenms",
+            "php",
+            "-r",
+            CREATE_LIBRENMS_USER,
+        ]
+        result = subprocess.run(
+            command, input=password.encode(), capture_output=True, check=False
+        )
+        if result.returncode == 0:
             break
-        except RuntimeError:
-            if time.monotonic() >= deadline:
-                raise
-            time.sleep(5)
+        if time.monotonic() >= deadline:
+            raise RuntimeError("LibreNMS fixture administrator unavailable")
+        time.sleep(5)
     output = docker(
         "exec", "-T", "librenms", "lnms", "api:token-create", "fixture-admin"
     )
@@ -309,14 +337,30 @@ def seed_zabbix() -> dict:
     deadline = time.monotonic() + 180
     while True:
         try:
-            # The vendor image's isolated bootstrap credential is used once.
-            # It is never put in an export, artifact, log, or product config.
+            # This published fixture-image bootstrap credential is used only
+            # inside the isolated network and immediately replaced below.
             token = call("user.login", {"username": "Admin", "password": "zabbix"})
             break
         except RuntimeError:
             if time.monotonic() >= deadline:
                 raise
             time.sleep(5)
+    admins = call(
+        "user.get", {"filter": {"username": "Admin"}, "output": ["userid"]}, token
+    )
+    if len(admins) != 1:
+        raise RuntimeError("Zabbix fixture administrator identity changed")
+    rotated_password = secrets.token_urlsafe(32)
+    call(
+        "user.update",
+        {
+            "userid": admins[0]["userid"],
+            "current_passwd": "zabbix",
+            "passwd": rotated_password,
+        },
+        token,
+    )
+    token = call("user.login", {"username": "Admin", "password": rotated_password})
     group_id = call("hostgroup.create", {"name": "Fixture WAN"}, token)["groupids"][0]
     host_id = call(
         "host.create",
