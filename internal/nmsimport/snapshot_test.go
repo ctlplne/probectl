@@ -233,6 +233,35 @@ func TestZabbixInvalidNestedUUIDsStayUnmappedWithoutEcho(t *testing.T) {
 	}
 }
 
+func TestZabbixHostItemWithoutUUIDUsesOpaqueStableKey(t *testing.T) {
+	item := `{"key":"ifOperStatus.1[{$SECRET_MACRO}]","type":"SNMP_AGENT","delay":"15s"}`
+	page := func(host, item string) string {
+		return `{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"` + host + `","items":[` + item + `]}]}}`
+	}
+	first, err := parseZabbixHosts(strings.NewReader(page("edge-r1", item)))
+	if err != nil || len(first.Rows) != 2 || !contains(first.Rows[1].UnmappedCodes, "poll_proposal") ||
+		len(first.Rows[1].ExternalID) != 32 || safeZabbixUUID(first.Rows[1].ExternalID) != first.Rows[1].ExternalID {
+		t.Fatalf("host item key did not yield a bounded poll proposal: %+v, %v", first, err)
+	}
+	second, err := parseZabbixHosts(strings.NewReader(page("edge-r1", item)))
+	otherHost, hostErr := parseZabbixHosts(strings.NewReader(page("edge-r2", item)))
+	otherKey, keyErr := parseZabbixHosts(strings.NewReader(page("edge-r1", strings.Replace(item, "ifOperStatus.1", "ifOperStatus.2", 1))))
+	if err != nil || hostErr != nil || keyErr != nil ||
+		first.Rows[1].ExternalID != second.Rows[1].ExternalID ||
+		first.Rows[1].ExternalID == otherHost.Rows[1].ExternalID ||
+		first.Rows[1].ExternalID == otherKey.Rows[1].ExternalID {
+		t.Fatal("opaque item identity is not stable and source scoped")
+	}
+	wire, err := json.Marshal(first)
+	if err != nil || strings.Contains(string(wire), "SECRET_MACRO") || strings.Contains(string(wire), "ifOperStatus.1") {
+		t.Fatalf("host item key escaped into preview: %s, %v", wire, err)
+	}
+	invalid, err := parseZabbixHosts(strings.NewReader(page("edge-r1", strings.Replace(item, `"key":`, `"uuid":"malformed","key":`, 1))))
+	if err != nil || !contains(invalid.Rows[1].UnmappedCodes, "item_id_unavailable") {
+		t.Fatalf("malformed explicit UUID should fail closed: %+v, %v", invalid, err)
+	}
+}
+
 func TestZabbixLiteralPollIntervalKeepsOnlyBoundedSeconds(t *testing.T) {
 	for _, tc := range []struct {
 		raw  string

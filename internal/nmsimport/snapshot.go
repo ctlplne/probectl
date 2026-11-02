@@ -11,6 +11,7 @@ package nmsimport
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -18,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/ctlplne/probectl/internal/crypto"
 )
 
 // A source page is independently bounded. Callers can request more pages;
@@ -130,8 +133,8 @@ func safeAddress(text string) string {
 	return addr.Unmap().String()
 }
 
-// Zabbix's exported group/item/trigger UUIDs are 32 hex digits. Never copy
-// arbitrary source text into an identifier that preview or provenance echoes.
+// Zabbix group and trigger UUIDs, and any present item UUIDs, are 32 hex
+// digits. Never copy arbitrary source text into an echoed identifier.
 func safeZabbixUUID(raw string) string {
 	if len(raw) != 32 {
 		return ""
@@ -386,6 +389,7 @@ func parseLibreNMSRules(r io.Reader) (Snapshot, error) {
 // never decoded into the safe snapshot or error text.
 type zabbixExportItem struct {
 	UUID     string          `json:"uuid"`
+	Key      string          `json:"key"`
 	Type     json.RawMessage `json:"type"`
 	Status   json.RawMessage `json:"status"`
 	Delay    string          `json:"delay"`
@@ -394,8 +398,23 @@ type zabbixExportItem struct {
 	} `json:"triggers"`
 }
 
+// Host configuration exports identify direct items by key, and may omit an
+// item UUID. Keep a stable, source-scoped opaque ID without copying the key:
+// it can contain macros or other operator secrets. The 128-bit prefix matches
+// the UUID-shaped source IDs accepted by the review and poll-proposal paths.
+func zabbixExportItemID(item zabbixExportItem, hostID string) string {
+	if id := safeZabbixUUID(item.UUID); id != "" {
+		return id
+	}
+	if item.UUID != "" || item.Key == "" || len(item.Key) > 1024 {
+		return ""
+	}
+	sum := crypto.Default.Hash([]byte("probectl:zabbix-host-item-key:v1\x00" + hostID + "\x00" + item.Key))
+	return hex.EncodeToString(sum[:16])
+}
+
 func zabbixPollItemRow(item zabbixExportItem, hostID string) (Row, bool, bool) {
-	itemID := safeZabbixUUID(item.UUID)
+	itemID := zabbixExportItemID(item, hostID)
 	seconds := safeZabbixLiteralSeconds(item.Delay)
 	codes := []string{"poll_item_unmapped"}
 	snmp := string(item.Type) == `"SNMP_AGENT"` ||

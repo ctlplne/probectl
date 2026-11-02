@@ -128,7 +128,11 @@ raw values are not returned. The documented missing status defaults to
 enabled; an explicit unknown status remains unmapped. An enabled SNMP item's
 delay is eligible for a
 later reviewed host cadence only when it is a literal 15s–24h interval and
-its item UUID is present; this carries the fixed `poll_proposal` code.
+it has a stable item identity; this carries the fixed `poll_proposal` code.
+Zabbix host exports may omit an item UUID. In that case a nonempty, bounded
+item key yields an opaque 32-digit ID derived through the crypto door from
+the host key and item key. The item key itself is never returned or logged;
+an invalid explicit UUID fails closed instead of using the fallback.
 Conflicting intervals or an unsupported delay among
 one host's enabled SNMP items mark its otherwise eligible rows with
 `poll_cadence_conflict` and leave them unmapped. Other transports and disabled items cannot nominate a
@@ -149,8 +153,8 @@ be enabled by this review path.
 
 To find applied Zabbix proposals, page
 `GET /v1/nms-imports/poll-proposals?context_id=UUID&source_id=UUID&limit=50`.
-The optional `cursor` is the last returned 32-digit item UUID; at most 100
-items are returned per page. The response shows each source host key, item UUID,
+The optional `cursor` is the last returned 32-digit item ID; at most 100
+items are returned per page. The response shows each source host key, item ID,
 cadence, reviewed plan, revision and apply time, without a device credential or
 agent assignment. It is a live read, so a subsequent export still rechecks
 the exact proposal revision. `probectl nms-import poll-proposals --query
@@ -160,7 +164,7 @@ item from it before a separate target preview.
 
 To prepare one Zabbix polling proposal, call
 `POST /v1/nms-imports/poll-target-preview` with the routing-context UUID,
-source UUID, reviewed item UUID, exact agent ID and exact configured target
+source UUID, reviewed item ID, exact agent ID and exact configured target
 address. The read requires `nms.import.read` and `entities.read`, and returns
 only an applied proposal whose source host maps to the same tenant's canonical
 device, current operator-assigned `device_target` anchor and active agent
