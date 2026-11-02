@@ -122,9 +122,9 @@ func (n *NetBox) lookupIP(ctx context.Context, key, source string) ([]CI, error)
 			(r.AssignedObject.VirtualMachine.Tenant != nil && !r.AssignedObject.VirtualMachine.Tenant.matches(source)) {
 			return nil, ErrTenantBinding
 		}
-		name := firstNonEmpty(r.AssignedObject.Device.Display, r.AssignedObject.Device.Name,
-			r.AssignedObject.VirtualMachine.Display, r.AssignedObject.VirtualMachine.Name,
-			r.AssignedObject.Name, r.DNSName, r.Display, r.Address)
+		// A brief related device/VM has no tenant attestation in normal
+		// NetBox responses. Only project attributes of the owned IP CI.
+		name := firstNonEmpty(r.DNSName, r.Display, r.Address)
 		out = append(out, CI{
 			SysID:     fmt.Sprintf("netbox:ipam.ip_address:%d", r.ID),
 			Name:      name,
