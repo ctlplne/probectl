@@ -109,10 +109,6 @@ func explorerAddressExpr(column string) string {
 	return "replaceRegexpOne(ifNull(toString(toIPv6OrNull(" + column + "))," + column + "),'^::ffff:','')"
 }
 
-func explorerFieldExpr(field flow.QueryField) string {
-	return explorerFieldExprWithParams(field, nil)
-}
-
 func explorerFieldExprWithParams(field flow.QueryField, params chParams) string {
 	if field.Derived == "tenant_tag" {
 		if params == nil || field.TagID == "" || field.TagKey == "" {
@@ -138,10 +134,6 @@ func explorerFieldExprWithParams(field flow.QueryField, params chParams) string 
 		return explorerAddressExpr(column)
 	}
 	return column
-}
-
-func explorerGroupExpr(field flow.QueryField) string {
-	return explorerGroupExprWithParams(field, nil)
 }
 
 func explorerGroupExprWithParams(field flow.QueryField, params chParams) string {

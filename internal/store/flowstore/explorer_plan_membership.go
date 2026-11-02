@@ -16,17 +16,9 @@ import (
 // normalizePlanGroups validates internal membership without granting access.
 // The policy-bound tenant read remains the outermost scope. Group values are
 // bound data, including labels that look like SQL and unassigned empty values.
-func normalizePlanGroups(input [][]string, plan flow.QueryPlan, budgets ...ExplorerBudget) ([][]string, error) {
-	return normalizePlanGroupsWithVocabulary(input, plan, flow.QueryVocabulary{}, budgets...)
-}
-
 func normalizePlanGroupsWithVocabulary(input [][]string, plan flow.QueryPlan,
 	vocabulary flow.QueryVocabulary, budgets ...ExplorerBudget) ([][]string, error) {
 	return normalizePlanMembershipWithVocabulary(input, plan.GroupBy, plan.RowLimit, vocabulary, budgets...)
-}
-
-func normalizePlanColumns(input [][]string, plan flow.QueryPlan, budgets ...ExplorerBudget) ([][]string, error) {
-	return normalizePlanColumnsWithVocabulary(input, plan, flow.QueryVocabulary{}, budgets...)
 }
 
 func normalizePlanColumnsWithVocabulary(input [][]string, plan flow.QueryPlan,
@@ -37,10 +29,6 @@ func normalizePlanColumnsWithVocabulary(input [][]string, plan flow.QueryPlan,
 	return normalizePlanMembershipWithVocabulary(input, plan.MatrixWith, plan.MatrixDepth, vocabulary, budgets...)
 }
 
-func normalizePlanMatrixRows(input [][]string, plan flow.QueryPlan, budgets ...ExplorerBudget) ([][]string, error) {
-	return normalizePlanMatrixRowsWithVocabulary(input, plan, flow.QueryVocabulary{}, budgets...)
-}
-
 func normalizePlanMatrixRowsWithVocabulary(input [][]string, plan flow.QueryPlan,
 	vocabulary flow.QueryVocabulary, budgets ...ExplorerBudget) ([][]string, error) {
 	if input != nil && plan.View != "matrix" {
@@ -49,20 +37,12 @@ func normalizePlanMatrixRowsWithVocabulary(input [][]string, plan flow.QueryPlan
 	return normalizePlanMembershipWithVocabulary(input, plan.GroupBy, plan.MatrixDepth, vocabulary, budgets...)
 }
 
-func normalizePlanChartGroups(input [][]string, plan flow.QueryPlan, budgets ...ExplorerBudget) ([][]string, error) {
-	return normalizePlanChartGroupsWithVocabulary(input, plan, flow.QueryVocabulary{}, budgets...)
-}
-
 func normalizePlanChartGroupsWithVocabulary(input [][]string, plan flow.QueryPlan,
 	vocabulary flow.QueryVocabulary, budgets ...ExplorerBudget) ([][]string, error) {
 	if input != nil && (plan.View == "table" || plan.View == "matrix") {
 		return nil, errors.New("chart membership requires a chart view")
 	}
 	return normalizePlanMembershipWithVocabulary(input, plan.GroupBy, plan.SeriesDepth, vocabulary, budgets...)
-}
-
-func normalizePlanMembership(input [][]string, fields []string, limit int, budgets ...ExplorerBudget) ([][]string, error) {
-	return normalizePlanMembershipWithVocabulary(input, fields, limit, flow.QueryVocabulary{}, budgets...)
 }
 
 func normalizePlanMembershipWithVocabulary(input [][]string, fields []string, limit int,

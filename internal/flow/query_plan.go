@@ -161,10 +161,6 @@ func normalizeQueryPlan(plan QueryPlan, now time.Time, lookup func(string) (Quer
 	return plan, nil
 }
 
-func normalizePlanDimensions(input []string, limit int) ([]string, error) {
-	return normalizePlanDimensionsWithLookup(input, limit, LookupQueryField)
-}
-
 func normalizePlanDimensionsWithLookup(input []string, limit int, lookup func(string) (QueryField, bool)) ([]string, error) {
 	if len(input) > limit {
 		return nil, errors.New("flow grouping and each matrix axis support at most eight dimensions")
