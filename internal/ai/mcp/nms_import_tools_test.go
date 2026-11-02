@@ -33,13 +33,19 @@ func (b *recordedNMSImportBackend) NMSImportPollTarget(_ context.Context, p *aut
 	return NMSImportPollTargetResult{TenantID: p.TenantID}, nil
 }
 
+func (b *recordedNMSImportBackend) NMSImportPollProposals(_ context.Context, p *auth.Principal,
+	_ NMSImportPollProposalsInput) (NMSImportPollProposalsResult, error) {
+	b.tenants = append(b.tenants, p.TenantID)
+	return NMSImportPollProposalsResult{Items: []NMSImportPollProposalResult{}}, nil
+}
+
 func TestNMSImportMCPAuthorizationAndTenantHint(t *testing.T) {
 	b := &recordedNMSImportBackend{}
 	s := newTestServer(&fakeBackend{}, testGate(), WithNMSImportBackend(b),
 		WithPolicyLoader(func(context.Context, string) ([]auth.Policy, error) { return nil, nil }))
 	reader := principal("tenant-a", "nms.import.read")
 	reader.UserID = "reader"
-	if got := listedToolNames(t, handle(t, s, reader, 1, "tools/list", nil)); !got["nms_import_rows"] || !got["nms_import_dry_run"] || !got["nms_import_poll_target"] {
+	if got := listedToolNames(t, handle(t, s, reader, 1, "tools/list", nil)); !got["nms_import_rows"] || !got["nms_import_dry_run"] || !got["nms_import_poll_proposals"] || !got["nms_import_poll_target"] {
 		t.Fatalf("import read tools missing from catalog: %v", got)
 	}
 	denied := principal("tenant-a", "entities.read")

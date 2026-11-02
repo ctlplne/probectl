@@ -9,6 +9,7 @@ package control
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -16,6 +17,36 @@ import (
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/nmsimport"
 )
+
+// List only inert applied Zabbix item proposals from one exact source. A
+// source item cannot choose a current agent; that separate preview still
+// requires entities.read and the operator-assigned target.
+func (s *Server) handleListNMSImportPollProposals(w http.ResponseWriter, r *http.Request) error {
+	ctx, contextID, err := s.nmsImportContext(r, r.URL.Query().Get("context_id"),
+		permNMSImportRead)
+	if err != nil {
+		return err
+	}
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		limit, err = strconv.Atoi(raw)
+		if err != nil {
+			return apierror.BadRequest("invalid import proposal limit")
+		}
+	}
+	page, err := nmsimport.NewCaptureStore(s.pool, nil).ListPollProposals(ctx,
+		contextID, r.URL.Query().Get("source_id"), r.URL.Query().Get("cursor"), limit)
+	switch {
+	case errors.Is(err, nmsimport.ErrPlanUnavailable):
+		return apierror.NotFound("import source not found in this routing context")
+	case errors.Is(err, nmsimport.ErrInvalidPage):
+		return apierror.BadRequest("invalid import proposal page")
+	case err != nil:
+		return err
+	}
+	writeJSON(w, http.StatusOK, page)
+	return nil
+}
 
 // This read returns no credential and performs no activation. Explicit
 // source/item and agent/target identities are all checked inside one tenant

@@ -886,6 +886,20 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/nmsImport.ts',
     method: 'GET',
+    path: '`/nms-imports/poll-proposals?${query.toString()}`',
+    response: 'ImportPollProposalsPage',
+    generated: 'ListNmsImportPollProposalsResponse',
+  },
+  {
+    file: 'api/nmsImport.ts',
+    method: 'POST',
+    path: '/nms-imports/poll-target-preview',
+    response: 'ImportPollTargetPreview',
+    generated: 'PreviewNmsImportPollTargetResponse',
+  },
+  {
+    file: 'api/nmsImport.ts',
+    method: 'GET',
     path: '`/nms-imports/${encodeURIComponent(planID)}/dry-run?${query.toString()}`',
     response: 'ImportDiffPage',
     generated: 'ListNmsImportReviewDiffResponse',

@@ -2062,6 +2062,22 @@ export interface Me {
   user_id: string
 }
 
+export interface NMSImportPollProposal {
+  applied_at: string
+  host_external_id: string
+  item_external_id: string
+  plan_id: string
+  poll_seconds: number
+  revision: number
+}
+
+export interface NMSImportPollProposalsPage {
+  context_id: string
+  items: NMSImportPollProposal[]
+  next_cursor?: string
+  source_id: string
+}
+
 export interface NMSImportPollTargetPreview {
   agent_id: string
   context_id: string
@@ -3571,6 +3587,15 @@ export interface StartConfiguredLibreNmsImportPlanRequest {
 }
 
 export type StartConfiguredLibreNmsImportPlanResponse = JsonObject
+
+export interface ListNmsImportPollProposalsRequest {
+  contextId: string
+  sourceId: string
+  cursor?: string
+  limit?: number
+}
+
+export type ListNmsImportPollProposalsResponse = NMSImportPollProposalsPage
 
 export interface PreviewNmsImportPollTargetRequest {
   body: NMSImportPollTargetPreviewRequest
@@ -5156,6 +5181,16 @@ export class ProbectlSDKClient {
     let path = "/v1/nms-imports/live-plans"
     const query = new URLSearchParams()
     return this.requestJSON<StartConfiguredLibreNmsImportPlanResponse>("POST", path, query, request.body)
+  }
+
+  async listNmsImportPollProposals(request: ListNmsImportPollProposalsRequest): Promise<ListNmsImportPollProposalsResponse> {
+    let path = "/v1/nms-imports/poll-proposals"
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.sourceId !== undefined) query.set("source_id", String(request.sourceId))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListNmsImportPollProposalsResponse>("GET", path, query, undefined)
   }
 
   async previewNmsImportPollTarget(request: PreviewNmsImportPollTargetRequest): Promise<PreviewNmsImportPollTargetResponse> {

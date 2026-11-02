@@ -137,6 +137,17 @@ the NMS API credential is never copied. Imported
 alert expressions and delivery targets remain unmapped and
 no imported alert can be enabled by this review path.
 
+To find applied Zabbix proposals, page
+`GET /v1/nms-imports/poll-proposals?context_id=UUID&source_id=UUID&limit=50`.
+The optional `cursor` is the last returned 32-digit item UUID; at most 100
+items are returned per page. The response shows each source host key, item UUID,
+cadence, reviewed plan, revision and apply time, without a device credential or
+agent assignment. It is a live read, so a subsequent export still rechecks
+the exact proposal revision. `probectl nms-import poll-proposals --query
+context_id=UUID --query source_id=UUID` and the read-only MCP tool
+`nms_import_poll_proposals` expose the same bounded list; Admin can select an
+item from it before a separate target preview.
+
 To prepare one Zabbix polling proposal, call
 `POST /v1/nms-imports/poll-target-preview` with the routing-context UUID,
 source UUID, reviewed item UUID, exact agent ID and exact configured target

@@ -63,20 +63,22 @@ func TestNMSImportPollTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	const itemID = "11111111222233334444555555555555"
+	const nextItemID = "22222222333344445555666666666666"
 	body := fmt.Sprintf(`{"zabbix_export":{"version":"7.4","host_groups":[],
 		"hosts":[{"host":"edge-r1","name":"Edge R1","interfaces":[{"ip":"10.0.0.1"}],
-		"items":[{"uuid":"%s","type":"SNMP_AGENT","status":"ENABLED","delay":"120s"}]}]}}`, itemID)
+		"items":[{"uuid":"%s","type":"SNMP_AGENT","status":"ENABLED","delay":"120s"},
+		{"uuid":"%s","type":"SNMP_AGENT","status":"ENABLED","delay":"120s"}]}]}}`, itemID, nextItemID)
 	if _, err := capturer.AppendPage(aCtx, contextID, planID, 0,
 		"hosts", 0, strings.NewReader(body)); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := capturer.Seal(aCtx, contextID, planID, 1, 2)
+	snapshot, err := capturer.Seal(aCtx, contextID, planID, 1, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := capturer.SetReviewChoices(aCtx, contextID, planID, snapshot,
 		[]nmsimport.ReviewChoice{{RowNumber: 0, Action: "create"},
-			{RowNumber: 1, Action: "create"}}); err != nil {
+			{RowNumber: 1, Action: "create"}, {RowNumber: 2, Action: "create"}}); err != nil {
 		t.Fatal(err)
 	}
 	review, err := capturer.FinalizeReview(aCtx, contextID, planID, snapshot)
@@ -117,6 +119,35 @@ func TestNMSImportPollTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	listURL := "/v1/nms-imports/poll-proposals?context_id=" + contextID +
+		"&source_id=" + sourceID + "&limit=1"
+	first := apiReq(t, h, http.MethodGet, listURL, a, nil)
+	var firstPage nmsimport.PollProposalsPage
+	if first.Code != http.StatusOK || json.Unmarshal(first.Body.Bytes(), &firstPage) != nil ||
+		len(firstPage.Items) != 1 || firstPage.Items[0].ItemID != itemID ||
+		firstPage.Items[0].PollSeconds != 120 || firstPage.NextCursor == nil ||
+		*firstPage.NextCursor != itemID {
+		t.Fatalf("first tenant proposal page: %d %s", first.Code, first.Body.String())
+	}
+	second := apiReq(t, h, http.MethodGet, listURL+"&cursor="+*firstPage.NextCursor, a, nil)
+	var secondPage nmsimport.PollProposalsPage
+	if second.Code != http.StatusOK || json.Unmarshal(second.Body.Bytes(), &secondPage) != nil ||
+		len(secondPage.Items) != 1 || secondPage.Items[0].ItemID != nextItemID ||
+		secondPage.NextCursor != nil {
+		t.Fatalf("second tenant proposal page: %d %s", second.Code, second.Body.String())
+	}
+	for _, check := range []struct {
+		url    string
+		tenant string
+		status int
+	}{{listURL, b, http.StatusNotFound},
+		{listURL + "&cursor=bad", a, http.StatusBadRequest},
+		{listURL + "&limit=101", a, http.StatusBadRequest}} {
+		response := apiReq(t, h, http.MethodGet, check.url, check.tenant, nil)
+		if response.Code != check.status {
+			t.Fatalf("proposal list boundary: %d %s", response.Code, response.Body.String())
+		}
+	}
 	selection := map[string]string{"context_id": contextID, "source_id": sourceID,
 		"item_external_id": itemID, "agent_id": agentID, "target_address": target}
 	preview := apiReq(t, h, http.MethodPost, "/v1/nms-imports/poll-target-preview", a, selection)
@@ -143,6 +174,24 @@ func TestNMSImportPollTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 	mcpServer := NewMCPServerWithPolicyLoader(&config.Config{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)), db.Pool(), nil, 0,
 		gate, nil, nil, nil)
+	readPrincipal := &auth.Principal{TenantID: a, UserID: "poll-reader",
+		Permissions: map[string]bool{permNMSImportRead: true}}
+	listData, failed := nativeControlCall(t, mcpServer, readPrincipal,
+		"nms_import_poll_proposals", mcp.NMSImportPollProposalsInput{
+			ContextID: contextID, SourceID: sourceID, Limit: 1})
+	var mcpList mcp.NMSImportPollProposalsResult
+	if failed || json.Unmarshal(listData, &mcpList) != nil ||
+		len(mcpList.Items) != 1 || mcpList.Items[0].ItemID != itemID ||
+		mcpList.NextCursor == nil || *mcpList.NextCursor != itemID {
+		t.Fatalf("MCP bounded proposal page: %s", listData)
+	}
+	if _, failed := nativeControlCall(t, mcpServer,
+		&auth.Principal{TenantID: b, UserID: "poll-reader",
+			Permissions: map[string]bool{permNMSImportRead: true}},
+		"nms_import_poll_proposals", mcp.NMSImportPollProposalsInput{
+			ContextID: contextID, SourceID: sourceID}); !failed {
+		t.Fatal("MCP listed foreign tenant source proposals")
+	}
 	input := mcp.NMSImportPollTargetInput{ContextID: contextID, SourceID: sourceID,
 		ItemID: itemID, AgentID: agentID, TargetAddress: target}
 	principal := &auth.Principal{TenantID: a, UserID: "poll-reader",

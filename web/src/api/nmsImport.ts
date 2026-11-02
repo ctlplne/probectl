@@ -116,6 +116,22 @@ export interface ImportPollTargetPreview extends ImportPollTargetSelection {
   revision: number
 }
 
+export interface ImportPollProposal {
+  item_external_id: string
+  host_external_id: string
+  poll_seconds: number
+  plan_id: string
+  revision: number
+  applied_at: string
+}
+
+export interface ImportPollProposalsPage {
+  context_id: string
+  source_id: string
+  items: ImportPollProposal[]
+  next_cursor?: string
+}
+
 const jsonInit = (method: string, body: unknown): RequestInit => ({
   method,
   headers: { 'Content-Type': 'application/json' },
@@ -166,6 +182,12 @@ export function previewImportPollTarget(input: ImportPollTargetSelection) {
     '/nms-imports/poll-target-preview',
     jsonInit('POST', input),
   )
+}
+
+export function importPollProposals(contextID: string, sourceID: string, cursor?: string) {
+  const query = new URLSearchParams({ context_id: contextID, source_id: sourceID, limit: '50' })
+  if (cursor !== undefined) query.set('cursor', cursor)
+  return apiFetch<ImportPollProposalsPage>(`/nms-imports/poll-proposals?${query.toString()}`)
 }
 
 export function setImportReviewChoices(

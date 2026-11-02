@@ -63,6 +63,15 @@ func TestNMSImportCLIKeepsReferenceOutOfArgvAndRoutesScopedReads(t *testing.T) {
 	if got := <-seen; got != "GET /v1/nms-imports/"+planID+"/rows?context_id="+contextID+"&limit=1" {
 		t.Fatalf("sealed-row route = %q", got)
 	}
+	if _, stderr, code := run(t, srv, "nms-import", "poll-proposals",
+		"--query", "context_id="+contextID, "--query", "source_id="+planID,
+		"--query", "limit=1"); code != 0 || stderr != "" || len(seen) != 1 {
+		t.Fatalf("scoped poll proposals: exit=%d stderr=%q requests=%v", code, stderr, seen)
+	}
+	if got := <-seen; got != "GET /v1/nms-imports/poll-proposals?context_id="+contextID+
+		"&source_id="+planID+"&limit=1" {
+		t.Fatalf("proposal-list route = %q", got)
+	}
 	if _, stderr, code := run(t, srv, "nms-import", "advance", planID,
 		"--body", `{"context_id":"`+contextID+`"}`); code != 0 || stderr != "" || len(seen) != 1 {
 		t.Fatalf("scoped advance: exit=%d stderr=%q requests=%v", code, stderr, seen)

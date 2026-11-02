@@ -134,6 +134,29 @@ func (b mcpNMSImportBackend) NMSImportDryRun(ctx context.Context, p *auth.Princi
 	return out, nil
 }
 
+func (b mcpNMSImportBackend) NMSImportPollProposals(ctx context.Context, p *auth.Principal,
+	input mcp.NMSImportPollProposalsInput) (mcp.NMSImportPollProposalsResult, error) {
+	ctx, contextID, err := b.readScope(ctx, p, input.ContextID)
+	if err != nil {
+		return mcp.NMSImportPollProposalsResult{}, err
+	}
+	page, err := nmsimport.NewCaptureStore(b.pool, nil).ListPollProposals(ctx,
+		contextID, input.SourceID, input.Cursor, nmsImportLimit(input.Limit))
+	if err != nil {
+		return mcp.NMSImportPollProposalsResult{}, nmsImportMCPReadError(err)
+	}
+	out := mcp.NMSImportPollProposalsResult{ContextID: page.ContextID,
+		SourceID: page.SourceID, NextCursor: page.NextCursor,
+		Items: make([]mcp.NMSImportPollProposalResult, 0, len(page.Items))}
+	for _, item := range page.Items {
+		out.Items = append(out.Items, mcp.NMSImportPollProposalResult{
+			ItemID: item.ItemID, HostID: item.HostID,
+			PollSeconds: item.PollSeconds, PlanID: item.PlanID,
+			Revision: item.Revision, AppliedAt: item.AppliedAt})
+	}
+	return out, nil
+}
+
 func (b mcpNMSImportBackend) NMSImportPollTarget(ctx context.Context, p *auth.Principal,
 	input mcp.NMSImportPollTargetInput) (mcp.NMSImportPollTargetResult, error) {
 	ctx, contextID, err := b.readScope(ctx, p, input.ContextID)

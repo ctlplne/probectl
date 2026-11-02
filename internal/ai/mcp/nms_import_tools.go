@@ -95,6 +95,29 @@ type NMSImportPollTargetResult struct {
 	Revision      int64  `json:"revision"`
 }
 
+type NMSImportPollProposalsInput struct {
+	ContextID string `json:"context_id"`
+	SourceID  string `json:"source_id"`
+	Cursor    string `json:"cursor,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+type NMSImportPollProposalResult struct {
+	ItemID      string    `json:"item_external_id"`
+	HostID      string    `json:"host_external_id"`
+	PollSeconds int64     `json:"poll_seconds"`
+	PlanID      string    `json:"plan_id"`
+	Revision    int64     `json:"revision"`
+	AppliedAt   time.Time `json:"applied_at"`
+}
+
+type NMSImportPollProposalsResult struct {
+	ContextID  string                        `json:"context_id"`
+	SourceID   string                        `json:"source_id"`
+	Items      []NMSImportPollProposalResult `json:"items"`
+	NextCursor *string                       `json:"next_cursor,omitempty"`
+}
+
 type NMSImportRowsInput struct {
 	ContextID string `json:"context_id"`
 	PlanID    string `json:"plan_id"`
@@ -113,6 +136,7 @@ type NMSImportDryRunInput struct {
 type NMSImportBackend interface {
 	NMSImportRows(context.Context, *auth.Principal, NMSImportRowsInput) (NMSImportRowsResult, error)
 	NMSImportDryRun(context.Context, *auth.Principal, NMSImportDryRunInput) (NMSImportDryRunResult, error)
+	NMSImportPollProposals(context.Context, *auth.Principal, NMSImportPollProposalsInput) (NMSImportPollProposalsResult, error)
 	NMSImportPollTarget(context.Context, *auth.Principal, NMSImportPollTargetInput) (NMSImportPollTargetResult, error)
 }
 
@@ -147,6 +171,8 @@ func buildNMSImportTools(b NMSImportBackend) []Tool {
 			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"plan_id":{"type":"string"},"cursor":{"type":"integer","minimum":-1},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["context_id","plan_id"],"additionalProperties":false}`), b.NMSImportRows),
 		nmsImportTool("nms_import_dry_run", "Page a frozen reviewed destination comparison; this tool never applies choices.",
 			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"plan_id":{"type":"string"},"review_hash":{"type":"string"},"cursor":{"type":"integer","minimum":-1},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["context_id","plan_id","review_hash"],"additionalProperties":false}`), b.NMSImportDryRun),
+		nmsImportTool("nms_import_poll_proposals", "Page inert applied Zabbix SNMP cadence proposals from one tenant source; no credential or agent assignment.",
+			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"source_id":{"type":"string"},"cursor":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["context_id","source_id"],"additionalProperties":false}`), b.NMSImportPollProposals),
 		nmsImportTool("nms_import_poll_target", "Verify one reviewed polling proposal against an exact current device-agent target; no credential or activation.",
 			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"source_id":{"type":"string"},"item_external_id":{"type":"string"},"agent_id":{"type":"string"},"target_address":{"type":"string"}},"required":["context_id","source_id","item_external_id","agent_id","target_address"],"additionalProperties":false}`), b.NMSImportPollTarget),
 	}

@@ -13,6 +13,7 @@ import {
   configureImportSource,
   finalizeImportReview,
   importDiff,
+  importPollProposals,
   importRows,
   previewImportPollTarget,
   setImportReviewChoices,
@@ -23,6 +24,7 @@ import {
   type ImportDiffPage,
   type ImportRow,
   type ImportRowsPage,
+  type ImportPollProposalsPage,
   type ImportPollTargetPreview,
 } from '../../api/nmsImport'
 import {
@@ -115,6 +117,7 @@ function ImportContents({
   const [pollAgentID, setPollAgentID] = useState('')
   const [pollAddress, setPollAddress] = useState('')
   const [pollPreview, setPollPreview] = useState<ImportPollTargetPreview | null>(null)
+  const [pollProposals, setPollProposals] = useState<ImportPollProposalsPage | null>(null)
   const [choices, setChoices] = useState<Record<number, PendingChoice>>({})
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -136,6 +139,7 @@ function ImportContents({
     setPage(null)
     setDiffPage(null)
     setPollPreview(null)
+    setPollProposals(null)
     setChoices({})
     setCredentialRef('')
     setMessage('')
@@ -158,6 +162,7 @@ function ImportContents({
   function showPage(next: ImportRowsPage) {
     setPage(next)
     setPollPreview(null)
+    setPollProposals(null)
     setSnapshotHash(next.snapshot_hash)
     setChoices(
       Object.fromEntries(
@@ -233,6 +238,14 @@ function ImportContents({
       })
       setPollPreview(preview)
       setMessage('Current source item and assigned device-agent target verified. No agent changed.')
+    })
+  }
+
+  function loadPollProposals(cursor?: string) {
+    if (!page) return
+    void run(async () => {
+      setPollProposals(await importPollProposals(contextID, page.source_id, cursor))
+      setMessage('Applied source cadence proposals loaded. Agent configuration is still separate.')
     })
   }
 
@@ -563,6 +576,7 @@ function ImportContents({
                   setApplyComplete(false)
                   setDiffPage(null)
                   setPollPreview(null)
+                  setPollProposals(null)
                 }}
               />
               <Button onClick={() => load()} disabled={busy || !planID}>
@@ -607,6 +621,48 @@ function ImportContents({
                   </Button>
                 ) : null}
               </div>
+            </div>
+          ) : null}
+          {page ? (
+            <div className={styles.stack}>
+              <Button onClick={() => loadPollProposals()} disabled={busy}>
+                List applied polling proposals
+              </Button>
+              {pollProposals ? (
+                <div>
+                  <h3>Inert source cadences</h3>
+                  {pollProposals.items.length === 0 ? (
+                    <p>No applied cadence proposals on this page.</p>
+                  ) : null}
+                  <ul>
+                    {pollProposals.items.map((proposal) => (
+                      <li key={proposal.item_external_id}>
+                        Item <code>{proposal.item_external_id}</code> for source host{' '}
+                        <code>{proposal.host_external_id}</code>: {proposal.poll_seconds}s, revision{' '}
+                        {proposal.revision}.{' '}
+                        {canPreviewTarget ? (
+                          <Button
+                            onClick={() => {
+                              setPollItemID(proposal.item_external_id)
+                              setPollPreview(null)
+                            }}
+                          >
+                            Select item
+                          </Button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                  {pollProposals.next_cursor ? (
+                    <Button
+                      onClick={() => loadPollProposals(pollProposals.next_cursor)}
+                      disabled={busy}
+                    >
+                      Next proposal page
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
           {canPreviewTarget && page ? (

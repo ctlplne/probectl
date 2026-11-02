@@ -2181,6 +2181,22 @@ type Me struct {
 	UserId          string   `json:"user_id"`
 }
 
+type NMSImportPollProposal struct {
+	AppliedAt      string `json:"applied_at"`
+	HostExternalId string `json:"host_external_id"`
+	ItemExternalId string `json:"item_external_id"`
+	PlanId         string `json:"plan_id"`
+	PollSeconds    int    `json:"poll_seconds"`
+	Revision       int    `json:"revision"`
+}
+
+type NMSImportPollProposalsPage struct {
+	ContextId  string                  `json:"context_id"`
+	Items      []NMSImportPollProposal `json:"items"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+	SourceId   string                  `json:"source_id"`
+}
+
 type NMSImportPollTargetPreview struct {
 	AgentId        string `json:"agent_id"`
 	ContextId      string `json:"context_id"`
@@ -5668,6 +5684,36 @@ func (c *Client) StartConfiguredLibreNmsImportPlan(ctx context.Context, req Star
 		return nil, err
 	}
 	return out, nil
+}
+
+// Page inert applied Zabbix SNMP cadence proposals from one source
+type ListNmsImportPollProposalsRequest struct {
+	ContextId *string `json:"-"`
+	SourceId  *string `json:"-"`
+	Cursor    *string `json:"-"`
+	Limit     *int    `json:"-"`
+}
+
+func (c *Client) ListNmsImportPollProposals(ctx context.Context, req ListNmsImportPollProposalsRequest) (*NMSImportPollProposalsPage, error) {
+	path := "/v1/nms-imports/poll-proposals"
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.SourceId != nil {
+		query.Set("source_id", formatQueryValue(*req.SourceId))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out NMSImportPollProposalsPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Verify one reviewed Zabbix cadence against an exact current agent target

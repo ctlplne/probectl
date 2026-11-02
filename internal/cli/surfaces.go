@@ -174,6 +174,8 @@ var surfaceCommands = map[string]surfaceCommand{
 			Description: "show current canonical identity evidence for this test's path responders in its bound context"},
 	}},
 	"nms-import": {Name: "nms-import", Summary: "tenant-scoped incumbent NMS import", Ops: map[string]apiOp{
+		"poll-proposals": {Method: http.MethodGet, Path: "/v1/nms-imports/poll-proposals",
+			Description: "page inert applied Zabbix SNMP cadence proposals; requires --query context_id=<UUID> --query source_id=<UUID>; optional cursor and limit"},
 		"rows": {Method: http.MethodGet, Path: "/v1/nms-imports/{id}/rows", ArgName: "id",
 			Description: "page redacted sealed source rows; requires --query context_id=<routing-context UUID>"},
 		"dry-run": {Method: http.MethodGet, Path: "/v1/nms-imports/{id}/dry-run", ArgName: "id",

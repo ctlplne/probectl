@@ -97,6 +97,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/directory/scim-tokens":       recordSurface,
 	"GET /v1/directory/users":             recordSurface,
 	"GET /v1/entity-contexts":             recordSurface,
+	"GET /v1/nms-imports/poll-proposals":  recordSurface,
 	"GET /v1/nms-imports/{id}/rows":       recordSurface,
 	"GET /v1/nms-imports/{id}/dry-run":    recordSurface,
 	"GET /v1/entities":                    recordSurface,
