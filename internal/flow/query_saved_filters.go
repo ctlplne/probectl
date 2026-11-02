@@ -45,10 +45,29 @@ type ResolvedQueryFilters struct {
 // cycle detection and budgets enforced during expansion, before a large tree
 // can be allocated. updatingID seeds cycle detection for a saved-filter update.
 func ResolveQueryFilters(ctx context.Context, tenant string, input *QueryFilterGroup, reader QueryFilterReader, updatingID string) (ResolvedQueryFilters, error) {
+	return resolveQueryFilters(ctx, tenant, input, reader, updatingID, NormalizeQueryFilterGroup)
+}
+
+// ResolveQueryFiltersWithVocabulary expands saved references using the same
+// tenant-bound field registry as the final plan. A saved tag predicate cannot
+// bypass validation by hiding behind a native-only reference.
+func ResolveQueryFiltersWithVocabulary(ctx context.Context, tenant string, input *QueryFilterGroup,
+	reader QueryFilterReader, updatingID string, vocabulary QueryVocabulary) (ResolvedQueryFilters, error) {
+	if vocabulary.tenantID != tenant {
+		return ResolvedQueryFilters{}, errors.New("flow tag vocabulary does not match tenant scope")
+	}
+	return resolveQueryFilters(ctx, tenant, input, reader, updatingID, func(group *QueryFilterGroup) (*QueryFilterGroup, error) {
+		return NormalizeQueryFilterGroupWithVocabulary(group, vocabulary)
+	})
+}
+
+func resolveQueryFilters(ctx context.Context, tenant string, input *QueryFilterGroup,
+	reader QueryFilterReader, updatingID string,
+	normalize func(*QueryFilterGroup) (*QueryFilterGroup, error)) (ResolvedQueryFilters, error) {
 	if tenant == "" {
 		return ResolvedQueryFilters{}, errors.New("flow saved filters require authenticated tenant scope")
 	}
-	root, err := NormalizeQueryFilterGroup(input)
+	root, err := normalize(input)
 	if err != nil {
 		return ResolvedQueryFilters{}, err
 	}
@@ -76,7 +95,7 @@ func ResolveQueryFilters(ctx context.Context, tenant string, input *QueryFilterG
 			return nil, errors.New("expanded saved filters exceed the query expression budget")
 		}
 		// Normalize again to own the condition slices and validate stored content.
-		normalized, err := NormalizeQueryFilterGroup(group)
+		normalized, err := normalize(group)
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +147,7 @@ func ResolveQueryFilters(ctx context.Context, tenant string, input *QueryFilterG
 	if err != nil {
 		return ResolvedQueryFilters{}, err
 	}
-	result.Expression, err = NormalizeQueryFilterGroup(result.Expression)
+	result.Expression, err = normalize(result.Expression)
 	if err != nil {
 		return ResolvedQueryFilters{}, err
 	}

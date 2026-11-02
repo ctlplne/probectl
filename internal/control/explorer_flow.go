@@ -40,7 +40,11 @@ func flowExplorerSchema(budgets ...flowstore.ExplorerBudget) map[string]any {
 }
 
 func (s *Server) authorizeFlowMetadata(ctx context.Context, principal *auth.Principal, plan flow.QueryPlan) error {
-	for _, permission := range flow.QueryPlanPermissions(plan) {
+	permissions, err := flowPlanPermissions(ctx, principal.TenantID, plan)
+	if err != nil {
+		return err
+	}
+	for _, permission := range permissions {
 		decision, err := s.decide(ctx, principal, permission, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: principal.TenantID})
 		if err != nil {
 			return err
@@ -52,14 +56,50 @@ func (s *Server) authorizeFlowMetadata(ctx context.Context, principal *auth.Prin
 	return nil
 }
 
+func flowPlanPermissions(ctx context.Context, tenant string, plan flow.QueryPlan) ([]string, error) {
+	data, err := flowTagQueryFromContext(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return flow.QueryPlanPermissions(plan), nil
+	}
+	vocabulary, err := data.Vocabulary(tenant)
+	if err != nil {
+		return nil, apierror.Unavailable("tenant tag query scope is unavailable")
+	}
+	return flow.QueryPlanPermissionsWithVocabulary(plan, vocabulary), nil
+}
+
 // resolveFlowSpec reads reusable configuration inside the authenticated tenant
 // before inspecting joined-data permissions. A reference cannot hide a field.
 func (s *Server) resolveFlowSpec(ctx context.Context, tenant string, query ai.ExplorerQuery) (flow.QueryPlan, map[string]int64, error) {
-	plan, err := ai.ExplorerFlowSpec(query, time.Now())
+	data, err := flowTagQueryFromContext(ctx, tenant)
+	if err != nil {
+		return flow.QueryPlan{}, nil, err
+	}
+	var vocabulary flow.QueryVocabulary
+	if data != nil {
+		vocabulary, err = data.Vocabulary(tenant)
+		if err != nil {
+			return flow.QueryPlan{}, nil, apierror.Unavailable("tenant tag query scope is unavailable")
+		}
+	}
+	var plan flow.QueryPlan
+	if data == nil {
+		plan, err = ai.ExplorerFlowSpec(query, time.Now())
+	} else {
+		plan, err = ai.ExplorerFlowSpecWithVocabulary(query, time.Now(), vocabulary)
+	}
 	if err != nil {
 		return flow.QueryPlan{}, nil, apierror.Validation(err.Error())
 	}
-	resolved, err := flow.ResolveQueryFilters(ctx, tenant, plan.Filter, s.flowQueryFilters, "")
+	var resolved flow.ResolvedQueryFilters
+	if data == nil {
+		resolved, err = flow.ResolveQueryFilters(ctx, tenant, plan.Filter, s.flowQueryFilters, "")
+	} else {
+		resolved, err = flow.ResolveQueryFiltersWithVocabulary(ctx, tenant, plan.Filter, s.flowQueryFilters, "", vocabulary)
+	}
 	if err != nil {
 		if errors.Is(err, flow.ErrQueryFilterNotFound) {
 			return flow.QueryPlan{}, nil, apierror.NotFound("saved flow filter not found")
@@ -67,7 +107,11 @@ func (s *Server) resolveFlowSpec(ctx context.Context, tenant string, query ai.Ex
 		return flow.QueryPlan{}, nil, apierror.Validation("saved flow filters could not be resolved within the query bounds")
 	}
 	plan.Filter = resolved.Expression
-	plan, err = flow.NormalizeQueryPlan(plan, time.Now())
+	if data == nil {
+		plan, err = flow.NormalizeQueryPlan(plan, time.Now())
+	} else {
+		plan, err = flow.NormalizeQueryPlanWithVocabulary(plan, time.Now(), vocabulary)
+	}
 	if err != nil {
 		return flow.QueryPlan{}, nil, apierror.Validation(err.Error())
 	}
@@ -89,6 +133,10 @@ func flowExplorerStoreError(err error) error {
 }
 
 func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.QueryPlan, selected [][]string, membership ...[][]string) (flowstore.PlanResult, error) {
+	tagData, err := flowTagQueryFromContext(ctx, tenant)
+	if err != nil {
+		return flowstore.PlanResult{}, err
+	}
 	backend, ok := flowstore.PlanStoreOf(s.flowStore)
 	if !ok {
 		return flowstore.PlanResult{}, apierror.Unavailable("flow record queries are unavailable from the configured store")
@@ -106,7 +154,7 @@ func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.Qu
 	if len(membership) >= 3 {
 		selectedMatrixRows = membership[2]
 	}
-	result, err := backend.ExplorePlan(ctx, flowstore.PlanQuery{TenantID: tenant, Plan: plan, SelectedGroups: selected, SelectedColumns: selectedColumns, SelectedChartGroups: selectedChart, SelectedMatrixRows: selectedMatrixRows})
+	result, err := backend.ExplorePlan(ctx, flowstore.PlanQuery{TenantID: tenant, Plan: plan, Tags: tagData, SelectedGroups: selected, SelectedColumns: selectedColumns, SelectedChartGroups: selectedChart, SelectedMatrixRows: selectedMatrixRows})
 	if err != nil {
 		return flowstore.PlanResult{}, flowExplorerStoreError(err)
 	}

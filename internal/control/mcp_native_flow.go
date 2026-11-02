@@ -63,7 +63,11 @@ func (b nativeMCPFlowBackend) FlowSchema(ctx context.Context, p *auth.Principal)
 	}
 	out := mcp.NativeFlowSchemaResult{ContractVersion: "flow-explorer/v2", Fields: []mcp.NativeFlowField{}, Metrics: []mcp.NativeFlowMetric{}, TimeRange: "tenant retention and source coverage; no fixed day cap"}
 	out.RenderCost = b.server.flowRenderBudget
-	for _, f := range flow.QueryFields() {
+	fields, err := b.server.flowQueryFields(ctx, p)
+	if err != nil {
+		return mcp.NativeFlowSchemaResult{}, err
+	}
+	for _, f := range fields {
 		out.Fields = append(out.Fields, mcp.NativeFlowField{Name: f.Name, Type: f.Type, Operators: f.Operators, LegacyHourly: f.LegacyHourly, Raw: f.Raw, Rollup: f.Rollup, Permission: f.Permission})
 	}
 	for _, m := range flow.QueryMetricDefinitions() {
@@ -90,11 +94,12 @@ func (b nativeMCPFlowBackend) FlowQuery(ctx context.Context, p *auth.Principal, 
 		}
 		return projectNativeFlowQuery(result)
 	}
-	query, err := ai.NormalizeExplorerQuery(ai.ExplorerQuery{Question: "Native flow query", Source: ai.ExplorerFlow, Flow: &plan}, time.Now())
+	query, queryCtx, err := b.server.normalizeExplorerQuery(ctx, p,
+		ai.ExplorerQuery{Question: "Native flow query", Source: ai.ExplorerFlow, Flow: &plan}, time.Now())
 	if err != nil {
-		return mcp.NativeFlowQueryResult{}, apierror.Validation("native flow plan is invalid")
+		return mcp.NativeFlowQueryResult{}, err
 	}
-	result, err := b.server.recordFlowQuery(ctx, p, query)
+	result, err := b.server.recordFlowQuery(queryCtx, p, query)
 	if err != nil {
 		return mcp.NativeFlowQueryResult{}, err
 	}
@@ -108,9 +113,10 @@ func (b nativeMCPFlowBackend) FlowCompare(ctx context.Context, p *auth.Principal
 		return mcp.NativeFlowComparisonResult{}, apierror.Validation("native flow comparison requires explicit previous bounds and no cursor")
 	}
 	now := time.Now()
-	query, err := ai.NormalizeExplorerQuery(ai.ExplorerQuery{Question: "Native flow comparison", Source: ai.ExplorerFlow, Flow: &input.Plan}, now)
+	query, queryCtx, err := b.server.normalizeExplorerQuery(ctx, p,
+		ai.ExplorerQuery{Question: "Native flow comparison", Source: ai.ExplorerFlow, Flow: &input.Plan}, now)
 	if err != nil {
-		return mcp.NativeFlowComparisonResult{}, apierror.Validation("native flow plan is invalid")
+		return mcp.NativeFlowComparisonResult{}, err
 	}
 	previous := query
 	plan := *query.Flow
@@ -119,11 +125,11 @@ func (b nativeMCPFlowBackend) FlowCompare(ctx context.Context, p *auth.Principal
 	previous.From = plan.From
 	previous.To = plan.To
 	previous.Flow = &plan
-	previous, err = ai.NormalizeExplorerQuery(previous, now)
+	previous, queryCtx, err = b.server.normalizeExplorerQuery(queryCtx, p, previous, now)
 	if err != nil {
-		return mcp.NativeFlowComparisonResult{}, apierror.Validation("native flow previous period is invalid")
+		return mcp.NativeFlowComparisonResult{}, err
 	}
-	result, err := b.server.recordFlowComparison(ctx, p, query, previous)
+	result, err := b.server.recordFlowComparison(queryCtx, p, query, previous)
 	if err != nil {
 		return mcp.NativeFlowComparisonResult{}, err
 	}

@@ -81,6 +81,19 @@ func ExplorerTemplates() []ExplorerTemplate {
 // NormalizeExplorerQuery validates and bounds an untrusted query. Fields are
 // allow-listed per source, so the Explorer cannot become an arbitrary query DSL.
 func NormalizeExplorerQuery(q ExplorerQuery, now time.Time) (ExplorerQuery, error) {
+	return normalizeExplorerQuery(q, now, ExplorerFlowSpec)
+}
+
+// NormalizeExplorerQueryWithVocabulary is the authenticated flow path for
+// tenant-owned tag keys. The native-only entry point remains fail-closed.
+func NormalizeExplorerQueryWithVocabulary(q ExplorerQuery, now time.Time, vocabulary flow.QueryVocabulary) (ExplorerQuery, error) {
+	return normalizeExplorerQuery(q, now, func(input ExplorerQuery, at time.Time) (flow.QueryPlan, error) {
+		return ExplorerFlowSpecWithVocabulary(input, at, vocabulary)
+	})
+}
+
+func normalizeExplorerQuery(q ExplorerQuery, now time.Time,
+	flowSpec func(ExplorerQuery, time.Time) (flow.QueryPlan, error)) (ExplorerQuery, error) {
 	if q.PlanOnly {
 		return ExplorerQuery{}, errors.New("plan-only requests require the stateless planning path")
 	}
@@ -120,7 +133,7 @@ func NormalizeExplorerQuery(q ExplorerQuery, now time.Time) (ExplorerQuery, erro
 		return ExplorerQuery{}, errors.New("flow options require the flow source")
 	}
 	if IsRecordFlowQuery(q) {
-		plan, err := ExplorerFlowSpec(q, now)
+		plan, err := flowSpec(q, now)
 		if err != nil {
 			return ExplorerQuery{}, err
 		}

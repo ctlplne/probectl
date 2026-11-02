@@ -88,7 +88,11 @@ func (s *Server) createFlowSnapshot(ctx context.Context, p *auth.Principal, quer
 	}
 	started := time.Now()
 	query.Flow = &plan
-	required := append([]string{permAIQuery, permFlowRead}, flow.QueryPlanPermissions(plan)...)
+	metadataPermissions, err := flowPlanPermissions(ctx, p.TenantID, plan)
+	if err != nil {
+		return explorerResult{}, err
+	}
+	required := append([]string{permAIQuery, permFlowRead}, metadataPermissions...)
 	page, err := s.flowSnapshots.Create(ctx, scope, required, plan.PageSize, s.flowSnapshotAuthorizer(p), func(ctx context.Context) (flowsnapshot.Input, error) {
 		result, err := s.recordFlowSpec(ctx, p.TenantID, plan, nil)
 		if err != nil {

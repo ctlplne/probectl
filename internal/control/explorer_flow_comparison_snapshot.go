@@ -87,7 +87,11 @@ func (s *Server) createFlowComparisonSnapshot(ctx context.Context, p *auth.Princ
 	if s.flowSnapshots == nil {
 		return explorerComparisonResult{}, apierror.Unavailable("shared flow snapshot storage is unavailable")
 	}
-	required := append([]string{permAIQuery, permFlowRead}, flow.QueryPlanPermissions(*current.Flow)...)
+	metadataPermissions, err := flowPlanPermissions(ctx, p.TenantID, *current.Flow)
+	if err != nil {
+		return explorerComparisonResult{}, err
+	}
+	required := append([]string{permAIQuery, permFlowRead}, metadataPermissions...)
 	page, err := s.flowSnapshots.Create(ctx, scope, required, current.Flow.PageSize, s.flowSnapshotAuthorizer(p), func(ctx context.Context) (flowsnapshot.Input, error) {
 		common, err := s.collectFlowComparison(ctx, p, current, previous, versions)
 		if err != nil {

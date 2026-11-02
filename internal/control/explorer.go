@@ -147,12 +147,18 @@ func (s *Server) handleExplorerSchema(w http.ResponseWriter, r *http.Request) er
 	if _, err := s.principalTenant(r); err != nil {
 		return err
 	}
+	fields, err := s.flowQueryFields(r.Context(), auth.PrincipalFrom(r.Context()))
+	if err != nil {
+		return err
+	}
+	flowSchema := s.nativeFlowSchema()
+	flowSchema["fields"] = fields
 	writeJSON(w, http.StatusOK, map[string]any{
 		"templates":          ai.ExplorerTemplates(),
 		"visualizations":     []string{"table", "bar", "line", "timeline", "topology"},
 		"comparison_sources": []ai.ExplorerSource{ai.ExplorerFlow, ai.ExplorerChanges, ai.ExplorerTopology, ai.ExplorerEndpoints, ai.ExplorerTLS},
 		"max_rows":           500,
-		"flow":               s.nativeFlowSchema(),
+		"flow":               flowSchema,
 	})
 	return nil
 }
@@ -188,10 +194,11 @@ func (s *Server) handleExplorerQuery(w http.ResponseWriter, r *http.Request) err
 	if raw.Flow != nil && raw.Flow.Cursor != "" {
 		return s.handleResumeFlowSnapshot(w, r, p, raw)
 	}
-	query, err := ai.NormalizeExplorerQuery(raw, time.Now())
+	query, queryCtx, err := s.normalizeExplorerQuery(r.Context(), p, raw, time.Now())
 	if err != nil {
-		return apierror.Validation(err.Error())
+		return err
 	}
+	r = r.WithContext(queryCtx)
 	permission := explorerPermission(query.Source)
 	if permission == "" {
 		return apierror.Forbidden("this role cannot read the selected Explorer source")
@@ -249,10 +256,11 @@ func (s *Server) handleExplorerComparison(w http.ResponseWriter, r *http.Request
 		}
 		return s.handleResumeFlowComparisonSnapshot(w, r, p, raw.Query)
 	}
-	current, err := ai.NormalizeExplorerQuery(raw.Query, time.Now())
+	current, queryCtx, err := s.normalizeExplorerQuery(r.Context(), p, raw.Query, time.Now())
 	if err != nil {
-		return apierror.Validation(err.Error())
+		return err
 	}
+	r = r.WithContext(queryCtx)
 	if !explorerComparisonSource(current.Source) {
 		return apierror.Validation("the selected Explorer source does not retain two exact historical windows")
 	}
@@ -265,10 +273,11 @@ func (s *Server) handleExplorerComparison(w http.ResponseWriter, r *http.Request
 	previous := current
 	previous.From = raw.PreviousFrom
 	previous.To = raw.PreviousTo
-	previous, err = ai.NormalizeExplorerQuery(previous, time.Now())
+	previous, queryCtx, err = s.normalizeExplorerQuery(r.Context(), p, previous, time.Now())
 	if err != nil {
-		return apierror.Validation("previous window: " + err.Error())
+		return err
 	}
+	r = r.WithContext(queryCtx)
 	if current.From.Equal(current.To) || previous.From.Equal(previous.To) {
 		return apierror.Validation("Explorer comparison windows must have positive duration")
 	}

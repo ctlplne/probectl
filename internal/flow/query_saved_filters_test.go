@@ -10,6 +10,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/ctlplne/probectl/internal/tags"
 )
 
 type savedFilterFixture map[string]map[string]SavedQueryFilter
@@ -73,5 +77,35 @@ func TestQueryD102SavedReferencesRefuseCyclesAndExpandedBudgets(t *testing.T) {
 	root.Saved = append(root.Saved, QuerySavedFilterRef{ID: "wide"})
 	if _, err := ResolveQueryFilters(t.Context(), "red", root, filters, ""); err == nil {
 		t.Fatal("expanded1250 conditions passed the1000 guard")
+	}
+}
+
+func TestTagSavedFilterResolutionKeepsTenantVocabulary(t *testing.T) {
+	red, blue := uuid.NewString(), uuid.NewString()
+	vocabulary, err := NewTagQueryVocabulary(red, []tags.Definition{
+		{TenantID: red, ID: uuid.NewString(), Key: "customer"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filters := savedFilterFixture{red: {"saved": {ID: "saved", TenantID: red, Version: 1,
+		Expression: QueryFilterGroup{Conditions: []QueryPredicate{
+			{Field: "tag.customer", Op: QueryEqual, Values: []string{"blue"}},
+		}}}}}
+	root := &QueryFilterGroup{Saved: []QuerySavedFilterRef{{ID: "saved"}}}
+	if _, err := ResolveQueryFilters(t.Context(), red, root, filters, ""); err == nil {
+		t.Fatal("native-only saved resolution accepted tenant tag")
+	}
+	resolved, err := ResolveQueryFiltersWithVocabulary(t.Context(), red, root, filters, "", vocabulary)
+	if err != nil || resolved.Expression.Groups[0].Conditions[0].Field != "tag.customer" {
+		t.Fatalf("tag predicate lost during saved expansion: %+v, %v", resolved, err)
+	}
+	if _, err := ResolveQueryFiltersWithVocabulary(t.Context(), blue, root, filters, "", vocabulary); err == nil {
+		t.Fatal("foreign tenant reused tag vocabulary")
+	}
+	filters[red]["saved"] = SavedQueryFilter{ID: "saved", TenantID: blue, Version: 1,
+		Expression: filters[red]["saved"].Expression}
+	if _, err := ResolveQueryFiltersWithVocabulary(t.Context(), red, root, filters, "", vocabulary); err == nil {
+		t.Fatal("foreign saved filter accepted")
 	}
 }

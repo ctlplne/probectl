@@ -45,6 +45,14 @@ func TestFlowExplorerTagFieldRequiresTenantVocabulary(t *testing.T) {
 	if err != nil || len(plan.GroupBy) != 1 || plan.GroupBy[0] != "tag.customer" {
 		t.Fatalf("tenant flow envelope lost its tag: %+v, %v", plan, err)
 	}
+	if _, err := NormalizeExplorerQuery(query, now); err == nil {
+		t.Fatal("native-only public normalizer accepted tenant tag")
+	}
+	query.Question = "Group tenant flows by customer"
+	normalized, err := NormalizeExplorerQueryWithVocabulary(query, now, vocabulary)
+	if err != nil || normalized.Flow == nil || normalized.Flow.GroupBy[0] != "tag.customer" {
+		t.Fatalf("public normalizer lost tenant tag: %+v, %v", normalized, err)
+	}
 }
 
 func TestFlowExplorerRejectsOverBudgetRows(t *testing.T) {

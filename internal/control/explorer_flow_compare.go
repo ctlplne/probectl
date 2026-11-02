@@ -58,7 +58,19 @@ func (s *Server) recordFlowComparison(ctx context.Context, principal *auth.Princ
 	current.Flow = &plan
 	previousPlan := plan
 	previousPlan.From, previousPlan.To = previous.From, previous.To
-	previousPlan, err = flow.NormalizeQueryPlan(previousPlan, time.Now())
+	tagData, err := flowTagQueryFromContext(ctx, principal.TenantID)
+	if err != nil {
+		return explorerComparisonResult{}, err
+	}
+	if tagData == nil {
+		previousPlan, err = flow.NormalizeQueryPlan(previousPlan, time.Now())
+	} else {
+		vocabulary, vocabErr := tagData.Vocabulary(principal.TenantID)
+		if vocabErr != nil {
+			return explorerComparisonResult{}, apierror.Unavailable("tenant tag query scope is unavailable")
+		}
+		previousPlan, err = flow.NormalizeQueryPlanWithVocabulary(previousPlan, time.Now(), vocabulary)
+	}
 	if err != nil {
 		return explorerComparisonResult{}, apierror.Validation(err.Error())
 	}
