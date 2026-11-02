@@ -63,6 +63,25 @@ func (s CaptureStore) OpenConfiguredLibreNMSMembership(ctx context.Context,
 
 func (s CaptureStore) openConfiguredLibreNMS(ctx context.Context, contextID,
 	planID, resource, groupID, reviewHash string, policy LibreNMSFetchPolicy) (io.ReadCloser, error) {
+	return s.openConfiguredLibreNMSWithState(ctx, contextID, planID,
+		resource, groupID, reviewHash, policy, false)
+}
+
+// An alert-specific proof re-reads only the fixed rules endpoint after the
+// inventory plan has been applied. The ordinary inventory fetch keeps its
+// narrower state contract and still refuses an applied plan.
+func (s CaptureStore) openAppliedLibreNMSRules(ctx context.Context, contextID,
+	planID, reviewHash string, policy LibreNMSFetchPolicy) (io.ReadCloser, error) {
+	if reviewHash == "" {
+		return nil, ErrPlanUnavailable
+	}
+	return s.openConfiguredLibreNMSWithState(ctx, contextID, planID,
+		"rules", "", reviewHash, policy, true)
+}
+
+func (s CaptureStore) openConfiguredLibreNMSWithState(ctx context.Context, contextID,
+	planID, resource, groupID, reviewHash string, policy LibreNMSFetchPolicy,
+	allowApplied bool) (io.ReadCloser, error) {
 	if s.pool == nil || s.audit == nil {
 		return nil, ErrCaptureAuditUnavailable
 	}
@@ -91,11 +110,13 @@ func (s CaptureStore) openConfiguredLibreNMS(ctx context.Context, contextID,
 			FROM nms_import_plans p JOIN nms_import_sources s
 			  ON s.tenant_id=p.tenant_id AND s.context_id=p.context_id AND s.id=p.source_id
 			WHERE p.tenant_id=$1 AND p.context_id=$2 AND p.id=$3
-			  AND (($4='' AND p.state='capturing') OR
-			       ($4<>'' AND p.review_hash=$4 AND p.state IN ('preview','applying')))
+			  AND (($5 AND $4<>'' AND p.review_hash=$4 AND p.state='applied') OR
+			       (NOT $5 AND (($4='' AND p.state='capturing') OR
+			       ($4<>'' AND p.review_hash=$4 AND p.state IN ('preview','applying')))))
 			  AND p.expires_at>clock_timestamp()
 			  AND s.source_kind='librenms' AND s.fetch_enabled
-			FOR SHARE OF p,s`, sc.Tenant.String(), contextID, planID, reviewHash).
+			FOR SHARE OF p,s`, sc.Tenant.String(), contextID, planID, reviewHash,
+			allowApplied).
 			Scan(&origin, &credentialRef, &planVersion, &sourceVersion)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrPlanUnavailable
