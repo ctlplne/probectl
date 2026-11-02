@@ -58,8 +58,9 @@ selftest() {
 # that hole: it runs `govulncheck -scan module` against each SHIPPED release
 # binary and fails when a finding's advisory has an available fix — i.e. there
 # is a newer module version to upgrade to. Advisories with no fix anywhere (for
-# example GO-2026-5932, the permanently-unmaintained golang.org/x/crypto/openpgp
-# package) are reported and tolerated, because there is nothing to bump to.
+# example an unmaintained module with no replacement version) are reported
+# and tolerated, because there is nothing to bump to. The split-out openpgp
+# module is not required here; x/crypto is pinned to the advisory-fixed revision.
 #
 # The shipped set is DERIVED from scripts/build-release-binaries.sh's BINARIES
 # default so the two cannot drift: adding a release binary there automatically
