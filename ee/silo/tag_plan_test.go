@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: LicenseRef-Probectl-Commercial
+//
+// Licensed under the probectl Commercial Source License; see ee/LICENSE.
+// Production use requires a valid commercial agreement; resale additionally
+// requires an MSP entitlement and reseller agreement.
+
+package silo
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestTagStoragePlanRepairsOldSiloBeforeTypedForeignKeys(t *testing.T) {
+	const schema = "t_11111111111141118111111111111111"
+	base := []string{"tests", "entity_contexts", "entity_path_test_contexts",
+		"entity_agent_contexts", "entity_source_contexts", "entities",
+		"entity_evidence", "entity_links", "incidents", "incident_signals",
+		"incident_correlation_overrides"}
+	tables := append(append([]string{}, base...), "entity_test_contexts",
+		"tenant_tag_revisions", "tenant_tag_definitions", "tenant_tag_assignments", "tenant_tag_rules")
+	for name, plan := range map[string][]string{
+		"provision": ProvisionPlan(schema, tables),
+		"old-silo catch-up": CatchUpPlan(schema, Catalog{
+			TenantTables: tables, SchemaTables: base,
+		}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			joined := strings.Join(plan, "\n")
+			mustContain := []string{
+				`"entities_tenant_context_id_kind_uidx" ON "` + schema + `"."entities"`,
+				`"entity_sources_tenant_context_identity_uidx" ON "` + schema + `"."entity_source_contexts"`,
+				`INSERT INTO "` + schema + `"."entity_test_contexts"`,
+				`WHERE tenant_id='11111111-1111-4111-8111-111111111111'::uuid`,
+				`ADD CONSTRAINT "fx3_tag_assignment_entity_fk" FOREIGN KEY (tenant_id,context_id,entity_id,entity_kind)`,
+				`ADD CONSTRAINT "fx3_tag_assignment_exporter_fk" FOREIGN KEY (tenant_id,context_id,exporter_agent_id,exporter_source_kind,exporter_source_ref)`,
+				`ADD CONSTRAINT "fx3_tag_assignment_test_fk" FOREIGN KEY (tenant_id,test_id,context_id)`,
+				`CREATE TRIGGER entity_test_retarget`,
+				`CREATE TRIGGER "tenant_tag_revision_insert"`,
+				`ENABLE ALWAYS TRIGGER "tenant_tag_revision_delete"`,
+			}
+			for _, want := range mustContain {
+				if !strings.Contains(joined, want) {
+					t.Errorf("missing silo tag guard %q", want)
+				}
+			}
+			indexAt := strings.Index(joined, `"entities_tenant_context_id_kind_uidx"`)
+			fkAt := strings.Index(joined, `ADD CONSTRAINT "fx3_tag_assignment_entity_fk"`)
+			if indexAt < 0 || fkAt <= indexAt {
+				t.Fatal("entity kind index must precede typed assignment FK")
+			}
+		})
+	}
+}

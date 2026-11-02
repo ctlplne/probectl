@@ -11,6 +11,7 @@
 package tags
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/netip"
 	"regexp"
@@ -26,11 +27,18 @@ var (
 )
 
 const (
-	maxDefinitions  = 64
-	maxRules        = 25000
-	maxAssignments  = 25000
-	maxValueBytes   = 128
-	maxPatternBytes = 256
+	// MaxDefinitions bounds one tenant's tag vocabulary.
+	MaxDefinitions = 64
+	// MaxRules meets the published 25,000-populator incumbent tier.
+	MaxRules = 25000
+	// MaxAssignments admits the same number of reviewed bindings.
+	MaxAssignments   = 25000
+	maxDefinitions   = MaxDefinitions
+	maxRules         = MaxRules
+	maxAssignments   = MaxAssignments
+	maxValueBytes    = 128
+	maxPatternBytes  = 256
+	maxTargetIDBytes = 2048
 )
 
 var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
@@ -39,6 +47,18 @@ var reservedKeys = map[string]bool{
 	"tenant_id": true, "agent_id": true, "bytes": true, "packets": true,
 	"flows": true, "src_addr": true, "dst_addr": true, "exporter": true,
 	"in_if": true, "out_if": true,
+	// The native FX-1 registry and metric vocabulary cannot be shadowed by
+	// tenant metadata. New native fields must be added here in the same change.
+	"obs_domain": true, "protocol": true, "ts": true, "start_ts": true,
+	"src_port": true, "dst_port": true, "transport": true, "net_type": true,
+	"vlan": true, "tos": true, "tcp_flags": true, "next_hop": true,
+	"raw_bytes": true, "raw_packets": true, "sampling": true,
+	"bytes_scaled": true, "packets_scaled": true,
+	"src_asn": true, "src_as_name": true, "src_country": true,
+	"dst_asn": true, "dst_as_name": true, "dst_country": true,
+	"row_id": true, "src_prefix": true, "dst_prefix": true,
+	"dscp": true, "tcp_flag_names": true, "in_if_name": true,
+	"out_if_name": true,
 }
 
 type Scope struct {
@@ -122,6 +142,17 @@ func validText(raw string, maxBytes int) bool {
 	return true
 }
 
+// ExporterTargetID combines the authenticated agent and its operator-owned
+// source reference without an ambiguous delimiter. Both sides must use this
+// same encoding; neither a packet address nor an untrusted name is a target.
+func ExporterTargetID(agentID, sourceRef string) (string, error) {
+	if agentID == "" || sourceRef == "" || len(agentID) > 128 || len(sourceRef) > 1024 {
+		return "", ErrInvalid
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(agentID)) + "." +
+		base64.RawURLEncoding.EncodeToString([]byte(sourceRef)), nil
+}
+
 func validKind(kind string) bool {
 	switch kind {
 	case "exporter", "interface", "prefix", "device", "agent", "test":
@@ -164,7 +195,7 @@ func validateAssignment(scope Scope, defs map[string]Definition, assignment Assi
 		return ErrScopeMismatch
 	}
 	if _, exists := defs[assignment.TagID]; !exists ||
-		!validKind(assignment.TargetKind) || !validText(assignment.TargetID, 256) ||
+		!validKind(assignment.TargetKind) || !validText(assignment.TargetID, maxTargetIDBytes) ||
 		!validText(assignment.Value, maxValueBytes) ||
 		(assignment.Source != "manual" && assignment.Source != "netbox") ||
 		(assignment.Source == "manual" && assignment.SourceRef != "") ||

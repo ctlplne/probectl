@@ -363,6 +363,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		"flow_snapshot_epochs",
 		"entity_contexts",
 		"entity_path_test_contexts",
+		"entity_test_contexts",
 		"entity_agent_contexts",
 		"entity_source_contexts",
 		"entities",
@@ -379,6 +380,10 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		"nms_import_group_members",
 		"nms_import_poll_proposals",
 		"nms_import_alert_bindings",
+		"tenant_tag_revisions",
+		"tenant_tag_definitions",
+		"tenant_tag_assignments",
+		"tenant_tag_rules",
 		"roles",
 		"ir_attribution_records",
 	})
@@ -392,7 +397,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 	if byName["audit_events"] != subjectTableProjectMatches {
 		t.Fatalf("audit_events disposition = %d, want append-only projection", byName["audit_events"])
 	}
-	for _, table := range []string{"users", "ai_feedback", "incident_correlation_overrides", "flow_query_filters", "flow_query_views", "flow_query_view_preferences", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_fault_receipts"} {
+	for _, table := range []string{"users", "ai_feedback", "incident_correlation_overrides", "flow_query_filters", "flow_query_views", "flow_query_view_preferences", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_fault_receipts", "tenant_tag_definitions", "tenant_tag_assignments", "tenant_tag_rules"} {
 		if byName[table] != subjectTableDeleteMatches {
 			t.Fatalf("%s disposition = %d, want count-verified deletion", table, byName[table])
 		}
@@ -400,7 +405,13 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 	if byName["roles"] != subjectTableNoSubject {
 		t.Fatalf("roles disposition = %d, want explicit no-subject classification", byName["roles"])
 	}
-	for _, table := range []string{"entity_contexts", "entity_path_test_contexts", "entity_links", "nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_capture_steps", "nms_import_rows", "nms_import_provenance", "nms_import_groups", "nms_import_group_members", "nms_import_poll_proposals", "nms_import_alert_bindings"} {
+	for _, table := range []string{
+		"entity_contexts", "entity_path_test_contexts", "entity_test_contexts", "entity_links",
+		"nms_import_sources", "nms_import_plans", "nms_import_pages",
+		"nms_import_capture_steps", "nms_import_rows", "nms_import_provenance",
+		"nms_import_groups", "nms_import_group_members", "nms_import_poll_proposals",
+		"nms_import_alert_bindings", "tenant_tag_revisions",
+	} {
 		if byName[table] != subjectTableNoSubject {
 			t.Fatalf("%s disposition = %d, want UUID-only no-subject classification", table, byName[table])
 		}

@@ -279,6 +279,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// context and all its independent telemetry because one label matched.
 	"entity_contexts":           {plane: "postgres:entity_contexts", disposition: subjectTableNoSubject},
 	"entity_path_test_contexts": {plane: "postgres:entity_path_test_contexts", disposition: subjectTableNoSubject},
+	"entity_test_contexts":      {plane: "postgres:entity_test_contexts", disposition: subjectTableNoSubject},
 	"entity_agent_contexts": {
 		plane: "postgres:entity_agent_contexts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id"},
@@ -300,6 +301,23 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 			"neighbor_device_name", "neighbor_management_address"},
 	},
 	"entity_links": {plane: "postgres:entity_links", disposition: subjectTableNoSubject},
+	// FX-3 tags can carry a subject in a reviewed value, a collected SNMP
+	// selector or the CMDB provenance. UUID-only context and revision rows do
+	// not. A matching definition deletion cascades its assignments and rules.
+	"tenant_tag_revisions": {plane: "postgres:tenant_tag_revisions", disposition: subjectTableNoSubject},
+	"tenant_tag_definitions": {
+		plane: "postgres:tenant_tag_definitions", disposition: subjectTableDeleteMatches,
+		exact: []string{"key"},
+	},
+	"tenant_tag_assignments": {
+		plane: "postgres:tenant_tag_assignments", disposition: subjectTableDeleteMatches,
+		exact:    []string{"agent_id", "exporter_agent_id"},
+		contains: []string{"value", "source_ref", "exporter_source_ref"},
+	},
+	"tenant_tag_rules": {
+		plane: "postgres:tenant_tag_rules", disposition: subjectTableDeleteMatches,
+		contains: []string{"value", "name_pattern", "snmp_value"},
+	},
 	"entity_fault_receipts": {
 		plane: "postgres:entity_fault_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id"}, contains: []string{"source_ref"},

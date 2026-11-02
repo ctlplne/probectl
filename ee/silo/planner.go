@@ -99,6 +99,7 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 		plan = append(plan, provisionTablePlan(schema, t)...)
 	}
 	plan = append(plan, entityRegistryForeignKeyPlan(schema, tenantTables)...)
+	plan = append(plan, tagStoragePlan(schema, tenantTables)...)
 	return plan
 }
 
@@ -611,6 +612,7 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 		)
 	}
 	plan = append(plan, entityRegistryForeignKeyPlan(schema, cat.TenantTables)...)
+	plan = append(plan, tagStoragePlan(schema, cat.TenantTables)...)
 	return plan
 }
 

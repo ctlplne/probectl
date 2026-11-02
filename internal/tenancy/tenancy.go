@@ -118,6 +118,23 @@ func BeginProvider(ctx context.Context, pool *pgxpool.Pool) (pgx.Tx, error) {
 // Postgres Row-Level Security scopes every statement to this tenant. It fails
 // closed when no tenant is in context (docs/guardrails.md G7-1).
 func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, Scope) error) error {
+	return inTenantTx(ctx, pool, pgx.TxOptions{}, fn)
+}
+
+// InTenantReadSnapshot binds the same tenant, role and silo routing as
+// InTenant, then gives a caller one read-only REPEATABLE READ view. FX-3 tag
+// loaders use it so a vocabulary edit cannot mix two revisions while loading
+// definitions, rules and assignments for one query snapshot. It holds ACCESS
+// SHARE on silo tables across those statements so a concurrent schema change
+// cannot make a later unqualified read fall through to the pooled tables.
+func InTenantReadSnapshot(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, Scope) error) error {
+	return inTenantTx(WithSiloTableLock(ctx), pool, pgx.TxOptions{
+		IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly,
+	}, fn)
+}
+
+func inTenantTx(ctx context.Context, pool *pgxpool.Pool, options pgx.TxOptions,
+	fn func(context.Context, Scope) error) error {
 	id, ok := FromContext(ctx)
 	if !ok {
 		return ErrNoTenant
@@ -135,7 +152,7 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 		return err
 	}
 
-	tx, err := pool.Begin(ctx)
+	tx, err := pool.BeginTx(ctx, options)
 	if err != nil {
 		return fmt.Errorf("begin tenant tx: %w", err)
 	}

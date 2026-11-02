@@ -186,6 +186,9 @@ func TestSnapshotPinsRevisionAndRejectsCrossContextSubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if revision, err := snapshot.Revision(); err != nil || revision != 7 {
+		t.Fatalf("snapshot did not expose its pinned revision: %d, %v", revision, err)
+	}
 	rules[0].Value = "new"
 	definitions[0].Key = "renamed"
 	got, err := snapshot.Resolve(subject)
@@ -201,6 +204,9 @@ func TestSnapshotPinsRevisionAndRejectsCrossContextSubject(t *testing.T) {
 
 func TestSnapshotZeroValueFailsClosed(t *testing.T) {
 	var snapshot Snapshot
+	if _, err := snapshot.Revision(); !errors.Is(err, ErrScopeMismatch) {
+		t.Fatalf("uninitialized snapshot exposed a revision: %v", err)
+	}
 	_, err := snapshot.Resolve(Subject{Kind: "exporter", ID: "exporter-1"})
 	if !errors.Is(err, ErrScopeMismatch) {
 		t.Fatalf("uninitialized snapshot silently returned untagged data: %v", err)
@@ -227,5 +233,32 @@ func TestSnapshotAdmitsPublishedRuleCardinalityWithoutTruncating(t *testing.T) {
 	got, err := snapshot.Resolve(subject)
 	if err != nil || len(got) != 1 || got[0].SourceID != rules[len(rules)-1].ID {
 		t.Fatalf("final rule missing or wrong: %+v, %v", got, err)
+	}
+}
+
+func TestExporterTargetIDKeepsAgentAndSourceRefDistinctAtStoredLimit(t *testing.T) {
+	first, err := ExporterTargetID("a.b", "c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := ExporterTargetID("a", "b.c")
+	if err != nil || first == second {
+		t.Fatalf("agent/source pair collided: %q, %q, %v", first, second, err)
+	}
+	long, err := ExporterTargetID("agent-1", strings.Repeat("r", 1024))
+	if err != nil || len(long) > maxTargetIDBytes {
+		t.Fatalf("stored 1024-byte source ref cannot form a target: %d, %v", len(long), err)
+	}
+	scope := testScope()
+	assignment := Assignment{Scope: scope, TagID: tagID, TargetKind: "exporter",
+		TargetID: long, Value: "customer-a", Source: "manual"}
+	subject := Subject{Scope: scope, Kind: "exporter", ID: long}
+	got, err := resolve(scope, 1, subject, []Definition{testDefinition()},
+		[]Assignment{assignment}, nil)
+	if err != nil || len(got) != 1 || got[0].Value != "customer-a" {
+		t.Fatalf("long owned exporter ref was dropped: %+v, %v", got, err)
+	}
+	if _, err := ExporterTargetID("", "ref"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("missing agent admitted: %v", err)
 	}
 }

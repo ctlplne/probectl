@@ -579,8 +579,9 @@ func (p *Provisioner) Provision(ctx context.Context, tenantID, residency string,
 }
 
 // CatchUpSchema is the schema-only half of CatchUp (D-71, DPR-387): it adds
-// the tables and columns later migrations introduced — empty, with their
-// RLS, grants and write fences — and changes no row. It is what an
+// the tables and columns later migrations introduced, with their RLS, grants
+// and write fences. FX-3 copies existing path-test context bindings into its
+// new general test-context table; it does not change old rows. It is what an
 // OFFBOARDING silo gets, so its export and verifiable erasure keep working
 // after an upgrade adds a tenant-owned table.
 func (p *Provisioner) CatchUpSchema(ctx context.Context, tenantID string) error {

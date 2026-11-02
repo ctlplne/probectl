@@ -27,6 +27,15 @@ type Snapshot struct {
 	snmpRules   map[string][]compiledRule
 }
 
+// Revision returns the committed tag revision captured with this snapshot.
+// A zero-value snapshot has no authority to label a query result.
+func (s *Snapshot) Revision() (int64, error) {
+	if s == nil || !validScope(s.scope) || s.revision <= 0 {
+		return 0, ErrScopeMismatch
+	}
+	return s.revision, nil
+}
+
 type compiledRule struct {
 	rule    Rule
 	pattern *regexp.Regexp
@@ -166,7 +175,7 @@ func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
 		!sameScope(s.scope, subject.Scope) {
 		return nil, ErrScopeMismatch
 	}
-	if !validKind(subject.Kind) || !validText(subject.ID, 256) ||
+	if !validKind(subject.Kind) || !validText(subject.ID, maxTargetIDBytes) ||
 		(subject.Address.IsValid() && subject.Address.Zone() != "") ||
 		(subject.AddressSide != "" && !validSide(subject.AddressSide)) {
 		return nil, ErrInvalid
