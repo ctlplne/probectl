@@ -1,0 +1,362 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+//go:build integration
+
+package store
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/ctlplne/probectl/internal/nmsimport"
+	"github.com/ctlplne/probectl/internal/tenancy"
+)
+
+// The dedicated CI job captures these bytes from running, digest-pinned
+// LibreNMS and Zabbix containers. This test imports both source inventories
+// into two real Postgres tenants. It does not treat vendor bytes as a tenant,
+// routing-context, destination, credential, or alert-activation authority.
+func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
+	dir := os.Getenv("PROBECTL_TEST_NMS_VENDOR_DIR")
+	if dir == "" {
+		if os.Getenv("PROBECTL_TEST_REQUIRE_NMS_VENDOR") == "1" {
+			t.Fatal("required real NMS vendor fixture is unavailable")
+		}
+		t.Skip("dedicated real NMS vendor job supplies the fixture")
+	}
+	read := func(name string) []byte {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || len(data) == 0 {
+			t.Fatalf("real NMS fixture %s unavailable: %v", name, err)
+		}
+		return data
+	}
+	var manifest struct {
+		LibreNMS struct {
+			DeviceID   string `json:"device_id"`
+			LocationID string `json:"location_id"`
+			GroupID    string `json:"group_id"`
+			GroupName  string `json:"group_name"`
+		} `json:"librenms"`
+		Zabbix struct {
+			HostKey   string `json:"host_key"`
+			GroupName string `json:"group_name"`
+		} `json:"zabbix"`
+	}
+	if err := json.Unmarshal(read("manifest.json"), &manifest); err != nil {
+		t.Fatalf("real NMS fixture manifest invalid: %v", err)
+	}
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	t.Cleanup(pool.Close)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	a, err := NewTenants(pool).Create(ctx, "vendor-import-a-"+suffix, "Vendor import A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewTenants(pool).Create(ctx, "vendor-import-b-"+suffix, "Vendor import B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM tenants WHERE id=ANY($1::uuid[])`,
+			[]string{a.ID, b.ID}); err != nil {
+			t.Errorf("remove NMS vendor fixture tenants: %v", err)
+		}
+	})
+	contextID := uuid.NewString()
+	for _, tenant := range []string{a.ID, b.ID} {
+		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
+				(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
+				VALUES ($1,$2,$3,$4,'Vendor lab','Private')`, tenant, contextID,
+				uuid.NewString(), uuid.NewString())
+			return err
+		})
+	}
+	auditEvents := 0
+	capturer := nmsimport.NewCaptureStore(pool,
+		func(_ context.Context, _ tenancy.Scope, _, _ string, _ map[string]any) error {
+			auditEvents++
+			return nil
+		})
+	libreFiles := map[string][]byte{}
+	for _, name := range []string{"devices", "locations", "groups", "members", "rules"} {
+		libreFiles[name] = read("librenms-" + name + ".json")
+	}
+	zabbixExport := read("zabbix-hosts.json")
+	type applied struct{ librePlan, zabbixPlan, libreDevice, zabbixDevice, libreSource, zabbixSource string }
+	byTenant := map[string]applied{}
+	for _, tenant := range []string{a.ID, b.ID} {
+		tenantCtx := tenancy.WithTenant(ctx, tenancy.ID(tenant))
+		librePlan, err := capturer.StartPlan(tenantCtx, contextID, nmsimport.LibreNMS,
+			"vendor-librenms", strings.Repeat("a", 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		libreSnapshot, err := capturer.CaptureLibreNMSInventory(tenantCtx, contextID,
+			librePlan, bytes.NewReader(libreFiles["devices"]), bytes.NewReader(libreFiles["locations"]),
+			bytes.NewReader(libreFiles["groups"]), bytes.NewReader(libreFiles["rules"]),
+			[]nmsimport.LibreNMSMembershipList{{GroupID: manifest.LibreNMS.GroupID,
+				GroupName: manifest.LibreNMS.GroupName, Raw: bytes.NewReader(libreFiles["members"])}})
+		if err != nil {
+			t.Fatalf("capture live LibreNMS inventory: %v", err)
+		}
+		libreRows, err := capturer.ListSealedRows(tenantCtx, contextID, librePlan, -1, 100)
+		if err != nil || libreRows.NextCursor != nil {
+			t.Fatalf("page live LibreNMS inventory: %v", err)
+		}
+		libreChoices := make([]nmsimport.ReviewChoice, 0, len(libreRows.Items))
+		libreSeen := map[string]bool{}
+		for _, row := range libreRows.Items {
+			choice := nmsimport.ReviewChoice{RowNumber: row.Number, Action: "skip"}
+			switch {
+			case row.Kind == "device" && row.ExternalID == manifest.LibreNMS.DeviceID:
+				if row.Address != "192.0.2.40" || row.LocationID != manifest.LibreNMS.LocationID {
+					t.Fatalf("LibreNMS device mapped fields changed: %+v", row)
+				}
+				choice.Action, libreSeen["device"] = "create", true
+			case row.Kind == "site" && row.ExternalID == manifest.LibreNMS.LocationID:
+				if row.Label != "Fixture East" {
+					t.Fatalf("LibreNMS site label changed: %q", row.Label)
+				}
+				choice.Action, libreSeen["site"] = "create", true
+			case row.Kind == "group" && row.ExternalID == manifest.LibreNMS.GroupID:
+				if row.Label != manifest.LibreNMS.GroupName {
+					t.Fatalf("LibreNMS group label changed: %q", row.Label)
+				}
+				choice.Action, libreSeen["group"] = "create", true
+			case row.Kind == "membership" && row.ExternalID == manifest.LibreNMS.GroupID+":"+manifest.LibreNMS.DeviceID:
+				choice.Action, libreSeen["membership"] = "create", true
+			case row.Kind == "alert_rule":
+				if !strings.Contains(strings.Join(row.UnmappedCodes, ","), "expression_unmapped") {
+					t.Fatal("LibreNMS rule expression was silently dropped")
+				}
+				choice.Action, libreSeen["rule_unmapped"] = "unmapped", true
+			}
+			libreChoices = append(libreChoices, choice)
+		}
+		for _, key := range []string{"device", "site", "group", "membership", "rule_unmapped"} {
+			if !libreSeen[key] {
+				t.Fatalf("live LibreNMS %s was not captured", key)
+			}
+		}
+		if err := capturer.SetReviewChoices(tenantCtx, contextID, librePlan,
+			libreSnapshot, libreChoices); err != nil {
+			t.Fatalf("review live LibreNMS rows: %v", err)
+		}
+		libreReview, err := capturer.FinalizeReview(tenantCtx, contextID, librePlan, libreSnapshot)
+		if err != nil {
+			t.Fatalf("freeze live LibreNMS review: %v", err)
+		}
+		if _, err := capturer.ListReviewDiff(tenantCtx, contextID, librePlan,
+			libreReview, -1, 100); err != nil {
+			t.Fatalf("dry-run live LibreNMS review: %v", err)
+		}
+		assertNoVendorWrites(t, ctx, pool, tenant, contextID)
+		if tenant == a.ID {
+			foreignCtx := tenancy.WithTenant(ctx, tenancy.ID(b.ID))
+			if _, err := capturer.ListSealedRows(foreignCtx, contextID, librePlan, -1, 10); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+				t.Fatalf("foreign tenant read LibreNMS plan: %v", err)
+			}
+			if _, err := capturer.ApplyReview(foreignCtx, contextID, librePlan,
+				libreSnapshot, libreReview); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+				t.Fatalf("foreign tenant applied LibreNMS plan: %v", err)
+			}
+		}
+		libreProgress, err := capturer.ApplyReview(tenantCtx, contextID, librePlan,
+			libreSnapshot, libreReview)
+		if err != nil || libreProgress.State != "applied" || libreProgress.Applied != 4 {
+			t.Fatalf("apply live LibreNMS inventory: %+v err=%v", libreProgress, err)
+		}
+		libreRetry, err := capturer.ApplyReview(tenantCtx, contextID, librePlan,
+			libreSnapshot, libreReview)
+		if err != nil || libreRetry.Applied != 0 {
+			t.Fatalf("repeat live LibreNMS import wrote again: %+v err=%v", libreRetry, err)
+		}
+
+		zabbixPlan, err := capturer.StartPlan(tenantCtx, contextID, nmsimport.Zabbix,
+			"vendor-zabbix", strings.Repeat("b", 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := capturer.AppendPage(tenantCtx, contextID, zabbixPlan, 0,
+			"hosts", 0, bytes.NewReader(zabbixExport)); err != nil {
+			t.Fatalf("capture live Zabbix export: %v", err)
+		}
+		var zabbixCount int64
+		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
+				WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`, tenant, contextID,
+				zabbixPlan).Scan(&zabbixCount)
+		})
+		zabbixSnapshot, err := capturer.Seal(tenantCtx, contextID, zabbixPlan, 1, zabbixCount)
+		if err != nil {
+			t.Fatalf("seal live Zabbix export: %v", err)
+		}
+		zabbixRows, err := capturer.ListSealedRows(tenantCtx, contextID, zabbixPlan, -1, 100)
+		if err != nil || zabbixRows.NextCursor != nil {
+			t.Fatalf("page live Zabbix export: %v", err)
+		}
+		zabbixChoices := make([]nmsimport.ReviewChoice, 0, len(zabbixRows.Items))
+		zabbixSeen := map[string]bool{}
+		for _, row := range zabbixRows.Items {
+			choice := nmsimport.ReviewChoice{RowNumber: row.Number, Action: "skip"}
+			switch {
+			case row.Kind == "group" && row.Label == manifest.Zabbix.GroupName:
+				if !strings.Contains(strings.Join(row.UnmappedCodes, ","), "membership_not_captured") {
+					t.Fatal("Zabbix group membership omission was not listed")
+				}
+				choice.Action, zabbixSeen["group"] = "create", true
+			case row.Kind == "device" && row.ExternalID == manifest.Zabbix.HostKey:
+				if row.Address != "192.0.2.40" || row.Label != "Fixture Edge R1" || len(row.GroupIDs) != 1 {
+					t.Fatalf("Zabbix host mapped fields changed: %+v", row)
+				}
+				choice.Action, zabbixSeen["device"] = "create", true
+			case row.Kind == "poll_setting" && row.ParentID == manifest.Zabbix.HostKey:
+				if row.PollSeconds != 15 || !strings.Contains(strings.Join(row.UnmappedCodes, ","), "poll_proposal") {
+					t.Fatalf("Zabbix SNMP cadence not retained: %+v", row)
+				}
+				choice.Action, zabbixSeen["poll"] = "create", true
+			case row.Kind == "alert_rule":
+				if !strings.Contains(strings.Join(row.UnmappedCodes, ","), "expression_unmapped") {
+					t.Fatal("Zabbix trigger expression was silently dropped")
+				}
+				choice.Action, zabbixSeen["rule_unmapped"] = "unmapped", true
+			}
+			zabbixChoices = append(zabbixChoices, choice)
+		}
+		for _, key := range []string{"group", "device", "poll", "rule_unmapped"} {
+			if !zabbixSeen[key] {
+				t.Fatalf("live Zabbix %s was not captured", key)
+			}
+		}
+		if err := capturer.SetReviewChoices(tenantCtx, contextID, zabbixPlan,
+			zabbixSnapshot, zabbixChoices); err != nil {
+			t.Fatalf("review live Zabbix rows: %v", err)
+		}
+		zabbixReview, err := capturer.FinalizeReview(tenantCtx, contextID,
+			zabbixPlan, zabbixSnapshot)
+		if err != nil {
+			t.Fatalf("freeze live Zabbix review: %v", err)
+		}
+		if _, err := capturer.ListReviewDiff(tenantCtx, contextID, zabbixPlan,
+			zabbixReview, -1, 100); err != nil {
+			t.Fatalf("dry-run live Zabbix review: %v", err)
+		}
+		zabbixProgress, err := capturer.ApplyReview(tenantCtx, contextID, zabbixPlan,
+			zabbixSnapshot, zabbixReview)
+		if err != nil || zabbixProgress.State != "applied" || zabbixProgress.Applied != 3 {
+			t.Fatalf("apply live Zabbix inventory: %+v err=%v", zabbixProgress, err)
+		}
+		zabbixRetry, err := capturer.ApplyReview(tenantCtx, contextID, zabbixPlan,
+			zabbixSnapshot, zabbixReview)
+		if err != nil || zabbixRetry.Applied != 0 {
+			t.Fatalf("repeat live Zabbix import wrote again: %+v err=%v", zabbixRetry, err)
+		}
+		var bound applied
+		bound.librePlan, bound.zabbixPlan = librePlan, zabbixPlan
+		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			for _, binding := range []struct {
+				kind, externalID, planID string
+				out                      *string
+			}{
+				{"device", manifest.LibreNMS.DeviceID, librePlan, &bound.libreDevice},
+				{"device", manifest.Zabbix.HostKey, zabbixPlan, &bound.zabbixDevice},
+			} {
+				if err := sc.Q.QueryRow(ctx, `SELECT entity_id::text FROM nms_import_provenance
+					WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
+					  AND object_kind=$4 AND external_id=$5`, tenant, contextID, binding.planID,
+					binding.kind, binding.externalID).Scan(binding.out); err != nil {
+					return err
+				}
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT source_id::text FROM nms_import_plans
+				WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, tenant, contextID,
+				librePlan).Scan(&bound.libreSource); err != nil {
+				return err
+			}
+			return sc.Q.QueryRow(ctx, `SELECT source_id::text FROM nms_import_plans
+				WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, tenant, contextID,
+				zabbixPlan).Scan(&bound.zabbixSource)
+		})
+		byTenant[tenant] = bound
+	}
+	left, right := byTenant[a.ID], byTenant[b.ID]
+	if left.libreDevice == right.libreDevice || left.zabbixDevice == right.zabbixDevice ||
+		left.libreSource == right.libreSource || left.zabbixSource == right.zabbixSource {
+		t.Fatal("real vendor import shared a tenant source or canonical device")
+	}
+	for _, tenant := range []string{a.ID, b.ID} {
+		bound := byTenant[tenant]
+		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var libreGroup, libreMember, zabbixGroup, pollProposal, alertRules, foreign int
+			for _, item := range []struct {
+				query string
+				out   *int
+				args  []any
+			}{
+				{`SELECT count(*) FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id=$4`,
+					&libreGroup, []any{tenant, contextID, bound.libreSource, manifest.LibreNMS.GroupID}},
+				{`SELECT count(*) FROM nms_import_group_members WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND group_external_id=$4 AND member_external_id=$5`,
+					&libreMember, []any{tenant, contextID, bound.libreSource, manifest.LibreNMS.GroupID, manifest.LibreNMS.DeviceID}},
+				{`SELECT count(*) FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3`,
+					&zabbixGroup, []any{tenant, contextID, bound.zabbixSource}},
+				{`SELECT count(*) FROM nms_import_poll_proposals WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND host_external_id=$4 AND poll_seconds=15`,
+					&pollProposal, []any{tenant, contextID, bound.zabbixSource, manifest.Zabbix.HostKey}},
+				{`SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, &alertRules, []any{tenant}},
+				{`SELECT count(*) FROM nms_import_provenance WHERE tenant_id=$1 AND context_id=$2 AND entity_id=$3`,
+					&foreign, []any{tenant, contextID, map[string]string{a.ID: right.zabbixDevice, b.ID: left.zabbixDevice}[tenant]}},
+			} {
+				if err := sc.Q.QueryRow(ctx, item.query, item.args...).Scan(item.out); err != nil {
+					return err
+				}
+			}
+			if libreGroup != 1 || libreMember != 1 || zabbixGroup != 1 || pollProposal != 1 ||
+				alertRules != 0 || foreign != 0 {
+				t.Fatalf("real vendor destination tenant boundary: libreGroup=%d libreMember=%d zabbixGroup=%d poll=%d alerts=%d foreign=%d",
+					libreGroup, libreMember, zabbixGroup, pollProposal, alertRules, foreign)
+			}
+			return nil
+		})
+	}
+	if auditEvents == 0 {
+		t.Fatal("real vendor import emitted no tenant audit events")
+	}
+}
+
+func assertNoVendorWrites(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, contextID string) {
+	t.Helper()
+	inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		var entities, groups, members, proposals int
+		if err := sc.Q.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM entities WHERE tenant_id=$1 AND context_id=$2),
+			(SELECT count(*) FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2),
+			(SELECT count(*) FROM nms_import_group_members WHERE tenant_id=$1 AND context_id=$2),
+			(SELECT count(*) FROM nms_import_poll_proposals WHERE tenant_id=$1 AND context_id=$2)`,
+			tenant, contextID).Scan(&entities, &groups, &members, &proposals); err != nil {
+			return err
+		}
+		if entities != 0 || groups != 0 || members != 0 || proposals != 0 {
+			t.Fatalf("dry run wrote destination data: entities=%d groups=%d members=%d proposals=%d",
+				entities, groups, members, proposals)
+		}
+		return nil
+	})
+}

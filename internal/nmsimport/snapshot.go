@@ -387,7 +387,10 @@ func zabbixPollItemRow(item zabbixExportItem, hostID string) (Row, bool, bool) {
 	codes := []string{"poll_item_unmapped"}
 	snmp := string(item.Type) == `"SNMP_AGENT"` ||
 		string(item.Type) == `"20"` || string(item.Type) == "20"
-	enabled := string(item.Status) == `"ENABLED"` ||
+	// The documented Zabbix host-export default is ENABLED (0); the
+	// exporter may omit default-valued item fields. An explicit unknown
+	// value remains unmapped.
+	enabled := len(item.Status) == 0 || string(item.Status) == `"ENABLED"` ||
 		string(item.Status) == `"0"` || string(item.Status) == "0"
 	if !snmp {
 		codes = append(codes, "poll_transport_unmapped")
@@ -456,7 +459,11 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 		}
 		seenGroupIDs[id] = struct{}{}
 		groupIDs[name] = id
-		out.Rows = append(out.Rows, Row{Kind: "group", ExternalID: id, Label: name})
+		// The group itself is a reviewable destination candidate. Host group
+		// memberships still need separate reviewed pair rows; name the
+		// residual rather than letting the host's group IDs imply an apply.
+		out.Rows = append(out.Rows, Row{Kind: "group", ExternalID: id, Label: name,
+			UnmappedCodes: []string{"group_unmapped", "membership_not_captured"}})
 	}
 	seenHostIDs := make(map[string]struct{}, len(export.Zabbix.Hosts))
 	for _, host := range export.Zabbix.Hosts {

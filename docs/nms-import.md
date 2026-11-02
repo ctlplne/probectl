@@ -116,11 +116,17 @@ a source that cannot finish one list in that budget cannot complete a live
 plan by repeated requests. The importer must prove a larger real inventory
 before it can claim bulk readiness. Orion and PRTG parsing remains preview
 until live Windows trials; Zabbix export ingestion is not yet wired to a live
-source. Zabbix poll items and triggers retain their documented host key as a
+source. A Zabbix host group can be explicitly reviewed and created as a
+source-keyed group, while its host memberships are listed as
+`membership_not_captured` until separate reviewed pair rows are available;
+the host's group IDs never silently create memberships. Zabbix poll items
+and triggers retain their documented host key as a
 bounded parent reference for a later same-source provenance mapping; a host
 key, address or label never selects a destination device by itself. Source
 item transport and status are reduced to fixed unmapped reason codes; their
-raw values are not returned. An enabled SNMP item's delay is eligible for a
+raw values are not returned. The documented missing status defaults to
+enabled; an explicit unknown status remains unmapped. An enabled SNMP item's
+delay is eligible for a
 later reviewed host cadence only when it is a literal 15s–24h interval and
 its item UUID is present; this carries the fixed `poll_proposal` code.
 Conflicting intervals or an unsupported delay among

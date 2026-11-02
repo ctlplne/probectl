@@ -241,6 +241,7 @@ func TestZabbixSNMPItemEligibilityReasonsStayFixed(t *testing.T) {
 	}{
 		{"supported", `{"uuid":"11111111222233334444555555555555","type":"SNMP_AGENT","status":"ENABLED","delay":"90s"}`, false, false, true},
 		{"numeric enums", `{"uuid":"11111111222233334444555555555555","type":20,"status":0,"delay":"90s"}`, false, false, true},
+		{"documented enabled default", `{"uuid":"11111111222233334444555555555555","type":"SNMP_AGENT","delay":"90s"}`, false, false, true},
 		{"other transport", `{"uuid":"11111111222233334444555555555555","type":"ZABBIX_PASSIVE","delay":"90s"}`, true, false, false},
 		{"disabled", `{"uuid":"11111111222233334444555555555555","type":"SNMP_AGENT","status":"DISABLED","delay":"90s"}`, false, true, false},
 		{"unknown input", `{"uuid":"11111111222233334444555555555555","type":"secret-transport","status":"secret-status","delay":"90s"}`, true, true, false},
