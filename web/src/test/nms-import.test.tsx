@@ -12,6 +12,7 @@ import { renderApp } from './renderApp'
 
 const contextID = '00000000-0000-4000-8000-000000000301'
 const planID = '00000000-0000-4000-8000-000000000302'
+const sourceID = '00000000-0000-4000-8000-000000000305'
 const snapshotHash = 'a'.repeat(64)
 const reviewHash = 'b'.repeat(64)
 
@@ -53,6 +54,7 @@ test('Admin import requires explicit tenant-context review before an inert dry r
         return jsonResponse({
           context_id: contextID,
           plan_id: planID,
+          source_id: sourceID,
           snapshot_hash: snapshotHash,
           row_count: 1,
           items: [
@@ -65,6 +67,7 @@ test('Admin import requires explicit tenant-context review before an inert dry r
               unmapped_codes: ['site_unmapped'],
               action: reviewed ? 'unmapped' : 'captured',
               reviewed,
+              state: destinationWrites > 0 ? 'skipped' : 'pending',
             },
           ],
         })
@@ -144,6 +147,8 @@ test('Admin import requires explicit tenant-context review before an inert dry r
   const rows = await region.findByRole('table', { name: 'Import source rows' })
   expect(within(rows).getByText('site_unmapped')).toBeInTheDocument()
   expect(within(rows).getByText('10.42.0.1', { exact: false })).toBeInTheDocument()
+  expect(within(rows).getByText('pending')).toBeInTheDocument()
+  expect(region.getByText(sourceID)).toBeInTheDocument()
   expect(region.queryByText('source-only-secret')).toBeNull()
   await userEvent.selectOptions(region.getByLabelText('Choice for device 17'), 'unmapped')
   await userEvent.click(region.getByRole('button', { name: 'Save page choices' }))
@@ -172,6 +177,7 @@ test('Admin import requires explicit tenant-context review before an inert dry r
   expect(await region.findByText(/Source recheck complete/)).toBeInTheDocument()
   await userEvent.click(region.getByRole('button', { name: 'Apply one reviewed chunk' }))
   expect(await region.findByText(/Import complete/)).toBeInTheDocument()
+  expect(within(rows).getByText('skipped')).toBeInTheDocument()
   expect(destinationWrites).toBe(1)
   expect(requests.find((request) => request.path.endsWith('/apply'))?.body).toMatchObject({
     context_id: contextID,
@@ -213,4 +219,71 @@ test('Admin import requires explicit tenant-context review before an inert dry r
   expect(blueRegion.queryByText('Edge R1')).toBeNull()
   expect(blueRegion.getByLabelText('Source instance')).toHaveValue('')
   expect(blueRegion.getByLabelText('Import plan ID')).toHaveValue('')
+})
+
+test('Admin review can refresh an exact source group without an entity target', async () => {
+  const fallback = defaultFetch()
+  let saved: Record<string, unknown> | null = null
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = pathOf(input)
+    if (path === '/v1/entity-contexts')
+      return jsonResponse({
+        items: [
+          {
+            context_id: contextID,
+            site_id: contextID,
+            vrf_id: contextID,
+            site_label: 'West DC',
+            vrf_label: 'Private',
+          },
+        ],
+      })
+    if (path === `/v1/nms-imports/${planID}/rows`)
+      return jsonResponse({
+        context_id: contextID,
+        plan_id: planID,
+        source_id: sourceID,
+        snapshot_hash: snapshotHash,
+        row_count: 1,
+        items: [
+          {
+            row_number: 0,
+            object_kind: 'group',
+            external_id: '7',
+            label: 'WAN Transit',
+            unmapped_codes: ['group_unmapped'],
+            action: saved ? 'update' : 'captured',
+            reviewed: saved !== null,
+            state: 'pending',
+          },
+        ],
+      })
+    if (path === `/v1/nms-imports/${planID}/review-choices`) {
+      saved = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return new Response(null, { status: 204 })
+    }
+    return fallback(input, init)
+  })
+
+  renderApp('/admin', {
+    me: {
+      tenant_id: '00000000-0000-4000-8000-000000000300',
+      permissions: ['nms.import.read', 'nms.import.write'],
+    },
+  })
+  const card = (await screen.findByText('Incumbent NMS import')).closest('[data-nms-import]')
+  const region = within(card as HTMLElement)
+  expect(await region.findByText('West DC / Private', { selector: 'strong' })).toBeInTheDocument()
+  await userEvent.type(region.getByLabelText('Import plan ID'), planID)
+  await userEvent.click(region.getByRole('button', { name: 'Load redacted rows' }))
+  expect(await region.findByText('WAN Transit')).toBeInTheDocument()
+  await userEvent.selectOptions(region.getByLabelText('Choice for group 7'), 'update')
+  expect(region.queryByLabelText('Exact target entity ID for 7')).toBeNull()
+  await userEvent.click(region.getByRole('button', { name: 'Save page choices' }))
+  expect(await region.findByText(/1 explicit choice saved/)).toBeInTheDocument()
+  expect(saved).toMatchObject({
+    context_id: contextID,
+    snapshot_hash: snapshotHash,
+    choices: [{ row_number: 0, action: 'update', target_entity_id: '' }],
+  })
 })

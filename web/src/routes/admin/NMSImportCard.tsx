@@ -271,6 +271,10 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
       const result = await applyImportReview(contextID, planID, snapshotHash, reviewHash)
       setProofReady(false)
       setApplyComplete(result.state === 'applied')
+      if (page) {
+        const cursor = page.items.length > 0 ? page.items[0].row_number - 1 : undefined
+        showPage(await importRows(contextID, planID, cursor))
+      }
       setMessage(
         `${result.applied} applied, ${result.skipped} skipped; ${result.remaining} rows remain. ` +
           (result.state === 'applied'
@@ -328,6 +332,27 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
       render: (row) => (row.unmapped_codes.length > 0 ? row.unmapped_codes.join(', ') : 'None'),
     },
     {
+      key: 'applied',
+      header: 'Apply status and source binding',
+      render: (row) => (
+        <span className={styles.stack}>
+          <strong>{row.state}</strong>
+          {row.applied_at ? <time dateTime={row.applied_at}>{row.applied_at}</time> : null}
+          {row.bound_entity_id ? (
+            <small>
+              Bound entity <code>{row.bound_entity_id}</code>
+              {row.binding_plan_id ? (
+                <>
+                  {' '}
+                  via plan <code>{row.binding_plan_id}</code>
+                </>
+              ) : null}
+            </small>
+          ) : null}
+        </span>
+      ),
+    },
+    {
       key: 'choice',
       header: 'Explicit choice',
       render: (row) =>
@@ -345,7 +370,9 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                     { value: 'create', label: 'Create' },
                     ...(row.object_kind === 'device' || row.object_kind === 'site'
                       ? [{ value: 'update', label: 'Update exact ID' }]
-                      : []),
+                      : row.object_kind === 'group'
+                        ? [{ value: 'update', label: 'Update source group' }]
+                        : []),
                   ]
                 : []),
               { value: 'skip', label: 'Skip' },
@@ -362,7 +389,10 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
       key: 'target',
       header: 'Update target',
       render: (row) =>
-        canWrite && !reviewHash && choices[row.row_number]?.action === 'update' ? (
+        canWrite &&
+        !reviewHash &&
+        choices[row.row_number]?.action === 'update' &&
+        (row.object_kind === 'device' || row.object_kind === 'site') ? (
           <Field
             label={`Exact target entity ID for ${row.external_id}`}
             value={choices[row.row_number]?.target_entity_id ?? ''}
@@ -482,8 +512,9 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
           {page ? (
             <div className={styles.stack}>
               <p>
-                {page.row_count} source rows · snapshot <code>{snapshotHash}</code>. Unsupported
-                fields remain visible; no action is automatic.
+                {page.row_count} source rows · source <code>{page.source_id}</code> · snapshot{' '}
+                <code>{snapshotHash}</code>. Unsupported fields remain visible; no action is
+                automatic.
               </p>
               <Table
                 caption="Import source rows"

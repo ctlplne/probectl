@@ -81,6 +81,11 @@ with no approved policy, live fetching is disabled. See
    alerts, write agent evidence or install credentials. An unsupported row
    remains explicitly skipped with its unmapped reason.
 
+Admin shows the source ID and each row's apply state and source-keyed binding,
+and refreshes that page after a chunk. Its review menu offers the exact
+source-group update without asking for an entity ID; device and site updates
+still require an exact canonical target ID.
+
 MCP tools `nms_import_rows` and `nms_import_dry_run` page the same redacted
 source rows and frozen destination comparison. Both require `nms.import.read`
 and an explicit routing context and plan ID; the principal supplies the tenant.

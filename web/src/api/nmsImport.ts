@@ -17,11 +17,16 @@ export interface ImportRow {
   action: string
   target_entity_id?: string
   reviewed: boolean
+  state: 'pending' | 'applied' | 'skipped'
+  applied_at?: string
+  bound_entity_id?: string
+  binding_plan_id?: string
 }
 
 export interface ImportRowsPage {
   context_id: string
   plan_id: string
+  source_id: string
   snapshot_hash: string
   row_count: number
   items: ImportRow[]
