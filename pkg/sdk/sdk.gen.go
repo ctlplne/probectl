@@ -2164,6 +2164,15 @@ type MPLSLabel struct {
 	Ttl   int   `json:"ttl,omitempty"`
 }
 
+type ManualTagAssignmentInput struct {
+	ExporterAgentId   string `json:"exporter_agent_id,omitempty"`
+	ExporterSourceRef string `json:"exporter_source_ref,omitempty"`
+	TagId             string `json:"tag_id"`
+	TargetId          string `json:"target_id,omitempty"`
+	TargetKind        string `json:"target_kind"`
+	Value             string `json:"value"`
+}
+
 // The authenticated caller: the resolved tenant (always present), identity, and the effective RBAC permission keys within that tenant.
 type Me struct {
 	DisplayName     string   `json:"display_name,omitempty"`
@@ -2577,6 +2586,74 @@ type Signal struct {
 	Summary    string            `json:"summary,omitempty"`
 	Target     string            `json:"target,omitempty"`
 	Title      string            `json:"title,omitempty"`
+}
+
+type TagAssignment struct {
+	ContextId         string `json:"context_id"`
+	ExporterAgentId   string `json:"exporter_agent_id,omitempty"`
+	ExporterSourceRef string `json:"exporter_source_ref,omitempty"`
+	Id                string `json:"id"`
+	ReviewedAt        string `json:"reviewed_at,omitempty"`
+	Source            string `json:"source"`
+	SourceRef         string `json:"source_ref,omitempty"`
+	TagId             string `json:"tag_id"`
+	TargetId          string `json:"target_id"`
+	TargetKind        string `json:"target_kind"`
+	TenantId          string `json:"tenant_id"`
+	Value             string `json:"value"`
+}
+
+type TagAssignmentPage struct {
+	Items      []TagAssignment `json:"items"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+type TagDefinition struct {
+	Id       string `json:"id"`
+	Key      string `json:"key"`
+	TenantId string `json:"tenant_id"`
+}
+
+type TagDefinitionInput struct {
+	Key string `json:"key"`
+}
+
+type TagDefinitionList struct {
+	Items []TagDefinition `json:"items"`
+}
+
+type TagRule struct {
+	AddressSide string `json:"address_side,omitempty"`
+	Cidr        string `json:"cidr,omitempty"`
+	ContextId   string `json:"context_id"`
+	Id          string `json:"id"`
+	MatchKind   string `json:"match_kind"`
+	NamePattern string `json:"name_pattern,omitempty"`
+	Priority    int    `json:"priority,omitempty"`
+	SnmpField   string `json:"snmp_field,omitempty"`
+	SnmpValue   string `json:"snmp_value,omitempty"`
+	TagId       string `json:"tag_id"`
+	TargetKind  string `json:"target_kind"`
+	TenantId    string `json:"tenant_id"`
+	Value       string `json:"value"`
+}
+
+type TagRuleInput struct {
+	AddressSide string `json:"address_side,omitempty"`
+	Cidr        string `json:"cidr,omitempty"`
+	MatchKind   string `json:"match_kind"`
+	NamePattern string `json:"name_pattern,omitempty"`
+	Priority    int    `json:"priority,omitempty"`
+	SnmpField   string `json:"snmp_field,omitempty"`
+	SnmpValue   string `json:"snmp_value,omitempty"`
+	TagId       string `json:"tag_id"`
+	TargetKind  string `json:"target_kind"`
+	Value       string `json:"value"`
+}
+
+type TagRulePage struct {
+	Items      []TagRule `json:"items"`
+	NextCursor string    `json:"next_cursor,omitempty"`
 }
 
 // Public metadata for the caller tenant's OIDC provider. Secret material is represented only by client_secret_configured.
@@ -4516,6 +4593,190 @@ func (c *Client) CreateEntityContext(ctx context.Context, req CreateEntityContex
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Page one owned routing context's tag assignments
+type ListTagAssignmentsRequest struct {
+	ContextId string  `json:"-"`
+	Limit     *int    `json:"-"`
+	Cursor    *string `json:"-"`
+}
+
+func (c *Client) ListTagAssignments(ctx context.Context, req ListTagAssignmentsRequest) (*TagAssignmentPage, error) {
+	path := "/v1/entity-contexts/{context_id}/tag-assignments"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	var out TagAssignmentPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Assign one tag value to an owned context subject
+type CreateManualTagAssignmentRequest struct {
+	ContextId string                    `json:"-"`
+	Body      *ManualTagAssignmentInput `json:"-"`
+}
+
+func (c *Client) CreateManualTagAssignment(ctx context.Context, req CreateManualTagAssignmentRequest) (*TagAssignment, error) {
+	path := "/v1/entity-contexts/{context_id}/tag-assignments"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	var out TagAssignment
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Replace one manual tenant tag assignment
+type UpdateManualTagAssignmentRequest struct {
+	ContextId string                    `json:"-"`
+	Id        string                    `json:"-"`
+	Body      *ManualTagAssignmentInput `json:"-"`
+}
+
+func (c *Client) UpdateManualTagAssignment(ctx context.Context, req UpdateManualTagAssignmentRequest) (*TagAssignment, error) {
+	path := "/v1/entity-contexts/{context_id}/tag-assignments/{id}"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out TagAssignment
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Delete one manual tenant tag assignment
+type DeleteManualTagAssignmentRequest struct {
+	ContextId string `json:"-"`
+	Id        string `json:"-"`
+}
+
+func (c *Client) DeleteManualTagAssignment(ctx context.Context, req DeleteManualTagAssignmentRequest) error {
+	path := "/v1/entity-contexts/{context_id}/tag-assignments/{id}"
+	if req.ContextId == "" {
+		return fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Page one owned routing context's tag rules
+type ListTagRulesRequest struct {
+	ContextId string  `json:"-"`
+	Limit     *int    `json:"-"`
+	Cursor    *string `json:"-"`
+}
+
+func (c *Client) ListTagRules(ctx context.Context, req ListTagRulesRequest) (*TagRulePage, error) {
+	path := "/v1/entity-contexts/{context_id}/tag-rules"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	var out TagRulePage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create a bounded rule in one owned routing context
+type CreateTagRuleRequest struct {
+	ContextId string        `json:"-"`
+	Body      *TagRuleInput `json:"-"`
+}
+
+func (c *Client) CreateTagRule(ctx context.Context, req CreateTagRuleRequest) (*TagRule, error) {
+	path := "/v1/entity-contexts/{context_id}/tag-rules"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	var out TagRule
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Replace one tenant tag rule
+type UpdateTagRuleRequest struct {
+	ContextId string        `json:"-"`
+	Id        string        `json:"-"`
+	Body      *TagRuleInput `json:"-"`
+}
+
+func (c *Client) UpdateTagRule(ctx context.Context, req UpdateTagRuleRequest) (*TagRule, error) {
+	path := "/v1/entity-contexts/{context_id}/tag-rules/{id}"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out TagRule
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Delete one tenant tag rule
+type DeleteTagRuleRequest struct {
+	ContextId string `json:"-"`
+	Id        string `json:"-"`
+}
+
+func (c *Client) DeleteTagRule(ctx context.Context, req DeleteTagRuleRequest) error {
+	path := "/v1/entity-contexts/{context_id}/tag-rules/{id}"
+	if req.ContextId == "" {
+		return fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
 // Bind one registered evidence agent and configured source to its routing context
@@ -6616,6 +6877,70 @@ func (c *Client) ExportOpenSlo(ctx context.Context, req ExportOpenSloRequest) ([
 	path := "/v1/slos/openslo"
 	query := url.Values{}
 	return c.doRaw(ctx, http.MethodGet, path, query, nil)
+}
+
+// List the authenticated tenant's bounded tag vocabulary
+type ListTagDefinitionsRequest struct {
+}
+
+func (c *Client) ListTagDefinitions(ctx context.Context, req ListTagDefinitionsRequest) (*TagDefinitionList, error) {
+	path := "/v1/tags"
+	query := url.Values{}
+	var out TagDefinitionList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create one tenant tag key
+type CreateTagDefinitionRequest struct {
+	Body *TagDefinitionInput `json:"-"`
+}
+
+func (c *Client) CreateTagDefinition(ctx context.Context, req CreateTagDefinitionRequest) (*TagDefinition, error) {
+	path := "/v1/tags"
+	query := url.Values{}
+	var out TagDefinition
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Rename one tag key in the authenticated tenant
+type RenameTagDefinitionRequest struct {
+	Id   string              `json:"-"`
+	Body *TagDefinitionInput `json:"-"`
+}
+
+func (c *Client) RenameTagDefinition(ctx context.Context, req RenameTagDefinitionRequest) (*TagDefinition, error) {
+	path := "/v1/tags/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out TagDefinition
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Delete one tag key in the authenticated tenant
+type DeleteTagDefinitionRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) DeleteTagDefinition(ctx context.Context, req DeleteTagDefinitionRequest) error {
+	path := "/v1/tags/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
 // List synthetic tests

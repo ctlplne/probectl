@@ -2046,6 +2046,15 @@ export interface MPLSLabel {
   ttl?: number
 }
 
+export interface ManualTagAssignmentInput {
+  exporter_agent_id?: string
+  exporter_source_ref?: string
+  tag_id: string
+  target_id?: string
+  target_kind: "device" | "interface" | "prefix" | "exporter" | "agent" | "test"
+  value: string
+}
+
 export interface Me {
   display_name?: string
   email?: string
@@ -2445,6 +2454,74 @@ export interface Signal {
   summary?: string
   target?: string
   title?: string
+}
+
+export interface TagAssignment {
+  context_id: string
+  exporter_agent_id?: string
+  exporter_source_ref?: string
+  id: string
+  reviewed_at?: string
+  source: "manual" | "netbox"
+  source_ref?: string
+  tag_id: string
+  target_id: string
+  target_kind: "device" | "interface" | "prefix" | "exporter" | "agent" | "test"
+  tenant_id: string
+  value: string
+}
+
+export interface TagAssignmentPage {
+  items: TagAssignment[]
+  next_cursor?: string
+}
+
+export interface TagDefinition {
+  id: string
+  key: string
+  tenant_id: string
+}
+
+export interface TagDefinitionInput {
+  key: string
+}
+
+export interface TagDefinitionList {
+  items: TagDefinition[]
+}
+
+export interface TagRule {
+  address_side?: "src" | "dst" | "exporter" | "interface" | "device"
+  cidr?: string
+  context_id: string
+  id: string
+  match_kind: "cidr" | "name_pattern" | "snmp_field"
+  name_pattern?: string
+  priority?: number
+  snmp_field?: "sys_name" | "sys_descr" | "if_name" | "if_descr"
+  snmp_value?: string
+  tag_id: string
+  target_kind: "device" | "interface" | "prefix" | "exporter" | "agent" | "test"
+  tenant_id: string
+  value: string
+}
+
+export interface TagRuleInput {
+  address_side?: "src" | "dst" | "exporter" | "interface" | "device"
+  cidr?: string
+  match_kind: "cidr" | "name_pattern" | "snmp_field"
+  name_pattern?: string
+  priority?: number
+  snmp_field?: "sys_name" | "sys_descr" | "if_name" | "if_descr"
+  snmp_value?: string
+  tag_id: string
+  target_kind: "device" | "interface" | "prefix" | "exporter" | "agent" | "test"
+  value: string
+}
+
+export interface TagRulePage {
+  items: TagRule[]
+  next_cursor?: string
 }
 
 export interface TenantIdPSettings {
@@ -3207,6 +3284,66 @@ export interface CreateEntityContextRequest {
 
 export type CreateEntityContextResponse = EntityContext
 
+export interface ListTagAssignmentsRequest {
+  contextId: string
+  limit?: number
+  cursor?: string
+}
+
+export type ListTagAssignmentsResponse = TagAssignmentPage
+
+export interface CreateManualTagAssignmentRequest {
+  contextId: string
+  body: ManualTagAssignmentInput
+}
+
+export type CreateManualTagAssignmentResponse = TagAssignment
+
+export interface UpdateManualTagAssignmentRequest {
+  contextId: string
+  id: string
+  body: ManualTagAssignmentInput
+}
+
+export type UpdateManualTagAssignmentResponse = TagAssignment
+
+export interface DeleteManualTagAssignmentRequest {
+  contextId: string
+  id: string
+}
+
+export type DeleteManualTagAssignmentResponse = void
+
+export interface ListTagRulesRequest {
+  contextId: string
+  limit?: number
+  cursor?: string
+}
+
+export type ListTagRulesResponse = TagRulePage
+
+export interface CreateTagRuleRequest {
+  contextId: string
+  body: TagRuleInput
+}
+
+export type CreateTagRuleResponse = TagRule
+
+export interface UpdateTagRuleRequest {
+  contextId: string
+  id: string
+  body: TagRuleInput
+}
+
+export type UpdateTagRuleResponse = TagRule
+
+export interface DeleteTagRuleRequest {
+  contextId: string
+  id: string
+}
+
+export type DeleteTagRuleResponse = void
+
 export interface AssignEntitySourceRequest {
   body: EntitySourceAssignment
 }
@@ -3943,6 +4080,30 @@ export interface ExportOpenSloRequest {
 }
 
 export type ExportOpenSloResponse = Response
+
+export interface ListTagDefinitionsRequest {
+}
+
+export type ListTagDefinitionsResponse = TagDefinitionList
+
+export interface CreateTagDefinitionRequest {
+  body: TagDefinitionInput
+}
+
+export type CreateTagDefinitionResponse = TagDefinition
+
+export interface RenameTagDefinitionRequest {
+  id: string
+  body: TagDefinitionInput
+}
+
+export type RenameTagDefinitionResponse = TagDefinition
+
+export interface DeleteTagDefinitionRequest {
+  id: string
+}
+
+export type DeleteTagDefinitionResponse = void
 
 export interface ListTestsRequest {
   after?: string
@@ -4797,6 +4958,70 @@ export class ProbectlSDKClient {
     return this.requestJSON<CreateEntityContextResponse>("POST", path, query, request.body)
   }
 
+  async listTagAssignments(request: ListTagAssignmentsRequest): Promise<ListTagAssignmentsResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-assignments"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    return this.requestJSON<ListTagAssignmentsResponse>("GET", path, query, undefined)
+  }
+
+  async createManualTagAssignment(request: CreateManualTagAssignmentRequest): Promise<CreateManualTagAssignmentResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-assignments"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateManualTagAssignmentResponse>("POST", path, query, request.body)
+  }
+
+  async updateManualTagAssignment(request: UpdateManualTagAssignmentRequest): Promise<UpdateManualTagAssignmentResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-assignments/{id}"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<UpdateManualTagAssignmentResponse>("PUT", path, query, request.body)
+  }
+
+  async deleteManualTagAssignment(request: DeleteManualTagAssignmentRequest): Promise<DeleteManualTagAssignmentResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-assignments/{id}"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, undefined)
+  }
+
+  async listTagRules(request: ListTagRulesRequest): Promise<ListTagRulesResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-rules"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    return this.requestJSON<ListTagRulesResponse>("GET", path, query, undefined)
+  }
+
+  async createTagRule(request: CreateTagRuleRequest): Promise<CreateTagRuleResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-rules"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateTagRuleResponse>("POST", path, query, request.body)
+  }
+
+  async updateTagRule(request: UpdateTagRuleRequest): Promise<UpdateTagRuleResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-rules/{id}"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<UpdateTagRuleResponse>("PUT", path, query, request.body)
+  }
+
+  async deleteTagRule(request: DeleteTagRuleRequest): Promise<DeleteTagRuleResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-rules/{id}"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, undefined)
+  }
+
   async assignEntitySource(request: AssignEntitySourceRequest): Promise<AssignEntitySourceResponse> {
     let path = "/v1/entity-source-contexts"
     const query = new URLSearchParams()
@@ -5600,6 +5825,32 @@ export class ProbectlSDKClient {
     let path = "/v1/slos/openslo"
     const query = new URLSearchParams()
     return this.request("GET", path, query, undefined)
+  }
+
+  async listTagDefinitions(): Promise<ListTagDefinitionsResponse> {
+    let path = "/v1/tags"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListTagDefinitionsResponse>("GET", path, query, undefined)
+  }
+
+  async createTagDefinition(request: CreateTagDefinitionRequest): Promise<CreateTagDefinitionResponse> {
+    let path = "/v1/tags"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateTagDefinitionResponse>("POST", path, query, request.body)
+  }
+
+  async renameTagDefinition(request: RenameTagDefinitionRequest): Promise<RenameTagDefinitionResponse> {
+    let path = "/v1/tags/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<RenameTagDefinitionResponse>("PUT", path, query, request.body)
+  }
+
+  async deleteTagDefinition(request: DeleteTagDefinitionRequest): Promise<DeleteTagDefinitionResponse> {
+    let path = "/v1/tags/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, undefined)
   }
 
   async listTests(request: ListTestsRequest = {}): Promise<ListTestsResponse> {
