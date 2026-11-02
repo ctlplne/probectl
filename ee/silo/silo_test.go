@@ -114,7 +114,7 @@ func TestProvisionPlan(t *testing.T) {
 }
 
 func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
-	tables := []string{"tests", "entity_contexts", "entity_path_test_contexts", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_links", "incidents", "incident_signals", "incident_correlation_overrides", "entity_fault_receipts", "nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_rows", "nms_import_provenance", "nms_import_capture_steps", "nms_import_groups", "nms_import_group_members", "nms_import_poll_proposals"}
+	tables := []string{"tests", "entity_contexts", "entity_path_test_contexts", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_links", "incidents", "incident_signals", "incident_correlation_overrides", "entity_fault_receipts", "nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_rows", "nms_import_provenance", "nms_import_capture_steps", "nms_import_groups", "nms_import_group_members", "nms_import_poll_proposals", "alert_rules", "nms_import_alert_bindings"}
 	for name, plan := range map[string][]string{
 		"provision": ProvisionPlan("t_abc", tables),
 		"catch-up":  CatchUpPlan("t_abc", Catalog{TenantTables: tables}),
@@ -146,6 +146,10 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 			signalIndexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "fx2_incident_signals_tenant_id_id_uidx" ON "t_abc"."incident_signals"`)
 			if signalIndexAt < lastCopy || signalIndexAt > firstFK {
 				t.Fatal("override signal FK target index must follow silo copies and precede foreign keys")
+			}
+			alertIndexAt := strings.Index(joined, `CREATE UNIQUE INDEX IF NOT EXISTS "fx2b_alert_rules_tenant_id_id_uidx" ON "t_abc"."alert_rules"`)
+			if alertIndexAt < lastCopy || alertIndexAt > firstFK {
+				t.Fatal("imported alert FK target index must follow silo copies and precede foreign keys")
 			}
 			wants := []string{
 				`ADD CONSTRAINT "fx2_context_tenant_fk" FOREIGN KEY (tenant_id) REFERENCES public.tenants (id)`,
@@ -192,6 +196,10 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "fx2b_poll_host_fk" FOREIGN KEY (tenant_id, context_id, source_id, host_kind, host_external_id) REFERENCES "t_abc"."nms_import_provenance" (tenant_id, context_id, source_id, object_kind, external_id) ON DELETE CASCADE`,
 				`ADD CONSTRAINT "fx2b_poll_plan_fk" FOREIGN KEY (tenant_id, context_id, plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT "fx2b_poll_row_fk" FOREIGN KEY (tenant_id, context_id, plan_id, object_kind, item_external_id) REFERENCES "t_abc"."nms_import_rows" (tenant_id, context_id, plan_id, object_kind, external_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
+				`ADD CONSTRAINT "fx2b_alert_device_fk" FOREIGN KEY (tenant_id, context_id, source_id, device_kind, device_external_id) REFERENCES "t_abc"."nms_import_provenance" (tenant_id, context_id, source_id, object_kind, external_id) ON DELETE CASCADE`,
+				`ADD CONSTRAINT "fx2b_alert_plan_fk" FOREIGN KEY (tenant_id, context_id, plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
+				`ADD CONSTRAINT "fx2b_alert_row_fk" FOREIGN KEY (tenant_id, context_id, plan_id, row_kind, rule_external_id) REFERENCES "t_abc"."nms_import_rows" (tenant_id, context_id, plan_id, object_kind, external_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
+				`ADD CONSTRAINT "fx2b_alert_native_fk" FOREIGN KEY (tenant_id, alert_rule_id) REFERENCES "t_abc"."alert_rules" (tenant_id, id) ON DELETE CASCADE`,
 				`ADD CONSTRAINT nms_import_rows_target_fingerprint_check`,
 				`ADD CONSTRAINT nms_import_rows_action_check`,
 				`ADD CONSTRAINT nms_import_rows_target_group_revision_check`,

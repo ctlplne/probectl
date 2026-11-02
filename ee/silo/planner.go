@@ -189,6 +189,14 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 				foreignKey{"nms_import_poll_proposals", "fx2b_poll_row_fk", "tenant_id, context_id, plan_id, object_kind, item_external_id", "nms_import_rows", "tenant_id, context_id, plan_id, object_kind, external_id"},
 			)
 		}
+		if owned["nms_import_alert_bindings"] && owned["alert_rules"] {
+			keys = append(keys,
+				foreignKey{"nms_import_alert_bindings", "fx2b_alert_device_fk", "tenant_id, context_id, source_id, device_kind, device_external_id", "nms_import_provenance", "tenant_id, context_id, source_id, object_kind, external_id"},
+				foreignKey{"nms_import_alert_bindings", "fx2b_alert_plan_fk", "tenant_id, context_id, plan_id, source_id", "nms_import_plans", "tenant_id, context_id, id, source_id"},
+				foreignKey{"nms_import_alert_bindings", "fx2b_alert_row_fk", "tenant_id, context_id, plan_id, row_kind, rule_external_id", "nms_import_rows", "tenant_id, context_id, plan_id, object_kind, external_id"},
+				foreignKey{"nms_import_alert_bindings", "fx2b_alert_native_fk", "tenant_id, alert_rule_id", "alert_rules", "tenant_id, id"},
+			)
+		}
 	}
 	// Existing silos can predate the public (tenant_id,id) index. A global
 	// tests.id primary key is insufficient for the composite FK, so install
@@ -204,6 +212,11 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 		"CREATE UNIQUE INDEX IF NOT EXISTS " +
 			`"fx2_incident_signals_tenant_id_id_uidx" ON ` + quoteIdent(schema) +
 			`."incident_signals" (tenant_id, id)`}
+	if owned["nms_import_alert_bindings"] && owned["alert_rules"] {
+		plan = append(plan, "CREATE UNIQUE INDEX IF NOT EXISTS "+
+			`"fx2b_alert_rules_tenant_id_id_uidx" ON `+quoteIdent(schema)+
+			`."alert_rules" (tenant_id, id)`)
+	}
 	for _, table := range []string{"incidents", "incident_signals", "incident_correlation_overrides"} {
 		child := quoteIdent(schema) + "." + quoteIdent(table)
 		name := "fx2_" + table + "_entity_pair_ck"
@@ -243,7 +256,8 @@ END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(n
 			key.name == "fx2b_group_plan_fk" || key.name == "fx2b_group_revision_plan_fk" ||
 			key.name == "fx2b_group_row_fk" ||
 			key.name == "fx2b_member_plan_fk" || key.name == "fx2b_member_row_fk" ||
-			key.name == "fx2b_poll_plan_fk" || key.name == "fx2b_poll_row_fk" {
+			key.name == "fx2b_poll_plan_fk" || key.name == "fx2b_poll_row_fk" ||
+			key.name == "fx2b_alert_plan_fk" || key.name == "fx2b_alert_row_fk" {
 			// An applied plan remains while provenance cites it. A deferred FK
 			// still allows a whole-tenant cascade to remove both records.
 			onDelete = " ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED"

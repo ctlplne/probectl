@@ -389,4 +389,46 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		itemID, planA); err != nil {
 		t.Fatalf("caught-up silo rejected exact source-bound poll proposal: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
+		 parent_external_id,label,severity,action,reviewed_at)
+		VALUES ($1,$2,$3,9,'alert_rule','31','17','Port down','critical',
+		'unmapped',clock_timestamp())`, a, contextA, planA); err != nil {
+		t.Fatalf("caught-up silo rejected finite source rule row: %v", err)
+	}
+	newRule := func(schema, tenant string) string {
+		t.Helper()
+		var id string
+		if err := pool.QueryRow(ctx, `INSERT INTO `+schema+`.alert_rules
+			(tenant_id,name,enabled,metric,type,comparison,severity)
+			VALUES ($1,'Imported port down',false,
+			'probectl_device_if_oper_status','threshold','eq','critical')
+			RETURNING id::text`, tenant).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	alertA, alertB := newRule(schemaA, a), newRule(schemaB, b)
+	for name, candidate := range map[string]struct {
+		source, device, alertID string
+	}{
+		"foreign source": {sourceOther, "17", alertA},
+		"missing device": {sourceA, "18", alertA},
+		"foreign alert":  {sourceA, "17", alertB},
+	} {
+		if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_alert_bindings
+			(tenant_id,context_id,source_id,rule_external_id,device_external_id,
+			 agent_id,target_address,plan_id,alert_rule_id)
+			VALUES ($1,$2,$3,'31',$4,'collector-a','10.0.0.1',$5,$6)`,
+			a, contextA, candidate.source, candidate.device, planA, candidate.alertID); err == nil {
+			t.Fatalf("caught-up silo accepted %s imported alert binding", name)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_alert_bindings
+		(tenant_id,context_id,source_id,rule_external_id,device_external_id,
+		 agent_id,target_address,plan_id,alert_rule_id)
+		VALUES ($1,$2,$3,'31','17','collector-a','10.0.0.1',$4,$5)`,
+		a, contextA, sourceA, planA, alertA); err != nil {
+		t.Fatalf("caught-up silo rejected exact source and native alert binding: %v", err)
+	}
 }

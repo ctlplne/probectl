@@ -377,6 +377,8 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		"nms_import_provenance",
 		"nms_import_groups",
 		"nms_import_group_members",
+		"nms_import_poll_proposals",
+		"nms_import_alert_bindings",
 		"roles",
 		"ir_attribution_records",
 	})
@@ -398,7 +400,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 	if byName["roles"] != subjectTableNoSubject {
 		t.Fatalf("roles disposition = %d, want explicit no-subject classification", byName["roles"])
 	}
-	for _, table := range []string{"entity_contexts", "entity_path_test_contexts", "entity_links", "nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_capture_steps", "nms_import_rows", "nms_import_provenance", "nms_import_groups", "nms_import_group_members"} {
+	for _, table := range []string{"entity_contexts", "entity_path_test_contexts", "entity_links", "nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_capture_steps", "nms_import_rows", "nms_import_provenance", "nms_import_groups", "nms_import_group_members", "nms_import_poll_proposals", "nms_import_alert_bindings"} {
 		if byName[table] != subjectTableNoSubject {
 			t.Fatalf("%s disposition = %d, want UUID-only no-subject classification", table, byName[table])
 		}

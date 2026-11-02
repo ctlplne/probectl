@@ -310,14 +310,16 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// per-subject erasure. As for device configuration archives, full-tenant
 	// erasure removes these tenant-owned tables through the tenant cascade.
 	// Explicit entries keep new import tables inside the fail-closed catalog.
-	"nms_import_sources":       {plane: "postgres:nms_import_sources", disposition: subjectTableNoSubject},
-	"nms_import_plans":         {plane: "postgres:nms_import_plans", disposition: subjectTableNoSubject},
-	"nms_import_pages":         {plane: "postgres:nms_import_pages", disposition: subjectTableNoSubject},
-	"nms_import_capture_steps": {plane: "postgres:nms_import_capture_steps", disposition: subjectTableNoSubject},
-	"nms_import_rows":          {plane: "postgres:nms_import_rows", disposition: subjectTableNoSubject},
-	"nms_import_provenance":    {plane: "postgres:nms_import_provenance", disposition: subjectTableNoSubject},
-	"nms_import_groups":        {plane: "postgres:nms_import_groups", disposition: subjectTableNoSubject},
-	"nms_import_group_members": {plane: "postgres:nms_import_group_members", disposition: subjectTableNoSubject},
+	"nms_import_sources":        {plane: "postgres:nms_import_sources", disposition: subjectTableNoSubject},
+	"nms_import_plans":          {plane: "postgres:nms_import_plans", disposition: subjectTableNoSubject},
+	"nms_import_pages":          {plane: "postgres:nms_import_pages", disposition: subjectTableNoSubject},
+	"nms_import_capture_steps":  {plane: "postgres:nms_import_capture_steps", disposition: subjectTableNoSubject},
+	"nms_import_rows":           {plane: "postgres:nms_import_rows", disposition: subjectTableNoSubject},
+	"nms_import_provenance":     {plane: "postgres:nms_import_provenance", disposition: subjectTableNoSubject},
+	"nms_import_groups":         {plane: "postgres:nms_import_groups", disposition: subjectTableNoSubject},
+	"nms_import_group_members":  {plane: "postgres:nms_import_group_members", disposition: subjectTableNoSubject},
+	"nms_import_poll_proposals": {plane: "postgres:nms_import_poll_proposals", disposition: subjectTableNoSubject},
+	"nms_import_alert_bindings": {plane: "postgres:nms_import_alert_bindings", disposition: subjectTableNoSubject},
 	// WEB-26: migrations 0104/0105 added three durable tenant-owned device tables
 	// that subject erasure was failing closed on because they were unclassified.
 	// device_configs is a per-device configuration archive (device target, source,
