@@ -62,23 +62,21 @@ except (URLError, TimeoutError):
 
 # Invoke the pinned LibreNMS user command through its Laravel kernel. Its CLI
 # --password option would expose the fixture password in the process argv;
-# ArrayInput keeps the same command validation while reading the value on stdin.
+# Kernel::call keeps the same command validation with the value read on stdin.
 CREATE_LIBRENMS_USER = r"""
 require '/opt/librenms/vendor/autoload.php';
 $app = require '/opt/librenms/bootstrap/app.php';
+define('ARTISAN_BINARY', 'lnms');
 $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $password = stream_get_contents(STDIN, 4096);
 if ($password === false || strlen($password) < 20 || strlen($password) > 128) {
     exit(2);
 }
-$input = new Symfony\Component\Console\Input\ArrayInput([
-    'command' => 'user:add',
+$status = $kernel->call('user:add', [
     'username' => 'fixture-admin',
     '--password' => $password,
     '--role' => ['admin'],
-]);
-$status = $kernel->handle($input, new Symfony\Component\Console\Output\NullOutput());
-$kernel->terminate($input, $status);
+], new Symfony\Component\Console\Output\NullOutput());
 exit($status);
 """
 
@@ -201,6 +199,7 @@ def ready(url: str, seconds: int) -> None:
 def seed_librenms() -> dict:
     password = secrets.token_urlsafe(24)
     deadline = time.monotonic() + 180
+    failure = "unavailable"
     while True:
         command = [
             "docker",
@@ -223,8 +222,22 @@ def seed_librenms() -> dict:
         )
         if result.returncode == 0:
             break
+        # Never print arbitrary stderr: PHP and vendor validation can include
+        # source values. These fixed categories are safe enough for CI triage.
+        error = result.stderr.lower()
+        if b"parse error" in error or b"syntax error" in error:
+            category = "php-syntax"
+        elif b"failed opening required" in error or b"no such file" in error:
+            category = "php-bootstrap"
+        elif b"not defined" in error or b"not found" in error:
+            category = "command-unavailable"
+        elif b"validation" in error or b"password" in error:
+            category = "command-validation"
+        else:
+            category = "command-failed"
+        failure = f"{category} (exit {result.returncode})"
         if time.monotonic() >= deadline:
-            raise RuntimeError("LibreNMS fixture administrator unavailable")
+            raise RuntimeError("LibreNMS fixture administrator unavailable: " + failure)
         time.sleep(5)
     output = docker(
         "exec", "-T", "librenms", "lnms", "api:token-create", "fixture-admin"
