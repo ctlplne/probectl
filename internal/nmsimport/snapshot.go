@@ -314,6 +314,14 @@ type libreNMSRule struct {
 	Severity         string          `json:"severity"`
 	AlertOperationID sourceID        `json:"alert_operation_id"`
 	Operations       json.RawMessage `json:"operations"`
+	Devices          json.RawMessage `json:"devices"`
+	Groups           json.RawMessage `json:"groups"`
+	Locations        json.RawMessage `json:"locations"`
+	InvertMap        json.RawMessage `json:"invert_map"`
+	Disabled         json.RawMessage `json:"disabled"`
+	Builder          json.RawMessage `json:"builder"`
+	Query            string          `json:"query"`
+	Extra            json.RawMessage `json:"extra"`
 }
 
 func libreNMSRuleRow(rule libreNMSRule) (Row, error) {
@@ -336,6 +344,11 @@ func libreNMSRuleRow(rule libreNMSRule) (Row, error) {
 		row.UnmappedCodes = append(row.UnmappedCodes, "delivery_unmapped")
 	} else if operations := bytes.TrimSpace(rule.Operations); len(operations) != 0 && string(operations) != "null" && string(operations) != "[]" {
 		row.UnmappedCodes = append(row.UnmappedCodes, "delivery_unmapped")
+	}
+	// Retain only an exact, positive source-device selector for a future
+	// reviewed disabled-rule mapping. The expression itself remains unmapped.
+	if deviceID := finiteLibreNMSPortDownDevice(rule); deviceID != "" {
+		row.ParentID = deviceID
 	}
 	return row, nil
 }

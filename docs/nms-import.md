@@ -140,8 +140,12 @@ proposal fingerprint and revision. Reimporting an identical item leaves that
 revision unchanged. A proposal is inert until an operator exports and applies
 the device-agent configuration with a separate device credential reference;
 the NMS API credential is never copied. Imported
-alert expressions and delivery targets remain unmapped and
-no imported alert can be enabled by this review path.
+alert expressions and delivery targets remain unmapped. A disabled LibreNMS
+rule with one positive device selector and an exact supported port-status
+condition retains that source device ID for a later reviewed mapping; it is
+still an unmapped row and creates no alert. Global, inverted, custom-query
+and changed expressions retain no candidate selector. No imported alert can
+be enabled by this review path.
 
 To find applied Zabbix proposals, page
 `GET /v1/nms-imports/poll-proposals?context_id=UUID&source_id=UUID&limit=50`.

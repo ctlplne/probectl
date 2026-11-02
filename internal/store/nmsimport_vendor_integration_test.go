@@ -150,6 +150,9 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 				if !strings.Contains(strings.Join(row.UnmappedCodes, ","), "expression_unmapped") {
 					t.Fatal("LibreNMS rule expression was silently dropped")
 				}
+				if row.ParentID != manifest.LibreNMS.DeviceID {
+					t.Fatal("finite LibreNMS rule did not retain its exact source device selector")
+				}
 				choice.Action, libreSeen["rule_unmapped"] = "unmapped", true
 			}
 			libreChoices = append(libreChoices, choice)
