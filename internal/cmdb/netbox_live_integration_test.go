@@ -21,13 +21,14 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // This is a real source/provider proof, not the release-binary FX-3 receipt.
 // Only its explicit CI step opts in; missing setup in that step fails.
 func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 	if os.Getenv("PROBECTL_TEST_NETBOX_REQUIRED") != "1" {
-		t.Skip("real NetBox source proof is enabled in its dedicated CI step")
+		testsupport.SkipOptIn(t, "PROBECTL_TEST_NETBOX_REQUIRED", "real NetBox source proof is enabled in its dedicated CI step")
 	}
 	const runtime = "/tmp/probectl-qa-beta-netbox"
 	path := os.Getenv("PROBECTL_TEST_NETBOX_FIXTURE")
