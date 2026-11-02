@@ -22936,6 +22936,7 @@
       },
       "FlowQueryField": {
         "type": "object",
+        "description": "Native fields plus tenant-defined tag.<key> text fields when the authenticated caller has tags.read. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client.",
         "properties": {
           "name": {
             "type": "string"
@@ -23546,6 +23547,11 @@
         "properties": {
           "query": {
             "$ref": "#/components/schemas/FlowQueryOptions"
+          },
+          "tag_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Tenant tag-rule revision used for every result row when tag fields are selected. Frozen pages retain this revision."
           },
           "saved_filter_versions": {
             "type": "object",

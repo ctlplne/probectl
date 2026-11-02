@@ -140,9 +140,9 @@ type explorerComparisonResult struct {
 	FlowPaging        *flowSnapshotPaging                `json:"flow_paging,omitempty"`
 }
 
-// handleExplorerSchema returns the fixed grammar and discoverable J3 recipes.
-// It contains no tenant telemetry; identity and ai.query are still required so
-// this operator surface is never exposed as an unauthenticated capability map.
+// handleExplorerSchema returns the native grammar, authorized tenant tag keys
+// and discoverable J3 recipes. Identity and ai.query are required; tags.read
+// guards the dynamic subset before it appears in this operator surface.
 func (s *Server) handleExplorerSchema(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.principalTenant(r); err != nil {
 		return err

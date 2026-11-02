@@ -110,6 +110,7 @@ export interface FlowMatrixCell {
 
 export interface FlowExplorerResult {
   query: FlowQueryPlan
+  tag_revision?: number
   saved_filter_versions?: Record<string, number>
   source: 'raw' | 'rollup'
   resolution_seconds: number

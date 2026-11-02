@@ -670,6 +670,13 @@ function FlowWorkspace({ identity }: { identity: string }) {
                   .
                 </p>
               )}
+              {primary.tag_revision && (
+                <p>
+                  Tenant tag revision {primary.tag_revision}. Tag rules label retained history at
+                  query time; a fresh query after a rule change may show different labels with the
+                  same traffic totals. Unmatched means no uniquely owned exporter has a tag value.
+                </p>
+              )}
               <FlowVisuals
                 current={primary}
                 previous={previous}

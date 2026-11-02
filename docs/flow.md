@@ -573,6 +573,17 @@ assignments remain visible with provenance but cannot be changed through the
 manual endpoints. Tag revisions alter current views of retained historical
 flows; raw telemetry is never rewritten.
 
+An authorized flow query may group or filter by an exact `tag.<key>` text
+field. `/v1/explorer/schema` and the native MCP schema include a tenant's tag
+keys only for a caller with `tags.read`; querying a tag requires `ai.query`,
+`flow.read` and `tags.read`. The returned `tag_revision` identifies the one
+tenant tag-rule snapshot used for the query. Both comparison periods use that
+same snapshot, and frozen result pages keep the materialized values. A flow
+whose exporter address has no unique, current operator-owned binding has an
+empty tag value, shown as **Unmatched** in presentation. The sender's claimed
+agent ID never selects a routing context. A later rule edit changes a fresh
+query over retained history without changing the stored flow rows or totals.
+
 ## Query API (tenant-scoped, `flow.read`)
 
 Four read endpoints, all gated by the `flow.read` permission and scoped to the

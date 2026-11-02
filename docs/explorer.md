@@ -65,6 +65,14 @@ sanitized logical execution receipt. Legacy recipe queries retain their500-row,
 eight dimensions on either matrix axis,and any range covered by tenant retention.
 It has no90-day cap. No source accepts arbitrary SQL,PromQL or ClickHouse syntax.
 
+For native flow, the schema adds this tenant's `tag.<key>` text fields only
+when the caller has `tags.read`. These fields can be grouped and filtered
+through the same structured plan. The result's `tag_revision` names the
+current rule set used to label retained flows; a fresh query after a rule
+change may show different labels with the same underlying traffic totals.
+Unknown or multiply owned exporters have an empty tag value, presented as
+**Unmatched**. A comparison uses one tag revision for both periods.
+
 Supported sources are `flow`, `changes`, `path`, `topology`, `endpoints`, `tls`, `cost`, and
 `slo`. Each is dispatched to the production store already used by its native screen. Store
 availability follows the documented [deployment limitations](limitations.md); Explorer returns

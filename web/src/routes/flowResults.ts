@@ -28,7 +28,7 @@ export function flowGroupLabel(group: Record<string, string>, other = false) {
   if (other) return 'Other (unselected groups)'
   return (
     Object.entries(group)
-      .map(([key, value]) => `${key}: ${value || '(unassigned)'}`)
+      .map(([key, value]) => `${key}: ${value || (key.startsWith('tag.') ? 'Unmatched' : '(unassigned)')}`)
       .join(' · ') || 'All flows'
   )
 }
