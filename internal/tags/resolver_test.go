@@ -8,6 +8,7 @@ package tags
 
 import (
 	"errors"
+	"fmt"
 	"net/netip"
 	"strings"
 	"testing"
@@ -173,5 +174,50 @@ func TestResolveRejectsReservedKeysAndDuplicateAssignments(t *testing.T) {
 	if _, err := resolve(scope, 1, subject, []Definition{definition},
 		[]Assignment{assignment, assignment}, nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate manual assignment admitted: %v", err)
+	}
+}
+
+func TestSnapshotPinsRevisionAndRejectsCrossContextSubject(t *testing.T) {
+	scope, subject := testScope(), testSubject()
+	definitions := []Definition{testDefinition()}
+	rules := []Rule{{Scope: scope, ID: ruleA, TagID: tagID, TargetKind: "exporter",
+		Match: "cidr", AddressSide: "exporter", CIDR: "10.1.0.0/16", Value: "old"}}
+	snapshot, err := NewSnapshot(scope, 7, definitions, nil, rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules[0].Value = "new"
+	definitions[0].Key = "renamed"
+	got, err := snapshot.Resolve(subject)
+	if err != nil || len(got) != 1 || got[0].Key != "customer" ||
+		got[0].Value != "old" || got[0].Revision != 7 {
+		t.Fatalf("existing query page changed after rule edit: %+v, %v", got, err)
+	}
+	subject.ContextID = contextB
+	if _, err := snapshot.Resolve(subject); !errors.Is(err, ErrScopeMismatch) {
+		t.Fatalf("foreign context resolved through snapshot: %v", err)
+	}
+}
+
+func TestSnapshotAdmitsPublishedRuleCardinalityWithoutTruncating(t *testing.T) {
+	scope, subject := testScope(), testSubject()
+	rules := make([]Rule, maxRules)
+	for i := range rules {
+		// Distinct /32s force the snapshot to retain the complete candidate set;
+		// a low input cap or silent truncation loses the final matching rule.
+		address := netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)})
+		rules[i] = Rule{Scope: scope, ID: fmt.Sprintf("00000000-0000-4000-8000-%012x", i+1),
+			TagID: tagID, TargetKind: "exporter", Match: "cidr",
+			AddressSide: "exporter", CIDR: netip.PrefixFrom(address, 32).String(), Value: "customer-a"}
+	}
+	lastPrefix := netip.MustParsePrefix(rules[len(rules)-1].CIDR)
+	subject.Address = lastPrefix.Addr()
+	snapshot, err := NewSnapshot(scope, 9, []Definition{testDefinition()}, nil, rules)
+	if err != nil {
+		t.Fatalf("published 25,000-rule tier rejected: %v", err)
+	}
+	got, err := snapshot.Resolve(subject)
+	if err != nil || len(got) != 1 || got[0].SourceID != rules[len(rules)-1].ID {
+		t.Fatalf("final rule missing or wrong: %+v, %v", got, err)
 	}
 }
