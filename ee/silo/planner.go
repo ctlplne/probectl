@@ -174,6 +174,7 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 			keys = append(keys,
 				foreignKey{"nms_import_groups", "fx2b_group_source_fk", "tenant_id, context_id, source_id", "nms_import_sources", "tenant_id, context_id, id"},
 				foreignKey{"nms_import_groups", "fx2b_group_plan_fk", "tenant_id, context_id, plan_id, source_id", "nms_import_plans", "tenant_id, context_id, id, source_id"},
+				foreignKey{"nms_import_groups", "fx2b_group_revision_plan_fk", "tenant_id, context_id, revision_plan_id, source_id", "nms_import_plans", "tenant_id, context_id, id, source_id"},
 				foreignKey{"nms_import_groups", "fx2b_group_row_fk", "tenant_id, context_id, plan_id, object_kind, external_id", "nms_import_rows", "tenant_id, context_id, plan_id, object_kind, external_id"},
 				foreignKey{"nms_import_group_members", "fx2b_member_group_fk", "tenant_id, context_id, source_id, group_external_id", "nms_import_groups", "tenant_id, context_id, source_id, external_id"},
 				foreignKey{"nms_import_group_members", "fx2b_member_device_fk", "tenant_id, context_id, source_id, member_kind, member_external_id", "nms_import_provenance", "tenant_id, context_id, source_id, object_kind, external_id"},
@@ -232,7 +233,8 @@ END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(n
 			onDelete = " ON DELETE SET NULL (target_entity_id)"
 		}
 		if key.name == "fx2b_provenance_plan_source_fk" || key.name == "fx2b_provenance_row_fk" ||
-			key.name == "fx2b_group_plan_fk" || key.name == "fx2b_group_row_fk" ||
+			key.name == "fx2b_group_plan_fk" || key.name == "fx2b_group_revision_plan_fk" ||
+			key.name == "fx2b_group_row_fk" ||
 			key.name == "fx2b_member_plan_fk" || key.name == "fx2b_member_row_fk" {
 			// An applied plan remains while provenance cites it. A deferred FK
 			// still allows a whole-tenant cascade to remove both records.

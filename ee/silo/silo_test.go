@@ -183,6 +183,7 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "fx2b_provenance_entity_fk" FOREIGN KEY (tenant_id, context_id, entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id) ON DELETE CASCADE`,
 				`ADD CONSTRAINT "fx2b_group_source_fk" FOREIGN KEY (tenant_id, context_id, source_id) REFERENCES "t_abc"."nms_import_sources" (tenant_id, context_id, id)`,
 				`ADD CONSTRAINT "fx2b_group_plan_fk" FOREIGN KEY (tenant_id, context_id, plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
+				`ADD CONSTRAINT "fx2b_group_revision_plan_fk" FOREIGN KEY (tenant_id, context_id, revision_plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT "fx2b_group_row_fk" FOREIGN KEY (tenant_id, context_id, plan_id, object_kind, external_id) REFERENCES "t_abc"."nms_import_rows" (tenant_id, context_id, plan_id, object_kind, external_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT "fx2b_member_group_fk" FOREIGN KEY (tenant_id, context_id, source_id, group_external_id) REFERENCES "t_abc"."nms_import_groups" (tenant_id, context_id, source_id, external_id)`,
 				`ADD CONSTRAINT "fx2b_member_device_fk" FOREIGN KEY (tenant_id, context_id, source_id, member_kind, member_external_id) REFERENCES "t_abc"."nms_import_provenance" (tenant_id, context_id, source_id, object_kind, external_id)`,

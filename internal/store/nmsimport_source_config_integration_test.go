@@ -173,6 +173,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 
 	var requests, deviceRequests, groupRequests, memberRequests atomic.Int32
 	var drift, deviceDrift, reviewDrift, memberOmitted atomic.Bool
+	var deviceDriftAt atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.Header.Get("Authorization") != "Bearer fixture" {
@@ -181,7 +182,8 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		switch r.URL.EscapedPath() {
 		case "/api/v0/devices":
 			label := "Edge"
-			if deviceRequests.Add(1)%2 == 0 && deviceDrift.Load() {
+			if request := deviceRequests.Add(1); deviceDrift.Load() &&
+				request >= deviceDriftAt.Load() {
 				label = "Edge changed"
 			}
 			_, _ = io.WriteString(w, fmt.Sprintf(`{"status":"ok","devices":[{"device_id":17,"display":%q,"ip":"10.0.0.1","location_id":5,"community":"source-only-secret"}],"count":1}`, label))
@@ -610,6 +612,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 			t.Fatalf("first-pass staged drift fixture: %v", err)
 		}
 	}
+	deviceDriftAt.Store(deviceRequests.Load() + 1)
 	deviceDrift.Store(true)
 	if _, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA,
 		contextID, driftStagePlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) {
@@ -623,6 +626,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	deviceDriftAt.Store(deviceRequests.Load() + 2)
 	if _, err := capturer.CaptureConfiguredLibreNMSInventory(scopeA, contextID,
 		devicePlan, policy); !errors.Is(err, nmsimport.ErrInvalidPage) {
 		t.Fatalf("source device changed between capture and replay: %v", err)
