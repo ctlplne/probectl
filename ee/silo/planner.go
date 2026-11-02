@@ -272,7 +272,7 @@ END $fx2b_target_revision$`, quoteLiteral(schema), quoteLiteral(rows), rows))
                WHERE table_schema=%s AND table_name='nms_import_plans'
                  AND column_name='apply_verified_review_hash')
        AND NOT EXISTS (SELECT 1 FROM pg_constraint
-                       WHERE conrelid=%s::regclass
+                       WHERE conrelid = %s::regclass
                          AND conname='nms_import_plans_apply_verified_hash_check') THEN
         ALTER TABLE %s ADD CONSTRAINT nms_import_plans_apply_verified_hash_check
             CHECK ((apply_verified_review_hash IS NULL) = (apply_verified_at IS NULL)
