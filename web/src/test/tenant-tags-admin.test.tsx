@@ -268,7 +268,10 @@ describe('Tenant tag definitions in Admin', () => {
     })
     const card = table.closest('[data-tenant-tag-assignments]') as HTMLElement
     const user = userEvent.setup()
-    await user.type(within(card).getByRole('textbox', { name: 'Owned target ID' }), 'device-2')
+    await user.type(
+      await within(card).findByRole('textbox', { name: 'Owned target ID' }),
+      'device-2',
+    )
     const input = within(card).getByRole('textbox', { name: 'Assignment value' })
     await user.click(input)
     await user.paste('🌐'.repeat(24_000))
