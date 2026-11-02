@@ -277,7 +277,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		t.Fatalf("audit failure sent source request: requests=%d err=%v", requests.Load(), err)
 	}
 	failAudit = false
-	group := `[ {"status":"ok","groups":[{"id":7,"name":"WAN"}],"count":1} ]`
+	group := `{"status":"ok","groups":[{"id":7,"name":"WAN"}],"count":1}`
 	if _, err := capturer.AppendPage(scopeA, contextID, currentPlan, 0, "groups", 0,
 		strings.NewReader(group)); err != nil {
 		t.Fatal(err)
