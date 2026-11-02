@@ -101,6 +101,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 	for _, name := range []string{"devices", "locations", "groups", "members", "rules"} {
 		libreFiles[name] = read("librenms-" + name + ".json")
 	}
+	assertLiveLibreNMSRuleSelector(t, libreFiles["rules"], manifest.LibreNMS.DeviceID)
 	zabbixExport := read("zabbix-hosts.json")
 	type applied struct{ librePlan, zabbixPlan, libreDevice, zabbixDevice, libreSource, zabbixSource string }
 	byTenant := map[string]applied{}
@@ -349,6 +350,65 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 	}
 	if auditEvents == 0 {
 		t.Fatal("real vendor import emitted no tenant audit events")
+	}
+}
+
+// The pinned vendor version must actually serialize all three selector sets
+// and the inversion bit before any future finite rule translation relies on
+// one-device scope. Source expressions and delivery bodies stay in this CI
+// fixture only; a failure prints no raw rule or transport field.
+func assertLiveLibreNMSRuleSelector(t *testing.T, raw []byte, deviceID string) {
+	t.Helper()
+	var page struct {
+		Rules []struct {
+			Name      string            `json:"name"`
+			Devices   []json.RawMessage `json:"devices"`
+			Groups    []json.RawMessage `json:"groups"`
+			Locations []json.RawMessage `json:"locations"`
+			InvertMap json.RawMessage   `json:"invert_map"`
+			Disabled  json.RawMessage   `json:"disabled"`
+			Builder   json.RawMessage   `json:"builder"`
+			Query     string            `json:"query"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal(raw, &page); err != nil || page.Rules == nil {
+		t.Fatalf("live LibreNMS rule selector envelope unavailable: %v", err)
+	}
+	selected := 0
+	for _, rule := range page.Rules {
+		if rule.Name != "Fixture port down" {
+			continue
+		}
+		selected++
+		oneDevice := len(rule.Devices) == 1 &&
+			strings.Trim(string(bytes.TrimSpace(rule.Devices[0])), `"`) == deviceID
+		if !oneDevice || rule.Groups == nil || len(rule.Groups) != 0 ||
+			rule.Locations == nil || len(rule.Locations) != 0 ||
+			!jsonFalse(rule.InvertMap) || !jsonTrue(rule.Disabled) ||
+			len(bytes.TrimSpace(rule.Builder)) <= 2 || strings.TrimSpace(rule.Query) == "" {
+			t.Fatal("live LibreNMS rule did not preserve a complete, disabled one-device selector")
+		}
+	}
+	if selected != 1 {
+		t.Fatalf("expected one seeded LibreNMS rule, found %d", selected)
+	}
+}
+
+func jsonFalse(raw json.RawMessage) bool {
+	switch string(bytes.TrimSpace(raw)) {
+	case "0", `"0"`, "false":
+		return true
+	default:
+		return false
+	}
+}
+
+func jsonTrue(raw json.RawMessage) bool {
+	switch string(bytes.TrimSpace(raw)) {
+	case "1", `"1"`, "true":
+		return true
+	default:
+		return false
 	}
 }
 
