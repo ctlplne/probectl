@@ -264,11 +264,12 @@ def seed_librenms() -> dict:
             raise RuntimeError(f"LibreNMS {path} did not return status ok")
         return value, raw
 
-    # The pinned add_location handler requires coordinates even when the
-    # importer only reviews the location name and source ID.
+    # The pinned add_location handler checks required fields with PHP empty(),
+    # so zero coordinates count as absent. Use valid nonzero fixture values;
+    # the importer still reviews only the location name and source ID.
     call(
         "/api/v0/locations",
-        {"location": "Fixture East", "lat": "0", "lng": "0"},
+        {"location": "Fixture East", "lat": "1", "lng": "1"},
     )
     locations, _ = call("/api/v0/resources/locations")
     found = [x for x in locations["locations"] if x.get("location") == "Fixture East"]
