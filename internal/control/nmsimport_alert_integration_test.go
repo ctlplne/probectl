@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/nmsimport"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -35,7 +35,7 @@ func TestNMSImportAlertTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 			t.Errorf("remove alert preview tenants: %v", err)
 		}
 	})
-	contextID := uuid.NewString()
+	contextID := googleuuid.NewString()
 	capturer := nmsimport.NewCaptureStore(db.Pool(),
 		func(context.Context, tenancy.Scope, string, string, map[string]any) error { return nil })
 	const query = `SELECT * FROM devices,ports WHERE (devices.device_id = ? AND devices.device_id = ports.device_id) AND ports.ifOperStatus != "up"`
@@ -54,7 +54,7 @@ func TestNMSImportAlertTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 			_, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
 				(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
 				VALUES ($1,$2,$3,$4,'Lab','Private')`, tenant, contextID,
-				uuid.NewString(), uuid.NewString())
+				googleuuid.NewString(), googleuuid.NewString())
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -135,7 +135,7 @@ func TestNMSImportAlertTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 				VALUES ($1,$2,$3,$4,clock_timestamp()+interval '1 hour')`,
 				tenant, agentID,
 				"spiffe://probectl/tenant/"+tenant+"/entity/"+agentID,
-				uuid.NewString())
+				googleuuid.NewString())
 			return err
 		}); err != nil {
 			t.Fatal(err)

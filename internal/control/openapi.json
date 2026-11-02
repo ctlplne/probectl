@@ -18512,7 +18512,7 @@
           "name": {"type": "string", "minLength": 1, "maxLength": 256},
           "severity": {"type": "string", "enum": ["warning", "critical"]},
           "rule_kind": {"type": "string", "enum": ["port_down"]},
-          "enabled": {"type": "boolean", "enum": [false]}
+          "enabled": {"type": "boolean", "const": false}
         }
       },
       "NMSImportReviewDiffItem": {

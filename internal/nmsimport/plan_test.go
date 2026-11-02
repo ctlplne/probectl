@@ -34,19 +34,20 @@ func TestNormalizePlanPageKeepsUnmappedObjectsWithoutSourceSecrets(t *testing.T)
 	if a[2].ExternalID != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:r1" || !a[2].ReviewOnly {
 		t.Fatalf("Zabbix membership lost its exact review-only source pair: %+v", a[2])
 	}
-	for i := 3; i <= 4; i++ {
-		if a[i].RowNumber != int64(10+i) || !a[i].ReviewOnly ||
-			a[i].ParentID != "r1" ||
-			!strings.HasPrefix(a[i].ExternalID, "unmapped-") || len(a[i].ExternalID) != len("unmapped-")+32 {
-			t.Fatalf("missing source UUID became an apply candidate or raw ID: %+v", a[i])
-		}
+	if a[3].RowNumber != 13 || !a[3].ReviewOnly || a[3].ParentID != "r1" ||
+		len(a[3].ExternalID) != 32 || safeZabbixUUID(a[3].ExternalID) != a[3].ExternalID {
+		t.Fatalf("source item key did not become an opaque review ID: %+v", a[3])
+	}
+	if a[4].RowNumber != 14 || !a[4].ReviewOnly || a[4].ParentID != "r1" ||
+		!strings.HasPrefix(a[4].ExternalID, "unmapped-") || len(a[4].ExternalID) != len("unmapped-")+32 {
+		t.Fatalf("missing trigger UUID became an apply candidate or raw ID: %+v", a[4])
 	}
 	if a[3].ExternalID == a[4].ExternalID {
 		t.Fatal("unmapped item and trigger share a review key")
 	}
 	b, err := normalizePlanPage(tenantB, routingContext, "lab", generation, Zabbix, snapshot, 10)
-	if err != nil || b[3].ExternalID == a[3].ExternalID {
-		t.Fatal("review key is not tenant bound")
+	if err != nil || b[3].ExternalID != a[3].ExternalID || b[4].ExternalID == a[4].ExternalID {
+		t.Fatal("item source ID changed or missing-trigger review key is not tenant bound")
 	}
 	encoded, err := json.Marshal(a)
 	if err != nil {
