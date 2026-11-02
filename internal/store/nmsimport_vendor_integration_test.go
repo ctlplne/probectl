@@ -368,6 +368,7 @@ func assertLiveLibreNMSRuleSelector(t *testing.T, raw []byte, deviceID string) {
 			InvertMap json.RawMessage   `json:"invert_map"`
 			Disabled  json.RawMessage   `json:"disabled"`
 			Builder   json.RawMessage   `json:"builder"`
+			Extra     json.RawMessage   `json:"extra"`
 			Query     string            `json:"query"`
 		} `json:"rules"`
 	}
@@ -387,6 +388,28 @@ func assertLiveLibreNMSRuleSelector(t *testing.T, raw []byte, deviceID string) {
 			!jsonFalse(rule.InvertMap) || !jsonTrue(rule.Disabled) ||
 			len(bytes.TrimSpace(rule.Builder)) <= 2 || strings.TrimSpace(rule.Query) == "" {
 			t.Fatal("live LibreNMS rule did not preserve a complete, disabled one-device selector")
+		}
+		var builder struct {
+			Condition string `json:"condition"`
+			Rules     []struct {
+				Field    string `json:"field"`
+				Operator string `json:"operator"`
+				Value    string `json:"value"`
+			} `json:"rules"`
+		}
+		var extra struct {
+			Options struct {
+				OverrideQuery json.RawMessage `json:"override_query"`
+			} `json:"options"`
+		}
+		if json.Unmarshal(rule.Builder, &builder) != nil ||
+			json.Unmarshal(rule.Extra, &extra) != nil ||
+			builder.Condition != "AND" || len(builder.Rules) != 1 ||
+			builder.Rules[0].Field != "ports.ifOperStatus" ||
+			builder.Rules[0].Operator != "not_equal" ||
+			builder.Rules[0].Value != "up" ||
+			!jsonFalse(extra.Options.OverrideQuery) {
+			t.Fatal("live LibreNMS rule did not preserve the finite builder and generated-query mode")
 		}
 	}
 	if selected != 1 {
