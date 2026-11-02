@@ -237,6 +237,19 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		DROP COLUMN target_group_revision`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_rows
+		DROP CONSTRAINT IF EXISTS nms_import_rows_action_check,
+		ADD CONSTRAINT nms_import_rows_action_check
+		CHECK (action IN ('captured','create','update','conflict','skip','unmapped')) NOT VALID`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_pages
+		DROP CONSTRAINT IF EXISTS nms_import_pages_resource_kind_check,
+		ADD CONSTRAINT nms_import_pages_resource_kind_check
+		CHECK (resource_kind IN ('devices','locations','nodes','groups',
+		'memberships','rules','hosts','probes')) NOT VALID`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_groups
 		DROP CONSTRAINT IF EXISTS nms_import_groups_revision_plan_fk,
 		DROP CONSTRAINT IF EXISTS nms_import_groups_revision_check`); err != nil {
@@ -301,6 +314,11 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 			groupRevision, groupDelta, err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_groups
+		SET revision=-1 WHERE tenant_id=$1 AND context_id=$2
+		  AND source_id=$3 AND external_id='7'`, a, contextA, sourceA); err == nil {
+		t.Fatal("caught-up silo accepted a negative group revision")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_groups
 		SET revision=1,revision_plan_delta=1,revision_plan_id=$5
 		WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id=$4`,
 		a, contextA, sourceA, "7", uuid.NewString()); err == nil {
@@ -316,6 +334,19 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		SET target_group_revision=0 WHERE tenant_id=$1 AND context_id=$2
 		  AND plan_id=$3 AND row_number=0`, a, contextA, planA); err == nil {
 		t.Fatal("caught-up silo accepted a removal revision on a device update")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_pages
+		(tenant_id,context_id,plan_id,page_number,resource_kind,first_row,row_count,page_hash)
+		VALUES ($1,$2,$3,1,'member_removals',7,1,$4)`, a, contextA, planA,
+		strings.Repeat("e", 64)); err != nil {
+		t.Fatalf("caught-up silo rejected removal-candidate page: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
+		 action,target_fingerprint,target_group_revision,reviewed_at)
+		VALUES ($1,$2,$3,7,'membership','7:18','remove',$4,0,clock_timestamp())`,
+		a, contextA, planA, strings.Repeat("d", 64)); err != nil {
+		t.Fatalf("caught-up silo rejected exact removal candidate: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
 		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)

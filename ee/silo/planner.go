@@ -247,12 +247,36 @@ END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(n
 END $fx2_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
 			quoteIdent(key.name), key.columns, parent, key.parentColumns, onUpdate, onDelete))
 	}
+	plan = append(plan, nmsImportSiloCheckPlan(schema, owned)...)
+	// CREATE TABLE LIKE does not copy triggers. Keep the path-target edit
+	// invalidation inside the silo schema as well as in public, including on
+	// catch-up of a silo that predates FX-2.
+	tests := quoteIdent(schema) + `."tests"`
+	plan = append(plan,
+		"DROP TRIGGER IF EXISTS entity_path_retarget ON "+tests,
+		"CREATE TRIGGER entity_path_retarget AFTER UPDATE OF target ON "+tests+
+			" FOR EACH ROW EXECUTE FUNCTION public.entity_clear_path_binding_on_retarget()",
+		"ALTER TABLE "+tests+" ENABLE ALWAYS TRIGGER entity_path_retarget",
+	)
+	return plan
+}
+
+// nmsImportSiloCheckPlan restores CHECK constraints that CREATE TABLE LIKE
+// cannot copy into an older physical silo during schema catch-up.
+func nmsImportSiloCheckPlan(schema string, owned map[string]bool) []string {
+	var plan []string
 	if owned["nms_import_rows"] {
 		// Catch-up adds public columns but does not automatically copy later
 		// CHECK constraints into an existing silo table. Keep reviewed exact
 		// targets fingerprinted in both physical storage layouts.
 		rows := quoteIdent(schema) + `."nms_import_rows"`
 		plan = append(plan, fmt.Sprintf(`DO $fx2b_target_revision$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint
+               WHERE conrelid = %s::regclass
+                 AND conname='nms_import_rows_target_fingerprint_check'
+                 AND position('remove' in pg_get_constraintdef(oid))=0) THEN
+        ALTER TABLE %s DROP CONSTRAINT nms_import_rows_target_fingerprint_check;
+    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                WHERE table_schema=%s AND table_name='nms_import_rows'
                  AND column_name='target_fingerprint')
@@ -261,9 +285,37 @@ END $fx2_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
                          AND conname='nms_import_rows_target_fingerprint_check') THEN
         ALTER TABLE %s ADD CONSTRAINT nms_import_rows_target_fingerprint_check
             CHECK (target_fingerprint IS NULL OR
-                   (action='update' AND target_fingerprint ~ '^[0-9a-f]{64}$')) NOT VALID;
+                   (action IN ('update','remove') AND
+                    target_fingerprint ~ '^[0-9a-f]{64}$')) NOT VALID;
     END IF;
-END $fx2b_target_revision$`, quoteLiteral(schema), quoteLiteral(rows), rows))
+END $fx2b_target_revision$`, quoteLiteral(rows), rows,
+			quoteLiteral(schema), quoteLiteral(rows), rows))
+		plan = append(plan, fmt.Sprintf(`DO $fx2b_remove_checks$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint
+               WHERE conrelid = %s::regclass
+                 AND conname='nms_import_rows_action_check'
+                 AND position('remove' in pg_get_constraintdef(oid))=0) THEN
+        ALTER TABLE %s DROP CONSTRAINT nms_import_rows_action_check;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conrelid = %s::regclass
+                     AND conname='nms_import_rows_action_check') THEN
+        ALTER TABLE %s ADD CONSTRAINT nms_import_rows_action_check
+            CHECK (action IN ('captured','create','update','remove',
+                             'conflict','skip','unmapped')) NOT VALID;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema=%s AND table_name='nms_import_rows'
+                 AND column_name='target_group_revision')
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint
+                       WHERE conrelid = %s::regclass
+                         AND conname='nms_import_rows_target_group_revision_check') THEN
+        ALTER TABLE %s ADD CONSTRAINT nms_import_rows_target_group_revision_check
+            CHECK (target_group_revision IS NULL OR
+                   (action='remove' AND target_group_revision>=0)) NOT VALID;
+    END IF;
+END $fx2b_remove_checks$`, quoteLiteral(rows), rows,
+			quoteLiteral(rows), rows, quoteLiteral(schema), quoteLiteral(rows), rows))
 		// An older silo copied the original numeric-only parent CHECK. The
 		// public expansion allows Zabbix's safe host key for item/trigger
 		// lineage, so remove that old CHECK and install its replacement here.
@@ -285,6 +337,41 @@ END $fx2b_target_revision$`, quoteLiteral(schema), quoteLiteral(rows), rows))
     END IF;
 END $fx2b_zabbix_parent$`, quoteLiteral(rows), rows, quoteLiteral(rows), rows))
 	}
+	if owned["nms_import_pages"] {
+		pages := quoteIdent(schema) + `."nms_import_pages"`
+		plan = append(plan, fmt.Sprintf(`DO $fx2b_removal_pages$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint
+               WHERE conrelid = %s::regclass
+                 AND conname='nms_import_pages_resource_kind_check'
+                 AND position('member_removals' in pg_get_constraintdef(oid))=0) THEN
+        ALTER TABLE %s DROP CONSTRAINT nms_import_pages_resource_kind_check;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conrelid = %s::regclass
+                     AND conname='nms_import_pages_resource_kind_check') THEN
+        ALTER TABLE %s ADD CONSTRAINT nms_import_pages_resource_kind_check
+            CHECK (resource_kind IN ('devices','locations','nodes','groups',
+                                    'memberships','member_removals','rules',
+                                    'hosts','probes')) NOT VALID;
+    END IF;
+END $fx2b_removal_pages$`, quoteLiteral(pages), pages,
+			quoteLiteral(pages), pages))
+	}
+	if owned["nms_import_groups"] {
+		groups := quoteIdent(schema) + `."nms_import_groups"`
+		plan = append(plan, fmt.Sprintf(`DO $fx2b_group_revision$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema=%s AND table_name='nms_import_groups'
+                 AND column_name='revision')
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint
+                       WHERE conrelid = %s::regclass
+                         AND conname='nms_import_groups_revision_check') THEN
+        ALTER TABLE %s ADD CONSTRAINT nms_import_groups_revision_check
+            CHECK (revision>=0 AND revision_plan_delta>=0 AND
+                   ((revision_plan_id IS NULL)=(revision_plan_delta=0))) NOT VALID;
+    END IF;
+END $fx2b_group_revision$`, quoteLiteral(schema), quoteLiteral(groups), groups))
+	}
 	if owned["nms_import_plans"] {
 		// A pre-existing physical silo receives the new columns through the
 		// generic catch-up plan, but needs the proof-pair CHECK explicitly.
@@ -303,16 +390,6 @@ END $fx2b_zabbix_parent$`, quoteLiteral(rows), rows, quoteLiteral(rows), rows))
     END IF;
 END $fx2b_apply_proof$`, quoteLiteral(schema), quoteLiteral(plans), plans))
 	}
-	// CREATE TABLE LIKE does not copy triggers. Keep the path-target edit
-	// invalidation inside the silo schema as well as in public, including on
-	// catch-up of a silo that predates FX-2.
-	tests := quoteIdent(schema) + `."tests"`
-	plan = append(plan,
-		"DROP TRIGGER IF EXISTS entity_path_retarget ON "+tests,
-		"CREATE TRIGGER entity_path_retarget AFTER UPDATE OF target ON "+tests+
-			" FOR EACH ROW EXECUTE FUNCTION public.entity_clear_path_binding_on_retarget()",
-		"ALTER TABLE "+tests+" ENABLE ALWAYS TRIGGER entity_path_retarget",
-	)
 	return plan
 }
 
