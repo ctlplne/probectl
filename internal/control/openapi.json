@@ -44,6 +44,10 @@
       "description": "Tenant and routing-context scoped canonical identity and provenance."
     },
     {
+      "name": "tags",
+      "description": "Tenant-owned tag vocabulary and reviewed population rules."
+    },
+    {
       "name": "devices",
       "description": "Device telemetry inventory and latest metric summaries."
     },
@@ -4539,6 +4543,74 @@
           "403": {"description": "Import write permission denied in this routing context."},
           "404": {"description": "No current sealed plan in this tenant and routing context, or snapshot hash changed."},
           "409": {"description": "One or more source rows still lack an explicit review choice."}
+        }
+      }
+    },
+    "/v1/tags": {
+      "get": {
+        "x-required-permission": "tags.read",
+        "operationId": "listTagDefinitions",
+        "summary": "List the authenticated tenant's bounded tag vocabulary",
+        "description": "Returns at most 64 operator-owned keys from one FORCE-RLS tenant transaction. No exporter, packet or request-body tenant claim selects this list.",
+        "tags": ["tags"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "responses": {
+          "200": {"description": "Complete tenant tag vocabulary.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagDefinitionList"}}}},
+          "403": {"description": "Tenant or tags.read permission denied."}
+        },
+        "x-probectl-pagination": {"mode": "bounded", "max_items": 64, "reason": "Each tenant may define at most 64 tag keys."}
+      },
+      "post": {
+        "x-required-permission": "tags.write",
+        "operationId": "createTagDefinition",
+        "summary": "Create one tenant tag key",
+        "description": "A tenant transaction serializes the 64-key quota and commits the definition with its audit event. Keys cannot shadow native fields.",
+        "tags": ["tags"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagDefinitionInput"}}}},
+        "responses": {
+          "201": {"description": "Tag key created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagDefinition"}}}},
+          "400": {"description": "Malformed or reserved key, or tenant quota reached."},
+          "403": {"description": "Tenant or tags.write permission denied."},
+          "409": {"description": "Tag key already exists in this tenant."}
+        }
+      }
+    },
+    "/v1/tags/{id}": {
+      "put": {
+        "x-required-permission": "tags.write",
+        "operationId": "renameTagDefinition",
+        "summary": "Rename one tag key in the authenticated tenant",
+        "description": "The tag ID is tenant-qualified in FORCE-RLS storage. Rename and audit commit together and increment the tenant tag revision.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagDefinitionInput"}}}},
+        "responses": {
+          "200": {"description": "Tag key renamed.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagDefinition"}}}},
+          "400": {"description": "Malformed or reserved key or ID."},
+          "403": {"description": "Tenant or tags.write permission denied."},
+          "404": {"description": "Tag ID does not exist in this tenant."},
+          "409": {"description": "Tag key already exists in this tenant."}
+        }
+      },
+      "delete": {
+        "x-required-permission": "tags.write",
+        "operationId": "deleteTagDefinition",
+        "summary": "Delete one tag key in the authenticated tenant",
+        "description": "Deletion removes the key's dependent assignments and rules, increments the tenant tag revision, and commits with its audit event.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "204": {"description": "Tag key deleted."},
+          "400": {"description": "Malformed tag ID."},
+          "403": {"description": "Tenant or tags.write permission denied."},
+          "404": {"description": "Tag ID does not exist in this tenant."}
         }
       }
     },
@@ -18673,6 +18745,30 @@
           "row_count": {"type": "integer", "minimum": 0, "format": "int64"},
           "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/NMSImportReviewDiffItem"}},
           "next_cursor": {"type": "integer", "minimum": 0, "format": "int64"}
+        }
+      },
+      "TagDefinitionInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$"}
+        }
+      },
+      "TagDefinition": {
+        "type": "object",
+        "required": ["tenant_id", "id", "key"],
+        "properties": {
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "id": {"type": "string", "format": "uuid"},
+          "key": {"type": "string"}
+        }
+      },
+      "TagDefinitionList": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/TagDefinition"}}
         }
       },
       "EntityContext": {

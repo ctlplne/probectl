@@ -77,9 +77,9 @@ type Scope struct {
 }
 
 type Definition struct {
-	TenantID string
-	ID       string
-	Key      string
+	TenantID string `json:"tenant_id"`
+	ID       string `json:"id"`
+	Key      string `json:"key"`
 }
 
 // Subject contains only identity and facts already bound to Scope. SNMP
