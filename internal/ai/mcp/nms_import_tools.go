@@ -9,6 +9,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/auth"
 )
@@ -16,27 +17,32 @@ import (
 // Import results are named projections. Adding a storage column cannot
 // silently publish source data to an MCP client.
 type NMSImportRowResult struct {
-	RowNumber     int64    `json:"row_number"`
-	Kind          string   `json:"object_kind"`
-	ExternalID    string   `json:"external_id"`
-	Label         string   `json:"label,omitempty"`
-	Address       string   `json:"address,omitempty"`
-	Hostname      string   `json:"hostname,omitempty"`
-	ParentID      string   `json:"parent_external_id,omitempty"`
-	LocationID    string   `json:"location_id,omitempty"`
-	LocationLabel string   `json:"location_label,omitempty"`
-	GroupIDs      []string `json:"group_ids"`
-	PollSeconds   int64    `json:"poll_seconds,omitempty"`
-	Severity      string   `json:"severity,omitempty"`
-	UnmappedCodes []string `json:"unmapped_codes"`
-	Action        string   `json:"action"`
-	TargetID      string   `json:"target_entity_id,omitempty"`
-	Reviewed      bool     `json:"reviewed"`
+	RowNumber     int64      `json:"row_number"`
+	Kind          string     `json:"object_kind"`
+	ExternalID    string     `json:"external_id"`
+	Label         string     `json:"label,omitempty"`
+	Address       string     `json:"address,omitempty"`
+	Hostname      string     `json:"hostname,omitempty"`
+	ParentID      string     `json:"parent_external_id,omitempty"`
+	LocationID    string     `json:"location_id,omitempty"`
+	LocationLabel string     `json:"location_label,omitempty"`
+	GroupIDs      []string   `json:"group_ids"`
+	PollSeconds   int64      `json:"poll_seconds,omitempty"`
+	Severity      string     `json:"severity,omitempty"`
+	UnmappedCodes []string   `json:"unmapped_codes"`
+	Action        string     `json:"action"`
+	TargetID      string     `json:"target_entity_id,omitempty"`
+	Reviewed      bool       `json:"reviewed"`
+	State         string     `json:"state"`
+	AppliedAt     *time.Time `json:"applied_at,omitempty"`
+	BoundEntityID string     `json:"bound_entity_id,omitempty"`
+	BindingPlanID string     `json:"binding_plan_id,omitempty"`
 }
 
 type NMSImportRowsResult struct {
 	ContextID    string               `json:"context_id"`
 	PlanID       string               `json:"plan_id"`
+	SourceID     string               `json:"source_id"`
 	SnapshotHash string               `json:"snapshot_hash"`
 	RowCount     int64                `json:"row_count"`
 	Items        []NMSImportRowResult `json:"items"`

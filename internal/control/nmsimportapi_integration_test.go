@@ -374,4 +374,31 @@ func TestNMSImportApplyRouteWritesOnlyReviewedTenantAndIsIdempotent(t *testing.T
 			t.Fatalf("tenant device count = %d, %v", count, err)
 		}
 	}
+	gate := ai.NewEgressGate(func(context.Context, string) (bool, error) { return true, nil },
+		func(context.Context, ai.EgressEvent) error { return nil }, ai.RedactionPolicy{})
+	mcpServer := NewMCPServerWithPolicyLoader(&config.Config{},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), db.Pool(), nil, 0,
+		gate, nil, nil, nil)
+	for _, own := range []fixture{left, right} {
+		other := left
+		if own.tenant == left.tenant {
+			other = right
+		}
+		principal := &auth.Principal{TenantID: own.tenant, UserID: "import-reader",
+			Permissions: map[string]bool{permNMSImportRead: true}}
+		data, failed := nativeControlCall(t, mcpServer, principal, "nms_import_rows",
+			mcp.NMSImportRowsInput{ContextID: own.contextID, PlanID: own.planID})
+		var page mcp.NMSImportRowsResult
+		if failed || json.Unmarshal(data, &page) != nil || len(page.Items) != 1 ||
+			page.SourceID == "" || page.Items[0].State != "applied" ||
+			page.Items[0].AppliedAt == nil || page.Items[0].BoundEntityID == "" ||
+			page.Items[0].BindingPlanID != own.planID ||
+			strings.Contains(string(data), "source-only-secret") {
+			t.Fatalf("MCP applied provenance tenant=%s: %s", own.tenant, data)
+		}
+		if _, failed := nativeControlCall(t, mcpServer, principal, "nms_import_rows",
+			mcp.NMSImportRowsInput{ContextID: own.contextID, PlanID: other.planID}); !failed {
+			t.Fatalf("MCP exposed foreign applied provenance tenant=%s", own.tenant)
+		}
+	}
 }

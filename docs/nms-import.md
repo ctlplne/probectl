@@ -85,7 +85,13 @@ MCP tools `nms_import_rows` and `nms_import_dry_run` page the same redacted
 source rows and frozen destination comparison. Both require `nms.import.read`
 and an explicit routing context and plan ID; the principal supplies the tenant.
 The dry-run tool also requires the exact review hash. These tools are read-only
-and cannot finalize, verify or apply an import.
+and cannot finalize, verify or apply an import. The rows tool reports each
+row's pending, applied or skipped state and applied timestamp. For imported
+devices and sites, it reports the source-keyed bound entity and the plan that
+established that binding; the page identifies the source. A binding from a
+previous plan remains visible when a later reviewed update changes that
+entity, so the binding plan and the row's applied timestamp have distinct
+meanings.
 
 The destination schema reserves a tenant/context/source-keyed group set and
 membership table. A membership can reference only a device with an exact

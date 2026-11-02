@@ -18338,7 +18338,7 @@
       },
       "NMSImportSealedRow": {
         "type": "object",
-        "required": ["row_number", "object_kind", "external_id", "group_ids", "unmapped_codes", "action", "reviewed"],
+        "required": ["row_number", "object_kind", "external_id", "group_ids", "unmapped_codes", "action", "reviewed", "state"],
         "properties": {
           "row_number": {"type": "integer", "minimum": 0, "format": "int64"},
           "object_kind": {"type": "string", "enum": ["device", "site", "group", "membership", "poll_setting", "alert_rule"]},
@@ -18355,15 +18355,20 @@
           "unmapped_codes": {"type": "array", "maxItems": 32, "items": {"type": "string"}},
           "action": {"type": "string", "enum": ["captured", "create", "update", "conflict", "skip", "unmapped"]},
           "target_entity_id": {"type": "string", "format": "uuid"},
-          "reviewed": {"type": "boolean"}
+          "reviewed": {"type": "boolean"},
+          "state": {"type": "string", "enum": ["pending", "applied", "skipped"]},
+          "applied_at": {"type": "string", "format": "date-time"},
+          "bound_entity_id": {"type": "string", "format": "uuid"},
+          "binding_plan_id": {"type": "string", "format": "uuid"}
         }
       },
       "NMSImportSealedRowsPage": {
         "type": "object",
-        "required": ["context_id", "plan_id", "snapshot_hash", "row_count", "items"],
+        "required": ["context_id", "plan_id", "source_id", "snapshot_hash", "row_count", "items"],
         "properties": {
           "context_id": {"type": "string", "format": "uuid"},
           "plan_id": {"type": "string", "format": "uuid"},
+          "source_id": {"type": "string", "format": "uuid"},
           "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "row_count": {"type": "integer", "minimum": 0, "format": "int64"},
           "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/NMSImportSealedRow"}},
