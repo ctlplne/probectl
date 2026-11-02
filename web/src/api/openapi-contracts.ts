@@ -29,6 +29,34 @@ export interface APICallContract {
 
 export const API_CALL_CONTRACTS = [
   {
+    file: 'api/tags.ts',
+    method: 'GET',
+    path: '/tags',
+    response: 'TagDefinitionList',
+    generated: 'ListTagDefinitionsResponse',
+  },
+  {
+    file: 'api/tags.ts',
+    method: 'POST',
+    path: '/tags',
+    response: 'TagDefinition',
+    generated: 'CreateTagDefinitionResponse',
+  },
+  {
+    file: 'api/tags.ts',
+    method: 'PUT',
+    path: '`/tags/${encodeURIComponent(id)}`',
+    response: 'TagDefinition',
+    generated: 'RenameTagDefinitionResponse',
+  },
+  {
+    file: 'api/tags.ts',
+    method: 'DELETE',
+    path: '`/tags/${encodeURIComponent(id)}`',
+    response: 'void',
+    generated: 'DeleteTagDefinitionResponse',
+  },
+  {
     file: 'api/flowFilters.ts',
     method: 'GET',
     path: '`/explorer/flow-filters?limit=100&after=${encodeURIComponent(after)}`',

@@ -420,6 +420,18 @@ function apiPayload(path, method, pagePath = "") {
         "ai.query",
         "metrics.read",
         "metrics.write",
+        "tags.read",
+        "tags.write",
+      ],
+    });
+  if (path === "/v1/tags")
+    return json({
+      items: [
+        {
+          id: "00000000-0000-0000-0000-000000000073",
+          tenant_id: "00000000-0000-0000-0000-000000000001",
+          key: "customer",
+        },
       ],
     });
   if (path === "/v1/tests") return json({ items: sampleTests });
@@ -3721,6 +3733,9 @@ async function main() {
               }
             }
             if (route === "/admin") {
+              if (!(await page.locator("[data-tenant-tags]").isVisible())) {
+                failures.push(`${viewport.name} ${theme} /admin: tenant tag card did not render`);
+              }
               record.fleetTestSet = await fleetTestSetChecks(page);
               if (record.fleetTestSet.length > 0) {
                 failures.push(

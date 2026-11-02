@@ -560,6 +560,11 @@ native flow fields such as `tenant_id`, `bytes` or `exporter`. The tenant comes
 from authentication. `tags.read` permits listing; `tags.write` is required for
 every mutation. A tag change and its audit event commit in one tenant
 transaction. Deleting a key also removes its assignments and rules.
+Admin → Tenant tags lists stable IDs and keys for the authenticated tenant.
+Readers with `tags.read` can inspect the list; only `tags.write` sees create,
+rename and delete controls. Delete requires a confirmation that names the
+rules and assignments removed. A rename warns that saved flow views using the
+old field name will need review.
 
 Rules and assignments name an operator-owned routing context in their path:
 `/v1/entity-contexts/{context_id}/tag-rules` and
