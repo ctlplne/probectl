@@ -1403,7 +1403,7 @@ func (v *Validator) validateRealStackRunner(profile string) error {
 		if err := v.validateWorkflowInvocation(".github/workflows/ci.yml", "nms-vendor-live", []string{"python3", "scripts/ci_nms_vendor.py", "start"}); err != nil {
 			return err
 		}
-		if err := v.validateWorkflowInvocation(".github/workflows/ci.yml", "nms-vendor-live", []string{"go", "test", "-tags=integration", "./internal/store", "-run", "'^TestNMSVendorLiveImportTwoTenants$'"}); err != nil {
+		if err := v.validateWorkflowInvocation(".github/workflows/ci.yml", "nms-vendor-live", []string{"go", "test", "-tags=integration", "./internal/store", "-run", "^TestNMSVendorLiveImportTwoTenants$"}); err != nil {
 			return err
 		}
 		return v.validateNMSVendorLiveEnvironment()
