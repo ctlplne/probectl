@@ -32,7 +32,7 @@ type NetBoxTagCandidate struct {
 
 // PreviewNetBoxTag bypasses enrichment caches. The caller must resolve key
 // from an owned canonical target before invoking this read-only source path.
-func (r *Resolver) PreviewNetBoxTag(ctx context.Context, key, field string) (NetBoxTagCandidate, error) {
+func (r *Resolver) PreviewNetBoxTag(ctx context.Context, key, field string) (candidate NetBoxTagCandidate, err error) {
 	if r == nil || (field != "role" && field != "site") {
 		return NetBoxTagCandidate{}, ErrNoTagCandidate
 	}
@@ -44,6 +44,24 @@ func (r *Resolver) PreviewNetBoxTag(ctx context.Context, key, field string) (Net
 	if err != nil {
 		return NetBoxTagCandidate{}, err
 	}
+	scope, err := provider.cacheScope(ctx)
+	if err != nil {
+		return NetBoxTagCandidate{}, err
+	}
+	cacheKey := scope + "\x00" + CanonicalKey(key)
+	r.mu.Lock()
+	epoch := r.epochs[cacheKey]
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if errors.Is(err, ErrTenantBinding) {
+			r.epochs[cacheKey]++
+			delete(r.cache, cacheKey)
+		} else if epoch != r.epochs[cacheKey] {
+			candidate, err = NetBoxTagCandidate{}, ErrTenantBinding
+		}
+	}()
 	cis, err := provider.Lookup(ctx, key)
 	if err != nil {
 		return NetBoxTagCandidate{}, err

@@ -63,4 +63,7 @@ func TestNetBoxTagPreviewFreshlyAttestsRelatedCI(t *testing.T) {
 	if _, err := resolver.PreviewNetBoxTag(ctx, "192.0.2.10", "site"); err == nil {
 		t.Fatal("source outage accepted cached enrichment as an import suggestion")
 	}
+	if _, err := resolver.Lookup(ctx, "192.0.2.10"); err == nil {
+		t.Fatal("known preview ownership refusal left stale enrichment authorized")
+	}
 }
