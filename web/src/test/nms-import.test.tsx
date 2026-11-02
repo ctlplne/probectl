@@ -4,7 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { screen, within } from '@testing-library/react'
+import { cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
@@ -123,4 +123,39 @@ test('Admin import requires explicit tenant-context review before an inert dry r
     snapshot_hash: snapshotHash,
     choices: [{ row_number: 0, action: 'unmapped' }],
   })
+
+  cleanup()
+  const blueContextID = '00000000-0000-4000-8000-000000000303'
+  const blueFallback = defaultFetch()
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    if (pathOf(input) === '/v1/entity-contexts')
+      return Promise.resolve(
+        jsonResponse({
+          items: [
+            {
+              context_id: blueContextID,
+              site_id: blueContextID,
+              vrf_id: blueContextID,
+              site_label: 'East DC',
+              vrf_label: 'Private',
+            },
+          ],
+        }),
+      )
+    return blueFallback(input, init)
+  })
+  renderApp('/admin', {
+    me: {
+      tenant_id: '00000000-0000-4000-8000-000000000304',
+      permissions: ['nms.import.read', 'nms.import.write'],
+    },
+  })
+  const blueCard = (await screen.findByText('Incumbent NMS import')).closest('[data-nms-import]')
+  const blueRegion = within(blueCard as HTMLElement)
+  expect(
+    await blueRegion.findByText('East DC / Private', { selector: 'strong' }),
+  ).toBeInTheDocument()
+  expect(blueRegion.queryByText('Edge R1')).toBeNull()
+  expect(blueRegion.getByLabelText('Source instance')).toHaveValue('')
+  expect(blueRegion.getByLabelText('Import plan ID')).toHaveValue('')
 })
