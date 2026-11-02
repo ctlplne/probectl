@@ -2062,6 +2062,28 @@ export interface Me {
   user_id: string
 }
 
+export interface NMSImportReviewDiffItem {
+  action: "create" | "update" | "skip" | "unmapped"
+  changed_fields: "label"[]
+  current_label?: string
+  external_id: string
+  object_kind: "device" | "site" | "group" | "membership" | "poll_setting" | "alert_rule"
+  proposed_label?: string
+  row_number: number
+  target_entity_id?: string
+  unmapped_codes: string[]
+}
+
+export interface NMSImportReviewDiffPage {
+  context_id: string
+  items: NMSImportReviewDiffItem[]
+  next_cursor?: number
+  plan_id: string
+  review_hash: string
+  row_count: number
+  snapshot_hash: string
+}
+
 export interface NMSImportSealedRow {
   action: "captured" | "create" | "update" | "conflict" | "skip" | "unmapped"
   address?: string
@@ -3540,6 +3562,16 @@ export interface AdvanceConfiguredLibreNmsImportPlanRequest {
 }
 
 export type AdvanceConfiguredLibreNmsImportPlanResponse = JsonObject
+
+export interface ListNmsImportReviewDiffRequest {
+  id: string
+  contextId: string
+  reviewHash: string
+  limit?: number
+  cursor?: number
+}
+
+export type ListNmsImportReviewDiffResponse = NMSImportReviewDiffPage
 
 export interface FinalizeNmsImportReviewRequest {
   id: string
@@ -5095,6 +5127,17 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<AdvanceConfiguredLibreNmsImportPlanResponse>("POST", path, query, request.body)
+  }
+
+  async listNmsImportReviewDiff(request: ListNmsImportReviewDiffRequest): Promise<ListNmsImportReviewDiffResponse> {
+    let path = "/v1/nms-imports/{id}/dry-run"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.reviewHash !== undefined) query.set("review_hash", String(request.reviewHash))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    return this.requestJSON<ListNmsImportReviewDiffResponse>("GET", path, query, undefined)
   }
 
   async finalizeNmsImportReview(request: FinalizeNmsImportReviewRequest): Promise<FinalizeNmsImportReviewResponse> {

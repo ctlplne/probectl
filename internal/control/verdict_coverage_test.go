@@ -98,6 +98,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/directory/users":             recordSurface,
 	"GET /v1/entity-contexts":             recordSurface,
 	"GET /v1/nms-imports/{id}/rows":       recordSurface,
+	"GET /v1/nms-imports/{id}/dry-run":    recordSurface,
 	"GET /v1/entities":                    recordSurface,
 	"GET /v1/entities/{id}/evidence":      recordSurface,
 	"GET /v1/entities/{id}/links":         recordSurface,

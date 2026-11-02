@@ -358,6 +358,34 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	if retry, err := capturer.FinalizeReview(captureA, contextA, locationsPlan, locationHash); err != nil || retry != reviewHash {
 		t.Fatalf("review retry changed frozen hash: hash=%q err=%v", retry, err)
 	}
+	if _, err := capturer.ListReviewDiff(tenancy.WithTenant(ctx, tenancy.ID(b.ID)),
+		contextA, locationsPlan, reviewHash, -1, 1); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign tenant read reviewed destination diff: %v", err)
+	}
+	if _, err := capturer.ListReviewDiff(captureA, contextOther, locationsPlan,
+		reviewHash, -1, 1); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("foreign context read reviewed destination diff: %v", err)
+	}
+	if _, err := capturer.ListReviewDiff(captureA, contextA, locationsPlan,
+		strings.Repeat("0", 64), -1, 1); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("wrong review hash read destination diff: %v", err)
+	}
+	firstDiff, err := capturer.ListReviewDiff(captureA, contextA, locationsPlan,
+		reviewHash, -1, 1)
+	if err != nil || firstDiff.RowCount != 2 || len(firstDiff.Items) != 1 ||
+		firstDiff.Items[0].Action != "unmapped" || firstDiff.NextCursor == nil ||
+		*firstDiff.NextCursor != 0 {
+		t.Fatalf("first bounded reviewed diff: %+v err=%v", firstDiff, err)
+	}
+	secondDiff, err := capturer.ListReviewDiff(captureA, contextA, locationsPlan,
+		reviewHash, *firstDiff.NextCursor, 1)
+	if err != nil || len(secondDiff.Items) != 1 ||
+		secondDiff.Items[0].Kind != "site" || secondDiff.Items[0].Action != "create" ||
+		secondDiff.Items[0].ProposedLabel != "West DC" ||
+		len(secondDiff.Items[0].ChangedFields) != 1 ||
+		secondDiff.Items[0].ChangedFields[0] != "label" || secondDiff.NextCursor != nil {
+		t.Fatalf("second bounded reviewed diff: %+v err=%v", secondDiff, err)
+	}
 	if err := capturer.SetReviewChoices(captureA, contextA, locationsPlan,
 		locationHash, choices); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
 		t.Fatalf("frozen review accepted another choice: %v", err)
@@ -410,6 +438,44 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		targetHash, targetChoice); !errors.Is(err, nmsimport.ErrInvalidReview) {
 		t.Fatalf("stale exact-target review was refreshed silently: %v", err)
 	}
+	targetReviewHash, err := capturer.FinalizeReview(captureA, contextA, targetPlan, targetHash)
+	if err != nil {
+		t.Fatalf("freeze changed exact site target review: %v", err)
+	}
+	if _, err := capturer.ListReviewDiff(captureA, contextA, targetPlan,
+		targetReviewHash, -1, 1); !errors.Is(err, nmsimport.ErrReviewStale) {
+		t.Fatalf("edited target still appeared in frozen destination diff: %v", err)
+	}
+	freshTargetPlan, err := capturer.StartPlan(captureA, contextA, nmsimport.LibreNMS,
+		"lab-target-revision", strings.Repeat("f", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := capturer.AppendPage(captureA, contextA, freshTargetPlan, 0,
+		"locations", 0, strings.NewReader(locations)); err != nil {
+		t.Fatalf("capture current-target diff fixture: %v", err)
+	}
+	freshTargetHash, err := capturer.Seal(captureA, contextA, freshTargetPlan, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := capturer.SetReviewChoices(captureA, contextA, freshTargetPlan,
+		freshTargetHash, targetChoice); err != nil {
+		t.Fatalf("review current exact target: %v", err)
+	}
+	freshReviewHash, err := capturer.FinalizeReview(captureA, contextA,
+		freshTargetPlan, freshTargetHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetDiff, err := capturer.ListReviewDiff(captureA, contextA, freshTargetPlan,
+		freshReviewHash, -1, 1)
+	if err != nil || len(targetDiff.Items) != 1 ||
+		targetDiff.Items[0].CurrentLabel != "Human-edited site" ||
+		targetDiff.Items[0].ProposedLabel != "West DC" ||
+		targetDiff.Items[0].TargetID != siteTarget {
+		t.Fatalf("exact target reviewed diff: %+v err=%v", targetDiff, err)
+	}
 	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
 		var entities, provenance int
 		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entities
@@ -420,7 +486,7 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 			WHERE tenant_id=$1 AND context_id=$2`, a.ID, contextA).Scan(&provenance); err != nil {
 			return err
 		}
-		if entities != 1 || provenance != 0 {
+		if entities != 2 || provenance != 0 {
 			t.Fatalf("inert review wrote destination: entities=%d provenance=%d", entities, provenance)
 		}
 		return nil

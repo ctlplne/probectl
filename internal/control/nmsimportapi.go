@@ -220,6 +220,44 @@ func (s *Server) handleListNMSImportRows(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
+// A finalized dry run reads the frozen operator choices and current exact
+// destination targets in one FORCE-RLS tenant transaction. A changed target
+// refuses the page; no source address or label is used to choose an entity.
+func (s *Server) handleListNMSImportDryRun(w http.ResponseWriter, r *http.Request) error {
+	ctx, contextID, err := s.nmsImportContext(r, r.URL.Query().Get("context_id"), permNMSImportRead)
+	if err != nil {
+		return err
+	}
+	limit := 50
+	if text := r.URL.Query().Get("limit"); text != "" {
+		limit, err = strconv.Atoi(text)
+		if err != nil {
+			return apierror.BadRequest("invalid import dry-run limit")
+		}
+	}
+	after := int64(-1)
+	if text := r.URL.Query().Get("cursor"); text != "" {
+		after, err = strconv.ParseInt(text, 10, 64)
+		if err != nil {
+			return apierror.BadRequest("invalid import dry-run cursor")
+		}
+	}
+	page, err := nmsimport.NewCaptureStore(s.pool, nil).ListReviewDiff(ctx,
+		contextID, r.PathValue("id"), r.URL.Query().Get("review_hash"), after, limit)
+	switch {
+	case errors.Is(err, nmsimport.ErrPlanUnavailable):
+		return apierror.NotFound("reviewed import plan not found in this routing context")
+	case errors.Is(err, nmsimport.ErrInvalidPage):
+		return apierror.BadRequest("invalid import dry-run page")
+	case errors.Is(err, nmsimport.ErrReviewStale):
+		return apierror.Conflict("reviewed import destination changed")
+	case err != nil:
+		return err
+	}
+	writeJSON(w, http.StatusOK, page)
+	return nil
+}
+
 // Review choices are operator-authored, bounded and bound to the exact sealed
 // snapshot. The source cannot request a destination action or target entity.
 func (s *Server) handleSetNMSImportReviewChoices(w http.ResponseWriter, r *http.Request) error {

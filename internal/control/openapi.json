@@ -4132,6 +4132,31 @@
         "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
       }
     },
+    "/v1/nms-imports/{id}/dry-run": {
+      "get": {
+        "x-required-permission": "nms.import.read",
+        "operationId": "listNMSImportReviewDiff",
+        "summary": "Page the frozen import choices against exact current targets",
+        "description": "The authenticated tenant and operator-selected routing context are resolved before policy checks. The supplied review hash must equal the frozen choice set in FORCE-RLS storage. Only device and site labels are proposed at this stage; source addresses and labels never select a target. A missing or changed exact target refuses the entire page. This audited dry run writes no destination entity, agent evidence or alert rule.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "review_hash", "in": "query", "required": true, "schema": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+          {"name": "cursor", "in": "query", "schema": {"type": "integer", "minimum": 0, "format": "int64"}}
+        ],
+        "responses": {
+          "200": {"description": "At most 100 reviewed destination differences with residual unmapped codes.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NMSImportReviewDiffPage"}}}},
+          "400": {"description": "Invalid review hash, routing context, cursor or limit."},
+          "403": {"description": "Import read permission denied in this routing context."},
+          "404": {"description": "No current reviewed plan with this hash in this tenant and routing context."},
+          "409": {"description": "A reviewed destination target or source row changed after finalization."}
+        },
+        "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
+      }
+    },
     "/v1/nms-imports/{id}/review-choices": {
       "post": {
         "x-required-permission": "nms.import.write",
@@ -18188,6 +18213,34 @@
           "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "row_count": {"type": "integer", "minimum": 0, "format": "int64"},
           "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/NMSImportSealedRow"}},
+          "next_cursor": {"type": "integer", "minimum": 0, "format": "int64"}
+        }
+      },
+      "NMSImportReviewDiffItem": {
+        "type": "object",
+        "required": ["row_number", "object_kind", "external_id", "action", "changed_fields", "unmapped_codes"],
+        "properties": {
+          "row_number": {"type": "integer", "minimum": 0, "format": "int64"},
+          "object_kind": {"type": "string", "enum": ["device", "site", "group", "membership", "poll_setting", "alert_rule"]},
+          "external_id": {"type": "string", "maxLength": 256},
+          "action": {"type": "string", "enum": ["create", "update", "skip", "unmapped"]},
+          "target_entity_id": {"type": "string", "format": "uuid"},
+          "current_label": {"type": "string", "maxLength": 1024},
+          "proposed_label": {"type": "string", "maxLength": 256},
+          "changed_fields": {"type": "array", "maxItems": 1, "items": {"type": "string", "enum": ["label"]}},
+          "unmapped_codes": {"type": "array", "maxItems": 32, "items": {"type": "string"}}
+        }
+      },
+      "NMSImportReviewDiffPage": {
+        "type": "object",
+        "required": ["context_id", "plan_id", "snapshot_hash", "review_hash", "row_count", "items"],
+        "properties": {
+          "context_id": {"type": "string", "format": "uuid"},
+          "plan_id": {"type": "string", "format": "uuid"},
+          "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "review_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "row_count": {"type": "integer", "minimum": 0, "format": "int64"},
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/NMSImportReviewDiffItem"}},
           "next_cursor": {"type": "integer", "minimum": 0, "format": "int64"}
         }
       },

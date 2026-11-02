@@ -176,6 +176,8 @@ var surfaceCommands = map[string]surfaceCommand{
 	"nms-import": {Name: "nms-import", Summary: "tenant-scoped incumbent NMS import", Ops: map[string]apiOp{
 		"rows": {Method: http.MethodGet, Path: "/v1/nms-imports/{id}/rows", ArgName: "id",
 			Description: "page redacted sealed source rows; requires --query context_id=<routing-context UUID>"},
+		"dry-run": {Method: http.MethodGet, Path: "/v1/nms-imports/{id}/dry-run", ArgName: "id",
+			Description: "page frozen destination changes; requires --query context_id=<routing-context UUID> --query review_hash=<frozen hash>"},
 		"configure-source": {Method: http.MethodPost, Path: "/v1/nms-imports/sources", SensitiveBody: true,
 			Description: "configure a LibreNMS HTTPS origin and tenant secret reference; use --body-file <0600-file|->"},
 		"disable-source": {Method: http.MethodPost, Path: "/v1/nms-imports/sources/{instance}/disable", ArgName: "instance",

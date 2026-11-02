@@ -538,6 +538,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/entities/{id}/links":        "cursor",
 	"/v1/entity-contexts":            "cursor",
 	"/v1/nms-imports/{id}/rows":      "cursor",
+	"/v1/nms-imports/{id}/dry-run":   "cursor",
 	"/v1/entities/resolve":           "bounded",
 	"/v1/devices":                    "bounded",
 	"/v1/device/identity-conflicts":  "bounded",

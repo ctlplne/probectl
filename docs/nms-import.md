@@ -37,9 +37,14 @@ with no approved policy, live fetching is disabled. See
    Choose `unmapped` for a row carrying unsupported fields, or `skip` after
    reviewing it. Retrying identical choices is inert.
 5. `POST /v1/nms-imports/{id}/finalize-review` freezes a `review_hash` only
-   after every row has a choice. The plan enters `preview`. This is a dry run:
-   it does not write entities, groups, polling settings, alerts or agent
-   evidence. No apply operation is available yet.
+   after every row has a choice. The plan enters `preview`. Page its destination
+   comparison with `GET /v1/nms-imports/{id}/dry-run`, passing `context_id`,
+   the exact `review_hash`, a limit of at most 100 and the returned cursor.
+   Each create/update shows the proposed device or site label, and an update
+   shows its current exact target label. Unsupported rows keep their unmapped
+   codes. A deleted or changed exact target returns a conflict instead of a
+   stale comparison. This dry run writes no entities, groups, polling settings,
+   alerts or agent evidence. No apply operation is available yet.
 
 The destination schema reserves a tenant/context/source-keyed group set and
 membership table. A membership can reference only a device with an exact

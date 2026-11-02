@@ -2181,6 +2181,28 @@ type Me struct {
 	UserId          string   `json:"user_id"`
 }
 
+type NMSImportReviewDiffItem struct {
+	Action         string   `json:"action"`
+	ChangedFields  []string `json:"changed_fields"`
+	CurrentLabel   string   `json:"current_label,omitempty"`
+	ExternalId     string   `json:"external_id"`
+	ObjectKind     string   `json:"object_kind"`
+	ProposedLabel  string   `json:"proposed_label,omitempty"`
+	RowNumber      int      `json:"row_number"`
+	TargetEntityId string   `json:"target_entity_id,omitempty"`
+	UnmappedCodes  []string `json:"unmapped_codes"`
+}
+
+type NMSImportReviewDiffPage struct {
+	ContextId    string                    `json:"context_id"`
+	Items        []NMSImportReviewDiffItem `json:"items"`
+	NextCursor   int                       `json:"next_cursor,omitempty"`
+	PlanId       string                    `json:"plan_id"`
+	ReviewHash   string                    `json:"review_hash"`
+	RowCount     int                       `json:"row_count"`
+	SnapshotHash string                    `json:"snapshot_hash"`
+}
+
 type NMSImportSealedRow struct {
 	Action           string   `json:"action"`
 	Address          string   `json:"address,omitempty"`
@@ -5668,6 +5690,41 @@ func (c *Client) AdvanceConfiguredLibreNmsImportPlan(ctx context.Context, req Ad
 		return nil, err
 	}
 	return out, nil
+}
+
+// Page the frozen import choices against exact current targets
+type ListNmsImportReviewDiffRequest struct {
+	Id         string  `json:"-"`
+	ContextId  *string `json:"-"`
+	ReviewHash *string `json:"-"`
+	Limit      *int    `json:"-"`
+	Cursor     *int    `json:"-"`
+}
+
+func (c *Client) ListNmsImportReviewDiff(ctx context.Context, req ListNmsImportReviewDiffRequest) (*NMSImportReviewDiffPage, error) {
+	path := "/v1/nms-imports/{id}/dry-run"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.ReviewHash != nil {
+		query.Set("review_hash", formatQueryValue(*req.ReviewHash))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	var out NMSImportReviewDiffPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Freeze all reviewed import actions into a snapshot-bound hash

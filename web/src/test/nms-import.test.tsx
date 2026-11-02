@@ -77,6 +77,24 @@ test('Admin import requires explicit tenant-context review before an inert dry r
           state: 'preview',
           review_hash: reviewHash,
         })
+      if (path === `/v1/nms-imports/${planID}/dry-run`)
+        return jsonResponse({
+          context_id: contextID,
+          plan_id: planID,
+          snapshot_hash: snapshotHash,
+          review_hash: reviewHash,
+          row_count: 1,
+          items: [
+            {
+              row_number: 0,
+              object_kind: 'device',
+              external_id: '17',
+              action: 'unmapped',
+              changed_fields: [],
+              unmapped_codes: ['site_unmapped'],
+            },
+          ],
+        })
       if (path.includes('/apply')) destinationWrites++
       return fallback(input, init)
     }),
@@ -113,12 +131,19 @@ test('Admin import requires explicit tenant-context review before an inert dry r
   expect(await region.findByText(/1 explicit choice saved/)).toBeInTheDocument()
   await userEvent.click(region.getByRole('button', { name: 'Finalize dry run' }))
   expect(await region.findByText(new RegExp(reviewHash))).toBeInTheDocument()
+  expect(
+    await region.findByRole('table', { name: 'Import destination comparison' }),
+  ).toBeInTheDocument()
   expect(destinationWrites).toBe(0)
   expect(
     requests.every(
-      (request) => request.body.context_id === contextID || request.path.endsWith('/rows'),
+      (request) =>
+        request.body.context_id === contextID ||
+        request.path.endsWith('/rows') ||
+        request.path.endsWith('/dry-run'),
     ),
   ).toBe(true)
+  expect(requests.some((request) => request.path.endsWith('/dry-run'))).toBe(true)
   expect(requests.find((request) => request.path.endsWith('/review-choices'))?.body).toMatchObject({
     snapshot_hash: snapshotHash,
     choices: [{ row_number: 0, action: 'unmapped' }],

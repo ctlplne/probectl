@@ -11,10 +11,13 @@ import {
   advanceImportPlan,
   configureImportSource,
   finalizeImportReview,
+  importDiff,
   importRows,
   setImportReviewChoices,
   startImportPlan,
   type ImportChoice,
+  type ImportDiffItem,
+  type ImportDiffPage,
   type ImportRow,
   type ImportRowsPage,
 } from '../../api/nmsImport'
@@ -58,7 +61,9 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
   const [credentialRef, setCredentialRef] = useState('')
   const [planID, setPlanID] = useState('')
   const [snapshotHash, setSnapshotHash] = useState('')
+  const [reviewHash, setReviewHash] = useState('')
   const [page, setPage] = useState<ImportRowsPage | null>(null)
+  const [diffPage, setDiffPage] = useState<ImportDiffPage | null>(null)
   const [choices, setChoices] = useState<Record<number, PendingChoice>>({})
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -74,7 +79,9 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
     setOrigin('')
     setPlanID('')
     setSnapshotHash('')
+    setReviewHash('')
     setPage(null)
+    setDiffPage(null)
     setChoices({})
     setCredentialRef('')
     setMessage('')
@@ -130,7 +137,9 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
       const result = await startImportPlan(contextID, instanceRef)
       setPlanID(result.plan_id)
       setSnapshotHash('')
+      setReviewHash('')
       setPage(null)
+      setDiffPage(null)
       setChoices({})
       setMessage('Inert capture plan started. Advance one source endpoint per request.')
     })
@@ -201,11 +210,46 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
   function finalize() {
     void run(async () => {
       const result = await finalizeImportReview(contextID, planID, snapshotHash)
+      setReviewHash(result.review_hash)
+      setDiffPage(await importDiff(contextID, planID, result.review_hash))
       setMessage(`Dry run frozen: ${result.review_hash}. No destination changed.`)
       const cursor = page && page.items.length > 0 ? page.items[0].row_number - 1 : undefined
       showPage(await importRows(contextID, planID, cursor))
     })
   }
+
+  function loadDiff(cursor?: number) {
+    void run(async () => {
+      setDiffPage(await importDiff(contextID, planID, reviewHash, cursor))
+      setMessage('Frozen destination comparison loaded. No destination changed.')
+    })
+  }
+
+  const diffColumns: Column<ImportDiffItem>[] = [
+    {
+      key: 'source',
+      header: 'Source identity',
+      render: (row) => `${row.object_kind} ${row.external_id}`,
+    },
+    { key: 'action', header: 'Decision', render: (row) => row.action },
+    {
+      key: 'destination',
+      header: 'Exact destination',
+      render: (row) =>
+        row.target_entity_id ? <code>{row.target_entity_id}</code> : 'New or unchanged',
+    },
+    {
+      key: 'labels',
+      header: 'Label change',
+      render: (row) =>
+        row.proposed_label ? `${row.current_label || 'New'} → ${row.proposed_label}` : 'No change',
+    },
+    {
+      key: 'residual',
+      header: 'Still unmapped',
+      render: (row) => (row.unmapped_codes.length > 0 ? row.unmapped_codes.join(', ') : 'None'),
+    },
+  ]
 
   const columns: Column<ImportRow>[] = [
     {
@@ -232,7 +276,7 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
       key: 'choice',
       header: 'Explicit choice',
       render: (row) =>
-        canWrite ? (
+        canWrite && !reviewHash ? (
           <Select
             label={`Choice for ${row.object_kind} ${row.external_id}`}
             value={choices[row.row_number]?.action ?? ''}
@@ -262,7 +306,7 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
       key: 'target',
       header: 'Update target',
       render: (row) =>
-        canWrite && choices[row.row_number]?.action === 'update' ? (
+        canWrite && !reviewHash && choices[row.row_number]?.action === 'update' ? (
           <Field
             label={`Exact target entity ID for ${row.external_id}`}
             value={choices[row.row_number]?.target_entity_id ?? ''}
@@ -361,6 +405,8 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                   setPlanID(event.target.value)
                   setPage(null)
                   setSnapshotHash('')
+                  setReviewHash('')
+                  setDiffPage(null)
                 }}
               />
               <Button onClick={() => load()} disabled={busy || !planID}>
@@ -388,7 +434,7 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                 columns={columns}
               />
               <div className={styles.row}>
-                {canWrite ? (
+                {canWrite && !reviewHash ? (
                   <Button onClick={saveChoices} disabled={busy || page.items.length === 0}>
                     Save page choices
                   </Button>
@@ -398,12 +444,45 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                     Next source page
                   </Button>
                 ) : null}
-                {canWrite ? (
+                {canWrite && !reviewHash ? (
                   <Button onClick={finalize} disabled={busy}>
                     Finalize dry run
                   </Button>
                 ) : null}
               </div>
+            </div>
+          ) : null}
+          {planID ? (
+            <div className={styles.row}>
+              <Field
+                label="Frozen review hash"
+                value={reviewHash}
+                onChange={(event) => {
+                  setReviewHash(event.target.value)
+                  setDiffPage(null)
+                }}
+              />
+              <Button onClick={() => loadDiff()} disabled={busy || !reviewHash}>
+                Load destination comparison
+              </Button>
+            </div>
+          ) : null}
+          {diffPage ? (
+            <div className={styles.stack}>
+              <p>
+                {diffPage.row_count} reviewed rows. This comparison makes no destination changes.
+              </p>
+              <Table
+                caption="Import destination comparison"
+                rows={diffPage.items}
+                rowKey={(row) => String(row.row_number)}
+                columns={diffColumns}
+              />
+              {diffPage.next_cursor !== undefined ? (
+                <Button onClick={() => loadDiff(diffPage.next_cursor)} disabled={busy}>
+                  Next comparison page
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </div>

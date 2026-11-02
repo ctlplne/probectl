@@ -106,16 +106,17 @@ func validReviewChoice(choice ReviewChoice) bool {
 
 func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID,
 	sourceID string, choice ReviewChoice) (bool, error) {
-	var kind, externalID, oldAction, oldTarget, oldFingerprint string
+	var kind, externalID, label, hostname, address, oldAction, oldTarget, oldFingerprint string
 	var unmapped []string
 	var reviewed bool
-	err := sc.Q.QueryRow(ctx, `SELECT object_kind,external_id,unmapped_codes,action,
+	err := sc.Q.QueryRow(ctx, `SELECT object_kind,external_id,coalesce(label,''),
+		coalesce(hostname,''),coalesce(address,''),unmapped_codes,action,
 		coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
 		reviewed_at IS NOT NULL
 		FROM nms_import_rows WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
 		  AND row_number=$4 FOR UPDATE`, sc.Tenant.String(), contextID,
 		planID, choice.RowNumber).
-		Scan(&kind, &externalID, &unmapped, &oldAction, &oldTarget,
+		Scan(&kind, &externalID, &label, &hostname, &address, &unmapped, &oldAction, &oldTarget,
 			&oldFingerprint, &reviewed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ErrInvalidReview
@@ -128,7 +129,8 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 	}
 	fingerprint := ""
 	if choice.Action == "create" || choice.Action == "update" {
-		if (kind != "device" && kind != "site") || len(unmapped) != 0 {
+		if (kind != "device" && kind != "site") || len(unmapped) != 0 ||
+			proposedEntityLabel(label, hostname, address) == "" {
 			return false, ErrInvalidReview
 		}
 		var bound string

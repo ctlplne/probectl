@@ -97,6 +97,7 @@ func TestNMSImportSealedRowsRouteIsTenantAndContextBound(t *testing.T) {
 			}
 		}
 	}
+	reviewHashes := make(map[string]string)
 	for _, own := range []fixture{left, right} {
 		base := "/v1/nms-imports/" + own.planID
 		finalizeBody := map[string]any{"context_id": own.contextID, "snapshot_hash": own.snapshotHash}
@@ -126,8 +127,36 @@ func TestNMSImportSealedRowsRouteIsTenantAndContextBound(t *testing.T) {
 		if response := apiReq(t, h, http.MethodPost, base+"/review-choices", own.tenant, choiceBody); response.Code != http.StatusNoContent {
 			t.Fatalf("own review choices: %d %s", response.Code, response.Body.String())
 		}
-		if response := apiReq(t, h, http.MethodPost, base+"/finalize-review", own.tenant, finalizeBody); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"preview"`) {
-			t.Fatalf("own review finalize: %d %s", response.Code, response.Body.String())
+		finalized := apiReq(t, h, http.MethodPost, base+"/finalize-review", own.tenant, finalizeBody)
+		if finalized.Code != http.StatusOK || !strings.Contains(finalized.Body.String(), `"state":"preview"`) {
+			t.Fatalf("own review finalize: %d %s", finalized.Code, finalized.Body.String())
+		}
+		var review struct {
+			Hash string `json:"review_hash"`
+		}
+		if json.Unmarshal(finalized.Body.Bytes(), &review) != nil || len(review.Hash) != 64 {
+			t.Fatalf("review hash missing from finalization: %s", finalized.Body.String())
+		}
+		reviewHashes[own.planID] = review.Hash
+		dryRunURL := base + "/dry-run?context_id=" + own.contextID + "&review_hash=" + review.Hash
+		if response := apiReq(t, h, http.MethodGet, dryRunURL+"&limit=101", own.tenant, nil); response.Code != http.StatusBadRequest {
+			t.Fatalf("unbounded destination dry run accepted: %d %s", response.Code, response.Body.String())
+		}
+		if response := apiReq(t, h, http.MethodGet, base+"/dry-run?context_id="+own.contextID+
+			"&review_hash="+strings.Repeat("0", 64), own.tenant, nil); response.Code != http.StatusNotFound {
+			t.Fatalf("wrong frozen review hash read destination diff: %d %s", response.Code, response.Body.String())
+		}
+		if response := apiReq(t, h, http.MethodGet,
+			"/v1/nms-imports/"+other.planID+"/dry-run?context_id="+own.contextID+
+				"&review_hash="+review.Hash, own.tenant, nil); response.Code != http.StatusNotFound {
+			t.Fatalf("foreign tenant read destination diff: %d %s", response.Code, response.Body.String())
+		}
+		dryRun := apiReq(t, h, http.MethodGet, dryRunURL, own.tenant, nil)
+		var diff nmsimport.ReviewDiffPage
+		if dryRun.Code != http.StatusOK || json.Unmarshal(dryRun.Body.Bytes(), &diff) != nil ||
+			len(diff.Items) != 1 || diff.Items[0].Action != "unmapped" ||
+			diff.Items[0].ExternalID != "17" || strings.Contains(dryRun.Body.String(), "source-only-secret") {
+			t.Fatalf("tenant destination dry run: %d %s", dryRun.Code, dryRun.Body.String())
 		}
 		response := apiReq(t, h, http.MethodGet,
 			base+"/rows?context_id="+own.contextID, own.tenant, nil)
@@ -158,6 +187,16 @@ func TestNMSImportSealedRowsRouteIsTenantAndContextBound(t *testing.T) {
 		if response.Code != check.status {
 			t.Fatalf("import context policy tenant=%s: %d %s",
 				check.fixture.tenant, response.Code, response.Body.String())
+		}
+		// The same read permission and routing-context policy protect the
+		// destination comparison after review is finalized.
+		dryRun := apiReq(t, h, http.MethodGet,
+			"/v1/nms-imports/"+check.fixture.planID+"/dry-run?context_id="+
+				check.fixture.contextID+"&review_hash="+reviewHashes[check.fixture.planID],
+			check.fixture.tenant, nil)
+		if dryRun.Code != check.status {
+			t.Fatalf("dry-run context policy tenant=%s: %d %s",
+				check.fixture.tenant, dryRun.Code, dryRun.Body.String())
 		}
 	}
 	if response := apiReq(t, h, http.MethodPost,
