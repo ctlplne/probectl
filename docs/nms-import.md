@@ -122,9 +122,43 @@ key, address or label never selects a destination device by itself. Source
 item transport and status are reduced to fixed unmapped reason codes; their
 raw values are not returned. An enabled SNMP item's delay is eligible for a
 later reviewed host cadence only when it is a literal 15s–24h interval and
-its item UUID is present. Conflicting intervals or an unsupported delay among
+its item UUID is present; this carries the fixed `poll_proposal` code.
+Conflicting intervals or an unsupported delay among
 one host's enabled SNMP items mark its otherwise eligible rows with
-`poll_cadence_conflict`. Other transports and disabled items cannot nominate a
-host cadence. These classifications do not change an agent cadence. Imported
+`poll_cadence_conflict` and leave them unmapped. Other transports and disabled items cannot nominate a
+host cadence. A reviewed create/update may persist an eligible item as a
+tenant/context/source-keyed polling proposal only after its host has an exact
+same-source applied device binding. The dry run shows current and proposed
+seconds; a changed interval needs an explicit update against the current
+proposal fingerprint and revision. Reimporting an identical item leaves that
+revision unchanged. A proposal is inert until an operator exports and applies
+the device-agent configuration with a separate device credential reference;
+the NMS API credential is never copied. Imported
 alert expressions and delivery targets remain unmapped and
 no imported alert can be enabled by this review path.
+
+To prepare one Zabbix polling proposal, call
+`POST /v1/nms-imports/poll-target-preview` with the routing-context UUID,
+source UUID, reviewed item UUID, exact agent ID and exact configured target
+address. The read requires `nms.import.read` and `entities.read`, and returns
+only an applied proposal whose source host maps to the same tenant's canonical
+device, current operator-assigned `device_target` anchor and active agent
+identity. It returns the current plan ID, revision and seconds without a
+credential. A source IP cannot select the target. The read-only MCP tool
+`nms_import_poll_target` and Admin preview use the same check.
+
+With that current plan ID and revision, run
+`probectl nms-import config-export --context-id UUID --source-id UUID
+--item-id ITEM_UUID --agent-id AGENT --target-address ADDRESS
+--expected-plan-id UUID --expected-revision N --transport snmpv3
+--credential-name-file NAME_FILE --out NEW_CONFIG`. The name file must be a
+real 0600 file containing only a device-agent credential name, such as
+`edge-ro`; keep the community or SNMPv3 passphrases in the agent's separate
+credential source. `snmpv2c` also needs an explicit choice. The command
+refuses a changed proposal or binding, checks the generated complete
+`probectl.io/device-agent/v1` YAML with the shipped parser, and creates a new
+0600 file without overwriting an existing config. It does not install or
+reload the agent config. The operator must review that file, supply the
+agent's normal bus and evidence settings where needed, and install it on the
+matching tenant-bound agent. Until the running agent emits a poll receipt at
+the reviewed cadence, this is a configuration proposal, not an active poll.

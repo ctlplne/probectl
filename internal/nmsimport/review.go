@@ -83,7 +83,8 @@ func (s CaptureStore) SetReviewChoices(ctx context.Context, contextID, planID,
 		}
 		changed := 0
 		for _, choice := range choices {
-			updated, err := setOneReviewChoice(ctx, sc, contextID, planID, sourceID, choice)
+			updated, err := setOneReviewChoice(ctx, sc, contextID, planID,
+				sourceID, meta.source, choice)
 			if err != nil {
 				return err
 			}
@@ -113,7 +114,8 @@ func validReviewChoice(choice ReviewChoice) bool {
 }
 
 func validReviewChoiceForKind(kind string, choice ReviewChoice) bool {
-	if kind == "group" && choice.Action == "update" && choice.TargetEntityID == "" {
+	if (kind == "group" || kind == "poll_setting") &&
+		choice.Action == "update" && choice.TargetEntityID == "" {
 		return true
 	}
 	if kind == "membership" && choice.Action == "remove" && choice.TargetEntityID == "" {
@@ -123,20 +125,24 @@ func validReviewChoiceForKind(kind string, choice ReviewChoice) bool {
 }
 
 func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID,
-	sourceID string, choice ReviewChoice) (bool, error) {
+	sourceID string, sourceKind Kind, choice ReviewChoice) (bool, error) {
 	var kind, externalID, label, hostname, address, oldAction, oldTarget, oldFingerprint string
+	var parentID string
+	var pollSeconds int64
 	var oldGroupRevision int64
 	var unmapped []string
 	var reviewed bool
 	err := sc.Q.QueryRow(ctx, `SELECT object_kind,external_id,coalesce(label,''),
-		coalesce(hostname,''),coalesce(address,''),unmapped_codes,action,
+		coalesce(hostname,''),coalesce(address,''),
+		coalesce(parent_external_id,''),coalesce(poll_seconds,0),unmapped_codes,action,
 		coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
 		coalesce(target_group_revision,-1),
 		reviewed_at IS NOT NULL
 		FROM nms_import_rows WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
 		  AND row_number=$4 FOR UPDATE`, sc.Tenant.String(), contextID,
 		planID, choice.RowNumber).
-		Scan(&kind, &externalID, &label, &hostname, &address, &unmapped, &oldAction, &oldTarget,
+		Scan(&kind, &externalID, &label, &hostname, &address,
+			&parentID, &pollSeconds, &unmapped, &oldAction, &oldTarget,
 			&oldFingerprint, &oldGroupRevision, &reviewed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ErrInvalidReview
@@ -183,6 +189,14 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 				return false, err
 			}
 			fingerprint = group.fingerprint
+		}
+		if kind == "poll_setting" {
+			fingerprint, err = fingerprintPollChoice(ctx, sc, contextID,
+				planID, sourceID, sourceKind, externalID, parentID,
+				pollSeconds, choice.Action)
+			if err != nil {
+				return false, err
+			}
 		}
 		if kind == "device" || kind == "site" {
 			var bound string
@@ -261,6 +275,10 @@ func reviewRowCanWrite(kind, action string, unmapped []string, label, hostname, 
 			len(unmapped) == 1 &&
 			(action == "create" && unmapped[0] == "group_unmapped" ||
 				action == "remove" && unmapped[0] == "member_removal_candidate")
+	case "poll_setting":
+		return (action == "create" || action == "update") && label == "" &&
+			hostname == "" && address == "" && len(unmapped) == 1 &&
+			unmapped[0] == "poll_proposal"
 	default:
 		return false
 	}
@@ -411,6 +429,9 @@ func (s CaptureStore) FinalizeReview(ctx context.Context, contextID, planID,
 			return ErrReviewIncomplete
 		}
 		if err := validateMemberRemovalChoices(ctx, sc, contextID, planID); err != nil {
+			return err
+		}
+		if err := validatePollProposalChoices(ctx, sc, contextID, planID); err != nil {
 			return err
 		}
 		// A reviewed membership cannot become actionable when either of its

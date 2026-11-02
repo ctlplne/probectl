@@ -4109,6 +4109,23 @@
         }
       }
     },
+    "/v1/nms-imports/poll-target-preview": {
+      "post": {
+        "x-required-permission": "nms.import.read",
+        "operationId": "previewNMSImportPollTarget",
+        "summary": "Verify one reviewed Zabbix cadence against an exact current agent target",
+        "description": "Read only. Requires nms.import.read and entities.read in the selected routing context. FORCE-RLS storage joins the exact applied source item and host provenance to a current operator-assigned canonical device, agent target and active sender identity. The source IP never selects a target. No credential is accepted or returned, and no running agent is changed. The read is audited.",
+        "tags": ["entities"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NMSImportPollTargetPreviewRequest"}}}},
+        "responses": {
+          "200": {"description": "One credential-free reviewed proposal with its exact current agent target.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NMSImportPollTargetPreview"}}}},
+          "400": {"description": "Invalid source item or agent target selection."},
+          "403": {"description": "Import or entity read permission denied in this context."},
+          "404": {"description": "No matching current reviewed proposal and agent binding in this tenant and context."}
+        }
+      }
+    },
     "/v1/nms-imports/{id}/rows": {
       "get": {
         "x-required-permission": "nms.import.read",
@@ -18375,6 +18392,35 @@
           "next_cursor": {"type": "integer", "minimum": 0, "format": "int64"}
         }
       },
+      "NMSImportPollTargetPreviewRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["context_id", "source_id", "item_external_id", "agent_id", "target_address"],
+        "properties": {
+          "context_id": {"type": "string", "format": "uuid"},
+          "source_id": {"type": "string", "format": "uuid"},
+          "item_external_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "agent_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "target_address": {"type": "string", "minLength": 1, "maxLength": 256}
+        }
+      },
+      "NMSImportPollTargetPreview": {
+        "type": "object",
+        "required": ["tenant_id", "context_id", "source_id", "item_external_id", "host_external_id", "entity_id", "agent_id", "target_address", "poll_seconds", "plan_id", "revision"],
+        "properties": {
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "context_id": {"type": "string", "format": "uuid"},
+          "source_id": {"type": "string", "format": "uuid"},
+          "item_external_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "host_external_id": {"type": "string", "maxLength": 256},
+          "entity_id": {"type": "string", "format": "uuid"},
+          "agent_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "target_address": {"type": "string", "minLength": 1, "maxLength": 256},
+          "poll_seconds": {"type": "integer", "minimum": 15, "maximum": 86400, "format": "int64"},
+          "plan_id": {"type": "string", "format": "uuid"},
+          "revision": {"type": "integer", "minimum": 1, "format": "int64"}
+        }
+      },
       "NMSImportReviewDiffItem": {
         "type": "object",
         "required": ["row_number", "object_kind", "external_id", "action", "changed_fields", "unmapped_codes"],
@@ -18385,8 +18431,10 @@
           "action": {"type": "string", "enum": ["create", "update", "remove", "skip", "unmapped"]},
           "target_entity_id": {"type": "string", "format": "uuid"},
           "current_label": {"type": "string", "maxLength": 1024},
+          "current_poll_seconds": {"type": "integer", "minimum": 15, "maximum": 86400, "format": "int64"},
           "proposed_label": {"type": "string", "maxLength": 256},
-          "changed_fields": {"type": "array", "maxItems": 2, "items": {"type": "string", "enum": ["label", "group", "dynamic_predicate_unmapped", "membership", "membership_removed"]}},
+          "proposed_poll_seconds": {"type": "integer", "minimum": 15, "maximum": 86400, "format": "int64"},
+          "changed_fields": {"type": "array", "maxItems": 2, "items": {"type": "string", "enum": ["label", "group", "dynamic_predicate_unmapped", "membership", "membership_removed", "poll_seconds"]}},
           "unmapped_codes": {"type": "array", "maxItems": 32, "items": {"type": "string"}}
         }
       },

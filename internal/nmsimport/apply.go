@@ -33,6 +33,8 @@ type applyRow struct {
 	number        int64
 	kind          string
 	externalID    string
+	parentID      string
+	pollSeconds   int64
 	label         string
 	hostname      string
 	address       string
@@ -109,6 +111,7 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 			}
 		}
 		rows, err := sc.Q.Query(ctx, `SELECT row_number,object_kind,external_id,
+			coalesce(parent_external_id,''),coalesce(poll_seconds,0),
 			coalesce(label,''),coalesce(hostname,''),coalesce(address,''),action,
 			coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
 			coalesce(target_group_revision,-1),
@@ -123,6 +126,7 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 		for rows.Next() {
 			var row applyRow
 			if err := rows.Scan(&row.number, &row.kind, &row.externalID,
+				&row.parentID, &row.pollSeconds,
 				&row.label, &row.hostname, &row.address, &row.action,
 				&row.targetID, &row.fingerprint, &row.groupRevision, &row.unmapped,
 				&row.reviewed); err != nil {
@@ -212,6 +216,8 @@ func applyFrozenRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 			err = applyEntityRow(ctx, sc, contextID, planID, sourceID, row)
 		case "group":
 			err = applyGroupRow(ctx, sc, contextID, planID, sourceID, row)
+		case "poll_setting":
+			err = applyPollProposalRow(ctx, sc, contextID, planID, sourceID, row)
 		case "membership":
 			if row.action == "remove" {
 				err = applyMemberRemovalRow(ctx, sc, contextID, planID, sourceID, row)

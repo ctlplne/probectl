@@ -404,6 +404,9 @@ func zabbixPollItemRow(item zabbixExportItem, hostID string) (Row, bool, bool) {
 	}
 	eligible := snmp && enabled && itemID != "" && bounded
 	blocked := snmp && enabled && !eligible
+	if eligible {
+		codes[0] = "poll_proposal"
+	}
 	return Row{Kind: "poll_item", ExternalID: itemID, ParentID: hostID,
 		PollSeconds: seconds, UnmappedCodes: codes}, eligible, blocked
 }
@@ -525,6 +528,7 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 		}
 		if hostPollBlocked {
 			for _, index := range eligiblePollRows {
+				out.Rows[index].UnmappedCodes[0] = "poll_item_unmapped"
 				out.Rows[index].UnmappedCodes = append(out.Rows[index].UnmappedCodes,
 					"poll_cadence_conflict")
 			}

@@ -182,6 +182,13 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 				foreignKey{"nms_import_group_members", "fx2b_member_row_fk", "tenant_id, context_id, plan_id, object_kind, row_external_id", "nms_import_rows", "tenant_id, context_id, plan_id, object_kind, external_id"},
 			)
 		}
+		if owned["nms_import_poll_proposals"] {
+			keys = append(keys,
+				foreignKey{"nms_import_poll_proposals", "fx2b_poll_host_fk", "tenant_id, context_id, source_id, host_kind, host_external_id", "nms_import_provenance", "tenant_id, context_id, source_id, object_kind, external_id"},
+				foreignKey{"nms_import_poll_proposals", "fx2b_poll_plan_fk", "tenant_id, context_id, plan_id, source_id", "nms_import_plans", "tenant_id, context_id, id, source_id"},
+				foreignKey{"nms_import_poll_proposals", "fx2b_poll_row_fk", "tenant_id, context_id, plan_id, object_kind, item_external_id", "nms_import_rows", "tenant_id, context_id, plan_id, object_kind, external_id"},
+			)
+		}
 	}
 	// Existing silos can predate the public (tenant_id,id) index. A global
 	// tests.id primary key is insufficient for the composite FK, so install
@@ -235,7 +242,8 @@ END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(n
 		if key.name == "fx2b_provenance_plan_source_fk" || key.name == "fx2b_provenance_row_fk" ||
 			key.name == "fx2b_group_plan_fk" || key.name == "fx2b_group_revision_plan_fk" ||
 			key.name == "fx2b_group_row_fk" ||
-			key.name == "fx2b_member_plan_fk" || key.name == "fx2b_member_row_fk" {
+			key.name == "fx2b_member_plan_fk" || key.name == "fx2b_member_row_fk" ||
+			key.name == "fx2b_poll_plan_fk" || key.name == "fx2b_poll_row_fk" {
 			// An applied plan remains while provenance cites it. A deferred FK
 			// still allows a whole-tenant cascade to remove both records.
 			onDelete = " ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED"

@@ -272,6 +272,9 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		DROP COLUMN apply_verified_at`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `DROP TABLE `+schemaA+`.nms_import_poll_proposals`); err != nil {
+		t.Fatal(err)
+	}
 	if err := prov.CatchUpSchema(ctx, a); err != nil {
 		t.Fatalf("catch up import review proof in existing silo: %v", err)
 	}
@@ -359,5 +362,31 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		VALUES ($1,$2,$3,6,'site','site-1','edge-r1')`,
 		a, contextA, planA); err == nil {
 		t.Fatal("caught-up silo accepted a nonnumeric site parent")
+	}
+	itemID := strings.Repeat("a", 32)
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
+		 parent_external_id,poll_seconds,action,reviewed_at)
+		VALUES ($1,$2,$3,8,'poll_setting',$4,'17',60,'create',clock_timestamp())`,
+		a, contextA, planA, itemID); err != nil {
+		t.Fatalf("caught-up silo lost poll proposal row: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_poll_proposals
+		(tenant_id,context_id,source_id,host_external_id,item_external_id,poll_seconds,plan_id)
+		VALUES ($1,$2,$3,'18',$4,60,$5)`, a, contextA, sourceA,
+		itemID, planA); err == nil {
+		t.Fatal("caught-up silo accepted a poll proposal for an unbound source host")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_poll_proposals
+		(tenant_id,context_id,source_id,host_external_id,item_external_id,poll_seconds,plan_id)
+		VALUES ($1,$2,$3,'17',$4,60,$5)`, a, contextA, sourceOther,
+		itemID, planA); err == nil {
+		t.Fatal("caught-up silo accepted a poll proposal for another source")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_poll_proposals
+		(tenant_id,context_id,source_id,host_external_id,item_external_id,poll_seconds,plan_id)
+		VALUES ($1,$2,$3,'17',$4,60,$5)`, a, contextA, sourceA,
+		itemID, planA); err != nil {
+		t.Fatalf("caught-up silo rejected exact source-bound poll proposal: %v", err)
 	}
 }

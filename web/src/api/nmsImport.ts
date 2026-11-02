@@ -10,6 +10,8 @@ export interface ImportRow {
   row_number: number
   object_kind: string
   external_id: string
+  parent_external_id?: string
+  poll_seconds?: number
   label?: string
   address?: string
   location_label?: string
@@ -40,7 +42,9 @@ export interface ImportDiffItem {
   action: ImportChoice['action']
   target_entity_id?: string
   current_label?: string
+  current_poll_seconds?: number
   proposed_label?: string
+  proposed_poll_seconds?: number
   changed_fields: string[]
   unmapped_codes: string[]
 }
@@ -95,6 +99,23 @@ export interface ImportApplyResponse {
   review_hash: string
 }
 
+export interface ImportPollTargetSelection {
+  context_id: string
+  source_id: string
+  item_external_id: string
+  agent_id: string
+  target_address: string
+}
+
+export interface ImportPollTargetPreview extends ImportPollTargetSelection {
+  tenant_id: string
+  host_external_id: string
+  entity_id: string
+  poll_seconds: number
+  plan_id: string
+  revision: number
+}
+
 const jsonInit = (method: string, body: unknown): RequestInit => ({
   method,
   headers: { 'Content-Type': 'application/json' },
@@ -137,6 +158,13 @@ export function importDiff(contextID: string, planID: string, reviewHash: string
   if (cursor !== undefined) query.set('cursor', String(cursor))
   return apiFetch<ImportDiffPage>(
     `/nms-imports/${encodeURIComponent(planID)}/dry-run?${query.toString()}`,
+  )
+}
+
+export function previewImportPollTarget(input: ImportPollTargetSelection) {
+  return apiFetch<ImportPollTargetPreview>(
+    '/nms-imports/poll-target-preview',
+    jsonInit('POST', input),
   )
 }
 

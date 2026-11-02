@@ -117,6 +117,8 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		return cmdDashboard(cfg, rest[1:], stdin, stdout, stderr)
 	case "device":
 		return cmdDevice(cfg, rest[1:], stdout, stderr)
+	case "nms-import":
+		return cmdNMSImport(cfg, rest[1:], stdin, stdout, stderr)
 	case "ai":
 		return cmdAI(cfg, rest[1:], stdout, stderr)
 	case "audit":

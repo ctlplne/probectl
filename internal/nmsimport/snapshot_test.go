@@ -236,14 +236,14 @@ func TestZabbixLiteralPollIntervalKeepsOnlyBoundedSeconds(t *testing.T) {
 
 func TestZabbixSNMPItemEligibilityReasonsStayFixed(t *testing.T) {
 	for _, tc := range []struct {
-		name, item        string
-		transport, status bool
+		name, item                  string
+		transport, status, proposal bool
 	}{
-		{"supported", `{"uuid":"11111111222233334444555555555555","type":"SNMP_AGENT","status":"ENABLED","delay":"90s"}`, false, false},
-		{"numeric enums", `{"uuid":"11111111222233334444555555555555","type":20,"status":0,"delay":"90s"}`, false, false},
-		{"other transport", `{"uuid":"11111111222233334444555555555555","type":"ZABBIX_PASSIVE","delay":"90s"}`, true, false},
-		{"disabled", `{"uuid":"11111111222233334444555555555555","type":"SNMP_AGENT","status":"DISABLED","delay":"90s"}`, false, true},
-		{"unknown input", `{"uuid":"11111111222233334444555555555555","type":"secret-transport","status":"secret-status","delay":"90s"}`, true, true},
+		{"supported", `{"uuid":"11111111222233334444555555555555","type":"SNMP_AGENT","status":"ENABLED","delay":"90s"}`, false, false, true},
+		{"numeric enums", `{"uuid":"11111111222233334444555555555555","type":20,"status":0,"delay":"90s"}`, false, false, true},
+		{"other transport", `{"uuid":"11111111222233334444555555555555","type":"ZABBIX_PASSIVE","delay":"90s"}`, true, false, false},
+		{"disabled", `{"uuid":"11111111222233334444555555555555","type":"SNMP_AGENT","status":"DISABLED","delay":"90s"}`, false, true, false},
+		{"unknown input", `{"uuid":"11111111222233334444555555555555","type":"secret-transport","status":"secret-status","delay":"90s"}`, true, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			payload := `{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge-r1","interfaces":[{"ip":"10.0.0.1"}],"items":[` + tc.item + `]}]}}`
@@ -254,7 +254,9 @@ func TestZabbixSNMPItemEligibilityReasonsStayFixed(t *testing.T) {
 			codes := got.Rows[1].UnmappedCodes
 			if contains(codes, "poll_transport_unmapped") != tc.transport ||
 				contains(codes, "poll_status_unmapped") != tc.status ||
-				!contains(codes, "poll_item_unmapped") || got.Rows[1].PollSeconds != 90 {
+				contains(codes, "poll_proposal") != tc.proposal ||
+				contains(codes, "poll_item_unmapped") == tc.proposal ||
+				got.Rows[1].PollSeconds != 90 {
 				t.Fatalf("fixed eligibility reasons lost: %+v", got.Rows[1])
 			}
 			wire, err := json.Marshal(got)

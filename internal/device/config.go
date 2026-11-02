@@ -194,6 +194,23 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// Parse validates a complete device-agent YAML document without environment
+// overrides. Generators use this before writing an operator-reviewed file, so
+// local PROBECTL_DEVICE_* settings cannot make an invalid document appear valid.
+func Parse(raw []byte) (*Config, error) {
+	cfg := Default()
+	if len(raw) > maxConfigFileBytes {
+		return nil, fmt.Errorf("device: config exceeds %d-byte limit", maxConfigFileBytes)
+	}
+	if err := decodeConfigYAML(raw, cfg); err != nil {
+		return nil, fmt.Errorf("device: parse config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
 func readConfigFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {

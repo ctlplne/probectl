@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -52,6 +53,8 @@ func nmsImportMCPReadError(err error) error {
 		return apierror.NotFound("import plan not found in this routing context")
 	case errors.Is(err, nmsimport.ErrInvalidPage):
 		return apierror.BadRequest("invalid import page")
+	case errors.Is(err, nmsimport.ErrInvalidReview):
+		return apierror.BadRequest("invalid poll target selection")
 	case errors.Is(err, nmsimport.ErrReviewStale):
 		return apierror.Conflict("reviewed destination changed")
 	default:
@@ -124,7 +127,36 @@ func (b mcpNMSImportBackend) NMSImportDryRun(ctx context.Context, p *auth.Princi
 			RowNumber: item.RowNumber, Kind: item.Kind, ExternalID: item.ExternalID,
 			Action: item.Action, TargetID: item.TargetID,
 			CurrentLabel: item.CurrentLabel, ProposedLabel: item.ProposedLabel,
-			ChangedFields: item.ChangedFields, UnmappedCodes: item.UnmappedCodes})
+			CurrentPollSeconds:  item.CurrentPollSeconds,
+			ProposedPollSeconds: item.ProposedPollSeconds,
+			ChangedFields:       item.ChangedFields, UnmappedCodes: item.UnmappedCodes})
 	}
 	return out, nil
+}
+
+func (b mcpNMSImportBackend) NMSImportPollTarget(ctx context.Context, p *auth.Principal,
+	input mcp.NMSImportPollTargetInput) (mcp.NMSImportPollTargetResult, error) {
+	ctx, contextID, err := b.readScope(ctx, p, input.ContextID)
+	if err != nil {
+		return mcp.NMSImportPollTargetResult{}, err
+	}
+	checker := mcpEntityBackend{pool: b.pool, policyLoader: b.policyLoader}
+	if err := checker.requireEntityContext(ctx, p,
+		entity.Scope{TenantID: p.TenantID, ContextID: contextID},
+		ai.PermEntitiesRead); err != nil {
+		return mcp.NMSImportPollTargetResult{}, err
+	}
+	preview, err := nmsimport.NewCaptureStore(b.pool, nil).PreviewPollTarget(ctx,
+		contextID, input.SourceID, input.ItemID, input.AgentID,
+		input.TargetAddress)
+	if err != nil {
+		return mcp.NMSImportPollTargetResult{}, nmsImportMCPReadError(err)
+	}
+	return mcp.NMSImportPollTargetResult{
+		TenantID: preview.TenantID, ContextID: preview.ContextID,
+		SourceID: preview.SourceID, ItemID: preview.ItemID, HostID: preview.HostID,
+		EntityID: preview.EntityID, AgentID: preview.AgentID,
+		TargetAddress: preview.TargetAddress, PollSeconds: preview.PollSeconds,
+		PlanID: preview.PlanID, Revision: preview.Revision,
+	}, nil
 }

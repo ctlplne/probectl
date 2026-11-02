@@ -2062,13 +2062,37 @@ export interface Me {
   user_id: string
 }
 
+export interface NMSImportPollTargetPreview {
+  agent_id: string
+  context_id: string
+  entity_id: string
+  host_external_id: string
+  item_external_id: string
+  plan_id: string
+  poll_seconds: number
+  revision: number
+  source_id: string
+  target_address: string
+  tenant_id: string
+}
+
+export interface NMSImportPollTargetPreviewRequest {
+  agent_id: string
+  context_id: string
+  item_external_id: string
+  source_id: string
+  target_address: string
+}
+
 export interface NMSImportReviewDiffItem {
   action: "create" | "update" | "remove" | "skip" | "unmapped"
-  changed_fields: ("label" | "group" | "dynamic_predicate_unmapped" | "membership" | "membership_removed")[]
+  changed_fields: ("label" | "group" | "dynamic_predicate_unmapped" | "membership" | "membership_removed" | "poll_seconds")[]
   current_label?: string
+  current_poll_seconds?: number
   external_id: string
   object_kind: "device" | "site" | "group" | "membership" | "poll_setting" | "alert_rule"
   proposed_label?: string
+  proposed_poll_seconds?: number
   row_number: number
   target_entity_id?: string
   unmapped_codes: string[]
@@ -3547,6 +3571,12 @@ export interface StartConfiguredLibreNmsImportPlanRequest {
 }
 
 export type StartConfiguredLibreNmsImportPlanResponse = JsonObject
+
+export interface PreviewNmsImportPollTargetRequest {
+  body: NMSImportPollTargetPreviewRequest
+}
+
+export type PreviewNmsImportPollTargetResponse = NMSImportPollTargetPreview
 
 export interface ConfigureLibreNmsImportSourceRequest {
   body: JsonObject
@@ -5126,6 +5156,12 @@ export class ProbectlSDKClient {
     let path = "/v1/nms-imports/live-plans"
     const query = new URLSearchParams()
     return this.requestJSON<StartConfiguredLibreNmsImportPlanResponse>("POST", path, query, request.body)
+  }
+
+  async previewNmsImportPollTarget(request: PreviewNmsImportPollTargetRequest): Promise<PreviewNmsImportPollTargetResponse> {
+    let path = "/v1/nms-imports/poll-target-preview"
+    const query = new URLSearchParams()
+    return this.requestJSON<PreviewNmsImportPollTargetResponse>("POST", path, query, request.body)
   }
 
   async configureLibreNmsImportSource(request: ConfigureLibreNmsImportSourceRequest): Promise<ConfigureLibreNmsImportSourceResponse> {

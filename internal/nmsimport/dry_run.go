@@ -23,15 +23,17 @@ var ErrReviewStale = errors.New("nmsimport: reviewed destination changed")
 // write. Source addresses, group names and alert expressions never select a
 // destination. A blank current label means there is no selected target.
 type ReviewDiffItem struct {
-	RowNumber     int64    `json:"row_number"`
-	Kind          string   `json:"object_kind"`
-	ExternalID    string   `json:"external_id"`
-	Action        string   `json:"action"`
-	TargetID      string   `json:"target_entity_id,omitempty"`
-	CurrentLabel  string   `json:"current_label,omitempty"`
-	ProposedLabel string   `json:"proposed_label,omitempty"`
-	ChangedFields []string `json:"changed_fields"`
-	UnmappedCodes []string `json:"unmapped_codes"`
+	RowNumber           int64    `json:"row_number"`
+	Kind                string   `json:"object_kind"`
+	ExternalID          string   `json:"external_id"`
+	Action              string   `json:"action"`
+	TargetID            string   `json:"target_entity_id,omitempty"`
+	CurrentLabel        string   `json:"current_label,omitempty"`
+	ProposedLabel       string   `json:"proposed_label,omitempty"`
+	CurrentPollSeconds  int64    `json:"current_poll_seconds,omitempty"`
+	ProposedPollSeconds int64    `json:"proposed_poll_seconds,omitempty"`
+	ChangedFields       []string `json:"changed_fields"`
+	UnmappedCodes       []string `json:"unmapped_codes"`
 }
 
 type ReviewDiffPage struct {
@@ -49,6 +51,8 @@ type reviewDiffRow struct {
 	label         string
 	hostname      string
 	address       string
+	parentID      string
+	pollSeconds   int64
 	fingerprint   string
 	groupRevision int64
 	reviewed      bool
@@ -99,6 +103,7 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 			return ErrReviewStale
 		}
 		rows, err := sc.Q.Query(ctx, `SELECT row_number,object_kind,external_id,
+			coalesce(parent_external_id,''),coalesce(poll_seconds,0),
 			coalesce(label,''),coalesce(hostname,''),coalesce(address,''),action,
 			coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
 			coalesce(target_group_revision,-1),
@@ -114,7 +119,8 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 		for rows.Next() {
 			var row reviewDiffRow
 			if err := rows.Scan(&row.item.RowNumber, &row.item.Kind,
-				&row.item.ExternalID, &row.label, &row.hostname, &row.address,
+				&row.item.ExternalID, &row.parentID, &row.pollSeconds,
+				&row.label, &row.hostname, &row.address,
 				&row.item.Action, &row.item.TargetID, &row.fingerprint,
 				&row.groupRevision,
 				&row.item.UnmappedCodes, &row.reviewed); err != nil {
@@ -148,6 +154,14 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 				}
 				if item.Kind == "group" {
 					item, err = reviewGroupDiff(ctx, sc, contextID, sourceID, row)
+					if err != nil {
+						return err
+					}
+					page.Items = append(page.Items, item)
+					continue
+				}
+				if item.Kind == "poll_setting" {
+					item, err = reviewPollDiff(ctx, sc, contextID, sourceID, row)
 					if err != nil {
 						return err
 					}
@@ -212,6 +226,49 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 		return ReviewDiffPage{}, err
 	}
 	return page, nil
+}
+
+func reviewPollDiff(ctx context.Context, sc tenancy.Scope, contextID, sourceID string,
+	row reviewDiffRow) (ReviewDiffItem, error) {
+	item := row.item
+	item.ChangedFields = []string{}
+	if item.TargetID != "" || item.ExternalID == "" ||
+		safeZabbixUUID(item.ExternalID) != item.ExternalID ||
+		row.parentID == "" || safeLabel(row.parentID) != row.parentID ||
+		row.pollSeconds < 15 || row.pollSeconds > 86400 {
+		return ReviewDiffItem{}, ErrReviewStale
+	}
+	item.ProposedPollSeconds = row.pollSeconds
+	current, err := readImportedPollTarget(ctx, sc, contextID, sourceID, item.ExternalID)
+	if err != nil && !errors.Is(err, ErrInvalidReview) {
+		return ReviewDiffItem{}, err
+	}
+	switch item.Action {
+	case "create":
+		if row.fingerprint != "" {
+			return ReviewDiffItem{}, ErrReviewStale
+		}
+		if err != nil {
+			item.ChangedFields = []string{"poll_seconds"}
+			return item, nil
+		}
+		if current.hostID != row.parentID || current.seconds != row.pollSeconds {
+			return ReviewDiffItem{}, ErrReviewStale
+		}
+		item.CurrentPollSeconds = current.seconds
+	case "update":
+		if err != nil || current.hostID != row.parentID ||
+			current.fingerprint != row.fingerprint {
+			return ReviewDiffItem{}, ErrReviewStale
+		}
+		item.CurrentPollSeconds = current.seconds
+		if current.seconds != row.pollSeconds {
+			item.ChangedFields = []string{"poll_seconds"}
+		}
+	default:
+		return ReviewDiffItem{}, ErrReviewStale
+	}
+	return item, nil
 }
 
 func reviewGroupDiff(ctx context.Context, sc tenancy.Scope, contextID, sourceID string,

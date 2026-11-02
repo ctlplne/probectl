@@ -14,6 +14,7 @@ import {
   finalizeImportReview,
   importDiff,
   importRows,
+  previewImportPollTarget,
   setImportReviewChoices,
   startImportPlan,
   verifyImportBeforeApply,
@@ -22,6 +23,7 @@ import {
   type ImportDiffPage,
   type ImportRow,
   type ImportRowsPage,
+  type ImportPollTargetPreview,
 } from '../../api/nmsImport'
 import {
   Button,
@@ -51,6 +53,14 @@ function canCreateImportRow(row: ImportRow): boolean {
     )
   if (row.object_kind === 'membership')
     return row.unmapped_codes.length === 1 && row.unmapped_codes[0] === 'group_unmapped'
+  if (row.object_kind === 'poll_setting')
+    return (
+      Boolean(row.parent_external_id) &&
+      (row.poll_seconds ?? 0) >= 15 &&
+      (row.poll_seconds ?? 0) <= 86400 &&
+      row.unmapped_codes.length === 1 &&
+      row.unmapped_codes[0] === 'poll_proposal'
+    )
   return false
 }
 
@@ -70,11 +80,20 @@ export function NMSImportCard() {
       key={tenant.id}
       tenantID={tenant.id}
       canWrite={permissions.includes('nms.import.write')}
+      canPreviewTarget={permissions.includes('entities.read')}
     />
   )
 }
 
-function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: boolean }) {
+function ImportContents({
+  tenantID,
+  canWrite,
+  canPreviewTarget,
+}: {
+  tenantID: string
+  canWrite: boolean
+  canPreviewTarget: boolean
+}) {
   const contexts = useEntityContexts(tenantID)
   const available = useMemo(
     () => contexts.data?.pages.flatMap((page) => page.items) ?? [],
@@ -92,6 +111,10 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
   const [applyComplete, setApplyComplete] = useState(false)
   const [page, setPage] = useState<ImportRowsPage | null>(null)
   const [diffPage, setDiffPage] = useState<ImportDiffPage | null>(null)
+  const [pollItemID, setPollItemID] = useState('')
+  const [pollAgentID, setPollAgentID] = useState('')
+  const [pollAddress, setPollAddress] = useState('')
+  const [pollPreview, setPollPreview] = useState<ImportPollTargetPreview | null>(null)
   const [choices, setChoices] = useState<Record<number, PendingChoice>>({})
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -112,6 +135,7 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
     setApplyComplete(false)
     setPage(null)
     setDiffPage(null)
+    setPollPreview(null)
     setChoices({})
     setCredentialRef('')
     setMessage('')
@@ -133,6 +157,7 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
 
   function showPage(next: ImportRowsPage) {
     setPage(next)
+    setPollPreview(null)
     setSnapshotHash(next.snapshot_hash)
     setChoices(
       Object.fromEntries(
@@ -192,6 +217,22 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
     void run(async () => {
       showPage(await importRows(contextID, planID, cursor))
       setMessage('Redacted source rows loaded. Review every row before finalizing.')
+    })
+  }
+
+  function previewPollTarget(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!page) return
+    void run(async () => {
+      const preview = await previewImportPollTarget({
+        context_id: contextID,
+        source_id: page.source_id,
+        item_external_id: pollItemID,
+        agent_id: pollAgentID,
+        target_address: pollAddress,
+      })
+      setPollPreview(preview)
+      setMessage('Current source item and assigned device-agent target verified. No agent changed.')
     })
   }
 
@@ -312,9 +353,14 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
     },
     {
       key: 'labels',
-      header: 'Label change',
-      render: (row) =>
-        row.proposed_label ? `${row.current_label || 'New'} → ${row.proposed_label}` : 'No change',
+      header: 'Reviewed value',
+      render: (row) => {
+        if (row.object_kind === 'poll_setting' && row.proposed_poll_seconds)
+          return `${row.current_poll_seconds ? `${row.current_poll_seconds}s` : 'New'} → ${row.proposed_poll_seconds}s`
+        return row.proposed_label
+          ? `${row.current_label || 'New'} → ${row.proposed_label}`
+          : 'No change'
+      },
     },
     {
       key: 'residual',
@@ -335,6 +381,9 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
           <small>
             <code>{row.external_id}</code>
             {row.address ? ` · ${row.address}` : ''}
+            {row.object_kind === 'poll_setting' && row.poll_seconds
+              ? ` · ${row.poll_seconds}s proposal for host ${row.parent_external_id}`
+              : ''}
           </small>
         </span>
       ),
@@ -385,7 +434,9 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                       ? [{ value: 'update', label: 'Update exact ID' }]
                       : row.object_kind === 'group'
                         ? [{ value: 'update', label: 'Update source group' }]
-                        : []),
+                        : row.object_kind === 'poll_setting'
+                          ? [{ value: 'update', label: 'Update source proposal' }]
+                          : []),
                   ]
                 : []),
               ...(canRemoveImportMember(row)
@@ -511,6 +562,7 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                   setProofReady(false)
                   setApplyComplete(false)
                   setDiffPage(null)
+                  setPollPreview(null)
                 }}
               />
               <Button onClick={() => load()} disabled={busy || !planID}>
@@ -556,6 +608,46 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
                 ) : null}
               </div>
             </div>
+          ) : null}
+          {canPreviewTarget && page ? (
+            <form className={styles.form} onSubmit={previewPollTarget}>
+              <h3>Preview an applied polling proposal</h3>
+              <p>
+                Select the exact source item and current assigned agent target. This view contains
+                no device credential and does not change the running agent.
+              </p>
+              <div className={styles.row}>
+                <Field
+                  label="Source item UUID"
+                  required
+                  value={pollItemID}
+                  onChange={(event) => setPollItemID(event.target.value)}
+                />
+                <Field
+                  label="Assigned agent ID"
+                  required
+                  value={pollAgentID}
+                  onChange={(event) => setPollAgentID(event.target.value)}
+                />
+                <Field
+                  label="Assigned target address"
+                  required
+                  value={pollAddress}
+                  onChange={(event) => setPollAddress(event.target.value)}
+                />
+                <Button type="submit" disabled={busy}>
+                  Verify current target
+                </Button>
+              </div>
+              {pollPreview ? (
+                <p role="status">
+                  Canonical device <code>{pollPreview.entity_id}</code> on agent{' '}
+                  <code>{pollPreview.agent_id}</code> at <code>{pollPreview.target_address}</code>:{' '}
+                  {pollPreview.poll_seconds}s, revision {pollPreview.revision}. Apply a separately
+                  reviewed device-agent configuration to activate it.
+                </p>
+              ) : null}
+            </form>
           ) : null}
           {planID ? (
             <div className={styles.row}>

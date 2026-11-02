@@ -114,7 +114,7 @@ func TestProvisionPlan(t *testing.T) {
 }
 
 func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
-	tables := []string{"tests", "entity_contexts", "entity_path_test_contexts", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_links", "incidents", "incident_signals", "incident_correlation_overrides", "entity_fault_receipts", "nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_rows", "nms_import_provenance", "nms_import_capture_steps", "nms_import_groups", "nms_import_group_members"}
+	tables := []string{"tests", "entity_contexts", "entity_path_test_contexts", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_links", "incidents", "incident_signals", "incident_correlation_overrides", "entity_fault_receipts", "nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_rows", "nms_import_provenance", "nms_import_capture_steps", "nms_import_groups", "nms_import_group_members", "nms_import_poll_proposals"}
 	for name, plan := range map[string][]string{
 		"provision": ProvisionPlan("t_abc", tables),
 		"catch-up":  CatchUpPlan("t_abc", Catalog{TenantTables: tables}),
@@ -189,6 +189,9 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "fx2b_member_device_fk" FOREIGN KEY (tenant_id, context_id, source_id, member_kind, member_external_id) REFERENCES "t_abc"."nms_import_provenance" (tenant_id, context_id, source_id, object_kind, external_id)`,
 				`ADD CONSTRAINT "fx2b_member_plan_fk" FOREIGN KEY (tenant_id, context_id, plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT "fx2b_member_row_fk" FOREIGN KEY (tenant_id, context_id, plan_id, object_kind, row_external_id) REFERENCES "t_abc"."nms_import_rows" (tenant_id, context_id, plan_id, object_kind, external_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
+				`ADD CONSTRAINT "fx2b_poll_host_fk" FOREIGN KEY (tenant_id, context_id, source_id, host_kind, host_external_id) REFERENCES "t_abc"."nms_import_provenance" (tenant_id, context_id, source_id, object_kind, external_id) ON DELETE CASCADE`,
+				`ADD CONSTRAINT "fx2b_poll_plan_fk" FOREIGN KEY (tenant_id, context_id, plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
+				`ADD CONSTRAINT "fx2b_poll_row_fk" FOREIGN KEY (tenant_id, context_id, plan_id, object_kind, item_external_id) REFERENCES "t_abc"."nms_import_rows" (tenant_id, context_id, plan_id, object_kind, external_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT nms_import_rows_target_fingerprint_check`,
 				`ADD CONSTRAINT nms_import_rows_action_check`,
 				`ADD CONSTRAINT nms_import_rows_target_group_revision_check`,

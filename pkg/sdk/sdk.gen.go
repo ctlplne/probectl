@@ -2181,16 +2181,40 @@ type Me struct {
 	UserId          string   `json:"user_id"`
 }
 
+type NMSImportPollTargetPreview struct {
+	AgentId        string `json:"agent_id"`
+	ContextId      string `json:"context_id"`
+	EntityId       string `json:"entity_id"`
+	HostExternalId string `json:"host_external_id"`
+	ItemExternalId string `json:"item_external_id"`
+	PlanId         string `json:"plan_id"`
+	PollSeconds    int    `json:"poll_seconds"`
+	Revision       int    `json:"revision"`
+	SourceId       string `json:"source_id"`
+	TargetAddress  string `json:"target_address"`
+	TenantId       string `json:"tenant_id"`
+}
+
+type NMSImportPollTargetPreviewRequest struct {
+	AgentId        string `json:"agent_id"`
+	ContextId      string `json:"context_id"`
+	ItemExternalId string `json:"item_external_id"`
+	SourceId       string `json:"source_id"`
+	TargetAddress  string `json:"target_address"`
+}
+
 type NMSImportReviewDiffItem struct {
-	Action         string   `json:"action"`
-	ChangedFields  []string `json:"changed_fields"`
-	CurrentLabel   string   `json:"current_label,omitempty"`
-	ExternalId     string   `json:"external_id"`
-	ObjectKind     string   `json:"object_kind"`
-	ProposedLabel  string   `json:"proposed_label,omitempty"`
-	RowNumber      int      `json:"row_number"`
-	TargetEntityId string   `json:"target_entity_id,omitempty"`
-	UnmappedCodes  []string `json:"unmapped_codes"`
+	Action              string   `json:"action"`
+	ChangedFields       []string `json:"changed_fields"`
+	CurrentLabel        string   `json:"current_label,omitempty"`
+	CurrentPollSeconds  int      `json:"current_poll_seconds,omitempty"`
+	ExternalId          string   `json:"external_id"`
+	ObjectKind          string   `json:"object_kind"`
+	ProposedLabel       string   `json:"proposed_label,omitempty"`
+	ProposedPollSeconds int      `json:"proposed_poll_seconds,omitempty"`
+	RowNumber           int      `json:"row_number"`
+	TargetEntityId      string   `json:"target_entity_id,omitempty"`
+	UnmappedCodes       []string `json:"unmapped_codes"`
 }
 
 type NMSImportReviewDiffPage struct {
@@ -5644,6 +5668,21 @@ func (c *Client) StartConfiguredLibreNmsImportPlan(ctx context.Context, req Star
 		return nil, err
 	}
 	return out, nil
+}
+
+// Verify one reviewed Zabbix cadence against an exact current agent target
+type PreviewNmsImportPollTargetRequest struct {
+	Body *NMSImportPollTargetPreviewRequest `json:"-"`
+}
+
+func (c *Client) PreviewNmsImportPollTarget(ctx context.Context, req PreviewNmsImportPollTargetRequest) (*NMSImportPollTargetPreview, error) {
+	path := "/v1/nms-imports/poll-target-preview"
+	query := url.Values{}
+	var out NMSImportPollTargetPreview
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Configure one tenant and routing-context owned LibreNMS HTTPS import source

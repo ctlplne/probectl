@@ -178,6 +178,8 @@ var surfaceCommands = map[string]surfaceCommand{
 			Description: "page redacted sealed source rows; requires --query context_id=<routing-context UUID>"},
 		"dry-run": {Method: http.MethodGet, Path: "/v1/nms-imports/{id}/dry-run", ArgName: "id",
 			Description: "page frozen destination changes; requires --query context_id=<routing-context UUID> --query review_hash=<frozen hash>"},
+		"poll-target-preview": {Method: http.MethodPost, Path: "/v1/nms-imports/poll-target-preview",
+			Description: "verify one applied Zabbix cadence against an exact current device-agent target; --body with context_id, source_id, item_external_id, agent_id and target_address"},
 		"configure-source": {Method: http.MethodPost, Path: "/v1/nms-imports/sources", SensitiveBody: true,
 			Description: "configure a LibreNMS HTTPS origin and tenant secret reference; use --body-file <0600-file|->"},
 		"disable-source": {Method: http.MethodPost, Path: "/v1/nms-imports/sources/{instance}/disable", ArgName: "instance",

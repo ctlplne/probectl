@@ -1988,6 +1988,15 @@ keeps the legacy explicit behavior. Run `probectl-device-agent config-check
 credential- and tenant-free effective plan; neither command opens a network
 connection.
 
+`probectl nms-import config-export` can write a complete single-target
+`probectl.io/device-agent/v1` YAML after an exact reviewed Zabbix SNMP
+proposal and current tenant-bound agent target have been verified. It takes
+the device credential *name* from a separate 0600 file and writes a new 0600
+config file; the NMS source credential is never reused. See
+[`nms-import.md`](nms-import.md) for the required current plan/revision flags
+and the explicit installation step. No new device-agent environment key is
+introduced by this export.
+
 FX-2's optional top-level `evidence` block (`control_addr`, `rotate_url`,
 `cert_file`, `key_file`, `ca_file`, optional `server_name`) sends SNMP target,
 sysName, interface and LLDP/CDP observations over the existing agent mTLS
