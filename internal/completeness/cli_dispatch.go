@@ -477,7 +477,7 @@ func (v *Validator) loadExplicitCLIOperations(handlers map[string]string, comman
 				continue
 			}
 			operation := fields[2]
-			if localBindings["cmdSurface"] {
+			if localBindings["cmdSurface"] || localBindings["cmdSurfaceWithStdin"] {
 				out[group][operation] = false
 				continue
 			}
@@ -940,9 +940,17 @@ func cliDeclarationBindsIdentifier(declaration *ast.DeclStmt, identifier string)
 }
 
 func isSurfaceFallbackCall(call *ast.CallExpr, group string, bindings map[string]bool) bool {
-	if !isIdentifier(call.Fun, "cmdSurface") || len(call.Args) != 5 ||
-		!isIdentifier(call.Args[0], "cfg") || !isIdentifier(call.Args[2], "args") ||
+	stdinAware := isIdentifier(call.Fun, "cmdSurfaceWithStdin")
+	if stdinAware {
+		if len(call.Args) != 6 || !isIdentifier(call.Args[3], "stdin") ||
+			!isIdentifier(call.Args[4], "stdout") || !isIdentifier(call.Args[5], "stderr") {
+			return false
+		}
+	} else if !isIdentifier(call.Fun, "cmdSurface") || len(call.Args) != 5 ||
 		!isIdentifier(call.Args[3], "stdout") || !isIdentifier(call.Args[4], "stderr") {
+		return false
+	}
+	if !isIdentifier(call.Args[0], "cfg") || !isIdentifier(call.Args[2], "args") {
 		return false
 	}
 	if isSurfaceGroupIndex(call.Args[1], group) {

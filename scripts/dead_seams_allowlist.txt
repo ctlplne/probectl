@@ -135,7 +135,6 @@ symbol github.com/ctlplne/probectl/internal/tenantcrypto.Reset — process-globa
 # preview routes exist. The gate rejects stale entries once production calls
 # them, so none may survive final FX-2b landing.
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.StartPlan — FX-2b draft generic export-plan creation; direct tenant-isolation test uses it until the authorized export route is wired
-symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.AppendPage — FX-2b draft page capture; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreNMSDevicesAndLocations — FX-2b draft mixed-source capture; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreNMSInventory — FX-2b draft complete-source capture; direct tenant-isolation test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureConfiguredLibreNMSDevices — FX-2b draft live-device proof; direct real-source test uses it until the full authorized route is wired

@@ -111,6 +111,20 @@
       ]
     },
     {
+      "ref": "test:internal/control/nmsimport_export_integration_test.go#TestNMSImportExportPreviewRoutesKeepVendorPagesInOneTenant",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
+      "ref": "test:internal/store/nmsimport_vendor_integration_test.go#TestNMSVendorLiveImportTwoTenants",
+      "profile": "nms-vendor-live",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
       "ref": "test:internal/control/bgp_feeds_boundary_integration_test.go#TestBGPAnalyzerFeedBoundaryRealStack",
       "profile": "integration",
       "capabilities": [

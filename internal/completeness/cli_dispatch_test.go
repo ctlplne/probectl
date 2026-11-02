@@ -158,6 +158,42 @@ func TestExplicitHandlerMustReachSurfaceDispatcher(t *testing.T) {
 	}
 }
 
+func TestNMSImportStdinAwareCommandsReachTheirSurface(t *testing.T) {
+	for _, mutation := range []struct {
+		name, fallback string
+		wantInvalid    bool
+	}{
+		{"valid", `return cmdSurfaceWithStdin(cfg, surfaceCommands["nms-import"], args, stdin, stdout, stderr)`, false},
+		{"wrong surface", `return cmdSurfaceWithStdin(cfg, surfaceCommands["other"], args, stdin, stdout, stderr)`, true},
+		{"stdin discarded", `return cmdSurfaceWithStdin(cfg, surfaceCommands["nms-import"], args, nil, stdout, stderr)`, true},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			root := fixtureRepo(t)
+			writeFixtureMutation(t, filepath.Join(root, "internal", "cli", "cli.go"),
+				`case "lifecycle":`,
+				`case "nms-import": return cmdNMSImport(cfg, rest[1:], stdin, stdout, stderr); case "lifecycle":`)
+			path := filepath.Join(root, "internal", "cli", "nms_import_export.go")
+			body := `package cli
+func cmdNMSImport(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+		if len(args) == 0 { return 2 }
+		` + mutation.fallback + `
+}`
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			validator, err := NewValidator(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			registry := fixtureRegistry()
+			registry.Capabilities[0].CLI = Cell{Refs: []string{"cli:probectl nms-import export-page"}}
+			if violations := validator.Validate(registry); containsViolation(violations, "F1", "cli", "invalid-ref") != mutation.wantInvalid {
+				t.Fatalf("violations = %#v; invalid ref = %t", violations, mutation.wantInvalid)
+			}
+		})
+	}
+}
+
 func TestExplicitHandlerCannotShadowOneAdvertisedOperation(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

@@ -191,7 +191,7 @@ func (v *Validator) loadRealStackProofCatalog() error {
 			return fmt.Errorf("decode real-stack proof catalog: duplicate ref %q", ref)
 		}
 		switch proof.Profile {
-		case "integration", "e2e", "ebpf-kernel", "device-live":
+		case "integration", "e2e", "ebpf-kernel", "device-live", "nms-vendor-live":
 		default:
 			return fmt.Errorf("decode real-stack proof catalog: ref %q has unsupported profile %q", ref, proof.Profile)
 		}
@@ -1248,6 +1248,12 @@ func (v *Validator) validateRealStackProfile(payload, profile string) error {
 		if relative != "internal/device/snmp_test.go" || testName != "TestSNMPIntegration" || !goTestHasEnvGuard(data, testName, "PROBECTL_TEST_SNMP_REQUIRED", "getenvDefault", token.EQL, "1", "Fatal") {
 			return fmt.Errorf("device-live proof must be the required live SNMP integration function")
 		}
+	case "nms-vendor-live":
+		if relative != "internal/store/nmsimport_vendor_integration_test.go" || testName != "TestNMSVendorLiveImportTwoTenants" ||
+			v.validatePositiveProfileBuildConstraint(relative, "integration") != nil ||
+			!goTestHasEnvGuard(data, testName, "PROBECTL_TEST_REQUIRE_NMS_VENDOR", "Getenv", token.EQL, "1", "Fatal") {
+			return fmt.Errorf("nms-vendor-live proof must require the live vendor fixture in its integration test")
+		}
 	default:
 		return fmt.Errorf("unsupported real-stack profile %q", profile)
 	}
@@ -1393,9 +1399,43 @@ func (v *Validator) validateRealStackRunner(profile string) error {
 			return err
 		}
 		return v.validateDeviceLiveScript()
+	case "nms-vendor-live":
+		if err := v.validateWorkflowInvocation(".github/workflows/ci.yml", "nms-vendor-live", []string{"python3", "scripts/ci_nms_vendor.py", "start"}); err != nil {
+			return err
+		}
+		if err := v.validateWorkflowInvocation(".github/workflows/ci.yml", "nms-vendor-live", []string{"go", "test", "-tags=integration", "./internal/store", "-run", "'^TestNMSVendorLiveImportTwoTenants$'"}); err != nil {
+			return err
+		}
+		return v.validateNMSVendorLiveEnvironment()
 	default:
 		return fmt.Errorf("unsupported real-stack profile %q", profile)
 	}
+}
+
+func (v *Validator) validateNMSVendorLiveEnvironment() error {
+	const relative = ".github/workflows/ci.yml"
+	path, err := v.resolveWithinRoot(relative)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read runner %q: %w", relative, err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Env map[string]string `yaml:"env"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		return fmt.Errorf("decode runner %q: %w", relative, err)
+	}
+	env := workflow.Jobs["nms-vendor-live"].Env
+	if env["PROBECTL_TEST_REQUIRE_NMS_VENDOR"] != "1" || env["PROBECTL_TEST_REQUIRE_SERVICES"] != "1" ||
+		env["PROBECTL_TEST_NMS_VENDOR_DIR"] == "" {
+		return fmt.Errorf("runner %q job nms-vendor-live must require the vendor fixture and real services", relative)
+	}
+	return nil
 }
 
 func (v *Validator) validateIntegrationMakeTarget() error {
