@@ -391,8 +391,10 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 					UseIP   string `json:"useip"`
 				} `json:"interfaces"`
 				Items []struct {
-					UUID     string `json:"uuid"`
-					Delay    string `json:"delay"`
+					UUID     string          `json:"uuid"`
+					Type     json.RawMessage `json:"type"`
+					Status   json.RawMessage `json:"status"`
+					Delay    string          `json:"delay"`
 					Triggers []struct {
 						UUID string `json:"uuid"`
 					} `json:"triggers"`
@@ -469,6 +471,14 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 		for _, item := range host.Items {
 			itemID := safeZabbixUUID(item.UUID)
 			codes := []string{"poll_item_unmapped"}
+			if string(item.Type) != `"SNMP_AGENT"` && string(item.Type) != `"20"` &&
+				string(item.Type) != "20" {
+				codes = append(codes, "poll_transport_unmapped")
+			}
+			if len(item.Status) != 0 && string(item.Status) != `"ENABLED"` &&
+				string(item.Status) != `"0"` && string(item.Status) != "0" {
+				codes = append(codes, "poll_status_unmapped")
+			}
 			if itemID == "" {
 				codes = append(codes, "item_id_unavailable")
 			}

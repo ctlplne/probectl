@@ -118,6 +118,8 @@ before it can claim bulk readiness. Orion and PRTG parsing remains preview
 until live Windows trials; Zabbix export ingestion is not yet wired to a live
 source. Zabbix poll items and triggers retain their documented host key as a
 bounded parent reference for a later same-source provenance mapping; a host
-key, address or label never selects a destination device by itself. Imported
-alert expressions and delivery targets remain unmapped and
+key, address or label never selects a destination device by itself. Source
+item transport and status are reduced to fixed unmapped reason codes; their
+raw values are not returned, and this classification does not change an agent
+cadence. Imported alert expressions and delivery targets remain unmapped and
 no imported alert can be enabled by this review path.

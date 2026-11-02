@@ -56,6 +56,8 @@ var allowedUnmappedCodes = map[string]bool{
 	"poll_interval_unmapped":     true,
 	"poll_item_unmapped":         true,
 	"poll_settings_unmapped":     true,
+	"poll_status_unmapped":       true,
+	"poll_transport_unmapped":    true,
 	"severity_unmapped":          true,
 	"site_unmapped":              true,
 	"trigger_id_unavailable":     true,
