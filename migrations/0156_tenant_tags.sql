@@ -218,6 +218,8 @@ END $$;
 
 -- Statement-level transition tables make one bulk import advance the tenant
 -- revision once, in the same transaction as the accepted metadata change.
+-- Exporter and agent-context ownership also shape tenant-wide tag results,
+-- so their edits must invalidate revision-pinned cursors.
 CREATE OR REPLACE FUNCTION public.tenant_tags_bump_revision()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -242,7 +244,8 @@ DO $$
 DECLARE table_name text;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'entity_test_contexts','tenant_tag_definitions',
+        'entity_test_contexts','entity_agent_contexts',
+        'entity_source_contexts','tenant_tag_definitions',
         'tenant_tag_assignments','tenant_tag_rules'
     ] LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS tenant_tag_revision_insert ON %I', table_name);

@@ -80,8 +80,8 @@ ON CONFLICT (tenant_id,test_id) DO NOTHING`)
 END $fx3_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
 			quoteIdent(key.name), key.columns, parent, key.parentColumns, key.action))
 	}
-	// LIKE omits triggers. Keep target edits and tag revision changes inside
-	// the physical silo; the shared public functions use TG_TABLE_SCHEMA.
+	// LIKE omits triggers. Keep target edits, source ownership changes and tag
+	// revisions inside the physical silo; shared functions use TG_TABLE_SCHEMA.
 	path := q + `."tests"`
 	plan = append(plan,
 		"DROP TRIGGER IF EXISTS entity_test_retarget ON "+path,
@@ -90,7 +90,8 @@ END $fx3_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
 		"ALTER TABLE "+path+" ENABLE ALWAYS TRIGGER entity_test_retarget",
 	)
 	for _, table := range []string{
-		"entity_test_contexts", "tenant_tag_definitions",
+		"entity_test_contexts", "entity_agent_contexts",
+		"entity_source_contexts", "tenant_tag_definitions",
 		"tenant_tag_assignments", "tenant_tag_rules",
 	} {
 		child := q + "." + quoteIdent(table)

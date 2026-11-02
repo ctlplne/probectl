@@ -36,6 +36,8 @@ func TestTagStoragePlanRepairsOldSiloBeforeTypedForeignKeys(t *testing.T) {
 				`CREATE TRIGGER entity_test_retarget`,
 				`CREATE TRIGGER "tenant_tag_revision_insert"`,
 				`ENABLE ALWAYS TRIGGER "tenant_tag_revision_delete"`,
+				`DROP TRIGGER IF EXISTS "tenant_tag_revision_insert" ON "` + schema + `"."entity_source_contexts"`,
+				`DROP TRIGGER IF EXISTS "tenant_tag_revision_update" ON "` + schema + `"."entity_agent_contexts"`,
 			}
 			for _, want := range mustContain {
 				if !strings.Contains(joined, want) {
