@@ -21,9 +21,17 @@ FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim@sha256:2814715
 ARG EDITION=core
 RUN case "${EDITION}" in core|ee) ;; *) echo "EDITION must be core or ee, not '${EDITION}'"; exit 1 ;; esac
 WORKDIR /web
-# Cache npm deps on the lockfile only.
+# Cache npm deps on the lockfile only. npm can report a successful install
+# while omitting Rolldown's optional platform binding (DPR-617). Import the
+# bundler to verify the native module before building; retry the locked install
+# at most twice if that check fails.
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+      npm ci; \
+      if node --input-type=module -e "await import('rolldown')"; then break; fi; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+    done
 COPY web/ ./
 # The ee/ web seam is aliased to ../ee/web (vite.config.ts: resolve(__dirname,
 # '../ee/web')). WORKDIR is /web, so ../ee/web resolves to /ee/web — COPY the
