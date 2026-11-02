@@ -129,27 +129,42 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 	}
 	fingerprint := ""
 	if choice.Action == "create" || choice.Action == "update" {
-		if (kind != "device" && kind != "site") || len(unmapped) != 0 ||
-			proposedEntityLabel(label, hostname, address) == "" {
+		if !reviewRowCanWrite(kind, choice.Action, unmapped, label, hostname, address) {
 			return false, ErrInvalidReview
 		}
-		var bound string
-		err := sc.Q.QueryRow(ctx, `SELECT entity_id::text FROM nms_import_provenance
-			WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3
-			  AND object_kind=$4 AND external_id=$5`, sc.Tenant.String(),
-			contextID, sourceID, kind, externalID).Scan(&bound)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return false, err
-		}
-		if choice.Action == "create" && bound != "" ||
-			choice.Action == "update" && bound != "" && bound != choice.TargetEntityID {
-			return false, ErrInvalidReview
-		}
-		if choice.Action == "update" {
-			fingerprint, err = fingerprintReviewTarget(ctx, sc, contextID,
-				choice.TargetEntityID, kind)
-			if err != nil {
+		if kind == "membership" {
+			groupID, deviceID, _ := strings.Cut(externalID, ":")
+			var sources int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
+				WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND
+				((object_kind='group' AND external_id=$4) OR
+				 (object_kind='device' AND external_id=$5))`, sc.Tenant.String(),
+				contextID, planID, groupID, deviceID).Scan(&sources); err != nil {
 				return false, err
+			}
+			if sources != 2 {
+				return false, ErrInvalidReview
+			}
+		}
+		if kind == "device" || kind == "site" {
+			var bound string
+			err := sc.Q.QueryRow(ctx, `SELECT entity_id::text FROM nms_import_provenance
+				WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3
+				  AND object_kind=$4 AND external_id=$5`, sc.Tenant.String(),
+				contextID, sourceID, kind, externalID).Scan(&bound)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return false, err
+			}
+			if choice.Action == "create" && bound != "" ||
+				choice.Action == "update" && bound != "" && bound != choice.TargetEntityID {
+				return false, ErrInvalidReview
+			}
+			if choice.Action == "update" {
+				fingerprint, err = fingerprintReviewTarget(ctx, sc, contextID,
+					choice.TargetEntityID, kind)
+				if err != nil {
+					return false, err
+				}
 			}
 		}
 	}
@@ -181,6 +196,29 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 		return false, ErrInvalidReview
 	}
 	return true, nil
+}
+
+// A group or membership may carry only its explicit residual mapping code.
+// Dynamic group predicates stay visible and inert after a static set import.
+func reviewRowCanWrite(kind, action string, unmapped []string, label, hostname, address string) bool {
+	switch kind {
+	case "device", "site":
+		return len(unmapped) == 0 && proposedEntityLabel(label, hostname, address) != ""
+	case "group":
+		if action != "create" || label == "" || hostname != "" || address != "" {
+			return false
+		}
+		if len(unmapped) == 1 {
+			return unmapped[0] == "group_unmapped"
+		}
+		return len(unmapped) == 2 && unmapped[0] == "group_unmapped" &&
+			unmapped[1] == "dynamic_predicate_unmapped"
+	case "membership":
+		return action == "create" && label == "" && hostname == "" &&
+			address == "" && len(unmapped) == 1 && unmapped[0] == "group_unmapped"
+	default:
+		return false
+	}
 }
 
 // A source label or address never identifies a destination. This digest binds
@@ -283,6 +321,29 @@ func (s CaptureStore) FinalizeReview(ctx context.Context, contextID, planID,
 			return err
 		}
 		if next != meta.rowCount {
+			return ErrReviewIncomplete
+		}
+		// A reviewed membership cannot become actionable when either of its
+		// captured endpoints was skipped. The source strings only name rows in
+		// this same tenant/context/plan; they never choose a destination.
+		var unsupportedMembers int64
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows m
+			WHERE m.tenant_id=$1 AND m.context_id=$2 AND m.plan_id=$3
+			  AND m.object_kind='membership' AND m.action='create'
+			  AND (NOT EXISTS (SELECT 1 FROM nms_import_rows g
+			       WHERE g.tenant_id=m.tenant_id AND g.context_id=m.context_id
+			         AND g.plan_id=m.plan_id AND g.object_kind='group'
+			         AND g.external_id=split_part(m.external_id,':',1)
+			         AND g.action='create')
+			    OR NOT EXISTS (SELECT 1 FROM nms_import_rows d
+			       WHERE d.tenant_id=m.tenant_id AND d.context_id=m.context_id
+			         AND d.plan_id=m.plan_id AND d.object_kind='device'
+			         AND d.external_id=split_part(m.external_id,':',2)
+			         AND d.action IN ('create','update')))`, sc.Tenant.String(),
+			contextID, planID).Scan(&unsupportedMembers); err != nil {
+			return err
+		}
+		if unsupportedMembers != 0 {
 			return ErrReviewIncomplete
 		}
 		reviewHash = hex.EncodeToString(sum)

@@ -268,4 +268,87 @@ func TestNMSImportApplyReviewTenantIsolationAndRetry(t *testing.T) {
 		t.Fatalf("bulk apply retry duplicated writes/audit: %+v audit=%d err=%v",
 			retry, auditCount, err)
 	}
+	// A static imported set is source-keyed, scoped to the chosen routing
+	// context, and backed only by device provenance from that same tenant.
+	for _, tenant := range []string{a.ID, b.ID} {
+		tenantCtx := tenancy.WithTenant(ctx, tenancy.ID(tenant))
+		groupPlan, err := capturer.StartPlan(tenantCtx, contextID, nmsimport.LibreNMS,
+			"groups-lab", strings.Repeat("f", 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		device := `{"status":"ok","devices":[{"device_id":17,"display":"Edge A",` +
+			`"ip":"10.42.0.1","location_id":5}],"count":1}`
+		site := `{"status":"ok","locations":[{"id":5,"location":"West DC"}],"count":1}`
+		group := `[{"status":"ok","groups":[{"id":7,"name":"WAN",` +
+			`"pattern":"source-only-predicate"}],"count":1}]`
+		rule := `{"status":"ok","rules":[{"id":9,"name":"Link down",` +
+			`"rule":"source-only-expression"}],"count":1}`
+		member := `[{"status":"ok","devices":[{"device_id":17}],"count":1}]`
+		snapshot, err := capturer.CaptureLibreNMSInventory(tenantCtx, contextID,
+			groupPlan, strings.NewReader(device), strings.NewReader(site),
+			strings.NewReader(group), strings.NewReader(rule),
+			[]nmsimport.LibreNMSMembershipList{{GroupID: "7", GroupName: "WAN",
+				Raw: strings.NewReader(member)}})
+		if err != nil {
+			t.Fatalf("capture static group tenant=%s: %v", tenant, err)
+		}
+		choices := []nmsimport.ReviewChoice{
+			{RowNumber: 0, Action: "create"},
+			{RowNumber: 1, Action: "create"},
+			{RowNumber: 2, Action: "create"},
+			{RowNumber: 3, Action: "create"},
+			{RowNumber: 4, Action: "unmapped"},
+		}
+		if err := capturer.SetReviewChoices(tenantCtx, contextID, groupPlan,
+			snapshot, choices); err != nil {
+			t.Fatalf("review static group tenant=%s: %v", tenant, err)
+		}
+		review, err := capturer.FinalizeReview(tenantCtx, contextID, groupPlan, snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tenant == a.ID {
+			if _, err := capturer.ApplyReview(bCtx, contextID, groupPlan, snapshot,
+				review); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+				t.Fatalf("foreign tenant applied group: %v", err)
+			}
+		}
+		diff, err := capturer.ListReviewDiff(tenantCtx, contextID, groupPlan, review, -1, 10)
+		if err != nil || len(diff.Items) != 5 ||
+			strings.Join(diff.Items[2].ChangedFields, ",") != "group" ||
+			strings.Join(diff.Items[3].ChangedFields, ",") != "membership" {
+			t.Fatalf("group dry run tenant=%s: %+v err=%v", tenant, diff, err)
+		}
+		progress, err := capturer.ApplyReview(tenantCtx, contextID, groupPlan,
+			snapshot, review)
+		if err != nil || progress.Applied != 4 || progress.Skipped != 1 ||
+			progress.State != "applied" {
+			t.Fatalf("apply static group tenant=%s: %+v err=%v", tenant, progress, err)
+		}
+		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var groups, members, foreign int
+			var dynamic bool
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*),coalesce(bool_or(dynamic_predicate_unmapped),false)
+				FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2
+				  AND external_id='7'`, tenant, contextID).Scan(&groups, &dynamic); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_group_members
+				WHERE tenant_id=$1 AND context_id=$2 AND group_external_id='7'
+				  AND member_external_id='17'`, tenant, contextID).Scan(&members); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_groups
+				WHERE tenant_id=$1 AND context_id=$2`, map[string]string{a.ID: b.ID,
+				b.ID: a.ID}[tenant], contextID).Scan(&foreign); err != nil {
+				return err
+			}
+			if groups != 1 || members != 1 || foreign != 0 || !dynamic {
+				t.Fatalf("group tenant boundary tenant=%s groups=%d members=%d foreign=%d dynamic=%t",
+					tenant, groups, members, foreign, dynamic)
+			}
+			return nil
+		})
+	}
 }

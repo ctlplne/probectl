@@ -9,6 +9,7 @@ package nmsimport
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -131,10 +132,20 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 				}
 				progress.Skipped++
 			case "create", "update":
-				if row.kind != "device" && row.kind != "site" || len(row.unmapped) != 0 {
+				if !reviewRowCanWrite(row.kind, row.action, row.unmapped,
+					row.label, row.hostname, row.address) {
 					return ErrReviewStale
 				}
-				if err := applyEntityRow(ctx, sc, contextID, planID, sourceID, row); err != nil {
+				var err error
+				switch row.kind {
+				case "device", "site":
+					err = applyEntityRow(ctx, sc, contextID, planID, sourceID, row)
+				case "group":
+					err = applyGroupRow(ctx, sc, contextID, planID, sourceID, row)
+				case "membership":
+					err = applyMembershipRow(ctx, sc, contextID, planID, sourceID, row)
+				}
+				if err != nil {
 					return err
 				}
 				progress.Applied++
@@ -186,6 +197,59 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 		return ApplyProgress{}, err
 	}
 	return progress, nil
+}
+
+func applyGroupRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
+	sourceID string, row applyRow) error {
+	if row.action != "create" || row.targetID != "" || row.fingerprint != "" {
+		return ErrReviewStale
+	}
+	dynamic := len(row.unmapped) == 2 && row.unmapped[1] == "dynamic_predicate_unmapped"
+	command, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_groups
+		(tenant_id,context_id,source_id,external_id,label,plan_id,dynamic_predicate_unmapped)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+		sc.Tenant.String(), contextID, sourceID, row.externalID, row.label, planID, dynamic)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return ErrReviewStale
+	}
+	return nil
+}
+
+func applyMembershipRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
+	sourceID string, row applyRow) error {
+	if row.action != "create" || row.targetID != "" || row.fingerprint != "" ||
+		!safeMembershipID(row.externalID) {
+		return ErrReviewStale
+	}
+	groupID, deviceID, _ := strings.Cut(row.externalID, ":")
+	var groupExists, deviceExists bool
+	if err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nms_import_groups
+		WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id=$4),
+		EXISTS(SELECT 1 FROM nms_import_provenance
+		WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3
+		  AND object_kind='device' AND external_id=$5)`, sc.Tenant.String(),
+		contextID, sourceID, groupID, deviceID).Scan(&groupExists, &deviceExists); err != nil {
+		return err
+	}
+	if !groupExists || !deviceExists {
+		return ErrReviewStale
+	}
+	command, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_group_members
+		(tenant_id,context_id,source_id,group_external_id,member_external_id,
+		 row_external_id,plan_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+		sc.Tenant.String(), contextID, sourceID, groupID, deviceID,
+		row.externalID, planID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return ErrReviewStale
+	}
+	return nil
 }
 
 func applyEntityRow(ctx context.Context, sc tenancy.Scope, contextID, planID,

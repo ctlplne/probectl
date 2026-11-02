@@ -28,21 +28,27 @@ with no approved policy, live fetching is disabled. See
 4. Submit explicit choices in batches of at most 100 to
    `POST /v1/nms-imports/{id}/review-choices`, with `context_id`, the exact
    `snapshot_hash`, and `{row_number,action,target_entity_id?}` entries.
-   A create or update is currently accepted only for an unambiguous device or
-   site candidate; update requires an exact entity ID in the same tenant and
-   routing context. The selected target's identity fields and revision are
-   fingerprinted in the reviewed row, so a later destination write can refuse
-   a target changed after selection. A source address or label never selects
-   an update target.
+   A device or site create requires an unambiguous candidate; update requires
+   an exact entity ID in the same tenant and routing context. A static group
+   and a captured group/device membership may also be selected for create.
+   The group's dynamic predicate stays listed as unmapped and is never run.
+   Group/member create remains source-keyed; a member can bind only an
+   explicitly imported device from that same source and routing context.
+   The selected entity target's identity fields and revision are fingerprinted
+   in the reviewed row, so a later destination write can refuse a target
+   changed after selection. A source address or label never selects an update
+   target.
    Choose `unmapped` for a row carrying unsupported fields, or `skip` after
    reviewing it. Retrying identical choices is inert.
 5. `POST /v1/nms-imports/{id}/finalize-review` freezes a `review_hash` only
    after every row has a choice. The plan enters `preview`. Page its destination
    comparison with `GET /v1/nms-imports/{id}/dry-run`, passing `context_id`,
    the exact `review_hash`, a limit of at most 100 and the returned cursor.
-   Each create/update shows the proposed device or site label, and an update
-   shows its current exact target label. Unsupported rows keep their unmapped
-   codes. A deleted or changed exact target returns a conflict instead of a
+   Each entity create/update shows the proposed device or site label, and an
+   update shows its current exact target label. A group create shows its label
+   and retained predicate warning; a membership create shows its source
+   group/device pair. Unsupported rows keep their unmapped codes. A deleted
+   or changed exact target returns a conflict instead of a
    stale comparison. This dry run writes no entities, groups, polling settings,
    alerts or agent evidence. No apply operation is available yet.
 

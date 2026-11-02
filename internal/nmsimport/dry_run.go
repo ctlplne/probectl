@@ -137,9 +137,20 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 			}
 			switch item.Action {
 			case "create", "update":
-				if item.Kind != "device" && item.Kind != "site" ||
-					len(item.UnmappedCodes) != 0 {
+				if !reviewRowCanWrite(item.Kind, item.Action, item.UnmappedCodes,
+					row.label, row.hostname, row.address) {
 					return ErrReviewStale
+				}
+				if item.Kind == "group" {
+					item.ProposedLabel = row.label
+					item.ChangedFields = []string{"group"}
+					page.Items = append(page.Items, item)
+					continue
+				}
+				if item.Kind == "membership" {
+					item.ChangedFields = []string{"membership"}
+					page.Items = append(page.Items, item)
+					continue
 				}
 				item.ProposedLabel = proposedEntityLabel(row.label, row.hostname,
 					row.address)
