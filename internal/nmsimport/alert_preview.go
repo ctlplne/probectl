@@ -89,7 +89,7 @@ func (s CaptureStore) PreviewLibreNMSAlertTarget(ctx context.Context,
 			  AND r.action='unmapped' AND r.state='skipped'
 			  AND r.reviewed_at IS NOT NULL
 			  AND r.parent_external_id IS NOT NULL
-			  AND r.label IS NOT NULL AND r.label<>''
+			  AND r.label IS NOT NULL AND octet_length(r.label) BETWEEN 1 AND 200
 			  AND r.severity IN ('warning','critical')
 			  AND r.unmapped_codes @> ARRAY['expression_unmapped']::text[]
 			  AND e.kind='device'
