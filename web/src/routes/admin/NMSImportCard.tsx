@@ -42,9 +42,13 @@ function canCreateImportRow(row: ImportRow): boolean {
   if (row.object_kind === 'device' || row.object_kind === 'site')
     return row.unmapped_codes.length === 0
   if (row.object_kind === 'group')
-    return Boolean(row.label) && row.unmapped_codes.includes('group_unmapped') &&
-      row.unmapped_codes.every((code) =>
-        code === 'group_unmapped' || code === 'dynamic_predicate_unmapped')
+    return (
+      Boolean(row.label) &&
+      row.unmapped_codes.includes('group_unmapped') &&
+      row.unmapped_codes.every(
+        (code) => code === 'group_unmapped' || code === 'dynamic_predicate_unmapped',
+      )
+    )
   if (row.object_kind === 'membership')
     return row.unmapped_codes.length === 1 && row.unmapped_codes[0] === 'group_unmapped'
   return false
@@ -254,9 +258,11 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
       setProofReady(false)
       const result = await verifyImportBeforeApply(contextID, planID, snapshotHash, reviewHash)
       setProofReady(result.ready)
-      setMessage(result.ready
-        ? 'Source recheck complete. Apply one reviewed chunk within 60 seconds.'
-        : `${result.verified_stage} rechecked; next source endpoint: ${result.next_stage}.`)
+      setMessage(
+        result.ready
+          ? 'Source recheck complete. Apply one reviewed chunk within 60 seconds.'
+          : `${result.verified_stage} rechecked; next source endpoint: ${result.next_stage}.`,
+      )
     })
   }
 
@@ -265,8 +271,12 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
       const result = await applyImportReview(contextID, planID, snapshotHash, reviewHash)
       setProofReady(false)
       setApplyComplete(result.state === 'applied')
-      setMessage(`${result.applied} applied, ${result.skipped} skipped; ${result.remaining} rows remain. ` +
-        (result.state === 'applied' ? 'Import complete.' : 'Recheck the source before the next chunk.'))
+      setMessage(
+        `${result.applied} applied, ${result.skipped} skipped; ${result.remaining} rows remain. ` +
+          (result.state === 'applied'
+            ? 'Import complete.'
+            : 'Recheck the source before the next chunk.'),
+      )
     })
   }
 
@@ -333,7 +343,7 @@ function ImportContents({ tenantID, canWrite }: { tenantID: string; canWrite: bo
               ...(canCreateImportRow(row)
                 ? [
                     { value: 'create', label: 'Create' },
-                    ...((row.object_kind === 'device' || row.object_kind === 'site')
+                    ...(row.object_kind === 'device' || row.object_kind === 'site'
                       ? [{ value: 'update', label: 'Update exact ID' }]
                       : []),
                   ]

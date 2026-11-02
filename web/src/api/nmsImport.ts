@@ -162,7 +162,11 @@ export function verifyImportBeforeApply(
 ) {
   return apiFetch<ImportVerificationResponse>(
     `/nms-imports/${encodeURIComponent(planID)}/verify-before-apply`,
-    jsonInit('POST', { context_id: contextID, snapshot_hash: snapshotHash, review_hash: reviewHash }),
+    jsonInit('POST', {
+      context_id: contextID,
+      snapshot_hash: snapshotHash,
+      review_hash: reviewHash,
+    }),
   )
 }
 
@@ -174,6 +178,10 @@ export function applyImportReview(
 ) {
   return apiFetch<ImportApplyResponse>(
     `/nms-imports/${encodeURIComponent(planID)}/apply`,
-    jsonInit('POST', { context_id: contextID, snapshot_hash: snapshotHash, review_hash: reviewHash }),
+    jsonInit('POST', {
+      context_id: contextID,
+      snapshot_hash: snapshotHash,
+      review_hash: reviewHash,
+    }),
   )
 }

@@ -97,12 +97,22 @@ test('Admin import requires explicit tenant-context review before an inert dry r
         })
       if (path === `/v1/nms-imports/${planID}/verify-before-apply`)
         return jsonResponse({
-          verified_stage: 'rules', next_stage: 'ready', pages: 1, rows: 1, ready: true,
+          verified_stage: 'rules',
+          next_stage: 'ready',
+          pages: 1,
+          rows: 1,
+          ready: true,
         })
       if (path === `/v1/nms-imports/${planID}/apply`) {
         destinationWrites++
-        return jsonResponse({ state: 'applied', applied: 0, skipped: 1, remaining: 0,
-          row_count: 1, review_hash: reviewHash })
+        return jsonResponse({
+          state: 'applied',
+          applied: 0,
+          skipped: 1,
+          remaining: 0,
+          row_count: 1,
+          review_hash: reviewHash,
+        })
       }
       if (path.includes('/apply')) destinationWrites++
       return fallback(input, init)
@@ -164,7 +174,9 @@ test('Admin import requires explicit tenant-context review before an inert dry r
   expect(await region.findByText(/Import complete/)).toBeInTheDocument()
   expect(destinationWrites).toBe(1)
   expect(requests.find((request) => request.path.endsWith('/apply'))?.body).toMatchObject({
-    context_id: contextID, snapshot_hash: snapshotHash, review_hash: reviewHash,
+    context_id: contextID,
+    snapshot_hash: snapshotHash,
+    review_hash: reviewHash,
   })
 
   cleanup()
