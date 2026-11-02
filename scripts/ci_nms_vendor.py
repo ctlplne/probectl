@@ -60,24 +60,29 @@ except (URLError, TimeoutError):
     sys.exit(1)
 """
 
-# Invoke the pinned LibreNMS user command through its Laravel kernel. Its CLI
-# --password option would expose the fixture password in the process argv;
-# Kernel::call keeps the same command validation with the value read on stdin.
+# Bootstrap the pinned LibreNMS model in this disposable fixture. The vendor
+# CLI's --password option would expose the value in process argv. The only
+# password source here is stdin, and the fixed account cannot pick a role or
+# tenant from source data. A later API token command verifies the user exists.
 CREATE_LIBRENMS_USER = r"""
 require '/opt/librenms/vendor/autoload.php';
 $app = require '/opt/librenms/bootstrap/app.php';
 define('ARTISAN_BINARY', 'lnms');
 $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
 $password = stream_get_contents(STDIN, 4096);
 if ($password === false || strlen($password) < 20 || strlen($password) > 128) {
     exit(2);
 }
-$status = $kernel->call('user:add', [
-    'username' => 'fixture-admin',
-    '--password' => $password,
-    '--role' => ['admin'],
-], new Symfony\Component\Console\Output\NullOutput());
-exit($status);
+if (App\Models\User::where('username', 'fixture-admin')->exists()) {
+    exit(3);
+}
+$user = new App\Models\User();
+$user->username = 'fixture-admin';
+$user->auth_type = 'mysql';
+$user->setPassword($password);
+$user->save();
+$user->assignRole('admin');
 """
 
 
@@ -224,13 +229,19 @@ def seed_librenms() -> dict:
             break
         # Never print arbitrary stderr: PHP and vendor validation can include
         # source values. These fixed categories are safe enough for CI triage.
-        error = result.stderr.lower()
+        error = (result.stdout + result.stderr).lower()
         if b"parse error" in error or b"syntax error" in error:
             category = "php-syntax"
         elif b"failed opening required" in error or b"no such file" in error:
             category = "php-bootstrap"
         elif b"not defined" in error or b"not found" in error:
             category = "command-unavailable"
+        elif b"sqlstate" in error:
+            category = "fixture-database"
+        elif b"permission denied" in error:
+            category = "fixture-permission"
+        elif b"undefined method" in error:
+            category = "php-method"
         elif b"validation" in error or b"password" in error:
             category = "command-validation"
         else:
