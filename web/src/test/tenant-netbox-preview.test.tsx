@@ -63,7 +63,10 @@ function candidate(value: string, context = contextID, tagID = 'tag-1') {
   }
 }
 
-function sourceFetch(preview: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
+function sourceFetch(
+  preview: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  apply?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+) {
   const base = defaultFetch()
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     assertNoDoublePrefix(input)
@@ -83,6 +86,7 @@ function sourceFetch(preview: (input: RequestInfo | URL, init?: RequestInit) => 
         ],
       })
     if (path.endsWith('/tag-imports/netbox/preview')) return preview(input, init)
+    if (path.endsWith('/tag-imports/netbox/apply') && apply) return apply(input, init)
     return base(input, init)
   })
 }
@@ -113,7 +117,11 @@ describe('Fresh tenant-scoped NetBox tag previews', () => {
       vi.stubGlobal('fetch', fetcher)
       const app = render(tree(identity(tenantA, permissions)))
       expect(screen.queryByText('NetBox tag preview')).not.toBeInTheDocument()
-      expect(fetcher).not.toHaveBeenCalled()
+      expect(
+        fetcher.mock.calls.some(
+          ([input]) => pathOf(input) === '/v1/tags' || pathOf(input).includes('/tag-imports/'),
+        ),
+      ).toBe(false)
       app.unmount()
     },
   )
@@ -179,6 +187,46 @@ describe('Fresh tenant-scoped NetBox tag previews', () => {
     expect(
       screen.queryByRole('table', { name: 'Fresh NetBox tag preview' }),
     ).not.toBeInTheDocument()
+    app.unmount()
+  })
+
+  test('imports only the unchanged preview after explicit review and confirmation', async () => {
+    const observed = candidate('blue')
+    const applied: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      sourceFetch(
+        async () => jsonResponse(observed),
+        async (_input, init) => {
+          applied.push(JSON.parse(String(init?.body)))
+          return jsonResponse({
+            id: 'import-1',
+            tenant_id: tenantA,
+            context_id: contextID,
+            tag_id: 'tag-1',
+            target_kind: 'exporter',
+            target_id: 'opaque-owned-exporter',
+            source: 'netbox',
+            source_ref: observed.candidate.source_ref,
+            value: 'blue',
+            reviewed_at: '2026-11-02T21:00:00Z',
+          })
+        },
+      ),
+    )
+    const app = render(tree(identity(tenantA, [...grants, 'tags.write'])))
+    await chooseContext()
+    await submitPreview()
+    await userEvent.click(await screen.findByRole('button', { name: 'Review NetBox import' }))
+    const dialog = screen.getByRole('dialog', { name: 'Apply reviewed NetBox tag?' })
+    expect(within(dialog).getByText(/netbox:t7:ip10:d42:site/)).toBeInTheDocument()
+    expect(applied).toEqual([])
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Apply reviewed NetBox tag' }))
+    expect(
+      await screen.findByText('NetBox tag imported. Manual assignments retain precedence.'),
+    ).toBeInTheDocument()
+    expect(applied).toEqual([{ confirmed: true, preview: observed }])
+    expect(screen.getByRole('button', { name: 'Review NetBox import' })).toBeDisabled()
     app.unmount()
   })
 

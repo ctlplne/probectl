@@ -10,6 +10,7 @@ import type {
   ManualTagAssignmentInput,
   NetBoxTagPreview,
   NetBoxTagPreviewInput,
+  NetBoxTagApplyInput,
   TagAssignment,
   TagAssignmentPage,
   TagDefinition,
@@ -23,6 +24,7 @@ export type {
   ManualTagAssignmentInput,
   NetBoxTagPreview,
   NetBoxTagPreviewInput,
+  NetBoxTagApplyInput,
   TagAssignment,
   TagDefinition,
   TagRule,
@@ -49,6 +51,24 @@ export function useNetBoxTagPreview(tenantID: string, contextID: string) {
           body: JSON.stringify(input),
         },
       ),
+  })
+}
+
+export function useApplyNetBoxTag(tenantID: string, contextID: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationKey: ['tenant-netbox-tag-apply', tenantID, contextID],
+    mutationFn: (input: NetBoxTagApplyInput) =>
+      apiFetch<TagAssignment>(
+        `/entity-contexts/${encodeURIComponent(contextID)}/tag-imports/netbox/apply`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+          body: JSON.stringify(input),
+        },
+      ),
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: assignmentKey(tenantID, contextID) }),
   })
 }
 

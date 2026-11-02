@@ -149,6 +149,8 @@ func (s *Server) handleDeleteManualTagAssignment(w http.ResponseWriter, r *http.
 
 func tagAssignmentAPIError(err error) error {
 	switch {
+	case errors.Is(err, store.ErrTagImportChanged):
+		return apierror.Conflict("tag import target or revision changed; request a new preview")
 	case errors.Is(err, tags.ErrInvalid):
 		return apierror.BadRequest("invalid tag assignment or tenant assignment quota reached")
 	case errors.Is(err, tags.ErrScopeMismatch):

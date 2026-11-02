@@ -529,6 +529,17 @@ an exact decimal tag revision, while omitting the packet address and encoded
 exporter target. Source errors, ambiguous ownership or current permission
 denials return no candidate. The operation writes no assignment.
 
+`tag_netbox_apply` requires `tags.write` in addition to both read grants and
+an authenticated user. Supply `confirmed:true`, the original registered
+`exporter_agent_id` / `exporter_source_ref` and the unchanged preview result as
+`preview`. It uses the control server's same reviewed apply service: current
+context authorization, an uncached source comparison, target/revision recheck
+under the tenant write lock, and atomic assignment/audit. A changed candidate
+or revision refuses the write. The declared result contains the assignment ID,
+tag/value, provenance and review time, omitting the exporter address and encoded
+target. The tool is installed only with the configured audited control service;
+the existing MCP consent/redaction and admission/terminal audits also apply.
+
 This source preview remains labelled preview until its real NetBox receipt
 passes. The shared MCP consent, response redaction and tenant audit gates apply
 on HTTP and stdio.

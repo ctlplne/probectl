@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/cmdb"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -51,7 +53,8 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 		}
 	}
 	var calls atomic.Int64
-	var down atomic.Bool
+	var down, bumpRevision atomic.Bool
+	var sourceVersion atomic.Int64
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		if down.Load() {
@@ -72,7 +75,16 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 		if r.URL.Path != "/api/dcim/devices/" || r.URL.Query().Get("id") != "42" {
 			t.Errorf("unexpected NetBox preview source path: %s", r.URL.String())
 		}
-		fmt.Fprintf(w, `{"count":1,"results":[{"id":42,"tenant":{"id":%s},"name":"owned-router","site":{"name":"site-%s"}}]}`, tenant, tenant)
+		if bumpRevision.Swap(false) {
+			if _, err := db.Pool().Exec(context.Background(), `UPDATE tenant_tag_definitions SET key=key WHERE tenant_id=$1 AND id=$2`, a, tagID); err != nil {
+				t.Errorf("bump tag revision during source I/O: %v", err)
+			}
+		}
+		value := "site-" + tenant
+		if version := sourceVersion.Load(); version != 0 {
+			value += fmt.Sprintf("-v%d", version)
+		}
+		fmt.Fprintf(w, `{"count":1,"results":[{"id":42,"tenant":{"id":%s},"name":"owned-router","site":{"name":%q}}]}`, tenant, value)
 	}))
 	defer source.Close()
 	resolver := cmdb.NewResolver(cmdb.NewNetBox(source.URL, "test-token", map[string]string{a: "7", b: "8"}), time.Hour)
@@ -173,4 +185,146 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 	if err := db.Pool().QueryRow(context.Background(), `SELECT count(*) FROM tenant_tag_assignments WHERE tenant_id=ANY($1::uuid[])`, []string{a, b}).Scan(&assignments); err != nil || assignments != 0 {
 		t.Fatalf("preview wrote an assignment: %d, %v", assignments, err)
 	}
+	testNetBoxReviewedApply(t, srv, db, a, b, contextID, body, &calls, &down, &bumpRevision, &sourceVersion)
+}
+
+func testNetBoxReviewedApply(t *testing.T, srv *Server, db *store.DB,
+	a, b, contextID, previewBody string, calls *atomic.Int64,
+	down, bumpRevision *atomic.Bool, sourceVersion *atomic.Int64) {
+	t.Helper()
+	root := "/v1/entity-contexts/" + contextID + "/tag-imports/netbox/"
+	preview := func(tenant string) netBoxTagPreview {
+		t.Helper()
+		var input netBoxTagPreviewRequest
+		if err := json.Unmarshal([]byte(previewBody), &input); err != nil {
+			t.Fatal(err)
+		}
+		rec := apiReq(t, srv.Handler(), http.MethodPost, root+"preview", tenant, input)
+		var out netBoxTagPreview
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("review preview: %d %s", rec.Code, rec.Body.String())
+		}
+		return out
+	}
+	apply := func(tenant string, input netBoxTagApplyRequest, withheld string) *httptest.ResponseRecorder {
+		t.Helper()
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, root+"apply", strings.NewReader(string(raw)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Probectl-Tenant", tenant)
+		req.Header.Set(testWithholdPermissionsHeader, withheld)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	expectedA, expectedB := preview(a), preview(b)
+	for _, withheld := range []string{permTagsRead, permTagsWrite, permCMDBRead} {
+		before := calls.Load()
+		if rec := apply(a, netBoxTagApplyRequest{Confirmed: true, Preview: expectedA}, withheld); rec.Code != http.StatusForbidden || calls.Load() != before {
+			t.Fatalf("apply missing %s reached source or succeeded: %d %s", withheld, rec.Code, rec.Body.String())
+		}
+	}
+	before := calls.Load()
+	if rec := apply(a, netBoxTagApplyRequest{Preview: expectedA}, ""); rec.Code != http.StatusBadRequest || calls.Load() != before {
+		t.Fatalf("unconfirmed apply: %d %s", rec.Code, rec.Body.String())
+	}
+	cross := expectedB
+	cross.Candidate = expectedA.Candidate
+	if rec := apply(b, netBoxTagApplyRequest{Confirmed: true, Preview: cross}, ""); rec.Code != http.StatusConflict {
+		t.Fatalf("foreign source candidate applied to equal owned target: %d %s", rec.Code, rec.Body.String())
+	}
+	sourceVersion.Store(1)
+	if rec := apply(a, netBoxTagApplyRequest{Confirmed: true, Preview: expectedA}, ""); rec.Code != http.StatusConflict {
+		t.Fatalf("apply ignored fresh source change: %d %s", rec.Code, rec.Body.String())
+	}
+	expectedA = preview(a)
+	down.Store(true)
+	if rec := apply(a, netBoxTagApplyRequest{Confirmed: true, Preview: expectedA}, ""); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("apply used cached source during outage: %d %s", rec.Code, rec.Body.String())
+	}
+	down.Store(false)
+	bumpRevision.Store(true)
+	if rec := apply(a, netBoxTagApplyRequest{Confirmed: true, Preview: expectedA}, ""); rec.Code != http.StatusConflict {
+		t.Fatalf("revision changed during source read still applied: %d %s", rec.Code, rec.Body.String())
+	}
+	var count int
+	if err := db.Pool().QueryRow(context.Background(), `SELECT count(*) FROM tenant_tag_assignments WHERE tenant_id=ANY($1::uuid[])`, []string{a, b}).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("refused imports wrote assignments: %d, %v", count, err)
+	}
+	accepted := func(tenant string, p netBoxTagPreview) store.TagAssignmentRecord {
+		t.Helper()
+		rec := apply(tenant, netBoxTagApplyRequest{Confirmed: true, Preview: p}, "")
+		var out store.TagAssignmentRecord
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil ||
+			out.TenantID != tenant || out.Value != p.Candidate.Value || out.Source != "netbox" ||
+			out.SourceRef != p.Candidate.SourceRef || out.ReviewedAt == nil {
+			t.Fatalf("reviewed imported assignment: %d %s", rec.Code, rec.Body.String())
+		}
+		return out
+	}
+	expectedA = preview(a)
+	firstA := accepted(a, expectedA)
+	accepted(b, preview(b))
+	before = calls.Load()
+	if rec := apply(a, netBoxTagApplyRequest{Confirmed: true, Preview: expectedA}, ""); rec.Code != http.StatusConflict || calls.Load() != before {
+		t.Fatalf("stale revision replay survived: %d %s", rec.Code, rec.Body.String())
+	}
+	if again := accepted(a, preview(a)); again.ID != firstA.ID {
+		t.Fatal("reviewed import update created a duplicate assignment")
+	}
+	manual := manualTagAssignmentRequest{TagID: expectedA.Target.TagID, TargetKind: "exporter",
+		ExporterAgentID: "collector", ExporterSourceRef: "192.0.2.10", Value: "operator-override"}
+	rec := apiReq(t, srv.Handler(), http.MethodPost, "/v1/entity-contexts/"+contextID+"/tag-assignments", a, manual)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("manual override: %d %s", rec.Code, rec.Body.String())
+	}
+	accepted(a, preview(a))
+	snapshot, err := store.NewTagSnapshots(db.Pool()).LoadTenant(tenancy.WithTenant(context.Background(), tenancy.ID(a)), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := snapshot.ResolveExporter(netip.MustParseAddr("192.0.2.10"))
+	if err != nil || len(resolved) != 1 || resolved[0].Value != "operator-override" || resolved[0].Source != "manual" {
+		t.Fatalf("import replaced manual precedence: %+v, %v", resolved, err)
+	}
+	for _, row := range []struct {
+		tenant string
+		want   int
+	}{{a, 3}, {b, 1}} {
+		if err := db.Pool().QueryRow(context.Background(), `SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='tag.assignment.imported'`, row.tenant).Scan(&count); err != nil || count != row.want {
+			t.Fatalf("import audit count for %s: %d want %d, %v", row.tenant, count, row.want, err)
+		}
+	}
+	sourceBackend := mcpNetBoxTagBackend{mcpTagBackend: mcpTagBackend{pool: db.Pool(),
+		policyLoader: func(context.Context, string) ([]auth.Policy, error) { return nil, nil }}, source: srv.cmdb}
+	writer := mcpNetBoxTagApplyBackend{server: srv}
+	for _, tenant := range []string{a, b} {
+		p := &auth.Principal{TenantID: tenant, UserID: "tag-importer",
+			Permissions: map[string]bool{permTagsRead: true, permTagsWrite: true, permCMDBRead: true}}
+		observed, err := sourceBackend.NetBoxTagPreview(context.Background(), p, mcp.NetBoxTagPreviewInput{
+			ContextID: contextID, TagID: expectedA.Target.TagID, ExporterAgentID: "collector",
+			ExporterSourceRef: "192.0.2.10", Field: "site"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := mcp.NetBoxTagApplyInput{Confirmed: true, ExporterAgentID: "collector", ExporterSourceRef: "192.0.2.10", Preview: observed}
+		delete(p.Permissions, permTagsWrite)
+		before := calls.Load()
+		if _, err := writer.NetBoxTagApply(context.Background(), p, args); err == nil || calls.Load() != before {
+			t.Fatal("MCP apply without tags.write reached source or wrote")
+		}
+		p.Permissions[permTagsWrite] = true
+		result, err := writer.NetBoxTagApply(context.Background(), p, args)
+		if err != nil || result.AssignmentID == "" || result.Value != observed.Value || result.ReviewedAt == "" {
+			t.Fatalf("MCP tenant %s reviewed apply: %+v, %v", tenant, result, err)
+		}
+		var stored string
+		if err := db.Pool().QueryRow(context.Background(), `SELECT value FROM tenant_tag_assignments WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, tenant, contextID, result.AssignmentID).Scan(&stored); err != nil || stored != observed.Value {
+			t.Fatalf("MCP assignment crossed tenant/context: %q %v", stored, err)
+		}
+	}
+
 }

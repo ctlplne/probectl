@@ -134,8 +134,16 @@ func newMCPServer(
 		options = append(options, mcp.WithEntityBackend(mcpEntityBackend{pool: pool, pathStore: pathStore, policyLoader: policyLoader}))
 		options = append(options, mcp.WithTagBackend(mcpTagBackend{pool: pool, policyLoader: policyLoader}))
 		if cfg != nil && cfg.CMDBProvider == "netbox" {
+			source := BuildCMDB(cfg, log)
+			if src.NativeFlow != nil {
+				if src.NativeFlow.cmdb == nil {
+					src.NativeFlow.WithCMDB(source)
+				}
+				source = src.NativeFlow.cmdb
+				options = append(options, mcp.WithNetBoxTagApplyBackend(mcpNetBoxTagApplyBackend{server: src.NativeFlow}))
+			}
 			options = append(options, mcp.WithNetBoxTagBackend(mcpNetBoxTagBackend{
-				mcpTagBackend: mcpTagBackend{pool: pool, policyLoader: policyLoader}, source: BuildCMDB(cfg, log)}))
+				mcpTagBackend: mcpTagBackend{pool: pool, policyLoader: policyLoader}, source: source}))
 		}
 		options = append(options, mcp.WithNMSImportBackend(mcpNMSImportBackend{pool: pool, policyLoader: policyLoader, owner: src.NativeFlow}))
 	}

@@ -7,7 +7,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../../auth/useAuth'
 import { useEntityContexts } from '../../api/entities'
-import { useNetBoxTagPreview, useTagDefinitions } from '../../api/tags'
+import { useApplyNetBoxTag, useNetBoxTagPreview, useTagDefinitions } from '../../api/tags'
 import {
   Button,
   Card,
@@ -16,6 +16,7 @@ import {
   ErrorState,
   Field,
   LoadingState,
+  Modal,
   Select,
   Table,
   type Column,
@@ -30,6 +31,7 @@ export function NetBoxTagPreviewCard() {
       key={`${tenant.id}:${user.id}`}
       tenantID={tenant.id}
       canListContexts={permissions.includes('entities.read')}
+      canWrite={permissions.includes('tags.write')}
     />
   )
 }
@@ -37,9 +39,11 @@ export function NetBoxTagPreviewCard() {
 function NetBoxTagPreviewContents({
   tenantID,
   canListContexts,
+  canWrite,
 }: {
   tenantID: string
   canListContexts: boolean
+  canWrite: boolean
 }) {
   const contexts = useEntityContexts(tenantID, canListContexts)
   const definitions = useTagDefinitions(tenantID)
@@ -122,6 +126,7 @@ function NetBoxTagPreviewContents({
               contextID={contextID}
               tagID={selectedTag.id}
               tagKey={selectedTag.key}
+              canWrite={canWrite}
             />
           ) : null}
         </div>
@@ -135,20 +140,31 @@ function NetBoxPreviewForm({
   contextID,
   tagID,
   tagKey,
+  canWrite,
 }: {
   tenantID: string
   contextID: string
   tagID: string
   tagKey: string
+  canWrite: boolean
 }) {
   const preview = useNetBoxTagPreview(tenantID, contextID)
+  const apply = useApplyNetBoxTag(tenantID, contextID)
+  const [reviewing, setReviewing] = useState(false)
   const [agentID, setAgentID] = useState('')
   const [sourceRef, setSourceRef] = useState('')
   const [field, setField] = useState<'role' | 'site'>('site')
 
+  function clearResult() {
+    preview.reset()
+    apply.reset()
+    setReviewing(false)
+  }
+
   async function onPreview(event: FormEvent) {
     event.preventDefault()
     if (!agentID.trim() || !sourceRef.trim()) return
+    apply.reset()
     try {
       await preview.mutateAsync({
         tag_id: tagID,
@@ -197,10 +213,10 @@ function NetBoxPreviewForm({
           label="NetBox exporter agent ID"
           required
           maxLength={128}
-          disabled={preview.isPending}
+          disabled={preview.isPending || apply.isPending}
           value={agentID}
           onChange={(event) => {
-            preview.reset()
+            clearResult()
             setAgentID(event.target.value)
           }}
         />
@@ -209,19 +225,19 @@ function NetBoxPreviewForm({
           hint="The current registered exporter IP address in this routing context."
           required
           maxLength={45}
-          disabled={preview.isPending}
+          disabled={preview.isPending || apply.isPending}
           value={sourceRef}
           onChange={(event) => {
-            preview.reset()
+            clearResult()
             setSourceRef(event.target.value)
           }}
         />
         <Select
           label="NetBox source field"
           value={field}
-          disabled={preview.isPending}
+          disabled={preview.isPending || apply.isPending}
           onChange={(event) => {
-            preview.reset()
+            clearResult()
             setField(event.target.value as 'role' | 'site')
           }}
           options={[
@@ -229,7 +245,10 @@ function NetBoxPreviewForm({
             { value: 'role', label: 'Role' },
           ]}
         />
-        <Button type="submit" disabled={preview.isPending || !agentID.trim() || !sourceRef.trim()}>
+        <Button
+          type="submit"
+          disabled={preview.isPending || apply.isPending || !agentID.trim() || !sourceRef.trim()}
+        >
           Preview NetBox value
         </Button>
       </form>
@@ -245,6 +264,48 @@ function NetBoxPreviewForm({
           rows={rows}
           rowKey={(row) => row.label}
         />
+      ) : null}
+      {matchesInput && canWrite ? (
+        <Button disabled={apply.isPending || apply.isSuccess} onClick={() => setReviewing(true)}>
+          Review NetBox import
+        </Button>
+      ) : null}
+      {apply.isSuccess ? (
+        <p role="status">NetBox tag imported. Manual assignments retain precedence.</p>
+      ) : null}
+      {reviewing && canWrite && matchesInput && result ? (
+        <Modal
+          open
+          title="Apply reviewed NetBox tag?"
+          onClose={() => {
+            if (!apply.isPending) setReviewing(false)
+          }}
+        >
+          <div className={styles.stack}>
+            <p>
+              Import {result.target.tag_key} = {result.candidate.value} for this exporter?
+            </p>
+            <p>
+              Source {result.candidate.source_ref}; reviewed tag revision{' '}
+              {result.target.tag_revision}. The server will read the source again and refuse any
+              changed candidate or target.
+            </p>
+            {apply.isError ? <ErrorState description={apply.error.message} /> : null}
+            <Button
+              disabled={apply.isPending}
+              onClick={() => {
+                void apply
+                  .mutateAsync({ confirmed: true, preview: result })
+                  .then(() => setReviewing(false))
+                  .catch(() => {
+                    /* Keep the source refusal and review visible. */
+                  })
+              }}
+            >
+              Apply reviewed NetBox tag
+            </Button>
+          </div>
+        </Modal>
       ) : null}
     </div>
   )

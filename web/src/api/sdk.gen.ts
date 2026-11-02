@@ -2209,6 +2209,11 @@ export interface NMSImportSealedRowsPage {
   source_id: string
 }
 
+export interface NetBoxTagApplyInput {
+  confirmed: boolean
+  preview: NetBoxTagPreview
+}
+
 export interface NetBoxTagCandidate {
   ci_id: string
   field: "role" | "site"
@@ -3348,6 +3353,13 @@ export interface DeleteManualTagAssignmentRequest {
 }
 
 export type DeleteManualTagAssignmentResponse = void
+
+export interface ApplyNetBoxTagRequest {
+  contextId: string
+  body: NetBoxTagApplyInput
+}
+
+export type ApplyNetBoxTagResponse = TagAssignment
 
 export interface PreviewNetBoxTagRequest {
   contextId: string
@@ -5030,6 +5042,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async applyNetBoxTag(request: ApplyNetBoxTagRequest): Promise<ApplyNetBoxTagResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-imports/netbox/apply"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ApplyNetBoxTagResponse>("POST", path, query, request.body)
   }
 
   async previewNetBoxTag(request: PreviewNetBoxTagRequest): Promise<PreviewNetBoxTagResponse> {

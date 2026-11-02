@@ -34,6 +34,7 @@ func (s *Server) tagRoutes() []apiRoute {
 		{http.MethodPut, "/v1/entity-contexts/{context_id}/tag-assignments/{id}", s.handleUpdateManualTagAssignment, permTagsWrite},
 		{http.MethodDelete, "/v1/entity-contexts/{context_id}/tag-assignments/{id}", s.handleDeleteManualTagAssignment, permTagsWrite},
 		{http.MethodPost, "/v1/entity-contexts/{context_id}/tag-imports/netbox/preview", s.handlePreviewNetBoxTag, permTagsRead},
+		{http.MethodPost, "/v1/entity-contexts/{context_id}/tag-imports/netbox/apply", s.handleApplyNetBoxTag, permTagsWrite},
 	}
 }
 

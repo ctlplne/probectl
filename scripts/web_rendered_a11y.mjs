@@ -478,6 +478,17 @@ function apiPayload(path, method, pagePath = "") {
         source_ref: "netbox:t7:ip10:d42:site",
       },
     });
+  if (path === "/v1/entity-contexts/00000000-0000-0000-0000-000000000072/tag-imports/netbox/apply")
+    return json({
+      id: "00000000-0000-0000-0000-000000000077",
+      tenant_id: "00000000-0000-0000-0000-000000000001",
+      context_id: "00000000-0000-0000-0000-000000000072",
+      tag_id: "00000000-0000-0000-0000-000000000073",
+      target_kind: "exporter", target_id: "opaque-owned-exporter",
+      exporter_agent_id: "collector", exporter_source_ref: "192.0.2.10",
+      value: "NetBox reviewed candidate", source: "netbox",
+      source_ref: "netbox:t7:ip10:d42:site", reviewed_at: "2026-11-02T21:00:00Z",
+    });
   if (path === "/v1/tests") return json({ items: sampleTests });
   if (path === "/v1/tests/t1") return json(sampleTests[0]);
   if (path === "/v1/coverage/vantages")
@@ -2588,6 +2599,15 @@ async function netBoxTagPreviewChecks(page, axeSource) {
   }
   const violations = blockingAxeResults(await runAxe(page, axeSource));
   failures.push(...violations.map((violation) => `NetBox preview result: ${violation.id}`));
+  await card.getByRole("button", { name: "Review NetBox import", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Apply reviewed NetBox tag?", exact: true });
+  await dialog.waitFor();
+  const reviewViolations = blockingAxeResults(await runAxe(page, axeSource));
+  failures.push(...reviewViolations.map((violation) => `NetBox review dialog: ${violation.id}`));
+  failures.push(...await targetAndTabChecks(page));
+  await dialog.getByRole("button", { name: "Apply reviewed NetBox tag", exact: true }).click();
+  await card.getByText("NetBox tag imported. Manual assignments retain precedence.", { exact: true }).waitFor();
+
   failures.push(...await targetAndTabChecks(page));
   failures.push(...await horizontalOverflowCheck(page));
   failures.push(...await interactiveClippingCheck(page));

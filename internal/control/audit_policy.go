@@ -233,6 +233,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"PUT /v1/entity-contexts/{context_id}/tag-assignments/{id}":           auditExplicit(auditFacetMutation, "tag.assignment.updated"),
 	"DELETE /v1/entity-contexts/{context_id}/tag-assignments/{id}":        auditExplicit(auditFacetMutation, "tag.assignment.deleted"),
 	"POST /v1/entity-contexts/{context_id}/tag-imports/netbox/preview":    auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/entity-contexts/{context_id}/tag-imports/netbox/apply":      auditExplicit(auditFacetMutation, "tag.assignment.imported"),
 	"POST /v1/nms-imports/sources":                                        auditExplicit(auditFacetMutation, "nms_import.source_configured"),
 	"POST /v1/nms-imports/sources/{instance}/disable":                     auditExplicit(auditFacetMutation, "nms_import.source_disabled"),
 	"POST /v1/nms-imports/live-plans":                                     auditExplicit(auditFacetMutation, "nms_import.capture_started"),

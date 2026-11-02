@@ -795,4 +795,22 @@ select **Preview NetBox value**. Context discovery also needs `entities.read`;
 without it, enter an authorized routing context ID directly. The result shows
 the proposed value, source identity, provenance and exact tag revision. Changing
 the input, context, tag, user or tenant clears the result. Source failures never
-substitute cached enrichment. There is no apply action on this preview form.
+substitute cached enrichment.
+
+With `tags.write` as well, choose **Review NetBox import**, inspect the exact
+value, source reference and tag revision, then explicitly confirm. The server
+reads the source again and compares the complete candidate before acquiring
+the tenant revision lock and rechecking the owned target. A changed source,
+target or revision returns a conflict requiring a new preview. A successful
+write records `source=netbox`, its checked provenance and `reviewed_at`, with
+`tag.assignment.imported` in the same tenant transaction. Manual values retain
+precedence. The preview is metadata for operator review; it is not a signed
+authorization token and cannot select a tenant.
+
+The CLI equivalent is `probectl tags netbox-apply CONTEXT --body-file apply.json`.
+Use `{"confirmed":true,"preview":PREVIEW_RESPONSE}` with the unchanged complete
+preview object. `POST /v1/entity-contexts/{context_id}/tag-imports/netbox/apply`
+requires all three grants and routing-context access. Replaying an already
+applied revision is refused. A fresh preview can update the existing imported
+assignment without duplicating it. Both source operations remain labelled
+preview until their real NetBox service receipt passes.

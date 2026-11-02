@@ -2329,6 +2329,11 @@ type NMSImportSealedRowsPage struct {
 	SourceId     string               `json:"source_id"`
 }
 
+type NetBoxTagApplyInput struct {
+	Confirmed bool             `json:"confirmed"`
+	Preview   NetBoxTagPreview `json:"preview"`
+}
+
 type NetBoxTagCandidate struct {
 	CiId           string `json:"ci_id"`
 	Field          string `json:"field"`
@@ -4721,6 +4726,26 @@ func (c *Client) DeleteManualTagAssignment(ctx context.Context, req DeleteManual
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Apply an explicitly reviewed fresh NetBox exporter tag preview
+type ApplyNetBoxTagRequest struct {
+	ContextId string               `json:"-"`
+	Body      *NetBoxTagApplyInput `json:"-"`
+}
+
+func (c *Client) ApplyNetBoxTag(ctx context.Context, req ApplyNetBoxTagRequest) (*TagAssignment, error) {
+	path := "/v1/entity-contexts/{context_id}/tag-imports/netbox/apply"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	var out TagAssignment
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Preview a fresh NetBox role or site tag for an owned exporter

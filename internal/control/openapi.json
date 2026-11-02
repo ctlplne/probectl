@@ -77,6 +77,71 @@
     }
   ],
   "paths": {
+    "/v1/entity-contexts/{context_id}/tag-imports/netbox/apply": {
+      "post": {
+        "x-required-permission": "tags.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "operationId": "applyNetBoxTag",
+        "summary": "Apply an explicitly reviewed fresh NetBox exporter tag preview",
+        "description": "Requires tags.read, tags.write and cmdb.read with current routing-context ABAC. confirmed must be true and preview must be the unchanged observed preview. Resolves the owned exporter before external I/O, freshly rechecks the mapped source candidate, then rechecks target and tag revision under the tenant write lock. Writes a reviewed NetBox assignment and its audit atomically. Manual values retain precedence. Any source identity/value/provenance, ownership or revision change requires a new preview.",
+        "tags": [
+          "tags"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetBoxTagApplyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reviewed imported assignment with source provenance and review time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagAssignment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed field, tag or exporter source."
+          },
+          "403": {
+            "description": "Required tag/CMDB grant or context ABAC denied."
+          },
+          "404": {
+            "description": "No owned unambiguous target or importable source value."
+          },
+          "503": {
+            "description": "Source, storage or mapped source tenant is unavailable or inconsistent."
+          },
+          "409": {
+            "description": "The source candidate, target or revision changed; request a fresh preview."
+          }
+        }
+      }
+    },
     "/v1/entity-contexts/{context_id}/tag-imports/netbox/preview": {
       "post": {
         "x-required-permission": "tags.read",
@@ -12706,6 +12771,23 @@
       }
     },
     "schemas": {
+      "NetBoxTagApplyInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "confirmed",
+          "preview"
+        ],
+        "properties": {
+          "confirmed": {
+            "type": "boolean",
+            "const": true
+          },
+          "preview": {
+            "$ref": "#/components/schemas/NetBoxTagPreview"
+          }
+        }
+      },
       "NetBoxTagPreviewInput": {
         "type": "object",
         "additionalProperties": false,
