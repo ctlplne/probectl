@@ -72,8 +72,8 @@ var reservedKeys = map[string]bool{
 }
 
 type Scope struct {
-	TenantID  string
-	ContextID string
+	TenantID  string `json:"tenant_id"`
+	ContextID string `json:"context_id"`
 }
 
 type Definition struct {
@@ -96,27 +96,27 @@ type Subject struct {
 
 type Assignment struct {
 	Scope
-	TagID      string
-	TargetKind string
-	TargetID   string
-	Value      string
-	Source     string // manual or netbox
-	SourceRef  string // provenance ID, never a credential or raw response
+	TagID      string `json:"tag_id"`
+	TargetKind string `json:"target_kind"`
+	TargetID   string `json:"target_id"`
+	Value      string `json:"value"`
+	Source     string `json:"source"`               // manual or netbox
+	SourceRef  string `json:"source_ref,omitempty"` // provenance ID, never a credential or raw response
 }
 
 type Rule struct {
 	Scope
-	ID          string
-	TagID       string
-	TargetKind  string
-	Match       string // cidr, name_pattern or snmp_field
-	AddressSide string
-	CIDR        string
-	NamePattern string
-	SNMPField   string
-	SNMPValue   string
-	Value       string
-	Priority    int
+	ID          string `json:"id"`
+	TagID       string `json:"tag_id"`
+	TargetKind  string `json:"target_kind"`
+	Match       string `json:"match_kind"` // cidr, name_pattern or snmp_field
+	AddressSide string `json:"address_side,omitempty"`
+	CIDR        string `json:"cidr,omitempty"`
+	NamePattern string `json:"name_pattern,omitempty"`
+	SNMPField   string `json:"snmp_field,omitempty"`
+	SNMPValue   string `json:"snmp_value,omitempty"`
+	Value       string `json:"value"`
+	Priority    int    `json:"priority"`
 }
 
 type Resolved struct {
@@ -204,7 +204,19 @@ func validateAssignment(scope Scope, defs map[string]Definition, assignment Assi
 	if !sameScope(scope, assignment.Scope) {
 		return ErrScopeMismatch
 	}
-	if _, exists := defs[assignment.TagID]; !exists ||
+	if _, exists := defs[assignment.TagID]; !exists {
+		return ErrInvalid
+	}
+	return ValidateAssignment(assignment)
+}
+
+// ValidateAssignment checks the same bounded shape at writes and reads. The
+// database's typed, tenant-qualified FKs prove the subject exists in context.
+func ValidateAssignment(assignment Assignment) error {
+	if !validScope(assignment.Scope) {
+		return ErrScopeMismatch
+	}
+	if !validUUID(assignment.TagID) ||
 		!validKind(assignment.TargetKind) || !validText(assignment.TargetID, maxTargetIDBytes) ||
 		!validText(assignment.Value, maxValueBytes) ||
 		(assignment.Source != "manual" && assignment.Source != "netbox") ||

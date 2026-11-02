@@ -4614,6 +4614,166 @@
         }
       }
     },
+    "/v1/entity-contexts/{context_id}/tag-rules": {
+      "get": {
+        "x-required-permission": "tags.read",
+        "operationId": "listTagRules",
+        "summary": "Page one owned routing context's tag rules",
+        "description": "The context is resolved under the authenticated tenant before context ABAC and FORCE-RLS storage. Results use an immutable UUID cursor and never include another tenant's rule.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Context-scoped tag rule page.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagRulePage"}}}},
+          "400": {"description": "Invalid limit or cursor."},
+          "403": {"description": "Tenant, context ABAC or tags.read permission denied."},
+          "404": {"description": "Routing context does not exist in this tenant."}
+        },
+        "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
+      },
+      "post": {
+        "x-required-permission": "tags.write",
+        "operationId": "createTagRule",
+        "summary": "Create a bounded rule in one owned routing context",
+        "description": "CIDR rules name an address side; RE2 patterns and collected SNMP field names are bounded and validated. A tenant-wide 25,000-rule cap is serialized before insert. The rule and tenant audit event commit together.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagRuleInput"}}}},
+        "responses": {
+          "201": {"description": "Tag rule created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagRule"}}}},
+          "400": {"description": "Invalid rule or tenant rule quota reached."},
+          "403": {"description": "Tenant, context ABAC or tags.write permission denied."},
+          "404": {"description": "Context or tag key does not exist in this tenant."}
+        }
+      }
+    },
+    "/v1/entity-contexts/{context_id}/tag-rules/{id}": {
+      "put": {
+        "x-required-permission": "tags.write",
+        "operationId": "updateTagRule",
+        "summary": "Replace one tenant tag rule",
+        "description": "The authenticated tenant and owned routing context qualify the rule ID. The replacement and audit event commit together and advance the tag revision.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagRuleInput"}}}},
+        "responses": {
+          "200": {"description": "Tag rule replaced.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagRule"}}}},
+          "400": {"description": "Invalid rule or ID."},
+          "403": {"description": "Tenant, context ABAC or tags.write permission denied."},
+          "404": {"description": "Rule, context or tag key does not exist in this tenant."}
+        }
+      },
+      "delete": {
+        "x-required-permission": "tags.write",
+        "operationId": "deleteTagRule",
+        "summary": "Delete one tenant tag rule",
+        "description": "The tenant-qualified delete and audit event commit together and advance the tag revision.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "204": {"description": "Tag rule deleted."},
+          "400": {"description": "Invalid rule ID."},
+          "403": {"description": "Tenant, context ABAC or tags.write permission denied."},
+          "404": {"description": "Rule or context does not exist in this tenant."}
+        }
+      }
+    },
+    "/v1/entity-contexts/{context_id}/tag-assignments": {
+      "get": {
+        "x-required-permission": "tags.read",
+        "operationId": "listTagAssignments",
+        "summary": "Page one owned routing context's tag assignments",
+        "description": "Lists manual assignments and previously reviewed imported values with their provenance. The authenticated tenant and context ABAC are checked before FORCE-RLS storage.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Context-scoped tag assignment page.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagAssignmentPage"}}}},
+          "400": {"description": "Invalid limit or cursor."},
+          "403": {"description": "Tenant, context ABAC or tags.read permission denied."},
+          "404": {"description": "Routing context does not exist in this tenant."}
+        },
+        "x-probectl-pagination": {"mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor", "max_limit": 100}
+      },
+      "post": {
+        "x-required-permission": "tags.write",
+        "operationId": "createManualTagAssignment",
+        "summary": "Assign one tag value to an owned context subject",
+        "description": "Manual writes use tenant-qualified typed foreign keys for canonical entities, enrolled agents, bound tests and operator-owned flow exporters. For an exporter, provide exporter_agent_id and exporter_source_ref and omit target_id; other kinds use target_id. A tenant-wide 25,000-assignment cap is serialized. The write and audit event commit together.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManualTagAssignmentInput"}}}},
+        "responses": {
+          "201": {"description": "Manual assignment created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagAssignment"}}}},
+          "400": {"description": "Malformed assignment or tenant quota reached."},
+          "403": {"description": "Tenant, context ABAC or tags.write permission denied."},
+          "404": {"description": "Context, key or subject does not exist in this tenant."},
+          "409": {"description": "Manual assignment already exists for this tag and subject."}
+        }
+      }
+    },
+    "/v1/entity-contexts/{context_id}/tag-assignments/{id}": {
+      "put": {
+        "x-required-permission": "tags.write",
+        "operationId": "updateManualTagAssignment",
+        "summary": "Replace one manual tenant tag assignment",
+        "description": "The tenant and context qualify the assignment ID. Imported assignments cannot be modified through this manual endpoint. The replacement and audit event commit together.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManualTagAssignmentInput"}}}},
+        "responses": {
+          "200": {"description": "Manual assignment replaced.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagAssignment"}}}},
+          "400": {"description": "Malformed assignment or ID."},
+          "403": {"description": "Tenant, context ABAC or tags.write permission denied."},
+          "404": {"description": "Manual assignment, context, key or subject does not exist in this tenant."},
+          "409": {"description": "Another manual assignment already uses this tag and subject."}
+        }
+      },
+      "delete": {
+        "x-required-permission": "tags.write",
+        "operationId": "deleteManualTagAssignment",
+        "summary": "Delete one manual tenant tag assignment",
+        "description": "Imported assignments are immutable through this endpoint. The tenant-qualified manual delete and audit event commit together.",
+        "tags": ["tags"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "204": {"description": "Manual assignment deleted."},
+          "400": {"description": "Malformed assignment ID."},
+          "403": {"description": "Tenant, context ABAC or tags.write permission denied."},
+          "404": {"description": "Manual assignment or context does not exist in this tenant."}
+        }
+      }
+    },
     "/v1/entity-contexts": {
       "get": {
         "x-required-permission": "entities.read",
@@ -18769,6 +18929,80 @@
         "required": ["items"],
         "properties": {
           "items": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/TagDefinition"}}
+        }
+      },
+      "TagRuleInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tag_id", "target_kind", "match_kind", "value"],
+        "properties": {
+          "tag_id": {"type": "string", "format": "uuid"},
+          "target_kind": {"type": "string", "enum": ["device", "interface", "prefix", "exporter", "agent", "test"]},
+          "match_kind": {"type": "string", "enum": ["cidr", "name_pattern", "snmp_field"]},
+          "address_side": {"type": "string", "enum": ["src", "dst", "exporter", "interface", "device"]},
+          "cidr": {"type": "string"},
+          "name_pattern": {"type": "string", "maxLength": 256},
+          "snmp_field": {"type": "string", "enum": ["sys_name", "sys_descr", "if_name", "if_descr"]},
+          "snmp_value": {"type": "string", "maxLength": 256},
+          "value": {"type": "string", "minLength": 1, "maxLength": 128},
+          "priority": {"type": "integer", "minimum": -1000, "maximum": 1000, "default": 0}
+        }
+      },
+      "TagRule": {
+        "allOf": [
+          {"$ref": "#/components/schemas/TagRuleInput"},
+          {"type": "object", "required": ["tenant_id", "context_id", "id"], "properties": {
+            "tenant_id": {"type": "string", "format": "uuid"},
+            "context_id": {"type": "string", "format": "uuid"},
+            "id": {"type": "string", "format": "uuid"}
+          }}
+        ]
+      },
+      "TagRulePage": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/TagRule"}},
+          "next_cursor": {"type": "string", "format": "uuid"}
+        }
+      },
+      "ManualTagAssignmentInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tag_id", "target_kind", "value"],
+        "properties": {
+          "tag_id": {"type": "string", "format": "uuid"},
+          "target_kind": {"type": "string", "enum": ["device", "interface", "prefix", "exporter", "agent", "test"]},
+          "target_id": {"type": "string"},
+          "exporter_agent_id": {"type": "string"},
+          "exporter_source_ref": {"type": "string"},
+          "value": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "TagAssignment": {
+        "type": "object",
+        "required": ["tenant_id", "context_id", "id", "tag_id", "target_kind", "target_id", "value", "source"],
+        "properties": {
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "context_id": {"type": "string", "format": "uuid"},
+          "id": {"type": "string", "format": "uuid"},
+          "tag_id": {"type": "string", "format": "uuid"},
+          "target_kind": {"type": "string", "enum": ["device", "interface", "prefix", "exporter", "agent", "test"]},
+          "target_id": {"type": "string"},
+          "exporter_agent_id": {"type": "string"},
+          "exporter_source_ref": {"type": "string"},
+          "value": {"type": "string"},
+          "source": {"type": "string", "enum": ["manual", "netbox"]},
+          "source_ref": {"type": "string"},
+          "reviewed_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "TagAssignmentPage": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/TagAssignment"}},
+          "next_cursor": {"type": "string", "format": "uuid"}
         }
       },
       "EntityContext": {

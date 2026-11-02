@@ -370,7 +370,7 @@ func isEntityResourceKey(k string) bool {
 
 func isEntityScopedPermission(permission string) bool {
 	switch permission {
-	case "*", ai.PermEntitiesRead, permAgentWrite,
+	case "*", ai.PermEntitiesRead, permAgentWrite, permTagsRead, permTagsWrite,
 		permNMSImportRead, permNMSImportWrite,
 		ai.PermMetricsRead, permFlowRead, permTestRead,
 		ai.PermEventsRead, permAgentRead:

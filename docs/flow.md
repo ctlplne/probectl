@@ -542,6 +542,37 @@ and touch-mobile sizes. Missing, duplicate or failed cases fail the gate. This
 checks rendered behavior and accessibility; authenticated sender/store isolation
 requires the separate real-stack proofs.
 
+## Tenant tags and routing contexts
+
+A tenant may define up to 64 tag keys. `GET/POST /v1/tags` list and create
+them; `PUT/DELETE /v1/tags/{id}` rename and remove them. Keys cannot shadow
+native flow fields such as `tenant_id`, `bytes` or `exporter`. The tenant comes
+from authentication. `tags.read` permits listing; `tags.write` is required for
+every mutation. A tag change and its audit event commit in one tenant
+transaction. Deleting a key also removes its assignments and rules.
+
+Rules and assignments name an operator-owned routing context in their path:
+`/v1/entity-contexts/{context_id}/tag-rules` and
+`/v1/entity-contexts/{context_id}/tag-assignments`. Each collection has
+`GET` and `POST`; an item has `PUT` and `DELETE`. Reads page at most 100 rows
+with a UUID cursor. Context ABAC runs after tenant authentication and before
+forced-RLS storage. Rules can match a canonical CIDR and declared address
+side, a bounded RE2 name pattern, or one of the collected SNMP fields
+`sys_name`, `sys_descr`, `if_name`, `if_descr`. Tenant-wide limits are 25,000
+rules and 25,000 assignments, enforced under a per-tenant write lock. The
+same flows are available through `probectl tags` commands.
+
+Manual assignments refer to a canonical device/interface/prefix, a bound
+agent or test, or an operator-owned flow exporter. Exporters are identified
+by their registered agent and configured source reference, not by a packet's
+claimed agent field. The database checks these references with tenant- and
+context-qualified foreign keys. An exporter address with multiple current
+owners resolves to no tag. Manual values take precedence over rules; rules
+take precedence over previously reviewed imported suggestions. Imported
+assignments remain visible with provenance but cannot be changed through the
+manual endpoints. Tag revisions alter current views of retained historical
+flows; raw telemetry is never rewritten.
+
 ## Query API (tenant-scoped, `flow.read`)
 
 Four read endpoints, all gated by the `flow.read` permission and scoped to the

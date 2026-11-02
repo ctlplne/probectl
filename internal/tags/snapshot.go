@@ -97,8 +97,7 @@ func NewSnapshot(scope Scope, revision int64, definitions []Definition,
 		if !sameScope(scope, rule.Scope) {
 			return nil, ErrScopeMismatch
 		}
-		if !validUUID(rule.ID) || seenRule[rule.ID] || !validKind(rule.TargetKind) ||
-			!validText(rule.Value, maxValueBytes) || rule.Priority < -1000 || rule.Priority > 1000 {
+		if seenRule[rule.ID] || validateRuleShape(rule) != nil {
 			return nil, ErrInvalid
 		}
 		seenRule[rule.ID] = true
@@ -121,6 +120,28 @@ func NewSnapshot(scope Scope, revision int64, definitions []Definition,
 		}
 	}
 	return s, nil
+}
+
+// ValidateRule applies the resolver's exact bounded rule grammar before a
+// tenant write. Storage FKs then prove that the tag and context are owned by
+// the same authenticated tenant.
+func ValidateRule(rule Rule) error {
+	if err := validateRuleShape(rule); err != nil {
+		return err
+	}
+	_, _, err := compileRule(rule)
+	return err
+}
+
+func validateRuleShape(rule Rule) error {
+	if !validScope(rule.Scope) {
+		return ErrScopeMismatch
+	}
+	if !validUUID(rule.ID) || !validUUID(rule.TagID) || !validKind(rule.TargetKind) ||
+		!validText(rule.Value, maxValueBytes) || rule.Priority < -1000 || rule.Priority > 1000 {
+		return ErrInvalid
+	}
+	return nil
 }
 
 func compileRule(rule Rule) (compiledRule, netip.Prefix, error) {
