@@ -81,6 +81,12 @@ with no approved policy, live fetching is disabled. See
    alerts, write agent evidence or install credentials. An unsupported row
    remains explicitly skipped with its unmapped reason.
 
+MCP tools `nms_import_rows` and `nms_import_dry_run` page the same redacted
+source rows and frozen destination comparison. Both require `nms.import.read`
+and an explicit routing context and plan ID; the principal supplies the tenant.
+The dry-run tool also requires the exact review hash. These tools are read-only
+and cannot finalize, verify or apply an import.
+
 The destination schema reserves a tenant/context/source-keyed group set and
 membership table. A membership can reference only a device with an exact
 applied import provenance in that same scope. A group name or member address

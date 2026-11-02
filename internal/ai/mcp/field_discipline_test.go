@@ -70,6 +70,7 @@ func TestMCPResultTypesDoNotCarryUncheckedMaps(t *testing.T) {
 		NativeFlowQuestionResult{}, NativeFlowQuestionProposal{}, NativeFlowQuestionPeriod{},
 		NativeFlowResult{}, NativeFlowRow{}, NativeFlowPoint{}, NativeFlowCell{}, NativeFlowValue{}, NativeFlowDimension{}, NativeFlowRevision{}, NativeFlowCoverage{}, NativeFlowPaging{}, NativeFlowQueryResult{}, NativeFlowComparisonRow{}, NativeFlowComparisonResult{}, NativeFlowExecution{}, NativeFlowFilter{}, NativeFlowFilterPage{}, NativeFlowView{}, NativeFlowViewPage{}, NativeFlowMutationResult{}, NativeFlowField{}, NativeFlowCalculation{}, NativeFlowMetric{}, NativeFlowLimits{}, NativeFlowDefaults{}, NativeFlowStatistics{}, NativeFlowSchemaResult{}, NativeFlowCSVResult{},
 		EntityItemResult{}, EntityListResult{}, EntityContextResult{}, EntityContextListResult{}, EntityCandidateResult{}, EntityResolutionResult{}, EntityAssignmentResult{}, EntityPathContextResult{}, EntityPathHopResult{}, EntityPathResult{},
+		NMSImportRowResult{}, NMSImportRowsResult{}, NMSImportDiffItemResult{}, NMSImportDryRunResult{},
 	}
 	for _, v := range types {
 		rt := reflect.TypeOf(v)
@@ -96,7 +97,7 @@ func TestMCPResultTypesDoNotCarryUncheckedMaps(t *testing.T) {
 // listed today's eight methods would be a denylist and would pass the moment a
 // ninth arrived.
 func TestBackendReturnsDeclaredTypes(t *testing.T) {
-	for _, bt := range []reflect.Type{reflect.TypeOf((*Backend)(nil)).Elem(), reflect.TypeOf((*NativeFlowBackend)(nil)).Elem(), reflect.TypeOf((*EntityBackend)(nil)).Elem()} {
+	for _, bt := range []reflect.Type{reflect.TypeOf((*Backend)(nil)).Elem(), reflect.TypeOf((*NativeFlowBackend)(nil)).Elem(), reflect.TypeOf((*EntityBackend)(nil)).Elem(), reflect.TypeOf((*NMSImportBackend)(nil)).Elem()} {
 		anyType := reflect.TypeOf((*any)(nil)).Elem()
 		for i := range bt.NumMethod() {
 			m := bt.Method(i)

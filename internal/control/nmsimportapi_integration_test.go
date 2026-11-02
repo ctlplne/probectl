@@ -11,12 +11,17 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/nmsimport"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -166,6 +171,74 @@ func TestNMSImportSealedRowsRouteIsTenantAndContextBound(t *testing.T) {
 			len(page.Items) != 1 || !page.Items[0].Reviewed || page.Items[0].Action != "unmapped" {
 			t.Fatalf("reviewed page lost decision: %d %s", response.Code, response.Body.String())
 		}
+	}
+	// MCP exposes the same bounded redacted rows and dry run. Its backend
+	// resolves the principal's tenant and context before accessing either plan.
+	denyMCP := false
+	mcpPolicy := func(_ context.Context, tenant string) ([]auth.Policy, error) {
+		if denyMCP && tenant == a {
+			return []auth.Policy{{Name: "deny west import MCP", Enabled: true,
+				Effect: auth.PolicyDeny, Permission: permNMSImportRead,
+				Resource: map[string]string{"site_label": "West DC"}}}, nil
+		}
+		return nil, nil
+	}
+	gate := ai.NewEgressGate(func(context.Context, string) (bool, error) { return true, nil },
+		func(context.Context, ai.EgressEvent) error { return nil }, ai.RedactionPolicy{})
+	mcpServer := NewMCPServerWithPolicyLoader(&config.Config{},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), db.Pool(), nil, 0,
+		gate, nil, nil, mcpPolicy)
+	for _, own := range []fixture{left, right} {
+		principal := &auth.Principal{TenantID: own.tenant, UserID: "import-reader",
+			Permissions: map[string]bool{permNMSImportRead: true}}
+		rowsData, failed := nativeControlCall(t, mcpServer, principal, "nms_import_rows",
+			mcp.NMSImportRowsInput{ContextID: own.contextID, PlanID: own.planID, Limit: 1})
+		var rows mcp.NMSImportRowsResult
+		if failed || json.Unmarshal(rowsData, &rows) != nil || len(rows.Items) != 1 ||
+			rows.Items[0].Label != own.label || rows.Items[0].ExternalID != "17" ||
+			strings.Contains(string(rowsData), "source-only-secret") {
+			t.Fatalf("MCP redacted rows tenant=%s: %s", own.tenant, rowsData)
+		}
+		diffData, failed := nativeControlCall(t, mcpServer, principal, "nms_import_dry_run",
+			mcp.NMSImportDryRunInput{ContextID: own.contextID, PlanID: own.planID,
+				ReviewHash: reviewHashes[own.planID], Limit: 1})
+		var diff mcp.NMSImportDryRunResult
+		if failed || json.Unmarshal(diffData, &diff) != nil || len(diff.Items) != 1 ||
+			diff.Items[0].Action != "unmapped" || diff.Items[0].ExternalID != "17" ||
+			strings.Contains(string(diffData), "source-only-secret") {
+			t.Fatalf("MCP redacted dry run tenant=%s: %s", own.tenant, diffData)
+		}
+		other := left
+		if own.tenant == left.tenant {
+			other = right
+		}
+		if _, failed := nativeControlCall(t, mcpServer, principal, "nms_import_rows",
+			mcp.NMSImportRowsInput{ContextID: own.contextID, PlanID: other.planID}); !failed {
+			t.Fatalf("MCP read foreign import plan tenant=%s", own.tenant)
+		}
+		if _, failed := nativeControlCall(t, mcpServer, principal, "nms_import_rows",
+			mcp.NMSImportRowsInput{ContextID: own.contextID, PlanID: own.planID,
+				Limit: 101}); !failed {
+			t.Fatalf("MCP accepted unbounded import page tenant=%s", own.tenant)
+		}
+		if _, failed := nativeControlCall(t, mcpServer, principal, "nms_import_dry_run",
+			mcp.NMSImportDryRunInput{ContextID: own.contextID, PlanID: own.planID,
+				ReviewHash: strings.Repeat("0", 64)}); !failed {
+			t.Fatalf("MCP accepted wrong review hash tenant=%s", own.tenant)
+		}
+	}
+	denyMCP = true
+	deniedPrincipal := &auth.Principal{TenantID: a, UserID: "import-reader",
+		Permissions: map[string]bool{permNMSImportRead: true}}
+	if _, failed := nativeControlCall(t, mcpServer, deniedPrincipal,
+		"nms_import_rows", mcp.NMSImportRowsInput{ContextID: left.contextID,
+			PlanID: left.planID}); !failed {
+		t.Fatal("MCP ABAC deny did not protect import rows")
+	}
+	if _, failed := nativeControlCall(t, mcpServer, deniedPrincipal,
+		"nms_import_dry_run", mcp.NMSImportDryRunInput{ContextID: left.contextID,
+			PlanID: left.planID, ReviewHash: reviewHashes[left.planID]}); !failed {
+		t.Fatal("MCP ABAC deny did not protect import dry run")
 	}
 	srv.abac = &abacCache{load: func(_ context.Context, tenant string) ([]auth.Policy, error) {
 		if tenant != a {
