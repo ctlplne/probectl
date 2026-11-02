@@ -25,7 +25,6 @@ import (
 
 	"github.com/ctlplne/probectl/internal/nmsimport"
 	"github.com/ctlplne/probectl/internal/tenancy"
-	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // The dedicated CI job captures these bytes from running, digest-pinned
@@ -38,7 +37,9 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 		if os.Getenv("PROBECTL_TEST_REQUIRE_NMS_VENDOR") == "1" {
 			t.Fatal("required real NMS vendor fixture is unavailable")
 		}
-		testsupport.SkipOrFatal(t, "dedicated real NMS vendor job supplies the fixture")
+		// The broad integration lane requires its own services. This vendor
+		// fixture belongs to the separate required nms-vendor-live CI job.
+		t.Skip("dedicated real NMS vendor job supplies the fixture")
 	}
 	read := func(name string) []byte {
 		t.Helper()
