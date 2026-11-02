@@ -232,6 +232,24 @@ END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(n
 END $fx2_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
 			quoteIdent(key.name), key.columns, parent, key.parentColumns, onUpdate, onDelete))
 	}
+	if owned["nms_import_rows"] {
+		// Catch-up adds public columns but does not automatically copy later
+		// CHECK constraints into an existing silo table. Keep reviewed exact
+		// targets fingerprinted in both physical storage layouts.
+		rows := quoteIdent(schema) + `."nms_import_rows"`
+		plan = append(plan, fmt.Sprintf(`DO $fx2b_target_revision$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema=%s AND table_name='nms_import_rows'
+                 AND column_name='target_fingerprint')
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint
+                       WHERE conrelid = %s::regclass
+                         AND conname='nms_import_rows_target_fingerprint_check') THEN
+        ALTER TABLE %s ADD CONSTRAINT nms_import_rows_target_fingerprint_check
+            CHECK ((action='update' AND target_fingerprint ~ '^[0-9a-f]{64}$') OR
+                   (action<>'update' AND target_fingerprint IS NULL)) NOT VALID;
+    END IF;
+END $fx2b_target_revision$`, quoteLiteral(schema), quoteLiteral(rows), rows))
+	}
 	// CREATE TABLE LIKE does not copy triggers. Keep the path-target edit
 	// invalidation inside the silo schema as well as in public, including on
 	// catch-up of a silo that predates FX-2.

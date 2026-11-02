@@ -365,6 +365,51 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	if _, err := capturer.ListSealedRows(captureA, contextA, locationsPlan, -1, 2); err != nil {
 		t.Fatalf("reviewed source preview became unreadable: %v", err)
 	}
+	// A human-picked exact site target is bound to its contents at review.
+	// Another same-tenant edit must not become an invisible merge target.
+	var siteTarget = uuid.NewString()
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `INSERT INTO entities
+			(tenant_id,context_id,id,kind,label) VALUES ($1,$2,$3,'site','Original site')`,
+			a.ID, contextA, siteTarget)
+		return err
+	})
+	targetPlan, err := capturer.StartPlan(captureA, contextA, nmsimport.LibreNMS,
+		"lab-target-revision", strings.Repeat("e", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := capturer.AppendPage(captureA, contextA, targetPlan, 0,
+		"locations", 0, strings.NewReader(locations)); err != nil {
+		t.Fatalf("capture exact-target review fixture: %v", err)
+	}
+	targetHash, err := capturer.Seal(captureA, contextA, targetPlan, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetChoice := []nmsimport.ReviewChoice{{RowNumber: 0, Action: "update", TargetEntityID: siteTarget}}
+	if err := capturer.SetReviewChoices(captureA, contextA, targetPlan,
+		targetHash, targetChoice); err != nil {
+		t.Fatalf("bind exact site target: %v", err)
+	}
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var fingerprint string
+		if err := sc.Q.QueryRow(ctx, `SELECT target_fingerprint FROM nms_import_rows
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND row_number=0`,
+			a.ID, contextA, targetPlan).Scan(&fingerprint); err != nil {
+			return err
+		}
+		if len(fingerprint) != 64 {
+			t.Fatalf("exact site target has no frozen fingerprint: %q", fingerprint)
+		}
+		_, err := sc.Q.Exec(ctx, `UPDATE entities SET label='Human-edited site'
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextA, siteTarget)
+		return err
+	})
+	if err := capturer.SetReviewChoices(captureA, contextA, targetPlan,
+		targetHash, targetChoice); !errors.Is(err, nmsimport.ErrInvalidReview) {
+		t.Fatalf("stale exact-target review was refreshed silently: %v", err)
+	}
 	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
 		var entities, provenance int
 		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entities

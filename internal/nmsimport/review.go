@@ -11,6 +11,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -104,15 +106,17 @@ func validReviewChoice(choice ReviewChoice) bool {
 
 func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID,
 	sourceID string, choice ReviewChoice) (bool, error) {
-	var kind, externalID, oldAction, oldTarget string
+	var kind, externalID, oldAction, oldTarget, oldFingerprint string
 	var unmapped []string
 	var reviewed bool
 	err := sc.Q.QueryRow(ctx, `SELECT object_kind,external_id,unmapped_codes,action,
-		coalesce(target_entity_id::text,''),reviewed_at IS NOT NULL
+		coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
+		reviewed_at IS NOT NULL
 		FROM nms_import_rows WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
 		  AND row_number=$4 FOR UPDATE`, sc.Tenant.String(), contextID,
 		planID, choice.RowNumber).
-		Scan(&kind, &externalID, &unmapped, &oldAction, &oldTarget, &reviewed)
+		Scan(&kind, &externalID, &unmapped, &oldAction, &oldTarget,
+			&oldFingerprint, &reviewed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ErrInvalidReview
 	}
@@ -122,6 +126,7 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 	if choice.Action == "unmapped" && len(unmapped) == 0 {
 		return false, ErrInvalidReview
 	}
+	fingerprint := ""
 	if choice.Action == "create" || choice.Action == "update" {
 		if (kind != "device" && kind != "site") || len(unmapped) != 0 {
 			return false, ErrInvalidReview
@@ -139,32 +144,34 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 			return false, ErrInvalidReview
 		}
 		if choice.Action == "update" {
-			var targetKind string
-			err = sc.Q.QueryRow(ctx, `SELECT kind FROM entities
-				WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, sc.Tenant.String(),
-				contextID, choice.TargetEntityID).Scan(&targetKind)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return false, ErrInvalidReview
-			}
+			fingerprint, err = fingerprintReviewTarget(ctx, sc, contextID,
+				choice.TargetEntityID, kind)
 			if err != nil {
 				return false, err
-			}
-			if targetKind != kind {
-				return false, ErrInvalidReview
 			}
 		}
 	}
 	if reviewed && oldAction == choice.Action && oldTarget == choice.TargetEntityID {
-		return false, nil
+		if oldFingerprint == fingerprint {
+			return false, nil
+		}
+		if oldFingerprint != "" {
+			return false, ErrInvalidReview
+		}
 	}
 	var target any
 	if choice.TargetEntityID != "" {
 		target = choice.TargetEntityID
 	}
+	var targetFingerprint any
+	if fingerprint != "" {
+		targetFingerprint = fingerprint
+	}
 	command, err := sc.Q.Exec(ctx, `UPDATE nms_import_rows SET
-		action=$5,target_entity_id=$6,reviewed_at=clock_timestamp()
+		action=$5,target_entity_id=$6,target_fingerprint=$7,reviewed_at=clock_timestamp()
 		WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND row_number=$4`,
-		sc.Tenant.String(), contextID, planID, choice.RowNumber, choice.Action, target)
+		sc.Tenant.String(), contextID, planID, choice.RowNumber, choice.Action,
+		target, targetFingerprint)
 	if err != nil {
 		return false, captureWriteErr(err)
 	}
@@ -172,6 +179,35 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 		return false, ErrInvalidReview
 	}
 	return true, nil
+}
+
+// A source label or address never identifies a destination. This digest binds
+// the operator's exact target to its current content and revision, so a later
+// merge cannot overwrite a concurrently edited canonical entity.
+func fingerprintReviewTarget(ctx context.Context, sc tenancy.Scope, contextID,
+	entityID, expectedKind string) (string, error) {
+	var kind, label, parent, agent, configured string
+	var index int64
+	var updated time.Time
+	err := sc.Q.QueryRow(ctx, `SELECT kind,label,coalesce(parent_entity_id::text,''),
+		coalesce(source_agent_id,''),coalesce(configured_ref,''),
+		coalesce(interface_index,-1),updated_at FROM entities
+		WHERE tenant_id=$1 AND context_id=$2 AND id=$3 FOR SHARE`,
+		sc.Tenant.String(), contextID, entityID).
+		Scan(&kind, &label, &parent, &agent, &configured, &index, &updated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInvalidReview
+	}
+	if err != nil {
+		return "", err
+	}
+	if kind != expectedKind {
+		return "", ErrInvalidReview
+	}
+	fields := []string{"probectl:nms-target:v1", sc.Tenant.String(), contextID,
+		entityID, kind, label, parent, agent, configured,
+		strconv.FormatInt(index, 10), updated.UTC().Format(time.RFC3339Nano)}
+	return hex.EncodeToString(crypto.Default.Hash([]byte(strings.Join(fields, "\x00")))), nil
 }
 
 // FinalizeReview freezes every explicit row decision into a tenant/context,
@@ -199,12 +235,13 @@ func (s CaptureStore) FinalizeReview(ctx context.Context, contextID, planID,
 			meta.snapshotHash != snapshotHash {
 			return ErrPlanUnavailable
 		}
-		header := "probectl:nms-review:v1\x00" + sc.Tenant.String() + "\x00" +
+		header := "probectl:nms-review:v2\x00" + sc.Tenant.String() + "\x00" +
 			contextID + "\x00" + planID + "\x00" + snapshotHash + "\x00" +
 			strconv.FormatInt(meta.configVersion, 10)
 		sum := crypto.Default.Hash([]byte(header))
 		rows, err := sc.Q.Query(ctx, `SELECT row_number,action,
-			coalesce(target_entity_id::text,''),reviewed_at IS NOT NULL
+			coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
+			reviewed_at IS NOT NULL
 			FROM nms_import_rows WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
 			ORDER BY row_number`, sc.Tenant.String(), contextID, planID)
 		if err != nil {
@@ -213,14 +250,17 @@ func (s CaptureStore) FinalizeReview(ctx context.Context, contextID, planID,
 		next := int64(0)
 		for rows.Next() {
 			var rowNumber int64
-			var action, target string
+			var action, target, fingerprint string
 			var reviewed bool
-			if err := rows.Scan(&rowNumber, &action, &target, &reviewed); err != nil {
+			if err := rows.Scan(&rowNumber, &action, &target, &fingerprint,
+				&reviewed); err != nil {
 				rows.Close()
 				return err
 			}
 			if !reviewed || rowNumber != next ||
-				!validReviewChoice(ReviewChoice{Action: action, TargetEntityID: target}) {
+				!validReviewChoice(ReviewChoice{Action: action, TargetEntityID: target}) ||
+				(action == "update" && (len(fingerprint) != 64 || !lowerHex(fingerprint))) ||
+				(action != "update" && fingerprint != "") {
 				rows.Close()
 				return ErrReviewIncomplete
 			}
@@ -230,6 +270,8 @@ func (s CaptureStore) FinalizeReview(ctx context.Context, contextID, planID,
 			frame = append(frame, action...)
 			frame = append(frame, 0)
 			frame = append(frame, target...)
+			frame = append(frame, 0)
+			frame = append(frame, fingerprint...)
 			sum = crypto.Default.Hash(frame)
 			next++
 		}

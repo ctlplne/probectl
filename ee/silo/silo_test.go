@@ -181,6 +181,7 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "fx2b_provenance_plan_source_fk" FOREIGN KEY (tenant_id, context_id, plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT "fx2b_provenance_row_fk" FOREIGN KEY (tenant_id, context_id, plan_id, object_kind, external_id) REFERENCES "t_abc"."nms_import_rows" (tenant_id, context_id, plan_id, object_kind, external_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT "fx2b_provenance_entity_fk" FOREIGN KEY (tenant_id, context_id, entity_id) REFERENCES "t_abc"."entities" (tenant_id, context_id, id) ON DELETE CASCADE`,
+				`ADD CONSTRAINT nms_import_rows_target_fingerprint_check`,
 				`ADD CONSTRAINT "fx2_incidents_entity_pair_ck" CHECK (entity_id IS NULL OR entity_context_id IS NOT NULL)`,
 				`ADD CONSTRAINT "fx2_incident_signals_entity_pair_ck" CHECK (entity_id IS NULL OR entity_context_id IS NOT NULL)`,
 				`ADD CONSTRAINT "fx2_incident_correlation_overrides_entity_pair_ck" CHECK (entity_id IS NULL OR entity_context_id IS NOT NULL)`,

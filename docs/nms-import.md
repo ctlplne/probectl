@@ -30,7 +30,10 @@ with no approved policy, live fetching is disabled. See
    `snapshot_hash`, and `{row_number,action,target_entity_id?}` entries.
    A create or update is currently accepted only for an unambiguous device or
    site candidate; update requires an exact entity ID in the same tenant and
-   routing context. A source address or label never selects an update target.
+   routing context. The selected target's identity fields and revision are
+   fingerprinted in the reviewed row, so a later destination write can refuse
+   a target changed after selection. A source address or label never selects
+   an update target.
    Choose `unmapped` for a row carrying unsupported fields, or `skip` after
    reviewing it. Retrying identical choices is inert.
 5. `POST /v1/nms-imports/{id}/finalize-review` freezes a `review_hash` only

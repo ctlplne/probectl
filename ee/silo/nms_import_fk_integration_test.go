@@ -114,17 +114,17 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 	} {
 		if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
 			(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
-			 target_entity_id,action)
-			VALUES ($1,$2,$3,0,'device','17',$4,'update')`,
-			a, contextA, planA, entityID); err == nil {
+			 target_entity_id,action,target_fingerprint,reviewed_at)
+			VALUES ($1,$2,$3,0,'device','17',$4,'update',$5,clock_timestamp())`,
+			a, contextA, planA, entityID, strings.Repeat("d", 64)); err == nil {
 			t.Fatalf("silo row accepted %s entity", name)
 		}
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
 		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
-		 target_entity_id,action)
-		VALUES ($1,$2,$3,0,'device','17',$4,'update')`,
-		a, contextA, planA, entityA); err != nil {
+		 target_entity_id,action,target_fingerprint,reviewed_at)
+		VALUES ($1,$2,$3,0,'device','17',$4,'update',$5,clock_timestamp())`,
+		a, contextA, planA, entityA, strings.Repeat("d", 64)); err != nil {
 		t.Fatalf("silo own row: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_provenance
@@ -154,5 +154,29 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 	if _, err := pool.Exec(ctx, `DELETE FROM `+schemaA+`.nms_import_plans
 		WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a, contextA, planA); err == nil {
 		t.Fatal("silo provenance was erased by deleting its plan")
+	}
+	// A silo provisioned before the target-revision migration receives both
+	// the new column and its CHECK on catch-up, not only the public schema.
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_rows
+		DROP CONSTRAINT IF EXISTS nms_import_rows_target_fingerprint_check`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_rows
+		DROP COLUMN target_fingerprint`); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.CatchUpSchema(ctx, a); err != nil {
+		t.Fatalf("catch up import target revision in existing silo: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_rows
+		SET target_fingerprint=NULL WHERE tenant_id=$1 AND context_id=$2
+		  AND plan_id=$3 AND row_number=0`, a, contextA, planA); err == nil {
+		t.Fatal("caught-up silo accepted an update without a target fingerprint")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_rows
+		SET target_fingerprint=$4 WHERE tenant_id=$1 AND context_id=$2
+		  AND plan_id=$3 AND row_number=0`, a, contextA, planA,
+		strings.Repeat("d", 64)); err != nil {
+		t.Fatalf("caught-up silo rejected a valid target fingerprint: %v", err)
 	}
 }
