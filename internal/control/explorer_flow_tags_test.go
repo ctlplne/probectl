@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -20,7 +20,7 @@ import (
 )
 
 func TestFlowTagServiceBindsOneTenantRevisionBeforeAggregation(t *testing.T) {
-	a, b := uuid.NewString(), uuid.NewString()
+	a, b := gouuid.NewString(), gouuid.NewString()
 	at := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	flows := flowstore.NewMemory()
 	if err := flows.Insert(t.Context(), []flowstore.Row{
@@ -30,7 +30,7 @@ func TestFlowTagServiceBindsOneTenantRevisionBeforeAggregation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	definition := tags.Definition{TenantID: a, ID: uuid.NewString(), Key: "customer"}
+	definition := tags.Definition{TenantID: a, ID: gouuid.NewString(), Key: "customer"}
 	lookup, err := flowstore.NewTagQueryData(a, 8, []tags.Definition{definition},
 		[]tags.ExporterProjection{{Exporter: "192.0.2.1", Values: map[string]string{"customer": "blue"}}}, 1<<20)
 	if err != nil {

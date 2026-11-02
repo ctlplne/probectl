@@ -364,6 +364,38 @@ type planInput struct {
 	column                 map[string]string
 }
 
+func memoryPlanTagVocabulary(query PlanQuery) (flow.QueryVocabulary, error) {
+	if query.Tags == nil {
+		return flow.QueryVocabulary{}, nil
+	}
+	return query.Tags.Vocabulary(query.TenantID)
+}
+
+func memoryPlanCoverage(query PlanQuery, vocabulary flow.QueryVocabulary) ([]string, error) {
+	fields := allPlanFields()
+	if query.Tags == nil {
+		return fields, nil
+	}
+	available, err := vocabulary.Fields()
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range available {
+		if field.Derived == "tenant_tag" {
+			fields = append(fields, field.Name)
+		}
+	}
+	return fields, nil
+}
+
+func memoryPlanTagRevision(query PlanQuery) int64 {
+	if query.Tags == nil {
+		return 0
+	}
+	revision, _ := query.Tags.Revision(query.TenantID)
+	return revision
+}
+
 // ExplorePlan is the exact reference implementation for the new grammar.
 // Storage scope is enforced before snapshot copying and before filter work.
 func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, error) {
@@ -375,13 +407,9 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 		return PlanResult{}, err
 	}
 	ctx = withExplorerBudget(ctx, budget)
-	var vocabulary flow.QueryVocabulary
-	var err error
-	if query.Tags != nil {
-		vocabulary, err = query.Tags.Vocabulary(query.TenantID)
-		if err != nil {
-			return PlanResult{}, err
-		}
+	vocabulary, err := memoryPlanTagVocabulary(query)
+	if err != nil {
+		return PlanResult{}, err
 	}
 	plan, err := flow.NormalizeQueryPlanWithVocabulary(query.Plan, time.Now(), vocabulary)
 	if err != nil {
@@ -485,22 +513,12 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if err := total.calculate(plan); err != nil {
 		return PlanResult{}, err
 	}
-	coverageFields := allPlanFields()
-	if query.Tags != nil {
-		fields, err := vocabulary.Fields()
-		if err != nil {
-			return PlanResult{}, err
-		}
-		for _, field := range fields {
-			if field.Derived == "tenant_tag" {
-				coverageFields = append(coverageFields, field.Name)
-			}
-		}
+	coverageFields, err := memoryPlanCoverage(query, vocabulary)
+	if err != nil {
+		return PlanResult{}, err
 	}
 	result := PlanResult{Query: plan, Source: "raw", ResolutionSeconds: flow.MinPlanBucketSeconds, Coverage: &PlanSourceCoverage{Fields: coverageFields, ResolutionSeconds: flow.MinPlanBucketSeconds, CompleteInputs: true}, Rows: []PlanRow{}, Series: []PlanPoint{}, OtherSeries: []PlanPoint{}, TotalSeries: []PlanPoint{}, Matrix: []PlanMatrixCell{}, TotalGroups: len(keys), DetailLimited: len(keys) > plan.RowLimit, Totals: total.row(false).Metrics}
-	if query.Tags != nil {
-		result.TagRevision, _ = query.Tags.Revision(query.TenantID)
-	}
+	result.TagRevision = memoryPlanTagRevision(query)
 	result.OldestInput = oldestInput
 	selected := map[string]bool{}
 	detailKeys := selectedPlanKeys(keys, plan.RowLimit, selectedGroups, groups)
