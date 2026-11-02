@@ -114,10 +114,10 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 		}
 	}
 	if _, err := loader.LoadTenant(tenancy.WithTenant(ctx, tenancy.ID(a.ID)), 1024); !errors.Is(err, ErrTagSnapshotBudget) {
-		t.Fatalf("undersized tenant budget admitted exporter catalogue: %v", err)
+		t.Fatalf("undersized tenant budget admitted exporter catalog: %v", err)
 	}
 	if _, err := loader.LoadTenant(ctx, 1<<20); !errors.Is(err, tags.ErrScopeMismatch) {
-		t.Fatalf("missing tenant loaded tag catalogue: %v", err)
+		t.Fatalf("missing tenant loaded tag catalog: %v", err)
 	}
 	// A second registered agent in another context claims the same RFC1918
 	// exporter. The tenant-wide loader must not pick either context from a raw

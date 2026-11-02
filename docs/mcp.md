@@ -380,6 +380,10 @@ revision. Revision tokens and measurement values are decimal strings. Shared
 read access does not grant configuration writes. Native input schemas derive from
 the committed API; unknown fields, duplicates, case aliases and trailing JSON are
 refused. No input carries tenant, source permissions, SQL or resource-budget authority.
+Saved-view results represent pinned tenant tag identities as ordered
+`tag_ids` entries with `field` and `id`; a save request supplies those
+identities as the API's `tag_ids` field-to-ID object. The server revalidates
+every identity under the authenticated tenant before updating the view.
 
 Results project selected registry dimensions and measurements into explicit
 ordered entries. For example, a measurement is

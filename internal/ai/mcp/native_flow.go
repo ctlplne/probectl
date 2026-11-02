@@ -215,12 +215,45 @@ type NativeFlowView struct {
 	ID           string                   `json:"id"`
 	OwnerID      string                   `json:"owner_id"`
 	Version      string                   `json:"version"`
-	Definition   flow.QueryViewDefinition `json:"definition"`
+	Definition   NativeFlowViewDefinition `json:"definition"`
 	CreatedAt    time.Time                `json:"created_at"`
 	UpdatedAt    time.Time                `json:"updated_at"`
 	Favorite     bool                     `json:"favorite"`
 	LastOpenedAt *time.Time               `json:"last_opened_at,omitempty"`
 }
+
+// NativeFlowViewDefinition keeps stored tag identity in declared, bounded
+// fields instead of exposing a caller-shaped map through the MCP result.
+type NativeFlowViewDefinition struct {
+	Name               string                    `json:"name"`
+	Description        string                    `json:"description"`
+	Labels             []string                  `json:"labels"`
+	Visibility         string                    `json:"visibility"`
+	Plan               flow.QueryPlan            `json:"plan"`
+	Time               flow.QueryViewTime        `json:"time"`
+	Comparison         *flow.QueryViewComparison `json:"comparison,omitempty"`
+	AutoRefreshSeconds int                       `json:"auto_refresh_seconds"`
+	Display            *flow.QueryViewDisplay    `json:"display,omitempty"`
+	TagIDs             []NativeFlowTagID         `json:"tag_ids,omitempty"`
+}
+type NativeFlowTagID struct {
+	Field string `json:"field"`
+	ID    string `json:"id"`
+}
+
+// QueryViewDefinition reconstructs the save input after a client edits the
+// declared view. The save path revalidates every pinned ID for the tenant.
+func (view NativeFlowViewDefinition) QueryViewDefinition() flow.QueryViewDefinition {
+	ids := make(map[string]string, len(view.TagIDs))
+	for _, tag := range view.TagIDs {
+		ids[tag.Field] = tag.ID
+	}
+	return flow.QueryViewDefinition{Name: view.Name, Description: view.Description,
+		Labels: view.Labels, Visibility: view.Visibility, Plan: view.Plan, Time: view.Time,
+		Comparison: view.Comparison, AutoRefreshSeconds: view.AutoRefreshSeconds,
+		Display: view.Display, TagIDs: ids}
+}
+
 type NativeFlowViewPage struct {
 	Items []NativeFlowView `json:"items"`
 	Next  string           `json:"next,omitempty"`

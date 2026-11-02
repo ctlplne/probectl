@@ -223,7 +223,7 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64) (*TenantT
 func loadTagExporterBindings(ctx context.Context, sc tenancy.Scope, tenantID string,
 	maxBytes int64, charge func(...string) error) (map[string]tagExporterBinding, error) {
 	// One row consumes at least 2 KiB. Fetch one extra row to refuse a
-	// truncated source catalogue rather than silently omit a competing owner.
+	// truncated source catalog rather than silently omit a competing owner.
 	limit := maxBytes/2048 + 1
 	rows, err := sc.Q.Query(ctx, `SELECT s.agent_id,s.source_ref,s.context_id::text
 		FROM entity_source_contexts s

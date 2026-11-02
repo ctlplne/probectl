@@ -27,6 +27,20 @@ import (
 	"github.com/ctlplne/probectl/internal/store/pathstore"
 )
 
+func TestNativeFlowViewProjectsPinnedTagIdentities(t *testing.T) {
+	source := flow.SavedQueryView{Definition: flow.QueryViewDefinition{TagIDs: map[string]string{
+		"tag.region": "region-id", "tag.customer": "customer-id",
+	}}}
+	projected := projectNativeFlowView(source)
+	want := []mcp.NativeFlowTagID{{Field: "tag.customer", ID: "customer-id"}, {Field: "tag.region", ID: "region-id"}}
+	if !reflect.DeepEqual(projected.Definition.TagIDs, want) {
+		t.Fatalf("native tag identities = %+v, want %+v", projected.Definition.TagIDs, want)
+	}
+	if got := projected.Definition.QueryViewDefinition().TagIDs; !reflect.DeepEqual(got, source.Definition.TagIDs) {
+		t.Fatalf("native round trip changed pinned tag identities: %+v", got)
+	}
+}
+
 func TestNativeMCPAndRESTSchemaReportConfiguredQueryBudgets(t *testing.T) {
 	core := testServer(fakePinger{})
 	core.flowRenderBudget = configuredNativeFlowRenderBudget(&config.Config{FlowMCPSourceBytes: 64 << 20, FlowMCPWireBytes: 256 << 20, FlowMCPResultNodes: 8 << 20, FlowMCPCSVPageBytes: 4 << 20})
@@ -285,7 +299,7 @@ func TestNativeMCPQueriesAndLibrariesUseAuthenticatedTenantAndOwner(t *testing.T
 			t.Fatal("native private view crossed owner")
 		}
 		view.Definition.Visibility = "tenant"
-		raw, failed = nativeControlCall(t, server, p, "flow_view_save", flow.SaveQueryView{ID: view.ID, Version: view.Version, Definition: view.Definition})
+		raw, failed = nativeControlCall(t, server, p, "flow_view_save", flow.SaveQueryView{ID: view.ID, Version: view.Version, Definition: view.Definition.QueryViewDefinition()})
 		if failed || json.Unmarshal(raw, &view) != nil || view.Version != "2" {
 			t.Fatal("native saved view update failed")
 		}

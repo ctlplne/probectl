@@ -382,7 +382,7 @@ func proveNativeMCPFlowTLSVersion(t *testing.T, admin, pool *pgxpool.Pool, objec
 			call(second, foreign, tool, map[string]any{"id": resource}, nil, false)
 		}
 		view.Definition.Visibility = "tenant"
-		call(second, id, "flow_view_save", flow.SaveQueryView{ID: view.ID, Version: view.Version, Definition: view.Definition}, &view, true)
+		call(second, id, "flow_view_save", flow.SaveQueryView{ID: view.ID, Version: view.Version, Definition: view.Definition.QueryViewDefinition()}, &view, true)
 		if view.Version != "2" {
 			t.Fatal("native TLS view update revision changed")
 		}

@@ -396,6 +396,13 @@ func memoryPlanTagRevision(query PlanQuery) int64 {
 	return revision
 }
 
+func earliestPlanInput(current, candidate time.Time) time.Time {
+	if current.IsZero() || candidate.Before(current) {
+		return candidate.UTC()
+	}
+	return current
+}
+
 // ExplorePlan is the exact reference implementation for the new grammar.
 // Storage scope is enforced before snapshot copying and before filter work.
 func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, error) {
@@ -486,9 +493,7 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 		if !prepared.Matches(value) {
 			continue
 		}
-		if oldestInput.IsZero() || entry.row.TS.Before(oldestInput) {
-			oldestInput = entry.row.TS.UTC()
-		}
+		oldestInput = earliestPlanInput(oldestInput, entry.row.TS)
 		key, group := planTuple(value, plan.GroupBy)
 		if err := add(groups, key, group, entry.row); err != nil {
 			return PlanResult{}, err

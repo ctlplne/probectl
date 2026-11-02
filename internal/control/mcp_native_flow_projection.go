@@ -243,5 +243,15 @@ func projectNativeFlowFilter(source flow.SavedQueryFilter) mcp.NativeFlowFilter 
 	return mcp.NativeFlowFilter{ID: source.ID, Version: strconv.FormatInt(source.Version, 10), Name: source.Name, Description: source.Description, Expression: source.Expression, CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt}
 }
 func projectNativeFlowView(source flow.SavedQueryView) mcp.NativeFlowView {
-	return mcp.NativeFlowView{ID: source.ID, OwnerID: source.OwnerID, Version: source.Version, Definition: source.Definition, CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt, Favorite: source.Favorite, LastOpenedAt: source.LastOpenedAt}
+	definition := source.Definition
+	tagIDs := make([]mcp.NativeFlowTagID, 0, len(definition.TagIDs))
+	for field, id := range definition.TagIDs {
+		tagIDs = append(tagIDs, mcp.NativeFlowTagID{Field: field, ID: id})
+	}
+	sort.Slice(tagIDs, func(i, j int) bool { return tagIDs[i].Field < tagIDs[j].Field })
+	projection := mcp.NativeFlowViewDefinition{Name: definition.Name, Description: definition.Description,
+		Labels: definition.Labels, Visibility: definition.Visibility, Plan: definition.Plan,
+		Time: definition.Time, Comparison: definition.Comparison, AutoRefreshSeconds: definition.AutoRefreshSeconds,
+		Display: definition.Display, TagIDs: tagIDs}
+	return mcp.NativeFlowView{ID: source.ID, OwnerID: source.OwnerID, Version: source.Version, Definition: projection, CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt, Favorite: source.Favorite, LastOpenedAt: source.LastOpenedAt}
 }
