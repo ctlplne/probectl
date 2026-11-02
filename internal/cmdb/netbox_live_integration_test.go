@@ -110,6 +110,9 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 			t.Fatalf("lane %s fresh preview trusted absent/ambiguous ownership after actual source change: %v", lane, err)
 		}
 	}
+	if cis, err := resolver.Lookup(netBoxContext(netBoxTenantA), "192.0.2.10"); err != nil || len(cis) != 0 {
+		t.Fatal("completed source ownership disappearance left the old enrichment cached")
+	}
 	proof := struct {
 		Scope  string   `json:"scope"`
 		Checks []string `json:"checks"`

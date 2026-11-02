@@ -2252,7 +2252,8 @@ tenant. A matching hostname or private IP alone does not establish ownership.
 Unassigned CIs, conflicting ownership, partial pages and ambiguous responses
 are refused. Cached enrichment is scoped by both the probectl tenant and its
 NetBox tenant. An outage can serve that tenant's stale enrichment, but a known
-ownership mismatch evicts the old entry. Reviewed tag import requires a fresh
+ownership mismatch or completed fresh-preview ownership disappearance/ambiguity
+evicts the old entry and fences older inflight responses. Reviewed tag import requires a fresh
 source read; stale enrichment never authorizes an import.
 
 The CI-only real NetBox source proof uses `PROBECTL_TEST_NETBOX_REQUIRED=1`

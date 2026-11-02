@@ -19,7 +19,8 @@ The explicit source-proof step sets `PROBECTL_TEST_NETBOX_REQUIRED=1`; missing
 Other integration lanes leave the opt-in unset and skip this one source proof.
 The test warms both tenant caches, checks role/site against full related-CI
 ownership, refuses unmapped callers, then moves an actual source IP to the other
-tenant and proves fresh import previews refuse the absent/ambiguous ownership.
+tenant and proves fresh import previews refuse the absent/ambiguous ownership
+and evict the old lookup cache entry.
 Cleanup restores that row, removes the exact compose project and deletes the
 runtime directory, including its credentials and keys. No remote source is used.
 

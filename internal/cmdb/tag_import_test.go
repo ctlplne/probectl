@@ -7,6 +7,7 @@
 package cmdb
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,61 @@ import (
 	"testing"
 	"time"
 )
+
+func TestNetBoxPreviewMissingOwnershipEvictsOnlyItsTenantCache(t *testing.T) {
+	for _, refusal := range []string{"missing lookup", "ambiguous lookup", "missing related owner"} {
+		t.Run(refusal, func(t *testing.T) {
+			var phase atomic.Int64
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if phase.Load() == 2 {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return
+				}
+				source := r.URL.Query().Get("tenant_id")
+				if source != "7" && source != "8" {
+					t.Error("source request omitted its mapped tenant")
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if phase.Load() == 1 && source == "7" {
+					if refusal == "missing lookup" || (refusal == "missing related owner" && r.URL.Path == "/api/dcim/devices/") {
+						_, _ = w.Write([]byte(`{"count":0,"results":[]}`))
+						return
+					}
+					if refusal == "ambiguous lookup" {
+						_, _ = w.Write([]byte(`{"count":2,"results":[{"id":10,"tenant":{"id":7},"address":"192.0.2.10/32"},{"id":11,"tenant":{"id":7},"address":"192.0.2.10/32"}]}`))
+						return
+					}
+				}
+				id, device := 10, 42
+				if source == "8" {
+					id, device = 20, 84
+				}
+				fmt.Fprintf(w, `{"count":1,"results":[{"id":%d,"tenant":{"id":%s},"address":"192.0.2.10/32","assigned_object":{"device":{"id":%d}}}]}`, id, source, device)
+			}))
+			defer server.Close()
+			provider := NewNetBox(server.URL, "test-token", map[string]string{netBoxTenantA: "7", netBoxTenantB: "8"})
+			provider.client = server.Client()
+			resolver := NewResolver(provider, time.Hour)
+			for _, tenant := range []string{netBoxTenantA, netBoxTenantB} {
+				if cis, err := resolver.Lookup(netBoxContext(tenant), "192.0.2.10"); err != nil || len(cis) != 1 {
+					t.Fatalf("cannot warm the independent tenant cache: %v", err)
+				}
+			}
+			phase.Store(1)
+			if candidate, err := resolver.PreviewNetBoxTag(netBoxContext(netBoxTenantA), "192.0.2.10", "site"); !errors.Is(err, ErrNoTagCandidate) || candidate != (NetBoxTagCandidate{}) {
+				t.Fatalf("fresh missing/ambiguous ownership was not refused: %v", err)
+			}
+			phase.Store(2)
+			if cis, err := resolver.Lookup(netBoxContext(netBoxTenantA), "192.0.2.10"); !errors.Is(err, ErrUnavailable) || len(cis) != 0 {
+				t.Fatal("outage revived cached enrichment after completed ownership refusal")
+			}
+			if cis, err := resolver.Lookup(netBoxContext(netBoxTenantB), "192.0.2.10"); err != nil || len(cis) != 1 || cis[0].SysID != "netbox:ipam.ip_address:20" {
+				t.Fatal("one tenant's refusal evicted or replaced the other tenant's authorized enrichment")
+			}
+		})
+	}
+}
 
 func TestNetBoxTagPreviewFreshlyAttestsRelatedCI(t *testing.T) {
 	var down, foreign atomic.Bool

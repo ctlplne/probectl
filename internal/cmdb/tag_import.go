@@ -53,10 +53,11 @@ func (r *Resolver) PreviewNetBoxTag(ctx context.Context, key, field string) (can
 	r.mu.Lock()
 	epoch := r.epochs[cacheKey]
 	r.mu.Unlock()
+	ownershipUnavailable := false
 	defer func() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		if errors.Is(err, ErrTenantBinding) {
+		if errors.Is(err, ErrTenantBinding) || ownershipUnavailable {
 			r.epochs[cacheKey]++
 			delete(r.cache, cacheKey)
 		} else if epoch != r.epochs[cacheKey] {
@@ -68,6 +69,9 @@ func (r *Resolver) PreviewNetBoxTag(ctx context.Context, key, field string) (can
 		return NetBoxTagCandidate{}, err
 	}
 	if len(cis) != 1 {
+		// A completed tenant-filtered read no longer identifies the old
+		// cached CI. Do not let a later outage revive that enrichment.
+		ownershipUnavailable = true
 		return NetBoxTagCandidate{}, ErrNoTagCandidate
 	}
 	lookup := cis[0]
@@ -75,6 +79,7 @@ func (r *Resolver) PreviewNetBoxTag(ctx context.Context, key, field string) (can
 	if ci.Class == "netbox.ip_address" {
 		ci, err = provider.relatedTagCI(ctx, source, ci.relatedKind, ci.relatedID)
 		if err != nil {
+			ownershipUnavailable = errors.Is(err, ErrNoTagCandidate)
 			return NetBoxTagCandidate{}, err
 		}
 	}
