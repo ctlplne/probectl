@@ -2329,6 +2329,39 @@ type NMSImportSealedRowsPage struct {
 	SourceId     string               `json:"source_id"`
 }
 
+type NetBoxTagCandidate struct {
+	CiId           string `json:"ci_id"`
+	Field          string `json:"field"`
+	LookupCiId     string `json:"lookup_ci_id"`
+	Name           string `json:"name"`
+	NetboxTenantId string `json:"netbox_tenant_id"`
+	SourceRef      string `json:"source_ref"`
+	Value          string `json:"value"`
+}
+
+type NetBoxTagPreview struct {
+	Candidate NetBoxTagCandidate     `json:"candidate"`
+	Target    NetBoxTagPreviewTarget `json:"target"`
+}
+
+type NetBoxTagPreviewInput struct {
+	ExporterAgentId   string `json:"exporter_agent_id"`
+	ExporterSourceRef string `json:"exporter_source_ref"`
+	Field             string `json:"field"`
+	TagId             string `json:"tag_id"`
+}
+
+type NetBoxTagPreviewTarget struct {
+	ContextId         string `json:"context_id"`
+	ExporterAgentId   string `json:"exporter_agent_id"`
+	ExporterSourceRef string `json:"exporter_source_ref"`
+	TagId             string `json:"tag_id"`
+	TagKey            string `json:"tag_key"`
+	TagRevision       string `json:"tag_revision"`
+	TargetId          string `json:"target_id"`
+	TargetKind        string `json:"target_kind"`
+}
+
 type OnboardingFinding struct {
 	Href       string `json:"href"`
 	ObservedAt string `json:"observed_at"`
@@ -4688,6 +4721,26 @@ func (c *Client) DeleteManualTagAssignment(ctx context.Context, req DeleteManual
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Preview a fresh NetBox role or site tag for an owned exporter
+type PreviewNetBoxTagRequest struct {
+	ContextId string                 `json:"-"`
+	Body      *NetBoxTagPreviewInput `json:"-"`
+}
+
+func (c *Client) PreviewNetBoxTag(ctx context.Context, req PreviewNetBoxTagRequest) (*NetBoxTagPreview, error) {
+	path := "/v1/entity-contexts/{context_id}/tag-imports/netbox/preview"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	var out NetBoxTagPreview
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Page one owned routing context's tag rules

@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	uuidx "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -35,7 +35,7 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 			t.Errorf("remove NetBox preview fixture tenants: %v", err)
 		}
 	})
-	contextID, tagID := uuid.NewString(), uuid.NewString()
+	contextID, tagID := uuidx.NewString(), uuidx.NewString()
 	for _, tenant := range []string{a, b} {
 		for _, statement := range []string{
 			`INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES ($1,$2,$2,$2,'site','vrf')`,
@@ -115,7 +115,7 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 	}
 	deniedBackend := backend
 	deniedBackend.policyLoader = func(context.Context, string) ([]auth.Policy, error) {
-		return []auth.Policy{{ID: uuid.NewString(), Enabled: true, Permission: permCMDBRead, Effect: auth.PolicyDeny}}, nil
+		return []auth.Policy{{ID: uuidx.NewString(), Enabled: true, Permission: permCMDBRead, Effect: auth.PolicyDeny}}, nil
 	}
 	beforePolicy := calls.Load()
 	if _, err := deniedBackend.NetBoxTagPreview(context.Background(), &auth.Principal{TenantID: a, UserID: "tag-reader",
@@ -128,7 +128,7 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 	}{
 		{body, "tags.read", http.StatusForbidden},
 		{body, "cmdb.read", http.StatusForbidden},
-		{strings.Replace(body, tagID, uuid.NewString(), 1), "", http.StatusNotFound},
+		{strings.Replace(body, tagID, uuidx.NewString(), 1), "", http.StatusNotFound},
 		{strings.Replace(body, "192.0.2.10", "192.0.2.11", 1), "", http.StatusNotFound},
 		{strings.Replace(body, "collector", "other-agent", 1), "", http.StatusNotFound},
 	} {

@@ -2209,6 +2209,39 @@ export interface NMSImportSealedRowsPage {
   source_id: string
 }
 
+export interface NetBoxTagCandidate {
+  ci_id: string
+  field: "role" | "site"
+  lookup_ci_id: string
+  name: string
+  netbox_tenant_id: string
+  source_ref: string
+  value: string
+}
+
+export interface NetBoxTagPreview {
+  candidate: NetBoxTagCandidate
+  target: NetBoxTagPreviewTarget
+}
+
+export interface NetBoxTagPreviewInput {
+  exporter_agent_id: string
+  exporter_source_ref: string
+  field: "role" | "site"
+  tag_id: string
+}
+
+export interface NetBoxTagPreviewTarget {
+  context_id: string
+  exporter_agent_id: string
+  exporter_source_ref: string
+  tag_id: string
+  tag_key: string
+  tag_revision: string
+  target_id: string
+  target_kind: "exporter"
+}
+
 export interface OnboardingFinding {
   href: string
   observed_at: string
@@ -3315,6 +3348,13 @@ export interface DeleteManualTagAssignmentRequest {
 }
 
 export type DeleteManualTagAssignmentResponse = void
+
+export interface PreviewNetBoxTagRequest {
+  contextId: string
+  body: NetBoxTagPreviewInput
+}
+
+export type PreviewNetBoxTagResponse = NetBoxTagPreview
 
 export interface ListTagRulesRequest {
   contextId: string
@@ -4990,6 +5030,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async previewNetBoxTag(request: PreviewNetBoxTagRequest): Promise<PreviewNetBoxTagResponse> {
+    let path = "/v1/entity-contexts/{context_id}/tag-imports/netbox/preview"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    return this.requestJSON<PreviewNetBoxTagResponse>("POST", path, query, request.body)
   }
 
   async listTagRules(request: ListTagRulesRequest): Promise<ListTagRulesResponse> {
