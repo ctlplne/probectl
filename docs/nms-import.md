@@ -154,7 +154,8 @@ With that current plan ID and revision, run
 --credential-name-file NAME_FILE --out NEW_CONFIG`. The name file must be a
 real 0600 file containing only a device-agent credential name, such as
 `edge-ro`; keep the community or SNMPv3 passphrases in the agent's separate
-credential source. `snmpv2c` also needs an explicit choice. The command
+credential source. `snmpv2c` also needs an explicit choice. Use `--port N`
+for an operator-confirmed nondefault SNMP UDP port (default 161). The command
 refuses a changed proposal or binding, checks the generated complete
 `probectl.io/device-agent/v1` YAML with the shipped parser, and creates a new
 0600 file without overwriting an existing config. It does not install or

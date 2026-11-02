@@ -174,17 +174,18 @@ var auditExportRoutes = map[string]bool{
 }
 
 var auditSensitiveReadRoutes = map[string]bool{
-	"POST /v1/audit/ir/{event_ref}/reveal":    true,
-	"POST /v1/grafana/api/v1/query":           true,
-	"POST /v1/grafana/api/v1/query_range":     true,
-	"POST /v1/grafana/api/v1/series":          true,
-	"POST /v1/grafana/api/v1/labels":          true,
-	"POST /v1/alerts/maintenance/preview":     true,
-	"POST /v1/ai/ask":                         true,
-	"POST /v1/explorer/query":                 true,
-	"POST /v1/explorer/flow-views/{id}/query": true,
-	"POST /v1/explorer/compare":               true,
-	"POST /v1/ai/author":                      true,
+	"POST /v1/audit/ir/{event_ref}/reveal":     true,
+	"POST /v1/nms-imports/poll-target-preview": true,
+	"POST /v1/grafana/api/v1/query":            true,
+	"POST /v1/grafana/api/v1/query_range":      true,
+	"POST /v1/grafana/api/v1/series":           true,
+	"POST /v1/grafana/api/v1/labels":           true,
+	"POST /v1/alerts/maintenance/preview":      true,
+	"POST /v1/ai/ask":                          true,
+	"POST /v1/explorer/query":                  true,
+	"POST /v1/explorer/flow-views/{id}/query":  true,
+	"POST /v1/explorer/compare":                true,
+	"POST /v1/ai/author":                       true,
 }
 
 var auditOperationalRoutes = map[string]bool{

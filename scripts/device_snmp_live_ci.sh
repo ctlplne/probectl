@@ -34,6 +34,7 @@ echo "device-live: snmpd started; running TestSNMPIntegration with PROBECTL_TEST
 
 for _ in $(seq 1 20); do
   if go test -count=1 -run '^TestSNMPIntegration$' -v ./internal/device; then
+    go test -count=1 -run '^TestNMSImportConfigExportLiveDeviceAgent$' -v ./internal/cli
     exit 0
   fi
   sleep 1

@@ -22,6 +22,9 @@
     "bgp.parseBMPRouteMonitoring": {
       "target": "FuzzBMPRouteMonitoring"
     },
+    "device.Parse": {
+      "exempt": "operator-reviewed local device-agent YAML generated from a validated tenant-scoped proposal, not network-supplied bytes; the shared strict YAML decoder remains the parsing boundary"
+    },
     "device.ParseCollectionProfile": {
       "exempt": "operator-authored collection profile from config, not device-supplied bytes"
     },

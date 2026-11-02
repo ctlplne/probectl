@@ -27,13 +27,19 @@ func (b *recordedNMSImportBackend) NMSImportDryRun(_ context.Context, p *auth.Pr
 	return NMSImportDryRunResult{Items: []NMSImportDiffItemResult{}}, nil
 }
 
+func (b *recordedNMSImportBackend) NMSImportPollTarget(_ context.Context, p *auth.Principal,
+	_ NMSImportPollTargetInput) (NMSImportPollTargetResult, error) {
+	b.tenants = append(b.tenants, p.TenantID)
+	return NMSImportPollTargetResult{TenantID: p.TenantID}, nil
+}
+
 func TestNMSImportMCPAuthorizationAndTenantHint(t *testing.T) {
 	b := &recordedNMSImportBackend{}
 	s := newTestServer(&fakeBackend{}, testGate(), WithNMSImportBackend(b),
 		WithPolicyLoader(func(context.Context, string) ([]auth.Policy, error) { return nil, nil }))
 	reader := principal("tenant-a", "nms.import.read")
 	reader.UserID = "reader"
-	if got := listedToolNames(t, handle(t, s, reader, 1, "tools/list", nil)); !got["nms_import_rows"] || !got["nms_import_dry_run"] {
+	if got := listedToolNames(t, handle(t, s, reader, 1, "tools/list", nil)); !got["nms_import_rows"] || !got["nms_import_dry_run"] || !got["nms_import_poll_target"] {
 		t.Fatalf("import read tools missing from catalog: %v", got)
 	}
 	denied := principal("tenant-a", "entities.read")

@@ -56,7 +56,7 @@ func TestNMSImportConfigExportRequiresCurrentBindingAndSeparateCredentialName(t 
 	output := filepath.Join(t.TempDir(), "device.yaml")
 	args := []string{"nms-import", "config-export", "--context-id", contextID,
 		"--source-id", sourceID, "--item-id", itemID, "--agent-id", agentID,
-		"--target-address", target, "--transport", "snmpv3",
+		"--target-address", target, "--port", "1161", "--transport", "snmpv3",
 		"--credential-name-file", nameFile, "--expected-plan-id", planID,
 		"--expected-revision", "2", "--out", output}
 	if err := os.Chmod(nameFile, 0o644); err != nil {
@@ -93,6 +93,7 @@ func TestNMSImportConfigExportRequiresCurrentBindingAndSeparateCredentialName(t 
 	parsed, err := device.Parse(raw)
 	if err != nil || parsed.TenantID != tenantID || parsed.AgentID != agentID ||
 		len(parsed.Devices) != 1 || parsed.Devices[0].Address != target ||
+		parsed.Devices[0].Port != 1161 ||
 		parsed.Devices[0].Credential != "edge-ro" || parsed.Devices[0].Interval != 120*time.Second {
 		t.Fatalf("shipped device parser refused export: %+v err=%v", parsed, err)
 	}

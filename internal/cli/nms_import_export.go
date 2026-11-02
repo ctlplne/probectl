@@ -47,13 +47,14 @@ func cmdNMSImportConfigExport(cfg Config, args []string, stdout, stderr io.Write
 	itemID := fs.String("item-id", "", "reviewed Zabbix SNMP item UUID")
 	agentID := fs.String("agent-id", "", "currently bound device-agent ID")
 	target := fs.String("target-address", "", "exact configured device target")
+	port := fs.Uint("port", 161, "operator-confirmed SNMP UDP port (default 161)")
 	transport := fs.String("transport", "", "explicit snmpv2c or snmpv3 transport")
 	credentialFile := fs.String("credential-name-file", "", "0600 file containing a local device credential name")
 	expectedPlan := fs.String("expected-plan-id", "", "reviewed proposal's current plan UUID")
 	expectedRevision := fs.Int64("expected-revision", 0, "reviewed proposal's current revision")
 	output := fs.String("out", "", "new 0600 device-agent YAML file")
 	if wantsHelp(args) {
-		fmt.Fprintln(stdout, "usage: probectl nms-import config-export --context-id UUID --source-id UUID --item-id UUID --agent-id ID --target-address ADDRESS --transport snmpv2c|snmpv3 --credential-name-file 0600-FILE --expected-plan-id UUID --expected-revision N --out NEW-FILE")
+		fmt.Fprintln(stdout, "usage: probectl nms-import config-export --context-id UUID --source-id UUID --item-id UUID --agent-id ID --target-address ADDRESS [--port UDP-PORT] --transport snmpv2c|snmpv3 --credential-name-file 0600-FILE --expected-plan-id UUID --expected-revision N --out NEW-FILE")
 		return 0
 	}
 	if err := fs.Parse(args); err != nil {
@@ -61,7 +62,8 @@ func cmdNMSImportConfigExport(cfg Config, args []string, stdout, stderr io.Write
 	}
 	if len(fs.Args()) != 0 || *contextID == "" || *sourceID == "" || *itemID == "" ||
 		*agentID == "" || *target == "" || *credentialFile == "" || *output == "" ||
-		*expectedRevision < 1 || (*transport != device.TransportSNMPv2c && *transport != device.TransportSNMPv3) {
+		*expectedRevision < 1 || *port == 0 || *port > 65535 ||
+		(*transport != device.TransportSNMPv2c && *transport != device.TransportSNMPv3) {
 		fmt.Fprintln(stderr, "nms-import config-export: exact selection, reviewed revision, transport, credential-name-file and out are required")
 		return 2
 	}
@@ -105,6 +107,7 @@ func cmdNMSImportConfigExport(cfg Config, args []string, stdout, stderr io.Write
 		AgentID    string `yaml:"agent_id"`
 		Devices    []struct {
 			Address    string `yaml:"address"`
+			Port       uint16 `yaml:"port"`
 			Transport  string `yaml:"transport"`
 			Credential string `yaml:"credential"`
 			Interval   string `yaml:"interval"`
@@ -112,10 +115,11 @@ func cmdNMSImportConfigExport(cfg Config, args []string, stdout, stderr io.Write
 	}{APIVersion: device.ConfigAPIVersion, TenantID: preview.TenantID, AgentID: preview.AgentID}
 	document.Devices = append(document.Devices, struct {
 		Address    string `yaml:"address"`
+		Port       uint16 `yaml:"port"`
 		Transport  string `yaml:"transport"`
 		Credential string `yaml:"credential"`
 		Interval   string `yaml:"interval"`
-	}{Address: preview.TargetAddress, Transport: *transport, Credential: name,
+	}{Address: preview.TargetAddress, Port: uint16(*port), Transport: *transport, Credential: name,
 		Interval: (time.Duration(preview.PollSeconds) * time.Second).String()})
 	fragment, err := yaml.Marshal(document)
 	if err != nil {
