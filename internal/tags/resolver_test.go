@@ -130,7 +130,7 @@ func TestResolveRejectsMixedTenantContextAndUntrustedRuleShapes(t *testing.T) {
 			r.AddressSide, r.CIDR = "", ""
 			r.SNMPField, r.SNMPValue = "private_oid", "secret"
 		}, ErrInvalid},
-		{"oversize value", func(r *Rule) { r.Value = strings.Repeat("x", 129) }, ErrInvalid},
+		{"oversize value", func(r *Rule) { r.Value = strings.Repeat("x", MaxValueCharacters+1) }, ErrInvalid},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rule := base

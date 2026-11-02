@@ -88,6 +88,9 @@ func TestNativeMCPAndRESTSchemaReportConfiguredQueryBudgets(t *testing.T) {
 		} `json:"result"`
 	}
 	wire := nativeControlMCP(t, core).Handle(t.Context(), p, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"flow_explorer_schema","arguments":{}}}`))
+	if rest.Flow.Limits["max_tag_value_characters"] != float64(24000) || rest.Flow.Limits["max_tag_value_bytes"] != float64(96000) {
+		t.Fatal("REST discovery omitted the Unicode tag-value limits")
+	}
 	if json.Unmarshal(wire, &reply) != nil || !reflect.DeepEqual(reply.Result.Data.Limits, rest.Flow.Limits) {
 		t.Fatal("MCP cost discovery diverged from REST")
 	}

@@ -284,6 +284,8 @@ type NativeFlowLimits struct {
 	MaxRegexBytes         int     `json:"max_regex_bytes"`
 	MaxValuesPerPredicate int     `json:"max_values_per_predicate"`
 	MaxValueBytes         int     `json:"max_value_bytes"`
+	MaxTagValueCharacters int     `json:"max_tag_value_characters"`
+	MaxTagValueBytes      int     `json:"max_tag_value_bytes"`
 	GrammarBytes          int     `json:"grammar_bytes"`
 	ExecutionSeconds      float64 `json:"execution_seconds"`
 	ReadBytes             int64   `json:"read_bytes"`

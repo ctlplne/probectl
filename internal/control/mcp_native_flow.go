@@ -17,6 +17,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/tags"
 )
 
 type nativeMCPFlowBackend struct{ server *Server }
@@ -78,7 +79,7 @@ func (b nativeMCPFlowBackend) FlowSchema(ctx context.Context, p *auth.Principal)
 		out.Metrics = append(out.Metrics, mcp.NativeFlowMetric{Name: m.Name, Unit: m.Unit, DistinctField: m.DistinctField, Calculations: values})
 	}
 	budget := flowstore.ExplorerQueryBudget(b.server.flowStore)
-	out.Limits = mcp.NativeFlowLimits{MaxGroups: flow.MaxPlanDimensions, MaxMatrixDimensions: flow.MaxPlanMatrixDimensions, MaxMatrixDepth: flow.MaxPlanMatrixDepth, MaxChartSeries: flow.MaxPlanChartSeries, MaxChartRows: flow.MaxPlanChartRows, MaxTableRows: flow.MaxPlanTableRows, MaxPageRows: flow.MaxPlanPageRows, MinBucketSeconds: flow.MinPlanBucketSeconds, MaxBucketSeconds: flow.MaxPlanBucketSeconds, MaxGroupEntries: flow.MaxQueryGroupEntries, MaxExpandedConditions: flow.MaxQueryPredicates, MaxFilterDepth: flow.MaxQueryFilterDepth, MaxRegexBytes: flow.MaxQueryRegexBytes, MaxValuesPerPredicate: flow.MaxQueryValues, MaxValueBytes: flow.MaxQueryValueBytes, GrammarBytes: flow.MaxPlanGrammarBytes, ExecutionSeconds: budget.ExecutionLimit.Seconds(), ReadBytes: budget.ReadBytes, ReadRows: budget.ReadRows, ResponseBytes: budget.ResponseBytes, MemoryBytes: budget.MemoryBytes, IntermediateGroups: budget.IntermediateGroups, InterfaceItems: budget.InterfaceItems, Threads: budget.Threads}
+	out.Limits = mcp.NativeFlowLimits{MaxGroups: flow.MaxPlanDimensions, MaxMatrixDimensions: flow.MaxPlanMatrixDimensions, MaxMatrixDepth: flow.MaxPlanMatrixDepth, MaxChartSeries: flow.MaxPlanChartSeries, MaxChartRows: flow.MaxPlanChartRows, MaxTableRows: flow.MaxPlanTableRows, MaxPageRows: flow.MaxPlanPageRows, MinBucketSeconds: flow.MinPlanBucketSeconds, MaxBucketSeconds: flow.MaxPlanBucketSeconds, MaxGroupEntries: flow.MaxQueryGroupEntries, MaxExpandedConditions: flow.MaxQueryPredicates, MaxFilterDepth: flow.MaxQueryFilterDepth, MaxRegexBytes: flow.MaxQueryRegexBytes, MaxValuesPerPredicate: flow.MaxQueryValues, MaxValueBytes: flow.MaxQueryValueBytes, MaxTagValueCharacters: tags.MaxValueCharacters, MaxTagValueBytes: tags.MaxValueBytes, GrammarBytes: flow.MaxPlanGrammarBytes, ExecutionSeconds: budget.ExecutionLimit.Seconds(), ReadBytes: budget.ReadBytes, ReadRows: budget.ReadRows, ResponseBytes: budget.ResponseBytes, MemoryBytes: budget.MemoryBytes, IntermediateGroups: budget.IntermediateGroups, InterfaceItems: budget.InterfaceItems, Threads: budget.Threads}
 	out.Defaults = mcp.NativeFlowDefaults{IPv4PrefixLength: 24, IPv6PrefixLength: 48, BucketSeconds: 60, SeriesDepth: 40, RowLimit: 100}
 	out.Statistics = mcp.NativeFlowStatistics{Percentile: "nearest rank, including idle zero buckets", RateAverage: "duration weighted", DecimalPlaces: 18, DecimalRounding: "toward zero", DistinctTotal: "whole-window exact identities", DistinctBucketTotal: "sum of per-bucket distinct counts"}
 	return out, nil
