@@ -943,6 +943,24 @@
    "proof": [
     "test:internal/nmsimport/snapshot_test.go#TestZabbixHostItemWithoutUUIDUsesOpaqueStableKey"
    ]
+  },
+  {
+   "id": "CLM-NMS-ALERT-TENANT-TARGET",
+   "kind": "capability",
+   "statement": "Finite NMS alert preview and disabled apply join the authenticated tenant, source provenance, current agent identity and operator-owned target under FORCE-RLS before exposing or writing a native alert.",
+   "pattern": "FORCE-RLS confine source rows, applied device provenance and agent assignments",
+   "surfaces": [
+    "docs/mcp.md"
+   ],
+   "code": [
+    "internal/nmsimport/alert_preview.go",
+    "internal/nmsimport/alert_apply.go",
+    "internal/control/mcp_nmsimport.go"
+   ],
+   "proof": [
+    "test:internal/control/nmsimport_alert_integration_test.go#TestNMSImportAlertTargetPreviewRouteIsTenantAndAgentBound",
+    "test:internal/store/nmsimport_source_config_integration_test.go#TestNMSImportSourceConfigTenantScopeAndPlanVersion"
+   ]
   }
  ]
 }
