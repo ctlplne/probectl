@@ -276,7 +276,7 @@ test('Admin review can refresh an exact source group without an entity target', 
   expect(await region.findByText('West DC / Private', { selector: 'strong' })).toBeInTheDocument()
   await userEvent.type(region.getByLabelText('Import plan ID'), planID)
   await userEvent.click(region.getByRole('button', { name: 'Load redacted rows' }))
-  expect(await region.findByText('WAN Transit')).toBeInTheDocument()
+  expect(await region.findByText(/WAN Transit/)).toBeInTheDocument()
   await userEvent.selectOptions(region.getByLabelText('Choice for group 7'), 'update')
   expect(region.queryByLabelText('Exact target entity ID for 7')).toBeNull()
   await userEvent.click(region.getByRole('button', { name: 'Save page choices' }))
@@ -285,5 +285,80 @@ test('Admin review can refresh an exact source group without an entity target', 
     context_id: contextID,
     snapshot_hash: snapshotHash,
     choices: [{ row_number: 0, action: 'update', target_entity_id: '' }],
+  })
+})
+
+test('Admin offers removal only for a generated member candidate', async () => {
+  const fallback = defaultFetch()
+  let saved: Record<string, unknown> | null = null
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = pathOf(input)
+    if (path === '/v1/entity-contexts')
+      return jsonResponse({
+        items: [
+          {
+            context_id: contextID,
+            site_id: contextID,
+            vrf_id: contextID,
+            site_label: 'West DC',
+            vrf_label: 'Private',
+          },
+        ],
+      })
+    if (path === `/v1/nms-imports/${planID}/rows`)
+      return jsonResponse({
+        context_id: contextID,
+        plan_id: planID,
+        source_id: sourceID,
+        snapshot_hash: snapshotHash,
+        row_count: 2,
+        items: [
+          {
+            row_number: 0,
+            object_kind: 'membership',
+            external_id: '7:17',
+            unmapped_codes: ['group_unmapped'],
+            action: 'captured',
+            reviewed: false,
+            state: 'pending',
+          },
+          {
+            row_number: 1,
+            object_kind: 'membership',
+            external_id: '7:18',
+            unmapped_codes: ['member_removal_candidate'],
+            action: 'captured',
+            reviewed: false,
+            state: 'pending',
+          },
+        ],
+      })
+    if (path === `/v1/nms-imports/${planID}/review-choices`) {
+      saved = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return new Response(null, { status: 204 })
+    }
+    return fallback(input, init)
+  })
+  renderApp('/admin', {
+    me: {
+      tenant_id: '00000000-0000-4000-8000-000000000300',
+      permissions: ['nms.import.read', 'nms.import.write'],
+    },
+  })
+  const card = (await screen.findByText('Incumbent NMS import')).closest('[data-nms-import]')
+  const region = within(card as HTMLElement)
+  expect(await region.findByText('West DC / Private', { selector: 'strong' })).toBeInTheDocument()
+  await userEvent.type(region.getByLabelText('Import plan ID'), planID)
+  await userEvent.click(region.getByRole('button', { name: 'Load redacted rows' }))
+  const ordinary = await region.findByLabelText('Choice for membership 7:17')
+  const removal = region.getByLabelText('Choice for membership 7:18')
+  expect(within(ordinary).queryByRole('option', { name: 'Remove exact member' })).toBeNull()
+  await userEvent.selectOptions(removal, 'remove')
+  await userEvent.click(region.getByRole('button', { name: 'Save page choices' }))
+  expect(await region.findByText(/1 explicit choice saved/)).toBeInTheDocument()
+  expect(saved).toMatchObject({
+    context_id: contextID,
+    snapshot_hash: snapshotHash,
+    choices: [{ row_number: 1, action: 'remove' }],
   })
 })
