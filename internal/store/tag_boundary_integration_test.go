@@ -119,7 +119,7 @@ func TestTagPooledRLSAndTypedAssignmentRejectForeignTenant(t *testing.T) {
 	}
 	scopeA := tags.Scope{TenantID: a.ID, ContextID: contextA}
 	ownedCtx := tenancy.WithTenant(ctx, tenancy.ID(a.ID))
-	loaded, err := loadContextTagSnapshotForTest(pool, ownedCtx, scopeA, 1<<20)
+	loaded, err := loadContextTagSnapshotForTest(ownedCtx, pool, scopeA, 1<<20)
 	if err != nil {
 		t.Fatalf("load bounded owned tag snapshot: %v", err)
 	}
@@ -130,13 +130,13 @@ func TestTagPooledRLSAndTypedAssignmentRejectForeignTenant(t *testing.T) {
 	if err != nil || len(resolved) != 1 || resolved[0].Value != "tenant-value" {
 		t.Fatalf("stored tag was not resolved for its owned entity: %+v, %v", resolved, err)
 	}
-	if _, err := loadContextTagSnapshotForTest(pool, ownedCtx, scopeA, 512); !errors.Is(err, ErrTagSnapshotBudget) {
+	if _, err := loadContextTagSnapshotForTest(ownedCtx, pool, scopeA, 512); !errors.Is(err, ErrTagSnapshotBudget) {
 		t.Fatalf("small query memory budget admitted an oversized snapshot: %v", err)
 	}
-	if _, err := loadContextTagSnapshotForTest(pool, tenancy.WithTenant(ctx, tenancy.ID(b.ID)), scopeA, 1<<20); !errors.Is(err, tags.ErrScopeMismatch) {
+	if _, err := loadContextTagSnapshotForTest(tenancy.WithTenant(ctx, tenancy.ID(b.ID)), pool, scopeA, 1<<20); !errors.Is(err, tags.ErrScopeMismatch) {
 		t.Fatalf("foreign caller loaded tenant A's tag snapshot: %v", err)
 	}
-	if _, err := loadContextTagSnapshotForTest(pool, ownedCtx, tags.Scope{TenantID: a.ID, ContextID: contextB},
+	if _, err := loadContextTagSnapshotForTest(ownedCtx, pool, tags.Scope{TenantID: a.ID, ContextID: contextB},
 		1<<20); !errors.Is(err, tags.ErrScopeMismatch) {
 		t.Fatalf("tenant A loaded an unowned routing context: %v", err)
 	}
@@ -206,7 +206,7 @@ func countVisibleTagAssignments(ctx context.Context, t *testing.T, pool *pgxpool
 
 // Exercise the same context loader used by tenant-wide shipping queries, with
 // one real RLS snapshot and a caller-owned byte budget.
-func loadContextTagSnapshotForTest(pool *pgxpool.Pool, ctx context.Context, scope tags.Scope, maxBytes int64) (*tags.Snapshot, error) {
+func loadContextTagSnapshotForTest(ctx context.Context, pool *pgxpool.Pool, scope tags.Scope, maxBytes int64) (*tags.Snapshot, error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || bound.String() != scope.TenantID {
 		return nil, tags.ErrScopeMismatch
