@@ -9,6 +9,7 @@ import { useAuth } from '../../auth/useAuth'
 import { useEntityContexts } from '../../api/entities'
 import {
   advanceImportPlan,
+  applyImportAlertTarget,
   applyImportReview,
   configureImportSource,
   finalizeImportReview,
@@ -16,6 +17,7 @@ import {
   importPollProposals,
   importRows,
   previewImportPollTarget,
+  previewImportAlertTarget,
   setImportReviewChoices,
   startImportPlan,
   verifyImportBeforeApply,
@@ -26,6 +28,8 @@ import {
   type ImportRowsPage,
   type ImportPollProposalsPage,
   type ImportPollTargetPreview,
+  type ImportAlertTargetPreview,
+  type ImportAlertTargetApplyResult,
 } from '../../api/nmsImport'
 import {
   Button,
@@ -83,6 +87,11 @@ export function NMSImportCard() {
       tenantID={tenant.id}
       canWrite={permissions.includes('nms.import.write')}
       canPreviewTarget={permissions.includes('entities.read')}
+      canApplyAlert={
+        permissions.includes('nms.import.write') &&
+        permissions.includes('entities.read') &&
+        permissions.includes('alert.write')
+      }
     />
   )
 }
@@ -91,10 +100,12 @@ function ImportContents({
   tenantID,
   canWrite,
   canPreviewTarget,
+  canApplyAlert,
 }: {
   tenantID: string
   canWrite: boolean
   canPreviewTarget: boolean
+  canApplyAlert: boolean
 }) {
   const contexts = useEntityContexts(tenantID)
   const available = useMemo(
@@ -118,6 +129,11 @@ function ImportContents({
   const [pollAddress, setPollAddress] = useState('')
   const [pollPreview, setPollPreview] = useState<ImportPollTargetPreview | null>(null)
   const [pollProposals, setPollProposals] = useState<ImportPollProposalsPage | null>(null)
+  const [alertRuleID, setAlertRuleID] = useState('')
+  const [alertAgentID, setAlertAgentID] = useState('')
+  const [alertAddress, setAlertAddress] = useState('')
+  const [alertPreview, setAlertPreview] = useState<ImportAlertTargetPreview | null>(null)
+  const [alertResult, setAlertResult] = useState<ImportAlertTargetApplyResult | null>(null)
   const [choices, setChoices] = useState<Record<number, PendingChoice>>({})
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -140,6 +156,11 @@ function ImportContents({
     setDiffPage(null)
     setPollPreview(null)
     setPollProposals(null)
+    setAlertPreview(null)
+    setAlertResult(null)
+    setAlertRuleID('')
+    setAlertAgentID('')
+    setAlertAddress('')
     setChoices({})
     setCredentialRef('')
     setMessage('')
@@ -163,6 +184,8 @@ function ImportContents({
     setPage(next)
     setPollPreview(null)
     setPollProposals(null)
+    setAlertPreview(null)
+    setAlertResult(null)
     setSnapshotHash(next.snapshot_hash)
     setChoices(
       Object.fromEntries(
@@ -246,6 +269,38 @@ function ImportContents({
     void run(async () => {
       setPollProposals(await importPollProposals(contextID, page.source_id, cursor))
       setMessage('Applied source cadence proposals loaded. Agent configuration is still separate.')
+    })
+  }
+
+  function previewAlertTarget(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!page) return
+    void run(async () => {
+      const preview = await previewImportAlertTarget({
+        context_id: contextID,
+        source_id: page.source_id,
+        rule_external_id: alertRuleID,
+        agent_id: alertAgentID,
+        target_address: alertAddress,
+      })
+      setAlertPreview(preview)
+      setAlertResult(null)
+      setMessage(
+        'Finite source rule and current operator-owned agent target verified. No alert changed.',
+      )
+    })
+  }
+
+  function applyAlertTarget() {
+    if (!alertPreview) return
+    void run(async () => {
+      const result = await applyImportAlertTarget(alertPreview)
+      setAlertResult(result)
+      setMessage(
+        result.created
+          ? 'Disabled, channel-free native alert created. Enable it separately after review.'
+          : 'Existing native alert unchanged. Its enabled state was not changed.',
+      )
     })
   }
 
@@ -577,6 +632,11 @@ function ImportContents({
                   setDiffPage(null)
                   setPollPreview(null)
                   setPollProposals(null)
+                  setAlertPreview(null)
+                  setAlertResult(null)
+                  setAlertRuleID('')
+                  setAlertAgentID('')
+                  setAlertAddress('')
                 }}
               />
               <Button onClick={() => load()} disabled={busy || !planID}>
@@ -702,6 +762,72 @@ function ImportContents({
                   {pollPreview.poll_seconds}s, revision {pollPreview.revision}. Apply a separately
                   reviewed device-agent configuration to activate it.
                 </p>
+              ) : null}
+            </form>
+          ) : null}
+          {canPreviewTarget && page ? (
+            <form className={styles.form} onSubmit={previewAlertTarget}>
+              <h3>Review a LibreNMS port-down alert</h3>
+              <p>
+                Enter the exact source rule and assigned agent target. The source address cannot
+                choose a target. Preview never creates or enables an alert.
+              </p>
+              <div className={styles.row}>
+                <Field
+                  label="Source rule ID"
+                  required
+                  value={alertRuleID}
+                  onChange={(event) => {
+                    setAlertRuleID(event.target.value)
+                    setAlertPreview(null)
+                    setAlertResult(null)
+                  }}
+                />
+                <Field
+                  label="Alert agent ID"
+                  required
+                  value={alertAgentID}
+                  onChange={(event) => {
+                    setAlertAgentID(event.target.value)
+                    setAlertPreview(null)
+                    setAlertResult(null)
+                  }}
+                />
+                <Field
+                  label="Alert target address"
+                  required
+                  value={alertAddress}
+                  onChange={(event) => {
+                    setAlertAddress(event.target.value)
+                    setAlertPreview(null)
+                    setAlertResult(null)
+                  }}
+                />
+                <Button type="submit" disabled={busy}>
+                  Verify alert target
+                </Button>
+              </div>
+              {alertPreview ? (
+                <div className={styles.stack} role="status">
+                  <p>
+                    {alertPreview.name} ({alertPreview.severity}) on canonical device{' '}
+                    <code>{alertPreview.entity_id}</code>. Native rule: interface operational status
+                    equals down, limited to agent <code>{alertPreview.agent_id}</code> and device{' '}
+                    <code>{alertPreview.target_address}</code>. It will be disabled with no
+                    notification channels.
+                  </p>
+                  {canApplyAlert ? (
+                    <Button type="button" onClick={applyAlertTarget} disabled={busy}>
+                      Create disabled alert
+                    </Button>
+                  ) : null}
+                  {alertResult ? (
+                    <p>
+                      Native alert <code>{alertResult.alert_rule_id}</code>:
+                      {alertResult.created ? ' created disabled' : ' unchanged'}.
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
             </form>
           ) : null}

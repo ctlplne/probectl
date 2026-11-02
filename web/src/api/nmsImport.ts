@@ -132,6 +132,31 @@ export interface ImportPollProposalsPage {
   next_cursor?: string
 }
 
+export interface ImportAlertTargetSelection {
+  context_id: string
+  source_id: string
+  rule_external_id: string
+  agent_id: string
+  target_address: string
+}
+
+export interface ImportAlertTargetPreview extends ImportAlertTargetSelection {
+  tenant_id: string
+  device_external_id: string
+  entity_id: string
+  plan_id: string
+  snapshot_hash: string
+  name: string
+  severity: 'warning' | 'critical'
+  rule_kind: 'port_down'
+  enabled: false
+}
+
+export interface ImportAlertTargetApplyResult {
+  alert_rule_id: string
+  created: boolean
+}
+
 const jsonInit = (method: string, body: unknown): RequestInit => ({
   method,
   headers: { 'Content-Type': 'application/json' },
@@ -181,6 +206,39 @@ export function previewImportPollTarget(input: ImportPollTargetSelection) {
   return apiFetch<ImportPollTargetPreview>(
     '/nms-imports/poll-target-preview',
     jsonInit('POST', input),
+  )
+}
+
+export function previewImportAlertTarget(input: ImportAlertTargetSelection) {
+  return apiFetch<ImportAlertTargetPreview>(
+    '/nms-imports/alert-target-preview',
+    jsonInit('POST', input),
+  )
+}
+
+export function applyImportAlertTarget(preview: ImportAlertTargetPreview) {
+  const {
+    context_id,
+    source_id,
+    rule_external_id,
+    agent_id,
+    target_address,
+    plan_id,
+    snapshot_hash,
+    entity_id,
+  } = preview
+  return apiFetch<ImportAlertTargetApplyResult>(
+    '/nms-imports/alert-target-apply',
+    jsonInit('POST', {
+      context_id,
+      source_id,
+      rule_external_id,
+      agent_id,
+      target_address,
+      plan_id,
+      snapshot_hash,
+      entity_id,
+    }),
   )
 }
 

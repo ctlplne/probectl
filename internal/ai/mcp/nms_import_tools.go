@@ -95,6 +95,47 @@ type NMSImportPollTargetResult struct {
 	Revision      int64  `json:"revision"`
 }
 
+type NMSImportAlertTargetInput struct {
+	ContextID     string `json:"context_id"`
+	SourceID      string `json:"source_id"`
+	RuleID        string `json:"rule_external_id"`
+	AgentID       string `json:"agent_id"`
+	TargetAddress string `json:"target_address"`
+}
+
+type NMSImportAlertTargetResult struct {
+	TenantID      string `json:"tenant_id"`
+	ContextID     string `json:"context_id"`
+	SourceID      string `json:"source_id"`
+	RuleID        string `json:"rule_external_id"`
+	DeviceID      string `json:"device_external_id"`
+	EntityID      string `json:"entity_id"`
+	AgentID       string `json:"agent_id"`
+	TargetAddress string `json:"target_address"`
+	PlanID        string `json:"plan_id"`
+	SnapshotHash  string `json:"snapshot_hash"`
+	Name          string `json:"name"`
+	Severity      string `json:"severity"`
+	RuleKind      string `json:"rule_kind"`
+	Enabled       bool   `json:"enabled"`
+}
+
+type NMSImportAlertApplyInput struct {
+	ContextID     string `json:"context_id"`
+	SourceID      string `json:"source_id"`
+	RuleID        string `json:"rule_external_id"`
+	AgentID       string `json:"agent_id"`
+	TargetAddress string `json:"target_address"`
+	PlanID        string `json:"plan_id"`
+	SnapshotHash  string `json:"snapshot_hash"`
+	EntityID      string `json:"entity_id"`
+}
+
+type NMSImportAlertApplyResult struct {
+	AlertRuleID string `json:"alert_rule_id"`
+	Created     bool   `json:"created"`
+}
+
 type NMSImportPollProposalsInput struct {
 	ContextID string `json:"context_id"`
 	SourceID  string `json:"source_id"`
@@ -138,6 +179,8 @@ type NMSImportBackend interface {
 	NMSImportDryRun(context.Context, *auth.Principal, NMSImportDryRunInput) (NMSImportDryRunResult, error)
 	NMSImportPollProposals(context.Context, *auth.Principal, NMSImportPollProposalsInput) (NMSImportPollProposalsResult, error)
 	NMSImportPollTarget(context.Context, *auth.Principal, NMSImportPollTargetInput) (NMSImportPollTargetResult, error)
+	NMSImportAlertTarget(context.Context, *auth.Principal, NMSImportAlertTargetInput) (NMSImportAlertTargetResult, error)
+	NMSImportAlertApply(context.Context, *auth.Principal, NMSImportAlertApplyInput) (NMSImportAlertApplyResult, error)
 }
 
 func WithNMSImportBackend(backend NMSImportBackend) Option {
@@ -154,7 +197,13 @@ func WithNMSImportBackend(backend NMSImportBackend) Option {
 
 func nmsImportTool[A, R any](name, description string, schema json.RawMessage,
 	invoke func(context.Context, *auth.Principal, A) (R, error)) Tool {
-	return Tool{Name: name, Description: description, Permission: "nms.import.read",
+	return nmsImportToolWithPermission(name, description, schema, "nms.import.read", invoke)
+}
+
+func nmsImportToolWithPermission[A, R any](name, description string,
+	schema json.RawMessage, permission string,
+	invoke func(context.Context, *auth.Principal, A) (R, error)) Tool {
+	return Tool{Name: name, Description: description, Permission: permission,
 		InputSchema: schema, RequiresUser: true,
 		Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
 			var args A
@@ -175,5 +224,10 @@ func buildNMSImportTools(b NMSImportBackend) []Tool {
 			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"source_id":{"type":"string"},"cursor":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["context_id","source_id"],"additionalProperties":false}`), b.NMSImportPollProposals),
 		nmsImportTool("nms_import_poll_target", "Verify one reviewed polling proposal against an exact current device-agent target; no credential or activation.",
 			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"source_id":{"type":"string"},"item_external_id":{"type":"string"},"agent_id":{"type":"string"},"target_address":{"type":"string"}},"required":["context_id","source_id","item_external_id","agent_id","target_address"],"additionalProperties":false}`), b.NMSImportPollTarget),
+		nmsImportTool("nms_import_alert_target", "Verify one finite disabled LibreNMS port-down rule against the exact current agent target; no source SQL or delivery operation.",
+			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"source_id":{"type":"string"},"rule_external_id":{"type":"string"},"agent_id":{"type":"string"},"target_address":{"type":"string"}},"required":["context_id","source_id","rule_external_id","agent_id","target_address"],"additionalProperties":false}`), b.NMSImportAlertTarget),
+		nmsImportToolWithPermission("nms_import_alert_apply", "After an exact reviewed target selection, create only a disabled channel-free native alert; this never enables delivery.",
+			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"source_id":{"type":"string"},"rule_external_id":{"type":"string"},"agent_id":{"type":"string"},"target_address":{"type":"string"},"plan_id":{"type":"string"},"snapshot_hash":{"type":"string"},"entity_id":{"type":"string"}},"required":["context_id","source_id","rule_external_id","agent_id","target_address","plan_id","snapshot_hash","entity_id"],"additionalProperties":false}`),
+			"nms.import.write", b.NMSImportAlertApply),
 	}
 }

@@ -116,4 +116,15 @@ func TestNMSImportCLIKeepsReferenceOutOfArgvAndRoutesScopedReads(t *testing.T) {
 	if got := <-seen; got != "POST /v1/nms-imports/"+planID+"/apply" {
 		t.Fatalf("apply route = %q", got)
 	}
+	alertApply := `{"context_id":"` + contextID + `","source_id":"` + planID +
+		`","rule_external_id":"31","agent_id":"agent-1","target_address":"192.0.2.44",` +
+		`"plan_id":"` + planID + `","snapshot_hash":"` + strings.Repeat("a", 64) +
+		`","entity_id":"` + contextID + `"}`
+	if _, stderr, code := run(t, srv, "nms-import", "alert-target-apply",
+		"--body", alertApply); code != 0 || stderr != "" || len(seen) != 1 {
+		t.Fatalf("reviewed alert apply CLI: exit=%d stderr=%q requests=%v", code, stderr, seen)
+	}
+	if got := <-seen; got != "POST /v1/nms-imports/alert-target-apply" {
+		t.Fatalf("alert apply route = %q", got)
+	}
 }

@@ -4166,6 +4166,26 @@
         }
       }
     },
+    "/v1/nms-imports/alert-target-apply": {
+      "post": {
+        "x-required-permission": "nms.import.write",
+        "operationId": "applyNMSImportAlertTarget",
+        "summary": "Create one disabled native alert from an exact reviewed LibreNMS target",
+        "description": "Requires nms.import.write, entities.read and alert.write in the selected context. The operator supplies the exact applied plan, snapshot and canonical target from preview. A configured source is re-read through the fixed rules endpoint and checked against sealed page receipts. FORCE-RLS and locked tenant joins recheck provenance, active sender identity and the operator-owned target before an audited atomic write. The created alert is disabled with no notification channels; a repeated identical request is an inert no-op. Source SQL, delivery operations and credentials are never imported.",
+        "tags": ["entities"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NMSImportAlertTargetApplyRequest"}}}},
+        "responses": {
+          "200": {"description": "The exact source rule was already imported without changing its enabled state.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NMSImportAlertTargetApplyResult"}}}},
+          "201": {"description": "One disabled, channel-free native alert was created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NMSImportAlertTargetApplyResult"}}}},
+          "400": {"description": "Invalid reviewed selection."},
+          "403": {"description": "Import, entity read or alert write permission denied in this context."},
+          "404": {"description": "No current applied rule and canonical target in this tenant and context."},
+          "409": {"description": "Reviewed source, plan or target changed."},
+          "503": {"description": "Configured source could not be verified."}
+        }
+      }
+    },
     "/v1/nms-imports/{id}/rows": {
       "get": {
         "x-required-permission": "nms.import.read",
@@ -18513,6 +18533,30 @@
           "severity": {"type": "string", "enum": ["warning", "critical"]},
           "rule_kind": {"type": "string", "enum": ["port_down"]},
           "enabled": {"type": "boolean", "const": false}
+        }
+      },
+      "NMSImportAlertTargetApplyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["context_id", "source_id", "rule_external_id", "agent_id", "target_address", "plan_id", "snapshot_hash", "entity_id"],
+        "properties": {
+          "context_id": {"type": "string", "format": "uuid"},
+          "source_id": {"type": "string", "format": "uuid"},
+          "rule_external_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 20},
+          "agent_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "target_address": {"type": "string", "minLength": 1, "maxLength": 256},
+          "plan_id": {"type": "string", "format": "uuid"},
+          "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "entity_id": {"type": "string", "format": "uuid"}
+        }
+      },
+      "NMSImportAlertTargetApplyResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["alert_rule_id", "created"],
+        "properties": {
+          "alert_rule_id": {"type": "string", "format": "uuid"},
+          "created": {"type": "boolean"}
         }
       },
       "NMSImportReviewDiffItem": {

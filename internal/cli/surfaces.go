@@ -184,6 +184,8 @@ var surfaceCommands = map[string]surfaceCommand{
 			Description: "verify one applied Zabbix cadence against an exact current device-agent target; --body with context_id, source_id, item_external_id, agent_id and target_address"},
 		"alert-target-preview": {Method: http.MethodPost, Path: "/v1/nms-imports/alert-target-preview",
 			Description: "verify one inert LibreNMS port-down candidate against an exact current agent target; --body with context_id, source_id, rule_external_id, agent_id and target_address"},
+		"alert-target-apply": {Method: http.MethodPost, Path: "/v1/nms-imports/alert-target-apply",
+			Description: "create one disabled, channel-free native alert from an exact reviewed LibreNMS target; --body with context_id, source_id, rule_external_id, agent_id, target_address, plan_id, snapshot_hash and entity_id"},
 		"configure-source": {Method: http.MethodPost, Path: "/v1/nms-imports/sources", SensitiveBody: true,
 			Description: "configure a LibreNMS HTTPS origin and tenant secret reference; use --body-file <0600-file|->"},
 		"disable-source": {Method: http.MethodPost, Path: "/v1/nms-imports/sources/{instance}/disable", ArgName: "instance",

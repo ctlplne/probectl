@@ -140,7 +140,7 @@ execute; probectl never executes autonomously (see `docs/remediation.md`). So th
 worst an injected prompt can do through this tool is *file a suggestion someone
 then has to look at*. `TestProposeRemediationToolIsProposalOnly`
 (`internal/ai/mcp/mcp_test.go`) pins that guarantee — including a structural check
-that the catalog contains **no** approve/execute/apply tool at all. Note: the
+that the remediation catalog contains **no** approve/execute/apply tool. Note: the
 proposal backend is the commercially licensed guarded-remediation feature, attached
 at the editions seam — it is live only on the **HTTP** transport of a licensed
 server. On the lightweight **stdio** transport (and on an unlicensed deployment)
@@ -467,6 +467,28 @@ the current policy set, including policies for joined metadata. Changed or
 unavailable authority refuses the complete result with a fixed audited reason.
 Display names, policy row order and duplicate grants do not create false
 permission changes. Protocol metadata never supplies identity or resource costs.
+
+## Incumbent NMS import
+
+The native import tools use the authenticated principal's tenant and the
+selected routing context. They have no `tenant_id` input. Storage joins and
+FORCE-RLS confine source rows, applied device provenance and agent assignments
+before any result or write. `nms_import_rows` and `nms_import_dry_run` page
+redacted review data; `nms_import_poll_proposals` and `nms_import_poll_target`
+show inert polling proposals. `nms_import_alert_target` verifies one finite,
+disabled LibreNMS port-down candidate against the current operator-owned
+agent target. These reads require `nms.import.read`; target previews also
+require `entities.read` in the context.
+
+`nms_import_alert_apply` requires `nms.import.write`, `entities.read` and
+`alert.write` in that same context. It accepts the exact plan, snapshot and
+canonical target returned by preview. It uses the same reviewed, audited
+tenant transaction as REST and creates only a disabled native rule with no
+notification channels. A configured source must pass a fresh rules-endpoint
+receipt check; without deployment-owned source policy and credentials, the
+write fails closed. It cannot import source SQL, source delivery operations,
+or enable an alert. A separate human-authorized alert operation is required
+for activation.
 
 ## See also
 

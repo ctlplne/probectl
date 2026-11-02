@@ -15,6 +15,7 @@ import (
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/nmsimport"
@@ -26,12 +27,18 @@ var _ mcp.NMSImportBackend = mcpNMSImportBackend{}
 type mcpNMSImportBackend struct {
 	pool         *pgxpool.Pool
 	policyLoader mcp.PolicyLoader
+	owner        *Server
 }
 
 // The principal selects the tenant before even the context lookup. The
 // routing-context ABAC policy is checked before reading a plan or its rows.
 func (b mcpNMSImportBackend) readScope(ctx context.Context, p *auth.Principal,
 	contextID string) (context.Context, string, error) {
+	return b.scope(ctx, p, contextID, permNMSImportRead)
+}
+
+func (b mcpNMSImportBackend) scope(ctx context.Context, p *auth.Principal,
+	contextID, permission string) (context.Context, string, error) {
 	if p == nil || p.TenantID == "" {
 		return nil, "", apierror.Forbidden("tenant identity is required")
 	}
@@ -41,7 +48,7 @@ func (b mcpNMSImportBackend) readScope(ctx context.Context, p *auth.Principal,
 	}
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(scope.TenantID))
 	checker := mcpEntityBackend{pool: b.pool, policyLoader: b.policyLoader}
-	if err := checker.requireEntityContext(ctx, p, scope, "nms.import.read"); err != nil {
+	if err := checker.requireEntityContext(ctx, p, scope, permission); err != nil {
 		return nil, "", err
 	}
 	return ctx, scope.ContextID, nil
@@ -57,6 +64,10 @@ func nmsImportMCPReadError(err error) error {
 		return apierror.BadRequest("invalid poll target selection")
 	case errors.Is(err, nmsimport.ErrReviewStale):
 		return apierror.Conflict("reviewed destination changed")
+	case errors.Is(err, nmsimport.ErrSourceDrift):
+		return apierror.Conflict("reviewed source changed")
+	case errors.Is(err, nmsimport.ErrSourceUnavailable):
+		return apierror.Unavailable("configured source is unavailable")
 	default:
 		return err
 	}
@@ -182,4 +193,64 @@ func (b mcpNMSImportBackend) NMSImportPollTarget(ctx context.Context, p *auth.Pr
 		TargetAddress: preview.TargetAddress, PollSeconds: preview.PollSeconds,
 		PlanID: preview.PlanID, Revision: preview.Revision,
 	}, nil
+}
+
+func (b mcpNMSImportBackend) NMSImportAlertTarget(ctx context.Context, p *auth.Principal,
+	input mcp.NMSImportAlertTargetInput) (mcp.NMSImportAlertTargetResult, error) {
+	ctx, contextID, err := b.readScope(ctx, p, input.ContextID)
+	if err != nil {
+		return mcp.NMSImportAlertTargetResult{}, err
+	}
+	checker := mcpEntityBackend{pool: b.pool, policyLoader: b.policyLoader}
+	if err := checker.requireEntityContext(ctx, p,
+		entity.Scope{TenantID: p.TenantID, ContextID: contextID},
+		ai.PermEntitiesRead); err != nil {
+		return mcp.NMSImportAlertTargetResult{}, err
+	}
+	preview, err := nmsimport.NewCaptureStore(b.pool, nil).PreviewLibreNMSAlertTarget(ctx,
+		contextID, input.SourceID, input.RuleID, input.AgentID, input.TargetAddress)
+	if err != nil {
+		return mcp.NMSImportAlertTargetResult{}, nmsImportMCPReadError(err)
+	}
+	return mcp.NMSImportAlertTargetResult{
+		TenantID: preview.TenantID, ContextID: preview.ContextID,
+		SourceID: preview.SourceID, RuleID: preview.RuleID,
+		DeviceID: preview.DeviceID, EntityID: preview.EntityID,
+		AgentID: preview.AgentID, TargetAddress: preview.TargetAddress,
+		PlanID: preview.PlanID, SnapshotHash: preview.SnapshotHash,
+		Name: preview.Name, Severity: preview.Severity,
+		RuleKind: preview.RuleKind, Enabled: preview.Enabled,
+	}, nil
+}
+
+func (b mcpNMSImportBackend) NMSImportAlertApply(ctx context.Context, p *auth.Principal,
+	input mcp.NMSImportAlertApplyInput) (mcp.NMSImportAlertApplyResult, error) {
+	ctx, contextID, err := b.scope(ctx, p, input.ContextID, permNMSImportWrite)
+	if err != nil {
+		return mcp.NMSImportAlertApplyResult{}, err
+	}
+	checker := mcpEntityBackend{pool: b.pool, policyLoader: b.policyLoader}
+	scope := entity.Scope{TenantID: p.TenantID, ContextID: contextID}
+	for _, permission := range []string{ai.PermEntitiesRead, permAlertWrite} {
+		if err := checker.requireEntityContext(ctx, p, scope, permission); err != nil {
+			return mcp.NMSImportAlertApplyResult{}, err
+		}
+	}
+	policy := nmsimport.LibreNMSFetchPolicy{}
+	if b.owner != nil {
+		policy = b.owner.nmsImportAlertFetchPolicy()
+	}
+	capturer := nmsimport.NewCaptureStore(b.pool,
+		func(ctx context.Context, sc tenancy.Scope, action, target string, data map[string]any) error {
+			_, err := audit.TenantAppend(ctx, sc, p.UserID, action, target, data)
+			return err
+		})
+	result, err := capturer.ApplyLibreNMSAlertTarget(ctx, contextID,
+		input.SourceID, input.RuleID, input.AgentID, input.TargetAddress,
+		input.PlanID, input.SnapshotHash, input.EntityID, policy)
+	if err != nil {
+		return mcp.NMSImportAlertApplyResult{}, nmsImportMCPReadError(err)
+	}
+	return mcp.NMSImportAlertApplyResult{
+		AlertRuleID: result.AlertRuleID, Created: result.Created}, nil
 }

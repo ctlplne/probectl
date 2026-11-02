@@ -163,7 +163,24 @@ severity, fixed rule kind, and `enabled:false`; it does not contain source
 SQL, delivery operations or credentials. A source IP, display name or another
 tenant's identical agent/target string never selects a destination. The CLI
 `nms-import alert-target-preview` exposes this read. It creates no native
-alert; a separate reviewed apply step remains necessary.
+alert. To create one disabled native alert, the operator submits the exact
+`context_id`, `source_id`, `rule_external_id`, `agent_id`, `target_address`,
+`plan_id`, `snapshot_hash` and `entity_id` from that preview to
+`POST /v1/nms-imports/alert-target-apply` (or
+`probectl nms-import alert-target-apply --body-file ...`). The write requires
+`nms.import.write`, `entities.read` and `alert.write`. A configured source is
+re-read through its fixed rules endpoint and every normalized page is checked
+against the sealed receipts before the tenant transaction. The transaction
+locks and rechecks the source, applied provenance, current sender identity
+and operator-owned target. It creates only a disabled, channel-free native
+`probectl_device_if_oper_status == 0` rule with exact `agent_id` and `device`
+labels; it never imports source SQL, source delivery operations or a
+credential. Repeating an unchanged source rule returns the same native alert
+ID without changing its enabled state. Enabling or adding a channel is a
+separate human-authorized alert operation.
+The native MCP tools `nms_import_alert_target` and `nms_import_alert_apply`
+share the same context, permission, receipt and disabled-write checks; MCP
+cannot activate or add a notification channel through this import.
 
 To find applied Zabbix proposals, page
 `GET /v1/nms-imports/poll-proposals?context_id=UUID&source_id=UUID&limit=50`.

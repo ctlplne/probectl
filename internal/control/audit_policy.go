@@ -225,6 +225,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/nms-imports/poll-proposals":                                  auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/nms-imports/poll-target-preview":                            auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/nms-imports/alert-target-preview":                           auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/nms-imports/alert-target-apply":                             auditExplicit(auditFacetMutation, "nms_import.alert_applied"),
 	"POST /v1/nms-imports/{id}/advance":                                   auditExplicit(auditFacetMutation, "nms_import.capture_step_completed"),
 	"POST /v1/nms-imports/{id}/verify-before-apply":                       auditExplicit(auditFacetMutation, "nms_import.apply_source_verified"),
 	"POST /v1/nms-imports/{id}/apply":                                     auditExplicit(auditFacetMutation, "nms_import.chunk_applied"),

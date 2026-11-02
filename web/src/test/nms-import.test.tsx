@@ -362,3 +362,141 @@ test('Admin offers removal only for a generated member candidate', async () => {
     choices: [{ row_number: 1, action: 'remove' }],
   })
 })
+
+test('Admin alert review creates only the exact disabled target and clears it across tenants', async () => {
+  const fallback = defaultFetch()
+  const entityID = '00000000-0000-4000-8000-000000000306'
+  const alertID = '00000000-0000-4000-8000-000000000307'
+  let previewBody: Record<string, unknown> | null = null
+  let applyBody: Record<string, unknown> | null = null
+  const preview = {
+    tenant_id: '00000000-0000-4000-8000-000000000300',
+    context_id: contextID,
+    source_id: sourceID,
+    rule_external_id: '31',
+    device_external_id: '17',
+    entity_id: entityID,
+    agent_id: 'agent-1',
+    target_address: '192.0.2.44',
+    plan_id: planID,
+    snapshot_hash: snapshotHash,
+    name: 'Port down',
+    severity: 'critical',
+    rule_kind: 'port_down',
+    enabled: false,
+  }
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = pathOf(input)
+    if (path === '/v1/entity-contexts')
+      return jsonResponse({
+        items: [
+          {
+            context_id: contextID,
+            site_id: contextID,
+            vrf_id: contextID,
+            site_label: 'West DC',
+            vrf_label: 'Private',
+          },
+        ],
+      })
+    if (path === `/v1/nms-imports/${planID}/rows`)
+      return jsonResponse({
+        context_id: contextID,
+        plan_id: planID,
+        source_id: sourceID,
+        snapshot_hash: snapshotHash,
+        row_count: 1,
+        items: [
+          {
+            row_number: 0,
+            object_kind: 'alert_rule',
+            external_id: '31',
+            parent_external_id: '17',
+            label: 'Port down',
+            unmapped_codes: ['expression_unmapped'],
+            action: 'unmapped',
+            reviewed: true,
+            state: 'skipped',
+          },
+        ],
+      })
+    if (path === '/v1/nms-imports/alert-target-preview') {
+      previewBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return jsonResponse(preview)
+    }
+    if (path === '/v1/nms-imports/alert-target-apply') {
+      applyBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return jsonResponse({ alert_rule_id: alertID, created: true }, 201)
+    }
+    return fallback(input, init)
+  })
+  renderApp('/admin', {
+    me: {
+      tenant_id: preview.tenant_id,
+      permissions: ['nms.import.read', 'nms.import.write', 'entities.read', 'alert.write'],
+    },
+  })
+  const card = (await screen.findByText('Incumbent NMS import')).closest('[data-nms-import]')
+  const region = within(card as HTMLElement)
+  expect(await region.findByText('West DC / Private', { selector: 'strong' })).toBeInTheDocument()
+  await userEvent.type(region.getByLabelText('Import plan ID'), planID)
+  await userEvent.click(region.getByRole('button', { name: 'Load redacted rows' }))
+  expect(await region.findByText(/Port down/)).toBeInTheDocument()
+  await userEvent.type(region.getByLabelText('Source rule ID'), '31')
+  await userEvent.type(region.getByLabelText('Alert agent ID'), 'agent-1')
+  await userEvent.type(region.getByLabelText('Alert target address'), '192.0.2.44')
+  await userEvent.click(region.getByRole('button', { name: 'Verify alert target' }))
+  expect(await region.findByText(/It will be disabled with no/)).toBeInTheDocument()
+  expect(previewBody).toEqual({
+    context_id: contextID,
+    source_id: sourceID,
+    rule_external_id: '31',
+    agent_id: 'agent-1',
+    target_address: '192.0.2.44',
+  })
+  expect(applyBody).toBeNull()
+  await userEvent.click(region.getByRole('button', { name: 'Create disabled alert' }))
+  expect(await region.findByText(/created disabled/)).toBeInTheDocument()
+  expect(applyBody).toEqual({
+    context_id: contextID,
+    source_id: sourceID,
+    rule_external_id: '31',
+    agent_id: 'agent-1',
+    target_address: '192.0.2.44',
+    plan_id: planID,
+    snapshot_hash: snapshotHash,
+    entity_id: entityID,
+  })
+
+  cleanup()
+  const otherContext = '00000000-0000-4000-8000-000000000308'
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (pathOf(input) === '/v1/entity-contexts')
+      return jsonResponse({
+        items: [
+          {
+            context_id: otherContext,
+            site_id: otherContext,
+            vrf_id: otherContext,
+            site_label: 'East DC',
+            vrf_label: 'Private',
+          },
+        ],
+      })
+    return fallback(input, init)
+  })
+  renderApp('/admin', {
+    me: {
+      tenant_id: '00000000-0000-4000-8000-000000000304',
+      permissions: ['nms.import.read', 'nms.import.write', 'entities.read'],
+    },
+  })
+  const otherCard = (await screen.findByText('Incumbent NMS import')).closest('[data-nms-import]')
+  const otherRegion = within(otherCard as HTMLElement)
+  expect(
+    await otherRegion.findByText('East DC / Private', { selector: 'strong' }),
+  ).toBeInTheDocument()
+  expect(otherRegion.queryByText(alertID)).toBeNull()
+  expect(otherRegion.getByLabelText('Import plan ID')).toHaveValue('')
+  expect(otherRegion.queryByRole('button', { name: 'Create disabled alert' })).toBeNull()
+})

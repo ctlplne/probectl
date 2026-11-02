@@ -71,6 +71,7 @@ func TestMCPResultTypesDoNotCarryUncheckedMaps(t *testing.T) {
 		NativeFlowResult{}, NativeFlowRow{}, NativeFlowPoint{}, NativeFlowCell{}, NativeFlowValue{}, NativeFlowDimension{}, NativeFlowRevision{}, NativeFlowCoverage{}, NativeFlowPaging{}, NativeFlowQueryResult{}, NativeFlowComparisonRow{}, NativeFlowComparisonResult{}, NativeFlowExecution{}, NativeFlowFilter{}, NativeFlowFilterPage{}, NativeFlowView{}, NativeFlowViewPage{}, NativeFlowMutationResult{}, NativeFlowField{}, NativeFlowCalculation{}, NativeFlowMetric{}, NativeFlowLimits{}, NativeFlowDefaults{}, NativeFlowStatistics{}, NativeFlowSchemaResult{}, NativeFlowCSVResult{},
 		EntityItemResult{}, EntityListResult{}, EntityContextResult{}, EntityContextListResult{}, EntityCandidateResult{}, EntityResolutionResult{}, EntityAssignmentResult{}, EntityPathContextResult{}, EntityPathHopResult{}, EntityPathResult{},
 		NMSImportRowResult{}, NMSImportRowsResult{}, NMSImportDiffItemResult{}, NMSImportDryRunResult{},
+		NMSImportAlertTargetResult{}, NMSImportAlertApplyResult{},
 	}
 	for _, v := range types {
 		rt := reflect.TypeOf(v)

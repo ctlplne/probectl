@@ -2181,6 +2181,22 @@ type Me struct {
 	UserId          string   `json:"user_id"`
 }
 
+type NMSImportAlertTargetApplyRequest struct {
+	AgentId        string `json:"agent_id"`
+	ContextId      string `json:"context_id"`
+	EntityId       string `json:"entity_id"`
+	PlanId         string `json:"plan_id"`
+	RuleExternalId string `json:"rule_external_id"`
+	SnapshotHash   string `json:"snapshot_hash"`
+	SourceId       string `json:"source_id"`
+	TargetAddress  string `json:"target_address"`
+}
+
+type NMSImportAlertTargetApplyResult struct {
+	AlertRuleId string `json:"alert_rule_id"`
+	Created     bool   `json:"created"`
+}
+
 type NMSImportAlertTargetPreview struct {
 	AgentId          string `json:"agent_id"`
 	ContextId        string `json:"context_id"`
@@ -5691,6 +5707,21 @@ func (c *Client) GetMe(ctx context.Context, req GetMeRequest) (*Me, error) {
 	query := url.Values{}
 	var out Me
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create one disabled native alert from an exact reviewed LibreNMS target
+type ApplyNmsImportAlertTargetRequest struct {
+	Body *NMSImportAlertTargetApplyRequest `json:"-"`
+}
+
+func (c *Client) ApplyNmsImportAlertTarget(ctx context.Context, req ApplyNmsImportAlertTargetRequest) (*NMSImportAlertTargetApplyResult, error) {
+	path := "/v1/nms-imports/alert-target-apply"
+	query := url.Values{}
+	var out NMSImportAlertTargetApplyResult
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

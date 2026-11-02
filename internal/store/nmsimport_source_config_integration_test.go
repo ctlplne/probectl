@@ -20,6 +20,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -172,8 +173,9 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	}
 
 	var requests, deviceRequests, groupRequests, memberRequests atomic.Int32
-	var drift, deviceDrift, reviewDrift, memberOmitted atomic.Bool
+	var drift, deviceDrift, reviewDrift, memberOmitted, ruleDrift atomic.Bool
 	var deviceDriftAt atomic.Int32
+	const finiteRuleQuery = `SELECT * FROM devices,ports WHERE (devices.device_id = ? AND devices.device_id = ports.device_id) AND ports.ifOperStatus != "up"`
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.Header.Get("Authorization") != "Bearer fixture" {
@@ -196,7 +198,18 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 			}
 			_, _ = io.WriteString(w, fmt.Sprintf(`{"status":"ok","groups":[{"id":7,"name":%q}],"count":1}`, name))
 		case "/api/v0/rules":
-			_, _ = io.WriteString(w, `{"status":"ok","rules":[{"id":9,"name":"Link down","rule":"source-only-rule"}],"count":1}`)
+			name := "Link down"
+			if ruleDrift.Load() {
+				name = "Changed link rule"
+			}
+			_, _ = io.WriteString(w, `{"status":"ok","rules":[{"id":9,"name":`+
+				strconv.Quote(name)+`,"severity":"critical","devices":[17],`+
+				`"groups":[],"locations":[],"invert_map":0,"disabled":1,`+
+				`"builder":{"condition":"AND","rules":[{"id":"ports.ifOperStatus",`+
+				`"field":"ports.ifOperStatus","type":"string","input":"text",`+
+				`"operator":"not_equal","value":"up"}],"valid":true},"query":`+
+				strconv.Quote(finiteRuleQuery)+`,"extra":{"options":{"override_query":false}},`+
+				`"operations":[{"transport":"source-only-secret"}]}],"count":1}`)
 		case "/api/v0/devicegroups/WAN":
 			memberRequests.Add(1)
 			if memberOmitted.Load() {
@@ -447,6 +460,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	for _, index := range []int{0, 1, 2, 3} {
 		initialChoices[index].Action = "create"
 	}
+	initialChoices[4].Action = "unmapped"
 	if err := capturer.SetReviewChoices(scopeA, contextID, stagedPlan,
 		sealed.SnapshotHash, initialChoices); err != nil {
 		t.Fatalf("review staged source rows: %v", err)
@@ -478,6 +492,80 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 		sealed.SnapshotHash, reviewHash)
 	if err != nil || applied.State != "applied" || applied.Applied != 4 || applied.Skipped != 1 {
 		t.Fatalf("fresh reviewed source group/member apply: %+v err=%v", applied, err)
+	}
+	var alertEntityID string
+	const alertAgentID, alertTarget = "source-rule-agent", "192.0.2.44"
+	if err := tenancy.InTenant(scopeA, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := sc.Q.QueryRow(ctx, `SELECT entity_id::text FROM nms_import_provenance
+			WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3
+			  AND object_kind='device' AND external_id='17'`, a.ID, contextID,
+			sourceID).Scan(&alertEntityID); err != nil {
+			return err
+		}
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts
+			(tenant_id,agent_id,context_id) VALUES ($1,$2,$3)`, a.ID,
+			alertAgentID, contextID); err != nil {
+			return err
+		}
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts
+			(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id)
+			VALUES ($1,$2,'device_target',$3,$4,$5)`, a.ID, alertAgentID,
+			alertTarget, contextID, alertEntityID); err != nil {
+			return err
+		}
+		_, err := sc.Q.Exec(ctx, `INSERT INTO agent_identities
+			(tenant_id,agent_id,spiffe_id,serial,not_after)
+			VALUES ($1,$2,$3,$4,clock_timestamp()+interval '1 hour')`, a.ID,
+			alertAgentID, "spiffe://probectl/tenant/"+a.ID+"/entity/"+alertAgentID,
+			uuid.NewString())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := capturer.PreviewLibreNMSAlertTarget(scopeA, contextID,
+		sourceID, "9", alertAgentID, alertTarget)
+	if err != nil || preview.EntityID != alertEntityID || preview.PlanID != stagedPlan ||
+		preview.Name != "Link down" || preview.Enabled {
+		t.Fatalf("configured source finite alert preview: %+v err=%v", preview, err)
+	}
+	beforeForeignAlert := requests.Load()
+	if _, err := capturer.ApplyLibreNMSAlertTarget(scopeB, contextID, sourceID,
+		"9", alertAgentID, alertTarget, stagedPlan, sealed.SnapshotHash,
+		alertEntityID, policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) ||
+		requests.Load() != beforeForeignAlert {
+		t.Fatalf("foreign alert apply reached source: requests=%d err=%v", requests.Load(), err)
+	}
+	ruleDrift.Store(true)
+	if _, err := capturer.ApplyLibreNMSAlertTarget(scopeA, contextID, sourceID,
+		"9", alertAgentID, alertTarget, stagedPlan, sealed.SnapshotHash,
+		alertEntityID, policy); !errors.Is(err, nmsimport.ErrSourceDrift) {
+		t.Fatalf("changed source rule passed receipt proof: %v", err)
+	}
+	if err := tenancy.InTenant(scopeA, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var count int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`,
+			a.ID).Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			return errors.New("source drift created an alert")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ruleDrift.Store(false)
+	createdAlert, err := capturer.ApplyLibreNMSAlertTarget(scopeA, contextID,
+		sourceID, "9", alertAgentID, alertTarget, stagedPlan,
+		sealed.SnapshotHash, alertEntityID, policy)
+	if err != nil || !createdAlert.Created || createdAlert.AlertRuleID == "" {
+		t.Fatalf("live source reviewed disabled alert apply: %+v err=%v", createdAlert, err)
+	}
+	repeatAlert, err := capturer.ApplyLibreNMSAlertTarget(scopeA, contextID,
+		sourceID, "9", alertAgentID, alertTarget, stagedPlan,
+		sealed.SnapshotHash, alertEntityID, policy)
+	if err != nil || repeatAlert.Created || repeatAlert.AlertRuleID != createdAlert.AlertRuleID {
+		t.Fatalf("live source alert repeated a write: %+v err=%v", repeatAlert, err)
 	}
 	// A later complete live capture may propose the one exact old member for
 	// removal. Its candidate is inert until the operator chooses remove and
