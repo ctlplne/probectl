@@ -220,7 +220,7 @@ describe('Tenant tag definitions in Admin', () => {
     expect(within(table).getByText('blue')).toBeInTheDocument()
 
     await user.type(
-      within(card).getByRole('textbox', { name: 'Canonical CIDR' }),
+      await within(card).findByRole('textbox', { name: 'Canonical CIDR' }),
       '198.51.100.0/24',
     )
     await user.type(within(card).getByRole('textbox', { name: 'Tag value' }), 'premium')
@@ -270,7 +270,10 @@ describe('Tenant tag definitions in Admin', () => {
     const user = userEvent.setup()
     expect(within(table).getByText('gold')).toBeInTheDocument()
 
-    await user.type(within(card).getByRole('textbox', { name: 'Owned target ID' }), 'device-2')
+    await user.type(
+      await within(card).findByRole('textbox', { name: 'Owned target ID' }),
+      'device-2',
+    )
     await user.type(within(card).getByRole('textbox', { name: 'Assignment value' }), 'silver')
     await user.click(within(card).getByRole('button', { name: 'Create assignment' }))
     await waitFor(() => expect(within(table).getByText('silver')).toBeInTheDocument())

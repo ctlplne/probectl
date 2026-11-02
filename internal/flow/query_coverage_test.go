@@ -226,9 +226,12 @@ func TestStoredQueryScannerRejectsCorruptionBeforeReturningConfiguration(t *test
 		t.Fatal(err)
 	}
 	good := viewScanFixture{definition: definition, version: 1}
-	item, err := scanQueryView(good)
+	item, err := scanQueryView(t.Context(), "red", good)
 	if err != nil || item.TenantID != "red" || item.OwnerID != "alice" || item.Version != "1" || item.Definition.Name != "Complete query" {
 		t.Fatalf("valid stored view failed: %+v %v", item, err)
+	}
+	if _, err := scanQueryView(t.Context(), "blue", good); !errors.Is(err, ErrQueryViewNotFound) {
+		t.Fatalf("foreign tenant view leaked through scanner: %v", err)
 	}
 	for name, bad := range map[string]viewScanFixture{
 		"missing":          {err: pgx.ErrNoRows},
@@ -239,12 +242,12 @@ func TestStoredQueryScannerRejectsCorruptionBeforeReturningConfiguration(t *test
 		"trailing content": {definition: append(append([]byte{}, definition...), []byte(` {}`)...), version: 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := scanQueryView(bad); err == nil {
+			if _, err := scanQueryView(t.Context(), "red", bad); err == nil {
 				t.Fatal("corrupt stored query returned to caller")
 			}
 		})
 	}
-	if _, err := scanQueryView(viewScanFixture{err: pgx.ErrNoRows}); !errors.Is(err, ErrQueryViewNotFound) {
+	if _, err := scanQueryView(t.Context(), "red", viewScanFixture{err: pgx.ErrNoRows}); !errors.Is(err, ErrQueryViewNotFound) {
 		t.Fatalf("missing query leaked storage detail: %v", err)
 	}
 	if _, err := NewPostgresQueryViewStore(nil, 0, nil).GetQueryView(context.Background(), "red", "alice", item.ID); err == nil {
