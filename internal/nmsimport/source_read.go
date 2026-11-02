@@ -35,7 +35,7 @@ type LibreNMSFetchPolicy struct {
 // for the chosen context and close the body after bounded streaming decode.
 func (s CaptureStore) OpenConfiguredLibreNMS(ctx context.Context, contextID,
 	planID, resource string, policy LibreNMSFetchPolicy) (io.ReadCloser, error) {
-	return s.openConfiguredLibreNMS(ctx, contextID, planID, resource, "", policy)
+	return s.openConfiguredLibreNMS(ctx, contextID, planID, resource, "", "", policy)
 }
 
 // CaptureConfiguredLibreNMSDevices is the focused live-source proof: it binds
@@ -58,13 +58,16 @@ func (s CaptureStore) CaptureConfiguredLibreNMSDevices(ctx context.Context,
 // lower-trust response or request cannot select an arbitrary URL segment.
 func (s CaptureStore) OpenConfiguredLibreNMSMembership(ctx context.Context,
 	contextID, planID, groupID string, policy LibreNMSFetchPolicy) (io.ReadCloser, error) {
-	return s.openConfiguredLibreNMS(ctx, contextID, planID, "membership", groupID, policy)
+	return s.openConfiguredLibreNMS(ctx, contextID, planID, "membership", groupID, "", policy)
 }
 
 func (s CaptureStore) openConfiguredLibreNMS(ctx context.Context, contextID,
-	planID, resource, groupID string, policy LibreNMSFetchPolicy) (io.ReadCloser, error) {
+	planID, resource, groupID, reviewHash string, policy LibreNMSFetchPolicy) (io.ReadCloser, error) {
 	if s.pool == nil || s.audit == nil {
 		return nil, ErrCaptureAuditUnavailable
+	}
+	if reviewHash != "" && (len(reviewHash) != 64 || !lowerHex(reviewHash)) {
+		return nil, ErrPlanUnavailable
 	}
 	contextUUID, err := uuid.Parse(contextID)
 	if err != nil || contextUUID == uuid.Nil {
@@ -88,9 +91,11 @@ func (s CaptureStore) openConfiguredLibreNMS(ctx context.Context, contextID,
 			FROM nms_import_plans p JOIN nms_import_sources s
 			  ON s.tenant_id=p.tenant_id AND s.context_id=p.context_id AND s.id=p.source_id
 			WHERE p.tenant_id=$1 AND p.context_id=$2 AND p.id=$3
-			  AND p.state='capturing' AND p.expires_at>clock_timestamp()
+			  AND (($4='' AND p.state='capturing') OR
+			       ($4<>'' AND p.review_hash=$4 AND p.state IN ('preview','applying')))
+			  AND p.expires_at>clock_timestamp()
 			  AND s.source_kind='librenms' AND s.fetch_enabled
-			FOR SHARE OF p,s`, sc.Tenant.String(), contextID, planID).
+			FOR SHARE OF p,s`, sc.Tenant.String(), contextID, planID, reviewHash).
 			Scan(&origin, &credentialRef, &planVersion, &sourceVersion)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrPlanUnavailable
@@ -113,8 +118,9 @@ func (s CaptureStore) openConfiguredLibreNMS(ctx context.Context, contextID,
 			}
 			err = sc.Q.QueryRow(ctx, `SELECT coalesce(label,'') FROM nms_import_rows
 				WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
-				  AND object_kind='group' AND external_id=$4 AND action='captured'`,
-				sc.Tenant.String(), contextID, planID, groupID).Scan(&name)
+				  AND object_kind='group' AND external_id=$4
+				  AND ($5<>'' OR action='captured')`,
+				sc.Tenant.String(), contextID, planID, groupID, reviewHash).Scan(&name)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrSourceUnavailable
 			}

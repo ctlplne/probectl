@@ -172,7 +172,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	}
 
 	var requests, deviceRequests, groupRequests, memberRequests atomic.Int32
-	var drift, deviceDrift atomic.Bool
+	var drift, deviceDrift, reviewDrift atomic.Bool
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.Header.Get("Authorization") != "Bearer fixture" {
@@ -189,7 +189,7 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 			_, _ = io.WriteString(w, `{"status":"ok","locations":[{"id":5,"location":"West"}],"count":1}`)
 		case "/api/v0/devicegroups":
 			name := "WAN"
-			if groupRequests.Add(1)%2 == 0 && drift.Load() {
+			if groupRequests.Add(1)%2 == 0 && drift.Load() || reviewDrift.Load() {
 				name = "WAN-renamed"
 			}
 			_, _ = io.WriteString(w, fmt.Sprintf(`[{"status":"ok","groups":[{"id":7,"name":%q}],"count":1}]`, name))
@@ -432,6 +432,91 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 	if _, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA, contextID,
 		stagedPlan, policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
 		t.Fatalf("sealed staged capture advanced twice: %v", err)
+	}
+	choices := make([]nmsimport.ReviewChoice, 5)
+	for index := range choices {
+		choices[index] = nmsimport.ReviewChoice{RowNumber: int64(index), Action: "skip"}
+	}
+	if err := capturer.SetReviewChoices(scopeA, contextID, stagedPlan,
+		sealed.SnapshotHash, choices); err != nil {
+		t.Fatalf("review staged source rows: %v", err)
+	}
+	reviewHash, err := capturer.FinalizeReview(scopeA, contextID, stagedPlan,
+		sealed.SnapshotHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := capturer.ApplyReview(scopeA, contextID, stagedPlan,
+		sealed.SnapshotHash, reviewHash); !errors.Is(err, nmsimport.ErrReviewStale) {
+		t.Fatalf("live source applied without post-review proof: %v", err)
+	}
+	beforeForeignVerify := requests.Load()
+	if _, err := capturer.VerifyNextConfiguredLibreNMSForApply(scopeB, contextID,
+		stagedPlan, sealed.SnapshotHash, reviewHash, policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) ||
+		requests.Load() != beforeForeignVerify {
+		t.Fatalf("foreign review proof reached source: requests=%d err=%v", requests.Load(), err)
+	}
+	for index, stage := range []string{"devices", "locations", "groups", "memberships", "rules"} {
+		progress, err := capturer.VerifyNextConfiguredLibreNMSForApply(scopeA,
+			contextID, stagedPlan, sealed.SnapshotHash, reviewHash, policy)
+		if err != nil || progress.VerifiedStage != stage || progress.Pages != 1 ||
+			progress.Rows != 1 || progress.Ready != (index == 4) {
+			t.Fatalf("post-review source step %s: %+v err=%v", stage, progress, err)
+		}
+	}
+	applied, err := capturer.ApplyReview(scopeA, contextID, stagedPlan,
+		sealed.SnapshotHash, reviewHash)
+	if err != nil || applied.State != "applied" || applied.Skipped != 5 {
+		t.Fatalf("fresh reviewed source skip-only apply: %+v err=%v", applied, err)
+	}
+	if _, err := capturer.VerifyNextConfiguredLibreNMSForApply(scopeA, contextID,
+		stagedPlan, sealed.SnapshotHash, reviewHash, policy); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("applied plan fetched source again: %v", err)
+	}
+	staleReviewPlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
+		"config-lab", strings.Repeat("3", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 11 {
+		if _, err := capturer.CaptureNextConfiguredLibreNMSStage(scopeA,
+			contextID, staleReviewPlan, policy); err != nil {
+			t.Fatalf("capture post-review drift plan: %v", err)
+		}
+	}
+	var staleSnapshot string
+	if err := tenancy.InTenant(scopeA, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx, `SELECT snapshot_hash FROM nms_import_plans
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextID,
+			staleReviewPlan).Scan(&staleSnapshot)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := capturer.SetReviewChoices(scopeA, contextID, staleReviewPlan,
+		staleSnapshot, choices); err != nil {
+		t.Fatal(err)
+	}
+	staleReviewHash, err := capturer.FinalizeReview(scopeA, contextID,
+		staleReviewPlan, staleSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewDrift.Store(true)
+	for _, stage := range []string{"devices", "locations"} {
+		progress, err := capturer.VerifyNextConfiguredLibreNMSForApply(scopeA,
+			contextID, staleReviewPlan, staleSnapshot, staleReviewHash, policy)
+		if err != nil || progress.VerifiedStage != stage {
+			t.Fatalf("post-review drift setup stage %s: %+v err=%v", stage, progress, err)
+		}
+	}
+	if _, err := capturer.VerifyNextConfiguredLibreNMSForApply(scopeA,
+		contextID, staleReviewPlan, staleSnapshot, staleReviewHash, policy); !errors.Is(err, nmsimport.ErrSourceDrift) {
+		t.Fatalf("changed reviewed group inventory passed proof: %v", err)
+	}
+	reviewDrift.Store(false)
+	if _, err := capturer.ApplyReview(scopeA, contextID, staleReviewPlan,
+		staleSnapshot, staleReviewHash); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+		t.Fatalf("stale source plan applied after drift: %v", err)
 	}
 	driftStagePlan, err := capturer.StartPlan(scopeA, contextID, nmsimport.LibreNMS,
 		"config-lab", strings.Repeat("2", 64))

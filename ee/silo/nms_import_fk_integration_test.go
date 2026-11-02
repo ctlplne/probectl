@@ -206,8 +206,39 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		DROP COLUMN target_fingerprint`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_plans
+		DROP CONSTRAINT IF EXISTS nms_import_plans_apply_verified_hash_check`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_plans
+		DROP COLUMN apply_verified_review_hash, DROP COLUMN apply_verified_at`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_capture_steps
+		DROP COLUMN apply_verified_at`); err != nil {
+		t.Fatal(err)
+	}
 	if err := prov.CatchUpSchema(ctx, a); err != nil {
-		t.Fatalf("catch up import target revision in existing silo: %v", err)
+		t.Fatalf("catch up import review proof in existing silo: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_plans
+		SET apply_verified_review_hash='bad',apply_verified_at=clock_timestamp()
+		WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a, contextA, planA); err == nil {
+		t.Fatal("caught-up silo accepted a malformed apply proof hash")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_plans
+		SET apply_verified_review_hash=$4,apply_verified_at=clock_timestamp()
+		WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a, contextA, planA,
+		strings.Repeat("d", 64)); err != nil {
+		t.Fatalf("caught-up silo rejected a valid apply proof hash: %v", err)
+	}
+	var hasStageProof bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		WHERE table_schema=$1 AND table_name='nms_import_capture_steps'
+		  AND column_name='apply_verified_at')`, strings.Trim(schemaA, `"`)).
+		Scan(&hasStageProof); err != nil || !hasStageProof {
+		t.Fatalf("caught-up silo missing endpoint proof column: present=%t err=%v",
+			hasStageProof, err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_rows
 		SET target_fingerprint='bad' WHERE tenant_id=$1 AND context_id=$2

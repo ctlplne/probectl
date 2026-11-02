@@ -141,6 +141,7 @@ symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureLibreN
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureConfiguredLibreNMSDevices — FX-2b draft live-device proof; direct real-source test uses it until the full authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.CaptureConfiguredLibreNMSInventory — FX-2b draft complete live-source capture; direct real-source test uses it until the authorized route is wired
 symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.ApplyReview — FX-2b destination writer is kept unexposed until post-review source freshness and every supported mapping are checked; the paired-tenant integration suite exercises the transaction
+symbol github.com/ctlplne/probectl/internal/nmsimport.CaptureStore.VerifyNextConfiguredLibreNMSForApply — FX-2b reviewed-source proof advances one endpoint per request; paired-tenant integration exercises it while the authorized route is completed
 symbol github.com/ctlplne/probectl/internal/govern.Reset — process-global reset for governance test hermeticity
 symbol github.com/ctlplne/probectl/internal/alert.SeverityCritical — severity vocabulary member constructed by dependent packages' fixtures
 symbol github.com/ctlplne/probectl/internal/remediation.StateApplied — remediation state vocabulary member asserted by ee workflow tests

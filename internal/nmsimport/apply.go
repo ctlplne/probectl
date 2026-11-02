@@ -93,6 +93,19 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 		if meta.state == "applied" {
 			return nil
 		}
+		if meta.configVersion != 0 {
+			var proofCurrent bool
+			if err := sc.Q.QueryRow(ctx, `SELECT coalesce(
+				apply_verified_review_hash=$4 AND
+				apply_verified_at>clock_timestamp()-interval '60 seconds',false)
+				FROM nms_import_plans WHERE tenant_id=$1 AND context_id=$2 AND id=$3`,
+				sc.Tenant.String(), contextID, planID, reviewHash).Scan(&proofCurrent); err != nil {
+				return err
+			}
+			if !proofCurrent {
+				return ErrReviewStale
+			}
+		}
 		rows, err := sc.Q.Query(ctx, `SELECT row_number,object_kind,external_id,
 			coalesce(label,''),coalesce(hostname,''),coalesce(address,''),action,
 			coalesce(target_entity_id::text,''),coalesce(target_fingerprint,''),
@@ -177,7 +190,18 @@ func (s CaptureStore) ApplyReview(ctx context.Context, contextID, planID,
 		if progress.Remaining == 0 {
 			progress.State = "applied"
 		}
-		command, err := sc.Q.Exec(ctx, `UPDATE nms_import_plans SET state=$4
+		// A live plan must re-read every source endpoint before its next
+		// bounded chunk. The old proof cannot authorize a later write.
+		if meta.configVersion != 0 {
+			if _, err := sc.Q.Exec(ctx, `UPDATE nms_import_capture_steps
+				SET apply_verified_at=NULL
+				WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`,
+				sc.Tenant.String(), contextID, planID); err != nil {
+				return err
+			}
+		}
+		command, err := sc.Q.Exec(ctx, `UPDATE nms_import_plans SET state=$4,
+			apply_verified_review_hash=NULL,apply_verified_at=NULL
 			WHERE tenant_id=$1 AND context_id=$2 AND id=$3
 			  AND state IN ('preview','applying')`, sc.Tenant.String(), contextID,
 			planID, progress.State)

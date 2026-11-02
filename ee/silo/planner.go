@@ -263,6 +263,24 @@ END $fx2_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
     END IF;
 END $fx2b_target_revision$`, quoteLiteral(schema), quoteLiteral(rows), rows))
 	}
+	if owned["nms_import_plans"] {
+		// A pre-existing physical silo receives the new columns through the
+		// generic catch-up plan, but needs the proof-pair CHECK explicitly.
+		plans := quoteIdent(schema) + `."nms_import_plans"`
+		plan = append(plan, fmt.Sprintf(`DO $fx2b_apply_proof$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema=%s AND table_name='nms_import_plans'
+                 AND column_name='apply_verified_review_hash')
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint
+                       WHERE conrelid=%s::regclass
+                         AND conname='nms_import_plans_apply_verified_hash_check') THEN
+        ALTER TABLE %s ADD CONSTRAINT nms_import_plans_apply_verified_hash_check
+            CHECK ((apply_verified_review_hash IS NULL) = (apply_verified_at IS NULL)
+                   AND (apply_verified_review_hash IS NULL OR
+                        apply_verified_review_hash ~ '^[0-9a-f]{64}$')) NOT VALID;
+    END IF;
+END $fx2b_apply_proof$`, quoteLiteral(schema), quoteLiteral(plans), plans))
+	}
 	// CREATE TABLE LIKE does not copy triggers. Keep the path-target edit
 	// invalidation inside the silo schema as well as in public, including on
 	// catch-up of a silo that predates FX-2.
