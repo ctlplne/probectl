@@ -108,7 +108,13 @@ function view(name = 'Red private view'): SavedFlowQueryView {
   }
 }
 
-function IdentityHarness({ withEntities = false }: { withEntities?: boolean }) {
+function IdentityHarness({
+  withEntities = false,
+  withTags = false,
+}: {
+  withEntities?: boolean
+  withTags?: boolean
+}) {
   const [tenant, setTenant] = useState('red')
   return (
     <AuthContext.Provider
@@ -122,6 +128,7 @@ function IdentityHarness({ withEntities = false }: { withEntities?: boolean }) {
           'flow.views.write',
           'flow.filters.write',
           ...(withEntities ? ['entities.read'] : []),
+          ...(withTags ? ['tags.read'] : []),
         ],
         switchTenant: () => {},
         signOut: () => {},
@@ -133,24 +140,34 @@ function IdentityHarness({ withEntities = false }: { withEntities?: boolean }) {
   )
 }
 
-function mount(path = '/explore?native_flow=1', basename?: string, withEntities = false) {
+function mount(
+  path = '/explore?native_flow=1',
+  basename?: string,
+  withEntities = false,
+  withTags = false,
+) {
   return render(
     <Providers>
       <MemoryRouter basename={basename} initialEntries={[path]}>
-        <IdentityHarness withEntities={withEntities} />
+        <IdentityHarness withEntities={withEntities} withTags={withTags} />
       </MemoryRouter>
     </Providers>,
   )
 }
 
-function fixture(handler?: typeof fetch) {
+function fixture(handler?: typeof fetch, publishedSchema: FlowExplorerSchema = schema) {
   const base = defaultFetch()
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = pathOf(input)
       if (path === '/v1/explorer/schema')
-        return jsonResponse({ flow: schema, templates: [], visualizations: [], max_rows: 50000 })
+        return jsonResponse({
+          flow: publishedSchema,
+          templates: [],
+          visualizations: [],
+          max_rows: 50000,
+        })
       if (path === '/v1/explorer/flow-filters') return jsonResponse({ items: [] })
       if (handler) return handler(input, init)
       if (path === '/v1/explorer/flow-views') return jsonResponse({ items: [] })
@@ -160,6 +177,50 @@ function fixture(handler?: typeof fetch) {
 }
 
 describe('native flow workspace', () => {
+  test('uses the authenticated tag field in the builder and labels unmatched retained history', async () => {
+    const taggedSchema: FlowExplorerSchema = {
+      ...schema,
+      fields: [
+        ...schema.fields,
+        {
+          name: 'tag.customer',
+          type: 'text',
+          operators: ['eq', 'ne', 'in', 'not_in'],
+          raw_available: true,
+          rollup_available: true,
+          legacy_hourly_available: false,
+        },
+      ],
+    }
+    const queries: FlowQueryPlan[] = []
+    fixture(async (input, init) => {
+      if (pathOf(input) === '/v1/explorer/flow-views') return jsonResponse({ items: [] })
+      if (pathOf(input) === '/v1/explorer/query') {
+        const body = JSON.parse(String(init?.body)) as { flow: FlowQueryPlan }
+        queries.push(body.flow)
+        const tagged = result(0, 1)
+        tagged.flow!.query = body.flow
+        tagged.flow!.tag_revision = 7
+        tagged.flow!.rows = [
+          {
+            group: { 'tag.customer': '' },
+            other: false,
+            metrics: { 'bytes:total': '9007199254740993' },
+          },
+        ]
+        return jsonResponse(tagged)
+      }
+      return defaultFetch()(input, init)
+    }, taggedSchema)
+    const user = userEvent.setup()
+    mount('/explore?native_flow=1', undefined, false, true)
+    await user.selectOptions(await screen.findByLabelText('Group by dimension 1'), 'tag.customer')
+    await user.click(screen.getByRole('button', { name: 'Run flow query' }))
+    await waitFor(() => expect(queries[0]?.group_by).toEqual(['tag.customer']))
+    expect(await screen.findByText('tag.customer: Unmatched')).toBeInTheDocument()
+    expect(screen.getByText(/Tenant tag revision 7/)).toBeInTheDocument()
+  })
+
   test('natural language previews a stateless plan and only explicit Run reads telemetry', async () => {
     const requests: Record<string, unknown>[] = []
     fixture(async (input, init) => {
