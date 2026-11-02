@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Use of this source code is governed by the Business Source License 1.1
+# in the LICENSE file at the root of this repository; on its Change Date
+# each version converts to the Mozilla Public License 2.0.
+
+# Disposable source application for the NetBox integration proof. No product
+# deployment consumes these services. Credentials and keys are generated per run.
+services:
+  netbox-db:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae
+    environment:
+      POSTGRES_USER: netbox
+      POSTGRES_DB: netbox
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+    volumes:
+      - ${PROBECTL_TEST_NETBOX_RUNTIME_DIR:?}:/fixture:ro
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        install -o postgres -g postgres -m 600 /fixture/db.key /tmp/db.key
+        install -o postgres -g postgres -m 644 /fixture/db.crt /tmp/db.crt
+        install -o postgres -g postgres -m 600 /fixture/pg_hba.conf /tmp/pg_hba.conf
+        exec docker-entrypoint.sh postgres -c ssl=on -c ssl_min_protocol_version=TLSv1.2 -c ssl_cert_file=/tmp/db.crt -c ssl_key_file=/tmp/db.key -c hba_file=/tmp/pg_hba.conf
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "netbox", "-d", "netbox"]
+      interval: 3s
+      retries: 40
+    mem_limit: 512m
+    cpus: 1
+    networks: [source]
+
+  netbox-cache:
+    image: valkey/valkey:8.1-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
+    user: "0:0"
+    environment:
+      VALKEYCLI_AUTH: ${CACHE_PASSWORD:?}
+    volumes:
+      - ${PROBECTL_TEST_NETBOX_RUNTIME_DIR:?}:/fixture:ro
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        install -o valkey -g valkey -m 600 /fixture/cache.key /tmp/cache.key
+        install -o valkey -g valkey -m 644 /fixture/cache.crt /tmp/cache.crt
+        install -o valkey -g valkey -m 644 /fixture/ca.crt /tmp/ca.crt
+        install -o valkey -g valkey -m 600 /fixture/valkey.conf /tmp/valkey.conf
+        exec docker-entrypoint.sh valkey-server /tmp/valkey.conf
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "valkey-cli",
+          "--tls",
+          "--cacert",
+          "/tmp/ca.crt",
+          "-h",
+          "netbox-cache",
+          "ping",
+        ]
+      interval: 3s
+      retries: 40
+    mem_limit: 256m
+    cpus: 1
+    networks: [source]
+
+  netbox:
+    image: ghcr.io/netbox-community/netbox:v4.4.5-3.4.1@sha256:19abbe2e6e7571a6e164727cbf1ca6940878495ae8306daec8eddb82305b0681
+    user: "0:0"
+    depends_on:
+      netbox-db:
+        condition: service_healthy
+      netbox-cache:
+        condition: service_healthy
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:?}
+      CACHE_PASSWORD: ${CACHE_PASSWORD:?}
+      SECRET_KEY: ${SECRET_KEY:?}
+      NETBOX_CONFIGURATION: netbox.probectl_ci_configuration
+      SSL_CERT_FILE: /opt/netbox/ci-ca.crt
+      SKIP_SUPERUSER: "true"
+      MAX_DB_WAIT_TIME: "90"
+      CENSUS_REPORTING_ENABLED: "false"
+      ISOLATED_DEPLOYMENT: "true"
+    volumes:
+      - ${PROBECTL_TEST_NETBOX_RUNTIME_DIR:?}:/fixture:ro
+      - ./launch.sh:/opt/probectl-ci-launch.sh:ro
+    command: ["/bin/bash", "/opt/probectl-ci-launch.sh"]
+    ports:
+      - "127.0.0.1:18443:8443"
+    mem_limit: 1536m
+    cpus: 2
+    networks: [source]
+
+networks:
+  source:
+    internal: true

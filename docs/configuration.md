@@ -2255,6 +2255,11 @@ NetBox tenant. An outage can serve that tenant's stale enrichment, but a known
 ownership mismatch evicts the old entry. Reviewed tag import requires a fresh
 source read; stale enrichment never authorizes an import.
 
+The CI-only real NetBox source proof uses `PROBECTL_TEST_NETBOX_REQUIRED=1`
+and `PROBECTL_TEST_NETBOX_FIXTURE` for its private runtime manifest. These are
+test harness settings, not deployment configuration. See the
+[source fixture and proof scope](../test/netbox/README.md).
+
 ### Cloud metric import
 
 `probectl-cloud-metrics` imports already-exported AWS CloudWatch, Azure Monitor,

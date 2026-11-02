@@ -1205,6 +1205,25 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
+      - name: Start real NetBox source with native TLS and a read-only token
+        run: |
+          python3 scripts/ci_netbox.py selftest
+          python3 scripts/ci_netbox.py start
+      - name: Real NetBox tenant mapping and fresh-preview proof
+        env:
+          PROBECTL_TEST_NETBOX_REQUIRED: "1"
+        run: go test -tags integration -count=1 -timeout=5m -v -run '^TestNetBoxLiveTenantMappingAndFreshPreview$' ./internal/cmdb
+      - name: Upload nonsecret NetBox provider receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: netbox-provider-receipt
+          if-no-files-found: error
+          path: |
+            /tmp/probectl-qa-beta-netbox/receipt.json
+            /tmp/probectl-qa-beta-netbox/provider-proof.json
+      - name: Remove the exact owned NetBox source and runtime secrets
+        if: always()
+        run: python3 scripts/ci_netbox.py cleanup
       - name: Start TLS Postgres (verify-full, test CA — OPS-010)
         run: ./scripts/ci_pg_tls.sh
       - name: Start Prometheus with the remote-write receiver and the admin API
