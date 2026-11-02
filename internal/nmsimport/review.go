@@ -450,7 +450,7 @@ func (s CaptureStore) FinalizeReview(ctx context.Context, contextID, planID,
 			    OR NOT EXISTS (SELECT 1 FROM nms_import_rows d
 			       WHERE d.tenant_id=m.tenant_id AND d.context_id=m.context_id
 			         AND d.plan_id=m.plan_id AND d.object_kind='device'
-			         AND d.external_id=split_part(m.external_id,':',2)
+			         AND d.external_id=substr(m.external_id,strpos(m.external_id,':')+1)
 			         AND d.action IN ('create','update')))`, sc.Tenant.String(),
 			contextID, planID).Scan(&unsupportedMembers); err != nil {
 			return err

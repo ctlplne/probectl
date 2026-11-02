@@ -23,25 +23,29 @@ func TestNormalizePlanPageKeepsUnmappedObjectsWithoutSourceSecrets(t *testing.T)
 	const routingContext = "00000000-0000-4000-8000-000000000003"
 	const generation = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	a, err := normalizePlanPage(tenantA, routingContext, "lab", generation, Zabbix, snapshot, 10)
-	if err != nil || len(a) != 4 {
+	if err != nil || len(a) != 5 {
 		t.Fatalf("normalize = %v, %d rows", err, len(a))
 	}
 	if a[0].ObjectKind != "group" || a[1].ObjectKind != "device" ||
-		a[2].ObjectKind != "poll_setting" || a[3].ObjectKind != "alert_rule" {
+		a[2].ObjectKind != "membership" || a[3].ObjectKind != "poll_setting" ||
+		a[4].ObjectKind != "alert_rule" {
 		t.Fatalf("unexpected plan row kinds: %+v", a)
 	}
-	for i := 2; i <= 3; i++ {
+	if a[2].ExternalID != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:r1" || !a[2].ReviewOnly {
+		t.Fatalf("Zabbix membership lost its exact review-only source pair: %+v", a[2])
+	}
+	for i := 3; i <= 4; i++ {
 		if a[i].RowNumber != int64(10+i) || !a[i].ReviewOnly ||
 			a[i].ParentID != "r1" ||
 			!strings.HasPrefix(a[i].ExternalID, "unmapped-") || len(a[i].ExternalID) != len("unmapped-")+32 {
 			t.Fatalf("missing source UUID became an apply candidate or raw ID: %+v", a[i])
 		}
 	}
-	if a[2].ExternalID == a[3].ExternalID {
+	if a[3].ExternalID == a[4].ExternalID {
 		t.Fatal("unmapped item and trigger share a review key")
 	}
 	b, err := normalizePlanPage(tenantB, routingContext, "lab", generation, Zabbix, snapshot, 10)
-	if err != nil || b[2].ExternalID == a[2].ExternalID {
+	if err != nil || b[3].ExternalID == a[3].ExternalID {
 		t.Fatal("review key is not tenant bound")
 	}
 	encoded, err := json.Marshal(a)
@@ -128,5 +132,36 @@ func TestNormalizeLibreNMSMembershipIsScopedReviewOnly(t *testing.T) {
 	if _, err := normalizePlanPage(tenant, routingContext, "lab", generation,
 		Zabbix, Snapshot{Source: Zabbix, Rows: []Row{base}}, 4); err == nil {
 		t.Fatal("accepted LibreNMS membership under another source kind")
+	}
+}
+
+func TestNormalizeZabbixMembershipRequiresExactSourcePair(t *testing.T) {
+	const tenant = "00000000-0000-4000-8000-000000000001"
+	const routingContext = "00000000-0000-4000-8000-000000000003"
+	const generation = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	base := Row{Kind: "membership", ExternalID: "748ad4d098d447d492bb935c907f652f:edge:r1",
+		UnmappedCodes: []string{"group_unmapped"}}
+	rows, err := normalizePlanPage(tenant, routingContext, "lab", generation, Zabbix,
+		Snapshot{Source: Zabbix, Rows: []Row{base}}, 0)
+	if err != nil || len(rows) != 1 || rows[0].ExternalID != base.ExternalID ||
+		!rows[0].ReviewOnly {
+		t.Fatalf("Zabbix membership must remain an exact reviewed pair: %+v err=%v", rows, err)
+	}
+	for _, id := range []string{
+		"7:11", "748ad4d098d447d492bb935c907f652f:",
+		"748ad4d098d447d492bb935c907f652f: edge-r1",
+		"748ad4d098d447d492bb935c907f652f:edge\nr1",
+		"748AD4D098D447D492BB935C907F652F:edge-r1",
+	} {
+		candidate := base
+		candidate.ExternalID = id
+		if _, err := normalizePlanPage(tenant, routingContext, "lab", generation,
+			Zabbix, Snapshot{Source: Zabbix, Rows: []Row{candidate}}, 0); err == nil {
+			t.Errorf("accepted invalid Zabbix member pair %q", id)
+		}
+	}
+	if _, err := normalizePlanPage(tenant, routingContext, "lab", generation,
+		LibreNMS, Snapshot{Source: LibreNMS, Rows: []Row{base}}, 0); err == nil {
+		t.Fatal("accepted Zabbix member pair under LibreNMS source")
 	}
 }

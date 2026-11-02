@@ -459,11 +459,9 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 		}
 		seenGroupIDs[id] = struct{}{}
 		groupIDs[name] = id
-		// The group itself is a reviewable destination candidate. Host group
-		// memberships still need separate reviewed pair rows; name the
-		// residual rather than letting the host's group IDs imply an apply.
+		// Group creation and each host membership remain separate review choices.
 		out.Rows = append(out.Rows, Row{Kind: "group", ExternalID: id, Label: name,
-			UnmappedCodes: []string{"group_unmapped", "membership_not_captured"}})
+			UnmappedCodes: []string{"group_unmapped"}})
 	}
 	seenHostIDs := make(map[string]struct{}, len(export.Zabbix.Hosts))
 	for _, host := range export.Zabbix.Hosts {
@@ -480,7 +478,12 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 			label = safeLabel(id)
 		}
 		row := Row{Kind: "device", ExternalID: id, Label: label}
+		seenHostGroups := make(map[string]struct{}, len(host.Groups))
 		for _, group := range host.Groups {
+			if _, duplicate := seenHostGroups[group.Name]; duplicate {
+				return Snapshot{}, ErrInvalidPage
+			}
+			seenHostGroups[group.Name] = struct{}{}
 			if groupID, ok := groupIDs[group.Name]; ok {
 				row.GroupIDs = append(row.GroupIDs, groupID)
 			} else {
@@ -507,6 +510,11 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 			row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
 		}
 		out.Rows = append(out.Rows, row)
+		for _, groupID := range row.GroupIDs {
+			out.Rows = append(out.Rows, Row{Kind: "membership",
+				ExternalID:    groupID + ":" + id,
+				UnmappedCodes: []string{"group_unmapped"}})
+		}
 		var hostPollSeconds int64
 		var hostPollBlocked bool
 		var eligiblePollRows []int

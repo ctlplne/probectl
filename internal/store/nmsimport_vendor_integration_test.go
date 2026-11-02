@@ -25,6 +25,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/nmsimport"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // The dedicated CI job captures these bytes from running, digest-pinned
@@ -37,7 +38,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 		if os.Getenv("PROBECTL_TEST_REQUIRE_NMS_VENDOR") == "1" {
 			t.Fatal("required real NMS vendor fixture is unavailable")
 		}
-		t.Skip("dedicated real NMS vendor job supplies the fixture")
+		testsupport.SkipOrFatal(t, "dedicated real NMS vendor job supplies the fixture")
 	}
 	read := func(name string) []byte {
 		t.Helper()
@@ -169,7 +170,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 			libreReview, -1, 100); err != nil {
 			t.Fatalf("dry-run live LibreNMS review: %v", err)
 		}
-		assertNoVendorWrites(t, ctx, pool, tenant, contextID)
+		assertNoVendorWrites(ctx, t, pool, tenant, contextID)
 		if tenant == a.ID {
 			foreignCtx := tenancy.WithTenant(ctx, tenancy.ID(b.ID))
 			if _, err := capturer.ListSealedRows(foreignCtx, contextID, librePlan, -1, 10); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
@@ -216,19 +217,27 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 		}
 		zabbixChoices := make([]nmsimport.ReviewChoice, 0, len(zabbixRows.Items))
 		zabbixSeen := map[string]bool{}
+		zabbixGroupID := ""
 		for _, row := range zabbixRows.Items {
 			choice := nmsimport.ReviewChoice{RowNumber: row.Number, Action: "skip"}
 			switch {
 			case row.Kind == "group" && row.Label == manifest.Zabbix.GroupName:
-				if !strings.Contains(strings.Join(row.UnmappedCodes, ","), "membership_not_captured") {
-					t.Fatal("Zabbix group membership omission was not listed")
+				if !strings.Contains(strings.Join(row.UnmappedCodes, ","), "group_unmapped") {
+					t.Fatal("Zabbix group was not a review-only source candidate")
 				}
+				zabbixGroupID = row.ExternalID
 				choice.Action, zabbixSeen["group"] = "create", true
 			case row.Kind == "device" && row.ExternalID == manifest.Zabbix.HostKey:
 				if row.Address != "192.0.2.40" || row.Label != "Fixture Edge R1" || len(row.GroupIDs) != 1 {
 					t.Fatalf("Zabbix host mapped fields changed: %+v", row)
 				}
 				choice.Action, zabbixSeen["device"] = "create", true
+			case row.Kind == "membership":
+				if row.ExternalID != zabbixGroupID+":"+manifest.Zabbix.HostKey ||
+					!strings.Contains(strings.Join(row.UnmappedCodes, ","), "group_unmapped") {
+					t.Fatalf("Zabbix member is not the exact source pair: %+v", row)
+				}
+				choice.Action, zabbixSeen["membership"] = "create", true
 			case row.Kind == "poll_setting" && row.ParentID == manifest.Zabbix.HostKey:
 				if row.PollSeconds != 15 || !strings.Contains(strings.Join(row.UnmappedCodes, ","), "poll_proposal") {
 					t.Fatalf("Zabbix SNMP cadence not retained: %+v", row)
@@ -242,7 +251,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 			}
 			zabbixChoices = append(zabbixChoices, choice)
 		}
-		for _, key := range []string{"group", "device", "poll", "rule_unmapped"} {
+		for _, key := range []string{"group", "device", "membership", "poll", "rule_unmapped"} {
 			if !zabbixSeen[key] {
 				t.Fatalf("live Zabbix %s was not captured", key)
 			}
@@ -262,7 +271,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 		}
 		zabbixProgress, err := capturer.ApplyReview(tenantCtx, contextID, zabbixPlan,
 			zabbixSnapshot, zabbixReview)
-		if err != nil || zabbixProgress.State != "applied" || zabbixProgress.Applied != 3 {
+		if err != nil || zabbixProgress.State != "applied" || zabbixProgress.Applied != 4 {
 			t.Fatalf("apply live Zabbix inventory: %+v err=%v", zabbixProgress, err)
 		}
 		zabbixRetry, err := capturer.ApplyReview(tenantCtx, contextID, zabbixPlan,
@@ -306,7 +315,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 	for _, tenant := range []string{a.ID, b.ID} {
 		bound := byTenant[tenant]
 		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			var libreGroup, libreMember, zabbixGroup, pollProposal, alertRules, foreign int
+			var libreGroup, libreMember, zabbixGroup, zabbixMember, pollProposal, alertRules, foreign int
 			for _, item := range []struct {
 				query string
 				out   *int
@@ -318,6 +327,8 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 					&libreMember, []any{tenant, contextID, bound.libreSource, manifest.LibreNMS.GroupID, manifest.LibreNMS.DeviceID}},
 				{`SELECT count(*) FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3`,
 					&zabbixGroup, []any{tenant, contextID, bound.zabbixSource}},
+				{`SELECT count(*) FROM nms_import_group_members WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND member_external_id=$4`,
+					&zabbixMember, []any{tenant, contextID, bound.zabbixSource, manifest.Zabbix.HostKey}},
 				{`SELECT count(*) FROM nms_import_poll_proposals WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND host_external_id=$4 AND poll_seconds=15`,
 					&pollProposal, []any{tenant, contextID, bound.zabbixSource, manifest.Zabbix.HostKey}},
 				{`SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, &alertRules, []any{tenant}},
@@ -328,10 +339,10 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 					return err
 				}
 			}
-			if libreGroup != 1 || libreMember != 1 || zabbixGroup != 1 || pollProposal != 1 ||
+			if libreGroup != 1 || libreMember != 1 || zabbixGroup != 1 || zabbixMember != 1 || pollProposal != 1 ||
 				alertRules != 0 || foreign != 0 {
-				t.Fatalf("real vendor destination tenant boundary: libreGroup=%d libreMember=%d zabbixGroup=%d poll=%d alerts=%d foreign=%d",
-					libreGroup, libreMember, zabbixGroup, pollProposal, alertRules, foreign)
+				t.Fatalf("real vendor destination tenant boundary: libreGroup=%d libreMember=%d zabbixGroup=%d zabbixMember=%d poll=%d alerts=%d foreign=%d",
+					libreGroup, libreMember, zabbixGroup, zabbixMember, pollProposal, alertRules, foreign)
 			}
 			return nil
 		})
@@ -341,7 +352,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 	}
 }
 
-func assertNoVendorWrites(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, contextID string) {
+func assertNoVendorWrites(ctx context.Context, t *testing.T, pool *pgxpool.Pool, tenant, contextID string) {
 	t.Helper()
 	inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
 		var entities, groups, members, proposals int

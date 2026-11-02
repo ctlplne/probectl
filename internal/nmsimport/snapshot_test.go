@@ -81,15 +81,19 @@ func TestZabbixExportKeepsGroupUUIDAndListsNestedUnmappedTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Version != "7.4" || len(got.Rows) != 4 {
-		t.Fatalf("expected group, host, item and trigger rows: %+v", got)
+	if got.Version != "7.4" || len(got.Rows) != 5 {
+		t.Fatalf("expected group, host, member, item and trigger rows: %+v", got)
 	}
 	if got.Rows[0].ExternalID != "748ad4d098d447d492bb935c907f652f" || got.Rows[1].ExternalID != "edge-r1" ||
 		got.Rows[1].Address != "10.0.0.1" || len(got.Rows[1].GroupIDs) != 1 ||
-		got.Rows[1].GroupIDs[0] != "748ad4d098d447d492bb935c907f652f" || got.Rows[3].ExternalID != "aaaaaaaabbbbccccddddffffffffffff" ||
-		got.Rows[2].PollSeconds != 30 ||
-		got.Rows[2].ParentID != "edge-r1" || got.Rows[3].ParentID != "edge-r1" ||
-		!contains(got.Rows[3].UnmappedCodes, "expression_unmapped") {
+		got.Rows[1].GroupIDs[0] != "748ad4d098d447d492bb935c907f652f" ||
+		got.Rows[2].Kind != "membership" ||
+		got.Rows[2].ExternalID != "748ad4d098d447d492bb935c907f652f:edge-r1" ||
+		!contains(got.Rows[2].UnmappedCodes, "group_unmapped") ||
+		got.Rows[4].ExternalID != "aaaaaaaabbbbccccddddffffffffffff" ||
+		got.Rows[3].PollSeconds != 30 ||
+		got.Rows[3].ParentID != "edge-r1" || got.Rows[4].ParentID != "edge-r1" ||
+		!contains(got.Rows[4].UnmappedCodes, "expression_unmapped") {
 		t.Fatalf("documented identity or unmapped status lost: %+v", got.Rows)
 	}
 	wire, err := json.Marshal(got)
@@ -189,11 +193,22 @@ func TestZabbixExportRejectsAmbiguousSourceKeys(t *testing.T) {
 		`{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"A"},{"uuid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"B"}],"hosts":[]}}`,
 		`{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge"},{"host":"edge"}]}}`,
 		`{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"secret-token-123","name":"A"}],"hosts":[]}}`,
+		`{"zabbix_export":{"version":"7.4","host_groups":[{"uuid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"A"}],"hosts":[{"host":"edge","groups":[{"name":"A"},{"name":"A"}]}]}}`,
 	} {
 		_, err := parseZabbixHosts(strings.NewReader(raw))
 		if !errors.Is(err, ErrInvalidPage) {
 			t.Fatalf("ambiguous import identity accepted: %v", err)
 		}
+	}
+}
+
+func TestZabbixUnknownHostGroupCannotCreateMembership(t *testing.T) {
+	const raw = `{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge","groups":[{"name":"unknown"}],"interfaces":[{"ip":"10.0.0.1"}]}]}}`
+	got, err := parseZabbixHosts(strings.NewReader(raw))
+	if err != nil || len(got.Rows) != 1 || got.Rows[0].Kind != "device" ||
+		len(got.Rows[0].GroupIDs) != 0 ||
+		!contains(got.Rows[0].UnmappedCodes, "group_unmapped") {
+		t.Fatalf("unknown group silently selected a destination: %+v err=%v", got, err)
 	}
 }
 
@@ -280,7 +295,8 @@ func TestZabbixHostPollCadenceConflictIsVisible(t *testing.T) {
 		{"macro SNMP", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","status":"ENABLED","delay":"{$DELAY}"}`, true, false},
 		{"non-SNMP item", `{"uuid":"22222222333344445555666666666666","type":"ZABBIX_PASSIVE","status":"ENABLED","delay":"60s"}`, false, false},
 		{"disabled SNMP", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","status":"DISABLED","delay":"60s"}`, false, false},
-		{"unknown SNMP status", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","delay":"60s"}`, false, false},
+		{"omitted SNMP status defaults enabled", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","delay":"60s"}`, true, true},
+		{"unknown SNMP status", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","status":"SURPRISE","delay":"60s"}`, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			payload := `{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge-r1","interfaces":[{"ip":"10.0.0.1"}],"items":[` + first + `,` + tc.second + `]}]}}`

@@ -32,7 +32,6 @@ services:
       DB_NAME: librenms
       DB_USER: librenms
       DB_PASSWORD: ${LIBRENMS_DB_PASSWORD:?}
-    ports: ["127.0.0.1:18880:8000"]
     networks: [vendor]
 
   zabbix-db:
@@ -74,7 +73,6 @@ services:
       POSTGRES_PASSWORD: ${ZABBIX_DB_PASSWORD:?}
       POSTGRES_DB: zabbix
       PHP_TZ: UTC
-    ports: ["127.0.0.1:18881:8080"]
     networks: [vendor]
 
 networks:

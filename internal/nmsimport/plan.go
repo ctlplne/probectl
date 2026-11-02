@@ -93,7 +93,7 @@ func normalizePlanPage(tenantID, contextID, sourceInstance, generationHash strin
 		if kind == "" || !safePlanFields(row, sourceKind) {
 			return nil, ErrInvalidPage
 		}
-		if kind == "membership" && (sourceKind != LibreNMS || !safeMembershipRow(row)) {
+		if kind == "membership" && !safeMembershipRow(row, sourceKind) {
 			return nil, ErrInvalidPage
 		}
 		if (row.Label == "" && len(row.UnmappedCodes) == 0) ||
@@ -173,15 +173,29 @@ func planKind(kind string) string {
 	}
 }
 
-// A membership is a review-only pair from two captured source inventories.
-// It has no target entity, address, predicate or authority to create a group.
+// A membership is an exact group/device pair from one source. The separator
+// follows a canonical numeric LibreNMS group ID or a fixed-width Zabbix group
+// UUID, so the host key may itself contain a colon without ambiguity.
 func safeMembershipID(value string) bool {
 	group, device, ok := strings.Cut(value, ":")
-	return ok && canonicalSourceNumber(group) && canonicalSourceNumber(device)
+	return ok && len(value) <= 256 &&
+		(canonicalSourceNumber(group) && canonicalSourceNumber(device) ||
+			safeZabbixUUID(group) == group && group != "" &&
+				device != "" && safeLabel(device) == device)
 }
 
-func safeMembershipRow(row Row) bool {
-	return safeMembershipID(row.ExternalID) && row.Label == "" && row.Address == "" &&
+// Only the parser for the declared source may produce its pair shape. The
+// row is review-only until its same-plan group and device are both chosen.
+func safeMembershipRow(row Row, source Kind) bool {
+	group, device, ok := strings.Cut(row.ExternalID, ":")
+	if !ok || !safeMembershipID(row.ExternalID) ||
+		(source == LibreNMS && (!canonicalSourceNumber(group) || !canonicalSourceNumber(device))) ||
+		(source == Zabbix && (safeZabbixUUID(group) != group || group == "" ||
+			device == "" || safeLabel(device) != device)) ||
+		(source != LibreNMS && source != Zabbix) {
+		return false
+	}
+	return row.Label == "" && row.Address == "" &&
 		row.Hostname == "" && row.ParentID == "" && row.LocationID == "" &&
 		row.LocationLabel == "" && len(row.GroupIDs) == 0 && row.PollSeconds == 0 &&
 		row.Severity == "" && len(row.UnmappedCodes) == 1 &&

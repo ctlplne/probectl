@@ -20,16 +20,45 @@ import shutil
 import subprocess
 import sys
 import time
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "test/nmsvendor/compose.yml"
 RUNTIME = Path("/tmp/probectl-nms-vendor-fixture")
 PROJECT = "probectl-nms-vendor-fixture"
-LIBRENMS = "http://127.0.0.1:18880"
-ZABBIX = "http://127.0.0.1:18881/api_jsonrpc.php"
+LIBRENMS = "http://librenms:8000"
+ZABBIX = "http://zabbix-web:8080/api_jsonrpc.php"
+
+# The Compose network has no host interface or outbound gateway. The pinned
+# LibreNMS image includes Python 3, so one static bridge reads request data on
+# stdin and calls both vendor web servers from inside that network. No token or
+# database password is placed in argv, a URL, the workflow log, or an artifact.
+CONTAINER_HTTP = r"""
+import json
+import sys
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+spec = json.load(sys.stdin)
+headers = {"Accept": "application/json"}
+if spec.get("token"):
+    headers["Authorization"] = "Bearer " + spec["token"]
+body = spec.get("body")
+data = json.dumps(body, separators=(",", ":")).encode() if body is not None else None
+if data is not None:
+    headers["Content-Type"] = spec["content_type"]
+try:
+    with urlopen(Request(spec["url"], data=data, headers=headers), timeout=spec["timeout"]) as response:
+        raw = response.read((64 << 20) + 1)
+        if len(raw) > 64 << 20:
+            sys.exit(2)
+        sys.stdout.buffer.write(raw)
+except HTTPError as exc:
+    print("HTTP " + str(exc.code), file=sys.stderr)
+    sys.exit(1)
+except (URLError, TimeoutError):
+    sys.exit(1)
+"""
 
 
 def docker(*args: str) -> str:
@@ -52,6 +81,50 @@ def docker(*args: str) -> str:
     return result.stdout
 
 
+def vendor_http(
+    url: str,
+    *,
+    token: str = "",
+    body: dict | None = None,
+    content_type: str = "application/json",
+    timeout: int = 12,
+) -> bytes:
+    command = [
+        "docker",
+        "compose",
+        "--project-name",
+        PROJECT,
+        "--env-file",
+        str(RUNTIME / ".env"),
+        "-f",
+        str(COMPOSE),
+        "exec",
+        "-T",
+        "librenms",
+        "python3",
+        "-c",
+        CONTAINER_HTTP,
+    ]
+    spec = {
+        "url": url,
+        "token": token,
+        "body": body,
+        "content_type": content_type,
+        "timeout": timeout,
+    }
+    result = subprocess.run(
+        command, input=json.dumps(spec).encode(), capture_output=True, check=False
+    )
+    if result.returncode:
+        status = result.stderr.decode(errors="replace").strip()
+        if not re.fullmatch(r"HTTP [1-5][0-9][0-9]", status):
+            status = "unavailable"
+        raise RuntimeError(f"vendor API {status}")
+    if len(result.stdout) > 64 << 20:
+        raise RuntimeError("vendor response exceeds one bounded page")
+    return result.stdout
+
+
 def private_file(path: Path, data: str) -> None:
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -61,37 +134,46 @@ def private_file(path: Path, data: str) -> None:
 def request_json(
     url: str, *, token: str = "", body: dict | None = None
 ) -> tuple[dict | list, bytes]:
-    headers = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = "Bearer " + token
-    data = None
-    if body is not None:
-        headers["Content-Type"] = "application/json"
-        data = json.dumps(body, separators=(",", ":")).encode()
-    request = Request(url, data=data, headers=headers)
-    try:
-        with urlopen(request, timeout=12) as response:
-            raw = response.read(64 << 20)
-            if response.read(1):
-                raise RuntimeError("vendor response exceeds one bounded page")
-    except HTTPError as exc:
-        raise RuntimeError(f"vendor API returned HTTP {exc.code}") from None
-    except URLError as exc:
-        raise RuntimeError("vendor API unavailable") from exc
+    raw = vendor_http(url, token=token, body=body)
     return json.loads(raw), raw
 
 
 def ready(url: str, seconds: int) -> None:
     deadline = time.monotonic() + seconds
+    last_error = "unavailable"
     while time.monotonic() < deadline:
         try:
-            with urlopen(url, timeout=3) as response:
-                if response.status == 200:
-                    return
-        except (HTTPError, URLError, TimeoutError):
-            pass
+            vendor_http(url, timeout=3)
+            return
+        except RuntimeError as exc:
+            last_error = str(exc)
         time.sleep(3)
-    raise RuntimeError("vendor web frontend did not become ready")
+    # Compose state and HTTP status are safe to log. Container logs and raw
+    # vendor responses may include credentials or configuration, so omit them.
+    states = []
+    try:
+        raw = docker("ps", "--format", "json")
+        records = (
+            json.loads(raw)
+            if raw.lstrip().startswith("[")
+            else [json.loads(line) for line in raw.splitlines() if line.strip()]
+        )
+        if isinstance(records, dict):
+            records = [records]
+        for item in records:
+            states.append(
+                f"{item.get('Service', '?')}:{item.get('State', '?')}:"
+                f"{item.get('Health', '?')}"
+            )
+    except (RuntimeError, ValueError, KeyError):
+        states.append("status-unavailable")
+    raise RuntimeError(
+        "vendor web frontend did not become ready; "
+        + "container states="
+        + ",".join(sorted(states))
+        + "; last request="
+        + last_error
+    )
 
 
 def seed_librenms() -> dict:
@@ -212,26 +294,14 @@ def seed_librenms() -> dict:
 
 def seed_zabbix() -> dict:
     def call(method: str, params: dict, token: str = ""):
-        headers = {"Content-Type": "application/json-rpc", "Accept": "application/json"}
-        if token:
-            headers["Authorization"] = "Bearer " + token
-        request = Request(
-            ZABBIX,
-            data=json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "method": method,
-                    "params": params,
-                    "id": 1,
-                }
-            ).encode(),
-            headers=headers,
+        result = json.loads(
+            vendor_http(
+                ZABBIX,
+                token=token,
+                content_type="application/json-rpc",
+                body={"jsonrpc": "2.0", "method": method, "params": params, "id": 1},
+            )
         )
-        try:
-            with urlopen(request, timeout=12) as response:
-                result = json.load(response)
-        except (HTTPError, URLError) as exc:
-            raise RuntimeError(f"Zabbix {method} unavailable") from exc
         if "error" in result or "result" not in result:
             raise RuntimeError(f"Zabbix {method} returned an API error")
         return result["result"]
@@ -380,7 +450,7 @@ def start() -> None:
     )
     docker("up", "-d", "--no-build")
     ready(LIBRENMS + "/login", 300)
-    ready("http://127.0.0.1:18881/", 300)
+    ready("http://zabbix-web:8080/", 300)
     sources = {"librenms": seed_librenms(), "zabbix": seed_zabbix()}
     private_file(RUNTIME / "manifest.json", json.dumps(sources, sort_keys=True) + "\n")
     print("Live LibreNMS and Zabbix export fixtures are ready")
