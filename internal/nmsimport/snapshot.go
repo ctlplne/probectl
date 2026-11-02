@@ -392,6 +392,7 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 				} `json:"interfaces"`
 				Items []struct {
 					UUID     string `json:"uuid"`
+					Delay    string `json:"delay"`
 					Triggers []struct {
 						UUID string `json:"uuid"`
 					} `json:"triggers"`
@@ -471,8 +472,12 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 			if itemID == "" {
 				codes = append(codes, "item_id_unavailable")
 			}
+			seconds := safeZabbixLiteralSeconds(item.Delay)
+			if seconds == 0 {
+				codes = append(codes, "poll_interval_unmapped")
+			}
 			out.Rows = append(out.Rows, Row{Kind: "poll_item", ExternalID: itemID,
-				UnmappedCodes: codes})
+				PollSeconds: seconds, UnmappedCodes: codes})
 			for _, trigger := range item.Triggers {
 				triggerID := safeZabbixUUID(trigger.UUID)
 				codes := []string{"expression_unmapped"}
@@ -485,4 +490,40 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 		}
 	}
 	return out, nil
+}
+
+// Zabbix delays can also be macros and flexible schedules. Keep only a
+// simple literal interval; a source expression never enters the plan or
+// becomes a running device-agent cadence without explicit operator review.
+func safeZabbixLiteralSeconds(raw string) int64 {
+	if raw == "" {
+		return 0
+	}
+	multiplier := int64(1)
+	digits := raw
+	switch raw[len(raw)-1] {
+	case 's':
+		digits = raw[:len(raw)-1]
+	case 'm':
+		multiplier, digits = 60, raw[:len(raw)-1]
+	case 'h':
+		multiplier, digits = 3600, raw[:len(raw)-1]
+	case 'd':
+		multiplier, digits = 86400, raw[:len(raw)-1]
+	case 'w':
+		multiplier, digits = 604800, raw[:len(raw)-1]
+	}
+	if digits == "" {
+		return 0
+	}
+	for _, digit := range digits {
+		if digit < '0' || digit > '9' {
+			return 0
+		}
+	}
+	n, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil || n < 1 || n > 604800/multiplier {
+		return 0
+	}
+	return n * multiplier
 }

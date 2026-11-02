@@ -87,6 +87,7 @@ func TestZabbixExportKeepsGroupUUIDAndListsNestedUnmappedTrigger(t *testing.T) {
 	if got.Rows[0].ExternalID != "748ad4d098d447d492bb935c907f652f" || got.Rows[1].ExternalID != "edge-r1" ||
 		got.Rows[1].Address != "10.0.0.1" || len(got.Rows[1].GroupIDs) != 1 ||
 		got.Rows[1].GroupIDs[0] != "748ad4d098d447d492bb935c907f652f" || got.Rows[3].ExternalID != "aaaaaaaabbbbccccddddffffffffffff" ||
+		got.Rows[2].PollSeconds != 30 ||
 		!contains(got.Rows[3].UnmappedCodes, "expression_unmapped") {
 		t.Fatalf("documented identity or unmapped status lost: %+v", got.Rows)
 	}
@@ -197,10 +198,11 @@ func TestZabbixExportRejectsAmbiguousSourceKeys(t *testing.T) {
 
 func TestZabbixInvalidNestedUUIDsStayUnmappedWithoutEcho(t *testing.T) {
 	raw := `{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge",
-		"items":[{"uuid":"secret-item-id-123","triggers":[{"uuid":"secret-trigger-id-456","expression":"secret-expression-789"}]}]}]}}`
+		"items":[{"uuid":"secret-item-id-123","delay":"{$SECRET_DELAY}","triggers":[{"uuid":"secret-trigger-id-456","expression":"secret-expression-789"}]}]}]}}`
 	got, err := parseZabbixHosts(strings.NewReader(raw))
 	if err != nil || len(got.Rows) != 3 || got.Rows[1].ExternalID != "" || got.Rows[2].ExternalID != "" ||
 		!contains(got.Rows[1].UnmappedCodes, "item_id_unavailable") ||
+		!contains(got.Rows[1].UnmappedCodes, "poll_interval_unmapped") || got.Rows[1].PollSeconds != 0 ||
 		!contains(got.Rows[2].UnmappedCodes, "trigger_id_unavailable") {
 		t.Fatalf("invalid nested UUID was not held unmapped: %+v, %v", got, err)
 	}
@@ -208,9 +210,25 @@ func TestZabbixInvalidNestedUUIDsStayUnmappedWithoutEcho(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"secret-item-id-123", "secret-trigger-id-456", "secret-expression-789"} {
+	for _, secret := range []string{"secret-item-id-123", "secret-trigger-id-456", "secret-expression-789", "{$SECRET_DELAY}"} {
 		if strings.Contains(string(wire), secret) {
 			t.Fatalf("invalid source UUID or expression %q escaped into preview", secret)
+		}
+	}
+}
+
+func TestZabbixLiteralPollIntervalKeepsOnlyBoundedSeconds(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want int64
+	}{
+		{"30", 30}, {"30s", 30}, {"2m", 120}, {"1h", 3600},
+		{"1d", 86400}, {"1w", 604800}, {"0", 0}, {"2w", 0},
+		{"{$DELAY}", 0}, {"1h;wd1-5h9-18", 0}, {"-1", 0},
+		{"999999999999999999999999s", 0},
+	} {
+		if got := safeZabbixLiteralSeconds(tc.raw); got != tc.want {
+			t.Errorf("delay %q: got %d seconds, want %d", tc.raw, got, tc.want)
 		}
 	}
 }
