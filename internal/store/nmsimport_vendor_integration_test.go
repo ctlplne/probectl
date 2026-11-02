@@ -103,7 +103,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 	}
 	assertLiveLibreNMSRuleSelector(t, libreFiles["rules"], manifest.LibreNMS.DeviceID)
 	zabbixExport := read("zabbix-hosts.json")
-	type applied struct{ librePlan, zabbixPlan, libreDevice, zabbixDevice, libreSource, zabbixSource string }
+	type applied struct{ librePlan, zabbixPlan, libreRule, libreDevice, zabbixDevice, libreSource, zabbixSource string }
 	byTenant := map[string]applied{}
 	for _, tenant := range []string{a.ID, b.ID} {
 		tenantCtx := tenancy.WithTenant(ctx, tenancy.ID(tenant))
@@ -126,6 +126,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 		}
 		libreChoices := make([]nmsimport.ReviewChoice, 0, len(libreRows.Items))
 		libreSeen := map[string]bool{}
+		libreRuleID := ""
 		for _, row := range libreRows.Items {
 			choice := nmsimport.ReviewChoice{RowNumber: row.Number, Action: "skip"}
 			switch {
@@ -153,6 +154,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 				if row.ParentID != manifest.LibreNMS.DeviceID {
 					t.Fatal("finite LibreNMS rule did not retain its exact source device selector")
 				}
+				libreRuleID = row.ExternalID
 				choice.Action, libreSeen["rule_unmapped"] = "unmapped", true
 			}
 			libreChoices = append(libreChoices, choice)
@@ -284,7 +286,7 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 			t.Fatalf("repeat live Zabbix import wrote again: %+v err=%v", zabbixRetry, err)
 		}
 		var bound applied
-		bound.librePlan, bound.zabbixPlan = librePlan, zabbixPlan
+		bound.librePlan, bound.zabbixPlan, bound.libreRule = librePlan, zabbixPlan, libreRuleID
 		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			for _, binding := range []struct {
 				kind, externalID, planID string
@@ -315,6 +317,57 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 	if left.libreDevice == right.libreDevice || left.zabbixDevice == right.zabbixDevice ||
 		left.libreSource == right.libreSource || left.zabbixSource == right.zabbixSource {
 		t.Fatal("real vendor import shared a tenant source or canonical device")
+	}
+	// The source rule's one-device selector does not nominate an agent target.
+	// Both tenants deliberately use the same agent name and target address;
+	// only current same-tenant canonical bindings may complete the preview.
+	const alertAgent, alertTarget = "vendor-alert-agent", "192.0.2.88"
+	for _, tenant := range []string{a.ID, b.ID} {
+		bound := byTenant[tenant]
+		tenantCtx := tenancy.WithTenant(ctx, tenancy.ID(tenant))
+		if _, err := capturer.PreviewLibreNMSAlertTarget(tenantCtx, contextID,
+			bound.libreSource, bound.libreRule, alertAgent, alertTarget); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+			t.Fatalf("unbound LibreNMS selector chose an agent target: %v", err)
+		}
+		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts
+				(tenant_id,agent_id,context_id) VALUES ($1,$2,$3)`,
+				tenant, alertAgent, contextID); err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts
+				(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id)
+				VALUES ($1,$2,'device_target',$3,$4,$5)`, tenant, alertAgent,
+				alertTarget, contextID, bound.libreDevice); err != nil {
+				return err
+			}
+			_, err := sc.Q.Exec(ctx, `INSERT INTO agent_identities
+				(tenant_id,agent_id,spiffe_id,serial,not_after)
+				VALUES ($1,$2,$3,$4,clock_timestamp()+interval '1 hour')`,
+				tenant, alertAgent,
+				"spiffe://probectl/tenant/"+tenant+"/entity/"+alertAgent,
+				uuid.NewString())
+			return err
+		})
+		preview, err := capturer.PreviewLibreNMSAlertTarget(tenantCtx, contextID,
+			bound.libreSource, bound.libreRule, alertAgent, alertTarget)
+		if err != nil || preview.TenantID != tenant || preview.ContextID != contextID ||
+			preview.RuleID != bound.libreRule || preview.DeviceID != manifest.LibreNMS.DeviceID ||
+			preview.EntityID != bound.libreDevice || preview.AgentID != alertAgent ||
+			preview.TargetAddress != alertTarget || preview.PlanID != bound.librePlan ||
+			preview.SnapshotHash == "" || preview.RuleKind != "port_down" || preview.Enabled ||
+			preview.Severity == "" {
+			t.Fatalf("real LibreNMS alert preview escaped finite binding: %+v, %v", preview, err)
+		}
+		foreignSource := map[string]string{a.ID: right.libreSource, b.ID: left.libreSource}[tenant]
+		if _, err := capturer.PreviewLibreNMSAlertTarget(tenantCtx, contextID,
+			foreignSource, bound.libreRule, alertAgent, alertTarget); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+			t.Fatalf("foreign LibreNMS source selected an alert target: %v", err)
+		}
+		if _, err := capturer.PreviewLibreNMSAlertTarget(tenantCtx, contextID,
+			bound.libreSource, bound.libreRule, alertAgent, "192.0.2.40"); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
+			t.Fatalf("source device address selected an unassigned alert target: %v", err)
+		}
 	}
 	for _, tenant := range []string{a.ID, b.ID} {
 		bound := byTenant[tenant]
