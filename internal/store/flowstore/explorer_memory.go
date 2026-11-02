@@ -63,12 +63,19 @@ var explorerRowFields = func() map[string]int {
 	return fields
 }()
 
-func explorerFieldValue(entry memoryRow, name string, spec flow.QueryPlan, names map[string]map[uint32]string) string {
-	field, ok := flow.LookupQueryField(name)
+func explorerFieldValue(entry memoryRow, name string, spec flow.QueryPlan, names map[string]map[uint32]string,
+	vocabulary flow.QueryVocabulary, tagData *TagQueryData) string {
+	field, ok := vocabulary.Lookup(name)
 	if !ok {
 		return ""
 	}
 	row := entry.row
+	if field.Derived == "tenant_tag" {
+		if tagData == nil {
+			return ""
+		}
+		return tagData.valueTrusted(row.Exporter, field.TagKey)
+	}
 	switch field.Derived {
 	case "src_prefix", "dst_prefix":
 		address := row.SrcAddr

@@ -24,6 +24,9 @@ import (
 type PlanQuery struct {
 	TenantID string
 	Plan     flow.QueryPlan
+	// Tags is one authenticated tenant's immutable tag revision. Nil keeps
+	// native-only queries on their existing path.
+	Tags *TagQueryData
 	// SelectedGroups is server-selected comparison membership, never grammar.
 	// Nil ranks automatically; an explicit empty selection puts every row in Other.
 	SelectedGroups [][]string
@@ -70,6 +73,7 @@ type PlanResult struct {
 	Query               flow.QueryPlan      `json:"query"`
 	SavedFilterVersions map[string]int64    `json:"saved_filter_versions,omitempty"`
 	Source              string              `json:"source"`
+	TagRevision         int64               `json:"tag_revision,omitempty"`
 	ResolutionSeconds   int                 `json:"resolution_seconds"`
 	TotalGroups         int                 `json:"total_groups"`
 	DetailLimited       bool                `json:"detail_limited"`
@@ -357,6 +361,7 @@ func planTuple(value func(string) string, fields []string) (string, map[string]s
 type planInput struct {
 	row                    Row
 	key, rowKey, columnKey string
+	column                 map[string]string
 }
 
 // ExplorePlan is the exact reference implementation for the new grammar.
@@ -370,7 +375,15 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 		return PlanResult{}, err
 	}
 	ctx = withExplorerBudget(ctx, budget)
-	plan, err := flow.NormalizeQueryPlan(query.Plan, time.Now())
+	var vocabulary flow.QueryVocabulary
+	var err error
+	if query.Tags != nil {
+		vocabulary, err = query.Tags.Vocabulary(query.TenantID)
+		if err != nil {
+			return PlanResult{}, err
+		}
+	}
+	plan, err := flow.NormalizeQueryPlanWithVocabulary(query.Plan, time.Now(), vocabulary)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -396,7 +409,7 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if err != nil {
 		return PlanResult{}, err
 	}
-	prepared, err := flow.PrepareQueryFilter(plan.Filter)
+	prepared, err := flow.PrepareQueryFilterWithVocabulary(plan.Filter, vocabulary)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -438,7 +451,7 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 			if found, ok := values[field]; ok {
 				return found
 			}
-			result := explorerFieldValue(entry, field, plan, names)
+			result := explorerFieldValue(entry, field, plan, names, vocabulary, query.Tags)
 			values[field] = result
 			return result
 		}
@@ -458,7 +471,7 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 		input := planInput{row: entry.row, key: key}
 		if plan.View == "matrix" {
 			input.rowKey = key
-			input.columnKey, _ = planTuple(value, plan.MatrixWith)
+			input.columnKey, input.column = planTuple(value, plan.MatrixWith)
 			if err := add(rowGroups, key, groups[key].group, entry.row); err != nil {
 				return PlanResult{}, err
 			}
@@ -472,7 +485,22 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if err := total.calculate(plan); err != nil {
 		return PlanResult{}, err
 	}
-	result := PlanResult{Query: plan, Source: "raw", ResolutionSeconds: flow.MinPlanBucketSeconds, Coverage: &PlanSourceCoverage{Fields: allPlanFields(), ResolutionSeconds: flow.MinPlanBucketSeconds, CompleteInputs: true}, Rows: []PlanRow{}, Series: []PlanPoint{}, OtherSeries: []PlanPoint{}, TotalSeries: []PlanPoint{}, Matrix: []PlanMatrixCell{}, TotalGroups: len(keys), DetailLimited: len(keys) > plan.RowLimit, Totals: total.row(false).Metrics}
+	coverageFields := allPlanFields()
+	if query.Tags != nil {
+		fields, err := vocabulary.Fields()
+		if err != nil {
+			return PlanResult{}, err
+		}
+		for _, field := range fields {
+			if field.Derived == "tenant_tag" {
+				coverageFields = append(coverageFields, field.Name)
+			}
+		}
+	}
+	result := PlanResult{Query: plan, Source: "raw", ResolutionSeconds: flow.MinPlanBucketSeconds, Coverage: &PlanSourceCoverage{Fields: coverageFields, ResolutionSeconds: flow.MinPlanBucketSeconds, CompleteInputs: true}, Rows: []PlanRow{}, Series: []PlanPoint{}, OtherSeries: []PlanPoint{}, TotalSeries: []PlanPoint{}, Matrix: []PlanMatrixCell{}, TotalGroups: len(keys), DetailLimited: len(keys) > plan.RowLimit, Totals: total.row(false).Metrics}
+	if query.Tags != nil {
+		result.TagRevision, _ = query.Tags.Revision(query.TenantID)
+	}
 	result.OldestInput = oldestInput
 	selected := map[string]bool{}
 	detailKeys := selectedPlanKeys(keys, plan.RowLimit, selectedGroups, groups)
@@ -534,7 +562,7 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 		}
 	}
 	if plan.View == "matrix" {
-		work := memoryPlanMatrixWork{plan: plan, matched: matched, groups: groups, rowGroups: rowGroups, keys: keys, selectedRows: selectedMatrixRows, selectedColumns: selectedColumns, names: names, distinct: distinct, cost: cost, add: add}
+		work := memoryPlanMatrixWork{plan: plan, matched: matched, groups: groups, rowGroups: rowGroups, keys: keys, selectedRows: selectedMatrixRows, selectedColumns: selectedColumns, distinct: distinct, cost: cost, add: add}
 		if err := work.render(ctx, &result); err != nil {
 			return PlanResult{}, err
 		}
@@ -591,7 +619,6 @@ type memoryPlanMatrixWork struct {
 	groups, rowGroups             map[string]*planAggregate
 	keys                          []string
 	selectedRows, selectedColumns [][]string
-	names                         map[string]map[uint32]string
 	distinct                      []string
 	cost                          *planCost
 	add                           func(map[string]*planAggregate, string, map[string]string, Row) error
@@ -600,7 +627,7 @@ type memoryPlanMatrixWork struct {
 func (w memoryPlanMatrixWork) render(ctx context.Context, result *PlanResult) error {
 	plan, matched, groups, rowGroups, keys := w.plan, w.matched, w.groups, w.rowGroups, w.keys
 	selectedMatrixRows, selectedColumns := w.selectedRows, w.selectedColumns
-	names, distinct, cost, add := w.names, w.distinct, w.cost, w.add
+	distinct, cost, add := w.distinct, w.cost, w.add
 	columnGroups := map[string]*planAggregate{}
 	rows, columns := map[string]bool{}, map[string]bool{}
 	rowKeys := keys[:min(len(keys), plan.MatrixDepth)]
@@ -624,9 +651,7 @@ func (w memoryPlanMatrixWork) render(ctx context.Context, result *PlanResult) er
 		if !rows[input.rowKey] {
 			continue
 		}
-		entry := memoryRow{row: input.row, key: flowRowID(input.row)}
-		_, column := planTuple(func(field string) string { return explorerFieldValue(entry, field, plan, names) }, plan.MatrixWith)
-		if err := add(columnGroups, input.columnKey, column, input.row); err != nil {
+		if err := add(columnGroups, input.columnKey, input.column, input.row); err != nil {
 			return err
 		}
 	}

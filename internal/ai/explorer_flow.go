@@ -48,6 +48,20 @@ func IsRecordFlowQuery(q ExplorerQuery) bool {
 // ExplorerFlowSpec maps the public envelope to the same spec the store validates.
 // This is also used by MCP; there is no second field/operator vocabulary.
 func ExplorerFlowSpec(q ExplorerQuery, now time.Time) (flow.QueryPlan, error) {
+	return explorerFlowSpec(q, now, flow.NormalizeQueryPlan)
+}
+
+// ExplorerFlowSpecWithVocabulary accepts dynamic tag fields only from one
+// authenticated tenant's immutable query vocabulary. Callers must authorize
+// tags.read and keep that vocabulary pinned through execution.
+func ExplorerFlowSpecWithVocabulary(q ExplorerQuery, now time.Time, vocabulary flow.QueryVocabulary) (flow.QueryPlan, error) {
+	return explorerFlowSpec(q, now, func(plan flow.QueryPlan, at time.Time) (flow.QueryPlan, error) {
+		return flow.NormalizeQueryPlanWithVocabulary(plan, at, vocabulary)
+	})
+}
+
+func explorerFlowSpec(q ExplorerQuery, now time.Time,
+	normalize func(flow.QueryPlan, time.Time) (flow.QueryPlan, error)) (flow.QueryPlan, error) {
 	if q.Source != ExplorerFlow {
 		return flow.QueryPlan{}, errors.New("flow query requires the flow source")
 	}
@@ -128,5 +142,5 @@ func ExplorerFlowSpec(q ExplorerQuery, now time.Time) (flow.QueryPlan, error) {
 			plan.Filter = &flow.QueryFilterGroup{Match: "all", Groups: []flow.QueryFilterGroup{*plan.Filter, legacy}}
 		}
 	}
-	return flow.NormalizeQueryPlan(plan, now)
+	return normalize(plan, now)
 }

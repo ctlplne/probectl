@@ -31,13 +31,6 @@ type TenantTagSnapshot struct {
 	byContext   map[string]*tags.Snapshot
 }
 
-// TagExporterProjection is a bounded, tenant-local lookup row for query
-// execution. It carries no agent claim, source reference or provenance ID.
-type TagExporterProjection struct {
-	Exporter string
-	Values   map[string]string
-}
-
 type tagExporterBinding struct {
 	contextID string
 	agentID   string
@@ -64,7 +57,7 @@ func (s *TenantTagSnapshot) Definitions() ([]tags.Definition, error) {
 // ProjectExporters resolves each uniquely owned address once, before a query.
 // The caller's byte budget bounds the whole lookup; partial projections are
 // never returned because they would silently label some flow rows unmatched.
-func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]TagExporterProjection, error) {
+func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]tags.ExporterProjection, error) {
 	if _, err := s.Revision(); err != nil {
 		return nil, err
 	}
@@ -82,7 +75,7 @@ func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]TagExporterProje
 	}
 	sort.Strings(addresses)
 	used := int64(0)
-	out := []TagExporterProjection{}
+	out := []tags.ExporterProjection{}
 	for _, address := range addresses {
 		resolved, err := s.ResolveExporter(netip.MustParseAddr(address))
 		if err != nil {
@@ -91,7 +84,7 @@ func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]TagExporterProje
 		if len(resolved) == 0 {
 			continue
 		}
-		row := TagExporterProjection{Exporter: address, Values: make(map[string]string, len(resolved))}
+		row := tags.ExporterProjection{Exporter: address, Values: make(map[string]string, len(resolved))}
 		used += 256 + int64(len(address))
 		for _, tag := range resolved {
 			used += 128 + int64(len(tag.Key)+len(tag.Value))

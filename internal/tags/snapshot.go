@@ -26,6 +26,14 @@ type Snapshot struct {
 	snmpRules   map[string][]compiledRule
 }
 
+// ExporterProjection is a tenant-local query lookup row. Storage builds it
+// from uniquely owned exporter addresses and omits sender claims and source
+// provenance before it reaches a flow backend.
+type ExporterProjection struct {
+	Exporter string
+	Values   map[string]string
+}
+
 // Revision returns the committed tag revision captured with this snapshot.
 // A zero-value snapshot has no authority to label a query result.
 func (s *Snapshot) Revision() (int64, error) {
