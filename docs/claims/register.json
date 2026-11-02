@@ -928,6 +928,21 @@
     "test:internal/audit/audit_upgrade_v065_test.go#TestV065ProviderEventTamperingStillRefused",
     "test:internal/audit/audit_upgrade_v065_test.go#TestV065HashDoesNotAdmitAmbiguousHeadersOrForeignStreams"
    ]
+  },
+  {
+   "id": "CLM-NMS-ZABBIX-ITEM-ID-FAIL-CLOSED",
+   "kind": "capability",
+   "statement": "A malformed explicit Zabbix host item UUID stays unmapped instead of falling back to a key-derived ID.",
+   "pattern": "an invalid explicit UUID fails closed",
+   "surfaces": [
+    "docs/nms-import.md"
+   ],
+   "code": [
+    "internal/nmsimport/snapshot.go"
+   ],
+   "proof": [
+    "test:internal/nmsimport/snapshot_test.go#TestZabbixHostItemWithoutUUIDUsesOpaqueStableKey"
+   ]
   }
  ]
 }

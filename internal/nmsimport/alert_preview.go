@@ -40,7 +40,8 @@ type LibreNMSAlertTargetPreview struct {
 // agent and configured target. A normalized source selector can nominate a
 // device, but only applied same-source provenance and live operator-owned
 // sender/target bindings select the canonical destination. Every join is
-// tenant/context qualified inside a FORCE-RLS transaction (G7-1, G7-4).
+// tenant/context qualified inside a FORCE-RLS transaction
+// (docs/guardrails.md G7-1, G7-4).
 func (s CaptureStore) PreviewLibreNMSAlertTarget(ctx context.Context,
 	contextID, sourceID, ruleID, agentID, targetAddress string) (LibreNMSAlertTargetPreview, error) {
 	if s.pool == nil || !canonicalSourceNumber(ruleID) ||
@@ -82,6 +83,9 @@ func (s CaptureStore) PreviewLibreNMSAlertTarget(ctx context.Context,
 			WHERE r.tenant_id=$1 AND r.context_id=$2 AND p.source_id=$3
 			  AND r.object_kind='alert_rule' AND r.external_id=$4
 			  AND s.source_kind='librenms' AND p.state='applied'
+			  AND p.expires_at>statement_timestamp()
+			  AND p.source_config_version=s.config_version
+			  AND (p.source_config_version=0 OR s.fetch_enabled)
 			  AND r.action='unmapped' AND r.state='skipped'
 			  AND r.reviewed_at IS NOT NULL
 			  AND r.parent_external_id IS NOT NULL

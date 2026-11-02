@@ -2062,6 +2062,31 @@ export interface Me {
   user_id: string
 }
 
+export interface NMSImportAlertTargetPreview {
+  agent_id: string
+  context_id: string
+  device_external_id: string
+  enabled: boolean
+  entity_id: string
+  name: string
+  plan_id: string
+  rule_external_id: string
+  rule_kind: "port_down"
+  severity: "warning" | "critical"
+  snapshot_hash: string
+  source_id: string
+  target_address: string
+  tenant_id: string
+}
+
+export interface NMSImportAlertTargetPreviewRequest {
+  agent_id: string
+  context_id: string
+  rule_external_id: string
+  source_id: string
+  target_address: string
+}
+
 export interface NMSImportPollProposal {
   applied_at: string
   host_external_id: string
@@ -3581,6 +3606,12 @@ export interface GetMeRequest {
 }
 
 export type GetMeResponse = Me
+
+export interface PreviewNmsImportAlertTargetRequest {
+  body: NMSImportAlertTargetPreviewRequest
+}
+
+export type PreviewNmsImportAlertTargetResponse = NMSImportAlertTargetPreview
 
 export interface StartConfiguredLibreNmsImportPlanRequest {
   body: JsonObject
@@ -5175,6 +5206,12 @@ export class ProbectlSDKClient {
     let path = "/v1/me"
     const query = new URLSearchParams()
     return this.requestJSON<GetMeResponse>("GET", path, query, undefined)
+  }
+
+  async previewNmsImportAlertTarget(request: PreviewNmsImportAlertTargetRequest): Promise<PreviewNmsImportAlertTargetResponse> {
+    let path = "/v1/nms-imports/alert-target-preview"
+    const query = new URLSearchParams()
+    return this.requestJSON<PreviewNmsImportAlertTargetResponse>("POST", path, query, request.body)
   }
 
   async startConfiguredLibreNmsImportPlan(request: StartConfiguredLibreNmsImportPlanRequest): Promise<StartConfiguredLibreNmsImportPlanResponse> {

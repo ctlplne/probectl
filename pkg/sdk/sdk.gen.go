@@ -2181,6 +2181,31 @@ type Me struct {
 	UserId          string   `json:"user_id"`
 }
 
+type NMSImportAlertTargetPreview struct {
+	AgentId          string `json:"agent_id"`
+	ContextId        string `json:"context_id"`
+	DeviceExternalId string `json:"device_external_id"`
+	Enabled          bool   `json:"enabled"`
+	EntityId         string `json:"entity_id"`
+	Name             string `json:"name"`
+	PlanId           string `json:"plan_id"`
+	RuleExternalId   string `json:"rule_external_id"`
+	RuleKind         string `json:"rule_kind"`
+	Severity         string `json:"severity"`
+	SnapshotHash     string `json:"snapshot_hash"`
+	SourceId         string `json:"source_id"`
+	TargetAddress    string `json:"target_address"`
+	TenantId         string `json:"tenant_id"`
+}
+
+type NMSImportAlertTargetPreviewRequest struct {
+	AgentId        string `json:"agent_id"`
+	ContextId      string `json:"context_id"`
+	RuleExternalId string `json:"rule_external_id"`
+	SourceId       string `json:"source_id"`
+	TargetAddress  string `json:"target_address"`
+}
+
 type NMSImportPollProposal struct {
 	AppliedAt      string `json:"applied_at"`
 	HostExternalId string `json:"host_external_id"`
@@ -5666,6 +5691,21 @@ func (c *Client) GetMe(ctx context.Context, req GetMeRequest) (*Me, error) {
 	query := url.Values{}
 	var out Me
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Verify one inert LibreNMS port-down candidate against an exact current agent target
+type PreviewNmsImportAlertTargetRequest struct {
+	Body *NMSImportAlertTargetPreviewRequest `json:"-"`
+}
+
+func (c *Client) PreviewNmsImportAlertTarget(ctx context.Context, req PreviewNmsImportAlertTargetRequest) (*NMSImportAlertTargetPreview, error) {
+	path := "/v1/nms-imports/alert-target-preview"
+	query := url.Values{}
+	var out NMSImportAlertTargetPreview
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

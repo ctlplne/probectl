@@ -151,6 +151,20 @@ still an unmapped row and creates no alert. Global, inverted, custom-query
 and changed expressions retain no candidate selector. No imported alert can
 be enabled by this review path.
 
+`POST /v1/nms-imports/alert-target-preview` accepts the routing-context UUID,
+LibreNMS source UUID, reviewed rule ID, exact agent ID and exact configured
+target address. It requires `nms.import.read` and `entities.read` and returns
+only the finite `port_down` candidate when the disabled source rule was
+reviewed as unmapped in an applied plan, its selected source device has
+same-source applied canonical provenance, and the current tenant-bound agent
+identity and operator-owned `device_target` assignment anchor that device.
+The response contains only source/canonical IDs, plan hash, safe name and
+severity, fixed rule kind, and `enabled:false`; it does not contain source
+SQL, delivery operations or credentials. A source IP, display name or another
+tenant's identical agent/target string never selects a destination. The CLI
+`nms-import alert-target-preview` exposes this read. It creates no native
+alert; a separate reviewed apply step remains necessary.
+
 To find applied Zabbix proposals, page
 `GET /v1/nms-imports/poll-proposals?context_id=UUID&source_id=UUID&limit=50`.
 The optional `cursor` is the last returned 32-digit item ID; at most 100

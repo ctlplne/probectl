@@ -4149,6 +4149,23 @@
         }
       }
     },
+    "/v1/nms-imports/alert-target-preview": {
+      "post": {
+        "x-required-permission": "nms.import.read",
+        "operationId": "previewNMSImportAlertTarget",
+        "summary": "Verify one inert LibreNMS port-down candidate against an exact current agent target",
+        "description": "Read only. Requires nms.import.read and entities.read in the selected routing context. FORCE-RLS storage joins a reviewed, disabled, finite one-device source rule to same-source applied device provenance, a current operator-assigned canonical target and active sender identity. The source address cannot select the target. The result never includes source SQL, delivery operations or credentials and does not create or enable a native alert. The read is audited.",
+        "tags": ["entities"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NMSImportAlertTargetPreviewRequest"}}}},
+        "responses": {
+          "200": {"description": "One inert, finite alert proposal with its exact current agent target.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NMSImportAlertTargetPreview"}}}},
+          "400": {"description": "Invalid source rule or agent target selection."},
+          "403": {"description": "Import or entity read permission denied in this context."},
+          "404": {"description": "No matching current finite rule and agent binding in this tenant and context."}
+        }
+      }
+    },
     "/v1/nms-imports/{id}/rows": {
       "get": {
         "x-required-permission": "nms.import.read",
@@ -18464,6 +18481,38 @@
           "poll_seconds": {"type": "integer", "minimum": 15, "maximum": 86400, "format": "int64"},
           "plan_id": {"type": "string", "format": "uuid"},
           "revision": {"type": "integer", "minimum": 1, "format": "int64"}
+        }
+      },
+      "NMSImportAlertTargetPreviewRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["context_id", "source_id", "rule_external_id", "agent_id", "target_address"],
+        "properties": {
+          "context_id": {"type": "string", "format": "uuid"},
+          "source_id": {"type": "string", "format": "uuid"},
+          "rule_external_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 20},
+          "agent_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "target_address": {"type": "string", "minLength": 1, "maxLength": 256}
+        }
+      },
+      "NMSImportAlertTargetPreview": {
+        "type": "object",
+        "required": ["tenant_id", "context_id", "source_id", "rule_external_id", "device_external_id", "entity_id", "agent_id", "target_address", "plan_id", "snapshot_hash", "name", "severity", "rule_kind", "enabled"],
+        "properties": {
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "context_id": {"type": "string", "format": "uuid"},
+          "source_id": {"type": "string", "format": "uuid"},
+          "rule_external_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 20},
+          "device_external_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 20},
+          "entity_id": {"type": "string", "format": "uuid"},
+          "agent_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "target_address": {"type": "string", "minLength": 1, "maxLength": 256},
+          "plan_id": {"type": "string", "format": "uuid"},
+          "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 256},
+          "severity": {"type": "string", "enum": ["warning", "critical"]},
+          "rule_kind": {"type": "string", "enum": ["port_down"]},
+          "enabled": {"type": "boolean", "enum": [false]}
         }
       },
       "NMSImportReviewDiffItem": {

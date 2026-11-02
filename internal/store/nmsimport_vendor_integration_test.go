@@ -359,6 +359,13 @@ func TestNMSVendorLiveImportTwoTenants(t *testing.T) {
 			preview.Severity == "" {
 			t.Fatalf("real LibreNMS alert preview escaped finite binding: %+v, %v", preview, err)
 		}
+		wire, err := json.Marshal(preview)
+		if err != nil || strings.Contains(string(wire), "SELECT *") ||
+			strings.Contains(string(wire), "192.0.2.40") ||
+			strings.Contains(string(wire), "operations") ||
+			strings.Contains(string(wire), "community") {
+			t.Fatalf("source query, address or credential escaped alert preview: %v", err)
+		}
 		foreignSource := map[string]string{a.ID: right.libreSource, b.ID: left.libreSource}[tenant]
 		if _, err := capturer.PreviewLibreNMSAlertTarget(tenantCtx, contextID,
 			foreignSource, bound.libreRule, alertAgent, alertTarget); !errors.Is(err, nmsimport.ErrPlanUnavailable) {
