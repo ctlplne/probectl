@@ -12909,7 +12909,7 @@
           },
           "value": {
             "type": "string",
-            "maxLength": 128
+            "maxLength": 24000
           },
           "source_ref": {
             "type": "string",
@@ -19234,7 +19234,7 @@
           "name_pattern": {"type": "string", "maxLength": 256},
           "snmp_field": {"type": "string", "enum": ["sys_name", "sys_descr", "if_name", "if_descr"]},
           "snmp_value": {"type": "string", "maxLength": 256},
-          "value": {"type": "string", "minLength": 1, "maxLength": 128},
+          "value": {"type": "string", "minLength": 1, "maxLength": 24000},
           "priority": {"type": "integer", "minimum": -1000, "maximum": 1000, "default": 0}
         }
       },
@@ -19266,7 +19266,7 @@
           "target_id": {"type": "string"},
           "exporter_agent_id": {"type": "string"},
           "exporter_source_ref": {"type": "string"},
-          "value": {"type": "string", "minLength": 1, "maxLength": 128}
+          "value": {"type": "string", "minLength": 1, "maxLength": 24000}
         }
       },
       "TagAssignment": {
@@ -19281,7 +19281,7 @@
           "target_id": {"type": "string"},
           "exporter_agent_id": {"type": "string"},
           "exporter_source_ref": {"type": "string"},
-          "value": {"type": "string"},
+          "value": {"type": "string", "maxLength": 24000},
           "source": {"type": "string", "enum": ["manual", "netbox"]},
           "source_ref": {"type": "string"},
           "reviewed_at": {"type": "string", "format": "date-time"}
@@ -23422,6 +23422,14 @@
                 "minimum": 1,
                 "maximum": 536870912
               },
+              "max_tag_value_characters": {
+                "type": "integer",
+                "const": 24000
+              },
+              "max_tag_value_bytes": {
+                "type": "integer",
+                "const": 96000
+              },
               "grammar_bytes": {
                 "type": "integer",
                 "minimum": 1,
@@ -23481,6 +23489,8 @@
               "max_regex_bytes",
               "max_values_per_predicate",
               "max_value_bytes",
+              "max_tag_value_characters",
+              "max_tag_value_bytes",
               "grammar_bytes",
               "execution_seconds",
               "read_bytes",

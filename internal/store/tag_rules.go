@@ -48,6 +48,7 @@ func (TagRules) List(ctx context.Context, sc tenancy.Scope, contextID, cursor st
 	}
 	defer rows.Close()
 	items := make([]tags.Rule, 0, limit)
+	var page tagPageBudget
 	for rows.Next() {
 		item := tags.Rule{Scope: tags.Scope{TenantID: sc.Tenant.String(), ContextID: contextID}}
 		if err := rows.Scan(&item.ID, &item.TagID, &item.TargetKind,
@@ -55,14 +56,20 @@ func (TagRules) List(ctx context.Context, sc tenancy.Scope, contextID, cursor st
 			&item.SNMPField, &item.SNMPValue, &item.Value, &item.Priority); err != nil {
 			return nil, "", err
 		}
+		if len(items) == limit {
+			return items, items[len(items)-1].ID, nil
+		}
+		admitted, err := page.admit(item)
+		if err != nil {
+			return nil, "", err
+		}
+		if !admitted {
+			return items, items[len(items)-1].ID, nil
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err
-	}
-	if len(items) > limit {
-		next := items[limit-1].ID
-		return items[:limit], next, nil
 	}
 	return items, "", nil
 }

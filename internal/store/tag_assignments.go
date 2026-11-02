@@ -135,6 +135,7 @@ func (TagAssignments) List(ctx context.Context, sc tenancy.Scope, contextID,
 	}
 	defer rows.Close()
 	items := make([]TagAssignmentRecord, 0, limit)
+	var page tagPageBudget
 	for rows.Next() {
 		item := TagAssignmentRecord{Assignment: tags.Assignment{Scope: tags.Scope{
 			TenantID: sc.Tenant.String(), ContextID: contextID}}}
@@ -161,13 +162,20 @@ func (TagAssignments) List(ctx context.Context, sc tenancy.Scope, contextID,
 		default:
 			return nil, "", tags.ErrInvalid
 		}
+		if len(items) == limit {
+			return items, items[len(items)-1].ID, nil
+		}
+		admitted, err := page.admit(item)
+		if err != nil {
+			return nil, "", err
+		}
+		if !admitted {
+			return items, items[len(items)-1].ID, nil
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err
-	}
-	if len(items) > limit {
-		return items[:limit], items[limit-1].ID, nil
 	}
 	return items, "", nil
 }

@@ -779,8 +779,8 @@ Configure the deployment's NetBox tenant map as described in
 state, even when cached enrichment exists. The IP CI and any related device or
 VM must each attest the mapped source tenant; a brief related-object name is
 insufficient. A missing binding, outage, ambiguous result or noncanonical target
-refuses the preview. Values are bounded to 128 UTF-8 bytes without control
-characters. The whole preview has a 15-second deadline and each source response
+refuses the preview. Values support up to 24,000 Unicode code points (96,000 UTF-8 bytes),
+without control characters. The whole preview has a 15-second deadline and each source response
 is bounded to 4 MiB.
 
 The response contains the exact source CI and field, value, structured
@@ -814,3 +814,24 @@ requires all three grants and routing-context access. Replaying an already
 applied revision is refused. A fresh preview can update the existing imported
 assignment without duplicating it. Both source operations remain labelled
 preview until their real NetBox service receipt passes.
+
+### Tag value and page budgets
+
+Tag values admit 24,000 Unicode code points, including supplementary characters,
+with a 96,000-byte UTF-8 bound. Manual and rule writes, reviewed source imports,
+query snapshots and flow predicates use the same value reach. Metadata write
+bodies are bounded to 384 KiB so JSON-escaped supplementary characters fit;
+this does not change the global HTTP or query grammar limits.
+
+Rule and assignment lists return at most the requested 100 rows and also stop
+before their encoded items exceed 768 KiB. A shorter page can still carry
+`next_cursor`; follow it until absent. No stored rows are dropped or hidden by
+that page budget. Admin can disclose the entire value without write permission;
+its input counts Unicode points rather than confusing them with UTF-16 units.
+
+Large metadata continues to consume Explorer's lookup, intermediate-group,
+response and memory budgets. An oversized operation refuses with the existing
+resource-budget error; it never truncates values or returns partial totals.
+The schema exposes separate native predicate byte and tag value limits. The
+append-only expansion migration and old-silo catch-up preserve tenant RLS,
+compound subject FKs and current-rule revision semantics without rewriting data.

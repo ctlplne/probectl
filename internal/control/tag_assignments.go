@@ -76,7 +76,7 @@ func (s *Server) handleCreateManualTagAssignment(w http.ResponseWriter, r *http.
 		return err
 	}
 	var input manualTagAssignmentRequest
-	if err := decodeJSONLimit(r, 8<<10, &input); err != nil {
+	if err := decodeJSONLimit(r, tags.MaxValueInputBytes, &input); err != nil {
 		return err
 	}
 	var record store.TagAssignmentRecord
@@ -105,7 +105,7 @@ func (s *Server) handleUpdateManualTagAssignment(w http.ResponseWriter, r *http.
 		return err
 	}
 	var input manualTagAssignmentRequest
-	if err := decodeJSONLimit(r, 8<<10, &input); err != nil {
+	if err := decodeJSONLimit(r, tags.MaxValueInputBytes, &input); err != nil {
 		return err
 	}
 	var record store.TagAssignmentRecord

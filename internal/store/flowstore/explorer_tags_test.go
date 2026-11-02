@@ -142,3 +142,55 @@ func TestClickHouseTagPlanBindsKeyAndJoinsTenantInOneQuery(t *testing.T) {
 		t.Fatalf("foreign tenant compiled this tag query: %v", err)
 	}
 }
+
+func TestLongTagValuesRemainQueryAndResponseBudgeted(t *testing.T) {
+	tenant := uuid.NewString()
+	value := strings.Repeat("🌐", 24000)
+	definitions := []tags.Definition{{TenantID: tenant, ID: uuid.NewString(), Key: "customer"}}
+	projections := []tags.ExporterProjection{{Exporter: "192.0.2.10", Values: map[string]string{"customer": value}}, {Exporter: "192.0.2.11", Values: map[string]string{"customer": "other"}}}
+	if _, err := NewTagQueryData(tenant, 2, definitions, projections, int64(len(value))); !errors.Is(err, ErrExplorerBudget) {
+		t.Fatalf("long metadata escaped lookup memory budget: %v", err)
+	}
+	lookup, err := NewTagQueryData(tenant, 2, definitions, projections, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vocabulary, err := lookup.Vocabulary(tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := flow.NormalizeQueryPredicatesWithVocabulary([]flow.QueryPredicate{{Field: "tag.customer", Op: flow.QueryEqual, Values: []string{value}}}, vocabulary); err != nil {
+		t.Fatalf("supported multi-byte tag could not be used as a filter: %v", err)
+	}
+	if _, err := lookup.ExternalRows(tenant, 1024); !errors.Is(err, ErrExplorerBudget) {
+		t.Fatalf("long lookup ignored serialized response budget: %v", err)
+	}
+	row := explorerFixtureRow(tenant)
+	row.Exporter = "192.0.2.10"
+	row.BytesScaled = 700
+	memory := NewMemory()
+	other := row
+	other.Exporter = "192.0.2.11"
+	other.BytesScaled = 300
+	foreign := row
+	foreign.TenantID = uuid.NewString()
+	foreign.BytesScaled = 1000
+	if err := memory.Insert(t.Context(), []Row{row, other, foreign}); err != nil {
+		t.Fatal(err)
+	}
+	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Minute),
+		GroupBy: []string{"tag.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.customer", Op: flow.QueryEqual, Values: []string{value}}}}}
+	query := PlanQuery{TenantID: tenant, Plan: plan, Tags: lookup}
+	result, err := memory.ExplorePlan(t.Context(), query)
+	if err != nil || len(result.Rows) != 1 || result.Rows[0].Group["tag.customer"] != value || result.Totals["bytes:total"] != "700" {
+		t.Fatalf("long metadata did not group retained traffic: rows=%d err=%v", len(result.Rows), err)
+	}
+	budget := DefaultExplorerBudget()
+	budget.MemoryBytes = 16 << 10
+	if err := AttachExplorerBudget(memory, budget); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.ExplorePlan(t.Context(), query); !errors.Is(err, ErrExplorerBudget) {
+		t.Fatalf("long group key escaped execution memory accounting: %v", err)
+	}
+}

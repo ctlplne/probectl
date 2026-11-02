@@ -109,5 +109,5 @@ END $fx3_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
 				"ALTER TABLE "+child+" ENABLE ALWAYS TRIGGER "+quoteIdent(name))
 		}
 	}
-	return plan
+	return append(plan, tagValueConstraintPlan(schema)...)
 }

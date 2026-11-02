@@ -36,7 +36,6 @@ const (
 	maxDefinitions   = MaxDefinitions
 	maxRules         = MaxRules
 	maxAssignments   = MaxAssignments
-	maxValueBytes    = 128
 	maxPatternBytes  = 256
 	maxTargetIDBytes = 2048
 )
@@ -218,7 +217,7 @@ func ValidateAssignment(assignment Assignment) error {
 	}
 	if !validUUID(assignment.TagID) ||
 		!validKind(assignment.TargetKind) || !validText(assignment.TargetID, maxTargetIDBytes) ||
-		!validText(assignment.Value, maxValueBytes) ||
+		ValidateValue(assignment.Value) != nil ||
 		(assignment.Source != "manual" && assignment.Source != "netbox") ||
 		(assignment.Source == "manual" && assignment.SourceRef != "") ||
 		(assignment.Source == "netbox" && !sourceRefPattern.MatchString(assignment.SourceRef)) {

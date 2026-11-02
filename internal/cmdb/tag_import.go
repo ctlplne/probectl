@@ -12,8 +12,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf8"
+
+	"github.com/ctlplne/probectl/internal/tags"
 )
 
 var ErrNoTagCandidate = errors.New("cmdb: no unambiguous importable tag value")
@@ -78,7 +79,7 @@ func (r *Resolver) PreviewNetBoxTag(ctx context.Context, key, field string) (can
 		}
 	}
 	value := ci.Extra[field]
-	if !validImportedTagValue(value) {
+	if tags.ValidateValue(value) != nil {
 		return NetBoxTagCandidate{}, ErrNoTagCandidate
 	}
 	lookupRef, err := compactNetBoxCIRef(lookup)
@@ -96,11 +97,6 @@ func (r *Resolver) PreviewNetBoxTag(ctx context.Context, key, field string) (can
 	return NetBoxTagCandidate{NetBoxTenantID: source, LookupCIID: lookup.SysID,
 		CIID: ci.SysID, Name: name, Field: field, Value: value,
 		SourceRef: "netbox:t" + source + ":" + lookupRef + ":" + ciRef + ":" + field}, nil
-}
-
-func validImportedTagValue(value string) bool {
-	return value != "" && len(value) <= 128 && utf8.ValidString(value) &&
-		strings.TrimSpace(value) == value && strings.IndexFunc(value, unicode.IsControl) < 0
 }
 
 func compactNetBoxCIRef(ci CI) (string, error) {

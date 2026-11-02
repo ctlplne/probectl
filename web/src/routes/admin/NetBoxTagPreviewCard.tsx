@@ -21,6 +21,7 @@ import {
   Table,
   type Column,
 } from '../../components'
+import { TagValue } from './TagValue'
 import styles from './EntityRegistryCard.module.css'
 
 export function NetBoxTagPreviewCard() {
@@ -189,7 +190,11 @@ function NetBoxPreviewForm({
     result.candidate.field === field
   const columns: Column<{ label: string; value: string }>[] = [
     { key: 'label', header: 'Field', render: (row) => row.label },
-    { key: 'value', header: 'Value', render: (row) => <code>{row.value}</code> },
+    {
+      key: 'value',
+      header: 'Value',
+      render: (row) => <TagValue value={row.value} />,
+    },
   ]
   const rows =
     matchesInput && result

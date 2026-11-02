@@ -8,6 +8,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../../auth/useAuth'
 import { useEntityContexts } from '../../api/entities'
 import {
+  MAX_TAG_VALUE_INPUT_UNITS,
+  tagValueTooLong,
   useCreateTagRule,
   useDeleteTagRule,
   useTagDefinitions,
@@ -29,6 +31,7 @@ import {
   Table,
   type Column,
 } from '../../components'
+import { TagValue } from './TagValue'
 import styles from './EntityRegistryCard.module.css'
 
 const targetKinds = ['device', 'interface', 'prefix', 'exporter', 'agent', 'test'] as const
@@ -123,7 +126,7 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
 
   async function onSave(event: FormEvent) {
     event.preventDefault()
-    if (!contextID || !tagID || !value.trim()) return
+    if (!contextID || !tagID || !value.trim() || tagValueTooLong(value)) return
     try {
       const input = ruleInput()
       if (editing) await update.mutateAsync({ id: editing.id, input })
@@ -169,7 +172,11 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
       header: 'Match',
       render: (row) => `${row.match_kind}: ${row.cidr ?? row.name_pattern ?? row.snmp_field ?? ''}`,
     },
-    { key: 'value', header: 'Value', render: (row) => row.value },
+    {
+      key: 'value',
+      header: 'Value',
+      render: (row) => <TagValue value={row.value} />,
+    },
     { key: 'priority', header: 'Priority', render: (row) => row.priority ?? 0, numeric: true },
     {
       key: 'actions',
@@ -342,7 +349,9 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
                     <Field
                       label="Tag value"
                       required
-                      maxLength={128}
+                      maxLength={MAX_TAG_VALUE_INPUT_UNITS}
+                      hint="Up to 24,000 Unicode characters."
+                      error={tagValueTooLong(value) ? 'Use at most 24,000 characters.' : undefined}
                       value={value}
                       onChange={(event) => setValue(event.target.value)}
                     />
@@ -356,7 +365,13 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
                     />
                     <Button
                       type="submit"
-                      disabled={create.isPending || update.isPending || !tagID || !value.trim()}
+                      disabled={
+                        create.isPending ||
+                        update.isPending ||
+                        !tagID ||
+                        !value.trim() ||
+                        tagValueTooLong(value)
+                      }
                     >
                       {editing ? 'Save rule' : 'Create rule'}
                     </Button>

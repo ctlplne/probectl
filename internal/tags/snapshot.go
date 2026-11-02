@@ -146,7 +146,7 @@ func validateRuleShape(rule Rule) error {
 		return ErrScopeMismatch
 	}
 	if !validUUID(rule.ID) || !validUUID(rule.TagID) || !validKind(rule.TargetKind) ||
-		!validText(rule.Value, maxValueBytes) || rule.Priority < -1000 || rule.Priority > 1000 {
+		ValidateValue(rule.Value) != nil || rule.Priority < -1000 || rule.Priority > 1000 {
 		return ErrInvalid
 	}
 	return nil

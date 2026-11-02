@@ -5,9 +5,11 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
+import { MAX_TAG_VALUE_CHARACTERS } from '../api/tags'
+import spec from '../../../internal/control/openapi.json'
 import { assertNoDoublePrefix, defaultFetch, jsonResponse, pathOf } from './fetchStub'
 
 const tenantID = '00000000-0000-0000-0000-000000000001'
@@ -252,6 +254,36 @@ describe('Tenant tag definitions in Admin', () => {
     )
     await waitFor(() => expect(within(table).queryByText('green')).not.toBeInTheDocument())
     expect(capture.deletedRules).toEqual(['rule-1'])
+  })
+
+  test('accepts full Unicode character reach in Admin and refuses an over-limit value before writing', async () => {
+    expect(spec.components.schemas.ManualTagAssignmentInput.properties.value.maxLength).toBe(
+      MAX_TAG_VALUE_CHARACTERS,
+    )
+    const capture: TagCapture = { bodies: [], deleted: [], assignmentBodies: [] }
+    vi.stubGlobal('fetch', tagFetch(capture))
+    const app = renderApp('/admin', { me: { permissions: ['tags.read', 'tags.write'] } })
+    const table = await screen.findByRole('table', {
+      name: 'Tag assignments in selected routing context',
+    })
+    const card = table.closest('[data-tenant-tag-assignments]') as HTMLElement
+    const user = userEvent.setup()
+    await user.type(within(card).getByRole('textbox', { name: 'Owned target ID' }), 'device-2')
+    const input = within(card).getByRole('textbox', { name: 'Assignment value' })
+    await user.click(input)
+    await user.paste('🌐'.repeat(24_000))
+    expect((input as HTMLInputElement).value.length).toBe(48_000)
+    await user.click(within(card).getByRole('button', { name: 'Create assignment' }))
+    await waitFor(() => expect(capture.assignmentBodies).toHaveLength(1))
+    expect((capture.assignmentBodies?.[0] as { value: string }).value.length).toBe(48_000)
+    await user.click(await within(table).findByText(/24,000 characters/))
+    expect(table.querySelector('[data-tag-value-full]')?.textContent?.trim().length).toBe(48_000)
+    await waitFor(() => expect(input).toHaveValue(''))
+    fireEvent.change(input, { target: { value: 'x'.repeat(24_001) } })
+    expect(within(card).getByRole('button', { name: 'Create assignment' })).toBeDisabled()
+    expect(within(card).getByText('Use at most 24,000 characters.')).toBeInTheDocument()
+    expect(capture.assignmentBodies).toHaveLength(1)
+    app.unmount()
   })
 
   test('creates, edits and confirms deletion of a tenant-owned manual assignment', async () => {

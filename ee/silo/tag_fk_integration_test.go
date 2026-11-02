@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,6 +129,34 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT revision FROM `+schemaA+`.tenant_tag_revisions
 		WHERE tenant_id=$1`, a).Scan(&revision); err != nil || revision <= 1 {
 		t.Fatalf("accepted definition/assignment did not advance revision: %d, %v", revision, err)
+	}
+	// An already tagged physical silo can retain the original 128-byte CHECK.
+	// Catch-up must expand it without losing the tenant/subject constraints.
+	for _, table := range []string{"tenant_tag_assignments", "tenant_tag_rules"} {
+		child := schemaA + "." + quoteIdent(table)
+		if _, err := pool.Exec(ctx, `ALTER TABLE `+child+` DROP CONSTRAINT IF EXISTS `+quoteIdent(table+"_value_v2_check")+`; ALTER TABLE `+child+` ADD CONSTRAINT `+quoteIdent(table+"_value_check")+` CHECK (octet_length(value) BETWEEN 1 AND 128) NOT VALID`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := prov.CatchUpSchema(ctx, a); err != nil {
+		t.Fatalf("catch up old tag value constraints: %v", err)
+	}
+	if err := prov.CatchUpSchema(ctx, a); err != nil {
+		t.Fatalf("repeat value catch-up: %v", err)
+	}
+	if err := appExec(a, `UPDATE `+schemaA+`.tenant_tag_assignments SET value=$2 WHERE tenant_id=$1`, a, strings.Repeat("🌐", 24000)); err != nil {
+		t.Fatalf("caught-up silo refused full character reach: %v", err)
+	}
+	if err := appExec(b, `UPDATE `+schemaA+`.tenant_tag_assignments SET value='foreign' WHERE tenant_id=$1`, a); err != nil {
+		// Some deployments reject access outright; an empty RLS update is also safe.
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) {
+			t.Fatal(err)
+		}
+	}
+	var preserved string
+	if err := pool.QueryRow(ctx, `SELECT value FROM `+schemaA+`.tenant_tag_assignments WHERE tenant_id=$1 LIMIT 1`, a).Scan(&preserved); err != nil || preserved != strings.Repeat("🌐", 24000) {
+		t.Fatalf("foreign caller changed large silo metadata: bytes=%d err=%v", len(preserved), err)
 	}
 	// Simulate a silo created before FX-3. Its old path binding must be copied
 	// into the new general test binding before the new composite FK is added.

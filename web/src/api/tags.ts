@@ -32,6 +32,13 @@ export type {
 } from './sdk.gen'
 
 const tagKey = (tenantID: string) => ['tenant-tags', tenantID] as const
+export const MAX_TAG_VALUE_CHARACTERS = 24_000
+// Native maxlength counts UTF-16 units, while the API counts Unicode points.
+export const MAX_TAG_VALUE_INPUT_UNITS = MAX_TAG_VALUE_CHARACTERS * 2
+
+export function tagValueTooLong(value: string): boolean {
+  return Array.from(value).length > MAX_TAG_VALUE_CHARACTERS
+}
 const ruleKey = (tenantID: string, contextID: string) =>
   ['tenant-tag-rules', tenantID, contextID] as const
 const assignmentKey = (tenantID: string, contextID: string) =>

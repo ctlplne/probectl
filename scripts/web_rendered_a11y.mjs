@@ -461,7 +461,7 @@ function apiPayload(path, method, pagePath = "") {
       context_id: "00000000-0000-0000-0000-000000000072",
       tag_id: "00000000-0000-0000-0000-000000000073",
       target_kind: "device", target_id: "00000000-0000-0000-0000-000000000076",
-      value: "gold", source: "manual",
+      value: "🌐".repeat(24000), source: "manual",
     }] });
   if (path === "/v1/entity-contexts/00000000-0000-0000-0000-000000000072/tag-imports/netbox/preview")
     return json({
@@ -2583,6 +2583,23 @@ async function dashboardScopeGeometryChecks(page, viewportName) {
 // G9: the Admin agents table's Tests column renders each central test-set
 // state the fixture carries, so the axe pass above audited those badges and
 // detail lines rather than an empty column.
+async function longTagValueChecks(page, axeSource) {
+  const failures = [];
+  const card = page.locator("[data-tenant-tag-assignments]");
+  const disclosure = card.locator("summary");
+  await disclosure.waitFor();
+  await disclosure.click();
+  const complete = card.locator("[data-tag-value-full]");
+  if (!(await complete.isVisible()) || await complete.evaluate((node) => Array.from(node.textContent.trim()).length) !== 24000) {
+    failures.push("complete Unicode value was truncated or inaccessible");
+  }
+  const violations = blockingAxeResults(await runAxe(page, axeSource));
+  failures.push(...violations.map((violation) => `complete tag value: ${violation.id}`));
+  failures.push(...await horizontalOverflowCheck(page));
+  await disclosure.click();
+  return failures;
+}
+
 async function netBoxTagPreviewChecks(page, axeSource) {
   const failures = [];
   const card = page.locator("[data-tenant-netbox-tag-preview]");
@@ -3702,6 +3719,7 @@ async function main() {
             deviceReceipt: [],
             fleetTestSet: [],
             netBoxTagPreview: [],
+            longTagValue: [],
             flowReceipt: [],
             flowTopTalkers: [],
             deviceConfigDiff: [],
@@ -3828,6 +3846,10 @@ async function main() {
               }
               if (!(await page.locator("[data-tenant-tag-assignments]").isVisible())) {
                 failures.push(`${viewport.name} ${theme} /admin: tenant tag assignments did not render`);
+              }
+              record.longTagValue = await longTagValueChecks(page, axeSource);
+              if (record.longTagValue.length > 0) {
+                failures.push(`${viewport.name} ${theme} /admin: tag value disclosure violations\n  ${record.longTagValue.join("\n  ")}`);
               }
               record.netBoxTagPreview = await netBoxTagPreviewChecks(page, axeSource);
               if (record.netBoxTagPreview.length > 0) {
@@ -3960,6 +3982,7 @@ async function main() {
             record.deviceReceipt.length === 0 &&
             record.fleetTestSet.length === 0 &&
             record.netBoxTagPreview.length === 0 &&
+            record.longTagValue.length === 0 &&
             record.flowReceipt.length === 0 &&
             record.flowTopTalkers.length === 0 &&
             record.deviceConfigDiff.length === 0 &&

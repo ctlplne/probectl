@@ -59,7 +59,7 @@ func NewTagQueryData(tenantID string, revision int64, definitions []tags.Definit
 		values := make(map[string]string, len(projection.Values))
 		for key, value := range projection.Values {
 			field, ok := vocabulary.Lookup("tag." + key)
-			if !ok || field.TagKey != key || value == "" || len(value) > 128 {
+			if !ok || field.TagKey != key || tags.ValidateValue(value) != nil {
 				return nil, ErrTagQueryScope
 			}
 			used += 128 + int64(len(key)+len(value))

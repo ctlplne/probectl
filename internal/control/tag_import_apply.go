@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -35,7 +36,7 @@ func (s *Server) authorizeNetBoxTagApply(r *http.Request, contextID string) (str
 
 func (s *Server) handleApplyNetBoxTag(w http.ResponseWriter, r *http.Request) error {
 	var input netBoxTagApplyRequest
-	if err := decodeJSONLimit(r, 8<<10, &input); err != nil {
+	if err := decodeJSONLimit(r, tags.MaxValueInputBytes, &input); err != nil {
 		return err
 	}
 	record, err := s.applyReviewedNetBoxTag(r, input)

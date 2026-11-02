@@ -104,7 +104,7 @@ func (s *Server) handleCreateTagRule(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	var input tagRuleInput
-	if err := decodeJSONLimit(r, 8<<10, &input); err != nil {
+	if err := decodeJSONLimit(r, tags.MaxValueInputBytes, &input); err != nil {
 		return err
 	}
 	var rule tags.Rule
@@ -132,7 +132,7 @@ func (s *Server) handleUpdateTagRule(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	var input tagRuleInput
-	if err := decodeJSONLimit(r, 8<<10, &input); err != nil {
+	if err := decodeJSONLimit(r, tags.MaxValueInputBytes, &input); err != nil {
 		return err
 	}
 	var rule tags.Rule

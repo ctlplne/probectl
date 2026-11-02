@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/tags"
 )
 
 const (
@@ -78,8 +80,12 @@ func normalizeQueryPredicates(input []QueryPredicate, lookup func(string) (Query
 			if predicate.Op != QueryRegex && predicate.Op != QueryNotRegex && predicate.Op != QueryContains && predicate.Op != QueryNotContains {
 				value = strings.TrimSpace(value)
 			}
-			if len(value) > MaxQueryValueBytes {
-				return nil, fmt.Errorf("flow predicate values allow at most %d bytes", MaxQueryValueBytes)
+			limit := MaxQueryValueBytes
+			if field.Derived == "tenant_tag" {
+				limit = tags.MaxValueBytes
+			}
+			if len(value) > limit {
+				return nil, fmt.Errorf("flow predicate values allow at most %d bytes", limit)
 			}
 			if value == "" {
 				exact := predicate.Op == QueryEqual || predicate.Op == QueryNotEqual || predicate.Op == QueryIn || predicate.Op == QueryNotIn

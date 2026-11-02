@@ -8,6 +8,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../../auth/useAuth'
 import { useEntityContexts } from '../../api/entities'
 import {
+  MAX_TAG_VALUE_INPUT_UNITS,
+  tagValueTooLong,
   useCreateTagAssignment,
   useDeleteTagAssignment,
   useTagAssignments,
@@ -29,6 +31,7 @@ import {
   Table,
   type Column,
 } from '../../components'
+import { TagValue } from './TagValue'
 import styles from './EntityRegistryCard.module.css'
 
 const targetKinds = ['device', 'interface', 'prefix', 'exporter', 'agent', 'test'] as const
@@ -118,7 +121,7 @@ function TenantTagAssignmentsContents({
 
   async function onSave(event: FormEvent) {
     event.preventDefault()
-    if (!contextID || !tagID || !value.trim()) return
+    if (!contextID || !tagID || !value.trim() || tagValueTooLong(value)) return
     if (
       targetKind === 'exporter'
         ? !exporterAgentID.trim() || !exporterSourceRef.trim()
@@ -165,7 +168,11 @@ function TenantTagAssignmentsContents({
       render: (row) => <code>{keyByID.get(row.tag_id) ?? row.tag_id}</code>,
     },
     { key: 'target', header: 'Target', render: (row) => `${row.target_kind}: ${row.target_id}` },
-    { key: 'value', header: 'Value', render: (row) => row.value },
+    {
+      key: 'value',
+      header: 'Value',
+      render: (row) => <TagValue value={row.value} />,
+    },
     { key: 'source', header: 'Source', render: (row) => row.source },
     {
       key: 'provenance',
@@ -334,13 +341,21 @@ function TenantTagAssignmentsContents({
                     <Field
                       label="Assignment value"
                       required
-                      maxLength={128}
+                      maxLength={MAX_TAG_VALUE_INPUT_UNITS}
+                      hint="Up to 24,000 Unicode characters."
+                      error={tagValueTooLong(value) ? 'Use at most 24,000 characters.' : undefined}
                       value={value}
                       onChange={(event) => setValue(event.target.value)}
                     />
                     <Button
                       type="submit"
-                      disabled={create.isPending || update.isPending || !tagID || !value.trim()}
+                      disabled={
+                        create.isPending ||
+                        update.isPending ||
+                        !tagID ||
+                        !value.trim() ||
+                        tagValueTooLong(value)
+                      }
                     >
                       {editing ? 'Save assignment' : 'Create assignment'}
                     </Button>

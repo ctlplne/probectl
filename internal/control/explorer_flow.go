@@ -22,6 +22,7 @@ import (
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/chclient"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/tags"
 )
 
 func flowExplorerSchema(budgets ...flowstore.ExplorerBudget) map[string]any {
@@ -32,7 +33,7 @@ func flowExplorerSchema(budgets ...flowstore.ExplorerBudget) map[string]any {
 	return map[string]any{
 		"contract_version": "flow-explorer/v2", "fields": flow.QueryFields(), "metrics": flow.QueryMetricDefinitions(),
 		"render_cost": mcp.DefaultNativeFlowRenderBudget(),
-		"limits":      map[string]any{"max_groups": flow.MaxPlanDimensions, "max_matrix_dimensions": flow.MaxPlanMatrixDimensions, "max_matrix_depth": flow.MaxPlanMatrixDepth, "max_chart_series": flow.MaxPlanChartSeries, "max_chart_rows": flow.MaxPlanChartRows, "max_table_rows": flow.MaxPlanTableRows, "max_page_rows": flow.MaxPlanPageRows, "min_bucket_seconds": flow.MinPlanBucketSeconds, "max_bucket_seconds": flow.MaxPlanBucketSeconds, "max_group_entries": flow.MaxQueryGroupEntries, "max_expanded_conditions": flow.MaxQueryPredicates, "max_filter_depth": flow.MaxQueryFilterDepth, "max_regex_bytes": flow.MaxQueryRegexBytes, "max_values_per_predicate": flow.MaxQueryValues, "max_value_bytes": flow.MaxQueryValueBytes, "grammar_bytes": flow.MaxPlanGrammarBytes, "execution_seconds": budget.ExecutionLimit.Seconds(), "read_bytes": budget.ReadBytes, "read_rows": budget.ReadRows, "response_bytes": budget.ResponseBytes, "memory_bytes": budget.MemoryBytes, "intermediate_groups": budget.IntermediateGroups, "interface_items": budget.InterfaceItems, "threads": budget.Threads},
+		"limits":      map[string]any{"max_groups": flow.MaxPlanDimensions, "max_matrix_dimensions": flow.MaxPlanMatrixDimensions, "max_matrix_depth": flow.MaxPlanMatrixDepth, "max_chart_series": flow.MaxPlanChartSeries, "max_chart_rows": flow.MaxPlanChartRows, "max_table_rows": flow.MaxPlanTableRows, "max_page_rows": flow.MaxPlanPageRows, "min_bucket_seconds": flow.MinPlanBucketSeconds, "max_bucket_seconds": flow.MaxPlanBucketSeconds, "max_group_entries": flow.MaxQueryGroupEntries, "max_expanded_conditions": flow.MaxQueryPredicates, "max_filter_depth": flow.MaxQueryFilterDepth, "max_regex_bytes": flow.MaxQueryRegexBytes, "max_values_per_predicate": flow.MaxQueryValues, "max_value_bytes": flow.MaxQueryValueBytes, "max_tag_value_characters": tags.MaxValueCharacters, "max_tag_value_bytes": tags.MaxValueBytes, "grammar_bytes": flow.MaxPlanGrammarBytes, "execution_seconds": budget.ExecutionLimit.Seconds(), "read_bytes": budget.ReadBytes, "read_rows": budget.ReadRows, "response_bytes": budget.ResponseBytes, "memory_bytes": budget.MemoryBytes, "intermediate_groups": budget.IntermediateGroups, "interface_items": budget.InterfaceItems, "threads": budget.Threads},
 		"defaults":    map[string]any{"ipv4_prefix_length": 24, "ipv6_prefix_length": 48, "bucket_seconds": 60, "series_depth": 40, "row_limit": 100},
 		"time_range":  "tenant retention and source coverage; no fixed day cap",
 		"statistics":  map[string]any{"percentile": "nearest rank, including idle zero buckets", "rate_average": "duration weighted", "decimal_places": 18, "decimal_rounding": "toward zero", "distinct_total": "whole-window exact identities", "distinct_bucket_total": "sum of per-bucket distinct counts"},
