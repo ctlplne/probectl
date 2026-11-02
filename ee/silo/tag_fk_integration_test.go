@@ -17,10 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctlplne/probectl/internal/tenancy"
-	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // The migration login seeds the fixture; every assertion then runs as the

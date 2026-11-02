@@ -109,12 +109,12 @@ func TestTagPooledRLSAndTypedAssignmentRejectForeignTenant(t *testing.T) {
 		caller string
 		want   int
 	}{{a.ID, 1}, {b.ID, 0}} {
-		got := countVisibleTagAssignments(t, ctx, pool, tc.caller)
+		got := countVisibleTagAssignments(ctx, t, pool, tc.caller)
 		if got != tc.want {
 			t.Fatalf("caller %s saw %d assignments, want %d", tc.caller, got, tc.want)
 		}
 	}
-	if got := countVisibleTagAssignments(t, ctx, pool, ""); got != 0 {
+	if got := countVisibleTagAssignments(ctx, t, pool, ""); got != 0 {
 		t.Fatalf("missing tenant scope saw %d assignments", got)
 	}
 	loader := NewTagSnapshots(pool)
@@ -183,7 +183,7 @@ func TestTagPooledRLSAndTypedAssignmentRejectForeignTenant(t *testing.T) {
 	}
 }
 
-func countVisibleTagAssignments(t *testing.T, ctx context.Context, pool *pgxpool.Pool, caller string) int {
+func countVisibleTagAssignments(ctx context.Context, t *testing.T, pool *pgxpool.Pool, caller string) int {
 	t.Helper()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
