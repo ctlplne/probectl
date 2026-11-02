@@ -149,12 +149,12 @@ func sameScope(a, b Scope) bool {
 	return a.TenantID == b.TenantID && a.ContextID == b.ContextID
 }
 
-// Resolve applies one immutable tenant/context rule revision to one canonical
+// resolve applies one immutable tenant/context rule revision to one canonical
 // subject. Manual wins over a matching rule, which wins over an imported
 // NetBox suggestion. Among CIDR rules the longest prefix wins, then explicit
 // priority and immutable rule ID; other rule types use priority then ID.
 // Mixed-tenant snapshots fail closed rather than silently dropping rows.
-func Resolve(scope Scope, revision int64, subject Subject, definitions []Definition,
+func resolve(scope Scope, revision int64, subject Subject, definitions []Definition,
 	assignments []Assignment, rules []Rule) ([]Resolved, error) {
 	if !validScope(scope) || revision <= 0 || !sameScope(scope, subject.Scope) {
 		return nil, ErrScopeMismatch

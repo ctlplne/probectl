@@ -41,26 +41,26 @@ func TestResolveCurrentRevisionRetagsHistoricalSubjectWithDeterministicPrecedenc
 		Match: "cidr", AddressSide: "exporter", CIDR: "10.1.0.0/16", Value: "wide"}
 	narrow := Rule{Scope: scope, ID: ruleB, TagID: tagID, TargetKind: "exporter",
 		Match: "cidr", AddressSide: "exporter", CIDR: "10.1.2.0/24", Value: "narrow"}
-	got, err := Resolve(scope, 1, subject, []Definition{definition},
+	got, err := resolve(scope, 1, subject, []Definition{definition},
 		[]Assignment{imported}, []Rule{wide, narrow})
 	if err != nil || len(got) != 1 || got[0].Value != "narrow" ||
 		got[0].Source != "rule" || got[0].SourceID != ruleB || got[0].Revision != 1 {
 		t.Fatalf("longest prefix did not beat import: %+v, %v", got, err)
 	}
 	narrow.Value = "renamed"
-	changed, err := Resolve(scope, 2, subject, []Definition{definition},
+	changed, err := resolve(scope, 2, subject, []Definition{definition},
 		[]Assignment{imported}, []Rule{wide, narrow})
 	if err != nil || len(changed) != 1 || changed[0].Value != "renamed" || changed[0].Revision != 2 {
 		t.Fatalf("current rule revision did not retag the same subject: %+v, %v", changed, err)
 	}
 	manual := Assignment{Scope: scope, TagID: tagID, TargetKind: "exporter",
 		TargetID: subject.ID, Value: "manual", Source: "manual"}
-	got, err = Resolve(scope, 2, subject, []Definition{definition},
+	got, err = resolve(scope, 2, subject, []Definition{definition},
 		[]Assignment{imported, manual}, []Rule{wide, narrow})
 	if err != nil || len(got) != 1 || got[0].Value != "manual" || got[0].Source != "manual" {
 		t.Fatalf("manual value did not win: %+v, %v", got, err)
 	}
-	got, err = Resolve(scope, 2, subject, []Definition{definition}, []Assignment{imported}, nil)
+	got, err = resolve(scope, 2, subject, []Definition{definition}, []Assignment{imported}, nil)
 	if err != nil || len(got) != 1 || got[0].Value != "imported" || got[0].SourceID != "ci-17" {
 		t.Fatalf("reviewed import did not remain a suggestion: %+v, %v", got, err)
 	}
@@ -72,12 +72,12 @@ func TestResolveRulePriorityAndImmutableIDBreakTies(t *testing.T) {
 		Match: "cidr", AddressSide: "exporter", CIDR: "10.1.2.0/24", Value: "first"}
 	second := first
 	second.ID, second.Value, second.Priority = ruleB, "second", 1
-	got, err := Resolve(scope, 1, subject, []Definition{definition}, nil, []Rule{first, second})
+	got, err := resolve(scope, 1, subject, []Definition{definition}, nil, []Rule{first, second})
 	if err != nil || got[0].Value != "second" {
 		t.Fatalf("higher explicit priority lost: %+v, %v", got, err)
 	}
 	second.Priority = 0
-	got, err = Resolve(scope, 1, subject, []Definition{definition}, nil, []Rule{second, first})
+	got, err = resolve(scope, 1, subject, []Definition{definition}, nil, []Rule{second, first})
 	if err != nil || got[0].Value != "first" {
 		t.Fatalf("immutable ID tie-break depended on input order: %+v, %v", got, err)
 	}
@@ -87,19 +87,19 @@ func TestResolveNameAndCollectedSNMPFieldsStayBounded(t *testing.T) {
 	scope, subject, definition := testScope(), testSubject(), testDefinition()
 	nameRule := Rule{Scope: scope, ID: ruleA, TagID: tagID, TargetKind: "exporter",
 		Match: "name_pattern", NamePattern: `^edge-[0-9]+$`, Value: "name"}
-	got, err := Resolve(scope, 1, subject, []Definition{definition}, nil, []Rule{nameRule})
+	got, err := resolve(scope, 1, subject, []Definition{definition}, nil, []Rule{nameRule})
 	if err != nil || len(got) != 1 || got[0].Value != "name" {
 		t.Fatalf("bounded name rule missed: %+v, %v", got, err)
 	}
 	snmpRule := Rule{Scope: scope, ID: ruleB, TagID: tagID, TargetKind: "exporter",
 		Match: "snmp_field", SNMPField: "sys_name", SNMPValue: "edge-1", Value: "snmp", Priority: 1}
-	got, err = Resolve(scope, 1, subject, []Definition{definition}, nil,
+	got, err = resolve(scope, 1, subject, []Definition{definition}, nil,
 		[]Rule{nameRule, snmpRule})
 	if err != nil || len(got) != 1 || got[0].Value != "snmp" {
 		t.Fatalf("collected SNMP field did not match: %+v, %v", got, err)
 	}
 	subject.Name, subject.SNMP = "", nil
-	got, err = Resolve(scope, 1, subject, []Definition{definition}, nil,
+	got, err = resolve(scope, 1, subject, []Definition{definition}, nil,
 		[]Rule{nameRule, snmpRule})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("missing name or inventory fact selected a tag: %+v, %v", got, err)
@@ -134,7 +134,7 @@ func TestResolveRejectsMixedTenantContextAndUntrustedRuleShapes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rule := base
 			tc.edit(&rule)
-			if _, err := Resolve(scope, 1, subject, []Definition{definition}, nil,
+			if _, err := resolve(scope, 1, subject, []Definition{definition}, nil,
 				[]Rule{rule}); !errors.Is(err, tc.want) {
 				t.Fatalf("invalid rule admitted: %v", err)
 			}
@@ -142,18 +142,18 @@ func TestResolveRejectsMixedTenantContextAndUntrustedRuleShapes(t *testing.T) {
 	}
 	foreignSubject := subject
 	foreignSubject.TenantID = tenantB
-	if _, err := Resolve(scope, 1, foreignSubject, []Definition{definition}, nil, nil); !errors.Is(err, ErrScopeMismatch) {
+	if _, err := resolve(scope, 1, foreignSubject, []Definition{definition}, nil, nil); !errors.Is(err, ErrScopeMismatch) {
 		t.Fatalf("foreign subject admitted: %v", err)
 	}
 	foreignDefinition := definition
 	foreignDefinition.TenantID = tenantB
-	if _, err := Resolve(scope, 1, subject, []Definition{foreignDefinition}, nil, nil); !errors.Is(err, ErrScopeMismatch) {
+	if _, err := resolve(scope, 1, subject, []Definition{foreignDefinition}, nil, nil); !errors.Is(err, ErrScopeMismatch) {
 		t.Fatalf("foreign definition admitted: %v", err)
 	}
 	foreignAssignment := Assignment{Scope: Scope{TenantID: tenantB, ContextID: contextA},
 		TagID: tagID, TargetKind: "exporter", TargetID: subject.ID,
 		Value: "other tenant", Source: "manual"}
-	if _, err := Resolve(scope, 1, subject, []Definition{definition},
+	if _, err := resolve(scope, 1, subject, []Definition{definition},
 		[]Assignment{foreignAssignment}, nil); !errors.Is(err, ErrScopeMismatch) {
 		t.Fatalf("foreign assignment admitted: %v", err)
 	}
@@ -164,13 +164,13 @@ func TestResolveRejectsReservedKeysAndDuplicateAssignments(t *testing.T) {
 	for _, key := range []string{"tenant_id", "agent_id", "probectl_device_if_oper_status", "Bad Key"} {
 		def := definition
 		def.Key = key
-		if _, err := Resolve(scope, 1, subject, []Definition{def}, nil, nil); !errors.Is(err, ErrInvalid) {
+		if _, err := resolve(scope, 1, subject, []Definition{def}, nil, nil); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("reserved key %q admitted: %v", key, err)
 		}
 	}
 	assignment := Assignment{Scope: scope, TagID: tagID, TargetKind: "exporter",
 		TargetID: subject.ID, Value: "one", Source: "manual"}
-	if _, err := Resolve(scope, 1, subject, []Definition{definition},
+	if _, err := resolve(scope, 1, subject, []Definition{definition},
 		[]Assignment{assignment, assignment}, nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate manual assignment admitted: %v", err)
 	}
