@@ -73,7 +73,14 @@ WORKDIR /src
 
 # Cache dependencies first for faster rebuilds.
 COPY go.mod go.sum ./
-RUN go mod download
+# The same go.sum-pinned modules are retried after transient proxy transport
+# failures; a final failure still stops the image build.
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+      if go mod download; then break; fi; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+      sleep "$((attempt * 3))"; \
+    done
 
 COPY . .
 RUN test -n "$COMPONENT" || { echo "COMPONENT build-arg is required"; exit 1; }

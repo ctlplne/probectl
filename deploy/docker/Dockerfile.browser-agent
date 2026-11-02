@@ -12,7 +12,14 @@ ARG COMMIT=unknown
 ARG DATE=unknown
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+# The same go.sum-pinned modules are retried after transient proxy transport
+# failures; a final failure still stops the image build.
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+      if go mod download; then break; fi; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+      sleep "$((attempt * 3))"; \
+    done
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
