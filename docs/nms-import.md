@@ -51,6 +51,18 @@ with no approved policy, live fetching is disabled. See
    or changed exact target returns a conflict instead of a
    stale comparison. This dry run writes no entities, groups, polling settings,
    alerts or agent evidence. No apply operation is available yet.
+6. After final review, call
+   `POST /v1/nms-imports/{id}/verify-before-apply` with `context_id`, the
+   exact `snapshot_hash` and `review_hash` until `ready` is true. The CLI
+   operation is `probectl nms-import verify-before-apply`. Each request
+   re-reads only the server-selected next source endpoint and compares its
+   normalized page receipts. A changed response marks the plan stale. A
+   complete pass yields a 60-second proof for one future destination chunk;
+   that chunk consumes it, so another chunk needs a new complete pass.
+   LibreNMS does not provide a source-wide generation token, so a source
+   change between the final re-read and a destination transaction remains
+   possible. The current route never writes a destination, and no apply
+   operation is exposed yet.
 
 The destination schema reserves a tenant/context/source-keyed group set and
 membership table. A membership can reference only a device with an exact

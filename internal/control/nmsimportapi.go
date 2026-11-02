@@ -184,6 +184,56 @@ func (s *Server) handleAdvanceNMSImportLivePlan(w http.ResponseWriter, r *http.R
 	return nil
 }
 
+// A reviewed plan must re-read every source endpoint before one destination
+// chunk is allowed. One request verifies only the server-selected next
+// endpoint; the source never supplies the tenant, target or cursor.
+func (s *Server) handleVerifyNMSImportBeforeApply(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		ContextID    string `json:"context_id"`
+		SnapshotHash string `json:"snapshot_hash"`
+		ReviewHash   string `json:"review_hash"`
+	}
+	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
+		return err
+	}
+	ctx, contextID, err := s.nmsImportContext(r, req.ContextID, permNMSImportWrite)
+	if err != nil {
+		return err
+	}
+	if s.cfg == nil || len(s.cfg.NMSImportApprovedCIDRs) == 0 || s.cfg.NMSImportRefPrefix == "" {
+		return apierror.Unavailable("live NMS import is not configured")
+	}
+	resolver, ok := s.secretsHealth.(nmsimport.SourceTokenResolver)
+	if !ok {
+		return apierror.Unavailable("live NMS import credential resolver is unavailable")
+	}
+	// Reserve time for the tenant receipt and audit transaction within the
+	// listener's write deadline, just as the initial capture route does.
+	fetchTimeout := min(s.cfg.NMSImportTimeout, 10*time.Second)
+	progress, err := s.nmsImportCaptureStore(r).VerifyNextConfiguredLibreNMSForApply(ctx,
+		contextID, r.PathValue("id"), req.SnapshotHash, req.ReviewHash,
+		nmsimport.LibreNMSFetchPolicy{
+			ApprovedCIDRs: s.cfg.NMSImportApprovedCIDRs, CAFile: s.cfg.NMSImportCAFile,
+			AllowedRefPrefix: s.cfg.NMSImportRefPrefix, Resolver: resolver,
+			Timeout: fetchTimeout})
+	switch {
+	case errors.Is(err, nmsimport.ErrPlanUnavailable):
+		return apierror.NotFound("reviewed import plan not found in this routing context")
+	case errors.Is(err, nmsimport.ErrCaptureBusy):
+		return apierror.Conflict("import source verification is already running")
+	case errors.Is(err, nmsimport.ErrSourceDrift):
+		return apierror.Conflict("reviewed source inventory changed; plan is stale")
+	case errors.Is(err, nmsimport.ErrInvalidPage):
+		return apierror.Conflict("reviewed source inventory is invalid; plan remains inert")
+	case errors.Is(err, nmsimport.ErrSourceUnavailable):
+		return apierror.Unavailable("configured import source is unavailable")
+	case err != nil:
+		return err
+	}
+	writeJSON(w, http.StatusOK, progress)
+	return nil
+}
+
 // A sealed import row is still an inert source candidate. Resolve the stored
 // tenant context before RBAC/ABAC, then page only its FORCE-RLS plan rows. A
 // foreign context or plan has the same 404 without source-existence clues.

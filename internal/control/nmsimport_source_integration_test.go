@@ -170,17 +170,35 @@ func TestNMSImportSourceRouteRequiresTenantContextAndDeploymentPolicy(t *testing
 		return apiReq(t, h, http.MethodPost, "/v1/nms-imports/"+f.planID+"/advance",
 			f.tenant, map[string]string{"context_id": contextID})
 	}
+	verifyBeforeApply := func(f fixture, contextID string) *httptest.ResponseRecorder {
+		t.Helper()
+		return apiReq(t, h, http.MethodPost, "/v1/nms-imports/"+f.planID+"/verify-before-apply",
+			f.tenant, map[string]string{"context_id": contextID,
+				"snapshot_hash": strings.Repeat("a", 64), "review_hash": strings.Repeat("b", 64)})
+	}
 	if response := advance(left, right.contextID); response.Code != http.StatusNotFound || requests.Load() != 0 {
 		t.Fatalf("foreign context advanced source: %d requests=%d", response.Code, requests.Load())
 	}
+	if response := verifyBeforeApply(left, right.contextID); response.Code != http.StatusNotFound || requests.Load() != 0 {
+		t.Fatalf("foreign context reverified source: %d requests=%d", response.Code, requests.Load())
+	}
 	if response := advance(left, left.contextID); response.Code != http.StatusForbidden || requests.Load() != 0 {
 		t.Fatalf("context policy allowed source advance: %d requests=%d", response.Code, requests.Load())
+	}
+	if response := verifyBeforeApply(left, left.contextID); response.Code != http.StatusForbidden || requests.Load() != 0 {
+		t.Fatalf("context policy allowed source re-verification: %d requests=%d", response.Code, requests.Load())
 	}
 	srv.abac = nil
 	if response := advance(left, left.contextID); response.Code != http.StatusServiceUnavailable || requests.Load() != 0 {
 		t.Fatalf("missing credential resolver reached source: %d requests=%d", response.Code, requests.Load())
 	}
+	if response := verifyBeforeApply(left, left.contextID); response.Code != http.StatusServiceUnavailable || requests.Load() != 0 {
+		t.Fatalf("missing credential resolver reached re-verification: %d requests=%d", response.Code, requests.Load())
+	}
 	srv.WithSecrets(nmsImportTestResolver{})
+	if response := verifyBeforeApply(left, left.contextID); response.Code != http.StatusNotFound || requests.Load() != 0 {
+		t.Fatalf("unreviewed plan reached source re-verification: %d requests=%d", response.Code, requests.Load())
+	}
 	invalidResponse.Store(true)
 	if response := advance(left, left.contextID); response.Code != http.StatusConflict || requests.Load() != 1 ||
 		strings.Contains(response.Body.String(), "fixture") {

@@ -1617,7 +1617,7 @@ Journey-critical parity is currently served by the CLI:
 | SLO and cost posture | `probectl slo list|export`, `probectl cost summary` | `/v1/slos*`, `/v1/cost/summary` |
 | Tenant lifecycle portability and erasure | `probectl lifecycle export --redact`, `probectl lifecycle erase --body JSON` | `/v1/lifecycle*` |
 | Tenant identity-provider settings | `probectl identity settings|set-settings` | `/v1/identity/settings` |
-| Incumbent NMS import capture | `probectl nms-import configure-source|disable-source|start-live|advance|rows` | `/v1/nms-imports/*` |
+| Incumbent NMS import capture and review | `probectl nms-import configure-source|disable-source|start-live|advance|rows|dry-run|review-choices|finalize-review|verify-before-apply` | `/v1/nms-imports/*` |
 
 The NMS import routes bind a configured LibreNMS source to a tenant routing
 context. `configure-source` requires a `0600` JSON body file containing

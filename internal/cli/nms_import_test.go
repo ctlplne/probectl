@@ -86,4 +86,13 @@ func TestNMSImportCLIKeepsReferenceOutOfArgvAndRoutesScopedReads(t *testing.T) {
 	if got := <-seen; got != "POST /v1/nms-imports/"+planID+"/finalize-review" {
 		t.Fatalf("review finalize route = %q", got)
 	}
+	verify := `{"context_id":"` + contextID + `","snapshot_hash":"` + strings.Repeat("a", 64) +
+		`","review_hash":"` + strings.Repeat("b", 64) + `"}`
+	if _, stderr, code := run(t, srv, "nms-import", "verify-before-apply", planID,
+		"--body", verify); code != 0 || stderr != "" || len(seen) != 1 {
+		t.Fatalf("scoped source re-verification: exit=%d stderr=%q requests=%v", code, stderr, seen)
+	}
+	if got := <-seen; got != "POST /v1/nms-imports/"+planID+"/verify-before-apply" {
+		t.Fatalf("source re-verification route = %q", got)
+	}
 }
