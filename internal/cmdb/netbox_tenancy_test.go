@@ -171,6 +171,19 @@ func TestNetBoxHostnameChecksDeviceAndVMTenant(t *testing.T) {
 	}
 }
 
+func TestNetBoxIPDoesNotProjectUnattestedRelatedObjectMetadata(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"count":1,"results":[{"id":1,"tenant":{"id":7},"address":"10.0.0.1/32","dns_name":"owned-ip","assigned_object":{"name":"foreign-interface","device":{"name":"foreign-router","display":"foreign-router"}}}]}`))
+	}))
+	defer server.Close()
+	provider := NewNetBox(server.URL, "test-token", map[string]string{netBoxTenantA: "7"})
+	provider.client = server.Client()
+	cis, err := provider.Lookup(netBoxContext(netBoxTenantA), "10.0.0.1")
+	if err != nil || len(cis) != 1 || cis[0].Name != "owned-ip" {
+		t.Fatalf("owned IP projection used an unattested relation: %+v, %v", cis, err)
+	}
+}
+
 func TestNetBoxOwnershipRefusalFencesOlderInflightResponse(t *testing.T) {
 	var calls atomic.Int64
 	entered := make(chan struct{})
