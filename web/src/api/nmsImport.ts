@@ -72,6 +72,17 @@ export interface ImportStartResponse {
   plan_id: string
   state: string
 }
+export interface ImportExportStartResponse extends ImportStartResponse {
+  preview: true
+}
+export interface ImportExportPageResponse {
+  page_hash: string
+}
+export interface ImportExportSealResponse {
+  state: 'sealed'
+  snapshot_hash: string
+  preview: true
+}
 export interface ImportAdvanceResponse {
   completed_stage: string
   next_stage: string
@@ -176,6 +187,57 @@ export function startImportPlan(contextID: string, instanceRef: string) {
   return apiFetch<ImportStartResponse>(
     '/nms-imports/live-plans',
     jsonInit('POST', { context_id: contextID, instance_ref: instanceRef }),
+  )
+}
+
+export function startImportExportPreview(
+  contextID: string,
+  sourceKind: 'orion' | 'prtg',
+  instanceRef: string,
+) {
+  return apiFetch<ImportExportStartResponse>(
+    '/nms-imports/export-plans',
+    jsonInit('POST', {
+      context_id: contextID,
+      source_kind: sourceKind,
+      instance_ref: instanceRef,
+    }),
+  )
+}
+
+export function appendImportExportPage(
+  contextID: string,
+  planID: string,
+  resource: string,
+  pageNumber: number,
+  firstRow: number,
+  rawPage: string,
+) {
+  const query = new URLSearchParams({
+    context_id: contextID,
+    resource,
+    page_number: String(pageNumber),
+    first_row: String(firstRow),
+  })
+  return apiFetch<ImportExportPageResponse>(
+    `/nms-imports/${encodeURIComponent(planID)}/export-pages?${query.toString()}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: rawPage },
+  )
+}
+
+export function sealImportExportPreview(
+  contextID: string,
+  planID: string,
+  expectedPages: number,
+  expectedRows: number,
+) {
+  return apiFetch<ImportExportSealResponse>(
+    `/nms-imports/${encodeURIComponent(planID)}/export-seal`,
+    jsonInit('POST', {
+      context_id: contextID,
+      expected_pages: expectedPages,
+      expected_rows: expectedRows,
+    }),
   )
 }
 

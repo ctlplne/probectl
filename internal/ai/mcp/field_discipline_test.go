@@ -72,6 +72,7 @@ func TestMCPResultTypesDoNotCarryUncheckedMaps(t *testing.T) {
 		EntityItemResult{}, EntityListResult{}, EntityContextResult{}, EntityContextListResult{}, EntityCandidateResult{}, EntityResolutionResult{}, EntityAssignmentResult{}, EntityPathContextResult{}, EntityPathHopResult{}, EntityPathResult{},
 		NMSImportRowResult{}, NMSImportRowsResult{}, NMSImportDiffItemResult{}, NMSImportDryRunResult{},
 		NMSImportAlertTargetResult{}, NMSImportAlertApplyResult{},
+		NMSImportExportStartResult{}, NMSImportExportPageResult{}, NMSImportExportSealResult{},
 	}
 	for _, v := range types {
 		rt := reflect.TypeOf(v)

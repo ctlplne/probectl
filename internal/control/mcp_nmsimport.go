@@ -7,6 +7,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"errors"
 
@@ -21,6 +22,14 @@ import (
 	"github.com/ctlplne/probectl/internal/nmsimport"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+func (b mcpNMSImportBackend) writeStore(p *auth.Principal) nmsimport.CaptureStore {
+	return nmsimport.NewCaptureStore(b.pool,
+		func(ctx context.Context, sc tenancy.Scope, action, target string, data map[string]any) error {
+			_, err := audit.TenantAppend(ctx, sc, p.UserID, action, target, data)
+			return err
+		})
+}
 
 var _ mcp.NMSImportBackend = mcpNMSImportBackend{}
 
@@ -240,11 +249,7 @@ func (b mcpNMSImportBackend) NMSImportAlertApply(ctx context.Context, p *auth.Pr
 	if b.owner != nil {
 		policy = b.owner.nmsImportAlertFetchPolicy()
 	}
-	capturer := nmsimport.NewCaptureStore(b.pool,
-		func(ctx context.Context, sc tenancy.Scope, action, target string, data map[string]any) error {
-			_, err := audit.TenantAppend(ctx, sc, p.UserID, action, target, data)
-			return err
-		})
+	capturer := b.writeStore(p)
 	result, err := capturer.ApplyLibreNMSAlertTarget(ctx, contextID,
 		input.SourceID, input.RuleID, input.AgentID, input.TargetAddress,
 		input.PlanID, input.SnapshotHash, input.EntityID, policy)
@@ -253,4 +258,47 @@ func (b mcpNMSImportBackend) NMSImportAlertApply(ctx context.Context, p *auth.Pr
 	}
 	return mcp.NMSImportAlertApplyResult{
 		AlertRuleID: result.AlertRuleID, Created: result.Created}, nil
+}
+
+func (b mcpNMSImportBackend) NMSImportExportStart(ctx context.Context, p *auth.Principal,
+	input mcp.NMSImportExportStartInput) (mcp.NMSImportExportStartResult, error) {
+	ctx, contextID, err := b.scope(ctx, p, input.ContextID, permNMSImportWrite)
+	if err != nil {
+		return mcp.NMSImportExportStartResult{}, err
+	}
+	planID, err := b.writeStore(p).StartExportPreviewPlan(ctx, contextID,
+		nmsimport.Kind(input.SourceKind), input.InstanceRef)
+	if err != nil {
+		return mcp.NMSImportExportStartResult{}, nmsImportMCPReadError(err)
+	}
+	return mcp.NMSImportExportStartResult{PlanID: planID, State: "capturing", Preview: true}, nil
+}
+
+func (b mcpNMSImportBackend) NMSImportExportPage(ctx context.Context, p *auth.Principal,
+	input mcp.NMSImportExportPageInput) (mcp.NMSImportExportPageResult, error) {
+	ctx, contextID, err := b.scope(ctx, p, input.ContextID, permNMSImportWrite)
+	if err != nil {
+		return mcp.NMSImportExportPageResult{}, err
+	}
+	hash, err := b.writeStore(p).AppendPage(ctx, contextID, input.PlanID,
+		input.PageNumber, input.Resource, input.FirstRow, bytes.NewReader(input.Page))
+	if err != nil {
+		return mcp.NMSImportExportPageResult{}, nmsImportMCPReadError(err)
+	}
+	return mcp.NMSImportExportPageResult{PageHash: hash}, nil
+}
+
+func (b mcpNMSImportBackend) NMSImportExportSeal(ctx context.Context, p *auth.Principal,
+	input mcp.NMSImportExportSealInput) (mcp.NMSImportExportSealResult, error) {
+	ctx, contextID, err := b.scope(ctx, p, input.ContextID, permNMSImportWrite)
+	if err != nil {
+		return mcp.NMSImportExportSealResult{}, err
+	}
+	hash, err := b.writeStore(p).Seal(ctx, contextID, input.PlanID,
+		input.ExpectedPages, input.ExpectedRows)
+	if err != nil {
+		return mcp.NMSImportExportSealResult{}, nmsImportMCPReadError(err)
+	}
+	return mcp.NMSImportExportSealResult{
+		State: "sealed", SnapshotHash: hash, Preview: true}, nil
 }

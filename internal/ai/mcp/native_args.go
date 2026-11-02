@@ -124,6 +124,16 @@ func nativeArgumentShape(raw json.RawMessage, typ reflect.Type, depth int) error
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
+	// RawMessage is used only for bounded, untrusted source documents. The
+	// outer nativeJSONSyntax walk has already checked every nested key and the
+	// byte/structural budgets; require a JSON container before decoding it.
+	if typ == reflect.TypeFor[json.RawMessage]() {
+		trimmed := bytes.TrimSpace(raw)
+		if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+			return argErr("native flow source document must be an object or array")
+		}
+		return nil
+	}
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || typ == reflect.TypeFor[time.Time]() {
 		return nil
 	}

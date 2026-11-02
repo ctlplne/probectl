@@ -8,6 +8,7 @@ package cli
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +17,48 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestNMSImportCLIExportPageKeepsRawArrayOutOfArgv(t *testing.T) {
+	const contextID = "00000000-0000-4000-8000-000000000101"
+	const planID = "00000000-0000-4000-8000-000000000102"
+	const page = `[{"id":"101","parentid":"20","name":"Edge","basic":{"host":"10.42.0.1","credentials":"source-only-secret"}}]`
+	type request struct{ method, uri, body string }
+	seen := make(chan request, 3)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		seen <- request{r.Method, r.URL.RequestURI(), string(body)}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"page_hash":"` + strings.Repeat("a", 64) + `"}`))
+	}))
+	t.Cleanup(srv.Close)
+	for _, args := range [][]string{
+		{"nms-import", "export-page", planID, "--body", page},
+		{"api", "POST", "/v1/nms-imports/" + planID + "/export-pages", "--body", page},
+	} {
+		if _, stderr, code := run(t, srv, args...); code != 2 ||
+			!strings.Contains(stderr, "refuses --body") || len(seen) != 0 {
+			t.Fatalf("inline export source was accepted: exit=%d stderr=%q", code, stderr)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "prtg-page.json")
+	if err := os.WriteFile(path, []byte(page), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := run(t, srv, "nms-import", "export-page", planID,
+		"--query", "context_id="+contextID, "--query", "page_number=0",
+		"--query", "first_row=0", "--query", "resource=devices", "--body-file", path)
+	if code != 0 || strings.Contains(stdout+stderr, "source-only-secret") || len(seen) != 1 {
+		t.Fatalf("export page CLI: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	got := <-seen
+	if got.method != http.MethodPost || !strings.HasPrefix(got.uri,
+		"/v1/nms-imports/"+planID+"/export-pages?") || got.body != page {
+		t.Fatalf("raw documented export changed before capture: method=%q uri=%q", got.method, got.uri)
+	}
+}
 
 func TestNMSImportCLIKeepsReferenceOutOfArgvAndRoutesScopedReads(t *testing.T) {
 	const contextID = "00000000-0000-4000-8000-000000000101"

@@ -74,6 +74,21 @@ func (s CaptureStore) StartPlan(ctx context.Context, contextID string,
 	return s.startPlan(ctx, contextID, source, instanceRef, generationHash, false)
 }
 
+// StartExportPreviewPlan creates an inert Orion or PRTG plan for pages an
+// authenticated operator exported. Its generation is an internal nonce, not
+// a vendor-supplied tenant, routing context, credential or completeness claim.
+func (s CaptureStore) StartExportPreviewPlan(ctx context.Context, contextID string,
+	source Kind, instanceRef string) (string, error) {
+	if source != Orion && source != PRTG {
+		return "", ErrInvalidPage
+	}
+	nonce, err := crypto.Random(32)
+	if err != nil {
+		return "", err
+	}
+	return s.startPlan(ctx, contextID, source, instanceRef, hex.EncodeToString(nonce), false)
+}
+
 // StartConfiguredLibreNMSPlan starts an inert plan only from an enabled source
 // already configured in this tenant and context. A fresh internal generation
 // nonce separates independent captures; the sealed snapshot hash later proves

@@ -14,6 +14,7 @@ import (
 type apiOp struct {
 	// ExactJSON preserves integer tokens on structured Explorer requests/results.
 	ExactJSON        bool
+	AllowJSONArray   bool
 	MaxBodyBytes     int64
 	VerifiedDownload bool
 	Method           string
@@ -192,6 +193,13 @@ var surfaceCommands = map[string]surfaceCommand{
 			Description: "disable source egress and invalidate unfinished captures; --body with context_id"},
 		"start-live": {Method: http.MethodPost, Path: "/v1/nms-imports/live-plans",
 			Description: "start an inert plan from an enabled source; --body with context_id and instance_ref"},
+		"export-start": {Method: http.MethodPost, Path: "/v1/nms-imports/export-plans",
+			Description: "start an inert Orion or PRTG documented-export preview; --body with context_id, source_kind and instance_ref"},
+		"export-page": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/export-pages", ArgName: "id",
+			SensitiveBody: true, ExactJSON: true, AllowJSONArray: true, MaxBodyBytes: 64 << 20,
+			Description: "capture one raw JSON export page; --query context_id=<UUID> --query page_number=N --query first_row=N --query resource=<kind> --body-file <0600-file|->"},
+		"export-seal": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/export-seal", ArgName: "id",
+			Description: "seal an inert preview; --body with context_id, expected_pages and expected_rows"},
 		"advance": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/advance", ArgName: "id",
 			Description: "capture or verify one bounded LibreNMS endpoint; --body with context_id"},
 		"verify-before-apply": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/verify-before-apply", ArgName: "id",

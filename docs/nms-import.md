@@ -219,3 +219,53 @@ reload the agent config. The operator must review that file, supply the
 agent's normal bus and evidence settings where needed, and install it on the
 matching tenant-bound agent. Until the running agent emits a poll receipt at
 the reviewed cadence, this is a configuration proposal, not an active poll.
+
+## Orion and PRTG documented-export preview
+
+Orion and PRTG can be captured from saved JSON pages without a server-side
+vendor credential or outbound request. These paths are labelled **preview**
+until a live Windows trial proves the source responses and inventory
+completeness. Orion uses the SWIS [Query API](https://solarwinds.github.io/OrionSDK/swagger-ui/)
+`results` envelope. PRTG uses the JSON arrays defined by its
+[experimental device, group and probe lists](https://www.paessler.com/support/prtg/api/v2/oas/prtg.api.yaml);
+the [PRTG overview](https://www.paessler.com/support/prtg/api/v2/overview/index.html)
+describes Link-header pagination. Capture every page of a chosen resource in
+source order; do not use a partial export to infer that a source object was
+removed.
+
+Start with `POST /v1/nms-imports/export-plans` and
+`{context_id,source_kind:"orion"|"prtg",instance_ref}`. For each saved page,
+send the raw JSON body to `POST /v1/nms-imports/{id}/export-pages` with query
+parameters `context_id`, `resource`, `page_number` and `first_row`. Page
+numbers start at zero, and `first_row` is the total normalized rows in all
+earlier pages. Orion resources are `nodes`, `groups` and `rules`; PRTG
+resources are `devices`, `groups` and `probes`. A PRTG page has at most 3,000
+objects. The page receipt supports exact retries but refuses changed or
+out-of-order content. Finish with `POST /v1/nms-imports/{id}/export-seal`
+and `{context_id,expected_pages,expected_rows}`. The returned snapshot is
+inert; inspect its redacted rows and unmapped reasons, then use the same
+explicit review and dry-run flow as a live plan. A seal verifies only the
+submitted pages and totals, not unseen vendor inventory.
+
+The CLI exposes `nms-import export-start`, `export-page` and `export-seal`.
+Use `--body-file` with a real owner-only 0600 JSON file or stdin for each
+export page; the source body can contain fields that the importer discards,
+so the CLI refuses it in command arguments. For example:
+
+```text
+probectl nms-import export-page PLAN_ID --query context_id=CONTEXT_ID --query resource=devices --query page_number=0 --query first_row=0 --body-file prtg-devices-0.json
+```
+
+The Admin import card provides the same start, saved-file page and seal
+controls. MCP clients with `nms.import.write` may use
+`nms_import_export_start`, `nms_import_export_page` and
+`nms_import_export_seal`; the page tool accepts a JSON object or array and
+returns only a normalized page hash. All four surfaces use the same stored
+tenant/context plan and review path.
+
+The preview retains source IDs, safe labels, addresses, PRTG parent IDs and
+bounded Orion poll intervals for review. Source-only credentials, dynamic
+predicates and alert delivery settings are discarded. Site/ancestry,
+polling and alert translation stay explicitly unmapped until an operator can
+bind exact destinations; the preview itself creates no agent, entity, poll
+or alert rule.

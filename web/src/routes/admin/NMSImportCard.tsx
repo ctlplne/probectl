@@ -9,6 +9,7 @@ import { useAuth } from '../../auth/useAuth'
 import { useEntityContexts } from '../../api/entities'
 import {
   advanceImportPlan,
+  appendImportExportPage,
   applyImportAlertTarget,
   applyImportReview,
   configureImportSource,
@@ -19,6 +20,8 @@ import {
   previewImportPollTarget,
   previewImportAlertTarget,
   setImportReviewChoices,
+  sealImportExportPreview,
+  startImportExportPreview,
   startImportPlan,
   verifyImportBeforeApply,
   type ImportChoice,
@@ -45,6 +48,15 @@ import styles from '../pages.module.css'
 
 type ChoiceAction = ImportChoice['action'] | ''
 type PendingChoice = { action: ChoiceAction; target_entity_id: string }
+
+function readExportFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Saved export page could not be read.'))
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.readAsText(file)
+  })
+}
 
 function canCreateImportRow(row: ImportRow): boolean {
   if (row.object_kind === 'device' || row.object_kind === 'site')
@@ -115,9 +127,16 @@ function ImportContents({
   const [contextID, setContextID] = useState('')
   const selectedContext = available.find((item) => item.context_id === contextID)
   const [instanceRef, setInstanceRef] = useState('')
+  const [exportInstanceRef, setExportInstanceRef] = useState('')
   const [origin, setOrigin] = useState('')
   const [credentialRef, setCredentialRef] = useState('')
   const [planID, setPlanID] = useState('')
+  const [exportKind, setExportKind] = useState<'orion' | 'prtg'>('orion')
+  const [exportResource, setExportResource] = useState('nodes')
+  const [exportFile, setExportFile] = useState<File | null>(null)
+  const [exportPageNumber, setExportPageNumber] = useState(0)
+  const [exportFirstRow, setExportFirstRow] = useState(0)
+  const [isExportPreview, setIsExportPreview] = useState(false)
   const [snapshotHash, setSnapshotHash] = useState('')
   const [reviewHash, setReviewHash] = useState('')
   const [proofReady, setProofReady] = useState(false)
@@ -146,8 +165,13 @@ function ImportContents({
   function chooseContext(next: string) {
     setContextID(next)
     setInstanceRef('')
+    setExportInstanceRef('')
     setOrigin('')
     setPlanID('')
+    setExportFile(null)
+    setExportPageNumber(0)
+    setExportFirstRow(0)
+    setIsExportPreview(false)
     setSnapshotHash('')
     setReviewHash('')
     setProofReady(false)
@@ -219,6 +243,7 @@ function ImportContents({
     void run(async () => {
       const result = await startImportPlan(contextID, instanceRef)
       setPlanID(result.plan_id)
+      setIsExportPreview(false)
       setSnapshotHash('')
       setReviewHash('')
       setProofReady(false)
@@ -227,6 +252,69 @@ function ImportContents({
       setDiffPage(null)
       setChoices({})
       setMessage('Inert capture plan started. Advance one source endpoint per request.')
+    })
+  }
+
+  function startExportPreview() {
+    void run(async () => {
+      const result = await startImportExportPreview(contextID, exportKind, exportInstanceRef)
+      setPlanID(result.plan_id)
+      setIsExportPreview(true)
+      setExportPageNumber(0)
+      setExportFirstRow(0)
+      setExportFile(null)
+      setSnapshotHash('')
+      setReviewHash('')
+      setProofReady(false)
+      setApplyComplete(false)
+      setPage(null)
+      setDiffPage(null)
+      setChoices({})
+      setMessage('Documented-export preview started. Upload each saved JSON page in source order.')
+    })
+  }
+
+  function appendExportPage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!exportFile) return
+    void run(async () => {
+      if (exportFile.size > 64 << 20) throw new Error('Export page exceeds the 64 MiB limit.')
+      const raw = await readExportFile(exportFile)
+      const decoded: unknown = JSON.parse(raw)
+      const records = Array.isArray(decoded)
+        ? decoded
+        : decoded && typeof decoded === 'object' && 'results' in decoded
+          ? (decoded as { results: unknown }).results
+          : null
+      if (!Array.isArray(records)) throw new Error('Export page has no documented row array.')
+      await appendImportExportPage(
+        contextID,
+        planID,
+        exportResource,
+        exportPageNumber,
+        exportFirstRow,
+        raw,
+      )
+      setExportPageNumber(exportPageNumber + 1)
+      setExportFirstRow(exportFirstRow + records.length)
+      setExportFile(null)
+      setMessage(`${records.length} rows captured. Continue with the next saved source page.`)
+    })
+  }
+
+  function sealExportPreview() {
+    void run(async () => {
+      const result = await sealImportExportPreview(
+        contextID,
+        planID,
+        exportPageNumber,
+        exportFirstRow,
+      )
+      setSnapshotHash(result.snapshot_hash)
+      showPage(await importRows(contextID, planID))
+      setMessage(
+        'Submitted pages sealed as a preview. Review unmapped fields; source completeness is unproven.',
+      )
     })
   }
 
@@ -617,6 +705,94 @@ function ImportContents({
               Start inert plan
             </Button>
           ) : null}
+          {canWrite && contextID ? (
+            <div className={styles.stack}>
+              <h3>Orion or PRTG documented-export preview</h3>
+              <p>
+                Capture saved JSON pages without a vendor connection. This preview cannot prove a
+                complete source inventory; every unmapped field stays listed for review.
+              </p>
+              <div className={styles.row}>
+                <Field
+                  label="Export instance"
+                  required
+                  value={exportInstanceRef}
+                  onChange={(event) => setExportInstanceRef(event.target.value)}
+                />
+                <Select
+                  label="Export source format"
+                  value={exportKind}
+                  onChange={(event) => {
+                    const kind = event.target.value as 'orion' | 'prtg'
+                    setExportKind(kind)
+                    setExportResource(kind === 'orion' ? 'nodes' : 'devices')
+                  }}
+                  options={[
+                    { value: 'orion', label: 'SolarWinds Orion SWIS' },
+                    { value: 'prtg', label: 'PRTG API v2 experimental' },
+                  ]}
+                />
+                <Button onClick={startExportPreview} disabled={busy || !exportInstanceRef}>
+                  Start export preview
+                </Button>
+              </div>
+              {isExportPreview && planID ? (
+                <>
+                  <form className={styles.form} onSubmit={appendExportPage}>
+                    <div className={styles.row}>
+                      <Select
+                        label="Source resource"
+                        value={exportResource}
+                        onChange={(event) => setExportResource(event.target.value)}
+                        options={
+                          exportKind === 'orion'
+                            ? [
+                                { value: 'nodes', label: 'Nodes' },
+                                { value: 'groups', label: 'Groups' },
+                                { value: 'rules', label: 'Alert rules' },
+                              ]
+                            : [
+                                { value: 'devices', label: 'Devices' },
+                                { value: 'groups', label: 'Groups' },
+                                { value: 'probes', label: 'Probes' },
+                              ]
+                        }
+                      />
+                      <Field
+                        label="Page number"
+                        type="number"
+                        min={0}
+                        required
+                        value={exportPageNumber}
+                        onChange={(event) => setExportPageNumber(Number(event.target.value))}
+                      />
+                      <Field
+                        label="First row offset"
+                        type="number"
+                        min={0}
+                        required
+                        value={exportFirstRow}
+                        onChange={(event) => setExportFirstRow(Number(event.target.value))}
+                      />
+                      <Field
+                        key={exportPageNumber}
+                        label="Saved JSON export page"
+                        type="file"
+                        accept="application/json,.json"
+                        onChange={(event) => setExportFile(event.target.files?.[0] ?? null)}
+                      />
+                      <Button type="submit" disabled={busy || !exportFile}>
+                        Capture page
+                      </Button>
+                    </div>
+                  </form>
+                  <Button onClick={sealExportPreview} disabled={busy || exportPageNumber < 1}>
+                    Seal submitted preview
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
           {contextID ? (
             <div className={styles.row}>
               <Field
@@ -642,7 +818,7 @@ function ImportContents({
               <Button onClick={() => load()} disabled={busy || !planID}>
                 Load redacted rows
               </Button>
-              {canWrite ? (
+              {canWrite && !isExportPreview ? (
                 <Button onClick={advance} disabled={busy || !planID}>
                   Advance one endpoint
                 </Button>

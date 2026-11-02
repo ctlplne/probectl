@@ -174,6 +174,44 @@ type NMSImportDryRunInput struct {
 	Limit      int    `json:"limit,omitempty"`
 }
 
+type NMSImportExportStartInput struct {
+	ContextID   string `json:"context_id"`
+	SourceKind  string `json:"source_kind"`
+	InstanceRef string `json:"instance_ref"`
+}
+
+type NMSImportExportStartResult struct {
+	PlanID  string `json:"plan_id"`
+	State   string `json:"state"`
+	Preview bool   `json:"preview"`
+}
+
+type NMSImportExportPageInput struct {
+	ContextID  string          `json:"context_id"`
+	PlanID     string          `json:"plan_id"`
+	Resource   string          `json:"resource"`
+	PageNumber int64           `json:"page_number"`
+	FirstRow   int64           `json:"first_row"`
+	Page       json.RawMessage `json:"page"`
+}
+
+type NMSImportExportPageResult struct {
+	PageHash string `json:"page_hash"`
+}
+
+type NMSImportExportSealInput struct {
+	ContextID     string `json:"context_id"`
+	PlanID        string `json:"plan_id"`
+	ExpectedPages int64  `json:"expected_pages"`
+	ExpectedRows  int64  `json:"expected_rows"`
+}
+
+type NMSImportExportSealResult struct {
+	State        string `json:"state"`
+	SnapshotHash string `json:"snapshot_hash"`
+	Preview      bool   `json:"preview"`
+}
+
 type NMSImportBackend interface {
 	NMSImportRows(context.Context, *auth.Principal, NMSImportRowsInput) (NMSImportRowsResult, error)
 	NMSImportDryRun(context.Context, *auth.Principal, NMSImportDryRunInput) (NMSImportDryRunResult, error)
@@ -181,6 +219,9 @@ type NMSImportBackend interface {
 	NMSImportPollTarget(context.Context, *auth.Principal, NMSImportPollTargetInput) (NMSImportPollTargetResult, error)
 	NMSImportAlertTarget(context.Context, *auth.Principal, NMSImportAlertTargetInput) (NMSImportAlertTargetResult, error)
 	NMSImportAlertApply(context.Context, *auth.Principal, NMSImportAlertApplyInput) (NMSImportAlertApplyResult, error)
+	NMSImportExportStart(context.Context, *auth.Principal, NMSImportExportStartInput) (NMSImportExportStartResult, error)
+	NMSImportExportPage(context.Context, *auth.Principal, NMSImportExportPageInput) (NMSImportExportPageResult, error)
+	NMSImportExportSeal(context.Context, *auth.Principal, NMSImportExportSealInput) (NMSImportExportSealResult, error)
 }
 
 func WithNMSImportBackend(backend NMSImportBackend) Option {
@@ -229,5 +270,14 @@ func buildNMSImportTools(b NMSImportBackend) []Tool {
 		nmsImportToolWithPermission("nms_import_alert_apply", "After an exact reviewed target selection, create only a disabled channel-free native alert; this never enables delivery.",
 			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"source_id":{"type":"string"},"rule_external_id":{"type":"string"},"agent_id":{"type":"string"},"target_address":{"type":"string"},"plan_id":{"type":"string"},"snapshot_hash":{"type":"string"},"entity_id":{"type":"string"}},"required":["context_id","source_id","rule_external_id","agent_id","target_address","plan_id","snapshot_hash","entity_id"],"additionalProperties":false}`),
 			"nms.import.write", b.NMSImportAlertApply),
+		nmsImportToolWithPermission("nms_import_export_start", "Start an inert Orion or PRTG documented-export preview in one authorized routing context.",
+			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"source_kind":{"type":"string","enum":["orion","prtg"]},"instance_ref":{"type":"string"}},"required":["context_id","source_kind","instance_ref"],"additionalProperties":false}`),
+			"nms.import.write", b.NMSImportExportStart),
+		nmsImportToolWithPermission("nms_import_export_page", "Capture one bounded, untrusted Orion or PRTG JSON page into an inert tenant plan; only its redacted receipt returns.",
+			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"plan_id":{"type":"string"},"resource":{"type":"string","enum":["nodes","devices","groups","rules","probes"]},"page_number":{"type":"integer","minimum":0},"first_row":{"type":"integer","minimum":0},"page":{"type":["object","array"]}},"required":["context_id","plan_id","resource","page_number","first_row","page"],"additionalProperties":false}`),
+			"nms.import.write", b.NMSImportExportPage),
+		nmsImportToolWithPermission("nms_import_export_seal", "Seal submitted documented-export pages as an inert preview, with no claim of unseen source completeness.",
+			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"plan_id":{"type":"string"},"expected_pages":{"type":"integer","minimum":1},"expected_rows":{"type":"integer","minimum":0}},"required":["context_id","plan_id","expected_pages","expected_rows"],"additionalProperties":false}`),
+			"nms.import.write", b.NMSImportExportSeal),
 	}
 }

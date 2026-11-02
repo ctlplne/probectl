@@ -5742,6 +5742,21 @@ func (c *Client) PreviewNmsImportAlertTarget(ctx context.Context, req PreviewNms
 	return &out, nil
 }
 
+// Start an inert Orion or PRTG documented-export preview plan
+type StartNmsImportExportPreviewPlanRequest struct {
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) StartNmsImportExportPreviewPlan(ctx context.Context, req StartNmsImportExportPreviewPlanRequest) (map[string]any, error) {
+	path := "/v1/nms-imports/export-plans"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Start an inert capture plan from an enabled LibreNMS source
 type StartConfiguredLibreNmsImportPlanRequest struct {
 	Body *map[string]any `json:"-"`
@@ -5906,6 +5921,62 @@ func (c *Client) ListNmsImportReviewDiff(ctx context.Context, req ListNmsImportR
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Capture one bounded Orion or PRTG documented-export page
+type AppendNmsImportExportPreviewPageRequest struct {
+	Id         string  `json:"-"`
+	ContextId  *string `json:"-"`
+	PageNumber *int    `json:"-"`
+	FirstRow   *int    `json:"-"`
+	Resource   *string `json:"-"`
+	Body       *any    `json:"-"`
+}
+
+func (c *Client) AppendNmsImportExportPreviewPage(ctx context.Context, req AppendNmsImportExportPreviewPageRequest) (map[string]any, error) {
+	path := "/v1/nms-imports/{id}/export-pages"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.PageNumber != nil {
+		query.Set("page_number", formatQueryValue(*req.PageNumber))
+	}
+	if req.FirstRow != nil {
+		query.Set("first_row", formatQueryValue(*req.FirstRow))
+	}
+	if req.Resource != nil {
+		query.Set("resource", formatQueryValue(*req.Resource))
+	}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Seal one inert documented-export preview snapshot
+type SealNmsImportExportPreviewPlanRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) SealNmsImportExportPreviewPlan(ctx context.Context, req SealNmsImportExportPreviewPlanRequest) (map[string]any, error) {
+	path := "/v1/nms-imports/{id}/export-seal"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Freeze all reviewed import actions into a snapshot-bound hash

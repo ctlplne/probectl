@@ -16,6 +16,123 @@ const sourceID = '00000000-0000-4000-8000-000000000305'
 const snapshotHash = 'a'.repeat(64)
 const reviewHash = 'b'.repeat(64)
 
+test('Admin export preview uploads documented pages within each selected tenant', async () => {
+  const cases = [
+    {
+      tenant: '00000000-0000-4000-8000-000000000300',
+      context: contextID,
+      plan: planID,
+      source: 'orion',
+      resource: 'nodes',
+      raw: `{"results":[{"NodeID":17,"Caption":"Edge R1","IPAddress":"10.42.0.1","Community":"source-secret"}]}`,
+      externalID: '17',
+    },
+    {
+      tenant: '00000000-0000-4000-8000-000000000304',
+      context: '00000000-0000-4000-8000-000000000303',
+      plan: '00000000-0000-4000-8000-000000000306',
+      source: 'prtg',
+      resource: 'devices',
+      raw: `[{"id":"101","parentid":"20","name":"Edge R1","basic":{"host":"10.42.0.1","credentials":"source-secret"}}]`,
+      externalID: '101',
+    },
+  ] as const
+  for (const fixture of cases) {
+    const fallback = defaultFetch()
+    const requests: Array<{ path: string; raw: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = pathOf(input)
+        if (path.startsWith('/v1/nms-imports/'))
+          requests.push({ path: String(input), raw: String(init?.body ?? '') })
+        if (path === '/v1/entity-contexts')
+          return jsonResponse({
+            items: [
+              {
+                context_id: fixture.context,
+                site_id: fixture.context,
+                vrf_id: fixture.context,
+                site_label: 'West DC',
+                vrf_label: 'Private',
+              },
+            ],
+          })
+        if (path === '/v1/nms-imports/export-plans')
+          return jsonResponse({ plan_id: fixture.plan, state: 'capturing', preview: true }, 201)
+        if (path === `/v1/nms-imports/${fixture.plan}/export-pages`)
+          return jsonResponse({ page_hash: snapshotHash })
+        if (path === `/v1/nms-imports/${fixture.plan}/export-seal`)
+          return jsonResponse({ state: 'sealed', snapshot_hash: snapshotHash, preview: true })
+        if (path === `/v1/nms-imports/${fixture.plan}/rows`)
+          return jsonResponse({
+            context_id: fixture.context,
+            plan_id: fixture.plan,
+            source_id: sourceID,
+            snapshot_hash: snapshotHash,
+            row_count: 1,
+            items: [
+              {
+                row_number: 0,
+                object_kind: 'device',
+                external_id: fixture.externalID,
+                label: 'Edge R1',
+                address: '10.42.0.1',
+                unmapped_codes: ['site_unmapped'],
+                action: 'captured',
+                reviewed: false,
+                state: 'pending',
+              },
+            ],
+          })
+        return fallback(input, init)
+      }),
+    )
+    renderApp('/admin', {
+      me: {
+        tenant_id: fixture.tenant,
+        permissions: ['agent.read', 'agent.write', 'nms.import.read', 'nms.import.write'],
+      },
+    })
+    const card = (await screen.findByText('Incumbent NMS import')).closest('[data-nms-import]')
+    const region = within(card as HTMLElement)
+    expect(await region.findByText('West DC / Private', { selector: 'strong' })).toBeInTheDocument()
+    expect(region.queryByDisplayValue(cases[0].plan)).toBeNull()
+    await userEvent.type(region.getByLabelText('Export instance'), 'preview-lab')
+    await userEvent.selectOptions(region.getByLabelText('Export source format'), fixture.source)
+    await userEvent.click(region.getByRole('button', { name: 'Start export preview' }))
+    expect(await region.findByText(/Documented-export preview started/)).toBeInTheDocument()
+    expect(region.getByLabelText('Import plan ID')).toHaveValue(fixture.plan)
+    await userEvent.selectOptions(region.getByLabelText('Source resource'), fixture.resource)
+    await userEvent.upload(
+      region.getByLabelText('Saved JSON export page'),
+      new File([fixture.raw], 'page.json', { type: 'application/json' }),
+    )
+    await userEvent.click(region.getByRole('button', { name: 'Capture page' }))
+    expect(await region.findByText(/1 rows captured/)).toBeInTheDocument()
+    await userEvent.click(region.getByRole('button', { name: 'Seal submitted preview' }))
+    expect(await region.findByText(/Submitted pages sealed as a preview/)).toBeInTheDocument()
+    expect(region.getByRole('table', { name: 'Import source rows' })).toBeInTheDocument()
+    expect(region.queryByText('source-secret')).toBeNull()
+    const start = requests.find((request) => request.path.endsWith('/export-plans'))
+    const page = requests.find((request) => request.path.includes('/export-pages?'))
+    const seal = requests.find((request) => request.path.endsWith('/export-seal'))
+    expect(JSON.parse(start?.raw ?? '{}')).toMatchObject({
+      context_id: fixture.context,
+      source_kind: fixture.source,
+    })
+    expect(page?.path).toContain(`context_id=${fixture.context}`)
+    expect(page?.raw).toBe(fixture.raw)
+    expect(JSON.parse(seal?.raw ?? '{}')).toMatchObject({
+      context_id: fixture.context,
+      expected_pages: 1,
+      expected_rows: 1,
+    })
+    expect(requests.every((request) => !request.path.includes('source-secret'))).toBe(true)
+    cleanup()
+  }
+})
+
 test('Admin import requires explicit tenant-context review before an inert dry run', async () => {
   const fallback = defaultFetch()
   let reviewed = false

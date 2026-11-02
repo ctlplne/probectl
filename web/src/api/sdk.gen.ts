@@ -3635,6 +3635,12 @@ export interface PreviewNmsImportAlertTargetRequest {
 
 export type PreviewNmsImportAlertTargetResponse = NMSImportAlertTargetPreview
 
+export interface StartNmsImportExportPreviewPlanRequest {
+  body: JsonObject
+}
+
+export type StartNmsImportExportPreviewPlanResponse = JsonObject
+
 export interface StartConfiguredLibreNmsImportPlanRequest {
   body: JsonObject
 }
@@ -3692,6 +3698,24 @@ export interface ListNmsImportReviewDiffRequest {
 }
 
 export type ListNmsImportReviewDiffResponse = NMSImportReviewDiffPage
+
+export interface AppendNmsImportExportPreviewPageRequest {
+  id: string
+  contextId: string
+  pageNumber: number
+  firstRow: number
+  resource: "nodes" | "devices" | "groups" | "rules" | "probes"
+  body: JsonValue
+}
+
+export type AppendNmsImportExportPreviewPageResponse = JsonObject
+
+export interface SealNmsImportExportPreviewPlanRequest {
+  id: string
+  body: JsonObject
+}
+
+export type SealNmsImportExportPreviewPlanResponse = JsonObject
 
 export interface FinalizeNmsImportReviewRequest {
   id: string
@@ -5242,6 +5266,12 @@ export class ProbectlSDKClient {
     return this.requestJSON<PreviewNmsImportAlertTargetResponse>("POST", path, query, request.body)
   }
 
+  async startNmsImportExportPreviewPlan(request: StartNmsImportExportPreviewPlanRequest): Promise<StartNmsImportExportPreviewPlanResponse> {
+    let path = "/v1/nms-imports/export-plans"
+    const query = new URLSearchParams()
+    return this.requestJSON<StartNmsImportExportPreviewPlanResponse>("POST", path, query, request.body)
+  }
+
   async startConfiguredLibreNmsImportPlan(request: StartConfiguredLibreNmsImportPlanRequest): Promise<StartConfiguredLibreNmsImportPlanResponse> {
     let path = "/v1/nms-imports/live-plans"
     const query = new URLSearchParams()
@@ -5300,6 +5330,24 @@ export class ProbectlSDKClient {
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
     return this.requestJSON<ListNmsImportReviewDiffResponse>("GET", path, query, undefined)
+  }
+
+  async appendNmsImportExportPreviewPage(request: AppendNmsImportExportPreviewPageRequest): Promise<AppendNmsImportExportPreviewPageResponse> {
+    let path = "/v1/nms-imports/{id}/export-pages"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.pageNumber !== undefined) query.set("page_number", String(request.pageNumber))
+    if (request.firstRow !== undefined) query.set("first_row", String(request.firstRow))
+    if (request.resource !== undefined) query.set("resource", String(request.resource))
+    return this.requestJSON<AppendNmsImportExportPreviewPageResponse>("POST", path, query, request.body)
+  }
+
+  async sealNmsImportExportPreviewPlan(request: SealNmsImportExportPreviewPlanRequest): Promise<SealNmsImportExportPreviewPlanResponse> {
+    let path = "/v1/nms-imports/{id}/export-seal"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<SealNmsImportExportPreviewPlanResponse>("POST", path, query, request.body)
   }
 
   async finalizeNmsImportReview(request: FinalizeNmsImportReviewRequest): Promise<FinalizeNmsImportReviewResponse> {

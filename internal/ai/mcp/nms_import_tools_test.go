@@ -51,6 +51,24 @@ func (b *recordedNMSImportBackend) NMSImportAlertApply(_ context.Context, p *aut
 	return NMSImportAlertApplyResult{Created: true}, nil
 }
 
+func (b *recordedNMSImportBackend) NMSImportExportStart(_ context.Context, p *auth.Principal,
+	_ NMSImportExportStartInput) (NMSImportExportStartResult, error) {
+	b.tenants = append(b.tenants, p.TenantID)
+	return NMSImportExportStartResult{PlanID: "plan", State: "capturing", Preview: true}, nil
+}
+
+func (b *recordedNMSImportBackend) NMSImportExportPage(_ context.Context, p *auth.Principal,
+	_ NMSImportExportPageInput) (NMSImportExportPageResult, error) {
+	b.tenants = append(b.tenants, p.TenantID)
+	return NMSImportExportPageResult{PageHash: "hash"}, nil
+}
+
+func (b *recordedNMSImportBackend) NMSImportExportSeal(_ context.Context, p *auth.Principal,
+	_ NMSImportExportSealInput) (NMSImportExportSealResult, error) {
+	b.tenants = append(b.tenants, p.TenantID)
+	return NMSImportExportSealResult{State: "sealed", Preview: true}, nil
+}
+
 func TestNMSImportMCPAuthorizationAndTenantHint(t *testing.T) {
 	b := &recordedNMSImportBackend{}
 	s := newTestServer(&fakeBackend{}, testGate(), WithNMSImportBackend(b),
@@ -106,5 +124,46 @@ func TestNMSImportMCPAuthorizationAndTenantHint(t *testing.T) {
 			"snapshot_hash": "hash", "entity_id": "entity", "tenant_id": "tenant-b"},
 	}))["isError"] != true || len(b.tenants) != 2 {
 		t.Fatalf("caller tenant hint reached alert write backend: %v", b.tenants)
+	}
+	if code, _ := errCode(handle(t, s, reader, 9, "tools/call", map[string]any{
+		"name": "nms_import_export_start", "arguments": map[string]any{
+			"context_id": "ctx", "source_kind": "orion", "instance_ref": "lab"},
+	})); code != codeForbidden || len(b.tenants) != 2 {
+		t.Fatalf("read-only caller started an export preview: code=%d tenants=%v", code, b.tenants)
+	}
+	if resultOf(t, handle(t, s, writer, 10, "tools/call", map[string]any{
+		"name": "nms_import_export_start", "arguments": map[string]any{
+			"context_id": "ctx", "source_kind": "prtg", "instance_ref": "lab"},
+	}))["isError"] == true || len(b.tenants) != 3 || b.tenants[2] != "tenant-a" {
+		t.Fatalf("authorized export start changed tenant: %v", b.tenants)
+	}
+	if resultOf(t, handle(t, s, writer, 11, "tools/call", map[string]any{
+		"name": "nms_import_export_page", "arguments": map[string]any{
+			"context_id": "ctx", "plan_id": "plan", "resource": "devices",
+			"page_number": 0, "first_row": 0,
+			"page": []map[string]any{{"id": "101", "name": "router"}}},
+	}))["isError"] == true || len(b.tenants) != 4 || b.tenants[3] != "tenant-a" {
+		t.Fatalf("authorized export page changed tenant: %v", b.tenants)
+	}
+	if resultOf(t, handle(t, s, writer, 12, "tools/call", map[string]any{
+		"name": "nms_import_export_seal", "arguments": map[string]any{
+			"context_id": "ctx", "plan_id": "plan", "expected_pages": 1, "expected_rows": 1},
+	}))["isError"] == true || len(b.tenants) != 5 || b.tenants[4] != "tenant-a" {
+		t.Fatalf("authorized export seal changed tenant: %v", b.tenants)
+	}
+	if resultOf(t, handle(t, s, writer, 13, "tools/call", map[string]any{
+		"name": "nms_import_export_page", "arguments": map[string]any{
+			"context_id": "ctx", "plan_id": "plan", "resource": "devices",
+			"page_number": 0, "first_row": 0,
+			"page": []map[string]any{{"id": "101"}}, "tenant_id": "tenant-b"},
+	}))["isError"] != true || len(b.tenants) != 5 {
+		t.Fatalf("caller tenant hint reached export page backend: %v", b.tenants)
+	}
+	if resultOf(t, handle(t, s, writer, 14, "tools/call", map[string]any{
+		"name": "nms_import_export_page", "arguments": map[string]any{
+			"context_id": "ctx", "plan_id": "plan", "resource": "devices",
+			"page_number": 0, "first_row": 0, "page": "source-secret"},
+	}))["isError"] != true || len(b.tenants) != 5 {
+		t.Fatalf("scalar source page reached export backend: %v", b.tenants)
 	}
 }

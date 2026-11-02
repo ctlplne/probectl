@@ -4022,6 +4022,34 @@
         }
       }
     },
+    "/v1/nms-imports/export-plans": {
+      "post": {
+        "x-required-permission": "nms.import.write",
+        "operationId": "startNMSImportExportPreviewPlan",
+        "summary": "Start an inert Orion or PRTG documented-export preview plan",
+        "description": "An authenticated operator selects a tenant-owned routing context and source format. The server creates an opaque generation and makes no vendor request or destination write. Saved source pages are untrusted, redacted and reviewed separately; this preview does not prove a complete live source inventory.",
+        "tags": ["entities"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "additionalProperties": false,
+          "required": ["context_id", "source_kind", "instance_ref"],
+          "properties": {
+            "context_id": {"type": "string", "format": "uuid"},
+            "source_kind": {"type": "string", "enum": ["orion", "prtg"]},
+            "instance_ref": {"type": "string", "minLength": 1, "maxLength": 128}
+          }
+        }}}},
+        "responses": {
+          "201": {"description": "Inert preview plan started.", "content": {"application/json": {"schema": {
+            "type": "object", "required": ["plan_id", "state", "preview"],
+            "properties": {"plan_id": {"type": "string", "format": "uuid"}, "state": {"type": "string", "const": "capturing"}, "preview": {"type": "boolean", "const": true}}
+          }}}},
+          "400": {"description": "Invalid source format or instance."},
+          "403": {"description": "Import write permission denied in this context."},
+          "404": {"description": "Routing context not found in this tenant."}
+        }
+      }
+    },
     "/v1/nms-imports/{id}/advance": {
       "post": {
         "x-required-permission": "nms.import.write",
@@ -4055,6 +4083,64 @@
           "404": {"description": "Current import plan or routing context not found in this tenant."},
           "409": {"description": "A stage is in progress or the source response changed; the plan remains inert."},
           "503": {"description": "Deployment source policy, credential resolver or configured HTTPS source is unavailable."}
+        }
+      }
+    },
+    "/v1/nms-imports/{id}/export-pages": {
+      "post": {
+        "x-required-permission": "nms.import.write",
+        "operationId": "appendNMSImportExportPreviewPage",
+        "summary": "Capture one bounded Orion or PRTG documented-export page",
+        "description": "The authenticated tenant and selected routing context own the existing plan. The raw vendor JSON is parsed under the plan's source format and only normalized, redacted rows and a page receipt are stored. Page and row offsets must be contiguous; an exact retry is inert. No destination changes here.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "page_number", "in": "query", "required": true, "schema": {"type": "integer", "format": "int64", "minimum": 0}},
+          {"name": "first_row", "in": "query", "required": true, "schema": {"type": "integer", "format": "int64", "minimum": 0}},
+          {"name": "resource", "in": "query", "required": true, "schema": {"type": "string", "enum": ["nodes", "devices", "groups", "rules", "probes"]}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {}}}},
+        "responses": {
+          "200": {"description": "Normalized page receipt committed or exact retry recognized.", "content": {"application/json": {"schema": {
+            "type": "object", "required": ["page_hash"],
+            "properties": {"page_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+          }}}},
+          "400": {"description": "Invalid source page, ordering, content type or context."},
+          "403": {"description": "Import write permission denied in this context."},
+          "404": {"description": "Plan or context not found in this tenant."}
+        }
+      }
+    },
+    "/v1/nms-imports/{id}/export-seal": {
+      "post": {
+        "x-required-permission": "nms.import.write",
+        "operationId": "sealNMSImportExportPreviewPlan",
+        "summary": "Seal one inert documented-export preview snapshot",
+        "description": "The operator supplies the expected page and normalized-row totals from the submitted export. The tenant transaction replays every stored page receipt and freezes a snapshot hash. A sealed plan still needs explicit review and cannot assert that an unobserved vendor inventory was complete.",
+        "tags": ["entities"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "additionalProperties": false,
+          "required": ["context_id", "expected_pages", "expected_rows"],
+          "properties": {
+            "context_id": {"type": "string", "format": "uuid"},
+            "expected_pages": {"type": "integer", "format": "int64", "minimum": 1},
+            "expected_rows": {"type": "integer", "format": "int64", "minimum": 0}
+          }
+        }}}},
+        "responses": {
+          "200": {"description": "Inert preview snapshot sealed.", "content": {"application/json": {"schema": {
+            "type": "object", "required": ["state", "snapshot_hash", "preview"],
+            "properties": {"state": {"type": "string", "const": "sealed"}, "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "preview": {"type": "boolean", "const": true}}
+          }}}},
+          "400": {"description": "Invalid page receipts, expected totals or context."},
+          "403": {"description": "Import write permission denied in this context."},
+          "404": {"description": "Plan or context not found in this tenant."}
         }
       }
     },

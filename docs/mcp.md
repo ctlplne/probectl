@@ -490,6 +490,15 @@ write fails closed. It cannot import source SQL, source delivery operations,
 or enable an alert. A separate human-authorized alert operation is required
 for activation.
 
+`nms_import_export_start`, `nms_import_export_page` and
+`nms_import_export_seal` require `nms.import.write` on the selected context.
+They capture operator-supplied Orion SWIS or PRTG API v2 JSON as an inert,
+labelled preview. The page tool accepts one bounded object or array and
+returns only its redacted receipt hash; source-only credentials and
+predicates are never returned. A seal verifies submitted pages, not the
+completeness of an unseen live source. The same explicit review and dry-run
+tools show every unmapped row before any destination write.
+
 ## See also
 
 - `docs/ai-query.md` — the semantic query engine the tools read through.

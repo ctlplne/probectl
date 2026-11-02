@@ -143,6 +143,13 @@ func sensitiveProviderOperationPath(method, path string) (apiOp, bool) {
 	if method == http.MethodPost && canonicalPath == "/v1/nms-imports/sources" {
 		return apiOp{Method: method, Path: canonicalPath, SensitiveBody: true}, true
 	}
+	if method == http.MethodPost && strings.HasPrefix(canonicalPath, "/v1/nms-imports/") {
+		parts := strings.Split(strings.TrimPrefix(canonicalPath, "/v1/nms-imports/"), "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "export-pages" {
+			return apiOp{Method: method, Path: canonicalPath, SensitiveBody: true,
+				ExactJSON: true, AllowJSONArray: true, MaxBodyBytes: 64 << 20}, true
+		}
+	}
 	for _, op := range surfaceCommands["provider"].Ops {
 		if op.SensitiveBody && strings.EqualFold(op.Method, method) && op.Path == canonicalPath {
 			return op, true
@@ -261,10 +268,10 @@ func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Read
 		if op.MaxBodyBytes > 0 {
 			limit = op.MaxBodyBytes
 		}
-		body, err = readRequestBody(*bodyFile, stdin, limit, op.ExactJSON)
+		body, err = readRequestBody(*bodyFile, stdin, limit, op.ExactJSON, op.AllowJSONArray)
 	} else {
 		if op.ExactJSON && strings.TrimSpace(*bodyRaw) != "" {
-			body, err = parseExactBody([]byte(*bodyRaw), op.MaxBodyBytes)
+			body, err = parseExactBody([]byte(*bodyRaw), op.MaxBodyBytes, op.AllowJSONArray)
 		} else {
 			body, err = parseBody(*bodyRaw)
 		}
@@ -334,7 +341,7 @@ func verdictIsFalse(field string, out any) bool {
 	return isBool && !b
 }
 
-func readRequestBody(filename string, stdin io.Reader, limit int64, exact bool) (any, error) {
+func readRequestBody(filename string, stdin io.Reader, limit int64, exact, allowArray bool) (any, error) {
 	var (
 		raw []byte
 		err error
@@ -365,7 +372,7 @@ func readRequestBody(filename string, stdin io.Reader, limit int64, exact bool) 
 		return nil, fmt.Errorf("request body is empty")
 	}
 	if exact {
-		return parseExactBody(raw, limit)
+		return parseExactBody(raw, limit, allowArray)
 	}
 	var body any
 	if err := json.Unmarshal(raw, &body); err != nil {
@@ -379,7 +386,7 @@ func readRequestBody(filename string, stdin io.Reader, limit int64, exact bool) 
 
 // parseExactBody copies the validated bytes before the caller wipes its input.
 // JSON numbers (including optimistic versions) never pass through float64.
-func parseExactBody(raw []byte, limit int64) (any, error) {
+func parseExactBody(raw []byte, limit int64, allowArray bool) (any, error) {
 	if limit <= 0 {
 		limit = maxSensitiveRequestBodyBytes
 	}
@@ -387,7 +394,10 @@ func parseExactBody(raw []byte, limit int64) (any, error) {
 		return nil, fmt.Errorf("request exceeds %d-byte limit", limit)
 	}
 	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 || raw[0] != '{' || !json.Valid(raw) {
+	if len(raw) == 0 || (raw[0] != '{' && (!allowArray || raw[0] != '[')) || !json.Valid(raw) {
+		if allowArray {
+			return nil, fmt.Errorf("request body must be one JSON object or array")
+		}
 		return nil, fmt.Errorf("request body must be one JSON object")
 	}
 	return append(json.RawMessage{}, raw...), nil
