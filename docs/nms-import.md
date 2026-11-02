@@ -76,5 +76,8 @@ a source that cannot finish one list in that budget cannot complete a live
 plan by repeated requests. The importer must prove a larger real inventory
 before it can claim bulk readiness. Orion and PRTG parsing remains preview
 until live Windows trials; Zabbix export ingestion is not yet wired to a live
-source. Imported alert expressions and delivery targets remain unmapped and
+source. Zabbix poll items and triggers retain their documented host key as a
+bounded parent reference for a later same-source provenance mapping; a host
+key, address or label never selects a destination device by itself. Imported
+alert expressions and delivery targets remain unmapped and
 no imported alert can be enabled by this review path.

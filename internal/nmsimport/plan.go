@@ -85,7 +85,7 @@ func normalizePlanPage(tenantID, contextID, sourceInstance, generationHash strin
 			return nil, ErrInvalidPage
 		}
 		kind := planKind(row.Kind)
-		if kind == "" || !safePlanFields(row) {
+		if kind == "" || !safePlanFields(row, sourceKind) {
 			return nil, ErrInvalidPage
 		}
 		if kind == "membership" && (sourceKind != LibreNMS || !safeMembershipRow(row)) {
@@ -187,7 +187,7 @@ func canonicalSourceNumber(value string) bool {
 	return err == nil && n != 0 && strconv.FormatUint(n, 10) == value
 }
 
-func safePlanFields(row Row) bool {
+func safePlanFields(row Row, source Kind) bool {
 	for _, value := range []string{row.ExternalID, row.Label, row.Hostname,
 		row.ParentID, row.LocationID, row.LocationLabel} {
 		if safeLabel(value) != value {
@@ -197,8 +197,12 @@ func safePlanFields(row Row) bool {
 	if row.Address != "" && safeAddress(row.Address) != row.Address {
 		return false
 	}
+	// Zabbix's documented host identity is its host key, not a numeric ID.
+	// Item and trigger rows retain that safe key so the destination mapper
+	// can use same-source device provenance instead of guessing by address.
+	parentIsZabbixHost := source == Zabbix && (row.Kind == "poll_item" || row.Kind == "rule")
 	if (row.Hostname != "" && safeDNSHost(row.Hostname) != row.Hostname) ||
-		(row.ParentID != "" && !lowerHex(row.ParentID)) ||
+		(row.ParentID != "" && !parentIsZabbixHost && !lowerHex(row.ParentID)) ||
 		(row.LocationID != "" && !lowerHex(row.LocationID)) {
 		return false
 	}

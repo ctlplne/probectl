@@ -32,6 +32,7 @@ func TestNormalizePlanPageKeepsUnmappedObjectsWithoutSourceSecrets(t *testing.T)
 	}
 	for i := 2; i <= 3; i++ {
 		if a[i].RowNumber != int64(10+i) || !a[i].ReviewOnly ||
+			a[i].ParentID != "r1" ||
 			!strings.HasPrefix(a[i].ExternalID, "unmapped-") || len(a[i].ExternalID) != len("unmapped-")+32 {
 			t.Fatalf("missing source UUID became an apply candidate or raw ID: %+v", a[i])
 		}
@@ -71,7 +72,9 @@ func TestNormalizePlanPageRejectsUnsafeOrAmbiguousRows(t *testing.T) {
 			GroupIDs: []string{"SECRET-GROUP"}}}},
 		"URL hostname": {Source: PRTG, Rows: []Row{{Kind: "device", ExternalID: "17", Label: "router",
 			Hostname: "https://example.test/secret"}}},
-		"silent missing address": {Source: LibreNMS, Rows: []Row{{Kind: "device", ExternalID: "17", Label: "router"}}},
+		"silent missing address":    {Source: LibreNMS, Rows: []Row{{Kind: "device", ExternalID: "17", Label: "router"}}},
+		"nonnumeric foreign parent": {Source: LibreNMS, Rows: []Row{{Kind: "poll_item", ExternalID: "17", ParentID: "router-name", UnmappedCodes: []string{"poll_item_unmapped"}}}},
+		"Zabbix device parent":      {Source: Zabbix, Rows: []Row{{Kind: "device", ExternalID: "r1", Label: "router", Address: "10.42.0.1", ParentID: "other-host"}}},
 	} {
 		if _, err := normalizePlanPage(tenant, routingContext, "lab", generation, candidate.Source, candidate, 0); err == nil {
 			t.Errorf("accepted %s", name)

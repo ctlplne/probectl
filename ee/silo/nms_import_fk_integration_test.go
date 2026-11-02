@@ -159,6 +159,18 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		a, contextA, planA); err != nil {
 		t.Fatalf("silo source group and member rows: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)
+		VALUES ($1,$2,$3,3,'poll_setting','item-1','edge-r1')`,
+		a, contextA, planA); err != nil {
+		t.Fatalf("silo lost a Zabbix-style host key on a poll candidate: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)
+		VALUES ($1,$2,$3,4,'device','18','edge-r1')`,
+		a, contextA, planA); err == nil {
+		t.Fatal("silo accepted a nonnumeric device parent outside item/trigger lineage")
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_groups
 		(tenant_id,context_id,source_id,external_id,label,plan_id)
 		VALUES ($1,$2,$3,'7','Core routers',$4)`,
@@ -200,6 +212,17 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 	// the new column and its CHECK on catch-up, not only the public schema.
 	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_rows
 		DROP CONSTRAINT IF EXISTS nms_import_rows_target_fingerprint_check`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_rows
+		DROP CONSTRAINT IF EXISTS nms_import_rows_parent_source_key_check`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_rows
+		ADD CONSTRAINT nms_import_rows_parent_external_id_check
+		CHECK (parent_external_id IS NULL OR
+		       (octet_length(parent_external_id) BETWEEN 1 AND 256 AND
+		        parent_external_id ~ '^[0-9a-f]+$')) NOT VALID`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.nms_import_rows
@@ -250,5 +273,17 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		  AND plan_id=$3 AND row_number=0`, a, contextA, planA,
 		strings.Repeat("d", 64)); err != nil {
 		t.Fatalf("caught-up silo rejected a valid target fingerprint: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)
+		VALUES ($1,$2,$3,5,'alert_rule','trigger-1','edge-r1')`,
+		a, contextA, planA); err != nil {
+		t.Fatalf("caught-up silo lost a Zabbix-style trigger parent: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)
+		VALUES ($1,$2,$3,6,'site','site-1','edge-r1')`,
+		a, contextA, planA); err == nil {
+		t.Fatal("caught-up silo accepted a nonnumeric site parent")
 	}
 }

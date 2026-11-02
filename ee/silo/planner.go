@@ -262,6 +262,26 @@ END $fx2_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
                    (action='update' AND target_fingerprint ~ '^[0-9a-f]{64}$')) NOT VALID;
     END IF;
 END $fx2b_target_revision$`, quoteLiteral(schema), quoteLiteral(rows), rows))
+		// An older silo copied the original numeric-only parent CHECK. The
+		// public expansion allows Zabbix's safe host key for item/trigger
+		// lineage, so remove that old CHECK and install its replacement here.
+		plan = append(plan, fmt.Sprintf(`DO $fx2b_zabbix_parent$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint
+               WHERE conrelid = %s::regclass
+                 AND conname='nms_import_rows_parent_external_id_check') THEN
+        ALTER TABLE %s DROP CONSTRAINT nms_import_rows_parent_external_id_check;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conrelid = %s::regclass
+                     AND conname='nms_import_rows_parent_source_key_check') THEN
+        ALTER TABLE %s ADD CONSTRAINT nms_import_rows_parent_source_key_check
+            CHECK (parent_external_id IS NULL OR
+                   (octet_length(parent_external_id) BETWEEN 1 AND 256
+                    AND parent_external_id !~ '[[:cntrl:]]'
+                    AND (parent_external_id ~ '^[0-9a-f]+$' OR
+                         object_kind IN ('poll_setting','alert_rule')))) NOT VALID;
+    END IF;
+END $fx2b_zabbix_parent$`, quoteLiteral(rows), rows, quoteLiteral(rows), rows))
 	}
 	if owned["nms_import_plans"] {
 		// A pre-existing physical silo receives the new columns through the

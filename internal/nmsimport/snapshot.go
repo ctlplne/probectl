@@ -477,7 +477,7 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 				codes = append(codes, "poll_interval_unmapped")
 			}
 			out.Rows = append(out.Rows, Row{Kind: "poll_item", ExternalID: itemID,
-				PollSeconds: seconds, UnmappedCodes: codes})
+				ParentID: id, PollSeconds: seconds, UnmappedCodes: codes})
 			for _, trigger := range item.Triggers {
 				triggerID := safeZabbixUUID(trigger.UUID)
 				codes := []string{"expression_unmapped"}
@@ -485,7 +485,7 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 					codes = append(codes, "trigger_id_unavailable")
 				}
 				out.Rows = append(out.Rows, Row{Kind: "rule", ExternalID: triggerID,
-					UnmappedCodes: codes})
+					ParentID: id, UnmappedCodes: codes})
 			}
 		}
 	}

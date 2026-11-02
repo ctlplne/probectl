@@ -652,6 +652,30 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		a.ID, contextA, planA); err != nil {
 		t.Fatalf("own captured group and member rows: %v", err)
 	}
+	if err := tryA(`INSERT INTO nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)
+		VALUES ($1,$2,$3,3,'poll_setting','item-1','edge-r1')`,
+		a.ID, contextA, planA); err != nil {
+		t.Fatalf("own Zabbix-style item parent: %v", err)
+	}
+	if err := tryA(`INSERT INTO nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)
+		VALUES ($1,$2,$3,4,'poll_setting','item-2','edge-r1')`,
+		b.ID, contextA, planB); err == nil {
+		t.Fatal("foreign-tenant Zabbix-style item parent escaped FORCE RLS")
+	}
+	if err := tryA(`INSERT INTO nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)
+		VALUES ($1,$2,$3,4,'device','18','edge-r1')`,
+		a.ID, contextA, planA); err == nil {
+		t.Fatal("device row accepted nonnumeric parent outside item/trigger lineage")
+	}
+	if err := tryA(`INSERT INTO nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,parent_external_id)
+		VALUES ($1,$2,$3,4,'alert_rule','trigger-1',E'edge\nbad')`,
+		a.ID, contextA, planA); err == nil {
+		t.Fatal("alert parent accepted a control character")
+	}
 	if err := tryA(`INSERT INTO nms_import_groups
 		(tenant_id,context_id,source_id,external_id,label,plan_id)
 		VALUES ($1,$2,$3,'7','Core routers',$4)`,

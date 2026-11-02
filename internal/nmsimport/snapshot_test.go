@@ -88,6 +88,7 @@ func TestZabbixExportKeepsGroupUUIDAndListsNestedUnmappedTrigger(t *testing.T) {
 		got.Rows[1].Address != "10.0.0.1" || len(got.Rows[1].GroupIDs) != 1 ||
 		got.Rows[1].GroupIDs[0] != "748ad4d098d447d492bb935c907f652f" || got.Rows[3].ExternalID != "aaaaaaaabbbbccccddddffffffffffff" ||
 		got.Rows[2].PollSeconds != 30 ||
+		got.Rows[2].ParentID != "edge-r1" || got.Rows[3].ParentID != "edge-r1" ||
 		!contains(got.Rows[3].UnmappedCodes, "expression_unmapped") {
 		t.Fatalf("documented identity or unmapped status lost: %+v", got.Rows)
 	}
