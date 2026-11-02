@@ -67,6 +67,9 @@ type Resolver struct {
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
+	// epochs prevent a source read started before an ownership refusal from
+	// restoring that key's revoked stale enrichment when it completes later.
+	epochs map[string]uint64
 }
 
 // NewResolver wraps provider with a TTL cache (default 10m when ttl <= 0).
@@ -74,7 +77,7 @@ func NewResolver(provider Provider, ttl time.Duration) *Resolver {
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
 	}
-	return &Resolver{provider: provider, ttl: ttl, cache: map[string]cacheEntry{}}
+	return &Resolver{provider: provider, ttl: ttl, cache: map[string]cacheEntry{}, epochs: map[string]uint64{}}
 }
 
 // ProviderName names the wrapped provider (for API responses/logs).
@@ -87,23 +90,59 @@ func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
 	if key == "" {
 		return nil, nil
 	}
+	cacheKey := key
+	if scoped, ok := r.provider.(interface {
+		cacheScope(context.Context) (string, error)
+	}); ok {
+		scope, err := scoped.cacheScope(ctx)
+		if err != nil {
+			return nil, err
+		}
+		cacheKey = scope + "\x00" + key
+	}
 	r.mu.Lock()
-	entry, ok := r.cache[key]
+	entry, ok := r.cache[cacheKey]
+	epoch := r.epochs[cacheKey]
 	r.mu.Unlock()
 	if ok && time.Since(entry.fetched) < r.ttl {
 		return entry.cis, nil
 	}
-	cis, err := r.provider.Lookup(ctx, key)
+	cis, err := r.lookupFresh(ctx, key)
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if err != nil {
-		if ok { // graceful degrade: stale beats nothing
-			return entry.cis, nil
+		if errors.Is(err, ErrTenantBinding) {
+			r.epochs[cacheKey]++
+			delete(r.cache, cacheKey)
+			return nil, err
+		}
+		if epoch != r.epochs[cacheKey] {
+			return nil, ErrTenantBinding
+		}
+		if current, exists := r.cache[cacheKey]; exists { // stale remains authorized
+			return current.cis, nil
 		}
 		return nil, errors.Join(ErrUnavailable, err)
 	}
-	r.mu.Lock()
-	r.cache[key] = cacheEntry{cis: cis, fetched: time.Now()} // negative results cached too
-	r.mu.Unlock()
+	if epoch != r.epochs[cacheKey] {
+		return nil, ErrTenantBinding
+	}
+	r.cache[cacheKey] = cacheEntry{cis: cis, fetched: time.Now()} // negative results cached too
 	return cis, nil
+}
+
+// lookupFresh is the uncached provider read used on cache misses. A provider
+// outage returns an error here; only Lookup may choose a stale enrichment
+// answer. Reviewed import paths must use an uncached read after tenant binding.
+func (r *Resolver) lookupFresh(ctx context.Context, key string) ([]CI, error) {
+	if r == nil || r.provider == nil {
+		return nil, ErrUnavailable
+	}
+	key = CanonicalKey(key)
+	if key == "" {
+		return nil, errors.New("cmdb: invalid lookup key")
+	}
+	return r.provider.Lookup(ctx, key)
 }
 
 // Correlate resolves every key (deduplicated, canonicalized) and returns the

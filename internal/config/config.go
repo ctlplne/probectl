@@ -613,11 +613,12 @@ type Config struct {
 	// CMDB integration (S40): read-only CI correlation. CMDBProvider "" keeps
 	// the feature off; "servicenow" and "netbox" require CMDBURL (https, or
 	// http loopback for tests) and CMDBSecret (env only, never logged).
-	CMDBProvider string
-	CMDBURL      string
-	CMDBSecret   string
-	CMDBTable    string
-	CMDBCacheTTL time.Duration
+	CMDBProvider        string
+	CMDBURL             string
+	CMDBSecret          string
+	CMDBTable           string
+	CMDBCacheTTL        time.Duration
+	CMDBNetBoxTenantMap map[string]string
 
 	// OTLP receiver (S22): TLS-only, authenticated, tenant-scoped ingest of
 	// external OTLP. Enabled when an address + TLS cert/key are set. Static
@@ -1241,6 +1242,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.CMDBSecret = l.str("PROBECTL_CMDB_SECRET", "")
 	cfg.CMDBTable = l.str("PROBECTL_CMDB_TABLE", "cmdb_ci")
 	cfg.CMDBCacheTTL = l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute)
+	cfg.CMDBNetBoxTenantMap = l.netBoxTenantMap()
 	cfg.AlertEvalInterval = l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second)
 	cfg.ProvisionReapInterval = l.dur("PROBECTL_PROVISION_REAP_INTERVAL", 15*time.Minute)
 	cfg.ProvisionReapAfter = l.dur("PROBECTL_PROVISION_REAP_AFTER", 24*time.Hour)

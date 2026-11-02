@@ -109,6 +109,9 @@ func TestNetBoxLookupIPDeviceAndVM(t *testing.T) {
 			http.Error(w, "no token", http.StatusUnauthorized)
 			return
 		}
+		if r.URL.Query().Get("tenant_id") != "7" {
+			t.Error("NetBox source was not tenant-filtered")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		base := "http://" + r.Host
 		switch r.URL.Path {
@@ -116,17 +119,17 @@ func TestNetBoxLookupIPDeviceAndVM(t *testing.T) {
 			if r.URL.Query().Get("q") != "10.0.0.1" {
 				t.Errorf("ip query = %q", r.URL.RawQuery)
 			}
-			fmt.Fprint(w, `{"results":[{"id":101,"display":"10.0.0.1/32","address":"10.0.0.1/32","dns_name":"core-sw1.acme.example","url":"`+base+`/api/ipam/ip-addresses/101/","assigned_object":{"device":{"name":"core-sw1","display":"core-sw1"}}}]}`)
+			fmt.Fprint(w, `{"count":1,"results":[{"id":101,"tenant":{"id":7},"display":"10.0.0.1/32","address":"10.0.0.1/32","dns_name":"core-sw1.acme.example","url":"`+base+`/api/ipam/ip-addresses/101/","assigned_object":{"device":{"name":"core-sw1","display":"core-sw1"}}}]}`)
 		case "/api/dcim/devices/":
 			if r.URL.Query().Get("name") != "core-sw1.acme.example" {
 				t.Errorf("device query = %q", r.URL.RawQuery)
 			}
-			fmt.Fprint(w, `{"results":[{"id":202,"name":"core-sw1.acme.example","display":"core-sw1","url":"`+base+`/api/dcim/devices/202/","role":{"name":"leaf"},"site":{"name":"iad1"},"device_type":{"model":"7050X"},"primary_ip4":{"address":"10.0.0.1/32"}}]}`)
+			fmt.Fprint(w, `{"count":1,"results":[{"id":202,"tenant":{"id":7},"name":"core-sw1.acme.example","display":"core-sw1","url":"`+base+`/api/dcim/devices/202/","role":{"name":"leaf"},"site":{"name":"iad1"},"device_type":{"model":"7050X"},"primary_ip4":{"address":"10.0.0.1/32"}}]}`)
 		case "/api/virtualization/virtual-machines/":
 			if r.URL.Query().Get("name") != "core-sw1.acme.example" {
 				t.Errorf("vm query = %q", r.URL.RawQuery)
 			}
-			fmt.Fprint(w, `{"results":[{"id":303,"name":"core-sw1.acme.example","display":"core-sw1-vm","url":"`+base+`/api/virtualization/virtual-machines/303/","cluster":{"name":"lab"},"primary_ip4":{"address":"10.0.0.10/32"}}]}`)
+			fmt.Fprint(w, `{"count":1,"results":[{"id":303,"tenant":{"id":7},"name":"core-sw1.acme.example","display":"core-sw1-vm","url":"`+base+`/api/virtualization/virtual-machines/303/","cluster":{"name":"lab"},"primary_ip4":{"address":"10.0.0.10/32"}}]}`)
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -134,8 +137,8 @@ func TestNetBoxLookupIPDeviceAndVM(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	provider := NewNetBox(ts.URL, "nb-token")
-	cis, err := provider.Lookup(context.Background(), "10.0.0.1")
+	provider := NewNetBox(ts.URL, "nb-token", map[string]string{netBoxTenantA: "7"})
+	cis, err := provider.Lookup(netBoxContext(netBoxTenantA), "10.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +149,7 @@ func TestNetBoxLookupIPDeviceAndVM(t *testing.T) {
 		t.Fatalf("netbox UI URL not normalized: %+v", cis[0])
 	}
 
-	cis, err = provider.Lookup(context.Background(), "CORE-SW1.ACME.EXAMPLE")
+	cis, err = provider.Lookup(netBoxContext(netBoxTenantA), "CORE-SW1.ACME.EXAMPLE")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +199,30 @@ func TestResolverCacheAndGracefulDegrade(t *testing.T) {
 	// Correlate degrades to "no match" rather than erroring.
 	if m := r.Correlate(ctx, []string{"web.acme.example"}); len(m) != 0 {
 		t.Fatalf("correlate while down = %+v", m)
+	}
+}
+
+func TestUncachedCMDBLookupRefusesStaleData(t *testing.T) {
+	var calls atomic.Int64
+	var fail atomic.Bool
+	ts := mockSNow(t, &calls, &fail)
+	defer ts.Close()
+	resolver := NewResolver(NewServiceNow(ts.URL, "", "user:pass"), time.Hour)
+	if _, err := resolver.Lookup(t.Context(), "10.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	fail.Store(true)
+	if cis, err := resolver.Lookup(t.Context(), "10.0.0.1"); err != nil || len(cis) != 1 {
+		t.Fatalf("best-effort correlation lost its cached result: %v, %v", cis, err)
+	}
+	if cis, err := resolver.lookupFresh(t.Context(), "10.0.0.1"); err == nil || len(cis) != 0 {
+		t.Fatalf("reviewed import accepted a stale CI: %v, %v", cis, err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("fresh lookup did not reach the provider: %d calls", got)
+	}
+	if _, err := resolver.lookupFresh(t.Context(), "bad key!"); err == nil {
+		t.Fatal("invalid operator lookup key reached provider")
 	}
 }
 

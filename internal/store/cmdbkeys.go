@@ -24,9 +24,10 @@ import (
 // to tenant A (DPR-118). Ownership is decided against the AUTHORITATIVE tenant
 // (s.Tenant, taken from the authenticated request principal), never a
 // self-asserted agent name or hostname from the payload: every statement below
-// carries an explicit tenant_id predicate so a name that collides across
-// tenants (an agent renamed to match another tenant's agent) can never make
-// one tenant "own" another tenant's key. RLS already confines each statement
+// carries an explicit tenant_id predicate. Key ownership is necessary but
+// cannot prove ownership of an external CI when tenants reuse private IPs or
+// hostnames. NetBox additionally applies the deployment's source tenant
+// mapping before reading or projecting a CI. RLS confines each local statement
 // to the caller's tenant; the predicate makes the storage-layer boundary hold
 // independently of it (docs/guardrails.md G7-1; AUTHZ-17). Fail closed when
 // there is no tenant in scope.
