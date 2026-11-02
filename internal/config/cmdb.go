@@ -10,7 +10,7 @@ import "github.com/ctlplne/probectl/internal/cmdb"
 
 func (l *loader) netBoxTenantMap() map[string]string {
 	const key = "PROBECTL_CMDB_NETBOX_TENANT_MAP"
-	bindings, err := cmdb.ParseNetBoxTenantMap(l.getenv(key))
+	bindings, err := cmdb.ParseNetBoxTenantMap(l.str("PROBECTL_CMDB_NETBOX_TENANT_MAP", ""))
 	if err != nil {
 		l.errf("%s must map canonical tenant UUIDs to distinct positive NetBox tenant ID strings", key)
 	}
