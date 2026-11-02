@@ -26,17 +26,6 @@ test('Admin import requires explicit tenant-context review before an inert dry r
       const path = pathOf(input)
       const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {}
       if (path.startsWith('/v1/nms-imports/')) requests.push({ path, body })
-      if (path === '/v1/me')
-        return jsonResponse({
-          tenant_id: '00000000-0000-4000-8000-000000000300',
-          tenant_name: 'Import tenant',
-          tenant_slug: 'import-tenant',
-          user_id: 'u_import',
-          email: 'operator@probectl.test',
-          display_name: 'Import Operator',
-          mfa_satisfied: true,
-          permissions: ['agent.read', 'agent.write', 'nms.import.read', 'nms.import.write'],
-        })
       if (path === '/v1/entity-contexts')
         return jsonResponse({
           items: [
@@ -93,7 +82,12 @@ test('Admin import requires explicit tenant-context review before an inert dry r
     }),
   )
 
-  renderApp('/admin')
+  renderApp('/admin', {
+    me: {
+      tenant_id: '00000000-0000-4000-8000-000000000300',
+      permissions: ['agent.read', 'agent.write', 'nms.import.read', 'nms.import.write'],
+    },
+  })
   const card = (await screen.findByText('Incumbent NMS import')).closest('[data-nms-import]')
   expect(card).not.toBeNull()
   const region = within(card as HTMLElement)
