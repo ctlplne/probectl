@@ -106,6 +106,21 @@ func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
 	return cis, nil
 }
 
+// LookupFresh bypasses the shared enrichment cache for an operator-reviewed
+// import. The caller must prove tenant ownership of key before calling it.
+// Unlike best-effort correlation, a provider outage must refuse the import:
+// serving a stale CI could silently apply an outdated role or site tag.
+func (r *Resolver) LookupFresh(ctx context.Context, key string) ([]CI, error) {
+	if r == nil || r.provider == nil {
+		return nil, ErrUnavailable
+	}
+	key = CanonicalKey(key)
+	if key == "" {
+		return nil, errors.New("cmdb: invalid lookup key")
+	}
+	return r.provider.Lookup(ctx, key)
+}
+
 // Correlate resolves every key (deduplicated, canonicalized) and returns the
 // keys that matched at least one CI. Lookup errors skip the key — correlation
 // is best-effort enrichment.
