@@ -199,7 +199,7 @@ func TestResolverCacheAndGracefulDegrade(t *testing.T) {
 	}
 }
 
-func TestFreshCMDBLookupRefusesStaleImportSuggestion(t *testing.T) {
+func TestUncachedCMDBLookupRefusesStaleData(t *testing.T) {
 	var calls atomic.Int64
 	var fail atomic.Bool
 	ts := mockSNow(t, &calls, &fail)
@@ -212,13 +212,13 @@ func TestFreshCMDBLookupRefusesStaleImportSuggestion(t *testing.T) {
 	if cis, err := resolver.Lookup(t.Context(), "10.0.0.1"); err != nil || len(cis) != 1 {
 		t.Fatalf("best-effort correlation lost its cached result: %v, %v", cis, err)
 	}
-	if cis, err := resolver.LookupFresh(t.Context(), "10.0.0.1"); err == nil || len(cis) != 0 {
+	if cis, err := resolver.lookupFresh(t.Context(), "10.0.0.1"); err == nil || len(cis) != 0 {
 		t.Fatalf("reviewed import accepted a stale CI: %v, %v", cis, err)
 	}
 	if got := calls.Load(); got != 2 {
 		t.Fatalf("fresh lookup did not reach the provider: %d calls", got)
 	}
-	if _, err := resolver.LookupFresh(t.Context(), "bad key!"); err == nil {
+	if _, err := resolver.lookupFresh(t.Context(), "bad key!"); err == nil {
 		t.Fatal("invalid operator lookup key reached provider")
 	}
 }

@@ -74,7 +74,11 @@ func explorerFieldValue(entry memoryRow, name string, spec flow.QueryPlan, names
 		if tagData == nil {
 			return ""
 		}
-		return tagData.valueTrusted(row.Exporter, field.TagKey)
+		value, err := tagData.Value(row.TenantID, row.Exporter, field.TagKey)
+		if err != nil {
+			return ""
+		}
+		return value
 	}
 	switch field.Derived {
 	case "src_prefix", "dst_prefix":

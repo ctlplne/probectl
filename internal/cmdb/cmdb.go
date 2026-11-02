@@ -93,7 +93,7 @@ func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
 	if ok && time.Since(entry.fetched) < r.ttl {
 		return entry.cis, nil
 	}
-	cis, err := r.provider.Lookup(ctx, key)
+	cis, err := r.lookupFresh(ctx, key)
 	if err != nil {
 		if ok { // graceful degrade: stale beats nothing
 			return entry.cis, nil
@@ -106,11 +106,10 @@ func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
 	return cis, nil
 }
 
-// LookupFresh bypasses the shared enrichment cache for an operator-reviewed
-// import. The caller must prove tenant ownership of key before calling it.
-// Unlike best-effort correlation, a provider outage must refuse the import:
-// serving a stale CI could silently apply an outdated role or site tag.
-func (r *Resolver) LookupFresh(ctx context.Context, key string) ([]CI, error) {
+// lookupFresh is the uncached provider read used on cache misses. A provider
+// outage returns an error here; only Lookup may choose a stale enrichment
+// answer. Reviewed import paths must use an uncached read after tenant binding.
+func (r *Resolver) lookupFresh(ctx context.Context, key string) ([]CI, error) {
 	if r == nil || r.provider == nil {
 		return nil, ErrUnavailable
 	}

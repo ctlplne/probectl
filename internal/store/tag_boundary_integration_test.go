@@ -117,10 +117,9 @@ func TestTagPooledRLSAndTypedAssignmentRejectForeignTenant(t *testing.T) {
 	if got := countVisibleTagAssignments(ctx, t, pool, ""); got != 0 {
 		t.Fatalf("missing tenant scope saw %d assignments", got)
 	}
-	loader := NewTagSnapshots(pool)
 	scopeA := tags.Scope{TenantID: a.ID, ContextID: contextA}
 	ownedCtx := tenancy.WithTenant(ctx, tenancy.ID(a.ID))
-	loaded, err := loader.Load(ownedCtx, scopeA, 1<<20)
+	loaded, err := loadContextTagSnapshotForTest(pool, ownedCtx, scopeA, 1<<20)
 	if err != nil {
 		t.Fatalf("load bounded owned tag snapshot: %v", err)
 	}
@@ -131,13 +130,13 @@ func TestTagPooledRLSAndTypedAssignmentRejectForeignTenant(t *testing.T) {
 	if err != nil || len(resolved) != 1 || resolved[0].Value != "tenant-value" {
 		t.Fatalf("stored tag was not resolved for its owned entity: %+v, %v", resolved, err)
 	}
-	if _, err := loader.Load(ownedCtx, scopeA, 512); !errors.Is(err, ErrTagSnapshotBudget) {
+	if _, err := loadContextTagSnapshotForTest(pool, ownedCtx, scopeA, 512); !errors.Is(err, ErrTagSnapshotBudget) {
 		t.Fatalf("small query memory budget admitted an oversized snapshot: %v", err)
 	}
-	if _, err := loader.Load(tenancy.WithTenant(ctx, tenancy.ID(b.ID)), scopeA, 1<<20); !errors.Is(err, tags.ErrScopeMismatch) {
+	if _, err := loadContextTagSnapshotForTest(pool, tenancy.WithTenant(ctx, tenancy.ID(b.ID)), scopeA, 1<<20); !errors.Is(err, tags.ErrScopeMismatch) {
 		t.Fatalf("foreign caller loaded tenant A's tag snapshot: %v", err)
 	}
-	if _, err := loader.Load(ownedCtx, tags.Scope{TenantID: a.ID, ContextID: contextB},
+	if _, err := loadContextTagSnapshotForTest(pool, ownedCtx, tags.Scope{TenantID: a.ID, ContextID: contextB},
 		1<<20); !errors.Is(err, tags.ErrScopeMismatch) {
 		t.Fatalf("tenant A loaded an unowned routing context: %v", err)
 	}
@@ -203,4 +202,38 @@ func countVisibleTagAssignments(ctx context.Context, t *testing.T, pool *pgxpool
 		t.Fatal(err)
 	}
 	return count
+}
+
+// Exercise the same context loader used by tenant-wide shipping queries, with
+// one real RLS snapshot and a caller-owned byte budget.
+func loadContextTagSnapshotForTest(pool *pgxpool.Pool, ctx context.Context, scope tags.Scope, maxBytes int64) (*tags.Snapshot, error) {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || bound.String() != scope.TenantID {
+		return nil, tags.ErrScopeMismatch
+	}
+	var result *tags.Snapshot
+	err := tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var revision int64
+		if err := sc.Q.QueryRow(ctx, `SELECT revision FROM tenant_tag_revisions WHERE tenant_id=$1`, scope.TenantID).Scan(&revision); err != nil {
+			return err
+		}
+		used := int64(0)
+		charge := func(parts ...string) error {
+			used += 2048
+			for _, part := range parts {
+				used += int64(len(part))
+			}
+			if used > maxBytes {
+				return ErrTagSnapshotBudget
+			}
+			return nil
+		}
+		definitions, err := loadTagDefinitions(ctx, sc, scope, charge)
+		if err != nil {
+			return err
+		}
+		result, err = loadTagContextSnapshot(ctx, sc, scope, revision, definitions, charge)
+		return err
+	})
+	return result, err
 }

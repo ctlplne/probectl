@@ -241,19 +241,6 @@ type NativeFlowTagID struct {
 	ID    string `json:"id"`
 }
 
-// QueryViewDefinition reconstructs the save input after a client edits the
-// declared view. The save path revalidates every pinned ID for the tenant.
-func (view NativeFlowViewDefinition) QueryViewDefinition() flow.QueryViewDefinition {
-	ids := make(map[string]string, len(view.TagIDs))
-	for _, tag := range view.TagIDs {
-		ids[tag.Field] = tag.ID
-	}
-	return flow.QueryViewDefinition{Name: view.Name, Description: view.Description,
-		Labels: view.Labels, Visibility: view.Visibility, Plan: view.Plan, Time: view.Time,
-		Comparison: view.Comparison, AutoRefreshSeconds: view.AutoRefreshSeconds,
-		Display: view.Display, TagIDs: ids}
-}
-
 type NativeFlowViewPage struct {
 	Items []NativeFlowView `json:"items"`
 	Next  string           `json:"next,omitempty"`

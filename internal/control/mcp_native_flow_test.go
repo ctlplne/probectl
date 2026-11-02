@@ -27,6 +27,19 @@ import (
 	"github.com/ctlplne/probectl/internal/store/pathstore"
 )
 
+// nativeFlowViewSaveDefinition reconstructs the save input after a client edits the
+// declared view. The save path revalidates every pinned ID for the tenant.
+func nativeFlowViewSaveDefinition(view mcp.NativeFlowViewDefinition) flow.QueryViewDefinition {
+	ids := make(map[string]string, len(view.TagIDs))
+	for _, tag := range view.TagIDs {
+		ids[tag.Field] = tag.ID
+	}
+	return flow.QueryViewDefinition{Name: view.Name, Description: view.Description,
+		Labels: view.Labels, Visibility: view.Visibility, Plan: view.Plan, Time: view.Time,
+		Comparison: view.Comparison, AutoRefreshSeconds: view.AutoRefreshSeconds,
+		Display: view.Display, TagIDs: ids}
+}
+
 func TestNativeFlowViewProjectsPinnedTagIdentities(t *testing.T) {
 	source := flow.SavedQueryView{Definition: flow.QueryViewDefinition{TagIDs: map[string]string{
 		"tag.region": "region-id", "tag.customer": "customer-id",
@@ -36,7 +49,7 @@ func TestNativeFlowViewProjectsPinnedTagIdentities(t *testing.T) {
 	if !reflect.DeepEqual(projected.Definition.TagIDs, want) {
 		t.Fatalf("native tag identities = %+v, want %+v", projected.Definition.TagIDs, want)
 	}
-	if got := projected.Definition.QueryViewDefinition().TagIDs; !reflect.DeepEqual(got, source.Definition.TagIDs) {
+	if got := nativeFlowViewSaveDefinition(projected.Definition).TagIDs; !reflect.DeepEqual(got, source.Definition.TagIDs) {
 		t.Fatalf("native round trip changed pinned tag identities: %+v", got)
 	}
 }
@@ -299,7 +312,7 @@ func TestNativeMCPQueriesAndLibrariesUseAuthenticatedTenantAndOwner(t *testing.T
 			t.Fatal("native private view crossed owner")
 		}
 		view.Definition.Visibility = "tenant"
-		raw, failed = nativeControlCall(t, server, p, "flow_view_save", flow.SaveQueryView{ID: view.ID, Version: view.Version, Definition: view.Definition.QueryViewDefinition()})
+		raw, failed = nativeControlCall(t, server, p, "flow_view_save", flow.SaveQueryView{ID: view.ID, Version: view.Version, Definition: nativeFlowViewSaveDefinition(view.Definition)})
 		if failed || json.Unmarshal(raw, &view) != nil || view.Version != "2" {
 			t.Fatal("native saved view update failed")
 		}

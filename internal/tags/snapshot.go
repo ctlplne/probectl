@@ -198,8 +198,8 @@ func compileRule(rule Rule) (compiledRule, netip.Prefix, error) {
 // came from retained historical telemetry. The same Snapshot must be kept for
 // all pages, comparisons and exports of one query.
 func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
-	if s == nil || !validScope(s.scope) || s.revision <= 0 ||
-		!sameScope(s.scope, subject.Scope) {
+	revision, err := s.Revision()
+	if err != nil || !sameScope(s.scope, subject.Scope) {
 		return nil, ErrScopeMismatch
 	}
 	if !validKind(subject.Kind) || !validText(subject.ID, maxTargetIDBytes) ||
@@ -216,7 +216,7 @@ func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
 		proposed := candidate{Resolved: Resolved{TagID: assignment.TagID,
 			Key: s.definitions[assignment.TagID].Key, Value: assignment.Value,
 			Source: assignment.Source, SourceID: assignment.SourceRef,
-			Revision: s.revision}, rank: rank}
+			Revision: revision}, rank: rank}
 		if previous, exists := selected[assignment.TagID]; !exists || proposed.rank > previous.rank {
 			selected[assignment.TagID] = proposed
 		}
@@ -225,7 +225,7 @@ func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
 		rule := compiled.rule
 		proposed := candidate{Resolved: Resolved{TagID: rule.TagID,
 			Key: s.definitions[rule.TagID].Key, Value: rule.Value,
-			Source: "rule", SourceID: rule.ID, Revision: s.revision},
+			Source: "rule", SourceID: rule.ID, Revision: revision},
 			rank: 2, specificity: compiled.bits, priority: rule.Priority}
 		if previous, exists := selected[rule.TagID]; !exists || betterRule(proposed, previous) {
 			selected[rule.TagID] = proposed

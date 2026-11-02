@@ -35,6 +35,9 @@ func PrepareQueryFilter(input *QueryFilterGroup) (PreparedQueryFilter, error) {
 }
 
 func PrepareQueryFilterWithVocabulary(input *QueryFilterGroup, vocabulary QueryVocabulary) (PreparedQueryFilter, error) {
+	if vocabulary.tenantID == "" {
+		return PrepareQueryFilter(input)
+	}
 	return prepareQueryFilter(input, vocabulary.Lookup)
 }
 

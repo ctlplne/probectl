@@ -189,22 +189,9 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64) (*TenantT
 			if err := charge(contextID); err != nil {
 				return err
 			}
-			for _, def := range definitions {
-				if err := charge(def.ID, def.Key); err != nil {
-					return err
-				}
-			}
 			scope := tags.Scope{TenantID: tenantID, ContextID: contextID}
-			assignments, err := loadTagAssignments(ctx, sc, scope, charge)
-			if err != nil {
-				return err
-			}
-			rules, err := loadTagRules(ctx, sc, scope, charge)
-			if err != nil {
-				return err
-			}
-			contextSnapshots[contextID], err = tags.NewSnapshot(scope, revision,
-				definitions, assignments, rules)
+			contextSnapshots[contextID], err = loadTagContextSnapshot(ctx, sc, scope,
+				revision, definitions, charge)
 			if err != nil {
 				return err
 			}

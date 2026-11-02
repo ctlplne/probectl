@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/tags"
@@ -32,75 +31,36 @@ func NewTagSnapshots(pool *pgxpool.Pool) *TagSnapshots {
 	return &TagSnapshots{pool: pool}
 }
 
-// Load materializes one revision under a read-only REPEATABLE READ tenant
-// transaction. maxBytes is the caller's existing Explorer memory allowance;
-// even a schema-valid 25,000-rule set must be refused rather than truncated
-// if its resolved vocabulary would exceed that query's budget.
-func (s *TagSnapshots) Load(ctx context.Context, scope tags.Scope, maxBytes int64) (*tags.Snapshot, error) {
-	if s == nil || s.pool == nil {
-		return nil, ErrTagSnapshotUnavailable
-	}
-	if maxBytes <= 0 {
-		return nil, ErrTagSnapshotBudget
-	}
-	if _, err := tags.NewSnapshot(scope, 1, nil, nil, nil); err != nil {
-		return nil, err
-	}
-	bound, ok := tenancy.FromContext(ctx)
-	if !ok || bound.String() != scope.TenantID {
+// loadTagContextSnapshot resolves one owned context inside the caller's
+// tenant read snapshot. Its revision, definitions and memory charge belong to
+// that same transaction, so a tenant-wide query cannot mix context revisions.
+func loadTagContextSnapshot(ctx context.Context, sc tenancy.Scope, scope tags.Scope,
+	revision int64, definitions []tags.Definition, charge func(...string) error) (*tags.Snapshot, error) {
+	if sc.Tenant.String() != scope.TenantID {
 		return nil, tags.ErrScopeMismatch
 	}
-	var snapshot *tags.Snapshot
-	err := tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		var ownsContext bool
-		if err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM entity_contexts
-			WHERE tenant_id=$1 AND id=$2)`, scope.TenantID, scope.ContextID).
-			Scan(&ownsContext); err != nil {
-			return err
+	var ownsContext bool
+	if err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM entity_contexts
+  WHERE tenant_id=$1 AND id=$2)`, scope.TenantID, scope.ContextID).Scan(&ownsContext); err != nil {
+		return nil, err
+	}
+	if !ownsContext {
+		return nil, tags.ErrScopeMismatch
+	}
+	for _, def := range definitions {
+		if err := charge(def.ID, def.Key); err != nil {
+			return nil, err
 		}
-		if !ownsContext {
-			return tags.ErrScopeMismatch
-		}
-		var revision int64
-		err := sc.Q.QueryRow(ctx, `SELECT revision FROM tenant_tag_revisions
-			WHERE tenant_id=$1`, scope.TenantID).Scan(&revision)
-		if errors.Is(err, pgx.ErrNoRows) {
-			revision = 1
-		} else if err != nil {
-			return err
-		}
-		used := int64(0)
-		charge := func(parts ...string) error {
-			// Conservatively include map/slice, compiled regex/index nodes and
-			// string headers; the caller reserves this from its Explorer budget.
-			used += 2048
-			for _, part := range parts {
-				used += int64(len(part))
-			}
-			if used > maxBytes {
-				return ErrTagSnapshotBudget
-			}
-			return nil
-		}
-		definitions, err := loadTagDefinitions(ctx, sc, scope, charge)
-		if err != nil {
-			return err
-		}
-		assignments, err := loadTagAssignments(ctx, sc, scope, charge)
-		if err != nil {
-			return err
-		}
-		rules, err := loadTagRules(ctx, sc, scope, charge)
-		if err != nil {
-			return err
-		}
-		snapshot, err = tags.NewSnapshot(scope, revision, definitions, assignments, rules)
-		return err
-	})
+	}
+	assignments, err := loadTagAssignments(ctx, sc, scope, charge)
 	if err != nil {
 		return nil, err
 	}
-	return snapshot, nil
+	rules, err := loadTagRules(ctx, sc, scope, charge)
+	if err != nil {
+		return nil, err
+	}
+	return tags.NewSnapshot(scope, revision, definitions, assignments, rules)
 }
 
 func loadTagDefinitions(ctx context.Context, sc tenancy.Scope, scope tags.Scope,
