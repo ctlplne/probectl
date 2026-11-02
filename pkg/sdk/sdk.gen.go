@@ -5794,6 +5794,26 @@ func (c *Client) ListNmsImportSealedRows(ctx context.Context, req ListNmsImportS
 	return &out, nil
 }
 
+// Re-read one reviewed LibreNMS source endpoint before an apply chunk
+type VerifyNmsImportBeforeApplyRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) VerifyNmsImportBeforeApply(ctx context.Context, req VerifyNmsImportBeforeApplyRequest) (map[string]any, error) {
+	path := "/v1/nms-imports/{id}/verify-before-apply"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Read first-run onboarding checklist progress
 type GetOnboardingProgressRequest struct {
 }

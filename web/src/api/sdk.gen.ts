@@ -3596,6 +3596,13 @@ export interface ListNmsImportSealedRowsRequest {
 
 export type ListNmsImportSealedRowsResponse = NMSImportSealedRowsPage
 
+export interface VerifyNmsImportBeforeApplyRequest {
+  id: string
+  body: JsonObject
+}
+
+export type VerifyNmsImportBeforeApplyResponse = JsonObject
+
 export interface GetOnboardingProgressRequest {
 }
 
@@ -5162,6 +5169,13 @@ export class ProbectlSDKClient {
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
     return this.requestJSON<ListNmsImportSealedRowsResponse>("GET", path, query, undefined)
+  }
+
+  async verifyNmsImportBeforeApply(request: VerifyNmsImportBeforeApplyRequest): Promise<VerifyNmsImportBeforeApplyResponse> {
+    let path = "/v1/nms-imports/{id}/verify-before-apply"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<VerifyNmsImportBeforeApplyResponse>("POST", path, query, request.body)
   }
 
   async getOnboardingProgress(): Promise<GetOnboardingProgressResponse> {
