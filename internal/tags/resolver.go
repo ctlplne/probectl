@@ -184,16 +184,8 @@ func Resolve(scope Scope, revision int64, subject Subject, definitions []Definit
 	selected := make(map[string]candidate, len(defs))
 	seenAssignment := make(map[string]bool, len(assignments))
 	for _, assignment := range assignments {
-		if !sameScope(scope, assignment.Scope) {
-			return nil, ErrScopeMismatch
-		}
-		if _, exists := defs[assignment.TagID]; !exists ||
-			!validKind(assignment.TargetKind) || !validText(assignment.TargetID, 256) ||
-			!validText(assignment.Value, maxValueBytes) ||
-			(assignment.Source != "manual" && assignment.Source != "netbox") ||
-			(assignment.Source == "manual" && assignment.SourceRef != "") ||
-			(assignment.Source == "netbox" && !sourceRefPattern.MatchString(assignment.SourceRef)) {
-			return nil, ErrInvalid
+		if err := validateAssignment(scope, defs, assignment); err != nil {
+			return nil, err
 		}
 		if assignment.TargetKind != subject.Kind || assignment.TargetID != subject.ID {
 			continue
@@ -250,6 +242,21 @@ func Resolve(scope Scope, revision int64, subject Subject, definitions []Definit
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out, nil
+}
+
+func validateAssignment(scope Scope, defs map[string]Definition, assignment Assignment) error {
+	if !sameScope(scope, assignment.Scope) {
+		return ErrScopeMismatch
+	}
+	if _, exists := defs[assignment.TagID]; !exists ||
+		!validKind(assignment.TargetKind) || !validText(assignment.TargetID, 256) ||
+		!validText(assignment.Value, maxValueBytes) ||
+		(assignment.Source != "manual" && assignment.Source != "netbox") ||
+		(assignment.Source == "manual" && assignment.SourceRef != "") ||
+		(assignment.Source == "netbox" && !sourceRefPattern.MatchString(assignment.SourceRef)) {
+		return ErrInvalid
+	}
+	return nil
 }
 
 func betterRule(next, current candidate) bool {
