@@ -73,7 +73,7 @@ duty in `docs/opendata-aup.md`).
 | go | `github.com/vmihailenco/tagparser/v2` | v2.0.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `github.com/zclconf/go-cty` | v1.17.0 | runtime | MIT | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `go.opentelemetry.io/proto/otlp` | v1.10.0 | runtime | Apache-2.0 | go list -deps ./...; module cache LICENSE/COPYING scan |
-| go | `golang.org/x/crypto` | v0.58.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
+| go | `golang.org/x/crypto` | v0.58.1-0.20261009181718-2f1f834330b2 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/mod` | v0.41.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/net` | v0.62.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
 | go | `golang.org/x/oauth2` | v0.36.0 | runtime | BSD | go list -deps ./...; module cache LICENSE/COPYING scan |
