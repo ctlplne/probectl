@@ -291,11 +291,11 @@ func TestNMSImportApplyReviewTenantIsolationAndRetry(t *testing.T) {
 		device := `{"status":"ok","devices":[{"device_id":17,"display":"Edge A",` +
 			`"ip":"10.42.0.1","location_id":5}],"count":1}`
 		site := `{"status":"ok","locations":[{"id":5,"location":"West DC"}],"count":1}`
-		group := `[{"status":"ok","groups":[{"id":7,"name":"WAN",` +
-			`"pattern":"source-only-predicate"}],"count":1}]`
+		group := `{"status":"ok","groups":[{"id":7,"name":"WAN",` +
+			`"pattern":"source-only-predicate"}],"count":1}`
 		rule := `{"status":"ok","rules":[{"id":9,"name":"Link down",` +
 			`"rule":"source-only-expression"}],"count":1}`
-		member := `[{"status":"ok","devices":[{"device_id":17}],"count":1}]`
+		member := `{"status":"ok","devices":[{"device_id":17}],"count":1}`
 		snapshot, err := capturer.CaptureLibreNMSInventory(tenantCtx, contextID,
 			groupPlan, strings.NewReader(device), strings.NewReader(site),
 			strings.NewReader(group), strings.NewReader(rule),

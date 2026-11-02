@@ -79,7 +79,7 @@ func (s CaptureStore) CaptureConfiguredLibreNMSInventory(ctx context.Context,
 }
 
 func streamLibreNMSLiveGroups(raw io.Reader, emit func(Snapshot) error) error {
-	return streamLibreNMSList(raw, "groups", true,
+	return streamLibreNMSList(raw, "groups",
 		func(value json.RawMessage) (Row, error) {
 			var group libreNMSGroup
 			if json.Unmarshal(value, &group) != nil || !validMembershipName(group.Name) {

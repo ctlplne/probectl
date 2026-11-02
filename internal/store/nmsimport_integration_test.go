@@ -960,9 +960,9 @@ func TestNMSImportLibreNMSStreamSealsOnlyCompleteTenantCapture(t *testing.T) {
 		return nil
 	})
 	fullPlan := start("stream-full-inventory")
-	groups := `[{"status":"ok","groups":[{"id":7,"name":"WAN","pattern":"source-only-predicate"}],"count":1}]`
+	groups := `{"status":"ok","groups":[{"id":7,"name":"WAN","pattern":"source-only-predicate"}],"count":1}`
 	rules := `{"status":"ok","rules":[{"id":9,"name":"Link down","rule":"source-only-expression"}],"count":1}`
-	members := `[{"status":"ok","devices":[{"device_id":17,"community":"source-only-membership-secret"}],"count":1}]`
+	members := `{"status":"ok","devices":[{"device_id":17,"community":"source-only-membership-secret"}],"count":1}`
 	memberLists := []nmsimport.LibreNMSMembershipList{{GroupID: "7", GroupName: "WAN", Raw: strings.NewReader(members)}}
 	if _, err := capturer.CaptureLibreNMSInventory(scopeA, routingContext, fullPlan,
 		strings.NewReader(complete), strings.NewReader(mixedSites), strings.NewReader(groups),

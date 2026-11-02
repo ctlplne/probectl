@@ -19,7 +19,7 @@ import (
 // capture page at a time. A failed read leaves the caller's plan inert: the
 // caller must seal it only after this function returns nil.
 func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
-	return streamLibreNMSList(raw, "devices", false, func(value json.RawMessage) (Row, error) {
+	return streamLibreNMSList(raw, "devices", func(value json.RawMessage) (Row, error) {
 		var device libreNMSDevice
 		if json.Unmarshal(value, &device) != nil {
 			return Row{}, ErrInvalidPage
@@ -29,7 +29,7 @@ func streamLibreNMSDevices(raw io.Reader, emit func(Snapshot) error) error {
 }
 
 func streamLibreNMSLocations(raw io.Reader, emit func(Snapshot) error) error {
-	return streamLibreNMSList(raw, "locations", false, func(value json.RawMessage) (Row, error) {
+	return streamLibreNMSList(raw, "locations", func(value json.RawMessage) (Row, error) {
 		var location libreNMSLocation
 		if json.Unmarshal(value, &location) != nil {
 			return Row{}, ErrInvalidPage
@@ -39,7 +39,7 @@ func streamLibreNMSLocations(raw io.Reader, emit func(Snapshot) error) error {
 }
 
 func streamLibreNMSGroups(raw io.Reader, emit func(Snapshot) error) error {
-	return streamLibreNMSList(raw, "groups", true, func(value json.RawMessage) (Row, error) {
+	return streamLibreNMSList(raw, "groups", func(value json.RawMessage) (Row, error) {
 		var group libreNMSGroup
 		if json.Unmarshal(value, &group) != nil {
 			return Row{}, ErrInvalidPage
@@ -48,7 +48,7 @@ func streamLibreNMSGroups(raw io.Reader, emit func(Snapshot) error) error {
 	}, emit)
 }
 
-// The documented per-group endpoint returns an array-wrapped, unpaged list
+// The documented per-group endpoint returns an object-wrapped, unpaged list
 // of device IDs. The caller must supply a group ID from the previously
 // captured group list, never this lower-trust response. Each pair stays a
 // separate review candidate so the device row's bounded group_ids field
@@ -58,7 +58,7 @@ func streamLibreNMSGroupMembers(raw io.Reader, groupID string, emit func(Snapsho
 	if err != nil || id == 0 || strconv.FormatUint(id, 10) != groupID {
 		return ErrInvalidPage
 	}
-	return streamLibreNMSList(raw, "devices", true, func(value json.RawMessage) (Row, error) {
+	return streamLibreNMSList(raw, "devices", func(value json.RawMessage) (Row, error) {
 		var member struct {
 			DeviceID sourceID `json:"device_id"`
 		}
@@ -71,7 +71,7 @@ func streamLibreNMSGroupMembers(raw io.Reader, groupID string, emit func(Snapsho
 }
 
 func streamLibreNMSRules(raw io.Reader, emit func(Snapshot) error) error {
-	return streamLibreNMSList(raw, "rules", false, func(value json.RawMessage) (Row, error) {
+	return streamLibreNMSList(raw, "rules", func(value json.RawMessage) (Row, error) {
 		var rule libreNMSRule
 		if json.Unmarshal(value, &rule) != nil {
 			return Row{}, ErrInvalidPage
@@ -84,7 +84,7 @@ func streamLibreNMSRules(raw io.Reader, emit func(Snapshot) error) error {
 // limits each JSON value and commits at most one normalized capture page at a
 // time; a failed final status leaves the caller's plan inert until a complete
 // retry replays the same prefix. Raw source fields never cross emit.
-func streamLibreNMSList(raw io.Reader, listField string, arrayWrapped bool,
+func streamLibreNMSList(raw io.Reader, listField string,
 	parse func(json.RawMessage) (Row, error), emit func(Snapshot) error) error {
 	if raw == nil || parse == nil || emit == nil ||
 		(listField != "devices" && listField != "locations" && listField != "groups" && listField != "rules") {
@@ -93,11 +93,6 @@ func streamLibreNMSList(raw io.Reader, listField string, arrayWrapped bool,
 	budget := &captureValueReader{reader: raw}
 	decoder := json.NewDecoder(budget)
 	budget.reset()
-	if arrayWrapped {
-		if token, err := decoder.Token(); err != nil || token != json.Delim('[') {
-			return ErrInvalidPage
-		}
-	}
 	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
 		return ErrInvalidPage
 	}
@@ -151,12 +146,6 @@ func streamLibreNMSList(raw io.Reader, listField string, arrayWrapped bool,
 	budget.reset()
 	if token, err := decoder.Token(); err != nil || token != json.Delim('}') {
 		return ErrInvalidPage
-	}
-	if arrayWrapped {
-		budget.reset()
-		if token, err := decoder.Token(); err != nil || token != json.Delim(']') {
-			return ErrInvalidPage
-		}
 	}
 	budget.reset()
 	if _, err := decoder.Token(); err != io.EOF || !status || !haveList ||

@@ -99,7 +99,7 @@ func TestLibreNMSUnpagedLocationStreamEmitsBoundedUnassignedSites(t *testing.T) 
 
 func TestLibreNMSGroupAndRuleStreamsKeepOnlyReviewFields(t *testing.T) {
 	var groups strings.Builder
-	groups.WriteString(`[{"status":"ok","message":"source-only-message","groups":[`)
+	groups.WriteString(`{"status":"ok","message":"source-only-message","groups":[`)
 	for i := range maxCaptureRowsPerPage + 1 {
 		if i > 0 {
 			groups.WriteByte(',')
@@ -107,7 +107,7 @@ func TestLibreNMSGroupAndRuleStreamsKeepOnlyReviewFields(t *testing.T) {
 		fmt.Fprintf(&groups, `{"id":%d,"name":"Group %d","pattern":"source-only-predicate","desc":"source-only-description"}`,
 			i+1, i+1)
 	}
-	fmt.Fprintf(&groups, `],"count":%d}]`, maxCaptureRowsPerPage+1)
+	fmt.Fprintf(&groups, `],"count":%d}`, maxCaptureRowsPerPage+1)
 	var pages []int
 	err := streamLibreNMSGroups(strings.NewReader(groups.String()), func(page Snapshot) error {
 		pages = append(pages, len(page.Rows))
@@ -151,10 +151,10 @@ func TestLibreNMSGroupAndRuleStreamsKeepOnlyReviewFields(t *testing.T) {
 
 func TestLibreNMSGroupAndRuleStreamsRejectPartialEnvelope(t *testing.T) {
 	for _, raw := range []string{
-		`[{"status":"ok","groups":[]},{"status":"ok","groups":[]}]`,
-		`{"status":"ok","groups":[]}`,
-		`[{"status":"ok","groups":[{"id":1},{"id":"01"}]}]`,
-		`[{"status":"ok","groups":[],"count":1}]`,
+		`[{"status":"ok","groups":[]}]`,
+		`{"status":"ok","groups":[]} {"extra":true}`,
+		`{"status":"ok","groups":[{"id":1},{"id":"01"}]}`,
+		`{"status":"ok","groups":[],"count":1}`,
 	} {
 		if err := streamLibreNMSGroups(strings.NewReader(raw), func(Snapshot) error { return nil }); !errors.Is(err, ErrInvalidPage) {
 			t.Fatalf("partial group envelope accepted: %q: %v", raw, err)
@@ -173,14 +173,14 @@ func TestLibreNMSGroupAndRuleStreamsRejectPartialEnvelope(t *testing.T) {
 
 func TestLibreNMSGroupMembershipStreamKeepsEveryEdgeWithoutSourceData(t *testing.T) {
 	var source strings.Builder
-	source.WriteString(`[{"status":"ok","message":"source-only-message","devices":[`)
+	source.WriteString(`{"status":"ok","message":"source-only-message","devices":[`)
 	for i := range maxCaptureRowsPerPage + 1 {
 		if i > 0 {
 			source.WriteByte(',')
 		}
 		fmt.Fprintf(&source, `{"device_id":%d,"community":"source-only-secret"}`, i+1)
 	}
-	fmt.Fprintf(&source, `],"count":%d}]`, maxCaptureRowsPerPage+1)
+	fmt.Fprintf(&source, `],"count":%d}`, maxCaptureRowsPerPage+1)
 	var pages []int
 	var last Row
 	err := streamLibreNMSGroupMembers(strings.NewReader(source.String()), "7", func(page Snapshot) error {
@@ -205,16 +205,16 @@ func TestLibreNMSGroupMembershipStreamKeepsEveryEdgeWithoutSourceData(t *testing
 		t.Fatalf("group membership was capped or lost its parent: pages=%v last=%+v err=%v", pages, last, err)
 	}
 	for _, groupID := range []string{"", "0", "07", "-7", "7/other"} {
-		if err := streamLibreNMSGroupMembers(strings.NewReader(`[{"status":"ok","devices":[]}]`),
+		if err := streamLibreNMSGroupMembers(strings.NewReader(`{"status":"ok","devices":[]}`),
 			groupID, func(Snapshot) error { return nil }); !errors.Is(err, ErrInvalidPage) {
 			t.Fatalf("noncanonical group ID %q accepted: %v", groupID, err)
 		}
 	}
 	for _, raw := range []string{
-		`[{"status":"ok","devices":[{"device_id":1}],"count":2}]`,
-		`[{"status":"ok","devices":[{"device_id":1},{"device_id":"01"}]}]`,
-		`[{"status":"ok","devices":[{"device_id":0}]}]`,
-		`{"status":"ok","devices":[]}`,
+		`{"status":"ok","devices":[{"device_id":1}],"count":2}`,
+		`{"status":"ok","devices":[{"device_id":1},{"device_id":"01"}]}`,
+		`{"status":"ok","devices":[{"device_id":0}]}`,
+		`[{"status":"ok","devices":[]}]`,
 	} {
 		if err := streamLibreNMSGroupMembers(strings.NewReader(raw), "7",
 			func(Snapshot) error { return nil }); !errors.Is(err, ErrInvalidPage) {

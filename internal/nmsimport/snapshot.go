@@ -281,20 +281,20 @@ func libreNMSGroupRow(group libreNMSGroup) (Row, error) {
 	return row, nil
 }
 
-// parseLibreNMSGroups reads the documented array-wrapped devicegroups list.
+// parseLibreNMSGroups reads the documented object-wrapped devicegroups list.
 // Membership is fetched through a separate endpoint, so every row records
 // that it is still missing; a dynamic predicate is never executed or copied.
 func parseLibreNMSGroups(r io.Reader) (Snapshot, error) {
-	var page []struct {
+	var page struct {
 		Status string          `json:"status"`
 		Groups []libreNMSGroup `json:"groups"`
 	}
-	if err := decodePage(r, &page); err != nil || len(page) != 1 || page[0].Status != "ok" || page[0].Groups == nil {
+	if err := decodePage(r, &page); err != nil || page.Status != "ok" || page.Groups == nil {
 		return Snapshot{}, ErrInvalidPage
 	}
-	out := Snapshot{Source: LibreNMS, Rows: make([]Row, 0, len(page[0].Groups))}
-	seen := make(map[string]struct{}, len(page[0].Groups))
-	for _, group := range page[0].Groups {
+	out := Snapshot{Source: LibreNMS, Rows: make([]Row, 0, len(page.Groups))}
+	seen := make(map[string]struct{}, len(page.Groups))
+	for _, group := range page.Groups {
 		row, err := libreNMSGroupRow(group)
 		if err != nil {
 			return Snapshot{}, ErrInvalidPage

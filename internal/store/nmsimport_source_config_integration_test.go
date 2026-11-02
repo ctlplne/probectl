@@ -194,15 +194,15 @@ func TestNMSImportSourceConfigTenantScopeAndPlanVersion(t *testing.T) {
 			if groupRequests.Add(1)%2 == 0 && drift.Load() || reviewDrift.Load() {
 				name = "WAN-renamed"
 			}
-			_, _ = io.WriteString(w, fmt.Sprintf(`[{"status":"ok","groups":[{"id":7,"name":%q}],"count":1}]`, name))
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"status":"ok","groups":[{"id":7,"name":%q}],"count":1}`, name))
 		case "/api/v0/rules":
 			_, _ = io.WriteString(w, `{"status":"ok","rules":[{"id":9,"name":"Link down","rule":"source-only-rule"}],"count":1}`)
 		case "/api/v0/devicegroups/WAN":
 			memberRequests.Add(1)
 			if memberOmitted.Load() {
-				_, _ = io.WriteString(w, `[{"status":"ok","devices":[],"count":0}]`)
+				_, _ = io.WriteString(w, `{"status":"ok","devices":[],"count":0}`)
 			} else {
-				_, _ = io.WriteString(w, `[{"status":"ok","devices":[{"device_id":17}],"count":1}]`)
+				_, _ = io.WriteString(w, `{"status":"ok","devices":[{"device_id":17}],"count":1}`)
 			}
 		default:
 			t.Errorf("unlisted source path requested: %s", r.URL.EscapedPath())

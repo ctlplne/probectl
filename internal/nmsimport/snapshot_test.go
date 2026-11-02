@@ -108,10 +108,10 @@ func TestZabbixExportKeepsGroupUUIDAndListsNestedUnmappedTrigger(t *testing.T) {
 }
 
 func TestLibreNMSGroupAndRulePagesKeepIDsWithoutExecutingSourcePolicy(t *testing.T) {
-	groups := `[{"status":"ok","count":2,"groups":[
+	groups := `{"status":"ok","count":2,"groups":[
 		{"id":"7","name":"Edge routers","pattern":"%devices.status = 1 && secret-pattern-123"},
 		{"id":8,"name":"Core switches","pattern":""}
-	]}]`
+	]}`
 	gotGroups, err := parseLibreNMSGroups(strings.NewReader(groups))
 	if err != nil {
 		t.Fatal(err)
@@ -152,13 +152,13 @@ func TestLibreNMSGroupAndRulePagesKeepIDsWithoutExecutingSourcePolicy(t *testing
 
 func TestLibreNMSGroupAndRulePagesRejectMissingAndDuplicateIdentity(t *testing.T) {
 	for _, raw := range []string{
-		`[{"status":"ok","groups":[{"id":1,"name":"a"},{"id":"1","name":"b"}]}]`,
-		`[{"status":"ok","groups":[{"name":"a"}]}]`,
+		`{"status":"ok","groups":[{"id":1,"name":"a"},{"id":"1","name":"b"}]}`,
+		`{"status":"ok","groups":[{"name":"a"}]}`,
 		`{"status":"ok","rules":[{"id":1,"name":"a"},{"id":"1","name":"b"}]}`,
 		`{"status":"ok","rules":[{"name":"a"}]}`,
 	} {
 		var err error
-		if strings.HasPrefix(raw, "[") {
+		if strings.Contains(raw, `"groups"`) {
 			_, err = parseLibreNMSGroups(strings.NewReader(raw))
 		} else {
 			_, err = parseLibreNMSRules(strings.NewReader(raw))

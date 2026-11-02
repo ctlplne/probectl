@@ -333,14 +333,7 @@ def seed_librenms() -> dict:
     }
     for name, path in paths.items():
         value, raw = request_json(LIBRENMS + path, token=token)
-        if name in ("groups", "members"):
-            if (
-                not isinstance(value, list)
-                or len(value) != 1
-                or value[0].get("status") != "ok"
-            ):
-                raise RuntimeError(f"LibreNMS {name} envelope changed")
-        elif not isinstance(value, dict) or value.get("status") != "ok":
+        if not isinstance(value, dict) or value.get("status") != "ok":
             raise RuntimeError(f"LibreNMS {name} envelope changed")
         (RUNTIME / f"librenms-{name}.json").write_bytes(raw)
     return {
