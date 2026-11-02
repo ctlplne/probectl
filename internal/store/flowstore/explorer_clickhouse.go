@@ -32,7 +32,13 @@ func (c *ClickHouse) WithExplorerInterfaces(source ExplorerInterfaceSource) *Cli
 
 // explorerQueryRows is the common bounded POST transport for structured plans.
 // Bound values never appear in an HTTP URL, diagnostic body or public error.
-func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane chclient.ReadLane, tenant, sql string, params chParams) ([]map[string]any, error) {
+func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane chclient.ReadLane, tenant, sql string, params chParams, tagRows ...[]byte) ([]map[string]any, error) {
+	if len(tagRows) > 1 {
+		return nil, ErrExplorerBudget
+	}
+	if len(tagRows) == 1 && int64(len(tagRows[0])) > explorerBudgetFor(ctx).MemoryBytes/4 {
+		return nil, ErrExplorerBudget
+	}
 	// Multipart keeps bounded filter/metadata values out of URLs. It also avoids
 	// the HTTP URI ceiling for a large, but permitted, interface-name mapping.
 	var body bytes.Buffer
@@ -50,10 +56,25 @@ func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane 
 			return nil, err
 		}
 	}
+	if len(tagRows) == 1 {
+		part, err := form.CreateFormFile("tag_lookup", "tag_lookup")
+		if err != nil {
+			return nil, err
+		}
+		if _, err := part.Write(tagRows[0]); err != nil {
+			return nil, err
+		}
+	}
 	if err := form.Close(); err != nil {
 		return nil, err
 	}
 	endpoint := c.laneBase(lane, target.BaseURL) + "/?" + tenantSettingName + "=" + url.QueryEscape(tenant) + "&wait_end_of_query=1"
+	if len(tagRows) == 1 {
+		// The external table schema is fixed code, never a tenant-controlled
+		// identifier or value. Its rows live only in the TLS multipart body.
+		endpoint += "&tag_lookup_format=JSONEachRow&tag_lookup_structure=" +
+			url.QueryEscape("lookup_tenant String, lookup_exporter String, tag_values Map(String, String)")
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
 	if err != nil {
 		return nil, err
@@ -89,6 +110,18 @@ func explorerAddressExpr(column string) string {
 }
 
 func explorerFieldExpr(field flow.QueryField) string {
+	return explorerFieldExprWithParams(field, nil)
+}
+
+func explorerFieldExprWithParams(field flow.QueryField, params chParams) string {
+	if field.Derived == "tenant_tag" {
+		if params == nil || field.TagID == "" || field.TagKey == "" {
+			return "''"
+		}
+		name := "tag_key_" + strings.ReplaceAll(field.TagID, "-", "")
+		params[name] = field.TagKey
+		return "ifNull(tag_values[{" + name + ":String}],'')"
+	}
 	column := field.Column
 	switch field.Derived {
 	case "src_prefix", "dst_prefix":
@@ -108,7 +141,11 @@ func explorerFieldExpr(field flow.QueryField) string {
 }
 
 func explorerGroupExpr(field flow.QueryField) string {
-	expression := explorerFieldExpr(field)
+	return explorerGroupExprWithParams(field, nil)
+}
+
+func explorerGroupExprWithParams(field flow.QueryField, params chParams) string {
+	expression := explorerFieldExprWithParams(field, params)
 	if field.Type == flow.QueryTimestamp {
 		return "concat(formatDateTime(" + expression + ",'%Y-%m-%dT%H:%i:%S','UTC'),if(toUnixTimestamp64Milli(" + expression + ")%1000=0,'',concat('.',replaceRegexpOne(leftPad(toString(toUnixTimestamp64Milli(" + expression + ")%1000),3,'0'),'0+$',''))),'Z')"
 	}
@@ -116,11 +153,16 @@ func explorerGroupExpr(field flow.QueryField) string {
 }
 
 func explorerPredicateSQL(predicate flow.QueryPredicate, index int, params chParams) (string, error) {
-	field, ok := flow.LookupQueryField(predicate.Field)
+	return explorerPredicateSQLWithVocabulary(predicate, index, params, flow.QueryVocabulary{})
+}
+
+func explorerPredicateSQLWithVocabulary(predicate flow.QueryPredicate, index int,
+	params chParams, vocabulary flow.QueryVocabulary) (string, error) {
+	field, ok := vocabulary.Lookup(predicate.Field)
 	if !ok {
 		return "", errors.New("unsupported flow field")
 	}
-	expression := explorerFieldExpr(field)
+	expression := explorerFieldExprWithParams(field, params)
 	typ := "String"
 	if field.Type == flow.QueryUnsigned {
 		typ = "UInt64"

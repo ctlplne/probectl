@@ -393,19 +393,19 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if plan.DataSeries == "rollup" {
 		return PlanResult{}, errors.New("rollup coverage is unavailable from the memory store")
 	}
-	selectedGroups, err := normalizePlanGroups(query.SelectedGroups, plan, budget)
+	selectedGroups, err := normalizePlanGroupsWithVocabulary(query.SelectedGroups, plan, vocabulary, budget)
 	if err != nil {
 		return PlanResult{}, err
 	}
-	selectedColumns, err := normalizePlanColumns(query.SelectedColumns, plan, budget)
+	selectedColumns, err := normalizePlanColumnsWithVocabulary(query.SelectedColumns, plan, vocabulary, budget)
 	if err != nil {
 		return PlanResult{}, err
 	}
-	selectedChart, err := normalizePlanChartGroups(query.SelectedChartGroups, plan, budget)
+	selectedChart, err := normalizePlanChartGroupsWithVocabulary(query.SelectedChartGroups, plan, vocabulary, budget)
 	if err != nil {
 		return PlanResult{}, err
 	}
-	selectedMatrixRows, err := normalizePlanMatrixRows(query.SelectedMatrixRows, plan, budget)
+	selectedMatrixRows, err := normalizePlanMatrixRowsWithVocabulary(query.SelectedMatrixRows, plan, vocabulary, budget)
 	if err != nil {
 		return PlanResult{}, err
 	}

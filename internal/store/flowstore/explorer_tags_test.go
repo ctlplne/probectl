@@ -8,6 +8,7 @@ package flowstore
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +35,18 @@ func TestTagQueryDataBindsTenantAddressAndBudget(t *testing.T) {
 	}
 	if _, err := lookup.Value(b, "192.0.2.10", "customer"); !errors.Is(err, ErrTagQueryScope) {
 		t.Fatalf("foreign tenant read tag lookup: %v", err)
+	}
+	rows, err := lookup.ExternalRows(a, 1<<20)
+	if err != nil || !strings.Contains(string(rows), `"lookup_exporter":"192.0.2.10"`) ||
+		!strings.Contains(string(rows), `"customer":"blue"`) ||
+		!strings.Contains(string(rows), `"lookup_tenant":"`+a+`"`) {
+		t.Fatalf("bounded external lookup omitted tenant or tag: %s, %v", rows, err)
+	}
+	if _, err := lookup.ExternalRows(b, 1<<20); !errors.Is(err, ErrTagQueryScope) {
+		t.Fatalf("foreign tenant serialized tag lookup: %v", err)
+	}
+	if _, err := lookup.ExternalRows(a, 8); !errors.Is(err, ErrExplorerBudget) {
+		t.Fatalf("over-budget external lookup was serialized: %v", err)
 	}
 	if _, err := NewTagQueryData(a, 8, definitions, projection, 128); !errors.Is(err, ErrExplorerBudget) {
 		t.Fatalf("undersized query lookup was accepted: %v", err)
@@ -92,5 +105,40 @@ func TestMemoryTagQueryGroupsFiltersAndPreservesTenantTotals(t *testing.T) {
 	}
 	if _, err := memory.ExplorePlan(t.Context(), PlanQuery{TenantID: b, Plan: plan, Tags: lookup}); !errors.Is(err, ErrTagQueryScope) {
 		t.Fatalf("another tenant queried this tag snapshot: %v", err)
+	}
+}
+
+func TestClickHouseTagPlanBindsKeyAndJoinsTenantInOneQuery(t *testing.T) {
+	tenant := uuid.NewString()
+	lookup, err := NewTagQueryData(tenant, 8,
+		[]tags.Definition{{TenantID: tenant, ID: uuid.NewString(), Key: "customer"}},
+		[]tags.ExporterProjection{{Exporter: "192.0.2.1", Values: map[string]string{"customer": "blue"}}}, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := explorerFixtureRow(tenant)
+	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour),
+		GroupBy: []string{"tag.customer"}, Metrics: []flow.QueryMetric{{
+			Measure: "bytes", Calculation: "total", Role: "primary"}},
+		Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{
+			Field: "tag.customer", Op: flow.QueryEqual, Values: []string{"blue"}}}}}
+	if _, _, err := planSQLWithBudget(DefaultExplorerBudget(), plan, "probectl_flows", nil); err == nil {
+		t.Fatal("native SQL compiler admitted a tag without its tenant vocabulary")
+	}
+	sql, params, err := planSQLWithTags(DefaultExplorerBudget(), plan, "probectl_flows", nil,
+		tenant, lookup)
+	if err != nil || !strings.Contains(sql, "ANY LEFT JOIN tag_lookup") ||
+		!strings.Contains(sql, "tag_lookup.lookup_tenant=tenant_id") ||
+		!strings.Contains(sql, "tag_lookup.lookup_exporter=exporter") ||
+		!strings.Contains(sql, "tenant_id={tenant:String}") ||
+		strings.Contains(sql, "blue") || strings.Contains(sql, "customer") {
+		t.Fatalf("tag SQL lost scoped join or embedded a literal: %s, %v", sql, err)
+	}
+	if params["filter_0_0"] != "blue" || len(params["interfaces"]) == 0 {
+		t.Fatalf("tag SQL did not bind filter and metadata: %+v", params)
+	}
+	if _, _, err := planSQLWithTags(DefaultExplorerBudget(), plan, "probectl_flows", nil,
+		uuid.NewString(), lookup); !errors.Is(err, ErrTagQueryScope) {
+		t.Fatalf("foreign tenant compiled this tag query: %v", err)
 	}
 }

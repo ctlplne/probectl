@@ -29,11 +29,24 @@ func planSQL(plan flow.QueryPlan, table string, names map[string]map[uint32]stri
 }
 
 func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string, names map[string]map[uint32]string, membership ...[][]string) (string, chParams, error) {
+	return planSQLWithTags(budget, plan, table, names, "", nil, membership...)
+}
+
+func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
+	names map[string]map[uint32]string, tenantID string, tagData *TagQueryData,
+	membership ...[][]string) (string, chParams, error) {
 	settings, err := budget.settings()
 	if err != nil {
 		return "", nil, err
 	}
-	plan, err = flow.NormalizeQueryPlan(plan, time.Now())
+	var vocabulary flow.QueryVocabulary
+	if tagData != nil {
+		vocabulary, err = tagData.Vocabulary(tenantID)
+		if err != nil {
+			return "", nil, err
+		}
+	}
+	plan, err = flow.NormalizeQueryPlanWithVocabulary(plan, time.Now(), vocabulary)
 	if err != nil {
 		return "", nil, err
 	}
@@ -63,15 +76,15 @@ func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	}
 	encoded, _ := json.Marshal(tuples)
 	params["interfaces"] = string(encoded)
-	filter, err := explorerFilterSQL(plan.Filter, params)
+	filter, err := explorerFilterSQLWithVocabulary(plan.Filter, params, vocabulary)
 	if err != nil {
 		return "", nil, err
 	}
 	key := func(fields []string) string {
 		parts := []string{}
 		for _, name := range fields {
-			field, _ := flow.LookupQueryField(name)
-			parts = append(parts, explorerGroupExpr(field))
+			field, _ := vocabulary.Lookup(name)
+			parts = append(parts, explorerGroupExprWithParams(field, params))
 		}
 		if len(parts) == 0 {
 			return "CAST([],'Array(String)')"
@@ -82,7 +95,11 @@ func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	if strings.HasSuffix(table, sharedFlowRollupsTable) {
 		eventTime = "if(coverage_version=0,toDateTime64(bucket,3),ts)"
 	}
-	ctes := []string{"filtered AS (SELECT " + key(plan.GroupBy) + " AS g," + key(plan.MatrixWith) + " AS c," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country FROM " + table + " FINAL WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')} AND (" + filter + "))"}
+	from := table + " FINAL"
+	if tagData != nil {
+		from += " ANY LEFT JOIN tag_lookup ON tag_lookup.lookup_tenant=tenant_id AND tag_lookup.lookup_exporter=exporter"
+	}
+	ctes := []string{"filtered AS (SELECT " + key(plan.GroupBy) + " AS g," + key(plan.MatrixWith) + " AS c," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')} AND (" + filter + "))"}
 	empty := "CAST([],'Array(String)')"
 	input := func(name, g, c, o, p, condition string) {
 		sql := name + " AS (SELECT " + g + " AS g," + c + " AS c,toUInt8(" + o + ") AS o,toUInt8(" + p + ") AS p," + planSQLColumns + " FROM filtered"
@@ -108,25 +125,25 @@ func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		return "", nil, errors.New("invalid comparison membership")
 	}
 	if len(membership) >= 1 {
-		selected, err = normalizePlanGroups(membership[0], plan, budget)
+		selected, err = normalizePlanGroupsWithVocabulary(membership[0], plan, vocabulary, budget)
 		if err != nil {
 			return "", nil, err
 		}
 	}
 	if len(membership) >= 2 {
-		selectedColumns, err = normalizePlanColumns(membership[1], plan, budget)
+		selectedColumns, err = normalizePlanColumnsWithVocabulary(membership[1], plan, vocabulary, budget)
 		if err != nil {
 			return "", nil, err
 		}
 	}
 	if len(membership) >= 3 {
-		selectedChart, err = normalizePlanChartGroups(membership[2], plan, budget)
+		selectedChart, err = normalizePlanChartGroupsWithVocabulary(membership[2], plan, vocabulary, budget)
 		if err != nil {
 			return "", nil, err
 		}
 	}
 	if len(membership) == 4 {
-		selectedMatrixRows, err = normalizePlanMatrixRows(membership[3], plan, budget)
+		selectedMatrixRows, err = normalizePlanMatrixRowsWithVocabulary(membership[3], plan, vocabulary, budget)
 		if err != nil {
 			return "", nil, err
 		}

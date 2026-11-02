@@ -31,7 +31,21 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 		return PlanResult{}, err
 	}
 	ctx = withExplorerBudget(ctx, budget)
-	plan, err := flow.NormalizeQueryPlan(query.Plan, time.Now())
+	var vocabulary flow.QueryVocabulary
+	var err error
+	var external [][]byte
+	if query.Tags != nil {
+		vocabulary, err = query.Tags.Vocabulary(query.TenantID)
+		if err != nil {
+			return PlanResult{}, err
+		}
+		rows, err := query.Tags.ExternalRows(query.TenantID, budget.MemoryBytes/4)
+		if err != nil {
+			return PlanResult{}, err
+		}
+		external = append(external, rows)
+	}
+	plan, err := flow.NormalizeQueryPlanWithVocabulary(query.Plan, time.Now(), vocabulary)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -59,12 +73,13 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if err != nil {
 		return PlanResult{}, err
 	}
-	sql, params, err := planSQLWithBudget(budget, plan, source.table, names, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
+	sql, params, err := planSQLWithTags(budget, plan, source.table, names, query.TenantID,
+		query.Tags, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
 	if err != nil {
 		return PlanResult{}, err
 	}
 	params["tenant"] = query.TenantID
-	rows, err := c.explorerQueryRows(ctx, target, lane, query.TenantID, sql, params)
+	rows, err := c.explorerQueryRows(ctx, target, lane, query.TenantID, sql, params, external...)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -81,12 +96,13 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 			return PlanResult{}, err
 		}
 		if current.kind != source.kind {
-			sql, params, err := planSQLWithBudget(budget, plan, current.table, names, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
+			sql, params, err := planSQLWithTags(budget, plan, current.table, names, query.TenantID,
+				query.Tags, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
 			if err != nil {
 				return PlanResult{}, err
 			}
 			params["tenant"] = query.TenantID
-			rows, err := c.explorerQueryRows(ctx, target, lane, query.TenantID, sql, params)
+			rows, err := c.explorerQueryRows(ctx, target, lane, query.TenantID, sql, params, external...)
 			if err != nil {
 				return PlanResult{}, err
 			}
@@ -99,11 +115,23 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	}
 	result.Source = source.kind
 	result.Coverage = source.coverage
+	if query.Tags != nil {
+		result.TagRevision, _ = query.Tags.Revision(query.TenantID)
+		fields, err := vocabulary.Fields()
+		if err != nil {
+			return PlanResult{}, err
+		}
+		for _, field := range fields {
+			if field.Derived == "tenant_tag" {
+				result.Coverage.Fields = append(result.Coverage.Fields, field.Name)
+			}
+		}
+	}
 	if source.coverage != nil {
 		result.ResolutionSeconds = source.coverage.ResolutionSeconds
 	}
 	if query.SelectedGroups != nil {
-		selected, err := normalizePlanGroups(query.SelectedGroups, plan)
+		selected, err := normalizePlanGroupsWithVocabulary(query.SelectedGroups, plan, vocabulary)
 		if err != nil {
 			return PlanResult{}, err
 		}
@@ -123,7 +151,7 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 		sort.Slice(result.Rows, func(i, j int) bool { return ranks[key(result.Rows[i])] < ranks[key(result.Rows[j])] })
 	}
 	if query.SelectedColumns != nil {
-		selected, err := normalizePlanColumns(query.SelectedColumns, plan)
+		selected, err := normalizePlanColumnsWithVocabulary(query.SelectedColumns, plan, vocabulary)
 		if err != nil {
 			return PlanResult{}, err
 		}

@@ -17,7 +17,12 @@ import (
 // selectors contribute structure; all literals remain separately bound values.
 // It is composed inside, never in place of, the outer tenant predicate.
 func explorerFilterSQL(input *flow.QueryFilterGroup, params chParams) (string, error) {
-	root, err := flow.NormalizeQueryFilterGroup(input)
+	return explorerFilterSQLWithVocabulary(input, params, flow.QueryVocabulary{})
+}
+
+func explorerFilterSQLWithVocabulary(input *flow.QueryFilterGroup, params chParams,
+	vocabulary flow.QueryVocabulary) (string, error) {
+	root, err := flow.NormalizeQueryFilterGroupWithVocabulary(input, vocabulary)
 	if err != nil {
 		return "", err
 	}
@@ -32,7 +37,7 @@ func explorerFilterSQL(input *flow.QueryFilterGroup, params chParams) (string, e
 		}
 		parts := []string{}
 		for _, predicate := range group.Conditions {
-			sql, err := explorerPredicateSQL(predicate, index, params)
+			sql, err := explorerPredicateSQLWithVocabulary(predicate, index, params, vocabulary)
 			if err != nil {
 				return "", err
 			}

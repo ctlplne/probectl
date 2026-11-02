@@ -7,8 +7,11 @@
 package flowstore
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"net/netip"
+	"sort"
 
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/tags"
@@ -103,4 +106,38 @@ func (d *TagQueryData) valueTrusted(exporter, key string) string {
 		return ""
 	}
 	return d.exporters[address.Unmap().String()][key]
+}
+
+// ExternalRows is the fixed-schema JSONEachRow body for one request-local
+// ClickHouse external table. All literals stay in the HTTPS multipart body;
+// the query joins on both lookup_tenant and lookup_exporter.
+func (d *TagQueryData) ExternalRows(tenantID string, maxBytes int64) ([]byte, error) {
+	if _, err := d.Revision(tenantID); err != nil {
+		return nil, err
+	}
+	if maxBytes <= 0 {
+		return nil, ErrExplorerBudget
+	}
+	addresses := make([]string, 0, len(d.exporters))
+	for address := range d.exporters {
+		addresses = append(addresses, address)
+	}
+	sort.Strings(addresses)
+	var body bytes.Buffer
+	for _, address := range addresses {
+		row, err := json.Marshal(struct {
+			Tenant   string            `json:"lookup_tenant"`
+			Exporter string            `json:"lookup_exporter"`
+			Values   map[string]string `json:"tag_values"`
+		}{Tenant: tenantID, Exporter: address, Values: d.exporters[address]})
+		if err != nil {
+			return nil, err
+		}
+		if int64(body.Len()+len(row)+1) > maxBytes {
+			return nil, ErrExplorerBudget
+		}
+		body.Write(row)
+		body.WriteByte('\n')
+	}
+	return body.Bytes(), nil
 }
