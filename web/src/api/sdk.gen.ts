@@ -1577,6 +1577,7 @@ export interface FlowQueryViewDefinition {
   labels?: string[]
   name: string
   plan?: FlowQueryOptions & JsonValue
+  tag_ids?: { [key: string]: string }
   time?: JsonObject
   visibility?: "private" | "tenant"
 }

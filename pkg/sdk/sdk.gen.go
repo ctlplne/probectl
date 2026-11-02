@@ -1681,15 +1681,16 @@ type FlowQueryPredicate struct {
 
 // Complete reusable native flow query, not cached telemetry or authorization. At most2MiB canonical definition; current field/reference permissions rechecked. No transient cursor.
 type FlowQueryViewDefinition struct {
-	AutoRefreshSeconds int              `json:"auto_refresh_seconds,omitempty"`
-	Comparison         map[string]any   `json:"comparison,omitempty"`
-	Description        string           `json:"description,omitempty"`
-	Display            FlowQueryDisplay `json:"display,omitempty"`
-	Labels             []string         `json:"labels,omitempty"`
-	Name               string           `json:"name"`
-	Plan               map[string]any   `json:"plan,omitempty"`
-	Time               map[string]any   `json:"time,omitempty"`
-	Visibility         string           `json:"visibility,omitempty"`
+	AutoRefreshSeconds int               `json:"auto_refresh_seconds,omitempty"`
+	Comparison         map[string]any    `json:"comparison,omitempty"`
+	Description        string            `json:"description,omitempty"`
+	Display            FlowQueryDisplay  `json:"display,omitempty"`
+	Labels             []string          `json:"labels,omitempty"`
+	Name               string            `json:"name"`
+	Plan               map[string]any    `json:"plan,omitempty"`
+	TagIDs             map[string]string `json:"tag_ids,omitempty"`
+	Time               map[string]any    `json:"time,omitempty"`
+	Visibility         string            `json:"visibility,omitempty"`
 }
 
 // Keyset page bounded by rows and8MiB; next explicitly reports remaining configuration.
