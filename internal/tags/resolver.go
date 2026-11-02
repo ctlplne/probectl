@@ -28,8 +28,8 @@ var (
 
 const (
 	maxDefinitions  = 64
-	maxRules        = 5000
-	maxAssignments  = 10000
+	maxRules        = 25000
+	maxAssignments  = 25000
 	maxValueBytes   = 128
 	maxPatternBytes = 256
 )
