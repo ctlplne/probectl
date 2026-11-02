@@ -1837,8 +1837,8 @@ func validateExternalEndpoints(l *loader, cfg *Config) {
 	if cfg.CMDBProvider != "" {
 		if cfg.CMDBURL == "" || cfg.CMDBSecret == "" {
 			l.errf("PROBECTL_CMDB_PROVIDER=%s requires PROBECTL_CMDB_URL and PROBECTL_CMDB_SECRET", cfg.CMDBProvider)
-		} else if !strings.HasPrefix(cfg.CMDBURL, "https://") && !isLoopbackURL(cfg.CMDBURL) {
-			l.errf("PROBECTL_CMDB_URL must be https (plain http is allowed only for loopback test instances)")
+		} else if err := validateCMDBEndpoint(cfg.CMDBURL); err != nil {
+			l.errf("%v", err)
 		}
 	}
 	if cfg.TrustctlURL != "" {

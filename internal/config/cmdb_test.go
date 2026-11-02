@@ -24,3 +24,27 @@ func TestCMDBNetBoxTenantMapConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestCMDBEndpointRefusesURLCredentialsAndSecretCarriers(t *testing.T) {
+	for _, provider := range []string{"netbox", "servicenow"} {
+		for _, endpoint := range []string{
+			"https://user:private-pass@cmdb.example",
+			"https://cmdb.example?token=private-token",
+			"https://cmdb.example?", "https://cmdb.example#private-token",
+			"https://", "http://cmdb.example",
+		} {
+			_, err := Load(envFunc(map[string]string{"PROBECTL_CMDB_PROVIDER": provider,
+				"PROBECTL_CMDB_URL": endpoint, "PROBECTL_CMDB_SECRET": "test-token"}))
+			if err == nil || !strings.Contains(err.Error(), "PROBECTL_CMDB_URL") ||
+				strings.Contains(err.Error(), "private-pass") || strings.Contains(err.Error(), "private-token") {
+				t.Fatal("unsafe CMDB endpoint was accepted or its credential reached a validation error")
+			}
+		}
+	}
+	for _, endpoint := range []string{"https://cmdb.example/netbox", "http://127.0.0.1:18443"} {
+		if _, err := Load(envFunc(map[string]string{"PROBECTL_CMDB_PROVIDER": "netbox",
+			"PROBECTL_CMDB_URL": endpoint, "PROBECTL_CMDB_SECRET": "test-token"})); err != nil {
+			t.Fatalf("safe CMDB endpoint rejected: %v", err)
+		}
+	}
+}

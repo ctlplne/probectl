@@ -32,10 +32,10 @@ func BuildCMDB(cfg *config.Config, log *slog.Logger) *cmdb.Resolver {
 	case "":
 		return nil
 	case "servicenow":
-		log.Info("cmdb provider configured", "provider", "servicenow", "url", cfg.CMDBURL, "table", cfg.CMDBTable)
+		log.Info("cmdb provider configured", "provider", "servicenow", "table", cfg.CMDBTable)
 		return cmdb.NewResolver(cmdb.NewServiceNow(cfg.CMDBURL, cfg.CMDBTable, cfg.CMDBSecret), cfg.CMDBCacheTTL)
 	case "netbox":
-		log.Info("cmdb provider configured", "provider", "netbox", "url", cfg.CMDBURL)
+		log.Info("cmdb provider configured", "provider", "netbox")
 		return cmdb.NewResolver(cmdb.NewNetBox(cfg.CMDBURL, cfg.CMDBSecret, cfg.CMDBNetBoxTenantMap), cfg.CMDBCacheTTL)
 	default:
 		// config.Load validates the enum; this is a defensive default.

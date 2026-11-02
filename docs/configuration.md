@@ -2233,7 +2233,7 @@ is the payments edge proxy, owned by team X". It is off unless configured:
 | Variable                  | Default   | Meaning                                                            |
 | -------------------------- | --------- | ------------------------------------------------------------------- |
 | `PROBECTL_CMDB_PROVIDER`    | (none)    | `servicenow` or `netbox` enables CI correlation (`/v1/cmdb/*`, incident/agent CIs) |
-| `PROBECTL_CMDB_URL`         | (none)    | instance URL, e.g. `https://acme.service-now.com` or `https://netbox.example.com` (https; http only for loopback test doubles) |
+| `PROBECTL_CMDB_URL`         | (none)    | instance URL, e.g. `https://acme.service-now.com` or `https://netbox.example.com` (https; http only for loopback test doubles; credentials, query parameters and fragments are forbidden) |
 | `PROBECTL_CMDB_SECRET`      | (none)    | ServiceNow `user:password` or NetBox token for a read-only integration user (env only — never in files/logs) |
 | `PROBECTL_CMDB_TABLE`       | `cmdb_ci` | ServiceNow CI table queried via the Table API; ignored for NetBox      |
 | `PROBECTL_CMDB_CACHE_TTL`   | `10m`     | CI lookup cache TTL (a down CMDB serves stale entries)              |
