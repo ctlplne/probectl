@@ -67,6 +67,9 @@ type Resolver struct {
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
+	// epochs prevent a source read started before an ownership refusal from
+	// restoring that key's revoked stale enrichment when it completes later.
+	epochs map[string]uint64
 }
 
 // NewResolver wraps provider with a TTL cache (default 10m when ttl <= 0).
@@ -74,7 +77,7 @@ func NewResolver(provider Provider, ttl time.Duration) *Resolver {
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
 	}
-	return &Resolver{provider: provider, ttl: ttl, cache: map[string]cacheEntry{}}
+	return &Resolver{provider: provider, ttl: ttl, cache: map[string]cacheEntry{}, epochs: map[string]uint64{}}
 }
 
 // ProviderName names the wrapped provider (for API responses/logs).
@@ -99,26 +102,32 @@ func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
 	}
 	r.mu.Lock()
 	entry, ok := r.cache[cacheKey]
+	epoch := r.epochs[cacheKey]
 	r.mu.Unlock()
 	if ok && time.Since(entry.fetched) < r.ttl {
 		return entry.cis, nil
 	}
 	cis, err := r.lookupFresh(ctx, key)
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if err != nil {
 		if errors.Is(err, ErrTenantBinding) {
-			r.mu.Lock()
+			r.epochs[cacheKey]++
 			delete(r.cache, cacheKey)
-			r.mu.Unlock()
 			return nil, err
 		}
-		if ok { // graceful degrade: stale beats nothing
-			return entry.cis, nil
+		if epoch != r.epochs[cacheKey] {
+			return nil, ErrTenantBinding
+		}
+		if current, exists := r.cache[cacheKey]; exists { // stale remains authorized
+			return current.cis, nil
 		}
 		return nil, errors.Join(ErrUnavailable, err)
 	}
-	r.mu.Lock()
+	if epoch != r.epochs[cacheKey] {
+		return nil, ErrTenantBinding
+	}
 	r.cache[cacheKey] = cacheEntry{cis: cis, fetched: time.Now()} // negative results cached too
-	r.mu.Unlock()
 	return cis, nil
 }
 

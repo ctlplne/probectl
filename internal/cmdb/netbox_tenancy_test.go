@@ -170,3 +170,67 @@ func TestNetBoxHostnameChecksDeviceAndVMTenant(t *testing.T) {
 		})
 	}
 }
+
+func TestNetBoxOwnershipRefusalFencesOlderInflightResponse(t *testing.T) {
+	var calls atomic.Int64
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		index := calls.Add(1) - 1
+		source := 7
+		if index == 1 {
+			close(entered)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		if index == 2 {
+			source = 8
+		}
+		if index >= 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprintf(w, `{"count":1,"results":[{"id":1,"tenant":{"id":%d},"address":"10.0.0.1/32"}]}`, source)
+	}))
+	defer server.Close()
+	provider := NewNetBox(server.URL, "test-token", map[string]string{netBoxTenantA: "7"})
+	provider.client = server.Client()
+	resolver := NewResolver(provider, time.Nanosecond)
+	ctx, cancel := context.WithTimeout(netBoxContext(netBoxTenantA), 10*time.Second)
+	defer cancel()
+	if _, err := resolver.Lookup(ctx, "10.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	completed := make(chan error, 1)
+	go func() { _, err := resolver.Lookup(ctx, "10.0.0.1"); completed <- err }()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("older request did not reach the source")
+	}
+	if _, err := resolver.Lookup(ctx, "10.0.0.1"); !errors.Is(err, ErrTenantBinding) {
+		t.Fatalf("new ownership mismatch was not refused: %v", err)
+	}
+	close(release)
+	select {
+	case err := <-completed:
+		if !errors.Is(err, ErrTenantBinding) {
+			t.Fatalf("older response restored revoked cache ownership: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("older request did not finish")
+	}
+	if cis, err := resolver.Lookup(ctx, "10.0.0.1"); err == nil || len(cis) != 0 {
+		t.Fatalf("outage exposed an entry restored after revocation: %+v, %v", cis, err)
+	}
+}
