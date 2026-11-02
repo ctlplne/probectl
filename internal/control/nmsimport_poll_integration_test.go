@@ -12,12 +12,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/nmsimport"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -35,14 +41,14 @@ func TestNMSImportPollTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 			t.Errorf("remove poll route tenants: %v", err)
 		}
 	})
-	contextID := uuid.NewString()
+	contextID := googleuuid.NewString()
 	for _, tenant := range []string{a, b} {
 		ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
 		if err := tenancy.InTenant(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 			_, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts
 				(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
 				VALUES ($1,$2,$3,$4,'Lab','Private')`, tenant, contextID,
-				uuid.NewString(), uuid.NewString())
+				googleuuid.NewString(), googleuuid.NewString())
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -106,7 +112,7 @@ func TestNMSImportPollTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 			(tenant_id,agent_id,spiffe_id,serial,not_after)
 			VALUES ($1,$2,$3,$4,clock_timestamp()+interval '1 hour')`, a,
 			agentID, "spiffe://probectl/tenant/"+a+"/entity/"+agentID,
-			uuid.NewString())
+			googleuuid.NewString())
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -130,6 +136,33 @@ func TestNMSImportPollTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 		if denied.Code != http.StatusNotFound {
 			t.Fatalf("source address or foreign tenant selected agent: %d %s",
 				denied.Code, denied.Body.String())
+		}
+	}
+	gate := ai.NewEgressGate(func(context.Context, string) (bool, error) { return true, nil },
+		func(context.Context, ai.EgressEvent) error { return nil }, ai.RedactionPolicy{})
+	mcpServer := NewMCPServerWithPolicyLoader(&config.Config{},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), db.Pool(), nil, 0,
+		gate, nil, nil, nil)
+	input := mcp.NMSImportPollTargetInput{ContextID: contextID, SourceID: sourceID,
+		ItemID: itemID, AgentID: agentID, TargetAddress: target}
+	principal := &auth.Principal{TenantID: a, UserID: "poll-reader",
+		Permissions: map[string]bool{permNMSImportRead: true, ai.PermEntitiesRead: true}}
+	data, failed := nativeControlCall(t, mcpServer, principal, "nms_import_poll_target", input)
+	var mcpPreview mcp.NMSImportPollTargetResult
+	if failed || json.Unmarshal(data, &mcpPreview) != nil ||
+		mcpPreview.TenantID != a || mcpPreview.EntityID != got.EntityID ||
+		mcpPreview.AgentID != agentID || mcpPreview.PollSeconds != 120 {
+		t.Fatalf("MCP did not project exact tenant-bound preview: %s", data)
+	}
+	for _, denied := range []*auth.Principal{
+		{TenantID: b, UserID: "poll-reader",
+			Permissions: map[string]bool{permNMSImportRead: true, ai.PermEntitiesRead: true}},
+		{TenantID: a, UserID: "poll-reader",
+			Permissions: map[string]bool{permNMSImportRead: true}},
+	} {
+		if _, failed := nativeControlCall(t, mcpServer, denied,
+			"nms_import_poll_target", input); !failed {
+			t.Fatalf("MCP preview crossed tenant or entity permission boundary: %s", denied.TenantID)
 		}
 	}
 }
