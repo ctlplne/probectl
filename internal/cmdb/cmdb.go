@@ -37,6 +37,10 @@ type CI struct {
 	FQDN      string            `json:"fqdn,omitempty"`
 	URL       string            `json:"url,omitempty"` // deep link into the CMDB UI
 	Extra     map[string]string `json:"extra,omitempty"`
+	// Relations are not projected by enrichment. Reviewed import may follow
+	// their exact IDs only after separately proving the related CI's tenant.
+	relatedKind string
+	relatedID   int64
 }
 
 // Provider looks up CIs by key (IP address or hostname/FQDN).

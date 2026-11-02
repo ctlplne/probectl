@@ -174,19 +174,20 @@ var auditExportRoutes = map[string]bool{
 }
 
 var auditSensitiveReadRoutes = map[string]bool{
-	"POST /v1/audit/ir/{event_ref}/reveal":      true,
-	"POST /v1/nms-imports/poll-target-preview":  true,
-	"POST /v1/nms-imports/alert-target-preview": true,
-	"POST /v1/grafana/api/v1/query":             true,
-	"POST /v1/grafana/api/v1/query_range":       true,
-	"POST /v1/grafana/api/v1/series":            true,
-	"POST /v1/grafana/api/v1/labels":            true,
-	"POST /v1/alerts/maintenance/preview":       true,
-	"POST /v1/ai/ask":                           true,
-	"POST /v1/explorer/query":                   true,
-	"POST /v1/explorer/flow-views/{id}/query":   true,
-	"POST /v1/explorer/compare":                 true,
-	"POST /v1/ai/author":                        true,
+	"POST /v1/entity-contexts/{context_id}/tag-imports/netbox/preview": true,
+	"POST /v1/audit/ir/{event_ref}/reveal":                             true,
+	"POST /v1/nms-imports/poll-target-preview":                         true,
+	"POST /v1/nms-imports/alert-target-preview":                        true,
+	"POST /v1/grafana/api/v1/query":                                    true,
+	"POST /v1/grafana/api/v1/query_range":                              true,
+	"POST /v1/grafana/api/v1/series":                                   true,
+	"POST /v1/grafana/api/v1/labels":                                   true,
+	"POST /v1/alerts/maintenance/preview":                              true,
+	"POST /v1/ai/ask":                                                  true,
+	"POST /v1/explorer/query":                                          true,
+	"POST /v1/explorer/flow-views/{id}/query":                          true,
+	"POST /v1/explorer/compare":                                        true,
+	"POST /v1/ai/author":                                               true,
 }
 
 var auditOperationalRoutes = map[string]bool{
@@ -231,6 +232,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/entity-contexts/{context_id}/tag-assignments":               auditExplicit(auditFacetMutation, "tag.assignment.created"),
 	"PUT /v1/entity-contexts/{context_id}/tag-assignments/{id}":           auditExplicit(auditFacetMutation, "tag.assignment.updated"),
 	"DELETE /v1/entity-contexts/{context_id}/tag-assignments/{id}":        auditExplicit(auditFacetMutation, "tag.assignment.deleted"),
+	"POST /v1/entity-contexts/{context_id}/tag-imports/netbox/preview":    auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/nms-imports/sources":                                        auditExplicit(auditFacetMutation, "nms_import.source_configured"),
 	"POST /v1/nms-imports/sources/{instance}/disable":                     auditExplicit(auditFacetMutation, "nms_import.source_disabled"),
 	"POST /v1/nms-imports/live-plans":                                     auditExplicit(auditFacetMutation, "nms_import.capture_started"),

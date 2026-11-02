@@ -752,3 +752,39 @@ check tenant identity, current permissions and source grants before storage.
 Saved queries additionally enforce the authenticated owner or explicit tenant
 sharing; favorites and recents belong to each user. The shared service boundary
 does not add a new MCP tool: native MCP wiring and protocol proof remain in progress.
+
+### Fresh NetBox tag preview
+
+`POST /v1/entity-contexts/{context_id}/tag-imports/netbox/preview` is a preview
+read. It requires both `tags.read` and `cmdb.read`, with access to the routing
+context. Supply an existing tag ID, an operator-registered exporter agent/source
+pair and `field` set to `role` or `site`. The exporter address must have exactly
+one current owner in the tenant. An arbitrary external key or a display name
+cannot select a source object.
+
+For example, `probectl tags netbox-preview CONTEXT --body-file preview.json`
+uses this body:
+
+```json
+{
+  "tag_id": "11111111-1111-4111-8111-111111111111",
+  "exporter_agent_id": "flow-collector",
+  "exporter_source_ref": "192.0.2.10",
+  "field": "site"
+}
+```
+
+Configure the deployment's NetBox tenant map as described in
+[configuration](configuration.md). Preview reads fresh source
+state, even when cached enrichment exists. The IP CI and any related device or
+VM must each attest the mapped source tenant; a brief related-object name is
+insufficient. A missing binding, outage, ambiguous result or noncanonical target
+refuses the preview. Values are bounded to 128 UTF-8 bytes without control
+characters. The whole preview has a 15-second deadline and each source response
+is bounded to 4 MiB.
+
+The response contains the exact source CI and field, value, structured
+provenance and the owned target's tag revision as a decimal string. This read
+writes no assignment and changes no canonical identity or telemetry. Fixture
+transport tests are not a live NetBox proof; the operation remains preview
+until its real-service receipt passes.

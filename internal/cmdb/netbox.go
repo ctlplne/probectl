@@ -94,11 +94,13 @@ func (n *NetBox) lookupIP(ctx context.Context, key, source string) ([]CI, error)
 			AssignedObject struct {
 				Name   string `json:"name"`
 				Device struct {
+					ID      int64         `json:"id"`
 					Name    string        `json:"name"`
 					Display string        `json:"display"`
 					Tenant  *netBoxTenant `json:"tenant"`
 				} `json:"device"`
 				VirtualMachine struct {
+					ID      int64         `json:"id"`
 					Name    string        `json:"name"`
 					Display string        `json:"display"`
 					Tenant  *netBoxTenant `json:"tenant"`
@@ -125,7 +127,18 @@ func (n *NetBox) lookupIP(ctx context.Context, key, source string) ([]CI, error)
 		// A brief related device/VM has no tenant attestation in normal
 		// NetBox responses. Only project attributes of the owned IP CI.
 		name := firstNonEmpty(r.DNSName, r.Display, r.Address)
+		relatedKind, relatedID := "", int64(0)
+		if r.AssignedObject.Device.ID < 0 || r.AssignedObject.VirtualMachine.ID < 0 ||
+			(r.AssignedObject.Device.ID > 0 && r.AssignedObject.VirtualMachine.ID > 0) {
+			return nil, ErrTenantBinding
+		}
+		if r.AssignedObject.Device.ID > 0 {
+			relatedKind, relatedID = "device", r.AssignedObject.Device.ID
+		} else if r.AssignedObject.VirtualMachine.ID > 0 {
+			relatedKind, relatedID = "vm", r.AssignedObject.VirtualMachine.ID
+		}
 		out = append(out, CI{
+			relatedKind: relatedKind, relatedID: relatedID,
 			SysID:     fmt.Sprintf("netbox:ipam.ip_address:%d", r.ID),
 			Name:      name,
 			Class:     "netbox.ip_address",

@@ -77,6 +77,68 @@
     }
   ],
   "paths": {
+    "/v1/entity-contexts/{context_id}/tag-imports/netbox/preview": {
+      "post": {
+        "x-required-permission": "tags.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "operationId": "previewNetBoxTag",
+        "summary": "Preview a fresh NetBox role or site tag for an owned exporter",
+        "description": "Requires tags.read and cmdb.read with current routing-context ABAC. Resolves the exporter and immutable tag ID under tenant RLS before any source read. Uses only a unique current operator-owned exporter address and the deployment NetBox tenant mapping. A related device or VM must separately attest that tenant. Bypasses all enrichment caches and writes no assignment. Missing, changed or ambiguous ownership fails closed. Apply is a separate reviewed action; this operation never changes identity or telemetry.",
+        "tags": [
+          "tags"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetBoxTagPreviewInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fresh source candidate; no assignment was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetBoxTagPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed field, tag or exporter source."
+          },
+          "403": {
+            "description": "Required tag/CMDB grant or context ABAC denied."
+          },
+          "404": {
+            "description": "No owned unambiguous target or importable source value."
+          },
+          "503": {
+            "description": "Source, storage or mapped source tenant is unavailable or inconsistent."
+          }
+        }
+      }
+    },
     "/ingest/changes/{provider}/{id}": {
       "post": {
         "operationId": "ingestChangeWebhook",
@@ -12644,6 +12706,152 @@
       }
     },
     "schemas": {
+      "NetBoxTagPreviewInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tag_id",
+          "exporter_agent_id",
+          "exporter_source_ref",
+          "field"
+        ],
+        "properties": {
+          "tag_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "exporter_agent_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "exporter_source_ref": {
+            "type": "string",
+            "maxLength": 45
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "role",
+              "site"
+            ]
+          }
+        }
+      },
+      "NetBoxTagPreviewTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "context_id",
+          "tag_id",
+          "tag_key",
+          "target_kind",
+          "target_id",
+          "exporter_agent_id",
+          "exporter_source_ref",
+          "tag_revision"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tag_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tag_key": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "target_kind": {
+            "type": "string",
+            "enum": [
+              "exporter"
+            ]
+          },
+          "target_id": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "exporter_agent_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "exporter_source_ref": {
+            "type": "string",
+            "maxLength": 45
+          },
+          "tag_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "maxLength": 19
+          }
+        }
+      },
+      "NetBoxTagCandidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "netbox_tenant_id",
+          "lookup_ci_id",
+          "ci_id",
+          "name",
+          "field",
+          "value",
+          "source_ref"
+        ],
+        "properties": {
+          "netbox_tenant_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "maxLength": 19
+          },
+          "lookup_ci_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "ci_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "role",
+              "site"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "source_ref": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        }
+      },
+      "NetBoxTagPreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "candidate"
+        ],
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/NetBoxTagPreviewTarget"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/NetBoxTagCandidate"
+          }
+        }
+      },
       "ChangeGenericEvent": {
         "type": "object",
         "properties": {
