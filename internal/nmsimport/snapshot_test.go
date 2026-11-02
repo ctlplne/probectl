@@ -266,6 +266,54 @@ func TestZabbixSNMPItemEligibilityReasonsStayFixed(t *testing.T) {
 	}
 }
 
+func TestZabbixHostPollCadenceConflictIsVisible(t *testing.T) {
+	first := `{"uuid":"11111111222233334444555555555555","type":"SNMP_AGENT","status":"ENABLED","delay":"90s"}`
+	for _, tc := range []struct {
+		name, second                  string
+		firstConflict, secondConflict bool
+	}{
+		{"matching SNMP", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","status":"ENABLED","delay":"90s"}`, false, false},
+		{"different SNMP", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","status":"ENABLED","delay":"60s"}`, true, true},
+		{"macro SNMP", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","status":"ENABLED","delay":"{$DELAY}"}`, true, false},
+		{"non-SNMP item", `{"uuid":"22222222333344445555666666666666","type":"ZABBIX_PASSIVE","status":"ENABLED","delay":"60s"}`, false, false},
+		{"disabled SNMP", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","status":"DISABLED","delay":"60s"}`, false, false},
+		{"unknown SNMP status", `{"uuid":"22222222333344445555666666666666","type":"SNMP_AGENT","delay":"60s"}`, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := `{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge-r1","interfaces":[{"ip":"10.0.0.1"}],"items":[` + first + `,` + tc.second + `]}]}}`
+			got, err := parseZabbixHosts(strings.NewReader(payload))
+			if err != nil || len(got.Rows) != 3 {
+				t.Fatalf("parse host cadence: %+v err=%v", got, err)
+			}
+			if contains(got.Rows[1].UnmappedCodes, "poll_cadence_conflict") != tc.firstConflict ||
+				contains(got.Rows[2].UnmappedCodes, "poll_cadence_conflict") != tc.secondConflict {
+				t.Fatalf("host cadence conflict classification: first=%+v second=%+v",
+					got.Rows[1], got.Rows[2])
+			}
+		})
+	}
+}
+
+func TestZabbixSNMPCadenceRespectsDeviceAgentBounds(t *testing.T) {
+	for _, tc := range []struct {
+		delay string
+		want  int64
+	}{
+		{"14s", 14},
+		{"25h", 90000},
+	} {
+		t.Run(tc.delay, func(t *testing.T) {
+			payload := `{"zabbix_export":{"version":"7.4","host_groups":[],"hosts":[{"host":"edge-r1","interfaces":[{"ip":"10.0.0.1"}],"items":[{"uuid":"11111111222233334444555555555555","type":"SNMP_AGENT","status":"ENABLED","delay":"` + tc.delay + `"}]}]}}`
+			got, err := parseZabbixHosts(strings.NewReader(payload))
+			if err != nil || len(got.Rows) != 2 ||
+				got.Rows[1].PollSeconds != tc.want ||
+				!contains(got.Rows[1].UnmappedCodes, "poll_interval_unmapped") {
+				t.Fatalf("out-of-range source cadence became eligible: %+v err=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestSafeAddressRejectsZoneAndCanonicalizesMappedIPv4(t *testing.T) {
 	for input, want := range map[string]string{
 		"fe80::1%en0":      "",

@@ -120,6 +120,11 @@ source. Zabbix poll items and triggers retain their documented host key as a
 bounded parent reference for a later same-source provenance mapping; a host
 key, address or label never selects a destination device by itself. Source
 item transport and status are reduced to fixed unmapped reason codes; their
-raw values are not returned, and this classification does not change an agent
-cadence. Imported alert expressions and delivery targets remain unmapped and
+raw values are not returned. An enabled SNMP item's delay is eligible for a
+later reviewed host cadence only when it is a literal 15s–24h interval and
+its item UUID is present. Conflicting intervals or an unsupported delay among
+one host's enabled SNMP items mark its otherwise eligible rows with
+`poll_cadence_conflict`. Other transports and disabled items cannot nominate a
+host cadence. These classifications do not change an agent cadence. Imported
+alert expressions and delivery targets remain unmapped and
 no imported alert can be enabled by this review path.

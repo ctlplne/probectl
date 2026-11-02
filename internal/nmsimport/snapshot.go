@@ -371,6 +371,43 @@ func parseLibreNMSRules(r io.Reader) (Snapshot, error) {
 // JSON form is sufficient to carry host, group and direct-trigger metadata;
 // YAML/XML are separate adapters. Macro values and trigger expressions are
 // never decoded into the safe snapshot or error text.
+type zabbixExportItem struct {
+	UUID     string          `json:"uuid"`
+	Type     json.RawMessage `json:"type"`
+	Status   json.RawMessage `json:"status"`
+	Delay    string          `json:"delay"`
+	Triggers []struct {
+		UUID string `json:"uuid"`
+	} `json:"triggers"`
+}
+
+func zabbixPollItemRow(item zabbixExportItem, hostID string) (Row, bool, bool) {
+	itemID := safeZabbixUUID(item.UUID)
+	seconds := safeZabbixLiteralSeconds(item.Delay)
+	codes := []string{"poll_item_unmapped"}
+	snmp := string(item.Type) == `"SNMP_AGENT"` ||
+		string(item.Type) == `"20"` || string(item.Type) == "20"
+	enabled := string(item.Status) == `"ENABLED"` ||
+		string(item.Status) == `"0"` || string(item.Status) == "0"
+	if !snmp {
+		codes = append(codes, "poll_transport_unmapped")
+	}
+	if !enabled && (snmp || len(item.Status) != 0) {
+		codes = append(codes, "poll_status_unmapped")
+	}
+	if itemID == "" {
+		codes = append(codes, "item_id_unavailable")
+	}
+	bounded := seconds >= 15 && seconds <= 86400
+	if !bounded {
+		codes = append(codes, "poll_interval_unmapped")
+	}
+	eligible := snmp && enabled && itemID != "" && bounded
+	blocked := snmp && enabled && !eligible
+	return Row{Kind: "poll_item", ExternalID: itemID, ParentID: hostID,
+		PollSeconds: seconds, UnmappedCodes: codes}, eligible, blocked
+}
+
 func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 	var export struct {
 		Zabbix struct {
@@ -390,15 +427,7 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 					Default string `json:"default"`
 					UseIP   string `json:"useip"`
 				} `json:"interfaces"`
-				Items []struct {
-					UUID     string          `json:"uuid"`
-					Type     json.RawMessage `json:"type"`
-					Status   json.RawMessage `json:"status"`
-					Delay    string          `json:"delay"`
-					Triggers []struct {
-						UUID string `json:"uuid"`
-					} `json:"triggers"`
-				} `json:"items"`
+				Items []zabbixExportItem `json:"items"`
 			} `json:"hosts"`
 		} `json:"zabbix_export"`
 	}
@@ -468,26 +497,22 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 			row.UnmappedCodes = append(row.UnmappedCodes, "missing_safe_label")
 		}
 		out.Rows = append(out.Rows, row)
+		var hostPollSeconds int64
+		var hostPollBlocked bool
+		var eligiblePollRows []int
 		for _, item := range host.Items {
-			itemID := safeZabbixUUID(item.UUID)
-			codes := []string{"poll_item_unmapped"}
-			if string(item.Type) != `"SNMP_AGENT"` && string(item.Type) != `"20"` &&
-				string(item.Type) != "20" {
-				codes = append(codes, "poll_transport_unmapped")
+			poll, eligible, blocked := zabbixPollItemRow(item, id)
+			if blocked || eligible && hostPollSeconds != 0 &&
+				hostPollSeconds != poll.PollSeconds {
+				hostPollBlocked = true
 			}
-			if len(item.Status) != 0 && string(item.Status) != `"ENABLED"` &&
-				string(item.Status) != `"0"` && string(item.Status) != "0" {
-				codes = append(codes, "poll_status_unmapped")
+			if eligible {
+				if hostPollSeconds == 0 {
+					hostPollSeconds = poll.PollSeconds
+				}
+				eligiblePollRows = append(eligiblePollRows, len(out.Rows))
 			}
-			if itemID == "" {
-				codes = append(codes, "item_id_unavailable")
-			}
-			seconds := safeZabbixLiteralSeconds(item.Delay)
-			if seconds == 0 {
-				codes = append(codes, "poll_interval_unmapped")
-			}
-			out.Rows = append(out.Rows, Row{Kind: "poll_item", ExternalID: itemID,
-				ParentID: id, PollSeconds: seconds, UnmappedCodes: codes})
+			out.Rows = append(out.Rows, poll)
 			for _, trigger := range item.Triggers {
 				triggerID := safeZabbixUUID(trigger.UUID)
 				codes := []string{"expression_unmapped"}
@@ -496,6 +521,12 @@ func parseZabbixHosts(r io.Reader) (Snapshot, error) {
 				}
 				out.Rows = append(out.Rows, Row{Kind: "rule", ExternalID: triggerID,
 					ParentID: id, UnmappedCodes: codes})
+			}
+		}
+		if hostPollBlocked {
+			for _, index := range eligiblePollRows {
+				out.Rows[index].UnmappedCodes = append(out.Rows[index].UnmappedCodes,
+					"poll_cadence_conflict")
 			}
 		}
 	}

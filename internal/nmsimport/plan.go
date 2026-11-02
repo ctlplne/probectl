@@ -54,6 +54,7 @@ var allowedUnmappedCodes = map[string]bool{
 	"parent_id_unavailable":      true,
 	"parent_unresolved":          true,
 	"poll_interval_unmapped":     true,
+	"poll_cadence_conflict":      true,
 	"poll_item_unmapped":         true,
 	"poll_settings_unmapped":     true,
 	"poll_status_unmapped":       true,
