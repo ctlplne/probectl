@@ -361,5 +361,65 @@ func TestNMSImportApplyReviewTenantIsolationAndRetry(t *testing.T) {
 			}
 			return nil
 		})
+		// A separate reviewed capture of the same source is allowed to keep
+		// an identical group and member without duplicating either row.
+		var deviceTarget, siteTarget string
+		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			for _, target := range []struct {
+				kind, externalID string
+				out              *string
+			}{
+				{"device", "17", &deviceTarget}, {"site", "5", &siteTarget},
+			} {
+				if err := sc.Q.QueryRow(ctx, `SELECT entity_id::text FROM nms_import_provenance
+					WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3
+					  AND object_kind=$4 AND external_id=$5`, tenant, contextID,
+					groupPlan, target.kind, target.externalID).Scan(target.out); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		repeatPlan, err := capturer.StartPlan(tenantCtx, contextID, nmsimport.LibreNMS,
+			"groups-lab", strings.Repeat("1", 64))
+		if err != nil {
+			t.Fatal(err)
+		}
+		repeatSnapshot, err := capturer.CaptureLibreNMSInventory(tenantCtx, contextID,
+			repeatPlan, strings.NewReader(device), strings.NewReader(site),
+			strings.NewReader(group), strings.NewReader(rule),
+			[]nmsimport.LibreNMSMembershipList{{GroupID: "7", GroupName: "WAN",
+				Raw: strings.NewReader(member)}})
+		if err != nil {
+			t.Fatalf("repeat group capture tenant=%s: %v", tenant, err)
+		}
+		repeatChoices := []nmsimport.ReviewChoice{
+			{RowNumber: 0, Action: "update", TargetEntityID: deviceTarget},
+			{RowNumber: 1, Action: "update", TargetEntityID: siteTarget},
+			{RowNumber: 2, Action: "create"},
+			{RowNumber: 3, Action: "create"},
+			{RowNumber: 4, Action: "unmapped"},
+		}
+		if err := capturer.SetReviewChoices(tenantCtx, contextID, repeatPlan,
+			repeatSnapshot, repeatChoices); err != nil {
+			t.Fatalf("review repeated group tenant=%s: %v", tenant, err)
+		}
+		repeatReview, err := capturer.FinalizeReview(tenantCtx, contextID,
+			repeatPlan, repeatSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		repeatDiff, err := capturer.ListReviewDiff(tenantCtx, contextID,
+			repeatPlan, repeatReview, -1, 10)
+		if err != nil || len(repeatDiff.Items) != 5 ||
+			len(repeatDiff.Items[2].ChangedFields) != 0 ||
+			len(repeatDiff.Items[3].ChangedFields) != 0 {
+			t.Fatalf("identical group still proposed duplicate writes: %+v err=%v", repeatDiff, err)
+		}
+		repeated, err := capturer.ApplyReview(tenantCtx, contextID, repeatPlan,
+			repeatSnapshot, repeatReview)
+		if err != nil || repeated.State != "applied" || repeated.Remaining != 0 {
+			t.Fatalf("repeat identical group import tenant=%s: %+v err=%v", tenant, repeated, err)
+		}
 	}
 }

@@ -34,6 +34,10 @@ with no approved policy, live fetching is disabled. See
    The group's dynamic predicate stays listed as unmapped and is never run.
    Group/member create remains source-keyed; a member can bind only an
    explicitly imported device from that same source and routing context.
+   A later reviewed plan may repeat an identical source-keyed group and member
+   without duplicating them. A changed group label or dynamic-predicate marker
+   conflicts until an explicit refresh path is reviewed; missing members are
+   never silently removed.
    The selected entity target's identity fields and revision are fingerprinted
    in the reviewed row, so a later destination write can refuse a target
    changed after selection. A source address or label never selects an update

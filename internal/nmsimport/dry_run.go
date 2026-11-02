@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -75,10 +76,10 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 		if meta.state != "preview" && meta.state != "applying" {
 			return ErrPlanUnavailable
 		}
-		var frozenHash string
-		if err := sc.Q.QueryRow(ctx, `SELECT review_hash FROM nms_import_plans
+		var frozenHash, sourceID string
+		if err := sc.Q.QueryRow(ctx, `SELECT review_hash,source_id::text FROM nms_import_plans
 			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, sc.Tenant.String(),
-			contextID, planID).Scan(&frozenHash); err != nil {
+			contextID, planID).Scan(&frozenHash, &sourceID); err != nil {
 			return err
 		}
 		if frozenHash != reviewHash {
@@ -144,12 +145,46 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 				}
 				if item.Kind == "group" {
 					item.ProposedLabel = row.label
-					item.ChangedFields = []string{"group"}
+					var oldLabel string
+					var oldDynamic bool
+					err := sc.Q.QueryRow(ctx, `SELECT label,dynamic_predicate_unmapped
+						FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2
+						  AND source_id=$3 AND external_id=$4`, sc.Tenant.String(),
+						contextID, sourceID, item.ExternalID).Scan(&oldLabel, &oldDynamic)
+					if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+						return err
+					}
+					if err == nil {
+						if oldLabel != row.label || oldDynamic != hasCode(item.UnmappedCodes, "dynamic_predicate_unmapped") {
+							return ErrReviewStale
+						}
+						item.CurrentLabel = oldLabel
+					} else {
+						item.ChangedFields = []string{"group"}
+					}
 					page.Items = append(page.Items, item)
 					continue
 				}
 				if item.Kind == "membership" {
-					item.ChangedFields = []string{"membership"}
+					groupID, deviceID, ok := strings.Cut(item.ExternalID, ":")
+					if !ok || !safeMembershipID(item.ExternalID) {
+						return ErrReviewStale
+					}
+					var oldRow string
+					err := sc.Q.QueryRow(ctx, `SELECT row_external_id FROM nms_import_group_members
+						WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3
+						  AND group_external_id=$4 AND member_external_id=$5`,
+						sc.Tenant.String(), contextID, sourceID, groupID, deviceID).Scan(&oldRow)
+					if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+						return err
+					}
+					if err == nil {
+						if oldRow != item.ExternalID {
+							return ErrReviewStale
+						}
+					} else {
+						item.ChangedFields = []string{"membership"}
+					}
 					page.Items = append(page.Items, item)
 					continue
 				}

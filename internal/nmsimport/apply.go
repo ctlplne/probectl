@@ -237,7 +237,23 @@ func applyGroupRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 		return err
 	}
 	if command.RowsAffected() != 1 {
-		return ErrReviewStale
+		// A new, explicitly reviewed plan may encounter the same source-keyed
+		// group after an earlier import. It is inert only when every mapped
+		// field still matches; changed groups need a separate refresh review.
+		var existingLabel string
+		var existingDynamic bool
+		if err := sc.Q.QueryRow(ctx, `SELECT label,dynamic_predicate_unmapped
+			FROM nms_import_groups WHERE tenant_id=$1 AND context_id=$2
+			  AND source_id=$3 AND external_id=$4 FOR SHARE`, sc.Tenant.String(), contextID,
+			sourceID, row.externalID).Scan(&existingLabel, &existingDynamic); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrReviewStale
+			}
+			return err
+		}
+		if existingLabel != row.label || existingDynamic != dynamic {
+			return ErrReviewStale
+		}
 	}
 	return nil
 }
@@ -271,7 +287,22 @@ func applyMembershipRow(ctx context.Context, sc tenancy.Scope, contextID, planID
 		return err
 	}
 	if command.RowsAffected() != 1 {
-		return ErrReviewStale
+		// An exact source pair from an earlier reviewed import is a no-op.
+		// No label, address or foreign source can make a different member
+		// look equivalent to this compound key.
+		var existingRow string
+		if err := sc.Q.QueryRow(ctx, `SELECT row_external_id FROM nms_import_group_members
+			WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3
+			  AND group_external_id=$4 AND member_external_id=$5 FOR SHARE`,
+			sc.Tenant.String(), contextID, sourceID, groupID, deviceID).Scan(&existingRow); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrReviewStale
+			}
+			return err
+		}
+		if existingRow != row.externalID {
+			return ErrReviewStale
+		}
 	}
 	return nil
 }
