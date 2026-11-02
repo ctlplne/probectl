@@ -220,7 +220,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/nms-imports/sources":                    auditExplicit(auditFacetMutation, "nms_import.source_configured"),
 	"POST /v1/nms-imports/sources/{instance}/disable": auditExplicit(auditFacetMutation, "nms_import.source_disabled"),
 	"POST /v1/nms-imports/live-plans":                 auditExplicit(auditFacetMutation, "nms_import.capture_started"),
-	"POST /v1/nms-imports/{id}/advance":              auditExplicit(auditFacetMutation, "nms_import.capture_step_completed"),
+	"POST /v1/nms-imports/{id}/advance":               auditExplicit(auditFacetMutation, "nms_import.capture_step_completed"),
 	"GET /v1/nms-imports/{id}/rows":                   auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/entity-contexts":                        auditExplicit(auditFacetMutation, "entity.context.created"),
 	"PUT /v1/entity-source-contexts":                  auditExplicit(auditFacetMutation, "entity.source.assigned"),

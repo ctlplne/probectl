@@ -103,7 +103,12 @@ describe('cold start — the first thirty minutes', () => {
     renderApp('/docs/api')
 
     const operations = await screen.findByRole('table', { name: 'API operations' })
+    const filter = await screen.findByLabelText('Filter operations')
+    await userEvent.type(filter, 'cost/summary')
     expect(within(operations).getByText('/v1/cost/summary')).toBeInTheDocument()
+    // The catalog caps rendered rows; filter to prove later operations remain reachable.
+    await userEvent.clear(filter)
+    await userEvent.type(filter, 'slos')
     expect(within(operations).getByText('/v1/slos')).toBeInTheDocument()
     expect(screen.queryByText('Could not load /openapi.json.')).toBeNull()
   })
