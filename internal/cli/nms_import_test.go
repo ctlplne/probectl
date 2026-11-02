@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,8 +69,12 @@ func TestNMSImportCLIKeepsReferenceOutOfArgvAndRoutesScopedReads(t *testing.T) {
 		"--query", "limit=1"); code != 0 || stderr != "" || len(seen) != 1 {
 		t.Fatalf("scoped poll proposals: exit=%d stderr=%q requests=%v", code, stderr, seen)
 	}
-	if got := <-seen; got != "GET /v1/nms-imports/poll-proposals?context_id="+contextID+
-		"&source_id="+planID+"&limit=1" {
+	got := <-seen
+	method, requestURI, found := strings.Cut(got, " ")
+	parsed, err := url.ParseRequestURI(requestURI)
+	if !found || err != nil || method != http.MethodGet || parsed.Path != "/v1/nms-imports/poll-proposals" ||
+		parsed.Query().Get("context_id") != contextID || parsed.Query().Get("source_id") != planID ||
+		parsed.Query().Get("limit") != "1" || len(parsed.Query()) != 3 {
 		t.Fatalf("proposal-list route = %q", got)
 	}
 	if _, stderr, code := run(t, srv, "nms-import", "advance", planID,
