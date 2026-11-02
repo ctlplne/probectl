@@ -46,6 +46,7 @@ import { RemediationCard, KeysCard } from './AdminCards'
 import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
 import { IdentityCard } from './IdentityCard'
 import { EntityRegistryCard } from './EntityRegistryCard'
+import { NMSImportCard } from './NMSImportCard'
 import { HierarchyCard } from './HierarchyCard'
 import { SIEMPostureCard } from './SIEMPostureCard'
 import { RolloutCard } from './RolloutCard'
@@ -1106,6 +1107,7 @@ export function AdminPage() {
       <SecretBackendsCard />
       <IdentityCard />
       <EntityRegistryCard />
+      <NMSImportCard />
       <KeysCard />
       <LifecycleCard />
       <RemediationCard />

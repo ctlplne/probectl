@@ -2063,6 +2063,7 @@ export interface Me {
 }
 
 export interface NMSImportSealedRow {
+  action: "captured" | "create" | "update" | "conflict" | "skip" | "unmapped"
   address?: string
   external_id: string
   group_ids: string[]
@@ -2073,8 +2074,10 @@ export interface NMSImportSealedRow {
   object_kind: "device" | "site" | "group" | "membership" | "poll_setting" | "alert_rule"
   parent_external_id?: string
   poll_seconds?: number
+  reviewed: boolean
   row_number: number
   severity?: "ok" | "warning" | "critical"
+  target_entity_id?: string
   unmapped_codes: string[]
 }
 
@@ -3537,6 +3540,20 @@ export interface AdvanceConfiguredLibreNmsImportPlanRequest {
 }
 
 export type AdvanceConfiguredLibreNmsImportPlanResponse = JsonObject
+
+export interface FinalizeNmsImportReviewRequest {
+  id: string
+  body: JsonObject
+}
+
+export type FinalizeNmsImportReviewResponse = JsonObject
+
+export interface SetNmsImportReviewChoicesRequest {
+  id: string
+  body: JsonObject
+}
+
+export type SetNmsImportReviewChoicesResponse = void
 
 export interface ListNmsImportSealedRowsRequest {
   id: string
@@ -5078,6 +5095,20 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<AdvanceConfiguredLibreNmsImportPlanResponse>("POST", path, query, request.body)
+  }
+
+  async finalizeNmsImportReview(request: FinalizeNmsImportReviewRequest): Promise<FinalizeNmsImportReviewResponse> {
+    let path = "/v1/nms-imports/{id}/finalize-review"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<FinalizeNmsImportReviewResponse>("POST", path, query, request.body)
+  }
+
+  async setNmsImportReviewChoices(request: SetNmsImportReviewChoicesRequest): Promise<SetNmsImportReviewChoicesResponse> {
+    let path = "/v1/nms-imports/{id}/review-choices"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("POST", path, query, request.body)
   }
 
   async listNmsImportSealedRows(request: ListNmsImportSealedRowsRequest): Promise<ListNmsImportSealedRowsResponse> {

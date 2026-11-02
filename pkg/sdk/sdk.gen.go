@@ -2182,6 +2182,7 @@ type Me struct {
 }
 
 type NMSImportSealedRow struct {
+	Action           string   `json:"action"`
 	Address          string   `json:"address,omitempty"`
 	ExternalId       string   `json:"external_id"`
 	GroupIds         []string `json:"group_ids"`
@@ -2192,8 +2193,10 @@ type NMSImportSealedRow struct {
 	ObjectKind       string   `json:"object_kind"`
 	ParentExternalId string   `json:"parent_external_id,omitempty"`
 	PollSeconds      int      `json:"poll_seconds,omitempty"`
+	Reviewed         bool     `json:"reviewed"`
 	RowNumber        int      `json:"row_number"`
 	Severity         string   `json:"severity,omitempty"`
+	TargetEntityId   string   `json:"target_entity_id,omitempty"`
 	UnmappedCodes    []string `json:"unmapped_codes"`
 }
 
@@ -5665,6 +5668,42 @@ func (c *Client) AdvanceConfiguredLibreNmsImportPlan(ctx context.Context, req Ad
 		return nil, err
 	}
 	return out, nil
+}
+
+// Freeze all reviewed import actions into a snapshot-bound hash
+type FinalizeNmsImportReviewRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) FinalizeNmsImportReview(ctx context.Context, req FinalizeNmsImportReviewRequest) (map[string]any, error) {
+	path := "/v1/nms-imports/{id}/finalize-review"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Record explicit dry-run choices for up to 100 sealed import rows
+type SetNmsImportReviewChoicesRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) SetNmsImportReviewChoices(ctx context.Context, req SetNmsImportReviewChoicesRequest) error {
+	path := "/v1/nms-imports/{id}/review-choices"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodPost, path, query, req.Body, nil)
 }
 
 // Page the redacted rows of one sealed import capture
