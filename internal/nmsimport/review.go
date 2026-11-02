@@ -211,8 +211,8 @@ func reviewRowCanWrite(kind, action string, unmapped []string, label, hostname, 
 		if len(unmapped) == 1 {
 			return unmapped[0] == "group_unmapped"
 		}
-		return len(unmapped) == 2 && unmapped[0] == "group_unmapped" &&
-			unmapped[1] == "dynamic_predicate_unmapped"
+		return len(unmapped) == 2 && hasCode(unmapped, "group_unmapped") &&
+			hasCode(unmapped, "dynamic_predicate_unmapped")
 	case "membership":
 		return action == "create" && label == "" && hostname == "" &&
 			address == "" && len(unmapped) == 1 && unmapped[0] == "group_unmapped"

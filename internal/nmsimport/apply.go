@@ -204,7 +204,7 @@ func applyGroupRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 	if row.action != "create" || row.targetID != "" || row.fingerprint != "" {
 		return ErrReviewStale
 	}
-	dynamic := len(row.unmapped) == 2 && row.unmapped[1] == "dynamic_predicate_unmapped"
+	dynamic := hasCode(row.unmapped, "dynamic_predicate_unmapped")
 	command, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_groups
 		(tenant_id,context_id,source_id,external_id,label,plan_id,dynamic_predicate_unmapped)
 		VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
