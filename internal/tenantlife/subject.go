@@ -304,6 +304,20 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:entity_fault_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id"}, contains: []string{"source_ref"},
 	},
+	// An NMS import is operator-owned network inventory and review state:
+	// source references, device/site/group keys, normalized candidate labels,
+	// page receipts and provenance do not identify a first-class person for
+	// per-subject erasure. As for device configuration archives, full-tenant
+	// erasure removes these tenant-owned tables through the tenant cascade.
+	// Explicit entries keep new import tables inside the fail-closed catalog.
+	"nms_import_sources":       {plane: "postgres:nms_import_sources", disposition: subjectTableNoSubject},
+	"nms_import_plans":         {plane: "postgres:nms_import_plans", disposition: subjectTableNoSubject},
+	"nms_import_pages":         {plane: "postgres:nms_import_pages", disposition: subjectTableNoSubject},
+	"nms_import_capture_steps": {plane: "postgres:nms_import_capture_steps", disposition: subjectTableNoSubject},
+	"nms_import_rows":          {plane: "postgres:nms_import_rows", disposition: subjectTableNoSubject},
+	"nms_import_provenance":    {plane: "postgres:nms_import_provenance", disposition: subjectTableNoSubject},
+	"nms_import_groups":        {plane: "postgres:nms_import_groups", disposition: subjectTableNoSubject},
+	"nms_import_group_members": {plane: "postgres:nms_import_group_members", disposition: subjectTableNoSubject},
 	// WEB-26: migrations 0104/0105 added three durable tenant-owned device tables
 	// that subject erasure was failing closed on because they were unclassified.
 	// device_configs is a per-device configuration archive (device target, source,
