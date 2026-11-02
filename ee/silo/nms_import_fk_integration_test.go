@@ -151,6 +151,47 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		a, contextA, sourceA, entityA, planA); err != nil {
 		t.Fatalf("silo own provenance: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
+		 label,action,reviewed_at) VALUES
+		($1,$2,$3,1,'group','7','Core routers','create',clock_timestamp()),
+		($1,$2,$3,2,'membership','7:17',NULL,'create',clock_timestamp())`,
+		a, contextA, planA); err != nil {
+		t.Fatalf("silo source group and member rows: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_groups
+		(tenant_id,context_id,source_id,external_id,label,plan_id)
+		VALUES ($1,$2,$3,'7','Core routers',$4)`,
+		a, contextA, sourceOther, planA); err == nil {
+		t.Fatal("silo group accepted a different source's plan")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_groups
+		(tenant_id,context_id,source_id,external_id,label,plan_id)
+		VALUES ($1,$2,$3,'7','Core routers',$4)`,
+		a, contextA, sourceA, planA); err != nil {
+		t.Fatalf("silo own source group: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_group_members
+		(tenant_id,context_id,source_id,group_external_id,member_external_id,
+		 row_external_id,plan_id)
+		VALUES ($1,$2,$3,'7','18','7:17',$4)`,
+		a, contextA, sourceA, planA); err == nil {
+		t.Fatal("silo membership accepted a device without import provenance")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_group_members
+		(tenant_id,context_id,source_id,group_external_id,member_external_id,
+		 row_external_id,plan_id)
+		VALUES ($1,$2,$3,'7','17','7:17',$4)`,
+		a, contextOther, sourceA, planA); err == nil {
+		t.Fatal("silo membership accepted a group from another routing context")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.nms_import_group_members
+		(tenant_id,context_id,source_id,group_external_id,member_external_id,
+		 row_external_id,plan_id)
+		VALUES ($1,$2,$3,'7','17','7:17',$4)`,
+		a, contextA, sourceA, planA); err != nil {
+		t.Fatalf("silo own exact group membership: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `DELETE FROM `+schemaA+`.nms_import_plans
 		WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a, contextA, planA); err == nil {
 		t.Fatal("silo provenance was erased by deleting its plan")
@@ -169,9 +210,9 @@ func TestNMSImportSiloForeignKeys(t *testing.T) {
 		t.Fatalf("catch up import target revision in existing silo: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_rows
-		SET target_fingerprint=NULL WHERE tenant_id=$1 AND context_id=$2
+		SET target_fingerprint='bad' WHERE tenant_id=$1 AND context_id=$2
 		  AND plan_id=$3 AND row_number=0`, a, contextA, planA); err == nil {
-		t.Fatal("caught-up silo accepted an update without a target fingerprint")
+		t.Fatal("caught-up silo accepted a malformed target fingerprint")
 	}
 	if _, err := pool.Exec(ctx, `UPDATE `+schemaA+`.nms_import_rows
 		SET target_fingerprint=$4 WHERE tenant_id=$1 AND context_id=$2

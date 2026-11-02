@@ -526,9 +526,9 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 	} {
 		if err := tryA(`INSERT INTO nms_import_rows
 			(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
-			 address,target_entity_id,action)
-			VALUES ($1,$2,$3,0,'device','17','10.42.0.1',$4,'update')`,
-			a.ID, contextA, planA, target); err == nil {
+			 address,target_entity_id,action,target_fingerprint,reviewed_at)
+			VALUES ($1,$2,$3,0,'device','17','10.42.0.1',$4,'update',$5,clock_timestamp())`,
+			a.ID, contextA, planA, target, strings.Repeat("d", 64)); err == nil {
 			t.Fatalf("plan row accepted %s entity", name)
 		}
 	}
@@ -578,11 +578,76 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 		a.ID, contextA, sourceA, entityA, planA); err != nil {
 		t.Fatalf("own provenance: %v", err)
 	}
+	if err := tryA(`INSERT INTO nms_import_rows
+		(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
+		 label,action,reviewed_at) VALUES
+		($1,$2,$3,1,'group','7','Core routers','create',clock_timestamp()),
+		($1,$2,$3,2,'membership','7:17',NULL,'create',clock_timestamp())`,
+		a.ID, contextA, planA); err != nil {
+		t.Fatalf("own captured group and member rows: %v", err)
+	}
+	if err := tryA(`INSERT INTO nms_import_groups
+		(tenant_id,context_id,source_id,external_id,label,plan_id)
+		VALUES ($1,$2,$3,'7','Core routers',$4)`,
+		a.ID, contextA, sourceA, planA); err != nil {
+		t.Fatalf("own import group: %v", err)
+	}
+	if err := tryA(`INSERT INTO nms_import_group_members
+		(tenant_id,context_id,source_id,group_external_id,member_external_id,
+		 row_external_id,plan_id)
+		VALUES ($1,$2,$3,'7','18','7:17',$4)`,
+		a.ID, contextA, sourceA, planA); err == nil {
+		t.Fatal("import group accepted a member without exact device provenance")
+	}
+	if err := tryA(`INSERT INTO nms_import_group_members
+		(tenant_id,context_id,source_id,group_external_id,member_external_id,
+		 row_external_id,plan_id)
+		VALUES ($1,$2,$3,'7','17','7:17',$4)`,
+		a.ID, contextA, sourceA, planA); err != nil {
+		t.Fatalf("own import group membership: %v", err)
+	}
+	inTenant(ctx, t, pool, b.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_rows
+			(tenant_id,context_id,plan_id,row_number,object_kind,external_id,
+			 label,action,reviewed_at)
+			VALUES ($1,$2,$3,1,'group','7','Tenant B group','create',clock_timestamp())`,
+			b.ID, contextA, planB); err != nil {
+			return err
+		}
+		_, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_groups
+			(tenant_id,context_id,source_id,external_id,label,plan_id)
+			VALUES ($1,$2,$3,'7','Tenant B group',$4)`, b.ID, contextA, sourceB, planB)
+		return err
+	})
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		updated, err := sc.Q.Exec(ctx, `UPDATE nms_import_groups SET label='cross-tenant edit'
+			WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id='7'`,
+			b.ID, contextA, sourceB)
+		if err != nil {
+			return err
+		}
+		if updated.RowsAffected() != 0 {
+			return fmt.Errorf("tenant A updated tenant B's source group")
+		}
+		return nil
+	})
+	inTenant(ctx, t, pool, b.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var label string
+		if err := sc.Q.QueryRow(ctx, `SELECT label FROM nms_import_groups
+			WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3 AND external_id='7'`,
+			b.ID, contextA, sourceB).Scan(&label); err != nil {
+			return err
+		}
+		if label != "Tenant B group" {
+			return fmt.Errorf("cross-tenant group edit persisted: %q", label)
+		}
+		return nil
+	})
 	if err := tryA(`DELETE FROM nms_import_plans
 		WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextA, planA); err == nil {
 		t.Fatal("applied provenance was erased by deleting its plan")
 	}
-	for _, table := range []string{"nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_rows", "nms_import_provenance"} {
+	for _, table := range []string{"nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_rows", "nms_import_provenance", "nms_import_groups", "nms_import_group_members"} {
 		inTenant(ctx, t, pool, b.ID, func(ctx context.Context, sc tenancy.Scope) error {
 			var n int
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM `+table+` WHERE tenant_id=$1`, a.ID).Scan(&n); err != nil {
@@ -602,9 +667,9 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a.ID, contextA, entityA); err != nil {
 			return err
 		}
-		var rows, provenance, plans int
+		var rows, provenance, plans, groups, members int
 		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_rows
-			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`, a.ID, contextA, planA).
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND object_kind='device'`, a.ID, contextA, planA).
 			Scan(&rows); err != nil {
 			return err
 		}
@@ -618,9 +683,19 @@ func TestNMSImportStorageIsolation(t *testing.T) {
 			Scan(&plans); err != nil {
 			return err
 		}
-		if rows != 0 || provenance != 0 || plans != 1 {
-			t.Fatalf("target deletion left stale import binding: rows=%d provenance=%d plans=%d",
-				rows, provenance, plans)
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_groups
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`, a.ID, contextA, planA).
+			Scan(&groups); err != nil {
+			return err
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM nms_import_group_members
+			WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3`, a.ID, contextA, planA).
+			Scan(&members); err != nil {
+			return err
+		}
+		if rows != 0 || provenance != 0 || plans != 1 || groups != 1 || members != 0 {
+			t.Fatalf("target deletion left stale import binding: device_rows=%d provenance=%d plans=%d groups=%d members=%d",
+				rows, provenance, plans, groups, members)
 		}
 		return nil
 	})

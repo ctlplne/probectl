@@ -41,6 +41,12 @@ with no approved policy, live fetching is disabled. See
    it does not write entities, groups, polling settings, alerts or agent
    evidence. No apply operation is available yet.
 
+The destination schema reserves a tenant/context/source-keyed group set and
+membership table. A membership can reference only a device with an exact
+applied import provenance in that same scope. These tables do not receive rows
+from the current capture or review routes; a group name or member address
+cannot select a routing context or canonical device.
+
 The bounded one-endpoint route has a ten-second source-fetch budget inside
 the listener deadline. LibreNMS v0 device lists have no documented page token;
 a source that cannot finish one list in that budget cannot complete a live

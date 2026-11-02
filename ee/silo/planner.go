@@ -170,6 +170,17 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 			keys = append(keys, foreignKey{"nms_import_capture_steps", "fx2b_capture_step_plan_fk",
 				"tenant_id, context_id, plan_id", "nms_import_plans", "tenant_id, context_id, id"})
 		}
+		if owned["nms_import_groups"] && owned["nms_import_group_members"] {
+			keys = append(keys,
+				foreignKey{"nms_import_groups", "fx2b_group_source_fk", "tenant_id, context_id, source_id", "nms_import_sources", "tenant_id, context_id, id"},
+				foreignKey{"nms_import_groups", "fx2b_group_plan_fk", "tenant_id, context_id, plan_id, source_id", "nms_import_plans", "tenant_id, context_id, id, source_id"},
+				foreignKey{"nms_import_groups", "fx2b_group_row_fk", "tenant_id, context_id, plan_id, object_kind, external_id", "nms_import_rows", "tenant_id, context_id, plan_id, object_kind, external_id"},
+				foreignKey{"nms_import_group_members", "fx2b_member_group_fk", "tenant_id, context_id, source_id, group_external_id", "nms_import_groups", "tenant_id, context_id, source_id, external_id"},
+				foreignKey{"nms_import_group_members", "fx2b_member_device_fk", "tenant_id, context_id, source_id, member_kind, member_external_id", "nms_import_provenance", "tenant_id, context_id, source_id, object_kind, external_id"},
+				foreignKey{"nms_import_group_members", "fx2b_member_plan_fk", "tenant_id, context_id, plan_id, source_id", "nms_import_plans", "tenant_id, context_id, id, source_id"},
+				foreignKey{"nms_import_group_members", "fx2b_member_row_fk", "tenant_id, context_id, plan_id, object_kind, row_external_id", "nms_import_rows", "tenant_id, context_id, plan_id, object_kind, external_id"},
+			)
+		}
 	}
 	// Existing silos can predate the public (tenant_id,id) index. A global
 	// tests.id primary key is insufficient for the composite FK, so install
@@ -220,7 +231,9 @@ END $fx2_silo_ck$`, quoteLiteral(child), quoteLiteral(name), child, quoteIdent(n
 		if key.name == "fx2b_row_entity_fk" {
 			onDelete = " ON DELETE SET NULL (target_entity_id)"
 		}
-		if key.name == "fx2b_provenance_plan_source_fk" || key.name == "fx2b_provenance_row_fk" {
+		if key.name == "fx2b_provenance_plan_source_fk" || key.name == "fx2b_provenance_row_fk" ||
+			key.name == "fx2b_group_plan_fk" || key.name == "fx2b_group_row_fk" ||
+			key.name == "fx2b_member_plan_fk" || key.name == "fx2b_member_row_fk" {
 			// An applied plan remains while provenance cites it. A deferred FK
 			// still allows a whole-tenant cascade to remove both records.
 			onDelete = " ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED"
@@ -245,8 +258,8 @@ END $fx2_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
                        WHERE conrelid = %s::regclass
                          AND conname='nms_import_rows_target_fingerprint_check') THEN
         ALTER TABLE %s ADD CONSTRAINT nms_import_rows_target_fingerprint_check
-            CHECK ((action='update' AND target_fingerprint ~ '^[0-9a-f]{64}$') OR
-                   (action<>'update' AND target_fingerprint IS NULL)) NOT VALID;
+            CHECK (target_fingerprint IS NULL OR
+                   (action='update' AND target_fingerprint ~ '^[0-9a-f]{64}$')) NOT VALID;
     END IF;
 END $fx2b_target_revision$`, quoteLiteral(schema), quoteLiteral(rows), rows))
 	}
