@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/tags"
 )
 
@@ -180,6 +182,31 @@ func TestTagRuleAPIEnforcesTenantContextAndPermissions(t *testing.T) {
 			(tc.tenant == a && page.Items[0].ID != assignment.ID) {
 			t.Fatalf("tenant %s saw wrong assignments: %+v", tc.tenant, page)
 		}
+	}
+	readBackend := mcpTagBackend{pool: db.Pool(), policyLoader: func(context.Context, string) ([]auth.Policy, error) {
+		return nil, nil
+	}}
+	for _, tc := range []struct {
+		tenant, contextID string
+		want              int
+	}{{a, contextA, 1}, {b, contextB, 0}} {
+		principal := &auth.Principal{TenantID: tc.tenant, UserID: "tag-reader",
+			Permissions: map[string]bool{permTagsRead: true}}
+		definitions, err := readBackend.TagDefinitionList(context.Background(), principal)
+		if err != nil || len(definitions.Items) != tc.want {
+			t.Fatalf("MCP tag definitions tenant %s: %+v %v", tc.tenant, definitions, err)
+		}
+		assigned, err := readBackend.TagAssignmentList(context.Background(), principal,
+			mcp.TagContextListInput{ContextID: tc.contextID, Limit: 1})
+		if err != nil || len(assigned.Items) != tc.want {
+			t.Fatalf("MCP assigned tags tenant %s: %+v %v", tc.tenant, assigned, err)
+		}
+	}
+	foreignPrincipal := &auth.Principal{TenantID: b, UserID: "tag-reader",
+		Permissions: map[string]bool{permTagsRead: true}}
+	if _, err := readBackend.TagAssignmentList(context.Background(), foreignPrincipal,
+		mcp.TagContextListInput{ContextID: contextA}); err == nil {
+		t.Fatal("MCP tag read accepted another tenant's routing context")
 	}
 	for _, tc := range []struct {
 		method, path, tenant, body, withheld string

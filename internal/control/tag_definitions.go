@@ -19,6 +19,23 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+func (s *Server) tagRoutes() []apiRoute {
+	return []apiRoute{
+		{http.MethodGet, "/v1/tags", s.handleListTagDefinitions, permTagsRead},
+		{http.MethodPost, "/v1/tags", s.handleCreateTagDefinition, permTagsWrite},
+		{http.MethodPut, "/v1/tags/{id}", s.handleRenameTagDefinition, permTagsWrite},
+		{http.MethodDelete, "/v1/tags/{id}", s.handleDeleteTagDefinition, permTagsWrite},
+		{http.MethodGet, "/v1/entity-contexts/{context_id}/tag-rules", s.handleListTagRules, permTagsRead},
+		{http.MethodPost, "/v1/entity-contexts/{context_id}/tag-rules", s.handleCreateTagRule, permTagsWrite},
+		{http.MethodPut, "/v1/entity-contexts/{context_id}/tag-rules/{id}", s.handleUpdateTagRule, permTagsWrite},
+		{http.MethodDelete, "/v1/entity-contexts/{context_id}/tag-rules/{id}", s.handleDeleteTagRule, permTagsWrite},
+		{http.MethodGet, "/v1/entity-contexts/{context_id}/tag-assignments", s.handleListTagAssignments, permTagsRead},
+		{http.MethodPost, "/v1/entity-contexts/{context_id}/tag-assignments", s.handleCreateManualTagAssignment, permTagsWrite},
+		{http.MethodPut, "/v1/entity-contexts/{context_id}/tag-assignments/{id}", s.handleUpdateManualTagAssignment, permTagsWrite},
+		{http.MethodDelete, "/v1/entity-contexts/{context_id}/tag-assignments/{id}", s.handleDeleteManualTagAssignment, permTagsWrite},
+	}
+}
+
 // Tag vocabulary is tenant-wide. Route RBAC is checked before these handlers;
 // each store operation still runs inside the principal's FORCE-RLS transaction.
 // Mutations and their audit events commit or roll back together.

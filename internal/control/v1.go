@@ -40,7 +40,7 @@ type apiRoute struct {
 }
 
 func (s *Server) apiRoutes() []apiRoute {
-	return []apiRoute{
+	return append([]apiRoute{
 		{http.MethodGet, "/v1/tests", s.handleListTests, permTestRead},
 		{http.MethodPost, "/v1/tests", s.handleCreateTest, permTestWrite},
 		{http.MethodGet, "/v1/tests/{id}", s.handleGetTest, permTestRead},
@@ -102,18 +102,6 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/entities/{id}", s.handleGetEntity, ai.PermEntitiesRead},
 		{http.MethodPost, "/v1/entity-contexts", s.handleCreateEntityContext, permAgentWrite},
 		{http.MethodGet, "/v1/entity-contexts", s.handleListEntityContexts, ai.PermEntitiesRead},
-		{http.MethodGet, "/v1/tags", s.handleListTagDefinitions, permTagsRead},
-		{http.MethodPost, "/v1/tags", s.handleCreateTagDefinition, permTagsWrite},
-		{http.MethodPut, "/v1/tags/{id}", s.handleRenameTagDefinition, permTagsWrite},
-		{http.MethodDelete, "/v1/tags/{id}", s.handleDeleteTagDefinition, permTagsWrite},
-		{http.MethodGet, "/v1/entity-contexts/{context_id}/tag-rules", s.handleListTagRules, permTagsRead},
-		{http.MethodPost, "/v1/entity-contexts/{context_id}/tag-rules", s.handleCreateTagRule, permTagsWrite},
-		{http.MethodPut, "/v1/entity-contexts/{context_id}/tag-rules/{id}", s.handleUpdateTagRule, permTagsWrite},
-		{http.MethodDelete, "/v1/entity-contexts/{context_id}/tag-rules/{id}", s.handleDeleteTagRule, permTagsWrite},
-		{http.MethodGet, "/v1/entity-contexts/{context_id}/tag-assignments", s.handleListTagAssignments, permTagsRead},
-		{http.MethodPost, "/v1/entity-contexts/{context_id}/tag-assignments", s.handleCreateManualTagAssignment, permTagsWrite},
-		{http.MethodPut, "/v1/entity-contexts/{context_id}/tag-assignments/{id}", s.handleUpdateManualTagAssignment, permTagsWrite},
-		{http.MethodDelete, "/v1/entity-contexts/{context_id}/tag-assignments/{id}", s.handleDeleteManualTagAssignment, permTagsWrite},
 		{http.MethodPost, "/v1/nms-imports/sources", s.handleConfigureNMSImportSource, permNMSImportWrite},
 		{http.MethodPost, "/v1/nms-imports/sources/{instance}/disable", s.handleDisableNMSImportSource, permNMSImportWrite},
 		{http.MethodPost, "/v1/nms-imports/live-plans", s.handleStartNMSImportLivePlan, permNMSImportWrite},
@@ -290,7 +278,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/dashboard-report-artifacts", s.handleListDashboardReportArtifacts, permMetricsRead},
 		{http.MethodGet, "/v1/dashboard-report-artifacts/{id}", s.handleDownloadDashboardReportArtifact, permMetricsRead},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
-	}
+	}, s.tagRoutes()...)
 }
 
 // inTenant runs fn inside the caller's tenant — resolved from the authenticated

@@ -132,6 +132,7 @@ func newMCPServer(
 	options = append(options, mcp.WithNativeFlowRenderBudget(renderBudget))
 	if pool != nil {
 		options = append(options, mcp.WithEntityBackend(mcpEntityBackend{pool: pool, pathStore: pathStore, policyLoader: policyLoader}))
+		options = append(options, mcp.WithTagBackend(mcpTagBackend{pool: pool, policyLoader: policyLoader}))
 		options = append(options, mcp.WithNMSImportBackend(mcpNMSImportBackend{pool: pool, policyLoader: policyLoader, owner: src.NativeFlow}))
 	}
 	if src.NativeFlow != nil {
