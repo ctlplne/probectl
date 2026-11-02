@@ -127,6 +127,17 @@ const EXPLORER_LIVE_RECEIPT: SurfaceLiveReceipt = {
   note: 'The native flow real-stack receipt runs signed collector registration and four protocol senders for two tenants through policy-bound stores, then checks REST, CLI, MCP, stateless planning and the rendered Explorer. CI development transport and the separate production TLS image receipt have distinct scopes.',
 }
 
+const NMS_IMPORT_LIVE_RECEIPT: SurfaceLiveReceipt = {
+  status: 'live-green',
+  evidence: [
+    'ci:.github/workflows/ci.yml:nms-vendor-live',
+    'test:internal/store/nmsimport_vendor_integration_test.go:TestNMSVendorLiveImportTwoTenants',
+    'test:internal/control/nmsimport_export_integration_test.go:TestNMSImportExportPreviewRoutesKeepVendorPagesInOneTenant',
+    'test:web/src/test/nms-import.test.tsx:Admin export preview uploads documented pages within each selected tenant',
+  ],
+  note: 'CI imports from live LibreNMS and Zabbix fixtures into two Postgres tenants. Separate paired-tenant REST/MCP and rendered Admin tests cover the documented-export preview. Orion and PRTG have no live Windows-trial claim.',
+}
+
 const EBPF_LIVE_RECEIPT: SurfaceLiveReceipt = {
   status: 'live-green',
   evidence: [
@@ -459,6 +470,23 @@ export const SURFACES: SurfaceDecl[] = [
       'cli:probectl entities sources-assign',
     ],
     liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
+    capability: 'Incumbent NMS import and documented-export preview',
+    featureIds: ['F18', 'F40'],
+    sprint: 'FX-2b',
+    kind: 'native',
+    route: '/admin',
+    offNav: true,
+    evidence: [
+      'file:web/src/routes/admin/NMSImportCard.tsx',
+      'file:web/src/test/nms-import.test.tsx',
+      'openapi:/v1/nms-imports/export-plans',
+      'openapi:/v1/nms-imports/{id}/export-pages',
+      'cli:probectl nms-import export-start',
+      'cli:probectl nms-import export-page',
+    ],
+    liveReceipt: NMS_IMPORT_LIVE_RECEIPT,
   },
   {
     capability: 'Topology dependency graph + what-if impact simulation',

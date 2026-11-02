@@ -137,7 +137,7 @@
       ],
       "name": "Device telemetry",
       "status": "delivered",
-      "evidence": "`internal/device` (SNMP + gNMI); FX-2 SNMP/interface/LLDP identity evidence uses `internal/device/entity_evidence.go` and the operator registry card."
+      "evidence": "`internal/device` (SNMP + gNMI); FX-2 SNMP/interface/LLDP identity evidence uses `internal/device/entity_evidence.go` and the operator registry card. FX-2b tenant-scoped NMS switching uses `internal/nmsimport`, `internal/control/nmsimport_export.go`, `web/src/routes/admin/NMSImportCard.tsx` and `TestNMSVendorLiveImportTwoTenants` for live LibreNMS/Zabbix; Orion/PRTG remain documented-export preview pending live trials."
     },
     {
       "ids": [
@@ -313,7 +313,7 @@
       ],
       "name": "Live topology graph",
       "status": "delivered",
-      "evidence": "`internal/topology` (versioned, what-if; ADR U-047); FX-2 current tenant/context entity pivots use `internal/entity`, `migrations/0136_entity_registry.sql` and `docs/entity-registry.md`."
+      "evidence": "`internal/topology` (versioned, what-if; ADR U-047); FX-2 current tenant/context entity pivots use `internal/entity`, `migrations/0136_entity_registry.sql` and `docs/entity-registry.md`. FX-2b reviewed NMS devices and groups enter the same tenant/context identity registry through `internal/nmsimport/apply.go`; Orion/PRTG inputs remain preview until live trials."
     },
     {
       "ids": [
