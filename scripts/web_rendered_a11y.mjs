@@ -452,6 +452,15 @@ function apiPayload(path, method, pagePath = "") {
       target_kind: "exporter", match_kind: "cidr", address_side: "exporter",
       cidr: "192.0.2.0/24", value: "blue", priority: 0,
     }] });
+  if (path === "/v1/entity-contexts/00000000-0000-0000-0000-000000000072/tag-assignments")
+    return json({ items: [{
+      id: "00000000-0000-0000-0000-000000000075",
+      tenant_id: "00000000-0000-0000-0000-000000000001",
+      context_id: "00000000-0000-0000-0000-000000000072",
+      tag_id: "00000000-0000-0000-0000-000000000073",
+      target_kind: "device", target_id: "00000000-0000-0000-0000-000000000076",
+      value: "gold", source: "manual",
+    }] });
   if (path === "/v1/tests") return json({ items: sampleTests });
   if (path === "/v1/tests/t1") return json(sampleTests[0]);
   if (path === "/v1/coverage/vantages")
@@ -3756,6 +3765,9 @@ async function main() {
               }
               if (!(await page.locator("[data-tenant-tag-rules]").isVisible())) {
                 failures.push(`${viewport.name} ${theme} /admin: tenant tag rules did not render`);
+              }
+              if (!(await page.locator("[data-tenant-tag-assignments]").isVisible())) {
+                failures.push(`${viewport.name} ${theme} /admin: tenant tag assignments did not render`);
               }
               record.fleetTestSet = await fleetTestSetChecks(page);
               if (record.fleetTestSet.length > 0) {

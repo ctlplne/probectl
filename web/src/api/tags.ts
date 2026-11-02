@@ -6,12 +6,30 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
-import type { TagDefinition, TagDefinitionList, TagRule, TagRuleInput, TagRulePage } from './sdk.gen'
+import type {
+  ManualTagAssignmentInput,
+  TagAssignment,
+  TagAssignmentPage,
+  TagDefinition,
+  TagDefinitionList,
+  TagRule,
+  TagRuleInput,
+  TagRulePage,
+} from './sdk.gen'
 
-export type { TagDefinition, TagRule, TagRuleInput } from './sdk.gen'
+export type {
+  ManualTagAssignmentInput,
+  TagAssignment,
+  TagDefinition,
+  TagRule,
+  TagRuleInput,
+} from './sdk.gen'
 
 const tagKey = (tenantID: string) => ['tenant-tags', tenantID] as const
-const ruleKey = (tenantID: string, contextID: string) => ['tenant-tag-rules', tenantID, contextID] as const
+const ruleKey = (tenantID: string, contextID: string) =>
+  ['tenant-tag-rules', tenantID, contextID] as const
+const assignmentKey = (tenantID: string, contextID: string) =>
+  ['tenant-tag-assignments', tenantID, contextID] as const
 
 export function useTagDefinitions(tenantID: string) {
   return useQuery({
@@ -56,6 +74,7 @@ export function useDeleteTagDefinition(tenantID: string) {
       void client.invalidateQueries({ queryKey: tagKey(tenantID) })
       // Deleting a key cascades to its context rules and manual assignments.
       void client.invalidateQueries({ queryKey: ['tenant-tag-rules', tenantID] })
+      void client.invalidateQueries({ queryKey: ['tenant-tag-assignments', tenantID] })
     },
   })
 }
@@ -68,7 +87,9 @@ export function useTagRules(tenantID: string, contextID: string) {
     queryFn: ({ pageParam }) => {
       const query = new URLSearchParams({ limit: '100' })
       if (pageParam) query.set('cursor', pageParam)
-      return apiFetch<TagRulePage>(`/entity-contexts/${encodeURIComponent(contextID)}/tag-rules?${query}`)
+      return apiFetch<TagRulePage>(
+        `/entity-contexts/${encodeURIComponent(contextID)}/tag-rules?${query}`,
+      )
     },
     getNextPageParam: (page) => page.next_cursor ?? undefined,
   })
@@ -79,7 +100,9 @@ export function useCreateTagRule(tenantID: string, contextID: string) {
   return useMutation({
     mutationFn: (input: TagRuleInput) =>
       apiFetch<TagRule>(`/entity-contexts/${encodeURIComponent(contextID)}/tag-rules`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ruleKey(tenantID, contextID) }),
   })
@@ -89,9 +112,14 @@ export function useUpdateTagRule(tenantID: string, contextID: string) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: TagRuleInput }) =>
-      apiFetch<TagRule>(`/entity-contexts/${encodeURIComponent(contextID)}/tag-rules/${encodeURIComponent(id)}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
-      }),
+      apiFetch<TagRule>(
+        `/entity-contexts/${encodeURIComponent(contextID)}/tag-rules/${encodeURIComponent(id)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: ruleKey(tenantID, contextID) }),
   })
 }
@@ -100,7 +128,70 @@ export function useDeleteTagRule(tenantID: string, contextID: string) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<void>(`/entity-contexts/${encodeURIComponent(contextID)}/tag-rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      apiFetch<void>(
+        `/entity-contexts/${encodeURIComponent(contextID)}/tag-rules/${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: ruleKey(tenantID, contextID) }),
+  })
+}
+
+export function useTagAssignments(tenantID: string, contextID: string) {
+  return useInfiniteQuery({
+    queryKey: assignmentKey(tenantID, contextID),
+    enabled: Boolean(tenantID && contextID),
+    initialPageParam: '',
+    queryFn: ({ pageParam }) => {
+      const query = new URLSearchParams({ limit: '100' })
+      if (pageParam) query.set('cursor', pageParam)
+      return apiFetch<TagAssignmentPage>(
+        `/entity-contexts/${encodeURIComponent(contextID)}/tag-assignments?${query}`,
+      )
+    },
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
+  })
+}
+
+export function useCreateTagAssignment(tenantID: string, contextID: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ManualTagAssignmentInput) =>
+      apiFetch<TagAssignment>(`/entity-contexts/${encodeURIComponent(contextID)}/tag-assignments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: assignmentKey(tenantID, contextID) }),
+  })
+}
+
+export function useUpdateTagAssignment(tenantID: string, contextID: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ManualTagAssignmentInput }) =>
+      apiFetch<TagAssignment>(
+        `/entity-contexts/${encodeURIComponent(contextID)}/tag-assignments/${encodeURIComponent(id)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      ),
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: assignmentKey(tenantID, contextID) }),
+  })
+}
+
+export function useDeleteTagAssignment(tenantID: string, contextID: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(
+        `/entity-contexts/${encodeURIComponent(contextID)}/tag-assignments/${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+      ),
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: assignmentKey(tenantID, contextID) }),
   })
 }

@@ -592,6 +592,14 @@ take precedence over previously reviewed imported suggestions. Imported
 assignments remain visible with provenance but cannot be changed through the
 manual endpoints. Tag revisions alter current views of retained historical
 flows; raw telemetry is never rewritten.
+Admin → Manual tag assignments selects an owned routing context and pages
+manual and imported values. Operators with `tags.write` can create, edit and
+confirm deletion of manual values; imported values are read-only in this
+screen. Enter the ID of an already-bound device, interface, prefix, agent or
+test. For an exporter, enter its registered agent ID and owned source
+reference. The server rejects any target outside the authenticated tenant
+and selected context. Readers with `tags.read` see source and value without
+mutation controls.
 
 An authorized flow query may group or filter by an exact `tag.<key>` text
 field. `/v1/explorer/schema` and the native MCP schema include a tenant's tag

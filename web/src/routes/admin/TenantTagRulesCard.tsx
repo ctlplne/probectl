@@ -17,7 +17,16 @@ import {
   type TagRuleInput,
 } from '../../api/tags'
 import {
-  Button, Card, CardBody, CardHeader, ErrorState, Field, LoadingState, Modal, Select, Table,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  ErrorState,
+  Field,
+  LoadingState,
+  Modal,
+  Select,
+  Table,
   type Column,
 } from '../../components'
 import styles from './EntityRegistryCard.module.css'
@@ -45,7 +54,10 @@ export function TenantTagRulesCard() {
 
 function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canWrite: boolean }) {
   const contexts = useEntityContexts(tenantID)
-  const allContexts = useMemo(() => contexts.data?.pages.flatMap((page) => page.items) ?? [], [contexts.data])
+  const allContexts = useMemo(
+    () => contexts.data?.pages.flatMap((page) => page.items) ?? [],
+    [contexts.data],
+  )
   const definitions = useTagDefinitions(tenantID)
   const [contextID, setContextID] = useState('')
   const [pageIndex, setPageIndex] = useState(0)
@@ -140,22 +152,46 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
 
   const rows = rules.data?.pages[pageIndex]?.items ?? []
   const keyByID = new Map<string, string>(
-    definitions.data?.items.map((definition): [string, string] => [definition.id, definition.key]) ?? [],
+    definitions.data?.items.map((definition): [string, string] => [
+      definition.id,
+      definition.key,
+    ]) ?? [],
   )
   const columns: Column<TagRule>[] = [
-    { key: 'tag', header: 'Tag', render: (row) => <code>{keyByID.get(row.tag_id) ?? row.tag_id}</code> },
+    {
+      key: 'tag',
+      header: 'Tag',
+      render: (row) => <code>{keyByID.get(row.tag_id) ?? row.tag_id}</code>,
+    },
     { key: 'target', header: 'Target', render: (row) => row.target_kind },
-    { key: 'match', header: 'Match', render: (row) => `${row.match_kind}: ${row.cidr ?? row.name_pattern ?? row.snmp_field ?? ''}` },
+    {
+      key: 'match',
+      header: 'Match',
+      render: (row) => `${row.match_kind}: ${row.cidr ?? row.name_pattern ?? row.snmp_field ?? ''}`,
+    },
     { key: 'value', header: 'Value', render: (row) => row.value },
     { key: 'priority', header: 'Priority', render: (row) => row.priority ?? 0, numeric: true },
     {
-      key: 'actions', header: 'Actions',
-      render: (row) => canWrite ? (
-        <div className={styles.row}>
-          <Button size="sm" onClick={() => editRule(row)} aria-label={`Edit rule ${row.id}`}>Edit</Button>
-          <Button size="sm" variant="ghost" onClick={() => setDeleting(row)} aria-label={`Delete rule ${row.id}`}>Delete</Button>
-        </div>
-      ) : 'Read only',
+      key: 'actions',
+      header: 'Actions',
+      render: (row) =>
+        canWrite ? (
+          <div className={styles.row}>
+            <Button size="sm" onClick={() => editRule(row)} aria-label={`Edit rule ${row.id}`}>
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setDeleting(row)}
+              aria-label={`Delete rule ${row.id}`}
+            >
+              Delete
+            </Button>
+          </div>
+        ) : (
+          'Read only'
+        ),
     },
   ]
 
@@ -168,7 +204,9 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
       <CardBody>
         <div className={styles.stack}>
           {contexts.isPending ? <LoadingState label="Loading routing contexts…" /> : null}
-          {contexts.isError ? <ErrorState description="Routing contexts could not be loaded." /> : null}
+          {contexts.isError ? (
+            <ErrorState description="Routing contexts could not be loaded." />
+          ) : null}
           {contexts.data ? (
             <div className={styles.row}>
               <Select
@@ -178,12 +216,16 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
                 options={[
                   { value: '', label: 'Choose a site and VRF' },
                   ...allContexts.map((item) => ({
-                    value: item.context_id, label: `${item.site_label} / ${item.vrf_label}`,
+                    value: item.context_id,
+                    label: `${item.site_label} / ${item.vrf_label}`,
                   })),
                 ]}
               />
               {contexts.hasNextPage ? (
-                <Button onClick={() => void contexts.fetchNextPage()} disabled={contexts.isFetchingNextPage}>
+                <Button
+                  onClick={() => void contexts.fetchNextPage()}
+                  disabled={contexts.isFetchingNextPage}
+                >
                   Load more contexts
                 </Button>
               ) : null}
@@ -195,17 +237,30 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
               {rules.isError ? <ErrorState description="Tag rules could not be loaded." /> : null}
               {rules.data ? (
                 <>
-                  <Table caption="Tag rules in selected routing context" columns={columns} rows={rows} rowKey={(row) => row.id} empty="No tag rules in this context." />
+                  <Table
+                    caption="Tag rules in selected routing context"
+                    columns={columns}
+                    rows={rows}
+                    rowKey={(row) => row.id}
+                    empty="No tag rules in this context."
+                  />
                   <div className={styles.row}>
-                    <Button disabled={pageIndex === 0} onClick={() => setPageIndex(pageIndex - 1)}>Previous page</Button>
+                    <Button disabled={pageIndex === 0} onClick={() => setPageIndex(pageIndex - 1)}>
+                      Previous page
+                    </Button>
                     <span aria-live="polite">Page {pageIndex + 1}</span>
                     <Button
-                      disabled={rules.isFetchingNextPage || (pageIndex + 1 >= (rules.data.pages.length) && !rules.hasNextPage)}
+                      disabled={
+                        rules.isFetchingNextPage ||
+                        (pageIndex + 1 >= rules.data.pages.length && !rules.hasNextPage)
+                      }
                       onClick={() => {
                         if (pageIndex + 1 < rules.data.pages.length) setPageIndex(pageIndex + 1)
                         else void rules.fetchNextPage().then(() => setPageIndex(pageIndex + 1))
                       }}
-                    >Next page</Button>
+                    >
+                      Next page
+                    </Button>
                   </div>
                 </>
               ) : null}
@@ -213,36 +268,98 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
                 <form className={styles.form} onSubmit={(event) => void onSave(event)}>
                   <h3>{editing ? 'Edit tag rule' : 'Create tag rule'}</h3>
                   <div className={styles.row}>
-                    <Select label="Tag key" value={tagID} onChange={(event) => setTagID(event.target.value)}
-                      options={definitions.data.items.map((item) => ({ value: item.id, label: item.key }))} />
-                    <Select label="Target kind" value={targetKind} onChange={(event) => setTargetKind(event.target.value as TargetKind)}
-                      options={targetKinds.map((kind) => ({ value: kind, label: kind }))} />
-                    <Select label="Match kind" value={matchKind} onChange={(event) => setMatchKind(event.target.value as MatchKind)}
-                      options={[{ value: 'cidr', label: 'CIDR' }, { value: 'name_pattern', label: 'Name pattern' }, { value: 'snmp_field', label: 'SNMP field' }]} />
+                    <Select
+                      label="Tag key"
+                      value={tagID}
+                      onChange={(event) => setTagID(event.target.value)}
+                      options={definitions.data.items.map((item) => ({
+                        value: item.id,
+                        label: item.key,
+                      }))}
+                    />
+                    <Select
+                      label="Target kind"
+                      value={targetKind}
+                      onChange={(event) => setTargetKind(event.target.value as TargetKind)}
+                      options={targetKinds.map((kind) => ({ value: kind, label: kind }))}
+                    />
+                    <Select
+                      label="Match kind"
+                      value={matchKind}
+                      onChange={(event) => setMatchKind(event.target.value as MatchKind)}
+                      options={[
+                        { value: 'cidr', label: 'CIDR' },
+                        { value: 'name_pattern', label: 'Name pattern' },
+                        { value: 'snmp_field', label: 'SNMP field' },
+                      ]}
+                    />
                   </div>
                   <div className={styles.row}>
                     {matchKind === 'cidr' ? (
                       <>
-                        <Select label="Address side" value={addressSide} onChange={(event) => setAddressSide(event.target.value as AddressSide)}
-                          options={addressSides.map((side) => ({ value: side, label: side }))} />
-                        <Field label="Canonical CIDR" required value={cidr} onChange={(event) => setCIDR(event.target.value)} />
+                        <Select
+                          label="Address side"
+                          value={addressSide}
+                          onChange={(event) => setAddressSide(event.target.value as AddressSide)}
+                          options={addressSides.map((side) => ({ value: side, label: side }))}
+                        />
+                        <Field
+                          label="Canonical CIDR"
+                          required
+                          value={cidr}
+                          onChange={(event) => setCIDR(event.target.value)}
+                        />
                       </>
                     ) : null}
                     {matchKind === 'name_pattern' ? (
-                      <Field label="RE2 name pattern" required maxLength={256} value={namePattern} onChange={(event) => setNamePattern(event.target.value)} />
+                      <Field
+                        label="RE2 name pattern"
+                        required
+                        maxLength={256}
+                        value={namePattern}
+                        onChange={(event) => setNamePattern(event.target.value)}
+                      />
                     ) : null}
                     {matchKind === 'snmp_field' ? (
                       <>
-                        <Select label="SNMP field" value={snmpField} onChange={(event) => setSNMPField(event.target.value as SNMPField)}
-                          options={snmpFields.map((field) => ({ value: field, label: field }))} />
-                        <Field label="SNMP field value" required maxLength={256} value={snmpValue} onChange={(event) => setSNMPValue(event.target.value)} />
+                        <Select
+                          label="SNMP field"
+                          value={snmpField}
+                          onChange={(event) => setSNMPField(event.target.value as SNMPField)}
+                          options={snmpFields.map((field) => ({ value: field, label: field }))}
+                        />
+                        <Field
+                          label="SNMP field value"
+                          required
+                          maxLength={256}
+                          value={snmpValue}
+                          onChange={(event) => setSNMPValue(event.target.value)}
+                        />
                       </>
                     ) : null}
                   </div>
                   <div className={styles.row}>
-                    <Field label="Tag value" required maxLength={128} value={value} onChange={(event) => setValue(event.target.value)} />
-                    <Field label="Rule priority" type="number" min={-1000} max={1000} value={priority} onChange={(event) => setPriority(event.target.value)} />
-                    <Button type="submit" disabled={create.isPending || update.isPending || !tagID || !value.trim()}>{editing ? 'Save rule' : 'Create rule'}</Button>
+                    <Field
+                      label="Tag value"
+                      required
+                      maxLength={128}
+                      value={value}
+                      onChange={(event) => setValue(event.target.value)}
+                    />
+                    <Field
+                      label="Rule priority"
+                      type="number"
+                      min={-1000}
+                      max={1000}
+                      value={priority}
+                      onChange={(event) => setPriority(event.target.value)}
+                    />
+                    <Button
+                      type="submit"
+                      disabled={create.isPending || update.isPending || !tagID || !value.trim()}
+                    >
+                      {editing ? 'Save rule' : 'Create rule'}
+                    </Button>
                     {editing ? <Button onClick={() => setEditing(null)}>Cancel edit</Button> : null}
                   </div>
                   {create.isError ? <p role="alert">{create.error.message}</p> : null}
@@ -250,13 +367,28 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
                 </form>
               ) : null}
             </>
-          ) : <p>Choose a routing context to inspect tag rules.</p>}
+          ) : (
+            <p>Choose a routing context to inspect tag rules.</p>
+          )}
         </div>
       </CardBody>
-      <Modal open={Boolean(deleting)} onClose={() => setDeleting(null)} title="Delete tag rule?"
-        footer={<><Button onClick={() => setDeleting(null)}>Cancel</Button><Button variant="danger" disabled={remove.isPending} onClick={() => void onDelete()}>Delete rule</Button></>}
+      <Modal
+        open={Boolean(deleting)}
+        onClose={() => setDeleting(null)}
+        title="Delete tag rule?"
+        footer={
+          <>
+            <Button onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button variant="danger" disabled={remove.isPending} onClick={() => void onDelete()}>
+              Delete rule
+            </Button>
+          </>
+        }
       >
-        <p>The current tag value for matching retained history will change after this rule is removed.</p>
+        <p>
+          The current tag value for matching retained history will change after this rule is
+          removed.
+        </p>
         {remove.isError ? <p role="alert">{remove.error.message}</p> : null}
       </Modal>
     </Card>

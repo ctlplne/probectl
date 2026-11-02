@@ -30,7 +30,13 @@ import styles from './EntityRegistryCard.module.css'
 export function TenantTagsCard() {
   const { permissions, tenant } = useAuth()
   if (!permissions.includes('tags.read')) return null
-  return <TenantTagsContents key={tenant.id} tenantID={tenant.id} canWrite={permissions.includes('tags.write')} />
+  return (
+    <TenantTagsContents
+      key={tenant.id}
+      tenantID={tenant.id}
+      canWrite={permissions.includes('tags.write')}
+    />
+  )
 }
 
 function TenantTagsContents({ tenantID, canWrite }: { tenantID: string; canWrite: boolean }) {
@@ -96,7 +102,12 @@ function TenantTagsContents({ tenantID, canWrite }: { tenantID: string; canWrite
             >
               Rename
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(row)} aria-label={`Delete tag ${row.key}`}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setDeleteTarget(row)}
+              aria-label={`Delete tag ${row.key}`}
+            >
               Delete
             </Button>
           </div>
@@ -115,7 +126,9 @@ function TenantTagsContents({ tenantID, canWrite }: { tenantID: string; canWrite
       <CardBody>
         <div className={styles.stack}>
           {definitions.isPending ? <LoadingState label="Loading tenant tags…" /> : null}
-          {definitions.isError ? <ErrorState description="Tenant tags could not be loaded." /> : null}
+          {definitions.isError ? (
+            <ErrorState description="Tenant tags could not be loaded." />
+          ) : null}
           {definitions.data ? (
             <Table
               caption="Tenant tag definitions"
@@ -179,7 +192,10 @@ function TenantTagsContents({ tenantID, canWrite }: { tenantID: string; canWrite
           </>
         }
       >
-        <p>Deleting this key also removes its tenant rules and assignments. Saved flow views using it will refuse to run.</p>
+        <p>
+          Deleting this key also removes its tenant rules and assignments. Saved flow views using it
+          will refuse to run.
+        </p>
         {remove.isError ? <p role="alert">{remove.error.message}</p> : null}
       </Modal>
     </Card>
