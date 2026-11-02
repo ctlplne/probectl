@@ -114,6 +114,12 @@ commits = ['''059ff6be5b95463cb72e7b20cec09690a477ccec''', '''973913e593cfcba0fe
 paths = ['''ee/silo/planner\.go''']
 
 [[rules.allowlists]]
+description = "FX-2b: the additive group-FK condition in b688424 is identifier-only, repeating the previously reviewed silo planner false positive. Only this exact commit and planner path are excepted; subsequent edits remain scanned."
+condition = "AND"
+commits = ['''b688424953da669d20ac2941fdea95682a35b531''']
+paths = ['''ee/silo/planner\.go''']
+
+[[rules.allowlists]]
 description = "Historical CI compose-render fixture: exact commits + path + documented 64-byte throwaway value must all match."
 condition = "AND"
 commits = [
