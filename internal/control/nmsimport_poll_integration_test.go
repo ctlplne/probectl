@@ -137,15 +137,16 @@ func TestNMSImportPollTargetPreviewRouteIsTenantAndAgentBound(t *testing.T) {
 		t.Fatalf("second tenant proposal page: %d %s", second.Code, second.Body.String())
 	}
 	for _, check := range []struct {
+		name   string
 		url    string
 		tenant string
 		status int
-	}{{listURL, b, http.StatusNotFound},
-		{listURL + "&cursor=bad", a, http.StatusBadRequest},
-		{listURL + "&limit=101", a, http.StatusBadRequest}} {
+	}{{"foreign tenant", listURL, b, http.StatusNotFound},
+		{"invalid cursor", listURL + "&cursor=bad", a, http.StatusBadRequest},
+		{"over limit", strings.Replace(listURL, "&limit=1", "&limit=101", 1), a, http.StatusBadRequest}} {
 		response := apiReq(t, h, http.MethodGet, check.url, check.tenant, nil)
 		if response.Code != check.status {
-			t.Fatalf("proposal list boundary: %d %s", response.Code, response.Body.String())
+			t.Fatalf("proposal list %s: %d %s", check.name, response.Code, response.Body.String())
 		}
 	}
 	selection := map[string]string{"context_id": contextID, "source_id": sourceID,
