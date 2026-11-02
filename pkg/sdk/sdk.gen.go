@@ -2206,6 +2206,9 @@ type NMSImportReviewDiffPage struct {
 type NMSImportSealedRow struct {
 	Action           string   `json:"action"`
 	Address          string   `json:"address,omitempty"`
+	AppliedAt        string   `json:"applied_at,omitempty"`
+	BindingPlanId    string   `json:"binding_plan_id,omitempty"`
+	BoundEntityId    string   `json:"bound_entity_id,omitempty"`
 	ExternalId       string   `json:"external_id"`
 	GroupIds         []string `json:"group_ids"`
 	Hostname         string   `json:"hostname,omitempty"`
@@ -2218,6 +2221,7 @@ type NMSImportSealedRow struct {
 	Reviewed         bool     `json:"reviewed"`
 	RowNumber        int      `json:"row_number"`
 	Severity         string   `json:"severity,omitempty"`
+	State            string   `json:"state"`
 	TargetEntityId   string   `json:"target_entity_id,omitempty"`
 	UnmappedCodes    []string `json:"unmapped_codes"`
 }
@@ -2229,6 +2233,7 @@ type NMSImportSealedRowsPage struct {
 	PlanId       string               `json:"plan_id"`
 	RowCount     int                  `json:"row_count"`
 	SnapshotHash string               `json:"snapshot_hash"`
+	SourceId     string               `json:"source_id"`
 }
 
 type OnboardingFinding struct {

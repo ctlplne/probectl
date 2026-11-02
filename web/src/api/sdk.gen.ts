@@ -2087,6 +2087,9 @@ export interface NMSImportReviewDiffPage {
 export interface NMSImportSealedRow {
   action: "captured" | "create" | "update" | "conflict" | "skip" | "unmapped"
   address?: string
+  applied_at?: string
+  binding_plan_id?: string
+  bound_entity_id?: string
   external_id: string
   group_ids: string[]
   hostname?: string
@@ -2099,6 +2102,7 @@ export interface NMSImportSealedRow {
   reviewed: boolean
   row_number: number
   severity?: "ok" | "warning" | "critical"
+  state: "pending" | "applied" | "skipped"
   target_entity_id?: string
   unmapped_codes: string[]
 }
@@ -2110,6 +2114,7 @@ export interface NMSImportSealedRowsPage {
   plan_id: string
   row_count: number
   snapshot_hash: string
+  source_id: string
 }
 
 export interface OnboardingFinding {
