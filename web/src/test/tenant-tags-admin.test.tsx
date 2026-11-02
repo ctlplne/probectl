@@ -150,7 +150,7 @@ describe('Tenant tag definitions in Admin', () => {
     const app = renderApp('/admin', { me: { permissions: ['tags.read', 'tags.write'] } })
     const card = (await screen.findByRole('table', { name: 'Tenant tag definitions' })).closest(
       '[data-tenant-tags]',
-    )!
+    ) as HTMLElement
     const table = within(card).getByRole('table', { name: 'Tenant tag definitions' })
     expect(within(table).getByText('customer')).toBeInTheDocument()
 
@@ -181,7 +181,7 @@ describe('Tenant tag definitions in Admin', () => {
     const first = renderApp('/admin', { me: { permissions: ['tags.read'] } })
     const table = await screen.findByRole('table', { name: 'Tenant tag definitions' })
     expect(within(table).getByText('customer')).toBeInTheDocument()
-    const card = table.closest('[data-tenant-tags]')!
+    const card = table.closest('[data-tenant-tags]') as HTMLElement
     expect(within(card).queryByRole('button', { name: 'Create key' })).not.toBeInTheDocument()
     const rules = await screen.findByRole('table', {
       name: 'Tag rules in selected routing context',
@@ -215,7 +215,7 @@ describe('Tenant tag definitions in Admin', () => {
     const table = await screen.findByRole('table', {
       name: 'Tag rules in selected routing context',
     })
-    const card = table.closest('[data-tenant-tag-rules]')!
+    const card = table.closest('[data-tenant-tag-rules]') as HTMLElement
     const user = userEvent.setup()
     expect(within(table).getByText('blue')).toBeInTheDocument()
 
@@ -266,7 +266,7 @@ describe('Tenant tag definitions in Admin', () => {
     const table = await screen.findByRole('table', {
       name: 'Tag assignments in selected routing context',
     })
-    const card = table.closest('[data-tenant-tag-assignments]')!
+    const card = table.closest('[data-tenant-tag-assignments]') as HTMLElement
     const user = userEvent.setup()
     expect(within(table).getByText('gold')).toBeInTheDocument()
 
