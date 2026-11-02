@@ -43,6 +43,20 @@ func mapFlowViewError(err error) error {
 	}
 }
 
+func (s *Server) mapFlowViewStoreError(ctx context.Context, p *auth.Principal, err error) error {
+	if errors.Is(err, flow.ErrQueryViewStaleTag) {
+		decision, decideErr := s.decide(ctx, p, permTagsRead, auth.RBACGlobal,
+			map[string]string{auth.ResourceTenantKey: p.TenantID})
+		if decideErr != nil {
+			return decideErr
+		}
+		if decision != auth.DecisionAllowed {
+			return apierror.Forbidden("saved flow query tag access requires tags.read")
+		}
+	}
+	return mapFlowViewError(err)
+}
+
 func (s *Server) authorizeFlowViewPrincipal(ctx context.Context, p *auth.Principal, mutation bool) (*auth.Principal, error) {
 	if p == nil || strings.TrimSpace(p.TenantID) == "" || strings.TrimSpace(p.UserID) == "" {
 		return nil, apierror.Unauthorized("tenant and user identity required")
@@ -107,6 +121,9 @@ func (s *Server) authorizeFlowViewDefinitionContext(ctx context.Context, p *auth
 	}
 	if err != nil {
 		if len(definition.TagIDs) > 0 {
+			if !bound {
+				return apierror.Forbidden("saved flow query tag access requires tags.read")
+			}
 			return mapFlowViewError(flow.ErrQueryViewStaleTag)
 		}
 		return apierror.Validation("saved flow query definition is invalid")
@@ -330,7 +347,7 @@ func (s *Server) listFlowViews(ctx context.Context, p *auth.Principal, input flo
 	}
 	page, err := s.flowQueryViews.ListQueryViews(ctx, p.TenantID, p.UserID, input)
 	if err != nil {
-		return flow.QueryViewPage{}, mapFlowViewError(err)
+		return flow.QueryViewPage{}, s.mapFlowViewStoreError(ctx, p, err)
 	}
 	for _, item := range page.Items {
 		if err := s.authorizeFlowViewContext(ctx, p, item); err != nil {
@@ -350,7 +367,7 @@ func (s *Server) getFlowViewByID(ctx context.Context, p *auth.Principal, id stri
 	}
 	item, err := s.flowQueryViews.GetQueryView(ctx, p.TenantID, p.UserID, id)
 	if err != nil {
-		return flow.SavedQueryView{}, mapFlowViewError(err)
+		return flow.SavedQueryView{}, s.mapFlowViewStoreError(ctx, p, err)
 	}
 	if err := s.authorizeFlowViewContext(ctx, p, item); err != nil {
 		return flow.SavedQueryView{}, err

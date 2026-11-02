@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tags"
@@ -25,6 +26,8 @@ import (
 
 func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 	srv, db := setupAPIServerWithLatest(t, nil)
+	srv.WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(db.Pool(), 0, audit.TenantRecord)).
+		WithFlowQueryViews(flow.NewPostgresQueryViewStore(db.Pool(), 0, audit.TenantRecord))
 	a, b := freshTenant(t, db, "tag-explorer-a"), freshTenant(t, db, "tag-explorer-b")
 	t.Cleanup(func() {
 		if _, err := db.Pool().Exec(context.Background(),
@@ -195,6 +198,51 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 		filteredResult.Flow.Totals["bytes:total"] != "100" {
 		t.Fatalf("saved tag filter lost tenant revision or selected wrong rows: %+v", filteredResult.Flow)
 	}
+	viewDefinition := flow.QueryViewDefinition{Name: "Customer history", Plan: plan,
+		Time: flow.QueryViewTime{Mode: "absolute"}}
+	viewCreated := apiReq(t, srv.Handler(), http.MethodPost, "/v1/explorer/flow-views", a,
+		map[string]any{"definition": viewDefinition})
+	if viewCreated.Code != http.StatusCreated {
+		t.Fatalf("save tenant tag view: %d %s", viewCreated.Code, viewCreated.Body.String())
+	}
+	var view flow.SavedQueryView
+	if err := json.Unmarshal(viewCreated.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Definition.TagIDs["tag.customer"] != redTagID {
+		t.Fatalf("saved view lost immutable tenant tag identity: %+v", view.Definition.TagIDs)
+	}
+	viewPath := "/v1/explorer/flow-views/" + view.ID
+	if foreignView := apiReq(t, srv.Handler(), http.MethodGet, viewPath, b, nil); foreignView.Code != http.StatusNotFound {
+		t.Fatalf("foreign tenant read saved tag view: %d %s", foreignView.Code, foreignView.Body.String())
+	}
+	withheldViewRequest := httptest.NewRequest(http.MethodGet, viewPath, nil)
+	withheldViewRequest.Header.Set("X-Probectl-Tenant", a)
+	withheldViewRequest.Header.Set(testWithholdPermissionsHeader, "tags.read")
+	withheldView := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(withheldView, withheldViewRequest)
+	if withheldView.Code != http.StatusForbidden || strings.Contains(withheldView.Body.String(), "customer") {
+		t.Fatalf("withheld tag permission exposed saved view: %d %s", withheldView.Code, withheldView.Body.String())
+	}
+	runView := func() *flowstore.PlanResult {
+		t.Helper()
+		response := apiReq(t, srv.Handler(), http.MethodPost, viewPath+"/query", a, nil)
+		if response.Code != http.StatusOK {
+			t.Fatalf("run saved tag view: %d %s", response.Code, response.Body.String())
+		}
+		var result explorerResult
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Flow == nil {
+			t.Fatalf("saved tag view returned no flow result: %s", response.Body.String())
+		}
+		return result.Flow
+	}
+	if result := runView(); result == nil || result.TagRevision != initialRevision ||
+		result.Totals["bytes:total"] != "300" {
+		t.Fatalf("saved tag view changed initial totals or revision: %+v", result)
+	}
 	changed := apiReq(t, srv.Handler(), http.MethodPut, redRulePath+"/"+redRuleID, a,
 		map[string]any{"tag_id": redTagID, "target_kind": "exporter",
 			"match_kind": "cidr", "address_side": "exporter", "cidr": "192.0.2.0/24", "value": "green"})
@@ -212,5 +260,23 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 	}
 	if groups["green"] != "100" || groups["blue"] != "" || groups[""] != "200" {
 		t.Fatalf("current rule failed to retag retained history: %+v", groups)
+	}
+	viewResult := runView()
+	viewGroups := map[string]string{}
+	for _, row := range viewResult.Rows {
+		viewGroups[row.Group["tag.customer"]] = row.Metrics["bytes:total"]
+	}
+	if viewResult.TagRevision != retagged.TagRevision ||
+		viewResult.Totals["bytes:total"] != "300" ||
+		viewGroups["green"] != "100" || viewGroups[""] != "200" || viewGroups["blue"] != "" {
+		t.Fatalf("saved tag view did not use current rules for history: %+v", viewResult)
+	}
+	renamed := apiReq(t, srv.Handler(), http.MethodPut, "/v1/tags/"+redTagID, a,
+		map[string]any{"key": "customer_new"})
+	if renamed.Code != http.StatusOK {
+		t.Fatalf("rename tenant tag: %d %s", renamed.Code, renamed.Body.String())
+	}
+	if stale := apiReq(t, srv.Handler(), http.MethodPost, viewPath+"/query", a, nil); stale.Code != http.StatusConflict {
+		t.Fatalf("renamed tag retargeted saved view: %d %s", stale.Code, stale.Body.String())
 	}
 }
