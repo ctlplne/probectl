@@ -61,8 +61,21 @@ func (s CaptureStore) PreviewLibreNMSAlertTarget(ctx context.Context,
 		RuleKind: "port_down", Enabled: false,
 	}
 	err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		preview.TenantID = sc.Tenant.String()
-		err := sc.Q.QueryRow(ctx, `SELECT r.parent_external_id,v.entity_id::text,
+		return loadLibreNMSAlertTarget(ctx, sc, &preview, false)
+	})
+	if err != nil {
+		return LibreNMSAlertTargetPreview{}, err
+	}
+	return preview, nil
+}
+
+// A write requests row locks so source provenance, the canonical entity and
+// operator-owned sender assignment cannot change before its disabled native
+// rule and import binding commit. The caller must still authorize the context.
+func loadLibreNMSAlertTarget(ctx context.Context, sc tenancy.Scope,
+	preview *LibreNMSAlertTargetPreview, lock bool) error {
+	preview.TenantID = sc.Tenant.String()
+	query := `SELECT r.parent_external_id,v.entity_id::text,
 			p.id::text,p.snapshot_hash,r.label,r.severity
 			FROM nms_import_rows r
 			JOIN nms_import_plans p ON
@@ -80,6 +93,8 @@ func (s CaptureStore) PreviewLibreNMSAlertTarget(ctx context.Context,
 			JOIN entity_agent_contexts a ON
 			  (a.tenant_id,a.context_id,a.agent_id)=
 			  (m.tenant_id,m.context_id,m.agent_id)
+			JOIN agent_identities i ON
+			  (i.tenant_id,i.agent_id)=(a.tenant_id,a.agent_id)
 			WHERE r.tenant_id=$1 AND r.context_id=$2 AND p.source_id=$3
 			  AND r.object_kind='alert_rule' AND r.external_id=$4
 			  AND s.source_kind='librenms' AND p.state='applied'
@@ -98,21 +113,18 @@ func (s CaptureStore) PreviewLibreNMSAlertTarget(ctx context.Context,
 			  AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())
 			  AND a.assigned_at<=statement_timestamp()
 			  AND (a.expires_at IS NULL OR a.expires_at>statement_timestamp())
-			  AND EXISTS (SELECT 1 FROM agent_identities i
-			    WHERE i.tenant_id=r.tenant_id AND i.agent_id=m.agent_id
-			      AND i.spiffe_id='spiffe://probectl/tenant/' || r.tenant_id::text ||
-			        '/entity/' || m.agent_id
-			      AND i.revoked_at IS NULL AND i.not_after>statement_timestamp())`,
-			sc.Tenant.String(), contextID, sourceID, ruleID, agentID,
-			targetAddress).Scan(&preview.DeviceID, &preview.EntityID,
-			&preview.PlanID, &preview.SnapshotHash, &preview.Name, &preview.Severity)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrPlanUnavailable
-		}
-		return err
-	})
-	if err != nil {
-		return LibreNMSAlertTargetPreview{}, err
+			  AND i.spiffe_id='spiffe://probectl/tenant/' || r.tenant_id::text ||
+			    '/entity/' || m.agent_id
+			  AND i.revoked_at IS NULL AND i.not_after>statement_timestamp()`
+	if lock {
+		query += ` FOR SHARE OF r,p,s,v,e,m,a,i`
 	}
-	return preview, nil
+	err := sc.Q.QueryRow(ctx, query, sc.Tenant.String(), preview.ContextID,
+		preview.SourceID, preview.RuleID, preview.AgentID,
+		preview.TargetAddress).Scan(&preview.DeviceID, &preview.EntityID,
+		&preview.PlanID, &preview.SnapshotHash, &preview.Name, &preview.Severity)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrPlanUnavailable
+	}
+	return err
 }
