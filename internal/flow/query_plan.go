@@ -51,6 +51,14 @@ type QueryPlan struct {
 // NormalizeQueryPlan validates the public shape without guessing tenant
 // retention or imposing a time-range cap. Storage resolves coverage separately.
 func NormalizeQueryPlan(plan QueryPlan, now time.Time) (QueryPlan, error) {
+	return normalizeQueryPlan(plan, now, LookupQueryField)
+}
+
+func NormalizeQueryPlanWithVocabulary(plan QueryPlan, now time.Time, vocabulary QueryVocabulary) (QueryPlan, error) {
+	return normalizeQueryPlan(plan, now, vocabulary.Lookup)
+}
+
+func normalizeQueryPlan(plan QueryPlan, now time.Time, lookup func(string) (QueryField, bool)) (QueryPlan, error) {
 	if plan.To.IsZero() {
 		plan.To = now
 	}
@@ -63,11 +71,11 @@ func NormalizeQueryPlan(plan QueryPlan, now time.Time) (QueryPlan, error) {
 		return QueryPlan{}, errors.New("flow range must have from before to")
 	}
 	var err error
-	plan.GroupBy, err = normalizePlanDimensions(plan.GroupBy, MaxPlanDimensions)
+	plan.GroupBy, err = normalizePlanDimensionsWithLookup(plan.GroupBy, MaxPlanDimensions, lookup)
 	if err != nil {
 		return QueryPlan{}, err
 	}
-	plan.MatrixWith, err = normalizePlanDimensions(plan.MatrixWith, MaxPlanMatrixDimensions)
+	plan.MatrixWith, err = normalizePlanDimensionsWithLookup(plan.MatrixWith, MaxPlanMatrixDimensions, lookup)
 	if err != nil {
 		return QueryPlan{}, err
 	}
@@ -84,7 +92,7 @@ func NormalizeQueryPlan(plan QueryPlan, now time.Time) (QueryPlan, error) {
 	if plan.View == "matrix" && (len(plan.GroupBy) == 0 || len(plan.MatrixWith) == 0) {
 		return QueryPlan{}, errors.New("matrix requires row and column dimensions")
 	}
-	plan.Filter, err = NormalizeQueryFilterGroup(plan.Filter)
+	plan.Filter, err = normalizeQueryFilterGroup(plan.Filter, lookup)
 	if err != nil {
 		return QueryPlan{}, err
 	}
@@ -154,12 +162,16 @@ func NormalizeQueryPlan(plan QueryPlan, now time.Time) (QueryPlan, error) {
 }
 
 func normalizePlanDimensions(input []string, limit int) ([]string, error) {
+	return normalizePlanDimensionsWithLookup(input, limit, LookupQueryField)
+}
+
+func normalizePlanDimensionsWithLookup(input []string, limit int, lookup func(string) (QueryField, bool)) ([]string, error) {
 	if len(input) > limit {
 		return nil, errors.New("flow grouping and each matrix axis support at most eight dimensions")
 	}
 	out := make([]string, 0, len(input))
 	for _, name := range input {
-		field, ok := LookupQueryField(name)
+		field, ok := lookup(name)
 		if !ok {
 			return nil, errors.New("unsupported flow grouping field")
 		}
@@ -174,10 +186,18 @@ func normalizePlanDimensions(input []string, limit int) ([]string, error) {
 // QueryPlanPermissions includes joined metadata across matrix axes and nested
 // conditions. Resolve saved references before calling it and enforce RBAC/ABAC.
 func QueryPlanPermissions(plan QueryPlan) []string {
+	return queryPlanPermissions(plan, LookupQueryField)
+}
+
+func QueryPlanPermissionsWithVocabulary(plan QueryPlan, vocabulary QueryVocabulary) []string {
+	return queryPlanPermissions(plan, vocabulary.Lookup)
+}
+
+func queryPlanPermissions(plan QueryPlan, lookup func(string) (QueryField, bool)) []string {
 	names := append(append(append([]string{}, plan.GroupBy...), plan.MatrixWith...), QueryFilterFields(plan.Filter)...)
 	result := []string{}
 	for _, name := range names {
-		field, ok := LookupQueryField(name)
+		field, ok := lookup(name)
 		if ok && field.Permission != "" && !slices.Contains(result, field.Permission) {
 			result = append(result, field.Permission)
 		}

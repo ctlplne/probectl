@@ -32,6 +32,14 @@ type QuerySavedFilterRef struct {
 // NormalizeQueryFilterGroup validates structure before traversal exceeds the
 // depth/node/condition budget. Call again on the fully expanded saved filters.
 func NormalizeQueryFilterGroup(input *QueryFilterGroup) (*QueryFilterGroup, error) {
+	return normalizeQueryFilterGroup(input, LookupQueryField)
+}
+
+func NormalizeQueryFilterGroupWithVocabulary(input *QueryFilterGroup, vocabulary QueryVocabulary) (*QueryFilterGroup, error) {
+	return normalizeQueryFilterGroup(input, vocabulary.Lookup)
+}
+
+func normalizeQueryFilterGroup(input *QueryFilterGroup, lookup func(string) (QueryField, bool)) (*QueryFilterGroup, error) {
 	if input == nil {
 		return nil, nil
 	}
@@ -66,7 +74,7 @@ func NormalizeQueryFilterGroup(input *QueryFilterGroup) (*QueryFilterGroup, erro
 		if conditions > MaxQueryPredicates {
 			return QueryFilterGroup{}, errors.New("flow filters exceed 1000 expanded conditions")
 		}
-		predicates, err := NormalizeQueryPredicates(group.Conditions)
+		predicates, err := normalizeQueryPredicates(group.Conditions, lookup)
 		if err != nil {
 			return QueryFilterGroup{}, err
 		}

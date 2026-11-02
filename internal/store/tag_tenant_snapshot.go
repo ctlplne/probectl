@@ -24,10 +24,18 @@ import (
 // An exporter address is eligible only when exactly one active owned binding
 // names it in the tenant. All maps and compiled tag snapshots are immutable.
 type TenantTagSnapshot struct {
-	tenantID  string
-	revision  int64
-	byAddress map[string]tagExporterBinding
-	byContext map[string]*tags.Snapshot
+	tenantID    string
+	revision    int64
+	definitions []tags.Definition
+	byAddress   map[string]tagExporterBinding
+	byContext   map[string]*tags.Snapshot
+}
+
+// TagExporterProjection is a bounded, tenant-local lookup row for query
+// execution. It carries no agent claim, source reference or provenance ID.
+type TagExporterProjection struct {
+	Exporter string
+	Values   map[string]string
 }
 
 type tagExporterBinding struct {
@@ -41,6 +49,60 @@ func (s *TenantTagSnapshot) Revision() (int64, error) {
 		return 0, ErrTagSnapshotUnavailable
 	}
 	return s.revision, nil
+}
+
+// Definitions returns independent copies of the keys captured at this
+// revision. A caller may build its tenant-specific query vocabulary from
+// these; it must never use a process-global registry for dynamic keys.
+func (s *TenantTagSnapshot) Definitions() ([]tags.Definition, error) {
+	if _, err := s.Revision(); err != nil {
+		return nil, err
+	}
+	return append([]tags.Definition(nil), s.definitions...), nil
+}
+
+// ProjectExporters resolves each uniquely owned address once, before a query.
+// The caller's byte budget bounds the whole lookup; partial projections are
+// never returned because they would silently label some flow rows unmatched.
+func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]TagExporterProjection, error) {
+	if _, err := s.Revision(); err != nil {
+		return nil, err
+	}
+	if maxBytes <= 0 {
+		return nil, ErrTagSnapshotBudget
+	}
+	// Sorting and retaining candidate addresses has a cost even when none
+	// resolves to a tag. Refuse before allocating from a smaller query budget.
+	if int64(len(s.byAddress)) > maxBytes/128 {
+		return nil, ErrTagSnapshotBudget
+	}
+	addresses := make([]string, 0, len(s.byAddress))
+	for address := range s.byAddress {
+		addresses = append(addresses, address)
+	}
+	sort.Strings(addresses)
+	used := int64(0)
+	out := []TagExporterProjection{}
+	for _, address := range addresses {
+		resolved, err := s.ResolveExporter(netip.MustParseAddr(address))
+		if err != nil {
+			return nil, err
+		}
+		if len(resolved) == 0 {
+			continue
+		}
+		row := TagExporterProjection{Exporter: address, Values: make(map[string]string, len(resolved))}
+		used += 256 + int64(len(address))
+		for _, tag := range resolved {
+			used += 128 + int64(len(tag.Key)+len(tag.Value))
+			if used > maxBytes {
+				return nil, ErrTagSnapshotBudget
+			}
+			row.Values[tag.Key] = tag.Value
+		}
+		out = append(out, row)
+	}
+	return out, nil
 }
 
 // ResolveExporter uses only the observed exporter address to select a binding.
@@ -155,7 +217,8 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64) (*TenantT
 			}
 		}
 		result = &TenantTagSnapshot{tenantID: tenantID, revision: revision,
-			byAddress: bindings, byContext: contextSnapshots}
+			definitions: append([]tags.Definition(nil), definitions...),
+			byAddress:   bindings, byContext: contextSnapshots}
 		return nil
 	})
 	if err != nil {
@@ -184,7 +247,13 @@ func loadTagExporterBindings(ctx context.Context, sc tenancy.Scope, tenantID str
 	}
 	bindings := make(map[string]tagExporterBinding)
 	ambiguous := make(map[string]bool)
+	seen := int64(0)
 	for rows.Next() {
+		seen++
+		if seen >= limit {
+			rows.Close()
+			return nil, ErrTagSnapshotBudget
+		}
 		var binding tagExporterBinding
 		if err := rows.Scan(&binding.agentID, &binding.sourceRef, &binding.contextID); err != nil {
 			rows.Close()

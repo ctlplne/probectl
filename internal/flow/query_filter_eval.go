@@ -31,7 +31,15 @@ func (f PreparedQueryFilter) Matches(value func(string) string) bool {
 // PrepareQueryFilter rejects unresolved saved references before evaluation.
 // The store must resolve them with tenant RLS, then repeat bounded validation.
 func PrepareQueryFilter(input *QueryFilterGroup) (PreparedQueryFilter, error) {
-	root, err := NormalizeQueryFilterGroup(input)
+	return prepareQueryFilter(input, LookupQueryField)
+}
+
+func PrepareQueryFilterWithVocabulary(input *QueryFilterGroup, vocabulary QueryVocabulary) (PreparedQueryFilter, error) {
+	return prepareQueryFilter(input, vocabulary.Lookup)
+}
+
+func prepareQueryFilter(input *QueryFilterGroup, lookup func(string) (QueryField, bool)) (PreparedQueryFilter, error) {
+	root, err := normalizeQueryFilterGroup(input, lookup)
 	if err != nil {
 		return PreparedQueryFilter{}, err
 	}
@@ -46,7 +54,7 @@ func PrepareQueryFilter(input *QueryFilterGroup) (PreparedQueryFilter, error) {
 		}
 		checks := []check{}
 		for _, predicate := range group.Conditions {
-			match, err := prepareQueryPredicate(predicate)
+			match, err := prepareQueryPredicateWithLookup(predicate, lookup)
 			if err != nil {
 				return nil, err
 			}
@@ -88,7 +96,11 @@ func PrepareQueryFilter(input *QueryFilterGroup) (PreparedQueryFilter, error) {
 }
 
 func prepareQueryPredicate(predicate QueryPredicate) (func(string) bool, error) {
-	field, ok := LookupQueryField(predicate.Field)
+	return prepareQueryPredicateWithLookup(predicate, LookupQueryField)
+}
+
+func prepareQueryPredicateWithLookup(predicate QueryPredicate, lookup func(string) (QueryField, bool)) (func(string) bool, error) {
+	field, ok := lookup(predicate.Field)
 	if !ok {
 		return nil, errors.New("unsupported flow field")
 	}

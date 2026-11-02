@@ -39,12 +39,20 @@ type QueryPredicate struct {
 // NormalizeQueryPredicates validates a copy and canonicalizes addresses,
 // integers, prefixes and timestamps before either backend sees a predicate.
 func NormalizeQueryPredicates(input []QueryPredicate) ([]QueryPredicate, error) {
+	return normalizeQueryPredicates(input, LookupQueryField)
+}
+
+func NormalizeQueryPredicatesWithVocabulary(input []QueryPredicate, vocabulary QueryVocabulary) ([]QueryPredicate, error) {
+	return normalizeQueryPredicates(input, vocabulary.Lookup)
+}
+
+func normalizeQueryPredicates(input []QueryPredicate, lookup func(string) (QueryField, bool)) ([]QueryPredicate, error) {
 	if len(input) > MaxQueryPredicates {
 		return nil, fmt.Errorf("flow queries allow at most %d predicates", MaxQueryPredicates)
 	}
 	out := make([]QueryPredicate, 0, len(input))
 	for _, predicate := range input {
-		field, ok := LookupQueryField(predicate.Field)
+		field, ok := lookup(predicate.Field)
 		if !ok {
 			return nil, errors.New("unsupported flow field")
 		}

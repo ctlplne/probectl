@@ -55,6 +55,8 @@ type QueryField struct {
 	Permission   string          `json:"required_permission,omitempty"`
 	Column       string          `json:"-"`
 	Derived      string          `json:"-"`
+	TagID        string          `json:"-"`
+	TagKey       string          `json:"-"`
 	MaxValue     uint64          `json:"-"`
 }
 

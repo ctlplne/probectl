@@ -96,6 +96,19 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 		if row.tenantID == a.ID {
 			initialA = loaded
 		}
+		definitions, err := loaded.Definitions()
+		if err != nil || len(definitions) != 1 || definitions[0].Key != "customer" ||
+			definitions[0].TenantID != row.tenantID {
+			t.Fatalf("tenant %s tag vocabulary: %+v, %v", row.tenantID, definitions, err)
+		}
+		projection, err := loaded.ProjectExporters(1 << 20)
+		if err != nil || len(projection) != 1 || projection[0].Exporter != address.String() ||
+			projection[0].Values["customer"] != row.value {
+			t.Fatalf("tenant %s query projection: %+v, %v", row.tenantID, projection, err)
+		}
+		if _, err := loaded.ProjectExporters(128); !errors.Is(err, ErrTagSnapshotBudget) {
+			t.Fatalf("tenant %s partial query projection admitted: %v", row.tenantID, err)
+		}
 		if unknown, err := loaded.ResolveExporter(netip.MustParseAddr("192.0.2.11")); err != nil || len(unknown) != 0 {
 			t.Fatalf("unknown exporter resolved tags: %+v, %v", unknown, err)
 		}
@@ -140,6 +153,10 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 	resolved, err := ambiguous.ResolveExporter(address)
 	if err != nil || len(resolved) != 0 {
 		t.Fatalf("ambiguous exporter selected an agent/context: %+v, %v", resolved, err)
+	}
+	projection, err := ambiguous.ProjectExporters(1 << 20)
+	if err != nil || len(projection) != 0 {
+		t.Fatalf("ambiguous exporter appeared in query projection: %+v, %v", projection, err)
 	}
 	resolved, err = initialA.ResolveExporter(address)
 	if err != nil || len(resolved) != 1 || resolved[0].Value != "A" {
