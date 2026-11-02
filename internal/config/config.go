@@ -2494,21 +2494,6 @@ type loader struct {
 	errs   []error
 }
 
-// isLoopbackURL reports whether u targets a loopback host (test instances may
-// use plain http there; everything else must be https).
-func isLoopbackURL(u string) bool {
-	parsed, err := url.Parse(u)
-	if err != nil || parsed.Scheme != "http" {
-		return false
-	}
-	host := parsed.Hostname()
-	if host == "localhost" {
-		return true
-	}
-	ip, err := netip.ParseAddr(host)
-	return err == nil && ip.IsLoopback()
-}
-
 // isLoopbackOTLPEndpoint reports whether an OTLP export endpoint targets a
 // loopback host. The endpoint may carry an https://, http://, or grpc://
 // scheme prefix, or none at all (gRPC dial targets are often host:port).
