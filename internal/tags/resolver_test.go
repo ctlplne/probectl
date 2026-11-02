@@ -199,6 +199,14 @@ func TestSnapshotPinsRevisionAndRejectsCrossContextSubject(t *testing.T) {
 	}
 }
 
+func TestSnapshotZeroValueFailsClosed(t *testing.T) {
+	var snapshot Snapshot
+	_, err := snapshot.Resolve(Subject{Kind: "exporter", ID: "exporter-1"})
+	if !errors.Is(err, ErrScopeMismatch) {
+		t.Fatalf("uninitialized snapshot silently returned untagged data: %v", err)
+	}
+}
+
 func TestSnapshotAdmitsPublishedRuleCardinalityWithoutTruncating(t *testing.T) {
 	scope, subject := testScope(), testSubject()
 	rules := make([]Rule, maxRules)

@@ -162,7 +162,8 @@ func compileRule(rule Rule) (compiledRule, netip.Prefix, error) {
 // came from retained historical telemetry. The same Snapshot must be kept for
 // all pages, comparisons and exports of one query.
 func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
-	if s == nil || !sameScope(s.scope, subject.Scope) {
+	if s == nil || !validScope(s.scope) || s.revision <= 0 ||
+		!sameScope(s.scope, subject.Scope) {
 		return nil, ErrScopeMismatch
 	}
 	if !validKind(subject.Kind) || !validText(subject.ID, 256) ||
