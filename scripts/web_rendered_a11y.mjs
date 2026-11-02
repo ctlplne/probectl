@@ -434,6 +434,24 @@ function apiPayload(path, method, pagePath = "") {
         },
       ],
     });
+  if (path === "/v1/entity-contexts")
+    return json({
+      items: [{
+        context_id: "00000000-0000-0000-0000-000000000072",
+        tenant_id: "00000000-0000-0000-0000-000000000001",
+        site_label: "iad1",
+        vrf_label: "default",
+      }],
+    });
+  if (path === "/v1/entity-contexts/00000000-0000-0000-0000-000000000072/tag-rules")
+    return json({ items: [{
+      id: "00000000-0000-0000-0000-000000000074",
+      tenant_id: "00000000-0000-0000-0000-000000000001",
+      context_id: "00000000-0000-0000-0000-000000000072",
+      tag_id: "00000000-0000-0000-0000-000000000073",
+      target_kind: "exporter", match_kind: "cidr", address_side: "exporter",
+      cidr: "192.0.2.0/24", value: "blue", priority: 0,
+    }] });
   if (path === "/v1/tests") return json({ items: sampleTests });
   if (path === "/v1/tests/t1") return json(sampleTests[0]);
   if (path === "/v1/coverage/vantages")
@@ -3735,6 +3753,9 @@ async function main() {
             if (route === "/admin") {
               if (!(await page.locator("[data-tenant-tags]").isVisible())) {
                 failures.push(`${viewport.name} ${theme} /admin: tenant tag card did not render`);
+              }
+              if (!(await page.locator("[data-tenant-tag-rules]").isVisible())) {
+                failures.push(`${viewport.name} ${theme} /admin: tenant tag rules did not render`);
               }
               record.fleetTestSet = await fleetTestSetChecks(page);
               if (record.fleetTestSet.length > 0) {

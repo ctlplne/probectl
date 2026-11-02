@@ -47,6 +47,7 @@ import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
 import { IdentityCard } from './IdentityCard'
 import { EntityRegistryCard } from './EntityRegistryCard'
 import { TenantTagsCard } from './TenantTagsCard'
+import { TenantTagRulesCard } from './TenantTagRulesCard'
 import { NMSImportCard } from './NMSImportCard'
 import { HierarchyCard } from './HierarchyCard'
 import { SIEMPostureCard } from './SIEMPostureCard'
@@ -1109,6 +1110,7 @@ export function AdminPage() {
       <IdentityCard />
       <EntityRegistryCard />
       <TenantTagsCard />
+      <TenantTagRulesCard />
       <NMSImportCard />
       <KeysCard />
       <LifecycleCard />

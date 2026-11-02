@@ -11,10 +11,21 @@ import { renderApp } from './renderApp'
 import { assertNoDoublePrefix, defaultFetch, jsonResponse, pathOf } from './fetchStub'
 
 const tenantID = '00000000-0000-0000-0000-000000000001'
+const contextID = '00000000-0000-0000-0000-000000000072'
 
-function tagFetch(capture: { bodies: unknown[]; deleted: string[] }) {
+interface TagCapture {
+  bodies: unknown[]
+  deleted: string[]
+  ruleBodies?: unknown[]
+  deletedRules?: string[]
+}
+
+function tagFetch(capture: TagCapture) {
   const base = defaultFetch()
   let tags = [{ id: 'tag-1', tenant_id: tenantID, key: 'customer' }]
+  let rules = [{ id: 'rule-1', tenant_id: tenantID, context_id: contextID,
+    tag_id: 'tag-1', target_kind: 'exporter', match_kind: 'cidr',
+    address_side: 'exporter', cidr: '192.0.2.0/24', value: 'blue', priority: 0 }]
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     assertNoDoublePrefix(input)
     const path = pathOf(input)
@@ -37,6 +48,29 @@ function tagFetch(capture: { bodies: unknown[]; deleted: string[] }) {
     if (path === '/v1/tags/tag-1' && method === 'DELETE') {
       capture.deleted.push('tag-1')
       tags = tags.filter((tag) => tag.id !== 'tag-1')
+      return jsonResponse(undefined, 204)
+    }
+    if (path === '/v1/entity-contexts' && method === 'GET')
+      return jsonResponse({ items: [{ context_id: contextID, site_label: 'iad1', vrf_label: 'default' }] })
+    if (path === `/v1/entity-contexts/${contextID}/tag-rules` && method === 'GET')
+      return jsonResponse({ items: rules })
+    if (path === `/v1/entity-contexts/${contextID}/tag-rules` && method === 'POST') {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      capture.ruleBodies?.push(body)
+      const item = { id: 'rule-2', tenant_id: tenantID, context_id: contextID, ...body }
+      rules = [...rules, item as (typeof rules)[number]]
+      return jsonResponse(item, 201)
+    }
+    if (path === `/v1/entity-contexts/${contextID}/tag-rules/rule-1` && method === 'PUT') {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      capture.ruleBodies?.push(body)
+      const item = { id: 'rule-1', tenant_id: tenantID, context_id: contextID, ...body }
+      rules = [item as (typeof rules)[number], ...rules.slice(1)]
+      return jsonResponse(item)
+    }
+    if (path === `/v1/entity-contexts/${contextID}/tag-rules/rule-1` && method === 'DELETE') {
+      capture.deletedRules?.push('rule-1')
+      rules = rules.filter((rule) => rule.id !== 'rule-1')
       return jsonResponse(undefined, 204)
     }
     return base(input, init)
@@ -81,8 +115,42 @@ describe('Tenant tag definitions in Admin', () => {
     expect(within(table).getByText('customer')).toBeInTheDocument()
     const card = table.closest('[data-tenant-tags]')!
     expect(within(card).queryByRole('button', { name: 'Create key' })).not.toBeInTheDocument()
+    const rules = await screen.findByRole('table', { name: 'Tag rules in selected routing context' })
+    expect(within(rules).getByText('blue')).toBeInTheDocument()
+    expect(within(rules).queryByRole('button', { name: 'Edit rule rule-1' })).not.toBeInTheDocument()
     first.unmount()
     renderApp('/admin', { me: { permissions: [] } })
     expect(screen.queryByRole('table', { name: 'Tenant tag definitions' })).not.toBeInTheDocument()
+  })
+
+  test('creates, edits and confirms deletion of a context-scoped rule', async () => {
+    const capture: TagCapture = { bodies: [], deleted: [], ruleBodies: [], deletedRules: [] }
+    vi.stubGlobal('fetch', tagFetch(capture))
+    renderApp('/admin', { me: { permissions: ['tags.read', 'tags.write'] } })
+    const table = await screen.findByRole('table', { name: 'Tag rules in selected routing context' })
+    const card = table.closest('[data-tenant-tag-rules]')!
+    const user = userEvent.setup()
+    expect(within(table).getByText('blue')).toBeInTheDocument()
+
+    await user.type(within(card).getByRole('textbox', { name: 'Canonical CIDR' }), '198.51.100.0/24')
+    await user.type(within(card).getByRole('textbox', { name: 'Tag value' }), 'premium')
+    await user.click(within(card).getByRole('button', { name: 'Create rule' }))
+    await waitFor(() => expect(within(table).getByText('premium')).toBeInTheDocument())
+    expect(capture.ruleBodies?.[0]).toEqual({ tag_id: 'tag-1', target_kind: 'exporter',
+      match_kind: 'cidr', address_side: 'exporter', cidr: '198.51.100.0/24',
+      value: 'premium', priority: 0 })
+
+    await user.click(within(table).getByRole('button', { name: 'Edit rule rule-1' }))
+    await user.clear(within(card).getByRole('textbox', { name: 'Tag value' }))
+    await user.type(within(card).getByRole('textbox', { name: 'Tag value' }), 'green')
+    await user.click(within(card).getByRole('button', { name: 'Save rule' }))
+    await waitFor(() => expect(within(table).getByText('green')).toBeInTheDocument())
+    expect((capture.ruleBodies?.[1] as { value: string }).value).toBe('green')
+
+    await user.click(within(table).getByRole('button', { name: 'Delete rule rule-1' }))
+    expect(capture.deletedRules).toEqual([])
+    await user.click(within(screen.getByRole('dialog', { name: 'Delete tag rule?' })).getByRole('button', { name: 'Delete rule' }))
+    await waitFor(() => expect(within(table).queryByText('green')).not.toBeInTheDocument())
+    expect(capture.deletedRules).toEqual(['rule-1'])
   })
 })

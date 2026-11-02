@@ -576,6 +576,11 @@ side, a bounded RE2 name pattern, or one of the collected SNMP fields
 `sys_name`, `sys_descr`, `if_name`, `if_descr`. Tenant-wide limits are 25,000
 rules and 25,000 assignments, enforced under a per-tenant write lock. The
 same flows are available through `probectl tags` commands.
+Admin → Tenant tag rules selects one owned routing context, pages its rules,
+and exposes the same CIDR, RE2 name pattern and collected SNMP field inputs.
+Create, edit and confirmed delete require `tags.write`; readers with
+`tags.read` see values and order without mutation controls. A rule change
+updates fresh queries over retained history at the next tag revision.
 
 Manual assignments refer to a canonical device/interface/prefix, a bound
 agent or test, or an operator-owned flow exporter. Exporters are identified
