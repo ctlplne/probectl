@@ -70,7 +70,7 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 		}
 		allowed[record.ContextID] = disclose
 		for _, subject := range []struct{ kind, permission string }{{"device", "metrics.read"}, {"agent", "agent.read"}} {
-			if !(slices.Contains(selected, subject.kind) || subject.kind == "device" && slices.Contains(selected, "interface")) {
+			if !selectedTagPolicySubject(selected, subject.kind) {
 				continue
 			}
 			decision, err := s.decide(ctx, p, subject.permission, auth.RBACGlobal, resource)
@@ -94,4 +94,9 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 		return nil, nil, "", flowTagQueryError(store.ErrTagSnapshotBudget)
 	}
 	return allowed, related, hex.EncodeToString(crypto.Hash(encoded)), nil
+}
+
+// Interface metadata uses the owning device's source permission.
+func selectedTagPolicySubject(selected []string, kind string) bool {
+	return slices.Contains(selected, kind) || kind == "device" && slices.Contains(selected, "interface")
 }
