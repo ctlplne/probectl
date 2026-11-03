@@ -270,7 +270,7 @@ func TestOwnedTagSubjectSnapshotUsesCurrentFactsAndTenantIsolation(t *testing.T)
 			return err
 		}
 		for _, rule := range rules {
-			if rule.TargetKind == "device" && rule.Match == "snmp_field" {
+			if rule.TargetKind == "device" && rule.Match == "snmp_field" && rule.TagID == keys["snmp"] {
 				rule.Value = "retagged-current-rule"
 				_, err := (TagRules{}).Update(ctx, sc, rule)
 				return err
