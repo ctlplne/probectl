@@ -189,7 +189,7 @@ func TestEffectiveSubjectTagsAPIAndMCPKeepTenantContextAndTypedOwnership(t *test
 	if rec := request(a, valid, ""); rec.Code != http.StatusForbidden {
 		t.Fatal("current context deny did not cover effective tags")
 	}
-	p := &auth.Principal{TenantID: a, UserID: "reader", Permissions: map[string]bool{permTagsRead: true, "device.read": true}}
+	p := &auth.Principal{TenantID: a, UserID: "reader", Permissions: map[string]bool{permTagsRead: true, permMetricsRead: true}}
 	if _, err := backend.TagSubjectResolve(ctx, p, mcp.TagSubjectInput{ContextID: contextID, TargetKind: "device", TargetID: device}); err == nil {
 		t.Fatal("MCP bypassed context-specific deny")
 	}

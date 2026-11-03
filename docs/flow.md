@@ -614,7 +614,7 @@ values for one owned subject. Supply `target_kind` and `target_id`; exporters
 instead supply `exporter_agent_id` and `exporter_source_ref`. Unknown or repeated
 parameters, tenant selectors and caller-supplied facts are refused. The request
 requires `tags.read` and the subject's read grant, both with current context ABAC:
-`device.read` for a device/interface, `entities.read` for a prefix, `agent.read`,
+`metrics.read` for a device/interface, `entities.read` for a prefix, `agent.read`,
 `test.read`, or `flow.read` for an exporter. One FORCE-RLS repeatable-read
 transaction binds ownership, tag state and source facts. Ambiguity, memory,
 response and time limits fail without a partial result. The existing Explorer

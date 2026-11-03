@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -80,15 +81,15 @@ func (s *Server) handleResolveSubjectTags(w http.ResponseWriter, r *http.Request
 func tagSubjectReadPermission(kind string) (string, error) {
 	switch kind {
 	case "device", "interface":
-		return "device.read", nil
+		return entitySourcePermission(entity.DeviceTarget), nil
 	case "prefix":
 		return "entities.read", nil
 	case "agent":
-		return permAgentRead, nil
+		return entitySourcePermission(entity.AgentSite), nil
 	case "test":
-		return permTestRead, nil
+		return entitySourcePermission(entity.PathAgent), nil
 	case "exporter":
-		return permFlowRead, nil
+		return entitySourcePermission(entity.FlowExporter), nil
 	default:
 		return "", apierror.BadRequest("invalid tag subject kind")
 	}
