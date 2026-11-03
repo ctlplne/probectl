@@ -9,10 +9,12 @@
 package flowstore
 
 import (
+	"context"
 	"net/netip"
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,8 +120,11 @@ func TestExplorerClickHousePrefixTagsKeepOwnedContextAndExactRanges(t *testing.T
 				t.Fatal(err)
 			}
 			t.Logf("prefix query checkpoint source=%s view=%s groupings=%d matrix=%d metrics=%d", plan.DataSeries, plan.View, len(plan.GroupBy), len(plan.MatrixWith), len(plan.Metrics))
+			started := time.Now()
 			got, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: plan, Tags: lookup})
+			t.Logf("prefix query execution elapsed=%s refused=%t", time.Since(started), err != nil)
 			if err != nil {
+				explainFailedPrefixPlan(t, store, tenant, plan, lookup)
 				t.Fatalf("owned prefix range query failed: %v", err)
 			}
 			if got.Source != plan.DataSeries || got.Coverage == nil || !got.Coverage.CompleteInputs || got.TagTenantID != tenant || got.TagIDs["tag.src_prefix.customer"] != definitionID || got.TagIDs["tag.dst_prefix.customer"] != definitionID {
@@ -187,4 +192,77 @@ func TestExplorerClickHousePrefixTagsKeepOwnedContextAndExactRanges(t *testing.T
 			}
 		}
 	}
+}
+
+// Diagnose only a failed synthetic-fixture query, without changing its outcome
+// or issuing an unbounded/admin read. Keep SQL, values and credentials out of
+// logs; a plan is evidence about structure, not an execution-cost estimate.
+func explainFailedPrefixPlan(t *testing.T, store *ClickHouse, tenant string, plan flow.QueryPlan, lookup *TagQueryData) {
+	t.Helper()
+	budget := ExplorerQueryBudget(store)
+	ctx, cancel := context.WithTimeout(withExplorerBudget(t.Context(), budget), budget.ExecutionLimit)
+	defer cancel()
+	started := time.Now()
+	target, err := store.route(ctx, tenant)
+	if err != nil {
+		t.Log("prefix diagnostic routing refused")
+		return
+	}
+	lane, err := store.readLane(target, tenant)
+	if err != nil || !lane.Reader {
+		t.Log("prefix diagnostic reader refused")
+		return
+	}
+	vocabulary, err := lookup.Vocabulary(tenant)
+	if err != nil {
+		t.Log("prefix diagnostic vocabulary refused")
+		return
+	}
+	plan, err = flow.NormalizeQueryPlanWithVocabulary(plan, time.Now(), vocabulary)
+	if err != nil {
+		t.Log("prefix diagnostic normalization refused")
+		return
+	}
+	external, err := lookup.externalData(ctx, tenant, plan, budget.MemoryBytes/4)
+	if err != nil {
+		t.Log("prefix diagnostic external lookup refused")
+		return
+	}
+	names, err := explorerInterfaceNames(ctx, store.explorerInterfaces, tenant, plan, budget)
+	if err != nil {
+		t.Log("prefix diagnostic interface lookup refused")
+		return
+	}
+	source, err := store.planSourceFor(ctx, target, lane, tenant, plan)
+	if err != nil {
+		t.Log("prefix diagnostic source refused")
+		return
+	}
+	sql, params, err := planSQLWithTags(budget, plan, source.table, names, tenant, lookup)
+	if err != nil {
+		t.Log("prefix diagnostic compilation refused")
+		return
+	}
+	params["tenant"] = tenant
+	prepared := time.Since(started)
+	rows, err := store.explorerQueryRows(ctx, target, lane, tenant, "EXPLAIN PLAN description=0 "+sql, params, external...)
+	if err != nil {
+		t.Logf("prefix diagnostic sql_bytes=%d prepare=%s explain=%s refused=true deadline=%t", len(sql), prepared, time.Since(started)-prepared, ctx.Err() != nil)
+		return
+	}
+	nodes := map[string]int{}
+	for _, row := range rows {
+		line, ok := row["explain"].(string)
+		if !ok {
+			t.Log("prefix diagnostic plan shape unavailable")
+			return
+		}
+		for _, line := range strings.Split(line, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				nodes[fields[0]]++
+			}
+		}
+	}
+	t.Logf("prefix diagnostic sql_bytes=%d prepare=%s explain=%s plan_nodes=%v", len(sql), prepared, time.Since(started)-prepared, nodes)
 }
