@@ -12853,7 +12853,7 @@
         "x-required-permission": "metrics.read",
         "operationId": "downloadDashboardReportArtifact",
         "summary": "Download and audit one tenant-confined report artifact",
-        "description": "Missing and cross-tenant artifact IDs are indistinguishable.",
+        "description": "Missing and cross-tenant artifact IDs are indistinguishable. CSV untrusted text cells with formula-like prefixes use a quoted tab prefix followed by the complete original text; This presentation prefix is absent from JSON definitions.",
         "tags": [
           "dashboards"
         ],

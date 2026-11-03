@@ -18,14 +18,13 @@ import (
 	"os"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -34,13 +33,7 @@ import (
 var flowCSVDecimal = regexp.MustCompile(`^[0-9]+(?:\.[0-9]{1,18})?$`)
 
 // Untrusted labels and validated exact metrics follow separate paths.
-func flowCSVText(value string) string {
-	trimmed := strings.TrimLeftFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == '\ufeff' })
-	if strings.HasPrefix(value, "\t") || strings.HasPrefix(value, "\r") || strings.HasPrefix(value, "\n") || len(trimmed) > 0 && strings.ContainsRune("=+-@", rune(trimmed[0])) {
-		return "'" + value
-	}
-	return value
-}
+func flowCSVText(value string) string { return reporting.CSVText(value) }
 
 type flowCSVFormat struct{ groups, metrics []string }
 

@@ -152,3 +152,52 @@ func TestPDFPreservesWhitespaceInsideExactValues(t *testing.T) {
 		t.Fatal("PDF changed significant whitespace in an exact value")
 	}
 }
+
+func TestReportCSVPreservesCompleteLiteralTextAcrossEveryUntrustedField(t *testing.T) {
+	for _, value := range []string{"=1+1", "+1", "-1", "@SUM(1)", "＝1+1", "＋1", "－1", "＠SUM(1)", " \ufeff＝1+1", "\tlabel", "\rlabel", "\nlabel", " =1,\"quoted\"\n" + strings.Repeat("🌐", 24000)} {
+		t.Run(value[:min(len(value), 12)], func(t *testing.T) {
+			doc := testDocument()
+			doc.Title = value
+			doc.TenantName = value
+			doc.GeneratedBy = value
+			doc.Provenance = []string{value}
+			doc.RedactionState = value
+			doc.CoverageLimitations = []string{value}
+			doc.Metrics = map[string]string{value: value}
+			encoded, err := RenderCSV(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err := csv.NewReader(bytes.NewReader(encoded)).ReadAll()
+			if err != nil {
+				t.Fatal(err)
+			}
+			fields := map[string]string{}
+			for _, row := range rows {
+				if len(row) != 2 {
+					t.Fatal("CSV cell split changed report structure")
+				}
+				fields[row[0]] = row[1]
+			}
+			for _, name := range []string{"title", "tenant_name", "generated_by", "provenance", "redaction_state", "coverage_limitations"} {
+				if fields[name] != "\t"+value {
+					t.Fatalf("%s lost complete literal text", name)
+				}
+			}
+			last := rows[len(rows)-1]
+			if last[0] != "\t"+value || last[1] != "\t"+value {
+				t.Fatal("metric name/value bypassed text encoding")
+			}
+			// The representation is explicitly quoted; the control prefix must not
+			// escape CSV structure or mutate the original Document's stored values.
+			if !bytes.Contains(encoded, []byte("\"\t")) || doc.Title != value || doc.Metrics[value] != value {
+				t.Fatal("text encoding mutated source or left an unquoted prefix")
+			}
+		})
+	}
+	for _, value := range []string{"", "ordinary", "🌐 Unicode", "already 'quoted'", "18446744073709551616001", "line,\"quote\"\ncontinued"} {
+		if CSVText(value) != value {
+			t.Fatal("ordinary text changed")
+		}
+	}
+}

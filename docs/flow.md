@@ -399,8 +399,10 @@ same frozen result, with explicit `detail`, `other` and `totals` record types.
 Single-query metrics are columns; comparison records name the metric/calculation
 and exact current/previous/delta/percent values. Empty comparison values denote
 a missing period. Exact decimal strings preserve counters above JavaScript's
-integer range. Untrusted label cells are neutralized against spreadsheet
-formulas. All chunks, current permissions, both periods' input coverage and the
+integer range. Untrusted label cells with formula-like prefixes use a quoted tab prefix
+followed by the complete original text, including Unicode, whitespace and controls.
+ASCII and full-width formula introducers are covered. Validated numeric metrics
+and comparison deltas retain their separate exact decimal representation. All chunks, current permissions, both periods' input coverage and the
 export audit are checked before successful headers. Verify `Content-Length` and
 `X-Probectl-SHA256` before accepting a downloaded file.
 

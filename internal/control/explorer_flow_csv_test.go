@@ -26,9 +26,9 @@ func TestFlowCSVSeparatesExactMetricsFromUntrustedLabelsAndSummaries(t *testing.
 	if err != nil || !reflect.DeepEqual(header, []string{"record_type", "agent_id", "bytes:total"}) {
 		t.Fatalf("CSV schema: %v %v", header, err)
 	}
-	for _, value := range []string{"=1+1", "+1", "-1", "@SUM(1)", " \t=1+1", "\ufeff=1+1", "\tlabel"} {
+	for _, value := range []string{"=1+1", "+1", "-1", "@SUM(1)", " \t=1+1", "\ufeff=1+1", "\tlabel", "＝1+1", " ＋1", "\ufeff－1", "＠SUM(1)"} {
 		row, err := format.row(flowstore.PlanRow{Group: map[string]string{"agent_id": value}, Metrics: map[string]string{"bytes:total": "18446744073709551616001"}}, "detail")
-		if err != nil || row[1] != "'"+value || row[2] != "18446744073709551616001" {
+		if err != nil || row[1] != "\t"+value || row[2] != "18446744073709551616001" {
 			t.Fatalf("label/metric encoding: %q %v", row, err)
 		}
 	}

@@ -51,7 +51,12 @@ Every generated PDF/CSV repeats the same contract and adds generation time and
 generator identity. PDF text wraps within the page margins and continues onto
 additional pages; all supported exact values are retained. Every page repeats tenant scope and
 the absolute observation interval. The built-in PDF font uses printable ASCII;
-CSV preserves Unicode text. A report is rejected before storage if any mandatory
+CSV preserves Unicode text. Formula-like text cells use a quoted leading tab
+before their complete rendered text, including ASCII and full-width formula
+markers and leading whitespace/control characters. Report labels, disclosures
+and metric strings follow the same display-text encoder as flow CSV labels.
+This presentation prefix is absent from structured JSON; validated flow numeric
+columns and signed comparison deltas keep their separate exact representation. A report is rejected before storage if any mandatory
 field is absent. This prevents a chart from becoming an apparently universal claim
 after its tenant or observation window is separated from it.
 

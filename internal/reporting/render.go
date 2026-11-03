@@ -71,7 +71,7 @@ func RenderCSV(d Document) ([]byte, error) {
 		{"coverage_limitations", strings.Join(d.CoverageLimitations, " | ")},
 	}
 	for _, row := range rows {
-		if err := w.Write([]string{row[0], row[1]}); err != nil {
+		if err := w.Write([]string{row[0], CSVText(row[1])}); err != nil {
 			return nil, err
 		}
 	}
@@ -84,7 +84,7 @@ func RenderCSV(d Document) ([]byte, error) {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		if err := w.Write([]string{key, d.Metrics[key]}); err != nil {
+		if err := w.Write([]string{CSVText(key), CSVText(d.Metrics[key])}); err != nil {
 			return nil, err
 		}
 	}
