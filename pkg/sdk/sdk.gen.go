@@ -1548,7 +1548,9 @@ type FlowExplorerResult struct {
 	SavedFilterVersions map[string]int           `json:"saved_filter_versions,omitempty"`
 	Series              []FlowExplorerPoint      `json:"series"`
 	Source              string                   `json:"source"`
+	TagIds              map[string]string        `json:"tag_ids,omitempty"`
 	TagRevision         int                      `json:"tag_revision,omitempty"`
+	TagTenantId         string                   `json:"tag_tenant_id,omitempty"`
 	TotalGroups         int                      `json:"total_groups"`
 	TotalSeries         []FlowExplorerPoint      `json:"total_series,omitempty"`
 	Totals              map[string]string        `json:"totals"`

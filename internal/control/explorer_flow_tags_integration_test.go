@@ -216,6 +216,11 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 	}
 	resume := ai.ExplorerQuery{Source: ai.ExplorerFlow, Flow: &flow.QueryPlan{Cursor: frozen.FlowPaging.NextCursor}}
 	p := &auth.Principal{TenantID: a, UserID: "dev", Permissions: map[string]bool{permAIQuery: true, permFlowRead: true, permTagsRead: true}}
+	// Exercise the current actor before native output projection so an
+	// independent formatter failure cannot hide this policy regression.
+	if _, err := srv.resumeFlowSnapshot(ctx, p, resume); err != nil {
+		t.Fatalf("authorized minimum-grant frozen page lost its current policy: %v", err)
+	}
 	comparison, err := (nativeMCPFlowBackend{srv}).FlowCompare(ctx, p, mcp.NativeFlowCompareInput{Plan: pagedPlan, PreviousFrom: at.Add(-2 * time.Hour), PreviousTo: at.Add(-time.Hour)})
 	if err != nil || comparison.Paging == nil || !comparison.Paging.More {
 		t.Fatalf("tagged comparison did not create a shared continuation: %v", err)

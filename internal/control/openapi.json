@@ -24156,6 +24156,20 @@
             "minimum": 1,
             "description": "Tenant tag-rule revision used for every result row when tag fields are selected. Frozen pages retain this revision."
           },
+          "tag_tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Owning tenant for immutable result tag identities. Rendering requires the authenticated tenant to match."
+          },
+          "tag_ids": {
+            "type": "object",
+            "maxProperties": 448,
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Original immutable definition IDs by qualified tag field in the normalized query and declared source coverage. This result metadata is retained for frozen output and is never request authority."
+          },
           "saved_filter_versions": {
             "type": "object",
             "maxProperties": 1000,

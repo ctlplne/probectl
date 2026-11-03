@@ -7,6 +7,7 @@
 package control
 
 import (
+	"maps"
 	"math/big"
 	"sort"
 	"strconv"
@@ -22,13 +23,13 @@ func nativeFlowProjectionError() error {
 	return apierror.Unavailable("native flow result projection is unavailable")
 }
 
-func nativeFlowDimensions(fields []string, values map[string]string, other bool) ([]mcp.NativeFlowDimension, error) {
+func nativeFlowDimensions(fields []string, values map[string]string, other bool, vocabulary flow.QueryVocabulary) ([]mcp.NativeFlowDimension, error) {
 	result := make([]mcp.NativeFlowDimension, 0, len(fields))
 	if other {
 		return result, nil
 	}
 	for _, field := range fields {
-		if _, ok := flow.LookupQueryField(field); !ok {
+		if _, ok := vocabulary.Lookup(field); !ok {
 			return nil, nativeFlowProjectionError()
 		}
 		value, ok := values[field]
@@ -56,10 +57,10 @@ func nativeFlowValues(metrics []flow.QueryMetric, values map[string]string, plot
 	}
 	return result, nil
 }
-func nativeFlowRows(rows []flowstore.PlanRow, fields []string, metrics []flow.QueryMetric) ([]mcp.NativeFlowRow, error) {
+func nativeFlowRows(rows []flowstore.PlanRow, fields []string, metrics []flow.QueryMetric, vocabulary flow.QueryVocabulary) ([]mcp.NativeFlowRow, error) {
 	result := make([]mcp.NativeFlowRow, 0, len(rows))
 	for _, row := range rows {
-		group, err := nativeFlowDimensions(fields, row.Group, row.Other)
+		group, err := nativeFlowDimensions(fields, row.Group, row.Other, vocabulary)
 		if err != nil {
 			return nil, err
 		}
@@ -71,20 +72,20 @@ func nativeFlowRows(rows []flowstore.PlanRow, fields []string, metrics []flow.Qu
 	}
 	return result, nil
 }
-func nativeFlowSummary(row *flowstore.PlanRow, fields []string, metrics []flow.QueryMetric) (*mcp.NativeFlowRow, error) {
+func nativeFlowSummary(row *flowstore.PlanRow, fields []string, metrics []flow.QueryMetric, vocabulary flow.QueryVocabulary) (*mcp.NativeFlowRow, error) {
 	if row == nil {
 		return nil, nil
 	}
-	rows, err := nativeFlowRows([]flowstore.PlanRow{*row}, fields, metrics)
+	rows, err := nativeFlowRows([]flowstore.PlanRow{*row}, fields, metrics, vocabulary)
 	if err != nil {
 		return nil, err
 	}
 	return &rows[0], nil
 }
-func nativeFlowPoints(points []flowstore.PlanPoint, fields []string, metrics []flow.QueryMetric) ([]mcp.NativeFlowPoint, error) {
+func nativeFlowPoints(points []flowstore.PlanPoint, fields []string, metrics []flow.QueryMetric, vocabulary flow.QueryVocabulary) ([]mcp.NativeFlowPoint, error) {
 	result := make([]mcp.NativeFlowPoint, 0, len(points))
 	for _, point := range points {
-		group, err := nativeFlowDimensions(fields, point.Group, point.Other || len(point.Group) == 0)
+		group, err := nativeFlowDimensions(fields, point.Group, point.Other || len(point.Group) == 0, vocabulary)
 		if err != nil {
 			return nil, err
 		}
@@ -104,19 +105,31 @@ func nativeFlowPoints(points []flowstore.PlanPoint, fields []string, metrics []f
 	return result, nil
 }
 
-func projectNativeFlow(source flowstore.PlanResult) (mcp.NativeFlowResult, error) {
+func projectNativeFlow(source flowstore.PlanResult, tenant string) (mcp.NativeFlowResult, error) {
 	if (source.Source != "raw" && source.Source != "rollup") || source.ResolutionSeconds < 1 || source.TotalGroups < 0 || source.Query.From.IsZero() || source.Query.To.IsZero() || source.Query.View == "" || len(source.Query.Metrics) == 0 {
 		return mcp.NativeFlowResult{}, nativeFlowProjectionError()
 	}
-	query, err := flow.NormalizeQueryPlan(source.Query, time.Now())
+	vocabulary, err := source.OutputVocabulary(tenant)
+	if err != nil {
+		return mcp.NativeFlowResult{}, nativeFlowProjectionError()
+	}
+	query, err := flow.NormalizeQueryPlanWithVocabulary(source.Query, time.Now(), vocabulary)
 	if err != nil {
 		return mcp.NativeFlowResult{}, nativeFlowProjectionError()
 	}
 	out := mcp.NativeFlowResult{Query: query, Source: source.Source, ResolutionSeconds: source.ResolutionSeconds, TotalGroups: source.TotalGroups, DetailLimited: source.DetailLimited}
+	if source.TagRevision > 0 {
+		out.TagTenantID = source.TagTenantID
+		out.TagRevision = strconv.FormatInt(source.TagRevision, 10)
+		for field, id := range source.TagIDs {
+			out.TagIDs = append(out.TagIDs, mcp.NativeFlowTagID{Field: field, ID: id})
+		}
+		sort.Slice(out.TagIDs, func(i, j int) bool { return out.TagIDs[i].Field < out.TagIDs[j].Field })
+	}
 	if source.Coverage != nil {
 		fields := []string{}
 		for _, field := range source.Coverage.Fields {
-			if _, ok := flow.LookupQueryField(field); ok {
+			if _, ok := vocabulary.Lookup(field); ok {
 				fields = append(fields, field)
 			}
 		}
@@ -135,43 +148,43 @@ func projectNativeFlow(source flowstore.PlanResult) (mcp.NativeFlowResult, error
 		}
 		out.FilterVersions = append(out.FilterVersions, mcp.NativeFlowRevision{ID: id, Version: strconv.FormatInt(version, 10)})
 	}
-	if out.Rows, err = nativeFlowRows(source.Rows, query.GroupBy, query.Metrics); err != nil {
+	if out.Rows, err = nativeFlowRows(source.Rows, query.GroupBy, query.Metrics, vocabulary); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
-	if out.ChartRows, err = nativeFlowRows(source.ChartRows, query.GroupBy, query.Metrics); err != nil {
+	if out.ChartRows, err = nativeFlowRows(source.ChartRows, query.GroupBy, query.Metrics, vocabulary); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
-	if out.MatrixRows, err = nativeFlowRows(source.MatrixRows, query.GroupBy, query.Metrics); err != nil {
+	if out.MatrixRows, err = nativeFlowRows(source.MatrixRows, query.GroupBy, query.Metrics, vocabulary); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
-	if out.MatrixColumns, err = nativeFlowRows(source.MatrixColumns, query.MatrixWith, query.Metrics); err != nil {
+	if out.MatrixColumns, err = nativeFlowRows(source.MatrixColumns, query.MatrixWith, query.Metrics, vocabulary); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
-	if out.Other, err = nativeFlowSummary(source.Other, query.GroupBy, query.Metrics); err != nil {
+	if out.Other, err = nativeFlowSummary(source.Other, query.GroupBy, query.Metrics, vocabulary); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
-	if out.ChartOther, err = nativeFlowSummary(source.ChartOther, query.GroupBy, query.Metrics); err != nil {
+	if out.ChartOther, err = nativeFlowSummary(source.ChartOther, query.GroupBy, query.Metrics, vocabulary); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
 	if out.Totals, err = nativeFlowValues(query.Metrics, source.Totals, false); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
-	if out.Series, err = nativeFlowPoints(source.Series, query.GroupBy, query.Metrics); err != nil {
+	if out.Series, err = nativeFlowPoints(source.Series, query.GroupBy, query.Metrics, vocabulary); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
-	if out.OtherSeries, err = nativeFlowPoints(source.OtherSeries, query.GroupBy, query.Metrics); err != nil {
+	if out.OtherSeries, err = nativeFlowPoints(source.OtherSeries, query.GroupBy, query.Metrics, vocabulary); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
-	if out.TotalSeries, err = nativeFlowPoints(source.TotalSeries, nil, query.Metrics); err != nil {
+	if out.TotalSeries, err = nativeFlowPoints(source.TotalSeries, nil, query.Metrics, vocabulary); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
 	out.Matrix = []mcp.NativeFlowCell{}
 	for _, cell := range source.Matrix {
-		row, err := nativeFlowDimensions(query.GroupBy, cell.Row, cell.RowOther)
+		row, err := nativeFlowDimensions(query.GroupBy, cell.Row, cell.RowOther, vocabulary)
 		if err != nil {
 			return mcp.NativeFlowResult{}, err
 		}
-		column, err := nativeFlowDimensions(query.MatrixWith, cell.Column, cell.ColumnOther)
+		column, err := nativeFlowDimensions(query.MatrixWith, cell.Column, cell.ColumnOther, vocabulary)
 		if err != nil {
 			return mcp.NativeFlowResult{}, err
 		}
@@ -189,27 +202,34 @@ func nativeFlowPaging(source *flowSnapshotPaging) *mcp.NativeFlowPaging {
 	}
 	return &mcp.NativeFlowPaging{SnapshotID: source.SnapshotID, ExpiresAt: source.ExpiresAt, SelectedRows: source.SelectedRows, Offset: source.Offset, PageSize: source.PageSize, More: source.More, NextCursor: source.NextCursor}
 }
-func projectNativeFlowQuery(source explorerResult) (mcp.NativeFlowQueryResult, error) {
+func projectNativeFlowQuery(source explorerResult, tenant string) (mcp.NativeFlowQueryResult, error) {
 	if source.Flow == nil {
 		return mcp.NativeFlowQueryResult{}, nativeFlowProjectionError()
 	}
-	data, err := projectNativeFlow(*source.Flow)
+	data, err := projectNativeFlow(*source.Flow, tenant)
 	if err != nil {
 		return mcp.NativeFlowQueryResult{}, err
 	}
 	return mcp.NativeFlowQueryResult{Flow: data, Paging: nativeFlowPaging(source.FlowPaging)}, nil
 }
-func projectNativeFlowComparison(source explorerComparisonResult) (mcp.NativeFlowComparisonResult, error) {
+func projectNativeFlowComparison(source explorerComparisonResult, tenant string) (mcp.NativeFlowComparisonResult, error) {
 	if source.Flow == nil {
 		return mcp.NativeFlowComparisonResult{}, nativeFlowProjectionError()
 	}
-	now, err := projectNativeFlow(source.Flow.Current)
+	if source.Flow.Current.TagTenantID != source.Flow.Previous.TagTenantID || source.Flow.Current.TagRevision != source.Flow.Previous.TagRevision || !maps.Equal(source.Flow.Current.TagIDs, source.Flow.Previous.TagIDs) {
+		return mcp.NativeFlowComparisonResult{}, nativeFlowProjectionError()
+	}
+	now, err := projectNativeFlow(source.Flow.Current, tenant)
 	if err != nil {
 		return mcp.NativeFlowComparisonResult{}, err
 	}
-	before, err := projectNativeFlow(source.Flow.Previous)
+	before, err := projectNativeFlow(source.Flow.Previous, tenant)
 	if err != nil {
 		return mcp.NativeFlowComparisonResult{}, err
+	}
+	vocabulary, err := source.Flow.Current.OutputVocabulary(tenant)
+	if err != nil {
+		return mcp.NativeFlowComparisonResult{}, nativeFlowProjectionError()
 	}
 	rows := make([]mcp.NativeFlowComparisonRow, 0, len(source.Rows))
 	selected := map[string]bool{}
@@ -231,7 +251,7 @@ func projectNativeFlowComparison(source explorerComparisonResult) (mcp.NativeFlo
 				}
 			}
 		}
-		group, err := nativeFlowDimensions(now.Query.GroupBy, row.Group, row.Other)
+		group, err := nativeFlowDimensions(now.Query.GroupBy, row.Group, row.Other, vocabulary)
 		if err != nil {
 			return mcp.NativeFlowComparisonResult{}, err
 		}

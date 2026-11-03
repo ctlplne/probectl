@@ -22,7 +22,7 @@ import (
 
 func TestFlowCSVSeparatesExactMetricsFromUntrustedLabelsAndSummaries(t *testing.T) {
 	plan := flow.QueryPlan{From: time.Now().Add(-time.Hour), To: time.Now(), GroupBy: []string{"agent_id"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
-	format, header, err := newFlowCSVFormat(plan)
+	format, header, err := newFlowCSVFormat(plan, flow.QueryVocabulary{})
 	if err != nil || !reflect.DeepEqual(header, []string{"record_type", "agent_id", "bytes:total"}) {
 		t.Fatalf("CSV schema: %v %v", header, err)
 	}
@@ -62,7 +62,7 @@ func TestFlowCSVOutputBudgetAndCancellationNeverWritePartialRecord(t *testing.T)
 }
 
 func TestFlowComparisonCSVExactSignedDeltasAndMissingPeriod(t *testing.T) {
-	format, columns, err := newFlowComparisonCSVFormat(flow.QueryPlan{GroupBy: []string{"agent_id"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}})
+	format, columns, err := newFlowComparisonCSVFormat(flow.QueryPlan{GroupBy: []string{"agent_id"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}, flow.QueryVocabulary{})
 	if err != nil || len(columns) != 9 {
 		t.Fatal("comparison CSV schema", columns, err)
 	}

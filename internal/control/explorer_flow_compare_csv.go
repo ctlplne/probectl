@@ -23,12 +23,12 @@ type flowComparisonCSVFormat struct {
 	budget flowstore.ExplorerBudget
 }
 
-func newFlowComparisonCSVFormat(plan flow.QueryPlan, budgets ...flowstore.ExplorerBudget) (flowComparisonCSVFormat, []string, error) {
+func newFlowComparisonCSVFormat(plan flow.QueryPlan, vocabulary flow.QueryVocabulary, budgets ...flowstore.ExplorerBudget) (flowComparisonCSVFormat, []string, error) {
 	budget, err := flowComparisonCostBudget(budgets)
 	if err != nil {
 		return flowComparisonCSVFormat{}, nil, err
 	}
-	format, _, err := newFlowCSVFormat(plan)
+	format, _, err := newFlowCSVFormat(plan, vocabulary)
 	if err != nil {
 		return flowComparisonCSVFormat{}, nil, err
 	}

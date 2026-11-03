@@ -116,7 +116,6 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	result.Source = source.kind
 	result.Coverage = source.coverage
 	if query.Tags != nil {
-		result.TagRevision, _ = query.Tags.Revision(query.TenantID)
 		fields, err := vocabulary.Fields()
 		if err != nil {
 			return PlanResult{}, err
@@ -126,6 +125,9 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 				result.Coverage.Fields = append(result.Coverage.Fields, field.Name)
 			}
 		}
+	}
+	if err := captureResultTagIdentity(&result, query, vocabulary); err != nil {
+		return PlanResult{}, err
 	}
 	if source.coverage != nil {
 		result.ResolutionSeconds = source.coverage.ResolutionSeconds

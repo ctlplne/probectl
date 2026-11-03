@@ -101,6 +101,9 @@ type NativeFlowCoverage struct {
 	CompleteInputs    bool     `json:"complete_inputs"`
 }
 type NativeFlowResult struct {
+	TagTenantID       string               `json:"tag_tenant_id,omitempty"`
+	TagRevision       string               `json:"tag_revision,omitempty"`
+	TagIDs            []NativeFlowTagID    `json:"tag_ids,omitempty"`
 	Query             flow.QueryPlan       `json:"query"`
 	Coverage          *NativeFlowCoverage  `json:"coverage,omitempty"`
 	FilterVersions    []NativeFlowRevision `json:"filter_versions"`

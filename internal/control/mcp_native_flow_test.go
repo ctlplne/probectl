@@ -176,7 +176,7 @@ func TestNativeMCPProjectionDropsPhysicalFieldsAndPreservesExactValues(t *testin
 	row := flowstore.PlanRow{Group: map[string]string{"protocol": "ipfix", "exporter": "router", "tenant_id": "PRIVATE_SCOPE_VALUE", "new_store_column": "PRIVATE_UNLISTED_VALUE"}, Metrics: map[string]string{"bytes:total": "9007199254740993", "unique_src:total": "3", "new_store_metric": "PRIVATE_METRIC_VALUE"}}
 	point := flowstore.PlanPoint{Group: row.Group, TS: at, DurationSeconds: "60.000000000", Metrics: row.Metrics}
 	source := flowstore.PlanResult{Query: plan, Source: "raw", ResolutionSeconds: 60, TotalGroups: 1, Rows: []flowstore.PlanRow{row}, ChartRows: []flowstore.PlanRow{row}, MatrixRows: []flowstore.PlanRow{row}, MatrixColumns: []flowstore.PlanRow{{Group: map[string]string{"dst_port": "443"}, Metrics: row.Metrics}}, Totals: map[string]string{"bytes:total": "9007199254740993", "unique_src:total": "7"}, Series: []flowstore.PlanPoint{point}, TotalSeries: []flowstore.PlanPoint{{TS: at, DurationSeconds: "60", Metrics: map[string]string{"bytes:total": "9007199254740993", "unique_src:total": "7"}}}, SavedFilterVersions: map[string]int64{"filter-own": 9007199254740993}, OldestInput: at.Add(-time.Hour), Coverage: &flowstore.PlanSourceCoverage{Fields: []string{"protocol", "exporter", "tenant_id"}, ResolutionSeconds: 60, CompleteInputs: true}, Matrix: []flowstore.PlanMatrixCell{{Row: row.Group, Column: map[string]string{"dst_port": "443"}, Metrics: row.Metrics}}}
-	native, err := projectNativeFlowQuery(explorerResult{Flow: &source, Preview: "PRIVATE_SQL_PREVIEW", EvidencePath: "PRIVATE_CACHE_PATH"})
+	native, err := projectNativeFlowQuery(explorerResult{Flow: &source, Preview: "PRIVATE_SQL_PREVIEW", EvidencePath: "PRIVATE_CACHE_PATH"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestNativeMCPProjectionDropsPhysicalFieldsAndPreservesExactValues(t *testin
 		t.Fatal("native projection lost exact values, time or independent cardinality total")
 	}
 	source.Rows[0].Metrics["bytes:total"] = "not-a-numeric-measure"
-	if _, err := projectNativeFlow(source); err == nil {
+	if _, err := projectNativeFlow(source, ""); err == nil {
 		t.Fatal("untrusted nonnumeric source measure reached native wire")
 	}
 }
@@ -212,12 +212,12 @@ func TestNativeMCPProjectionRequiresBoundedDecimalNumbers(t *testing.T) {
 		}
 	}
 	for _, duration := range []string{"1/2", "0xff", "1e3", "+1", "0"} {
-		if _, err := nativeFlowPoints([]flowstore.PlanPoint{{TS: time.Now(), DurationSeconds: duration, Metrics: map[string]string{"bytes:total": "1"}}}, nil, metrics); err == nil {
+		if _, err := nativeFlowPoints([]flowstore.PlanPoint{{TS: time.Now(), DurationSeconds: duration, Metrics: map[string]string{"bytes:total": "1"}}}, nil, metrics, flow.QueryVocabulary{}); err == nil {
 			t.Fatal("noncontract interval crossed native projection", duration)
 		}
 	}
 	point := flowstore.PlanPoint{TS: time.Date(2026, 10, 20, 0, 0, 0, 123456789, time.UTC), DurationSeconds: "0.000000001", Metrics: map[string]string{"bytes:total": "9007199254740993"}}
-	out, err := nativeFlowPoints([]flowstore.PlanPoint{point}, nil, metrics)
+	out, err := nativeFlowPoints([]flowstore.PlanPoint{point}, nil, metrics, flow.QueryVocabulary{})
 	if err != nil || len(out) != 1 || out[0].DurationSeconds != point.DurationSeconds || out[0].TS != point.TS || out[0].Metrics[0].Value != "9007199254740993" {
 		t.Fatal("exact nanosecond interval or high counter changed", err)
 	}
@@ -232,13 +232,13 @@ func TestNativeMCPProjectionRequiresBoundedDecimalNumbers(t *testing.T) {
 	}
 	validDelta := "-1"
 	validComparison := explorerComparisonResult{Flow: &flowExplorerComparisonData{Current: base, Previous: base}, Rows: []explorerComparisonRow{{Group: group, Measure: "bytes:total", Aggregation: "total", DeltaExact: &validDelta}}}
-	validProjected, err := projectNativeFlowComparison(validComparison)
+	validProjected, err := projectNativeFlowComparison(validComparison, "")
 	if err != nil || len(validProjected.Rows) != 1 || *validProjected.Rows[0].Delta != "-1" {
 		t.Fatal("valid signed decimal comparison refused", err)
 	}
 	for _, invalid := range []string{"1/2", "0xff", "1e3", "+1", strings.Repeat("9", 257)} {
 		comparison := explorerComparisonResult{Flow: &flowExplorerComparisonData{Current: base, Previous: base}, Rows: []explorerComparisonRow{{Group: group, Measure: "bytes:total", Aggregation: "total", DeltaExact: &invalid}}}
-		if _, err := projectNativeFlowComparison(comparison); err == nil {
+		if _, err := projectNativeFlowComparison(comparison, ""); err == nil {
 			t.Fatal("nondecimal comparison delta crossed native projection", invalid)
 		}
 	}

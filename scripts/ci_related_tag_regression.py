@@ -4,9 +4,9 @@
 # in the LICENSE file at the root of this repository; on its Change Date
 # each version converts to the Mozilla Public License 2.0.
 
-"""Require one exact assertion on the original query vocabulary, after current pass.
+"""Require one exact original tag assertion after a current pass.
 
-The copied unit regression uses existing APIs. No baseline implementation,
+The copied regression uses existing APIs. No baseline implementation,
 compiler prerequisite, service, dependency or oracle is changed.
 """
 
@@ -200,6 +200,7 @@ if __name__ == "__main__":
     mode.add_argument("--interfaces", action="store_true")
     mode.add_argument("--rollup-snapshot", action="store_true")
     mode.add_argument("--tag-actor", action="store_true")
+    mode.add_argument("--tag-output", action="store_true")
     args = parser.parse_args()
     if args.interfaces:
         BASE = "9c626335df1bc6f48eb1fb6951a81d0a2fbda198"
@@ -220,5 +221,13 @@ if __name__ == "__main__":
         GO_PACKAGE = "./internal/control"
         GO_EXTRA = ["-tags=integration"]
         FILE = Path("internal/control/explorer_flow_tags_integration_test.go")
-        MARKER = "authorized user MCP page lost its current actor"
+        MARKER = "authorized minimum-grant frozen page lost its current policy"
+    if args.tag_output:
+        BASE = "7d9b3caeb397051b686f4c48e5c0babd4414ecd5"
+        TEST = "TestExplorerRelatedTagsUseCurrentOwnedSubjectsAndReadGrants"
+        PACKAGE = "github.com/ctlplne/probectl/internal/control"
+        GO_PACKAGE = "./internal/control"
+        GO_EXTRA = ["-tags=integration"]
+        FILE = Path("internal/control/explorer_flow_related_tags_integration_test.go")
+        MARKER = "authorized related tag output was rejected by static projection"
     selftest() if args.selftest else run()

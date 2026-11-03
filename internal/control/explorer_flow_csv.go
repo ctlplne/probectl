@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"regexp"
@@ -43,8 +44,8 @@ func flowCSVText(value string) string {
 
 type flowCSVFormat struct{ groups, metrics []string }
 
-func newFlowCSVFormat(plan flow.QueryPlan) (flowCSVFormat, []string, error) {
-	plan, err := flow.NormalizeQueryPlan(plan, time.Now())
+func newFlowCSVFormat(plan flow.QueryPlan, vocabulary flow.QueryVocabulary) (flowCSVFormat, []string, error) {
+	plan, err := flow.NormalizeQueryPlanWithVocabulary(plan, time.Now(), vocabulary)
 	if err != nil {
 		return flowCSVFormat{}, nil, flowsnapshot.ErrIntegrity
 	}
@@ -184,13 +185,26 @@ func (s *Server) prepareFlowCSVContext(ctx context.Context, p *auth.Principal, i
 			if decodeErr != nil {
 				return flowsnapshot.ErrIntegrity
 			}
+			vocabulary, vocabularyErr := metadata.Flow.Current.OutputVocabulary(p.TenantID)
+			if vocabularyErr != nil {
+				return flowsnapshot.ErrIntegrity
+			}
+			if _, vocabularyErr = metadata.Flow.Previous.OutputVocabulary(p.TenantID); vocabularyErr != nil ||
+				metadata.Flow.Current.TagRevision != metadata.Flow.Previous.TagRevision ||
+				!maps.Equal(metadata.Flow.Current.TagIDs, metadata.Flow.Previous.TagIDs) {
+				return flowsnapshot.ErrIntegrity
+			}
 			comparison = &metadata
-			comparisonFormat, columns, err = newFlowComparisonCSVFormat(*metadata.Current.Flow, flowstore.ExplorerQueryBudget(s.flowStore))
+			comparisonFormat, columns, err = newFlowComparisonCSVFormat(metadata.Flow.Current.Query, vocabulary, flowstore.ExplorerQueryBudget(s.flowStore))
 		} else {
 			if err := json.Unmarshal(header.Data, &common); err != nil || common.Flow == nil {
 				return flowsnapshot.ErrIntegrity
 			}
-			format, columns, err = newFlowCSVFormat(common.Flow.Query)
+			vocabulary, vocabularyErr := common.Flow.OutputVocabulary(p.TenantID)
+			if vocabularyErr != nil {
+				return flowsnapshot.ErrIntegrity
+			}
+			format, columns, err = newFlowCSVFormat(common.Flow.Query, vocabulary)
 		}
 		if err != nil {
 			return err

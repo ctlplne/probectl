@@ -149,11 +149,33 @@ func TestExplorerRelatedTagsUseCurrentOwnedSubjectsAndReadGrants(t *testing.T) {
 	backend := nativeMCPFlowBackend{srv}
 	native, err := backend.FlowQuery(t.Context(), p, plan)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("authorized related tag output was rejected by static projection: %v", err)
 	}
 	encoded, err := json.Marshal(native)
 	if err != nil || !strings.Contains(string(encoded), `"value":"device-`+f.a+`"`) || strings.Contains(string(encoded), f.b) {
 		t.Fatal("native MCP lost or crossed qualified subject values")
+	}
+	var identity struct {
+		Flow struct {
+			Tenant   string `json:"tag_tenant_id"`
+			Revision string `json:"tag_revision"`
+			IDs      []struct {
+				Field string `json:"field"`
+				ID    string `json:"id"`
+			} `json:"tag_ids"`
+		} `json:"flow"`
+	}
+	if json.Unmarshal(encoded, &identity) != nil || identity.Flow.Tenant != f.a || identity.Flow.Revision == "" {
+		t.Fatal("native tag result lost exact owned identity")
+	}
+	selectedIDs := map[string]string{}
+	for _, field := range identity.Flow.IDs {
+		selectedIDs[field.Field] = field.ID
+	}
+	for _, field := range plan.GroupBy {
+		if selectedIDs[field] != f.tagID {
+			t.Fatal("native qualified field lost immutable definition")
+		}
 	}
 	for _, permission := range []string{permTagsRead, permFlowRead, "metrics.read", "agent.read"} {
 		if response := request(f.a, permission, plan); response.Code != http.StatusForbidden {
@@ -256,4 +278,23 @@ func TestExplorerRelatedTagsUseCurrentOwnedSubjectsAndReadGrants(t *testing.T) {
 	if response := apiReq(t, srv.Handler(), http.MethodPost, "/v1/explorer/flow-views/"+view.ID+"/query", f.a, nil); response.Code != http.StatusConflict {
 		t.Fatal("renamed qualified field silently retargeted a saved view")
 	}
+	assertOriginalOutput := func(phase string) {
+		t.Helper()
+		if _, err := backend.FlowPage(t.Context(), p, frozen.FlowPaging.NextCursor); err != nil {
+			t.Fatalf("%s changed original frozen native fields: %v", phase, err)
+		}
+		if _, err := backend.FlowComparisonPage(t.Context(), p, comparison.Paging.NextCursor); err != nil {
+			t.Fatalf("%s changed frozen comparison fields: %v", phase, err)
+		}
+		for _, id := range []string{frozen.FlowPaging.SnapshotID, comparison.Paging.SnapshotID} {
+			if response := apiReq(t, srv.Handler(), http.MethodGet, "/v1/explorer/flow-snapshots/"+id+"/csv", f.a, nil); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "tag.device.role") || strings.Contains(response.Body.String(), "role_new") {
+				t.Fatalf("%s changed original frozen CSV header or authorization", phase)
+			}
+		}
+	}
+	assertOriginalOutput("rename")
+	if response := apiReq(t, srv.Handler(), http.MethodDelete, "/v1/tags/"+f.tagID, f.a, nil); response.Code != http.StatusNoContent {
+		t.Fatal("delete qualified tag definition failed")
+	}
+	assertOriginalOutput("deletion")
 }

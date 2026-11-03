@@ -663,7 +663,7 @@ field. `/v1/explorer/schema` and the native MCP schema include a tenant's tag
 keys only for a caller with `tags.read`; querying a tag requires `ai.query`,
 `flow.read` and `tags.read`. The returned `tag_revision` identifies the one
 tenant tag-rule snapshot used for the query. Both comparison periods use that
-same snapshot, and frozen result pages keep the materialized values. A flow
+same snapshot, and frozen result pages keep the materialized values. Results also retain `tag_tenant_id` and the immutable `tag_ids` for the normalized plan and declared coverage. Native MCP exposes the same IDs with an exact decimal-string revision. Frozen MCP pages and CSV headers use those original identities after a definition rename or deletion; they still require current tenant, owner, source and selected read permissions. Missing or inconsistent identity metadata requires a fresh query. A flow
 whose exporter address has no unique, current operator-owned binding has an
 empty tag value, shown as **Unmatched** in presentation. The sender's claimed
 agent ID never selects a routing context. A later rule edit changes a fresh

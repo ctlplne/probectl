@@ -74,17 +74,21 @@ type PlanResult struct {
 	SavedFilterVersions map[string]int64    `json:"saved_filter_versions,omitempty"`
 	Source              string              `json:"source"`
 	TagRevision         int64               `json:"tag_revision,omitempty"`
-	ResolutionSeconds   int                 `json:"resolution_seconds"`
-	TotalGroups         int                 `json:"total_groups"`
-	DetailLimited       bool                `json:"detail_limited"`
-	Rows                []PlanRow           `json:"rows"`
-	ChartRows           []PlanRow           `json:"chart_rows,omitempty"`
-	MatrixRows          []PlanRow           `json:"matrix_rows,omitempty"`
-	Other               *PlanRow            `json:"other,omitempty"`
-	ChartOther          *PlanRow            `json:"chart_other,omitempty"`
-	Totals              map[string]string   `json:"totals"`
-	Series              []PlanPoint         `json:"series"`
-	OtherSeries         []PlanPoint         `json:"other_series"`
+	TagTenantID         string              `json:"tag_tenant_id,omitempty"`
+	// TagIDs preserves the immutable field identities in Query and Coverage.
+	// It describes this result, never client-supplied query authority.
+	TagIDs            map[string]string `json:"tag_ids,omitempty"`
+	ResolutionSeconds int               `json:"resolution_seconds"`
+	TotalGroups       int               `json:"total_groups"`
+	DetailLimited     bool              `json:"detail_limited"`
+	Rows              []PlanRow         `json:"rows"`
+	ChartRows         []PlanRow         `json:"chart_rows,omitempty"`
+	MatrixRows        []PlanRow         `json:"matrix_rows,omitempty"`
+	Other             *PlanRow          `json:"other,omitempty"`
+	ChartOther        *PlanRow          `json:"chart_other,omitempty"`
+	Totals            map[string]string `json:"totals"`
+	Series            []PlanPoint       `json:"series"`
+	OtherSeries       []PlanPoint       `json:"other_series"`
 	// TotalSeries is aggregated from all matching tenant inputs per bucket,
 	// never from selected/Other group statistics. Table queries omit points.
 	TotalSeries   []PlanPoint      `json:"total_series,omitzero"`
@@ -388,14 +392,6 @@ func memoryPlanCoverage(query PlanQuery, vocabulary flow.QueryVocabulary) ([]str
 	return fields, nil
 }
 
-func memoryPlanTagRevision(query PlanQuery) int64 {
-	if query.Tags == nil {
-		return 0
-	}
-	revision, _ := query.Tags.Revision(query.TenantID)
-	return revision
-}
-
 func earliestPlanInput(current, candidate time.Time) time.Time {
 	if current.IsZero() || candidate.Before(current) {
 		return candidate.UTC()
@@ -523,7 +519,9 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 		return PlanResult{}, err
 	}
 	result := PlanResult{Query: plan, Source: "raw", ResolutionSeconds: flow.MinPlanBucketSeconds, Coverage: &PlanSourceCoverage{Fields: coverageFields, ResolutionSeconds: flow.MinPlanBucketSeconds, CompleteInputs: true}, Rows: []PlanRow{}, Series: []PlanPoint{}, OtherSeries: []PlanPoint{}, TotalSeries: []PlanPoint{}, Matrix: []PlanMatrixCell{}, TotalGroups: len(keys), DetailLimited: len(keys) > plan.RowLimit, Totals: total.row(false).Metrics}
-	result.TagRevision = memoryPlanTagRevision(query)
+	if err := captureResultTagIdentity(&result, query, vocabulary); err != nil {
+		return PlanResult{}, err
+	}
 	result.OldestInput = oldestInput
 	selected := map[string]bool{}
 	detailKeys := selectedPlanKeys(keys, plan.RowLimit, selectedGroups, groups)
