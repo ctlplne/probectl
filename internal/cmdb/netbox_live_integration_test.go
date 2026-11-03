@@ -125,6 +125,7 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 		}
 	}
 	liveNetBoxSubjectProof(t, resolver, manifest.Tenants, manifest.IPs, manifest.Prefixes, manifest.PrefixesV6)
+	liveNetBoxStoredPrefixProof(t, resolver, manifest.Prefixes)
 	for _, ctx := range []context.Context{t.Context(), netBoxContext("33333333-3333-4333-8333-333333333333")} {
 		if cis, err := resolver.Lookup(ctx, "192.0.2.10"); !errors.Is(err, ErrTenantBinding) || len(cis) != 0 {
 			t.Fatal("unmapped caller reached a warmed source lookup")
