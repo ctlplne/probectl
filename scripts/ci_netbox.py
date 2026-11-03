@@ -534,10 +534,32 @@ def select_wsgi_database_profile(*, implicit: bool) -> None:
     )
 
 
+def request_wsgi_status(token: str, *, implicit: bool) -> tuple[int, bytes]:
+    # Unit restarts the application asynchronously. A successful restart API
+    # response is not proof that a replacement Python worker is ready. Retry
+    # only the bounded read timeout of this idempotent owned status GET; an
+    # actual HTTP response still faces the unchanged strict profile oracle.
+    for attempt in range(1, 4):
+        try:
+            return request("/api/status/", token=token, expect_profile_error=implicit)
+        except TimeoutError:
+            print(
+                "NetBox fixture WSGI status read timed out; "
+                + f"profile={'implicit' if implicit else 'explicit'}, attempt={attempt}/3",
+                flush=True,
+            )
+            if attempt == 3:
+                raise RuntimeError(
+                    "NetBox fixture WSGI restart readiness timed out"
+                ) from None
+            time.sleep(2)
+    raise AssertionError("unreachable WSGI readiness state")
+
+
 def verify_wsgi_profile_reversal(token: str) -> None:
     try:
         select_wsgi_database_profile(implicit=True)
-        request("/api/status/", token=token, expect_profile_error=True)
+        request_wsgi_status(token, implicit=True)
     finally:
         select_wsgi_database_profile(implicit=False)
     print(
@@ -831,7 +853,7 @@ def start() -> None:
     )
     private_file("manifest.json", json.dumps(manifest, sort_keys=True) + "\n")
     verify_wsgi_profile_reversal(token)
-    status, raw = request("/api/status/", token=token)
+    status, raw = request_wsgi_status(token, implicit=False)
     try:
         verify_application_version(status, raw)
     except RuntimeError:
@@ -982,6 +1004,34 @@ def selftest() -> None:
             raise RuntimeError(
                 "web profile reversal failed to restore explicit configuration"
             )
+    for failures in [1, 3]:
+        calls = []
+
+        def slow_worker(*args, **kwargs):
+            calls.append(kwargs)
+            if len(calls) <= failures:
+                raise TimeoutError("untrusted timeout detail")
+            return 500, b""
+
+        with (
+            patch(__name__ + ".request", slow_worker),
+            patch("time.sleep"),
+            patch("sys.stdout", io.StringIO()),
+        ):
+            try:
+                request_wsgi_status("fixture-only", implicit=True)
+            except RuntimeError as error:
+                if failures != 3 or "untrusted" in str(error):
+                    raise AssertionError(
+                        "WSGI readiness lost its bounded refusal"
+                    ) from None
+            else:
+                if failures == 3:
+                    raise AssertionError("WSGI readiness accepted no HTTP response")
+        if len(calls) != min(failures + 1, 3) or any(
+            call.get("expect_profile_error") is not True for call in calls
+        ):
+            raise AssertionError("WSGI retries lost the original profile oracle")
     good_proof = {
         "default_profile_outcome": "connected",
         "denied_profile_reproduced": True,
