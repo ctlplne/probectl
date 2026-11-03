@@ -1023,3 +1023,14 @@ are omitted. Values retain the 24,000-character reach. The existing 2 MiB query
 request envelope and configured operation, memory, response and fairness
 budgets apply to the entire read. An overflow or source failure returns no
 partial result. This remains preview pending the complete release-stack proof.
+
+The Ask page also offers this explicit current lookup for metrics that carry an
+exact `test_id` and are cited by a resolved headline or finding in the displayed
+answer. The answer must belong to the active tenant. The page keeps fetched tags
+in that detail only and clears them on a failed refresh or changed answer,
+identity or grants. Current annotations are displayed separately from the
+original evidence, citations and confidence; they are not added to the model
+input or downloaded answer. API and CLI clients can perform the same second
+read using the cited IDs; MCP clients use `test_tag_context`. This is the test
+evidence context component, with other typed RCA selection and full source
+composition still pending.

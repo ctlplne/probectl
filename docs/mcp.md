@@ -620,3 +620,12 @@ Unknown or denied references are omitted. The native whole-result renderer,
 query admission, egress consent and call audit apply; cost/source refusals
 return no partial data. This preview operation provides metadata context for
 exact test IDs from authorized results or metrics, not proof of a sender claim.
+
+For an RCA, run `explain_degradation`, resolve its citations to that answer's
+metrics evidence, and pass the exact `fields.test_id` references to
+`test_tag_context`. Uncited rows, names and targets do not nominate a test.
+The second read evaluates current ownership and permissions; a reference in
+an old answer is not a grant. Its current annotations and `tag_revision`/`as_of`
+are separate context, with no change to the answer's citations, confidence or
+model input. The named native read preserves complete values within its
+whole-result budgets. Legacy explanation redaction remains in force.

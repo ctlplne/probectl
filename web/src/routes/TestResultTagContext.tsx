@@ -28,22 +28,42 @@ type State =
   | { kind: 'ready'; value: TestTagContextResolution }
 
 export function TestResultTagContext({ results }: { results: LatestResult[] }) {
+  const ids = results
+    .map((result) => result.attributes?.['probectl.test.id'])
+    .filter(Boolean) as string[]
+  return <CurrentTestTagContext ids={ids} />
+}
+
+// The references are lookup inputs, never ownership evidence. The server
+// reloads current tenant ownership, source grants and context policy each time.
+export function CurrentTestTagContext({ ids, answerID }: { ids: string[]; answerID?: string }) {
   const { tenant, user, permissions } = useAuth()
-  const ids = Array.from(
-    new Set(results.map((result) => result.attributes?.['probectl.test.id']).filter(Boolean)),
-  ).sort() as string[]
-  if (!permissions.includes('tags.read') || !permissions.includes('test.read') || ids.length === 0)
+  const references = Array.from(new Set(ids)).sort()
+  if (
+    !permissions.includes('tags.read') ||
+    !permissions.includes('test.read') ||
+    references.length === 0
+  )
     return null
   return (
     <TestTagContents
-      key={`${tenant.id}:${user.id}:${permissions.slice().sort().join(',')}:${ids.join(',')}`}
+      key={JSON.stringify([tenant.id, user.id, permissions.slice().sort(), references, answerID])}
       tenantID={tenant.id}
-      ids={ids}
+      ids={references}
+      isAnswer={answerID !== undefined}
     />
   )
 }
 
-function TestTagContents({ tenantID, ids }: { tenantID: string; ids: string[] }) {
+function TestTagContents({
+  tenantID,
+  ids,
+  isAnswer,
+}: {
+  tenantID: string
+  ids: string[]
+  isAnswer: boolean
+}) {
   const [state, setState] = useState<State>({ kind: 'idle' })
   const request = useRef<AbortController | undefined>(undefined)
   useEffect(
@@ -77,7 +97,9 @@ function TestTagContents({ tenantID, ids }: { tenantID: string; ids: string[] })
       {state.kind === 'ready' ? (
         <>
           <p>
-            Preview: current rules and annotations apply to older results. Probe data is unchanged.
+            {isAnswer
+              ? 'Preview: current tags for cited test metrics, loaded separately after this answer. Its citations and confidence describe the original evidence.'
+              : 'Preview: current rules and annotations apply to older results. Probe data is unchanged.'}
           </p>
           <dl className={styles.kv}>
             <dt>Tag revision</dt>
@@ -94,13 +116,15 @@ function TestTagContents({ tenantID, ids }: { tenantID: string; ids: string[] })
             />
           ) : (
             state.value.items.map((subject) => (
-              <Table
-                key={subject.target_id}
-                columns={columns}
-                rows={subject.items}
-                rowKey={(item) => item.tag_id}
-                caption="Current test tag values"
-              />
+              <div key={subject.target_id}>
+                <p>Test {subject.target_id}</p>
+                <Table
+                  columns={columns}
+                  rows={subject.items}
+                  rowKey={(item) => item.tag_id}
+                  caption="Current test tag values"
+                />
+              </div>
             ))
           )}
         </>

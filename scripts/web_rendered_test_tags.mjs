@@ -14,6 +14,7 @@ export const TEST_TAG_CONTEXT_CASES = [
   "missing-grant",
   "foreign",
 ];
+export const TEST_TAG_CONTEXT_SURFACES = ["results", "rca"];
 const testID = "11111111-1111-4111-8111-111111111111";
 const revision = "9007199254740993";
 const stagesFor = (mode) =>
@@ -22,63 +23,69 @@ const stagesFor = (mode) =>
 export function validateTestTagContextMatrix(checks, themes, viewports) {
   const failures = [];
   const expected =
-    themes.length * viewports.length * TEST_TAG_CONTEXT_CASES.length;
+    themes.length *
+    viewports.length *
+    TEST_TAG_CONTEXT_CASES.length *
+    TEST_TAG_CONTEXT_SURFACES.length;
   if (checks.length !== expected)
     failures.push(
       `test tag matrix incomplete: expected ${expected}, recorded ${checks.length}`,
     );
-  for (const theme of themes)
-    for (const viewport of viewports)
-      for (const mode of TEST_TAG_CONTEXT_CASES) {
-        const rows = checks.filter(
-          (row) =>
-            row.theme === theme &&
-            row.viewport === viewport.name &&
-            row.mode === mode,
-        );
-        if (rows.length !== 1) {
-          failures.push(
-            `test tag matrix ${viewport.name} ${theme} ${mode}: expected one record, found ${rows.length}`,
+  for (const surface of TEST_TAG_CONTEXT_SURFACES)
+    for (const theme of themes)
+      for (const viewport of viewports)
+        for (const mode of TEST_TAG_CONTEXT_CASES) {
+          const rows = checks.filter(
+            (row) =>
+              row.surface === surface &&
+              row.theme === theme &&
+              row.viewport === viewport.name &&
+              row.mode === mode,
           );
-          continue;
-        }
-        const row = rows[0];
-        const names = stagesFor(mode);
-        if (
-          row.passed !== true ||
-      !Array.isArray(row.runtime) ||
-      !Array.isArray(row.errors) ||
-          row.runtime?.length ||
-          row.errors?.length ||
-          row.theme_verified !== true ||
-          row.request_ids_verified !== true ||
-          !Array.isArray(row.stages) ||
-          row.stages.length !== names.length ||
-          names.some(
-            (name) =>
-              row.stages.filter(
-                (stage) =>
-                  stage.name === name &&
-                  stage.passed === true &&
-                  ["axe", "targets", "overflow", "clipping"].every(
-                    (field) =>
-                      Array.isArray(stage[field]) && stage[field].length === 0,
-                  ),
-              ).length !== 1,
+          if (rows.length !== 1) {
+            failures.push(
+              `test tag matrix ${surface} ${viewport.name} ${theme} ${mode}: expected one record, found ${rows.length}`,
+            );
+            continue;
+          }
+          const row = rows[0];
+          const names = stagesFor(mode);
+          if (
+            row.passed !== true ||
+            !Array.isArray(row.runtime) ||
+            !Array.isArray(row.errors) ||
+            row.runtime?.length ||
+            row.errors?.length ||
+            row.theme_verified !== true ||
+            row.request_ids_verified !== true ||
+            !Array.isArray(row.stages) ||
+            row.stages.length !== names.length ||
+            names.some(
+              (name) =>
+                row.stages.filter(
+                  (stage) =>
+                    stage.name === name &&
+                    stage.passed === true &&
+                    ["axe", "targets", "overflow", "clipping"].every(
+                      (field) =>
+                        Array.isArray(stage[field]) &&
+                        stage[field].length === 0,
+                    ),
+                ).length !== 1,
+            )
           )
-        )
-          failures.push(
-            `test tag matrix ${viewport.name} ${theme} ${mode}: required state or browser check did not pass`,
-          );
-        if (
-          mode === "ready"
-            ? row.full_value_exact !== true || row.refusal_cleared !== true
-            : row.no_disclosure !== true || row.no_metadata_request !== true
-        )
-          failures.push(
-            `test tag matrix ${viewport.name} ${theme} ${mode}: exact disclosure/refusal proof absent`,
-          );
-      }
+            failures.push(
+              `test tag matrix ${surface} ${viewport.name} ${theme} ${mode}: required state or browser check did not pass`,
+            );
+          if (
+            mode === "ready"
+              ? row.full_value_exact !== true || row.refusal_cleared !== true
+              : row.no_disclosure !== true || row.no_metadata_request !== true
+          )
+            failures.push(
+              `test tag matrix ${surface} ${viewport.name} ${theme} ${mode}: exact disclosure/refusal proof absent`,
+            );
+        }
   return failures;
 }
 
@@ -97,9 +104,21 @@ function fixtureSource(mode) {
       if (path === '/v1/me') {
         const response = await base(input, init);
         const me = await response.json();
-        me.permissions = mode === 'missing-grant' ? ['test.read'] : ['test.read', 'tags.read'];
+        state.tenantID = me.tenant_id;
+        me.permissions = mode === 'missing-grant' ? ['ai.query', 'test.read'] : ['ai.query', 'test.read', 'tags.read'];
         return json(me);
       }
+      if (path === '/v1/ai/ask') return json({
+        id: 'test-tag-proof-answer', tenant: mode === 'foreign' ? 'foreign-tenant' : state.tenantID,
+        question: 'Why is this test slow?', root_cause: 'The cited test metric has elevated latency.',
+        root_cause_citations: [{ evidence_id: 'E1' }], root_cause_grounded: true,
+        confidence: 'medium', findings: [], model: 'builtin', insufficient_evidence: false,
+        reasoning: { adapter: 'builtin', execution: 'builtin_local', egress_consent: 'not_required' },
+        evidence: [
+          { id: 'E1', domain: 'metrics', title: 'Test latency', fields: mode === 'legacy' ? { target: 'https://probe.example/health' } : { test_id: id } },
+          { id: 'E2', domain: 'metrics', fields: { test_id: '22222222-2222-4222-8222-222222222222' } },
+        ],
+      });
       if (path === '/v1/tests') return json({ items: [{ id, name: 'Tag proof probe', type: 'http', target: 'https://probe.example/health', interval_seconds: 60, timeout_seconds: 5, enabled: true, params: {}, created_at: '2026-11-03T00:00:00Z', updated_at: '2026-11-03T00:00:00Z' }] });
       if (path === '/v1/results/latest') return json({ collector_running: true, items: [{ agent_id: 'fixture-agent', type: 'http', target: 'https://probe.example/health', success: true, duration_ms: 184, metrics: { 'http.total.ms': 184, 'http.status': 200 }, observed_at: '2026-11-02T00:00:00Z', attributes: mode === 'legacy' ? {} : { 'probectl.test.id': mode === 'foreign' ? '22222222-2222-4222-8222-222222222222' : id } }] });
       if (path === '/v1/tags/tests/resolve') {
@@ -117,30 +136,33 @@ function fixtureSource(mode) {
 export function testTagContextSelfTest() {
   const themes = ["light", "dark"];
   const viewports = [{ name: "desktop" }, { name: "mobile" }];
-  const records = themes.flatMap((theme) =>
-    viewports.flatMap((viewport) =>
-      TEST_TAG_CONTEXT_CASES.map((mode) => ({
-        theme,
-        viewport: viewport.name,
-        mode,
-        passed: true,
-        runtime: [],
-        errors: [],
-        theme_verified: true,
-        request_ids_verified: true,
-        full_value_exact: true,
-        refusal_cleared: true,
-        no_disclosure: true,
-        no_metadata_request: true,
-        stages: stagesFor(mode).map((name) => ({
-          name,
+  const records = TEST_TAG_CONTEXT_SURFACES.flatMap((surface) =>
+    themes.flatMap((theme) =>
+      viewports.flatMap((viewport) =>
+        TEST_TAG_CONTEXT_CASES.map((mode) => ({
+          surface,
+          theme,
+          viewport: viewport.name,
+          mode,
           passed: true,
-          axe: [],
-          targets: [],
-          overflow: [],
-          clipping: [],
+          runtime: [],
+          errors: [],
+          theme_verified: true,
+          request_ids_verified: true,
+          full_value_exact: true,
+          refusal_cleared: true,
+          no_disclosure: true,
+          no_metadata_request: true,
+          stages: stagesFor(mode).map((name) => ({
+            name,
+            passed: true,
+            axe: [],
+            targets: [],
+            overflow: [],
+            clipping: [],
+          })),
         })),
-      })),
+      ),
     ),
   );
   if (validateTestTagContextMatrix(records, themes, viewports).length)
@@ -177,176 +199,199 @@ export async function runTestTagContextChecks({
   helpers,
 }) {
   const checks = [];
-  for (const viewport of viewports)
-    for (const theme of themes)
-      for (const mode of TEST_TAG_CONTEXT_CASES) {
-        const record = {
-          theme,
-          viewport: viewport.name,
-          mode,
-          passed: false,
-          stages: [],
-          errors: [],
-          runtime: [],
-          source:
-            "simulation: current production build and synthetic API; no sender/storage isolation claim",
-        };
-        checks.push(record);
-        const context = await browser.newContext({
-          viewport,
-          colorScheme: theme,
-          locale: "en-US",
-          hasTouch: viewport.name === "mobile",
-        });
-        const page = await context.newPage();
-        page.on("pageerror", (error) => record.runtime.push(error.message));
-        const inspect = async (name) => {
-          const stage = {
-            name,
-            passed: false,
-            axe: [],
-            targets: [],
-            overflow: [],
-            clipping: [],
-          };
-          record.stages.push(stage);
-          stage.axe = helpers.blockingAxeResults(
-            await helpers.runAxe(page, axeSource),
-          );
-          stage.targets = await helpers.targetAndTabChecks(page);
-          stage.overflow = await helpers.horizontalOverflowCheck(page);
-          stage.clipping = await helpers.interactiveClippingCheck(page);
-          await page.screenshot({
-            path: join(
-              receiptDir,
-              `test-tags-${viewport.name}-${theme}-${mode}-${name}.png`,
-            ),
-            fullPage: true,
-          });
-          if (
-            stage.axe.length ||
-            stage.targets.length ||
-            stage.overflow.length ||
-            stage.clipping.length
-          )
-            throw Error(`test tag ${name} has accessibility/geometry failures`);
-          stage.passed = true;
-        };
-        try {
-          await context.addInitScript(
-            helpers.fetchStubSource(theme) + fixtureSource(mode),
-          );
-          await page.goto(`${baseURL}/ui/targets`, {
-            waitUntil: "networkidle",
-          });
-          await page.addStyleTag({
-            content:
-              "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }",
-          });
-          record.theme_verified = await page.evaluate(
-            (expected) =>
-              document.documentElement.getAttribute("data-theme") === expected,
+  for (const surface of TEST_TAG_CONTEXT_SURFACES)
+    for (const viewport of viewports)
+      for (const theme of themes)
+        for (const mode of TEST_TAG_CONTEXT_CASES) {
+          const record = {
+            surface,
             theme,
-          );
-          if (!record.theme_verified)
-            throw Error("requested theme was not active");
-          await page
-            .getByRole("button", {
-              name: "Results for Tag proof probe",
-              exact: true,
-            })
-            .click();
-          const dialog = page.getByRole("dialog");
-          await dialog.waitFor();
-          if (mode === "ready") {
-            await dialog
-              .getByRole("button", {
-                name: "Show current test tags",
-                exact: true,
-              })
-              .click();
-            await dialog.getByText(revision, { exact: true }).waitFor();
-            await inspect("ready");
-            const disclosure = dialog.locator(
-              "details:has([data-tag-value-full])",
+            viewport: viewport.name,
+            mode,
+            passed: false,
+            stages: [],
+            errors: [],
+            runtime: [],
+            source:
+              "simulation: current production build and synthetic API; no sender/storage isolation claim",
+          };
+          checks.push(record);
+          const context = await browser.newContext({
+            viewport,
+            colorScheme: theme,
+            locale: "en-US",
+            hasTouch: viewport.name === "mobile",
+          });
+          const page = await context.newPage();
+          page.on("pageerror", (error) => record.runtime.push(error.message));
+          const inspect = async (name) => {
+            const stage = {
+              name,
+              passed: false,
+              axe: [],
+              targets: [],
+              overflow: [],
+              clipping: [],
+            };
+            record.stages.push(stage);
+            stage.axe = helpers.blockingAxeResults(
+              await helpers.runAxe(page, axeSource),
             );
-            await disclosure.locator("summary").focus();
-            await page.keyboard.press("Enter");
-            const full = disclosure.locator("[data-tag-value-full]");
-            await full.waitFor({ state: "visible" });
-            record.full_value_exact =
-              (await full.textContent()) === "🌐".repeat(24000);
-            if (!record.full_value_exact)
-              throw Error("complete Unicode tag value changed");
-            await inspect("expanded");
-            await page.evaluate(() => {
-              window.__probectlTestTagProof.refuse = true;
+            stage.targets = await helpers.targetAndTabChecks(page);
+            stage.overflow = await helpers.horizontalOverflowCheck(page);
+            stage.clipping = await helpers.interactiveClippingCheck(page);
+            await page.screenshot({
+              path: join(
+                receiptDir,
+                `test-tags-${surface}-${viewport.name}-${theme}-${mode}-${name}.png`,
+              ),
+              fullPage: true,
             });
-            await dialog
-              .getByRole("button", {
-                name: "Refresh current test tags",
-                exact: true,
-              })
-              .click();
-            await dialog
-              .getByText(/Current test tag context could not be loaded/)
-              .waitFor();
-            record.refusal_cleared =
-              (await dialog.locator("[data-tag-value-full]").count()) === 0 &&
-              (await dialog.getByText(revision, { exact: true }).count()) === 0;
-            if (!record.refusal_cleared)
-              throw Error("refused refresh retained earlier tag disclosure");
-            await inspect("refused");
-          } else {
-            if (mode === "foreign")
-              await dialog
-                .getByText("No cached results", { exact: true })
+            if (
+              stage.axe.length ||
+              stage.targets.length ||
+              stage.overflow.length ||
+              stage.clipping.length
+            )
+              throw Error(
+                `test tag ${name} has accessibility/geometry failures`,
+              );
+            stage.passed = true;
+          };
+          try {
+            await context.addInitScript(
+              helpers.fetchStubSource(theme) + fixtureSource(mode),
+            );
+            await page.goto(
+              `${baseURL}/ui/${surface === "results" ? "targets" : "ask"}`,
+              {
+                waitUntil: "networkidle",
+              },
+            );
+            await page.addStyleTag({
+              content:
+                "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }",
+            });
+            record.theme_verified = await page.evaluate(
+              (expected) =>
+                document.documentElement.getAttribute("data-theme") ===
+                expected,
+              theme,
+            );
+            if (!record.theme_verified)
+              throw Error("requested theme was not active");
+            if (surface === "results") {
+              await page
+                .getByRole("button", {
+                  name: "Results for Tag proof probe",
+                  exact: true,
+                })
+                .click();
+              await page.getByRole("dialog").waitFor();
+            } else {
+              await page
+                .getByLabel(/Your question/i)
+                .fill("Why is this test slow?");
+              await page.getByRole("button", { name: /^Ask$/i }).click();
+              await page
+                .getByText("The cited test metric has elevated latency.", {
+                  exact: true,
+                })
                 .waitFor();
-            else await dialog.getByLabel("HTTP timing waterfall").waitFor();
-            record.no_disclosure =
-              (await dialog
+            }
+            const dialog =
+              surface === "results" ? page.getByRole("dialog") : page;
+            if (mode === "ready") {
+              await dialog
                 .getByRole("button", {
                   name: "Show current test tags",
                   exact: true,
                 })
-                .count()) === 0 &&
-              (await dialog.locator("[data-tag-value-full]").count()) === 0;
-            if (!record.no_disclosure)
-              throw Error(
-                "unbound or unauthorized result acquired tag disclosure",
+                .click();
+              await dialog.getByText(revision, { exact: true }).waitFor();
+              await inspect("ready");
+              const disclosure = dialog.locator(
+                "details:has([data-tag-value-full])",
               );
-            await inspect("no-disclosure");
-          }
-          const requests = await page.evaluate(
-            () => window.__probectlTestTagProof.requests,
-          );
-          record.request_ids_verified =
-            mode === "ready"
-              ? requests.length === 2 &&
-                requests.every(
-                  (entry) =>
-                    entry.method === "POST" &&
-                    Object.keys(entry.body).length === 1 &&
-                    JSON.stringify(entry.body.test_ids) ===
-                      JSON.stringify([testID]),
-                )
-              : requests.length === 0;
-          record.no_metadata_request = requests.length === 0;
-          if (!record.request_ids_verified)
-            throw Error(
-              "result tag read used a target/fact hint or wrong test ID",
+              await disclosure.locator("summary").focus();
+              await page.keyboard.press("Enter");
+              const full = disclosure.locator("[data-tag-value-full]");
+              await full.waitFor({ state: "visible" });
+              record.full_value_exact =
+                (await full.textContent()) === "🌐".repeat(24000);
+              if (!record.full_value_exact)
+                throw Error("complete Unicode tag value changed");
+              await inspect("expanded");
+              await page.evaluate(() => {
+                window.__probectlTestTagProof.refuse = true;
+              });
+              await dialog
+                .getByRole("button", {
+                  name: "Refresh current test tags",
+                  exact: true,
+                })
+                .click();
+              await dialog
+                .getByText(/Current test tag context could not be loaded/)
+                .waitFor();
+              record.refusal_cleared =
+                (await dialog.locator("[data-tag-value-full]").count()) === 0 &&
+                (await dialog.getByText(revision, { exact: true }).count()) ===
+                  0;
+              if (!record.refusal_cleared)
+                throw Error("refused refresh retained earlier tag disclosure");
+              await inspect("refused");
+            } else {
+              if (surface === "results" && mode === "foreign")
+                await dialog
+                  .getByText("No cached results", { exact: true })
+                  .waitFor();
+              else if (surface === "results")
+                await dialog.getByLabel("HTTP timing waterfall").waitFor();
+              record.no_disclosure =
+                (await dialog
+                  .getByRole("button", {
+                    name: "Show current test tags",
+                    exact: true,
+                  })
+                  .count()) === 0 &&
+                (await dialog.locator("[data-tag-value-full]").count()) === 0;
+              if (!record.no_disclosure)
+                throw Error(
+                  "unbound or unauthorized result acquired tag disclosure",
+                );
+              await inspect("no-disclosure");
+            }
+            const requests = await page.evaluate(
+              () => window.__probectlTestTagProof.requests,
             );
-          if (record.runtime.length)
-            throw Error("test tag state raised a browser runtime error");
-          record.passed = true;
-        } catch (error) {
-          record.errors.push(
-            error instanceof Error ? error.message : String(error),
-          );
-        } finally {
-          await context.close();
+            record.request_ids_verified =
+              mode === "ready"
+                ? requests.length === 2 &&
+                  requests.every(
+                    (entry) =>
+                      entry.method === "POST" &&
+                      Object.keys(entry.body).length === 1 &&
+                      JSON.stringify(entry.body.test_ids) ===
+                        JSON.stringify([testID]),
+                  )
+                : requests.length === 0;
+            record.no_metadata_request = requests.length === 0;
+            if (!record.request_ids_verified)
+              throw Error(
+                "result tag read used a target/fact hint or wrong test ID",
+              );
+            if (record.runtime.length)
+              throw Error("test tag state raised a browser runtime error");
+            record.passed = true;
+          } catch (error) {
+            record.errors.push(
+              error instanceof Error ? error.message : String(error),
+            );
+          } finally {
+            await context.close();
+          }
         }
-      }
   return {
     checks,
     failures: validateTestTagContextMatrix(checks, themes, viewports),

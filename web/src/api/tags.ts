@@ -39,7 +39,7 @@ export type {
 
 const tagKey = (tenantID: string) => ['tenant-tags', tenantID] as const
 
-/** A result detail owns this current fact snapshot; never infer a test ID
+/** A result or RCA detail owns this current fact snapshot; never infer a test ID
  * from target/type or share the response through the metadata list cache. */
 export function resolveTestTagContext(
   tenantID: string,

@@ -39,6 +39,7 @@ import { isApiStatus } from '../api/client'
 import { ReasoningBadge } from './ExplainView'
 import { resolveClaims } from './explanationGrounding'
 import { downloadHandoff } from '../ai/handoff'
+import { RCATestTagContext } from './RCATestTagContext'
 
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return ''
@@ -405,6 +406,7 @@ export function AnswerView({
             </p>
           ) : null}
           {answer.degraded ? <p className={styles.note}>{t('ask.note.degraded')}</p> : null}
+          <RCATestTagContext answer={answer} />
           {rootCauseCitations.length > 0 ? (
             <p className={[styles.cites, styles.rootCites].join(' ')}>
               <span className={styles.citeLabel}>{t('ask.rootCauseCited')}</span>
