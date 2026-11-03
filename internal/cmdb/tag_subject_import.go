@@ -215,15 +215,16 @@ func sameNetBoxTagOwner(left, right NetBoxTagSelection) bool {
 func (n *NetBox) selectedTagCI(ctx context.Context, source string, facts NetBoxTagFacts, field, id, kind string) (NetBoxTagSelection, error) {
 	var lookup CI
 	var err error
-	if kind == "device" || kind == "vm" {
+	switch kind {
+	case "device", "vm":
 		if facts.Hostname == "" {
 			return NetBoxTagSelection{}, ErrNoTagCandidate
 		}
 		number, _ := strconv.ParseInt(id, 10, 64)
 		lookup, err = n.relatedTagCI(ctx, source, kind, number)
-	} else if kind == "" || kind == "ip" {
+	case "", "ip":
 		lookup, err = n.tagIPByID(ctx, source, id)
-	} else {
+	default:
 		return NetBoxTagSelection{}, ErrNoTagCandidate
 	}
 	if err != nil {

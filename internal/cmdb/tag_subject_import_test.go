@@ -85,7 +85,7 @@ func TestNetBoxSubjectImportUsesCompleteFactsExactSelectionAndFreshRelations(t *
 			t.Fatalf("complete dual-stack facts did not select deterministic same-owner witness: %v", err)
 		}
 		expected := selected.Candidate()
-		if data, _ := json.Marshal(selected); string(data) != "{}" {
+		if data, _ := json.Marshal(map[string]any{"selection": selected}); string(data) != `{"selection":{}}` {
 			t.Fatal("selection disclosed private correspondence")
 		}
 		if data, _ := json.Marshal(facts); string(data) != "{}" {
