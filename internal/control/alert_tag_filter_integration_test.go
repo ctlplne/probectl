@@ -94,7 +94,7 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 			if err != nil {
 				return err
 			}
-			actors[tenant] = auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: tenant, UserID: user.ID, MFASatisfied: true, Attributes: composeSubjectAttributes(nil, true)}, grants)
+			actors[tenant] = auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: tenant, UserID: user.ID, Email: user.Email, MFASatisfied: true, Attributes: composeSubjectAttributes(nil, true)}, grants)
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$3,$4,'same-site','same-vrf')`, tenant, contextID, uuid(t), uuid(t)); err != nil {
 				return err
 			}
