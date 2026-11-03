@@ -366,7 +366,6 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 		if history.TagSelectionAccess != "available" || len(history.Items) != 2 || history.Items[0].TagSelection != nil || history.Items[1].TagSelection == nil {
 			t.Fatal("legacy history acquired fabricated selection evidence")
 		}
-
 	}
 	if !reflect.DeepEqual(beforeSeries, mem.Snapshot()) {
 		t.Fatal("metadata selection rewrote existing metric labels or values")
