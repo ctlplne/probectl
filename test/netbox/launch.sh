@@ -5,9 +5,12 @@
 # each version converts to the Mozilla Public License 2.0.
 set -euo pipefail
 
+stage=/tmp/probectl-netbox-stage
 if [[ "${1:-}" != serve ]]; then
+  printf '%s\n' configuration >"$stage"
   install -m 644 /fixture/ca.crt /opt/netbox/ci-ca.crt
   install -m 644 /fixture/netbox_config.py /opt/netbox/netbox/netbox/probectl_ci_configuration.py
+  printf '%s\n' migrations >"$stage"
   exec /opt/netbox/docker-entrypoint.sh /bin/bash /opt/probectl-ci-launch.sh serve
 fi
 
@@ -16,12 +19,15 @@ fi
 # the only listener, HTTPS. Never bring up the image's default HTTP config.
 mkdir -p /opt/unit/probectl-ci-state /opt/unit/probectl-ci-tmp
 socket=/opt/unit/probectl-ci.sock
+printf '%s\n' unit-start >"$stage"
 configure() {
   for _ in $(seq 1 40); do
     if [[ -S "$socket" ]]; then
+      printf '%s\n' unit-certificate >"$stage"
       curl --fail --silent --show-error --output /dev/null \
         --unix-socket "$socket" --request PUT \
         --data-binary @/fixture/netbox.bundle http://localhost/certificates/fixture
+      printf '%s\n' unit-configuration >"$stage"
       curl --fail --silent --show-error --output /dev/null \
         --unix-socket "$socket" --request PUT \
         --data-binary @/fixture/unit.json http://localhost/config
@@ -31,8 +37,20 @@ configure() {
   done
   return 1
 }
-configure &
-exec unitd --no-daemon --control "unix:$socket" \
+unitd --no-daemon --control "unix:$socket" \
   --pid /opt/unit/probectl-ci.pid --log /dev/stdout \
   --statedir /opt/unit/probectl-ci-state/ --tmpdir /opt/unit/probectl-ci-tmp/ \
-  --user unit --group root
+  --user unit --group root &
+unit_pid=$!
+cleanup() {
+  kill -TERM "$unit_pid" 2>/dev/null || true
+  wait "$unit_pid" 2>/dev/null || true
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+# A rejected certificate/configuration must terminate this owned source rather
+# than leave a live Unit process with no listener until the readiness timeout.
+configure
+printf '%s\n' serving >"$stage"
+wait "$unit_pid"

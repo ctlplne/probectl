@@ -257,6 +257,75 @@ def bootstrap(spec: dict) -> dict:
     return json.loads(raw)
 
 
+def startup_diagnostics() -> None:
+    """Print only enum/boolean state, never raw container output or errors."""
+    allowed_services = {"netbox", "netbox-db", "netbox-cache"}
+    states = {"created", "running", "restarting", "exited", "dead", "paused"}
+    try:
+        raw = compose("ps", "--all", "--format", "json").decode()
+        rows = (
+            json.loads(raw)
+            if raw.lstrip().startswith("[")
+            else [json.loads(line) for line in raw.splitlines() if line.strip()]
+        )
+        for row in rows:
+            if row.get("Service") not in allowed_services:
+                continue
+            state = row.get("State")
+            health = row.get("Health")
+            print(
+                json.dumps(
+                    {
+                        "source_service": row["Service"],
+                        "state": state if state in states else "unknown",
+                        "health": health
+                        if health in {"healthy", "unhealthy", "starting", ""}
+                        else "unknown",
+                        "exit_code": row.get("ExitCode")
+                        if isinstance(row.get("ExitCode"), int)
+                        else None,
+                    },
+                    sort_keys=True,
+                )
+            )
+        stage = (
+            compose("exec", "-T", "netbox", "cat", "/tmp/probectl-netbox-stage")
+            .decode()
+            .strip()
+        )
+        if stage in {
+            "configuration",
+            "migrations",
+            "unit-start",
+            "unit-certificate",
+            "unit-configuration",
+            "serving",
+        }:
+            print("NetBox fixture startup stage: " + stage)
+    except (RuntimeError, ValueError, OSError):
+        print("NetBox fixture startup state unavailable")
+    try:
+        raw = compose("logs", "--no-color", "--tail", "100", "netbox")
+        # Fixed signals help distinguish startup failures without allowing log
+        # strings, tokens, URLs, environment or Python tracebacks into CI output.
+        signals = {
+            label: marker in raw
+            for label, marker in {
+                "database_migrations_started": b"Applying database migrations",
+                "database_wait": b"Waiting on DB",
+                "initialisation_completed": b"Initialisation is done",
+                "permission_error": b"Permission denied",
+                "configuration_error": b"ImproperlyConfigured",
+                "tls_verification_error": b"CERTIFICATE_VERIFY_FAILED",
+                "memory_error": b"MemoryError",
+                "unit_error": b"[alert]",
+            }.items()
+        }
+        print("NetBox fixture startup signals: " + json.dumps(signals, sort_keys=True))
+    except (RuntimeError, OSError):
+        print("NetBox fixture startup signals unavailable")
+
+
 def start() -> None:
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise RuntimeError(
@@ -322,6 +391,7 @@ def start() -> None:
         except (URLError, TimeoutError):
             pass
         if time.monotonic() >= deadline:
+            startup_diagnostics()
             raise RuntimeError("NetBox fixture verified-TLS readiness timed out")
         time.sleep(2)
     verify_source_tls()
