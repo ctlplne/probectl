@@ -499,11 +499,14 @@ func (p *Provisioner) readCatalog(ctx context.Context, schema string) (Catalog, 
 	}
 
 	colRows, err := p.ddlPool().Query(ctx, `
-		SELECT table_schema, table_name, column_name,
-		       COALESCE(data_type, ''), is_nullable = 'NO', COALESCE(column_default, '')
-		  FROM information_schema.columns
-		 WHERE table_schema IN ('public', $1)
-		 ORDER BY table_schema, table_name, ordinal_position`, schema)
+		SELECT c.table_schema,c.table_name,c.column_name,
+		       pg_catalog.format_type(a.atttypid,a.atttypmod),c.is_nullable='NO',COALESCE(c.column_default,'')
+		  FROM information_schema.columns c
+		  JOIN pg_catalog.pg_namespace n ON n.nspname=c.table_schema
+		  JOIN pg_catalog.pg_class r ON r.relnamespace=n.oid AND r.relname=c.table_name
+		  JOIN pg_catalog.pg_attribute a ON a.attrelid=r.oid AND a.attname=c.column_name
+		 WHERE c.table_schema IN ('public',$1) AND a.attnum>0 AND NOT a.attisdropped
+		 ORDER BY c.table_schema,c.table_name,c.ordinal_position`, schema)
 	if err != nil {
 		return cat, fmt.Errorf("silo: read columns: %w", err)
 	}

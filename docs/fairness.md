@@ -66,7 +66,7 @@ unlimited.
 |---|---|
 | `results_per_sec` | result messages admitted per second; the FX-2 identity-evidence RPC uses the same numeric rate in its own `entity_evidence` tenant bucket, so evidence never spends raw-result credits |
 | `flow_events_per_sec` | flow records admitted per second |
-| `ingest_bytes_per_sec` | result payload bytes admitted per second |
+| `ingest_bytes_per_sec` | result payload bytes admitted per second; identity-evidence RPCs use the same numeric rate in their own `entity_evidence_bytes` bucket, never spending raw payload credits or adding a usage-billing meter |
 | `device_metrics_per_sec` | device (SNMP/gNMI) samples admitted per second |
 | `otlp_series_per_sec` | OTLP metric, trace-span, and log-record series admitted per second |
 | `burst_seconds` | bucket capacity = rate × burst (default 10) |

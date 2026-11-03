@@ -18,6 +18,7 @@ func entityMetadataCheckPlan(schema string, tables []string) []string {
 		child := quoteIdent(schema) + "." + quoteIdent(table)
 		const name = "entity_evidence_snmp_system_description_check"
 		const systemName = "entity_evidence_snmp_system_name_check"
+		const agentAddresses = "entity_evidence_agent_addresses_check"
 		return []string{fmt.Sprintf(`DO $entity_metadata_silo$ BEGIN
 IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=%s) THEN
     ALTER TABLE %s ADD CONSTRAINT %s CHECK
@@ -39,7 +40,17 @@ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conna
           AND snmp_system_name !~ '[[:cntrl:]]')) NOT VALID;
 END IF;
 END;
-$entity_name_silo$`, quoteLiteral(child), quoteLiteral(systemName), child, quoteIdent(systemName))}
+$entity_name_silo$`, quoteLiteral(child), quoteLiteral(systemName), child, quoteIdent(systemName)),
+			fmt.Sprintf(`DO $entity_agent_addresses_silo$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=%s) THEN
+    ALTER TABLE %s ADD CONSTRAINT %s CHECK
+        (agent_addresses IS NULL OR
+         (source_kind='agent_site' AND alias_kind='agent_site_id'
+          AND configured_ref=agent_id AND source_ref='agent:label:site'
+          AND public.probectl_agent_addresses_valid(agent_addresses))) NOT VALID;
+END IF;
+END;
+$entity_agent_addresses_silo$`, quoteLiteral(child), quoteLiteral(agentAddresses), child, quoteIdent(agentAddresses))}
 	}
 	return nil
 }

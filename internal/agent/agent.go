@@ -48,7 +48,9 @@ type Agent struct {
 	metrics           *agentmetrics.Runtime
 	siteEvidence      SiteEvidenceEmitter
 	siteEvidenceReset chan struct{}
-	sync              *testSyncer // central test sync (G9); nil = local canaries only
+	siteAddresses     agentAddressCollector
+	sitePollInterval  time.Duration // test seam; zero keeps the normal minute poll
+	sync              *testSyncer   // central test sync (G9); nil = local canaries only
 	reg               *canary.Registry
 	// nextSyncProbe rate-limits looking for a test-bundle key that arrives
 	// after start (delivered by an identity rotation); forward goroutine only.

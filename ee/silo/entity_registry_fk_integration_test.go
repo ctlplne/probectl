@@ -302,8 +302,50 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 			}
 		}
 	}
+	agentSite := uuid.NewString()
+	agentEvidence := map[string]string{a: uuid.NewString(), b: uuid.NewString()}
+	for _, row := range []struct{ schema, tenant string }{{schemaA, a}, {schemaB, b}} {
+		if _, err := pool.Exec(ctx, `INSERT INTO `+row.schema+`.entities(tenant_id,context_id,id,kind,label) VALUES ($1,$2,$3,'site','Dublin')`, row.tenant, contextA, agentSite); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO `+row.schema+`.entity_evidence(tenant_id,context_id,id,observation_id,entity_id,alias_kind,alias_value,source,source_ref,agent_id,source_kind,configured_ref,observed_at,sender_serial) VALUES ($1,$2,$3,$3,$4,'agent_site_id','Dublin','agent_site','agent:label:site','site-agent','agent_site','site-agent',clock_timestamp(),'ab1234')`, row.tenant, contextA, agentEvidence[row.tenant], agentSite); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertAgentAddressChecks := func() {
+		t.Helper()
+		for _, row := range []struct{ schema, tenant string }{{schemaA, a}, {schemaB, b}} {
+			for _, value := range []struct {
+				sql   string
+				null  bool
+				count int
+			}{{"ARRAY['10.2.0.7'::inet,'2001:db8::9'::inet]", false, 2}, {"'{}'::inet[]", false, 0}, {"NULL::inet[]", true, 0}} {
+				if _, err := pool.Exec(ctx, `UPDATE `+row.schema+`.entity_evidence SET agent_addresses=`+value.sql+` WHERE tenant_id=$1 AND id=$2`, row.tenant, agentEvidence[row.tenant]); err != nil {
+					t.Fatalf("silo agent snapshot: %v", err)
+				}
+				var absent bool
+				var count int
+				if err := pool.QueryRow(ctx, `SELECT agent_addresses IS NULL,COALESCE(cardinality(agent_addresses),0) FROM `+row.schema+`.entity_evidence WHERE tenant_id=$1 AND id=$2`, row.tenant, agentEvidence[row.tenant]).Scan(&absent, &count); err != nil || absent != value.null || count != value.count {
+					t.Fatalf("silo lost snapshot presence/set: %v", err)
+				}
+			}
+			for _, value := range []string{"ARRAY['224.0.0.1'::inet]", "ARRAY[NULL::inet]", "ARRAY['10.2.0.7/24'::inet]", "ARRAY[['10.2.0.7'::inet],['10.2.0.8'::inet]]"} {
+				_, err := pool.Exec(ctx, `UPDATE `+row.schema+`.entity_evidence SET agent_addresses=`+value+` WHERE tenant_id=$1 AND id=$2`, row.tenant, agentEvidence[row.tenant])
+				var pgErr *pgconn.PgError
+				if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+					t.Fatalf("silo admitted malformed complete host snapshot: %v", err)
+				}
+			}
+		}
+		_, err := pool.Exec(ctx, `UPDATE `+schemaA+`.entity_evidence SET agent_addresses='{}'::inet[] WHERE tenant_id=$1 AND id=$2`, a, evidenceA)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+			t.Fatalf("SNMP source attached agent metadata: %v", err)
+		}
+	}
 	assertSystemDescriptionChecks()
 	assertNetworkChecks()
+	assertAgentAddressChecks()
 	insertInferred := func(supportID string) error {
 		id := uuid.NewString()
 		_, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.entity_evidence
@@ -483,6 +525,9 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.entities DROP COLUMN network_prefix CASCADE`); err != nil {
 		t.Fatalf("simulate old silo prefix metadata: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.entity_evidence DROP COLUMN agent_addresses CASCADE`); err != nil {
+		t.Fatalf("simulate old silo agent snapshot metadata: %v", err)
+	}
 	if err := prov.CatchUp(ctx, a); err != nil {
 		t.Fatalf("first entity silo catch-up: %v", err)
 	}
@@ -491,6 +536,7 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 	}
 	assertSystemDescriptionChecks()
 	assertNetworkChecks()
+	assertAgentAddressChecks()
 	assertEntityRegistrySiloFKs(t, pool, SchemaName(a))
 	var scopedCount, legacyCount int
 	if err := pool.QueryRow(ctx, `SELECT

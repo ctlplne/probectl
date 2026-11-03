@@ -418,6 +418,18 @@ operator must assign that `agent_site` source (source reference = agent ID)
 to one context and site anchor before it becomes canonical. Missing or
 unresolved evidence does not stop tests, heartbeat or raw results. Accepted
 site identity refreshes after 12 hours; failures retry after one minute.
+The same optional worker also collects the process namespace's complete local
+IP set once a minute. It sends address metadata only on a change, certificate
+rotation or that pre-expiry refresh. Private, loopback and link-local host IPs
+are observations only, never dial targets or routing-context selectors. A
+successful empty collection explicitly clears old addresses; collection failure
+sends an unavailable-address fence rather than inventing a successful empty
+set. No hostname is parsed as an address. The existing 24-hour evidence lease,
+current source assignment and both ordinary/evidence identity checks apply.
+RPCs use a separate evidence-byte bucket at the existing ingestion-byte rate,
+as well as evidence-record admission. They never spend raw payload credits or
+add a billable usage meter. Oversized snapshots are refused completely. No new configuration
+key or default network egress is introduced.
 
 ```yaml
 agent:
@@ -2902,7 +2914,7 @@ a bound is admission-controlled (shed + counted), never silently corrupted.
 | --- | --- | --- |
 | `PROBECTL_FAIRNESS_RESULTS_PER_SEC` | `1000` | per-tenant result-message admission rate and separate FX-2 `entity_evidence` claim rate. Each has its own bucket and counters; evidence cannot spend result credits. Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC` | `10000` | per-tenant flow-record admission rate, applied independently to storage (`flow_events`) and secondary detection (`ndr_flow_events`). Explicit `0` = unlimited |
-| `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `2097152` | per-tenant ingest byte rate (2 MiB/s). Explicit `0` = unlimited |
+| `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `2097152` | per-tenant ingest byte rate (2 MiB/s); entity-evidence RPCs use this numeric rate in a separate `entity_evidence_bytes` bucket, preserving raw payload credits. Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | per-tenant SNMP/gNMI device-sample admission rate. Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC` | `5000` | per-tenant OTLP metric/trace/log series admission rate (SCALE-003). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_BURST_SECONDS` | `10` | burst window: bucket capacity = rate × this. `0` falls back to 10 — an enforced bucket always has a burst |

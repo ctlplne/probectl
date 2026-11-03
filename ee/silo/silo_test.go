@@ -216,6 +216,7 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "fx2_incident_correlation_overrides_identity_lookup_ck" CHECK (entity_context_id IS NULL OR identity_lookup_attempted)`,
 				`ADD CONSTRAINT "entity_evidence_snmp_system_description_check" CHECK`,
 				`ADD CONSTRAINT "entity_evidence_snmp_system_name_check" CHECK`,
+				`ADD CONSTRAINT "entity_evidence_agent_addresses_check" CHECK`,
 				`ADD CONSTRAINT "entities_network_prefix_kind_check"`,
 			}
 			for _, want := range wants {

@@ -197,6 +197,9 @@ func loadOwnedTagSubject(ctx context.Context, sc tenancy.Scope, scope tags.Scope
 			subject.Names = []string{hostname}
 		}
 		// Hostnames and labels are never treated as agent-address evidence.
+		if err := loadCurrentTagAgentAddresses(ctx, sc, &subject, maxBytes, charge); err != nil {
+			return tags.Subject{}, err
+		}
 	case "exporter":
 		var anchorLabel string
 		if err := sc.Q.QueryRow(ctx, `SELECT COALESCE(n.label,'') FROM entity_source_contexts s JOIN entity_agent_contexts a

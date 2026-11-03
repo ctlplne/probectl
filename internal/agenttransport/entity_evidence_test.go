@@ -7,6 +7,7 @@
 package agenttransport
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,9 +18,44 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/fairness"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/metrics"
 )
+
+func TestEntityEvidenceByteAdmissionIsTenantScopedAndFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	if (&service{}).admitEntityEvidence(ctx, "tenant-a", 1, 1) {
+		t.Fatal("missing byte admission accepted evidence")
+	}
+	policy := fairness.DefaultPolicy()
+	policy.IngestBytesPerSec = 32
+	policy.BurstSeconds = 1
+	svc := &service{fairness: fairness.NewGate(policy, nil)}
+	// Existing ingest admission permits one whole batch while tokens are
+	// positive, then charges its entire debt. Preserve that contract rather
+	// than silently imposing a smaller per-batch address limit.
+	if !svc.admitEntityEvidence(ctx, "tenant-a", 1, 1<<20) {
+		t.Fatal("evidence lost whole-batch ingest admission")
+	}
+	if svc.admitEntityEvidence(ctx, "tenant-a", 1, 1) {
+		t.Fatal("another observation bypassed unpaid byte debt")
+	}
+	if !svc.fairness.AdmitN(ctx, "tenant-a", fairness.MeterBytes, 32) {
+		t.Fatal("evidence consumed raw payload byte credits")
+	}
+	if !svc.admitEntityEvidence(ctx, "tenant-b", 1, 16) {
+		t.Fatal("another tenant inherited exhausted byte admission")
+	}
+	for _, row := range []struct {
+		tenant       string
+		count, bytes int
+	}{{"", 1, 1}, {"tenant-a", 0, 1}, {"tenant-a", 1, 0}} {
+		if svc.admitEntityEvidence(ctx, row.tenant, row.count, row.bytes) {
+			t.Fatal("invalid evidence accounting admitted")
+		}
+	}
+}
 
 // The same TLS listener admits the evidence plane, but its credential cannot
 // call any existing agent or L7 RPC. Other planes cannot enter the new writer.

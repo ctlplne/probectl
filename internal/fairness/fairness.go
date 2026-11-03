@@ -69,7 +69,10 @@ const (
 	// MeterEntityEvidence has its own bucket and accounting. It uses the
 	// results rate policy, so identity RPCs cannot consume raw-result credits.
 	MeterEntityEvidence = "entity_evidence"
-	MeterFlowEvents     = "flow_events" // flow records admitted to the flow store
+	// Evidence metadata has its own byte bucket at the existing ingest-byte
+	// rate. It never spends raw payload credits or adds a usage-billing meter.
+	MeterEntityEvidenceBytes = "entity_evidence_bytes"
+	MeterFlowEvents          = "flow_events" // flow records admitted to the flow store
 	// MeterNDRFlowEvents independently bounds the secondary detection consumer
 	// at FlowEventsPerSec, without spending storage ingest credits a second time.
 	// This processing meter is not a billable usage meter.
@@ -164,7 +167,7 @@ func (p Policy) rateFor(meter string) float64 {
 		return p.ResultsPerSec
 	case MeterFlowEvents, MeterNDRFlowEvents:
 		return p.FlowEventsPerSec
-	case MeterBytes:
+	case MeterBytes, MeterEntityEvidenceBytes:
 		return p.IngestBytesPerSec
 	case MeterDeviceMetrics:
 		return p.DeviceMetricsPerSec

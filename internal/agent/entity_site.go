@@ -8,11 +8,61 @@ package agent
 
 import (
 	"context"
+	"net"
+	"net/netip"
+	"slices"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 )
+
+type agentAddressCollector func() ([]netip.Addr, error)
+
+func collectAgentAddresses() ([]netip.Addr, error) {
+	interfaces, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	return localAgentAddresses(interfaces)
+}
+
+// Retain the actual host IP, not an interface network or a guessed hostname.
+// Interface zones are local enumeration context, never a target on the wire.
+func localAgentAddresses(interfaces []net.Addr) ([]netip.Addr, error) {
+	addresses := make([]netip.Addr, 0, len(interfaces))
+	for _, value := range interfaces {
+		var ip net.IP
+		switch item := value.(type) {
+		case *net.IPNet:
+			if item == nil {
+				return nil, entity.ErrInvalidClaim
+			}
+			ip = item.IP
+		case *net.IPAddr:
+			if item == nil {
+				return nil, entity.ErrInvalidClaim
+			}
+			ip = item.IP
+		default:
+			return nil, entity.ErrInvalidClaim
+		}
+		address, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			return nil, entity.ErrInvalidClaim
+		}
+		address = address.Unmap()
+		if address.IsUnspecified() || address.IsMulticast() || address == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
+			continue
+		}
+		addresses = append(addresses, address)
+	}
+	return entity.NormalizeAgentAddresses(addresses)
+}
+
+func sameAgentAddressSnapshot(a, b []netip.Addr) bool {
+	return (a == nil) == (b == nil) && slices.Equal(a, b)
+}
 
 const (
 	siteEvidenceRefresh = 12 * time.Hour
@@ -63,10 +113,22 @@ func (a *Agent) siteObservation(at time.Time) (entity.Observation, error) {
 }
 
 // This optional, one-claim worker never delays probe execution, heartbeat or
-// result forwarding. A failed/unresolved claim remains raw and retries; only
-// an accepted claim waits for the next pre-expiry refresh.
+// result forwarding. Poll locally for changes, but submit only a change,
+// rotation or the existing pre-expiry refresh. A failed collection submits a
+// nil-address fence instead of inventing a complete empty set.
 func (a *Agent) runSiteEvidence(ctx context.Context) {
 	delay := time.Duration(0)
+	poll := siteEvidenceRetry
+	if a.sitePollInterval > 0 {
+		poll = a.sitePollInterval
+	}
+	collector := a.siteAddresses
+	if collector == nil {
+		collector = collectAgentAddresses
+	}
+	var previous []netip.Addr
+	havePrevious, force := false, true
+	var refreshAt time.Time
 	for {
 		timer := time.NewTimer(delay)
 		select {
@@ -80,6 +142,7 @@ func (a *Agent) runSiteEvidence(ctx context.Context) {
 			return
 		case <-timer.C:
 		case <-a.siteEvidenceReset:
+			force = true
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
@@ -87,13 +150,29 @@ func (a *Agent) runSiteEvidence(ctx context.Context) {
 				}
 			}
 		}
-		claim, err := a.siteObservation(time.Now().UTC())
+		now := time.Now().UTC()
+		addresses, collectionErr := collector()
+		if collectionErr == nil {
+			addresses, collectionErr = entity.NormalizeAgentAddresses(addresses)
+		}
+		if collectionErr != nil {
+			addresses = nil
+			if force || !havePrevious || previous != nil {
+				a.log.Warn("agent address collection unavailable; address facts withheld", "tenant_id", a.tenantID, "agent_id", a.agentID)
+			}
+		}
+		if !force && havePrevious && sameAgentAddressSnapshot(previous, addresses) && now.Before(refreshAt) {
+			delay = poll
+			continue
+		}
+		claim, err := a.siteObservation(now)
 		if err != nil {
 			a.log.Error("agent site evidence ID unavailable", "tenant_id", a.tenantID,
 				"agent_id", a.agentID, "error", err.Error())
-			delay = siteEvidenceRetry
+			delay = poll
 			continue
 		}
+		claim.AgentAddresses = addresses
 		accepted, unresolved, err := a.siteEvidence.Submit(ctx, []entity.Observation{claim})
 		if a.metrics != nil {
 			a.metrics.EntityEvidence(accepted, unresolved, err)
@@ -101,13 +180,17 @@ func (a *Agent) runSiteEvidence(ctx context.Context) {
 		if err != nil {
 			a.log.Warn("agent site canonical evidence unavailable; raw agent results retained",
 				"tenant_id", a.tenantID, "agent_id", a.agentID, "error", err.Error())
-			delay = siteEvidenceRetry
+			force = true
+			delay = poll
 			continue
 		}
 		if accepted == 1 && unresolved == 0 {
-			delay = siteEvidenceRefresh
+			previous = addresses
+			havePrevious, force = true, false
+			refreshAt = now.Add(siteEvidenceRefresh)
 		} else {
-			delay = siteEvidenceRetry
+			force = true
 		}
+		delay = poll
 	}
 }

@@ -38,7 +38,10 @@ type Observation struct {
 	SystemDescription string
 	// SystemName retains raw sysName separately from its normalized identity
 	// alias. Nil means a legacy observation; a present empty value is a clear.
-	SystemName           *string
+	SystemName *string
+	// AgentAddresses is a complete optional local-IP snapshot on the existing
+	// sender-bound site claim. Nil is legacy/withheld; present empty clears.
+	AgentAddresses       []netip.Addr
 	NeighborProtocol     string
 	NeighborLocalIfIndex uint32
 	NeighborLocalPortID  string
@@ -88,6 +91,15 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 	if o.SystemName != nil {
 		name := *o.SystemName
 		o.SystemName = &name
+	}
+	if o.AgentAddresses != nil {
+		if o.Source.Kind != AgentSite || o.Alias.Kind != AgentSiteAlias || o.SourceRef != "agent:label:site" {
+			return Observation{}, ErrInvalidClaim
+		}
+		o.AgentAddresses, err = NormalizeAgentAddresses(o.AgentAddresses)
+		if err != nil {
+			return Observation{}, ErrInvalidClaim
+		}
 	}
 	o, err = normalizeNeighborObservation(o)
 	if err != nil {

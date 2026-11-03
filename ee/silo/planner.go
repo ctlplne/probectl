@@ -45,7 +45,7 @@ type Catalog struct {
 // Column is one column's catalog identity.
 type Column struct {
 	Name     string
-	DataType string // information_schema-rendered type, used verbatim in ADD COLUMN
+	DataType string // pg_catalog.format_type OID/typmod rendering, used verbatim in ADD COLUMN
 	NotNull  bool
 	Default  string // "" = none
 }

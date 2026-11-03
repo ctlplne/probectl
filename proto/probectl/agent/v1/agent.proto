@@ -226,6 +226,12 @@ message ReportL7PostureResponse {
 
 // A collector-generated observation UUID is an idempotency key within its
 // authenticated source. It is never a tenant, agent, context or entity key.
+// Presence distinguishes a complete empty set from legacy/withheld metadata.
+// These local host IPs never select tenant, context or canonical identity.
+message AgentAddressSnapshot {
+  repeated string addresses = 1;
+}
+
 message EntityEvidenceObservation {
   string observation_id = 1;
   string source_kind = 2;       // device_target | flow_exporter | path_agent | bmp_peer | agent_site
@@ -246,6 +252,7 @@ message EntityEvidenceObservation {
   string neighbor_management_address = 17; // observed IP, not a context selector
   string system_description = 18; // bounded SNMP sysDescr on the configured-target address claim only
   optional string system_name = 19; // raw bounded sysName; absent is legacy, present empty clears
+  AgentAddressSnapshot agent_addresses = 20; // agent_site claim only; complete local IP metadata
 }
 
 // A bounded fault observation shares the evidence-only RPC and live mTLS

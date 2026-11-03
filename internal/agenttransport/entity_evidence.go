@@ -9,10 +9,12 @@ package agenttransport
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -21,6 +23,14 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+// Both record count and encoded bytes consume the existing tenant budgets.
+// Nil admission or an exhausted bucket refuses before any evidence write.
+func (svc *service) admitEntityEvidence(ctx context.Context, tenant string, total, bytes int) bool {
+	return svc != nil && svc.fairness != nil && tenant != "" && total > 0 && bytes > 0 &&
+		svc.fairness.AdmitN(ctx, tenant, fairness.MeterEntityEvidence, int64(total)) &&
+		svc.fairness.AdmitN(ctx, tenant, fairness.MeterEntityEvidenceBytes, int64(bytes))
+}
 
 // SubmitEntityEvidence is D-179's restricted writer. The request contains no
 // tenant, agent, context or entity ID. The evidence-only mTLS identity selects
@@ -70,8 +80,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	if len(rawFaults) > 0 && svc.entityFaultCorrelator == nil {
 		return nil, status.Error(codes.Unavailable, "entity fault correlation is not configured")
 	}
-	if svc.fairness == nil || !svc.fairness.AdmitN(ctx, id.TenantID,
-		fairness.MeterEntityEvidence, int64(total)) {
+	if !svc.admitEntityEvidence(ctx, id.TenantID, total, proto.Size(req)) {
 		return nil, status.Error(codes.ResourceExhausted, "tenant entity evidence rate exceeded")
 	}
 	faults, err := validateEntityFaults(ctx, id, rawFaults)
@@ -85,6 +94,13 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	for _, item := range items {
 		if item == nil {
 			return nil, status.Error(codes.InvalidArgument, "evidence observation is missing")
+		}
+		var addresses []netip.Addr
+		if item.AgentAddresses != nil {
+			addresses, err = entity.ParseAgentAddressSnapshot(item.AgentAddresses.Addresses)
+			if err != nil {
+				return nil, status.Error(codes.InvalidArgument, "invalid agent address snapshot")
+			}
 		}
 		observations = append(observations, entity.Observation{
 			ID: item.GetObservationId(),
@@ -100,6 +116,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 			InterfaceDescription: item.GetInterfaceDescription(),
 			SystemDescription:    item.GetSystemDescription(),
 			SystemName:           item.SystemName,
+			AgentAddresses:       addresses,
 			NeighborProtocol:     item.GetNeighborProtocol(),
 			NeighborLocalIfIndex: item.GetNeighborLocalIfIndex(),
 			NeighborLocalPortID:  item.GetNeighborLocalPortId(),

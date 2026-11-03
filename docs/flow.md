@@ -633,9 +633,14 @@ SNMP, source lineage and encoded exporter identity are omitted. Current
 sender/source authorization is required for observational facts. New empty
 SNMP polls clear removed names/interfaces/addresses; an expired clearing poll
 cannot revive older still-live facts. A later read uses current rules and facts.
-Agent-address and live canonical-prefix producers remain incomplete; labels
-and hostnames never substitute for those missing facts. This read does not
-by itself complete all flow, alert, report or RCA tag associations.
+Agent CIDR rules use complete local-address metadata attested by the existing
+optional site-evidence worker. No hostname or label supplies an address. The
+newest site observation fences older sets even after an empty clear, collection
+failure, expiry or revocation; contradictory current sets fail closed. These
+facts retain the existing evidence lease and current ordinary/evidence identity
+and source/context checks. The response still omits raw addresses. Live
+canonical-prefix producer and full release/four-store proof remain required;
+this read does not by itself complete all flow, alert, report or RCA associations.
 
 A prefix subject can instead have explicit operator `network_prefix` metadata
 on its existing canonical entity. Create it with the field or set/clear it with

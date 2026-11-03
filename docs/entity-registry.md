@@ -115,6 +115,17 @@ the protocol/domain in an exporter alias must match its provenance.
 BMP peer provenance must name the verified router source and the peer alias's
 ASN. Synthetic site evidence can name only its own registered agent's site
 label source.
+That site observation can carry a complete local-address snapshot for agent
+CIDR tags. It adds no address identity aliases. Legacy/unavailable metadata is
+distinct from a complete empty clear; replay cannot change either presence or
+values on an existing observation UUID. The latest site epoch remains a cutoff
+after expiration or revocation, preventing an older address set from becoming
+current again. Same-epoch contradictory current sets fail closed. The field is
+source-family and host-address checked in pooled and physical-silo storage and
+does not appear in public raw-evidence projections. Current ordinary agent
+identity and the complete evidence sender/source/context predicate remain
+required before tags can use the private address facts.
+
 The configured-target SNMP address observation may also carry bounded raw
 `sysName` and `sysDescr` metadata. These fields never select identity or context.
 Raw system-name presence distinguishes a legacy omission from an explicit

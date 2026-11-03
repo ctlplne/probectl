@@ -14,6 +14,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -131,6 +132,13 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 		if err != nil || item.Source.AgentID != c.agentID {
 			return nil, ErrEvidenceBatchInvalid
 		}
+		var addresses *agentv1.AgentAddressSnapshot
+		if item.AgentAddresses != nil {
+			addresses = &agentv1.AgentAddressSnapshot{Addresses: make([]string, len(item.AgentAddresses))}
+			for i, address := range item.AgentAddresses {
+				addresses.Addresses[i] = address.String()
+			}
+		}
 		request.Observations = append(request.Observations,
 			&agentv1.EntityEvidenceObservation{
 				ObservationId: item.ID, SourceKind: string(item.Source.Kind),
@@ -142,6 +150,7 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 				InterfaceDescription:      item.InterfaceDescription,
 				SystemDescription:         item.SystemDescription,
 				SystemName:                item.SystemName,
+				AgentAddresses:            addresses,
 				NeighborProtocol:          item.NeighborProtocol,
 				NeighborLocalIfIndex:      item.NeighborLocalIfIndex,
 				NeighborLocalPortId:       item.NeighborLocalPortID,
@@ -150,6 +159,9 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 				NeighborDeviceName:        item.NeighborDeviceName,
 				NeighborManagementAddress: item.NeighborAddress,
 			})
+		if proto.Size(request) > 1<<20 {
+			return nil, ErrEvidenceBatchInvalid
+		}
 	}
 	return request, nil
 }

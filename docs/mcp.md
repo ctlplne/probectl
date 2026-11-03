@@ -546,6 +546,13 @@ address; a prefix matches only a rule covering its entire range. Rule inputs
 do not supply those underlying facts. Complete live subject and flow association
 proof remains required before the full tagging capability leaves preview.
 
+For agent CIDR rules, the subject resolver uses complete sender-bound local IP
+snapshots from the optional existing site-evidence worker, with current
+`agent.read` and `tags.read` context authorization. Hostnames never supply IP
+facts. A later unavailable/clearing/expired site epoch cannot revive an older
+set, and contradictory current sets are refused. The curated MCP response
+contains effective tags, revision and snapshot time, without the raw IP list.
+
 For an operator-managed canonical prefix, `entity_create` accepts optional
 `network_prefix`. The user-only `entity_network_prefix_set` takes `id`,
 `context_id` and required `network_prefix`, requiring `agent.write` plus current
