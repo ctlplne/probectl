@@ -7,6 +7,7 @@
 package control
 
 import (
+	"bufio"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -70,7 +71,7 @@ func nativeFlowCSVRecordsWithBudget(ctx context.Context, prepared *preparedFlowC
 		return mcp.NativeFlowCSVResult{}, flowsnapshot.ErrBudget
 	}
 	out := mcp.NativeFlowCSVResult{SnapshotID: prepared.header.SnapshotID, ExpiresAt: prepared.header.ExpiresAt, RecordOffset: input.RecordOffset, Records: [][]string{}, SelectedGroups: prepared.header.SelectedRows, SourceBytes: prepared.size, SourceSHA256: prepared.digest}
-	reader := csv.NewReader(flowCSVReader{ctx, prepared.file})
+	reader := csv.NewReader(&nativeCSVCRLFReader{source: bufio.NewReader(flowCSVReader{ctx, prepared.file})})
 	var err error
 	out.Columns, err = reader.Read()
 	if err != nil {
@@ -111,4 +112,44 @@ func nativeFlowCSVRecordsWithBudget(ctx context.Context, prepared *preparedFlowC
 		out.NextRecord = &next
 	}
 	return out, nil
+}
+
+// nativeCSVCRLFReader only reads prepared LF-framed exports from our CSV
+// writer. CRLF is therefore cell data. encoding/csv removes one CR before LF;
+// duplicate it while streaming so the standard parser returns the exact cell.
+// Source bytes/digest remain bound to the untouched original file.
+type nativeCSVCRLFReader struct {
+	source     *bufio.Reader
+	previousCR bool
+	pendingLF  bool
+}
+
+func (r *nativeCSVCRLFReader) Read(body []byte) (int, error) {
+	n := 0
+	for n < len(body) {
+		if r.pendingLF {
+			body[n] = '\n'
+			n++
+			r.pendingLF = false
+			continue
+		}
+		value, err := r.source.ReadByte()
+		if err != nil {
+			if n > 0 {
+				return n, nil
+			}
+			return 0, err
+		}
+		if value == '\n' && r.previousCR {
+			body[n] = '\r'
+			n++
+			r.pendingLF = true
+			r.previousCR = false
+			continue
+		}
+		body[n] = value
+		n++
+		r.previousCR = value == '\r'
+	}
+	return n, nil
 }

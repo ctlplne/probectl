@@ -402,7 +402,9 @@ a missing period. Exact decimal strings preserve counters above JavaScript's
 integer range. Untrusted label cells with formula-like prefixes use a quoted tab prefix
 followed by the complete original text, including Unicode, whitespace and controls.
 ASCII and full-width formula introducers are covered. Validated numeric metrics
-and comparison deltas retain their separate exact decimal representation. All chunks, current permissions, both periods' input coverage and the
+and comparison deltas retain their separate exact decimal representation. Native CSV
+record pages also preserve CRLF inside quoted cells; record separators stay LF
+and source byte/hash provenance describes the untouched export file. All chunks, current permissions, both periods' input coverage and the
 export audit are checked before successful headers. Verify `Content-Length` and
 `X-Probectl-SHA256` before accepting a downloaded file.
 

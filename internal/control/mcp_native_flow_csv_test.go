@@ -7,6 +7,7 @@
 package control
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/csv"
@@ -17,6 +18,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
@@ -47,7 +49,7 @@ func nativeCSVFixture(t *testing.T, columns []string, records [][]string) *prepa
 
 func TestNativeCSVPagesReconstructWholeMultilineCellsAndExactMetrics(t *testing.T) {
 	columns := []string{"record_type", "label", "bytes:total"}
-	records := [][]string{{"detail", "雪,\"quoted\"\nline", "9007199254740993"}, {"detail", "'=formula", "9007199254740994"}, {"other", "", "10"}, {"totals", "", "18014398509481997"}}
+	records := [][]string{{"detail", "雪,\"quoted\"\r\nline", "9007199254740993"}, {"detail", "'=formula", "9007199254740994"}, {"other", "", "10"}, {"totals", "", "18014398509481997"}}
 	p := nativeCSVFixture(t, columns, records)
 	var reconstructed [][]string
 	for offset := 0; ; {
@@ -145,5 +147,29 @@ func TestNativeCSVConfiguredBudgetPreservesCompleteContinuation(t *testing.T) {
 	page, err := nativeFlowCSVRecordsWithBudget(t.Context(), p, mcp.NativeFlowCSVInput{PageSize: 5000}, budget)
 	if !errors.Is(err, flowsnapshot.ErrBudget) || len(page.Records) != 0 {
 		t.Fatal("oversized complete record returned partial content", err)
+	}
+}
+
+func TestNativeCSVPreservesCRLFAtReadBoundaries(t *testing.T) {
+	records := [][]string{{"kind", "label", "exact"}, {"detail", "雪,\"quoted\"\r\nline", "9007199254740993"}, {"detail", "\r\r\n\t=literal", "9007199254740994"}, {"detail", strings.Repeat("🌐", 24000) + "\r\nlast\r", "0"}, {"totals", "", "18014398509481997"}}
+	var encoded bytes.Buffer
+	writer := csv.NewWriter(&encoded)
+	if err := writer.WriteAll(records); err != nil {
+		t.Fatal(err)
+	}
+	original := append([]byte(nil), encoded.Bytes()...)
+	for _, oneByte := range []bool{false, true} {
+		var source io.Reader = bytes.NewReader(original)
+		if oneByte {
+			source = iotest.OneByteReader(source)
+		}
+		var preserved io.Reader = &nativeCSVCRLFReader{source: bufio.NewReader(source)}
+		if oneByte {
+			preserved = iotest.OneByteReader(preserved)
+		}
+		got, err := csv.NewReader(preserved).ReadAll()
+		if err != nil || !reflect.DeepEqual(got, records) || !bytes.Equal(original, encoded.Bytes()) {
+			t.Fatalf("native CSV changed full cells or original source at oneByte=%v: %v", oneByte, err)
+		}
 	}
 }
