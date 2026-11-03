@@ -4,14 +4,14 @@
 
 **MCP (Model Context Protocol)** is the open standard that lets AI applications
 call external tools. A language model on its own can only produce text; MCP gives
-it a disciplined way to *do* things: an AI client connects to an MCP **server**,
+it a disciplined way to _do_ things: an AI client connects to an MCP **server**,
 asks what tools it offers, and invokes them with structured arguments. Think of
 MCP as a USB-C port for AI — one standard plug, so any compliant client can talk
 to any compliant server without bespoke integration code.
 
 probectl ships an MCP server so AI clients — Claude Desktop, an agent framework,
 your own tool-using app — can query probectl directly, in the client's own "call
-a tool" idiom: *your* AI asking *your* self-hosted platform about *your* network.
+a tool" idiom: _your_ AI asking _your_ self-hosted platform about _your_ network.
 It exposes tools scoped by **tenant,
 RBAC, and ABAC** over two transports (a **transport** is simply the channel the
 messages travel over):
@@ -54,7 +54,7 @@ flowchart LR
 Two words of vocabulary first. A **tenant** is one organization's hard-isolated
 slice of a probectl deployment — its agents, telemetry, incidents, and users;
 cross-tenant leakage is the platform's highest-severity failure. **RBAC**
-(role-based access control) is the permission system *inside* a tenant: which of
+(role-based access control) is the permission system _inside_ a tenant: which of
 that tenant's users may read tests, read incidents, or run AI queries. **ABAC**
 (attribute-based access control) is the final deny-override: a tenant policy may
 narrow an RBAC grant using subject attributes such as department. The order in
@@ -67,10 +67,10 @@ which one. Every call enforces the boundary at the MCP layer
 (`internal/ai/mcp/server.go`), in order:
 
 1. **Tenant first.** A principal with no tenant is rejected. No tool takes a tenant
-   argument, so a call *cannot express* "another tenant's data" (the same
+   argument, so a call _cannot express_ "another tenant's data" (the same
    by-construction property as the query layer — see `docs/ai-query.md`).
 2. **Then RBAC.** `tools/list` returns only the tools the caller's permissions
-   allow — an out-of-scope caller doesn't even *see* a tool it can't use.
+   allow — an out-of-scope caller doesn't even _see_ a tool it can't use.
    `tools/call` re-checks the tool's permission (out of scope → `forbidden`, never
    data).
 3. **Then ABAC.** The server loads policies within that same tenant and applies
@@ -83,18 +83,18 @@ which one. Every call enforces the boundary at the MCP layer
    enter the shared per-tenant fairness gate before touching a store, so one
    tenant can't exhaust the server. A denial from either the rate limiter or the
    fairness gate is returned as the JSON-RPC error `-32003` (`rate limit
-   exceeded`), and over HTTP it also carries status `429` with a `Retry-After`
+exceeded`), and over HTTP it also carries status `429` with a `Retry-After`
    header — distinct from a genuine tool failure (an `isError` tool result), so a
    client's backoff keys cleanly on the code / status.
-5. **Then the egress gate.** Returning tool output to an external AI client *is*
+5. **Then the egress gate.** Returning tool output to an external AI client _is_
    tenant data leaving the platform, so each `tools/call` passes the shared egress
    gate — per-tenant consent, redaction, audit (its own section below).
 6. **Then the backend** runs through the **tenant-scoped stores + the semantic
-   query engine**, which enforce tenant → RBAC *again*. That's defense in depth: a
+   query engine**, which enforce tenant → RBAC _again_. That's defense in depth: a
    tool can't return another tenant's data even if a layer above had a bug.
 
 The practical consequence: the AI never gains powers of its own. Whatever it may
-see is exactly what the human who minted its token may see — the model *inherits*
+see is exactly what the human who minted its token may see — the model _inherits_
 one person's view of one tenant; there is no service-account superview to steal.
 A confused or compromised model is bounded by the same walls as its owner.
 
@@ -105,16 +105,16 @@ human-readable description the model reads to decide when to call it, a
 machine-readable input schema, and — in probectl — the RBAC permission a caller
 must hold. The catalog is deliberately small and legible: eight tools.
 
-| Tool                  | Permission             | Description                                                              |
-| --------------------- | ---------------------- | ------------------------------------------------------------------------ |
-| `list_tests`          | `test.read`            | List at most 200 tenant tests, with `limit` + `truncated` metadata.       |
-| `get_path`            | `test.read`            | Most recently discovered path to a target (hops, per-hop loss/latency).  |
-| `get_bgp_events`      | `events.read`          | Recent BGP/routing events for a prefix.                     |
-| `query_flows`         | `events.read`          | Network flow / service-map records (eBPF).                               |
-| `get_incident`        | `incident.read`        | One incident with its full cross-plane timeline.                         |
-| `correlate_incident`  | `incident.read`        | Which planes contributed to an incident, plus the signal timeline.       |
-| `explain_degradation` | `ai.query`             | RCA on a natural-language question → a cited, RBAC-scoped root cause.     |
-| `propose_remediation` | `remediation.propose`  | **Propose-only.** Files a `proposed` suggestion a human must approve.     |
+| Tool                  | Permission            | Description                                                             |
+| --------------------- | --------------------- | ----------------------------------------------------------------------- |
+| `list_tests`          | `test.read`           | List at most 200 tenant tests, with `limit` + `truncated` metadata.     |
+| `get_path`            | `test.read`           | Most recently discovered path to a target (hops, per-hop loss/latency). |
+| `get_bgp_events`      | `events.read`         | Recent BGP/routing events for a prefix.                                 |
+| `query_flows`         | `events.read`         | Network flow / service-map records (eBPF).                              |
+| `get_incident`        | `incident.read`       | One incident with its full cross-plane timeline.                        |
+| `correlate_incident`  | `incident.read`       | Which planes contributed to an incident, plus the signal timeline.      |
+| `explain_degradation` | `ai.query`            | RCA on a natural-language question → a cited, RBAC-scoped root cause.   |
+| `propose_remediation` | `remediation.propose` | **Propose-only.** Files a `proposed` suggestion a human must approve.   |
 
 Each tool advertises a documented JSON-Schema input (`internal/ai/mcp/tools.go`),
 which is the stable contract — **JSON Schema** is the standard way to declare
@@ -137,8 +137,8 @@ trustctl renewal request — that a human must approve through the authenticated
 Think of it as a suggestion box bolted to the wall: the AI can drop a note in, but
 the box has no wires running to the network. The MCP path can never approve or
 execute; probectl never executes autonomously (see `docs/remediation.md`). So the
-worst an injected prompt can do through this tool is *file a suggestion someone
-then has to look at*. `TestProposeRemediationToolIsProposalOnly`
+worst an injected prompt can do through this tool is _file a suggestion someone
+then has to look at_. `TestProposeRemediationToolIsProposalOnly`
 (`internal/ai/mcp/mcp_test.go`) pins that guarantee — including a structural check
 that the remediation catalog contains **no** approve/execute/apply tool. Note: the
 proposal backend is the commercially licensed guarded-remediation feature, attached
@@ -157,7 +157,7 @@ REST, so a long-running process cannot retain an MCP-only write path.
 
 ## Transports and auth
 
-**Tokens.** A **bearer token** is a secret string that *is* the authentication:
+**Tokens.** A **bearer token** is a secret string that _is_ the authentication:
 whoever presents ("bears") it on a request is treated as its owner, with no
 further challenge. Treat one like a visitor badge that grants exactly one
 employee's access — it opens the doors that person's badge opens, in that
@@ -176,7 +176,7 @@ proof, so a SCIM-supplied `mfa=true` cannot turn it into one. Mint one with:
 probectl-control mcp-token --user <user-uuid> [--tenant <id>] [--name laptop]
 ```
 
-The secret is printed once. The token acts *as that user* — it carries exactly that
+The secret is printed once. The token acts _as that user_ — it carries exactly that
 user's permissions, no more.
 
 ### stdio (local — e.g. Claude Desktop)
@@ -201,7 +201,7 @@ authentication fails closed with a retryable unavailable response. HTTP returns
 lifecycle cache retains its normal last-known-state behavior. A bad credential
 remains unauthorized, and a known suspension, offboarding or MFA policy refusal
 remains forbidden. Dependency diagnostics are never returned to the client.
-What stdio *deliberately* trusts
+What stdio _deliberately_ trusts
 is the **local invoking process**: anyone who can spawn the binary with that env var
 **is** the principal the token names — workstation process isolation is the
 boundary, exactly like any local CLI credential (think `kubectl`'s kubeconfig).
@@ -310,10 +310,10 @@ to shipping at all, then blacks out the sensitive lines, then logs the parcel �
 three checks, every time:
 
 - **Consent (default deny).** The tenant must have opted in via
-  `tenant_governance.ai_remote_egress` — the *same* per-tenant consent that gates
+  `tenant_governance.ai_remote_egress` — the _same_ per-tenant consent that gates
   remote-model RCA; silence means no. Without it, `tools/call` returns an
   `isError` result explaining the requirement, the tool never runs, and the
-  denial is audited. (`tools/list` and `initialize` still work — *discovery*
+  denial is audited. (`tools/list` and `initialize` still work — _discovery_
   isn't egress.)
 - **Redaction.** A result is rendered to JSON once, masked by the redaction policy
   (secrets always; IPs/PII by default; hostnames + custom patterns per config), and
@@ -323,7 +323,7 @@ three checks, every time:
   stays valid and the model can still tell "this address here is that address
   there" without ever seeing it. A token from one tenant does not build a useful
   dictionary for another tenant.
-- **Audit.** Every call — allowed or denied, and *why* — lands in the tenant's
+- **Audit.** Every call — allowed or denied, and _why_ — lands in the tenant's
   tamper-evident audit stream as `mcp.tool_call` (actor, tool, outcome), plus an
   `ai.remote_egress` event (`surface = mcp`) on each allowed call that returns
   data. Both appends are fail-closed. The call audit must commit before the tool
@@ -363,17 +363,17 @@ The server advertises these tools only when that native binding exists. All
 require an authenticated user plus both `ai.query` and `flow.read` for discovery
 and invocation. A current ABAC denial of either permission also applies.
 
-| Operations | Tools | Additional permission |
-| --- | --- | --- |
-| Stateless natural-language proposal | `flow_explorer_plan` | No execution/history; same joined-field grants and model consent gate |
-| Registry, query, comparison | `flow_explorer_schema`, `flow_explorer_query`, `flow_explorer_compare` | Source-specific grants for selected joined fields |
-| Complete CSV records | `flow_explorer_csv` | Current original grants and creator identity |
-| Frozen continuation | `flow_explorer_page`, `flow_explorer_comparison_page` | Current original grants and creator identity |
-| Reusable filter reads | `flow_filter_list`, `flow_filter_get` | Current grants for referenced fields |
-| Reusable filter writes | `flow_filter_save`, `flow_filter_delete` | `flow.filters.write` |
-| Saved-query reads/execution | `flow_view_list`, `flow_view_get`, `flow_view_run` | Private owner or explicit tenant sharing, with current source grants |
-| Saved-query writes | `flow_view_save`, `flow_view_delete` | `flow.views.write` and ownership for updates/deletion |
-| Personal preference | `flow_view_favorite` | Affects only the authenticated subject |
+| Operations                          | Tools                                                                  | Additional permission                                                 |
+| ----------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Stateless natural-language proposal | `flow_explorer_plan`                                                   | No execution/history; same joined-field grants and model consent gate |
+| Registry, query, comparison         | `flow_explorer_schema`, `flow_explorer_query`, `flow_explorer_compare` | Source-specific grants for selected joined fields                     |
+| Complete CSV records                | `flow_explorer_csv`                                                    | Current original grants and creator identity                          |
+| Frozen continuation                 | `flow_explorer_page`, `flow_explorer_comparison_page`                  | Current original grants and creator identity                          |
+| Reusable filter reads               | `flow_filter_list`, `flow_filter_get`                                  | Current grants for referenced fields                                  |
+| Reusable filter writes              | `flow_filter_save`, `flow_filter_delete`                               | `flow.filters.write`                                                  |
+| Saved-query reads/execution         | `flow_view_list`, `flow_view_get`, `flow_view_run`                     | Private owner or explicit tenant sharing, with current source grants  |
+| Saved-query writes                  | `flow_view_save`, `flow_view_delete`                                   | `flow.views.write` and ownership for updates/deletion                 |
+| Personal preference                 | `flow_view_favorite`                                                   | Affects only the authenticated subject                                |
 
 Save operations create without an ID/revision and update with the exact observed
 revision. Revision tokens and measurement values are decimal strings. Shared
@@ -517,6 +517,28 @@ tools show every unmapped row before any destination write.
 user-only tools requiring `tags.read`. Context reads require an owned routing
 context and its current ABAC grant. Assignment results omit imported source
 references and the encoded exporter target. No argument selects a tenant.
+
+`tag_definition_write`, `tag_rule_write` and `tag_assignment_write` require
+an authenticated user with `tags.write`. Each accepts `action` as `create`,
+`update` or `delete`. Creates require `input`; updates require `id` and `input`;
+deletes require `id` and `confirmed:true` and forbid `input`. Rule and assignment
+operations also require `context_id` and its current resource ABAC grant. The
+nested input has the same fields and validation as the corresponding REST API.
+For example, creating a key uses
+`{"action":"create","input":{"key":"customer"}}`; renaming it uses
+`{"action":"update","id":"<tag UUID>","input":{"key":"contract"}}`.
+Deleting a definition also removes its owned rules and assignments, including
+reviewed imports. The manual assignment tool cannot change imported assignments
+or set provenance. Writes recheck tenant lifecycle, MFA when required and current
+authorization, and commit the metadata revision and domain audit together.
+
+Metadata write arguments have a 384 KiB JSON byte budget, including the envelope
+and JSON escapes. Tag values retain the API's 24,000-character limit; SNMP exact
+matches retain its 1,024-byte field limit and significant whitespace. Duplicate,
+unknown or noncanonical field names, mixed action fields and tenant/provenance
+hints are refused. Results contain only declared metadata fields. These tools
+are available only with the configured control service and metadata store; the
+same consent, redaction and call-audit gates apply on HTTP and stdio.
 
 When NetBox is configured, `tag_netbox_preview` additionally requires
 `cmdb.read`; it is hidden without either grant. Its inputs match the preview

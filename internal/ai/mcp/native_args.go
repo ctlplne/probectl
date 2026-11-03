@@ -23,10 +23,14 @@ const nativeFlowRequestBytes = flow.MaxPlanGrammarBytes + 16*1024
 // Native arguments reject duplicates, case-fold aliases, unknown fields and
 // trailing data before decoding into the same typed public registry grammar.
 func decodeNativeArgs(raw json.RawMessage, dst any) error {
+	return decodeBoundedNativeArgs(raw, dst, nativeFlowRequestBytes)
+}
+
+func decodeBoundedNativeArgs(raw json.RawMessage, dst any, maxBytes int) error {
 	if len(raw) == 0 {
 		raw = json.RawMessage(`{}`)
 	}
-	if err := nativeJSONSyntax(raw, nativeFlowRequestBytes); err != nil {
+	if err := nativeJSONSyntax(raw, maxBytes); err != nil {
 		return err
 	}
 	if err := nativeArgumentShape(raw, reflect.TypeOf(dst), 0); err != nil {

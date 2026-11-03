@@ -99,76 +99,41 @@ func (s *Server) handleListTagRules(w http.ResponseWriter, r *http.Request) erro
 
 func (s *Server) handleCreateTagRule(w http.ResponseWriter, r *http.Request) error {
 	contextID := r.PathValue("context_id")
-	tenantID, err := s.authorizeTagContext(r, contextID, permTagsWrite)
-	if err != nil {
+	if _, err := s.authorizeTagContext(r, contextID, permTagsWrite); err != nil {
 		return err
 	}
 	var input tagRuleInput
 	if err := decodeJSONLimit(r, tags.MaxValueInputBytes, &input); err != nil {
 		return err
 	}
-	var rule tags.Rule
-	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		rule, err = (store.TagRules{}).Create(ctx, sc, input.rule(tenantID, contextID, ""))
-		if err != nil {
-			return err
-		}
-		return s.recordAudit(ctx, sc, r, "tag.rule.created", rule.ID,
-			map[string]any{"context_id": contextID, "tag_id": rule.TagID,
-				"match_kind": rule.Match})
-	})
+	item, err := s.mutateTagRule(r, tagCreate, contextID, "", input)
 	if err != nil {
-		return tagRuleAPIError(err)
+		return err
 	}
-	writeJSON(w, http.StatusCreated, rule)
+	writeJSON(w, http.StatusCreated, item)
 	return nil
 }
 
 func (s *Server) handleUpdateTagRule(w http.ResponseWriter, r *http.Request) error {
 	contextID := r.PathValue("context_id")
-	tenantID, err := s.authorizeTagContext(r, contextID, permTagsWrite)
-	if err != nil {
+	if _, err := s.authorizeTagContext(r, contextID, permTagsWrite); err != nil {
 		return err
 	}
 	var input tagRuleInput
 	if err := decodeJSONLimit(r, tags.MaxValueInputBytes, &input); err != nil {
 		return err
 	}
-	var rule tags.Rule
-	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		rule, err = (store.TagRules{}).Update(ctx, sc,
-			input.rule(tenantID, contextID, r.PathValue("id")))
-		if err != nil {
-			return err
-		}
-		return s.recordAudit(ctx, sc, r, "tag.rule.updated", rule.ID,
-			map[string]any{"context_id": contextID, "tag_id": rule.TagID,
-				"match_kind": rule.Match})
-	})
+	item, err := s.mutateTagRule(r, tagUpdate, contextID, r.PathValue("id"), input)
 	if err != nil {
-		return tagRuleAPIError(err)
+		return err
 	}
-	writeJSON(w, http.StatusOK, rule)
+	writeJSON(w, http.StatusOK, item)
 	return nil
 }
 
 func (s *Server) handleDeleteTagRule(w http.ResponseWriter, r *http.Request) error {
-	contextID := r.PathValue("context_id")
-	if _, err := s.authorizeTagContext(r, contextID, permTagsWrite); err != nil {
+	if _, err := s.mutateTagRule(r, tagDelete, r.PathValue("context_id"), r.PathValue("id"), tagRuleInput{}); err != nil {
 		return err
-	}
-	id := r.PathValue("id")
-	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		if err := (store.TagRules{}).Delete(ctx, sc, contextID, id); err != nil {
-			return err
-		}
-		return s.recordAudit(ctx, sc, r, "tag.rule.deleted", id,
-			map[string]any{"context_id": contextID})
-	})
-	if err != nil {
-		return tagRuleAPIError(err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil

@@ -71,77 +71,41 @@ func (s *Server) handleListTagAssignments(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleCreateManualTagAssignment(w http.ResponseWriter, r *http.Request) error {
 	contextID := r.PathValue("context_id")
-	tenantID, err := s.authorizeTagContext(r, contextID, permTagsWrite)
-	if err != nil {
+	if _, err := s.authorizeTagContext(r, contextID, permTagsWrite); err != nil {
 		return err
 	}
 	var input manualTagAssignmentRequest
 	if err := decodeJSONLimit(r, tags.MaxValueInputBytes, &input); err != nil {
 		return err
 	}
-	var record store.TagAssignmentRecord
-	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		record, err = (store.TagAssignments{}).CreateManual(ctx, sc,
-			input.storeInput(tenantID, contextID))
-		if err != nil {
-			return err
-		}
-		return s.recordAudit(ctx, sc, r, "tag.assignment.created", record.ID,
-			map[string]any{"context_id": contextID, "tag_id": record.TagID,
-				"target_kind": record.TargetKind, "target_id": record.TargetID})
-	})
+	item, err := s.mutateManualTagAssignment(r, tagCreate, contextID, "", input)
 	if err != nil {
-		return tagAssignmentAPIError(err)
+		return err
 	}
-	writeJSON(w, http.StatusCreated, record)
+	writeJSON(w, http.StatusCreated, item)
 	return nil
 }
 
 func (s *Server) handleUpdateManualTagAssignment(w http.ResponseWriter, r *http.Request) error {
 	contextID := r.PathValue("context_id")
-	tenantID, err := s.authorizeTagContext(r, contextID, permTagsWrite)
-	if err != nil {
+	if _, err := s.authorizeTagContext(r, contextID, permTagsWrite); err != nil {
 		return err
 	}
 	var input manualTagAssignmentRequest
 	if err := decodeJSONLimit(r, tags.MaxValueInputBytes, &input); err != nil {
 		return err
 	}
-	var record store.TagAssignmentRecord
-	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		record, err = (store.TagAssignments{}).UpdateManual(ctx, sc,
-			r.PathValue("id"), input.storeInput(tenantID, contextID))
-		if err != nil {
-			return err
-		}
-		return s.recordAudit(ctx, sc, r, "tag.assignment.updated", record.ID,
-			map[string]any{"context_id": contextID, "tag_id": record.TagID,
-				"target_kind": record.TargetKind, "target_id": record.TargetID})
-	})
+	item, err := s.mutateManualTagAssignment(r, tagUpdate, contextID, r.PathValue("id"), input)
 	if err != nil {
-		return tagAssignmentAPIError(err)
+		return err
 	}
-	writeJSON(w, http.StatusOK, record)
+	writeJSON(w, http.StatusOK, item)
 	return nil
 }
 
 func (s *Server) handleDeleteManualTagAssignment(w http.ResponseWriter, r *http.Request) error {
-	contextID := r.PathValue("context_id")
-	if _, err := s.authorizeTagContext(r, contextID, permTagsWrite); err != nil {
+	if _, err := s.mutateManualTagAssignment(r, tagDelete, r.PathValue("context_id"), r.PathValue("id"), manualTagAssignmentRequest{}); err != nil {
 		return err
-	}
-	id := r.PathValue("id")
-	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		if err := (store.TagAssignments{}).DeleteManual(ctx, sc, contextID, id); err != nil {
-			return err
-		}
-		return s.recordAudit(ctx, sc, r, "tag.assignment.deleted", id,
-			map[string]any{"context_id": contextID})
-	})
-	if err != nil {
-		return tagAssignmentAPIError(err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil

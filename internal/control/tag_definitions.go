@@ -55,63 +55,38 @@ func (s *Server) handleListTagDefinitions(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleCreateTagDefinition(w http.ResponseWriter, r *http.Request) error {
-	var req struct {
+	var input struct {
 		Key string `json:"key"`
 	}
-	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
+	if err := decodeJSONLimit(r, 8<<10, &input); err != nil {
 		return err
 	}
-	var item tags.Definition
-	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		item, err = (store.TagDefinitions{}).Create(ctx, sc, req.Key)
-		if err != nil {
-			return err
-		}
-		return s.recordAudit(ctx, sc, r, "tag.definition.created", item.ID,
-			map[string]any{"key": item.Key})
-	})
+	item, err := s.mutateTagDefinition(r, tagCreate, "", input.Key)
 	if err != nil {
-		return tagDefinitionAPIError(err)
+		return err
 	}
 	writeJSON(w, http.StatusCreated, item)
 	return nil
 }
 
 func (s *Server) handleRenameTagDefinition(w http.ResponseWriter, r *http.Request) error {
-	var req struct {
+	var input struct {
 		Key string `json:"key"`
 	}
-	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
+	if err := decodeJSONLimit(r, 8<<10, &input); err != nil {
 		return err
 	}
-	var item tags.Definition
-	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		item, err = (store.TagDefinitions{}).Rename(ctx, sc, r.PathValue("id"), req.Key)
-		if err != nil {
-			return err
-		}
-		return s.recordAudit(ctx, sc, r, "tag.definition.renamed", item.ID,
-			map[string]any{"key": item.Key})
-	})
+	item, err := s.mutateTagDefinition(r, tagUpdate, r.PathValue("id"), input.Key)
 	if err != nil {
-		return tagDefinitionAPIError(err)
+		return err
 	}
 	writeJSON(w, http.StatusOK, item)
 	return nil
 }
 
 func (s *Server) handleDeleteTagDefinition(w http.ResponseWriter, r *http.Request) error {
-	id := r.PathValue("id")
-	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		if err := (store.TagDefinitions{}).Delete(ctx, sc, id); err != nil {
-			return err
-		}
-		return s.recordAudit(ctx, sc, r, "tag.definition.deleted", id, nil)
-	})
-	if err != nil {
-		return tagDefinitionAPIError(err)
+	if _, err := s.mutateTagDefinition(r, tagDelete, r.PathValue("id"), ""); err != nil {
+		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil

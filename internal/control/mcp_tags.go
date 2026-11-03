@@ -77,11 +77,7 @@ func (b mcpTagBackend) TagRuleList(ctx context.Context, p *auth.Principal,
 		}
 		out.NextCursor = next
 		for _, item := range items {
-			out.Items = append(out.Items, mcp.TagRuleResult{ID: item.ID,
-				TagID: item.TagID, TargetKind: item.TargetKind, MatchKind: item.Match,
-				AddressSide: item.AddressSide, CIDR: item.CIDR,
-				NamePattern: item.NamePattern, SNMPField: item.SNMPField,
-				SNMPValue: item.SNMPValue, Value: item.Value, Priority: item.Priority})
+			out.Items = append(out.Items, mcpTagRule(item))
 		}
 		return nil
 	})

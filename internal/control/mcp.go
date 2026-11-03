@@ -133,6 +133,13 @@ func newMCPServer(
 	if pool != nil {
 		options = append(options, mcp.WithEntityBackend(mcpEntityBackend{pool: pool, pathStore: pathStore, policyLoader: policyLoader}))
 		options = append(options, mcp.WithTagBackend(mcpTagBackend{pool: pool, policyLoader: policyLoader}))
+		if src.NativeFlow != nil {
+			if schemas, err := tagMutationToolSchemas(); err != nil {
+				log.Error("MCP tag mutation schemas are unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, mcp.WithTagMutationBackend(mcpTagMutationBackend{server: src.NativeFlow}, schemas))
+			}
+		}
 		if cfg != nil && cfg.CMDBProvider == "netbox" {
 			source := BuildCMDB(cfg, log)
 			if src.NativeFlow != nil {
