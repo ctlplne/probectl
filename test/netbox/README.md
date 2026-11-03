@@ -70,3 +70,12 @@ The separate exec process reports its implicit-profile outcome as a fixed enum;
 it is not assumed to share the web process environment. The actual protected
 HTTP/version/provider checks still must pass after the previously observed500. An existing file at the intended absent path is refused.
 This does not change HOME, run the web worker as root or weaken TLS verification.
+
+The actual WSGI process also gets a controlled before/after regression. The
+fixture temporarily removes only `sslcert`, restarts its existing NetBox
+application through Unit's Unix control socket, and requires the protected
+HTTPS status request to reproduce the certificate-file permission refusal.
+A `finally` restores the explicit configuration and restarts the same app;
+the exact HTTP version, read-only token and provider checks must then pass.
+The original error bytes are discarded after class/boolean checks. This
+distinguishes an actual web-process reproduction from an exec-process model.

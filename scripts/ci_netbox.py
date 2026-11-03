@@ -391,7 +391,12 @@ class FixtureHTTPSConnection(HTTPSConnection):
 
 
 def request(
-    path: str, *, token: str = "", method: str = "GET", body: bytes | None = None
+    path: str,
+    *,
+    token: str = "",
+    method: str = "GET",
+    body: bytes | None = None,
+    expect_profile_error: bool = False,
 ) -> tuple[int, bytes]:
     headers = {"Accept": "application/json"}
     if token:
@@ -407,6 +412,8 @@ def request(
         raw = response.read((4 << 20) + 1)
         if len(raw) > 4 << 20:
             raise RuntimeError("NetBox fixture response exceeds the source bound")
+        if expect_profile_error:
+            verify_implicit_profile_failure(response.status, raw)
         if response.status >= 500:
             diagnose_http_error(response.status, raw)
         return response.status, raw if response.status < 400 else b""
@@ -414,7 +421,7 @@ def request(
         connection.close()
 
 
-def diagnose_http_error(status: int, raw: bytes) -> None:
+def http_error_summary(status: int, raw: bytes) -> dict:
     """NetBox CoreMiddleware catches API exceptions before Django logs them.
 
     Admit its exception class enum and fixed signal booleans only. Its error
@@ -466,18 +473,75 @@ def diagnose_http_error(status: int, raw: bytes) -> None:
             "settings_module": "DJANGO_SETTINGS_MODULE",
         }.items()
     }
+    return {
+        "http_status": status if type(status) is int and 500 <= status <= 599 else None,
+        "exception_class": category,
+        "signals": signals,
+    }
+
+
+def diagnose_http_error(status: int, raw: bytes) -> None:
     print(
         "NetBox fixture HTTP failure: "
-        + json.dumps(
-            {
-                "http_status": status
-                if type(status) is int and 500 <= status <= 599
-                else None,
-                "exception_class": category,
-                "signals": signals,
-            },
-            sort_keys=True,
-        ),
+        + json.dumps(http_error_summary(status, raw), sort_keys=True),
+        flush=True,
+    )
+
+
+def verify_implicit_profile_failure(status: int, raw: bytes) -> None:
+    summary = http_error_summary(status, raw)
+    if (
+        summary["http_status"] != 500
+        or summary["exception_class"] != "OperationalError"
+        or not summary["signals"]["permission_denied"]
+        or not summary["signals"]["client_certificate_file"]
+    ):
+        raise RuntimeError(
+            "actual implicit web profile did not reproduce the certificate permission refusal"
+        )
+
+
+def select_wsgi_database_profile(*, implicit: bool) -> None:
+    # Alter only the disposable application's Python configuration, then
+    # restart that same application over its existing Unix control socket.
+    # No inherited environment, identity, listener or TLS option is changed.
+    name = "netbox_implicit_config.py" if implicit else "netbox_config.py"
+    compose(
+        "exec",
+        "-T",
+        "netbox",
+        "install",
+        "-m",
+        "644",
+        "/fixture/" + name,
+        "/opt/netbox/netbox/netbox/probectl_ci_configuration.py",
+    )
+    compose(
+        "exec",
+        "-T",
+        "netbox",
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "15",
+        "--output",
+        "/dev/null",
+        "--unix-socket",
+        "/opt/unit/probectl-ci.sock",
+        "http://localhost/control/applications/netbox/restart",
+    )
+
+
+def verify_wsgi_profile_reversal(token: str) -> None:
+    try:
+        select_wsgi_database_profile(implicit=True)
+        request("/api/status/", token=token, expect_profile_error=True)
+    finally:
+        select_wsgi_database_profile(implicit=False)
+    print(
+        "NetBox fixture original WSGI database profile reproduces certificate-file permission refusal",
         flush=True,
     )
 
@@ -675,6 +739,10 @@ def start() -> None:
         ),
     )
     private_file("netbox_config.py", NETBOX_CONFIG)
+    private_file(
+        "netbox_implicit_config.py",
+        NETBOX_CONFIG + '\nDATABASES["default"]["OPTIONS"].pop("sslcert")\n',
+    )
     private_file("netbox_settings.py", (ROOT / "test/netbox/settings.py").read_text())
     private_file(
         "pg_hba.conf",
@@ -762,6 +830,7 @@ def start() -> None:
         }
     )
     private_file("manifest.json", json.dumps(manifest, sort_keys=True) + "\n")
+    verify_wsgi_profile_reversal(token)
     status, raw = request("/api/status/", token=token)
     try:
         verify_application_version(status, raw)
@@ -799,6 +868,7 @@ def start() -> None:
                 "images": images,
                 "api_credential": "read-only",
                 "tls": "verified source, PostgreSQL and cache",
+                "web_database_profile": "implicit certificate permission refusal; explicit HTTP/version passed",
                 "network": "internal-only; verified owned container dial with localhost SNI",
             },
             indent=2,
@@ -858,6 +928,60 @@ def cleanup() -> None:
 def selftest() -> None:
     verify_tls_config(tls_config())
     verify_application_version(200, b'{"netbox-version":"4.4.5"}')
+    profile_failure = b'{"exception":"OperationalError","error":"could not open certificate file /root/.postgresql/client.crt: Permission denied; untrusted-detail"}'
+    verify_implicit_profile_failure(500, profile_failure)
+    for status, raw in [
+        (200, profile_failure),
+        (503, profile_failure),
+        (500, profile_failure.replace(b"OperationalError", b"TypeError")),
+        (500, profile_failure.replace(b"Permission denied", b"other")),
+        (500, profile_failure.replace(b"could not open certificate file", b"other")),
+        (500, b"untrusted-detail"),
+    ]:
+        try:
+            verify_implicit_profile_failure(status, raw)
+        except RuntimeError as error:
+            if "untrusted-detail" in str(error):
+                raise RuntimeError(
+                    "web profile regression leaked source text"
+                ) from None
+        else:
+            raise RuntimeError("web profile regression accepted a different failure")
+    for request_fails in [False, True]:
+        profiles = []
+
+        def record_profile(*, implicit):
+            profiles.append(implicit)
+
+        def probe_profile(path, **options):
+            if (
+                path != "/api/status/"
+                or options.get("expect_profile_error") is not True
+            ):
+                raise AssertionError(
+                    "web profile probe lost its strict expected refusal"
+                )
+            if request_fails:
+                raise RuntimeError("planted profile probe failure")
+            return 500, b""
+
+        with (
+            patch(__name__ + ".select_wsgi_database_profile", record_profile),
+            patch(__name__ + ".request", probe_profile),
+            patch("sys.stdout", io.StringIO()),
+        ):
+            try:
+                verify_wsgi_profile_reversal("fixture-only")
+            except RuntimeError:
+                if not request_fails:
+                    raise
+            else:
+                if request_fails:
+                    raise RuntimeError("web profile probe swallowed a failure")
+        if profiles != [True, False]:
+            raise RuntimeError(
+                "web profile reversal failed to restore explicit configuration"
+            )
     good_proof = {
         "default_profile_outcome": "connected",
         "denied_profile_reproduced": True,
