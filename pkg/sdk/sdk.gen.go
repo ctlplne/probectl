@@ -2704,7 +2704,6 @@ type TagRulePage struct {
 	NextCursor string    `json:"next_cursor,omitempty"`
 }
 
-// Public metadata for the caller tenant's OIDC provider. Secret material is represented only by client_secret_configured.
 type TagSubjectResolution struct {
 	AsOf        string              `json:"as_of"`
 	ContextId   string              `json:"context_id"`
@@ -2714,6 +2713,7 @@ type TagSubjectResolution struct {
 	TargetKind  string              `json:"target_kind"`
 }
 
+// Public metadata for the caller tenant's OIDC provider. Secret material is represented only by client_secret_configured.
 type TenantIdPSettings struct {
 	ClientId               string          `json:"client_id"`
 	ClientSecretConfigured bool            `json:"client_secret_configured"`
