@@ -16416,9 +16416,7 @@
         "properties": {
           "version": {
             "type": "integer",
-            "enum": [
-              1
-            ],
+            "const": 1,
             "readOnly": true
           },
           "target_kind": {
