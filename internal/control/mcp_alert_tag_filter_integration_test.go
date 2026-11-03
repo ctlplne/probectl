@@ -105,6 +105,9 @@ func proveAlertTagFilterNative(t *testing.T, core *Server, pool *pgxpool.Pool, t
 			t.Fatal("native alert changed exact current metadata revision")
 		}
 		fresh := get(tenant)
+		if fresh.Editor == nil || len(fresh.Editor.Fields) != 1 || fresh.Editor.Fields[0].Name != "tag.alert_customer" || fresh.Editor.Fields[0].TagID != definition || fresh.Editor.TagRevision != out.TagFilter.TagRevision {
+			t.Fatal("native alert read lost current root vocabulary or immutable schema identity")
+		}
 		actual, err := json.Marshal(fresh.TagFilter)
 		if err != nil || fresh.TagFilter == nil || !strings.Contains(string(actual), inputs[tenant].Filter.Groups[0].Conditions[0].Values[0]) {
 			t.Fatal("native alert lost full nested Unicode criteria")
@@ -121,7 +124,7 @@ func proveAlertTagFilterNative(t *testing.T, core *Server, pool *pgxpool.Pool, t
 	scoped("alert_tag_filter_get", map[string]any{"rule_id": ids[first]}, false)
 	scoped("alert_tag_filter_set", args, false)
 	cleared := decode(scoped("alert_tag_filter_clear", map[string]any{"rule_id": ids[first], "confirmed": true}, true))
-	if cleared.HasTagFilter || cleared.TagFilter != nil || get(first).HasTagFilter {
+	if cleared.HasTagFilter || cleared.TagFilter != nil || cleared.Editor != nil || get(first).HasTagFilter {
 		t.Fatal("scoped explicit clear disclosed or retained old metadata")
 	}
 	set(first)

@@ -381,8 +381,8 @@ create/reverse journey and keeps the actions behind `incident.write`.
 A threshold or baseline rule can select its current owned tests by tenant tag
 criteria. This read uses current annotations over retained series: changing a
 tag rule changes the next selection without relabeling the original metrics.
-The API/CLI/native path is preview. The UI adapter remains in development;
-the complete source receipt is still required.
+The API/CLI/UI/native path is preview; the complete source receipt is still
+required.
 
 Use `GET`, `PUT` or `DELETE /v1/alerts/rules/{id}/tag-filter`. The CLI equivalents are
 `probectl --json alert tag-filter RULE_ID`, `alert tag-filter-set RULE_ID
@@ -427,3 +427,18 @@ user, use the existing query admission, egress consent/redaction and call audit,
 and preserve the API's current-role checks and atomic domain mutation/audit.
 The native adapter's TLS/bearer/paired-tenant proof covers configuration;
 release senders and complete telemetry execution remain separate requirements.
+
+On Alerts, a metric rule's **Test tags** action opens the current criteria editor.
+Load/refresh checks current source grants; nested include/exclude and regex
+criteria use current root test-tag fields. Saving explicitly binds the selected
+fields under the current user. Current vocabulary revision/time and the saved
+binding revision are shown separately. Old criteria disappear on a refused
+refresh/save or a tenant, user or permission change. The confirmed **Clear tag
+filter** action remains available to a current alert writer without reading old
+metadata. Trap rules do not expose this test-metric editor.
+
+An authorized metadata GET includes an `editor` vocabulary captured in the same
+RLS read snapshot as the rule/configuration: current root field names, immutable
+tag IDs, text operators, shared grammar limits and its exact revision/time.
+It requires no flow-source read. Mutation/clear responses omit this vocabulary;
+configured whole-operation costs still refuse the complete read atomically.

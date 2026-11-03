@@ -16454,6 +16454,122 @@
           }
         }
       },
+      "AlertTagFilterField": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "tag_id",
+          "type",
+          "operators"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Current root test-tag field name."
+          },
+          "tag_id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text"
+            ]
+          },
+          "operators": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Allowed operators from the shared text-field registry."
+          }
+        }
+      },
+      "AlertTagFilterLimits": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "max_group_entries",
+          "max_expanded_conditions",
+          "max_filter_depth",
+          "max_regex_bytes",
+          "max_values_per_predicate",
+          "max_value_bytes",
+          "grammar_bytes"
+        ],
+        "properties": {
+          "max_group_entries": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "max_expanded_conditions": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "max_filter_depth": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "max_regex_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "max_values_per_predicate": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "max_value_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "grammar_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          }
+        }
+      },
+      "AlertTagFilterEditorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Current authorized root test-tag vocabulary captured with this rule/config read; this clock is independent of the saved binding clock. No flow-source grant or saved-flow fields.",
+        "required": [
+          "tag_revision",
+          "as_of",
+          "fields",
+          "limits"
+        ],
+        "properties": {
+          "tag_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "readOnly": true
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertTagFilterField"
+            }
+          },
+          "limits": {
+            "$ref": "#/components/schemas/AlertTagFilterLimits"
+          }
+        }
+      },
       "AlertTagFilterState": {
         "type": "object",
         "additionalProperties": false,
@@ -16471,6 +16587,11 @@
           },
           "tag_filter": {
             "$ref": "#/components/schemas/AlertTagFilter"
+          },
+          "editor": {
+            "$ref": "#/components/schemas/AlertTagFilterEditorSchema",
+            "readOnly": true,
+            "description": "Present on an authorized metadata GET only; omitted from set/clear replies."
           }
         }
       },

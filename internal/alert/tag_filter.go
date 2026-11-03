@@ -23,9 +23,36 @@ const TagFilterVersion = 1
 // TagFilterState is the bounded metadata-only public projection. Alert channels
 // and secrets are never part of this read or mutation response.
 type TagFilterState struct {
-	RuleID       string     `json:"rule_id"`
-	HasTagFilter bool       `json:"has_tag_filter"`
-	TagFilter    *TagFilter `json:"tag_filter,omitempty"`
+	RuleID       string                 `json:"rule_id"`
+	HasTagFilter bool                   `json:"has_tag_filter"`
+	TagFilter    *TagFilter             `json:"tag_filter,omitempty"`
+	Editor       *TagFilterEditorSchema `json:"editor,omitempty"`
+}
+
+// The editor vocabulary is a current authorized read projection, never saved
+// with a rule or included when clearing a filter without metadata-read grants.
+type TagFilterEditorSchema struct {
+	TagRevision string           `json:"tag_revision"`
+	AsOf        string           `json:"as_of"`
+	Fields      []TagFilterField `json:"fields"`
+	Limits      TagFilterLimits  `json:"limits"`
+}
+
+type TagFilterField struct {
+	Name      string               `json:"name"`
+	TagID     string               `json:"tag_id"`
+	Type      flow.QueryFieldType  `json:"type"`
+	Operators []flow.QueryOperator `json:"operators"`
+}
+
+type TagFilterLimits struct {
+	MaxGroupEntries       int `json:"max_group_entries"`
+	MaxExpandedConditions int `json:"max_expanded_conditions"`
+	MaxFilterDepth        int `json:"max_filter_depth"`
+	MaxRegexBytes         int `json:"max_regex_bytes"`
+	MaxValuesPerPredicate int `json:"max_values_per_predicate"`
+	MaxValueBytes         int `json:"max_value_bytes"`
+	GrammarBytes          int `json:"grammar_bytes"`
 }
 
 // TagFilterInput contains no tenant, owner or authority hints. The server binds

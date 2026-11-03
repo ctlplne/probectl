@@ -12,6 +12,7 @@ import type {
   FlowQueryMetric,
   FlowQueryPlan,
   FlowQueryPredicate,
+  FlowQueryField,
 } from '../api/flowExplorer'
 import styles from './flowExplorer.module.css'
 
@@ -91,14 +92,19 @@ export function FlowFilterGroupEditor({
   depth = 1,
   path = '1',
   onRemove,
+  allowSaved = true,
 }: {
   value: FlowQueryFilterGroup
-  schema: FlowExplorerSchema
+  schema: {
+    fields: Pick<FlowQueryField, 'name' | 'type' | 'operators'>[]
+    limits: Record<string, number>
+  }
   filters: ReusableFlowFilter[]
   onChange: (value: FlowQueryFilterGroup) => void
   depth?: number
   path?: string
   onRemove?: () => void
+  allowSaved?: boolean
 }) {
   const [entryPage, setEntryPage] = useState(0)
   const conditionCount = value.conditions?.length ?? 0
@@ -301,6 +307,7 @@ export function FlowFilterGroupEditor({
               value={group}
               schema={schema}
               filters={filters}
+              allowSaved={allowSaved}
               depth={depth + 1}
               path={`${path}.${index + 1}`}
               onChange={(group) =>
@@ -333,8 +340,9 @@ export function FlowFilterGroupEditor({
       )}
       <div className={styles.actions}>
         <Button
-          disabled={!canAdd}
+          disabled={!canAdd || schema.fields.length === 0}
           onClick={() => {
+            if (schema.fields.length === 0) return
             setEntryPage(Math.floor(conditionCount / pageSize))
             onChange({
               ...value,
@@ -359,18 +367,20 @@ export function FlowFilterGroupEditor({
         >
           Add nested group to {path}
         </Button>
-        <Button
-          disabled={!canAdd || !filters.length}
-          onClick={() => {
-            setEntryPage(Math.floor((conditionCount + savedCount) / pageSize))
-            onChange({
-              ...value,
-              saved: [...(value.saved ?? []), { id: filters[0].id, mode: 'include' }],
-            })
-          }}
-        >
-          Add saved filter to group {path}
-        </Button>
+        {allowSaved ? (
+          <Button
+            disabled={!canAdd || !filters.length}
+            onClick={() => {
+              setEntryPage(Math.floor((conditionCount + savedCount) / pageSize))
+              onChange({
+                ...value,
+                saved: [...(value.saved ?? []), { id: filters[0].id, mode: 'include' }],
+              })
+            }}
+          >
+            Add saved filter to group {path}
+          </Button>
+        ) : null}
       </div>
     </fieldset>
   )

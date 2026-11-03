@@ -118,13 +118,16 @@ func readAlertTagFilter(ctx context.Context, pool *pgxpool.Pool, source flowstor
 			return err
 		}
 		out.RuleID, out.HasTagFilter = rule.ID, rule.HasTagFilter
-		if !rule.HasTagFilter {
-			return nil
+		if rule.HasTagFilter {
+			out.TagFilter, err = (store.AlertRules{}).GetTagFilter(ctx, sc, rule.ID, rule.UpdatedAt, budget.MemoryBytes/4)
+			if err != nil {
+				return err
+			}
+			if out.TagFilter == nil {
+				return store.ErrAlertTagFilterChanged
+			}
 		}
-		out.TagFilter, err = (store.AlertRules{}).GetTagFilter(ctx, sc, rule.ID, rule.UpdatedAt, budget.MemoryBytes/4)
-		if err == nil && out.TagFilter == nil {
-			return store.ErrAlertTagFilterChanged
-		}
+		out.Editor, err = readAlertTagEditor(ctx, sc, budget.MemoryBytes/4)
 		return err
 	})
 	if err != nil {
@@ -134,6 +137,46 @@ func readAlertTagFilter(ctx context.Context, pool *pgxpool.Pool, source flowstor
 		return alert.TagFilterState{}, err
 	}
 	return out, nil
+}
+
+func readAlertTagEditor(ctx context.Context, sc tenancy.Scope, maxBytes int64) (*alert.TagFilterEditorSchema, error) {
+	if maxBytes < 2048 {
+		return nil, store.ErrTagSnapshotBudget
+	}
+	definitions, err := (store.TagDefinitions{}).List(ctx, sc)
+	if err != nil {
+		return nil, err
+	}
+	// Account for the shared vocabulary's derived fields/maps as well as the
+	// curated output, before expanding any current definitions.
+	used := int64(2048)
+	for _, definition := range definitions {
+		amount := int64(4096 + len(definition.Key)*16 + len(definition.ID)*8)
+		if amount > maxBytes-used {
+			return nil, store.ErrTagSnapshotBudget
+		}
+		used += amount
+	}
+	vocabulary, err := flow.NewTagQueryVocabulary(sc.Tenant.String(), definitions)
+	if err != nil {
+		return nil, err
+	}
+	var revision int64
+	var asOf time.Time
+	if err := sc.Q.QueryRow(ctx, `SELECT COALESCE((SELECT revision FROM tenant_tag_revisions WHERE tenant_id=$1),1),transaction_timestamp()`, sc.Tenant.String()).Scan(&revision, &asOf); err != nil {
+		return nil, err
+	}
+	out := &alert.TagFilterEditorSchema{TagRevision: strconv.FormatInt(revision, 10), AsOf: asOf.UTC().Format(time.RFC3339Nano), Fields: []alert.TagFilterField{},
+		Limits: alert.TagFilterLimits{MaxGroupEntries: flow.MaxQueryGroupEntries, MaxExpandedConditions: flow.MaxQueryPredicates, MaxFilterDepth: flow.MaxQueryFilterDepth,
+			MaxRegexBytes: flow.MaxQueryRegexBytes, MaxValuesPerPredicate: flow.MaxQueryValues, MaxValueBytes: flow.MaxQueryValueBytes, GrammarBytes: flow.MaxPlanGrammarBytes}}
+	for _, definition := range definitions {
+		field, ok := vocabulary.Lookup("tag." + definition.Key)
+		if !ok || field.TagID != definition.ID || field.Type != flow.QueryText {
+			return nil, store.ErrTagSnapshotUnavailable
+		}
+		out.Fields = append(out.Fields, alert.TagFilterField{Name: field.Name, TagID: field.TagID, Type: field.Type, Operators: append([]flow.QueryOperator(nil), field.Operators...)})
+	}
+	return out, ctx.Err()
 }
 
 func checkAlertTagResponse(ctx context.Context, source flowstore.Store, value alert.TagFilterState) error {

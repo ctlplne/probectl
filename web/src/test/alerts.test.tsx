@@ -355,6 +355,22 @@ describe('alerting surface (S-FE1)', () => {
     vi.restoreAllMocks()
   })
 
+  test('opens the current test-tag editor from an owned metric rule', async () => {
+    const { fetcher, state } = alertsBackend()
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/alerts', {
+      me: {
+        tenant_id: 't',
+        permissions: ['alert.read', 'alert.write', 'tags.read', 'test.read', 'metrics.read'],
+      },
+    })
+    const button = await screen.findByRole('button', { name: 'Test tag criteria for rtt high' })
+    await userEvent.click(button)
+    const dialog = await screen.findByRole('dialog', { name: 'Current test tags: rtt high' })
+    expect(within(dialog).getByRole('button', { name: 'Load current criteria' })).toBeEnabled()
+    expect(state.requests.filter((r) => r.method !== 'GET')).toHaveLength(0)
+  })
+
   test('read-only alert viewers cannot open write forms or send mutations', async () => {
     const { fetcher, state } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)

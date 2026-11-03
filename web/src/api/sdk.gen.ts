@@ -268,12 +268,37 @@ export interface AlertTagFilter {
   version: number
 }
 
+export interface AlertTagFilterEditorSchema {
+  as_of: string
+  fields: AlertTagFilterField[]
+  limits: AlertTagFilterLimits
+  tag_revision: string
+}
+
+export interface AlertTagFilterField {
+  name: string
+  operators: string[]
+  tag_id: string
+  type: "text"
+}
+
 export interface AlertTagFilterInput {
   filter: FlowQueryFilterGroup
   target_kind: "test"
 }
 
+export interface AlertTagFilterLimits {
+  grammar_bytes: number
+  max_expanded_conditions: number
+  max_filter_depth: number
+  max_group_entries: number
+  max_regex_bytes: number
+  max_value_bytes: number
+  max_values_per_predicate: number
+}
+
 export interface AlertTagFilterState {
+  editor?: AlertTagFilterEditorSchema
   has_tag_filter: boolean
   rule_id: string
   tag_filter?: AlertTagFilter

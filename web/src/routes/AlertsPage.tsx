@@ -66,6 +66,7 @@ import { CodeExportPanel } from './CodeExportPanel'
 import { alertRuleAsCode, maintenanceWindowAsCode } from './codeExport'
 import { pivotHref } from './pivotContext'
 import { useAuth } from '../auth/useAuth'
+import { AlertTagFilterDialog } from './AlertTagFilterDialog'
 
 function labelText(labels?: Record<string, string>): string {
   if (!labels) return ''
@@ -1140,7 +1141,11 @@ const ALERT_CONTEXT_PARAMS = [
 /** AlertsPage is the S16 alerting surface (S-FE1): the engine's firing alerts
  *  (filter, detail, silence, acknowledge) over the durable rule config. */
 export function AlertsPage() {
-  const { permissions } = useAuth()
+  const { permissions, tenant, user } = useAuth()
+  const metadataScope = JSON.stringify([tenant.id, user.id, permissions.slice().sort()])
+  const canReadMetadata = ['alert.read', 'tags.read', 'test.read', 'metrics.read'].every((key) =>
+    permissions.includes(key),
+  )
   const canWrite = permissions.includes('alert.write')
   const active = useActiveAlerts()
   const rules = useAlertRules()
@@ -1162,6 +1167,9 @@ export function AlertsPage() {
   const setFilter = (patch: Record<string, string>) =>
     setURLFilters(params, setParams, defaults, patch)
   const [editing, setEditing] = useState<AlertRule | null>(null)
+  const [metadataEditing, setMetadataEditing] = useState<{ rule: AlertRule; scope: string } | null>(
+    null,
+  )
   const [creating, setCreating] = useState(false)
   const [editingWindow, setEditingWindow] = useState<MaintenanceWindow | null>(null)
   const [creatingWindow, setCreatingWindow] = useState(false)
@@ -1302,6 +1310,16 @@ export function AlertsPage() {
           <Button size="sm" variant="ghost" disabled={!canWrite} onClick={() => setEditing(r)}>
             Edit
           </Button>
+          {r.type !== 'trap' && (canReadMetadata || canWrite) ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Test tag criteria for ${r.name}`}
+              onClick={() => setMetadataEditing({ rule: r, scope: metadataScope })}
+            >
+              Test tags{r.has_tag_filter ? ' (set)' : ''}
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="ghost"
@@ -1574,6 +1592,12 @@ export function AlertsPage() {
       ) : null}
       {creating ? <RuleForm onClose={() => setCreating(false)} /> : null}
       {editing ? <RuleForm rule={editing} onClose={() => setEditing(null)} /> : null}
+      {metadataEditing?.scope === metadataScope ? (
+        <AlertTagFilterDialog
+          rule={metadataEditing.rule}
+          onClose={() => setMetadataEditing(null)}
+        />
+      ) : null}
       {creatingWindow ? <MaintenanceWindowForm onClose={() => setCreatingWindow(false)} /> : null}
       {editingWindow ? (
         <MaintenanceWindowForm window={editingWindow} onClose={() => setEditingWindow(null)} />

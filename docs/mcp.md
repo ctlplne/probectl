@@ -651,3 +651,8 @@ and immutable call audit. Set/clear use the same domain transaction/audit as RES
 The exact revision/time in a configuration response describe its binding;
 evaluation reads current metadata again. Test IDs nominate descriptive metadata,
 not sender attestation. The final release and telemetry receipt is still required.
+
+An authorized alert criteria GET also returns its current `editor` vocabulary
+and grammar limits from the same tenant read snapshot as the rule/configuration.
+Its current vocabulary clock is separate from the saved filter binding clock.
+Set/clear replies omit the vocabulary; clearing reveals no prior metadata.

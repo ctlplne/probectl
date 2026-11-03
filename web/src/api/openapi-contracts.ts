@@ -29,6 +29,27 @@ export interface APICallContract {
 
 export const API_CALL_CONTRACTS = [
   {
+    file: 'api/alerts.ts',
+    method: 'GET',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/tag-filter`',
+    response: 'AlertTagFilterState',
+    generated: 'GetAlertTagFilterResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'PUT',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/tag-filter`',
+    response: 'AlertTagFilterState',
+    generated: 'SetAlertTagFilterResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'DELETE',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/tag-filter`',
+    response: 'undefined',
+    generated: 'ClearAlertTagFilterResponse',
+  },
+  {
     file: 'api/tags.ts',
     method: 'POST',
     path: '/tags/tests/resolve',
@@ -1359,6 +1380,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   onboardingProgress: true,
   aiAnswer: true,
   alertRule: true,
+  alertTagFilterState: true,
   alertRequest: true,
   authorProposal: true,
   discoverProposal: true,
@@ -1416,6 +1438,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   onboardingProgress: GeneratedHasViewKeys<SDK.OnboardingProgress, Agents.OnboardingProgress>
   aiAnswer: GeneratedHasViewKeys<SDK.AIAnswer, AI.Answer>
   alertRule: GeneratedHasViewKeys<SDK.AlertRule, Alerts.AlertRule>
+  alertTagFilterState: GeneratedHasViewKeys<SDK.AlertTagFilterState, Alerts.AlertTagFilterState>
   alertRequest: GeneratedHasViewKeys<SDK.AlertRequest, Alerts.AlertRuleInput>
   authorProposal: GeneratedHasViewKeys<SDK.TestProposal, Authoring.TestProposal>
   discoverProposal: GeneratedHasViewKeys<SDK.DiscoverProposal, Authoring.DiscoverProposal>

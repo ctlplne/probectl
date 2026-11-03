@@ -7,6 +7,46 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type { Incident, Severity } from './incidents'
+import type { AlertTagFilterState as GeneratedAlertTagFilterState } from './sdk.gen'
+import type { FlowQueryFilterGroup } from './flowExplorer'
+
+// The shared editor retains the complete nested grammar; generated SDK groups
+// currently project nested anonymous objects as JsonObject rather than this
+// recursive view type. No data is trimmed or coerced at this boundary.
+export type AlertTagFilterState = Omit<GeneratedAlertTagFilterState, 'tag_filter'> & {
+  tag_filter?: Omit<NonNullable<GeneratedAlertTagFilterState['tag_filter']>, 'filter'> & {
+    filter: FlowQueryFilterGroup
+  }
+}
+
+export function getAlertTagFilter(tenantID: string, ruleID: string, signal: AbortSignal) {
+  return apiFetch<AlertTagFilterState>(`/alerts/rules/${encodeURIComponent(ruleID)}/tag-filter`, {
+    signal,
+    headers: { 'X-Probectl-Tenant': tenantID },
+  })
+}
+
+export function putAlertTagFilter(
+  tenantID: string,
+  ruleID: string,
+  filter: FlowQueryFilterGroup,
+  signal: AbortSignal,
+) {
+  return apiFetch<AlertTagFilterState>(`/alerts/rules/${encodeURIComponent(ruleID)}/tag-filter`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+    body: JSON.stringify({ target_kind: 'test', filter }),
+    signal,
+  })
+}
+
+export function clearAlertTagFilter(tenantID: string, ruleID: string, signal: AbortSignal) {
+  return apiFetch<undefined>(`/alerts/rules/${encodeURIComponent(ruleID)}/tag-filter`, {
+    method: 'DELETE',
+    headers: { 'X-Probectl-Tenant': tenantID },
+    signal,
+  })
+}
 
 /**
  * The S16 alerting API (surface: S-FE1). Two halves:
@@ -80,6 +120,7 @@ export interface AlertRule {
   tenant_id: string
   name: string
   enabled: boolean
+  has_tag_filter?: boolean
   metric: string
   match?: Record<string, string>
   type: 'threshold' | 'baseline' | 'trap'
@@ -97,7 +138,10 @@ export interface AlertRule {
 }
 
 /** The create/update body (server validates; id/timestamps are server-owned). */
-export type AlertRuleInput = Omit<AlertRule, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>
+export type AlertRuleInput = Omit<
+  AlertRule,
+  'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'has_tag_filter'
+>
 
 export interface ActiveAlert {
   fingerprint: string

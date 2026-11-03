@@ -346,15 +346,41 @@ type AlertTagFilter struct {
 	Version     int                  `json:"version"`
 }
 
+// Current authorized root test-tag vocabulary captured with this rule/config read; this clock is independent of the saved binding clock. No flow-source grant or saved-flow fields.
+type AlertTagFilterEditorSchema struct {
+	AsOf        string                `json:"as_of"`
+	Fields      []AlertTagFilterField `json:"fields"`
+	Limits      AlertTagFilterLimits  `json:"limits"`
+	TagRevision string                `json:"tag_revision"`
+}
+
+type AlertTagFilterField struct {
+	Name      string   `json:"name"`
+	Operators []string `json:"operators"`
+	TagId     string   `json:"tag_id"`
+	Type      string   `json:"type"`
+}
+
 type AlertTagFilterInput struct {
 	Filter     FlowQueryFilterGroup `json:"filter"`
 	TargetKind string               `json:"target_kind"`
 }
 
+type AlertTagFilterLimits struct {
+	GrammarBytes          int `json:"grammar_bytes"`
+	MaxExpandedConditions int `json:"max_expanded_conditions"`
+	MaxFilterDepth        int `json:"max_filter_depth"`
+	MaxGroupEntries       int `json:"max_group_entries"`
+	MaxRegexBytes         int `json:"max_regex_bytes"`
+	MaxValueBytes         int `json:"max_value_bytes"`
+	MaxValuesPerPredicate int `json:"max_values_per_predicate"`
+}
+
 type AlertTagFilterState struct {
-	HasTagFilter bool           `json:"has_tag_filter"`
-	RuleId       string         `json:"rule_id"`
-	TagFilter    AlertTagFilter `json:"tag_filter,omitempty"`
+	Editor       AlertTagFilterEditorSchema `json:"editor,omitempty"`
+	HasTagFilter bool                       `json:"has_tag_filter"`
+	RuleId       string                     `json:"rule_id"`
+	TagFilter    AlertTagFilter             `json:"tag_filter,omitempty"`
 }
 
 // What a trap rule (type trap) matches in the tenant's stored, authenticated SNMP traps (GET /v1/device/traps). The rule fires per device while a matching trap is within hold_seconds and resolves on a matching clear trap or when the hold runs out. OIDs are dotted decimal; a missing leading dot is added.

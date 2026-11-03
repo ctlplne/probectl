@@ -20,6 +20,11 @@ import {
   testTagContextSelfTest,
   validateTestTagContextMatrix,
 } from "./web_rendered_test_tags.mjs";
+import {
+  alertTagSelfTest,
+  runAlertTagChecks,
+  validateAlertTagMatrix,
+} from "./web_rendered_alert_tags.mjs";
 
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -3707,6 +3712,7 @@ async function main() {
     checks: [],
     native_flow_checks: [],
     test_tag_context_checks: [],
+    alert_tag_checks: [],
     test_tag_context_source:
       "simulation: synthetic API/current production build; no sender/storage isolation claim",
     native_flow_source:
@@ -4090,6 +4096,24 @@ async function main() {
     });
     a11yReceipt.test_tag_context_checks = testTagContext.checks;
     failures.push(...testTagContext.failures);
+    const alertTags = await runAlertTagChecks({
+      browser,
+      baseURL,
+      axeSource,
+      receiptDir: receiptRoot,
+      themes,
+      viewports,
+      helpers: {
+        fetchStubSource,
+        runAxe,
+        blockingAxeResults,
+        targetAndTabChecks,
+        horizontalOverflowCheck,
+        interactiveClippingCheck,
+      },
+    });
+    a11yReceipt.alert_tag_checks = alertTags.checks;
+    failures.push(...alertTags.failures);
     performanceReceipt = await runPerformanceProfile(browser, baseURL);
   } catch (error) {
     failures.push(
@@ -4111,6 +4135,11 @@ async function main() {
         viewports,
       ).filter((failure) => !failures.includes(failure)),
     );
+    failures.push(
+      ...validateAlertTagMatrix(a11yReceipt.alert_tag_checks, themes, viewports).filter(
+        (failure) => !failures.includes(failure),
+      ),
+    );
     a11yReceipt.status = failures.length === 0 ? "pass" : "fail";
     await writeReceipt(a11yReceiptPath, a11yReceipt);
     await writeReceipt(performanceReceiptPath, performanceReceipt);
@@ -4128,7 +4157,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    `rendered browser a11y OK (${routes.length} native routes x ${themes.length} themes x ${viewports.length} viewports; ${a11yReceipt.native_flow_checks.length} native flow cases; ${a11yReceipt.test_tag_context_checks.length} test tag cases)`,
+    `rendered browser a11y OK (${routes.length} native routes x ${themes.length} themes x ${viewports.length} viewports; ${a11yReceipt.native_flow_checks.length} native flow cases; ${a11yReceipt.test_tag_context_checks.length} test tag cases; ${a11yReceipt.alert_tag_checks.length} alert tag cases)`,
   );
   console.log(`rendered a11y receipt: ${a11yReceiptPath}`);
   console.log(`web performance receipt: ${performanceReceiptPath}`);
@@ -4194,6 +4223,7 @@ function assertSchemaValue(value, schema, path) {
 async function selfTest() {
   nativeFlowSelfTest();
   testTagContextSelfTest();
+  alertTagSelfTest();
   const example = appURL("http://127.0.0.1:4173", "/onboarding");
   if (example !== "http://127.0.0.1:4173/ui/onboarding") {
     throw new Error(`self-check failed: shipping route resolved to ${example}`);

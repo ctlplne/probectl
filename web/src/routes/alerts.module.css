@@ -49,6 +49,13 @@
   gap: var(--space-3);
 }
 
+.metadataEditor {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .inlineGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-8) * 5)), 1fr));

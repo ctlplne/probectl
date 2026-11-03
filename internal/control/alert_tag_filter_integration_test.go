@@ -107,6 +107,9 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_definitions(tenant_id,id,key) VALUES($1,$2,'customer')`, tenant, tagID); err != nil {
 				return err
 			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_definitions(tenant_id,id,key) VALUES($1,$2,$3)`, tenant, uuid(t), []string{"private_a", "private_b"}[lane]); err != nil {
+				return err
+			}
 			tag, err := (store.TagRules{}).Create(ctx, sc, tags.Rule{Scope: tags.Scope{TenantID: tenant, ContextID: contextID}, TagID: tagID, TargetKind: "test", Match: "name_pattern", NamePattern: "^same-probe$", Value: wants[tenant]})
 			if err != nil {
 				return err
@@ -179,6 +182,29 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 		}
 		if strings.Contains(w.Body.String(), `"channels"`) || strings.Contains(w.Body.String(), `"tenant_id"`) {
 			t.Fatal("metadata response exposed rule channels or a tenant hint")
+		}
+		if state.Editor != nil {
+			t.Fatal("metadata mutation unnecessarily disclosed an editor vocabulary")
+		}
+		read, err := readAlertTagFilter(ctx, db.Pool(), nil, actors[tenant], ruleIDs[tenant])
+		if err != nil || read.Editor == nil || len(read.Editor.Fields) != 2 || read.Editor.TagRevision != state.TagFilter.TagRevision || read.Editor.AsOf == "" || read.Editor.Limits.MaxGroupEntries != flow.MaxQueryGroupEntries || read.Editor.Limits.MaxFilterDepth != flow.MaxQueryFilterDepth || read.Editor.Limits.MaxValueBytes != flow.MaxQueryValueBytes {
+			t.Fatal("current alert editor lost its bounded snapshot vocabulary or shared grammar")
+		}
+		seenFields := map[string]bool{}
+		for _, field := range read.Editor.Fields {
+			if seenFields[field.Name] {
+				t.Fatal("editor vocabulary duplicated a field")
+			}
+			seenFields[field.Name] = true
+			if field.Name == "tag."+[]string{"private_b", "private_a"}[lane] || field.Type != flow.QueryText || len(field.Operators) == 0 || !strings.HasPrefix(field.Name, "tag.") {
+				t.Fatal("editor schema disclosed foreign or non-test fields")
+			}
+			if field.Name == "tag.customer" && field.TagID != tagID {
+				t.Fatal("editor schema changed immutable tag identity")
+			}
+		}
+		if !seenFields["tag.customer"] || !seenFields["tag."+[]string{"private_a", "private_b"}[lane]] {
+			t.Fatal("editor vocabulary omitted an authorized current tenant key")
 		}
 		counter := &countedAlertTagMetrics{source: metricSource{q: mem, tenant: tenant}}
 		source := alertTagMetricSource{MetricSource: counter, pool: db.Pool(), tenant: tenant, deps: AlertTagDependencies{Gate: gate}}
@@ -304,6 +330,9 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 	owned := tenancy.WithTenant(ctx, tenancy.ID(tenant))
 	version := getRule(tenant).UpdatedAt
 	if err := tenancy.InTenantReadSnapshot(owned, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+		if partial, err := readAlertTagEditor(ctx, sc, 1); !errors.Is(err, store.ErrTagSnapshotBudget) || partial != nil {
+			t.Fatal("editor cost refusal exposed a partial vocabulary")
+		}
 		partial, err := (store.AlertRules{}).GetTagFilter(ctx, sc, ruleIDs[tenant], version, 1)
 		if !errors.Is(err, store.ErrTagSnapshotBudget) || partial != nil {
 			t.Fatal("configuration decode budget was not atomic")
