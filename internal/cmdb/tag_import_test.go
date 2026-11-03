@@ -7,10 +7,12 @@
 package cmdb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -57,7 +59,7 @@ func TestNetBoxPreviewMissingOwnershipEvictsOnlyItsTenantCache(t *testing.T) {
 				}
 			}
 			phase.Store(1)
-			if candidate, err := resolver.PreviewNetBoxTag(netBoxContext(netBoxTenantA), "192.0.2.10", "site"); !errors.Is(err, ErrNoTagCandidate) || candidate != (NetBoxTagCandidate{}) {
+			if candidate, err := previewOwnedIPTag(resolver, netBoxContext(netBoxTenantA), "192.0.2.10", "site"); !errors.Is(err, ErrNoTagCandidate) || candidate != (NetBoxTagCandidate{}) {
 				t.Fatalf("fresh missing/ambiguous ownership was not refused: %v", err)
 			}
 			phase.Store(2)
@@ -94,7 +96,7 @@ func TestNetBoxTagPreviewFreshlyAttestsRelatedCI(t *testing.T) {
 		if foreign.Load() {
 			source = 8
 		}
-		fmt.Fprintf(w, `{"count":1,"results":[{"id":42,"tenant":{"id":%d},"name":"owned-router","role":{"name":"edge"},"site":{"name":"iad"}}]}`, source)
+		fmt.Fprintf(w, `{"count":1,"results":[{"id":42,"tenant":{"id":%d},"name":"owned-router","role":{"id":51,"name":"edge"},"site":{"id":71,"name":"iad"}}]}`, source)
 	}))
 	defer server.Close()
 	provider := NewNetBox(server.URL, "test-token", map[string]string{netBoxTenantA: "7"})
@@ -105,21 +107,28 @@ func TestNetBoxTagPreviewFreshlyAttestsRelatedCI(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := calls.Load()
-	preview, err := resolver.PreviewNetBoxTag(ctx, "192.0.2.10", "site")
+	preview, err := previewOwnedIPTag(resolver, ctx, "192.0.2.10", "site")
 	if err != nil || preview.Value != "iad" || preview.CIID != "netbox:dcim.device:42" ||
-		preview.LookupCIID != "netbox:ipam.ip_address:10" || preview.SourceRef != "netbox:t7:ip10:d42:site" ||
+		preview.LookupCIID != "netbox:ipam.ip_address:10" || preview.SourceRef != "netbox:t7:ip10:d42:site:a71" ||
 		preview.Name != "owned-router" || calls.Load() != before+2 {
 		t.Fatalf("fresh related CI preview: %+v, %v, calls=%d", preview, err, calls.Load())
 	}
 	foreign.Store(true)
-	if _, err := resolver.PreviewNetBoxTag(ctx, "192.0.2.10", "site"); err == nil {
+	if _, err := previewOwnedIPTag(resolver, ctx, "192.0.2.10", "site"); err == nil {
 		t.Fatal("owned IP authorized metadata from a foreign related CI")
 	}
 	down.Store(true)
-	if _, err := resolver.PreviewNetBoxTag(ctx, "192.0.2.10", "site"); err == nil {
+	if _, err := previewOwnedIPTag(resolver, ctx, "192.0.2.10", "site"); err == nil {
 		t.Fatal("source outage accepted cached enrichment as an import suggestion")
 	}
 	if _, err := resolver.Lookup(ctx, "192.0.2.10"); err == nil {
 		t.Fatal("known preview ownership refusal left stale enrichment authorized")
 	}
+}
+
+// Exercise the shipping subject preview with the same owned single-IP fact
+// used by the original regression. This adapter adds no source behavior.
+func previewOwnedIPTag(resolver *Resolver, ctx context.Context, address, field string) (NetBoxTagCandidate, error) {
+	selection, err := resolver.PreviewNetBoxSubjectTag(ctx, NetBoxTagFacts{Addresses: []netip.Addr{netip.MustParseAddr(address)}}, field, "")
+	return selection.Candidate(), err
 }

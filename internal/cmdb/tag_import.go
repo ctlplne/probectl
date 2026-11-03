@@ -12,9 +12,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"unicode/utf8"
-
-	"github.com/ctlplne/probectl/internal/tags"
 )
 
 var ErrNoTagCandidate = errors.New("cmdb: no unambiguous importable tag value")
@@ -29,79 +26,6 @@ type NetBoxTagCandidate struct {
 	Field          string `json:"field"`
 	Value          string `json:"value"`
 	SourceRef      string `json:"source_ref"`
-}
-
-// PreviewNetBoxTag bypasses enrichment caches. The caller must resolve key
-// from an owned canonical target before invoking this read-only source path.
-func (r *Resolver) PreviewNetBoxTag(ctx context.Context, key, field string) (candidate NetBoxTagCandidate, err error) {
-	if r == nil || (field != "role" && field != "site") {
-		return NetBoxTagCandidate{}, ErrNoTagCandidate
-	}
-	provider, ok := r.provider.(*NetBox)
-	if !ok {
-		return NetBoxTagCandidate{}, ErrUnavailable
-	}
-	_, source, err := provider.sourceTenant(ctx)
-	if err != nil {
-		return NetBoxTagCandidate{}, err
-	}
-	scope, err := provider.cacheScope(ctx)
-	if err != nil {
-		return NetBoxTagCandidate{}, err
-	}
-	cacheKey := scope + "\x00" + CanonicalKey(key)
-	r.mu.Lock()
-	epoch := r.epochs[cacheKey]
-	r.mu.Unlock()
-	ownershipUnavailable := false
-	defer func() {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if errors.Is(err, ErrTenantBinding) || ownershipUnavailable {
-			r.epochs[cacheKey]++
-			delete(r.cache, cacheKey)
-		} else if epoch != r.epochs[cacheKey] {
-			candidate, err = NetBoxTagCandidate{}, ErrTenantBinding
-		}
-	}()
-	cis, err := provider.Lookup(ctx, key)
-	if err != nil {
-		return NetBoxTagCandidate{}, err
-	}
-	if len(cis) != 1 {
-		// A completed tenant-filtered read no longer identifies the old
-		// cached CI. Do not let a later outage revive that enrichment.
-		ownershipUnavailable = true
-		return NetBoxTagCandidate{}, ErrNoTagCandidate
-	}
-	lookup := cis[0]
-	ci := lookup
-	if ci.Class == "netbox.ip_address" {
-		ci, err = provider.relatedTagCI(ctx, source, ci.relatedKind, ci.relatedID)
-		if err != nil {
-			ownershipUnavailable = errors.Is(err, ErrNoTagCandidate)
-			return NetBoxTagCandidate{}, err
-		}
-	}
-	value := ci.Extra[field]
-	if tags.ValidateValue(value) != nil {
-		return NetBoxTagCandidate{}, ErrNoTagCandidate
-	}
-	lookupRef, err := compactNetBoxCIRef(lookup)
-	if err != nil {
-		return NetBoxTagCandidate{}, err
-	}
-	ciRef, err := compactNetBoxCIRef(ci)
-	if err != nil {
-		return NetBoxTagCandidate{}, err
-	}
-	name := ci.Name
-	if len(name) > 256 || !utf8.ValidString(name) {
-		name = ci.SysID
-	}
-	return NetBoxTagCandidate{NetBoxTenantID: source, LookupCIID: lookup.SysID,
-		CIID: ci.SysID, Name: name, Field: field, Value: value,
-		SourceRef: "netbox:t" + source + ":" + lookupRef + ":" + ciRef + ":" + field}, nil
 }
 
 func compactNetBoxCIRef(ci CI) (string, error) {

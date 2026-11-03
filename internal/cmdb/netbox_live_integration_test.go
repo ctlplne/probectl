@@ -49,6 +49,8 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 		DialAddress string            `json:"dial_address"`
 		Tenants     map[string]string `json:"tenants"`
 		Devices     map[string]string `json:"devices"`
+		Roles       map[string]string `json:"roles"`
+		Sites       map[string]string `json:"sites"`
 		IPs         map[string]string `json:"ips"`
 		Prefixes    map[string]string `json:"prefixes"`
 		PrefixesV6  map[string]string `json:"prefixes_v6"`
@@ -108,12 +110,16 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 			}
 		}
 		for _, field := range []string{"role", "site"} {
-			candidate, err := resolver.PreviewNetBoxTag(ctx, "192.0.2.10", field)
+			attributeID := manifest.Roles[lane]
+			if field == "site" {
+				attributeID = manifest.Sites[lane]
+			}
+			candidate, err := previewOwnedIPTag(resolver, ctx, "192.0.2.10", field)
 			if err != nil || candidate.NetBoxTenantID != manifest.Tenants[lane] ||
 				candidate.LookupCIID != "netbox:ipam.ip_address:"+manifest.IPs[lane] ||
 				candidate.CIID != "netbox:dcim.device:"+manifest.Devices[lane] ||
 				candidate.Name != "shared-edge" || candidate.Field != field || candidate.Value != field+"-"+lane ||
-				candidate.SourceRef != fmt.Sprintf("netbox:t%s:ip%s:d%s:%s", manifest.Tenants[lane], manifest.IPs[lane], manifest.Devices[lane], field) {
+				(!canonicalNetBoxID(attributeID) || candidate.SourceRef != fmt.Sprintf("netbox:t%s:ip%s:d%s:%s:a%s", manifest.Tenants[lane], manifest.IPs[lane], manifest.Devices[lane], field, attributeID)) {
 				t.Fatalf("lane %s fresh %s preview did not attest the owned related CI: %v", lane, field, err)
 			}
 		}
@@ -123,7 +129,7 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 		if cis, err := resolver.Lookup(ctx, "192.0.2.10"); !errors.Is(err, ErrTenantBinding) || len(cis) != 0 {
 			t.Fatal("unmapped caller reached a warmed source lookup")
 		}
-		if candidate, err := resolver.PreviewNetBoxTag(ctx, "192.0.2.10", "role"); !errors.Is(err, ErrTenantBinding) || candidate != (NetBoxTagCandidate{}) {
+		if candidate, err := previewOwnedIPTag(resolver, ctx, "192.0.2.10", "role"); !errors.Is(err, ErrTenantBinding) || candidate != (NetBoxTagCandidate{}) {
 			t.Fatal("unmapped caller reached a source preview")
 		}
 	}
@@ -133,7 +139,7 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 	t.Cleanup(func() { liveNetBoxMutation(t, "restore-ip", "a") })
 	liveNetBoxMutation(t, "move-ip", "a", "b")
 	for _, lane := range []string{"a", "b"} {
-		candidate, err := resolver.PreviewNetBoxTag(netBoxContext(callers[lane]), "192.0.2.10", "role")
+		candidate, err := previewOwnedIPTag(resolver, netBoxContext(callers[lane]), "192.0.2.10", "role")
 		if (!errors.Is(err, ErrNoTagCandidate) && !errors.Is(err, ErrTenantBinding)) || candidate != (NetBoxTagCandidate{}) {
 			t.Fatalf("lane %s fresh preview trusted absent/ambiguous ownership after actual source change: %v", lane, err)
 		}

@@ -161,6 +161,8 @@ def seed(spec):
         result = {
             "tenants": {},
             "devices": {},
+            "roles": {},
+            "sites": {},
             "ips": {},
             "prefixes": {},
             "prefixes_v6": {},
@@ -249,6 +251,8 @@ def seed(spec):
             result["prefixes_v6"][lane] = str(ipv6.pk)
             result["tenants"][lane] = str(tenant.pk)
             result["devices"][lane] = str(device.pk)
+            result["roles"][lane] = str(role.pk)
+            result["sites"][lane] = str(site.pk)
             result["ips"][lane] = str(address.pk)
         return result
 
