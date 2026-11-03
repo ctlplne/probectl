@@ -54,7 +54,7 @@ func TestNativeTagOutputAndCSVKeepOriginalIdentityAndExactCounters(t *testing.T)
 		t.Fatalf("tag CSV lost original header: %v", err)
 	}
 	row, err := format.row(frozen.Rows[0], "detail")
-	if err != nil || strings.Join(row, ",") != "detail,'=owned annotation,9007199254740993" {
+	if err != nil || strings.Join(row, ",") != "detail,\t=owned annotation,9007199254740993" {
 		t.Fatalf("tag CSV changed safe text or exact counter: %v", err)
 	}
 	if _, _, err := newFlowComparisonCSVFormat(frozen.Query, vocabulary); err != nil {

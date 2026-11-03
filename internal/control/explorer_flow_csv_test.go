@@ -78,7 +78,7 @@ func TestFlowComparisonCSVExactSignedDeltasAndMissingPeriod(t *testing.T) {
 	}
 	writer.Flush()
 	records, err := csv.NewReader(&body).ReadAll()
-	if err != nil || records[0][1] != "'=unsafe" || records[0][4] != "9007199254740993" || records[0][6] != "-1" || records[1][5] != "" || records[1][8] != "missing_previous" {
+	if err != nil || records[0][1] != "\t=unsafe" || records[0][4] != "9007199254740993" || records[0][6] != "-1" || records[1][5] != "" || records[1][8] != "missing_previous" {
 		t.Fatalf("CSV changed exact values/state: %v %v", records, err)
 	}
 }
