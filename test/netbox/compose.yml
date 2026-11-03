@@ -75,6 +75,7 @@ services:
       CACHE_PASSWORD: ${CACHE_PASSWORD:?}
       SECRET_KEY: ${SECRET_KEY:?}
       NETBOX_CONFIGURATION: netbox.probectl_ci_configuration
+      DJANGO_SETTINGS_MODULE: netbox.probectl_ci_settings
       SSL_CERT_FILE: /opt/netbox/ci-ca.crt
       SKIP_SUPERUSER: "true"
       MAX_DB_WAIT_TIME: "90"

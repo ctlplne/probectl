@@ -45,8 +45,8 @@ REDIS = {kind: {
     "HOST": "netbox-cache", "PORT": 6379, "DATABASE": index,
     "PASSWORD": os.environ["CACHE_PASSWORD"], "SSL": True,
     "INSECURE_SKIP_TLS_VERIFY": False, "CA_CERT_PATH": "/opt/netbox/ci-ca.crt",
-    "URL": f"rediss://netbox-cache:6379/{index}?ssl_check_hostname=True",
 } for kind, index in [("tasks", 0), ("caching", 1)]}
+REDIS["caching"]["URL"] = "rediss://netbox-cache:6379/1?ssl_check_hostname=True"
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "netbox"]
 CENSUS_REPORTING_ENABLED = False
 ISOLATED_DEPLOYMENT = True
@@ -531,6 +531,7 @@ def start() -> None:
         ),
     )
     private_file("netbox_config.py", NETBOX_CONFIG)
+    private_file("netbox_settings.py", (ROOT / "test/netbox/settings.py").read_text())
     private_file(
         "pg_hba.conf",
         "local all all trust\nhostssl all all all scram-sha-256\nhostnossl all all all reject\n",
@@ -791,15 +792,72 @@ def selftest() -> None:
         "sslrootcert": "/opt/netbox/ci-ca.crt",
     }:
         raise RuntimeError("fixture database configuration lost TLS verification")
-    for connection in config["REDIS"].values():
+    for kind, connection in config["REDIS"].items():
         if (
             not connection["SSL"]
             or connection["INSECURE_SKIP_TLS_VERIFY"]
             or connection["CA_CERT_PATH"] != "/opt/netbox/ci-ca.crt"
-            or not connection["URL"].startswith("rediss://")
-            or not connection["URL"].endswith("?ssl_check_hostname=True")
+            or not connection["PASSWORD"]
+            or (kind == "tasks" and "URL" in connection)
+            or (
+                kind == "caching"
+                and connection.get("URL")
+                != "rediss://netbox-cache:6379/1?ssl_check_hostname=True"
+            )
         ):
             raise RuntimeError("fixture cache/task configuration lost TLS verification")
+    base_queue = {
+        "HOST": "netbox-cache",
+        "PORT": 6379,
+        "PASSWORD": "fixture-selftest-only",
+        "SSL": True,
+        "SSL_CERT_REQS": "required",
+        "REDIS_CLIENT_KWARGS": {"ssl_ca_certs": "/opt/netbox/ci-ca.crt"},
+    }
+    settings_script = (ROOT / "test/netbox/settings.py").read_text()
+    for bad_override in [
+        None,
+        {"URL": "rediss://netbox-cache:6379/0"},
+        {"PASSWORD": ""},
+        {"SSL": False},
+        {"SSL_CERT_REQS": "none"},
+        {"REDIS_CLIENT_KWARGS": {}},
+    ]:
+        queue = copy.deepcopy(base_queue)
+        queue.update(bad_override or {})
+        base = SimpleNamespace(
+            __all__=["RQ_QUEUES", "PRESERVED_SETTING"],
+            RQ_QUEUES={"default": queue, "high": queue},
+            PRESERVED_SETTING="base",
+        )
+        derived = {}
+        with patch.dict(
+            sys.modules,
+            {"netbox": SimpleNamespace(settings=base), "netbox.settings": base},
+        ):
+            try:
+                exec(settings_script, derived)
+            except RuntimeError:
+                if bad_override is None:
+                    raise RuntimeError(
+                        "fixture settings refused valid base task parameters"
+                    ) from None
+                continue
+        if bad_override is not None:
+            raise RuntimeError("fixture settings accepted unsafe task parameters")
+        if (
+            derived["PRESERVED_SETTING"] != "base"
+            or queue["PASSWORD"] != base_queue["PASSWORD"]
+            or queue["REDIS_CLIENT_KWARGS"]
+            != {
+                "ssl_ca_certs": "/opt/netbox/ci-ca.crt",
+                "ssl_check_hostname": True,
+                "ssl_min_version": ssl.TLSVersion.TLSv1_2,
+            }
+        ):
+            raise RuntimeError(
+                "fixture settings lost base settings, credentials or explicit TLS checks"
+            )
     if (
         config["CENSUS_REPORTING_ENABLED"]
         or not config["ISOLATED_DEPLOYMENT"]

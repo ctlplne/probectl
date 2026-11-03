@@ -12,6 +12,7 @@ Input arrives on stdin; output contains only nonsecret fixture identifiers.
 
 import json
 import os
+import ssl
 import sys
 from datetime import timedelta
 
@@ -45,7 +46,22 @@ def seed(spec):
     if cache.get("probectl-fixture-tls") != "verified":
         raise RuntimeError("fixture cache TLS channel is unavailable")
     BOOTSTRAP_STAGE = "task_tls"
-    if not get_connection("default").ping():
+    task = get_connection("default")
+    options = task.connection_pool.connection_kwargs
+    effective = task.connection_pool.connection_class(**options)
+    if (
+        effective.host != "netbox-cache"
+        or effective.password != os.environ["CACHE_PASSWORD"]
+        or effective.cert_reqs != ssl.CERT_REQUIRED
+        or effective.ca_certs != "/opt/netbox/ci-ca.crt"
+        or effective.check_hostname is not True
+        or effective.ssl_min_version != ssl.TLSVersion.TLSv1_2
+    ):
+        raise RuntimeError(
+            "fixture task connection lost authentication or verified TLS"
+        )
+    effective.disconnect()
+    if not task.ping():
         raise RuntimeError("fixture task TLS channel is unavailable")
     with transaction.atomic():
         BOOTSTRAP_STAGE = "reader_user"

@@ -10,6 +10,7 @@ if [[ "${1:-}" != serve ]]; then
   printf '%s\n' configuration >"$stage"
   install -m 644 /fixture/ca.crt /opt/netbox/ci-ca.crt
   install -m 644 /fixture/netbox_config.py /opt/netbox/netbox/netbox/probectl_ci_configuration.py
+  install -m 644 /fixture/netbox_settings.py /opt/netbox/netbox/netbox/probectl_ci_settings.py
   printf '%s\n' migrations >"$stage"
   exec /opt/netbox/docker-entrypoint.sh /bin/bash /opt/probectl-ci-launch.sh serve
 fi

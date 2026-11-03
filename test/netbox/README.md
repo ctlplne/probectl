@@ -15,6 +15,12 @@ realize published ports for an internal-only container without a default gateway
 the requested loopback binding is recorded as a diagnostic, not assumed usable.
 No external bridge, host routing mutation, proxy or additional listener is needed.
 Database/cache connections validate their server certificates and names.
+Task queues use separate host/password parameters: the pinned django-rq URL
+path drops separately configured credentials and client options. A fixture-only
+Django settings extension preserves the base settings and explicitly requires
+hostname verification, the fixture CA and TLS1.2 before web or ORM startup.
+Bootstrap checks the effective task client options and performs an authenticated
+ping. No password appears in a URL. The caching URL also contains no credential.
 Wrong source CA/hostname and an API write through the
 read-only token must fail. Two source tenants have equal IPs and device names,
 separate VRFs and distinct role/site values. ORM administration seeds only this
