@@ -12,6 +12,7 @@ Input arrives on stdin; output contains only nonsecret fixture identifiers.
 
 import json
 import os
+import pwd
 import ssl
 import sys
 from datetime import timedelta
@@ -19,6 +20,63 @@ from datetime import timedelta
 import django
 
 BOOTSTRAP_STAGE = "django_setup"
+
+
+def worker_tls_proof():
+    global BOOTSTRAP_STAGE
+    from django.db import connection
+
+    BOOTSTRAP_STAGE = "worker_identity"
+    if (
+        os.geteuid() == 0
+        or os.geteuid() != pwd.getpwnam("unit").pw_uid
+        or os.getegid() != 0
+    ):
+        raise RuntimeError("database proof must use the exact nonroot worker identity")
+    parameters = connection.get_connection_params()
+    parameters["connect_timeout"] = 8
+    if (
+        parameters.get("sslmode") != "verify-full"
+        or parameters.get("sslrootcert") != "/opt/netbox/ci-ca.crt"
+        or parameters.get("sslcert") != "/opt/netbox/ci-no-client-cert.pem"
+        or os.path.lexists(parameters["sslcert"])
+    ):
+        raise RuntimeError(
+            "worker database configuration lost its explicit TLS profile"
+        )
+
+    def refuse_profile(candidate):
+        try:
+            with connection.Database.connect(**candidate):
+                raise RuntimeError("inaccessible client profile was accepted")
+        except connection.Database.OperationalError as error:
+            # Never emit driver text, which can contain credentials or SQL.
+            if "could not open certificate file" not in str(
+                error
+            ) or "Permission denied" not in str(error):
+                raise RuntimeError(
+                    "worker client-profile refusal did not reproduce"
+                ) from None
+
+    # Re-run the previous implicit configuration under the web worker's exact
+    # UID/GID. The source fix is not proved if that original failure is absent.
+    BOOTSTRAP_STAGE = "worker_db_default"
+    implicit = {key: value for key, value in parameters.items() if key != "sslcert"}
+    refuse_profile(implicit)
+    BOOTSTRAP_STAGE = "worker_db_negative"
+    denied = {**parameters, "sslcert": "/opt/netbox/ci-blocked-profile/client.crt"}
+    refuse_profile(denied)
+    BOOTSTRAP_STAGE = "worker_db_positive"
+    with connection.Database.connect(**parameters) as connected:
+        with connected.cursor() as cursor:
+            cursor.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()")
+            if cursor.fetchone() != (True,):
+                raise RuntimeError("worker database connection did not use TLS")
+    return {
+        "default_profile_refused": True,
+        "denied_profile_reproduced": True,
+        "verified_worker_database": True,
+    }
 
 
 def seed(spec):
@@ -138,6 +196,8 @@ def main():
     spec = json.load(sys.stdin)
     if spec.get("action") == "seed":
         print(json.dumps(seed(spec)))
+    elif spec.get("action") == "worker-tls-proof":
+        print(json.dumps(worker_tls_proof()))
     elif spec.get("action") in {"move-ip", "restore-ip"}:
         BOOTSTRAP_STAGE = "ownership_move"
         from django.db import transaction

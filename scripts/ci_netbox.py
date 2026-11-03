@@ -40,7 +40,8 @@ SECRET_KEY = os.environ["SECRET_KEY"]
 DATABASES = {"default": {
     "NAME": "netbox", "USER": "netbox", "PASSWORD": os.environ["DB_PASSWORD"],
     "HOST": "netbox-db", "PORT": "5432", "CONN_MAX_AGE": 0,
-    "OPTIONS": {"sslmode": "verify-full", "sslrootcert": "/opt/netbox/ci-ca.crt"},
+    "OPTIONS": {"sslmode": "verify-full", "sslrootcert": "/opt/netbox/ci-ca.crt",
+                "sslcert": "/opt/netbox/ci-no-client-cert.pem"},
 }}
 REDIS = {kind: {
     "HOST": "netbox-cache", "PORT": 6379, "DATABASE": index,
@@ -97,6 +98,10 @@ def bootstrap_failure(raw: bytes) -> str:
         "source_tenants",
         "source_addresses",
         "ownership_move",
+        "worker_identity",
+        "worker_db_default",
+        "worker_db_negative",
+        "worker_db_positive",
     }
     classes = {
         "ImportError",
@@ -453,6 +458,9 @@ def diagnose_http_error(status: int, raw: bytes) -> None:
             "authentication_required": "Authentication required",
             "connection_refused": "Connection refused",
             "permission_denied": "Permission denied",
+            "client_certificate_file": "could not open certificate file",
+            "root_profile": "/root/.postgresql/",
+            "database_acl": "permission denied for",
             "tls_minimum_option": "ssl_min_version",
             "task_configuration": "RQ_QUEUES",
             "settings_module": "DJANGO_SETTINGS_MODULE",
@@ -524,11 +532,12 @@ def verify_application_version(status: int, raw: bytes) -> None:
     raise RuntimeError("NetBox fixture did not report its pinned application version")
 
 
-def bootstrap(spec: dict) -> dict:
+def bootstrap(spec: dict, *, worker: bool = False) -> dict:
     script = (ROOT / "test/netbox/seed.py").read_text()
     raw = compose(
         "exec",
         "-T",
+        *(["--user", "unit:root"] if worker else []),
         "--workdir",
         "/opt/netbox/netbox",
         "netbox",
@@ -714,6 +723,17 @@ def start() -> None:
     print("NetBox fixture source transport verified", flush=True)
     manifest = bootstrap({"action": "seed", "token": token})
     print("NetBox fixture ORM bootstrap verified", flush=True)
+    worker_proof = bootstrap({"action": "worker-tls-proof"}, worker=True)
+    if worker_proof != {
+        "default_profile_refused": True,
+        "denied_profile_reproduced": True,
+        "verified_worker_database": True,
+    }:
+        raise RuntimeError("fixture worker database proof did not match its contract")
+    print(
+        "NetBox fixture worker database TLS and denied-profile regression verified",
+        flush=True,
+    )
     manifest.update(
         {
             "origin": ORIGIN,
@@ -934,6 +954,7 @@ def selftest() -> None:
     if config["DATABASES"]["default"]["OPTIONS"] != {
         "sslmode": "verify-full",
         "sslrootcert": "/opt/netbox/ci-ca.crt",
+        "sslcert": "/opt/netbox/ci-no-client-cert.pem",
     }:
         raise RuntimeError("fixture database configuration lost TLS verification")
     for kind, connection in config["REDIS"].items():
