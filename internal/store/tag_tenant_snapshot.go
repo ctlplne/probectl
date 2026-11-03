@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/netip"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -31,12 +32,14 @@ type TenantTagSnapshot struct {
 	byAddress   map[string]tagExporterBinding
 	byContext   map[string]*tags.Snapshot
 	contexts    []entity.ContextRecord
+	related     map[string]map[string]string
 }
 
 type tagExporterBinding struct {
 	contextID string
 	agentID   string
 	sourceRef string
+	deviceID  string
 }
 
 func (s *TenantTagSnapshot) Revision() (int64, error) {
@@ -67,14 +70,14 @@ func (s *TenantTagSnapshot) Contexts() ([]entity.ContextRecord, error) {
 
 // ProjectAuthorizedExportersContext withholds metadata from denied contexts;
 // it never drops underlying flow rows or accepts a missing authorization map.
-func (s *TenantTagSnapshot) ProjectAuthorizedExportersContext(ctx context.Context, allowed map[string]bool, maxBytes int64) ([]tags.ExporterProjection, error) {
+func (s *TenantTagSnapshot) ProjectAuthorizedExportersContext(ctx context.Context, allowed map[string]bool, maxBytes int64, related ...map[string]map[string]bool) ([]tags.ExporterProjection, error) {
 	if allowed == nil {
 		return nil, tags.ErrScopeMismatch
 	}
-	return s.projectExporters(ctx, allowed, maxBytes)
+	return s.projectExporters(ctx, allowed, maxBytes, related...)
 }
 
-func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[string]bool, maxBytes int64) ([]tags.ExporterProjection, error) {
+func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[string]bool, maxBytes int64, related ...map[string]map[string]bool) ([]tags.ExporterProjection, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -107,7 +110,7 @@ func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[st
 		if err != nil {
 			return nil, err
 		}
-		if len(resolved) == 0 {
+		if len(resolved) == 0 && len(s.related[address]) == 0 {
 			continue
 		}
 		row := tags.ExporterProjection{Exporter: address, Values: make(map[string]string, len(resolved))}
@@ -121,6 +124,25 @@ func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[st
 				return nil, ErrTagSnapshotBudget
 			}
 			row.Values[tag.Key] = tag.Value
+		}
+		if len(related) > 0 {
+			for key, value := range s.related[address] {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				subject, _, _ := strings.Cut(key, ".")
+				if !related[0][subject][s.byAddress[address].contextID] {
+					continue
+				}
+				used += 128 + int64(len(key)+len(value))
+				if used > maxBytes {
+					return nil, ErrTagSnapshotBudget
+				}
+				row.Values[key] = value
+			}
+		}
+		if len(row.Values) == 0 {
+			continue
 		}
 		out = append(out, row)
 	}
@@ -163,12 +185,19 @@ func (s *TenantTagSnapshot) ResolveExporterContext(ctx context.Context, exporter
 // LoadTenant charges one caller budget and captures bindings, definitions,
 // assignments, rules and revision inside one tenant read snapshot. It never
 // performs a context lookup from a raw row or lets an ambiguous address win.
-func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64) (*TenantTagSnapshot, error) {
+func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64, related ...string) (*TenantTagSnapshot, error) {
 	if s == nil || s.pool == nil {
 		return nil, ErrTagSnapshotUnavailable
 	}
 	if maxBytes <= 0 {
 		return nil, ErrTagSnapshotBudget
+	}
+	wanted := map[string]bool{}
+	for _, kind := range related {
+		if kind != "device" && kind != "agent" {
+			return nil, tags.ErrInvalid
+		}
+		wanted[kind] = true
 	}
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok {
@@ -242,6 +271,12 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64) (*TenantT
 		result = &TenantTagSnapshot{tenantID: tenantID, revision: revision,
 			definitions: append([]tags.Definition(nil), definitions...),
 			byAddress:   bindings, byContext: contextSnapshots, contexts: contextRecords}
+		if len(wanted) > 0 {
+			result.related, err = loadFlowTagSubjects(ctx, sc, result, wanted, maxBytes, charge)
+			if err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -255,7 +290,7 @@ func loadTagExporterBindings(ctx context.Context, sc tenancy.Scope, tenantID str
 	// One row consumes at least 2 KiB. Fetch one extra row to refuse a
 	// truncated source catalog rather than silently omit a competing owner.
 	limit := maxBytes/2048 + 1
-	rows, err := sc.Q.Query(ctx, `SELECT s.agent_id,s.source_ref,s.context_id::text
+	rows, err := sc.Q.Query(ctx, `SELECT s.agent_id,s.source_ref,s.context_id::text,COALESCE(s.anchor_entity_id::text,'')
 		FROM entity_source_contexts s
 		JOIN entity_agent_contexts a
 		  ON a.tenant_id=s.tenant_id AND a.agent_id=s.agent_id
@@ -278,11 +313,11 @@ func loadTagExporterBindings(ctx context.Context, sc tenancy.Scope, tenantID str
 			return nil, ErrTagSnapshotBudget
 		}
 		var binding tagExporterBinding
-		if err := rows.Scan(&binding.agentID, &binding.sourceRef, &binding.contextID); err != nil {
+		if err := rows.Scan(&binding.agentID, &binding.sourceRef, &binding.contextID, &binding.deviceID); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		if err := charge(binding.agentID, binding.sourceRef, binding.contextID); err != nil {
+		if err := charge(binding.agentID, binding.sourceRef, binding.contextID, binding.deviceID); err != nil {
 			rows.Close()
 			return nil, err
 		}

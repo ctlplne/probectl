@@ -194,6 +194,9 @@ func queryPlanPermissions(plan QueryPlan, lookup func(string) (QueryField, bool)
 	result := []string{}
 	for _, name := range names {
 		field, ok := lookup(name)
+		if ok && field.Derived == "tenant_tag" && !slices.Contains(result, "tags.read") {
+			result = append(result, "tags.read")
+		}
 		if ok && field.Permission != "" && !slices.Contains(result, field.Permission) {
 			result = append(result, field.Permission)
 		}

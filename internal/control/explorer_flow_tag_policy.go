@@ -18,54 +18,64 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 )
 
-// The fourth quarter of the existing query memory envelope bounds policy
-// indexes/encoding. The other three hold snapshot, projection and lookup.
-// Only effective disclosure outcomes enter the digest: changing a rule value
-// alone must not alter the meaning of an already materialized private page.
-func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Principal, snapshot *store.TenantTagSnapshot, limit int64) (map[string]bool, string, error) {
+// The fourth quarter of the query envelope bounds policy maps and encoding.
+// Only disclosure outcomes enter the digest, never mutable tag values. Related
+// subject permission changes invalidate materialized metadata as base context
+// changes do. The version change requires old pages to be queried afresh.
+func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Principal, snapshot *store.TenantTagSnapshot, limit int64) (map[string]bool, map[string]map[string]bool, string, error) {
 	if p == nil || p.TenantID == "" || limit <= 0 {
-		return nil, "", apierror.Unauthorized("tenant identity required for tag policy")
+		return nil, nil, "", apierror.Unauthorized("tenant identity required for tag policy")
 	}
 	records, err := snapshot.Contexts()
 	if err != nil {
-		return nil, "", flowTagQueryError(err)
+		return nil, nil, "", flowTagQueryError(err)
 	}
-	if int64(len(records)) > limit/512 {
-		return nil, "", flowTagQueryError(store.ErrTagSnapshotBudget)
+	if int64(len(records)) > limit/1024 {
+		return nil, nil, "", flowTagQueryError(store.ErrTagSnapshotBudget)
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].ContextID < records[j].ContextID })
 	type contextDecision struct {
-		ID      string `json:"id"`
-		Allowed bool   `json:"allowed"`
+		ID       string `json:"id"`
+		Exporter bool   `json:"exporter"`
+		Device   bool   `json:"device"`
+		Agent    bool   `json:"agent"`
 	}
 	decisions := make([]contextDecision, 0, len(records))
 	allowed := make(map[string]bool, len(records))
+	related := map[string]map[string]bool{"device": {}, "agent": {}}
 	for _, record := range records {
 		if err := ctx.Err(); err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
 		if record.TenantID != p.TenantID {
-			return nil, "", apierror.Unavailable("tag policy scope is unavailable")
+			return nil, nil, "", apierror.Unavailable("tag policy scope is unavailable")
 		}
 		resource := entityContextResource(record)
 		disclose := true
 		for _, permission := range []string{permTagsRead, permFlowRead} {
 			decision, err := s.decide(ctx, p, permission, auth.RBACGlobal, resource)
 			if err != nil {
-				return nil, "", err
+				return nil, nil, "", err
 			}
 			disclose = disclose && decision == auth.DecisionAllowed
 		}
 		allowed[record.ContextID] = disclose
-		decisions = append(decisions, contextDecision{ID: record.ContextID, Allowed: disclose})
+		for _, subject := range []struct{ kind, permission string }{{"device", "metrics.read"}, {"agent", "agent.read"}} {
+			decision, err := s.decide(ctx, p, subject.permission, auth.RBACGlobal, resource)
+			if err != nil {
+				return nil, nil, "", err
+			}
+			related[subject.kind][record.ContextID] = disclose && decision == auth.DecisionAllowed
+		}
+		decisions = append(decisions, contextDecision{record.ContextID, disclose, related["device"][record.ContextID], related["agent"][record.ContextID]})
 	}
 	encoded, err := json.Marshal(struct {
 		Domain   string            `json:"domain"`
 		Tenant   string            `json:"tenant"`
 		Contexts []contextDecision `json:"contexts"`
-	}{"flow-tag-context-authorization/v1", p.TenantID, decisions})
+	}{"flow-tag-context-authorization/v2", p.TenantID, decisions})
 	if err != nil || int64(len(encoded)) > limit {
-		return nil, "", flowTagQueryError(store.ErrTagSnapshotBudget)
+		return nil, nil, "", flowTagQueryError(store.ErrTagSnapshotBudget)
 	}
-	return allowed, hex.EncodeToString(crypto.Hash(encoded)), nil
+	return allowed, related, hex.EncodeToString(crypto.Hash(encoded)), nil
 }

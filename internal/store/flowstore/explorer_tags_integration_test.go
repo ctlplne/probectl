@@ -93,3 +93,32 @@ func TestExplorerClickHouseTagExternalLookupRealStack(t *testing.T) {
 		t.Fatalf("tenant B lost its same-address label: %+v, %v", bResult, err)
 	}
 }
+
+func TestExplorerClickHouseRelatedTagNamespacesUseOneTenantExporterJoin(t *testing.T) {
+	store := explorerIntegrationStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+	a, b := uuid.NewString(), uuid.NewString()
+	t.Cleanup(func() { cleanupExplorerFixtureTenant(t, store, a); cleanupExplorerFixtureTenant(t, store, b) })
+	row := explorerFixtureRow(a)
+	row.BytesScaled = 123
+	row.AgentID = "forged-payload-agent"
+	foreign := row
+	foreign.TenantID = b
+	foreign.BytesScaled = 900
+	if err := store.Insert(t.Context(), []Row{row, foreign}); err != nil {
+		t.Fatal(err)
+	}
+	id := uuid.NewString()
+	lookup, err := NewTagQueryData(a, 7, []tags.Definition{{TenantID: a, ID: id, Key: "customer"}}, []tags.ExporterProjection{{Exporter: row.Exporter, Values: map[string]string{"customer": "exporter", "device.customer": "device", "agent.customer": "agent"}}}, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour), GroupBy: []string{"tag.customer", "tag.device.customer"}, MatrixWith: []string{"tag.agent.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.device.customer", Op: flow.QueryEqual, Values: []string{"device"}}, {Field: "tag.agent.customer", Op: flow.QueryEqual, Values: []string{"agent"}}}}}
+	result, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: a, Plan: plan, Tags: lookup})
+	if err != nil || result.Totals["bytes:total"] != "123" || len(result.Rows) != 1 || result.Rows[0].Group["tag.customer"] != "exporter" || result.Rows[0].Group["tag.device.customer"] != "device" {
+		t.Fatalf("actual external tag lookup overwrote a namespace or multiplied tenant rows: %+v %v", result, err)
+	}
+	if len(result.Matrix) != 1 || result.Matrix[0].Column["tag.agent.customer"] != "agent" {
+		t.Fatal("matrix column did not retain its independent subject value")
+	}
+}

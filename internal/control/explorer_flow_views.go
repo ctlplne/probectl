@@ -488,7 +488,11 @@ func (s *Server) runFlowView(ctx context.Context, p *auth.Principal, id string) 
 		return flowViewExecution{}, err
 	}
 	if len(item.Definition.TagIDs) > 0 {
-		data, loadErr := s.loadFlowTagQuery(ctx, p)
+		names := make([]string, 0, len(item.Definition.TagIDs))
+		for name := range item.Definition.TagIDs {
+			names = append(names, name)
+		}
+		data, loadErr := s.loadFlowTagQuery(ctx, p, relatedFlowTagSubjects(names)...)
 		if loadErr != nil {
 			return flowViewExecution{}, loadErr
 		}

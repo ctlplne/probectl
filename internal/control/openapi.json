@@ -23520,7 +23520,7 @@
       },
       "FlowQueryField": {
         "type": "object",
-        "description": "Native fields plus tenant-defined tag.<key> text fields when the authenticated caller has tags.read. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client.",
+        "description": "Native fields plus tenant-defined tag.<key>, tag.device.<key> and tag.agent.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor or registered collecting agent and additionally require metrics.read or agent.read. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client.",
         "properties": {
           "name": {
             "type": "string"

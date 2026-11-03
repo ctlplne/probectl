@@ -8,6 +8,7 @@ package flow
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -63,7 +64,9 @@ func TestTagQueryVocabularyIsTenantBoundAndDoesNotChangeNativeRegistry(t *testin
 		t.Fatal("caller mutated the tenant query vocabulary")
 	}
 	fields, err := vocabulary.Fields()
-	if err != nil || fields[len(fields)-1].Name != "tag.customer" {
+	if err != nil || len(fields) != len(QueryFields())+3 ||
+		fields[len(fields)-3].Name != "tag.agent.customer" ||
+		fields[len(fields)-2].Name != "tag.customer" || fields[len(fields)-1].Name != "tag.device.customer" {
 		t.Fatalf("tenant schema omitted its tag field: %+v, %v", fields, err)
 	}
 	if _, err := NewTagQueryVocabulary(a, []tags.Definition{
@@ -76,5 +79,40 @@ func TestTagQueryVocabularyIsTenantBoundAndDoesNotChangeNativeRegistry(t *testin
 		{TenantID: a, ID: uuid.NewString(), Key: "customer"},
 	}); !errors.Is(err, tags.ErrConflict) {
 		t.Fatalf("duplicate tenant key was accepted: %v", err)
+	}
+}
+
+func TestSubjectTagNamespacesKeepOneDefinitionAndIndependentReadGrants(t *testing.T) {
+	tenant, id := uuid.NewString(), uuid.NewString()
+	vocabulary, err := NewTagQueryVocabulary(tenant, []tags.Definition{{TenantID: tenant, ID: id, Key: "customer"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ name, key, permission string }{{"tag.customer", "customer", "tags.read"}, {"tag.device.customer", "device.customer", "metrics.read"}, {"tag.agent.customer", "agent.customer", "agent.read"}} {
+		field, ok := vocabulary.Lookup(row.name)
+		if !ok || field.TagID != id || field.TagKey != row.key || field.Permission != row.permission {
+			t.Fatalf("qualified tag field changed definition or subject: %+v", field)
+		}
+		if _, ok := LookupQueryField(row.name); ok {
+			t.Fatal("tenant tag namespace entered the global registry")
+		}
+	}
+	plan := QueryPlan{GroupBy: []string{"tag.customer", "tag.device.customer"}, MatrixWith: []string{"tag.agent.customer"}}
+	permissions := QueryPlanPermissionsWithVocabulary(plan, vocabulary)
+	if !slices.Equal(permissions, []string{"tags.read", "metrics.read", "agent.read"}) {
+		t.Fatalf("mixed subject plan lost a required grant: %v", permissions)
+	}
+	deviceOnly := QueryPlanPermissionsWithVocabulary(QueryPlan{GroupBy: []string{"tag.device.customer"}}, vocabulary)
+	if !slices.Equal(deviceOnly, []string{"tags.read", "metrics.read"}) {
+		t.Fatalf("related-only plan lost base tag grant: %v", deviceOnly)
+	}
+	ids, err := QueryViewTagIDs(plan, vocabulary)
+	if err != nil || len(ids) != 3 || ids["tag.device.customer"] != id || ids["tag.agent.customer"] != id {
+		t.Fatal("qualified saved fields did not pin their immutable definition")
+	}
+	for _, bad := range []string{"tag.other.customer", "tag.device.other", "tag.device.customer.extra"} {
+		if _, ok := vocabulary.Lookup(bad); ok {
+			t.Fatal("unknown namespace/definition became query grammar")
+		}
 	}
 }

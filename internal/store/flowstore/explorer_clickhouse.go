@@ -115,6 +115,12 @@ func explorerFieldExprWithParams(field flow.QueryField, params chParams) string 
 			return "''"
 		}
 		name := "tag_key_" + strings.ReplaceAll(field.TagID, "-", "")
+		if subject, _, qualified := strings.Cut(field.TagKey, "."); qualified {
+			if subject != "device" && subject != "agent" {
+				return "''"
+			}
+			name += "_" + subject
+		}
 		params[name] = field.TagKey
 		return "ifNull(tag_values[{" + name + ":String}],'')"
 	}

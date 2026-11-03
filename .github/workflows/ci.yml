@@ -1147,6 +1147,14 @@ jobs:
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
         run: make test-isolation
+      - name: Related flow tag ownership and query proof
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_related_tag_regression.py --selftest
+          python3 scripts/ci_related_tag_regression.py
+          go test -tags=integration -count=1 -run '^TestExplorerRelatedTagsUseCurrentOwnedSubjectsAndReadGrants$' ./internal/control
+          go test -tags=integration -count=1 -run '^TestExplorerClickHouseRelatedTagNamespacesUseOneTenantExporterJoin$' ./internal/store/flowstore
       - name: Original tag context-policy reproduction
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"

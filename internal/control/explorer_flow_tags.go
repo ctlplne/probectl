@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,9 +28,15 @@ type flowTagQueryKey struct{}
 // flowQueryTagHints inspects only bounded field and reference names. It grants
 // no authority: the tenant snapshot, permissions and store boundary validate
 // the selected key. An oversized filter is rejected by normal normalization.
-func flowQueryTagHints(query ai.ExplorerQuery) (direct, saved bool) {
+func flowQueryTagHints(query ai.ExplorerQuery) (direct, saved bool, subjects []string) {
 	check := func(name string) bool {
-		return strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "tag.")
+		name = strings.ToLower(strings.TrimSpace(name))
+		for _, subject := range []string{"device", "agent"} {
+			if strings.HasPrefix(name, "tag."+subject+".") && !slices.Contains(subjects, subject) {
+				subjects = append(subjects, subject)
+			}
+		}
+		return strings.HasPrefix(name, "tag.")
 	}
 	for _, name := range append(append([]string{}, query.Dimensions...), query.Groupings...) {
 		if check(name) {
@@ -42,7 +49,7 @@ func flowQueryTagHints(query ai.ExplorerQuery) (direct, saved bool) {
 		}
 	}
 	if query.Flow == nil {
-		return direct, false
+		return direct, false, subjects
 	}
 	for _, name := range append(append([]string{}, query.Flow.GroupBy...), query.Flow.MatrixWith...) {
 		if check(name) {
@@ -72,13 +79,13 @@ func flowQueryTagHints(query ai.ExplorerQuery) (direct, saved bool) {
 			stack = append(stack, node{group: &current.group.Groups[i], depth: current.depth + 1})
 		}
 	}
-	return direct, saved
+	return direct, saved, subjects
 }
 
 // loadFlowTagQuery pins one tenant's definitions, ownership and tag rules at
 // one revision. The three materializations each receive a quarter of the
 // existing Explorer memory allowance; no partial projection is usable.
-func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal) (*flowstore.TagQueryData, error) {
+func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal, subjects ...string) (*flowstore.TagQueryData, error) {
 	if principal == nil || principal.TenantID == "" {
 		return nil, apierror.Unauthorized("tenant identity required for tag queries")
 	}
@@ -88,6 +95,15 @@ func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal
 	if err := s.authorize(ctx, principal, permTagsRead, auth.RBACGlobal,
 		map[string]string{auth.ResourceTenantKey: principal.TenantID}); err != nil {
 		return nil, err
+	}
+	for _, subject := range subjects {
+		permission, err := tagSubjectReadPermission(subject)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: principal.TenantID}); err != nil {
+			return nil, err
+		}
 	}
 	if s.pool == nil {
 		return nil, apierror.Unavailable("tenant tag query storage is unavailable")
@@ -102,7 +118,7 @@ func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal
 	// Revalidation stays inside that slot rather than charging it twice.
 	limit := budget.MemoryBytes / 4
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(principal.TenantID))
-	snapshot, err := store.NewTagSnapshots(s.pool).LoadTenant(ctx, limit)
+	snapshot, err := store.NewTagSnapshots(s.pool).LoadTenant(ctx, limit, subjects...)
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
@@ -114,11 +130,11 @@ func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
-	allowed, digest, err := s.flowTagContextAuthorization(ctx, principal, snapshot, limit)
+	allowed, related, digest, err := s.flowTagContextAuthorization(ctx, principal, snapshot, limit)
 	if err != nil {
 		return nil, err
 	}
-	projection, err := snapshot.ProjectAuthorizedExportersContext(ctx, allowed, limit)
+	projection, err := snapshot.ProjectAuthorizedExportersContext(ctx, allowed, limit, related)
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
@@ -152,40 +168,40 @@ func flowTagQueryContext(ctx context.Context, data *flowstore.TagQueryData) cont
 }
 
 func (s *Server) savedFlowQueryUsesTags(ctx context.Context, principal *auth.Principal,
-	filter *flow.QueryFilterGroup) (bool, error) {
+	filter *flow.QueryFilterGroup) (bool, []string, error) {
 	if s.pool == nil || filter == nil {
-		return false, nil
+		return false, nil, nil
 	}
 	if err := s.authorizeNativeFlow(ctx, principal); err != nil {
-		return false, err
+		return false, nil, err
 	}
 	decision, err := s.decide(ctx, principal, permTagsRead, auth.RBACGlobal,
 		map[string]string{auth.ResourceTenantKey: principal.TenantID})
 	if err != nil || decision != auth.DecisionAllowed {
-		return false, err
+		return false, nil, err
 	}
 	vocabulary, err := s.loadFlowQueryVocabulary(ctx, principal)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	ctx, err = flow.WithQueryVocabulary(ctx, principal.TenantID, vocabulary)
 	if err != nil {
-		return false, apierror.Unavailable("tenant tag query scope is unavailable")
+		return false, nil, apierror.Unavailable("tenant tag query scope is unavailable")
 	}
 	resolved, err := flow.ResolveQueryFiltersWithVocabulary(ctx, principal.TenantID, filter,
 		s.flowQueryFilters, "", vocabulary)
 	if err != nil {
 		if errors.Is(err, flow.ErrQueryFilterNotFound) {
-			return false, apierror.NotFound("saved flow filter not found")
+			return false, nil, apierror.NotFound("saved flow filter not found")
 		}
-		return false, apierror.Validation("saved flow filters could not be resolved within the query bounds")
+		return false, nil, apierror.Validation("saved flow filters could not be resolved within the query bounds")
 	}
-	for _, name := range flow.QueryFilterFields(resolved.Expression) {
-		if strings.HasPrefix(name, "tag.") {
-			return true, nil
-		}
+	names := flow.QueryFilterFields(resolved.Expression)
+	uses := false
+	for _, name := range names {
+		uses = uses || strings.HasPrefix(name, "tag.")
 	}
-	return false, nil
+	return uses, relatedFlowTagSubjects(names), nil
 }
 
 func (s *Server) normalizeExplorerQuery(ctx context.Context, principal *auth.Principal,
@@ -204,16 +220,21 @@ func (s *Server) normalizeExplorerQuery(ctx context.Context, principal *auth.Pri
 	if err != nil {
 		return ai.ExplorerQuery{}, ctx, err
 	}
-	direct, saved := flowQueryTagHints(raw)
-	if data == nil && saved && !direct {
-		usesTag, detectErr := s.savedFlowQueryUsesTags(ctx, principal, raw.Flow.Filter)
+	direct, saved, subjects := flowQueryTagHints(raw)
+	if data == nil && saved {
+		usesTag, savedSubjects, detectErr := s.savedFlowQueryUsesTags(ctx, principal, raw.Flow.Filter)
 		if detectErr != nil {
 			return ai.ExplorerQuery{}, ctx, detectErr
 		}
-		direct = usesTag
+		direct = direct || usesTag
+		for _, subject := range savedSubjects {
+			if !slices.Contains(subjects, subject) {
+				subjects = append(subjects, subject)
+			}
+		}
 	}
 	if data == nil && direct {
-		data, err = s.loadFlowTagQuery(ctx, principal)
+		data, err = s.loadFlowTagQuery(ctx, principal, subjects...)
 		if err != nil {
 			return ai.ExplorerQuery{}, ctx, err
 		}
@@ -286,4 +307,18 @@ func (s *Server) loadFlowQueryVocabulary(ctx context.Context, principal *auth.Pr
 		return flow.QueryVocabulary{}, apierror.Unavailable("tenant tag query schema is unavailable")
 	}
 	return vocabulary, nil
+}
+
+// Names are hints only; the tenant vocabulary still validates every field.
+func relatedFlowTagSubjects(names []string) []string {
+	result := []string{}
+	for _, subject := range []string{"device", "agent"} {
+		for _, name := range names {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "tag."+subject+".") {
+				result = append(result, subject)
+				break
+			}
+		}
+	}
+	return result
 }

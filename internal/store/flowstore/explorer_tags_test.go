@@ -173,6 +173,46 @@ func TestClickHouseTagPlanBindsKeyAndJoinsTenantInOneQuery(t *testing.T) {
 	}
 }
 
+func TestSubjectTagDimensionsKeepIndependentValuesForTheSameDefinition(t *testing.T) {
+	a, b := uuid.NewString(), uuid.NewString()
+	id := uuid.NewString()
+	values := map[string]string{"customer": "exporter", "device.customer": "device", "agent.customer": "collector"}
+	lookup, err := NewTagQueryData(a, 9, []tags.Definition{{TenantID: a, ID: id, Key: "customer"}}, []tags.ExporterProjection{{Exporter: "192.0.2.1", Values: values}}, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values["device.customer"] = "caller-mutation"
+	if got, err := lookup.Value(a, "192.0.2.1", "device.customer"); err != nil || got != "device" {
+		t.Fatal("caller changed a qualified tag lookup")
+	}
+	row := explorerFixtureRow(a)
+	row.AgentID = "forged-other-agent"
+	row.BytesScaled = 100
+	foreign := row
+	foreign.TenantID = b
+	foreign.BytesScaled = 900
+	memory := NewMemory()
+	if err := memory.Insert(t.Context(), []Row{row, foreign}); err != nil {
+		t.Fatal(err)
+	}
+	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour), GroupBy: []string{"tag.customer", "tag.device.customer", "tag.agent.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}},
+		Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.device.customer", Op: flow.QueryEqual, Values: []string{"device"}}, {Field: "tag.agent.customer", Op: flow.QueryEqual, Values: []string{"collector"}}}}}
+	result, err := memory.ExplorePlan(t.Context(), PlanQuery{TenantID: a, Plan: plan, Tags: lookup})
+	if err != nil || len(result.Rows) != 1 || result.Totals["bytes:total"] != "100" || result.Rows[0].Group["tag.customer"] != "exporter" || result.Rows[0].Group["tag.device.customer"] != "device" || result.Rows[0].Group["tag.agent.customer"] != "collector" {
+		t.Fatalf("mixed subject dimensions selected another namespace or tenant: %+v %v", result, err)
+	}
+	sql, params, err := planSQLWithTags(DefaultExplorerBudget(), plan, "probectl_flows", nil, a, lookup)
+	base := "tag_key_" + strings.ReplaceAll(id, "-", "")
+	if err != nil || params[base] != "customer" || params[base+"_device"] != "device.customer" || params[base+"_agent"] != "agent.customer" {
+		t.Fatalf("same-definition subject parameters overwrote one another: %+v %v", params, err)
+	}
+	for _, literal := range []string{"customer", "collector", "device.customer", "agent.customer"} {
+		if strings.Contains(sql, literal) {
+			t.Fatal("tag key/value entered SQL structure")
+		}
+	}
+}
+
 func TestLongTagValuesRemainQueryAndResponseBudgeted(t *testing.T) {
 	tenant := uuid.NewString()
 	value := strings.Repeat("🌐", 24000)

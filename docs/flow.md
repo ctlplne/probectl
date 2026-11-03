@@ -675,6 +675,28 @@ effective context decisions and rechecks the current user before pages,
 comparisons and CSV exports. If those decisions change, run a fresh query.
 Rule edits alone preserve the saved result's original values and revision.
 
+Use `tag.device.<key>` for the exporter's operator-owned device anchor and
+`tag.agent.<key>` for its registered collecting agent. These are independent
+subject values: `tag.<key>` keeps its exporter meaning and does not inherit a
+device or agent assignment. Device fields additionally require `metrics.read`;
+agent fields require `agent.read`, both globally and on the current context.
+Missing, retired or ambiguous owned subjects produce **Unmatched**, preserving
+raw flow totals. The raw flow's claimed agent ID never selects these tags.
+Rules and manual/import precedence apply within each subject kind. The same
+key may be used in all three namespaces in one group, filter or matrix.
+
+REST, CLI, Explorer's schema-driven builder, saved filters/views and native MCP
+use these exact names. Saved views pin the immutable tag ID for each qualified
+field, so a rename cannot silently retarget a saved query. Only requested
+subject kinds load current private facts; all metadata uses the existing query
+memory, execution and fairness limits. Current device/agent context grants are
+included in saved-result authorization: a grant change requires a fresh query
+before pages, comparisons or CSV. This authorization format upgrade also
+requires a fresh query for older frozen tag results. These fields associate
+exporter metadata only; they do not imply interface, traffic-prefix or test
+associations.
+
+
 ## Query API (tenant-scoped, `flow.read`)
 
 Four read endpoints, all gated by the `flow.read` permission and scoped to the

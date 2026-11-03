@@ -71,15 +71,19 @@ func NewTagQueryVocabulary(tenantID string, definitions []tags.Definition) (Quer
 		if err := tags.ValidateKey(def.Key); err != nil {
 			return QueryVocabulary{}, err
 		}
-		name := "tag." + def.Key
-		if _, exists := vocab.byName[name]; exists || vocab.tagIDs[def.ID] {
+		if _, exists := vocab.byName["tag."+def.Key]; exists || vocab.tagIDs[def.ID] {
 			return QueryVocabulary{}, tags.ErrConflict
 		}
-		field := queryField(name, "", QueryText, false, 0)
-		field.Derived = "tenant_tag"
-		field.TagID, field.TagKey = def.ID, def.Key
-		field.Permission = "tags.read"
-		vocab.byName[name] = field
+		for _, subject := range []struct{ qualifier, permission string }{
+			{"", "tags.read"}, {"device.", "metrics.read"}, {"agent.", "agent.read"},
+		} {
+			key := subject.qualifier + def.Key
+			field := queryField("tag."+key, "", QueryText, false, 0)
+			field.Derived = "tenant_tag"
+			field.TagID, field.TagKey = def.ID, key
+			field.Permission = subject.permission
+			vocab.byName[field.Name] = field
+		}
 		vocab.tagIDs[def.ID] = true
 	}
 	return vocab, nil
