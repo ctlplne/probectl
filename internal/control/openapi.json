@@ -1343,7 +1343,7 @@
         }
       }
     },
-    "/v1/alerts/{id}/tag-filter": {
+    "/v1/alerts/rules/{id}/tag-filter": {
       "get": {
         "operationId": "getAlertTagFilter",
         "summary": "Read a current alert tag filter",

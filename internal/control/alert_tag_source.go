@@ -33,16 +33,17 @@ type alertTagAuthority struct {
 	principal *auth.Principal
 	current   *auth.Principal
 	policies  []auth.Policy
+	decider   *Server
 }
 
 func alertTagPermissions() []string { return []string{permTagsRead, "test.read", "metrics.read"} }
 
-func (a *alertTagAuthority) permits(principal *auth.Principal, resource map[string]string) bool {
+func (a *alertTagAuthority) permits(ctx context.Context, principal *auth.Principal, resource map[string]string) bool {
 	if a == nil || a.principal == nil || principal == nil || principal.TenantID != a.principal.TenantID {
 		return false
 	}
 	for _, permission := range alertTagPermissions() {
-		if auth.Decide(principal, permission, auth.RBACGlobal, a.policies, resource) != auth.DecisionAllowed {
+		if reason, err := a.decider.decideLoaded(ctx, principal, permission, auth.RBACGlobal, resource, a.policies); err != nil || reason != auth.DecisionAllowed {
 			return false
 		}
 	}
@@ -52,7 +53,7 @@ func (a *alertTagAuthority) permits(principal *auth.Principal, resource map[stri
 // Intersect the live credential (including its scopes) with freshly loaded
 // user authority. Only a live request may carry its actual MFA assertion;
 // source evaluation always uses the separate non-MFA read principal.
-func (a *alertTagAuthority) permitsRequest(actor *auth.Principal, permission string) bool {
+func (a *alertTagAuthority) permitsRequest(ctx context.Context, actor *auth.Principal, permission string) bool {
 	if a == nil || a.current == nil || actor == nil || actor.UserID != a.current.UserID || actor.TenantID != a.current.TenantID {
 		return false
 	}
@@ -60,8 +61,12 @@ func (a *alertTagAuthority) permitsRequest(actor *auth.Principal, permission str
 	fresh.MFASatisfied = actor.MFASatisfied
 	fresh.Attributes = composeSubjectAttributes(fresh.Attributes, actor.MFASatisfied)
 	resource := map[string]string{auth.ResourceTenantKey: actor.TenantID}
-	return auth.Decide(actor, permission, auth.RBACGlobal, a.policies, resource) == auth.DecisionAllowed &&
-		auth.Decide(fresh, permission, auth.RBACGlobal, a.policies, resource) == auth.DecisionAllowed
+	for _, principal := range []*auth.Principal{actor, fresh} {
+		if reason, err := a.decider.decideLoaded(ctx, principal, permission, auth.RBACGlobal, resource, a.policies); err != nil || reason != auth.DecisionAllowed {
+			return false
+		}
+	}
+	return true
 }
 
 // Load the actual active user/grants/policy in the already bound tenant, not a
@@ -72,7 +77,7 @@ func loadAlertTagAuthority(ctx context.Context, pool *pgxpool.Pool, tenantID, us
 	if pool == nil || !ok || bound.String() != tenantID || userID == "" {
 		return nil, apierror.Forbidden("current alert metadata owner is unavailable")
 	}
-	out := &alertTagAuthority{}
+	out := &alertTagAuthority{decider: &Server{pool: pool}}
 	err := tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var status string
 		if err := sc.Q.QueryRow(ctx, `SELECT status FROM tenants WHERE id=$1`, tenantID).Scan(&status); err != nil {
@@ -151,13 +156,13 @@ func (s alertTagMetricSource) CurrentRule(ctx context.Context, rule alert.Rule) 
 	if err != nil {
 		return nil, err
 	}
-	if !authority.permits(authority.principal, map[string]string{auth.ResourceTenantKey: s.tenant}) {
+	if !authority.permits(ctx, authority.principal, map[string]string{auth.ResourceTenantKey: s.tenant}) {
 		return nil, apierror.Forbidden("current alert metadata source read grants are required")
 	}
 	// The current owner's global metric read is authorized before telemetry IO.
 	// A raw test_id only nominates metadata; it never grants access to metrics
 	// or attests a sender. Context policy below further limits metadata use.
-	samples, err := s.MetricSource.Current(ctx, rule.Metric, rule.Match)
+	samples, err := s.Current(ctx, rule.Metric, rule.Match)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +188,7 @@ func (s alertTagMetricSource) CurrentRule(ctx context.Context, rule alert.Rule) 
 		if record.TenantID != s.tenant {
 			return nil, apierror.Unavailable("current alert metadata context is unavailable")
 		}
-		allowed[record.ContextID] = authority.permits(authority.principal, entityContextResource(record))
+		allowed[record.ContextID] = authority.permits(ctx, authority.principal, entityContextResource(record))
 	}
 	selected, err := snapshot.SelectContext(ctx, s.tenant, ids, allowed, configuration.Filter, configuration.TagIDs, budget.MemoryBytes/4)
 	if err != nil {

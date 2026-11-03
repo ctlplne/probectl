@@ -135,7 +135,7 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 				t.Fatal(err)
 			}
 		}
-		r := httptest.NewRequest(method, "/v1/alerts/"+id+"/tag-filter", bytes.NewReader(raw))
+		r := httptest.NewRequest(method, "/v1/alerts/rules/"+id+"/tag-filter", bytes.NewReader(raw))
 		r.SetPathValue("id", id)
 		r.Header.Set("Content-Type", "application/json")
 		r = r.WithContext(auth.WithPrincipal(r.Context(), actor))

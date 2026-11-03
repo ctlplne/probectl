@@ -3461,6 +3461,60 @@ func (c *Client) DeleteMaintenanceWindow(ctx context.Context, req DeleteMaintena
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
+// Read a current alert tag filter
+type GetAlertTagFilterRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetAlertTagFilter(ctx context.Context, req GetAlertTagFilterRequest) (*AlertTagFilterState, error) {
+	path := "/v1/alerts/rules/{id}/tag-filter"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertTagFilterState
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Set current test metadata selection for an alert
+type SetAlertTagFilterRequest struct {
+	Id   string               `json:"-"`
+	Body *AlertTagFilterInput `json:"-"`
+}
+
+func (c *Client) SetAlertTagFilter(ctx context.Context, req SetAlertTagFilterRequest) (*AlertTagFilterState, error) {
+	path := "/v1/alerts/rules/{id}/tag-filter"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertTagFilterState
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Explicitly clear an alert tag filter
+type ClearAlertTagFilterRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) ClearAlertTagFilter(ctx context.Context, req ClearAlertTagFilterRequest) error {
+	path := "/v1/alerts/rules/{id}/tag-filter"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
 // Send a test alert delivery to a supplied channel
 type TestAlertChannelRequest struct {
 	Body *AlertChannelTestRequest `json:"-"`
@@ -3555,60 +3609,6 @@ func (c *Client) ListAlertEvaluations(ctx context.Context, req ListAlertEvaluati
 		return nil, err
 	}
 	return &out, nil
-}
-
-// Read a current alert tag filter
-type GetAlertTagFilterRequest struct {
-	Id string `json:"-"`
-}
-
-func (c *Client) GetAlertTagFilter(ctx context.Context, req GetAlertTagFilterRequest) (*AlertTagFilterState, error) {
-	path := "/v1/alerts/{id}/tag-filter"
-	if req.Id == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
-	query := url.Values{}
-	var out AlertTagFilterState
-	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// Set current test metadata selection for an alert
-type SetAlertTagFilterRequest struct {
-	Id   string               `json:"-"`
-	Body *AlertTagFilterInput `json:"-"`
-}
-
-func (c *Client) SetAlertTagFilter(ctx context.Context, req SetAlertTagFilterRequest) (*AlertTagFilterState, error) {
-	path := "/v1/alerts/{id}/tag-filter"
-	if req.Id == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
-	query := url.Values{}
-	var out AlertTagFilterState
-	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// Explicitly clear an alert tag filter
-type ClearAlertTagFilterRequest struct {
-	Id string `json:"-"`
-}
-
-func (c *Client) ClearAlertTagFilter(ctx context.Context, req ClearAlertTagFilterRequest) error {
-	path := "/v1/alerts/{id}/tag-filter"
-	if req.Id == "" {
-		return fmt.Errorf("id is required")
-	}
-	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
-	query := url.Values{}
-	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
 // List the tenant's API tokens (metadata only; the secret and its hash never cross this API).

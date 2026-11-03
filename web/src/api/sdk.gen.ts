@@ -2961,6 +2961,25 @@ export interface DeleteMaintenanceWindowRequest {
 
 export type DeleteMaintenanceWindowResponse = void
 
+export interface GetAlertTagFilterRequest {
+  id: string
+}
+
+export type GetAlertTagFilterResponse = AlertTagFilterState
+
+export interface SetAlertTagFilterRequest {
+  id: string
+  body: AlertTagFilterInput
+}
+
+export type SetAlertTagFilterResponse = AlertTagFilterState
+
+export interface ClearAlertTagFilterRequest {
+  id: string
+}
+
+export type ClearAlertTagFilterResponse = void
+
 export interface TestAlertChannelRequest {
   body: AlertChannelTestRequest
 }
@@ -2993,25 +3012,6 @@ export interface ListAlertEvaluationsRequest {
 }
 
 export type ListAlertEvaluationsResponse = AlertEvaluationsResponse
-
-export interface GetAlertTagFilterRequest {
-  id: string
-}
-
-export type GetAlertTagFilterResponse = AlertTagFilterState
-
-export interface SetAlertTagFilterRequest {
-  id: string
-  body: AlertTagFilterInput
-}
-
-export type SetAlertTagFilterResponse = AlertTagFilterState
-
-export interface ClearAlertTagFilterRequest {
-  id: string
-}
-
-export type ClearAlertTagFilterResponse = void
 
 export interface GetV1ApiTokensRequest {
 }
@@ -4643,6 +4643,27 @@ export class ProbectlSDKClient {
     await this.request("DELETE", path, query, undefined)
   }
 
+  async getAlertTagFilter(request: GetAlertTagFilterRequest): Promise<GetAlertTagFilterResponse> {
+    let path = "/v1/alerts/rules/{id}/tag-filter"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetAlertTagFilterResponse>("GET", path, query, undefined)
+  }
+
+  async setAlertTagFilter(request: SetAlertTagFilterRequest): Promise<SetAlertTagFilterResponse> {
+    let path = "/v1/alerts/rules/{id}/tag-filter"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<SetAlertTagFilterResponse>("PUT", path, query, request.body)
+  }
+
+  async clearAlertTagFilter(request: ClearAlertTagFilterRequest): Promise<ClearAlertTagFilterResponse> {
+    let path = "/v1/alerts/rules/{id}/tag-filter"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, undefined)
+  }
+
   async testAlertChannel(request: TestAlertChannelRequest): Promise<TestAlertChannelResponse> {
     let path = "/v1/alerts/test-channel"
     const query = new URLSearchParams()
@@ -4677,27 +4698,6 @@ export class ProbectlSDKClient {
     if (request.fingerprint !== undefined) query.set("fingerprint", String(request.fingerprint))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListAlertEvaluationsResponse>("GET", path, query, undefined)
-  }
-
-  async getAlertTagFilter(request: GetAlertTagFilterRequest): Promise<GetAlertTagFilterResponse> {
-    let path = "/v1/alerts/{id}/tag-filter"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
-    const query = new URLSearchParams()
-    return this.requestJSON<GetAlertTagFilterResponse>("GET", path, query, undefined)
-  }
-
-  async setAlertTagFilter(request: SetAlertTagFilterRequest): Promise<SetAlertTagFilterResponse> {
-    let path = "/v1/alerts/{id}/tag-filter"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
-    const query = new URLSearchParams()
-    return this.requestJSON<SetAlertTagFilterResponse>("PUT", path, query, request.body)
-  }
-
-  async clearAlertTagFilter(request: ClearAlertTagFilterRequest): Promise<ClearAlertTagFilterResponse> {
-    let path = "/v1/alerts/{id}/tag-filter"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
-    const query = new URLSearchParams()
-    await this.request("DELETE", path, query, undefined)
   }
 
   async getV1ApiTokens(): Promise<GetV1ApiTokensResponse> {

@@ -48,11 +48,11 @@ func prepareAlertTagFilter(ctx context.Context, pool *pgxpool.Pool, source flows
 		return nil, err
 	}
 	for _, permission := range append(alertTagPermissions(), permAlertWrite) {
-		if !authority.permitsRequest(actor, permission) {
+		if !authority.permitsRequest(ctx, actor, permission) {
 			return nil, apierror.Forbidden("current alert and source grants are required")
 		}
 	}
-	if !authority.permits(authority.principal, map[string]string{auth.ResourceTenantKey: actor.TenantID}) {
+	if !authority.permits(ctx, authority.principal, map[string]string{auth.ResourceTenantKey: actor.TenantID}) {
 		return nil, apierror.Forbidden("the current user cannot delegate this metadata read without a live MFA assertion")
 	}
 	snapshot, err := store.NewTagSnapshots(pool).LoadTests(ctx, nil, budget.MemoryBytes/4)
@@ -107,7 +107,7 @@ func readAlertTagFilter(ctx context.Context, pool *pgxpool.Pool, source flowstor
 		return alert.TagFilterState{}, err
 	}
 	for _, permission := range append(alertTagPermissions(), permAlertRead) {
-		if !authority.permitsRequest(actor, permission) {
+		if !authority.permitsRequest(ctx, actor, permission) {
 			return alert.TagFilterState{}, apierror.Forbidden("current alert and source read grants are required")
 		}
 	}
@@ -251,7 +251,7 @@ func (s *Server) handleDeleteAlertTagFilter(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return err
 	}
-	if !authority.permitsRequest(actor, permAlertWrite) {
+	if !authority.permitsRequest(ctx, actor, permAlertWrite) {
 		return apierror.Forbidden("current alert write permission is required")
 	}
 	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {

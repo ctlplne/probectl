@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -21,8 +22,16 @@ func TestAlertTagFilterCLIPreservesCompletePredicatesAndBindingRevision(t *testi
 	wide := strings.Repeat("🌐", 24000)
 	for _, mode := range []struct{ operation, method string }{{"tag-filter", http.MethodGet}, {"tag-filter-set", http.MethodPut}, {"tag-filter-clear", http.MethodDelete}} {
 		t.Run(mode.operation, func(t *testing.T) {
+			var statusReads, operations atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != mode.method || r.URL.Path != "/v1/alerts/"+id+"/tag-filter" || r.URL.RawQuery != "" {
+				if r.Method == http.MethodGet && r.URL.Path == "/v1/alerts" && r.URL.RawQuery == "" {
+					statusReads.Add(1)
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"alerting_active":true}`))
+					return
+				}
+				operations.Add(1)
+				if r.Method != mode.method || r.URL.Path != "/v1/alerts/rules/"+id+"/tag-filter" || r.URL.RawQuery != "" {
 					t.Error("alert tag CLI changed its exact route")
 				}
 				if r.Method == http.MethodDelete {
@@ -63,6 +72,9 @@ func TestAlertTagFilterCLIPreservesCompletePredicatesAndBindingRevision(t *testi
 				args = append(args, "--body-file", body)
 			}
 			stdout, stderr, code := run(t, srv, args...)
+			if statusReads.Load() != 1 || operations.Load() != 1 {
+				t.Fatalf("wanted one status read and one metadata operation; got %d/%d", statusReads.Load(), operations.Load())
+			}
 			if code != 0 {
 				t.Fatalf("alert tag CLI failed: %d %s", code, stderr)
 			}

@@ -219,6 +219,16 @@ func (s *Server) decide(ctx context.Context, p *auth.Principal, perm string, mod
 		}
 		policies = loaded
 	}
+	return s.decideLoaded(ctx, p, perm, mode, resource, policies)
+}
+
+// decideLoaded is the same decision and denial-audit door for policies already
+// loaded fail-closed with current user grants in one tenant RLS snapshot. It
+// does not load or cache a second, potentially different policy revision.
+func (s *Server) decideLoaded(ctx context.Context, p *auth.Principal, perm string, mode auth.RBACCheck, resource map[string]string, policies []auth.Policy) (auth.DecisionReason, error) {
+	if err := ctx.Err(); err != nil {
+		return auth.DecisionPolicyDeny, err
+	}
 	reason := auth.Decide(p, perm, mode, policies, resource)
 	if reason == auth.DecisionPolicyDeny {
 		// Every ABAC denial is audited (docs/guardrails.md G7-5, G7-7 — the

@@ -384,7 +384,7 @@ tag rule changes the next selection without relabeling the original metrics.
 The API/CLI path is preview. UI and native adapters remain in development;
 the complete source receipt is still required.
 
-Use `GET`, `PUT` or `DELETE /v1/alerts/{id}/tag-filter`. The CLI equivalents are
+Use `GET`, `PUT` or `DELETE /v1/alerts/rules/{id}/tag-filter`. The CLI equivalents are
 `probectl --json alert tag-filter RULE_ID`, `alert tag-filter-set RULE_ID
 --body-file criteria.json`, and `alert tag-filter-clear RULE_ID`. A set body is:
 

@@ -259,7 +259,7 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 			return err
 		}
 		for _, permission := range append(alertTagPermissions(), permAlertWrite) {
-			if !authority.permitsRequest(actor, permission) {
+			if !authority.permitsRequest(r.Context(), actor, permission) {
 				return apierror.Forbidden("current alert and source grants are required")
 			}
 		}
