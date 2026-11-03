@@ -53,17 +53,12 @@ func normalizeTagSubjectReference(ref TagSubjectReference) (TagSubjectReference,
 		return TagSubjectReference{}, tags.ErrInvalid
 	}
 	switch ref.Kind {
-	case "device", "interface", "prefix", "test":
+	case "device", "interface", "prefix", "test", "agent":
 		id, err := validRegistryUUID(ref.ID)
 		if err != nil {
 			return TagSubjectReference{}, tags.ErrInvalid
 		}
 		ref.ID = id
-	case "agent":
-		key, err := (entity.SourceKey{AgentID: ref.ID, Kind: entity.AgentSite, SourceRef: ref.ID}).Normalize()
-		if err != nil || key.AgentID != ref.ID {
-			return TagSubjectReference{}, tags.ErrInvalid
-		}
 	default:
 		return TagSubjectReference{}, tags.ErrInvalid
 	}
@@ -177,9 +172,9 @@ func loadOwnedTagSubject(ctx context.Context, sc tenancy.Scope, scope tags.Scope
 	case "agent":
 		var hostname string
 		if err := sc.Q.QueryRow(ctx, `SELECT a.name,a.hostname FROM agents a JOIN entity_agent_contexts c
-			ON c.tenant_id=a.tenant_id AND c.agent_id=a.id WHERE a.tenant_id=$1 AND c.tenant_id=$1 AND c.context_id=$2 AND a.id=$3
+			ON c.tenant_id=a.tenant_id AND c.agent_id=a.id::text WHERE a.tenant_id=$1 AND c.tenant_id=$1 AND c.context_id=$2 AND a.id=$3
 			AND c.assigned_at<=transaction_timestamp() AND (c.expires_at IS NULL OR c.expires_at>transaction_timestamp())
-			AND EXISTS(SELECT 1 FROM agent_identities i WHERE i.tenant_id=a.tenant_id AND i.agent_id=a.id AND i.spiffe_id=a.spiffe_id
+			AND EXISTS(SELECT 1 FROM agent_identities i WHERE i.tenant_id=a.tenant_id AND i.agent_id=a.id::text AND i.spiffe_id=a.spiffe_id
 			 AND i.revoked_at IS NULL AND i.issued_at<=transaction_timestamp() AND i.not_after>transaction_timestamp())`, scope.TenantID, scope.ContextID, ref.ID).Scan(&subject.Name, &hostname); err != nil {
 			return tags.Subject{}, err
 		}

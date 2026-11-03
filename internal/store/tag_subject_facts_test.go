@@ -123,6 +123,7 @@ func TestTagSubjectReferencesRejectFactAndIdentitySubstitution(t *testing.T) {
 	for _, ref := range []TagSubjectReference{
 		{Kind: "device", ID: "not-a-uuid"},
 		{Kind: "agent", ID: "other\nagent"},
+		{Kind: "agent", ID: "not-a-registered-agent-uuid"},
 		{Kind: "device", ID: "11111111-1111-4111-8111-111111111111", ExporterAgentID: "hint"},
 		{Kind: "exporter", ID: "hint", ExporterAgentID: "agent", ExporterSourceRef: "source"},
 		{Kind: "exporter", ExporterAgentID: " agent", ExporterSourceRef: "source"},

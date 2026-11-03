@@ -48,7 +48,11 @@ func TestOwnedTagSubjectSnapshotUsesCurrentFactsAndTenantIsolation(t *testing.T)
 		}
 	})
 	contextID, deviceID, prefixID, otherDevice := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
-	agentFor := func(tenant string) string { return "tag-agent-" + tenant }
+	agentIDs := map[string]string{}
+	for _, tenant := range tenants {
+		agentIDs[tenant] = uuid.NewString()
+	}
+	agentFor := func(tenant string) string { return agentIDs[tenant] }
 	testIDs := map[string]string{}
 	for _, tenant := range tenants {
 		testIDs[tenant] = uuid.NewString()

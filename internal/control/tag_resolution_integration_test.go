@@ -43,7 +43,8 @@ func TestEffectiveSubjectTagsAPIAndMCPKeepTenantContextAndTypedOwnership(t *test
 	contextID, device, iface, prefix := gouuid.NewString(), gouuid.NewString(), gouuid.NewString(), gouuid.NewString()
 	manualKey, nameKey := gouuid.NewString(), gouuid.NewString()
 	testIDs := map[string]string{a: gouuid.NewString(), b: gouuid.NewString()}
-	agentFor := func(tenant string) string { return "tag-api-" + tenant }
+	agentIDs := map[string]string{a: gouuid.NewString(), b: gouuid.NewString()}
+	agentFor := func(tenant string) string { return agentIDs[tenant] }
 	for lane, tenant := range []string{a, b} {
 		agent := agentFor(tenant)
 		if err := store.NewAgentIdentities(db.Pool()).Record(ctx, tenant, agent, crypto.AgentSPIFFEID(tenant, agent),
@@ -165,6 +166,7 @@ func TestEffectiveSubjectTagsAPIAndMCPKeepTenantContextAndTypedOwnership(t *test
 		{"?target_kind=device&target_id=" + device, "tags.read", http.StatusForbidden},
 		{"?target_kind=device&target_id=" + prefix, "", http.StatusNotFound},
 		{"?target_kind=agent&target_id=" + agentFor(b), "", http.StatusNotFound},
+		{"?target_kind=agent&target_id=not-a-registry-uuid", "", http.StatusBadRequest},
 		{"?target_kind=test&target_id=" + testIDs[b], "", http.StatusNotFound},
 		{"?target_kind=exporter&exporter_agent_id=" + agentFor(b) + "&exporter_source_ref=192.0.2.9", "", http.StatusNotFound},
 		{"?target_kind=device&target_id=" + device + "&tenant_id=" + b, "", http.StatusBadRequest},
