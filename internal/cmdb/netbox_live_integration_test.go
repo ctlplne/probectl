@@ -18,7 +18,6 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -161,9 +160,10 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 		"actual prefix VRF change alters same-value reviewed provenance",
 	}}
 	encoded, err := json.MarshalIndent(proof, "", "  ")
-	if err != nil || os.WriteFile(filepath.Join(runtime, "provider-proof.json"), append(encoded, '\n'), 0o600) != nil {
-		t.Fatal("cannot persist the nonsecret source-provider receipt")
+	if err != nil {
+		t.Fatal("cannot encode the nonsecret source-provider receipt")
 	}
+	liveNetBoxWriteReceipt(t, "provider-proof.json", encoded)
 }
 
 func liveNetBoxMutation(t *testing.T, args ...string) {

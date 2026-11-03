@@ -14,6 +14,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -287,7 +288,41 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 		Checks    []string `json:"checks"`
 	}{strings.TrimSpace(string(head)), "real NetBox, product RLS and ClickHouse component; release/bus receipt remains required", []string{"paired same-ID tenant prefixes", "fresh attested reviewed import and audit", "rule and imported dimensions over identical historical inputs", "raw and complete retained exact counters and filters", "unknown exporter and foreign snapshot refuse metadata", "rule edit re-tags history without rewriting telemetry"}}
 	raw, err := json.MarshalIndent(proof, "", "  ")
-	if err != nil || os.WriteFile("/tmp/probectl-qa-beta-netbox/source-query-proof.json", append(raw, '\n'), 0o600) != nil {
-		t.Fatal("cannot retain the nonsecret source/query receipt")
+	if err != nil {
+		t.Fatal("cannot encode the nonsecret source/query receipt")
+	}
+	liveNetBoxWriteReceipt(t, "source-query-proof.json", raw)
+}
+
+// Atomic publication never follows a pre-existing destination symlink. The
+// existing CI fixture creates its private directory before any source proof.
+func liveNetBoxWriteReceipt(t *testing.T, name string, payload []byte) {
+	t.Helper()
+	if name != "source-query-proof.json" && name != "provider-proof.json" {
+		t.Fatal("unknown source receipt name")
+	}
+	const directory = "/tmp/probectl-qa-beta-netbox"
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		t.Fatal("source receipt directory is not private")
+	}
+	file, err := os.CreateTemp(directory, ".receipt-*")
+	if err != nil {
+		t.Fatal("cannot create a private source receipt")
+	}
+	temporary := file.Name()
+	defer os.Remove(temporary)
+	defer file.Close()
+	if _, err := file.Write(append(payload, '\n')); err != nil {
+		t.Fatal("cannot write source receipt")
+	}
+	if err := file.Sync(); err != nil {
+		t.Fatal("cannot flush source receipt")
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal("cannot close source receipt")
+	}
+	if err := os.Rename(temporary, filepath.Join(directory, name)); err != nil {
+		t.Fatal("cannot publish source receipt")
 	}
 }
