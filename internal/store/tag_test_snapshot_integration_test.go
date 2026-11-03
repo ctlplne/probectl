@@ -73,7 +73,11 @@ func TestTestTagSnapshotKeepsCurrentOwnedIdentityAndTenantScope(t *testing.T) {
 				}
 			}
 			for _, id := range []string{testIDs[tenant], unboundIDs[tenant]} {
-				if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,target) VALUES ($1,$2,'same-test','https://192.0.2.10/health')`, tenant, id); err != nil {
+				name := "same-test"
+				if id == unboundIDs[tenant] {
+					name = "unbound-test"
+				}
+				if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,target) VALUES ($1,$2,$3,'https://192.0.2.10/health')`, tenant, id, name); err != nil {
 					return err
 				}
 			}
