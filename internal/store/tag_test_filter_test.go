@@ -107,10 +107,10 @@ func TestTestTagFilterRejectsUnownedNegativeMatchesAndStaleBindings(t *testing.T
 	if partial, err := snapshot.SelectContext(owned, tenant, many, allowed, small, smallIDs, 1<<20); !errors.Is(err, ErrTagSnapshotBudget) || partial != nil {
 		t.Fatal("late selection budget failure returned a partial identity set")
 	}
-	cancelled, cancel := context.WithCancel(owned)
+	canceled, cancel := context.WithCancel(owned)
 	cancel()
-	if partial, err := snapshot.SelectContext(cancelled, tenant, ids, allowed, filter, binding, 4<<20); !errors.Is(err, context.Canceled) || partial != nil {
-		t.Fatal("cancelled selection returned partial IDs")
+	if partial, err := snapshot.SelectContext(canceled, tenant, ids, allowed, filter, binding, 4<<20); !errors.Is(err, context.Canceled) || partial != nil {
+		t.Fatal("canceled selection returned partial IDs")
 	}
 }
 

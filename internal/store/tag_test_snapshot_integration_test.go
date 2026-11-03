@@ -63,8 +63,12 @@ func TestTestTagSnapshotKeepsCurrentOwnedIdentityAndTenantScope(t *testing.T) {
 		testIDs[tenant], unboundIDs[tenant] = uuid.NewString(), uuid.NewString()
 		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			for _, id := range []string{contextID, movedContext} {
+				siteLabel := "owned-" + tenant
+				if id == movedContext {
+					siteLabel = "moved-" + tenant
+				}
 				if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
-					VALUES ($1,$2,$3,$4,$5,'owned-vrf')`, tenant, id, uuid.NewString(), uuid.NewString(), "owned-"+tenant); err != nil {
+					VALUES ($1,$2,$3,$4,$5,'owned-vrf')`, tenant, id, uuid.NewString(), uuid.NewString(), siteLabel); err != nil {
 					return err
 				}
 			}
@@ -167,13 +171,13 @@ func TestTestTagSnapshotKeepsCurrentOwnedIdentityAndTenantScope(t *testing.T) {
 		if item, err := hints.ResolveContext(owned, tenant, testIDs[tenant], allowed, 1<<20); err != nil || item != nil {
 			t.Fatal("test name or address supplied an implicit owned identity")
 		}
-		cancelled, cancel := context.WithCancel(owned)
+		canceled, cancel := context.WithCancel(owned)
 		cancel()
-		if item, err := snapshot.ResolveContext(cancelled, tenant, testIDs[tenant], allowed, 1<<20); !errors.Is(err, context.Canceled) || item != nil {
-			t.Fatal("cancelled test projection returned partial metadata")
+		if item, err := snapshot.ResolveContext(canceled, tenant, testIDs[tenant], allowed, 1<<20); !errors.Is(err, context.Canceled) || item != nil {
+			t.Fatal("canceled test projection returned partial metadata")
 		}
-		if partial, err := snapshots.LoadTests(cancelled, ids, 4<<20); !errors.Is(err, context.Canceled) || partial != nil {
-			t.Fatal("cancelled test snapshot returned partial metadata")
+		if partial, err := snapshots.LoadTests(canceled, ids, 4<<20); !errors.Is(err, context.Canceled) || partial != nil {
+			t.Fatal("canceled test snapshot returned partial metadata")
 		}
 		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			rule := rules[tenant]
