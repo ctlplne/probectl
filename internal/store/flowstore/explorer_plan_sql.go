@@ -247,7 +247,7 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		outputs = append(outputs, output("point", "chart_points", "", "bucket_index", "toString(duration_ns)", "toUInt64(0)"))
 	}
 	if plan.View == "matrix" {
-		rowTop := "SELECT g FROM " + globalRank + " WHERE rk<={matrix_depth:UInt64}"
+		rowTop := "SELECT arrayJoin(__probectl_matrix_rows)"
 		if selectedMatrixRows != nil {
 			encoded, err := json.Marshal(selectedMatrixRows)
 			if err != nil {
@@ -255,6 +255,11 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 			}
 			params["selected_matrix_rows"] = string(encoded)
 			rowTop = "SELECT arrayJoin(JSONExtract({selected_matrix_rows:String},'Array(Array(String))'))"
+		} else {
+			// Scalar folding is query-local. Referencing a ranked table CTE at
+			// every membership site repeatedly analyzes its complete input,
+			// including owned prefix joins; compute the exact top set once.
+			ctes = append(ctes, "(SELECT groupArray(g) FROM "+globalRank+" WHERE rk<={matrix_depth:UInt64}) AS __probectl_matrix_rows")
 		}
 		outputs = append(outputs, output("matrix_row", "full_stats", "g IN ("+rowTop+")", "toInt64(-1)", "'0'", "toUInt64(0)"))
 		input("column_input", "filtered.c", empty, "0", "0", "filtered.g IN ("+rowTop+")")
@@ -269,11 +274,13 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 			params["selected_columns"] = string(encoded)
 			ctes = append(ctes, "column_ranked AS (SELECT *,indexOf(JSONExtract({selected_columns:String},'Array(Array(String))'),g) AS rk FROM column_stats WHERE g IN (SELECT arrayJoin(JSONExtract({selected_columns:String},'Array(Array(String))'))))")
 		}
-		columnTop := "SELECT g FROM column_ranked WHERE rk<={matrix_depth:UInt64}"
+		columnTop := "SELECT arrayJoin(__probectl_matrix_columns)"
 		if selectedColumns != nil {
 			// Preserve pinned membership even when a column occurs only in
 			// this period's Other rows and has no conditioned statistics.
 			columnTop = "SELECT arrayJoin(JSONExtract({selected_columns:String},'Array(Array(String))'))"
+		} else {
+			ctes = append(ctes, "(SELECT groupArray(g) FROM column_ranked WHERE rk<={matrix_depth:UInt64}) AS __probectl_matrix_columns")
 		}
 		outputs = append(outputs, output("matrix_column", "column_ranked", "rk<={matrix_depth:UInt64}", "toInt64(-1)", "'0'", "toUInt64(0)"))
 		input("matrix_input", "if(filtered.g IN ("+rowTop+"),filtered.g,"+empty+")", "if(filtered.c IN ("+columnTop+"),filtered.c,"+empty+")", "filtered.g NOT IN ("+rowTop+")", "filtered.c NOT IN ("+columnTop+")", "")
