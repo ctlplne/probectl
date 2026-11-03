@@ -104,10 +104,24 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 		(id,tenant_id,name,target) VALUES ($1,$2,'entity-path-b','10.42.0.1')`, testB, b); err != nil {
 		t.Fatalf("seed other tenant path test: %v", err)
 	}
+	// A path binding must also have the matching general test context. Its
+	// absence must fail closed even for an otherwise owned test/context pair.
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.entity_path_test_contexts
+		(tenant_id,test_id,context_id,path_target) VALUES ($1,$2,$3,'10.42.0.1')`,
+		a, testA, contextA); err == nil {
+		t.Fatal("silo accepted path binding without general test context")
+	}
+	for _, row := range []struct{ tenant, test string }{{a, testA}, {b, testB}} {
+		if _, err := pool.Exec(ctx, `INSERT INTO `+quoteIdent(SchemaName(row.tenant))+`.entity_test_contexts
+			(tenant_id,test_id,context_id) VALUES ($1,$2,$3)`, row.tenant, row.test, contextA); err != nil {
+			t.Fatalf("seed owned general test context: %v", err)
+		}
+	}
 	for name, row := range map[string]struct{ test, context string }{
-		"other tenant test":    {testB, contextA},
-		"other tenant context": {testA, foreignContext},
-		"missing context":      {testA, uuid.NewString()},
+		"other tenant test":               {testB, contextA},
+		"other tenant context":            {testA, foreignContext},
+		"missing context":                 {testA, uuid.NewString()},
+		"different owned general context": {testA, contextOther},
 	} {
 		if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.entity_path_test_contexts
 			(tenant_id,test_id,context_id,path_target) VALUES ($1,$2,$3,'10.42.0.1')`,

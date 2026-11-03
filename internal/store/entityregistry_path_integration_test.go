@@ -154,4 +154,35 @@ func TestPathContextBindingRequiresSameTenantTestAndContext(t *testing.T) {
 	if _, err := repo.PathTestContext(ctxA, a.ID, testIDs[b.ID]); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("foreign test read = %v, want no row", err)
 	}
+	// An explicit context rebind must move both bindings together and remove
+	// the old context's test assignment, rather than carrying metadata across.
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		var tagID string
+		if err := sc.Q.QueryRow(ctx, `INSERT INTO tenant_tag_definitions (tenant_id,id,key)
+			VALUES ($1,gen_random_uuid(),'path_context') RETURNING id::text`, a.ID).Scan(&tagID); err != nil {
+			return err
+		}
+		_, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_assignments
+			(tenant_id,context_id,id,tag_id,target_kind,test_id,value,source)
+			VALUES ($1,$2,gen_random_uuid(),$3,'test',$4,'old_context','manual')`, a.ID, contexts[a.ID], tagID, testIDs[a.ID])
+		return err
+	})
+	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		return repo.AssignPathTestContext(ctx, sc, testIDs[a.ID], secondContextID)
+	})
+	rebound, err := repo.PathTestBinding(ctxA, a.ID, testIDs[a.ID])
+	if err != nil || rebound.Scope.ContextID != secondContextID || !rebound.AssignedAt.After(retargeted.AssignedAt) {
+		t.Fatalf("context rebind did not renew path authority: %+v, %v", rebound, err)
+	}
+	var generalContext string
+	var staleAssignments int
+	if err := pool.QueryRow(ctx, `SELECT context_id::text FROM entity_test_contexts WHERE tenant_id=$1 AND test_id=$2`, a.ID, testIDs[a.ID]).Scan(&generalContext); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM tenant_tag_assignments WHERE tenant_id=$1 AND test_id=$2`, a.ID, testIDs[a.ID]).Scan(&staleAssignments); err != nil {
+		t.Fatal(err)
+	}
+	if generalContext != secondContextID || staleAssignments != 0 {
+		t.Fatal("general/path context diverged or stale tag assignment survived rebind")
+	}
 }

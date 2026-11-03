@@ -130,6 +130,24 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 		WHERE tenant_id=$1`, a).Scan(&revision); err != nil || revision <= 1 {
 		t.Fatalf("accepted definition/assignment did not advance revision: %d, %v", revision, err)
 	}
+	var otherRevision int64
+	if err := pool.QueryRow(ctx, `SELECT revision FROM `+schemaB+`.tenant_tag_revisions WHERE tenant_id=$1`, b).Scan(&otherRevision); err != nil {
+		t.Fatal(err)
+	}
+	if err := appExec(a, `INSERT INTO `+schemaA+`.tenant_tag_definitions (tenant_id,id,key)
+		SELECT $1,gen_random_uuid(),'batch_'||n::text FROM generate_series(1,32) n`, a); err != nil {
+		t.Fatalf("physical silo multirow revision trigger: %v", err)
+	}
+	var bulkRevision, preservedRevision int64
+	if err := pool.QueryRow(ctx, `SELECT revision FROM `+schemaA+`.tenant_tag_revisions WHERE tenant_id=$1`, a).Scan(&bulkRevision); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT revision FROM `+schemaB+`.tenant_tag_revisions WHERE tenant_id=$1`, b).Scan(&preservedRevision); err != nil {
+		t.Fatal(err)
+	}
+	if bulkRevision != revision+1 || preservedRevision != otherRevision {
+		t.Fatal("physical silo bulk write changed the wrong tenant revision or advanced more than once")
+	}
 	ruleID := uuid.NewString()
 	assertSNMPText := func() {
 		t.Helper()
@@ -208,11 +226,6 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 		pathTestID, a); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.entity_path_test_contexts
-		(tenant_id,test_id,context_id,path_target)
-		VALUES ($1,$2,$3,'10.42.0.1')`, a, pathTestID, contextA); err != nil {
-		t.Fatal(err)
-	}
 	for _, table := range []string{
 		"tenant_tag_assignments", "tenant_tag_rules", "tenant_tag_definitions",
 		"tenant_tag_revisions", "entity_test_contexts",
@@ -220,6 +233,13 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 		if _, err := pool.Exec(ctx, `DROP TABLE `+schemaA+`.`+quoteIdent(table)+` CASCADE`); err != nil {
 			t.Fatalf("simulate pre-tag silo table %s: %v", table, err)
 		}
+	}
+	// Insert the legacy path only after removing the general table and its
+	// dependent FK, matching the actual pre-tag schema being simulated.
+	if _, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.entity_path_test_contexts
+		(tenant_id,test_id,context_id,path_target)
+		VALUES ($1,$2,$3,'10.42.0.1')`, a, pathTestID, contextA); err != nil {
+		t.Fatal(err)
 	}
 	for _, index := range []string{
 		"entities_tenant_context_id_kind_uidx",

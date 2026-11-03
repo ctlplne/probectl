@@ -96,6 +96,15 @@ func TestManualTagAssignmentWritesStayInTenantAndContext(t *testing.T) {
 	}
 	wrongKind := input(a.ID, tagA.ID)
 	wrongKind.TargetKind = "interface"
+	// Isolate the typed FK from the existing assignment's unique key. A
+	// duplicate may be rejected before PostgreSQL evaluates the reference.
+	if err := run(a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		definition, err := (TagDefinitions{}).Create(ctx, sc, "kind_boundary")
+		wrongKind.TagID = definition.ID
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := run(a.ID, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := (TagAssignments{}).CreateManual(ctx, sc, wrongKind)
 		return err

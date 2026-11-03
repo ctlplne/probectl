@@ -45,7 +45,7 @@ func (s *EntityRegistry) AssignPathTestContext(ctx context.Context, sc tenancy.S
 	}
 	var testTarget string
 	if err := sc.Q.QueryRow(ctx, `SELECT target FROM tests
-		WHERE tenant_id=$1 AND id=$2 FOR SHARE`,
+		WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
 		sc.Tenant.String(), testID).Scan(&testTarget); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return entity.ErrScopeMismatch
@@ -55,6 +55,20 @@ func (s *EntityRegistry) AssignPathTestContext(ctx context.Context, sc tenancy.S
 	pathTarget := path.TargetHost(testTarget)
 	if pathTarget == "" || len(pathTarget) > 1024 {
 		return entity.ErrInvalidClaim
+	}
+	// The path and general test contexts are one explicit operator binding.
+	// Serialize on the test row. Preserve equal-context timestamps; a context
+	// change removes stale context-specific path/tag children atomically.
+	if _, err := sc.Q.Exec(ctx, `DELETE FROM entity_test_contexts
+		WHERE tenant_id=$1 AND test_id=$2 AND context_id<>$3`,
+		sc.Tenant.String(), testID, contextID); err != nil {
+		return err
+	}
+	if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_test_contexts
+		(tenant_id,test_id,context_id) VALUES ($1,$2,$3)
+		ON CONFLICT (tenant_id,test_id) DO NOTHING`,
+		sc.Tenant.String(), testID, contextID); err != nil {
+		return err
 	}
 	_, err = sc.Q.Exec(ctx, `INSERT INTO entity_path_test_contexts
 		(tenant_id,test_id,context_id,path_target) VALUES ($1,$2,$3,$4)
