@@ -46,6 +46,8 @@ export function validateTestTagContextMatrix(checks, themes, viewports) {
         const names = stagesFor(mode);
         if (
           row.passed !== true ||
+      !Array.isArray(row.runtime) ||
+      !Array.isArray(row.errors) ||
           row.runtime?.length ||
           row.errors?.length ||
           row.theme_verified !== true ||
@@ -149,6 +151,8 @@ export function testTagContextSelfTest() {
   wrongIdentity[0].request_ids_verified = false;
   const contradictoryPass = structuredClone(records);
   contradictoryPass[0].stages[0].axe.push("blocking finding");
+  const unobservedRuntime = structuredClone(records);
+  delete unobservedRuntime[0].runtime;
   for (const invalid of [
     [],
     records.slice(1),
@@ -156,6 +160,7 @@ export function testTagContextSelfTest() {
     missingStage,
     wrongIdentity,
     contradictoryPass,
+    unobservedRuntime,
   ])
     if (!validateTestTagContextMatrix(invalid, themes, viewports).length)
       throw Error("missing/duplicate/unproved test-tag state was accepted");
