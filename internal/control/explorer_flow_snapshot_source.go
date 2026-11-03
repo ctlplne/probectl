@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/objectstore"
 	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -85,7 +86,8 @@ func (source *flowSnapshotSource) expiry(ctx context.Context, scope flowsnapshot
 }
 
 type flowSnapshotValidity struct {
-	Inputs []flowstore.SnapshotInputs `json:"inputs"`
+	Inputs           []flowstore.SnapshotInputs `json:"inputs"`
+	TagAuthorization string                     `json:"tag_authorization,omitempty"`
 }
 
 func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapshot.Scope, results ...flowstore.PlanResult) (json.RawMessage, time.Time, error) {
@@ -98,6 +100,21 @@ func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapsho
 		clock, err := flowstore.SnapshotInputsForTenant(ctx, scope.TenantID, result)
 		if err != nil {
 			return nil, time.Time{}, flowExplorerStoreError(err)
+		}
+		if clock.TagLookup {
+			data, err := flowTagQueryFromContext(ctx, scope.TenantID)
+			if err != nil || data == nil {
+				return nil, time.Time{}, apierror.Unavailable("tag authorization receipt is unavailable")
+			}
+			revision, err := data.Revision(scope.TenantID)
+			if err != nil || revision != result.TagRevision {
+				return nil, time.Time{}, apierror.Unavailable("tag authorization revision is unavailable")
+			}
+			digest, err := data.ContextAuthorization(scope.TenantID)
+			if err != nil || (proof.TagAuthorization != "" && proof.TagAuthorization != digest) {
+				return nil, time.Time{}, apierror.Unavailable("tag authorization receipt is unavailable")
+			}
+			proof.TagAuthorization = digest
 		}
 		expiry, err := source.expiry(ctx, scope, clock)
 		if err != nil {
@@ -131,6 +148,9 @@ func (source *flowSnapshotSource) validate(ctx context.Context, scope flowsnapsh
 	if len(receipt.Inputs) < 1 || len(receipt.Inputs) > 2 {
 		return flowExplorerStoreError(flowstore.ErrSnapshotInputs)
 	}
+	if err := source.validateTagAuthorization(ctx, scope, receipt); err != nil {
+		return err
+	}
 	verifier, ok := flowstore.SnapshotInputVerifierOf(source.server.flowStore)
 	if !ok {
 		return apierror.Unavailable("flow snapshot source coverage cannot be validated")
@@ -142,6 +162,29 @@ func (source *flowSnapshotSource) validate(ctx context.Context, scope flowsnapsh
 		if err := verifier.VerifySnapshotInputs(ctx, scope.TenantID, clock); err != nil {
 			return flowExplorerStoreError(err)
 		}
+	}
+	return nil
+}
+
+func (source *flowSnapshotSource) validateTagAuthorization(ctx context.Context, scope flowsnapshot.Scope, receipt flowSnapshotValidity) error {
+	tagged := false
+	for _, clock := range receipt.Inputs {
+		tagged = tagged || clock.TagLookup
+	}
+	if !tagged && receipt.TagAuthorization == "" {
+		return nil
+	}
+	p := auth.PrincipalFrom(ctx)
+	if !tagged || receipt.TagAuthorization == "" || p == nil || p.TenantID != scope.TenantID || p.UserID != scope.Owner {
+		return apierror.Forbidden("current tag authorization is required for these results; run a fresh query")
+	}
+	data, err := source.server.loadFlowTagQuery(ctx, p)
+	if err != nil {
+		return err
+	}
+	digest, err := data.ContextAuthorization(scope.TenantID)
+	if err != nil || digest != receipt.TagAuthorization {
+		return apierror.Forbidden("tag context authorization changed; run a fresh query")
 	}
 	return nil
 }

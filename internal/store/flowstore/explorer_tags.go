@@ -8,6 +8,7 @@ package flowstore
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/netip"
@@ -23,10 +24,11 @@ var ErrTagQueryScope = errors.New("flow tag lookup is not bound to this tenant")
 // uniquely owned exporter addresses. A raw row's claimed agent ID is absent
 // from the API and cannot choose an overlapping routing context.
 type TagQueryData struct {
-	tenantID   string
-	revision   int64
-	vocabulary flow.QueryVocabulary
-	exporters  map[string]map[string]string
+	tenantID             string
+	revision             int64
+	vocabulary           flow.QueryVocabulary
+	exporters            map[string]map[string]string
+	contextAuthorization string
 }
 
 func NewTagQueryData(tenantID string, revision int64, definitions []tags.Definition,
@@ -85,6 +87,31 @@ func (d *TagQueryData) Vocabulary(tenantID string) (flow.QueryVocabulary, error)
 		return flow.QueryVocabulary{}, err
 	}
 	return d.vocabulary, nil
+}
+
+// WithContextAuthorization returns an immutable copy bound to the server's
+// context-policy decision digest. It accepts no public query grammar.
+func (d *TagQueryData) WithContextAuthorization(tenantID, digest string) (*TagQueryData, error) {
+	if _, err := d.Revision(tenantID); err != nil {
+		return nil, err
+	}
+	if len(digest) != 64 {
+		return nil, ErrTagQueryScope
+	}
+	decoded, err := hex.DecodeString(digest)
+	if err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != digest {
+		return nil, ErrTagQueryScope
+	}
+	copy := *d
+	copy.contextAuthorization = digest
+	return &copy, nil
+}
+
+func (d *TagQueryData) ContextAuthorization(tenantID string) (string, error) {
+	if _, err := d.Revision(tenantID); err != nil || d.contextAuthorization == "" {
+		return "", ErrTagQueryScope
+	}
+	return d.contextAuthorization, nil
 }
 
 // Value returns the explicit unmatched empty value for an address/key with

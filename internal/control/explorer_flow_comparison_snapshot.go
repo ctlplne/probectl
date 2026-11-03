@@ -77,6 +77,7 @@ func packFlowComparisonRows(current, previous []flowstore.PlanRow, plan flow.Que
 }
 
 func (s *Server) createFlowComparisonSnapshot(ctx context.Context, p *auth.Principal, current, previous ai.ExplorerQuery, versions map[string]int64) (explorerComparisonResult, error) {
+	ctx = auth.WithPrincipal(ctx, p)
 	scope, err := flowSnapshotScope(p)
 	if err != nil {
 		return explorerComparisonResult{}, err
@@ -133,6 +134,7 @@ func (s *Server) handleResumeFlowComparisonSnapshot(w http.ResponseWriter, r *ht
 }
 
 func (s *Server) resumeFlowComparisonSnapshot(ctx context.Context, p *auth.Principal, query ai.ExplorerQuery) (_ explorerComparisonResult, operationErr error) {
+	ctx = auth.WithPrincipal(ctx, p)
 	finish := s.beginFlowOperation(ctx, "comparison_page")
 	defer func() { finish(operationErr) }()
 	if err := validateFlowContinuation(query); err != nil {

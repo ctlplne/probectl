@@ -76,6 +76,7 @@ func flowSnapshotError(err error) error {
 }
 
 func (s *Server) createFlowSnapshot(ctx context.Context, p *auth.Principal, query ai.ExplorerQuery, plan flow.QueryPlan, versions map[string]int64) (explorerResult, error) {
+	ctx = auth.WithPrincipal(ctx, p)
 	scope, err := flowSnapshotScope(p)
 	if err != nil {
 		return explorerResult{}, err
@@ -139,6 +140,7 @@ func (s *Server) handleResumeFlowSnapshot(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) resumeFlowSnapshot(ctx context.Context, p *auth.Principal, query ai.ExplorerQuery) (_ explorerResult, operationErr error) {
+	ctx = auth.WithPrincipal(ctx, p)
 	finish := s.beginFlowOperation(ctx, "page")
 	defer func() { finish(operationErr) }()
 	if s.flowSnapshots == nil {

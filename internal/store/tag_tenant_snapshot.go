@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -29,6 +30,7 @@ type TenantTagSnapshot struct {
 	definitions []tags.Definition
 	byAddress   map[string]tagExporterBinding
 	byContext   map[string]*tags.Snapshot
+	contexts    []entity.ContextRecord
 }
 
 type tagExporterBinding struct {
@@ -54,8 +56,30 @@ func (s *TenantTagSnapshot) Definitions() ([]tags.Definition, error) {
 	return append([]tags.Definition(nil), s.definitions...), nil
 }
 
+// Contexts returns the owned resource attributes from the same RLS snapshot
+// as the candidate exporter bindings. Request data never supplies attributes.
+func (s *TenantTagSnapshot) Contexts() ([]entity.ContextRecord, error) {
+	if _, err := s.Revision(); err != nil {
+		return nil, err
+	}
+	return append([]entity.ContextRecord(nil), s.contexts...), nil
+}
+
 // ProjectExportersContext applies the query lifetime to the complete projection.
 func (s *TenantTagSnapshot) ProjectExportersContext(ctx context.Context, maxBytes int64) ([]tags.ExporterProjection, error) {
+	return s.projectExporters(ctx, nil, maxBytes)
+}
+
+// ProjectAuthorizedExportersContext withholds metadata from denied contexts;
+// it never drops underlying flow rows or accepts a missing authorization map.
+func (s *TenantTagSnapshot) ProjectAuthorizedExportersContext(ctx context.Context, allowed map[string]bool, maxBytes int64) ([]tags.ExporterProjection, error) {
+	if allowed == nil {
+		return nil, tags.ErrScopeMismatch
+	}
+	return s.projectExporters(ctx, allowed, maxBytes)
+}
+
+func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[string]bool, maxBytes int64) ([]tags.ExporterProjection, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -81,6 +105,9 @@ func (s *TenantTagSnapshot) ProjectExportersContext(ctx context.Context, maxByte
 	used := int64(0)
 	out := []tags.ExporterProjection{}
 	for _, address := range addresses {
+		if allowed != nil && !allowed[s.byAddress[address].contextID] {
+			continue
+		}
 		resolved, err := s.ResolveExporterContext(ctx, netip.MustParseAddr(address))
 		if err != nil {
 			return nil, err
@@ -194,6 +221,7 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64) (*TenantT
 		}
 		sort.Strings(contextIDs)
 		contextSnapshots := make(map[string]*tags.Snapshot, len(contexts))
+		contextRecords := make([]entity.ContextRecord, 0, len(contextIDs))
 		for _, contextID := range contextIDs {
 			// NewSnapshot copies every definition per context. Charge that
 			// copy as well as the assignment/rule rows it compiles.
@@ -201,6 +229,15 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64) (*TenantT
 				return err
 			}
 			scope := tags.Scope{TenantID: tenantID, ContextID: contextID}
+			record := entity.ContextRecord{TenantID: tenantID, ContextID: contextID}
+			if err := sc.Q.QueryRow(ctx, `SELECT site_id::text,vrf_id::text,site_label,vrf_label,created_at
+				FROM entity_contexts WHERE tenant_id=$1 AND id=$2`, tenantID, contextID).Scan(&record.SiteID, &record.VRFID, &record.SiteLabel, &record.VRFLabel, &record.CreatedAt); err != nil {
+				return err
+			}
+			if err := charge(record.ContextID, record.SiteID, record.VRFID, record.SiteLabel, record.VRFLabel); err != nil {
+				return err
+			}
+			contextRecords = append(contextRecords, record)
 			contextSnapshots[contextID], err = loadTagContextSnapshot(ctx, sc, scope,
 				revision, definitions, charge)
 			if err != nil {
@@ -209,7 +246,7 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64) (*TenantT
 		}
 		result = &TenantTagSnapshot{tenantID: tenantID, revision: revision,
 			definitions: append([]tags.Definition(nil), definitions...),
-			byAddress:   bindings, byContext: contextSnapshots}
+			byAddress:   bindings, byContext: contextSnapshots, contexts: contextRecords}
 		return nil
 	})
 	if err != nil {

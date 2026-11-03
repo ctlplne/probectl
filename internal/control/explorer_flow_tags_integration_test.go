@@ -19,10 +19,13 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tags"
@@ -42,7 +45,7 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 			t.Errorf("remove tag Explorer tenants: %v", err)
 		}
 	})
-	rows := flowstore.NewMemory()
+	rows := &snapshotAPISource{Memory: flowstore.NewMemory()}
 	srv.WithFlowStore(rows)
 	// Exercise the shipping shared-snapshot path as well as query-time tags.
 	// PG + encrypted temporary FS is a component proof, not release/four-store.
@@ -67,7 +70,7 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 		Fence: tenancy.NewPostgresWriterFence(db.Pool()), Cache: flowsnapshot.Config{TempDir: t.TempDir()},
 	})
 	ctx := t.Context()
-	var redRulePath, redRuleID, redTagID string
+	var redRulePath, redRuleID, redTagID, redContextID string
 	for _, item := range []struct{ tenant, agent, value string }{
 		{a, "agent-tag-a", "blue"}, {b, "agent-tag-b", "red"},
 	} {
@@ -114,6 +117,7 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 			}
 			// Save the exact tenant path and rule ID for the history edit below.
 			redRulePath, redRuleID, redTagID = rulePath, rule.ID, definition.ID
+			redContextID = contextRow.ContextID
 		}
 	}
 	extra := apiReq(t, srv.Handler(), http.MethodPost, "/v1/tags", a,
@@ -200,6 +204,21 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 	}
 	if _, code := read(a, "tags.read"); code != http.StatusForbidden {
 		t.Fatalf("withheld tags.read returned %d", code)
+	}
+	paged := query
+	pagedPlan := *query.Flow
+	pagedPlan.PageSize = 1
+	paged.Flow = &pagedPlan
+	frozenResponse := apiReq(t, srv.Handler(), http.MethodPost, "/v1/explorer/query", a, paged)
+	var frozen explorerResult
+	if frozenResponse.Code != http.StatusOK || json.Unmarshal(frozenResponse.Body.Bytes(), &frozen) != nil || frozen.FlowPaging == nil || !frozen.FlowPaging.More {
+		t.Fatal("paired tag proof did not create a real shared result continuation")
+	}
+	resume := ai.ExplorerQuery{Source: ai.ExplorerFlow, Flow: &flow.QueryPlan{Cursor: frozen.FlowPaging.NextCursor}}
+	p := &auth.Principal{TenantID: a, UserID: "dev", Permissions: map[string]bool{permAIQuery: true, permFlowRead: true, permTagsRead: true}}
+	comparison, err := (nativeMCPFlowBackend{srv}).FlowCompare(ctx, p, mcp.NativeFlowCompareInput{Plan: pagedPlan, PreviousFrom: at.Add(-2 * time.Hour), PreviousTo: at.Add(-time.Hour)})
+	if err != nil || comparison.Paging == nil || !comparison.Paging.More {
+		t.Fatalf("tagged comparison did not create a shared continuation: %v", err)
 	}
 	savedFilter := apiReq(t, srv.Handler(), http.MethodPost, "/v1/explorer/flow-filters", a,
 		map[string]any{"name": "Customer blue", "expression": map[string]any{
@@ -299,6 +318,60 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 		viewResult.Totals["bytes:total"] != "300" ||
 		viewGroups["green"] != "100" || viewGroups[""] != "200" || viewGroups["blue"] != "" {
 		t.Fatalf("saved tag view did not use current rules for history: %+v", viewResult)
+	}
+	beforeResume := rows.queries.Load()
+	frozenPage := apiReq(t, srv.Handler(), http.MethodPost, "/v1/explorer/query", a, resume)
+	var frozenNext explorerResult
+	if frozenPage.Code != http.StatusOK || json.Unmarshal(frozenPage.Body.Bytes(), &frozenNext) != nil || frozenNext.Flow == nil || frozenNext.Flow.TagRevision != initialRevision || rows.queries.Load() != beforeResume {
+		t.Fatal("rule edits altered frozen values or reran event source execution")
+	}
+	frozenBlue := false
+	for _, row := range append(append([]flowstore.PlanRow{}, frozen.Flow.Rows...), frozenNext.Flow.Rows...) {
+		frozenBlue = frozenBlue || row.Group["tag.customer"] == "blue" && row.Metrics["bytes:total"] == "100"
+	}
+	if !frozenBlue {
+		t.Fatal("frozen rows lost their original tag values")
+	}
+	if _, err := (nativeMCPFlowBackend{srv}).FlowPage(ctx, p, frozen.FlowPaging.NextCursor); err != nil {
+		t.Fatalf("authorized user MCP page lost its current actor: %v", err)
+	}
+	if _, err := (nativeMCPFlowBackend{srv}).FlowComparisonPage(ctx, p, comparison.Paging.NextCursor); err != nil || rows.queries.Load() != beforeResume {
+		t.Fatal("authorized comparison revalidation failed or reran the event query")
+	}
+	for _, permission := range []string{permTagsRead, permFlowRead} {
+		var policy *auth.Policy
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(a)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			policy, err = (store.ABACPolicies{}).Create(ctx, sc, auth.Policy{Name: "revoke frozen tag context", Enabled: true, Effect: auth.PolicyDeny, Permission: permission, Resource: map[string]string{"context_id": redContextID}, Priority: 100})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		srv.abac.invalidate(a)
+		fresh, code := read(a, "")
+		if code != http.StatusOK || fresh == nil || fresh.Totals["bytes:total"] != "300" || len(fresh.Rows) != 1 || fresh.Rows[0].Group["tag.customer"] != "" {
+			t.Fatal("fresh context policy changed raw totals or disclosed denied metadata")
+		}
+		if denied := apiReq(t, srv.Handler(), http.MethodPost, "/v1/explorer/query", a, resume); denied.Code != http.StatusForbidden || strings.Contains(denied.Body.String(), `"blue"`) {
+			t.Fatal("a current context deny exposed a frozen page")
+		}
+		if _, err := (nativeMCPFlowBackend{srv}).FlowPage(ctx, p, frozen.FlowPaging.NextCursor); err == nil {
+			t.Fatal("user MCP bypassed frozen tag context revocation")
+		}
+		if _, err := (nativeMCPFlowBackend{srv}).FlowComparisonPage(ctx, p, comparison.Paging.NextCursor); err == nil {
+			t.Fatal("comparison continuation bypassed tag context revocation")
+		}
+		for _, id := range []string{frozen.FlowPaging.SnapshotID, comparison.Paging.SnapshotID} {
+			if denied := apiReq(t, srv.Handler(), http.MethodGet, "/v1/explorer/flow-snapshots/"+id+"/csv", a, nil); denied.Code != http.StatusForbidden || strings.Contains(denied.Body.String(), `"blue"`) {
+				t.Fatal("CSV bypassed frozen tag context revocation")
+			}
+		}
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(a)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			return (store.ABACPolicies{}).Delete(ctx, sc, policy.ID)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		srv.abac.invalidate(a)
 	}
 	renamed := apiReq(t, srv.Handler(), http.MethodPut, "/v1/tags/"+redTagID, a,
 		map[string]any{"key": "customer_new"})

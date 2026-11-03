@@ -654,6 +654,12 @@ whose exporter address has no unique, current operator-owned binding has an
 empty tag value, shown as **Unmatched** in presentation. The sender's claimed
 agent ID never selects a routing context. A later rule edit changes a fresh
 query over retained history without changing the stored flow rows or totals.
+Tag values also require current `tags.read` and `flow.read` permission on the
+owned routing context. Withheld metadata uses the same **Unmatched** value;
+selected flow rows and totals are retained. A private saved result binds the
+effective context decisions and rechecks the current user before pages,
+comparisons and CSV exports. If those decisions change, run a fresh query.
+Rule edits alone preserve the saved result's original values and revision.
 
 ## Query API (tenant-scoped, `flow.read`)
 

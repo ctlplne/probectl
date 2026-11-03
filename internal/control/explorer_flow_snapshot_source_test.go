@@ -13,12 +13,43 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantlife"
 )
+
+func TestTaggedSnapshotSourceRequiresItsCurrentActorAndAuthorizationBinding(t *testing.T) {
+	source, _, coverage, _ := snapshotSourceFixture()
+	scope := flowsnapshot.Scope{TenantID: "tenant-a", Owner: "alice"}
+	receipt := flowSnapshotValidity{Inputs: []flowstore.SnapshotInputs{{TagLookup: true}}, TagAuthorization: "binding"}
+	for _, principal := range []*auth.Principal{
+		nil,
+		{TenantID: "tenant-b", UserID: "alice"},
+		{TenantID: "tenant-a", UserID: "bob"},
+	} {
+		if err := source.validateTagAuthorization(auth.WithPrincipal(t.Context(), principal), scope, receipt); err == nil {
+			t.Fatal("tagged frozen result accepted a missing or foreign actor")
+		}
+	}
+	p := &auth.Principal{TenantID: scope.TenantID, UserID: scope.Owner}
+	ctx := auth.WithPrincipal(t.Context(), p)
+	missing := receipt
+	missing.TagAuthorization = ""
+	if err := source.validateTagAuthorization(ctx, scope, missing); err == nil {
+		t.Fatal("legacy unbound tagged result bypassed current context policy")
+	}
+	wrong := receipt
+	wrong.Inputs = []flowstore.SnapshotInputs{{}}
+	if err := source.validateTagAuthorization(ctx, scope, wrong); err == nil {
+		t.Fatal("context binding without a tagged input was accepted")
+	}
+	if coverage.calls != 0 {
+		t.Fatal("actor or binding refusal read event source coverage")
+	}
+}
 
 type snapshotPolicyProbe struct {
 	fakeTenantLifecycle

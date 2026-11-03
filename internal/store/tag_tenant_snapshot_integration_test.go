@@ -106,6 +106,25 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 			projection[0].Values["customer"] != row.value {
 			t.Fatalf("tenant %s query projection: %+v, %v", row.tenantID, projection, err)
 		}
+		contexts, err := loaded.Contexts()
+		if err != nil || len(contexts) != 1 || contexts[0].TenantID != row.tenantID {
+			t.Fatal("policy resources escaped the tag snapshot's tenant")
+		}
+		contextID := contexts[0].ContextID
+		contexts[0].SiteLabel = "mutated caller copy"
+		freshContexts, err := loaded.Contexts()
+		if err != nil || freshContexts[0].SiteLabel == contexts[0].SiteLabel {
+			t.Fatal("caller mutated captured policy attributes")
+		}
+		if denied, err := loaded.ProjectAuthorizedExportersContext(ctx, map[string]bool{}, 1<<20); err != nil || len(denied) != 0 {
+			t.Fatal("denied context contributed metadata")
+		}
+		if admitted, err := loaded.ProjectAuthorizedExportersContext(ctx, map[string]bool{contextID: true}, 1<<20); err != nil || len(admitted) != 1 || admitted[0].Values["customer"] != row.value {
+			t.Fatal("authorized context lost its metadata")
+		}
+		if _, err := loaded.ProjectAuthorizedExportersContext(ctx, nil, 1<<20); !errors.Is(err, tags.ErrScopeMismatch) {
+			t.Fatal("missing context decisions admitted metadata")
+		}
 		if _, err := loaded.ProjectExportersContext(ctx, 128); !errors.Is(err, ErrTagSnapshotBudget) {
 			t.Fatalf("tenant %s partial query projection admitted: %v", row.tenantID, err)
 		}

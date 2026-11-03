@@ -79,6 +79,9 @@ func flowQueryTagHints(query ai.ExplorerQuery) (direct, saved bool) {
 // one revision. The three materializations each receive a quarter of the
 // existing Explorer memory allowance; no partial projection is usable.
 func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal) (*flowstore.TagQueryData, error) {
+	if principal == nil || principal.TenantID == "" {
+		return nil, apierror.Unauthorized("tenant identity required for tag queries")
+	}
 	if err := s.authorizeNativeFlow(ctx, principal); err != nil {
 		return nil, err
 	}
@@ -89,10 +92,14 @@ func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal
 	if s.pool == nil {
 		return nil, apierror.Unavailable("tenant tag query storage is unavailable")
 	}
-	budget := flowstore.ExplorerQueryBudget(s.flowStore)
+	budget := flowstore.ExplorerOperationBudget(ctx, s.flowStore)
 	if err := budget.Validate(); err != nil {
 		return nil, apierror.Unavailable("flow cost policy unavailable")
 	}
+	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
+	defer cancel()
+	// REST query middleware and native MCP already hold query admission.
+	// Revalidation stays inside that slot rather than charging it twice.
 	limit := budget.MemoryBytes / 4
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(principal.TenantID))
 	snapshot, err := store.NewTagSnapshots(s.pool).LoadTenant(ctx, limit)
@@ -107,7 +114,11 @@ func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
-	projection, err := snapshot.ProjectExportersContext(ctx, limit)
+	allowed, digest, err := s.flowTagContextAuthorization(ctx, principal, snapshot, limit)
+	if err != nil {
+		return nil, err
+	}
+	projection, err := snapshot.ProjectAuthorizedExportersContext(ctx, allowed, limit)
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
@@ -115,7 +126,7 @@ func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
-	return data, nil
+	return data.WithContextAuthorization(principal.TenantID, digest)
 }
 
 func flowTagQueryError(err error) error {

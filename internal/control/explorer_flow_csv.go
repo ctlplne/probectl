@@ -143,6 +143,7 @@ func (s *Server) prepareFlowCSV(ctx context.Context, r *http.Request, p *auth.Pr
 }
 
 func (s *Server) prepareFlowCSVContext(ctx context.Context, p *auth.Principal, id string, preparedAudit flowCSVPreparedAudit, onPrepared func(*preparedFlowCSV) error) (_ *preparedFlowCSV, operationErr error) {
+	ctx = auth.WithPrincipal(ctx, p)
 	finish := s.beginFlowOperation(ctx, "csv_prepare")
 	defer func() { finish(operationErr) }()
 	if preparedAudit == nil {

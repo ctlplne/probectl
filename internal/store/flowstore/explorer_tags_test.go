@@ -61,6 +61,36 @@ func TestTagQueryDataBindsTenantAddressAndBudget(t *testing.T) {
 	}
 }
 
+func TestTagContextAuthorizationIsImmutableAndTenantBound(t *testing.T) {
+	a, b := uuid.NewString(), uuid.NewString()
+	data, err := NewTagQueryData(a, 1, nil, nil, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := strings.Repeat("ab", 32)
+	bound, err := data.WithContextAuthorization(a, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := bound.ContextAuthorization(a); err != nil || got != digest {
+		t.Fatal("context policy binding was lost")
+	}
+	if _, err := data.ContextAuthorization(a); !errors.Is(err, ErrTagQueryScope) {
+		t.Fatal("binding mutated an existing lookup")
+	}
+	if _, err := bound.ContextAuthorization(b); !errors.Is(err, ErrTagQueryScope) {
+		t.Fatal("context policy binding crossed tenants")
+	}
+	for _, value := range []string{"", strings.Repeat("a", 63), strings.Repeat("AB", 32), strings.Repeat("x", 64)} {
+		if _, err := data.WithContextAuthorization(a, value); !errors.Is(err, ErrTagQueryScope) {
+			t.Fatal("malformed context binding accepted")
+		}
+	}
+	if _, err := data.WithContextAuthorization(b, digest); !errors.Is(err, ErrTagQueryScope) {
+		t.Fatal("another tenant attached an authorization binding")
+	}
+}
+
 func TestMemoryTagQueryGroupsFiltersAndPreservesTenantTotals(t *testing.T) {
 	a, b := uuid.NewString(), uuid.NewString()
 	definition := tags.Definition{TenantID: a, ID: uuid.NewString(), Key: "customer"}
