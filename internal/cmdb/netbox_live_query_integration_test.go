@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -132,13 +133,16 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 			}
 		}
 	})
+	memory := flowstore.NewMemory()
 	at := time.Now().UTC().Truncate(time.Minute).Add(-time.Minute)
 	for i, lane := range []string{"a", "b"} {
 		row := flowstore.Row{TenantID: tenants[lane], AgentID: "untrusted-sender", TS: at, StartTS: at.Add(-time.Second), Exporter: "192.0.2.10", SrcAddr: "192.0.2.20", DstAddr: "192.0.2.200", Protocol: "ipfix", BytesScaled: uint64(100 * (1 + i*8)), PacketsScaled: 1}
 		unknown := row
 		unknown.Exporter, unknown.BytesScaled = "192.0.2.11", row.BytesScaled*2
-		if err := ch.Insert(ctx, []flowstore.Row{row, unknown}); err != nil {
-			t.Fatal("owned flow inputs could not be inserted")
+		for _, backend := range []flowstore.Store{ch, memory} {
+			if err := backend.Insert(ctx, []flowstore.Row{row, unknown}); err != nil {
+				t.Fatal("owned flow inputs could not be inserted")
+			}
 		}
 	}
 	revisions := map[string]int64{}
@@ -180,11 +184,24 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 			if imported {
 				role = "ipam-role-" + lane
 			}
+			rootContext := len(roots) == 1 && roots[0].ContextID == contextID && roots[0].Exporter == "192.0.2.10" && len(roots[0].Values) == 0
+			rangeScope := len(ranges) == 1 && ranges[0].TenantID == tenant && ranges[0].ContextID == contextID && ranges[0].ID == prefixID
+			snapshotRole, snapshotCustomer := false, false
+			if rangeScope {
+				snapshotRole, snapshotCustomer = ranges[0].Values["role"] == role, ranges[0].Values["customer"] == customer
+			}
+			t.Logf("prefix source checkpoint imported=%t edited=%t roots=%d ranges=%d root_context=%t range_scope=%t role_match=%t customer_match=%t", imported, edited, len(roots), len(ranges), rootContext, rangeScope, snapshotRole, snapshotCustomer)
 			count := uint64(100 * (1 + i*8))
 			for _, source := range []string{"raw", "rollup"} {
 				plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), View: "table", DataSeries: source,
 					GroupBy: []string{"tag.src_prefix.role", "tag.dst_prefix.role", "tag.src_prefix.customer", "tag.dst_prefix.customer"},
 					Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+				referencePlan := plan
+				referencePlan.DataSeries = "raw"
+				reference, err := memory.ExplorePlan(owned, flowstore.PlanQuery{TenantID: tenant, Plan: referencePlan, Tags: lookup})
+				if err != nil {
+					t.Fatal("owned prefix memory reference could not execute")
+				}
 				result, err := ch.ExplorePlan(owned, flowstore.PlanQuery{TenantID: tenant, Plan: plan, Tags: lookup})
 				if err != nil || result.Source != source || len(result.Rows) != 2 || result.Totals["bytes:total"] != strconv.FormatUint(count*3, 10) || result.TagTenantID != tenant || result.TagRevision != revision || result.TagIDs["tag.src_prefix.role"] != roleID || result.TagIDs["tag.dst_prefix.customer"] != customerID {
 					t.Fatalf("real-source historical query lost exact owned totals: %s %v", source, err)
@@ -198,9 +215,12 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 					}
 					for _, side := range []string{"src_prefix", "dst_prefix"} {
 						if row.Group["tag."+side+".role"] != wantRole || row.Group["tag."+side+".customer"] != wantCustomer {
-							t.Fatal("real-source import/rule selected foreign or unknown-exporter metadata")
+							t.Fatalf("real-source import/rule selected foreign or unknown-exporter metadata: imported=%t edited=%t source=%s side=%s known_row=%t role_equal=%t customer_equal=%t role_empty=%t customer_empty=%t reference_equal=%t snapshot_role=%t snapshot_customer=%t root_context=%t", imported, edited, source, side, row.Metrics["bytes:total"] == strconv.FormatUint(count, 10), row.Group["tag."+side+".role"] == wantRole, row.Group["tag."+side+".customer"] == wantCustomer, row.Group["tag."+side+".role"] == "", row.Group["tag."+side+".customer"] == "", reflect.DeepEqual(result.Rows, reference.Rows), snapshotRole, snapshotCustomer, rootContext)
 						}
 					}
+				}
+				if !rootContext || !rangeScope || !snapshotRole || !snapshotCustomer || !reflect.DeepEqual(result.Rows, reference.Rows) || !reflect.DeepEqual(result.Totals, reference.Totals) {
+					t.Fatal("real-source output lacks the current owned snapshot or independent reference")
 				}
 				if imported {
 					plan.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.src_prefix.role", Op: flow.QueryEqual, Values: []string{role}}}}
