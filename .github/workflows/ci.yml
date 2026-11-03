@@ -1153,6 +1153,10 @@ jobs:
         run: |
           python3 scripts/ci_tag_context_regression.py --selftest
           python3 scripts/ci_tag_context_regression.py
+      - name: Original tag query-budget reproduction
+        run: |
+          python3 scripts/ci_tag_import_budget_regression.py --selftest
+          python3 scripts/ci_tag_import_budget_regression.py
 
   nms-vendor-live:
     name: nms-vendor-live (LibreNMS and Zabbix)
