@@ -1789,6 +1789,7 @@ export function fixtureFetch(
     if (path === '/v1/alerts/40000000-0000-4000-8000-000000000001/evaluations')
       return jsonResponse({
         contract_version: 'probectl.alert-evaluations/v1',
+        tag_selection_access: 'withheld',
         items: [
           {
             contract_version: 'probectl.alert-evaluation/v1',

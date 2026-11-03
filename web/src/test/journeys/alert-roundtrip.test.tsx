@@ -123,6 +123,7 @@ function roundtripBackend(options: { expiredSilence?: boolean; connectorBlocked?
     if (path === '/v1/alerts/rule-db-latency/evaluations' && method === 'GET') {
       return jsonResponse({
         contract_version: 'probectl.alert-evaluations/v1',
+        tag_selection_access: 'withheld',
         items: [
           {
             contract_version: 'probectl.alert-evaluation/v1',
