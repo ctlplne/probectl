@@ -73,6 +73,12 @@ func nativeFlowToolSchemas() (mcp.NativeFlowSchemas, error) {
 	roots["flow_view_list"] = object(map[string]any{"after": text(128), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}, "search": text(256), "label": text(256), "visibility": map[string]any{"type": "string", "enum": []string{"", "private", "tenant"}}, "owner": text(1024), "sort": map[string]any{"type": "string", "enum": []string{"name", "created_at", "updated_at"}}, "tab": map[string]any{"type": "string", "enum": []string{"all", "favorites", "recents"}}})
 	roots["flow_view_save"] = object(map[string]any{"id": id, "version": version, "definition": ref("FlowQueryViewDefinition")}, "definition")
 	roots["flow_view_favorite"] = object(map[string]any{"id": id, "favorite": map[string]any{"type": "boolean"}}, "id", "favorite")
+	return nativeMCPInputSchemas(components, roots)
+}
+
+// Resolve only reachable committed API definitions, with local recursive refs.
+// All named native adapters share this resolver rather than copying grammars.
+func nativeMCPInputSchemas(components map[string]json.RawMessage, roots map[string]any) (mcp.NativeFlowSchemas, error) {
 	result := mcp.NativeFlowSchemas{}
 	for name, root := range roots {
 		definitions := map[string]any{}

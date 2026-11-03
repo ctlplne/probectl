@@ -629,3 +629,25 @@ an old answer is not a grant. Its current annotations and `tag_revision`/`as_of`
 are separate context, with no change to the answer's citations, confidence or
 model input. The named native read preserves complete values within its
 whole-result budgets. Legacy explanation redaction remains in force.
+
+
+### Current alert test-tag criteria (preview)
+
+`alert_tag_filter_get` accepts `rule_id`. `alert_tag_filter_set` accepts `rule_id`
+and `input` with the complete API `target_kind: "test"` and nested root-tag
+`filter`; tenant, owner and immutable binding fields are server-authored.
+Get requires `alert.read`; set requires `alert.write`; both additionally require
+`tags.read`, `test.read` and `metrics.read`. Current scoped credentials and
+current active user roles/policy must both qualify. Setting a filter explicitly
+delegates only these source reads under that user; background evaluation never
+inherits a session's MFA assertion or permanently retains an old role grant.
+
+`alert_tag_filter_clear` takes `rule_id` and `confirmed: true`, requires current
+`alert.write`, and returns only the cleared metadata state. It requires no
+metadata-read grant and discloses no previous filter. Other rule settings remain.
+All three are named native user-only tools with complete local OpenAPI-derived
+inputs, existing query admission, whole-result costs, egress consent/redaction
+and immutable call audit. Set/clear use the same domain transaction/audit as REST.
+The exact revision/time in a configuration response describe its binding;
+evaluation reads current metadata again. Test IDs nominate descriptive metadata,
+not sender attestation. The final release and telemetry receipt is still required.

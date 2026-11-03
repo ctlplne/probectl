@@ -24,6 +24,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/pathstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -78,7 +79,7 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 				return err
 			}
 			id.role = role.ID
-			for _, permission := range []string{permTagsRead, permTagsWrite, "test.read"} {
+			for _, permission := range []string{permTagsRead, permTagsWrite, "test.read", "metrics.read", permAlertRead, permAlertWrite} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, id.role, permission); err != nil {
 					return err
 				}
@@ -98,6 +99,9 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 		return id
 	}
 	first, second := makeIdentity(a), makeIdentity(b)
+	queryPolicy := fairness.DefaultPolicy()
+	queryPolicy.QueryConcurrency, queryPolicy.QueriesPerMin = 2, 10000
+	core.WithFairness(fairness.NewGate(queryPolicy, nil))
 	cfg := &config.Config{}
 	server := NewMCPServerWithPolicyLoader(cfg, core.log, db.Pool(), pathstore.NewMemory(), 0,
 		NewAIEgressGate(cfg, core.log, db.Pool()), nil, nil, core.MCPPolicyLoader(), AISources{NativeFlow: core})
@@ -354,6 +358,25 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 				id = second
 			}
 			return request(id, "tools/call", "test_tag_context", input, wantOK)
+		})
+	scoped := first
+	var tokenErr error
+	scoped.token, tokenErr = auth.RandomToken()
+	if tokenErr != nil {
+		t.Fatal(tokenErr)
+	}
+	if _, err := store.NewMCPTokens(db.Pool()).CreateWithLifetime(ctx, a, first.user, "alert-scoped", crypto.Hash([]byte(scoped.token)), time.Now().Add(time.Hour), []string{permAlertRead, permAlertWrite, permTagsRead, "test.read"}); err != nil {
+		t.Fatal(err)
+	}
+	proveAlertTagFilterNative(t, core, db.Pool(), []string{a, b}, map[string]string{a: first.user, b: second.user}, map[string]string{a: first.role, b: second.role},
+		func(tenant, tool string, input any, wantOK bool) json.RawMessage {
+			id := first
+			if tenant == b {
+				id = second
+			}
+			return request(id, "tools/call", tool, input, wantOK)
+		}, func(tool string, input any, wantOK bool) json.RawMessage {
+			return request(scoped, "tools/call", tool, input, wantOK)
 		})
 	// Domain audit failure must roll back both the data and its revision. The
 	// trigger is scoped to this owned tenant and tag events; MCP call audits work.

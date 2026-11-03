@@ -197,24 +197,42 @@ func (s *Server) handlePutAlertTagFilter(w http.ResponseWriter, r *http.Request)
 		return err
 	}
 	defer release()
-	if err := validateAlertTagRuleID(r.PathValue("id")); err != nil {
-		return err
-	}
 	var input alert.TagFilterInput
 	if err := decodeJSONLimit(r, flow.MaxPlanGrammarBytes, &input); err != nil {
 		return err
 	}
-	actor := auth.PrincipalFrom(r.Context())
-	prepared, err := prepareAlertTagFilter(r.Context(), s.pool, s.flowStore, actor, input, nil)
+	out, err := s.setAlertTagFilter(r, r.PathValue("id"), input)
 	if err != nil {
 		return alertTagFilterError(w, err)
 	}
-	out := alert.TagFilterState{RuleID: r.PathValue("id"), HasTagFilter: true, TagFilter: prepared}
-	if err := checkAlertTagResponse(r.Context(), s.flowStore, out); err != nil {
-		return alertTagFilterError(w, err)
+	writeJSON(w, http.StatusOK, out)
+	return nil
+}
+
+// Both REST and named native MCP hold one query admission before entering this
+// shared preparation/transaction/audit path. The complete operation is bounded.
+func (s *Server) setAlertTagFilter(r *http.Request, id string, input alert.TagFilterInput) (alert.TagFilterState, error) {
+	if err := validateAlertTagRuleID(id); err != nil {
+		return alert.TagFilterState{}, err
+	}
+	budget := flowstore.ExplorerOperationBudget(r.Context(), s.flowStore)
+	if err := budget.Validate(); err != nil {
+		return alert.TagFilterState{}, apierror.Unavailable("alert metadata cost policy is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), budget.ExecutionLimit)
+	defer cancel()
+	r = r.WithContext(ctx)
+	actor := auth.PrincipalFrom(ctx)
+	prepared, err := prepareAlertTagFilter(ctx, s.pool, s.flowStore, actor, input, nil)
+	if err != nil {
+		return alert.TagFilterState{}, err
+	}
+	out := alert.TagFilterState{RuleID: id, HasTagFilter: true, TagFilter: prepared}
+	if err := checkAlertTagResponse(ctx, s.flowStore, out); err != nil {
+		return alert.TagFilterState{}, err
 	}
 	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		rule, err := (store.AlertRules{}).Get(ctx, sc, out.RuleID)
+		rule, err := (store.AlertRules{}).Get(ctx, sc, id)
 		if err != nil {
 			return err
 		}
@@ -227,10 +245,9 @@ func (s *Server) handlePutAlertTagFilter(w http.ResponseWriter, r *http.Request)
 		return s.recordAudit(ctx, sc, r, "alert.tag_filter.set", rule.ID, map[string]any{"target_kind": "test", "owner_user_id": actor.UserID, "tag_revision": prepared.TagRevision})
 	})
 	if err != nil {
-		return alertTagFilterError(w, err)
+		return alert.TagFilterState{}, err
 	}
-	writeJSON(w, http.StatusOK, out)
-	return nil
+	return out, nil
 }
 
 func (s *Server) handleDeleteAlertTagFilter(w http.ResponseWriter, r *http.Request) error {
@@ -239,23 +256,41 @@ func (s *Server) handleDeleteAlertTagFilter(w http.ResponseWriter, r *http.Reque
 		return err
 	}
 	defer release()
-	if err := validateAlertTagRuleID(r.PathValue("id")); err != nil {
-		return err
+	if _, err := s.clearAlertTagFilter(r, r.PathValue("id")); err != nil {
+		return alertTagFilterError(w, err)
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (s *Server) clearAlertTagFilter(r *http.Request, id string) (alert.TagFilterState, error) {
+	if err := validateAlertTagRuleID(id); err != nil {
+		return alert.TagFilterState{}, err
 	}
 	actor := auth.PrincipalFrom(r.Context())
 	if actor == nil || actor.UserID == "" {
-		return apierror.Unauthorized("a current user is required for alert metadata")
+		return alert.TagFilterState{}, apierror.Unauthorized("a current user is required for alert metadata")
 	}
-	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(actor.TenantID))
+	budget := flowstore.ExplorerOperationBudget(r.Context(), s.flowStore)
+	if err := budget.Validate(); err != nil {
+		return alert.TagFilterState{}, apierror.Unavailable("alert metadata cost policy is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(tenancy.WithTenant(r.Context(), tenancy.ID(actor.TenantID)), budget.ExecutionLimit)
+	defer cancel()
+	r = r.WithContext(ctx)
 	authority, err := loadAlertTagAuthority(ctx, s.pool, actor.TenantID, actor.UserID)
 	if err != nil {
-		return err
+		return alert.TagFilterState{}, err
 	}
 	if !authority.permitsRequest(ctx, actor, permAlertWrite) {
-		return apierror.Forbidden("current alert write permission is required")
+		return alert.TagFilterState{}, apierror.Forbidden("current alert write permission is required")
+	}
+	out := alert.TagFilterState{RuleID: id}
+	if err := checkAlertTagResponse(ctx, s.flowStore, out); err != nil {
+		return alert.TagFilterState{}, err
 	}
 	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		rule, err := (store.AlertRules{}).Get(ctx, sc, r.PathValue("id"))
+		rule, err := (store.AlertRules{}).Get(ctx, sc, id)
 		if err != nil {
 			return err
 		}
@@ -265,8 +300,7 @@ func (s *Server) handleDeleteAlertTagFilter(w http.ResponseWriter, r *http.Reque
 		return s.recordAudit(ctx, sc, r, "alert.tag_filter.clear", rule.ID, nil)
 	})
 	if err != nil {
-		return alertTagFilterError(w, err)
+		return alert.TagFilterState{}, err
 	}
-	w.WriteHeader(http.StatusNoContent)
-	return nil
+	return out, nil
 }

@@ -381,7 +381,7 @@ create/reverse journey and keeps the actions behind `incident.write`.
 A threshold or baseline rule can select its current owned tests by tenant tag
 criteria. This read uses current annotations over retained series: changing a
 tag rule changes the next selection without relabeling the original metrics.
-The API/CLI path is preview. UI and native adapters remain in development;
+The API/CLI/native path is preview. The UI adapter remains in development;
 the complete source receipt is still required.
 
 Use `GET`, `PUT` or `DELETE /v1/alerts/rules/{id}/tag-filter`. The CLI equivalents are
@@ -417,3 +417,13 @@ selection is `no_data`, with existing alert no-data behavior. A metric's
 `test_id` nominates descriptive current metadata; it is not sender attestation.
 The response's revision/time describe binding of the configuration, while each
 evaluation loads current metadata again.
+
+The native MCP tools are `alert_tag_filter_get`, `alert_tag_filter_set` and
+`alert_tag_filter_clear`. Get takes `rule_id`; set takes `rule_id` and the same
+complete `input` object as the API. Clear takes `rule_id` and `confirmed: true`,
+requires current `alert.write`, and returns no previous criteria. Get/set also
+require `tags.read`, `test.read` and `metrics.read`. All three require a current
+user, use the existing query admission, egress consent/redaction and call audit,
+and preserve the API's current-role checks and atomic domain mutation/audit.
+The native adapter's TLS/bearer/paired-tenant proof covers configuration;
+release senders and complete telemetry execution remain separate requirements.

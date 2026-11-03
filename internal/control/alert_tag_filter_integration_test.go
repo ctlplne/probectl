@@ -255,6 +255,28 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 		if _, err := invoke(core.handlePutAlertTagFilter, actors[tenant], ruleIDs[tenant], http.MethodPut, input("changed-"+tenant, flow.QueryEqual)); err != nil {
 			t.Fatal(err)
 		}
+		var policyID string
+		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			policy, err := (store.ABACPolicies{}).Create(ctx, sc, auth.Policy{Name: "deny alert current metadata", Permission: permTagsRead, Effect: auth.PolicyDeny, Enabled: true, Resource: map[string]string{auth.ResourceTenantKey: tenant}})
+			if err == nil {
+				policyID = policy.ID
+			}
+			return err
+		})
+		callsBeforePolicy := counter.calls
+		if partial, err := source.CurrentRule(ctx, *getRule(tenant)); err == nil || partial != nil || counter.calls != callsBeforePolicy {
+			t.Fatal("current policy deny reached metrics or disclosed partial selection")
+		}
+		if _, err := invoke(core.handleGetAlertTagFilter, actors[tenant], ruleIDs[tenant], http.MethodGet, nil); err == nil {
+			t.Fatal("current policy deny disclosed saved criteria")
+		}
+		var denials int
+		if err := db.Pool().QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='abac.denied' AND target=$2 AND data->>'user_id'=$3`, tenant, permTagsRead, users[tenant]).Scan(&denials); err != nil || denials != 1 {
+			t.Fatal("shared current-owner policy door lost its deduplicated tenant denial audit")
+		}
+		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			return (store.ABACPolicies{}).Delete(ctx, sc, policyID)
+		})
 	}
 	if !reflect.DeepEqual(beforeSeries, mem.Snapshot()) {
 		t.Fatal("metadata selection rewrote existing metric labels or values")
