@@ -27,11 +27,17 @@ func TestExplorerClickHouseCanonicalAddressesRetainValidIPv6(t *testing.T) {
 	t.Cleanup(func() { cleanupExplorerFixtureTenant(t, store, a); cleanupExplorerFixtureTenant(t, store, b) })
 	addresses := []string{"::ffff:1:1:1", "::ffff:1", "::a:b", "192.0.2.10", "::ffff:192.0.2.10", "::ffff:c000:20a", "2001:0DB8:0000:0000:0000:0000:0000:0001", "2001:db8::1", "::", "::1", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
 	at := explorerFixtureRow(a).TS
+	// Exporter is a text dimension: preserve distinct reported spellings while
+	// IP dimensions and the owned metadata lookup use canonical address identity.
 	want := map[string]uint64{}
+	canonicalAddresses := map[string]string{}
+	canonicalCounts := map[string]uint64{}
 	var rows []Row
 	for i, address := range addresses {
 		canonical := netip.MustParseAddr(address).Unmap().String()
-		want[canonical] += uint64((i + 1) * 100)
+		canonicalAddresses[address] = canonical
+		want[address] = uint64((i + 1) * 100)
+		canonicalCounts[canonical] += want[address]
 		for lane, tenant := range []string{a, b} {
 			row := explorerFixtureRow(tenant)
 			row.TS, row.StartTS = at, at.Add(-time.Second)
@@ -47,7 +53,7 @@ func TestExplorerClickHouseCanonicalAddressesRetainValidIPv6(t *testing.T) {
 	for lane, tenant := range []string{a, b} {
 		var roots []tags.ExporterProjection
 		var total uint64
-		for address, count := range want {
+		for address, count := range canonicalCounts {
 			roots = append(roots, tags.ExporterProjection{Exporter: address, Values: map[string]string{"customer": tenant + "|" + address}})
 			total += count * uint64(1+lane*8)
 		}
@@ -68,18 +74,31 @@ func TestExplorerClickHouseCanonicalAddressesRetainValidIPv6(t *testing.T) {
 			for _, row := range result.Rows {
 				address := row.Group["exporter"]
 				count, ok := want[address]
-				if !ok || row.Group["src_addr"] != address || row.Group["dst_addr"] != address || row.Group["tag.customer"] != tenant+"|"+address || row.Metrics["bytes:total"] != strconv.FormatUint(count*uint64(1+lane*8), 10) {
+				canonical := canonicalAddresses[address]
+				if !ok || row.Group["src_addr"] != canonical || row.Group["dst_addr"] != canonical || row.Group["tag.customer"] != tenant+"|"+canonical || row.Metrics["bytes:total"] != strconv.FormatUint(count*uint64(1+lane*8), 10) {
 					t.Fatalf("canonical address query lost valid owned input: %s address=%q", source, address)
 				}
 			}
-			for address, count := range want {
+			for address, count := range canonicalCounts {
+				matchingExporters := 0
+				for exporter := range want {
+					if canonicalAddresses[exporter] == address {
+						matchingExporters++
+					}
+				}
 				plan.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "src_addr", Op: flow.QueryEqual, Values: []string{address}}}}
 				filtered, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: plan, Tags: lookup})
 				if err != nil {
 					t.Fatalf("address fixture filter could not execute: %v", err)
 				}
-				if len(filtered.Rows) != 1 || filtered.Totals["bytes:total"] != strconv.FormatUint(count*uint64(1+lane*8), 10) {
+				if len(filtered.Rows) != matchingExporters || filtered.Totals["bytes:total"] != strconv.FormatUint(count*uint64(1+lane*8), 10) {
 					t.Fatalf("canonical address query lost valid owned input: %s exact filter=%q: %v", source, address, err)
+				}
+				for _, row := range filtered.Rows {
+					exporterCount, ok := want[row.Group["exporter"]]
+					if !ok || canonicalAddresses[row.Group["exporter"]] != address || row.Group["src_addr"] != address || row.Group["dst_addr"] != address || row.Group["tag.customer"] != tenant+"|"+address || row.Metrics["bytes:total"] != strconv.FormatUint(exporterCount*uint64(1+lane*8), 10) {
+						t.Fatalf("canonical address query lost valid owned input: %s exact filtered row", source)
+					}
 				}
 			}
 		}

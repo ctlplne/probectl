@@ -1613,7 +1613,9 @@ jobs:
     # guards, and a production build. Rendered browser a11y runs in the
     # web-rendered-a11y job below so color/focus/target checks use Chromium.
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Keep every test, coverage floor and release-embed check. The full suite
+    # printed its coverage at the previous 15-minute job boundary.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: web

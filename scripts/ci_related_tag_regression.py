@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -122,6 +123,56 @@ def execute(cwd: Path) -> tuple[int, str]:
     return result.returncode, raw
 
 
+def diagnostic(code: int, raw: str) -> str:
+    """Expose only bounded flags, counts and this copied test's line numbers."""
+    events = []
+    for line in raw.splitlines():
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict):
+            events.append(item)
+    target = [
+        item
+        for item in events
+        if item.get("Test") == TEST and item.get("Package") == PACKAGE
+    ]
+    outputs = "\n".join(
+        item["Output"] for item in events if isinstance(item.get("Output"), str)
+    )
+    locations = sorted(
+        {
+            int(line)
+            for line in re.findall(re.escape(FILE.name) + r":([0-9]{1,6}):", outputs)
+        }
+    )
+    store_codes = sorted(
+        {int(value) for value in re.findall(r"\(code ([0-9]{1,6})\)", outputs)}
+    )
+    return json.dumps(
+        {
+            "exit_code": code,
+            "target_run": any(item.get("Action") == "run" for item in target),
+            "target_pass": any(item.get("Action") == "pass" for item in target),
+            "target_fail": any(item.get("Action") == "fail" for item in target),
+            "skip_count": sum(item.get("Action") == "skip" for item in events),
+            "package_fail_count": sum(
+                item.get("Action") == "fail" and not item.get("Test") for item in events
+            ),
+            "expected_assertion": any(
+                MARKER in item.get("Output", "") for item in target
+            ),
+            "copied_test_lines": locations[:16],
+            "store_codes": store_codes[:16],
+            "build_failure": "build failed" in raw or "[setup failed]" in raw,
+            "panic": "panic:" in raw,
+            "timeout": "test timed out" in raw,
+        },
+        sort_keys=True,
+    )
+
+
 def git(args: list[str], cwd: Path) -> str:
     result = subprocess.run(
         ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=120
@@ -136,7 +187,10 @@ def run() -> None:
         raise RuntimeError("original related tag proof runs only in CI")
     code, raw = execute(ROOT)
     if not classified(code, raw, False):
-        raise RuntimeError("current related tag regression did not pass without skips")
+        raise RuntimeError(
+            "current related tag regression did not pass without skips: "
+            + diagnostic(code, raw)
+        )
     print("Current tag regression passed")
     path = Path(tempfile.mkdtemp(prefix="probectl-qa-beta-related-tag-original-"))
     attached = False
@@ -153,6 +207,8 @@ def run() -> None:
         if not classified(code, raw, True):
             raise RuntimeError(
                 "original related tag vocabulary assertion did not reproduce"
+                + ": "
+                + diagnostic(code, raw)
             )
         print("Original tag assertion reproduced on " + BASE)
     finally:
@@ -170,6 +226,32 @@ def selftest() -> None:
     ]
     raw = "\n".join(json.dumps(item) for item in events)
     passed = raw.replace('"Action": "fail"', '"Action": "pass"')
+    private = "postgresql://untrusted-credential/tenant-secret?tag=private-value"
+    noisy = (
+        raw
+        + "\n"
+        + json.dumps(
+            {
+                "Action": "output",
+                "Package": PACKAGE,
+                "Test": TEST,
+                "Output": f"{FILE.name}:73: {private} flow query store status 400 (code 47)",
+            }
+        )
+    )
+    summary = diagnostic(1, noisy)
+    safe = json.loads(summary)
+    if (
+        private in summary
+        or "credential" in summary
+        or "private-value" in summary
+        or safe["copied_test_lines"] != [73]
+        or safe["store_codes"] != [47]
+        or not safe["target_fail"]
+    ):
+        raise RuntimeError(
+            "related tag diagnostic leaked text or lost safe failure evidence"
+        )
     if not classified(1, raw, True) or not classified(0, passed, False):
         raise RuntimeError("related tag classifier refused exact proof")
     for code, changed in [
