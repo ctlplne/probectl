@@ -41,7 +41,6 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 		if err != nil {
 			return PlanResult{}, err
 		}
-
 	}
 	plan, err := flow.NormalizeQueryPlanWithVocabulary(query.Plan, time.Now(), vocabulary)
 	if err != nil {

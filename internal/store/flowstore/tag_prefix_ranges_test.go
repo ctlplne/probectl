@@ -191,7 +191,7 @@ func TestPrefixTagCompilerRetainsTwentyFiveThousandSubjects(t *testing.T) {
 	for _, i := range []int{0, 12345, 24999} {
 		row := Row{TenantID: tenant, Exporter: "192.0.2.10", SrcAddr: inputs[i].Network.Addr().String()}
 		if got, err := data.valueForRow(row, "src_prefix.customer"); err != nil || got != "p"+strconv.Itoa(i) {
-			t.Fatal("large prefix catalogue lost an exact subject")
+			t.Fatal("large prefix catalog lost an exact subject")
 		}
 	}
 	vocabulary, err := data.Vocabulary(tenant)
@@ -199,6 +199,6 @@ func TestPrefixTagCompilerRetainsTwentyFiveThousandSubjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := vocabulary.Lookup("tag.src_prefix.customer"); !ok {
-		t.Fatal("large catalogue lost its explicit query field")
+		t.Fatal("large catalog lost its explicit query field")
 	}
 }
