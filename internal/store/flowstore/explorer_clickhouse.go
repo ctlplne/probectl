@@ -105,7 +105,13 @@ func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane 
 	return rows, nil
 }
 
+// Compiled queries materialize these code-owned columns once at the scoped
+// input. Repeating the full formatter in every predicate exceeds parser limits.
 func explorerAddressExpr(column string) string {
+	return "__probectl_address_" + column
+}
+
+func explorerCanonicalAddressSQL(column string) string {
 	canonical := "ifNull(toString(toIPv6OrNull(" + column + "))," + column + ")"
 	// ClickHouse also prints IPv4-compatible ordinary IPv6 in dotted form.
 	// Go's netip uses two hex words there, while true mapped addresses unmap.

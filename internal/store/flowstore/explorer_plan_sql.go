@@ -22,6 +22,17 @@ const planCostSettings = "SETTINGS max_execution_time=5,timeout_overflow_mode='t
 const planSQLColumns = "event_time,bytes_scaled,packets_scaled,canonical_src,canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country"
 const planSQLGroup = "g,c,o,p"
 
+// Keep address normalization inside the tenant/time-bounded input. Named
+// computed columns preserve the full predicate reach without expanding one
+// formatter thousands of times or increasing ClickHouse parser limits.
+func planInputSQL(table, eventTime string) string {
+	fields := make([]string, 0, 3)
+	for _, column := range []string{"exporter", "src_addr", "dst_addr"} {
+		fields = append(fields, explorerCanonicalAddressSQL(column)+" AS "+explorerAddressExpr(column))
+	}
+	return "(SELECT *, " + strings.Join(fields, ",") + " FROM " + table + " FINAL WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')}) AS flow_input"
+}
+
 // No public value contributes SQL structure: dimensions/operators/metrics all
 // come from the shared registry. Literal values, including metadata, are bound.
 func planSQL(plan flow.QueryPlan, table string, names map[string]map[uint32]string, membership ...[][]string) (string, chParams, error) {
@@ -95,7 +106,7 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	if strings.HasSuffix(table, sharedFlowRollupsTable) {
 		eventTime = "if(coverage_version=0,toDateTime64(bucket,3),ts)"
 	}
-	from := table + " FINAL"
+	from := planInputSQL(table, eventTime)
 	if tagData != nil {
 		from += " ANY LEFT JOIN tag_lookup ON tag_lookup.lookup_tenant=tenant_id AND toIPv6OrNull(tag_lookup.lookup_exporter)=toIPv6OrNull(exporter)"
 	}
