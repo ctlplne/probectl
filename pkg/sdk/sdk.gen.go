@@ -271,6 +271,7 @@ type AlertEvaluationReceipt struct {
 	RuleId           string                     `json:"rule_id"`
 	RuleRevision     string                     `json:"rule_revision"`
 	State            string                     `json:"state"`
+	TagSelection     AlertTagSelectionReceipt   `json:"tag_selection,omitempty"`
 	WarmupRequired   int                        `json:"warmup_required,omitempty"`
 	WarmupSamples    int                        `json:"warmup_samples,omitempty"`
 }
@@ -290,6 +291,7 @@ type AlertEvaluationsResponse struct {
 	Limit              int                      `json:"limit"`
 	PersistenceRunning bool                     `json:"persistence_running"`
 	Retention          AlertEvaluationRetention `json:"retention"`
+	TagSelectionAccess string                   `json:"tag_selection_access"`
 	Truncated          bool                     `json:"truncated"`
 }
 
@@ -381,6 +383,13 @@ type AlertTagFilterState struct {
 	HasTagFilter bool                       `json:"has_tag_filter"`
 	RuleId       string                     `json:"rule_id"`
 	TagFilter    AlertTagFilter             `json:"tag_filter,omitempty"`
+}
+
+// The actual current authorized metadata snapshot used by this evaluation. Distinct from the rule configuration binding. No subject, tag values, owner or sender attestation. Absent on legacy receipts or when source grants are withheld.
+type AlertTagSelectionReceipt struct {
+	AsOf        string `json:"as_of"`
+	TagRevision string `json:"tag_revision"`
+	TargetKind  string `json:"target_kind"`
 }
 
 // What a trap rule (type trap) matches in the tenant's stored, authenticated SNMP traps (GET /v1/device/traps). The rule fires per device while a matching trap is within hold_seconds and resolves on a matching clear trap or when the hold runs out. OIDs are dotted decimal; a missing leading dot is added.

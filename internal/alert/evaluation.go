@@ -9,6 +9,8 @@ package alert
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -44,10 +46,46 @@ type EvaluationExpectation struct {
 	Upper      *float64   `json:"upper,omitempty"`
 }
 
+// TagSelectionReceipt describes the current authorized snapshot used for one
+// evaluation, not the earlier configuration binding. It carries no subject,
+// tag values, owner, tenant hint, or sender attestation.
+type TagSelectionReceipt struct {
+	TargetKind  string    `json:"target_kind"`
+	TagRevision string    `json:"tag_revision"`
+	AsOf        time.Time `json:"as_of"`
+}
+
+func (s *TagSelectionReceipt) Validate() error {
+	if s == nil || s.TargetKind != "test" || s.AsOf.IsZero() {
+		return fmt.Errorf("alert: current metadata selection clock is unavailable")
+	}
+	revision, err := strconv.ParseInt(s.TagRevision, 10, 64)
+	if err != nil || revision < 1 || strconv.FormatInt(revision, 10) != s.TagRevision {
+		return fmt.Errorf("alert: current metadata revision is invalid")
+	}
+	return nil
+}
+
+func (s *TagSelectionReceipt) Clone() *TagSelectionReceipt {
+	if s == nil {
+		return nil
+	}
+	out := *s
+	return &out
+}
+
+func tagSelectionKey(rule Rule, selection *TagSelectionReceipt) string {
+	if selection == nil {
+		return ""
+	}
+	return selection.TargetKind + "|" + selection.TagRevision + "|" + ruleRevision(rule)
+}
+
 // EvaluationReceipt is a bounded, tenant-local explanation of one evaluator
 // transition. Tenant identity is intentionally absent: the persistence sink is
 // tenant-bound before this value reaches storage.
 type EvaluationReceipt struct {
+	TagSelection     *TagSelectionReceipt  `json:"tag_selection,omitempty"`
 	ContractVersion  string                `json:"contract_version"`
 	Fingerprint      string                `json:"fingerprint"`
 	RuleID           string                `json:"rule_id"`
@@ -126,4 +164,25 @@ func requiredBreaches(rule Rule) int {
 
 func floatRef(value float64) *float64 {
 	return &value
+}
+
+// EvaluationRetention and EvaluationsResult are the shared API/native ledger
+// projection. New selection evidence is independently gated at read time.
+type EvaluationRetention struct {
+	MaxPerSeries int `json:"max_per_series"`
+	MaxPerRule   int `json:"max_per_rule"`
+	ExpiresDays  int `json:"expires_days"`
+}
+
+type EvaluationsResult struct {
+	ContractVersion    string              `json:"contract_version"`
+	Items              []EvaluationReceipt `json:"items"`
+	Truncated          bool                `json:"truncated"`
+	Limit              int                 `json:"limit"`
+	Freshness          string              `json:"freshness"`
+	LatestAt           *time.Time          `json:"latest_at,omitempty"`
+	EvaluatorRunning   bool                `json:"evaluator_running"`
+	PersistenceRunning bool                `json:"persistence_running"`
+	Retention          EvaluationRetention `json:"retention"`
+	TagSelectionAccess string              `json:"tag_selection_access"`
 }

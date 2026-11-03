@@ -272,6 +272,10 @@ function ActiveAlertDetail({
   const state = alertStateOf(alert)
   const linkedIncident = linkedIncidentForAlert(alert, incidents.data ?? [])
   const evaluations = useAlertEvaluations(alert.rule_id, alert.evaluation_fingerprint)
+  const canReadSelection = ['tags.read', 'test.read', 'metrics.read'].every((key) =>
+    permissions.includes(key),
+  )
+  const selectionAccess = canReadSelection ? evaluations.data?.tag_selection_access : 'withheld'
   const workflow = useAlertWorkflow(alert.fingerprint, linkedIncident?.id)
   const operationReceipts = useMemo(() => {
     const receipts = [...(workflow.data?.operations ?? [])]
@@ -501,6 +505,16 @@ function ActiveAlertDetail({
                     <dd>
                       {receipt.breach_count} / {receipt.required_breaches} breaches
                     </dd>
+                    {selectionAccess === 'available' && receipt.tag_selection ? (
+                      <>
+                        <dt>Metadata revision used</dt>
+                        <dd>{receipt.tag_selection.tag_revision}</dd>
+                        <dt>Selection as of</dt>
+                        <dd>
+                          <DateTime value={receipt.tag_selection.as_of} />
+                        </dd>
+                      </>
+                    ) : null}
                     {receipt.warmup_required ? (
                       <>
                         <dt>Warmup</dt>
@@ -517,6 +531,11 @@ function ActiveAlertDetail({
               <p className={styles.muted}>
                 No retained state transition exists for this series yet.
                 {!evaluations.data.evaluator_running ? ' The tenant evaluator is not running.' : ''}
+              </p>
+            ) : null}
+            {selectionAccess === 'withheld' ? (
+              <p className={styles.muted}>
+                Metadata selection evidence is withheld under current source read grants.
               </p>
             ) : null}
             <p className={styles.muted}>

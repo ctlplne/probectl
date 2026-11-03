@@ -656,3 +656,14 @@ An authorized alert criteria GET also returns its current `editor` vocabulary
 and grammar limits from the same tenant read snapshot as the rule/configuration.
 Its current vocabulary clock is separate from the saved filter binding clock.
 Set/clear replies omit the vocabulary; clearing reveals no prior metadata.
+
+The named native query `alert_evaluations` reads the existing bounded alert
+transition ledger with `rule_id`, optional `fingerprint` (at most 2048 bytes),
+and optional `limit` (1–100, default 64). It requires a current tenant user and
+`alert.read`, uses shared query admission, native whole-result budgets, consent,
+redaction and call audit, and accepts no tenant, owner or channel hint. Metadata
+selection clocks are independently withheld unless the current user, live
+credential and fresh role/policy allow all three source reads (`tags.read`,
+`test.read`, `metrics.read`). This is the same domain read as the REST/CLI/UI
+ledger. A saved filter-binding revision is never presented as the snapshot used
+for evaluation, and legacy receipts have no fabricated execution clock.

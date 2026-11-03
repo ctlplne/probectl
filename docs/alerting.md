@@ -206,6 +206,28 @@ a physical query plan, global cardinality, an ambient tenant ID, or hidden data
 from another series. Think of it as the smoke detector showing the exact sensor
 reading and trip line, not as a general-purpose log database.
 
+For a current test-tag rule, `tag_selection` records the snapshot actually used
+by the evaluator: `target_kind`, exact decimal-string `tag_revision`, and
+`as_of`. This differs from the earlier revision saved when binding the filter.
+A metadata or rule revision change produces a new receipt even if the threshold
+state stays the same; an `as_of` tick alone does not duplicate a transition.
+Authorized empty selections carry the same evidence on `no_data`. Missing or
+invalid source evidence refuses evaluation; it cannot become an empty or healthy
+result. Metric labels, series fingerprints and notification behavior stay intact.
+
+This clock is optional on legacy receipts. Migration
+`0167_alert_evaluation_tag_selection.sql` adds a bounded nullable column to the
+same FORCE-RLS table without inventing historical execution proof. The existing
+API, `probectl --json alert evaluations RULE_ID`, active-alert details, and the
+named native `alert_evaluations` tool expose it under current active-user,
+credential-scope and freshly loaded role/policy checks for `tags.read`,
+`test.read` and `metrics.read`. Otherwise `tag_selection_access` is `withheld`
+and every clock is removed, while established `alert.read` access to ordinary
+receipts remains. `available` means current disclosure is authorized, not that
+every legacy row has selection evidence. No tag values or subject/owner identity
+are added to this clock. Current component proofs do not replace the complete
+release-image and real-sender acceptance proof.
+
 The ledger is intentionally small:
 
 - at most 64 receipts per series;

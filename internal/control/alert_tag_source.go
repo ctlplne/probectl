@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -124,20 +125,20 @@ type alertTagMetricSource struct {
 	deps   AlertTagDependencies
 }
 
-func (s alertTagMetricSource) CurrentRule(ctx context.Context, rule alert.Rule) ([]alert.Sample, error) {
+func (s alertTagMetricSource) CurrentRule(ctx context.Context, rule alert.Rule) (alert.RuleMetricRead, error) {
 	if s.pool == nil || s.MetricSource == nil || s.deps.Gate == nil || s.tenant == "" || rule.TenantID != s.tenant || !rule.HasTagFilter || rule.Type == alert.Trap {
-		return nil, apierror.Unavailable("current alert metadata source is unavailable")
+		return alert.RuleMetricRead{}, apierror.Unavailable("current alert metadata source is unavailable")
 	}
 	budget := flowstore.ExplorerOperationBudget(ctx, s.deps.FlowStore)
 	if err := budget.Validate(); err != nil {
-		return nil, apierror.Unavailable("current alert metadata cost policy is unavailable")
+		return alert.RuleMetricRead{}, apierror.Unavailable("current alert metadata cost policy is unavailable")
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(s.tenant))
 	release, err := s.deps.Gate.BeginQuery(ctx, s.tenant)
 	if err != nil {
-		return nil, err
+		return alert.RuleMetricRead{}, err
 	}
 	defer release()
 	var configuration *alert.TagFilter
@@ -147,27 +148,27 @@ func (s alertTagMetricSource) CurrentRule(ctx context.Context, rule alert.Rule) 
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return alert.RuleMetricRead{}, err
 	}
 	if configuration == nil {
-		return nil, store.ErrAlertTagFilterChanged
+		return alert.RuleMetricRead{}, store.ErrAlertTagFilterChanged
 	}
 	authority, err := loadAlertTagAuthority(ctx, s.pool, s.tenant, configuration.OwnerUserID)
 	if err != nil {
-		return nil, err
+		return alert.RuleMetricRead{}, err
 	}
 	if !authority.permits(ctx, authority.principal, map[string]string{auth.ResourceTenantKey: s.tenant}) {
-		return nil, apierror.Forbidden("current alert metadata source read grants are required")
+		return alert.RuleMetricRead{}, apierror.Forbidden("current alert metadata source read grants are required")
 	}
 	// The current owner's global metric read is authorized before telemetry IO.
 	// A raw test_id only nominates metadata; it never grants access to metrics
 	// or attests a sender. Context policy below further limits metadata use.
 	samples, err := s.Current(ctx, rule.Metric, rule.Match)
 	if err != nil {
-		return nil, err
+		return alert.RuleMetricRead{}, err
 	}
 	if err := alertTagSampleBudget(ctx, s.tenant, samples, budget.MemoryBytes/4); err != nil {
-		return nil, err
+		return alert.RuleMetricRead{}, err
 	}
 	ids := make([]string, 0, len(samples))
 	for _, sample := range samples {
@@ -177,22 +178,22 @@ func (s alertTagMetricSource) CurrentRule(ctx context.Context, rule alert.Rule) 
 	}
 	snapshot, err := store.NewTagSnapshots(s.pool).LoadTests(ctx, ids, budget.MemoryBytes/4)
 	if err != nil {
-		return nil, err
+		return alert.RuleMetricRead{}, err
 	}
 	contexts, err := snapshot.Contexts()
 	if err != nil {
-		return nil, err
+		return alert.RuleMetricRead{}, err
 	}
 	allowed := map[string]bool{}
 	for _, record := range contexts {
 		if record.TenantID != s.tenant {
-			return nil, apierror.Unavailable("current alert metadata context is unavailable")
+			return alert.RuleMetricRead{}, apierror.Unavailable("current alert metadata context is unavailable")
 		}
 		allowed[record.ContextID] = authority.permits(ctx, authority.principal, entityContextResource(record))
 	}
 	selected, err := snapshot.SelectContext(ctx, s.tenant, ids, allowed, configuration.Filter, configuration.TagIDs, budget.MemoryBytes/4)
 	if err != nil {
-		return nil, err
+		return alert.RuleMetricRead{}, err
 	}
 	selectedIDs := make(map[string]bool, len(selected))
 	for _, id := range selected {
@@ -205,9 +206,17 @@ func (s alertTagMetricSource) CurrentRule(ctx context.Context, rule alert.Rule) 
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return alert.RuleMetricRead{}, err
 	}
-	return out, nil
+	revision, asOf, err := snapshot.Clock()
+	if err != nil {
+		return alert.RuleMetricRead{}, err
+	}
+	selection := &alert.TagSelectionReceipt{TargetKind: configuration.TargetKind, TagRevision: strconv.FormatInt(revision, 10), AsOf: asOf}
+	if err := selection.Validate(); err != nil {
+		return alert.RuleMetricRead{}, err
+	}
+	return alert.RuleMetricRead{Samples: out, TagSelection: selection}, nil
 }
 
 func alertTagSampleBudget(ctx context.Context, tenant string, samples []alert.Sample, maxBytes int64) error {

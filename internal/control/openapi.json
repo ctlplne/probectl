@@ -1634,7 +1634,7 @@
         "x-required-permission": "alert.read",
         "operationId": "listAlertEvaluations",
         "summary": "List bounded alert evaluation receipts",
-        "description": "Returns the caller tenant's retained deterministic state transitions for one alert rule. The store repeats tenant_id in every query under forced RLS. Receipts explain threshold or baseline math but never expose SQL, physical plans, global cardinality, or an ambient tenant identifier.",
+        "description": "Returns the caller tenant's retained deterministic state transitions for one alert rule. The store repeats tenant_id in every query under forced RLS. Receipts explain threshold or baseline math but never expose SQL, physical plans, global cardinality, or an ambient tenant identifier. Actual tag-selection clocks require current active-user, credential and fresh source-read grants. Otherwise they are withheld while ordinary alert.read receipts remain available. Legacy receipts have no invented selection clock.",
         "tags": [
           "alerts"
         ],
@@ -16210,6 +16210,9 @@
               "type": "string"
             },
             "description": "Authorized series labels with ambient tenant_id removed."
+          },
+          "tag_selection": {
+            "$ref": "#/components/schemas/AlertTagSelectionReceipt"
           }
         }
       },
@@ -16248,7 +16251,8 @@
           "freshness",
           "evaluator_running",
           "persistence_running",
-          "retention"
+          "retention",
+          "tag_selection_access"
         ],
         "properties": {
           "contract_version": {
@@ -16292,6 +16296,14 @@
           },
           "retention": {
             "$ref": "#/components/schemas/AlertEvaluationRetention"
+          },
+          "tag_selection_access": {
+            "type": "string",
+            "enum": [
+              "available",
+              "withheld"
+            ],
+            "description": "Current active user, credential scopes and fresh role/policy allow tags.read, test.read and metrics.read. Withheld strips all tag_selection fields regardless of whether any receipt contains one; established alert.read access is preserved."
           }
         }
       },
@@ -25107,6 +25119,34 @@
             "type": "string",
             "maxLength": 128,
             "description": "Explicit operator-owned CIDR for kind=prefix only; canonicalized to its network range. A display label is never used as a network. Empty clears this optional metadata."
+          }
+        }
+      },
+      "AlertTagSelectionReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The actual current authorized metadata snapshot used by this evaluation. Distinct from the rule configuration binding. No subject, tag values, owner or sender attestation. Absent on legacy receipts or when source grants are withheld.",
+        "required": [
+          "target_kind",
+          "tag_revision",
+          "as_of"
+        ],
+        "properties": {
+          "target_kind": {
+            "type": "string",
+            "enum": [
+              "test"
+            ]
+          },
+          "tag_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "maxLength": 19,
+            "description": "Exact positive signed 64-bit revision, encoded as decimal text to avoid rounding."
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }

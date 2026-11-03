@@ -7,8 +7,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
@@ -28,6 +30,20 @@ const (
 type AlertEvaluations struct{}
 
 func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt alert.EvaluationReceipt) error {
+	var encodedSelection []byte
+	if receipt.TagSelection != nil {
+		if err := receipt.TagSelection.Validate(); err != nil {
+			return err
+		}
+		var err error
+		encodedSelection, err = json.Marshal(receipt.TagSelection)
+		if err != nil {
+			return err
+		}
+		if len(encodedSelection) > 1024 {
+			return fmt.Errorf("alert selection receipt exceeds budget")
+		}
+	}
 	labels := receipt.Labels
 	if labels == nil {
 		labels = map[string]string{}
@@ -43,9 +59,9 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 		        evaluation_state, observed_at, observed_value, expectation_kind,
 		        comparison, threshold, expected_mean, expected_stddev,
 		        expected_lower, expected_upper, breach_count, required_breaches,
-		        warmup_samples, warmup_required, reason, labels, expires_at)
+		        warmup_samples, warmup_required, reason, labels, expires_at, tag_selection)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-		        $14, $15, $16, $17, $18, $19, $20, $21::jsonb, $22)
+		        $14, $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23::jsonb)
 		ON CONFLICT (tenant_id, rule_id, fingerprint, observed_at, evaluation_state)
 		DO UPDATE SET
 		  observed_value = EXCLUDED.observed_value,
@@ -62,6 +78,7 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 		  warmup_required = EXCLUDED.warmup_required,
 		  reason = EXCLUDED.reason,
 		  labels = EXCLUDED.labels,
+ tag_selection = EXCLUDED.tag_selection,
 		  expires_at = EXCLUDED.expires_at`,
 		s.Tenant.String(), receipt.RuleID, receipt.Fingerprint, receipt.ContractVersion,
 		receipt.RuleRevision, string(receipt.State), receipt.ObservedAt, receipt.ObservedValue,
@@ -69,7 +86,7 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 		receipt.Expectation.Threshold, receipt.Expectation.Mean, receipt.Expectation.StdDev,
 		receipt.Expectation.Lower, receipt.Expectation.Upper, receipt.BreachCount,
 		receipt.RequiredBreaches, receipt.WarmupSamples, receipt.WarmupRequired,
-		receipt.Reason, encodedLabels, expiresAt)
+		receipt.Reason, encodedLabels, expiresAt, encodedSelection)
 	if err != nil {
 		return mapWriteErr("alert evaluation receipt", err)
 	}
@@ -123,13 +140,13 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 		       evaluation_state, observed_at, observed_value, expectation_kind,
 		       comparison, threshold, expected_mean, expected_stddev,
 		       expected_lower, expected_upper, breach_count, required_breaches,
-		       warmup_samples, warmup_required, reason, labels
+		       warmup_samples, warmup_required, reason, labels, tag_selection
 		  FROM (
 		    SELECT contract_version, fingerprint, rule_id, rule_revision,
 		           evaluation_state, observed_at, observed_value, expectation_kind,
 		           comparison, threshold, expected_mean, expected_stddev,
 		           expected_lower, expected_upper, breach_count, required_breaches,
-		           warmup_samples, warmup_required, reason, labels
+		           warmup_samples, warmup_required, reason, labels, tag_selection
 		      FROM alert_evaluation_receipts
 		     WHERE tenant_id = $1 AND rule_id = $2
 		       AND expires_at > clock_timestamp()
@@ -154,6 +171,7 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 			receipt                     alert.EvaluationReceipt
 			state, expectation, compare string
 			labels                      []byte
+			selection                   []byte
 		)
 		if err := rows.Scan(
 			&receipt.ContractVersion, &receipt.Fingerprint, &receipt.RuleID,
@@ -163,7 +181,7 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 			&receipt.Expectation.StdDev, &receipt.Expectation.Lower,
 			&receipt.Expectation.Upper, &receipt.BreachCount,
 			&receipt.RequiredBreaches, &receipt.WarmupSamples,
-			&receipt.WarmupRequired, &receipt.Reason, &labels,
+			&receipt.WarmupRequired, &receipt.Reason, &labels, &selection,
 		); err != nil {
 			return nil, false, err
 		}
@@ -172,6 +190,20 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 		receipt.Expectation.Comparison = alert.Comparison(compare)
 		if len(labels) > 0 {
 			if err := json.Unmarshal(labels, &receipt.Labels); err != nil {
+				return nil, false, err
+			}
+		}
+		if len(selection) > 0 {
+			if len(selection) > 1024 {
+				return nil, false, fmt.Errorf("alert selection receipt exceeds budget")
+			}
+			receipt.TagSelection = &alert.TagSelectionReceipt{}
+			decoder := json.NewDecoder(bytes.NewReader(selection))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(receipt.TagSelection); err != nil {
+				return nil, false, err
+			}
+			if err := receipt.TagSelection.Validate(); err != nil {
 				return nil, false, err
 			}
 		}

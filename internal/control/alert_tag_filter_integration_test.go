@@ -209,8 +209,56 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 		counter := &countedAlertTagMetrics{source: metricSource{q: mem, tenant: tenant}}
 		source := alertTagMetricSource{MetricSource: counter, pool: db.Pool(), tenant: tenant, deps: AlertTagDependencies{Gate: gate}}
 		selected, err := source.CurrentRule(ctx, *getRule(tenant))
-		if err != nil || len(selected) != 1 || selected[0].Labels["test_id"] != tests[tenant] || selected[0].Value != float64(lane+1) {
+		if err != nil || len(selected.Samples) != 1 || selected.Samples[0].Labels["test_id"] != tests[tenant] || selected.Samples[0].Value != float64(lane+1) {
 			t.Fatal("current metadata selection crossed ownership or changed metrics")
+		}
+		if selected.TagSelection == nil || selected.TagSelection.Validate() != nil || selected.TagSelection.TargetKind != "test" {
+			t.Fatal("actual source selection omitted its current snapshot clock")
+		}
+		initialRevision := selected.TagSelection.TagRevision
+		// Real source -> engine -> existing RLS receipt sink -> shared publication.
+		var persisted alert.EvaluationReceipt
+		engine := alert.NewEngine(source, nil, core.log, alert.WithEvaluationSink(func(ctx context.Context, receipt alert.EvaluationReceipt) error {
+			persisted = receipt
+			return tenancy.InTenant(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+				return (store.AlertEvaluations{}).Append(ctx, sc, receipt)
+			})
+		}))
+		if _, err := engine.Evaluate(tenancy.WithTenant(ctx, tenancy.ID(tenant)), *getRule(tenant)); err != nil || persisted.TagSelection == nil || persisted.TagSelection.TagRevision != initialRevision || persisted.Labels["test_id"] != tests[tenant] {
+			t.Fatalf("actual selection did not reach the receipt sink: %v", err)
+		}
+		readReceipts := func(actor *auth.Principal, id string) alert.EvaluationsResult {
+			t.Helper()
+			w, err := invoke(core.handleListAlertEvaluations, actor, id, http.MethodGet, nil)
+			var out alert.EvaluationsResult
+			if err != nil || json.Unmarshal(w.Body.Bytes(), &out) != nil {
+				t.Fatalf("read selection receipts: %v", err)
+			}
+			return out
+		}
+		proof := readReceipts(actors[tenant], ruleIDs[tenant])
+		if proof.TagSelectionAccess != "available" || len(proof.Items) != 1 || proof.Items[0].TagSelection == nil || proof.Items[0].TagSelection.TagRevision != persisted.TagSelection.TagRevision || !proof.Items[0].TagSelection.AsOf.Equal(persisted.TagSelection.AsOf) || proof.Items[0].Fingerprint != persisted.Fingerprint {
+			t.Fatal("receipt store/API lost exact actual selection clock or series identity")
+		}
+		readOnly := narrowPrincipalToScopes(actors[tenant], []string{permAlertRead})
+		withheld := readReceipts(readOnly, ruleIDs[tenant])
+		if withheld.TagSelectionAccess != "withheld" || len(withheld.Items) != 1 || withheld.Items[0].TagSelection != nil || withheld.Items[0].Fingerprint != persisted.Fingerprint {
+			t.Fatal("source clock escaped live scopes or ordinary alert receipts disappeared")
+		}
+		mutate(tenants[1-lane], func(ctx context.Context, sc tenancy.Scope) error {
+			items, _, err := (store.AlertEvaluations{}).List(ctx, sc, ruleIDs[tenant], "", 100)
+			if err == nil && len(items) != 0 {
+				t.Fatal("receipt query crossed paired tenant RLS")
+			}
+			return err
+		})
+		invalid := persisted
+		invalid.TagSelection = persisted.TagSelection.Clone()
+		invalid.TagSelection.TagRevision = "01"
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			return (store.AlertEvaluations{}).Append(ctx, sc, invalid)
+		}); err == nil {
+			t.Fatal("store accepted an invalid execution clock")
 		}
 		// Generic rule reads carry the marker without loading/exporting filter values.
 		plain, err := json.Marshal(getRule(tenant))
@@ -229,7 +277,7 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 			t.Fatal(err)
 		}
 		selected, err = source.CurrentRule(ctx, *getRule(tenant))
-		if err != nil || len(selected) != 1 || selected[0].Labels["test_id"] != tests[tenant] {
+		if err != nil || len(selected.Samples) != 1 || selected.Samples[0].Labels["test_id"] != tests[tenant] {
 			t.Fatal("negative metadata filter admitted an unowned claim")
 		}
 		if _, err := invoke(core.handlePutAlertTagFilter, actors[tenant], ruleIDs[tenant], http.MethodPut, input(wants[tenant], flow.QueryEqual)); err != nil {
@@ -242,14 +290,14 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 			return err
 		})
 		selected, err = source.CurrentRule(ctx, *getRule(tenant))
-		if err != nil || len(selected) != 0 {
+		if err != nil || len(selected.Samples) != 0 || selected.TagSelection == nil || selected.TagSelection.TagRevision == initialRevision {
 			t.Fatal("rule edit did not retag selection over unchanged historical series")
 		}
 		if _, err := invoke(core.handlePutAlertTagFilter, actors[tenant], ruleIDs[tenant], http.MethodPut, input("changed-"+tenant, flow.QueryEqual)); err != nil {
 			t.Fatal(err)
 		}
 		selected, err = source.CurrentRule(ctx, *getRule(tenant))
-		if err != nil || len(selected) != 1 {
+		if err != nil || len(selected.Samples) != 1 {
 			t.Fatal("fresh current filter did not reselect unchanged series")
 		}
 		// A scoped credential cannot borrow the owner's current full role.
@@ -264,8 +312,12 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			return (store.RoleBindings{}).Unbind(ctx, sc, "user", users[tenant], roles[tenant])
 		})
-		if partial, err := source.CurrentRule(ctx, *getRule(tenant)); err == nil || partial != nil || counter.calls != calls {
+		if partial, err := source.CurrentRule(ctx, *getRule(tenant)); err == nil || (partial.Samples != nil || partial.TagSelection != nil) || counter.calls != calls {
 			t.Fatal("revoked current owner reached the metric source or yielded partial data")
+		}
+		revoked := readReceipts(actors[tenant], ruleIDs[tenant])
+		if revoked.TagSelectionAccess != "withheld" || len(revoked.Items) != 1 || revoked.Items[0].TagSelection != nil {
+			t.Fatal("stale credential borrowed a revoked current source role")
 		}
 		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			return (store.RoleBindings{}).Bind(ctx, sc, "user", users[tenant], roles[tenant])
@@ -275,7 +327,7 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 			_, err := sc.Q.Exec(ctx, `UPDATE alert_rules SET tag_filter=jsonb_set(tag_filter,'{owner_user_id}',to_jsonb($3::text)),updated_at=clock_timestamp() WHERE tenant_id=$1 AND id=$2`, tenant, ruleIDs[tenant], users[foreign])
 			return err
 		})
-		if partial, err := source.CurrentRule(ctx, *getRule(tenant)); err == nil || partial != nil || counter.calls != calls {
+		if partial, err := source.CurrentRule(ctx, *getRule(tenant)); err == nil || (partial.Samples != nil || partial.TagSelection != nil) || counter.calls != calls {
 			t.Fatal("foreign stored owner conferred source authority")
 		}
 		if _, err := invoke(core.handlePutAlertTagFilter, actors[tenant], ruleIDs[tenant], http.MethodPut, input("changed-"+tenant, flow.QueryEqual)); err != nil {
@@ -290,7 +342,7 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 			return err
 		})
 		callsBeforePolicy := counter.calls
-		if partial, err := source.CurrentRule(ctx, *getRule(tenant)); err == nil || partial != nil || counter.calls != callsBeforePolicy {
+		if partial, err := source.CurrentRule(ctx, *getRule(tenant)); err == nil || (partial.Samples != nil || partial.TagSelection != nil) || counter.calls != callsBeforePolicy {
 			t.Fatal("current policy deny reached metrics or disclosed partial selection")
 		}
 		if _, err := invoke(core.handleGetAlertTagFilter, actors[tenant], ruleIDs[tenant], http.MethodGet, nil); err == nil {
@@ -303,6 +355,18 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			return (store.ABACPolicies{}).Delete(ctx, sc, policyID)
 		})
+		// A pre-feature/ordinary transition stays without invented provenance.
+		legacy := persisted
+		legacy.TagSelection = nil
+		legacy.ObservedAt = legacy.ObservedAt.Add(-time.Second)
+		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			return (store.AlertEvaluations{}).Append(ctx, sc, legacy)
+		})
+		history := readReceipts(actors[tenant], ruleIDs[tenant])
+		if history.TagSelectionAccess != "available" || len(history.Items) != 2 || history.Items[0].TagSelection != nil || history.Items[1].TagSelection == nil {
+			t.Fatal("legacy history acquired fabricated selection evidence")
+		}
+
 	}
 	if !reflect.DeepEqual(beforeSeries, mem.Snapshot()) {
 		t.Fatal("metadata selection rewrote existing metric labels or values")

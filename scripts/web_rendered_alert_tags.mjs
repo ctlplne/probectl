@@ -16,12 +16,14 @@ export const ALERT_TAG_CASES = [
 ];
 const ruleID = "11111111-1111-4111-8111-111111111111";
 const revision = "9007199254740993";
-const stagesFor = (mode) =>
-  mode === "ready"
+const stagesFor = (mode) => [
+  "receipt",
+  ...(mode === "ready"
     ? ["ready", "saved", "refused"]
     : mode === "clear-only"
       ? ["confirm", "cleared"]
-      : [mode === "read-only" ? "read-only" : "no-disclosure"];
+      : [mode === "read-only" ? "read-only" : "no-disclosure"]),
+];
 
 export function validateAlertTagMatrix(checks, themes, viewports) {
   const failures = [];
@@ -50,6 +52,8 @@ export function validateAlertTagMatrix(checks, themes, viewports) {
           row.passed !== true ||
           row.theme_verified !== true ||
           row.requests_verified !== true ||
+          row.execution_clock_verified !== true ||
+          row.receipt_requests_verified !== true ||
           !Array.isArray(row.runtime) ||
           row.runtime.length ||
           !Array.isArray(row.errors) ||
@@ -93,7 +97,7 @@ function fixtureSource(mode) {
     const mode = ${JSON.stringify(mode)}, id = ${JSON.stringify(ruleID)}, revision = ${JSON.stringify(revision)};
     const tagID = '22222222-2222-4222-8222-222222222222';
     const base = window.fetch.bind(window), wide = '🌐'.repeat(24000);
-    const state = window.__probectlAlertTagProof = { requests: [], refuse: false, filter: { match: 'all', groups: [
+    const state = window.__probectlAlertTagProof = { requests: [], receipt_requests: [], refuse: false, filter: { match: 'all', groups: [
       { conditions: [{ field: 'tag.customer', op: 'eq', values: [wide] }] },
       { mode: 'exclude', conditions: [{ field: 'tag.customer', op: 'regex', values: ['excluded$'] }] }
     ] } };
@@ -108,7 +112,16 @@ function fixtureSource(mode) {
         return json(me);
       }
       if (path === '/v1/alerts') return json({ alerting_active: true, items: [{ id, tenant_id: mode === 'foreign' ? 'foreign-tenant' : state.tenant, name: 'Tag criterion rule', enabled: false, metric: 'probectl_probe_duration_seconds', type: 'threshold', comparison: 'gt', threshold: 1, severity: 'warning', has_tag_filter: true, channels: [], created_at: '2026-11-03T00:00:00Z', updated_at: '2026-11-03T00:00:00Z' }] });
-      if (path === '/v1/alerts/active' || path === '/v1/alerts/maintenance') return json({ items: [], evaluator_running: true });
+      if (path === '/v1/alerts/active') return json({ items: mode === 'foreign' ? [] : [{ fingerprint: 'active-fixture', evaluation_fingerprint: 'eval:fixture', rule_id: id, rule_name: 'Tag criterion rule', severity: 'warning', metric: 'probectl_probe_duration_seconds', value: 2, reason: 'fixture threshold', labels: { test_id: 'owned-fixture' }, since: '2026-11-03T00:00:00Z', last_seen_at: '2026-11-03T01:00:00Z' }], evaluator_running: true });
+      if (path === '/v1/alerts/maintenance') return json({ items: [] });
+      if (path === '/v1/alerts/' + id + '/evaluations') {
+        state.receipt_requests.push({method, path, tenant: new Headers(init?.headers).get('X-Probectl-Tenant'), query: url.search});
+        const allowed = mode === 'ready' || mode === 'read-only';
+        return json({contract_version: 'probectl.alert-evaluations/v1', tag_selection_access: allowed ? 'available' : 'withheld', items: [{ contract_version: 'probectl.alert-evaluation/v1', fingerprint: 'eval:fixture', rule_id: id, rule_revision: '2026-11-03T00:00:00Z', state: 'firing', observed_at: '2026-11-03T01:00:00Z', observed_value: 2, expectation: {kind: 'threshold',comparison: 'gt',threshold: 1}, breach_count: 1, required_breaches: 1, reason: 'fixture threshold', ...(mode === 'read-only' ? {} : {tag_selection: {target_kind: 'test',tag_revision: '9007199254740995',as_of: '2026-11-03T00:59:00Z'}}) }], truncated: false, limit: 64, freshness: 'current', evaluator_running: true, persistence_running: true, retention: {max_per_series:64,max_per_rule:256,expires_days:7}});
+      }
+      if (path === '/v1/alerts/active/active-fixture/workflow') return json({operations:[],deliveries:[],evaluator_running:true,persistence_running:true,connector_running:false});
+      if (path === '/v1/incidents') return json({items:[]});
+      if (path === '/v1/oncall/status') return json({configured:false,outbound_configured:false,inbound_configured:false,outbound_connector_count:0,inbound_webhook_count:0,tls_required:true,secrets_redacted:true,providers:[],outbound:[],inbound:[]});
       if (path === '/v1/alerts/rules/' + id + '/tag-filter') {
         const body = init?.body ? JSON.parse(String(init.body)) : null;
         state.requests.push({ method, body, tenant: new Headers(init?.headers).get('X-Probectl-Tenant'), query: url.search });
@@ -134,6 +147,8 @@ export function alertTagSelfTest() {
         passed: true,
         theme_verified: true,
         requests_verified: true,
+        execution_clock_verified: true,
+        receipt_requests_verified: true,
         runtime: [],
         errors: [],
         full_value_exact: true,
@@ -164,6 +179,12 @@ export function alertTagSelfTest() {
     },
     (r) => {
       r[0].full_value_exact = false;
+    },
+    (r) => {
+      r[0].execution_clock_verified = false;
+    },
+    (r) => {
+      r[0].receipt_requests_verified = false;
     },
     (r) => {
       r[0].saved_input_exact = false;
@@ -286,6 +307,63 @@ export async function runAlertTagChecks({
           await page
             .getByRole("table", { name: "Alert rules", exact: true })
             .waitFor();
+          if (mode === "foreign") {
+            record.execution_clock_verified =
+              (await page
+                .getByRole("button", { name: "Details", exact: true })
+                .count()) === 0;
+            if (!record.execution_clock_verified)
+              throw Error("foreign rule exposed receipt detail");
+            await inspect("receipt");
+          } else {
+            await page
+              .getByRole("button", { name: "Details", exact: true })
+              .click();
+            const detail = page.getByRole("dialog", {
+              name: "Tag criterion rule",
+              exact: true,
+            });
+            const timeline = detail.getByRole("list", {
+              name: "Deterministic evaluation receipts",
+              exact: true,
+            });
+            await timeline.waitFor();
+            if (mode === "ready") {
+              record.execution_clock_verified =
+                (await timeline
+                  .getByText("9007199254740995", { exact: true })
+                  .count()) === 1 &&
+                (await timeline
+                  .getByText("Metadata revision used", { exact: true })
+                  .count()) === 1 &&
+                (await timeline
+                  .getByText("Selection as of", { exact: true })
+                  .count()) === 1 &&
+                (await timeline
+                  .getByText(revision, { exact: true })
+                  .count()) === 0;
+            } else {
+              record.execution_clock_verified =
+                (await timeline
+                  .getByText("Metadata revision used", { exact: true })
+                  .count()) === 0 &&
+                (await timeline
+                  .getByText("9007199254740995", { exact: true })
+                  .count()) === 0;
+              if (mode !== "read-only")
+                record.execution_clock_verified &&=
+                  (await detail
+                    .getByText(/Metadata selection evidence is withheld/)
+                    .count()) === 1;
+            }
+            if (!record.execution_clock_verified)
+              throw Error(
+                "receipt used a binding revision, exposed withheld evidence, or fabricated legacy provenance",
+              );
+            await inspect("receipt");
+            await detail.press("Escape");
+            await detail.waitFor({ state: "hidden" });
+          }
           const opener = page.getByRole("button", {
             name: "Test tag criteria for Tag criterion rule",
             exact: true,
@@ -447,6 +525,7 @@ export async function runAlertTagChecks({
           const observed = await page.evaluate(() => ({
             requests: window.__probectlAlertTagProof.requests,
             tenant: window.__probectlAlertTagProof.tenant,
+            receipt_requests: window.__probectlAlertTagProof.receipt_requests,
           }));
           const methods = observed.requests.map((r) => r.method);
           const expected =
@@ -457,6 +536,19 @@ export async function runAlertTagChecks({
                 : mode === "clear-only"
                   ? ["DELETE"]
                   : [];
+          record.receipt_requests_verified =
+            observed.receipt_requests.length === (mode === "foreign" ? 0 : 1) &&
+            observed.receipt_requests.every(
+              (r) =>
+                r.method === "GET" &&
+                r.tenant === null &&
+                r.path === "/v1/alerts/" + ruleID + "/evaluations" &&
+                r.query === "?fingerprint=eval%3Afixture",
+            );
+          if (!record.receipt_requests_verified)
+            throw Error(
+              "receipt query changed owned rule, scope or fingerprint",
+            );
           record.requests_verified =
             JSON.stringify(methods) === JSON.stringify(expected) &&
             observed.requests.every(

@@ -145,6 +145,7 @@ function alertsBackend() {
     ) {
       return jsonResponse({
         contract_version: 'probectl.alert-evaluations/v1',
+        tag_selection_access: 'available',
         items: [
           {
             contract_version: 'probectl.alert-evaluation/v1',
@@ -172,6 +173,12 @@ function alertsBackend() {
             breach_count: 1,
             required_breaches: 1,
             reason: 'probectl_result_rtt_ms=250 gt 100',
+            tag_selection: {
+              target_kind: 'test',
+              tag_revision: '9007199254740993',
+              as_of: '2026-06-04T11:59:59Z',
+            },
+
             labels: { target: 'db' },
           },
         ],
@@ -567,11 +574,45 @@ describe('alerting surface (S-FE1)', () => {
     )
   })
 
+  test('withheld selection evidence stays absent even when stale fields accompany ordinary receipts', async () => {
+    const { fetcher } = alertsBackend()
+    vi.stubGlobal('fetch', async (...args: Parameters<typeof fetch>) => {
+      const response = await fetcher(...args)
+      if (String(args[0]).includes('/evaluations?')) {
+        const payload = await response.json()
+        payload.tag_selection_access = 'withheld'
+        return jsonResponse(payload)
+      }
+      return response
+    })
+    renderApp('/alerts', { me: { permissions: ['alert.read'] } })
+    await screen.findByRole('table', { name: 'Active alerts' })
+    await userEvent.click(screen.getAllByRole('button', { name: 'Details' })[0])
+    const dialog = await screen.findByRole('dialog')
+    const timeline = await within(dialog).findByRole('list', {
+      name: 'Deterministic evaluation receipts',
+    })
+    expect(within(timeline).getByText('firing')).toBeDefined()
+    expect(within(timeline).queryByText('Metadata revision used')).toBeNull()
+    expect(within(timeline).queryByText('9007199254740993')).toBeNull()
+    expect(within(dialog).getByText(/Metadata selection evidence is withheld/)).toBeDefined()
+  })
+
   test('silence + acknowledge act through the API and render the ENGINE state', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
     renderApp('/alerts', {
-      me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
+      me: {
+        permissions: [
+          'alert.read',
+          'alert.write',
+          'incident.read',
+          'incident.write',
+          'tags.read',
+          'test.read',
+          'metrics.read',
+        ],
+      },
     })
 
     // Open the detail for the db series.
@@ -588,6 +629,9 @@ describe('alerting surface (S-FE1)', () => {
     expect(within(timeline).getAllByText('gt 100')).toHaveLength(2)
     expect(within(timeline).getByText('0 / 1 breaches')).toBeDefined()
     expect(within(timeline).getByText('1 / 1 breaches')).toBeDefined()
+    expect(within(timeline).getByText('Metadata revision used')).toBeDefined()
+    expect(within(timeline).getByText('9007199254740993')).toBeDefined()
+    expect(within(timeline).getByText('Selection as of')).toBeDefined()
     expect(dialog).not.toHaveTextContent('tenant_id')
 
     // Silence -> the API was called and the UI reflects the engine's answer.

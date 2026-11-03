@@ -43,6 +43,9 @@ func proveAlertTagFilterNative(t *testing.T, core *Server, pool *pgxpool.Pool, t
 	cleanup := func() {
 		for _, tenant := range tenants {
 			if err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+				if err := (store.AlertEvaluations{}).DeleteRule(ctx, sc, ids[tenant]); err != nil {
+					return err
+				}
 				if _, err := sc.Q.Exec(ctx, `DELETE FROM alert_rules WHERE tenant_id=$1 AND id::text=$2`, tenant, ids[tenant]); err != nil {
 					return err
 				}
@@ -91,6 +94,34 @@ func proveAlertTagFilterNative(t *testing.T, core *Server, pool *pgxpool.Pool, t
 	get := func(tenant string) alert.TagFilterState {
 		t.Helper()
 		return decode(native(tenant, "alert_tag_filter_get", map[string]any{"rule_id": ids[tenant]}, true))
+	}
+	// Explicit store fixtures over real TLS/auth/RLS; the separate source proof
+	// verifies the evaluator actually used its reported snapshot.
+	for lane, tenant := range tenants {
+		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			return (store.AlertEvaluations{}).Append(ctx, sc, alert.EvaluationReceipt{ContractVersion: alert.EvaluationReceiptVersion, RuleID: ids[tenant], Fingerprint: "eval:native-selection", RuleRevision: "native-fixture", State: alert.EvaluationNormal, ObservedAt: now, Expectation: alert.EvaluationExpectation{Kind: alert.Threshold}, RequiredBreaches: 1, Reason: "fixture selection", TagSelection: &alert.TagSelectionReceipt{TargetKind: "test", TagRevision: []string{"9007199254740993", "9007199254740995"}[lane], AsOf: now}})
+		})
+	}
+	decodeReceipts := func(raw json.RawMessage) alert.EvaluationsResult {
+		t.Helper()
+		var out alert.EvaluationsResult
+		if json.Unmarshal(raw, &out) != nil {
+			t.Fatal("invalid native evaluation receipt")
+		}
+		return out
+	}
+	for lane, tenant := range tenants {
+		out := decodeReceipts(native(tenant, "alert_evaluations", map[string]any{"rule_id": ids[tenant]}, true))
+		if out.TagSelectionAccess != "available" || len(out.Items) != 1 || out.Items[0].TagSelection == nil || out.Items[0].TagSelection.TagRevision != []string{"9007199254740993", "9007199254740995"}[lane] || out.Items[0].RuleID != ids[tenant] {
+			t.Fatal("native selection receipts lost current grants, exact revision or owned rule")
+		}
+		native(tenant, "alert_evaluations", map[string]any{"rule_id": ids[tenants[1-lane]]}, false)
+		native(tenant, "alert_evaluations", map[string]any{"rule_id": ids[tenant], "tenant_id": tenants[1-lane]}, false)
+	}
+	withheld := decodeReceipts(scoped("alert_evaluations", map[string]any{"rule_id": ids[tenants[0]]}, true))
+	if withheld.TagSelectionAccess != "withheld" || len(withheld.Items) != 1 || withheld.Items[0].TagSelection != nil {
+		t.Fatal("native receipt source evidence widened scoped credential")
 	}
 	for lane, tenant := range tenants {
 		if out := get(tenant); out.RuleID != ids[tenant] || out.HasTagFilter || out.TagFilter != nil {

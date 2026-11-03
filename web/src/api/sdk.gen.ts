@@ -193,6 +193,7 @@ export interface AlertEvaluationReceipt {
   rule_id: string
   rule_revision: string
   state: "no_data" | "warming" | "normal" | "pending" | "firing" | "steady" | "resolved"
+  tag_selection?: AlertTagSelectionReceipt
   warmup_required?: number
   warmup_samples?: number
 }
@@ -212,6 +213,7 @@ export interface AlertEvaluationsResponse {
   limit: number
   persistence_running: boolean
   retention: AlertEvaluationRetention
+  tag_selection_access: "available" | "withheld"
   truncated: boolean
 }
 
@@ -302,6 +304,12 @@ export interface AlertTagFilterState {
   has_tag_filter: boolean
   rule_id: string
   tag_filter?: AlertTagFilter
+}
+
+export interface AlertTagSelectionReceipt {
+  as_of: string
+  tag_revision: string
+  target_kind: "test"
 }
 
 export interface AlertTrapMatch {

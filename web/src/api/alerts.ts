@@ -6,6 +6,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import { useAuth } from '../auth/useAuth'
 import type { Incident, Severity } from './incidents'
 import type { AlertTagFilterState as GeneratedAlertTagFilterState } from './sdk.gen'
 import type { FlowQueryFilterGroup } from './flowExplorer'
@@ -180,6 +181,7 @@ export interface AlertEvaluationExpectation {
 }
 
 export interface AlertEvaluationReceipt {
+  tag_selection?: { target_kind: 'test'; tag_revision: string; as_of: string }
   contract_version: 'probectl.alert-evaluation/v1'
   fingerprint: string
   rule_id: string
@@ -198,6 +200,7 @@ export interface AlertEvaluationReceipt {
 
 export interface AlertEvaluationsResponse {
   contract_version: 'probectl.alert-evaluations/v1'
+  tag_selection_access?: 'available' | 'withheld'
   items: AlertEvaluationReceipt[]
   truncated: boolean
   limit: number
@@ -293,15 +296,18 @@ export function useActiveAlerts() {
 
 /** useAlertEvaluations reads the bounded server-authored state-transition ledger. */
 export function useAlertEvaluations(ruleID: string | undefined, fingerprint?: string) {
+  const { tenant, user, permissions } = useAuth()
+  const scope = JSON.stringify([tenant.id, user.id, permissions.slice().sort()])
   const query = new URLSearchParams()
   if (fingerprint) query.set('fingerprint', fingerprint)
   const suffix = query.size > 0 ? `?${query.toString()}` : ''
   return useQuery({
-    queryKey: ['alerts', 'evaluations', ruleID, fingerprint ?? ''],
+    queryKey: ['alerts', 'evaluations', scope, ruleID, fingerprint ?? ''],
     enabled: !!ruleID,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<AlertEvaluationsResponse>(
         `/alerts/${encodeURIComponent(ruleID ?? '')}/evaluations${suffix}`,
+        { signal },
       ),
     retry: false,
   })

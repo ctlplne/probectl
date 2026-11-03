@@ -30,6 +30,8 @@ func (b mcpTagMutationBackend) request(ctx context.Context, p *auth.Principal, a
 	}
 	method := http.MethodPost
 	switch action {
+	case "read":
+		method = http.MethodGet
 	case "update":
 		method = http.MethodPut
 	case "delete":

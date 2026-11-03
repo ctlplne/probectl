@@ -40,10 +40,16 @@ type MetricSource interface {
 	Current(ctx context.Context, metric string, match map[string]string) ([]Sample, error)
 }
 
+// RuleMetricRead keeps source selection evidence separate from metric labels.
+type RuleMetricRead struct {
+	Samples      []Sample
+	TagSelection *TagSelectionReceipt
+}
+
 // RuleMetricSource must authorize and apply current metadata before returning
 // samples. A tagged rule can never fall back to the legacy unfiltered read.
 type RuleMetricSource interface {
-	CurrentRule(ctx context.Context, rule Rule) ([]Sample, error)
+	CurrentRule(ctx context.Context, rule Rule) (RuleMetricRead, error)
 }
 
 // Engine evaluates rules against a MetricSource, holding per-series state so it
@@ -63,7 +69,7 @@ type Engine struct {
 	mu     sync.Mutex
 	states map[string]*seriesState
 	// noDataRules suppresses duplicate rule-level no-data receipts.
-	noDataRules map[string]bool
+	noDataRules map[string]string
 
 	maintenance map[string]MaintenanceWindow
 
@@ -222,7 +228,7 @@ func NewEngine(source MetricSource, notifier *Notifier, log *slog.Logger, opts .
 		log:         log,
 		clock:       time.Now,
 		states:      make(map[string]*seriesState),
-		noDataRules: make(map[string]bool),
+		noDataRules: make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -236,21 +242,21 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	if !rule.Enabled {
 		return nil, nil
 	}
-	samples, err := en.samples(ctx, rule)
+	read, err := en.samples(ctx, rule)
 	if err != nil {
 		return nil, err
 	}
-	if len(samples) == 0 {
-		en.recordNoData(ctx, rule)
+	if len(read.Samples) == 0 {
+		en.recordNoData(ctx, rule, read.TagSelection)
 		return en.resolveRestoredTraps(ctx, rule), nil
 	}
 	en.mu.Lock()
-	en.noDataRules[rule.ID] = false
+	delete(en.noDataRules, rule.ID)
 	en.mu.Unlock()
 
 	var acted []Alert
-	for _, s := range samples {
-		alert, notify, receipt, pending := en.evalSample(rule, s)
+	for _, s := range read.Samples {
+		alert, notify, receipt, pending := en.evalSample(rule, s, read.TagSelection)
 		en.recordEvaluation(ctx, receipt)
 		if notify {
 			en.deliver(ctx, rule, alert)
@@ -361,35 +367,46 @@ func labelsFromStateKey(key, prefix string) map[string]string {
 }
 
 // samples reads a rule's current samples from the source its type names.
-func (en *Engine) samples(ctx context.Context, rule Rule) ([]Sample, error) {
+func (en *Engine) samples(ctx context.Context, rule Rule) (RuleMetricRead, error) {
 	if rule.HasTagFilter {
 		if rule.Type == Trap {
-			return nil, fmt.Errorf("alert: test tag selection requires a metric source")
+			return RuleMetricRead{}, fmt.Errorf("alert: test tag selection requires a metric source")
 		}
 		source, ok := en.source.(RuleMetricSource)
 		if !ok {
-			return nil, fmt.Errorf("alert: current tag selection source is unavailable")
+			return RuleMetricRead{}, fmt.Errorf("alert: current tag selection source is unavailable")
 		}
-		return source.CurrentRule(ctx, rule)
+		read, err := source.CurrentRule(ctx, rule)
+		if err != nil {
+			return RuleMetricRead{}, err
+		}
+		if err := ctx.Err(); err != nil {
+			return RuleMetricRead{}, err
+		}
+		if err := read.TagSelection.Validate(); err != nil {
+			return RuleMetricRead{}, err
+		}
+		read.TagSelection = read.TagSelection.Clone()
+		return read, nil
 	}
 	if rule.Type == Trap {
 		if en.traps == nil || rule.Trap == nil {
-			return nil, fmt.Errorf("alert: trap rule %q cannot evaluate: no trap source is wired", rule.Name)
+			return RuleMetricRead{}, fmt.Errorf("alert: trap rule %q cannot evaluate: no trap source is wired", rule.Name)
 		}
 		samples, err := en.traps.ActiveTraps(ctx, rule, en.clock())
 		if err != nil {
-			return nil, fmt.Errorf("alert: read traps for %q: %w", rule.Name, err)
+			return RuleMetricRead{}, fmt.Errorf("alert: read traps for %q: %w", rule.Name, err)
 		}
-		return samples, nil
+		return RuleMetricRead{Samples: samples}, nil
 	}
 	if en.source == nil {
-		return nil, fmt.Errorf("alert: rule %q cannot evaluate: no metric source is wired", rule.Name)
+		return RuleMetricRead{}, fmt.Errorf("alert: rule %q cannot evaluate: no metric source is wired", rule.Name)
 	}
 	samples, err := en.source.Current(ctx, rule.Metric, rule.Match)
 	if err != nil {
-		return nil, fmt.Errorf("alert: query %q: %w", rule.Metric, err)
+		return RuleMetricRead{}, fmt.Errorf("alert: query %q: %w", rule.Metric, err)
 	}
-	return samples, nil
+	return RuleMetricRead{Samples: samples}, nil
 }
 
 // pendingNotify carries one series' notification state out of the locked
@@ -403,7 +420,7 @@ type pendingNotify struct {
 // evalSample evaluates one sample under the engine lock: the same state is read
 // by the active-alert surface (Active/Silence/Acknowledge), so every mutation
 // happens locked. Notification delivery stays outside the lock.
-func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool, *EvaluationReceipt, *pendingNotify) {
+func (en *Engine) evalSample(rule Rule, s Sample, selection *TagSelectionReceipt) (Alert, bool, *EvaluationReceipt, *pendingNotify) {
 	en.mu.Lock()
 	defer en.mu.Unlock()
 	key := stateKey(rule.ID, s.Labels)
@@ -425,13 +442,16 @@ func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool, *EvaluationRecei
 	if notify && acted.State == StateFiring {
 		pending = &pendingNotify{key: key, state: NotifyState{FiringSince: st.since, LastNotified: st.lastNotified}}
 	}
-	record := state != st.lastEvaluationState || state == EvaluationWarming
+	selectionKey := tagSelectionKey(rule, selection)
+	record := state != st.lastEvaluationState || state == EvaluationWarming || selectionKey != st.lastTagSelectionKey
+	st.lastTagSelectionKey = selectionKey
 	st.lastEvaluationState = state
 	if !record {
 		return acted, notify, nil, pending
 	}
 	value := s.Value
 	return acted, notify, &EvaluationReceipt{
+		TagSelection:     selection.Clone(),
 		ContractVersion:  EvaluationReceiptVersion,
 		Fingerprint:      evaluationFingerprint(rule.ID, s.Labels),
 		RuleID:           rule.ID,
@@ -635,16 +655,18 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, d
 	return Alert{}, false, EvaluationNormal
 }
 
-func (en *Engine) recordNoData(ctx context.Context, rule Rule) {
+func (en *Engine) recordNoData(ctx context.Context, rule Rule, selection *TagSelectionReceipt) {
 	en.mu.Lock()
-	if en.noDataRules[rule.ID] {
+	selectionKey := tagSelectionKey(rule, selection)
+	if previous, exists := en.noDataRules[rule.ID]; exists && previous == selectionKey {
 		en.mu.Unlock()
 		return
 	}
-	en.noDataRules[rule.ID] = true
+	en.noDataRules[rule.ID] = selectionKey
 	observedAt := en.clock()
 	en.mu.Unlock()
 	en.recordEvaluation(ctx, &EvaluationReceipt{
+		TagSelection:     selection.Clone(),
 		ContractVersion:  EvaluationReceiptVersion,
 		Fingerprint:      noDataEvaluationFingerprint(rule.ID),
 		RuleID:           rule.ID,

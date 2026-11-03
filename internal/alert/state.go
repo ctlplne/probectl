@@ -37,6 +37,7 @@ type seriesState struct {
 	// transitions. Baseline warmup is the one exception: each bounded warmup
 	// step records its progress.
 	lastEvaluationState EvaluationState
+	lastTagSelectionKey string
 
 	// Operator actions (S-FE1): cleared automatically on resolve.
 	silencedUntil time.Time

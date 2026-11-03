@@ -15,36 +15,18 @@ import (
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-type alertEvaluationRetention struct {
-	MaxPerSeries int `json:"max_per_series"`
-	MaxPerRule   int `json:"max_per_rule"`
-	ExpiresDays  int `json:"expires_days"`
-}
-
-type alertEvaluationsResponse struct {
-	ContractVersion    string                    `json:"contract_version"`
-	Items              []alert.EvaluationReceipt `json:"items"`
-	Truncated          bool                      `json:"truncated"`
-	Limit              int                       `json:"limit"`
-	Freshness          string                    `json:"freshness"`
-	LatestAt           *time.Time                `json:"latest_at,omitempty"`
-	EvaluatorRunning   bool                      `json:"evaluator_running"`
-	PersistenceRunning bool                      `json:"persistence_running"`
-	Retention          alertEvaluationRetention  `json:"retention"`
-}
+type alertEvaluationRetention = alert.EvaluationRetention
+type alertEvaluationsResponse = alert.EvaluationsResult
 
 // handleListAlertEvaluations serves the bounded transition ledger for one
 // alert rule. The caller's tenant is resolved before the rule lookup, and the
 // store repeats tenant_id in every query under forced RLS.
 func (s *Server) handleListAlertEvaluations(w http.ResponseWriter, r *http.Request) error {
-	src, _, err := s.alertStateFor(r)
-	if err != nil {
-		return err
-	}
 	ruleID := strings.TrimSpace(r.PathValue("id"))
 	if ruleID == "" {
 		return apierror.Validation("alert rule id is required")
@@ -61,8 +43,33 @@ func (s *Server) handleListAlertEvaluations(w http.ResponseWriter, r *http.Reque
 		}
 		limit = parsed
 	}
+	resp, err := s.readAlertEvaluations(r, ruleID, fingerprint, limit)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, resp)
+	return nil
+}
+
+// Shared bounded domain read for the API and the named native tool. Existing
+// alert.read grants still expose ordinary receipts; only the new source clock
+// requires the current user's live credential AND freshly loaded source role.
+func (s *Server) readAlertEvaluations(r *http.Request, ruleID, fingerprint string, limit int) (alert.EvaluationsResult, error) {
+	if strings.TrimSpace(ruleID) == "" || len(fingerprint) > 2048 || limit < 1 || limit > store.MaxAlertEvaluationReceiptRead {
+		return alert.EvaluationsResult{}, apierror.Validation("valid rule, fingerprint and receipt limit are required")
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+	src, tenantID, err := s.alertStateFor(r)
+	if err != nil {
+		return alert.EvaluationsResult{}, err
+	}
+	ctx = tenancy.WithTenant(ctx, tenancy.ID(tenantID))
+	r = r.WithContext(ctx)
 	resp := alertEvaluationsResponse{
 		ContractVersion:    "probectl.alert-evaluations/v1",
+		TagSelectionAccess: "withheld",
 		Items:              []alert.EvaluationReceipt{},
 		Limit:              limit,
 		Freshness:          "unavailable",
@@ -75,8 +82,7 @@ func (s *Server) handleListAlertEvaluations(w http.ResponseWriter, r *http.Reque
 		},
 	}
 	if s.pool == nil {
-		writeJSON(w, http.StatusOK, resp)
-		return nil
+		return resp, nil
 	}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		if _, err := (store.AlertRules{}).Get(ctx, sc, ruleID); err != nil {
@@ -89,7 +95,7 @@ func (s *Server) handleListAlertEvaluations(w http.ResponseWriter, r *http.Reque
 		resp.Items, resp.Truncated = items, truncated
 		return nil
 	}); err != nil {
-		return err
+		return alert.EvaluationsResult{}, err
 	}
 	if len(resp.Items) > 0 {
 		latest := resp.Items[len(resp.Items)-1].ObservedAt
@@ -103,6 +109,35 @@ func (s *Server) handleListAlertEvaluations(w http.ResponseWriter, r *http.Reque
 			resp.Freshness = "stale"
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
-	return nil
+	if s.alertSelectionReceiptAllowed(ctx, auth.PrincipalFrom(ctx)) {
+		resp.TagSelectionAccess = "available"
+	} else {
+		for i := range resp.Items {
+			resp.Items[i].TagSelection = nil
+		}
+	}
+	return resp, nil
+}
+
+func (s *Server) alertSelectionReceiptAllowed(ctx context.Context, actor *auth.Principal) bool {
+	if actor == nil || actor.UserID == "" || actor.TenantID == "" {
+		return false
+	}
+	// Missing credential scope can only withhold. It never gets widened by the
+	// source owner's stored role or the freshly loaded current user below.
+	for _, permission := range alertTagPermissions() {
+		if !actor.Has(permission) {
+			return false
+		}
+	}
+	authority, err := loadAlertTagAuthority(ctx, s.pool, actor.TenantID, actor.UserID)
+	if err != nil {
+		return false
+	}
+	for _, permission := range alertTagPermissions() {
+		if !authority.permitsRequest(ctx, actor, permission) {
+			return false
+		}
+	}
+	return ctx.Err() == nil
 }

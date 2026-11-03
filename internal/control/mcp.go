@@ -139,6 +139,11 @@ func newMCPServer(
 			} else {
 				options = append(options, mcp.WithAlertTagBackend(mcpTagMutationBackend{server: src.NativeFlow}, schemas))
 			}
+			if schema, err := alertEvaluationToolSchema(); err != nil {
+				log.Error("MCP alert evaluation schema is unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, mcp.WithAlertEvaluationBackend(mcpTagMutationBackend{server: src.NativeFlow}, schema))
+			}
 			if schemas, err := tagMutationToolSchemas(); err != nil {
 				log.Error("MCP tag mutation schemas are unavailable", "error_class", mcp.ErrorClass(err))
 			} else {
