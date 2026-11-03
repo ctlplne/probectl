@@ -52,8 +52,46 @@ func TestMalformedSNMPSystemDescriptionDoesNotSuppressValidClaims(t *testing.T) 
 			log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 		runtime.emitSNMPEntityEvidence(context.Background(), Target{Address: "192.0.2.1"},
 			Inventory{SysName: "edge-a", SysDescr: description}, nil, time.Now().UTC())
-		if len(recorded.claims) != 2 || recorded.claims[0].SystemDescription != "" || recorded.claims[1].Alias.Value != "edge-a" {
+		if len(recorded.claims) != 2 || recorded.claims[0].SystemDescription != "" || recorded.claims[1].Alias.Value != "edge-a" ||
+			recorded.claims[0].SystemName == nil || *recorded.claims[0].SystemName != "edge-a" {
 			t.Fatal("malformed system description suppressed valid configured-target/name claims")
+		}
+	}
+}
+
+func TestSNMPRawSystemNameChangesAndClearsWithoutChangingIdentityNormalization(t *testing.T) {
+	recorded := &recordedDeviceEvidence{}
+	runtime := &Runtime{cfg: &Config{TenantID: "11111111-1111-4111-8111-111111111111",
+		AgentID: "22222222-2222-4222-8222-222222222222"}, evidence: recorded,
+		log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	now := time.Now().UTC()
+	for index, name := range []string{" edge-a ", "  edge-a  ", ""} {
+		before := len(recorded.claims)
+		runtime.emitSNMPEntityEvidence(t.Context(), Target{Address: "192.0.2.1"}, Inventory{SysName: name, SysDescr: "router OS"}, nil, now.Add(time.Duration(index)*time.Minute))
+		claims := recorded.claims[before:]
+		if len(claims) == 0 || claims[0].SystemName == nil || *claims[0].SystemName != name || claims[0].SystemDescription != "router OS" {
+			t.Fatal("raw name change/clear suppressed by alias normalization or refresh interval")
+		}
+		if name == "" {
+			if len(claims) != 1 {
+				t.Fatal("empty raw name invented an identity alias")
+			}
+		} else if len(claims) != 2 || claims[1].Alias.Value != "edge-a" {
+			t.Fatal("raw name changed canonical alias normalization")
+		}
+	}
+}
+
+func TestMalformedSNMPSystemNameDoesNotSuppressValidDescriptionOrAddress(t *testing.T) {
+	for _, name := range []string{"bad\x1bvalue", strings.Repeat("x", 1025), string([]byte{0xff})} {
+		recorded := &recordedDeviceEvidence{}
+		runtime := &Runtime{cfg: &Config{TenantID: "11111111-1111-4111-8111-111111111111",
+			AgentID: "22222222-2222-4222-8222-222222222222"}, evidence: recorded,
+			log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		runtime.emitSNMPEntityEvidence(t.Context(), Target{Address: "192.0.2.1"}, Inventory{SysName: name, SysDescr: "valid OS"}, nil, time.Now().UTC())
+		if len(recorded.claims) != 1 || recorded.claims[0].Alias.Value != "192.0.2.1" ||
+			recorded.claims[0].SystemDescription != "valid OS" || recorded.claims[0].SystemName != nil {
+			t.Fatal("malformed name suppressed another valid source fact")
 		}
 	}
 }

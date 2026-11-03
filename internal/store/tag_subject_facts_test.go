@@ -134,3 +134,58 @@ func TestTagSubjectReferencesRejectFactAndIdentitySubstitution(t *testing.T) {
 		}
 	}
 }
+
+func TestCurrentTagRawSystemNameOverridesOnlyItsOwnPollAlias(t *testing.T) {
+	at := time.Unix(10, 0)
+	raw, empty, conflicting := "  edge-a  ", "", "different"
+	root := tagEntityFactRow{entityID: "device", aliasKind: "address", aliasValue: "192.0.2.1", agent: "agent", configured: "target", sourceRef: "snmp:configured-target", observed: at}
+	alias := root
+	alias.aliasKind, alias.aliasValue, alias.sourceRef = "snmp_device_id", "edge-a", "snmp:sysName"
+	rawRoot, clearRoot, otherRoot := root, root, root
+	rawRoot.sysName, clearRoot.sysName, otherRoot.sysName = &raw, &empty, &conflicting
+	oldAlias := alias
+	oldAlias.observed = at.Add(-time.Second)
+	for _, tc := range []struct {
+		name      string
+		rows      []tagEntityFactRow
+		want      string
+		ambiguous bool
+	}{
+		{"legacy", []tagEntityFactRow{root, alias}, "edge-a", false},
+		{"raw and alias", []tagEntityFactRow{rawRoot, alias}, raw, false},
+		{"alias arrives first", []tagEntityFactRow{alias, rawRoot}, raw, false},
+		{"raw only", []tagEntityFactRow{rawRoot}, raw, false},
+		{"empty", []tagEntityFactRow{clearRoot}, "", false},
+		{"clear fences old alias", []tagEntityFactRow{oldAlias, clearRoot}, "", false},
+		{"raw and contradictory alias", []tagEntityFactRow{otherRoot, alias}, "", true},
+		{"clear and contradictory alias", []tagEntityFactRow{clearRoot, alias}, "", true},
+		{"two contradictory raw roots", []tagEntityFactRow{rawRoot, otherRoot}, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, kind := range []string{"device", "interface"} {
+				subject := tags.Subject{Kind: kind, ID: "device"}
+				rows := append([]tagEntityFactRow(nil), tc.rows...)
+				if kind == "interface" {
+					subject.ID = "interface"
+					rows = append(rows, tagEntityFactRow{entityID: "interface", aliasKind: "snmp_interface_id", aliasValue: "7", agent: "agent", configured: "target", sourceRef: "snmp:ifIndex:7", observed: at})
+				}
+				err := applyCurrentTagEntityFacts(t.Context(), &subject, "device", rows, map[tagSourceCollection]time.Time{{agent: "agent", configured: "target"}: at})
+				if tc.ambiguous {
+					if !errors.Is(err, ErrTagSubjectFactsAmbiguous) || len(subject.SNMP) != 0 || len(subject.Names) != 0 {
+						t.Fatal("conflicting raw/alias values selected partial facts")
+					}
+					continue
+				}
+				if err != nil || subject.SNMP["sys_name"] != tc.want {
+					t.Fatalf("%s raw source name lost: %v", kind, err)
+				}
+				if tc.want != "" && (len(subject.Names) != 1 || subject.Names[0] != tc.want) {
+					t.Fatal("name-pattern candidates include the trimmed identity alias")
+				}
+				if tc.want == "" && len(subject.Names) != 0 {
+					t.Fatal("empty metadata revived an old name")
+				}
+			}
+		})
+	}
+}

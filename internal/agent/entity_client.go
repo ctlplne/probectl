@@ -141,6 +141,7 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 				InterfaceName:             item.InterfaceName,
 				InterfaceDescription:      item.InterfaceDescription,
 				SystemDescription:         item.SystemDescription,
+				SystemName:                item.SystemName,
 				NeighborProtocol:          item.NeighborProtocol,
 				NeighborLocalIfIndex:      item.NeighborLocalIfIndex,
 				NeighborLocalPortId:       item.NeighborLocalPortID,

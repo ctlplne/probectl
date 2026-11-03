@@ -14,6 +14,49 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestSNMPSystemNamePreservesRawBytesAndPresenceOnlyOnConfiguredTarget(t *testing.T) {
+	now := time.Now().UTC()
+	base := Observation{ID: uuid.NewString(),
+		Source:    SourceKey{AgentID: "collector", Kind: DeviceTarget, SourceRef: "router.example"},
+		Alias:     AliasKey{Kind: AddressAlias, Value: "192.0.2.1"},
+		SourceRef: "snmp:configured-target", ObservedAt: now}
+	for _, name := range []string{"", "  edge-a  ", strings.Repeat("é", 512)} {
+		claim := base
+		claim.SystemName = &name
+		got, err := claim.Normalize(now)
+		if err != nil || got.SystemName == nil || *got.SystemName != name {
+			t.Fatalf("raw name/presence was lost: %v", err)
+		}
+		if got.SystemName == claim.SystemName {
+			t.Fatal("normalized metadata retains a mutable caller pointer")
+		}
+	}
+	if got, err := base.Normalize(now); err != nil || got.SystemName != nil {
+		t.Fatal("legacy absence became a clear")
+	}
+	for _, name := range []string{"bad\nvalue", "bad\tvalue", "bad\x1bvalue", string([]byte{0xff}), strings.Repeat("x", 1025)} {
+		claim := base
+		claim.SystemName = &name
+		if _, err := claim.Normalize(now); err == nil {
+			t.Fatal("invalid raw system name admitted")
+		}
+	}
+	for _, value := range []string{"", "edge-a"} {
+		for _, edit := range []func(*Observation){
+			func(o *Observation) { o.Source.Kind = FlowExporter; o.Source.SourceRef = "192.0.2.1" },
+			func(o *Observation) { o.Alias = AliasKey{Kind: SNMPDeviceAlias, Value: "edge-a"} },
+			func(o *Observation) { o.SourceRef = "snmp:ifIndex:7" },
+		} {
+			claim := base
+			claim.SystemName = &value
+			edit(&claim)
+			if _, err := claim.Normalize(now); err == nil {
+				t.Fatal("raw name on a different carrier admitted, including an empty value")
+			}
+		}
+	}
+}
+
 func TestSNMPSystemDescriptionIsBoundedMetadataOnConfiguredTargetOnly(t *testing.T) {
 	now := time.Now().UTC()
 	base := Observation{ID: uuid.NewString(),

@@ -584,6 +584,12 @@ normalize CRLF into LF. The API and CLI JSON bodies use the same escapes;
 MCP rule projections preserve it subject to existing egress redaction. Other controls and oversized text are
 refused. This input support does not make missing or expired source facts
 eligible: a rule matches only when the subject resolver supplies that field.
+New SNMP senders preserve raw `sysName` on the signed configured-target
+observation separately from its normalized identity alias. Present empty
+metadata clears the name; legacy absent metadata may use only a current alias
+from the same complete poll. Raw text and an accompanying alias must agree
+after identity normalization, or resolution refuses the conflicting facts.
+Exact SNMP and name-pattern rules use the retained observational spaces.
 Admin → Tenant tag rules selects one owned routing context, pages its rules,
 and exposes the same CIDR, RE2 name pattern and collected SNMP field inputs.
 Create, edit and confirmed delete require `tags.write`; readers with

@@ -1374,6 +1374,7 @@ type EntityEvidenceObservation struct {
 	NeighborDeviceName        string                 `protobuf:"bytes,16,opt,name=neighbor_device_name,json=neighborDeviceName,proto3" json:"neighbor_device_name,omitempty"`
 	NeighborManagementAddress string                 `protobuf:"bytes,17,opt,name=neighbor_management_address,json=neighborManagementAddress,proto3" json:"neighbor_management_address,omitempty"` // observed IP, not a context selector
 	SystemDescription         string                 `protobuf:"bytes,18,opt,name=system_description,json=systemDescription,proto3" json:"system_description,omitempty"`                           // bounded SNMP sysDescr on the configured-target address claim only
+	SystemName                *string                `protobuf:"bytes,19,opt,name=system_name,json=systemName,proto3,oneof" json:"system_name,omitempty"`                                          // raw bounded sysName; absent is legacy, present empty clears
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -1530,6 +1531,13 @@ func (x *EntityEvidenceObservation) GetNeighborManagementAddress() string {
 func (x *EntityEvidenceObservation) GetSystemDescription() string {
 	if x != nil {
 		return x.SystemDescription
+	}
+	return ""
+}
+
+func (x *EntityEvidenceObservation) GetSystemName() string {
+	if x != nil && x.SystemName != nil {
+		return *x.SystemName
 	}
 	return ""
 }
@@ -1825,7 +1833,7 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x16ReportL7PostureRequest\x12=\n" +
 	"\aposture\x18\x01 \x01(\v2#.probectl.agent.v1.L7CapturePostureR\aposture\"3\n" +
 	"\x17ReportL7PostureResponse\x12\x18\n" +
-	"\achanged\x18\x01 \x01(\bR\achanged\"\xbb\x06\n" +
+	"\achanged\x18\x01 \x01(\bR\achanged\"\xf1\x06\n" +
 	"\x19EntityEvidenceObservation\x12%\n" +
 	"\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n" +
 	"\vsource_kind\x18\x02 \x01(\tR\n" +
@@ -1849,7 +1857,10 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x13neighbor_chassis_id\x18\x0f \x01(\tR\x11neighborChassisId\x120\n" +
 	"\x14neighbor_device_name\x18\x10 \x01(\tR\x12neighborDeviceName\x12>\n" +
 	"\x1bneighbor_management_address\x18\x11 \x01(\tR\x19neighborManagementAddress\x12-\n" +
-	"\x12system_description\x18\x12 \x01(\tR\x11systemDescription\"\xf2\x01\n" +
+	"\x12system_description\x18\x12 \x01(\tR\x11systemDescription\x12$\n" +
+	"\vsystem_name\x18\x13 \x01(\tH\x00R\n" +
+	"systemName\x88\x01\x01B\x0e\n" +
+	"\f_system_name\"\xf2\x01\n" +
 	"\x16EntityFaultObservation\x12%\n" +
 	"\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n" +
 	"\vsource_kind\x18\x02 \x01(\tR\n" +
@@ -1971,6 +1982,7 @@ func file_probectl_agent_v1_agent_proto_init() {
 	if File_probectl_agent_v1_agent_proto != nil {
 		return
 	}
+	file_probectl_agent_v1_agent_proto_msgTypes[22].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

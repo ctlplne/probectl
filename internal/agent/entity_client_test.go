@@ -102,9 +102,19 @@ func TestEvidenceClientRequiresExactPlaneAndAgent(t *testing.T) {
 	systemClaim := item
 	systemClaim.SourceRef = "snmp:configured-target"
 	systemClaim.SystemDescription = "router OS"
+	systemName := "  edge-a  "
+	systemClaim.SystemName = &systemName
 	request, err = client.encodeEvidence(time.Now(), []entity.Observation{systemClaim})
-	if err != nil || request.GetObservations()[0].GetSystemDescription() != "router OS" {
+	if err != nil || request.GetObservations()[0].GetSystemDescription() != "router OS" ||
+		request.GetObservations()[0].SystemName == nil || request.GetObservations()[0].GetSystemName() != systemName {
 		t.Fatalf("system description lost on evidence RPC: %v", err)
+	}
+	for _, name := range []*string{nil, new(string)} {
+		systemClaim.SystemName = name
+		request, err = client.encodeEvidence(time.Now(), []entity.Observation{systemClaim})
+		if err != nil || (request.GetObservations()[0].SystemName == nil) != (name == nil) {
+			t.Fatal("evidence RPC collapsed absent and empty system-name metadata")
+		}
 	}
 	interfaceClaim := item
 	interfaceClaim.Alias = entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: "4294967295"}

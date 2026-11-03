@@ -35,7 +35,10 @@ type Observation struct {
 	InterfaceDescription string
 	// SystemDescription is SNMP sysDescr on the configured-target address
 	// observation only. It never identifies an entity or selects a context.
-	SystemDescription    string
+	SystemDescription string
+	// SystemName retains raw sysName separately from its normalized identity
+	// alias. Nil means a legacy observation; a present empty value is a clear.
+	SystemName           *string
 	NeighborProtocol     string
 	NeighborLocalIfIndex uint32
 	NeighborLocalPortID  string
@@ -79,11 +82,12 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 	if err := validateInterfaceObservation(o); err != nil {
 		return Observation{}, err
 	}
-	if o.SystemDescription != "" && (o.Source.Kind != DeviceTarget ||
-		o.Alias.Kind != AddressAlias || o.SourceRef != "snmp:configured-target" ||
-		len(o.SystemDescription) > 1024 || !utf8.ValidString(o.SystemDescription) ||
-		strings.IndexFunc(o.SystemDescription, invalidSystemDescriptionControl) >= 0) {
+	if err := validateSystemObservation(o); err != nil {
 		return Observation{}, ErrInvalidClaim
+	}
+	if o.SystemName != nil {
+		name := *o.SystemName
+		o.SystemName = &name
 	}
 	o, err = normalizeNeighborObservation(o)
 	if err != nil {
@@ -97,6 +101,32 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 	// idempotency comparison so a nanosecond input replays identically.
 	o.ObservedAt = o.ObservedAt.UTC().Truncate(time.Microsecond)
 	return o, nil
+}
+
+func validateSystemObservation(o Observation) error {
+	if o.SystemName == nil && o.SystemDescription == "" {
+		return nil
+	}
+	if o.Source.Kind != DeviceTarget || o.Alias.Kind != AddressAlias || o.SourceRef != "snmp:configured-target" {
+		return ErrInvalidClaim
+	}
+	if len(o.SystemDescription) > 1024 || !utf8.ValidString(o.SystemDescription) ||
+		strings.IndexFunc(o.SystemDescription, invalidSystemDescriptionControl) >= 0 {
+		return ErrInvalidClaim
+	}
+	if o.SystemName != nil {
+		return ValidateSNMPSystemName(*o.SystemName)
+	}
+	return nil
+}
+
+// ValidateSNMPSystemName checks observational bytes before a collector also
+// emits the normalized identity alias. Empty is a valid explicit clear.
+func ValidateSNMPSystemName(value string) error {
+	if len(value) > 1024 || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return ErrInvalidClaim
+	}
+	return nil
 }
 
 // DisplayString permits horizontal tabs and line breaks. Preserve those

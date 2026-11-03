@@ -226,19 +226,12 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 		observation := entity.Observation{ID: id, Source: source,
 			Alias: alias, SourceRef: originalRef, ObservedAt: at,
 			InterfaceName: ifName, InterfaceDescription: ifDescr}
-		if originalRef == "snmp:configured-target" {
-			observation.SystemDescription = inv.SysDescr
-		}
 		claim, err := observation.Normalize(at)
-		if err != nil && observation.SystemDescription != "" {
-			// A malformed observational description must not suppress valid
-			// address or identity claims from the same SNMP poll.
-			observation.SystemDescription = ""
-			claim, err = observation.Normalize(at)
-			r.stats.EvidenceErrors.Add(1)
-		}
 		if err != nil {
 			return true // untrusted SNMP data cannot reject the other claims
+		}
+		if originalRef == "snmp:configured-target" {
+			claim = r.withSNMPSystemMetadata(claim, inv, at)
 		}
 		items = append(items, claim)
 		if len(items) == 64 {
@@ -256,7 +249,7 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 			return
 		}
 	}
-	if inv.SysName != "" && !add(entity.AliasKey{Kind: entity.SNMPDeviceAlias,
+	if inv.SysName != "" && entity.ValidateSNMPSystemName(inv.SysName) == nil && !add(entity.AliasKey{Kind: entity.SNMPDeviceAlias,
 		Value: inv.SysName}, "snmp:sysName", "", "") {
 		return
 	}
@@ -337,4 +330,24 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 		r.evidenceLast[dev.Address] = snapshot
 		r.evidenceMu.Unlock()
 	}
+}
+
+// Validate optional fields independently. A malformed name cannot discard a
+// valid description/address, nor can a malformed description discard the name.
+func (r *Runtime) withSNMPSystemMetadata(claim entity.Observation, inv Inventory, at time.Time) entity.Observation {
+	withName := claim
+	withName.SystemName = &inv.SysName
+	if normalized, err := withName.Normalize(at); err == nil {
+		claim = normalized
+	} else {
+		r.stats.EvidenceErrors.Add(1)
+	}
+	withDescription := claim
+	withDescription.SystemDescription = inv.SysDescr
+	if normalized, err := withDescription.Normalize(at); err == nil {
+		claim = normalized
+	} else {
+		r.stats.EvidenceErrors.Add(1)
+	}
+	return claim
 }

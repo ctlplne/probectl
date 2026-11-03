@@ -78,6 +78,12 @@ the protocol/domain in an exporter alias must match its provenance.
 BMP peer provenance must name the verified router source and the peer alias's
 ASN. Synthetic site evidence can name only its own registered agent's site
 label source.
+The configured-target SNMP address observation may also carry bounded raw
+`sysName` and `sysDescr` metadata. These fields never select identity or context.
+Raw system-name presence distinguishes a legacy omission from an explicit
+empty clear, and UUID replay compares that presence as well as the exact bytes.
+Identity aliases retain their existing normalization. Current tag reads keep
+the raw name separate and reject a contradictory same-poll identity alias.
 An SNMP interface address is stored on its ifIndex entity when that entity
 exists, preserving its own detail provenance. Address resolution projects the
 interface's parent device for cross-plane joins; a device target IP that also

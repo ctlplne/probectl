@@ -235,8 +235,8 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 			{schemaA, a, evidenceA, "OS for A\r\nversion\t1"}, {schemaB, b, evidenceB, "OS for B"},
 		} {
 			tag, err := pool.Exec(ctx, `UPDATE `+row.schema+`.entity_evidence
-				SET source_ref='snmp:configured-target',snmp_system_description=$3
-				WHERE tenant_id=$1 AND id=$2`, row.tenant, row.id, row.value)
+				SET source_ref='snmp:configured-target',snmp_system_description=$3,snmp_system_name=$4
+				WHERE tenant_id=$1 AND id=$2`, row.tenant, row.id, row.value, "  edge for "+row.tenant+"  ")
 			if err != nil || tag.RowsAffected() != 1 {
 				t.Fatalf("silo rejected its own system metadata: %v", err)
 			}
@@ -245,6 +245,15 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 				WHERE tenant_id=$1 AND id=$2`, row.tenant, row.id).Scan(&actual); err != nil || actual != row.value {
 				t.Fatalf("silo metadata crossed or lost its own row: %v", err)
 			}
+			for _, name := range []string{"  edge for " + row.tenant + "  ", ""} {
+				if _, err := pool.Exec(ctx, `UPDATE `+row.schema+`.entity_evidence SET snmp_system_name=$3 WHERE tenant_id=$1 AND id=$2`, row.tenant, row.id, name); err != nil {
+					t.Fatalf("silo rejected raw name/clear: %v", err)
+				}
+				var actualName *string
+				if err := pool.QueryRow(ctx, `SELECT snmp_system_name FROM `+row.schema+`.entity_evidence WHERE tenant_id=$1 AND id=$2`, row.tenant, row.id).Scan(&actualName); err != nil || actualName == nil || *actualName != name {
+					t.Fatalf("silo lost raw name presence or crossed tenant metadata: %v", err)
+				}
+			}
 		}
 		for _, bad := range []string{"bad\x1bvalue", strings.Repeat("x", 1025)} {
 			_, err := pool.Exec(ctx, `UPDATE `+schemaA+`.entity_evidence
@@ -252,6 +261,13 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 			var pgErr *pgconn.PgError
 			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
 				t.Fatalf("silo metadata shape was not storage-enforced: %v", err)
+			}
+		}
+		for _, bad := range []string{"bad\nname", strings.Repeat("x", 1025)} {
+			_, err := pool.Exec(ctx, `UPDATE `+schemaA+`.entity_evidence SET snmp_system_name=$3 WHERE tenant_id=$1 AND id=$2`, a, evidenceA, bad)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+				t.Fatalf("silo raw-name shape was not storage-enforced: %v", err)
 			}
 		}
 		_, err := pool.Exec(ctx, `UPDATE `+schemaA+`.entity_evidence
@@ -434,6 +450,9 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 	// metadata column and the source-family CHECK, then remain idempotent.
 	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.entity_evidence DROP COLUMN snmp_system_description CASCADE`); err != nil {
 		t.Fatalf("simulate old silo system metadata: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.entity_evidence DROP COLUMN snmp_system_name CASCADE`); err != nil {
+		t.Fatalf("simulate old silo raw system-name metadata: %v", err)
 	}
 	if err := prov.CatchUp(ctx, a); err != nil {
 		t.Fatalf("first entity silo catch-up: %v", err)

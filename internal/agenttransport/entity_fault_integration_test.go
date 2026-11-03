@@ -145,8 +145,11 @@ func TestEntityFaultRealMTLSSenderIsTenantBoundAndRevocationFailsClosed(t *testi
 			}
 			rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			observationID, description := uuid.NewString(), ""
+			var systemName *string
 			if sourceKind == "device_target" {
 				description = "router OS for " + tenantID
+				name := "  edge for " + tenantID + "  "
+				systemName = &name
 			}
 			response, err := rpc.SubmitEntityEvidence(rpcCtx,
 				&agentv1.SubmitEntityEvidenceRequest{Observations: []*agentv1.EntityEvidenceObservation{{
@@ -154,6 +157,7 @@ func TestEntityFaultRealMTLSSenderIsTenantBoundAndRevocationFailsClosed(t *testi
 					ConfiguredRef: target, AliasKind: "address", AliasValue: target,
 					SourceRef: ref, ObservedUnixNanos: time.Now().UnixNano(),
 					SystemDescription: description,
+					SystemName:        systemName,
 				}}})
 			cancel()
 			if err != nil || response.GetAccepted() != 1 || response.GetUnresolved() != 0 {
@@ -161,12 +165,13 @@ func TestEntityFaultRealMTLSSenderIsTenantBoundAndRevocationFailsClosed(t *testi
 			}
 			if description != "" {
 				var actual string
+				var actualName *string
 				if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool,
 					func(ctx context.Context, sc tenancy.Scope) error {
-						return sc.Q.QueryRow(ctx, `SELECT snmp_system_description FROM entity_evidence
+						return sc.Q.QueryRow(ctx, `SELECT snmp_system_description,snmp_system_name FROM entity_evidence
 							WHERE tenant_id=$1 AND agent_id=$2 AND observation_id=$3`,
-							tenantID, agentID, observationID).Scan(&actual)
-					}); err != nil || actual != description {
+							tenantID, agentID, observationID).Scan(&actual, &actualName)
+					}); err != nil || actual != description || actualName == nil || *actualName != *systemName {
 					t.Fatalf("real mTLS source lost tenant-bound system metadata: %v", err)
 				}
 			}

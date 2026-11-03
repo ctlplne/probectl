@@ -10,6 +10,7 @@ import (
 	"context"
 	"net/netip"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/tags"
@@ -61,6 +62,7 @@ type tagSourceCollection struct{ agent, configured string }
 type tagEntityFactRow struct {
 	entityID, aliasKind, aliasValue, sourceRef, agent, configured string
 	ifName, ifDescr, sysDescr                                     string
+	sysName                                                       *string
 	observed                                                      time.Time
 }
 
@@ -70,7 +72,7 @@ type tagEntityFactRow struct {
 func loadCurrentTagEntityFacts(ctx context.Context, sc tenancy.Scope, subject *tags.Subject, parent string, maxBytes int64, charge func(...string) error) error {
 	limit := maxBytes/2048 + 1
 	rows, err := sc.Q.Query(ctx, `SELECT e.entity_id::text,e.alias_kind,e.alias_value,e.source_ref,e.agent_id,e.configured_ref,
-        COALESCE(e.interface_name,''),COALESCE(e.interface_description,''),COALESCE(e.snmp_system_description,''),e.observed_at
+        COALESCE(e.interface_name,''),COALESCE(e.interface_description,''),COALESCE(e.snmp_system_description,''),e.snmp_system_name,e.observed_at
         FROM entity_evidence e WHERE e.tenant_id=$1 AND e.context_id=$2 AND e.source_kind='device_target'
         AND (e.entity_id=$3 OR ($4='device' AND EXISTS(SELECT 1 FROM entities child
          WHERE child.tenant_id=$1 AND child.context_id=$2 AND child.id=e.entity_id AND child.kind='interface' AND child.parent_entity_id=$3))
@@ -94,11 +96,16 @@ func loadCurrentTagEntityFacts(ctx context.Context, sc tenancy.Scope, subject *t
 			return ErrTagSnapshotBudget
 		}
 		var row tagEntityFactRow
-		if err := rows.Scan(&row.entityID, &row.aliasKind, &row.aliasValue, &row.sourceRef, &row.agent, &row.configured, &row.ifName, &row.ifDescr, &row.sysDescr, &row.observed); err != nil {
+		if err := rows.Scan(&row.entityID, &row.aliasKind, &row.aliasValue, &row.sourceRef, &row.agent, &row.configured, &row.ifName, &row.ifDescr, &row.sysDescr, &row.sysName, &row.observed); err != nil {
 			return err
 		}
 		if err := charge(row.entityID, row.aliasKind, row.aliasValue, row.sourceRef, row.agent, row.configured, row.ifName, row.ifDescr, row.sysDescr); err != nil {
 			return err
+		}
+		if row.sysName != nil {
+			if err := charge(*row.sysName); err != nil {
+				return err
+			}
 		}
 		observations = append(observations, row)
 		key := tagSourceCollection{agent: row.agent, configured: row.configured}
@@ -154,6 +161,10 @@ func loadTagCollectionFences(ctx context.Context, sc tenancy.Scope, subject *tag
 }
 
 func applyCurrentTagEntityFacts(ctx context.Context, subject *tags.Subject, parent string, observations []tagEntityFactRow, latest map[tagSourceCollection]time.Time) error {
+	rawNames, err := currentTagSystemNames(ctx, observations, latest)
+	if err != nil {
+		return err
+	}
 	addresses := map[netip.Addr]bool{}
 	prefixes := map[netip.Prefix]bool{}
 	scalars, parentScalars := tagScalarFacts{}, tagScalarFacts{}
@@ -189,13 +200,22 @@ func applyCurrentTagEntityFacts(ctx context.Context, subject *tags.Subject, pare
 			return target.add(tagScalarLineage{field: field, agent: row.agent, configured: row.configured, sourceRef: row.sourceRef, entity: row.entityID}, row.observed, value)
 		}
 		if row.aliasKind == "snmp_device_id" && (own || (subject.Kind == "interface" && row.entityID == parent)) {
-			if err := add("sys_name", row.aliasValue); err != nil {
+			value, err := rawNames.legacyValue(row)
+			if err != nil {
+				return err
+			}
+			if err := add("sys_name", value); err != nil {
 				return err
 			}
 		}
 		if row.aliasKind == "address" && row.sourceRef == "snmp:configured-target" && (own || (subject.Kind == "interface" && row.entityID == parent)) {
 			if err := add("sys_descr", row.sysDescr); err != nil {
 				return err
+			}
+			if row.sysName != nil {
+				if err := add("sys_name", *row.sysName); err != nil {
+					return err
+				}
 			}
 		}
 		if subject.Kind == "interface" && own && row.aliasKind == "snmp_interface_id" {
@@ -238,4 +258,45 @@ func applyCurrentTagEntityFacts(ctx context.Context, subject *tags.Subject, pare
 		}
 	}
 	return ctx.Err()
+}
+
+type tagSystemNameLineage struct{ entity, agent, configured string }
+type tagSystemNames map[tagSystemNameLineage]string
+
+// An optional raw value overrides the legacy normalized alias in the same
+// complete poll, even when empty. Index storage shares each charged row's
+// fixed overhead; strings refer to the already charged observation bytes.
+func currentTagSystemNames(ctx context.Context, observations []tagEntityFactRow, latest map[tagSourceCollection]time.Time) (tagSystemNames, error) {
+	names := tagSystemNames{}
+	for _, row := range observations {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if row.sysName == nil || row.aliasKind != "address" || row.sourceRef != "snmp:configured-target" ||
+			!row.observed.Equal(latest[tagSourceCollection{agent: row.agent, configured: row.configured}]) {
+			continue
+		}
+		if err := tags.ValidateSNMPFact("sys_name", *row.sysName); err != nil {
+			return nil, err
+		}
+		key := tagSystemNameLineage{entity: row.entityID, agent: row.agent, configured: row.configured}
+		if previous, exists := names[key]; exists && previous != *row.sysName {
+			return nil, ErrTagSubjectFactsAmbiguous
+		}
+		names[key] = *row.sysName
+	}
+	return names, nil
+}
+
+func (names tagSystemNames) legacyValue(row tagEntityFactRow) (string, error) {
+	value, present := names[tagSystemNameLineage{entity: row.entityID, agent: row.agent, configured: row.configured}]
+	if !present {
+		return row.aliasValue, nil
+	}
+	if strings.TrimSpace(value) != row.aliasValue {
+		return "", ErrTagSubjectFactsAmbiguous
+	}
+	// The root observation supplies the raw fact. Do not add the trimmed alias
+	// as a second scalar or a name-pattern candidate.
+	return "", nil
 }

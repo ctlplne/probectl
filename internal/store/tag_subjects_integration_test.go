@@ -58,7 +58,7 @@ func TestOwnedTagSubjectSnapshotUsesCurrentFactsAndTenantIsolation(t *testing.T)
 		testIDs[tenant] = uuid.NewString()
 	}
 	keys := map[string]string{}
-	for _, key := range []string{"manual", "snmp", "cidr", "name"} {
+	for _, key := range []string{"manual", "snmp", "cidr", "name", "raw_name"} {
 		keys[key] = uuid.NewString()
 	}
 	serials := map[string]string{}
@@ -77,7 +77,7 @@ func TestOwnedTagSubjectSnapshotUsesCurrentFactsAndTenantIsolation(t *testing.T)
 		agentID := agentFor(tenant)
 		at := time.Now().UTC().Truncate(time.Microsecond)
 		source := entity.SourceKey{AgentID: agentID, Kind: entity.DeviceTarget, SourceRef: "target"}
-		claims := []entity.Observation{{ID: uuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.1"}, SourceRef: "snmp:configured-target", SystemDescription: description, ObservedAt: at}}
+		claims := []entity.Observation{{ID: uuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.1"}, SourceRef: "snmp:configured-target", SystemDescription: description, SystemName: &name, ObservedAt: at}}
 		if name != "" {
 			claims = append(claims, entity.Observation{ID: uuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPDeviceAlias, Value: name}, SourceRef: "snmp:sysName", ObservedAt: at})
 		}
@@ -174,6 +174,9 @@ func TestOwnedTagSubjectSnapshotUsesCurrentFactsAndTenantIsolation(t *testing.T)
 					}
 				}
 				if kind == "device" || kind == "interface" {
+					if _, err := (TagRules{}).Create(ctx, sc, tags.Rule{Scope: scopeFor(tenant), TagID: keys["raw_name"], TargetKind: kind, Match: "snmp_field", SNMPField: "sys_name", SNMPValue: "  observed-router  ", Value: fmt.Sprintf("raw-%d", index)}); err != nil {
+						return err
+					}
 					field, value := "sys_descr", fmt.Sprintf("description-%d", index)
 					if kind == "interface" {
 						field, value = "if_name", "observed-interface"
@@ -282,6 +285,17 @@ func TestOwnedTagSubjectSnapshotUsesCurrentFactsAndTenantIsolation(t *testing.T)
 	if values(after)["snmp"] != "retagged-current-rule" || after.Revision <= before.Revision {
 		t.Fatal("new rule did not retag retained evidence")
 	}
+	writePoll(a, "description-0", "  observed-router  ", true)
+	for _, kind := range []string{"device", "interface"} {
+		result, err := resolve(a, kind)
+		if err != nil || values(result)["raw_name"] != "raw-0" {
+			t.Fatalf("%s did not match exact raw system-name spaces: %v", kind, err)
+		}
+		other, err := resolve(b, kind)
+		if err != nil || values(other)["raw_name"] != "" {
+			t.Fatal("raw SNMP rule facts crossed tenants with reused canonical IDs")
+		}
+	}
 	writePoll(a, "", "", false)
 	for _, kind := range []string{"device", "interface"} {
 		result, err := resolve(a, kind)
@@ -289,7 +303,7 @@ func TestOwnedTagSubjectSnapshotUsesCurrentFactsAndTenantIsolation(t *testing.T)
 			t.Fatal(err)
 		}
 		got := values(result)
-		if got["snmp"] != "" || got["cidr"] != "" || got["name"] != "" || got["manual"] == "" {
+		if got["snmp"] != "" || got["cidr"] != "" || got["name"] != "" || got["raw_name"] != "" || got["manual"] == "" {
 			t.Fatalf("new empty poll revived old facts for %s: %v", kind, got)
 		}
 	}

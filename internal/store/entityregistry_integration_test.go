@@ -146,6 +146,10 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 	observed := time.Now().UTC().Truncate(time.Microsecond)
 	observationID := uuid.NewString()
 	makeObservation := func(agentID string) entity.Observation {
+		name := "  edge for " + agentID + "  "
+		if agentID == "collector-1" {
+			name = "" // positive empty presence must differ from legacy NULL
+		}
 		return entity.Observation{
 			ID: observationID,
 			Source: entity.SourceKey{AgentID: agentID, Kind: entity.DeviceTarget,
@@ -154,6 +158,7 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 			SourceRef:         "snmp:configured-target",
 			ObservedAt:        observed,
 			SystemDescription: "router OS for " + agentID,
+			SystemName:        &name,
 		}
 	}
 	for _, tc := range []struct{ tenantID, agentID string }{
@@ -175,14 +180,26 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 			serials[tc.tenantID+tc.agentID], []entity.Observation{changed}); !errors.Is(err, entity.ErrConflictingEvidence) {
 			t.Fatalf("same-UUID replay changed retained system metadata: %v", err)
 		}
+		for _, name := range []*string{nil, new(string)} {
+			if name != nil && *name == *claim.SystemName {
+				continue // the exact replay was already accepted above
+			}
+			changed := claim
+			changed.SystemName = name
+			if _, _, err := repo.WriteEvidenceBatch(tenancy.WithTenant(ctx, tenancy.ID(tc.tenantID)), tc.agentID,
+				serials[tc.tenantID+tc.agentID], []entity.Observation{changed}); !errors.Is(err, entity.ErrConflictingEvidence) {
+				t.Fatalf("same-UUID replay collapsed absent, empty or raw name: %v", err)
+			}
+		}
 		inTenant(ctx, t, pool, tc.tenantID, func(ctx context.Context, sc tenancy.Scope) error {
 			var description string
-			if err := sc.Q.QueryRow(ctx, `SELECT snmp_system_description FROM entity_evidence
+			var name *string
+			if err := sc.Q.QueryRow(ctx, `SELECT snmp_system_description,snmp_system_name FROM entity_evidence
 				WHERE tenant_id=$1 AND agent_id=$2 AND observation_id=$3`,
-				tc.tenantID, tc.agentID, observationID).Scan(&description); err != nil {
+				tc.tenantID, tc.agentID, observationID).Scan(&description, &name); err != nil {
 				return err
 			}
-			if description != claim.SystemDescription {
+			if description != claim.SystemDescription || name == nil || *name != *claim.SystemName {
 				t.Fatal("tenant evidence lost or crossed the system-description metadata")
 			}
 			foreign := a.ID
@@ -191,7 +208,7 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 			}
 			var count int
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entity_evidence
-				WHERE tenant_id=$1 AND observation_id=$2 AND snmp_system_description IS NOT NULL`, foreign, observationID).Scan(&count); err != nil {
+				WHERE tenant_id=$1 AND observation_id=$2 AND (snmp_system_description IS NOT NULL OR snmp_system_name IS NOT NULL)`, foreign, observationID).Scan(&count); err != nil {
 				return err
 			}
 			if count != 0 {
