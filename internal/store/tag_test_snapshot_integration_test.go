@@ -12,12 +12,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
@@ -188,6 +190,66 @@ func TestTestTagSnapshotKeepsCurrentOwnedIdentityAndTenantScope(t *testing.T) {
 			t.Fatal("changed test rule did not advance the fresh snapshot")
 		}
 		read(snapshot, "rule-"+tenant)
+		// Same typed IDs/history, one current metadata snapshot. This is the
+		// shared selector component; current-user/job authorization is a
+		// separate required caller proof, not supplied by these test maps.
+		predicate := &flow.QueryFilterGroup{Match: "all", Conditions: []flow.QueryPredicate{
+			{Field: "tag.customer", Op: flow.QueryRegex, Values: []string{"^rule-" + tenant + "$"}},
+		}, Groups: []flow.QueryFilterGroup{
+			{Mode: "exclude", Conditions: []flow.QueryPredicate{{Field: "tag.customer", Op: flow.QueryEqual, Values: []string{"rule-" + foreign}}}},
+			{Match: "any", Conditions: []flow.QueryPredicate{{Field: "tag.site", Op: flow.QueryEqual, Values: []string{wideValue}}, {Field: "tag.customer", Op: flow.QueryEqual, Values: []string{"absent"}}}},
+		}}
+		normalized, bindings, err := snapshot.BindFilter(owned, tenant, predicate, 4<<20)
+		if err != nil || bindings["tag.customer"] != customerID || bindings["tag.site"] != siteID {
+			t.Fatal("real test predicate lost full values or immutable tag bindings")
+		}
+		selected, err := snapshot.SelectContext(owned, tenant, ids, allowed, normalized, bindings, 4<<20)
+		if err != nil || !reflect.DeepEqual(selected, []string{testIDs[tenant]}) {
+			t.Fatal("nested current metadata selector crossed tenant/identity or changed exact semantics")
+		}
+		if selected, err := fresh.SelectContext(owned, tenant, ids, allowed, normalized, bindings, 4<<20); err != nil || len(selected) != 0 {
+			t.Fatal("changed rule failed to reselect the same retained test identities")
+		}
+		changedFilter := &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.customer", Op: flow.QueryEqual, Values: []string{"changed-" + tenant}}}}
+		changedFilter, changedBindings, err := fresh.BindFilter(owned, tenant, changedFilter, 4<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if selected, err := fresh.SelectContext(owned, tenant, ids, allowed, changedFilter, changedBindings, 4<<20); err != nil || !reflect.DeepEqual(selected, []string{testIDs[tenant]}) {
+			t.Fatal("fresh current rule did not select the unchanged owned test")
+		}
+		negative := &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.customer", Op: flow.QueryNotEqual, Values: []string{"absent"}}}}
+		negative, negativeIDs, err := fresh.BindFilter(owned, tenant, negative, 4<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if selected, err := fresh.SelectContext(owned, tenant, []string{testIDs[foreign], unboundIDs[tenant], "192.0.2.10"}, allowed, negative, negativeIDs, 4<<20); err != nil || len(selected) != 0 {
+			t.Fatal("negative predicate selected foreign, unbound or guessed test identity")
+		}
+		if selected, err := fresh.SelectContext(owned, tenant, ids, map[string]bool{}, negative, negativeIDs, 4<<20); err != nil || len(selected) != 0 {
+			t.Fatal("negative predicate bypassed current-context denial")
+		}
+		if partial, err := fresh.SelectContext(tenancy.WithTenant(ctx, tenancy.ID(foreign)), foreign, ids, allowed, normalized, bindings, 4<<20); !errors.Is(err, tags.ErrScopeMismatch) || partial != nil {
+			t.Fatal("foreign tenant reused a prepared metadata snapshot")
+		}
+		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			if _, err := sc.Q.Exec(ctx, `DELETE FROM tenant_tag_definitions WHERE tenant_id=$1 AND id=$2`, tenant, customerID); err != nil {
+				return err
+			}
+			_, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_definitions(tenant_id,id,key) VALUES($1,$2,'customer')`, tenant, uuid.NewString())
+			return err
+		})
+		replaced, err := snapshots.LoadTests(owned, ids, 4<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if partial, err := replaced.SelectContext(owned, tenant, ids, allowed, changedFilter, changedBindings, 4<<20); !errors.Is(err, flow.ErrQueryViewStaleTag) || partial != nil {
+			t.Fatal("recreated metadata key silently retargeted a saved immutable predicate")
+		}
+		// The old snapshot is immutable even after a definition is replaced.
+		if selected, err := fresh.SelectContext(owned, tenant, ids, allowed, changedFilter, changedBindings, 4<<20); err != nil || !reflect.DeepEqual(selected, []string{testIDs[tenant]}) {
+			t.Fatal("a later definition replacement mutated an earlier read snapshot")
+		}
 	}
 	// Both foreign rows remain present through both directions of the RLS
 	// checks above; move/delete only after the paired reads are complete.

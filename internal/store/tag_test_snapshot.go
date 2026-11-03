@@ -22,11 +22,12 @@ import (
 // context attributes needed for disclosure policy. It does not attest a raw
 // result's test ID, infer one from its target or add labels to stored telemetry.
 type TestTagSnapshot struct {
-	tenantID string
-	revision int64
-	asOf     time.Time
-	contexts []entity.ContextRecord
-	subjects map[string]ResolvedTagSubject
+	tenantID    string
+	revision    int64
+	asOf        time.Time
+	contexts    []entity.ContextRecord
+	subjects    map[string]ResolvedTagSubject
+	definitions []tags.Definition
 }
 
 func (s *TestTagSnapshot) valid() error {
@@ -161,6 +162,11 @@ func (s *TagSnapshots) LoadTests(ctx context.Context, testIDs []string, maxBytes
 		if err := sc.Q.QueryRow(ctx, `SELECT COALESCE((SELECT revision FROM tenant_tag_revisions WHERE tenant_id=$1),1),transaction_timestamp()`, tenant.String()).Scan(&result.revision, &result.asOf); err != nil {
 			return err
 		}
+		definitions, err := loadTagDefinitions(ctx, sc, tags.Scope{TenantID: tenant.String()}, charge)
+		if err != nil {
+			return err
+		}
+		result.definitions = definitions
 		if len(ids) == 0 {
 			return nil
 		}
@@ -202,10 +208,6 @@ func (s *TagSnapshots) LoadTests(ctx context.Context, testIDs []string, maxBytes
 		}
 		if len(candidates) == 0 {
 			return ctx.Err()
-		}
-		definitions, err := loadTagDefinitions(ctx, sc, tags.Scope{TenantID: tenant.String()}, charge)
-		if err != nil {
-			return err
 		}
 		compiled := map[string]*tags.Snapshot{}
 		for _, subject := range candidates {
