@@ -27,7 +27,11 @@ const planSQLGroup = "g,c,o,p"
 // formatter thousands of times or increasing ClickHouse parser limits.
 func planInputSQL(table, eventTime string) string {
 	fields := make([]string, 0, 3)
-	for _, column := range []string{"exporter", "src_addr", "dst_addr"} {
+	for _, field := range flow.QueryFields() {
+		if field.Type != flow.QueryAddress {
+			continue
+		}
+		column := field.Column
 		fields = append(fields, explorerCanonicalAddressSQL(column)+" AS "+explorerAddressExpr(column))
 	}
 	return "(SELECT *, " + strings.Join(fields, ",") + " FROM " + table + " FINAL WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')}) AS flow_input"

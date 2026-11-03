@@ -20,11 +20,11 @@ func TestPlanSQLCanonicalAddressesRetainFullPredicateReach(t *testing.T) {
 	for group := 0; group < 4; group++ {
 		child := flow.QueryFilterGroup{Match: "any"}
 		for i := 0; i < 250; i++ {
-			child.Conditions = append(child.Conditions, flow.QueryPredicate{Field: "src_addr", Op: flow.QueryEqual, Values: []string{fmt.Sprintf("2001:db8::%x", 1+group*250+i)}})
+			child.Conditions = append(child.Conditions, flow.QueryPredicate{Field: []string{"src_addr", "dst_addr", "next_hop"}[(group*250+i)%3], Op: flow.QueryEqual, Values: []string{fmt.Sprintf("2001:db8::%x", 1+group*250+i)}})
 		}
 		filter.Groups = append(filter.Groups, child)
 	}
-	plan := flow.QueryPlan{From: time.Now().Add(-time.Hour), To: time.Now(), GroupBy: []string{"src_addr", "dst_addr", "exporter"}, Filter: filter, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+	plan := flow.QueryPlan{From: time.Now().Add(-time.Hour), To: time.Now(), GroupBy: []string{"src_addr", "dst_addr", "next_hop", "exporter"}, Filter: filter, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
 	sql, params, err := planSQL(plan, "probectl_flows", nil)
 	if err != nil {
 		t.Fatalf("full address predicate reach was narrowed: %v", err)
