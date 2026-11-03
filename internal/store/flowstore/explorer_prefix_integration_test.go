@@ -143,7 +143,7 @@ func TestExplorerClickHousePrefixTagsKeepOwnedContextAndExactRanges(t *testing.T
 				want.Source, want.Coverage, want.ResolutionSeconds = got.Source, got.Coverage, got.ResolutionSeconds
 			}
 			if !reflect.DeepEqual(got, want) {
-				t.Fatal("owned prefix SQL/reference results differ")
+				t.Fatalf("owned prefix SQL/reference results differ: SQL columns=%+v matrix=%+v; reference columns=%+v matrix=%+v", got.MatrixColumns, got.Matrix, want.MatrixColumns, want.Matrix)
 			}
 			return got
 		}
