@@ -201,7 +201,7 @@ func TestSnapshotInputsBindOnlySelectedMetadataSubjectKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Now().UTC().Truncate(time.Minute)
-	plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"tag.device.customer", "tag.in_interface.customer"}, MatrixWith: []string{"tag.agent.customer"}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.out_interface.customer", Op: flow.QueryEqual, Values: []string{"private-selector"}}}}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+	plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"tag.device.customer", "tag.in_interface.customer"}, View: "matrix", MatrixWith: []string{"tag.agent.customer"}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.out_interface.customer", Op: flow.QueryEqual, Values: []string{"private-selector"}}}}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
 	result := PlanResult{Source: "raw", Query: plan, TotalGroups: 1, OldestInput: at}
 	clock, err := SnapshotInputsForTenant(ctx, tenant, result)
 	if err != nil || !slices.Equal(clock.TagSubjects, []string{"agent", "device", "interface"}) {
@@ -220,6 +220,7 @@ func TestSnapshotInputsBindOnlySelectedMetadataSubjectKinds(t *testing.T) {
 	}
 	result.Query.GroupBy = []string{"tag.customer"}
 	result.Query.MatrixWith = nil
+	result.Query.View = "table"
 	result.Query.Filter = nil
 	base, err := SnapshotInputsForTenant(ctx, tenant, result)
 	if err != nil || len(base.TagSubjects) != 0 {

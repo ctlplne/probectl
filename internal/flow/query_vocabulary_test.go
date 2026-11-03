@@ -98,7 +98,7 @@ func TestSubjectTagNamespacesKeepOneDefinitionAndIndependentReadGrants(t *testin
 			t.Fatal("tenant tag namespace entered the global registry")
 		}
 	}
-	plan := QueryPlan{GroupBy: []string{"tag.customer", "tag.device.customer"}, MatrixWith: []string{"tag.agent.customer"}}
+	plan := QueryPlan{GroupBy: []string{"tag.customer", "tag.device.customer"}, View: "matrix", MatrixWith: []string{"tag.agent.customer"}}
 	permissions := QueryPlanPermissionsWithVocabulary(plan, vocabulary)
 	if !slices.Equal(permissions, []string{"tags.read", "metrics.read", "agent.read"}) {
 		t.Fatalf("mixed subject plan lost a required grant: %v", permissions)
@@ -133,7 +133,7 @@ func TestInterfaceTagVocabularyRequiresOwnedIndexInputs(t *testing.T) {
 			t.Fatal("interface tag entered global vocabulary")
 		}
 	}
-	plan := QueryPlan{GroupBy: []string{"tag.in_interface.customer"}, MatrixWith: []string{"tag.out_interface.customer"}}
+	plan := QueryPlan{GroupBy: []string{"tag.in_interface.customer"}, View: "matrix", MatrixWith: []string{"tag.out_interface.customer"}}
 	if got := QueryPlanPermissionsWithVocabulary(plan, vocabulary); !slices.Equal(got, []string{"tags.read", "metrics.read"}) {
 		t.Fatalf("interface plan lost grants: %v", got)
 	}

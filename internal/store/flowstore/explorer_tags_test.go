@@ -290,7 +290,7 @@ func TestInterfaceTagLookupKeepsSidesTenantBudgetAndInputCoverage(t *testing.T) 
 	if err := memory.Insert(t.Context(), []Row{row, unmatched, other}); err != nil {
 		t.Fatal(err)
 	}
-	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour), GroupBy: []string{"tag.in_interface.customer"}, MatrixWith: []string{"tag.out_interface.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour), GroupBy: []string{"tag.in_interface.customer"}, View: "matrix", MatrixWith: []string{"tag.out_interface.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
 	result, err := memory.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: plan, Tags: lookup})
 	if err != nil || result.Totals["bytes:total"] != "300" || len(result.Rows) != 2 || len(result.Matrix) != 2 {
 		t.Fatalf("interface tag changed tenant totals: %+v %v", result, err)

@@ -113,7 +113,7 @@ func TestExplorerClickHouseRelatedTagNamespacesUseOneTenantExporterJoin(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour), GroupBy: []string{"tag.customer", "tag.device.customer"}, MatrixWith: []string{"tag.agent.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.device.customer", Op: flow.QueryEqual, Values: []string{"device"}}, {Field: "tag.agent.customer", Op: flow.QueryEqual, Values: []string{"agent"}}}}}
+	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour), GroupBy: []string{"tag.customer", "tag.device.customer"}, View: "matrix", MatrixWith: []string{"tag.agent.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.device.customer", Op: flow.QueryEqual, Values: []string{"device"}}, {Field: "tag.agent.customer", Op: flow.QueryEqual, Values: []string{"agent"}}}}}
 	result, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: a, Plan: plan, Tags: lookup})
 	if err != nil || result.Totals["bytes:total"] != "123" || len(result.Rows) != 1 || result.Rows[0].Group["tag.customer"] != "exporter" || result.Rows[0].Group["tag.device.customer"] != "device" {
 		t.Fatalf("actual external tag lookup overwrote a namespace or multiplied tenant rows: %+v %v", result, err)
@@ -142,7 +142,7 @@ func TestExplorerClickHouseInterfaceTagsKeepIndependentSidesAndTenantTotals(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour), GroupBy: []string{"tag.in_interface.customer"}, MatrixWith: []string{"tag.out_interface.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour), GroupBy: []string{"tag.in_interface.customer"}, View: "matrix", MatrixWith: []string{"tag.out_interface.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
 	for _, source := range []string{"raw", "rollup"} {
 		plan.DataSeries = source
 		result, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: a, Plan: plan, Tags: lookup})
