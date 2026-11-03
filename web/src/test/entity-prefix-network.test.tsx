@@ -97,7 +97,7 @@ for (const theme of ['light', 'dark'] as const) {
         const view = renderApp('/admin', {
           me: { tenant_id: tenant, permissions: ['entities.read', 'agent.write'] },
         })
-        const context = await view.findByRole('combobox', { name: 'Routing context', exact: true })
+        const context = await view.findByRole('combobox', { name: /^Routing context$/ })
         const cardElement = context.closest('[data-entity-registry]') as HTMLElement
         const card = within(cardElement)
         await card.findByRole('option', { name: 'West DC / Private' })
@@ -188,7 +188,7 @@ test('prefix network reader sees the range and has no mutation controls', async 
   const tenant = '00000000-0000-4000-8000-000000000101'
   const state = prefixRegistry(tenant)
   const view = renderApp('/admin', { me: { tenant_id: tenant, permissions: ['entities.read'] } })
-  const context = await view.findByRole('combobox', { name: 'Routing context', exact: true })
+  const context = await view.findByRole('combobox', { name: /^Routing context$/ })
   const card = within(context.closest('[data-entity-registry]') as HTMLElement)
   await card.findByRole('option', { name: 'West DC / Private' })
   fireEvent.change(context, { target: { value: contextID } })
