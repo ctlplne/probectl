@@ -156,17 +156,8 @@ func loadOwnedTagSubject(ctx context.Context, sc tenancy.Scope, scope tags.Scope
 		if err := loadCurrentTagEntityFacts(ctx, sc, &subject, parent, maxBytes, charge); err != nil {
 			return tags.Subject{}, err
 		}
-		if network != "" {
-			prefix, err := netip.ParsePrefix(network)
-			if err != nil || ref.Kind != "prefix" {
-				return tags.Subject{}, tags.ErrInvalid
-			}
-			for _, observed := range subject.Prefixes {
-				if observed != prefix {
-					return tags.Subject{}, ErrTagSubjectFactsAmbiguous
-				}
-			}
-			subject.Prefixes = []netip.Prefix{prefix}
+		if err := applyExplicitTagNetwork(&subject, network); err != nil {
+			return tags.Subject{}, err
 		}
 	case "test":
 		var target string

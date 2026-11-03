@@ -961,6 +961,43 @@
     "test:internal/control/nmsimport_alert_integration_test.go#TestNMSImportAlertTargetPreviewRouteIsTenantAndAgentBound",
     "test:internal/store/nmsimport_source_config_integration_test.go#TestNMSImportSourceConfigTenantScopeAndPlanVersion"
    ]
+  },
+  {
+   "id": "CLM-ENTITY-PREFIX-FACT-CONFLICT",
+   "kind": "capability",
+   "statement": "An explicit canonical prefix retains whole-range semantics and refuses conflicting current observation ranges instead of silently replacing them.",
+   "pattern": "observations fail closed",
+   "surfaces": [
+    "docs/entity-registry.md"
+   ],
+   "code": [
+    "internal/store/tag_prefix_metadata.go",
+    "internal/store/tag_subjects.go",
+    "internal/store/entity_network_prefix.go"
+   ],
+   "proof": [
+    "test:internal/store/tag_prefix_metadata_test.go#TestExplicitTagPrefixRejectsObservedRangeConflict",
+    "test:internal/store/entity_network_prefix_integration_test.go#TestCanonicalPrefixNetworkIsExplicitTenantScopedAndTransactional"
+   ]
+  },
+  {
+   "id": "CLM-ENTITY-AGENT-SNAPSHOT-CONFLICT",
+   "kind": "capability",
+   "statement": "Private agent address facts require current ordinary and evidence identities plus source/context authority; latest epochs prevent old-fact revival, and contradictory current same-epoch sets are refused.",
+   "pattern": "Same-epoch contradictory current sets fail closed",
+   "surfaces": [
+    "docs/entity-registry.md"
+   ],
+   "code": [
+    "internal/store/tag_agent_addresses.go",
+    "internal/store/tag_subjects.go",
+    "internal/store/entityregistry_current.go"
+   ],
+   "proof": [
+    "test:internal/store/tag_agent_addresses_integration_test.go#TestAgentAddressRulesRequireCurrentIssuedSourceAndNeverReviveOlderSnapshots",
+    "test:internal/agenttransport/entity_agent_addresses_integration_test.go#TestAgentAddressSnapshotRealMTLSClientKeepsTenantAndMetadataPresence",
+    "test:internal/control/tag_agent_addresses_integration_test.go#TestAgentCIDRTagsRESTAndMCPUseAttestedFactsAndCurrentContextGrants"
+   ]
   }
  ]
 }
