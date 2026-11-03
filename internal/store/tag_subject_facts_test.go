@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/ctlplne/probectl/internal/tags"
 )
 
@@ -187,5 +189,23 @@ func TestCurrentTagRawSystemNameOverridesOnlyItsOwnPollAlias(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFlowInterfaceIndexRequiresTheCurrentCompletePoll(t *testing.T) {
+	old, current := time.Unix(1, 0), time.Unix(2, 0)
+	latest := map[tagSourceCollection]time.Time{{agent: "agent", configured: "target"}: current}
+	row := tagEntityFactRow{entityID: "interface", aliasKind: "snmp_interface_id", aliasValue: "7", agent: "agent", configured: "target", sourceRef: "snmp:ifIndex:7", observed: old}
+	subject := tags.Subject{Kind: "interface", ID: "interface", Name: "operator label is not authority"}
+	if err := requireCurrentTagInterfaceIndex(t.Context(), &subject, []tagEntityFactRow{row}, latest, 7); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("old interface index survived a newer complete poll: %v", err)
+	}
+	row.observed = current
+	if err := requireCurrentTagInterfaceIndex(t.Context(), &subject, []tagEntityFactRow{row}, latest, 7); err != nil {
+		t.Fatal(err)
+	}
+	row.aliasValue = "8"
+	if err := requireCurrentTagInterfaceIndex(t.Context(), &subject, []tagEntityFactRow{row}, latest, 7); !errors.Is(err, ErrTagSubjectFactsAmbiguous) {
+		t.Fatal("conflicting current index selected an interface")
 	}
 }

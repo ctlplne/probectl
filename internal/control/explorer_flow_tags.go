@@ -31,8 +31,8 @@ type flowTagQueryKey struct{}
 func flowQueryTagHints(query ai.ExplorerQuery) (direct, saved bool, subjects []string) {
 	check := func(name string) bool {
 		name = strings.ToLower(strings.TrimSpace(name))
-		for _, subject := range []string{"device", "agent"} {
-			if strings.HasPrefix(name, "tag."+subject+".") && !slices.Contains(subjects, subject) {
+		for _, subject := range relatedFlowTagSubjects([]string{name}) {
+			if !slices.Contains(subjects, subject) {
 				subjects = append(subjects, subject)
 			}
 		}
@@ -312,9 +312,10 @@ func (s *Server) loadFlowQueryVocabulary(ctx context.Context, principal *auth.Pr
 // Names are hints only; the tenant vocabulary still validates every field.
 func relatedFlowTagSubjects(names []string) []string {
 	result := []string{}
-	for _, subject := range []string{"device", "agent"} {
+	for _, subject := range []string{"device", "agent", "interface"} {
 		for _, name := range names {
-			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "tag."+subject+".") {
+			name = strings.ToLower(strings.TrimSpace(name))
+			if strings.HasPrefix(name, "tag."+subject+".") || subject == "interface" && (strings.HasPrefix(name, "tag.in_interface.") || strings.HasPrefix(name, "tag.out_interface.")) {
 				result = append(result, subject)
 				break
 			}

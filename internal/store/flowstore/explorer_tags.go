@@ -13,6 +13,8 @@ import (
 	"errors"
 	"net/netip"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/tags"
@@ -70,6 +72,27 @@ func NewTagQueryData(tenantID string, revision int64, definitions []tags.Definit
 			}
 			values[key] = value
 		}
+		for index, entries := range projection.Interfaces {
+			used += 128
+			if used > maxBytes {
+				return nil, ErrExplorerBudget
+			}
+			if index == 0 {
+				return nil, ErrTagQueryScope
+			}
+			for key, value := range entries {
+				field, ok := vocabulary.Lookup("tag.in_interface." + key)
+				if !ok || field.TagKey != "in_interface."+key || tags.ValidateValue(value) != nil {
+					return nil, ErrTagQueryScope
+				}
+				lookup := "interface." + strconv.FormatUint(uint64(index), 10) + "." + key
+				used += 128 + int64(len(lookup)+len(value))
+				if used > maxBytes {
+					return nil, ErrExplorerBudget
+				}
+				values[lookup] = value
+			}
+		}
 		result.exporters[projection.Exporter] = values
 	}
 	return result, nil
@@ -125,6 +148,30 @@ func (d *TagQueryData) Value(tenantID, exporter, key string) (string, error) {
 		return "", ErrTagQueryScope
 	}
 	return d.valueTrusted(exporter, key), nil
+}
+
+// An index is meaningful only beneath this tenant's owned exporter lookup.
+// The raw sender ID is deliberately absent from the selection operation.
+func (d *TagQueryData) valueForRow(row Row, key string) (string, error) {
+	if _, err := d.Revision(row.TenantID); err != nil {
+		return "", err
+	}
+	subject, name, qualified := strings.Cut(key, ".")
+	if !qualified || (subject != "in_interface" && subject != "out_interface") {
+		return d.Value(row.TenantID, row.Exporter, key)
+	}
+	field, ok := d.vocabulary.Lookup("tag." + key)
+	if !ok || field.TagKey != key {
+		return "", ErrTagQueryScope
+	}
+	index := row.InIf
+	if subject == "out_interface" {
+		index = row.OutIf
+	}
+	if index == 0 {
+		return "", nil
+	}
+	return d.valueTrusted(row.Exporter, "interface."+strconv.FormatUint(uint64(index), 10)+"."+name), nil
 }
 
 func (d *TagQueryData) valueTrusted(exporter, key string) string {

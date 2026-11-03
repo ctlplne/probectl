@@ -70,6 +70,9 @@ func snapshotInputsFor(result PlanResult, vocabulary flow.QueryVocabulary) (Snap
 			// Current tag values join by exporter. Their grammar is raw-only;
 			// preserve complete-input expiry even for an hour-aligned window.
 			fields[i], tagLookup = "exporter", true
+			if field.Column != "" {
+				fields = append(fields, field.Column)
+			}
 		}
 	}
 	slices.Sort(fields)

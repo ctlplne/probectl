@@ -602,6 +602,8 @@ input names `context_id`, `target_kind` and either `target_id` or the exact
 registered exporter pair. Fact and tenant hints are rejected. The response
 contains curated effective tags, exact decimal-string revision and snapshot
 time; it omits raw facts, source lineage and exporter identity. Existing egress
-redaction and query budgets still apply. See [tenant tag semantics](flow.md#tenant-tags-and-routing-contexts). Qualified `tag.device.<key>` and `tag.agent.<key>` use the same
-flow query, schema, saved filter/view, page, comparison and CSV tools; their
-additional current source grants are `metrics.read` and `agent.read`.
+redaction and query budgets still apply. See [tenant tag semantics](flow.md#tenant-tags-and-routing-contexts). Qualified `tag.device.<key>`, `tag.agent.<key>`, `tag.in_interface.<key>` and
+`tag.out_interface.<key>` use the same flow query, schema, saved filter/view,
+page, comparison and CSV tools. Device/interface metadata additionally requires
+`metrics.read`; agent metadata requires `agent.read`. Interface indices need
+current attested SNMP evidence beneath the owned exporter device.

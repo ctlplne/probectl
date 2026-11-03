@@ -64,9 +64,10 @@ func TestTagQueryVocabularyIsTenantBoundAndDoesNotChangeNativeRegistry(t *testin
 		t.Fatal("caller mutated the tenant query vocabulary")
 	}
 	fields, err := vocabulary.Fields()
-	if err != nil || len(fields) != len(QueryFields())+3 ||
-		fields[len(fields)-3].Name != "tag.agent.customer" ||
-		fields[len(fields)-2].Name != "tag.customer" || fields[len(fields)-1].Name != "tag.device.customer" {
+	if err != nil || len(fields) != len(QueryFields())+5 ||
+		fields[len(fields)-5].Name != "tag.agent.customer" ||
+		fields[len(fields)-4].Name != "tag.customer" || fields[len(fields)-3].Name != "tag.device.customer" ||
+		fields[len(fields)-2].Name != "tag.in_interface.customer" || fields[len(fields)-1].Name != "tag.out_interface.customer" {
 		t.Fatalf("tenant schema omitted its tag field: %+v, %v", fields, err)
 	}
 	if _, err := NewTagQueryVocabulary(a, []tags.Definition{
@@ -114,5 +115,30 @@ func TestSubjectTagNamespacesKeepOneDefinitionAndIndependentReadGrants(t *testin
 		if _, ok := vocabulary.Lookup(bad); ok {
 			t.Fatal("unknown namespace/definition became query grammar")
 		}
+	}
+}
+
+func TestInterfaceTagVocabularyRequiresOwnedIndexInputs(t *testing.T) {
+	tenant, id := uuid.NewString(), uuid.NewString()
+	vocabulary, err := NewTagQueryVocabulary(tenant, []tags.Definition{{TenantID: tenant, ID: id, Key: "customer"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ name, column string }{{"tag.in_interface.customer", "in_if"}, {"tag.out_interface.customer", "out_if"}} {
+		field, ok := vocabulary.Lookup(row.name)
+		if !ok || field.TagID != id || field.Column != row.column || field.Permission != "metrics.read" {
+			t.Fatalf("input/output interface tag field is unavailable: %s", row.name)
+		}
+		if _, ok := LookupQueryField(row.name); ok {
+			t.Fatal("interface tag entered global vocabulary")
+		}
+	}
+	plan := QueryPlan{GroupBy: []string{"tag.in_interface.customer"}, MatrixWith: []string{"tag.out_interface.customer"}}
+	if got := QueryPlanPermissionsWithVocabulary(plan, vocabulary); !slices.Equal(got, []string{"tags.read", "metrics.read"}) {
+		t.Fatalf("interface plan lost grants: %v", got)
+	}
+	ids, err := QueryViewTagIDs(plan, vocabulary)
+	if err != nil || len(ids) != 2 || ids[plan.GroupBy[0]] != id || ids[plan.MatrixWith[0]] != id {
+		t.Fatal("interface saved keys lost immutable identity")
 	}
 }

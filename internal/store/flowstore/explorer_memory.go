@@ -74,7 +74,7 @@ func explorerFieldValue(entry memoryRow, name string, spec flow.QueryPlan, names
 		if tagData == nil {
 			return ""
 		}
-		value, err := tagData.Value(row.TenantID, row.Exporter, field.TagKey)
+		value, err := tagData.valueForRow(row, field.TagKey)
 		if err != nil {
 			return ""
 		}

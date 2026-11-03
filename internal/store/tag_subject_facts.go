@@ -10,8 +10,11 @@ import (
 	"context"
 	"net/netip"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -69,7 +72,7 @@ type tagEntityFactRow struct {
 // Facts stay private to the store transaction. The complete current predicate
 // authorizes each observation. A configured-target claim marks the collector's
 // latest complete SNMP poll; every claim in that poll shares ObservedAt.
-func loadCurrentTagEntityFacts(ctx context.Context, sc tenancy.Scope, subject *tags.Subject, parent string, maxBytes int64, charge func(...string) error) error {
+func loadCurrentTagEntityFacts(ctx context.Context, sc tenancy.Scope, subject *tags.Subject, parent string, maxBytes int64, charge func(...string) error, requiredInterface ...uint32) error {
 	limit := maxBytes/2048 + 1
 	rows, err := sc.Q.Query(ctx, `SELECT e.entity_id::text,e.alias_kind,e.alias_value,e.source_ref,e.agent_id,e.configured_ref,
         COALESCE(e.interface_name,''),COALESCE(e.interface_description,''),COALESCE(e.snmp_system_description,''),e.snmp_system_name,e.observed_at
@@ -124,6 +127,14 @@ func loadCurrentTagEntityFacts(ctx context.Context, sc tenancy.Scope, subject *t
 	latest, err := loadTagCollectionFences(ctx, sc, subject, agents, configured, charge)
 	if err != nil {
 		return err
+	}
+	if len(requiredInterface) > 1 {
+		return tags.ErrInvalid
+	}
+	if len(requiredInterface) == 1 {
+		if err := requireCurrentTagInterfaceIndex(ctx, subject, observations, latest, requiredInterface[0]); err != nil {
+			return err
+		}
 	}
 	return applyCurrentTagEntityFacts(ctx, subject, parent, observations, latest)
 }
@@ -299,4 +310,37 @@ func (names tagSystemNames) legacyValue(row tagEntityFactRow) (string, error) {
 	// The root observation supplies the raw fact. Do not add the trimmed alias
 	// as a second scalar or a name-pattern candidate.
 	return "", nil
+}
+
+// A flow index needs an attested current interface, rather than just an old
+// canonical entity. Use the same complete-poll fence as the fact resolver.
+func requireCurrentTagInterfaceIndex(ctx context.Context, subject *tags.Subject, observations []tagEntityFactRow, latest map[tagSourceCollection]time.Time, index uint32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if subject.Kind != "interface" || index == 0 {
+		return tags.ErrInvalid
+	}
+	found := false
+	expected := strconv.FormatUint(uint64(index), 10)
+	for _, row := range observations {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if row.entityID != subject.ID || row.aliasKind != "snmp_interface_id" {
+			continue
+		}
+		epoch, exists := latest[tagSourceCollection{agent: row.agent, configured: row.configured}]
+		if !exists || !row.observed.Equal(epoch) {
+			continue
+		}
+		if row.aliasValue != expected {
+			return ErrTagSubjectFactsAmbiguous
+		}
+		found = true
+	}
+	if !found {
+		return pgx.ErrNoRows
+	}
+	return nil
 }

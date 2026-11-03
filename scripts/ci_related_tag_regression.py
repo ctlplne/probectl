@@ -191,5 +191,11 @@ def selftest() -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--interfaces", action="store_true")
     args = parser.parse_args()
+    if args.interfaces:
+        BASE = "9c626335df1bc6f48eb1fb6951a81d0a2fbda198"
+        TEST = "TestInterfaceTagVocabularyRequiresOwnedIndexInputs"
+        MARKER = "input/output interface tag field is unavailable"
+
     selftest() if args.selftest else run()

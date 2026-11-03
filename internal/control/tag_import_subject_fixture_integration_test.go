@@ -32,7 +32,7 @@ type tagImportSubjectFixture struct {
 	srv                                    *Server
 	db                                     *store.DB
 	a, b, contextID, tagID, device, prefix string
-	agents, tests, interfaces              map[string]string
+	agents, tests, interfaces, serials     map[string]string
 	calls                                  atomic.Int64
 	hookMu                                 sync.Mutex
 	hook                                   func()
@@ -43,7 +43,7 @@ func newTagImportSubjectFixture(t *testing.T) *tagImportSubjectFixture {
 	srv, db := setupAPIServerWithLatest(t, nil)
 	testsupport.LockPostgresPublicCatalog(t, db.Pool())
 	f := &tagImportSubjectFixture{srv: srv, db: db, a: freshTenant(t, db, "tag-subject-import-a"), b: freshTenant(t, db, "tag-subject-import-b"),
-		contextID: uuid(t), tagID: uuid(t), device: uuid(t), prefix: uuid(t), agents: map[string]string{}, tests: map[string]string{}, interfaces: map[string]string{}}
+		contextID: uuid(t), tagID: uuid(t), device: uuid(t), prefix: uuid(t), agents: map[string]string{}, tests: map[string]string{}, interfaces: map[string]string{}, serials: map[string]string{}}
 	t.Cleanup(func() {
 		if _, err := db.Pool().Exec(context.Background(), `DELETE FROM tenants WHERE id=ANY($1::uuid[])`, []string{f.a, f.b}); err != nil {
 			t.Error(err)
@@ -51,7 +51,7 @@ func newTagImportSubjectFixture(t *testing.T) *tagImportSubjectFixture {
 	})
 	for _, tenant := range []string{f.a, f.b} {
 		agent, serial, siteID := uuid(t), strings.ReplaceAll(uuid(t), "-", ""), uuid(t)
-		f.agents[tenant], f.tests[tenant] = agent, uuid(t)
+		f.agents[tenant], f.tests[tenant], f.serials[tenant] = agent, uuid(t), serial
 		for _, row := range []struct{ uri, serial string }{{crypto.AgentSPIFFEID(tenant, agent), strings.ReplaceAll(uuid(t), "-", "")}, {crypto.EntitySPIFFEID(tenant, agent), serial}} {
 			if err := store.NewAgentIdentities(db.Pool()).Record(t.Context(), tenant, agent, row.uri, row.serial, time.Now().Add(time.Hour), ""); err != nil {
 				t.Fatal(err)

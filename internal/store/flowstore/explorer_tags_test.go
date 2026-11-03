@@ -8,6 +8,7 @@ package flowstore
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -262,5 +263,79 @@ func TestLongTagValuesRemainQueryAndResponseBudgeted(t *testing.T) {
 	}
 	if _, err := memory.ExplorePlan(t.Context(), query); !errors.Is(err, ErrExplorerBudget) {
 		t.Fatalf("long group key escaped execution memory accounting: %v", err)
+	}
+}
+
+func TestInterfaceTagLookupKeepsSidesTenantBudgetAndInputCoverage(t *testing.T) {
+	tenant, foreign, id := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	definitions := []tags.Definition{{TenantID: tenant, ID: id, Key: "customer"}}
+	interfaces := map[uint32]map[string]string{7: {"customer": "input"}, 8: {"customer": "output"}}
+	projection := []tags.ExporterProjection{{Exporter: "192.0.2.1", Interfaces: interfaces}}
+	lookup, err := NewTagQueryData(tenant, 8, definitions, projection, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interfaces[7]["customer"] = "caller mutation"
+	row := explorerFixtureRow(tenant)
+	row.AgentID, row.InIf, row.OutIf, row.BytesScaled = "forged-sender", 7, 8, 100
+	value, err := lookup.valueForRow(row, "in_interface.customer")
+	if err != nil || value != "input" {
+		t.Fatal("caller mutated interface values")
+	}
+	unmatched := row
+	unmatched.InIf, unmatched.BytesScaled = 0, 200
+	other := row
+	other.TenantID, other.BytesScaled = foreign, 900
+	memory := NewMemory()
+	if err := memory.Insert(t.Context(), []Row{row, unmatched, other}); err != nil {
+		t.Fatal(err)
+	}
+	plan := flow.QueryPlan{From: row.TS.Add(-time.Minute), To: row.TS.Add(time.Hour), GroupBy: []string{"tag.in_interface.customer"}, MatrixWith: []string{"tag.out_interface.customer"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+	result, err := memory.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: plan, Tags: lookup})
+	if err != nil || result.Totals["bytes:total"] != "300" || len(result.Rows) != 2 || len(result.Matrix) != 2 {
+		t.Fatalf("interface tag changed tenant totals: %+v %v", result, err)
+	}
+	groups := map[string]string{}
+	for _, item := range result.Rows {
+		groups[item.Group["tag.in_interface.customer"]] = item.Metrics["bytes:total"]
+	}
+	if groups["input"] != "100" || groups[""] != "200" {
+		t.Fatal("input tag selected unmatched/foreign index")
+	}
+	for _, item := range result.Matrix {
+		if item.Column["tag.out_interface.customer"] != "output" {
+			t.Fatal("output interface used input value")
+		}
+	}
+	vocabulary, err := lookup.Vocabulary(tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryCtx, err := flow.WithQueryVocabulary(t.Context(), tenant, vocabulary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := SnapshotInputsForTenant(queryCtx, tenant, result)
+	if err != nil || !inputs.NeedsComplete || !inputs.TagLookup || !slices.Equal(inputs.Fields, []string{"exporter", "in_if", "out_if"}) {
+		t.Fatalf("interface frozen receipt omitted physical input columns: %+v %v", inputs, err)
+	}
+	plan.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.in_interface.customer", Op: flow.QueryEqual, Values: []string{"input"}}, {Field: "tag.out_interface.customer", Op: flow.QueryEqual, Values: []string{"output"}}}}
+	filtered, err := memory.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: plan, Tags: lookup})
+	if err != nil || filtered.Totals["bytes:total"] != "100" {
+		t.Fatal("interface predicate used wrong side")
+	}
+	sql, params, err := planSQLWithTags(DefaultExplorerBudget(), plan, "probectl_flows", nil, tenant, lookup)
+	base := "tag_key_" + strings.ReplaceAll(id, "-", "")
+	if err != nil || params[base+"_in_interface"] != "customer" || params[base+"_out_interface"] != "customer" || !strings.Contains(sql, "toString(in_if)") || !strings.Contains(sql, "toString(out_if)") || strings.Contains(sql, "customer") {
+		t.Fatalf("interface SQL lost bound independent side keys: %v", err)
+	}
+	if _, err := lookup.valueForRow(other, "in_interface.customer"); !errors.Is(err, ErrTagQueryScope) {
+		t.Fatal("foreign row reused interface lookup")
+	}
+	if _, err := NewTagQueryData(tenant, 1, definitions, []tags.ExporterProjection{{Exporter: "192.0.2.1", Interfaces: map[uint32]map[string]string{0: {"customer": "untrusted"}}}}, 1<<20); !errors.Is(err, ErrTagQueryScope) {
+		t.Fatal("zero index entered interface lookup")
+	}
+	if _, err := NewTagQueryData(tenant, 1, definitions, []tags.ExporterProjection{{Exporter: "192.0.2.1", Interfaces: map[uint32]map[string]string{7: {"customer": strings.Repeat("x", 4096)}}}}, 1024); !errors.Is(err, ErrExplorerBudget) {
+		t.Fatal("interface metadata escaped query memory budget")
 	}
 }

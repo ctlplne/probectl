@@ -31,8 +31,9 @@ type Snapshot struct {
 // from uniquely owned exporter addresses and omits sender claims and source
 // provenance before it reaches a flow backend.
 type ExporterProjection struct {
-	Exporter string
-	Values   map[string]string
+	Exporter   string
+	Values     map[string]string
+	Interfaces map[uint32]map[string]string
 }
 
 // Revision returns the committed tag revision captured with this snapshot.

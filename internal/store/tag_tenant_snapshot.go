@@ -33,6 +33,7 @@ type TenantTagSnapshot struct {
 	byContext   map[string]*tags.Snapshot
 	contexts    []entity.ContextRecord
 	related     map[string]map[string]string
+	interfaces  map[string]map[uint32]map[string]string
 }
 
 type tagExporterBinding struct {
@@ -110,7 +111,7 @@ func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[st
 		if err != nil {
 			return nil, err
 		}
-		if len(resolved) == 0 && len(s.related[address]) == 0 {
+		if len(resolved) == 0 && len(s.related[address]) == 0 && len(s.interfaces[address]) == 0 {
 			continue
 		}
 		row := tags.ExporterProjection{Exporter: address, Values: make(map[string]string, len(resolved))}
@@ -140,8 +141,29 @@ func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[st
 				}
 				row.Values[key] = value
 			}
+			if related[0]["interface"][s.byAddress[address].contextID] {
+				row.Interfaces = map[uint32]map[string]string{}
+				for index, entries := range s.interfaces[address] {
+					if err := ctx.Err(); err != nil {
+						return nil, err
+					}
+					used += 256
+					if used > maxBytes {
+						return nil, ErrTagSnapshotBudget
+					}
+					valuesCopy := map[string]string{}
+					for key, value := range entries {
+						used += 128 + int64(len(key)+len(value))
+						if used > maxBytes {
+							return nil, ErrTagSnapshotBudget
+						}
+						valuesCopy[key] = value
+					}
+					row.Interfaces[index] = valuesCopy
+				}
+			}
 		}
-		if len(row.Values) == 0 {
+		if len(row.Values) == 0 && len(row.Interfaces) == 0 {
 			continue
 		}
 		out = append(out, row)
@@ -194,7 +216,7 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64, related .
 	}
 	wanted := map[string]bool{}
 	for _, kind := range related {
-		if kind != "device" && kind != "agent" {
+		if kind != "device" && kind != "agent" && kind != "interface" {
 			return nil, tags.ErrInvalid
 		}
 		wanted[kind] = true
@@ -271,8 +293,14 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64, related .
 		result = &TenantTagSnapshot{tenantID: tenantID, revision: revision,
 			definitions: append([]tags.Definition(nil), definitions...),
 			byAddress:   bindings, byContext: contextSnapshots, contexts: contextRecords}
-		if len(wanted) > 0 {
+		if wanted["device"] || wanted["agent"] {
 			result.related, err = loadFlowTagSubjects(ctx, sc, result, wanted, maxBytes, charge)
+			if err != nil {
+				return err
+			}
+		}
+		if wanted["interface"] {
+			result.interfaces, err = loadFlowTagInterfaces(ctx, sc, result, maxBytes, charge)
 			if err != nil {
 				return err
 			}

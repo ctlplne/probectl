@@ -1632,7 +1632,7 @@ type FlowQueryDisplay struct {
 	TotalOverlay      *bool    `json:"total_overlay,omitempty"`
 }
 
-// Native fields plus tenant-defined tag.<key>, tag.device.<key> and tag.agent.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor or registered collecting agent and additionally require metrics.read or agent.read. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client.
+// Native fields plus tenant-defined tag.<key>, tag.device.<key>, tag.agent.<key>, tag.in_interface.<key> and tag.out_interface.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor, registered collecting agent or current attested interface index and additionally require metrics.read (device/interface) or agent.read (agent). Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client.
 type FlowQueryField struct {
 	LegacyHourlyAvailable bool     `json:"legacy_hourly_available"`
 	Name                  string   `json:"name"`

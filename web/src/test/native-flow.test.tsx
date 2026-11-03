@@ -177,7 +177,13 @@ function fixture(handler?: typeof fetch, publishedSchema: FlowExplorerSchema = s
 }
 
 describe('native flow workspace', () => {
-  test.each(['tag.customer', 'tag.device.customer', 'tag.agent.customer'])(
+  test.each([
+    'tag.customer',
+    'tag.device.customer',
+    'tag.agent.customer',
+    'tag.in_interface.customer',
+    'tag.out_interface.customer',
+  ])(
     'uses authenticated %s in the builder and labels unmatched retained history',
     async (field) => {
       const taggedSchema: FlowExplorerSchema = {

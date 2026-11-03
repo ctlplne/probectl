@@ -692,9 +692,20 @@ subject kinds load current private facts; all metadata uses the existing query
 memory, execution and fairness limits. Current device/agent context grants are
 included in saved-result authorization: a grant change requires a fresh query
 before pages, comparisons or CSV. This authorization format upgrade also
-requires a fresh query for older frozen tag results. These fields associate
-exporter metadata only; they do not imply interface, traffic-prefix or test
-associations.
+requires a fresh query for older frozen tag results.
+
+`tag.in_interface.<key>` and `tag.out_interface.<key>` select the input and
+output interface index beneath the exporter's owned device. Both require
+`metrics.read`. A current attested SNMP interface in the latest complete poll
+must establish the index; an old entity, label or assignment alone cannot.
+A newer poll that omits the interface withholds its metadata from fresh queries
+over history. Zero/missing indices and multiple current canonical interfaces
+at the same index are **Unmatched**, including when competing values agree.
+The query retains traffic totals. Each side has its own key, so the same tag
+can group input and output independently in filters, matrices and saved views.
+Frozen input coverage retains both the exporter and the selected index columns;
+old hourly summaries without those inputs cannot substitute for complete data.
+These metadata associations do not imply traffic-prefix or test associations.
 
 
 ## Query API (tenant-scoped, `flow.read`)

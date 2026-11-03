@@ -69,6 +69,9 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 		}
 		decisions = append(decisions, contextDecision{record.ContextID, disclose, related["device"][record.ContextID], related["agent"][record.ContextID]})
 	}
+	// Interface metadata has the same effective source grant as devices;
+	// both remain covered by the metrics.read decision already in the digest.
+	related["interface"] = related["device"]
 	encoded, err := json.Marshal(struct {
 		Domain   string            `json:"domain"`
 		Tenant   string            `json:"tenant"`
