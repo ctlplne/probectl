@@ -117,6 +117,7 @@ func TestExplorerClickHousePrefixTagsKeepOwnedContextAndExactRanges(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Logf("prefix query checkpoint source=%s view=%s groupings=%d matrix=%d metrics=%d", plan.DataSeries, plan.View, len(plan.GroupBy), len(plan.MatrixWith), len(plan.Metrics))
 			got, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: plan, Tags: lookup})
 			if err != nil {
 				t.Fatalf("owned prefix range query failed: %v", err)

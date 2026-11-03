@@ -25,7 +25,7 @@ const planSQLGroup = "g,c,o,p"
 // Keep address normalization inside the tenant/time-bounded input. Named
 // computed columns preserve the full predicate reach without expanding one
 // formatter thousands of times or increasing ClickHouse parser limits.
-func planInputSQL(table, eventTime string) string {
+func planInputSQL(table, eventTime string, prefixSides ...string) string {
 	fields := make([]string, 0, 3)
 	for _, field := range flow.QueryFields() {
 		if field.Type != flow.QueryAddress {
@@ -33,6 +33,10 @@ func planInputSQL(table, eventTime string) string {
 		}
 		column := field.Column
 		fields = append(fields, explorerCanonicalAddressSQL(column)+" AS "+explorerAddressExpr(column))
+	}
+	for _, side := range prefixSides {
+		family, number := prefixTagAddressSQL(prefixTagColumn(side))
+		fields = append(fields, family+" AS "+prefixTagFamilyColumn(side), number+" AS "+prefixTagPointColumn(side))
 	}
 	return "(SELECT *, " + strings.Join(fields, ",") + " FROM " + table + " FINAL WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')}) AS flow_input"
 }
@@ -110,10 +114,10 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	if strings.HasSuffix(table, sharedFlowRollupsTable) {
 		eventTime = "if(coverage_version=0,toDateTime64(bucket,3),ts)"
 	}
-	from := planInputSQL(table, eventTime)
+	sides := planTagPrefixSides(plan)
+	from := planInputSQL(table, eventTime, sides...)
 	if tagData != nil {
 		from += " ANY LEFT JOIN tag_lookup ON tag_lookup.lookup_tenant=tenant_id AND toIPv6OrNull(tag_lookup.lookup_exporter)=toIPv6OrNull(if(position(exporter,'%')=0,exporter,''))"
-		sides := planTagPrefixSides(plan)
 		for _, side := range sides {
 			from += prefixTagJoinSQL(side)
 		}

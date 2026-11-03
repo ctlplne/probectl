@@ -140,16 +140,22 @@ func prefixTagAddressSQL(column string) (string, string) {
 	return family, number
 }
 
+func prefixTagFamilyColumn(side string) string {
+	return "__probectl_" + side + "_family"
+}
+
+func prefixTagPointColumn(side string) string {
+	return "__probectl_" + side + "_point"
+}
+
 func prefixTagJoinSQL(side string) string {
 	alias := side + "_tags"
-	family, number := prefixTagAddressSQL(prefixTagColumn(side))
-	return " ASOF LEFT JOIN tag_prefix_lookup AS " + alias + " ON " + alias + ".prefix_tenant=tenant_id AND " + alias + ".prefix_context=tag_lookup.lookup_context AND " + alias + ".prefix_family=" + family + " AND " + alias + ".prefix_start<=" + number
+	return " ASOF LEFT JOIN tag_prefix_lookup AS " + alias + " ON tenant_id=" + alias + ".prefix_tenant AND tag_lookup.lookup_context=" + alias + ".prefix_context AND " + prefixTagFamilyColumn(side) + "=" + alias + ".prefix_family AND " + prefixTagPointColumn(side) + ">=" + alias + ".prefix_start"
 }
 
 func prefixTagValuesSQL(side string) string {
 	alias := side + "_tags"
-	_, number := prefixTagAddressSQL(prefixTagColumn(side))
-	return "if(" + alias + ".prefix_present=1 AND " + number + "<=" + alias + ".prefix_end," + alias + ".prefix_values,CAST(map(),'Map(String,String)'))"
+	return "if(" + alias + ".prefix_present=1 AND " + prefixTagPointColumn(side) + "<=" + alias + ".prefix_end," + alias + ".prefix_values,CAST(map(),'Map(String,String)'))"
 }
 
 func prefixTagValueSQL(side, name string) string {
