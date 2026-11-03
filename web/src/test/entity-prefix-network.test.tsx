@@ -55,7 +55,8 @@ function prefixRegistry(tenant: string) {
       return jsonResponse({ ...row(), id: '00000000-0000-4000-8000-000000000302', ...body }, 201)
     }
     if (path === '/v1/entities') {
-      const chosen = new URL(String(input), 'http://localhost').searchParams.get('context_id')
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const chosen = new URL(url, 'http://localhost').searchParams.get('context_id')
       return jsonResponse({
         scope: { tenant_id: tenant, context_id: chosen },
         items: chosen === contextID ? [row()] : [],
@@ -96,9 +97,12 @@ for (const theme of ['light', 'dark'] as const) {
         const view = renderApp('/admin', {
           me: { tenant_id: tenant, permissions: ['entities.read', 'agent.write'] },
         })
-        const inspect = await view.findByRole('button', { name: `Inspect prefix Prefix ${tenant}` })
-        const cardElement = inspect.closest('[data-entity-registry]') as HTMLElement
+        const context = await view.findByRole('combobox', { name: 'Routing context', exact: true })
+        const cardElement = context.closest('[data-entity-registry]') as HTMLElement
         const card = within(cardElement)
+        await card.findByRole('option', { name: 'West DC / Private' })
+        fireEvent.change(context, { target: { value: contextID } })
+        const inspect = await card.findByRole('button', { name: `Inspect prefix Prefix ${tenant}` })
         fireEvent.click(inspect)
         let editor = await card.findByRole('textbox', {
           name: 'Network range (CIDR, empty clears)',
@@ -184,7 +188,11 @@ test('prefix network reader sees the range and has no mutation controls', async 
   const tenant = '00000000-0000-4000-8000-000000000101'
   const state = prefixRegistry(tenant)
   const view = renderApp('/admin', { me: { tenant_id: tenant, permissions: ['entities.read'] } })
-  fireEvent.click(await view.findByRole('button', { name: `Inspect prefix Prefix ${tenant}` }))
+  const context = await view.findByRole('combobox', { name: 'Routing context', exact: true })
+  const card = within(context.closest('[data-entity-registry]') as HTMLElement)
+  await card.findByRole('option', { name: 'West DC / Private' })
+  fireEvent.change(context, { target: { value: contextID } })
+  fireEvent.click(await card.findByRole('button', { name: `Inspect prefix Prefix ${tenant}` }))
   expect(await view.findByText('10.2.0.0/24')).toBeInTheDocument()
   expect(view.queryByRole('button', { name: 'Save network range' })).not.toBeInTheDocument()
   expect(state.updates).toEqual([])
