@@ -6,7 +6,7 @@
 
 """Require the original context-policy reproduction on a clean fixed baseline.
 
-Current isolation tests must pass separately. A build/setup/cleanup failure is
+Current integration regression must pass first. A build/setup/cleanup failure is
 never accepted as the original disclosure. Raw test output stays private.
 """
 
@@ -67,9 +67,60 @@ def command(args: list[str], cwd: Path) -> str:
     return result.stdout.strip()
 
 
+def execute(cwd: Path) -> tuple[int, str]:
+    with tempfile.TemporaryFile(mode="w+") as log:
+        result = subprocess.run(
+            [
+                "go",
+                "test",
+                "-json",
+                "-tags=integration",
+                "-count=1",
+                "-timeout=3m",
+                "-run",
+                "^" + TEST + "$",
+                "./internal/control",
+            ],
+            cwd=cwd,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            timeout=360,
+        )
+        log.seek(0)
+        raw = log.read((4 << 20) + 1)
+    if len(raw.encode()) > 4 << 20:
+        raise RuntimeError("context regression output exceeded its bound")
+    return result.returncode, raw
+
+
+def current_passed(code: int, raw: str) -> bool:
+    events = []
+    for line in raw.splitlines():
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict):
+            events.append(item)
+    return (
+        code == 0
+        and any(
+            item.get("Action") == "pass"
+            and item.get("Test") == TEST
+            and item.get("Package") == PACKAGE
+            for item in events
+        )
+        and not any(item.get("Action") in {"fail", "skip"} for item in events)
+    )
+
+
 def run() -> None:
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise RuntimeError("original context regression runs only in CI")
+    code, raw = execute(ROOT)
+    if not current_passed(code, raw):
+        raise RuntimeError("current context regression did not pass without skips")
+    print("Current context-policy regression passed")
     path = Path(tempfile.mkdtemp(prefix="probectl-qa-beta-tag-policy-original-"))
     attached = False
     try:
@@ -81,27 +132,8 @@ def run() -> None:
         ):
             raise RuntimeError("original context regression baseline was not clean")
         shutil.copyfile(ROOT / FILE, path / FILE)
-        with tempfile.TemporaryFile(mode="w+") as log:
-            result = subprocess.run(
-                [
-                    "go",
-                    "test",
-                    "-json",
-                    "-tags=isolation",
-                    "-count=1",
-                    "-timeout=3m",
-                    "-run",
-                    "^" + TEST + "$",
-                    "./internal/control",
-                ],
-                cwd=path,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                timeout=360,
-            )
-            log.seek(0)
-            raw = log.read((4 << 20) + 1)
-        if len(raw.encode()) > 4 << 20 or not reproduced(result.returncode, raw):
+        code, raw = execute(path)
+        if not reproduced(code, raw):
             raise RuntimeError("original context disclosure did not reproduce exactly")
         print("Original context-policy disclosure reproduced on clean " + BASE)
     finally:
@@ -111,6 +143,20 @@ def run() -> None:
 
 
 def selftest() -> None:
+    passed = json.dumps({"Action": "pass", "Package": PACKAGE, "Test": TEST})
+    if not current_passed(0, passed):
+        raise RuntimeError("current regression classifier lost a test pass")
+    for code, raw in [
+        (1, passed),
+        (0, "no tests"),
+        (0, passed.replace(TEST, "Other")),
+        (0, passed + '\n{"Action":"skip"}'),
+        (0, passed + '\n{"Action":"fail"}'),
+    ]:
+        if current_passed(code, raw):
+            raise RuntimeError(
+                "current regression accepted absent, skipped or failing proof"
+            )
     events = [
         {"Action": "run", "Package": PACKAGE, "Test": TEST},
         {"Action": "output", "Test": TEST, "Output": MARKER},

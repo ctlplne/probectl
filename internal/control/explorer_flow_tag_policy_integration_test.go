@@ -4,7 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-//go:build integration || isolation
+//go:build integration
 
 package control
 
@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -35,8 +35,8 @@ func TestFlowTagsRespectCurrentContextPolicy(t *testing.T) {
 			t.Errorf("clean policy fixture: %v", err)
 		}
 	})
-	contextIDs := []string{uuid.NewString(), uuid.NewString()}
-	tagID := uuid.NewString()
+	contextIDs := []string{gouuid.NewString(), gouuid.NewString()}
+	tagID := gouuid.NewString()
 	for _, tenant := range []string{a, b} {
 		err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_definitions(tenant_id,id,key) VALUES ($1,$2,'customer')`, tenant, tagID); err != nil {
@@ -51,10 +51,10 @@ func TestFlowTagsRespectCurrentContextPolicy(t *testing.T) {
 					sql  string
 					args []any
 				}{
-					{`INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES ($1,$2,$3,$4,$2::uuid::text,'vrf')`, []any{tenant, id, uuid.NewString(), uuid.NewString()}},
+					{`INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES ($1,$2,$3,$4,$2::uuid::text,'vrf')`, []any{tenant, id, gouuid.NewString(), gouuid.NewString()}},
 					{`INSERT INTO entity_agent_contexts(tenant_id,agent_id,context_id) VALUES ($1,$2,$3)`, []any{tenant, agent, id}},
 					{`INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id) VALUES ($1,$2,'flow_exporter',$3,$4)`, []any{tenant, agent, address, id}},
-					{`INSERT INTO tenant_tag_assignments(tenant_id,context_id,id,tag_id,target_kind,exporter_agent_id,exporter_source_kind,exporter_source_ref,value,source) VALUES ($1,$2,$3,$4,'exporter',$5,'flow_exporter',$6,$7,'manual')`, []any{tenant, id, uuid.NewString(), tagID, agent, address, value}},
+					{`INSERT INTO tenant_tag_assignments(tenant_id,context_id,id,tag_id,target_kind,exporter_agent_id,exporter_source_kind,exporter_source_ref,value,source) VALUES ($1,$2,$3,$4,'exporter',$5,'flow_exporter',$6,$7,'manual')`, []any{tenant, id, gouuid.NewString(), tagID, agent, address, value}},
 				} {
 					if _, err := sc.Q.Exec(ctx, statement.sql, statement.args...); err != nil {
 						return err
