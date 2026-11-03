@@ -363,7 +363,13 @@ func TestOwnedTagSubjectSnapshotUsesCurrentFactsAndTenantIsolation(t *testing.T)
 		t.Fatal("conflicting source published selected tags")
 	}
 	run(b, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET expires_at=transaction_timestamp()-interval '1 second' WHERE tenant_id=$1 AND agent_id=$2 AND source_ref='target-2'`, b, agentFor(b))
+		// This fixture may be younger than a second. Expire the real binding
+		// after its assignment rather than violate expires_at > assigned_at.
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET expires_at=clock_timestamp()+interval '100 milliseconds' WHERE tenant_id=$1 AND agent_id=$2 AND source_ref='target-2'`, b, agentFor(b))
+		if err != nil {
+			return err
+		}
+		_, err = sc.Q.Exec(ctx, `SELECT pg_sleep(0.15)`)
 		return err
 	})
 	if result, err := resolve(b, "device"); err != nil || values(result)["snmp"] != "snmp-1" {
