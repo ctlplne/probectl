@@ -26,12 +26,18 @@ func TestEffectiveTagMCPRequiresTenantUserGrantAndStrictReference(t *testing.T) 
 	s := newTestServer(&fakeBackend{}, testGate(), WithTagSubjectBackend(b),
 		WithPolicyLoader(func(context.Context, string) ([]auth.Policy, error) { return nil, nil }))
 	args := map[string]any{"context_id": "context", "target_kind": "device", "target_id": "subject"}
-	for _, p := range []*auth.Principal{principal("tenant-a"), principal("tenant-a", "tags.read")} {
+	missingGrant := principal("tenant-a")
+	missingGrant.UserID = "denied-reader"
+	for _, tc := range []struct {
+		principal *auth.Principal
+		code      int
+	}{{missingGrant, codeForbidden}, {principal("tenant-a", "tags.read"), codeUnauthorized}} {
+		p := tc.principal
 		if listedToolNames(t, handle(t, s, p, 1, "tools/list", nil))["tag_subject_resolve"] {
 			t.Fatal("read tool visible without tenant user and tags.read")
 		}
-		if code, _ := errCode(handle(t, s, p, 2, "tools/call", map[string]any{"name": "tag_subject_resolve", "arguments": args})); code != codeForbidden || len(b.tenants) != 0 {
-			t.Fatal("unauthorized subject call reached backend")
+		if code, _ := errCode(handle(t, s, p, 2, "tools/call", map[string]any{"name": "tag_subject_resolve", "arguments": args})); code != tc.code || len(b.tenants) != 0 {
+			t.Fatalf("unauthorized subject call: code=%d want=%d backend_calls=%d", code, tc.code, len(b.tenants))
 		}
 	}
 	for _, tenant := range []string{"tenant-a", "tenant-b"} {
