@@ -1141,12 +1141,6 @@ jobs:
             --data-urlencode "SQL_probectl_tenant=ci-isolation" \
             http://localhost:8123/)"
           test "${value}" = "ci-isolation"
-      - name: Cross-tenant isolation tests
-        # TEST-003: fail (not skip) if a backing service is unavailable — a
-        # cross-tenant isolation suite that quietly skips is vacuous green.
-        env:
-          PROBECTL_TEST_REQUIRE_SERVICES: "1"
-        run: make test-isolation
       - name: Related flow tag ownership and query proof
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
@@ -1177,6 +1171,12 @@ jobs:
         run: |
           python3 scripts/ci_tag_import_budget_regression.py --selftest
           python3 scripts/ci_tag_import_budget_regression.py
+      - name: Cross-tenant isolation tests
+        # TEST-003: fail (not skip) if a backing service is unavailable — a
+        # cross-tenant isolation suite that quietly skips is vacuous green.
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: make test-isolation
 
   nms-vendor-live:
     name: nms-vendor-live (LibreNMS and Zabbix)
@@ -1292,6 +1292,14 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Start TLS Postgres (verify-full, test CA — OPS-010)
         run: ./scripts/ci_pg_tls.sh
+      - name: Current tag alert and native consumer proof
+        # Separate TLS DB preserves the full suite's clean initial state.
+        # Both named tests must execute and pass; skips/missing tests fail.
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_tag_consumer_proof.py --selftest
+          python3 scripts/ci_tag_consumer_proof.py
       - name: Start Prometheus with the remote-write receiver and the admin API
         # A service container cannot take the required --web.enable-remote-write-receiver
         # flag, so run it as a step instead. The admin API is the dev stack's

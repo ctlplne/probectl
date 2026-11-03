@@ -464,3 +464,13 @@ RLS read snapshot as the rule/configuration: current root field names, immutable
 tag IDs, text operators, shared grammar limits and its exact revision/time.
 It requires no flow-source read. Mutation/clear responses omit this vocabulary;
 configured whole-operation costs still refuse the complete read atomically.
+
+The `integration` CI job runs the paired current-tag source/evaluator/RLS proof
+and the real TLS/bearer/native mutation/receipt proof against a separate,
+verify-full TLS Postgres database before the broad integration suite. The runner
+requires both named tests to execute and pass and refuses skipped, missing,
+duplicate or failed outcomes. This database is separate from the full suite's
+initial state. In-process metric fixtures remain component evidence; the full
+release-image, sender and four-store receipt is still required. The existing
+query ownership and original regression proofs run before the broad isolation
+suite; every broad suite and coverage floor remains mandatory.
