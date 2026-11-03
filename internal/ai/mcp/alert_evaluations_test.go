@@ -50,7 +50,6 @@ func TestNativeAlertEvaluationsRequireUserStrictBoundsAndPreserveExactClock(t *t
 	for _, raw := range []string{
 		`{"rule_id":"` + id + `","tenant_id":"foreign"}`,
 		`{"Rule_ID":"` + id + `"}`,
-		`{"rule_id":"` + id + `","rule_id":"` + id + `"}`,
 		`{"rule_id":"` + id + `","limit":0}`,
 		`{"rule_id":"` + id + `","limit":101}`,
 		`{"rule_id":"` + id + `","limit":1.5}`,
@@ -61,6 +60,12 @@ func TestNativeAlertEvaluationsRequireUserStrictBoundsAndPreserveExactClock(t *t
 		if resultOf(t, handle(t, s, p, 4, "tools/call", map[string]any{"name": "alert_evaluations", "arguments": json.RawMessage(raw)}))["isError"] != true || len(b.tenants) != 0 {
 			t.Fatal("ambiguous, unbounded or hinted receipt input reached backend")
 		}
+	}
+	// Duplicate fields are rejected by native RPC syntax before dispatch, not
+	// represented as a tool-result error. Both layers must keep the backend cold.
+	duplicate := json.RawMessage(`{"rule_id":"` + id + `","rule_id":"` + id + `"}`)
+	if code, ok := errCode(handle(t, s, p, 4, "tools/call", map[string]any{"name": "alert_evaluations", "arguments": duplicate})); !ok || code != codeInvalidParams || len(b.tenants) != 0 {
+		t.Fatal("duplicate native receipt keys passed the RPC boundary")
 	}
 	for _, tenant := range []string{"tenant-a", "tenant-b"} {
 		p.TenantID = tenant
