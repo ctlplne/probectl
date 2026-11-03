@@ -67,7 +67,7 @@ func TestTaggedSnapshotInputsKeepTenantVocabularyAndNativeRawDependencies(t *tes
 	}
 	for _, mutate := range []func(*SnapshotInputs){
 		func(c *SnapshotInputs) { c.NeedsComplete = false },
-		func(c *SnapshotInputs) { c.Source = "rollup" },
+		func(c *SnapshotInputs) { c.Source = "rollup"; c.CompleteInputs = false },
 		func(c *SnapshotInputs) { c.Fields = []string{"protocol"} },
 	} {
 		bad := clock
@@ -132,7 +132,7 @@ func TestSnapshotInputsCaptureDependenciesWithoutFilterLiterals(t *testing.T) {
 
 func TestSnapshotInputsExpiryUsesActualSourceClocks(t *testing.T) {
 	oldest := time.Date(2026, 10, 28, 12, 34, 56, 789000000, time.UTC)
-	base := SnapshotInputs{Version: 1, From: oldest.AddDate(-10, 0, 0), To: oldest.Add(time.Hour), OldestInput: oldest, Source: "raw", DataSeries: "auto", BucketSeconds: 60, Fields: []string{"src_port"}, NeedsComplete: true}
+	base := SnapshotInputs{Version: 2, CompleteInputs: true, From: oldest.AddDate(-10, 0, 0), To: oldest.Add(time.Hour), OldestInput: oldest, Source: "raw", DataSeries: "auto", BucketSeconds: 60, Fields: []string{"src_port"}, NeedsComplete: true}
 	one, thirty, zero := 1, 30, 0
 	for _, test := range []struct {
 		name, source string
@@ -164,6 +164,7 @@ func TestSnapshotInputsExpiryUsesActualSourceClocks(t *testing.T) {
 	legacy.BucketSeconds = 3600
 	legacy.Fields = []string{"protocol"}
 	legacy.NeedsComplete = false
+	legacy.CompleteInputs = false
 	if expiry, err := legacy.ExpiresAt(1, &one); err != nil || !expiry.IsZero() {
 		t.Fatalf("legitimate old hourly information acquired an exact-input clock: %s %v", expiry, err)
 	}
@@ -177,9 +178,9 @@ func TestSnapshotInputsExpiryUsesActualSourceClocks(t *testing.T) {
 
 func TestSnapshotInputsRejectMalformedOrWeakenedProof(t *testing.T) {
 	now := time.Now().UTC()
-	base := SnapshotInputs{Version: 1, From: now.Add(-time.Hour), To: now.Add(time.Hour), OldestInput: now, Source: "raw", DataSeries: "auto", BucketSeconds: 60, Fields: []string{"src_port"}, NeedsComplete: true}
+	base := SnapshotInputs{Version: 2, CompleteInputs: true, From: now.Add(-time.Hour), To: now.Add(time.Hour), OldestInput: now, Source: "raw", DataSeries: "auto", BucketSeconds: 60, Fields: []string{"src_port"}, NeedsComplete: true}
 	for _, mutate := range []func(*SnapshotInputs){
-		func(c *SnapshotInputs) { c.Version = 2 }, func(c *SnapshotInputs) { c.NeedsComplete = false }, func(c *SnapshotInputs) { c.Fields = []string{"tenant_id"} }, func(c *SnapshotInputs) { c.Fields = []string{"src_port", "agent_id"} }, func(c *SnapshotInputs) { c.Empty = true }, func(c *SnapshotInputs) { c.OldestInput = c.To }, func(c *SnapshotInputs) { c.DataSeries = "rollup" },
+		func(c *SnapshotInputs) { c.Version = 1 }, func(c *SnapshotInputs) { c.CompleteInputs = false }, func(c *SnapshotInputs) { c.NeedsComplete = false }, func(c *SnapshotInputs) { c.Fields = []string{"tenant_id"} }, func(c *SnapshotInputs) { c.Fields = []string{"src_port", "agent_id"} }, func(c *SnapshotInputs) { c.Empty = true }, func(c *SnapshotInputs) { c.OldestInput = c.To }, func(c *SnapshotInputs) { c.DataSeries = "rollup" },
 	} {
 		clock := base
 		mutate(&clock)

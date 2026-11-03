@@ -21,6 +21,7 @@ import tempfile
 BASE = "0fd0f52cbb14eaab20f49f17d6c81d3be856be62"
 TEST = "TestSubjectTagNamespacesKeepOneDefinitionAndIndependentReadGrants"
 PACKAGE = "github.com/ctlplne/probectl/internal/flow"
+GO_PACKAGE = "./internal/flow"
 FILE = Path("internal/flow/query_vocabulary_test.go")
 MARKER = "qualified tag field changed definition or subject"
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,7 +97,7 @@ def execute(cwd: Path) -> tuple[int, str]:
                 "-timeout=3m",
                 "-run",
                 "^" + TEST + "$",
-                "./internal/flow",
+                GO_PACKAGE,
             ],
             cwd=cwd,
             env={**os.environ, "GOWORK": "off"},
@@ -126,7 +127,7 @@ def run() -> None:
     code, raw = execute(ROOT)
     if not classified(code, raw, False):
         raise RuntimeError("current related tag regression did not pass without skips")
-    print("Current related tag vocabulary and read-grant regression passed")
+    print("Current tag regression passed")
     path = Path(tempfile.mkdtemp(prefix="probectl-qa-beta-related-tag-original-"))
     attached = False
     try:
@@ -143,7 +144,7 @@ def run() -> None:
             raise RuntimeError(
                 "original related tag vocabulary assertion did not reproduce"
             )
-        print("Original related tag vocabulary assertion reproduced on " + BASE)
+        print("Original tag assertion reproduced on " + BASE)
     finally:
         if attached:
             git(["worktree", "remove", "--force", str(path)], ROOT)
@@ -191,11 +192,20 @@ def selftest() -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--selftest", action="store_true")
-    parser.add_argument("--interfaces", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--interfaces", action="store_true")
+    mode.add_argument("--rollup-snapshot", action="store_true")
     args = parser.parse_args()
     if args.interfaces:
         BASE = "9c626335df1bc6f48eb1fb6951a81d0a2fbda198"
         TEST = "TestInterfaceTagVocabularyRequiresOwnedIndexInputs"
         MARKER = "input/output interface tag field is unavailable"
+    if args.rollup_snapshot:
+        BASE = "9c626335df1bc6f48eb1fb6951a81d0a2fbda198"
+        TEST = "TestTagRollupSnapshotUsesActualCompleteInputs"
+        PACKAGE = "github.com/ctlplne/probectl/internal/store/flowstore"
+        GO_PACKAGE = "./internal/store/flowstore"
+        FILE = Path("internal/store/flowstore/tag_rollup_snapshot_test.go")
+        MARKER = "complete retained tag rollup was refused by frozen source receipt"
 
     selftest() if args.selftest else run()

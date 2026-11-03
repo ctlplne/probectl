@@ -21,17 +21,18 @@ import (
 // user grammar. It contains no predicate literals, saved expressions or tenant
 // selector. OldestInput includes all contributing groups, including Other.
 type SnapshotInputs struct {
-	Version       int       `json:"version"`
-	From          time.Time `json:"from"`
-	To            time.Time `json:"to"`
-	OldestInput   time.Time `json:"oldest_input,omitempty"`
-	Source        string    `json:"source"`
-	DataSeries    string    `json:"dataseries"`
-	BucketSeconds int       `json:"bucket_seconds"`
-	Fields        []string  `json:"fields"`
-	NeedsComplete bool      `json:"needs_complete"`
-	TagLookup     bool      `json:"tag_lookup,omitempty"`
-	Empty         bool      `json:"empty"`
+	Version        int       `json:"version"`
+	From           time.Time `json:"from"`
+	To             time.Time `json:"to"`
+	OldestInput    time.Time `json:"oldest_input,omitempty"`
+	Source         string    `json:"source"`
+	DataSeries     string    `json:"dataseries"`
+	BucketSeconds  int       `json:"bucket_seconds"`
+	Fields         []string  `json:"fields"`
+	NeedsComplete  bool      `json:"needs_complete"`
+	CompleteInputs bool      `json:"complete_inputs"`
+	TagLookup      bool      `json:"tag_lookup,omitempty"`
+	Empty          bool      `json:"empty"`
 }
 
 var ErrSnapshotInputs = errors.New("flow snapshot input coverage is invalid or no longer available")
@@ -67,8 +68,8 @@ func snapshotInputsFor(result PlanResult, vocabulary flow.QueryVocabulary) (Snap
 			return SnapshotInputs{}, ErrSnapshotInputs
 		}
 		if field.Derived == "tenant_tag" {
-			// Current tag values join by exporter. Their grammar is raw-only;
-			// preserve complete-input expiry even for an hour-aligned window.
+			// Current tags join by exporter and require complete inputs;
+			// preserve their expiry even for an hour-aligned window.
 			fields[i], tagLookup = "exporter", true
 			if field.Column != "" {
 				fields = append(fields, field.Column)
@@ -77,7 +78,11 @@ func snapshotInputsFor(result PlanResult, vocabulary flow.QueryVocabulary) (Snap
 	}
 	slices.Sort(fields)
 	fields = slices.Compact(fields)
-	clock := SnapshotInputs{Version: 1, From: plan.From, To: plan.To, OldestInput: result.OldestInput.UTC(), Source: result.Source, DataSeries: plan.DataSeries, BucketSeconds: plan.BucketSeconds, Fields: fields, Empty: result.TotalGroups == 0, TagLookup: tagLookup}
+	complete := result.Source == "raw"
+	if result.Coverage != nil {
+		complete = result.Coverage.CompleteInputs
+	}
+	clock := SnapshotInputs{Version: 2, From: plan.From, To: plan.To, OldestInput: result.OldestInput.UTC(), Source: result.Source, DataSeries: plan.DataSeries, BucketSeconds: plan.BucketSeconds, Fields: fields, Empty: result.TotalGroups == 0, TagLookup: tagLookup, CompleteInputs: complete}
 	clock.NeedsComplete = clock.needsComplete()
 	if err := clock.validate(); err != nil {
 		return SnapshotInputs{}, err
@@ -102,13 +107,16 @@ func (c SnapshotInputs) needsComplete() bool {
 }
 
 func (c SnapshotInputs) validate() error {
-	if c.Version != 1 || !c.From.Before(c.To) || c.BucketSeconds < flow.MinPlanBucketSeconds || c.BucketSeconds > flow.MaxPlanBucketSeconds || len(c.Fields) > len(flow.QueryFields()) {
+	if c.Version != 2 || !c.From.Before(c.To) || c.BucketSeconds < flow.MinPlanBucketSeconds || c.BucketSeconds > flow.MaxPlanBucketSeconds || len(c.Fields) > len(flow.QueryFields()) {
 		return ErrSnapshotInputs
 	}
 	if c.Source != "raw" && c.Source != "rollup" {
 		return ErrSnapshotInputs
 	}
-	if c.TagLookup && (c.Source != "raw" || !slices.Contains(c.Fields, "exporter")) {
+	if (c.Source == "raw" || c.NeedsComplete) && !c.CompleteInputs {
+		return ErrSnapshotInputs
+	}
+	if c.TagLookup && !slices.Contains(c.Fields, "exporter") {
 		return ErrSnapshotInputs
 	}
 	if c.DataSeries != "auto" && c.DataSeries != "raw" && c.DataSeries != "rollup" {

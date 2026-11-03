@@ -1155,7 +1155,9 @@ jobs:
           python3 scripts/ci_related_tag_regression.py
           python3 scripts/ci_related_tag_regression.py --interfaces --selftest
           python3 scripts/ci_related_tag_regression.py --interfaces
-          go test -tags=integration -count=1 -run '^TestExplorer(RelatedTagsUseCurrentOwnedSubjectsAndReadGrants|InterfaceTagsUseAttestedIndicesUnderOwnedExporter)$' ./internal/control
+          python3 scripts/ci_related_tag_regression.py --rollup-snapshot --selftest
+          python3 scripts/ci_related_tag_regression.py --rollup-snapshot
+          go test -tags=integration -count=1 -run '^TestExplorer(RelatedTagsUseCurrentOwnedSubjectsAndReadGrants|InterfaceTagsUseAttestedIndicesUnderOwnedExporter|TagRollupFreezesActualCompleteRetainedInputs)$' ./internal/control
           go test -tags=integration -count=1 -run '^TestExplorerClickHouse(RelatedTagNamespacesUseOneTenantExporterJoin|InterfaceTagsKeepIndependentSidesAndTenantTotals)$' ./internal/store/flowstore
       - name: Original tag context-policy reproduction
         env:

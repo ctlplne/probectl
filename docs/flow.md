@@ -704,7 +704,10 @@ at the same index are **Unmatched**, including when competing values agree.
 The query retains traffic totals. Each side has its own key, so the same tag
 can group input and output independently in filters, matrices and saved views.
 Frozen input coverage retains both the exporter and the selected index columns;
-old hourly summaries without those inputs cannot substitute for complete data.
+old hourly summaries without those inputs cannot substitute for complete data. Tagged frozen results can use raw or positively verified complete retained
+rollups. Their private version2 source receipt retains the actual source,
+complete-input requirement and source-specific input expiry; it refuses unknown
+or incomplete rollup coverage. Older private receipts require a fresh query.
 These metadata associations do not imply traffic-prefix or test associations.
 
 
