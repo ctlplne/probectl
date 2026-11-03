@@ -8,9 +8,11 @@ package control
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/cmdb"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -79,6 +81,9 @@ func (s *Server) applyReviewedNetBoxTag(r *http.Request, input netBoxTagApplyReq
 	}
 	selected, err := s.cmdb.RecheckNetBoxSubjectTag(ctx, sourceTagFacts(facts), input.Preview.Candidate)
 	if err != nil {
+		if errors.Is(err, cmdb.ErrTagReviewChanged) {
+			return store.TagAssignmentRecord{}, apierror.Conflict("NetBox tag candidate changed; request a new preview")
+		}
 		return store.TagAssignmentRecord{}, netBoxTagPreviewError(err)
 	}
 	candidate := selected.Candidate()

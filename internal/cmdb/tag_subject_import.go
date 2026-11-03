@@ -18,6 +18,10 @@ import (
 	"github.com/ctlplne/probectl/internal/tags"
 )
 
+// ErrTagReviewChanged identifies a reviewed candidate that no longer belongs
+// to the current provider mapping. Upstream binding failures remain distinct.
+var ErrTagReviewChanged = errors.New("cmdb: reviewed tag identity changed")
+
 // NetBoxTagFacts is private, current authority resolved from an owned subject.
 // It is deliberately not a transport projection or a caller-supplied lookup.
 type NetBoxTagFacts struct {
@@ -76,7 +80,7 @@ func (r *Resolver) RecheckNetBoxSubjectTag(ctx context.Context, facts NetBoxTagF
 		return NetBoxTagSelection{}, err
 	}
 	if expected.NetBoxTenantID != source {
-		return NetBoxTagSelection{}, ErrTenantBinding
+		return NetBoxTagSelection{}, errors.Join(ErrTagReviewChanged, ErrTenantBinding)
 	}
 	kind, id, err := netBoxTagCIID(expected.LookupCIID)
 	if err != nil {

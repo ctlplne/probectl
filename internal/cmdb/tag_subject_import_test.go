@@ -85,6 +85,11 @@ func TestNetBoxSubjectImportUsesCompleteFactsExactSelectionAndFreshRelations(t *
 			t.Fatalf("complete dual-stack facts did not select deterministic same-owner witness: %v", err)
 		}
 		expected := selected.Candidate()
+		foreignReview := expected
+		foreignReview.NetBoxTenantID = "999"
+		if _, err := resolver.RecheckNetBoxSubjectTag(ctx, facts, foreignReview); !errors.Is(err, ErrTagReviewChanged) || !errors.Is(err, ErrTenantBinding) {
+			t.Fatalf("reviewed tenant transplant lost its conflict and binding classifications: %v", err)
+		}
 		if data, _ := json.Marshal(map[string]any{"selection": selected}); string(data) != `{"selection":{}}` {
 			t.Fatal("selection disclosed private correspondence")
 		}
