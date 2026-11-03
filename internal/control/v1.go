@@ -96,6 +96,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/changes", s.handleListChanges, permChangeRead},
 		{http.MethodGet, "/v1/entities", s.handleListEntities, ai.PermEntitiesRead},
 		{http.MethodPost, "/v1/entities", s.handleCreateCanonicalEntity, permAgentWrite},
+		{http.MethodPut, "/v1/entities/{id}/network-prefix", s.handleSetEntityNetworkPrefix, permAgentWrite},
 		{http.MethodGet, "/v1/entities/resolve", s.handleResolveEntity, ai.PermEntitiesRead},
 		{http.MethodGet, "/v1/entities/{id}/evidence", s.handleListEntityEvidence, ai.PermEntitiesRead},
 		{http.MethodGet, "/v1/entities/{id}/links", s.handleListEntityLinks, ai.PermEntitiesRead},

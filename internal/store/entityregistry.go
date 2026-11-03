@@ -173,11 +173,11 @@ func (s *EntityRegistry) GetEntity(ctx context.Context, scope entity.Scope, id s
 	var kind string
 	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		return sc.Q.QueryRow(ctx, `
-			SELECT id::text, kind, label, created_at, updated_at
+			SELECT id::text, kind, label, created_at, updated_at,COALESCE(network_prefix::text,'')
 			  FROM entities
 			 WHERE tenant_id=$1 AND context_id=$2 AND id=$3`,
 			want.TenantID, want.ContextID, parsed.String()).Scan(
-			&record.ID, &kind, &record.Label, &record.CreatedAt, &record.UpdatedAt)
+			&record.ID, &kind, &record.Label, &record.CreatedAt, &record.UpdatedAt, &record.NetworkPrefix)
 	})
 	if err != nil {
 		return entity.Record{}, err
@@ -210,7 +210,7 @@ func (s *EntityRegistry) ListEntities(ctx context.Context, scope entity.Scope, c
 	page := entity.Page{Scope: want, Items: []entity.Record{}}
 	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		rows, err := sc.Q.Query(ctx, `
-			SELECT id::text,kind,label,created_at,updated_at
+			SELECT id::text,kind,label,created_at,updated_at,COALESCE(network_prefix::text,'')
 			  FROM entities
 			 WHERE tenant_id=$1 AND context_id=$2 AND id > $3
 			 ORDER BY id LIMIT $4`, want.TenantID, want.ContextID,
@@ -224,7 +224,7 @@ func (s *EntityRegistry) ListEntities(ctx context.Context, scope entity.Scope, c
 			var kind string
 			record.Scope = want
 			if err := rows.Scan(&record.ID, &kind, &record.Label,
-				&record.CreatedAt, &record.UpdatedAt); err != nil {
+				&record.CreatedAt, &record.UpdatedAt, &record.NetworkPrefix); err != nil {
 				return err
 			}
 			record.Kind = entity.Kind(kind)

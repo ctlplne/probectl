@@ -277,7 +277,33 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 			t.Fatalf("silo system metadata escaped its configured-target family: %v", err)
 		}
 	}
+	prefixID := uuid.NewString()
+	for _, row := range []struct{ schema, tenant string }{{schemaA, a}, {schemaB, b}} {
+		if _, err := pool.Exec(ctx, `INSERT INTO `+row.schema+`.entities(tenant_id,context_id,id,kind,label) VALUES ($1,$2,$3,'prefix','display label')`, row.tenant, contextA, prefixID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertNetworkChecks := func() {
+		t.Helper()
+		for _, row := range []struct{ schema, tenant, device, network string }{{schemaA, a, entityA, "10.2.0.0/24"}, {schemaB, b, entityB, "2001:db8::/32"}} {
+			for _, network := range []string{row.network, ""} {
+				if tag, err := pool.Exec(ctx, `UPDATE `+row.schema+`.entities SET network_prefix=NULLIF($3,'')::cidr WHERE tenant_id=$1 AND id=$2`, row.tenant, prefixID, network); err != nil || tag.RowsAffected() != 1 {
+					t.Fatalf("silo prefix write: %v", err)
+				}
+				var actual string
+				if err := pool.QueryRow(ctx, `SELECT COALESCE(network_prefix::text,'') FROM `+row.schema+`.entities WHERE tenant_id=$1 AND id=$2`, row.tenant, prefixID).Scan(&actual); err != nil || actual != network {
+					t.Fatalf("silo prefix read/clear: %v", err)
+				}
+			}
+			_, err := pool.Exec(ctx, `UPDATE `+row.schema+`.entities SET network_prefix='10.2.0.0/24'::cidr WHERE tenant_id=$1 AND id=$2`, row.tenant, row.device)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+				t.Fatalf("silo allowed network on a device: %v", err)
+			}
+		}
+	}
 	assertSystemDescriptionChecks()
+	assertNetworkChecks()
 	insertInferred := func(supportID string) error {
 		id := uuid.NewString()
 		_, err := pool.Exec(ctx, `INSERT INTO `+schemaA+`.entity_evidence
@@ -454,6 +480,9 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.entity_evidence DROP COLUMN snmp_system_name CASCADE`); err != nil {
 		t.Fatalf("simulate old silo raw system-name metadata: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.entities DROP COLUMN network_prefix CASCADE`); err != nil {
+		t.Fatalf("simulate old silo prefix metadata: %v", err)
+	}
 	if err := prov.CatchUp(ctx, a); err != nil {
 		t.Fatalf("first entity silo catch-up: %v", err)
 	}
@@ -461,6 +490,7 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 		t.Fatalf("idempotent entity silo catch-up: %v", err)
 	}
 	assertSystemDescriptionChecks()
+	assertNetworkChecks()
 	assertEntityRegistrySiloFKs(t, pool, SchemaName(a))
 	var scopedCount, legacyCount int
 	if err := pool.QueryRow(ctx, `SELECT

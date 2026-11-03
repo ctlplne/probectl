@@ -18,11 +18,12 @@ import (
 // storage gains columns. No tenant hint enters an input; the principal selects
 // the FORCE-RLS transaction before the backend reads or writes anything.
 type EntityItemResult struct {
-	ID        string    `json:"id"`
-	ContextID string    `json:"context_id"`
-	Kind      string    `json:"kind"`
-	Label     string    `json:"label"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	ContextID     string    `json:"context_id"`
+	Kind          string    `json:"kind"`
+	Label         string    `json:"label"`
+	NetworkPrefix string    `json:"network_prefix,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type EntityListResult struct {
@@ -157,9 +158,22 @@ type EntityContextCreateInput struct {
 	VRFLabel  string `json:"vrf_label"`
 }
 type EntityCreateInput struct {
-	ContextID string `json:"context_id"`
-	Kind      string `json:"kind"`
-	Label     string `json:"label"`
+	ContextID     string `json:"context_id"`
+	Kind          string `json:"kind"`
+	Label         string `json:"label"`
+	NetworkPrefix string `json:"network_prefix,omitempty"`
+}
+
+type EntityNetworkPrefixInput struct {
+	ContextID     string  `json:"context_id"`
+	ID            string  `json:"id"`
+	NetworkPrefix *string `json:"network_prefix"`
+}
+
+// This optional write extension keeps older read/configuration backends from
+// advertising a mutation they cannot implement.
+type EntityNetworkPrefixBackend interface {
+	EntityNetworkPrefixSet(context.Context, *auth.Principal, EntityNetworkPrefixInput) (EntityItemResult, error)
 }
 type EntityGetInput struct {
 	ContextID string `json:"context_id"`
@@ -207,6 +221,12 @@ func WithEntityBackend(backend EntityBackend) Option {
 			s.tools[tool.Name] = tool
 			s.order = append(s.order, tool.Name)
 		}
+		if writer, ok := backend.(EntityNetworkPrefixBackend); ok {
+			tool := entityTool("entity_network_prefix_set", "Set or clear explicit operator network metadata on an owned prefix without changing its ID; audited.", "agent.write",
+				json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"id":{"type":"string"},"network_prefix":{"type":"string","maxLength":128}},"required":["context_id","id","network_prefix"],"additionalProperties":false}`), writer.EntityNetworkPrefixSet)
+			s.tools[tool.Name] = tool
+			s.order = append(s.order, tool.Name)
+		}
 	}
 }
 
@@ -232,7 +252,7 @@ func buildEntityTools(b EntityBackend) []Tool {
 		entityTool("entity_context_create", "Create a tenant-owned named site/VRF routing context; the server mints its UUIDs and audits the write.",
 			"agent.write", json.RawMessage(`{"type":"object","properties":{"site_label":{"type":"string"},"vrf_label":{"type":"string"}},"required":["site_label","vrf_label"],"additionalProperties":false}`), b.EntityContextCreate),
 		entityTool("entity_create", "Create an operator-managed canonical entity in one routing context; audited in the tenant transaction.",
-			"agent.write", json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"kind":{"type":"string","enum":["device","interface","address","prefix","service","site","customer"]},"label":{"type":"string"}},"required":["context_id","kind","label"],"additionalProperties":false}`), b.EntityCreate),
+			"agent.write", json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"kind":{"type":"string","enum":["device","interface","address","prefix","service","site","customer"]},"label":{"type":"string"},"network_prefix":{"type":"string","maxLength":128}},"required":["context_id","kind","label"],"additionalProperties":false}`), b.EntityCreate),
 		entityTool("entity_list", "Page canonical entities in one explicit routing context.",
 			"entities.read", json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string"},"cursor":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["context_id"],"additionalProperties":false}`), b.EntityList),
 		entityTool("entity_get", "Read one tenant-owned canonical entity in one explicit routing context.",

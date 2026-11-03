@@ -8,6 +8,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { apiFetch } from './client'
 import type {
   CreateCanonicalEntityInput,
+  EntityNetworkPrefixInput,
   CreateEntityContextInput,
   EntityContext,
   EntityContextPage,
@@ -158,6 +159,26 @@ export function useCreateCanonicalEntity(tenantID: string) {
       void client.invalidateQueries({
         queryKey: ['canonical-entities', tenantID, record.scope.context_id],
       }),
+  })
+}
+
+export function useSetEntityNetworkPrefix(tenantID: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: EntityNetworkPrefixInput }) =>
+      apiFetch<EntityRecord>(
+        `/entities/${encodeURIComponent(id)}/network-prefix`,
+        jsonInit('PUT', input),
+      ),
+    onSuccess: (record) =>
+      Promise.all([
+        client.invalidateQueries({
+          queryKey: ['canonical-entity', tenantID, record.scope.context_id, record.id],
+        }),
+        client.invalidateQueries({
+          queryKey: ['canonical-entities', tenantID, record.scope.context_id],
+        }),
+      ]),
   })
 }
 

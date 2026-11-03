@@ -637,6 +637,15 @@ Agent-address and live canonical-prefix producers remain incomplete; labels
 and hostnames never substitute for those missing facts. This read does not
 by itself complete all flow, alert, report or RCA tag associations.
 
+A prefix subject can instead have explicit operator `network_prefix` metadata
+on its existing canonical entity. Create it with the field or set/clear it with
+`PUT /v1/entities/{id}/network-prefix` and the owned `context_id` (an empty
+string clears). Admin and `entities network-set` expose the same operation.
+CIDR rules match only if they contain the entire explicit range; a misleading
+label has no effect. The entity ID and manual assignments survive range edits.
+This metadata does not establish a live routing observation or a flow-to-prefix
+association. See [prefix network metadata](entity-registry.md#explicit-prefix-network-metadata-preview).
+
 `probectl --json tags resolve CONTEXT --query target_kind=device --query
 target_id=DEVICE` returns the same snapshot. Admin → Effective subject tags
 resolves on explicit submit and clears results when the subject, context or

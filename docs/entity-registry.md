@@ -5,6 +5,43 @@ customer one tenant-owned ID within one routing context. It keeps the original
 source identifiers and observation times beside that ID. A missing, stale or
 conflicting observation stays unresolved; the registry never guesses a merge.
 
+## Explicit prefix network metadata (preview)
+
+A canonical `prefix` can carry an optional `network_prefix` CIDR. Set it
+explicitly when creating the entity, or edit **Admin → Canonical entity
+registry → Inspect prefix → Network range**. The server masks host bits and
+returns the canonical IPv4 or IPv6 range. A display label never supplies a
+range; old entities remain unset until an operator supplies one.
+
+`POST /v1/entities` accepts `network_prefix` only on a prefix. To change an
+existing prefix, use `PUT /v1/entities/{id}/network-prefix` with required
+`context_id` and `network_prefix`. An explicit empty string clears it; omitted,
+null, malformed or overlong fields are refused. This preserves the ID and its
+tag assignments. Overlapping ranges do not merge entities or create source
+identity aliases. Other entity kinds cannot store a network range.
+
+The equivalent CLI is:
+
+```sh
+probectl --json entities network-set PREFIX_ID --body '{"context_id":"CONTEXT_ID","network_prefix":"192.0.2.0/24"}'
+probectl --json entities network-set PREFIX_ID --body '{"context_id":"CONTEXT_ID","network_prefix":""}'
+```
+
+The user-only MCP tool `entity_network_prefix_set` takes `id`, `context_id`
+and required `network_prefix`, with the same empty-string clear. Creates use
+`entity_create` with the optional field. Writes require `agent.write` and
+current context authorization; the tenant transaction atomically updates the
+row and audit. The update audit records the context and whether a range is
+configured, without the raw CIDR. Reads through entity GET/list and MCP
+GET/list require `entities.read` and current context authorization. Pooled RLS
+and physical-silo checks enforce the same prefix-only storage rule.
+
+Effective prefix tags read this explicit range in the same tenant snapshot as
+the rules. A CIDR rule must contain the entire range. Conflicting current
+observations fail closed. This is operator metadata, with no claim that a
+live routing collector observed the prefix; live prefix and full tag-consumer
+proofs remain required before the tagging capability leaves preview.
+
 ## Set up a routing context
 
 In **Admin → Canonical entity registry**, create a context with a site name and

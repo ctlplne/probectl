@@ -151,12 +151,13 @@ type Claim struct {
 // Record is the durable canonical node. Its label is tenant data and must be
 // authorized for the caller before a REST, CLI, UI or MCP surface exposes it.
 type Record struct {
-	Scope     Scope     `json:"scope"`
-	ID        string    `json:"id"`
-	Kind      Kind      `json:"kind"`
-	Label     string    `json:"label"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Scope         Scope     `json:"scope"`
+	ID            string    `json:"id"`
+	Kind          Kind      `json:"kind"`
+	Label         string    `json:"label"`
+	NetworkPrefix string    `json:"network_prefix,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Page is a bounded, context-scoped walk over durable canonical records.

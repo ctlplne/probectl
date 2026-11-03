@@ -540,6 +540,7 @@ export interface CreateCanonicalEntityInput {
   context_id: string
   kind: "device" | "interface" | "address" | "prefix" | "service" | "site" | "customer"
   label: string
+  network_prefix?: string
 }
 
 export interface CreateEntityContextInput {
@@ -1100,6 +1101,11 @@ export interface EntityLinkRecord {
   to_entity_id: string
 }
 
+export interface EntityNetworkPrefixInput {
+  context_id: string
+  network_prefix: string
+}
+
 export interface EntityPage {
   items: EntityRecord[]
   next_cursor?: string
@@ -1131,6 +1137,7 @@ export interface EntityRecord {
   id: string
   kind: "device" | "interface" | "address" | "prefix" | "service" | "site" | "customer"
   label: string
+  network_prefix?: string
   scope: EntityScope
   updated_at: string
 }
@@ -3327,6 +3334,13 @@ export interface ListCanonicalEntityLinksRequest {
 
 export type ListCanonicalEntityLinksResponse = EntityLinkPage
 
+export interface SetCanonicalEntityNetworkPrefixRequest {
+  id: string
+  body: EntityNetworkPrefixInput
+}
+
+export type SetCanonicalEntityNetworkPrefixResponse = EntityRecord
+
 export interface ListEntityContextsRequest {
   limit?: number
   cursor?: string
@@ -5022,6 +5036,13 @@ export class ProbectlSDKClient {
     if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListCanonicalEntityLinksResponse>("GET", path, query, undefined)
+  }
+
+  async setCanonicalEntityNetworkPrefix(request: SetCanonicalEntityNetworkPrefixRequest): Promise<SetCanonicalEntityNetworkPrefixResponse> {
+    let path = "/v1/entities/{id}/network-prefix"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<SetCanonicalEntityNetworkPrefixResponse>("PUT", path, query, request.body)
   }
 
   async listEntityContexts(request: ListEntityContextsRequest = {}): Promise<ListEntityContextsResponse> {

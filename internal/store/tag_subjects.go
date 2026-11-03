@@ -145,16 +145,28 @@ func loadOwnedTagSubject(ctx context.Context, sc tenancy.Scope, scope tags.Scope
 	subject := tags.Subject{Scope: scope, Kind: ref.Kind, ID: ref.ID, AddressSide: ref.Kind}
 	switch ref.Kind {
 	case "device", "interface", "prefix":
-		var parent string
-		if err := sc.Q.QueryRow(ctx, `SELECT label,COALESCE(parent_entity_id::text,'') FROM entities
-			WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND kind=$4`, scope.TenantID, scope.ContextID, ref.ID, ref.Kind).Scan(&subject.Name, &parent); err != nil {
+		var parent, network string
+		if err := sc.Q.QueryRow(ctx, `SELECT label,COALESCE(parent_entity_id::text,''),COALESCE(network_prefix::text,'') FROM entities
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND kind=$4`, scope.TenantID, scope.ContextID, ref.ID, ref.Kind).Scan(&subject.Name, &parent, &network); err != nil {
 			return tags.Subject{}, err
 		}
-		if err := charge(subject.ID, subject.Name, parent); err != nil {
+		if err := charge(subject.ID, subject.Name, parent, network); err != nil {
 			return tags.Subject{}, err
 		}
 		if err := loadCurrentTagEntityFacts(ctx, sc, &subject, parent, maxBytes, charge); err != nil {
 			return tags.Subject{}, err
+		}
+		if network != "" {
+			prefix, err := netip.ParsePrefix(network)
+			if err != nil || ref.Kind != "prefix" {
+				return tags.Subject{}, tags.ErrInvalid
+			}
+			for _, observed := range subject.Prefixes {
+				if observed != prefix {
+					return tags.Subject{}, ErrTagSubjectFactsAmbiguous
+				}
+			}
+			subject.Prefixes = []netip.Prefix{prefix}
 		}
 	case "test":
 		var target string

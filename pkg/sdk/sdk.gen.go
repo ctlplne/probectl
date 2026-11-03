@@ -621,9 +621,10 @@ type CreateAPITokenRequest struct {
 }
 
 type CreateCanonicalEntityInput struct {
-	ContextId string `json:"context_id"`
-	Kind      string `json:"kind"`
-	Label     string `json:"label"`
+	ContextId     string `json:"context_id"`
+	Kind          string `json:"kind"`
+	Label         string `json:"label"`
+	NetworkPrefix string `json:"network_prefix,omitempty"`
 }
 
 type CreateEntityContextInput struct {
@@ -1191,6 +1192,11 @@ type EntityLinkRecord struct {
 	ToEntityId   string `json:"to_entity_id"`
 }
 
+type EntityNetworkPrefixInput struct {
+	ContextId     string `json:"context_id"`
+	NetworkPrefix string `json:"network_prefix"`
+}
+
 type EntityPage struct {
 	Items      []EntityRecord `json:"items"`
 	NextCursor string         `json:"next_cursor,omitempty"`
@@ -1218,12 +1224,13 @@ type EntityPathResult struct {
 }
 
 type EntityRecord struct {
-	CreatedAt string      `json:"created_at"`
-	Id        string      `json:"id"`
-	Kind      string      `json:"kind"`
-	Label     string      `json:"label"`
-	Scope     EntityScope `json:"scope"`
-	UpdatedAt string      `json:"updated_at"`
+	CreatedAt     string      `json:"created_at"`
+	Id            string      `json:"id"`
+	Kind          string      `json:"kind"`
+	Label         string      `json:"label"`
+	NetworkPrefix string      `json:"network_prefix,omitempty"`
+	Scope         EntityScope `json:"scope"`
+	UpdatedAt     string      `json:"updated_at"`
 }
 
 type EntityResolution struct {
@@ -4610,6 +4617,26 @@ func (c *Client) ListCanonicalEntityLinks(ctx context.Context, req ListCanonical
 	}
 	var out EntityLinkPage
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Set or clear the explicit network range on an owned canonical prefix
+type SetCanonicalEntityNetworkPrefixRequest struct {
+	Id   string                    `json:"-"`
+	Body *EntityNetworkPrefixInput `json:"-"`
+}
+
+func (c *Client) SetCanonicalEntityNetworkPrefix(ctx context.Context, req SetCanonicalEntityNetworkPrefixRequest) (*EntityRecord, error) {
+	path := "/v1/entities/{id}/network-prefix"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out EntityRecord
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

@@ -8,6 +8,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/auth"
@@ -18,6 +19,59 @@ type recordedEntityBackend struct{ tenants []string }
 func (b *recordedEntityBackend) EntityContextList(_ context.Context, p *auth.Principal, _ EntityContextListInput) (EntityContextListResult, error) {
 	b.tenants = append(b.tenants, p.TenantID)
 	return EntityContextListResult{Items: []EntityContextResult{}}, nil
+}
+
+type recordedPrefixBackend struct{ recordedEntityBackend }
+
+func (b *recordedPrefixBackend) EntityNetworkPrefixSet(_ context.Context, p *auth.Principal, in EntityNetworkPrefixInput) (EntityItemResult, error) {
+	if in.NetworkPrefix == nil {
+		return EntityItemResult{}, errors.New("explicit network field required")
+	}
+	b.tenants = append(b.tenants, p.TenantID)
+	return EntityItemResult{ID: in.ID, ContextID: in.ContextID, Kind: "prefix", NetworkPrefix: *in.NetworkPrefix}, nil
+}
+
+func TestPrefixNetworkMCPRequiresUserWriteGrantAndRejectsTenantHints(t *testing.T) {
+	old := newTestServer(&fakeBackend{}, testGate(), WithEntityBackend(&recordedEntityBackend{}))
+	writer := principal("tenant-a", "agent.write")
+	writer.UserID = "operator"
+	if listedToolNames(t, handle(t, old, writer, 1, "tools/list", nil))["entity_network_prefix_set"] {
+		t.Fatal("older backend advertised unsupported write")
+	}
+	b := &recordedPrefixBackend{}
+	s := newTestServer(&fakeBackend{}, testGate(), WithEntityBackend(b), WithPolicyLoader(func(context.Context, string) ([]auth.Policy, error) { return nil, nil }))
+	reader := principal("tenant-a", "entities.read")
+	reader.UserID = "reader"
+	if listedToolNames(t, handle(t, s, reader, 2, "tools/list", nil))["entity_network_prefix_set"] {
+		t.Fatal("reader saw prefix write")
+	}
+	args := map[string]any{"context_id": "own-context", "id": "stable-prefix", "network_prefix": "2001:db8::/32"}
+	if code, _ := errCode(handle(t, s, reader, 3, "tools/call", map[string]any{"name": "entity_network_prefix_set", "arguments": args})); code != codeForbidden || len(b.tenants) != 0 {
+		t.Fatal("missing write grant reached prefix backend")
+	}
+	for i, tenant := range []string{"tenant-a", "tenant-b"} {
+		p := principal(tenant, "agent.write")
+		p.UserID = "operator"
+		if !listedToolNames(t, handle(t, s, p, 4+i, "tools/list", nil))["entity_network_prefix_set"] {
+			t.Fatal("writer missing prefix tool")
+		}
+		if resultOf(t, handle(t, s, p, 6+i, "tools/call", map[string]any{"name": "entity_network_prefix_set", "arguments": args}))["isError"] == true || len(b.tenants) != i+1 || b.tenants[i] != tenant {
+			t.Fatal("prefix tool lost authenticated tenant")
+		}
+	}
+	for i, bad := range []map[string]any{
+		{"context_id": "own-context", "id": "stable-prefix"},
+		{"context_id": "own-context", "id": "stable-prefix", "network_prefix": nil},
+		{"context_id": "own-context", "id": "stable-prefix", "network_prefix": "", "tenant_id": "tenant-b"},
+	} {
+		if resultOf(t, handle(t, s, writer, 10+i, "tools/call", map[string]any{"name": "entity_network_prefix_set", "arguments": bad}))["isError"] != true || len(b.tenants) != 2 {
+			t.Fatal("invalid/missing explicit network or tenant hint accepted")
+		}
+	}
+	args["network_prefix"] = ""
+	if resultOf(t, handle(t, s, writer, 20, "tools/call", map[string]any{"name": "entity_network_prefix_set", "arguments": args}))["isError"] == true || len(b.tenants) != 3 {
+		t.Fatal("explicit clear was refused")
+	}
 }
 func (b *recordedEntityBackend) EntityContextCreate(_ context.Context, p *auth.Principal, _ EntityContextCreateInput) (EntityContextResult, error) {
 	b.tenants = append(b.tenants, p.TenantID)

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -20,7 +21,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-// All three administrative writes require agent.write at the route. The
+// Administrative writes require agent.write at the route. The
 // authenticated principal selects the tenant before any SQL; FORCE RLS and
 // compound FKs are the outer boundary. Each audit append shares the write
 // transaction so a failed audit rolls the registry mutation back.
@@ -65,9 +66,10 @@ func (s *Server) handleCreateEntityContext(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleCreateCanonicalEntity(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
-		ContextID string      `json:"context_id"`
-		Kind      entity.Kind `json:"kind"`
-		Label     string      `json:"label"`
+		ContextID     string      `json:"context_id"`
+		Kind          entity.Kind `json:"kind"`
+		Label         string      `json:"label"`
+		NetworkPrefix string      `json:"network_prefix,omitempty"`
 	}
 	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
 		return err
@@ -78,8 +80,8 @@ func (s *Server) handleCreateCanonicalEntity(w http.ResponseWriter, r *http.Requ
 	var record entity.Record
 	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		record, err = store.NewEntityRegistry(s.pool).CreateCanonicalEntity(ctx, sc,
-			req.ContextID, req.Kind, req.Label)
+		record, err = store.NewEntityRegistry(s.pool).CreateCanonicalEntityWithNetwork(ctx, sc,
+			req.ContextID, req.Kind, req.Label, req.NetworkPrefix)
 		if err != nil {
 			return err
 		}
@@ -90,6 +92,37 @@ func (s *Server) handleCreateCanonicalEntity(w http.ResponseWriter, r *http.Requ
 		return entityAdminError(err)
 	}
 	writeJSON(w, http.StatusCreated, record)
+	return nil
+}
+
+func (s *Server) handleSetEntityNetworkPrefix(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		ContextID     string  `json:"context_id"`
+		NetworkPrefix *string `json:"network_prefix"`
+	}
+	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
+		return err
+	}
+	if req.NetworkPrefix == nil {
+		return apierror.Validation("network_prefix is required; an empty string clears it")
+	}
+	if err := s.authorizeEntityWriteContext(r, req.ContextID); err != nil {
+		return err
+	}
+	var record entity.Record
+	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		record, err = store.NewEntityRegistry(s.pool).SetEntityNetworkPrefix(ctx, sc, req.ContextID, r.PathValue("id"), *req.NetworkPrefix)
+		if err != nil {
+			return err
+		}
+		return s.recordAudit(ctx, sc, r, "entity.network_prefix.updated", record.ID,
+			map[string]any{"context_id": record.Scope.ContextID, "network_configured": record.NetworkPrefix != ""})
+	})
+	if err != nil {
+		return entityAdminError(err)
+	}
+	writeJSON(w, http.StatusOK, record)
 	return nil
 }
 
@@ -180,6 +213,8 @@ func entityAdminError(err error) error {
 		return apierror.Conflict("entity source, anchor or context is not assignable")
 	case errors.Is(err, store.ErrEntityRegistryUnavailable):
 		return apierror.Unavailable("entity registry is not configured")
+	case errors.Is(err, pgx.ErrNoRows):
+		return apierror.NotFound("entity does not exist in this tenant and context")
 	case errors.As(err, &pgErr) && pgErr.Code == "23505":
 		if pgErr.ConstraintName == "entity_path_target_one_context" {
 			return apierror.Conflict("path destination is already bound to a routing context in this tenant")

@@ -12794,6 +12794,65 @@
           }
         }
       }
+    },
+    "/v1/entities/{id}/network-prefix": {
+      "put": {
+        "x-required-permission": "agent.write",
+        "operationId": "setCanonicalEntityNetworkPrefix",
+        "summary": "Set or clear the explicit network range on an owned canonical prefix",
+        "description": "Requires agent.write and current routing-context ABAC. RLS and the prefix kind predicate enforce ownership in storage; metadata and audit commit atomically. The canonical ID and tag assignments remain unchanged. Raw network text is omitted from the audit payload. This is operator metadata, not a live routing observation.",
+        "tags": [
+          "entities"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityNetworkPrefixInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated owned prefix metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed CIDR, missing field or invalid input."
+          },
+          "403": {
+            "description": "Tenant, write grant or current context policy denied."
+          },
+          "404": {
+            "description": "No owned prefix in that context."
+          }
+        },
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        }
+      }
     }
   },
   "components": {
@@ -19540,7 +19599,12 @@
         "properties": {
           "context_id": {"type": "string", "format": "uuid"},
           "kind": {"type": "string", "enum": ["device", "interface", "address", "prefix", "service", "site", "customer"]},
-          "label": {"type": "string", "minLength": 1, "maxLength": 1024}
+          "label": {"type": "string", "minLength": 1, "maxLength": 1024},
+          "network_prefix": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Explicit operator-owned CIDR for kind=prefix only; canonicalized to its network range. A display label is never used as a network. Empty clears this optional metadata."
+          }
         }
       },
       "EntitySourceAssignment": {
@@ -19564,7 +19628,12 @@
           "kind": {"type": "string", "enum": ["device", "interface", "address", "prefix", "service", "site", "customer"]},
           "label": {"type": "string", "minLength": 1, "maxLength": 1024},
           "created_at": {"type": "string", "format": "date-time"},
-          "updated_at": {"type": "string", "format": "date-time"}
+          "updated_at": {"type": "string", "format": "date-time"},
+          "network_prefix": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Explicit operator-owned CIDR for kind=prefix only; canonicalized to its network range. A display label is never used as a network. Empty clears this optional metadata."
+          }
         }
       },
       "EntityPage": {
@@ -24432,6 +24501,25 @@
         "properties": {
           "proposal": {
             "$ref": "#/components/schemas/FlowQuestionProposal"
+          }
+        }
+      },
+      "EntityNetworkPrefixInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "context_id",
+          "network_prefix"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "network_prefix": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Explicit operator-owned CIDR for kind=prefix only; canonicalized to its network range. A display label is never used as a network. Empty clears this optional metadata."
           }
         }
       }

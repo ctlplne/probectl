@@ -14,6 +14,7 @@ import {
   useCanonicalLinks,
   useCreateCanonicalEntity,
   useCreateEntityContext,
+  useSetEntityNetworkPrefix,
   useEntityContexts,
   useEntityResolution,
   type EntityContext,
@@ -107,10 +108,13 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
   const links = useCanonicalLinks(tenantID, contextID, selectedID)
   const createContext = useCreateEntityContext(tenantID)
   const createEntity = useCreateCanonicalEntity(tenantID)
+  const setNetwork = useSetEntityNetworkPrefix(tenantID)
   const assignSource = useAssignEntitySource(tenantID)
   const [siteLabel, setSiteLabel] = useState('')
   const [vrfLabel, setVRFLabel] = useState('')
   const [entityLabel, setEntityLabel] = useState('')
+  const [createNetwork, setCreateNetwork] = useState('')
+  const [editedNetwork, setEditedNetwork] = useState('')
   const [entityKind, setEntityKind] = useState<(typeof entityKinds)[number]>('device')
   const [agentID, setAgentID] = useState('')
   const [sourceKind, setSourceKind] =
@@ -125,6 +129,14 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
   useEffect(() => {
     if (!contextID && allContexts.length > 0) setContextID(allContexts[0].context_id)
   }, [allContexts, contextID])
+
+  useEffect(() => {
+    setEditedNetwork(selected.data?.network_prefix ?? '')
+  }, [selected.data?.id, selected.data?.network_prefix])
+
+  useEffect(() => {
+    setNetwork.reset()
+  }, [contextID, selectedID, setNetwork.reset])
 
   function chooseContext(id: string) {
     setContextID(id)
@@ -158,10 +170,25 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
         context_id: contextID,
         kind: entityKind,
         label: entityLabel.trim(),
+        ...(entityKind === 'prefix' && createNetwork ? { network_prefix: createNetwork } : {}),
       })
       setEntityLabel('')
+      setCreateNetwork('')
       setSelectedID(created.id)
       setAnchorID(created.id)
+    } catch {
+      /* mutation state shows the server's failure */
+    }
+  }
+
+  async function onSetNetwork(event: FormEvent) {
+    event.preventDefault()
+    if (!contextID || !selectedID || selected.data?.kind !== 'prefix') return
+    try {
+      await setNetwork.mutateAsync({
+        id: selectedID,
+        input: { context_id: contextID, network_prefix: editedNetwork },
+      })
     } catch {
       /* mutation state shows the server's failure */
     }
@@ -318,6 +345,38 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
                 {selectedID ? (
                   <div className={styles.stack} aria-live="polite">
                     <h3>Selected entity</h3>
+                    {selected.data?.kind === 'prefix' ? (
+                      <div className={styles.stack}>
+                        <p>
+                          Network range: <code>{selected.data.network_prefix || 'Not set'}</code>
+                        </p>
+                        {canWrite ? (
+                          <form
+                            className={styles.form}
+                            onSubmit={(event) => void onSetNetwork(event)}
+                          >
+                            <Field
+                              label="Network range (CIDR, empty clears)"
+                              value={editedNetwork}
+                              maxLength={128}
+                              onChange={(event) => setEditedNetwork(event.target.value)}
+                            />
+                            <p>
+                              The explicit range supplies prefix rules; the display label does not.
+                            </p>
+                            <Button type="submit" disabled={setNetwork.isPending}>
+                              Save network range
+                            </Button>
+                            {setNetwork.isError ? (
+                              <p role="alert">{setNetwork.error.message}</p>
+                            ) : null}
+                            {setNetwork.isSuccess ? (
+                              <p role="status">Network range saved.</p>
+                            ) : null}
+                          </form>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {selected.isPending ? <LoadingState label="Loading entity…" /> : null}
                     {selected.isError ? (
                       <ErrorState description="Selected entity could not be loaded in this context." />
@@ -460,7 +519,10 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
                       <Select
                         label="Kind"
                         value={entityKind}
-                        onChange={(event) => setEntityKind(event.target.value as typeof entityKind)}
+                        onChange={(event) => {
+                          setEntityKind(event.target.value as typeof entityKind)
+                          setCreateNetwork('')
+                        }}
                         options={entityKinds.map((kind) => ({ value: kind, label: kind }))}
                       />
                       <Field
@@ -469,6 +531,14 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
                         value={entityLabel}
                         onChange={(event) => setEntityLabel(event.target.value)}
                       />
+                      {entityKind === 'prefix' ? (
+                        <Field
+                          label="Network range (CIDR, optional)"
+                          value={createNetwork}
+                          maxLength={128}
+                          onChange={(event) => setCreateNetwork(event.target.value)}
+                        />
+                      ) : null}
                       <Button type="submit" disabled={createEntity.isPending}>
                         Create entity
                       </Button>

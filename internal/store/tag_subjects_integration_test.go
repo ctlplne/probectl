@@ -364,7 +364,7 @@ func TestOwnedTagSubjectSnapshotUsesCurrentFactsAndTenantIsolation(t *testing.T)
 	}
 	run(b, func(ctx context.Context, sc tenancy.Scope) error {
 		// This fixture may be younger than a second. Expire the real binding
-		// after its assignment rather than violate expires_at > assigned_at.
+		// after its assignment rather than violate expires_at >= assigned_at.
 		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET expires_at=clock_timestamp()+interval '100 milliseconds' WHERE tenant_id=$1 AND agent_id=$2 AND source_ref='target-2'`, b, agentFor(b))
 		if err != nil {
 			return err

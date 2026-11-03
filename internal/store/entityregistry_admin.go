@@ -130,6 +130,12 @@ func (s *EntityRegistry) CreateEntityContext(ctx context.Context, sc tenancy.Sco
 // context. The compound FK rejects a context from another tenant even when
 // the caller supplies a syntactically valid UUID.
 func (s *EntityRegistry) CreateCanonicalEntity(ctx context.Context, sc tenancy.Scope, contextID string, kind entity.Kind, label string) (entity.Record, error) {
+	return s.CreateCanonicalEntityWithNetwork(ctx, sc, contextID, kind, label, "")
+}
+
+// CreateCanonicalEntityWithNetwork adds explicit optional prefix metadata;
+// callers creating other kinds retain the same operator-owned identity path.
+func (s *EntityRegistry) CreateCanonicalEntityWithNetwork(ctx context.Context, sc tenancy.Scope, contextID string, kind entity.Kind, label, network string) (entity.Record, error) {
 	if s == nil || s.pool == nil {
 		return entity.Record{}, ErrEntityRegistryUnavailable
 	}
@@ -138,6 +144,10 @@ func (s *EntityRegistry) CreateCanonicalEntity(ctx context.Context, sc tenancy.S
 		return entity.Record{}, err
 	}
 	if err := entity.ValidateKind(kind); err != nil {
+		return entity.Record{}, err
+	}
+	network, err = entity.NormalizeNetworkPrefix(kind, network)
+	if err != nil {
 		return entity.Record{}, err
 	}
 	label = strings.TrimSpace(label)
@@ -153,9 +163,9 @@ func (s *EntityRegistry) CreateCanonicalEntity(ctx context.Context, sc tenancy.S
 		ID: id, Kind: kind, Label: label,
 	}
 	err = sc.Q.QueryRow(ctx, `INSERT INTO entities
-		(tenant_id,context_id,id,kind,label) VALUES ($1,$2,$3,$4,$5)
-		RETURNING created_at,updated_at`, sc.Tenant.String(), contextID, id,
-		string(kind), label).Scan(&record.CreatedAt, &record.UpdatedAt)
+		(tenant_id,context_id,id,kind,label,network_prefix) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::cidr)
+		RETURNING created_at,updated_at,COALESCE(network_prefix::text,'')`, sc.Tenant.String(), contextID, id,
+		string(kind), label, network).Scan(&record.CreatedAt, &record.UpdatedAt, &record.NetworkPrefix)
 	if err != nil {
 		return entity.Record{}, err
 	}

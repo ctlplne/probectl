@@ -108,13 +108,40 @@ func (b mcpEntityBackend) EntityCreate(ctx context.Context, p *auth.Principal, i
 	var record entity.Record
 	if err := tenancy.InTenant(ctx, b.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		record, err = store.NewEntityRegistry(b.pool).CreateCanonicalEntity(ctx, sc,
-			scope.ContextID, entity.Kind(input.Kind), input.Label)
+		record, err = store.NewEntityRegistry(b.pool).CreateCanonicalEntityWithNetwork(ctx, sc,
+			scope.ContextID, entity.Kind(input.Kind), input.Label, input.NetworkPrefix)
 		if err != nil {
 			return err
 		}
 		_, err = audit.TenantAppend(ctx, sc, p.UserID, "entity.created", record.ID,
 			map[string]any{"context_id": scope.ContextID, "kind": record.Kind})
+		return err
+	}); err != nil {
+		return mcp.EntityItemResult{}, entityAdminError(err)
+	}
+	return mcpEntityItem(record), nil
+}
+
+func (b mcpEntityBackend) EntityNetworkPrefixSet(ctx context.Context, p *auth.Principal, input mcp.EntityNetworkPrefixInput) (mcp.EntityItemResult, error) {
+	if input.NetworkPrefix == nil {
+		return mcp.EntityItemResult{}, apierror.Validation("network_prefix is required; an empty string clears it")
+	}
+	ctx, scope, err := entityMCPContext(ctx, p, input.ContextID)
+	if err != nil {
+		return mcp.EntityItemResult{}, err
+	}
+	if err := b.requireEntityContext(ctx, p, scope, "agent.write"); err != nil {
+		return mcp.EntityItemResult{}, err
+	}
+	var record entity.Record
+	if err := tenancy.InTenant(ctx, b.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		record, err = store.NewEntityRegistry(b.pool).SetEntityNetworkPrefix(ctx, sc, scope.ContextID, input.ID, *input.NetworkPrefix)
+		if err != nil {
+			return err
+		}
+		_, err = audit.TenantAppend(ctx, sc, p.UserID, "entity.network_prefix.updated", record.ID,
+			map[string]any{"context_id": scope.ContextID, "network_configured": record.NetworkPrefix != ""})
 		return err
 	}); err != nil {
 		return mcp.EntityItemResult{}, entityAdminError(err)
@@ -135,7 +162,7 @@ func entityMCPContext(ctx context.Context, p *auth.Principal, routingContext str
 
 func mcpEntityItem(record entity.Record) mcp.EntityItemResult {
 	return mcp.EntityItemResult{ID: record.ID, ContextID: record.Scope.ContextID,
-		Kind: string(record.Kind), Label: record.Label, UpdatedAt: record.UpdatedAt}
+		Kind: string(record.Kind), Label: record.Label, NetworkPrefix: record.NetworkPrefix, UpdatedAt: record.UpdatedAt}
 }
 
 func (b mcpEntityBackend) EntityList(ctx context.Context, p *auth.Principal, input mcp.EntityListInput) (mcp.EntityListResult, error) {

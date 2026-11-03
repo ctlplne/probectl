@@ -546,6 +546,16 @@ address; a prefix matches only a rule covering its entire range. Rule inputs
 do not supply those underlying facts. Complete live subject and flow association
 proof remains required before the full tagging capability leaves preview.
 
+For an operator-managed canonical prefix, `entity_create` accepts optional
+`network_prefix`. The user-only `entity_network_prefix_set` takes `id`,
+`context_id` and required `network_prefix`, requiring `agent.write` plus current
+context authorization. An explicit empty string clears the range; omission or
+null is refused. It updates the same owned prefix ID, with an atomic audit
+that omits the raw CIDR. Entity get/list return the normalized range under
+`entities.read` and current context authorization. No caller tenant hint or
+range on a non-prefix kind is accepted. The range is explicit operator metadata,
+never inferred from a label or claimed as a live routing observation.
+
 When NetBox is configured, `tag_netbox_preview` additionally requires
 `cmdb.read`; it is hidden without either grant. Its inputs match the preview
 API plus `context_id`: an immutable tag ID, registered exporter agent/source

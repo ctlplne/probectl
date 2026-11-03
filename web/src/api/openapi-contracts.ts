@@ -946,6 +946,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/entities.ts',
     method: 'PUT',
+    path: '`/entities/${encodeURIComponent(id)}/network-prefix`',
+    response: 'EntityRecord',
+    generated: 'SetCanonicalEntityNetworkPrefixResponse',
+  },
+  {
+    file: 'api/entities.ts',
+    method: 'PUT',
     path: '/entity-source-contexts',
     response: 'EntitySourceAssignment',
     generated: 'AssignEntitySourceResponse',
