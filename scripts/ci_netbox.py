@@ -549,6 +549,34 @@ def bootstrap(spec: dict, *, worker: bool = False) -> dict:
     return json.loads(raw)
 
 
+def verify_worker_proof(proof: dict) -> None:
+    outcome = proof.get("default_profile_outcome") if isinstance(proof, dict) else None
+    if (
+        not isinstance(proof, dict)
+        or set(proof)
+        != {
+            "default_profile_outcome",
+            "denied_profile_reproduced",
+            "verified_worker_database",
+        }
+        or not isinstance(outcome, str)
+        or outcome
+        not in {
+            "connected",
+            "certificate_permission_refused",
+            "other_operational_error",
+        }
+        or proof["denied_profile_reproduced"] is not True
+        or proof["verified_worker_database"] is not True
+    ):
+        raise RuntimeError("fixture worker database proof did not match its contract")
+    print(
+        "NetBox fixture worker database TLS and denied-profile regression verified; exec default="
+        + outcome,
+        flush=True,
+    )
+
+
 def startup_diagnostics() -> None:
     """Print only enum/boolean state, never raw container output or errors."""
     allowed_services = {"netbox", "netbox-db", "netbox-cache"}
@@ -724,16 +752,7 @@ def start() -> None:
     manifest = bootstrap({"action": "seed", "token": token})
     print("NetBox fixture ORM bootstrap verified", flush=True)
     worker_proof = bootstrap({"action": "worker-tls-proof"}, worker=True)
-    if worker_proof != {
-        "default_profile_refused": True,
-        "denied_profile_reproduced": True,
-        "verified_worker_database": True,
-    }:
-        raise RuntimeError("fixture worker database proof did not match its contract")
-    print(
-        "NetBox fixture worker database TLS and denied-profile regression verified",
-        flush=True,
-    )
+    verify_worker_proof(worker_proof)
     manifest.update(
         {
             "origin": ORIGIN,
@@ -839,6 +858,34 @@ def cleanup() -> None:
 def selftest() -> None:
     verify_tls_config(tls_config())
     verify_application_version(200, b'{"netbox-version":"4.4.5"}')
+    good_proof = {
+        "default_profile_outcome": "connected",
+        "denied_profile_reproduced": True,
+        "verified_worker_database": True,
+    }
+    with patch("sys.stdout", io.StringIO()):
+        verify_worker_proof(good_proof)
+    for bad_proof in [
+        {},
+        {**good_proof, "default_profile_outcome": "untrusted-detail"},
+        {**good_proof, "default_profile_outcome": ["untrusted-detail"]},
+        {**good_proof, "denied_profile_reproduced": False},
+        {**good_proof, "verified_worker_database": False},
+        {**good_proof, "verified_worker_database": 1},
+        {**good_proof, "error": "untrusted-detail"},
+    ]:
+        diagnostic = io.StringIO()
+        with patch("sys.stdout", diagnostic):
+            try:
+                verify_worker_proof(bad_proof)
+            except RuntimeError:
+                pass
+            else:
+                raise RuntimeError(
+                    "fixture accepted an incomplete or untrusted worker proof"
+                )
+        if diagnostic.getvalue():
+            raise RuntimeError("fixture emitted an invalid worker proof")
     for raw in [
         b'{"exception":"TypeError","error":"untrusted-detail ssl_min_version"}',
         b'{"exception":"untrusted-detail","error":"untrusted-detail"}',

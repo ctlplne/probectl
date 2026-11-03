@@ -58,11 +58,21 @@ def worker_tls_proof():
                     "worker client-profile refusal did not reproduce"
                 ) from None
 
-    # Re-run the previous implicit configuration under the web worker's exact
-    # UID/GID. The source fix is not proved if that original failure is absent.
+    # This exec shares the web UID/GID, but is a separate process with its own
+    # inherited environment. Observe its defaults without treating them as the
+    # original protected HTTP request's profile.
     BOOTSTRAP_STAGE = "worker_db_default"
     implicit = {key: value for key, value in parameters.items() if key != "sslcert"}
-    refuse_profile(implicit)
+    try:
+        with connection.Database.connect(**implicit):
+            default_outcome = "connected"
+    except connection.Database.OperationalError as error:
+        default_outcome = (
+            "certificate_permission_refused"
+            if "could not open certificate file" in str(error)
+            and "Permission denied" in str(error)
+            else "other_operational_error"
+        )
     BOOTSTRAP_STAGE = "worker_db_negative"
     denied = {**parameters, "sslcert": "/opt/netbox/ci-blocked-profile/client.crt"}
     refuse_profile(denied)
@@ -73,7 +83,7 @@ def worker_tls_proof():
             if cursor.fetchone() != (True,):
                 raise RuntimeError("worker database connection did not use TLS")
     return {
-        "default_profile_refused": True,
+        "default_profile_outcome": default_outcome,
         "denied_profile_reproduced": True,
         "verified_worker_database": True,
     }

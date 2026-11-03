@@ -64,8 +64,9 @@ Database TLS uses an explicit absent client-certificate path in the readable
 fixture application directory. SCRAM authenticates this database client;
 server trust remains verify-full with the fixture CA. Libpq must not inspect an
 administrator's implicit client profile from a nonroot web process. A real
-connection proof runs as the same unit:root identity: the original implicit
-profile and a planted inaccessible profile must fail with the certificate-file
-permission refusal, then the explicit configuration must connect with
-pg_stat_ssl=true. An existing file at the intended absent path is refused.
+connection proof runs as the same unit:root identity: a planted inaccessible profile must fail with the certificate-file permission
+refusal, then the explicit configuration must connect with pg_stat_ssl=true.
+The separate exec process reports its implicit-profile outcome as a fixed enum;
+it is not assumed to share the web process environment. The actual protected
+HTTP/version/provider checks still must pass after the previously observed500. An existing file at the intended absent path is refused.
 This does not change HOME, run the web worker as root or weaken TLS verification.
