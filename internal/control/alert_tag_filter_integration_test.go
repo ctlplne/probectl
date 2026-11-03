@@ -355,6 +355,29 @@ func TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries(t *testing.
 		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			return (store.ABACPolicies{}).Delete(ctx, sc, policyID)
 		})
+		// The normal lifecycle source uses the restricted registry role, while
+		// current user/grant/policy reads stay under tenant RLS.
+		ruleBeforeSuspend := getRule(tenant)
+		if _, err := (store.NewTenants(db.Pool())).UpdateStatus(ctx, tenant, "suspended"); err != nil {
+			t.Fatal(err)
+		}
+		suspendedCalls := counter.calls
+		if out, err := loadAlertTagAuthority(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), tenant, users[tenant]); err == nil || out != nil {
+			t.Fatal("suspended tenant acquired current source authority")
+		}
+		if partial, err := source.CurrentRule(ctx, *ruleBeforeSuspend); err == nil || partial.TagSelection != nil || len(partial.Samples) != 0 || counter.calls != suspendedCalls {
+			t.Fatal("suspended tenant reached telemetry or published partial selection")
+		}
+		if _, err := readAlertTagFilter(ctx, db.Pool(), nil, actors[tenant], ruleIDs[tenant]); err == nil {
+			t.Fatal("suspended tenant read current metadata criteria")
+		}
+		sibling := tenants[1-lane]
+		if out, err := loadAlertTagAuthority(tenancy.WithTenant(ctx, tenancy.ID(sibling)), db.Pool(), sibling, users[sibling]); err != nil || out == nil {
+			t.Fatal("suspended tenant blocked the healthy source lane")
+		}
+		if _, err := (store.NewTenants(db.Pool())).UpdateStatus(ctx, tenant, "active"); err != nil {
+			t.Fatal(err)
+		}
 		// A pre-feature/ordinary transition stays without invented provenance.
 		legacy := persisted
 		legacy.TagSelection = nil

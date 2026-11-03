@@ -78,15 +78,18 @@ func loadAlertTagAuthority(ctx context.Context, pool *pgxpool.Pool, tenantID, us
 	if pool == nil || !ok || bound.String() != tenantID || userID == "" {
 		return nil, apierror.Forbidden("current alert metadata owner is unavailable")
 	}
+	// The registry is provider-owned operational metadata, not an app-role
+	// tenant table. A fresh existing lifecycle source preserves that boundary
+	// and never serves a cached admission result to this background read.
+	status, err := NewTenantStatusCache(pool, 0).TenantStatus(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if status != "active" {
+		return nil, apierror.Forbidden("current alert metadata tenant is inactive")
+	}
 	out := &alertTagAuthority{decider: &Server{pool: pool}}
-	err := tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
-		var status string
-		if err := sc.Q.QueryRow(ctx, `SELECT status FROM tenants WHERE id=$1`, tenantID).Scan(&status); err != nil {
-			return err
-		}
-		if status != "active" {
-			return apierror.Forbidden("current alert metadata tenant is inactive")
-		}
+	err = tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
 		user, err := (store.Users{}).Get(ctx, sc, userID)
 		if err != nil {
 			return err
