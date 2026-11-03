@@ -53,7 +53,12 @@ export function Modal({ open, onClose, title, children, footer, returnFocusRef }
             <Icon name="close" />
           </Button>
         </div>
-        <div className="max-h-[var(--layout-dialog-scroll-max-block)] overflow-auto px-panel-padding py-panel-padding">
+        <div
+          role="region"
+          aria-labelledby={titleId}
+          tabIndex={0}
+          className="max-h-[var(--layout-dialog-scroll-max-block)] overflow-auto px-panel-padding py-panel-padding focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+        >
           {children}
         </div>
         {footer ? (

@@ -85,6 +85,32 @@ export function validateTestTagContextMatrix(checks, themes, viewports) {
             failures.push(
               `test tag matrix ${surface} ${viewport.name} ${theme} ${mode}: exact disclosure/refusal proof absent`,
             );
+          if (surface === "results" && mode === "foreign") {
+            const scroll = row.scroll_keyboard;
+            if (
+              !scroll ||
+              scroll.focused !== true ||
+              ![
+                scroll.max_x,
+                scroll.max_y,
+                scroll.start_x,
+                scroll.start_y,
+                scroll.end_x,
+                scroll.end_y,
+              ].every(Number.isFinite) ||
+              scroll.max_x < 0 ||
+              scroll.max_y < 0 ||
+              (viewport.name === "mobile" &&
+                (scroll.max_x + scroll.max_y <= 0 ||
+                  !(
+                    scroll.end_x > scroll.start_x ||
+                    scroll.end_y > scroll.start_y
+                  )))
+            )
+              failures.push(
+                `test tag matrix ${surface} ${viewport.name} ${theme} ${mode}: keyboard scroll proof absent`,
+              );
+          }
         }
   return failures;
 }
@@ -153,6 +179,15 @@ export function testTagContextSelfTest() {
           refusal_cleared: true,
           no_disclosure: true,
           no_metadata_request: true,
+          scroll_keyboard: {
+            focused: true,
+            max_x: 0,
+            max_y: 100,
+            start_x: 0,
+            start_y: 0,
+            end_x: 0,
+            end_y: 40,
+          },
           stages: stagesFor(mode).map((name) => ({
             name,
             passed: true,
@@ -175,6 +210,14 @@ export function testTagContextSelfTest() {
   contradictoryPass[0].stages[0].axe.push("blocking finding");
   const unobservedRuntime = structuredClone(records);
   delete unobservedRuntime[0].runtime;
+  const noKeyboardScroll = structuredClone(records);
+  const foreignMobile = noKeyboardScroll.find(
+    (row) =>
+      row.surface === "results" &&
+      row.viewport === "mobile" &&
+      row.mode === "foreign",
+  );
+  foreignMobile.scroll_keyboard.end_y = 0;
   for (const invalid of [
     [],
     records.slice(1),
@@ -183,6 +226,7 @@ export function testTagContextSelfTest() {
     wrongIdentity,
     contradictoryPass,
     unobservedRuntime,
+    noKeyboardScroll,
   ])
     if (!validateTestTagContextMatrix(invalid, themes, viewports).length)
       throw Error("missing/duplicate/unproved test-tag state was accepted");
@@ -348,6 +392,62 @@ export async function runTestTagContextChecks({
                   .waitFor();
               else if (surface === "results")
                 await dialog.getByLabel("HTTP timing waterfall").waitFor();
+              if (surface === "results" && mode === "foreign") {
+                const region = dialog.locator('[role="region"][tabindex="0"]');
+                if ((await region.count()) !== 1)
+                  throw Error(
+                    "static dialog has no unique named scroll region",
+                  );
+                await dialog
+                  .getByRole("button", { name: "Close dialog", exact: true })
+                  .focus();
+                await page.keyboard.press("Tab");
+                const before = await region.evaluate((node) => ({
+                  focused: document.activeElement === node,
+                  max_x: node.scrollWidth - node.clientWidth,
+                  max_y: node.scrollHeight - node.clientHeight,
+                  start_x: node.scrollLeft,
+                  start_y: node.scrollTop,
+                }));
+                if (!before.focused)
+                  throw Error(
+                    "static dialog scroll content is not reachable by Tab",
+                  );
+                const axis =
+                  before.max_y > 0 ? "y" : before.max_x > 0 ? "x" : null;
+                if (viewport.name === "mobile" && axis === null)
+                  throw Error(
+                    "original mobile scroll reproduction no longer overflows",
+                  );
+                if (axis) {
+                  await page.keyboard.press(
+                    axis === "y" ? "ArrowDown" : "ArrowRight",
+                  );
+                  await page.waitForFunction(
+                    ({ axis, start }) => {
+                      const node = document.querySelector(
+                        '[role="dialog"] [role="region"][tabindex="0"]',
+                      );
+                      return (
+                        node &&
+                        (axis === "y"
+                          ? node.scrollTop > start
+                          : node.scrollLeft > start)
+                      );
+                    },
+                    {
+                      axis,
+                      start: axis === "y" ? before.start_y : before.start_x,
+                    },
+                    { timeout: 1000 },
+                  );
+                }
+                const after = await region.evaluate((node) => ({
+                  end_x: node.scrollLeft,
+                  end_y: node.scrollTop,
+                }));
+                record.scroll_keyboard = { ...before, ...after };
+              }
               record.no_disclosure =
                 (await dialog
                   .getByRole("button", {
