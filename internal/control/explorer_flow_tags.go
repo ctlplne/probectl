@@ -86,6 +86,16 @@ func flowQueryTagHints(query ai.ExplorerQuery) (direct, saved bool, subjects []s
 // one revision. The three materializations each receive a quarter of the
 // existing Explorer memory allowance; no partial projection is usable.
 func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal, subjects ...string) (*flowstore.TagQueryData, error) {
+	return s.loadFlowTagQuerySnapshot(ctx, principal, subjects, true)
+}
+
+// Frozen results need current selected disclosure policy, not mutable source
+// facts. Revalidation cannot silently broaden a plan's subject read grants.
+func (s *Server) loadFlowTagQueryPolicy(ctx context.Context, principal *auth.Principal, subjects []string) (*flowstore.TagQueryData, error) {
+	return s.loadFlowTagQuerySnapshot(ctx, principal, subjects, false)
+}
+
+func (s *Server) loadFlowTagQuerySnapshot(ctx context.Context, principal *auth.Principal, subjects []string, facts bool) (*flowstore.TagQueryData, error) {
 	if principal == nil || principal.TenantID == "" {
 		return nil, apierror.Unauthorized("tenant identity required for tag queries")
 	}
@@ -118,7 +128,11 @@ func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal
 	// Revalidation stays inside that slot rather than charging it twice.
 	limit := budget.MemoryBytes / 4
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(principal.TenantID))
-	snapshot, err := store.NewTagSnapshots(s.pool).LoadTenant(ctx, limit, subjects...)
+	var currentFacts []string
+	if facts {
+		currentFacts = subjects
+	}
+	snapshot, err := store.NewTagSnapshots(s.pool).LoadTenant(ctx, limit, currentFacts...)
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
@@ -130,7 +144,7 @@ func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
-	allowed, related, digest, err := s.flowTagContextAuthorization(ctx, principal, snapshot, limit)
+	allowed, related, digest, err := s.flowTagContextAuthorization(ctx, principal, snapshot, limit, subjects...)
 	if err != nil {
 		return nil, err
 	}

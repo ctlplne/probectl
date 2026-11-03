@@ -32,6 +32,7 @@ type SnapshotInputs struct {
 	NeedsComplete  bool      `json:"needs_complete"`
 	CompleteInputs bool      `json:"complete_inputs"`
 	TagLookup      bool      `json:"tag_lookup,omitempty"`
+	TagSubjects    []string  `json:"tag_subjects,omitempty"`
 	Empty          bool      `json:"empty"`
 }
 
@@ -62,6 +63,7 @@ func snapshotInputsFor(result PlanResult, vocabulary flow.QueryVocabulary) (Snap
 	fields = append(fields, flow.QueryFilterFields(plan.Filter)...)
 	fields = append(fields, planDistinctFields(plan)...)
 	tagLookup := false
+	var tagSubjects []string
 	for i, name := range fields {
 		field, ok := vocabulary.Lookup(name)
 		if !ok {
@@ -71,6 +73,12 @@ func snapshotInputsFor(result PlanResult, vocabulary flow.QueryVocabulary) (Snap
 			// Current tags join by exporter and require complete inputs;
 			// preserve their expiry even for an hour-aligned window.
 			fields[i], tagLookup = "exporter", true
+			if kind, _, qualified := strings.Cut(field.TagKey, "."); qualified {
+				if kind == "in_interface" || kind == "out_interface" {
+					kind = "interface"
+				}
+				tagSubjects = append(tagSubjects, kind)
+			}
 			if field.Column != "" {
 				fields = append(fields, field.Column)
 			}
@@ -78,11 +86,13 @@ func snapshotInputsFor(result PlanResult, vocabulary flow.QueryVocabulary) (Snap
 	}
 	slices.Sort(fields)
 	fields = slices.Compact(fields)
+	slices.Sort(tagSubjects)
+	tagSubjects = slices.Compact(tagSubjects)
 	complete := result.Source == "raw"
 	if result.Coverage != nil {
 		complete = result.Coverage.CompleteInputs
 	}
-	clock := SnapshotInputs{Version: 2, From: plan.From, To: plan.To, OldestInput: result.OldestInput.UTC(), Source: result.Source, DataSeries: plan.DataSeries, BucketSeconds: plan.BucketSeconds, Fields: fields, Empty: result.TotalGroups == 0, TagLookup: tagLookup, CompleteInputs: complete}
+	clock := SnapshotInputs{Version: 2, From: plan.From, To: plan.To, OldestInput: result.OldestInput.UTC(), Source: result.Source, DataSeries: plan.DataSeries, BucketSeconds: plan.BucketSeconds, Fields: fields, Empty: result.TotalGroups == 0, TagLookup: tagLookup, CompleteInputs: complete, TagSubjects: tagSubjects}
 	clock.NeedsComplete = clock.needsComplete()
 	if err := clock.validate(); err != nil {
 		return SnapshotInputs{}, err
@@ -118,6 +128,16 @@ func (c SnapshotInputs) validate() error {
 	}
 	if c.TagLookup && !slices.Contains(c.Fields, "exporter") {
 		return ErrSnapshotInputs
+	}
+	if len(c.TagSubjects) > 3 || len(c.TagSubjects) > 0 && !c.TagLookup {
+		return ErrSnapshotInputs
+	}
+	previousSubject := ""
+	for _, kind := range c.TagSubjects {
+		if kind <= previousSubject || kind != "agent" && kind != "device" && kind != "interface" {
+			return ErrSnapshotInputs
+		}
+		previousSubject = kind
 	}
 	if c.DataSeries != "auto" && c.DataSeries != "raw" && c.DataSeries != "rollup" {
 		return ErrSnapshotInputs

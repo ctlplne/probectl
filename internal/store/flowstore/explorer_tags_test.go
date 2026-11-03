@@ -316,7 +316,7 @@ func TestInterfaceTagLookupKeepsSidesTenantBudgetAndInputCoverage(t *testing.T) 
 		t.Fatal(err)
 	}
 	inputs, err := SnapshotInputsForTenant(queryCtx, tenant, result)
-	if err != nil || !inputs.NeedsComplete || !inputs.TagLookup || !slices.Equal(inputs.Fields, []string{"exporter", "in_if", "out_if"}) {
+	if err != nil || !inputs.NeedsComplete || !inputs.TagLookup || !slices.Equal(inputs.Fields, []string{"exporter", "in_if", "out_if"}) || !slices.Equal(inputs.TagSubjects, []string{"interface"}) {
 		t.Fatalf("interface frozen receipt omitted physical input columns: %+v %v", inputs, err)
 	}
 	plan.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.in_interface.customer", Op: flow.QueryEqual, Values: []string{"input"}}, {Field: "tag.out_interface.customer", Op: flow.QueryEqual, Values: []string{"output"}}}}

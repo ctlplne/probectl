@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"sort"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -22,9 +23,17 @@ import (
 // Only disclosure outcomes enter the digest, never mutable tag values. Related
 // subject permission changes invalidate materialized metadata as base context
 // changes do. The version change requires old pages to be queried afresh.
-func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Principal, snapshot *store.TenantTagSnapshot, limit int64) (map[string]bool, map[string]map[string]bool, string, error) {
+func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Principal, snapshot *store.TenantTagSnapshot, limit int64, subjects ...string) (map[string]bool, map[string]map[string]bool, string, error) {
 	if p == nil || p.TenantID == "" || limit <= 0 {
 		return nil, nil, "", apierror.Unauthorized("tenant identity required for tag policy")
+	}
+	selected := append([]string{}, subjects...)
+	slices.Sort(selected)
+	selected = slices.Compact(selected)
+	for _, kind := range selected {
+		if kind != "device" && kind != "agent" && kind != "interface" {
+			return nil, nil, "", apierror.Unavailable("tag policy dependency is unavailable")
+		}
 	}
 	records, err := snapshot.Contexts()
 	if err != nil {
@@ -61,6 +70,9 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 		}
 		allowed[record.ContextID] = disclose
 		for _, subject := range []struct{ kind, permission string }{{"device", "metrics.read"}, {"agent", "agent.read"}} {
+			if !slices.Contains(selected, subject.kind) && !(subject.kind == "device" && slices.Contains(selected, "interface")) {
+				continue
+			}
 			decision, err := s.decide(ctx, p, subject.permission, auth.RBACGlobal, resource)
 			if err != nil {
 				return nil, nil, "", err
@@ -75,8 +87,9 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 	encoded, err := json.Marshal(struct {
 		Domain   string            `json:"domain"`
 		Tenant   string            `json:"tenant"`
+		Subjects []string          `json:"subjects"`
 		Contexts []contextDecision `json:"contexts"`
-	}{"flow-tag-context-authorization/v2", p.TenantID, decisions})
+	}{"flow-tag-context-authorization/v3", p.TenantID, selected, decisions})
 	if err != nil || int64(len(encoded)) > limit {
 		return nil, nil, "", flowTagQueryError(store.ErrTagSnapshotBudget)
 	}

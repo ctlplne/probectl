@@ -674,6 +674,10 @@ selected flow rows and totals are retained. A private saved result binds the
 effective context decisions and rechecks the current user before pages,
 comparisons and CSV exports. If those decisions change, run a fresh query.
 Rule edits alone preserve the saved result's original values and revision.
+The receipt binds only subject kinds actually selected by the plan, including
+saved predicates. An exporter-only query keeps its `ai.query`, `flow.read` and
+`tags.read` minimum; unrelated device/agent grants do not invalidate it. A
+selected related subject still requires its current source grant on every read.
 
 Use `tag.device.<key>` for the exporter's operator-owned device anchor and
 `tag.agent.<key>` for its registered collecting agent. These are independent

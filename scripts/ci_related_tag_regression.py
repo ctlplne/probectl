@@ -22,6 +22,7 @@ BASE = "0fd0f52cbb14eaab20f49f17d6c81d3be856be62"
 TEST = "TestSubjectTagNamespacesKeepOneDefinitionAndIndependentReadGrants"
 PACKAGE = "github.com/ctlplne/probectl/internal/flow"
 GO_PACKAGE = "./internal/flow"
+GO_EXTRA: list[str] = []
 FILE = Path("internal/flow/query_vocabulary_test.go")
 MARKER = "qualified tag field changed definition or subject"
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +48,8 @@ def classified(code: int, raw: str, original: bool) -> bool:
         word in raw
         for word in ("panic:", "build failed", "[setup failed]", "test timed out")
     ):
+        return False
+    if "remove tag Explorer tenants:" in raw:
         return False
     if any(item.get("Action") == "skip" for item in events):
         return False
@@ -92,6 +95,7 @@ def execute(cwd: Path) -> tuple[int, str]:
             [
                 "go",
                 "test",
+                *GO_EXTRA,
                 "-json",
                 "-count=1",
                 "-timeout=3m",
@@ -195,6 +199,7 @@ if __name__ == "__main__":
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--interfaces", action="store_true")
     mode.add_argument("--rollup-snapshot", action="store_true")
+    mode.add_argument("--tag-actor", action="store_true")
     args = parser.parse_args()
     if args.interfaces:
         BASE = "9c626335df1bc6f48eb1fb6951a81d0a2fbda198"
@@ -208,4 +213,12 @@ if __name__ == "__main__":
         FILE = Path("internal/store/flowstore/tag_rollup_snapshot_test.go")
         MARKER = "complete retained tag rollup was refused by frozen source receipt"
 
+    if args.tag_actor:
+        BASE = "9c626335df1bc6f48eb1fb6951a81d0a2fbda198"
+        TEST = "TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary"
+        PACKAGE = "github.com/ctlplne/probectl/internal/control"
+        GO_PACKAGE = "./internal/control"
+        GO_EXTRA = ["-tags=integration"]
+        FILE = Path("internal/control/explorer_flow_tags_integration_test.go")
+        MARKER = "authorized user MCP page lost its current actor"
     selftest() if args.selftest else run()

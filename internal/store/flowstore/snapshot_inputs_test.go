@@ -180,12 +180,49 @@ func TestSnapshotInputsRejectMalformedOrWeakenedProof(t *testing.T) {
 	now := time.Now().UTC()
 	base := SnapshotInputs{Version: 2, CompleteInputs: true, From: now.Add(-time.Hour), To: now.Add(time.Hour), OldestInput: now, Source: "raw", DataSeries: "auto", BucketSeconds: 60, Fields: []string{"src_port"}, NeedsComplete: true}
 	for _, mutate := range []func(*SnapshotInputs){
-		func(c *SnapshotInputs) { c.Version = 1 }, func(c *SnapshotInputs) { c.CompleteInputs = false }, func(c *SnapshotInputs) { c.NeedsComplete = false }, func(c *SnapshotInputs) { c.Fields = []string{"tenant_id"} }, func(c *SnapshotInputs) { c.Fields = []string{"src_port", "agent_id"} }, func(c *SnapshotInputs) { c.Empty = true }, func(c *SnapshotInputs) { c.OldestInput = c.To }, func(c *SnapshotInputs) { c.DataSeries = "rollup" },
+		func(c *SnapshotInputs) { c.Version = 1 }, func(c *SnapshotInputs) { c.CompleteInputs = false }, func(c *SnapshotInputs) { c.TagSubjects = []string{"device"} }, func(c *SnapshotInputs) { c.NeedsComplete = false }, func(c *SnapshotInputs) { c.Fields = []string{"tenant_id"} }, func(c *SnapshotInputs) { c.Fields = []string{"src_port", "agent_id"} }, func(c *SnapshotInputs) { c.Empty = true }, func(c *SnapshotInputs) { c.OldestInput = c.To }, func(c *SnapshotInputs) { c.DataSeries = "rollup" },
 	} {
 		clock := base
 		mutate(&clock)
 		if _, err := clock.ExpiresAt(7, nil); !errors.Is(err, ErrSnapshotInputs) {
 			t.Fatalf("bad source proof accepted: %+v %v", clock, err)
 		}
+	}
+}
+
+func TestSnapshotInputsBindOnlySelectedMetadataSubjectKinds(t *testing.T) {
+	tenant := uuid.NewString()
+	vocabulary, err := flow.NewTagQueryVocabulary(tenant, []tags.Definition{{TenantID: tenant, ID: uuid.NewString(), Key: "customer"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := flow.WithQueryVocabulary(t.Context(), tenant, vocabulary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC().Truncate(time.Minute)
+	plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"tag.device.customer", "tag.in_interface.customer"}, MatrixWith: []string{"tag.agent.customer"}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.out_interface.customer", Op: flow.QueryEqual, Values: []string{"private-selector"}}}}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+	result := PlanResult{Source: "raw", Query: plan, TotalGroups: 1, OldestInput: at}
+	clock, err := SnapshotInputsForTenant(ctx, tenant, result)
+	if err != nil || !slices.Equal(clock.TagSubjects, []string{"agent", "device", "interface"}) {
+		t.Fatalf("selected metadata dependencies lost: %+v %v", clock, err)
+	}
+	encoded, err := json.Marshal(clock)
+	if err != nil || bytes.Contains(encoded, []byte("private-selector")) || bytes.Contains(encoded, []byte("customer")) {
+		t.Fatal("private source receipt retained selector/key grammar")
+	}
+	for _, bad := range [][]string{{"device", "agent"}, {"device", "device"}, {"unknown"}, {"agent", "device", "interface", "extra"}} {
+		forged := clock
+		forged.TagSubjects = bad
+		if _, err := forged.ExpiresAt(1, nil); !errors.Is(err, ErrSnapshotInputs) {
+			t.Fatalf("malformed metadata dependency accepted: %v", bad)
+		}
+	}
+	result.Query.GroupBy = []string{"tag.customer"}
+	result.Query.MatrixWith = nil
+	result.Query.Filter = nil
+	base, err := SnapshotInputsForTenant(ctx, tenant, result)
+	if err != nil || len(base.TagSubjects) != 0 {
+		t.Fatal("exporter-only query acquired unrelated source grants")
 	}
 }

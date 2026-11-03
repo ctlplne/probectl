@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -168,8 +169,10 @@ func (source *flowSnapshotSource) validate(ctx context.Context, scope flowsnapsh
 
 func (source *flowSnapshotSource) validateTagAuthorization(ctx context.Context, scope flowsnapshot.Scope, receipt flowSnapshotValidity) error {
 	tagged := false
+	var subjects []string
 	for _, clock := range receipt.Inputs {
 		tagged = tagged || clock.TagLookup
+		subjects = append(subjects, clock.TagSubjects...)
 	}
 	if !tagged && receipt.TagAuthorization == "" {
 		return nil
@@ -178,7 +181,9 @@ func (source *flowSnapshotSource) validateTagAuthorization(ctx context.Context, 
 	if !tagged || receipt.TagAuthorization == "" || p == nil || p.TenantID != scope.TenantID || p.UserID != scope.Owner {
 		return apierror.Forbidden("current tag authorization is required for these results; run a fresh query")
 	}
-	data, err := source.server.loadFlowTagQuery(ctx, p)
+	slices.Sort(subjects)
+	subjects = slices.Compact(subjects)
+	data, err := source.server.loadFlowTagQueryPolicy(ctx, p, subjects)
 	if err != nil {
 		return err
 	}
