@@ -132,7 +132,7 @@ func newMCPServer(
 	options = append(options, mcp.WithNativeFlowRenderBudget(renderBudget))
 	if pool != nil {
 		options = append(options, mcp.WithEntityBackend(mcpEntityBackend{pool: pool, pathStore: pathStore, policyLoader: policyLoader}))
-		options = append(options, mcp.WithTagBackend(mcpTagBackend{pool: pool, policyLoader: policyLoader}))
+		options = append(options, tagReadOptions(pool, policyLoader, src, gate)...)
 		if src.NativeFlow != nil {
 			if schemas, err := tagMutationToolSchemas(); err != nil {
 				log.Error("MCP tag mutation schemas are unavailable", "error_class", mcp.ErrorClass(err))

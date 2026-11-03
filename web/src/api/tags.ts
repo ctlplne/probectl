@@ -18,6 +18,8 @@ import type {
   TagRule,
   TagRuleInput,
   TagRulePage,
+  TagSubjectResolution,
+  ResolveSubjectTagsRequest,
 } from './sdk.gen'
 
 export type {
@@ -29,6 +31,8 @@ export type {
   TagDefinition,
   TagRule,
   TagRuleInput,
+  TagSubjectResolution,
+  TagResolutionItem,
 } from './sdk.gen'
 
 const tagKey = (tenantID: string) => ['tenant-tags', tenantID] as const
@@ -43,6 +47,23 @@ const ruleKey = (tenantID: string, contextID: string) =>
   ['tenant-tag-rules', tenantID, contextID] as const
 const assignmentKey = (tenantID: string, contextID: string) =>
   ['tenant-tag-assignments', tenantID, contextID] as const
+
+/** Resolve on explicit submit only. Keep this fact snapshot out of the shared
+ * metadata cache: tag revision alone does not version changing source facts. */
+export function resolveSubjectTags(
+  tenantID: string,
+  input: ResolveSubjectTagsRequest,
+  signal: AbortSignal,
+): Promise<TagSubjectResolution> {
+  const query = new URLSearchParams({ target_kind: input.targetKind })
+  if (input.targetId) query.set('target_id', input.targetId)
+  if (input.exporterAgentId) query.set('exporter_agent_id', input.exporterAgentId)
+  if (input.exporterSourceRef) query.set('exporter_source_ref', input.exporterSourceRef)
+  return apiFetch<TagSubjectResolution>(
+    `/entity-contexts/${encodeURIComponent(input.contextId)}/resolved-tags?${query}`,
+    { signal, headers: { 'X-Probectl-Tenant': tenantID } },
+  )
+}
 
 /** A fresh source read, held by the current form only. Never share a completed
  * preview through the tenant metadata query cache or use it as an assignment. */

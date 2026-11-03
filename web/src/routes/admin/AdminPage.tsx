@@ -49,6 +49,7 @@ import { EntityRegistryCard } from './EntityRegistryCard'
 import { TenantTagsCard } from './TenantTagsCard'
 import { TenantTagRulesCard } from './TenantTagRulesCard'
 import { TenantTagAssignmentsCard } from './TenantTagAssignmentsCard'
+import { TagSubjectResolutionCard } from './TagSubjectResolutionCard'
 import { NetBoxTagPreviewCard } from './NetBoxTagPreviewCard'
 import { NMSImportCard } from './NMSImportCard'
 import { HierarchyCard } from './HierarchyCard'
@@ -1114,6 +1115,7 @@ export function AdminPage() {
       <TenantTagsCard />
       <TenantTagRulesCard />
       <TenantTagAssignmentsCard />
+      <TagSubjectResolutionCard />
       <NetBoxTagPreviewCard />
       <NMSImportCard />
       <KeysCard />

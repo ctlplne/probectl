@@ -594,8 +594,8 @@ Manual assignments refer to a canonical device/interface/prefix, a bound
 agent or test, or an operator-owned flow exporter. Exporters are identified
 by their registered agent and configured source reference, not by a packet's
 claimed agent field. The database checks these references with tenant- and
-context-qualified foreign keys. An exporter address with multiple current
-owners resolves to no tag. Manual values take precedence over rules; rules
+context-qualified foreign keys. A raw-flow exporter address with multiple current
+owners resolves to no tag; an explicit owned pair remains a distinct metadata reference. Manual values take precedence over rules; rules
 take precedence over previously reviewed imported suggestions. Imported
 assignments remain visible with provenance but cannot be changed through the
 manual endpoints. Tag revisions alter current views of retained historical
@@ -608,6 +608,35 @@ test. For an exporter, enter its registered agent ID and owned source
 reference. The server rejects any target outside the authenticated tenant
 and selected context. Readers with `tags.read` see source and value without
 mutation controls.
+
+`GET /v1/entity-contexts/{context_id}/resolved-tags` reads current effective
+values for one owned subject. Supply `target_kind` and `target_id`; exporters
+instead supply `exporter_agent_id` and `exporter_source_ref`. Unknown or repeated
+parameters, tenant selectors and caller-supplied facts are refused. The request
+requires `tags.read` and the subject's read grant, both with current context ABAC:
+`device.read` for a device/interface, `entities.read` for a prefix, `agent.read`,
+`test.read`, or `flow.read` for an exporter. One FORCE-RLS repeatable-read
+transaction binds ownership, tag state and source facts. Ambiguity, memory,
+response and time limits fail without a partial result. The existing Explorer
+cost policy and tenant query admission apply.
+
+The response contains effective key/value/source, exact decimal-string
+`tag_revision` and UTC `as_of`. Revision identifies tag metadata; source facts can
+change independently, so the snapshot time is also necessary. Raw addresses,
+SNMP, source lineage and encoded exporter identity are omitted. Current
+sender/source authorization is required for observational facts. New empty
+SNMP polls clear removed names/interfaces/addresses; an expired clearing poll
+cannot revive older still-live facts. A later read uses current rules and facts.
+Agent-address and live canonical-prefix producers remain incomplete; labels
+and hostnames never substitute for those missing facts. This read does not
+by itself complete all flow, alert, report or RCA tag associations.
+
+`probectl --json tags resolve CONTEXT --query target_kind=device --query
+target_id=DEVICE` returns the same snapshot. Admin → Effective subject tags
+resolves on explicit submit and clears results when the subject, context or
+signed-in identity changes. Native MCP's user-only `tag_subject_resolve` uses
+the same curated projection, subject grants, context checks and egress policy.
+No read surface creates an assignment or changes an observed identity.
 
 An authorized flow query may group or filter by an exact `tag.<key>` text
 field. `/v1/explorer/schema` and the native MCP schema include a tenant's tag

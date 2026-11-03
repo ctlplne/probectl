@@ -571,3 +571,11 @@ the existing MCP consent/redaction and admission/terminal audits also apply.
 This source preview remains labelled preview until its real NetBox receipt
 passes. The shared MCP consent, response redaction and tenant audit gates apply
 on HTTP and stdio.
+
+Effective subject tags are available through `tag_subject_resolve` for a tenant
+user with `tags.read`, the subject's read grant and current context policy. The
+input names `context_id`, `target_kind` and either `target_id` or the exact
+registered exporter pair. Fact and tenant hints are rejected. The response
+contains curated effective tags, exact decimal-string revision and snapshot
+time; it omits raw facts, source lineage and exporter identity. Existing egress
+redaction and query budgets still apply. See [tenant tag semantics](flow.md#tenant-tags-and-routing-contexts).

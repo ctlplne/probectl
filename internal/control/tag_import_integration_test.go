@@ -286,7 +286,7 @@ func testNetBoxReviewedApply(t *testing.T, srv *Server, db *store.DB,
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := snapshot.ResolveExporter(netip.MustParseAddr("192.0.2.10"))
+	resolved, err := snapshot.ResolveExporterContext(context.Background(), netip.MustParseAddr("192.0.2.10"))
 	if err != nil || len(resolved) != 1 || resolved[0].Value != "operator-override" || resolved[0].Source != "manual" {
 		t.Fatalf("import replaced manual precedence: %+v, %v", resolved, err)
 	}

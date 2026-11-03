@@ -100,6 +100,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/tags":                                         recordSurface,
 	"GET /v1/entity-contexts/{context_id}/tag-rules":       recordSurface,
 	"GET /v1/entity-contexts/{context_id}/tag-assignments": recordSurface,
+	"GET /v1/entity-contexts/{context_id}/resolved-tags":   recordSurface,
 	"GET /v1/nms-imports/poll-proposals":                   recordSurface,
 	"GET /v1/nms-imports/{id}/rows":                        recordSurface,
 	"GET /v1/nms-imports/{id}/dry-run":                     recordSurface,

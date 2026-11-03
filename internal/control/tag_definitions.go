@@ -30,6 +30,7 @@ func (s *Server) tagRoutes() []apiRoute {
 		{http.MethodPut, "/v1/entity-contexts/{context_id}/tag-rules/{id}", s.handleUpdateTagRule, permTagsWrite},
 		{http.MethodDelete, "/v1/entity-contexts/{context_id}/tag-rules/{id}", s.handleDeleteTagRule, permTagsWrite},
 		{http.MethodGet, "/v1/entity-contexts/{context_id}/tag-assignments", s.handleListTagAssignments, permTagsRead},
+		{http.MethodGet, "/v1/entity-contexts/{context_id}/resolved-tags", s.handleResolveSubjectTags, permTagsRead},
 		{http.MethodPost, "/v1/entity-contexts/{context_id}/tag-assignments", s.handleCreateManualTagAssignment, permTagsWrite},
 		{http.MethodPut, "/v1/entity-contexts/{context_id}/tag-assignments/{id}", s.handleUpdateManualTagAssignment, permTagsWrite},
 		{http.MethodDelete, "/v1/entity-contexts/{context_id}/tag-assignments/{id}", s.handleDeleteManualTagAssignment, permTagsWrite},

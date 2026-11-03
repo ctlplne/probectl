@@ -229,6 +229,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"PUT /v1/entity-contexts/{context_id}/tag-rules/{id}":                 auditExplicit(auditFacetMutation, "tag.rule.updated"),
 	"DELETE /v1/entity-contexts/{context_id}/tag-rules/{id}":              auditExplicit(auditFacetMutation, "tag.rule.deleted"),
 	"GET /v1/entity-contexts/{context_id}/tag-assignments":                auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/entity-contexts/{context_id}/resolved-tags":                  auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/entity-contexts/{context_id}/tag-assignments":               auditExplicit(auditFacetMutation, "tag.assignment.created"),
 	"PUT /v1/entity-contexts/{context_id}/tag-assignments/{id}":           auditExplicit(auditFacetMutation, "tag.assignment.updated"),
 	"DELETE /v1/entity-contexts/{context_id}/tag-assignments/{id}":        auditExplicit(auditFacetMutation, "tag.assignment.deleted"),

@@ -2663,6 +2663,13 @@ type TagDefinitionList struct {
 	Items []TagDefinition `json:"items"`
 }
 
+type TagResolutionItem struct {
+	Key    string `json:"key"`
+	Source string `json:"source"`
+	TagId  string `json:"tag_id"`
+	Value  string `json:"value"`
+}
+
 type TagRule struct {
 	AddressSide string `json:"address_side,omitempty"`
 	Cidr        string `json:"cidr,omitempty"`
@@ -2698,6 +2705,15 @@ type TagRulePage struct {
 }
 
 // Public metadata for the caller tenant's OIDC provider. Secret material is represented only by client_secret_configured.
+type TagSubjectResolution struct {
+	AsOf        string              `json:"as_of"`
+	ContextId   string              `json:"context_id"`
+	Items       []TagResolutionItem `json:"items"`
+	TagRevision string              `json:"tag_revision"`
+	TargetId    string              `json:"target_id,omitempty"`
+	TargetKind  string              `json:"target_kind"`
+}
+
 type TenantIdPSettings struct {
 	ClientId               string          `json:"client_id"`
 	ClientSecretConfigured bool            `json:"client_secret_configured"`
@@ -4631,6 +4647,41 @@ func (c *Client) CreateEntityContext(ctx context.Context, req CreateEntityContex
 	query := url.Values{}
 	var out EntityContext
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Resolve effective tags for one owned current subject
+type ResolveSubjectTagsRequest struct {
+	ContextId         string  `json:"-"`
+	TargetKind        *string `json:"-"`
+	TargetId          *string `json:"-"`
+	ExporterAgentId   *string `json:"-"`
+	ExporterSourceRef *string `json:"-"`
+}
+
+func (c *Client) ResolveSubjectTags(ctx context.Context, req ResolveSubjectTagsRequest) (*TagSubjectResolution, error) {
+	path := "/v1/entity-contexts/{context_id}/resolved-tags"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	if req.TargetKind != nil {
+		query.Set("target_kind", formatQueryValue(*req.TargetKind))
+	}
+	if req.TargetId != nil {
+		query.Set("target_id", formatQueryValue(*req.TargetId))
+	}
+	if req.ExporterAgentId != nil {
+		query.Set("exporter_agent_id", formatQueryValue(*req.ExporterAgentId))
+	}
+	if req.ExporterSourceRef != nil {
+		query.Set("exporter_source_ref", formatQueryValue(*req.ExporterSourceRef))
+	}
+	var out TagSubjectResolution
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

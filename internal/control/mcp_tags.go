@@ -14,7 +14,9 @@ import (
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -23,6 +25,8 @@ var _ mcp.TagBackend = mcpTagBackend{}
 type mcpTagBackend struct {
 	pool         *pgxpool.Pool
 	policyLoader mcp.PolicyLoader
+	flowStore    flowstore.Store
+	fairnessGate *fairness.Gate
 }
 
 func (b mcpTagBackend) TagDefinitionList(ctx context.Context, p *auth.Principal) (mcp.TagDefinitionListResult, error) {

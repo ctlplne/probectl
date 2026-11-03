@@ -540,6 +540,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/tags":                    "bounded",
 	"/v1/entity-contexts/{context_id}/tag-rules":       "cursor",
 	"/v1/entity-contexts/{context_id}/tag-assignments": "cursor",
+	"/v1/entity-contexts/{context_id}/resolved-tags":   "bounded",
 	"/v1/nms-imports/poll-proposals":                   "cursor",
 	"/v1/nms-imports/{id}/rows":                        "cursor",
 	"/v1/nms-imports/{id}/dry-run":                     "cursor",

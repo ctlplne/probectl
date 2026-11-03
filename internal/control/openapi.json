@@ -4741,6 +4741,110 @@
         }
       }
     },
+    "/v1/entity-contexts/{context_id}/resolved-tags": {
+      "get": {
+        "x-additional-permissions": ["subject-specific read grant"],
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 64,
+          "reason": "One effective value per tenant tag key; no partial or top-N result."
+        },
+        "operationId": "resolveSubjectTags",
+        "summary": "Resolve effective tags for one owned current subject",
+        "description": "Requires tags.read and the subject read grant (device.read for devices/interfaces, entities.read for prefixes, agent.read, test.read or flow.read), each with current context ABAC. Name exactly one target_kind and either target_id or an exact registered exporter pair. Unknown, duplicate and fact/tenant query fields are rejected. Ownership, complete-current source facts and tag state are read in one tenant FORCE-RLS repeatable-read snapshot. Revision is an exact decimal string; as_of also captures fact freshness. Raw names, addresses, SNMP, exporter identity and source lineage are omitted. No assignment is written. Current memory, response, time and fairness budgets apply. A fresh read applies current rules; an earlier result remains a snapshot. Agent-address and live canonical-prefix producer proof remain incomplete.",
+        "tags": [
+          "tags"
+        ],
+        "x-required-permission": "tags.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "target_kind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "device",
+                "interface",
+                "prefix",
+                "agent",
+                "test",
+                "exporter"
+              ]
+            }
+          },
+          {
+            "name": "target_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "exporter_agent_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "exporter_source_ref",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Curated effective tags at one tag revision and snapshot time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagSubjectResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown, duplicate, malformed or mixed subject reference."
+          },
+          "403": {
+            "description": "Required tenant/context permission denied."
+          },
+          "404": {
+            "description": "No owned current subject in this routing context."
+          },
+          "409": {
+            "description": "Current observational facts conflict; no partial result."
+          },
+          "422": {
+            "description": "Query memory or response budget exceeded."
+          },
+          "503": {
+            "description": "Snapshot storage or cost policy unavailable."
+          }
+        }
+      }
+    },
     "/v1/entity-contexts/{context_id}/tag-rules": {
       "get": {
         "x-required-permission": "tags.read",
@@ -19236,6 +19340,84 @@
           "snmp_value": {"type": "string", "minLength": 1, "maxLength": 1024, "description": "Exact UTF-8 field text, up to 1024 bytes. Whitespace is significant. Only sys_descr permits HT, CR and LF; all other control characters are refused."},
           "value": {"type": "string", "minLength": 1, "maxLength": 24000},
           "priority": {"type": "integer", "minimum": -1000, "maximum": 1000, "default": 0}
+        }
+      },
+      "TagResolutionItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tag_id",
+          "key",
+          "value",
+          "source"
+        ],
+        "properties": {
+          "tag_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 24000
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "rule",
+              "netbox"
+            ]
+          }
+        }
+      },
+      "TagSubjectResolution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "context_id",
+          "target_kind",
+          "tag_revision",
+          "as_of",
+          "items"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "target_kind": {
+            "type": "string",
+            "enum": [
+              "device",
+              "interface",
+              "prefix",
+              "agent",
+              "test",
+              "exporter"
+            ]
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "tag_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "maxLength": 19
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagResolutionItem"
+            },
+            "maxItems": 64
+          }
         }
       },
       "TagRule": {

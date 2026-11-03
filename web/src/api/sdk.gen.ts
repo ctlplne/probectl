@@ -2530,6 +2530,13 @@ export interface TagDefinitionList {
   items: TagDefinition[]
 }
 
+export interface TagResolutionItem {
+  key: string
+  source: "manual" | "rule" | "netbox"
+  tag_id: string
+  value: string
+}
+
 export interface TagRule {
   address_side?: "src" | "dst" | "exporter" | "interface" | "device" | "agent" | "test" | "prefix"
   cidr?: string
@@ -2562,6 +2569,15 @@ export interface TagRuleInput {
 export interface TagRulePage {
   items: TagRule[]
   next_cursor?: string
+}
+
+export interface TagSubjectResolution {
+  as_of: string
+  context_id: string
+  items: TagResolutionItem[]
+  tag_revision: string
+  target_id?: string
+  target_kind: "device" | "interface" | "prefix" | "agent" | "test" | "exporter"
 }
 
 export interface TenantIdPSettings {
@@ -3323,6 +3339,16 @@ export interface CreateEntityContextRequest {
 }
 
 export type CreateEntityContextResponse = EntityContext
+
+export interface ResolveSubjectTagsRequest {
+  contextId: string
+  targetKind: "device" | "interface" | "prefix" | "agent" | "test" | "exporter"
+  targetId?: string
+  exporterAgentId?: string
+  exporterSourceRef?: string
+}
+
+export type ResolveSubjectTagsResponse = TagSubjectResolution
 
 export interface ListTagAssignmentsRequest {
   contextId: string
@@ -5010,6 +5036,17 @@ export class ProbectlSDKClient {
     let path = "/v1/entity-contexts"
     const query = new URLSearchParams()
     return this.requestJSON<CreateEntityContextResponse>("POST", path, query, request.body)
+  }
+
+  async resolveSubjectTags(request: ResolveSubjectTagsRequest): Promise<ResolveSubjectTagsResponse> {
+    let path = "/v1/entity-contexts/{context_id}/resolved-tags"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    if (request.targetKind !== undefined) query.set("target_kind", String(request.targetKind))
+    if (request.targetId !== undefined) query.set("target_id", String(request.targetId))
+    if (request.exporterAgentId !== undefined) query.set("exporter_agent_id", String(request.exporterAgentId))
+    if (request.exporterSourceRef !== undefined) query.set("exporter_source_ref", String(request.exporterSourceRef))
+    return this.requestJSON<ResolveSubjectTagsResponse>("GET", path, query, undefined)
   }
 
   async listTagAssignments(request: ListTagAssignmentsRequest): Promise<ListTagAssignmentsResponse> {

@@ -54,13 +54,6 @@ func (s *TenantTagSnapshot) Definitions() ([]tags.Definition, error) {
 	return append([]tags.Definition(nil), s.definitions...), nil
 }
 
-// ProjectExporters resolves each uniquely owned address once, before a query.
-// The caller's byte budget bounds the whole lookup; partial projections are
-// never returned because they would silently label some flow rows unmatched.
-func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]tags.ExporterProjection, error) {
-	return s.ProjectExportersContext(context.Background(), maxBytes)
-}
-
 // ProjectExportersContext applies the query lifetime to the complete projection.
 func (s *TenantTagSnapshot) ProjectExportersContext(ctx context.Context, maxBytes int64) ([]tags.ExporterProjection, error) {
 	if err := ctx.Err(); err != nil {
@@ -113,13 +106,6 @@ func (s *TenantTagSnapshot) ProjectExportersContext(ctx context.Context, maxByte
 		return nil, err
 	}
 	return out, nil
-}
-
-// ResolveExporter uses only the observed exporter address to select a binding.
-// A claimed agent ID from a raw row is deliberately absent from this API.
-// Unknown, expired and multiply-owned addresses yield no tags.
-func (s *TenantTagSnapshot) ResolveExporter(exporter netip.Addr) ([]tags.Resolved, error) {
-	return s.ResolveExporterContext(context.Background(), exporter)
 }
 
 // ResolveExporterContext cancels rule work without returning partial metadata.

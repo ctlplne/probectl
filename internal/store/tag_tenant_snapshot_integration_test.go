@@ -89,7 +89,7 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load tenant %s: %v", row.tenantID, err)
 		}
-		resolved, err := loaded.ResolveExporter(address)
+		resolved, err := loaded.ResolveExporterContext(ctx, address)
 		if err != nil || len(resolved) != 1 || resolved[0].Value != row.value {
 			t.Fatalf("tenant %s resolved foreign or missing tag: %+v, %v", row.tenantID, resolved, err)
 		}
@@ -101,12 +101,12 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 			definitions[0].TenantID != row.tenantID {
 			t.Fatalf("tenant %s tag vocabulary: %+v, %v", row.tenantID, definitions, err)
 		}
-		projection, err := loaded.ProjectExporters(1 << 20)
+		projection, err := loaded.ProjectExportersContext(ctx, 1<<20)
 		if err != nil || len(projection) != 1 || projection[0].Exporter != address.String() ||
 			projection[0].Values["customer"] != row.value {
 			t.Fatalf("tenant %s query projection: %+v, %v", row.tenantID, projection, err)
 		}
-		if _, err := loaded.ProjectExporters(128); !errors.Is(err, ErrTagSnapshotBudget) {
+		if _, err := loaded.ProjectExportersContext(ctx, 128); !errors.Is(err, ErrTagSnapshotBudget) {
 			t.Fatalf("tenant %s partial query projection admitted: %v", row.tenantID, err)
 		}
 		canceled, cancel := context.WithCancel(ctx)
@@ -114,7 +114,7 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 		if projection, err := loaded.ProjectExportersContext(canceled, 1<<20); !errors.Is(err, context.Canceled) || projection != nil {
 			t.Fatal("canceled exporter projection returned partial metadata")
 		}
-		if unknown, err := loaded.ResolveExporter(netip.MustParseAddr("192.0.2.11")); err != nil || len(unknown) != 0 {
+		if unknown, err := loaded.ResolveExporterContext(ctx, netip.MustParseAddr("192.0.2.11")); err != nil || len(unknown) != 0 {
 			t.Fatalf("unknown exporter resolved tags: %+v, %v", unknown, err)
 		}
 	}
@@ -155,15 +155,15 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 		t.Fatalf("source ownership edit did not invalidate tag revision: %d -> %d, %v",
 			initialRevision, ambiguousRevision, err)
 	}
-	resolved, err := ambiguous.ResolveExporter(address)
+	resolved, err := ambiguous.ResolveExporterContext(ctx, address)
 	if err != nil || len(resolved) != 0 {
 		t.Fatalf("ambiguous exporter selected an agent/context: %+v, %v", resolved, err)
 	}
-	projection, err := ambiguous.ProjectExporters(1 << 20)
+	projection, err := ambiguous.ProjectExportersContext(ctx, 1<<20)
 	if err != nil || len(projection) != 0 {
 		t.Fatalf("ambiguous exporter appeared in query projection: %+v, %v", projection, err)
 	}
-	resolved, err = initialA.ResolveExporter(address)
+	resolved, err = initialA.ResolveExporterContext(ctx, address)
 	if err != nil || len(resolved) != 1 || resolved[0].Value != "A" {
 		t.Fatalf("pinned query snapshot changed after new binding: %+v, %v", resolved, err)
 	}
@@ -182,7 +182,7 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 		t.Fatalf("agent-context expiry did not invalidate tag revision: %d -> %d, %v",
 			ambiguousRevision, currentRevision, err)
 	}
-	resolved, err = current.ResolveExporter(address)
+	resolved, err = current.ResolveExporterContext(ctx, address)
 	if err != nil || len(resolved) != 1 || resolved[0].Value != "A" {
 		t.Fatalf("expired agent context still shadowed unique owner: %+v, %v", resolved, err)
 	}
@@ -191,7 +191,7 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err = independent.ResolveExporter(address)
+	resolved, err = independent.ResolveExporterContext(ctx, address)
 	if err != nil || len(resolved) != 1 || resolved[0].Value != "B" {
 		t.Fatalf("tenant B lost its own exporter tag: %+v, %v", resolved, err)
 	}
