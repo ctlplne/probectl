@@ -49,7 +49,13 @@ def classified(code: int, raw: str, original: bool) -> bool:
         for word in ("panic:", "build failed", "[setup failed]", "test timed out")
     ):
         return False
-    if "remove tag Explorer tenants:" in raw:
+    if any(
+        cue in raw
+        for cue in (
+            "remove tag Explorer tenants:",
+            "tenant fixture cleanup incomplete:",
+        )
+    ):
         return False
     if any(item.get("Action") == "skip" for item in events):
         return False
@@ -174,6 +180,7 @@ def selftest() -> None:
         (1, raw + "panic:"),
         (1, raw + "build failed"),
         (1, raw + "test timed out"),
+        (1, raw + "tenant fixture cleanup incomplete:"),
         (1, raw + '\n{"Action":"skip"}'),
         (1, raw + '\n{"Action":"fail","Test":"Other"}'),
     ]:
@@ -201,6 +208,7 @@ if __name__ == "__main__":
     mode.add_argument("--rollup-snapshot", action="store_true")
     mode.add_argument("--tag-actor", action="store_true")
     mode.add_argument("--tag-output", action="store_true")
+    mode.add_argument("--canonical-address", action="store_true")
     args = parser.parse_args()
     if args.interfaces:
         BASE = "9c626335df1bc6f48eb1fb6951a81d0a2fbda198"
@@ -230,4 +238,14 @@ if __name__ == "__main__":
         GO_EXTRA = ["-tags=integration"]
         FILE = Path("internal/control/explorer_flow_related_tags_integration_test.go")
         MARKER = "authorized related tag output was rejected by static projection"
+    if args.canonical_address:
+        BASE = "b687019259f8efb824cd71cc5c5fc3568a7c633e"
+        TEST = "TestExplorerClickHouseCanonicalAddressesRetainValidIPv6"
+        PACKAGE = "github.com/ctlplne/probectl/internal/store/flowstore"
+        GO_PACKAGE = "./internal/store/flowstore"
+        GO_EXTRA = ["-tags=integration"]
+        FILE = Path(
+            "internal/store/flowstore/explorer_address_canonical_integration_test.go"
+        )
+        MARKER = "canonical address query lost valid owned input"
     selftest() if args.selftest else run()

@@ -1161,6 +1161,8 @@ jobs:
           python3 scripts/ci_related_tag_regression.py --tag-actor
           python3 scripts/ci_related_tag_regression.py --tag-output --selftest
           python3 scripts/ci_related_tag_regression.py --tag-output
+          python3 scripts/ci_related_tag_regression.py --canonical-address --selftest
+          python3 scripts/ci_related_tag_regression.py --canonical-address
           go test -tags=integration -count=1 -run '^TestExplorer(RelatedTagsUseCurrentOwnedSubjectsAndReadGrants|InterfaceTagsUseAttestedIndicesUnderOwnedExporter|TagRollupFreezesActualCompleteRetainedInputs)$' ./internal/control
           go test -tags=integration -count=1 -run '^TestExplorerClickHouse(RelatedTagNamespacesUseOneTenantExporterJoin|InterfaceTagsKeepIndependentSidesAndTenantTotals)$' ./internal/store/flowstore
       - name: Original tag context-policy reproduction

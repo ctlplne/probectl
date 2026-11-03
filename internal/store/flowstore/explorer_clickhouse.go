@@ -106,7 +106,18 @@ func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane 
 }
 
 func explorerAddressExpr(column string) string {
-	return "replaceRegexpOne(ifNull(toString(toIPv6OrNull(" + column + "))," + column + "),'^::ffff:','')"
+	canonical := "ifNull(toString(toIPv6OrNull(" + column + "))," + column + ")"
+	// ClickHouse also prints IPv4-compatible ordinary IPv6 in dotted form.
+	// Go's netip uses two hex words there, while true mapped addresses unmap.
+	tail := "substring(" + canonical + ",3)"
+	number := "IPv4StringToNumOrDefault(" + tail + ")"
+	compatible := "concat('::'," + explorerAddressHexWord("bitShiftRight("+number+",16)") + ",':'," + explorerAddressHexWord("bitAnd("+number+",65535)") + ")"
+	mapped := "replaceRegexpOne(" + canonical + ",'^::ffff:([0-9]+[.][0-9]+[.][0-9]+[.][0-9]+)$','\\\\1')"
+	return "if(startsWith(" + canonical + ",'::') AND isIPv4String(" + tail + ")," + compatible + "," + mapped + ")"
+}
+
+func explorerAddressHexWord(number string) string {
+	return "replaceRegexpOne(lower(hex(toUInt16(" + number + "))),'^0+([0-9a-f])','\\\\1')"
 }
 
 func explorerFieldExprWithParams(field flow.QueryField, params chParams) string {

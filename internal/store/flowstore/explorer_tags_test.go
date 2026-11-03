@@ -160,7 +160,7 @@ func TestClickHouseTagPlanBindsKeyAndJoinsTenantInOneQuery(t *testing.T) {
 		tenant, lookup)
 	if err != nil || !strings.Contains(sql, "ANY LEFT JOIN tag_lookup") ||
 		!strings.Contains(sql, "tag_lookup.lookup_tenant=tenant_id") ||
-		!strings.Contains(sql, "tag_lookup.lookup_exporter=exporter") ||
+		!strings.Contains(sql, "toIPv6OrNull(tag_lookup.lookup_exporter)=toIPv6OrNull(exporter)") ||
 		!strings.Contains(sql, "tenant_id={tenant:String}") ||
 		strings.Contains(sql, "blue") || strings.Contains(sql, "customer") {
 		t.Fatalf("tag SQL lost scoped join or embedded a literal: %s, %v", sql, err)
