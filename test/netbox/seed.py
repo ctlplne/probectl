@@ -17,8 +17,12 @@ from datetime import timedelta
 
 import django
 
+BOOTSTRAP_STAGE = "django_setup"
+
 
 def seed(spec):
+    global BOOTSTRAP_STAGE
+    BOOTSTRAP_STAGE = "models"
     from django.core.cache import cache
     from django_rq import get_connection
     from django.contrib.contenttypes.models import ContentType
@@ -36,16 +40,19 @@ def seed(spec):
     from tenancy.models import Tenant
     from users.models import ObjectPermission, Token, User
 
+    BOOTSTRAP_STAGE = "cache_tls"
     cache.set("probectl-fixture-tls", "verified", timeout=30)
-    if (
-        cache.get("probectl-fixture-tls") != "verified"
-        or not get_connection("default").ping()
-    ):
-        raise RuntimeError("fixture cache/task TLS channels are unavailable")
+    if cache.get("probectl-fixture-tls") != "verified":
+        raise RuntimeError("fixture cache TLS channel is unavailable")
+    BOOTSTRAP_STAGE = "task_tls"
+    if not get_connection("default").ping():
+        raise RuntimeError("fixture task TLS channel is unavailable")
     with transaction.atomic():
+        BOOTSTRAP_STAGE = "reader_user"
         user = User.objects.create(username="probectl-fixture-reader", is_active=True)
         user.set_unusable_password()
         user.save()
+        BOOTSTRAP_STAGE = "read_permission"
         permission = ObjectPermission.objects.create(
             name="probectl fixture read-only", actions=["view"]
         )
@@ -55,18 +62,21 @@ def seed(spec):
             )
         )
         permission.users.add(user)
+        BOOTSTRAP_STAGE = "read_token"
         Token.objects.create(
             user=user,
             key=spec["token"],
             write_enabled=False,
             expires=timezone.now() + timedelta(hours=2),
         )
+        BOOTSTRAP_STAGE = "device_type"
         manufacturer = Manufacturer.objects.create(name="Fixture", slug="fixture")
         device_type = DeviceType.objects.create(
             manufacturer=manufacturer, model="Fixture router", slug="fixture-router"
         )
         result = {"tenants": {}, "devices": {}, "ips": {}}
         for index, lane in enumerate(["a", "b"], start=1):
+            BOOTSTRAP_STAGE = "source_tenants"
             tenant = Tenant.objects.create(
                 name="Fixture " + lane, slug="fixture-" + lane
             )
@@ -90,6 +100,7 @@ def seed(spec):
                 tenant=tenant,
                 enforce_unique=True,
             )
+            BOOTSTRAP_STAGE = "source_addresses"
             address = IPAddress.objects.create(
                 address="192.0.2.10/32",
                 tenant=tenant,
@@ -103,13 +114,16 @@ def seed(spec):
         return result
 
 
-if __name__ == "__main__":
+def main():
+    global BOOTSTRAP_STAGE
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "netbox.settings")
     django.setup()
+    BOOTSTRAP_STAGE = "input"
     spec = json.load(sys.stdin)
     if spec.get("action") == "seed":
         print(json.dumps(seed(spec)))
     elif spec.get("action") in {"move-ip", "restore-ip"}:
+        BOOTSTRAP_STAGE = "ownership_move"
         from django.db import transaction
         from ipam.models import IPAddress
 
@@ -126,3 +140,42 @@ if __name__ == "__main__":
         print(json.dumps({"moved": True}))
     else:
         raise RuntimeError("unsupported fixture action")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        # Never expose exception text, traceback, SQL, input, URL or credential.
+        classes = {
+            "ImportError",
+            "ModuleNotFoundError",
+            "ImproperlyConfigured",
+            "OperationalError",
+            "IntegrityError",
+            "ProgrammingError",
+            "DataError",
+            "ConnectionError",
+            "AuthenticationError",
+            "SSLError",
+            "TimeoutError",
+            "ValueError",
+            "TypeError",
+            "AttributeError",
+            "KeyError",
+            "RuntimeError",
+        }
+        category = type(error).__name__
+        if category not in classes:
+            category = "other"
+        print(
+            "PROBECTL_NETBOX_BOOTSTRAP_FAILURE "
+            + json.dumps(
+                {
+                    "stage": BOOTSTRAP_STAGE,
+                    "error_class": category,
+                }
+            ),
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None

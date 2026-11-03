@@ -33,6 +33,9 @@ runtime directory, including its credentials and keys. No remote source is used.
 The artifact contains only `receipt.json` (version, image identities, tested
 checkout and source scope) and `provider-proof.json` (passed provider assertions).
 Raw source data, keys, token, environment and container logs are not uploaded.
+Bootstrap failures report only a fixed stage and exception category, never the
+exception message, traceback, SQL or input. The runner rejects extra diagnostic
+fields and unknown categories before printing anything from that protocol.
 
 Provenance checked 2026-11-02: [NetBox](https://github.com/netbox-community/netbox/tree/v4.4.5)
 is Apache-2.0; its official [container](https://github.com/netbox-community/netbox-docker/tree/3.4.1)

@@ -14,6 +14,7 @@ import copy
 from http.client import HTTPSConnection, HTTPException
 import ipaddress
 import json
+import io
 import os
 from pathlib import Path
 import secrets
@@ -23,6 +24,7 @@ import socket
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -72,8 +74,71 @@ def command(
         raise RuntimeError(f"NetBox fixture {stage} timed out") from None
     if result.returncode:
         # Never echo a source response, bootstrap input, environment or logs.
-        raise RuntimeError(f"NetBox fixture {stage} failed (exit {result.returncode})")
+        detail = bootstrap_failure(result.stderr) if stage == "compose exec" else ""
+        raise RuntimeError(
+            f"NetBox fixture {stage} failed (exit {result.returncode})" + detail
+        )
     return result.stdout
+
+
+def bootstrap_failure(raw: bytes) -> str:
+    """Admit only fixed stage/class enums from the owned bootstrap protocol."""
+    stages = {
+        "django_setup",
+        "input",
+        "models",
+        "cache_tls",
+        "task_tls",
+        "reader_user",
+        "read_permission",
+        "read_token",
+        "device_type",
+        "source_tenants",
+        "source_addresses",
+        "ownership_move",
+    }
+    classes = {
+        "ImportError",
+        "ModuleNotFoundError",
+        "ImproperlyConfigured",
+        "OperationalError",
+        "IntegrityError",
+        "ProgrammingError",
+        "DataError",
+        "ConnectionError",
+        "AuthenticationError",
+        "SSLError",
+        "TimeoutError",
+        "ValueError",
+        "TypeError",
+        "AttributeError",
+        "KeyError",
+        "RuntimeError",
+        "other",
+    }
+    prefix = b"PROBECTL_NETBOX_BOOTSTRAP_FAILURE "
+    for line in raw[-16384:].splitlines():
+        if not line.startswith(prefix):
+            continue
+        try:
+            value = json.loads(line[len(prefix) :])
+        except (ValueError, UnicodeError):
+            continue
+        if (
+            isinstance(value, dict)
+            and set(value) == {"stage", "error_class"}
+            and isinstance(value["stage"], str)
+            and isinstance(value["error_class"], str)
+            and value["stage"] in stages
+            and value["error_class"] in classes
+        ):
+            return (
+                " bootstrap stage="
+                + value["stage"]
+                + " error_class="
+                + value["error_class"]
+            )
+    return ""
 
 
 def compose(*args: str, data: bytes | None = None, timeout: int = 120) -> bytes:
@@ -538,6 +603,7 @@ def start() -> None:
             raise RuntimeError("NetBox fixture verified-TLS readiness timed out")
         time.sleep(2)
     verify_source_tls()
+    print("NetBox fixture source transport verified", flush=True)
     manifest = bootstrap({"action": "seed", "token": token})
     manifest.update(
         {
@@ -644,6 +710,48 @@ def cleanup() -> None:
 
 def selftest() -> None:
     verify_tls_config(tls_config())
+    diagnostic = b'PROBECTL_NETBOX_BOOTSTRAP_FAILURE {"stage":"cache_tls","error_class":"ConnectionError"}'
+    if (
+        bootstrap_failure(diagnostic)
+        != " bootstrap stage=cache_tls error_class=ConnectionError"
+    ):
+        raise RuntimeError("fixture bootstrap enum diagnostic was lost")
+    for unsafe in [
+        diagnostic.replace(b"cache_tls", b"untrusted-detail"),
+        diagnostic.replace(b"ConnectionError", b"untrusted-detail"),
+        diagnostic[:-1] + b',"token":"untrusted-detail"}',
+        b"raw traceback or source error: untrusted-detail",
+        b'PROBECTL_NETBOX_BOOTSTRAP_FAILURE {"stage":[],"error_class":"other"}',
+    ]:
+        if bootstrap_failure(unsafe):
+            raise RuntimeError("fixture bootstrap diagnostic admitted untrusted text")
+
+    def refused_setup():
+        raise RuntimeError("untrusted-detail must never reach the diagnostic")
+
+    errors = io.StringIO()
+    with (
+        patch.dict(sys.modules, {"django": SimpleNamespace(setup=refused_setup)}),
+        patch.dict(os.environ),
+        patch("sys.stderr", errors),
+    ):
+        try:
+            exec((ROOT / "test/netbox/seed.py").read_text(), {"__name__": "__main__"})
+        except SystemExit as refused:
+            if refused.code != 1:
+                raise RuntimeError(
+                    "fixture bootstrap failure lost its refusal"
+                ) from None
+        else:
+            raise RuntimeError("fixture bootstrap accepted failed Django setup")
+    if (
+        "untrusted-detail" in errors.getvalue()
+        or bootstrap_failure(errors.getvalue().encode())
+        != " bootstrap stage=django_setup error_class=RuntimeError"
+    ):
+        raise RuntimeError(
+            "fixture bootstrap leaked exception text or lost its safe class"
+        )
     for bad in [
         {"host": "127.0.0.1", "port": 8443},
         {"host": "1.1.1.1", "port": 8443},
