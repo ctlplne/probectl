@@ -2810,6 +2810,16 @@ type TestSpec struct {
 	Type            string            `json:"type,omitempty"`
 }
 
+type TestTagContextInput struct {
+	TestIds []string `json:"test_ids"`
+}
+
+type TestTagContextResolution struct {
+	AsOf        string                 `json:"as_of"`
+	Items       []TagSubjectResolution `json:"items"`
+	TagRevision string                 `json:"tag_revision"`
+}
+
 type ThreatRule struct {
 	BaseConfidence int                 `json:"base_confidence,omitempty"`
 	Description    string              `json:"description,omitempty"`
@@ -7066,6 +7076,21 @@ func (c *Client) CreateTagDefinition(ctx context.Context, req CreateTagDefinitio
 	path := "/v1/tags"
 	query := url.Values{}
 	var out TagDefinition
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read consistent current tag context for owned test IDs
+type ResolveTestTagContextRequest struct {
+	Body *TestTagContextInput `json:"-"`
+}
+
+func (c *Client) ResolveTestTagContext(ctx context.Context, req ResolveTestTagContextRequest) (*TestTagContextResolution, error) {
+	path := "/v1/tags/tests/resolve"
+	query := url.Values{}
+	var out TestTagContextResolution
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}

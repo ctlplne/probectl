@@ -23,6 +23,7 @@ func (s *Server) tagRoutes() []apiRoute {
 	return []apiRoute{
 		{http.MethodGet, "/v1/tags", s.handleListTagDefinitions, permTagsRead},
 		{http.MethodPost, "/v1/tags", s.handleCreateTagDefinition, permTagsWrite},
+		{http.MethodPost, "/v1/tags/tests/resolve", s.handleResolveTestTagContext, permTagsRead},
 		{http.MethodPut, "/v1/tags/{id}", s.handleRenameTagDefinition, permTagsWrite},
 		{http.MethodDelete, "/v1/tags/{id}", s.handleDeleteTagDefinition, permTagsWrite},
 		{http.MethodGet, "/v1/entity-contexts/{context_id}/tag-rules", s.handleListTagRules, permTagsRead},

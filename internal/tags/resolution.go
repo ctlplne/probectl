@@ -24,3 +24,17 @@ type EffectiveItem struct {
 	Value  string `json:"value"`
 	Source string `json:"source"`
 }
+
+// TestContextInput can name only test IDs. Ownership and routing context are
+// resolved from current tenant state, never a supplied address or label.
+type TestContextInput struct {
+	TestIDs []string `json:"test_ids"`
+}
+
+// TestContextResolution is current descriptive metadata, not telemetry or a
+// statement that an agent's raw result claim has been attested.
+type TestContextResolution struct {
+	TagRevision string              `json:"tag_revision"`
+	AsOf        string              `json:"as_of"`
+	Items       []SubjectResolution `json:"items"`
+}

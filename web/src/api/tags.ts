@@ -20,6 +20,7 @@ import type {
   TagRulePage,
   TagSubjectResolution,
   ResolveSubjectTagsRequest,
+  TestTagContextResolution,
 } from './sdk.gen'
 
 export type {
@@ -33,9 +34,25 @@ export type {
   TagRuleInput,
   TagSubjectResolution,
   TagResolutionItem,
+  TestTagContextResolution,
 } from './sdk.gen'
 
 const tagKey = (tenantID: string) => ['tenant-tags', tenantID] as const
+
+/** A result detail owns this current fact snapshot; never infer a test ID
+ * from target/type or share the response through the metadata list cache. */
+export function resolveTestTagContext(
+  tenantID: string,
+  testIDs: string[],
+  signal: AbortSignal,
+): Promise<TestTagContextResolution> {
+  return apiFetch<TestTagContextResolution>('/tags/tests/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+    body: JSON.stringify({ test_ids: testIDs }),
+    signal,
+  })
+}
 export const MAX_TAG_VALUE_CHARACTERS = 24_000
 // Native maxlength counts UTF-16 units, while the API counts Unicode points.
 export const MAX_TAG_VALUE_INPUT_UNITS = MAX_TAG_VALUE_CHARACTERS * 2

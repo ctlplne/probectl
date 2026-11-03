@@ -20,6 +20,7 @@ import type { Test } from '../api/tests'
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
 import { formatCount, formatDecimal, formatPercentValue, formatUnit } from '../i18n/number'
+import { TestResultTagContext } from './TestResultTagContext'
 
 /** Per-type synthetic result views (S-FE5). One consistent pattern across
  *  types — header kv + a type-specific breakdown — extending the S9 screens
@@ -367,6 +368,7 @@ export function ResultDetail({ test, onClose }: { test: Test; onClose: () => voi
 
   return (
     <Modal open onClose={onClose} title={`${test.name} — latest results`}>
+      <TestResultTagContext results={matches} />
       {latest.isPending ? (
         <LoadingState label="Loading latest results…" />
       ) : latest.isError ? (

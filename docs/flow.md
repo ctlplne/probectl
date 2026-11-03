@@ -988,3 +988,38 @@ resource-budget error; it never truncates values or returns partial totals.
 The schema exposes separate native predicate byte and tag value limits. The
 append-only expansion migration and old-silo catch-up preserve tenant RLS,
 compound subject FKs and current-rule revision semantics without rewriting data.
+
+
+### Current tags on synthetic results
+
+The latest-result detail offers **Show current test tags** when the caller has
+`tags.read` and `test.read` and the displayed results carry exact
+`probectl.test.id` attributes. Target/type matches on legacy results never
+supply a tag identity. The view shows the current metadata revision and read
+time; refreshing applies current rules, manual values and reviewed imported
+suggestions to those earlier results. Probe values and stored labels are
+unchanged. A failed refresh clears the earlier disclosure. Long values remain
+fully available through the value disclosure control.
+
+`POST /v1/tags/tests/resolve` exposes the same preview read:
+
+```json
+{"test_ids":["11111111-1111-4111-8111-111111111111"]}
+```
+
+Only exact test references are accepted. Tenant and routing context come from
+authentication and current owned state. Both read grants are checked globally
+and against each captured routing context. Unknown, unbound, foreign and denied
+IDs are omitted without distinction; matching a hostname or address grants no
+access. One PostgreSQL RLS snapshot captures ownership, rules, assignments,
+context attributes and one `tag_revision`/`as_of`. Repeated references return
+one curated subject. The read does not verify a raw sender's test claim.
+
+The CLI is `probectl --json tags tests --body-file tests.json`. The named native
+MCP tool is `test_tag_context`, with the same `test_ids` body and the existing
+user, consent and audit requirements. Responses carry exact decimal revision
+strings and curated key/value/source entries; raw source facts and lineage
+are omitted. Values retain the 24,000-character reach. The existing 2 MiB query
+request envelope and configured operation, memory, response and fairness
+budgets apply to the entire read. An overflow or source failure returns no
+partial result. This remains preview pending the complete release-stack proof.

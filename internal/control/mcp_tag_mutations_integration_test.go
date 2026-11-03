@@ -78,7 +78,7 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 				return err
 			}
 			id.role = role.ID
-			for _, permission := range []string{permTagsRead, permTagsWrite} {
+			for _, permission := range []string{permTagsRead, permTagsWrite, "test.read"} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, id.role, permission); err != nil {
 					return err
 				}
@@ -347,6 +347,14 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 			t.Fatalf("tenant metadata/audit mismatch: remaining=%d audits=%d successful=%d", remaining, audits, writes[l.tenant])
 		}
 	}
+	proveTestTagContextFromResults(t, core, db.Pool(), []string{a, b}, routingContext,
+		func(tenant string, input any, wantOK bool) json.RawMessage {
+			id := first
+			if tenant == b {
+				id = second
+			}
+			return request(id, "tools/call", "test_tag_context", input, wantOK)
+		})
 	// Domain audit failure must roll back both the data and its revision. The
 	// trigger is scoped to this owned tenant and tag events; MCP call audits work.
 	var before, after int64
@@ -380,6 +388,7 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 		t.Fatal(err)
 	}
 	call(first, "tag_definition_write", map[string]any{"action": "create", "input": map[string]any{"key": "revoked"}}, false)
+	request(first, "tools/call", "test_tag_context", map[string]any{"test_ids": []string{}}, false)
 	if err := db.Pool().QueryRow(ctx, `SELECT count(*) FROM tenant_tag_definitions WHERE tenant_id=$1`, a).Scan(&leaked); err != nil || leaked != 0 {
 		t.Fatal("revoked role wrote metadata")
 	}

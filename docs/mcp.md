@@ -607,3 +607,16 @@ redaction and query budgets still apply. See [tenant tag semantics](flow.md#tena
 page, comparison and CSV tools. Device/interface metadata additionally requires
 `metrics.read`; agent metadata requires `agent.read`. Interface indices need
 current attested SNMP evidence beneath the owned exporter device.
+
+
+### Current test tag context
+
+The user-only `test_tag_context` read accepts `{"test_ids":["TEST_UUID"]}` and
+requires `tags.read` plus `test.read`, with current routing-context policy.
+It resolves current owned test metadata in one RLS snapshot and returns exact
+revision/time strings and curated annotations. It never infers identity from
+an address or label, exports raw result attributes, or changes stored series.
+Unknown or denied references are omitted. The native whole-result renderer,
+query admission, egress consent and call audit apply; cost/source refusals
+return no partial data. This preview operation provides metadata context for
+exact test IDs from authorized results or metrics, not proof of a sender claim.

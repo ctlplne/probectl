@@ -239,7 +239,10 @@ const testsList = [
   },
 ]
 
-function resultsBackend(items: LatestResult[]) {
+function resultsBackend(
+  items: LatestResult[],
+  tagContext?: (init?: RequestInit) => Response | Promise<Response>,
+) {
   const state = { requests: [] as string[] }
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -247,6 +250,7 @@ function resultsBackend(items: LatestResult[]) {
     const path = pathOf(input)
     state.requests.push(`${init?.method ?? 'GET'} ${url}`)
     if (path === '/v1/results/latest') return jsonResponse({ items, collector_running: true })
+    if (path === '/v1/tags/tests/resolve' && tagContext) return tagContext(init)
     if (path === '/v1/tests') return jsonResponse({ items: testsList })
     if (path === '/v1/agents') return jsonResponse({ items: [] })
     if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
@@ -267,6 +271,69 @@ async function openResults(name: string) {
 
 describe('synthetic result views (S-FE5)', () => {
   beforeEach(() => vi.restoreAllMocks())
+
+  test('current test tags use exact result IDs, full values and clear on refusal', async () => {
+    const fixtures = resultFixtures()
+    fixtures[0].attributes = { 'probectl.test.id': 't1' }
+    let denied = false
+    const value = '🌐'.repeat(24000)
+    const inputs: unknown[] = []
+    const { fetcher } = resultsBackend(fixtures, (init) => {
+      inputs.push(JSON.parse(String(init?.body)))
+      expect(init?.method).toBe('POST')
+      if (denied) return jsonResponse({ error: { code: 'forbidden' } }, 403)
+      return jsonResponse({
+        tag_revision: '9007199254740993',
+        as_of: '2026-11-03T00:00:00Z',
+        items: [
+          {
+            target_kind: 'test',
+            target_id: 't1',
+            context_id: 'owned-context',
+            tag_revision: '9007199254740993',
+            as_of: '2026-11-03T00:00:00Z',
+            items: [{ tag_id: 'customer', key: 'customer', value, source: 'rule' }],
+          },
+        ],
+      })
+    })
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/targets', { me: { permissions: ['test.read', 'tags.read'] } })
+    const dialog = await openResults('app http')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Show current test tags' }))
+    expect(await within(dialog).findByText('9007199254740993')).toBeDefined()
+    const fullValue = within(dialog).getByText(value)
+    expect(fullValue.getAttribute('data-tag-value-full')).not.toBeNull()
+    expect(inputs).toEqual([{ test_ids: ['t1'] }])
+    expect(await axe(dialog)).toHaveNoViolations()
+    denied = true
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Refresh current test tags' }))
+    expect(
+      await within(dialog).findByText(/Current test tag context could not be loaded/),
+    ).toBeDefined()
+    expect(within(dialog).queryByText(value)).toBeNull()
+    expect(within(dialog).queryByText('9007199254740993')).toBeNull()
+  })
+
+  test('legacy result target matches never acquire test tag identity', async () => {
+    const { fetcher, state } = resultsBackend(resultFixtures())
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/targets', { me: { permissions: ['test.read', 'tags.read'] } })
+    const dialog = await openResults('app http')
+    expect(within(dialog).queryByRole('button', { name: 'Show current test tags' })).toBeNull()
+    expect(state.requests.some((request) => request.includes('/tags/tests/resolve'))).toBe(false)
+  })
+
+  test('a result test ID alone does not grant tag disclosure', async () => {
+    const fixtures = resultFixtures()
+    fixtures[0].attributes = { 'probectl.test.id': 't1' }
+    const { fetcher, state } = resultsBackend(fixtures)
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/targets', { me: { permissions: ['test.read'] } })
+    const dialog = await openResults('app http')
+    expect(within(dialog).queryByRole('button', { name: 'Show current test tags' })).toBeNull()
+    expect(state.requests.some((request) => request.includes('/tags/tests/resolve'))).toBe(false)
+  })
 
   test('HTTP renders the dns/connect/tls/ttfb waterfall + status/throughput', async () => {
     const { fetcher } = resultsBackend(resultFixtures())

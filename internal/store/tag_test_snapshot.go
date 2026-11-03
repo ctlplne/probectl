@@ -36,6 +36,13 @@ func (s *TestTagSnapshot) valid() error {
 	return nil
 }
 
+func (s *TestTagSnapshot) Clock() (int64, time.Time, error) {
+	if err := s.valid(); err != nil {
+		return 0, time.Time{}, err
+	}
+	return s.revision, s.asOf, nil
+}
+
 // Contexts returns independent copies from the same RLS snapshot as the tags.
 // A transport must authorize tags.read and the test source for each context.
 func (s *TestTagSnapshot) Contexts() ([]entity.ContextRecord, error) {

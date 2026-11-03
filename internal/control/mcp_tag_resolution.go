@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -21,7 +22,32 @@ import (
 
 func tagReadOptions(pool *pgxpool.Pool, loader mcp.PolicyLoader, src AISources, gate *fairness.Gate) []mcp.Option {
 	backend := tagReadBackend(pool, loader, src, gate)
-	return []mcp.Option{mcp.WithTagBackend(backend), mcp.WithTagSubjectBackend(backend)}
+	return []mcp.Option{mcp.WithTagBackend(backend), mcp.WithTagSubjectBackend(backend), mcp.WithTestTagBackend(backend)}
+}
+
+func (b mcpTagBackend) TestTagAdmission(ctx context.Context, p *auth.Principal) (func(), error) {
+	if p == nil || p.TenantID == "" {
+		return nil, apierror.Unauthorized("tenant identity required for test tags")
+	}
+	if b.fairnessGate == nil {
+		return func() {}, nil
+	}
+	return b.fairnessGate.BeginQuery(ctx, p.TenantID)
+}
+
+func (b mcpTagBackend) TestTagContext(ctx context.Context, p *auth.Principal, input tags.TestContextInput) (tags.TestContextResolution, error) {
+	if p == nil || p.TenantID == "" {
+		return tags.TestContextResolution{}, apierror.Unauthorized("tenant identity required for test tags")
+	}
+	checker := mcpEntityBackend{pool: b.pool, policyLoader: b.policyLoader}
+	policies, err := checker.entitySourcePolicies(ctx, p)
+	if err != nil {
+		return tags.TestContextResolution{}, err
+	}
+	return resolveTestTagContext(ctx, p, b.pool, b.flowStore, input,
+		func(_ context.Context, principal *auth.Principal, permission string, resource map[string]string) (bool, error) {
+			return mcp.ResourceAllowed(principal, permission, policies, resource), nil
+		})
 }
 
 func tagReadBackend(pool *pgxpool.Pool, loader mcp.PolicyLoader, src AISources, gate *fairness.Gate) mcpTagBackend {

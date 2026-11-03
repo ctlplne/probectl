@@ -2674,6 +2674,16 @@ export interface TestSpec {
   type?: "icmp" | "tcp" | "udp" | "dns" | "http" | "browser" | "a2a" | "noop" | "voice"
 }
 
+export interface TestTagContextInput {
+  test_ids: string[]
+}
+
+export interface TestTagContextResolution {
+  as_of: string
+  items: TagSubjectResolution[]
+  tag_revision: string
+}
+
 export interface ThreatRule {
   base_confidence?: number
   description?: string
@@ -4190,6 +4200,12 @@ export interface CreateTagDefinitionRequest {
 }
 
 export type CreateTagDefinitionResponse = TagDefinition
+
+export interface ResolveTestTagContextRequest {
+  body: TestTagContextInput
+}
+
+export type ResolveTestTagContextResponse = TestTagContextResolution
 
 export interface RenameTagDefinitionRequest {
   id: string
@@ -5968,6 +5984,12 @@ export class ProbectlSDKClient {
     let path = "/v1/tags"
     const query = new URLSearchParams()
     return this.requestJSON<CreateTagDefinitionResponse>("POST", path, query, request.body)
+  }
+
+  async resolveTestTagContext(request: ResolveTestTagContextRequest): Promise<ResolveTestTagContextResponse> {
+    let path = "/v1/tags/tests/resolve"
+    const query = new URLSearchParams()
+    return this.requestJSON<ResolveTestTagContextResponse>("POST", path, query, request.body)
   }
 
   async renameTagDefinition(request: RenameTagDefinitionRequest): Promise<RenameTagDefinitionResponse> {
