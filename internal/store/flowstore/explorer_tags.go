@@ -102,9 +102,9 @@ func (d *TagQueryData) WithContextAuthorization(tenantID, digest string) (*TagQu
 	if err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != digest {
 		return nil, ErrTagQueryScope
 	}
-	copy := *d
-	copy.contextAuthorization = digest
-	return &copy, nil
+	cloned := *d
+	cloned.contextAuthorization = digest
+	return &cloned, nil
 }
 
 func (d *TagQueryData) ContextAuthorization(tenantID string) (string, error) {

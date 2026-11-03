@@ -59,7 +59,7 @@ func TestCapabilityValidationMatchesFullSelectedAndGlobalDiagnostics(t *testing.
 		{"selected CLI", func(r *Registry) { r.Capabilities[0].CLI = Cell{Refs: []string{"cli:probectl unknown command"}} }},
 		{"selected proof", func(r *Registry) { r.Capabilities[0].RealStackProof = Cell{} }},
 		{"global schema", func(r *Registry) { r.Schema = "invalid" }},
-		{"global catalogue", func(r *Registry) { r.SourceCatalog = "" }},
+		{"global catalog", func(r *Registry) { r.SourceCatalog = "" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := fixtureRepo(t)

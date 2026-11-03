@@ -28,7 +28,7 @@ func TestAgentInterfaceSnapshotUsesAllHostIPsWithoutNetworkOrHostnameInference(t
 	if err != nil || len(got) != 4 || got[0].String() != "10.2.0.7" {
 		t.Fatalf("complete local host snapshot: %v %v", got, err)
 	}
-	if clear, err := localAgentAddresses(nil); err != nil || clear == nil || len(clear) != 0 {
+	if cleared, err := localAgentAddresses(nil); err != nil || cleared == nil || len(cleared) != 0 {
 		t.Fatal("successful empty collection lost presence")
 	}
 	if _, err := localAgentAddresses([]net.Addr{&net.IPAddr{}}); err == nil {

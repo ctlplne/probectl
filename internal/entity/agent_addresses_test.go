@@ -18,8 +18,8 @@ func TestAgentAddressSnapshotsKeepPresenceAndCompleteCanonicalHostFacts(t *testi
 	if err != nil || legacy != nil {
 		t.Fatal("legacy absence changed")
 	}
-	clear, err := ParseAgentAddressSnapshot(nil)
-	if err != nil || clear == nil || len(clear) != 0 {
+	cleared, err := ParseAgentAddressSnapshot(nil)
+	if err != nil || cleared == nil || len(cleared) != 0 {
 		t.Fatal("present empty snapshot lost its clear")
 	}
 	input := []string{"2001:db8::1", "::ffff:10.2.0.7", "10.2.0.7", "127.0.0.1", "::1", "fe80::1", "fd00::1"}
