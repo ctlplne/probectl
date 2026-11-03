@@ -247,14 +247,14 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		outputs = append(outputs, output("point", "chart_points", "", "bucket_index", "toString(duration_ns)", "toUInt64(0)"))
 	}
 	if plan.View == "matrix" {
-		rowTop := "SELECT arrayJoin(tupleElement(__probectl_matrix_rows,2))"
+		rowGroups := "tupleElement(__probectl_matrix_rows,2)"
 		if selectedMatrixRows != nil {
 			encoded, err := json.Marshal(selectedMatrixRows)
 			if err != nil {
 				return "", nil, err
 			}
 			params["selected_matrix_rows"] = string(encoded)
-			rowTop = "SELECT arrayJoin(JSONExtract({selected_matrix_rows:String},'Array(Array(String))'))"
+			rowGroups = "JSONExtract({selected_matrix_rows:String},'Array(Array(String))')"
 		} else {
 			// Scalar folding is query-local. Referencing a ranked table CTE at
 			// every membership site repeatedly analyzes its complete input,
@@ -263,8 +263,9 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 			// arrays have the same type but must never share a cached binding.
 			ctes = append(ctes, "(SELECT tuple('matrix_rows',groupArray(row_members.g)) FROM "+globalRank+" AS row_members WHERE row_members.rk<={matrix_depth:UInt64}) AS __probectl_matrix_rows")
 		}
-		outputs = append(outputs, output("matrix_row", "full_stats", "g IN ("+rowTop+")", "toInt64(-1)", "'0'", "toUInt64(0)"))
-		input("column_input", "filtered.c", empty, "0", "0", "filtered.g IN ("+rowTop+")")
+		rowMember := func(group string) string { return "has(" + rowGroups + "," + group + ")" }
+		outputs = append(outputs, output("matrix_row", "full_stats", rowMember("g"), "toInt64(-1)", "'0'", "toUInt64(0)"))
+		input("column_input", "filtered.c", empty, "0", "0", rowMember("filtered.g"))
 		ctes = append(ctes, planStatsSQL("column", "column_input", plan)...)
 		if selectedColumns == nil {
 			rank("column_ranked", "column_stats")
@@ -276,16 +277,19 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 			params["selected_columns"] = string(encoded)
 			ctes = append(ctes, "column_ranked AS (SELECT *,indexOf(JSONExtract({selected_columns:String},'Array(Array(String))'),g) AS rk FROM column_stats WHERE g IN (SELECT arrayJoin(JSONExtract({selected_columns:String},'Array(Array(String))'))))")
 		}
-		columnTop := "SELECT arrayJoin(tupleElement(__probectl_matrix_columns,2))"
+		columnGroups := "tupleElement(__probectl_matrix_columns,2)"
 		if selectedColumns != nil {
 			// Preserve pinned membership even when a column occurs only in
 			// this period's Other rows and has no conditioned statistics.
-			columnTop = "SELECT arrayJoin(JSONExtract({selected_columns:String},'Array(Array(String))'))"
+			columnGroups = "JSONExtract({selected_columns:String},'Array(Array(String))')"
 		} else {
 			ctes = append(ctes, "(SELECT tuple('matrix_columns',groupArray(column_members.g)) FROM column_ranked AS column_members WHERE column_members.rk<={matrix_depth:UInt64}) AS __probectl_matrix_columns")
 		}
 		outputs = append(outputs, output("matrix_column", "column_ranked", "rk<={matrix_depth:UInt64}", "toInt64(-1)", "'0'", "toUInt64(0)"))
-		input("matrix_input", "if(filtered.g IN ("+rowTop+"),filtered.g,"+empty+")", "if(filtered.c IN ("+columnTop+"),filtered.c,"+empty+")", "filtered.g NOT IN ("+rowTop+")", "filtered.c NOT IN ("+columnTop+")", "")
+		// Keep complete Array(String) group keys as elements of the scalar
+		// Array(Array(String)); avoid constructing an IN subquery/set here.
+		columnMember := func(group string) string { return "has(" + columnGroups + "," + group + ")" }
+		input("matrix_input", "if("+rowMember("filtered.g")+",filtered.g,"+empty+")", "if("+columnMember("filtered.c")+",filtered.c,"+empty+")", "NOT "+rowMember("filtered.g"), "NOT "+columnMember("filtered.c"), "")
 		ctes = append(ctes, planStatsSQL("matrix", "matrix_input", plan)...)
 		outputs = append(outputs, output("matrix", "matrix_stats", "", "toInt64(-1)", "'0'", "toUInt64(0)"))
 	}
