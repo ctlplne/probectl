@@ -30,6 +30,20 @@ export interface APICallContract {
 export const API_CALL_CONTRACTS = [
   {
     file: 'api/tags.ts',
+    method: 'POST',
+    path: '`/entity-contexts/${encodeURIComponent(contextID)}/tag-imports/netbox/preview`',
+    response: 'NetBoxTagPreview',
+    generated: 'PreviewNetBoxTagResponse',
+  },
+  {
+    file: 'api/tags.ts',
+    method: 'POST',
+    path: '`/entity-contexts/${encodeURIComponent(contextID)}/tag-imports/netbox/apply`',
+    response: 'TagAssignment',
+    generated: 'ApplyNetBoxTagResponse',
+  },
+  {
+    file: 'api/tags.ts',
     method: 'GET',
     path: '/tags',
     response: 'TagDefinitionList',

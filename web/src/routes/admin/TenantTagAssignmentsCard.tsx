@@ -121,6 +121,7 @@ function TenantTagAssignmentsContents({
 
   async function onSave(event: FormEvent) {
     event.preventDefault()
+    if (definitions.isPending || definitions.isError) return
     if (!contextID || !tagID || !value.trim() || tagValueTooLong(value)) return
     if (
       targetKind === 'exporter'
@@ -223,6 +224,10 @@ function TenantTagAssignmentsContents({
       />
       <CardBody>
         <div className={styles.stack}>
+          {definitions.isPending ? <LoadingState label="Loading assignment tag keys…" /> : null}
+          {definitions.isError ? (
+            <ErrorState description="Assignment tag keys could not be loaded." />
+          ) : null}
           {contexts.isPending ? <LoadingState label="Loading routing contexts…" /> : null}
           {contexts.isError ? (
             <ErrorState description="Routing contexts could not be loaded." />
@@ -288,7 +293,7 @@ function TenantTagAssignmentsContents({
                   </div>
                 </>
               ) : null}
-              {canWrite && definitions.data?.items.length ? (
+              {canWrite && !definitions.isError && definitions.data?.items.length ? (
                 <form className={styles.form} onSubmit={(event) => void onSave(event)}>
                   <h3>{editing ? 'Edit manual assignment' : 'Create manual assignment'}</h3>
                   <div className={styles.row}>

@@ -326,5 +326,4 @@ func testNetBoxReviewedApply(t *testing.T, srv *Server, db *store.DB,
 			t.Fatalf("MCP assignment crossed tenant/context: %q %v", stored, err)
 		}
 	}
-
 }

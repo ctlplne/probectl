@@ -2256,10 +2256,8 @@ ownership mismatch or completed fresh-preview ownership disappearance/ambiguity
 evicts the old entry and fences older inflight responses. Reviewed tag import requires a fresh
 source read; stale enrichment never authorizes an import.
 
-The CI-only real NetBox source proof uses `PROBECTL_TEST_NETBOX_REQUIRED=1`
-and `PROBECTL_TEST_NETBOX_FIXTURE` for its private runtime manifest. These are
-test harness settings, not deployment configuration. See the
-[source fixture and proof scope](../test/netbox/README.md).
+The CI-only real NetBox source proof has separate
+[test harness settings and proof scope](../test/netbox/README.md).
 
 ### Cloud metric import
 

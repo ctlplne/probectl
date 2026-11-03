@@ -146,6 +146,32 @@ function tagFetch(capture: TagCapture) {
 }
 
 describe('Tenant tag definitions in Admin', () => {
+  test('shows vocabulary failures and blocks rule and assignment editors', async () => {
+    const base = tagFetch({ bodies: [], deleted: [] })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) === '/v1/tags' && (init?.method ?? 'GET') === 'GET') {
+          return jsonResponse({ error: { message: 'tag vocabulary unavailable' } }, 503)
+        }
+        return base(input, init)
+      }),
+    )
+    renderApp('/admin', { me: { permissions: ['tags.read', 'tags.write', 'entities.read'] } })
+    expect(await screen.findByText('Assignment tag keys could not be loaded.')).toBeInTheDocument()
+    expect(await screen.findByText('Rule tag keys could not be loaded.')).toBeInTheDocument()
+    const assignments = screen
+      .getByText('Manual tag assignments')
+      .closest('[data-tenant-tag-assignments]') as HTMLElement
+    const rules = screen
+      .getByText('Tenant tag rules')
+      .closest('[data-tenant-tag-rules]') as HTMLElement
+    expect(
+      within(assignments).queryByRole('textbox', { name: 'Owned target ID' }),
+    ).not.toBeInTheDocument()
+    expect(within(rules).queryByRole('textbox', { name: 'CIDR' })).not.toBeInTheDocument()
+  })
+
   test('writes only through the authenticated tenant API and confirms destructive deletion', async () => {
     const capture: { bodies: unknown[]; deleted: string[] } = { bodies: [], deleted: [] }
     vi.stubGlobal('fetch', tagFetch(capture))

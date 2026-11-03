@@ -126,6 +126,7 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
 
   async function onSave(event: FormEvent) {
     event.preventDefault()
+    if (definitions.isPending || definitions.isError) return
     if (!contextID || !tagID || !value.trim() || tagValueTooLong(value)) return
     try {
       const input = ruleInput()
@@ -210,6 +211,10 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
       />
       <CardBody>
         <div className={styles.stack}>
+          {definitions.isPending ? <LoadingState label="Loading rule tag keys…" /> : null}
+          {definitions.isError ? (
+            <ErrorState description="Rule tag keys could not be loaded." />
+          ) : null}
           {contexts.isPending ? <LoadingState label="Loading routing contexts…" /> : null}
           {contexts.isError ? (
             <ErrorState description="Routing contexts could not be loaded." />
@@ -271,7 +276,7 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
                   </div>
                 </>
               ) : null}
-              {canWrite && definitions.data?.items.length ? (
+              {canWrite && !definitions.isError && definitions.data?.items.length ? (
                 <form className={styles.form} onSubmit={(event) => void onSave(event)}>
                   <h3>{editing ? 'Edit tag rule' : 'Create tag rule'}</h3>
                   <div className={styles.row}>
