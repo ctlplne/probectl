@@ -38,6 +38,9 @@ func TestTagStoragePlanRepairsOldSiloBeforeTypedForeignKeys(t *testing.T) {
 				`ENABLE ALWAYS TRIGGER "tenant_tag_revision_delete"`,
 				`DROP TRIGGER IF EXISTS "tenant_tag_revision_insert" ON "` + schema + `"."entity_source_contexts"`,
 				`DROP TRIGGER IF EXISTS "tenant_tag_revision_update" ON "` + schema + `"."entity_agent_contexts"`,
+				`ADD CONSTRAINT "tenant_tag_rules_match_v2_check" CHECK`,
+				`octet_length(snmp_value) BETWEEN 1 AND 1024`,
+				`translate(snmp_value, E'\t\n\r', '') !~ '[[:cntrl:]]'`,
 			}
 			for _, want := range mustContain {
 				if !strings.Contains(joined, want) {
@@ -55,5 +58,8 @@ func TestTagStoragePlanRepairsOldSiloBeforeTypedForeignKeys(t *testing.T) {
 				t.Fatal("old silo catch-up must build existing-table indexes concurrently before its transaction")
 			}
 		})
+	}
+	if joined := strings.Join(ProvisionPlan(schema, base), "\n"); strings.Contains(joined, "tenant_tag_rules_match_v2_check") {
+		t.Fatal("a pre-tag product version cannot install a CHECK on an absent tag table")
 	}
 }
