@@ -70,7 +70,7 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 		}
 		allowed[record.ContextID] = disclose
 		for _, subject := range []struct{ kind, permission string }{{"device", "metrics.read"}, {"agent", "agent.read"}} {
-			if !slices.Contains(selected, subject.kind) && !(subject.kind == "device" && slices.Contains(selected, "interface")) {
+			if !(slices.Contains(selected, subject.kind) || subject.kind == "device" && slices.Contains(selected, "interface")) {
 				continue
 			}
 			decision, err := s.decide(ctx, p, subject.permission, auth.RBACGlobal, resource)

@@ -114,7 +114,7 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 			if field == "site" {
 				attributeID = manifest.Sites[lane]
 			}
-			candidate, err := previewOwnedIPTag(resolver, ctx, "192.0.2.10", field)
+			candidate, err := previewOwnedIPTag(ctx, resolver, "192.0.2.10", field)
 			if err != nil || candidate.NetBoxTenantID != manifest.Tenants[lane] ||
 				candidate.LookupCIID != "netbox:ipam.ip_address:"+manifest.IPs[lane] ||
 				candidate.CIID != "netbox:dcim.device:"+manifest.Devices[lane] ||
@@ -129,7 +129,7 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 		if cis, err := resolver.Lookup(ctx, "192.0.2.10"); !errors.Is(err, ErrTenantBinding) || len(cis) != 0 {
 			t.Fatal("unmapped caller reached a warmed source lookup")
 		}
-		if candidate, err := previewOwnedIPTag(resolver, ctx, "192.0.2.10", "role"); !errors.Is(err, ErrTenantBinding) || candidate != (NetBoxTagCandidate{}) {
+		if candidate, err := previewOwnedIPTag(ctx, resolver, "192.0.2.10", "role"); !errors.Is(err, ErrTenantBinding) || candidate != (NetBoxTagCandidate{}) {
 			t.Fatal("unmapped caller reached a source preview")
 		}
 	}
@@ -139,7 +139,7 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 	t.Cleanup(func() { liveNetBoxMutation(t, "restore-ip", "a") })
 	liveNetBoxMutation(t, "move-ip", "a", "b")
 	for _, lane := range []string{"a", "b"} {
-		candidate, err := previewOwnedIPTag(resolver, netBoxContext(callers[lane]), "192.0.2.10", "role")
+		candidate, err := previewOwnedIPTag(netBoxContext(callers[lane]), resolver, "192.0.2.10", "role")
 		if (!errors.Is(err, ErrNoTagCandidate) && !errors.Is(err, ErrTenantBinding)) || candidate != (NetBoxTagCandidate{}) {
 			t.Fatalf("lane %s fresh preview trusted absent/ambiguous ownership after actual source change: %v", lane, err)
 		}
