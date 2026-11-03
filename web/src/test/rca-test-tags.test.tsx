@@ -8,7 +8,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
 import { axe } from 'jest-axe'
 import type { Answer } from '../api/ai'
-import { citedTestTagReferences } from '../routes/RCATestTagContext'
+import { citedTestTagReferences } from '../routes/explanationGrounding'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
 

@@ -37,3 +37,29 @@ export function resolveClaims(answer: Answer): ResolvedClaims {
 
   return { rootCitations, rootResolved, findings, suppressedClaims }
 }
+
+// Only uniquely resolved citations contribute lookup references. A target,
+// title, uncited row or arbitrary source field cannot nominate a test.
+export function citedTestTagReferences(answer: Answer): string[] {
+  const claims = resolveClaims(answer)
+  const cited = new Set(
+    [
+      ...(claims.rootResolved ? claims.rootCitations : []),
+      ...claims.findings.flatMap((finding) => finding.citations),
+    ].map((citation) => citation.evidence_id),
+  )
+  return Array.from(
+    new Set(
+      answer.evidence.flatMap((evidence) => {
+        const id = evidence.fields?.test_id
+        return cited.has(evidence.id) &&
+          evidence.domain === 'metrics' &&
+          typeof id === 'string' &&
+          id.length > 0 &&
+          id.length <= 128
+          ? [id]
+          : []
+      }),
+    ),
+  ).sort()
+}
