@@ -320,6 +320,7 @@ type AlertRule struct {
 	CreatedAt       string            `json:"created_at,omitempty"`
 	Enabled         *bool             `json:"enabled,omitempty"`
 	ForN            int               `json:"for_n,omitempty"`
+	HasTagFilter    *bool             `json:"has_tag_filter,omitempty"`
 	Id              string            `json:"id,omitempty"`
 	Match           map[string]string `json:"match,omitempty"`
 	Metric          string            `json:"metric,omitempty"`
@@ -333,6 +334,27 @@ type AlertRule struct {
 	Type            string            `json:"type,omitempty"`
 	UpdatedAt       string            `json:"updated_at,omitempty"`
 	Window          int               `json:"window,omitempty"`
+}
+
+type AlertTagFilter struct {
+	AsOf        string               `json:"as_of"`
+	Filter      FlowQueryFilterGroup `json:"filter"`
+	OwnerUserId string               `json:"owner_user_id"`
+	TagIds      map[string]string    `json:"tag_ids"`
+	TagRevision string               `json:"tag_revision"`
+	TargetKind  string               `json:"target_kind"`
+	Version     int                  `json:"version"`
+}
+
+type AlertTagFilterInput struct {
+	Filter     FlowQueryFilterGroup `json:"filter"`
+	TargetKind string               `json:"target_kind"`
+}
+
+type AlertTagFilterState struct {
+	HasTagFilter bool           `json:"has_tag_filter"`
+	RuleId       string         `json:"rule_id"`
+	TagFilter    AlertTagFilter `json:"tag_filter,omitempty"`
 }
 
 // What a trap rule (type trap) matches in the tenant's stored, authenticated SNMP traps (GET /v1/device/traps). The rule fires per device while a matching trap is within hold_seconds and resolves on a matching clear trap or when the hold runs out. OIDs are dotted decimal; a missing leading dot is added.
@@ -3533,6 +3555,60 @@ func (c *Client) ListAlertEvaluations(ctx context.Context, req ListAlertEvaluati
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Read a current alert tag filter
+type GetAlertTagFilterRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetAlertTagFilter(ctx context.Context, req GetAlertTagFilterRequest) (*AlertTagFilterState, error) {
+	path := "/v1/alerts/{id}/tag-filter"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertTagFilterState
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Set current test metadata selection for an alert
+type SetAlertTagFilterRequest struct {
+	Id   string               `json:"-"`
+	Body *AlertTagFilterInput `json:"-"`
+}
+
+func (c *Client) SetAlertTagFilter(ctx context.Context, req SetAlertTagFilterRequest) (*AlertTagFilterState, error) {
+	path := "/v1/alerts/{id}/tag-filter"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertTagFilterState
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Explicitly clear an alert tag filter
+type ClearAlertTagFilterRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) ClearAlertTagFilter(ctx context.Context, req ClearAlertTagFilterRequest) error {
+	path := "/v1/alerts/{id}/tag-filter"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
 // List the tenant's API tokens (metadata only; the secret and its hash never cross this API).

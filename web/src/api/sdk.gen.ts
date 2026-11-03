@@ -242,6 +242,7 @@ export interface AlertRule {
   created_at?: string
   enabled?: boolean
   for_n?: number
+  has_tag_filter?: boolean
   id?: string
   match?: { [key: string]: string }
   metric?: string
@@ -255,6 +256,27 @@ export interface AlertRule {
   type?: "threshold" | "baseline" | "trap"
   updated_at?: string
   window?: number
+}
+
+export interface AlertTagFilter {
+  as_of: string
+  filter: FlowQueryFilterGroup
+  owner_user_id: string
+  tag_ids: { [key: string]: string }
+  tag_revision: string
+  target_kind: "test"
+  version: number
+}
+
+export interface AlertTagFilterInput {
+  filter: FlowQueryFilterGroup
+  target_kind: "test"
+}
+
+export interface AlertTagFilterState {
+  has_tag_filter: boolean
+  rule_id: string
+  tag_filter?: AlertTagFilter
 }
 
 export interface AlertTrapMatch {
@@ -2972,6 +2994,25 @@ export interface ListAlertEvaluationsRequest {
 
 export type ListAlertEvaluationsResponse = AlertEvaluationsResponse
 
+export interface GetAlertTagFilterRequest {
+  id: string
+}
+
+export type GetAlertTagFilterResponse = AlertTagFilterState
+
+export interface SetAlertTagFilterRequest {
+  id: string
+  body: AlertTagFilterInput
+}
+
+export type SetAlertTagFilterResponse = AlertTagFilterState
+
+export interface ClearAlertTagFilterRequest {
+  id: string
+}
+
+export type ClearAlertTagFilterResponse = void
+
 export interface GetV1ApiTokensRequest {
 }
 
@@ -4636,6 +4677,27 @@ export class ProbectlSDKClient {
     if (request.fingerprint !== undefined) query.set("fingerprint", String(request.fingerprint))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListAlertEvaluationsResponse>("GET", path, query, undefined)
+  }
+
+  async getAlertTagFilter(request: GetAlertTagFilterRequest): Promise<GetAlertTagFilterResponse> {
+    let path = "/v1/alerts/{id}/tag-filter"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetAlertTagFilterResponse>("GET", path, query, undefined)
+  }
+
+  async setAlertTagFilter(request: SetAlertTagFilterRequest): Promise<SetAlertTagFilterResponse> {
+    let path = "/v1/alerts/{id}/tag-filter"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<SetAlertTagFilterResponse>("PUT", path, query, request.body)
+  }
+
+  async clearAlertTagFilter(request: ClearAlertTagFilterRequest): Promise<ClearAlertTagFilterResponse> {
+    let path = "/v1/alerts/{id}/tag-filter"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, undefined)
   }
 
   async getV1ApiTokens(): Promise<GetV1ApiTokensResponse> {

@@ -374,3 +374,46 @@ same lifecycle through forced PostgreSQL RLS, restarts the correlator against th
 durable store, proves a second tenant cannot observe or mutate the decision, and
 checks both audit receipts. The incident-room web test covers the operator
 create/reverse journey and keeps the actions behind `incident.write`.
+
+
+### Current test tag filters (preview)
+
+A threshold or baseline rule can select its current owned tests by tenant tag
+criteria. This read uses current annotations over retained series: changing a
+tag rule changes the next selection without relabeling the original metrics.
+The API/CLI path is preview. UI and native adapters remain in development;
+the complete source receipt is still required.
+
+Use `GET`, `PUT` or `DELETE /v1/alerts/{id}/tag-filter`. The CLI equivalents are
+`probectl --json alert tag-filter RULE_ID`, `alert tag-filter-set RULE_ID
+--body-file criteria.json`, and `alert tag-filter-clear RULE_ID`. A set body is:
+
+```json
+{"target_kind":"test","filter":{"match":"all","conditions":[{"field":"tag.customer","op":"eq","values":["Acme"]}]}}
+```
+
+The existing nested include/exclude and regex grammar is supported for root
+current test tag fields. Saved flow filters and other subject fields are
+refused. Complete values retain the tag value reach; the existing 2 MiB request
+and configured operation, memory, response and fairness budgets can refuse a
+whole operation. Ordinary alert get/list replies expose `has_tag_filter` only;
+full criteria are read separately so large values do not expand bulk rule reads.
+
+The authenticated active user needs current alert write and tag/test/metric read
+grants to configure this selection. The evaluator reloads that user's current
+roles, attributes and policy; disabling the user or revoking source read access
+stops evaluation before metric reads. A scoped credential cannot borrow the
+user's wider role. A live MFA assertion is usable for its request and is never
+stored as background authority; source policy requiring it refuses automation.
+A full rule edit preserves and reauthorizes its current filter. An explicit
+clear preserves the rule's other settings and resumes its ordinary selection.
+
+Definitions bind by immutable ID. A renamed, deleted or replaced tag requires
+review rather than silently retargeting the saved selection. Unknown, unbound,
+foreign or denied test references cannot match a negative criterion. Missing
+owner/policy/source, stale bindings, cancellation and cost refusal produce no
+unfiltered fallback or healthy evaluation. A legitimate empty authorized
+selection is `no_data`, with existing alert no-data behavior. A metric's
+`test_id` nominates descriptive current metadata; it is not sender attestation.
+The response's revision/time describe binding of the configuration, while each
+evaluation loads current metadata again.

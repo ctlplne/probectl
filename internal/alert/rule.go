@@ -117,6 +117,8 @@ type Rule struct {
 	// Target: the metric series this rule watches.
 	Metric string            `json:"metric"`
 	Match  map[string]string `json:"match,omitempty"`
+	// Full configuration is loaded per rule after tenant query admission.
+	HasTagFilter bool `json:"has_tag_filter,omitempty"`
 
 	Type RuleType `json:"type"`
 
@@ -149,6 +151,9 @@ func (r Rule) Validate() error {
 		return fmt.Errorf("alert: name is required (1-200 chars)")
 	}
 	if r.Type == Trap {
+		if r.HasTagFilter {
+			return fmt.Errorf("alert: current test tag selection requires a metric rule")
+		}
 		return r.validateTrap()
 	}
 	if r.Trap != nil {

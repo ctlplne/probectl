@@ -637,7 +637,8 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	if sup, ok := control.BuildAlertEvaluatorSupervisor(rt.db.Pool(), rt.tsdbWriter, channelDeps,
 		rt.cfg.AlertEvalInterval, control.AlertSink(rt.correlator, rt.log), rt.log,
 		func(tenant string, src control.AlertStateSource) { rt.srv.WithAlertState(tenant, src) },
-		func(tenant string) { rt.srv.WithoutAlertState(tenant) }); ok {
+		func(tenant string) { rt.srv.WithoutAlertState(tenant) },
+		control.AlertTagDependencies{Gate: rt.fairGate, FlowStore: rt.flowStore}); ok {
 		rt.alertingActive = true
 		if err := rt.singletons.Register("alert-evaluator", func(ctx context.Context, _ cluster.LeaseToken) error {
 			sup.Run(ctx)

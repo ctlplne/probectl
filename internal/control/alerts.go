@@ -13,7 +13,9 @@ import (
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -229,11 +231,63 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
+	var observed *alert.Rule
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		observed, err = (store.AlertRules{}).Get(ctx, sc, id)
+		return err
+	}); err != nil {
+		return err
+	}
+	var prepared *alert.TagFilter
+	if observed.HasTagFilter {
+		if rule.Type == alert.Trap {
+			return apierror.Validation("clear the current test tag filter before changing to a trap rule")
+		}
+		bounded, release, err := s.beginAlertTagOperation(w, r)
+		if err != nil {
+			return err
+		}
+		defer release()
+		r = bounded
+		actor := auth.PrincipalFrom(r.Context())
+		if actor == nil || actor.UserID == "" {
+			return apierror.Unauthorized("a current user is required for alert metadata")
+		}
+		authority, err := loadAlertTagAuthority(tenancy.WithTenant(r.Context(), tenancy.ID(actor.TenantID)), s.pool, actor.TenantID, actor.UserID)
+		if err != nil {
+			return err
+		}
+		for _, permission := range append(alertTagPermissions(), permAlertWrite) {
+			if !authority.permitsRequest(actor, permission) {
+				return apierror.Forbidden("current alert and source grants are required")
+			}
+		}
+		budget := flowstore.ExplorerOperationBudget(r.Context(), s.flowStore)
+		var saved *alert.TagFilter
+		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			saved, err = (store.AlertRules{}).GetTagFilter(ctx, sc, id, observed.UpdatedAt, budget.MemoryBytes/4)
+			return err
+		}); err != nil {
+			return alertTagFilterError(w, err)
+		}
+		if saved == nil {
+			return alertTagFilterError(w, store.ErrAlertTagFilterChanged)
+		}
+		prepared, err = prepareAlertTagFilter(r.Context(), s.pool, s.flowStore, auth.PrincipalFrom(r.Context()), alert.TagFilterInput{TargetKind: saved.TargetKind, Filter: saved.Filter}, saved.TagIDs)
+		if err != nil {
+			return alertTagFilterError(w, err)
+		}
+	}
 	var updated *alert.Rule
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		before, e := store.AlertRules{}.Get(ctx, sc, id)
 		if e != nil {
 			return e
+		}
+		if !before.UpdatedAt.Equal(observed.UpdatedAt) {
+			return apierror.Conflict("alert configuration changed; refresh before saving")
 		}
 		preserveRedactedAlertSecrets(&rule, before)
 		// WEB-09: a redacted secret that could not be preserved (e.g. the URL
@@ -244,6 +298,12 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 		x, e := store.AlertRules{}.Update(ctx, sc, id, rule)
 		if e != nil {
 			return e
+		}
+		if prepared != nil {
+			x, e = (store.AlertRules{}).SetTagFilter(ctx, sc, id, x.UpdatedAt, prepared)
+			if e != nil {
+				return e
+			}
 		}
 		updated = x
 		return s.recordAudit(ctx, sc, r, "alert.update", id, map[string]any{"name": x.Name})

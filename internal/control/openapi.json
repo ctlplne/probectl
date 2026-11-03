@@ -1343,6 +1343,207 @@
         }
       }
     },
+    "/v1/alerts/{id}/tag-filter": {
+      "get": {
+        "operationId": "getAlertTagFilter",
+        "summary": "Read a current alert tag filter",
+        "x-required-permission": "alert.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current metadata filter state; no channel secrets or raw source facts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertTagFilterState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-additional-permissions": [
+          "tags.read",
+          "test.read",
+          "metrics.read"
+        ],
+        "description": "Tenant identity comes from authentication and the rule is read through FORCE-RLS. The authenticated current active user, current role and policy are rechecked. Full filter values use the existing query admission, memory, response and execution budgets and are loaded per rule; ordinary rule lists contain only has_tag_filter. Returns one complete curated configuration and its immutable definition bindings/binding revision and time, under current live-user source read grants. The stored owner ID is descriptive and does not authorize the caller."
+      },
+      "put": {
+        "operationId": "setAlertTagFilter",
+        "summary": "Set current test metadata selection for an alert",
+        "x-required-permission": "alert.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current metadata filter state; no channel secrets or raw source facts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertTagFilterState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-additional-permissions": [
+          "tags.read",
+          "test.read",
+          "metrics.read"
+        ],
+        "description": "Tenant identity comes from authentication and the rule is read through FORCE-RLS. The authenticated current active user, current role and policy are rechecked. Full filter values use the existing query admission, memory, response and execution budgets and are loaded per rule; ordinary rule lists contain only has_tag_filter. Only target_kind=test and the existing nested root tag predicate grammar are accepted. Owner, version and immutable tag bindings are server-authored. Other subject fields and saved-flow references are refused. The owner must remain authorized for background source reads without a durable MFA assertion. Rules and tags apply at query time over retained series; stored series labels/fingerprints are unchanged. A test_id nominates current owned metadata, not a sender identity. Source/policy/cost/stale-definition failures never fall back to unfiltered evaluation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertTagFilterInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "clearAlertTagFilter",
+        "summary": "Explicitly clear an alert tag filter",
+        "x-required-permission": "alert.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Metadata filter cleared; other rule settings preserved."
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Tenant identity comes from authentication and the rule is read through FORCE-RLS. The authenticated current active user, current role and policy are rechecked. Full filter values use the existing query admission, memory, response and execution budgets and are loaded per rule; ordinary rule lists contain only has_tag_filter. This is an explicit current-user configuration mutation under alert.write; it does not return metadata values. Subsequent evaluation uses the legacy rule without a metadata selection."
+      }
+    },
     "/v1/alerts/{id}": {
       "parameters": [
         {
@@ -16180,9 +16381,109 @@
           }
         }
       },
+      "AlertTagFilterInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target_kind",
+          "filter"
+        ],
+        "properties": {
+          "target_kind": {
+            "type": "string",
+            "enum": [
+              "test"
+            ]
+          },
+          "filter": {
+            "$ref": "#/components/schemas/FlowQueryFilterGroup",
+            "description": "Existing nested include/exclude/regex grammar over this test subject root tag keys only. Saved flow references are rejected."
+          }
+        }
+      },
+      "AlertTagFilter": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "target_kind",
+          "filter",
+          "tag_ids",
+          "owner_user_id",
+          "tag_revision",
+          "as_of"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "enum": [
+              1
+            ],
+            "readOnly": true
+          },
+          "target_kind": {
+            "type": "string",
+            "enum": [
+              "test"
+            ]
+          },
+          "filter": {
+            "$ref": "#/components/schemas/FlowQueryFilterGroup"
+          },
+          "tag_ids": {
+            "type": "object",
+            "readOnly": true,
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "owner_user_id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "tag_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "readOnly": true,
+            "description": "Exact decimal definition-binding revision; evaluation rechecks current metadata."
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        }
+      },
+      "AlertTagFilterState": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rule_id",
+          "has_tag_filter"
+        ],
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "has_tag_filter": {
+            "type": "boolean"
+          },
+          "tag_filter": {
+            "$ref": "#/components/schemas/AlertTagFilter"
+          }
+        }
+      },
       "AlertRule": {
         "type": "object",
         "properties": {
+          "has_tag_filter": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Current metadata selection is configured. Full values are read separately through the bounded metadata operation."
+          },
           "id": {
             "type": "string"
           },

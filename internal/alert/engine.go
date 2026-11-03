@@ -40,6 +40,12 @@ type MetricSource interface {
 	Current(ctx context.Context, metric string, match map[string]string) ([]Sample, error)
 }
 
+// RuleMetricSource must authorize and apply current metadata before returning
+// samples. A tagged rule can never fall back to the legacy unfiltered read.
+type RuleMetricSource interface {
+	CurrentRule(ctx context.Context, rule Rule) ([]Sample, error)
+}
+
 // Engine evaluates rules against a MetricSource, holding per-series state so it
 // can debounce (ForN), dedupe/renotify, and emit resolved transitions.
 type Engine struct {
@@ -356,6 +362,16 @@ func labelsFromStateKey(key, prefix string) map[string]string {
 
 // samples reads a rule's current samples from the source its type names.
 func (en *Engine) samples(ctx context.Context, rule Rule) ([]Sample, error) {
+	if rule.HasTagFilter {
+		if rule.Type == Trap {
+			return nil, fmt.Errorf("alert: test tag selection requires a metric source")
+		}
+		source, ok := en.source.(RuleMetricSource)
+		if !ok {
+			return nil, fmt.Errorf("alert: current tag selection source is unavailable")
+		}
+		return source.CurrentRule(ctx, rule)
+	}
 	if rule.Type == Trap {
 		if en.traps == nil || rule.Trap == nil {
 			return nil, fmt.Errorf("alert: trap rule %q cannot evaluate: no trap source is wired", rule.Name)

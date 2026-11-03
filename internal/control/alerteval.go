@@ -282,7 +282,7 @@ func BuildAlertChannelDeps(cfg *config.Config, resolveSecret func(context.Contex
 // correlator, S17).
 func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	interval time.Duration, tenant tenancy.ID, sink func(context.Context, alert.Alert),
-	log *slog.Logger) (*alert.Evaluator, bool) {
+	log *slog.Logger, metadata ...AlertTagDependencies) (*alert.Evaluator, bool) {
 	if pool == nil || !alertWriterQueryable(writer) {
 		return nil, false
 	}
@@ -300,6 +300,11 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	default:
 		return nil, false
 	}
+	var tagDeps AlertTagDependencies
+	if len(metadata) > 0 {
+		tagDeps = metadata[0]
+	}
+	source = alertTagMetricSource{MetricSource: source, pool: pool, tenant: tenant.String(), deps: tagDeps}
 	// D-61: trap rules read the tenant's stored traps through the same
 	// tenant-bound pool; the source is bound to this evaluator's tenant.
 	opts := []alert.EngineOption{alert.WithTrapSource(trapSource{traps: store.NewDeviceTraps(pool), tenant: tenant.String()})}
@@ -421,6 +426,7 @@ type AlertEvaluatorSupervisor struct {
 	pool     *pgxpool.Pool
 	writer   any
 	deps     alert.ChannelDeps
+	tagDeps  AlertTagDependencies
 	interval time.Duration
 	sink     func(context.Context, alert.Alert)
 	log      *slog.Logger
@@ -438,7 +444,7 @@ type AlertEvaluatorSupervisor struct {
 // returns false when alerting cannot run in this deployment profile.
 func BuildAlertEvaluatorSupervisor(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	interval time.Duration, sink func(context.Context, alert.Alert), log *slog.Logger,
-	register func(string, AlertStateSource), unregister func(string)) (*AlertEvaluatorSupervisor, bool) {
+	register func(string, AlertStateSource), unregister func(string), metadata ...AlertTagDependencies) (*AlertEvaluatorSupervisor, bool) {
 	if pool == nil || !alertWriterQueryable(writer) {
 		return nil, false
 	}
@@ -462,6 +468,9 @@ func BuildAlertEvaluatorSupervisor(pool *pgxpool.Pool, writer any, deps alert.Ch
 	}
 	s.listTenants = func(ctx context.Context) ([]store.Tenant, error) {
 		return store.NewTenants(pool).List(ctx)
+	}
+	if len(metadata) > 0 {
+		s.tagDeps = metadata[0]
 	}
 	return s, true
 }
@@ -490,7 +499,7 @@ func (s *AlertEvaluatorSupervisor) Sync(ctx context.Context) error {
 		if _, ok := s.evaluators[id]; ok {
 			continue
 		}
-		ev, ok := BuildAlertEvaluator(s.pool, s.writer, s.deps, s.interval, tid, s.sink, s.log)
+		ev, ok := BuildAlertEvaluator(s.pool, s.writer, s.deps, s.interval, tid, s.sink, s.log, s.tagDeps)
 		if !ok {
 			continue
 		}
