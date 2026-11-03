@@ -13,6 +13,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,16 +43,22 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 		t.Fatal("required NetBox fixture manifest is unreadable")
 	}
 	var manifest struct {
-		Origin    string            `json:"origin"`
-		CAFile    string            `json:"ca_file"`
-		TokenFile string            `json:"token_file"`
-		Tenants   map[string]string `json:"tenants"`
-		Devices   map[string]string `json:"devices"`
-		IPs       map[string]string `json:"ips"`
+		Origin      string            `json:"origin"`
+		CAFile      string            `json:"ca_file"`
+		TokenFile   string            `json:"token_file"`
+		DialAddress string            `json:"dial_address"`
+		Tenants     map[string]string `json:"tenants"`
+		Devices     map[string]string `json:"devices"`
+		IPs         map[string]string `json:"ips"`
 	}
 	if json.Unmarshal(raw, &manifest) != nil || manifest.Origin != "https://localhost:18443" ||
 		manifest.CAFile != runtime+"/ca.crt" || manifest.TokenFile != runtime+"/token" {
 		t.Fatal("invalid owned NetBox fixture manifest")
+	}
+	host, port, err := net.SplitHostPort(manifest.DialAddress)
+	address, parseErr := netip.ParseAddr(host)
+	if err != nil || parseErr != nil || !address.Is4() || !address.IsPrivate() || port != "8443" {
+		t.Fatal("fixture dial is not its owned private Docker TLS endpoint")
 	}
 	if manifest.Tenants["a"] == "" || manifest.Tenants["a"] == manifest.Tenants["b"] ||
 		manifest.Devices["a"] == "" || manifest.Devices["a"] == manifest.Devices["b"] ||
@@ -66,6 +75,21 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 	provider.client, err = crypto.HardenedHTTPClientWithCAFile(8*time.Second, manifest.CAFile)
 	if err != nil {
 		t.Fatal("required NetBox fixture CA is invalid")
+	}
+	transport, ok := provider.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("fixture client did not retain the hardened TLS transport")
+	}
+	// Internal-only Docker networks do not realize host port publishing. This
+	// fixture-only dial route preserves the URI's localhost hostname/SNI and
+	// the original certificate verification, without giving the source egress.
+	transport.Proxy = nil
+	dialer := &net.Dialer{Timeout: 8 * time.Second}
+	transport.DialContext = func(ctx context.Context, network, destination string) (net.Conn, error) {
+		if destination != "localhost:18443" {
+			return nil, errors.New("fixture refused a different source destination")
+		}
+		return dialer.DialContext(ctx, network, manifest.DialAddress)
 	}
 	t.Cleanup(provider.client.CloseIdleConnections)
 	resolver := NewResolver(provider, time.Hour)

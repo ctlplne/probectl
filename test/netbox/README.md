@@ -8,8 +8,14 @@ complete release-binary FX-3 receipt remains a separate acceptance requirement.
 
 `scripts/ci_netbox.py start` is CI-only. It generates a private CA and runtime
 credentials in `/tmp/probectl-qa-beta-netbox`. The source has one native TLS
-listener on `127.0.0.1:18443`; database/cache connections validate their server
-certificates and names. Wrong source CA/hostname and an API write through the
+listener on its internal bridge at port8443. The Linux fixture clients route
+the logical `https://localhost:18443` origin directly to that exact owned
+container, retaining localhost SNI/hostname verification. Docker does not
+realize published ports for an internal-only container without a default gateway;
+the requested loopback binding is recorded as a diagnostic, not assumed usable.
+No external bridge, host routing mutation, proxy or additional listener is needed.
+Database/cache connections validate their server certificates and names.
+Wrong source CA/hostname and an API write through the
 read-only token must fail. Two source tenants have equal IPs and device names,
 separate VRFs and distinct role/site values. ORM administration seeds only this
 disposable source; probectl receives an expiring view-only token.

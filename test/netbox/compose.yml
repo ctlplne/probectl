@@ -85,6 +85,8 @@ services:
       - ./launch.sh:/opt/probectl-ci-launch.sh:ro
     command: ["/bin/bash", "/opt/probectl-ci-launch.sh"]
     ports:
+      # Diagnostic only: internal-only Docker networks may not realize this
+      # mapping. Fixture clients use an owned-container dial, preserving TLS SNI.
       - "127.0.0.1:18443:8443"
     mem_limit: 1536m
     cpus: 2

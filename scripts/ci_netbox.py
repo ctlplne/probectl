@@ -11,6 +11,8 @@ Credentials, raw source data and keys never enter the receipt or command argv.
 """
 
 import copy
+from http.client import HTTPSConnection, HTTPException
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -21,8 +23,6 @@ import socket
 import subprocess
 import sys
 import time
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 
@@ -234,6 +234,90 @@ def certificates() -> None:
     )
 
 
+def validate_source_endpoint(endpoint: dict) -> tuple[str, int]:
+    address = ipaddress.ip_address(endpoint.get("host", ""))
+    if (
+        endpoint.get("port") != 8443
+        or address.version != 4
+        or not any(
+            address in ipaddress.ip_network(network)
+            for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+        )
+    ):
+        raise ValueError("NetBox fixture endpoint is not its private IPv4 TLS listener")
+    return str(address), 8443
+
+
+def source_endpoint() -> tuple[str, int]:
+    return validate_source_endpoint(json.loads((RUNTIME / "endpoint.json").read_text()))
+
+
+def discover_source_endpoint() -> None:
+    container = compose("ps", "--quiet", "netbox").decode().strip()
+    if not 12 <= len(container) <= 64 or any(
+        char not in "0123456789abcdef" for char in container
+    ):
+        raise RuntimeError(
+            "NetBox fixture did not identify exactly one owned container"
+        )
+    template = '{"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"networks":{{json .NetworkSettings.Networks}},"ports":{{json .NetworkSettings.Ports}}}'
+    state = json.loads(
+        command(
+            ["docker", "inspect", container, "--format", template],
+            "owned endpoint inspection",
+        )
+    )
+    if (
+        state["project"] != PROJECT
+        or state["service"] != "netbox"
+        or set(state["networks"]) != {PROJECT + "_source"}
+    ):
+        raise RuntimeError(
+            "NetBox fixture container is not isolated on its owned source network"
+        )
+    internal = command(
+        [
+            "docker",
+            "network",
+            "inspect",
+            PROJECT + "_source",
+            "--format",
+            "{{json .Internal}}",
+        ],
+        "owned network isolation",
+    ).strip()
+    if internal != b"true":
+        raise RuntimeError("NetBox fixture source network lost outbound isolation")
+    endpoint = {
+        "host": state["networks"][PROJECT + "_source"]["IPAddress"],
+        "port": 8443,
+    }
+    validate_source_endpoint(endpoint)
+    private_file("endpoint.json", json.dumps(endpoint) + "\n")
+    print(
+        "NetBox fixture host port published: "
+        + str(bool((state["ports"] or {}).get("8443/tcp"))).lower()
+    )
+
+
+class FixtureHTTPSConnection(HTTPSConnection):
+    """Route only this owned source; retain localhost SNI/hostname checking."""
+
+    def __init__(self, context: ssl.SSLContext):
+        super().__init__("localhost", 18443, timeout=8, context=context)
+        self.fixture_context = context
+
+    def connect(self) -> None:
+        peer = socket.create_connection(source_endpoint(), timeout=8)
+        try:
+            self.sock = self.fixture_context.wrap_socket(
+                peer, server_hostname="localhost"
+            )
+        except BaseException:
+            peer.close()
+            raise
+
+
 def request(
     path: str, *, token: str = "", method: str = "GET", body: bytes | None = None
 ) -> tuple[int, bytes]:
@@ -244,15 +328,16 @@ def request(
         headers["Content-Type"] = "application/json"
     context = ssl.create_default_context(cafile=str(RUNTIME / "ca.crt"))
     context.minimum_version = ssl.TLSVersion.TLSv1_2
-    req = Request(ORIGIN + path, data=body, headers=headers, method=method)
+    connection = FixtureHTTPSConnection(context)
     try:
-        with urlopen(req, context=context, timeout=8) as response:
-            raw = response.read((4 << 20) + 1)
-            if len(raw) > 4 << 20:
-                raise RuntimeError("NetBox fixture response exceeds the source bound")
-            return response.status, raw
-    except HTTPError as exc:
-        return exc.code, b""
+        connection.request(method, path, body=body, headers=headers)
+        response = connection.getresponse()
+        raw = response.read((4 << 20) + 1)
+        if len(raw) > 4 << 20:
+            raise RuntimeError("NetBox fixture response exceeds the source bound")
+        return response.status, raw if response.status < 400 else b""
+    finally:
+        connection.close()
 
 
 def verify_source_tls() -> None:
@@ -265,9 +350,7 @@ def verify_source_tls() -> None:
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         hostname = "localhost" if wrong_ca else "wrong-netbox.test"
         try:
-            with socket.create_connection(
-                ("127.0.0.1", 18443), timeout=8
-            ) as connection:
+            with socket.create_connection(source_endpoint(), timeout=8) as connection:
                 with context.wrap_socket(connection, server_hostname=hostname):
                     pass
         except ssl.SSLCertVerificationError:
@@ -416,6 +499,7 @@ def start() -> None:
     compose("config", "--quiet")
     compose("pull", timeout=300)
     compose("up", "-d", "--no-build", timeout=180)
+    discover_source_endpoint()
     deadline = time.monotonic() + 240
     readiness = {
         "last_http_status": None,
@@ -432,8 +516,7 @@ def start() -> None:
             }
             if status == 200:
                 break
-        except (URLError, TimeoutError) as error:
-            reason = error.reason if isinstance(error, URLError) else error
+        except (OSError, HTTPException) as reason:
             if isinstance(reason, ssl.SSLCertVerificationError):
                 readiness = {
                     "last_http_status": None,
@@ -461,6 +544,7 @@ def start() -> None:
             "origin": ORIGIN,
             "ca_file": str(RUNTIME / "ca.crt"),
             "token_file": str(RUNTIME / "token"),
+            "dial_address": "%s:%d" % source_endpoint(),
         }
     )
     private_file("manifest.json", json.dumps(manifest, sort_keys=True) + "\n")
@@ -502,7 +586,7 @@ def start() -> None:
                 "images": images,
                 "api_credential": "read-only",
                 "tls": "verified source, PostgreSQL and cache",
-                "network": "internal; loopback TLS endpoint",
+                "network": "internal-only; verified owned container dial with localhost SNI",
             },
             indent=2,
         )
@@ -560,6 +644,31 @@ def cleanup() -> None:
 
 def selftest() -> None:
     verify_tls_config(tls_config())
+    for bad in [
+        {"host": "127.0.0.1", "port": 8443},
+        {"host": "1.1.1.1", "port": 8443},
+        {"host": "172.18.0.2", "port": 8080},
+    ]:
+        try:
+            validate_source_endpoint(bad)
+        except ValueError:
+            continue
+        raise RuntimeError("fixture accepted an unowned or non-TLS dial target")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    with patch.dict(globals(), {"source_endpoint": lambda: ("172.18.0.2", 8443)}):
+        with patch.object(socket, "create_connection") as dial:
+            with patch.object(context, "wrap_socket") as wrap:
+                connection = FixtureHTTPSConnection(context)
+                connection.connect()
+                dial.assert_called_once_with(("172.18.0.2", 8443), timeout=8)
+                wrap.assert_called_once_with(
+                    dial.return_value, server_hostname="localhost"
+                )
+                connection.close()
+    if context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
+        raise RuntimeError(
+            "fixture dial disabled TLS certificate/hostname verification"
+        )
     config = {}
     with patch.dict(
         os.environ,
