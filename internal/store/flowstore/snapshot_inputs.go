@@ -30,6 +30,7 @@ type SnapshotInputs struct {
 	BucketSeconds int       `json:"bucket_seconds"`
 	Fields        []string  `json:"fields"`
 	NeedsComplete bool      `json:"needs_complete"`
+	TagLookup     bool      `json:"tag_lookup,omitempty"`
 	Empty         bool      `json:"empty"`
 }
 
@@ -38,16 +39,48 @@ var ErrSnapshotInputs = errors.New("flow snapshot input coverage is invalid or n
 // SnapshotInputsFor derives coverage requirements from the actual executed
 // plan, including expanded filter fields and distinct-metric dependencies.
 func SnapshotInputsFor(result PlanResult) (SnapshotInputs, error) {
-	plan, err := flow.NormalizeQueryPlan(result.Query, time.Now())
+	return snapshotInputsFor(result, flow.QueryVocabulary{})
+}
+
+// SnapshotInputsForTenant uses the same validated tenant vocabulary as the
+// executed plan. Unbound/foreign dynamic fields never become source coverage.
+func SnapshotInputsForTenant(ctx context.Context, tenant string, result PlanResult) (SnapshotInputs, error) {
+	if err := ctx.Err(); err != nil {
+		return SnapshotInputs{}, err
+	}
+	if tenant == "" {
+		return SnapshotInputs{}, ErrNoTenant
+	}
+	vocabulary, _, err := flow.QueryVocabularyFromContext(ctx, tenant)
+	if err != nil {
+		return SnapshotInputs{}, ErrTagQueryScope
+	}
+	return snapshotInputsFor(result, vocabulary)
+}
+
+func snapshotInputsFor(result PlanResult, vocabulary flow.QueryVocabulary) (SnapshotInputs, error) {
+	plan, err := flow.NormalizeQueryPlanWithVocabulary(result.Query, time.Now(), vocabulary)
 	if err != nil {
 		return SnapshotInputs{}, ErrSnapshotInputs
 	}
 	fields := append(slices.Clone(plan.GroupBy), plan.MatrixWith...)
 	fields = append(fields, flow.QueryFilterFields(plan.Filter)...)
 	fields = append(fields, planDistinctFields(plan)...)
+	tagLookup := false
+	for i, name := range fields {
+		field, ok := vocabulary.Lookup(name)
+		if !ok {
+			return SnapshotInputs{}, ErrSnapshotInputs
+		}
+		if field.Derived == "tenant_tag" {
+			// Current tag values join by exporter. Their grammar is raw-only;
+			// preserve complete-input expiry even for an hour-aligned window.
+			fields[i], tagLookup = "exporter", true
+		}
+	}
 	slices.Sort(fields)
 	fields = slices.Compact(fields)
-	clock := SnapshotInputs{Version: 1, From: plan.From, To: plan.To, OldestInput: result.OldestInput.UTC(), Source: result.Source, DataSeries: plan.DataSeries, BucketSeconds: plan.BucketSeconds, Fields: fields, Empty: result.TotalGroups == 0}
+	clock := SnapshotInputs{Version: 1, From: plan.From, To: plan.To, OldestInput: result.OldestInput.UTC(), Source: result.Source, DataSeries: plan.DataSeries, BucketSeconds: plan.BucketSeconds, Fields: fields, Empty: result.TotalGroups == 0, TagLookup: tagLookup}
 	clock.NeedsComplete = clock.needsComplete()
 	if err := clock.validate(); err != nil {
 		return SnapshotInputs{}, err
@@ -56,6 +89,9 @@ func SnapshotInputsFor(result PlanResult) (SnapshotInputs, error) {
 }
 
 func (c SnapshotInputs) needsComplete() bool {
+	if c.TagLookup {
+		return true
+	}
 	if c.BucketSeconds%3600 != 0 || !c.From.Equal(c.From.Truncate(time.Hour)) || !c.To.Equal(c.To.Truncate(time.Hour)) {
 		return true
 	}
@@ -73,6 +109,9 @@ func (c SnapshotInputs) validate() error {
 		return ErrSnapshotInputs
 	}
 	if c.Source != "raw" && c.Source != "rollup" {
+		return ErrSnapshotInputs
+	}
+	if c.TagLookup && (c.Source != "raw" || !slices.Contains(c.Fields, "exporter")) {
 		return ErrSnapshotInputs
 	}
 	if c.DataSeries != "auto" && c.DataSeries != "raw" && c.DataSeries != "rollup" {

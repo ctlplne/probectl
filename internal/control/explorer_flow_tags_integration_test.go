@@ -10,6 +10,7 @@ package control
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,9 +20,15 @@ import (
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tags"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenantcrypto"
+	"github.com/ctlplne/probectl/internal/tenantlife"
 )
 
 func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
@@ -37,6 +44,28 @@ func TestExplorerTagRuleRetagsHistoryAcrossTenantRESTBoundary(t *testing.T) {
 	})
 	rows := flowstore.NewMemory()
 	srv.WithFlowStore(rows)
+	// Exercise the shipping shared-snapshot path as well as query-time tags.
+	// PG + encrypted temporary FS is a component proof, not release/four-store.
+	objects, err := objectstore.NewFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := crypto.Random(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealer, err := tenantcrypto.NewEnvelopeSealer("tag-snapshot-fixture", base64.StdEncoding.EncodeToString(key))
+	crypto.Zeroize(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantcrypto.SetPrimary(sealer)
+	t.Cleanup(tenantcrypto.Reset)
+	engine := tenantlife.New(db.Pool(), rows, objects, nil, nil, "test fixture has no backups", nil)
+	srv.WithTenantLife(engine).WithFlowSnapshotStorage(FlowSnapshotStorage{
+		Pool: db.Pool(), Objects: objects, Router: tenancy.PooledRouter{},
+		Fence: tenancy.NewPostgresWriterFence(db.Pool()), Cache: flowsnapshot.Config{TempDir: t.TempDir()},
+	})
 	ctx := t.Context()
 	var redRulePath, redRuleID, redTagID string
 	for _, item := range []struct{ tenant, agent, value string }{

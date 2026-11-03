@@ -95,7 +95,7 @@ func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapsho
 	until := source.now().Add(source.lifetime)
 	proof := flowSnapshotValidity{}
 	for _, result := range results {
-		clock, err := flowstore.SnapshotInputsFor(result)
+		clock, err := flowstore.SnapshotInputsForTenant(ctx, scope.TenantID, result)
 		if err != nil {
 			return nil, time.Time{}, flowExplorerStoreError(err)
 		}

@@ -8,14 +8,94 @@ package flowstore
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/tags"
 )
+
+func TestTaggedSnapshotInputsKeepTenantVocabularyAndNativeRawDependencies(t *testing.T) {
+	a, b := uuid.NewString(), uuid.NewString()
+	definition := tags.Definition{TenantID: a, ID: uuid.NewString(), Key: "customer"}
+	lookup, err := NewTagQueryData(a, 8, []tags.Definition{definition},
+		[]tags.ExporterProjection{{Exporter: "192.0.2.1", Values: map[string]string{"customer": "private-predicate-value"}}}, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped := explorerFixtureRow(a)
+	memory := NewMemory()
+	if err := memory.Insert(t.Context(), []Row{mapped}); err != nil {
+		t.Fatal(err)
+	}
+	from := mapped.TS.Truncate(time.Hour)
+	plan := flow.QueryPlan{From: from, To: from.Add(time.Hour), BucketSeconds: 3600,
+		GroupBy: []string{"tag.customer", "protocol"},
+		Metrics: []flow.QueryMetric{{Measure: "unique_src_asn", Calculation: "total", Role: "primary"}},
+		Filter:  &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.customer", Op: flow.QueryEqual, Values: []string{"private-predicate-value"}}}}}
+	result, err := memory.ExplorePlan(t.Context(), PlanQuery{TenantID: a, Plan: plan, Tags: lookup})
+	if err != nil || result.TotalGroups != 1 {
+		t.Fatalf("tagged source execution failed: %v", err)
+	}
+	vocabulary, err := lookup.Vocabulary(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := flow.WithQueryVocabulary(t.Context(), a, vocabulary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock, err := SnapshotInputsForTenant(ctx, a, result)
+	if err != nil || !clock.TagLookup || !clock.NeedsComplete || clock.Source != "raw" || !slices.Equal(clock.Fields, []string{"exporter", "protocol", "src_asn"}) {
+		t.Fatalf("tagged snapshot lost native raw input dependencies: %+v %v", clock, err)
+	}
+	encoded, err := json.Marshal(clock)
+	if err != nil || bytes.Contains(encoded, []byte("private-predicate-value")) || bytes.Contains(encoded, []byte("tag.customer")) {
+		t.Fatal("source receipt retained dynamic grammar or predicate values")
+	}
+	if _, err := clock.ExpiresAt(1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.VerifySnapshotInputs(t.Context(), a, clock); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*SnapshotInputs){
+		func(c *SnapshotInputs) { c.NeedsComplete = false },
+		func(c *SnapshotInputs) { c.Source = "rollup" },
+		func(c *SnapshotInputs) { c.Fields = []string{"protocol"} },
+	} {
+		bad := clock
+		mutate(&bad)
+		if _, err := bad.ExpiresAt(1, nil); !errors.Is(err, ErrSnapshotInputs) {
+			t.Fatal("tag lookup lost raw/complete native coverage")
+		}
+	}
+	if _, err := SnapshotInputsForTenant(t.Context(), a, result); !errors.Is(err, ErrSnapshotInputs) {
+		t.Fatal("unbound dynamic fields became source input coverage")
+	}
+	if _, err := SnapshotInputsForTenant(ctx, b, result); !errors.Is(err, ErrTagQueryScope) {
+		t.Fatal("another tenant reused a bound vocabulary")
+	}
+	if _, err := SnapshotInputsForTenant(ctx, "", result); !errors.Is(err, ErrNoTenant) {
+		t.Fatal("source receipt omitted its tenant boundary")
+	}
+	bad := result
+	bad.Query.GroupBy = []string{"tag.unknown"}
+	if _, err := SnapshotInputsForTenant(ctx, a, bad); !errors.Is(err, ErrSnapshotInputs) {
+		t.Fatal("unregistered dynamic field became source coverage")
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := SnapshotInputsForTenant(canceled, a, result); !errors.Is(err, context.Canceled) {
+		t.Fatal("canceled input validation continued")
+	}
+}
 
 func TestSnapshotInputsCaptureDependenciesWithoutFilterLiterals(t *testing.T) {
 	row := explorerFixtureRow("red")
