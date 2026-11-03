@@ -418,6 +418,7 @@ function apiPayload(path, method, pagePath = "") {
         "incident.read",
         "incident.write",
         "ai.query",
+        "flow.read",
         "metrics.read",
         "metrics.write",
         "tags.read",
@@ -2610,6 +2611,7 @@ async function netBoxTagPreviewChecks(page, axeSource) {
   if (!(await card.isVisible())) return ["NetBox tag preview did not render"];
   await card.getByLabel("NetBox preview routing context", { exact: true })
     .selectOption("00000000-0000-0000-0000-000000000072");
+  await card.getByLabel("NetBox target kind", { exact: true }).selectOption("exporter");
   await card.getByLabel("NetBox exporter agent ID", { exact: true }).fill("collector");
   await card.getByLabel("NetBox exporter address", { exact: true }).fill("192.0.2.10");
   await card.getByRole("button", { name: "Preview NetBox value", exact: true }).click();
