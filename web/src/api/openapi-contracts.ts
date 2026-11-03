@@ -30,6 +30,13 @@ export interface APICallContract {
 export const API_CALL_CONTRACTS = [
   {
     file: 'api/tags.ts',
+    method: 'GET',
+    path: '`/entity-contexts/${encodeURIComponent(input.contextId)}/resolved-tags?${query}`',
+    response: 'TagSubjectResolution',
+    generated: 'ResolveSubjectTagsResponse',
+  },
+  {
+    file: 'api/tags.ts',
     method: 'POST',
     path: '`/entity-contexts/${encodeURIComponent(contextID)}/tag-imports/netbox/preview`',
     response: 'NetBoxTagPreview',
