@@ -225,8 +225,8 @@ func TestEntityRegistryDeleteRetiresExactEvidenceIdentity(t *testing.T) {
 					return err
 				}
 				contextID = scope.ContextID
-				anchor, err := repo.CreateCanonicalEntity(ctx, sc, contextID,
-					entity.Device, "re-registered router")
+				anchor, err := repo.CreateCanonicalEntityWithNetwork(ctx, sc, contextID,
+					entity.Device, "re-registered router", "")
 				if err != nil {
 					return err
 				}

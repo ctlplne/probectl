@@ -61,14 +61,14 @@ func TestEntityRebindDoesNotReviveEarlierEvidence(t *testing.T) {
 			return err
 		}
 		scope = entity.Scope{TenantID: tenant.ID, ContextID: created.ContextID}
-		anchor, err := repo.CreateCanonicalEntity(ctx, sc, scope.ContextID,
-			entity.Device, "router")
+		anchor, err := repo.CreateCanonicalEntityWithNetwork(ctx, sc, scope.ContextID,
+			entity.Device, "router", "")
 		if err != nil {
 			return err
 		}
 		anchorID = anchor.ID
-		replacement, err := repo.CreateCanonicalEntity(ctx, sc, scope.ContextID,
-			entity.Device, "replacement router")
+		replacement, err := repo.CreateCanonicalEntityWithNetwork(ctx, sc, scope.ContextID,
+			entity.Device, "replacement router", "")
 		if err != nil {
 			return err
 		}

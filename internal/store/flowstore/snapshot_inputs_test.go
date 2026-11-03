@@ -108,7 +108,7 @@ func TestSnapshotInputsCaptureDependenciesWithoutFilterLiterals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clock, err := SnapshotInputsFor(result)
+	clock, err := snapshotInputsFor(result, flow.QueryVocabulary{})
 	if err != nil {
 		t.Fatal(err)
 	}

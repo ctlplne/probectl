@@ -101,7 +101,7 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 			definitions[0].TenantID != row.tenantID {
 			t.Fatalf("tenant %s tag vocabulary: %+v, %v", row.tenantID, definitions, err)
 		}
-		projection, err := loaded.ProjectExportersContext(ctx, 1<<20)
+		projection, err := loaded.projectExporters(ctx, nil, 1<<20)
 		if err != nil || len(projection) != 1 || projection[0].Exporter != address.String() ||
 			projection[0].Values["customer"] != row.value {
 			t.Fatalf("tenant %s query projection: %+v, %v", row.tenantID, projection, err)
@@ -125,12 +125,12 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 		if _, err := loaded.ProjectAuthorizedExportersContext(ctx, nil, 1<<20); !errors.Is(err, tags.ErrScopeMismatch) {
 			t.Fatal("missing context decisions admitted metadata")
 		}
-		if _, err := loaded.ProjectExportersContext(ctx, 128); !errors.Is(err, ErrTagSnapshotBudget) {
+		if _, err := loaded.projectExporters(ctx, nil, 128); !errors.Is(err, ErrTagSnapshotBudget) {
 			t.Fatalf("tenant %s partial query projection admitted: %v", row.tenantID, err)
 		}
 		canceled, cancel := context.WithCancel(ctx)
 		cancel()
-		if projection, err := loaded.ProjectExportersContext(canceled, 1<<20); !errors.Is(err, context.Canceled) || projection != nil {
+		if projection, err := loaded.projectExporters(canceled, nil, 1<<20); !errors.Is(err, context.Canceled) || projection != nil {
 			t.Fatal("canceled exporter projection returned partial metadata")
 		}
 		if unknown, err := loaded.ResolveExporterContext(ctx, netip.MustParseAddr("192.0.2.11")); err != nil || len(unknown) != 0 {
@@ -178,7 +178,7 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 	if err != nil || len(resolved) != 0 {
 		t.Fatalf("ambiguous exporter selected an agent/context: %+v, %v", resolved, err)
 	}
-	projection, err := ambiguous.ProjectExportersContext(ctx, 1<<20)
+	projection, err := ambiguous.projectExporters(ctx, nil, 1<<20)
 	if err != nil || len(projection) != 0 {
 		t.Fatalf("ambiguous exporter appeared in query projection: %+v, %v", projection, err)
 	}

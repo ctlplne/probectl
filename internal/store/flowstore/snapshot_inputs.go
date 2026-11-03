@@ -36,12 +36,6 @@ type SnapshotInputs struct {
 
 var ErrSnapshotInputs = errors.New("flow snapshot input coverage is invalid or no longer available")
 
-// SnapshotInputsFor derives coverage requirements from the actual executed
-// plan, including expanded filter fields and distinct-metric dependencies.
-func SnapshotInputsFor(result PlanResult) (SnapshotInputs, error) {
-	return snapshotInputsFor(result, flow.QueryVocabulary{})
-}
-
 // SnapshotInputsForTenant uses the same validated tenant vocabulary as the
 // executed plan. Unbound/foreign dynamic fields never become source coverage.
 func SnapshotInputsForTenant(ctx context.Context, tenant string, result PlanResult) (SnapshotInputs, error) {

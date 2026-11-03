@@ -65,11 +65,6 @@ func (s *TenantTagSnapshot) Contexts() ([]entity.ContextRecord, error) {
 	return append([]entity.ContextRecord(nil), s.contexts...), nil
 }
 
-// ProjectExportersContext applies the query lifetime to the complete projection.
-func (s *TenantTagSnapshot) ProjectExportersContext(ctx context.Context, maxBytes int64) ([]tags.ExporterProjection, error) {
-	return s.projectExporters(ctx, nil, maxBytes)
-}
-
 // ProjectAuthorizedExportersContext withholds metadata from denied contexts;
 // it never drops underlying flow rows or accepts a missing authorization map.
 func (s *TenantTagSnapshot) ProjectAuthorizedExportersContext(ctx context.Context, allowed map[string]bool, maxBytes int64) ([]tags.ExporterProjection, error) {

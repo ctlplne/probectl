@@ -126,15 +126,9 @@ func (s *EntityRegistry) CreateEntityContext(ctx context.Context, sc tenancy.Sco
 	return record, nil
 }
 
-// CreateCanonicalEntity creates an operator-owned node in one existing
-// context. The compound FK rejects a context from another tenant even when
-// the caller supplies a syntactically valid UUID.
-func (s *EntityRegistry) CreateCanonicalEntity(ctx context.Context, sc tenancy.Scope, contextID string, kind entity.Kind, label string) (entity.Record, error) {
-	return s.CreateCanonicalEntityWithNetwork(ctx, sc, contextID, kind, label, "")
-}
-
-// CreateCanonicalEntityWithNetwork adds explicit optional prefix metadata;
-// callers creating other kinds retain the same operator-owned identity path.
+// CreateCanonicalEntityWithNetwork creates an operator-owned node with
+// optional prefix metadata in one existing context. The compound FK rejects
+// a context from another tenant even for a syntactically valid UUID.
 func (s *EntityRegistry) CreateCanonicalEntityWithNetwork(ctx context.Context, sc tenancy.Scope, contextID string, kind entity.Kind, label, network string) (entity.Record, error) {
 	if s == nil || s.pool == nil {
 		return entity.Record{}, ErrEntityRegistryUnavailable
