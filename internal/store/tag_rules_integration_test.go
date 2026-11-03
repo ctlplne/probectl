@@ -12,11 +12,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -135,5 +137,35 @@ func TestTagRuleWritesStayInTenantAndContext(t *testing.T) {
 		return (TagRules{}).Delete(ctx, sc, sharedContext, ruleA.ID)
 	}); err != nil {
 		t.Fatal(err)
+	}
+	for _, owner := range []struct{ tenant, tagID string }{{a.ID, tagA.ID}, {b.ID, tagB.ID}} {
+		for _, field := range []string{"sys_name", "sys_descr", "if_name", "if_descr"} {
+			value := " " + strings.Repeat("界", 340) + " x "
+			if field == "sys_descr" {
+				value = " " + strings.Repeat("界", 339) + "\r\n\tOS "
+			}
+			var stored tags.Rule
+			if err := run(owner.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+				var err error
+				stored, err = (TagRules{}).Create(ctx, sc, tags.Rule{
+					Scope: tags.Scope{TenantID: owner.tenant, ContextID: sharedContext},
+					TagID: owner.tagID, TargetKind: "device", Match: "snmp_field",
+					SNMPField: field, SNMPValue: value, Value: "exact"})
+				return err
+			}); err != nil || stored.SNMPValue != value {
+				t.Fatalf("pooled store refused complete exact field %s: %v", field, err)
+			}
+			for _, bad := range []string{strings.Repeat("x", 1025), "bad\x1btext", "bad\u0085text"} {
+				err := run(owner.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+					_, err := sc.Q.Exec(ctx, `UPDATE tenant_tag_rules SET snmp_value=$3
+						WHERE tenant_id=$1 AND id=$2`, owner.tenant, stored.ID, bad)
+					return err
+				})
+				var pgErr *pgconn.PgError
+				if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "tenant_tag_rules_match_v2_check" {
+					t.Fatalf("pooled storage did not reject bad %s via its CHECK: %v", field, err)
+				}
+			}
+		}
 	}
 }

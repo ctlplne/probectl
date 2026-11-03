@@ -130,6 +130,47 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 		WHERE tenant_id=$1`, a).Scan(&revision); err != nil || revision <= 1 {
 		t.Fatalf("accepted definition/assignment did not advance revision: %d, %v", revision, err)
 	}
+	ruleID := uuid.NewString()
+	assertSNMPText := func() {
+		t.Helper()
+		for _, row := range []struct{ schema, tenant, routingContext, tagID, value string }{
+			{schemaA, a, contextA, tagA, " A\r\n\t" + strings.Repeat("界", 339) + " "},
+			{schemaB, b, contextB, tagB, " B\r\n\t" + strings.Repeat("界", 339) + " "},
+		} {
+			if err := appExec(row.tenant, `INSERT INTO `+row.schema+`.tenant_tag_rules
+				(tenant_id,context_id,id,tag_id,target_kind,match_kind,snmp_field,snmp_value,value)
+				VALUES ($1,$2,$3,$4,'device','snmp_field','sys_descr',$5,'formatted')
+				ON CONFLICT (tenant_id,context_id,id) DO UPDATE SET snmp_value=EXCLUDED.snmp_value`,
+				row.tenant, row.routingContext, ruleID, row.tagID, row.value); err != nil {
+				t.Fatalf("silo refused retained SNMP text: %v", err)
+			}
+			for _, bad := range []string{strings.Repeat("x", 1025), "bad\x1btext", "bad\u0085text"} {
+				err := appExec(row.tenant, `UPDATE `+row.schema+`.tenant_tag_rules
+					SET snmp_value=$3 WHERE tenant_id=$1 AND id=$2`, row.tenant, ruleID, bad)
+				var pgErr *pgconn.PgError
+				if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "tenant_tag_rules_match_v2_check" {
+					t.Fatalf("silo did not reject invalid source text via CHECK: %v", err)
+				}
+			}
+			var got string
+			if err := pool.QueryRow(ctx, `SELECT snmp_value FROM `+row.schema+`.tenant_tag_rules
+				WHERE tenant_id=$1 AND id=$2`, row.tenant, ruleID).Scan(&got); err != nil || got != row.value {
+				t.Fatalf("silo lost tenant-specific exact text: %v", err)
+			}
+		}
+	}
+	assertSNMPText()
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.tenant_tag_rules
+		DROP CONSTRAINT tenant_tag_rules_match_v2_check;
+		ALTER TABLE `+schemaA+`.tenant_tag_rules ADD CONSTRAINT legacy_tag_match_shape CHECK (
+		 (match_kind='snmp_field' AND address_side IS NULL AND snmp_value IS NOT NULL
+		  AND octet_length(snmp_value) BETWEEN 1 AND 256) OR match_kind IN ('cidr','name_pattern')) NOT VALID`); err != nil {
+		t.Fatalf("simulate original silo SNMP match boundary: %v", err)
+	}
+	if err := appExec(a, `UPDATE `+schemaA+`.tenant_tag_rules SET snmp_value=$3
+		WHERE tenant_id=$1 AND id=$2`, a, ruleID, strings.Repeat("x", 1024)); err == nil {
+		t.Fatal("original silo boundary unexpectedly admitted the expanded field")
+	}
 	// An already tagged physical silo can retain the original 128-byte CHECK.
 	// Catch-up must expand it without losing the tenant/subject constraints.
 	for _, table := range []string{"tenant_tag_assignments", "tenant_tag_rules"} {
@@ -144,6 +185,7 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 	if err := prov.CatchUpSchema(ctx, a); err != nil {
 		t.Fatalf("repeat value catch-up: %v", err)
 	}
+	assertSNMPText()
 	if err := appExec(a, `UPDATE `+schemaA+`.tenant_tag_assignments SET value=$2 WHERE tenant_id=$1`, a, strings.Repeat("🌐", 24000)); err != nil {
 		t.Fatalf("caught-up silo refused full character reach: %v", err)
 	}

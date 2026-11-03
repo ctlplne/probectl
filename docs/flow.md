@@ -576,6 +576,14 @@ side, a bounded RE2 name pattern, or one of the collected SNMP fields
 `sys_name`, `sys_descr`, `if_name`, `if_descr`. Tenant-wide limits are 25,000
 rules and 25,000 assignments, enforced under a per-tenant write lock. The
 same flows are available through `probectl tags` commands.
+SNMP equality values support the full retained field boundary: 1–1,024 UTF-8
+bytes, with significant leading and trailing spaces. Only `sys_descr` admits
+tab, carriage return and line feed. Admin's `sys_descr` editor accepts a quoted
+JSON string (for example, `"Router\r\nOS\t1"`), so a browser cannot silently
+normalize CRLF into LF. The API and CLI JSON bodies use the same escapes;
+MCP rule projections preserve it subject to existing egress redaction. Other controls and oversized text are
+refused. This input support does not make missing or expired source facts
+eligible: a rule matches only when the subject resolver supplies that field.
 Admin → Tenant tag rules selects one owned routing context, pages its rules,
 and exposes the same CIDR, RE2 name pattern and collected SNMP field inputs.
 Create, edit and confirmed delete require `tags.write`; readers with

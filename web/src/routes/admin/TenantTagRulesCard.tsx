@@ -106,7 +106,11 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
     setCIDR(rule.cidr ?? '')
     setNamePattern(rule.name_pattern ?? '')
     setSNMPField(rule.snmp_field ?? 'sys_name')
-    setSNMPValue(rule.snmp_value ?? '')
+    setSNMPValue(
+      rule.snmp_field === 'sys_descr'
+        ? JSON.stringify(rule.snmp_value ?? '')
+        : (rule.snmp_value ?? ''),
+    )
     setValue(rule.value)
     setPriority(String(rule.priority ?? 0))
   }
@@ -121,13 +125,37 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
     }
     if (matchKind === 'cidr') return { ...base, address_side: addressSide, cidr: cidr.trim() }
     if (matchKind === 'name_pattern') return { ...base, name_pattern: namePattern.trim() }
-    return { ...base, snmp_field: snmpField, snmp_value: snmpValue.trim() }
+    return { ...base, snmp_field: snmpField, snmp_value: exactSNMPValue ?? '' }
   }
+
+  let exactSNMPValue: string | undefined = snmpValue
+  if (snmpField === 'sys_descr') {
+    try {
+      const parsed: unknown = JSON.parse(snmpValue)
+      exactSNMPValue = typeof parsed === 'string' ? parsed : undefined
+    } catch {
+      exactSNMPValue = undefined
+    }
+  }
+  const snmpError =
+    matchKind !== 'snmp_field'
+      ? undefined
+      : exactSNMPValue === undefined
+        ? 'Enter a JSON string, including double quotes.'
+        : !exactSNMPValue || new TextEncoder().encode(exactSNMPValue).length > 1024
+          ? 'Use 1–1,024 UTF-8 bytes of exact field text.'
+          : /\p{Cc}/u.test(
+                snmpField === 'sys_descr'
+                  ? exactSNMPValue.replace(/[\t\r\n]/g, '')
+                  : exactSNMPValue,
+              )
+            ? 'Only sys_descr permits tab, carriage return and line feed.'
+            : undefined
 
   async function onSave(event: FormEvent) {
     event.preventDefault()
     if (definitions.isPending || definitions.isError) return
-    if (!contextID || !tagID || !value.trim() || tagValueTooLong(value)) return
+    if (!contextID || !tagID || !value.trim() || tagValueTooLong(value) || snmpError) return
     try {
       const input = ruleInput()
       if (editing) await update.mutateAsync({ id: editing.id, input })
@@ -337,13 +365,27 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
                         <Select
                           label="SNMP field"
                           value={snmpField}
-                          onChange={(event) => setSNMPField(event.target.value as SNMPField)}
+                          onChange={(event) => {
+                            const next = event.target.value as SNMPField
+                            setSNMPValue(
+                              next === 'sys_descr'
+                                ? JSON.stringify(exactSNMPValue ?? '')
+                                : (exactSNMPValue ?? ''),
+                            )
+                            setSNMPField(next)
+                          }}
                           options={snmpFields.map((field) => ({ value: field, label: field }))}
                         />
                         <Field
                           label="SNMP field value"
                           required
-                          maxLength={256}
+                          maxLength={snmpField === 'sys_descr' ? 6146 : 1024}
+                          hint={
+                            snmpField === 'sys_descr'
+                              ? 'Quoted JSON string; use \\r, \\n and \\t for exact formatting. Up to 1,024 UTF-8 bytes after decoding.'
+                              : 'Exact text, including spaces; up to 1,024 UTF-8 bytes.'
+                          }
+                          error={snmpError}
                           value={snmpValue}
                           onChange={(event) => setSNMPValue(event.target.value)}
                         />
@@ -375,7 +417,8 @@ function TenantTagRulesContents({ tenantID, canWrite }: { tenantID: string; canW
                         update.isPending ||
                         !tagID ||
                         !value.trim() ||
-                        tagValueTooLong(value)
+                        tagValueTooLong(value) ||
+                        !!snmpError
                       }
                     >
                       {editing ? 'Save rule' : 'Create rule'}

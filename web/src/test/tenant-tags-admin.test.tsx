@@ -236,6 +236,33 @@ describe('Tenant tag definitions in Admin', () => {
     ).not.toBeInTheDocument()
   })
 
+  test('preserves exact formatted SNMP text and rejects malformed or oversized input', async () => {
+    const capture: TagCapture = { bodies: [], deleted: [], ruleBodies: [] }
+    vi.stubGlobal('fetch', tagFetch(capture))
+    renderApp('/admin', { me: { permissions: ['tags.read', 'tags.write'] } })
+    const table = await screen.findByRole('table', {
+      name: 'Tag rules in selected routing context',
+    })
+    const card = table.closest('[data-tenant-tag-rules]') as HTMLElement
+    const user = userEvent.setup()
+    await user.selectOptions(within(card).getByLabelText('Match kind'), 'snmp_field')
+    await user.selectOptions(within(card).getByLabelText('SNMP field'), 'sys_descr')
+    const field = within(card).getByRole('textbox', { name: 'SNMP field value' })
+    const value = ' ' + '界'.repeat(339) + '\r\n\tOS '
+    fireEvent.change(field, { target: { value: JSON.stringify(value) } })
+    await user.type(within(card).getByRole('textbox', { name: 'Tag value' }), 'formatted')
+    const create = within(card).getByRole('button', { name: 'Create rule' })
+    expect(create).toBeEnabled()
+    fireEvent.change(field, { target: { value: 'unquoted' } })
+    expect(create).toBeDisabled()
+    fireEvent.change(field, { target: { value: JSON.stringify('x'.repeat(1025)) } })
+    expect(create).toBeDisabled()
+    fireEvent.change(field, { target: { value: JSON.stringify(value) } })
+    await user.click(create)
+    await waitFor(() => expect(capture.ruleBodies).toHaveLength(1))
+    expect(capture.ruleBodies?.[0]).toMatchObject({ snmp_field: 'sys_descr', snmp_value: value })
+  })
+
   test('creates, edits and confirms deletion of a context-scoped rule', async () => {
     const capture: TagCapture = { bodies: [], deleted: [], ruleBodies: [], deletedRules: [] }
     vi.stubGlobal('fetch', tagFetch(capture))

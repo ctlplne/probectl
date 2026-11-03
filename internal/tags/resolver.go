@@ -16,6 +16,8 @@ import (
 	"net/netip"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -32,12 +34,14 @@ const (
 	// MaxRules meets the published 25,000-populator incumbent tier.
 	MaxRules = 25000
 	// MaxAssignments admits the same number of reviewed bindings.
-	MaxAssignments   = 25000
-	maxDefinitions   = MaxDefinitions
-	maxRules         = MaxRules
-	maxAssignments   = MaxAssignments
-	maxPatternBytes  = 256
-	maxTargetIDBytes = 2048
+	MaxAssignments = 25000
+	// MaxSNMPValueBytes matches the sender-bound inventory field boundary.
+	MaxSNMPValueBytes = 1024
+	maxDefinitions    = MaxDefinitions
+	maxRules          = MaxRules
+	maxAssignments    = MaxAssignments
+	maxPatternBytes   = 256
+	maxTargetIDBytes  = 2048
 )
 
 var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
@@ -149,6 +153,23 @@ func validText(raw string, maxBytes int) bool {
 		}
 	}
 	return true
+}
+
+// SNMP equality preserves observational whitespace. Only sysDescr supports
+// DisplayString formatting controls; names and interface labels do not.
+func validSNMPValue(field, value string) bool {
+	if value == "" || len(value) > MaxSNMPValueBytes || !utf8.ValidString(value) {
+		return false
+	}
+	switch field {
+	case "sys_name", "sys_descr", "if_name", "if_descr":
+	default:
+		return false
+	}
+	return strings.IndexFunc(value, func(r rune) bool {
+		return unicode.IsControl(r) &&
+			(field != "sys_descr" || (r != '\t' && r != '\r' && r != '\n'))
+	}) < 0
 }
 
 // ExporterTargetID combines the authenticated agent and its operator-owned

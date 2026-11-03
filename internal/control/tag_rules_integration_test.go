@@ -237,4 +237,40 @@ func TestTagRuleAPIEnforcesTenantContextAndPermissions(t *testing.T) {
 		t.Fatalf("delete manual assignment: %d %s", assignmentDeleted.Code,
 			assignmentDeleted.Body.String())
 	}
+	for _, tc := range []struct{ tenant, routingContext, path, text string }{
+		{a, contextA, pathA, " A\r\n\t" + strings.Repeat("界", 339) + " "},
+		{b, contextB, pathB, " B\r\n\t" + strings.Repeat("界", 339) + " "},
+	} {
+		tag := request(http.MethodPost, "/v1/tags", tc.tenant, `{"key":"snmp_text"}`, "")
+		var key tags.Definition
+		if tag.Code != http.StatusCreated || json.Unmarshal(tag.Body.Bytes(), &key) != nil {
+			t.Fatalf("create exact SNMP key: %d", tag.Code)
+		}
+		body := func(text string) string {
+			t.Helper()
+			encoded, err := json.Marshal(map[string]any{"tag_id": key.ID,
+				"target_kind": "device", "match_kind": "snmp_field", "snmp_field": "sys_descr",
+				"snmp_value": text, "value": "formatted"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(encoded)
+		}
+		created := request(http.MethodPost, tc.path, tc.tenant, body(tc.text), "")
+		var stored tags.Rule
+		if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &stored) != nil || stored.SNMPValue != tc.text {
+			t.Fatalf("REST lost exact bounded SNMP text: %d", created.Code)
+		}
+		principal := &auth.Principal{TenantID: tc.tenant, UserID: "tag-reader", Permissions: map[string]bool{permTagsRead: true}}
+		listed, err := readBackend.TagRuleList(context.Background(), principal,
+			mcp.TagContextListInput{ContextID: tc.routingContext, Limit: 100})
+		if err != nil || len(listed.Items) != 1 || listed.Items[0].SNMPValue != tc.text {
+			t.Fatalf("MCP lost or crossed tenant SNMP text: %+v %v", listed, err)
+		}
+		for _, bad := range []string{strings.Repeat("x", 1025), "bad\x1btext", "bad\u0085text"} {
+			if rec := request(http.MethodPost, tc.path, tc.tenant, body(bad), ""); rec.Code != http.StatusBadRequest {
+				t.Fatalf("REST accepted invalid SNMP text: %d", rec.Code)
+			}
+		}
+	}
 }

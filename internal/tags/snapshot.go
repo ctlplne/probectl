@@ -180,15 +180,10 @@ func compileRule(rule Rule) (compiledRule, netip.Prefix, error) {
 		return compiled, netip.Prefix{}, nil
 	case "snmp_field":
 		if rule.AddressSide != "" || rule.CIDR != "" || rule.NamePattern != "" ||
-			!validText(rule.SNMPValue, 256) {
+			!validSNMPValue(rule.SNMPField, rule.SNMPValue) {
 			return compiledRule{}, netip.Prefix{}, ErrInvalid
 		}
-		switch rule.SNMPField {
-		case "sys_name", "sys_descr", "if_name", "if_descr":
-			return compiled, netip.Prefix{}, nil
-		default:
-			return compiledRule{}, netip.Prefix{}, ErrInvalid
-		}
+		return compiled, netip.Prefix{}, nil
 	default:
 		return compiledRule{}, netip.Prefix{}, ErrInvalid
 	}

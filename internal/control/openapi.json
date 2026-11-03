@@ -19233,7 +19233,7 @@
           "cidr": {"type": "string"},
           "name_pattern": {"type": "string", "maxLength": 256},
           "snmp_field": {"type": "string", "enum": ["sys_name", "sys_descr", "if_name", "if_descr"]},
-          "snmp_value": {"type": "string", "maxLength": 256},
+          "snmp_value": {"type": "string", "minLength": 1, "maxLength": 1024, "description": "Exact UTF-8 field text, up to 1024 bytes. Whitespace is significant. Only sys_descr permits HT, CR and LF; all other control characters are refused."},
           "value": {"type": "string", "minLength": 1, "maxLength": 24000},
           "priority": {"type": "integer", "minimum": -1000, "maximum": 1000, "default": 0}
         }

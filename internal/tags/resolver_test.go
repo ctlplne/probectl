@@ -107,6 +107,41 @@ func TestResolveNameAndCollectedSNMPFieldsStayBounded(t *testing.T) {
 	}
 }
 
+func TestSNMPRulesMatchCompleteRetainedFieldTextExactly(t *testing.T) {
+	for _, field := range []string{"sys_name", "sys_descr", "if_name", "if_descr"} {
+		t.Run(field, func(t *testing.T) {
+			scope, subject := testScope(), testSubject()
+			value := " " + strings.Repeat("界", 340) + " x " // exactly 1024 UTF-8 bytes
+			if field == "sys_descr" {
+				value = " " + strings.Repeat("界", 339) + "\r\n\tOS "
+			}
+			subject.SNMP = map[string]string{field: value}
+			rule := Rule{Scope: scope, ID: ruleA, TagID: tagID, TargetKind: subject.Kind,
+				Match: "snmp_field", SNMPField: field, SNMPValue: value, Value: "exact"}
+			got, err := resolve(scope, 1, subject, []Definition{testDefinition()}, nil, []Rule{rule})
+			if err != nil || len(got) != 1 || got[0].Value != "exact" {
+				t.Fatalf("complete retained field did not match: %+v, %v", got, err)
+			}
+			subject.SNMP[field] = strings.TrimSpace(value)
+			if got, err := resolve(scope, 1, subject, []Definition{testDefinition()}, nil, []Rule{rule}); err != nil || len(got) != 0 {
+				t.Fatalf("observational whitespace was ignored: %+v, %v", got, err)
+			}
+			for _, bad := range []string{strings.Repeat("x", 1025), "bad\x00text", "bad\x1btext", "bad\u0085text", string([]byte{0xff})} {
+				rule.SNMPValue = bad
+				if err := ValidateRule(rule); !errors.Is(err, ErrInvalid) {
+					t.Fatalf("invalid field text admitted: %q: %v", bad, err)
+				}
+			}
+			if field != "sys_descr" {
+				rule.SNMPValue = "label\nsecond line"
+				if err := ValidateRule(rule); !errors.Is(err, ErrInvalid) {
+					t.Fatal("formatting controls admitted outside sysDescr")
+				}
+			}
+		})
+	}
+}
+
 func TestResolveRejectsMixedTenantContextAndUntrustedRuleShapes(t *testing.T) {
 	scope, subject, definition := testScope(), testSubject(), testDefinition()
 	base := Rule{Scope: scope, ID: ruleA, TagID: tagID, TargetKind: "exporter",
