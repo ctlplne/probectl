@@ -109,6 +109,7 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
   const createContext = useCreateEntityContext(tenantID)
   const createEntity = useCreateCanonicalEntity(tenantID)
   const setNetwork = useSetEntityNetworkPrefix(tenantID)
+  const resetNetwork = setNetwork.reset
   const assignSource = useAssignEntitySource(tenantID)
   const [siteLabel, setSiteLabel] = useState('')
   const [vrfLabel, setVRFLabel] = useState('')
@@ -135,8 +136,8 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
   }, [selected.data?.id, selected.data?.network_prefix])
 
   useEffect(() => {
-    setNetwork.reset()
-  }, [contextID, selectedID, setNetwork.reset])
+    resetNetwork()
+  }, [contextID, selectedID, resetNetwork])
 
   function chooseContext(id: string) {
     setContextID(id)
