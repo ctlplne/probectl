@@ -68,6 +68,7 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 	contextID, prefixID, roleID, customerID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	tenants := map[string]string{"a": netBoxTenantA, "b": netBoxTenantB}
 	rules := map[string]tags.Rule{}
+	fallbacks := map[string]tags.Rule{}
 	mutate := func(tenant string, fn func(context.Context, tenancy.Scope) error) {
 		t.Helper()
 		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, fn); err != nil {
@@ -100,6 +101,7 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 			if err != nil {
 				return err
 			}
+			fallbacks[tenant] = fallback
 			if _, err := audit.TenantAppend(ctx, sc, "netbox-query-fixture", "tag.rule.created", fallback.ID, map[string]any{"context_id": contextID}); err != nil {
 				return err
 			}
@@ -146,7 +148,7 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 		}
 	}
 	revisions := map[string]int64{}
-	prove := func(imported, edited bool) {
+	prove := func(phase string, imported, edited bool) {
 		t.Helper()
 		for i, lane := range []string{"a", "b"} {
 			tenant := tenants[lane]
@@ -190,7 +192,7 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 			if rangeScope {
 				snapshotRole, snapshotCustomer = ranges[0].Values["role"] == role, ranges[0].Values["customer"] == customer
 			}
-			t.Logf("prefix source checkpoint imported=%t edited=%t roots=%d ranges=%d root_context=%t range_scope=%t role_match=%t customer_match=%t", imported, edited, len(roots), len(ranges), rootContext, rangeScope, snapshotRole, snapshotCustomer)
+			t.Logf("prefix source checkpoint phase=%s imported=%t edited=%t roots=%d ranges=%d root_context=%t range_scope=%t role_match=%t customer_match=%t", phase, imported, edited, len(roots), len(ranges), rootContext, rangeScope, snapshotRole, snapshotCustomer)
 			count := uint64(100 * (1 + i*8))
 			for _, source := range []string{"raw", "rollup"} {
 				plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), View: "table", DataSeries: source,
@@ -215,7 +217,7 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 					}
 					for _, side := range []string{"src_prefix", "dst_prefix"} {
 						if row.Group["tag."+side+".role"] != wantRole || row.Group["tag."+side+".customer"] != wantCustomer {
-							t.Fatalf("real-source import/rule selected foreign or unknown-exporter metadata: imported=%t edited=%t source=%s side=%s known_row=%t role_equal=%t customer_equal=%t role_empty=%t customer_empty=%t reference_equal=%t snapshot_role=%t snapshot_customer=%t root_context=%t", imported, edited, source, side, row.Metrics["bytes:total"] == strconv.FormatUint(count, 10), row.Group["tag."+side+".role"] == wantRole, row.Group["tag."+side+".customer"] == wantCustomer, row.Group["tag."+side+".role"] == "", row.Group["tag."+side+".customer"] == "", reflect.DeepEqual(result.Rows, reference.Rows), snapshotRole, snapshotCustomer, rootContext)
+							t.Fatalf("real-source import/rule selected foreign or unknown-exporter metadata: phase=%s imported=%t edited=%t source=%s side=%s known_row=%t role_equal=%t customer_equal=%t role_empty=%t customer_empty=%t reference_equal=%t snapshot_role=%t snapshot_customer=%t root_context=%t", phase, imported, edited, source, side, row.Metrics["bytes:total"] == strconv.FormatUint(count, 10), row.Group["tag."+side+".role"] == wantRole, row.Group["tag."+side+".customer"] == wantCustomer, row.Group["tag."+side+".role"] == "", row.Group["tag."+side+".customer"] == "", reflect.DeepEqual(result.Rows, reference.Rows), snapshotRole, snapshotCustomer, rootContext)
 						}
 					}
 				}
@@ -239,7 +241,7 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 			}
 		}
 	}
-	prove(false, false)
+	prove("initial-rule", false, false)
 	for _, lane := range []string{"a", "b"} {
 		tenant := tenants[lane]
 		owned := tenancy.WithTenant(ctx, tenancy.ID(tenant))
@@ -281,7 +283,22 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 			return err
 		})
 	}
-	prove(true, false)
+	// A reviewed source value remains an imported suggestion: the matching
+	// operator rule wins until it is deliberately removed. Both observations
+	// use the same historical traffic and preserve exact counters.
+	prove("reviewed-import-under-rule", false, false)
+	for _, lane := range []string{"a", "b"} {
+		tenant := tenants[lane]
+		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			rule := fallbacks[tenant]
+			if err := (store.TagRules{}).Delete(ctx, sc, contextID, rule.ID); err != nil {
+				return err
+			}
+			_, err := audit.TenantAppend(ctx, sc, "netbox-query-fixture", "tag.rule.deleted", rule.ID, map[string]any{"context_id": contextID})
+			return err
+		})
+	}
+	prove("reviewed-import-exposed", true, false)
 	for _, lane := range []string{"a", "b"} {
 		tenant := tenants[lane]
 		mutate(tenant, func(ctx context.Context, sc tenancy.Scope) error {
@@ -295,7 +312,7 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 			return err
 		})
 	}
-	prove(true, true)
+	prove("customer-rule-edited", true, true)
 	// Keep the network/address witness private; only source/proof outcomes and
 	// the exact checked-out candidate go to the retained nonsecret receipt.
 	head, err := exec.CommandContext(ctx, "git", "rev-parse", "HEAD").Output()
@@ -306,7 +323,7 @@ func liveNetBoxStoredPrefixProof(t *testing.T, resolver *Resolver, prefixes map[
 		Candidate string   `json:"candidate_sha"`
 		Scope     string   `json:"scope"`
 		Checks    []string `json:"checks"`
-	}{strings.TrimSpace(string(head)), "real NetBox, product RLS and ClickHouse component; release/bus receipt remains required", []string{"paired same-ID tenant prefixes", "fresh attested reviewed import and audit", "rule and imported dimensions over identical historical inputs", "raw and complete retained exact counters and filters", "unknown exporter and foreign snapshot refuse metadata", "rule edit re-tags history without rewriting telemetry"}}
+	}{strings.TrimSpace(string(head)), "real NetBox, product RLS and ClickHouse component; release/bus receipt remains required", []string{"paired same-ID tenant prefixes", "fresh attested reviewed import and audit", "matching rule wins before audited removal exposes reviewed import", "rule and imported dimensions over identical historical inputs", "raw and complete retained exact counters and filters", "unknown exporter and foreign snapshot refuse metadata", "rule edit re-tags history without rewriting telemetry"}}
 	raw, err := json.MarshalIndent(proof, "", "  ")
 	if err != nil {
 		t.Fatal("cannot encode the nonsecret source/query receipt")
