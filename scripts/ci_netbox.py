@@ -97,7 +97,6 @@ def bootstrap_failure(raw: bytes) -> str:
         "source_tenants",
         "source_addresses",
         "ownership_move",
-        "http_request",
     }
     classes = {
         "ImportError",
@@ -403,9 +402,76 @@ def request(
         raw = response.read((4 << 20) + 1)
         if len(raw) > 4 << 20:
             raise RuntimeError("NetBox fixture response exceeds the source bound")
+        if response.status >= 500:
+            diagnose_http_error(response.status, raw)
         return response.status, raw if response.status < 400 else b""
     finally:
         connection.close()
+
+
+def diagnose_http_error(status: int, raw: bytes) -> None:
+    """NetBox CoreMiddleware catches API exceptions before Django logs them.
+
+    Admit its exception class enum and fixed signal booleans only. Its error
+    field can contain credentials or SQL and must never leave this function.
+    """
+    category, error = "other", ""
+    try:
+        document = json.loads(raw)
+        if isinstance(document, dict):
+            value = document.get("exception")
+            if value in {
+                "ImportError",
+                "ModuleNotFoundError",
+                "ImproperlyConfigured",
+                "OperationalError",
+                "IntegrityError",
+                "ProgrammingError",
+                "DataError",
+                "ConnectionError",
+                "AuthenticationError",
+                "SSLError",
+                "TimeoutError",
+                "ValueError",
+                "TypeError",
+                "AttributeError",
+                "KeyError",
+                "RuntimeError",
+                "PermissionError",
+                "NotImplementedError",
+                "AssertionError",
+            }:
+                category = value
+            if isinstance(document.get("error"), str):
+                error = document["error"]
+    except (ValueError, UnicodeError, TypeError):
+        pass
+    signals = {
+        name: marker in error
+        for name, marker in {
+            "tls_verification": "CERTIFICATE_VERIFY_FAILED",
+            "authentication_required": "Authentication required",
+            "connection_refused": "Connection refused",
+            "permission_denied": "Permission denied",
+            "tls_minimum_option": "ssl_min_version",
+            "task_configuration": "RQ_QUEUES",
+            "settings_module": "DJANGO_SETTINGS_MODULE",
+        }.items()
+    }
+    print(
+        "NetBox fixture HTTP failure: "
+        + json.dumps(
+            {
+                "http_status": status
+                if type(status) is int and 500 <= status <= 599
+                else None,
+                "exception_class": category,
+                "signals": signals,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
 
 
 def verify_source_tls() -> None:
@@ -753,6 +819,24 @@ def cleanup() -> None:
 def selftest() -> None:
     verify_tls_config(tls_config())
     verify_application_version(200, b'{"netbox-version":"4.4.5"}')
+    for raw in [
+        b'{"exception":"TypeError","error":"untrusted-detail ssl_min_version"}',
+        b'{"exception":"untrusted-detail","error":"untrusted-detail"}',
+        b'{"exception":["untrusted-detail"]}',
+        b"untrusted-detail",
+    ]:
+        diagnostic = io.StringIO()
+        with patch("sys.stdout", diagnostic):
+            diagnose_http_error(500, raw)
+        if "untrusted-detail" in diagnostic.getvalue():
+            raise RuntimeError("fixture HTTP diagnostic leaked source text")
+        if b'"exception":"TypeError"' in raw and (
+            '"exception_class": "TypeError"' not in diagnostic.getvalue()
+            or '"tls_minimum_option": true' not in diagnostic.getvalue()
+        ):
+            raise RuntimeError(
+                "fixture HTTP diagnostic lost its admitted class or signal"
+            )
     for status, raw in [
         (500, b"untrusted-detail"),
         (200, b'{"netbox-version":"4.4.50"}'),
@@ -886,10 +970,9 @@ def selftest() -> None:
         queue = copy.deepcopy(base_queue)
         queue.update(bad_override or {})
         base = SimpleNamespace(
-            __all__=["RQ_QUEUES", "PRESERVED_SETTING", "LOGGING"],
+            __all__=["RQ_QUEUES", "PRESERVED_SETTING"],
             RQ_QUEUES={"default": queue, "high": queue},
             PRESERVED_SETTING="base",
-            LOGGING={},
         )
         derived = {}
         with patch.dict(
@@ -919,20 +1002,6 @@ def selftest() -> None:
             raise RuntimeError(
                 "fixture settings lost base settings, credentials or explicit TLS checks"
             )
-        error_output = io.StringIO()
-        with patch("sys.stderr", error_output):
-            derived["SafeRequestFailure"]().emit(
-                SimpleNamespace(
-                    exc_info=(RuntimeError, RuntimeError("untrusted-detail"), None)
-                )
-            )
-        safe_error = error_output.getvalue().encode()
-        if (
-            b"untrusted-detail" in safe_error
-            or bootstrap_failure(b"netbox | " + safe_error)
-            != " bootstrap stage=http_request error_class=RuntimeError"
-        ):
-            raise RuntimeError("fixture request diagnostic leaked exception text")
     if (
         config["CENSUS_REPORTING_ENABLED"]
         or not config["ISOLATED_DEPLOYMENT"]

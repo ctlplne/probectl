@@ -51,3 +51,11 @@ uses BSD-3-Clause, and [PostgreSQL](https://www.postgresql.org/about/licence/)
 uses the PostgreSQL License. These self-hosted test services need no hosted
 account or hosted-service AUP. They add no product dependency or telemetry egress.
 This first compatibility proof covers the pinned NetBox version only.
+
+NetBox's production API middleware converts unhandled exceptions to JSON before
+Django's request logger receives an exception. On HTTP500 the fixture runner
+extracts only a fixed allowlist of exception classes and boolean diagnostic
+signals from that bounded response, then discards the entire body. The source
+error text, request, token, SQL and traceback never enter logs or receipts.
+An unknown class becomes `other`; planted error messages are tested for leakage.
+The strict HTTP status and exact application-version assertions remain enabled.
