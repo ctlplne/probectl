@@ -31,7 +31,7 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 	slices.Sort(selected)
 	selected = slices.Compact(selected)
 	for _, kind := range selected {
-		if kind != "device" && kind != "agent" && kind != "interface" {
+		if kind != "device" && kind != "agent" && kind != "interface" && kind != "prefix" {
 			return nil, nil, "", apierror.Unavailable("tag policy dependency is unavailable")
 		}
 	}
@@ -48,10 +48,11 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 		Exporter bool   `json:"exporter"`
 		Device   bool   `json:"device"`
 		Agent    bool   `json:"agent"`
+		Prefix   bool   `json:"prefix"`
 	}
 	decisions := make([]contextDecision, 0, len(records))
 	allowed := make(map[string]bool, len(records))
-	related := map[string]map[string]bool{"device": {}, "agent": {}}
+	related := map[string]map[string]bool{"device": {}, "agent": {}, "prefix": {}}
 	for _, record := range records {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, "", err
@@ -69,7 +70,7 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 			disclose = disclose && decision == auth.DecisionAllowed
 		}
 		allowed[record.ContextID] = disclose
-		for _, subject := range []struct{ kind, permission string }{{"device", "metrics.read"}, {"agent", "agent.read"}} {
+		for _, subject := range []struct{ kind, permission string }{{"device", "metrics.read"}, {"agent", "agent.read"}, {"prefix", "entities.read"}} {
 			if !selectedTagPolicySubject(selected, subject.kind) {
 				continue
 			}
@@ -79,7 +80,7 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 			}
 			related[subject.kind][record.ContextID] = disclose && decision == auth.DecisionAllowed
 		}
-		decisions = append(decisions, contextDecision{record.ContextID, disclose, related["device"][record.ContextID], related["agent"][record.ContextID]})
+		decisions = append(decisions, contextDecision{record.ContextID, disclose, related["device"][record.ContextID], related["agent"][record.ContextID], related["prefix"][record.ContextID]})
 	}
 	// Interface metadata has the same effective source grant as devices;
 	// both remain covered by the metrics.read decision already in the digest.
@@ -89,7 +90,7 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 		Tenant   string            `json:"tenant"`
 		Subjects []string          `json:"subjects"`
 		Contexts []contextDecision `json:"contexts"`
-	}{"flow-tag-context-authorization/v3", p.TenantID, selected, decisions})
+	}{"flow-tag-context-authorization/v4", p.TenantID, selected, decisions})
 	if err != nil || int64(len(encoded)) > limit {
 		return nil, nil, "", flowTagQueryError(store.ErrTagSnapshotBudget)
 	}

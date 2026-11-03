@@ -201,11 +201,16 @@ func TestSnapshotInputsBindOnlySelectedMetadataSubjectKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Now().UTC().Truncate(time.Minute)
-	plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"tag.device.customer", "tag.in_interface.customer"}, View: "matrix", MatrixWith: []string{"tag.agent.customer"}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.out_interface.customer", Op: flow.QueryEqual, Values: []string{"private-selector"}}}}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+	plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"tag.device.customer", "tag.in_interface.customer", "tag.src_prefix.customer"}, View: "matrix", MatrixWith: []string{"tag.agent.customer"}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "tag.out_interface.customer", Op: flow.QueryEqual, Values: []string{"private-selector"}}, {Field: "tag.dst_prefix.customer", Op: flow.QueryEqual, Values: []string{"private-selector"}}}}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
 	result := PlanResult{Source: "raw", Query: plan, TotalGroups: 1, OldestInput: at}
 	clock, err := SnapshotInputsForTenant(ctx, tenant, result)
-	if err != nil || !slices.Equal(clock.TagSubjects, []string{"agent", "device", "interface"}) {
+	if err != nil || !slices.Equal(clock.TagSubjects, []string{"agent", "device", "interface", "prefix"}) {
 		t.Fatalf("selected metadata dependencies lost: %+v %v", clock, err)
+	}
+	for _, field := range []string{"exporter", "src_addr", "dst_addr"} {
+		if !slices.Contains(clock.Fields, field) {
+			t.Fatal("prefix source receipt lost its physical dependency", field)
+		}
 	}
 	encoded, err := json.Marshal(clock)
 	if err != nil || bytes.Contains(encoded, []byte("private-selector")) || bytes.Contains(encoded, []byte("customer")) {

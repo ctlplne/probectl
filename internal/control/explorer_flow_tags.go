@@ -152,7 +152,11 @@ func (s *Server) loadFlowTagQuerySnapshot(ctx context.Context, principal *auth.P
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
-	data, err := flowstore.NewTagQueryData(principal.TenantID, revision, definitions, projection, limit)
+	prefixes, err := snapshot.ProjectAuthorizedPrefixesContext(ctx, allowed, related["prefix"], limit)
+	if err != nil {
+		return nil, flowTagQueryError(err)
+	}
+	data, err := flowstore.NewTagQueryData(principal.TenantID, revision, definitions, projection, limit, flowstore.TagQuerySources{Context: ctx, Prefixes: prefixes})
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
@@ -326,10 +330,10 @@ func (s *Server) loadFlowQueryVocabulary(ctx context.Context, principal *auth.Pr
 // Names are hints only; the tenant vocabulary still validates every field.
 func relatedFlowTagSubjects(names []string) []string {
 	result := []string{}
-	for _, subject := range []string{"device", "agent", "interface"} {
+	for _, subject := range []string{"device", "agent", "interface", "prefix"} {
 		for _, name := range names {
 			name = strings.ToLower(strings.TrimSpace(name))
-			if strings.HasPrefix(name, "tag."+subject+".") || subject == "interface" && (strings.HasPrefix(name, "tag.in_interface.") || strings.HasPrefix(name, "tag.out_interface.")) {
+			if strings.HasPrefix(name, "tag."+subject+".") || subject == "interface" && (strings.HasPrefix(name, "tag.in_interface.") || strings.HasPrefix(name, "tag.out_interface.")) || subject == "prefix" && (strings.HasPrefix(name, "tag.src_prefix.") || strings.HasPrefix(name, "tag.dst_prefix.")) {
 				result = append(result, subject)
 				break
 			}

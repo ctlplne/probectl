@@ -183,6 +183,8 @@ describe('native flow workspace', () => {
     'tag.agent.customer',
     'tag.in_interface.customer',
     'tag.out_interface.customer',
+    'tag.src_prefix.customer',
+    'tag.dst_prefix.customer',
   ])(
     'uses authenticated %s in the builder and labels unmatched retained history',
     async (field) => {

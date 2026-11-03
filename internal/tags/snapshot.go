@@ -32,8 +32,19 @@ type Snapshot struct {
 // provenance before it reaches a flow backend.
 type ExporterProjection struct {
 	Exporter   string
+	ContextID  string
 	Values     map[string]string
 	Interfaces map[uint32]map[string]string
+}
+
+// PrefixProjection is private query metadata from an owned routing context.
+// Empty values still identify a current closest subject and prevent fallback
+// to a broader manual/import annotation. It is not an observed route.
+type PrefixProjection struct {
+	Scope
+	ID      string
+	Network netip.Prefix
+	Values  map[string]string
 }
 
 // Revision returns the committed tag revision captured with this snapshot.

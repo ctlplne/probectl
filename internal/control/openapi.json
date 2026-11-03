@@ -23520,7 +23520,7 @@
       },
       "FlowQueryField": {
         "type": "object",
-        "description": "Native fields plus tenant-defined tag.<key>, tag.device.<key>, tag.agent.<key>, tag.in_interface.<key> and tag.out_interface.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor, registered collecting agent or current attested interface index and additionally require metrics.read (device/interface) or agent.read (agent). Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client.",
+        "description": "Native fields plus tenant-defined tag.<key>, tag.device.<key>, tag.agent.<key>, tag.in_interface.<key>, tag.out_interface.<key>, tag.src_prefix.<key> and tag.dst_prefix.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor, registered collecting agent, current attested interface index or closest explicit canonical prefix in the owned routing context. They additionally require metrics.read (device/interface), agent.read (agent) or entities.read (prefix). Equal closest prefix networks are ambiguous and return an empty value, without ancestor fallback. Source and destination prefix fields are independent. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client.",
         "properties": {
           "name": {
             "type": "string"

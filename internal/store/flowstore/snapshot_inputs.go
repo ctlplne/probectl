@@ -77,6 +77,9 @@ func snapshotInputsFor(result PlanResult, vocabulary flow.QueryVocabulary) (Snap
 				if kind == "in_interface" || kind == "out_interface" {
 					kind = "interface"
 				}
+				if kind == "src_prefix" || kind == "dst_prefix" {
+					kind = "prefix"
+				}
 				tagSubjects = append(tagSubjects, kind)
 			}
 			if field.Column != "" {
@@ -129,12 +132,12 @@ func (c SnapshotInputs) validate() error {
 	if c.TagLookup && !slices.Contains(c.Fields, "exporter") {
 		return ErrSnapshotInputs
 	}
-	if len(c.TagSubjects) > 3 || len(c.TagSubjects) > 0 && !c.TagLookup {
+	if len(c.TagSubjects) > 4 || len(c.TagSubjects) > 0 && !c.TagLookup {
 		return ErrSnapshotInputs
 	}
 	previousSubject := ""
 	for _, kind := range c.TagSubjects {
-		if kind <= previousSubject || kind != "agent" && kind != "device" && kind != "interface" {
+		if kind <= previousSubject || kind != "agent" && kind != "device" && kind != "interface" && kind != "prefix" {
 			return ErrSnapshotInputs
 		}
 		previousSubject = kind

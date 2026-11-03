@@ -46,7 +46,7 @@ func TestExplorerCLIExactVersionRequestAndResponse(t *testing.T) {
 }
 
 func TestExplorerCLIQualifiedTagFieldsRemainExact(t *testing.T) {
-	input := `{"source":"flow","flow":{"group_by":["tag.role","tag.device.role","tag.in_interface.role","tag.out_interface.role"],"matrix_with":["tag.agent.role"],"filter":{"conditions":[{"field":"tag.device.role","op":"eq","values":["edge"]}]}}}`
+	input := `{"source":"flow","flow":{"group_by":["tag.role","tag.device.role","tag.in_interface.role","tag.out_interface.role","tag.src_prefix.role"],"matrix_with":["tag.agent.role","tag.dst_prefix.role"],"filter":{"conditions":[{"field":"tag.device.role","op":"eq","values":["edge"]}]}}}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {

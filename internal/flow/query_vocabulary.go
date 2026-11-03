@@ -77,6 +77,7 @@ func NewTagQueryVocabulary(tenantID string, definitions []tags.Definition) (Quer
 		for _, subject := range []struct{ qualifier, permission, column string }{
 			{"", "tags.read", ""}, {"device.", "metrics.read", ""}, {"agent.", "agent.read", ""},
 			{"in_interface.", "metrics.read", "in_if"}, {"out_interface.", "metrics.read", "out_if"},
+			{"src_prefix.", "entities.read", "src_addr"}, {"dst_prefix.", "entities.read", "dst_addr"},
 		} {
 			key := subject.qualifier + def.Key
 			field := queryField("tag."+key, subject.column, QueryText, false, 0)

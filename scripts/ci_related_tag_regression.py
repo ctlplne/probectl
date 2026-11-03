@@ -291,6 +291,7 @@ if __name__ == "__main__":
     mode.add_argument("--tag-actor", action="store_true")
     mode.add_argument("--tag-output", action="store_true")
     mode.add_argument("--canonical-address", action="store_true")
+    mode.add_argument("--prefixes", action="store_true")
     args = parser.parse_args()
     if args.interfaces:
         BASE = "9c626335df1bc6f48eb1fb6951a81d0a2fbda198"
@@ -320,6 +321,11 @@ if __name__ == "__main__":
         GO_EXTRA = ["-tags=integration"]
         FILE = Path("internal/control/explorer_flow_related_tags_integration_test.go")
         MARKER = "authorized related tag output was rejected by static projection"
+    if args.prefixes:
+        BASE = "c267edbb37b00c0908d6b6dfab98f2af63f3cffa"
+        TEST = "TestPrefixTagVocabularyKeepsIndependentSidesAndOwnedInputs"
+        FILE = Path("internal/flow/query_prefix_vocabulary_test.go")
+        MARKER = "source/destination prefix field is unavailable"
     if args.canonical_address:
         BASE = "b687019259f8efb824cd71cc5c5fc3568a7c633e"
         TEST = "TestExplorerClickHouseCanonicalAddressesRetainValidIPv6"

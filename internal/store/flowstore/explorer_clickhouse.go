@@ -32,12 +32,21 @@ func (c *ClickHouse) WithExplorerInterfaces(source ExplorerInterfaceSource) *Cli
 
 // explorerQueryRows is the common bounded POST transport for structured plans.
 // Bound values never appear in an HTTP URL, diagnostic body or public error.
-func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane chclient.ReadLane, tenant, sql string, params chParams, tagRows ...[]byte) ([]map[string]any, error) {
-	if len(tagRows) > 1 {
-		return nil, ErrExplorerBudget
-	}
-	if len(tagRows) == 1 && int64(len(tagRows[0])) > explorerBudgetFor(ctx).MemoryBytes/4 {
-		return nil, ErrExplorerBudget
+func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane chclient.ReadLane, tenant, sql string, params chParams, external ...explorerExternalData) ([]map[string]any, error) {
+	remaining := explorerBudgetFor(ctx).MemoryBytes / 4
+	seen := map[explorerExternalKind]bool{}
+	for _, data := range external {
+		if _, _, err := data.specification(); err != nil {
+			return nil, err
+		}
+		if seen[data.kind] {
+			return nil, ErrTagQueryScope
+		}
+		seen[data.kind] = true
+		if int64(len(data.rows)) > remaining {
+			return nil, ErrExplorerBudget
+		}
+		remaining -= int64(len(data.rows))
 	}
 	// Multipart keeps bounded filter/metadata values out of URLs. It also avoids
 	// the HTTP URI ceiling for a large, but permitted, interface-name mapping.
@@ -56,12 +65,13 @@ func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane 
 			return nil, err
 		}
 	}
-	if len(tagRows) == 1 {
-		part, err := form.CreateFormFile("tag_lookup", "tag_lookup")
+	for _, data := range external {
+		name, _, _ := data.specification()
+		part, err := form.CreateFormFile(name, name)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := part.Write(tagRows[0]); err != nil {
+		if _, err := part.Write(data.rows); err != nil {
 			return nil, err
 		}
 	}
@@ -69,11 +79,9 @@ func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane 
 		return nil, err
 	}
 	endpoint := c.laneBase(lane, target.BaseURL) + "/?" + tenantSettingName + "=" + url.QueryEscape(tenant) + "&wait_end_of_query=1"
-	if len(tagRows) == 1 {
-		// The external table schema is fixed code, never a tenant-controlled
-		// identifier or value. Its rows live only in the TLS multipart body.
-		endpoint += "&tag_lookup_format=JSONEachRow&tag_lookup_structure=" +
-			url.QueryEscape("lookup_tenant String, lookup_exporter String, tag_values Map(String, String)")
+	for _, data := range external {
+		name, structure, _ := data.specification()
+		endpoint += "&" + name + "_format=JSONEachRow&" + name + "_structure=" + url.QueryEscape(structure)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
 	if err != nil {
@@ -142,6 +150,9 @@ func explorerFieldExprWithParams(field flow.QueryField, params chParams) string 
 				}
 				params[name] = key
 				return "ifNull(tag_values[concat('interface.',toString(" + column + "),'.',{" + name + ":String})],'')"
+			case "src_prefix", "dst_prefix":
+				params[name] = key
+				return prefixTagValueSQL(subject, name)
 			case "device", "agent":
 			default:
 				return "''"

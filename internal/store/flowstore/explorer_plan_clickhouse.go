@@ -31,19 +31,17 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 		return PlanResult{}, err
 	}
 	ctx = withExplorerBudget(ctx, budget)
+	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
+	defer cancel()
 	var vocabulary flow.QueryVocabulary
 	var err error
-	var external [][]byte
+	var external []explorerExternalData
 	if query.Tags != nil {
 		vocabulary, err = query.Tags.Vocabulary(query.TenantID)
 		if err != nil {
 			return PlanResult{}, err
 		}
-		rows, err := query.Tags.ExternalRows(query.TenantID, budget.MemoryBytes/4)
-		if err != nil {
-			return PlanResult{}, err
-		}
-		external = append(external, rows)
+
 	}
 	plan, err := flow.NormalizeQueryPlanWithVocabulary(query.Plan, time.Now(), vocabulary)
 	if err != nil {
@@ -52,8 +50,13 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if plan.Cursor != "" {
 		return PlanResult{}, errors.New("flow cursor must be resolved from its stored snapshot before execution")
 	}
-	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
-	defer cancel()
+	if query.Tags != nil {
+		external, err = query.Tags.externalData(ctx, query.TenantID, plan, budget.MemoryBytes/4)
+		if err != nil {
+			return PlanResult{}, err
+		}
+	}
+
 	target, err := c.route(ctx, query.TenantID)
 	if err != nil {
 		return PlanResult{}, err

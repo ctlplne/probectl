@@ -34,6 +34,7 @@ type TenantTagSnapshot struct {
 	contexts    []entity.ContextRecord
 	related     map[string]map[string]string
 	interfaces  map[string]map[uint32]map[string]string
+	prefixes    map[string][]tags.PrefixProjection
 }
 
 type tagExporterBinding struct {
@@ -104,6 +105,7 @@ func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[st
 	used := int64(0)
 	out := []tags.ExporterProjection{}
 	for _, address := range addresses {
+		binding := s.byAddress[address]
 		if allowed != nil && !allowed[s.byAddress[address].contextID] {
 			continue
 		}
@@ -111,11 +113,12 @@ func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[st
 		if err != nil {
 			return nil, err
 		}
-		if len(resolved) == 0 && len(s.related[address]) == 0 && len(s.interfaces[address]) == 0 {
+		hasPrefixes := len(related) > 0 && related[0]["prefix"][binding.contextID] && len(s.prefixes[binding.contextID]) > 0
+		if len(resolved) == 0 && len(s.related[address]) == 0 && len(s.interfaces[address]) == 0 && !hasPrefixes {
 			continue
 		}
-		row := tags.ExporterProjection{Exporter: address, Values: make(map[string]string, len(resolved))}
-		used += 256 + int64(len(address))
+		row := tags.ExporterProjection{Exporter: address, ContextID: binding.contextID, Values: make(map[string]string, len(resolved))}
+		used += 256 + int64(len(address)+len(binding.contextID))
 		for _, tag := range resolved {
 			if err := ctx.Err(); err != nil {
 				return nil, err
@@ -163,7 +166,7 @@ func (s *TenantTagSnapshot) projectExporters(ctx context.Context, allowed map[st
 				}
 			}
 		}
-		if len(row.Values) == 0 && len(row.Interfaces) == 0 {
+		if len(row.Values) == 0 && len(row.Interfaces) == 0 && !hasPrefixes {
 			continue
 		}
 		out = append(out, row)
@@ -216,7 +219,7 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64, related .
 	}
 	wanted := map[string]bool{}
 	for _, kind := range related {
-		if kind != "device" && kind != "agent" && kind != "interface" {
+		if kind != "device" && kind != "agent" && kind != "interface" && kind != "prefix" {
 			return nil, tags.ErrInvalid
 		}
 		wanted[kind] = true
@@ -301,6 +304,12 @@ func (s *TagSnapshots) LoadTenant(ctx context.Context, maxBytes int64, related .
 		}
 		if wanted["interface"] {
 			result.interfaces, err = loadFlowTagInterfaces(ctx, sc, result, maxBytes, charge)
+			if err != nil {
+				return err
+			}
+		}
+		if wanted["prefix"] {
+			result.prefixes, err = loadFlowTagPrefixes(ctx, sc, result, maxBytes, charge)
 			if err != nil {
 				return err
 			}

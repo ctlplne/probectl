@@ -648,8 +648,9 @@ on its existing canonical entity. Create it with the field or set/clear it with
 string clears). Admin and `entities network-set` expose the same operation.
 CIDR rules match only if they contain the entire explicit range; a misleading
 label has no effect. The entity ID and manual assignments survive range edits.
-This metadata does not establish a live routing observation or a flow-to-prefix
-association. See [prefix network metadata](entity-registry.md#explicit-prefix-network-metadata-preview).
+This metadata does not establish a live routing observation. Flow-to-prefix
+query associations use the explicit network and owned routing context as
+described below. See [prefix network metadata](entity-registry.md#explicit-prefix-network-metadata-preview).
 
 `probectl --json tags resolve CONTEXT --query target_kind=device --query
 target_id=DEVICE` returns the same snapshot. Admin → Effective subject tags
@@ -657,6 +658,25 @@ resolves on explicit submit and clears results when the subject, context or
 signed-in identity changes. Native MCP's user-only `tag_subject_resolve` uses
 the same curated projection, subject grants, context checks and egress policy.
 No read surface creates an assignment or changes an observed identity.
+
+Flow queries also expose independent `tag.src_prefix.<key>` and
+`tag.dst_prefix.<key>` text fields. Each selects the closest explicit canonical
+prefix containing that packet address in the uniquely owned exporter's routing
+context. A raw sender ID, BGP attribute or prefix label cannot choose that
+context or supply a network. Prefix fields require `entities.read` in addition
+to `ai.query`, `flow.read` and `tags.read`, with current context policy enforced.
+
+The closest prefix supplies the whole tag set. An unannotated closest prefix
+has an empty value; two current canonical IDs for the same closest network are
+ambiguous even if their values agree. Neither case inherits a manual/imported
+annotation from a broader prefix. A more specific valid child can supply its
+own value, and a CIDR rule can cover a subject's entire explicit range. Invalid
+addresses and unowned exporters stay unmatched. IPv4-mapped packet addresses
+use IPv4 identity; source and destination remain separate. Traffic totals and
+row multiplicity are preserved. Both complete raw and retained inputs support
+these fields, nested filters, matrices, percentiles, saved identities and frozen
+output, subject to the existing tenant query cost policy. This is an explicit
+operator-metadata association, not a live prefix producer or routing observation.
 
 An authorized flow query may group or filter by an exact `tag.<key>` text
 field. `/v1/explorer/schema` and the native MCP schema include a tenant's tag

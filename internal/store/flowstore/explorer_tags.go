@@ -8,6 +8,7 @@ package flowstore
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -30,13 +31,32 @@ type TagQueryData struct {
 	revision             int64
 	vocabulary           flow.QueryVocabulary
 	exporters            map[string]map[string]string
+	exporterContexts     map[string]string
+	prefixes             map[tagPrefixGroup][]tagPrefixRange
 	contextAuthorization string
 }
 
+// TagQuerySources carries private, current owned metadata, never query input.
+type TagQuerySources struct {
+	Context  context.Context
+	Prefixes []tags.PrefixProjection
+}
+
 func NewTagQueryData(tenantID string, revision int64, definitions []tags.Definition,
-	projections []tags.ExporterProjection, maxBytes int64) (*TagQueryData, error) {
-	if revision <= 0 || maxBytes <= 0 {
+	projections []tags.ExporterProjection, maxBytes int64, sources ...TagQuerySources) (*TagQueryData, error) {
+	if revision <= 0 || maxBytes <= 0 || len(sources) > 1 {
 		return nil, ErrTagQueryScope
+	}
+	ctx := context.Background()
+	var prefixes []tags.PrefixProjection
+	if len(sources) == 1 {
+		prefixes = sources[0].Prefixes
+		if sources[0].Context != nil {
+			ctx = sources[0].Context
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	vocabulary, err := flow.NewTagQueryVocabulary(tenantID, definitions)
 	if err != nil {
@@ -46,9 +66,13 @@ func NewTagQueryData(tenantID string, revision int64, definitions []tags.Definit
 		return nil, ErrExplorerBudget
 	}
 	result := &TagQueryData{tenantID: tenantID, revision: revision,
-		vocabulary: vocabulary, exporters: make(map[string]map[string]string, len(projections))}
+		vocabulary: vocabulary, exporters: make(map[string]map[string]string, len(projections)), exporterContexts: make(map[string]string, len(projections))}
 	used := int64(0)
+	contexts := map[string]bool{}
 	for _, projection := range projections {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		address, err := netip.ParseAddr(projection.Exporter)
 		if err != nil || address.Zone() != "" || address.Unmap().String() != projection.Exporter {
 			return nil, ErrTagQueryScope
@@ -56,7 +80,14 @@ func NewTagQueryData(tenantID string, revision int64, definitions []tags.Definit
 		if _, exists := result.exporters[projection.Exporter]; exists {
 			return nil, ErrTagQueryScope
 		}
-		used += 256 + int64(len(projection.Exporter))
+		if projection.ContextID != "" {
+			if !validTagProjectionID(projection.ContextID) {
+				return nil, ErrTagQueryScope
+			}
+			result.exporterContexts[projection.Exporter] = projection.ContextID
+			contexts[projection.ContextID] = true
+		}
+		used += 256 + int64(len(projection.Exporter)+len(projection.ContextID))
 		if used > maxBytes {
 			return nil, ErrExplorerBudget
 		}
@@ -94,6 +125,18 @@ func NewTagQueryData(tenantID string, revision int64, definitions []tags.Definit
 			}
 		}
 		result.exporters[projection.Exporter] = values
+	}
+	if len(prefixes) > 0 {
+		result.prefixes, err = buildTagPrefixRanges(ctx, tenantID, vocabulary, contexts, prefixes, func(amount int64) error {
+			if amount < 0 || amount > maxBytes-used {
+				return ErrExplorerBudget
+			}
+			used += amount
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }
@@ -157,6 +200,13 @@ func (d *TagQueryData) valueForRow(row Row, key string) (string, error) {
 		return "", err
 	}
 	subject, name, qualified := strings.Cut(key, ".")
+	if qualified && (subject == "src_prefix" || subject == "dst_prefix") {
+		field, ok := d.vocabulary.Lookup("tag." + key)
+		if !ok || field.TagKey != key {
+			return "", ErrTagQueryScope
+		}
+		return d.prefixValue(row, subject, name), nil
+	}
 	if !qualified || (subject != "in_interface" && subject != "out_interface") {
 		return d.Value(row.TenantID, row.Exporter, key)
 	}
@@ -185,12 +235,22 @@ func (d *TagQueryData) valueTrusted(exporter, key string) string {
 // ExternalRows is the fixed-schema JSONEachRow body for one request-local
 // ClickHouse external table. All literals stay in the HTTPS multipart body;
 // the query joins on both lookup_tenant and lookup_exporter.
-func (d *TagQueryData) ExternalRows(tenantID string, maxBytes int64) ([]byte, error) {
+func (d *TagQueryData) ExternalRows(tenantID string, maxBytes int64, contexts ...context.Context) ([]byte, error) {
 	if _, err := d.Revision(tenantID); err != nil {
 		return nil, err
 	}
 	if maxBytes <= 0 {
 		return nil, ErrExplorerBudget
+	}
+	ctx := context.Background()
+	if len(contexts) > 1 {
+		return nil, ErrTagQueryScope
+	}
+	if len(contexts) == 1 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	addresses := make([]string, 0, len(d.exporters))
 	for address := range d.exporters {
@@ -199,11 +259,15 @@ func (d *TagQueryData) ExternalRows(tenantID string, maxBytes int64) ([]byte, er
 	sort.Strings(addresses)
 	var body bytes.Buffer
 	for _, address := range addresses {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		row, err := json.Marshal(struct {
 			Tenant   string            `json:"lookup_tenant"`
 			Exporter string            `json:"lookup_exporter"`
+			Context  string            `json:"lookup_context"`
 			Values   map[string]string `json:"tag_values"`
-		}{Tenant: tenantID, Exporter: address, Values: d.exporters[address]})
+		}{Tenant: tenantID, Exporter: address, Context: d.exporterContexts[address], Values: d.exporters[address]})
 		if err != nil {
 			return nil, err
 		}

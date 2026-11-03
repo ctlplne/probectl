@@ -64,10 +64,11 @@ func TestTagQueryVocabularyIsTenantBoundAndDoesNotChangeNativeRegistry(t *testin
 		t.Fatal("caller mutated the tenant query vocabulary")
 	}
 	fields, err := vocabulary.Fields()
-	if err != nil || len(fields) != len(QueryFields())+5 ||
-		fields[len(fields)-5].Name != "tag.agent.customer" ||
-		fields[len(fields)-4].Name != "tag.customer" || fields[len(fields)-3].Name != "tag.device.customer" ||
-		fields[len(fields)-2].Name != "tag.in_interface.customer" || fields[len(fields)-1].Name != "tag.out_interface.customer" {
+	if err != nil || len(fields) != len(QueryFields())+7 ||
+		fields[len(fields)-7].Name != "tag.agent.customer" ||
+		fields[len(fields)-6].Name != "tag.customer" || fields[len(fields)-5].Name != "tag.device.customer" ||
+		fields[len(fields)-4].Name != "tag.dst_prefix.customer" || fields[len(fields)-3].Name != "tag.in_interface.customer" ||
+		fields[len(fields)-2].Name != "tag.out_interface.customer" || fields[len(fields)-1].Name != "tag.src_prefix.customer" {
 		t.Fatalf("tenant schema omitted its tag field: %+v, %v", fields, err)
 	}
 	if _, err := NewTagQueryVocabulary(a, []tags.Definition{

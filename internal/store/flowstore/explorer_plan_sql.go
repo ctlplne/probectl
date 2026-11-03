@@ -112,7 +112,12 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	}
 	from := planInputSQL(table, eventTime)
 	if tagData != nil {
-		from += " ANY LEFT JOIN tag_lookup ON tag_lookup.lookup_tenant=tenant_id AND toIPv6OrNull(tag_lookup.lookup_exporter)=toIPv6OrNull(exporter)"
+		from += " ANY LEFT JOIN tag_lookup ON tag_lookup.lookup_tenant=tenant_id AND toIPv6OrNull(tag_lookup.lookup_exporter)=toIPv6OrNull(if(position(exporter,'%')=0,exporter,''))"
+		sides := planTagPrefixSides(plan)
+		for _, side := range sides {
+			from += prefixTagJoinSQL(side)
+		}
+		from = prefixTagProjectionSQL(from, sides)
 	}
 	ctes := []string{"filtered AS (SELECT " + key(plan.GroupBy) + " AS g," + key(plan.MatrixWith) + " AS c," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')} AND (" + filter + "))"}
 	empty := "CAST([],'Array(String)')"
