@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/entity"
-	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -169,9 +168,7 @@ func loadOwnedTagSubject(ctx context.Context, sc tenancy.Scope, scope tags.Scope
 		if err := charge(subject.ID, subject.Name, target); err != nil {
 			return tags.Subject{}, err
 		}
-		if address, err := netip.ParseAddr(path.TargetHost(target)); err == nil && address.Zone() == "" {
-			subject.Address = address.Unmap()
-		}
+		subject = ownedTestTagSubject(scope, ref.ID, subject.Name, target)
 	case "agent":
 		var hostname string
 		if err := sc.Q.QueryRow(ctx, `SELECT a.name,a.hostname FROM agents a JOIN entity_agent_contexts c
