@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { describe, expect, test } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Field, Modal, StatusDot } from '../components'
+import { DetailDrawer, Field, Modal, StatusDot } from '../components'
 import { SkipLink } from '../shell/SkipLink'
 import { renderApp } from './renderApp'
 
@@ -20,6 +20,24 @@ function ModalHarness() {
       <Modal open={open} onClose={() => setOpen(false)} title="Connection details">
         <button>First action</button>
         <button>Last action</button>
+      </Modal>
+    </>
+  )
+}
+
+function NestedModalHarness() {
+  const [open, setOpen] = useState(false)
+  const [nested, setNested] = useState(false)
+  const [revision, setRevision] = useState(0)
+  return (
+    <>
+      <button onClick={() => setOpen(true)}>Open outer</button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Outer dialog">
+        <button onClick={() => setNested(true)}>Open inner</button>
+        <button onClick={() => setRevision(revision + 1)}>Refresh {revision}</button>
+        <Modal open={nested} onClose={() => setNested(false)} title="Inner dialog">
+          <button>Inner action</button>
+        </Modal>
       </Modal>
     </>
   )
@@ -141,6 +159,77 @@ describe('accessible shell and component primitives', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     await waitFor(() => expect(opener).toHaveFocus())
+  })
+
+  test.each([
+    ['modal', Modal],
+    ['drawer', DetailDrawer],
+  ] as const)(
+    '%s isolates the page and traps backward Tab from initial focus',
+    async (_, Dialog) => {
+      const existing = document.createElement('div')
+      existing.setAttribute('inert', 'preserve')
+      document.body.append(existing)
+      const { container, unmount } = render(
+        <>
+          <button>Outside action</button>
+          <Dialog open onClose={() => {}} title="Isolated dialog">
+            <details>
+              <summary>More detail</summary>
+              <button>Hidden action</button>
+            </details>
+            <button disabled>Disabled action</button>
+            <input type="hidden" />
+          </Dialog>
+        </>,
+      )
+      try {
+        const outside = screen.getByRole('button', { name: 'Outside action' })
+        const dialog = screen.getByRole('dialog', { name: 'Isolated dialog' })
+        const first = within(dialog).getAllByRole('button')[0]
+        const summary = within(dialog).getByText('More detail')
+        expect(container).toHaveAttribute('inert')
+        expect(dialog.closest('[inert]')).toBeNull()
+        expect(dialog).toHaveFocus()
+        fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+        expect(summary).toHaveFocus()
+        fireEvent.keyDown(document, { key: 'Tab' })
+        expect(first).toHaveFocus()
+        outside.focus()
+        expect(first).toHaveFocus()
+        unmount()
+        expect(container).not.toHaveAttribute('inert')
+        expect(existing).toHaveAttribute('inert', 'preserve')
+      } finally {
+        unmount()
+        existing.remove()
+      }
+    },
+  )
+
+  test('nested dialogs restore the outer dialog without unlocking the page', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<NestedModalHarness />)
+    const opener = screen.getByRole('button', { name: 'Open outer' })
+    await user.click(opener)
+    const outer = screen.getByRole('dialog', { name: 'Outer dialog' })
+    const innerOpener = within(outer).getByRole('button', { name: 'Open inner' })
+    await user.click(innerOpener)
+    const inner = screen.getByRole('dialog', { name: 'Inner dialog' })
+    expect(outer.closest('[inert]')).not.toBeNull()
+    expect(inner.closest('[inert]')).toBeNull()
+    // A parent update changes both close callbacks while the inner dialog owns focus.
+    fireEvent.click(within(outer).getByRole('button', { name: 'Refresh 0' }))
+    expect(inner).toHaveFocus()
+    expect(inner.closest('[inert]')).toBeNull()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Inner dialog' })).not.toBeInTheDocument()
+    expect(outer.closest('[inert]')).toBeNull()
+    expect(container).toHaveAttribute('inert')
+    expect(innerOpener).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(container).not.toHaveAttribute('inert')
+    expect(opener).toHaveFocus()
   })
 
   // DPR-167: focusing a detached node silently does nothing and drops focus to

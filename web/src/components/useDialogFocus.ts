@@ -7,14 +7,67 @@
 import { useEffect, useRef, type RefObject } from 'react'
 
 const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+
+// Portals are siblings under body. Only the last painted dialog may receive
+// input; preserve pre-existing inert attributes when dialogs open or close.
+const dialogs = new Set<HTMLElement>()
+const inertOriginals = new Map<HTMLElement, string | null>()
+let topDialog: HTMLElement | undefined
+let bodyObserver: MutationObserver | undefined
+
+function lockOutside(surface: HTMLElement) {
+  function refresh() {
+    const painted = [...dialogs]
+      .filter((node) => node.isConnected)
+      .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+    topDialog = painted[painted.length - 1]
+    const outside = new Set(
+      Array.from(document.body.children).filter(
+        (node): node is HTMLElement =>
+          node instanceof HTMLElement && !!topDialog && !node.contains(topDialog),
+      ),
+    )
+    for (const [node, original] of inertOriginals) {
+      if (outside.has(node)) continue
+      if (original === null) node.removeAttribute('inert')
+      else node.setAttribute('inert', original)
+      inertOriginals.delete(node)
+    }
+    for (const node of outside) {
+      if (!inertOriginals.has(node)) inertOriginals.set(node, node.getAttribute('inert'))
+      node.setAttribute('inert', '')
+    }
+  }
+  dialogs.add(surface)
+  refresh()
+  if (!bodyObserver) {
+    bodyObserver = new MutationObserver(refresh)
+    bodyObserver.observe(document.body, { childList: true })
+  }
+  return () => {
+    dialogs.delete(surface)
+    refresh()
+    if (!dialogs.size) {
+      bodyObserver?.disconnect()
+      bodyObserver = undefined
+    }
+  }
+}
 
 // isVisible answers "would a browser paint this?" — checkVisibility where the
-// engine has it (it is correct for position: fixed, which offsetParent reports
-// as hidden), otherwise the offsetParent test, which display: none nulls out.
+// engine has it, otherwise inspect ancestor styles (fixed controls can have a
+// null offsetParent while still being visible).
 function isVisible(el: HTMLElement): boolean {
-  if (typeof el.checkVisibility === 'function') return el.checkVisibility()
-  return el.offsetParent !== null
+  if (el.closest('[hidden], [inert], [aria-hidden="true"]')) return false
+  const closed = el.closest('details:not([open])')
+  if (closed && !closed.querySelector(':scope > summary')?.contains(el)) return false
+  if (typeof el.checkVisibility === 'function' && !el.checkVisibility()) return false
+  for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+    const style = getComputedStyle(node)
+    if (style.display === 'none' || style.visibility === 'hidden') return false
+  }
+  return true
 }
 
 // DPR-167: restore focus to the TRIGGER, not to the node it used to be. A list
@@ -57,8 +110,9 @@ function restoreFocus(trigger: HTMLElement | null) {
 
 /**
  * useDialogFocus is the ONE implementation of the dialog focus contract: trap
- * Tab inside the surface, close on Escape, and restore focus to the trigger on
- * unmount. Modal and DetailDrawer both use it, because a second copy is how one
+ * Tab inside the surface, make the background inert, close on Escape, and
+ * restore focus to the trigger on unmount. Modal and DetailDrawer both use it,
+ * because a second copy is how one
  * of them silently loses WCAG 2.4.3 (DPR-167).
  */
 export function useDialogFocus(
@@ -67,26 +121,52 @@ export function useDialogFocus(
   returnFocusRef?: RefObject<HTMLElement | null>,
 ) {
   const surfaceRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!open) return
     const previouslyFocused =
       returnFocusRef?.current ?? (document.activeElement as HTMLElement | null)
     const surface = surfaceRef.current
-    surface?.focus()
+    if (!surface) return
+    const releaseOutside = lockOutside(surface)
+    const active = () => topDialog === surface && surface.isConnected && !surface.closest('[inert]')
+    const items = () =>
+      Array.from(surface.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (item) => item.tabIndex >= 0 && isVisible(item),
+      )
 
-    function onKeyDown(e: KeyboardEvent) {
+    const onFocusIn = (event: FocusEvent) => {
+      if (!active() || surface.contains(event.target as Node)) return
+      const destination = items()[0] ?? surface
+      destination.focus()
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!active()) return
       if (e.key === 'Escape') {
         e.preventDefault()
-        onClose()
+        onCloseRef.current()
         return
       }
-      if (e.key === 'Tab' && surface) {
-        const items = Array.from(surface.querySelectorAll<HTMLElement>(FOCUSABLE))
-        if (items.length === 0) return
-        const first = items[0]
-        const last = items[items.length - 1]
-        if (e.shiftKey && document.activeElement === first) {
+      if (e.key === 'Tab') {
+        const focusable = items()
+        if (focusable.length === 0) {
+          e.preventDefault()
+          surface.focus()
+          return
+        }
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (document.activeElement === surface || !surface.contains(document.activeElement)) {
+          e.preventDefault()
+          const destination = e.shiftKey ? last : first
+          destination.focus()
+        } else if (e.shiftKey && document.activeElement === first) {
           e.preventDefault()
           last.focus()
         } else if (!e.shiftKey && document.activeElement === last) {
@@ -95,12 +175,16 @@ export function useDialogFocus(
         }
       }
     }
+    document.addEventListener('focusin', onFocusIn)
     document.addEventListener('keydown', onKeyDown)
+    surface.focus()
     return () => {
+      document.removeEventListener('focusin', onFocusIn)
       document.removeEventListener('keydown', onKeyDown)
+      releaseOutside()
       restoreFocus(previouslyFocused)
     }
-  }, [open, onClose, returnFocusRef])
+  }, [open, returnFocusRef])
 
   return surfaceRef
 }

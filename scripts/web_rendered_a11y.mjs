@@ -2191,6 +2191,8 @@ async function explorerHierarchyCheck(page, viewportName) {
 }
 
 async function targetAndTabChecks(page) {
+  // Establish keyboard modality before testing :focus-visible styles.
+  await page.keyboard.press("Tab");
   return page.evaluate(() => {
     const selector = [
       "a[href]",
@@ -2198,9 +2200,11 @@ async function targetAndTabChecks(page) {
       "input:not([disabled])",
       "select:not([disabled])",
       "textarea:not([disabled])",
+      "summary",
       '[tabindex]:not([tabindex="-1"])',
     ].join(",");
     const isVisible = (el) => {
+      if (el.closest("[inert]")) return false;
       const closedDetails = el.closest("details:not([open])");
       if (closedDetails) {
         const summary = closedDetails.querySelector(":scope > summary");
@@ -2619,6 +2623,23 @@ async function netBoxTagPreviewChecks(page, axeSource) {
   await card.getByRole("button", { name: "Review NetBox import", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Apply reviewed NetBox tag?", exact: true });
   await dialog.waitFor();
+  const containment = await dialog.evaluate((node) => {
+    const failures = [];
+    if (node.closest("[inert]")) failures.push("review dialog is inert");
+    for (const sibling of document.body.children) {
+      if (!sibling.contains(node) && sibling instanceof HTMLElement && !sibling.inert) {
+        failures.push("page content remains interactive behind review dialog");
+      }
+    }
+    return failures;
+  });
+  failures.push(...containment);
+  for (const key of ["Shift+Tab", "Tab", "Tab", "Tab", "Tab", "Shift+Tab"]) {
+    await page.keyboard.press(key);
+    if (!(await dialog.evaluate((node) => node.contains(document.activeElement)))) {
+      failures.push(`keyboard focus escaped review dialog on ${key}`);
+    }
+  }
   const reviewViolations = blockingAxeResults(await runAxe(page, axeSource));
   failures.push(...reviewViolations.map((violation) => `NetBox review dialog: ${violation.id}`));
   failures.push(...await targetAndTabChecks(page));
