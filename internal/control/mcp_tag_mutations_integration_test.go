@@ -189,7 +189,15 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 			}
 			return nil
 		}
-		if len(result.Content) != 1 || !bytes.Equal(bytes.TrimSpace([]byte(result.Content[0].Text)), bytes.TrimSpace(result.Data)) {
+		if len(result.Content) != 1 {
+			t.Fatal("MCP metadata must have one text result")
+		}
+		// The text copy can be indented; embedding RawMessage compacts the
+		// structured copy. Ignore only JSON whitespace, preserving exact
+		// number spellings, string values and every result member.
+		var text, structured bytes.Buffer
+		if json.Compact(&text, []byte(result.Content[0].Text)) != nil ||
+			json.Compact(&structured, result.Data) != nil || !bytes.Equal(text.Bytes(), structured.Bytes()) {
 			t.Fatal("MCP metadata text and structured results disagree")
 		}
 		return result.Data
