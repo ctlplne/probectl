@@ -15,6 +15,11 @@ import {
   runNativeFlowChecks,
   validateNativeFlowMatrix,
 } from "./web_rendered_native_flow.mjs";
+import {
+  runTestTagContextChecks,
+  testTagContextSelfTest,
+  validateTestTagContextMatrix,
+} from "./web_rendered_test_tags.mjs";
 
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -3701,6 +3706,9 @@ async function main() {
     routes,
     checks: [],
     native_flow_checks: [],
+    test_tag_context_checks: [],
+    test_tag_context_source:
+      "simulation: synthetic API/current production build; no sender/storage isolation claim",
     native_flow_source:
       "simulation: synthetic API/current production build; no SSO/sender/storage isolation claim",
     failures,
@@ -4064,6 +4072,24 @@ async function main() {
     });
     a11yReceipt.native_flow_checks = nativeFlow.checks;
     failures.push(...nativeFlow.failures);
+    const testTagContext = await runTestTagContextChecks({
+      browser,
+      baseURL,
+      axeSource,
+      receiptDir: receiptRoot,
+      themes,
+      viewports,
+      helpers: {
+        fetchStubSource,
+        runAxe,
+        blockingAxeResults,
+        targetAndTabChecks,
+        horizontalOverflowCheck,
+        interactiveClippingCheck,
+      },
+    });
+    a11yReceipt.test_tag_context_checks = testTagContext.checks;
+    failures.push(...testTagContext.failures);
     performanceReceipt = await runPerformanceProfile(browser, baseURL);
   } catch (error) {
     failures.push(
@@ -4074,6 +4100,13 @@ async function main() {
     failures.push(
       ...validateNativeFlowMatrix(
         a11yReceipt.native_flow_checks,
+        themes,
+        viewports,
+      ).filter((failure) => !failures.includes(failure)),
+    );
+    failures.push(
+      ...validateTestTagContextMatrix(
+        a11yReceipt.test_tag_context_checks,
         themes,
         viewports,
       ).filter((failure) => !failures.includes(failure)),
@@ -4095,7 +4128,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    `rendered browser a11y OK (${routes.length} native routes x ${themes.length} themes x ${viewports.length} viewports; ${a11yReceipt.native_flow_checks.length} native flow cases)`,
+    `rendered browser a11y OK (${routes.length} native routes x ${themes.length} themes x ${viewports.length} viewports; ${a11yReceipt.native_flow_checks.length} native flow cases; ${a11yReceipt.test_tag_context_checks.length} test tag cases)`,
   );
   console.log(`rendered a11y receipt: ${a11yReceiptPath}`);
   console.log(`web performance receipt: ${performanceReceiptPath}`);
@@ -4160,6 +4193,7 @@ function assertSchemaValue(value, schema, path) {
 
 async function selfTest() {
   nativeFlowSelfTest();
+  testTagContextSelfTest();
   const example = appURL("http://127.0.0.1:4173", "/onboarding");
   if (example !== "http://127.0.0.1:4173/ui/onboarding") {
     throw new Error(`self-check failed: shipping route resolved to ${example}`);
