@@ -541,7 +541,6 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/entity-contexts/{context_id}/tag-rules":       "cursor",
 	"/v1/entity-contexts/{context_id}/tag-assignments": "cursor",
 	"/v1/entity-contexts/{context_id}/resolved-tags":   "bounded",
-	"/v1/tags/tests/resolve":                           "bounded",
 	"/v1/nms-imports/poll-proposals":                   "cursor",
 	"/v1/nms-imports/{id}/rows":                        "cursor",
 	"/v1/nms-imports/{id}/dry-run":                     "cursor",
@@ -650,6 +649,19 @@ func TestOpenAPICollectionPaginationContract(t *testing.T) {
 			}
 		}
 	}
+}
+
+// This bounded read accepts a reference array, so it uses POST rather than a
+// GET collection. Keep its cost contract required without weakening the GET
+// collection registry or treating it as a metadata mutation.
+func TestOpenAPITestTagContextBoundedReadContract(t *testing.T) {
+	const path = "/v1/tags/tests/resolve"
+	doc := parseOpenAPIDoc(t)
+	op := parseOperation(t, doc.Paths[path]["post"])
+	if op.Pagination == nil || op.Pagination.Mode != "bounded" {
+		t.Fatal("test tag POST read must declare its bounded snapshot contract")
+	}
+	assertBoundedPagination(t, path, op)
 }
 
 func assertCursorPagination(t *testing.T, path string, op openAPIOperation, schemas map[string]openAPISchema) {

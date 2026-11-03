@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/auth"
@@ -35,7 +34,7 @@ import (
 func proveTestTagContextFromResults(t *testing.T, core *Server, pool *pgxpool.Pool, tenants []string, contextID string, native func(string, any, bool) json.RawMessage) {
 	t.Helper()
 	ctx := t.Context()
-	definition, wideDefinition := uuid.NewString(), uuid.NewString()
+	definition, wideDefinition := uuid(t), uuid(t)
 	ids := map[string]string{}
 	rules := map[string]tags.Rule{}
 	wants := map[string]string{}
@@ -61,7 +60,7 @@ func proveTestTagContextFromResults(t *testing.T, core *Server, pool *pgxpool.Po
 	t.Cleanup(cleanup)
 	defer cleanup()
 	for _, tenant := range tenants {
-		ids[tenant], wants[tenant] = uuid.NewString(), "owned-"+tenant
+		ids[tenant], wants[tenant] = uuid(t), "owned-"+tenant
 		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,target) VALUES ($1,$2,'same-probe','https://192.0.2.10/health')`, tenant, ids[tenant]); err != nil {
 				return err
@@ -110,7 +109,7 @@ func proveTestTagContextFromResults(t *testing.T, core *Server, pool *pgxpool.Po
 	read := func(tenant string, visible bool) tags.TestContextResolution {
 		t.Helper()
 		input := inputFor(tenant)
-		input.TestIDs = append(input.TestIDs, ids[tenant], uuid.NewString(), "https://192.0.2.10/health")
+		input.TestIDs = append(input.TestIDs, ids[tenant], uuid(t), "https://192.0.2.10/health")
 		rec := apiReq(t, core.Handler(), http.MethodPost, "/v1/tags/tests/resolve", tenant, input)
 		var out, nativeOut tags.TestContextResolution
 		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil || out.TagRevision == "" || out.AsOf == "" {

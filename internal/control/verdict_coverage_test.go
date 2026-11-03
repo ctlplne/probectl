@@ -43,6 +43,7 @@ const (
 // it is — which is the whole point: the classification is the thing that rots,
 // not the fields.
 var verdictSurfaceKinds = map[string]string{
+	"POST /v1/tags/tests/resolve":   recordSurface,
 	"GET /v1/explorer/flow-filters": recordSurface,
 	"GET /v1/explorer/flow-views":   recordSurface,
 	// ---- what the product observed --------------------------------------
