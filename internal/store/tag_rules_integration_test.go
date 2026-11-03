@@ -162,7 +162,7 @@ func TestTagRuleWritesStayInTenantAndContext(t *testing.T) {
 					return err
 				})
 				var pgErr *pgconn.PgError
-				if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "tenant_tag_rules_match_v2_check" {
+				if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "tenant_tag_rules_match_v3_check" {
 					t.Fatalf("pooled storage did not reject bad %s via its CHECK: %v", field, err)
 				}
 			}

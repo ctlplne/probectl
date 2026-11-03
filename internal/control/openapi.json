@@ -19229,7 +19229,7 @@
           "tag_id": {"type": "string", "format": "uuid"},
           "target_kind": {"type": "string", "enum": ["device", "interface", "prefix", "exporter", "agent", "test"]},
           "match_kind": {"type": "string", "enum": ["cidr", "name_pattern", "snmp_field"]},
-          "address_side": {"type": "string", "enum": ["src", "dst", "exporter", "interface", "device"]},
+          "address_side": {"type": "string", "enum": ["src", "dst", "exporter", "interface", "device", "agent", "test", "prefix"]},
           "cidr": {"type": "string"},
           "name_pattern": {"type": "string", "maxLength": 256},
           "snmp_field": {"type": "string", "enum": ["sys_name", "sys_descr", "if_name", "if_descr"]},

@@ -60,7 +60,7 @@ func loadTagContextSnapshot(ctx context.Context, sc tenancy.Scope, scope tags.Sc
 	if err != nil {
 		return nil, err
 	}
-	return tags.NewSnapshot(scope, revision, definitions, assignments, rules)
+	return tags.NewSnapshotContext(ctx, scope, revision, definitions, assignments, rules)
 }
 
 func loadTagDefinitions(ctx context.Context, sc tenancy.Scope, scope tags.Scope,

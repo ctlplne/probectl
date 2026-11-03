@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
@@ -42,11 +42,11 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 			t.Errorf("remove MCP tag tenants: %v", err)
 		}
 	})
-	routingContext, foreignContext, entityID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	routingContext, foreignContext, entityID := gouuid.NewString(), gouuid.NewString(), gouuid.NewString()
 	for _, tenant := range []string{a, b} {
 		if _, err := db.Pool().Exec(ctx, `INSERT INTO entity_contexts
 			(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES ($1,$2,$3,$4,'same-site','same-vrf')`,
-			tenant, routingContext, uuid.NewString(), uuid.NewString()); err != nil {
+			tenant, routingContext, gouuid.NewString(), gouuid.NewString()); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := db.Pool().Exec(ctx, `INSERT INTO entities (tenant_id,context_id,id,kind,label)
@@ -60,7 +60,7 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 	}
 	if _, err := db.Pool().Exec(ctx, `INSERT INTO entity_contexts
 		(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES ($1,$2,$3,$4,'foreign','foreign')`,
-		b, foreignContext, uuid.NewString(), uuid.NewString()); err != nil {
+		b, foreignContext, gouuid.NewString(), gouuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
 	type identity struct{ tenant, user, email, role, token string }
@@ -211,7 +211,7 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 	resultID := func(result map[string]json.RawMessage) string {
 		t.Helper()
 		var id string
-		if json.Unmarshal(result["id"], &id) != nil || uuid.Validate(id) != nil {
+		if json.Unmarshal(result["id"], &id) != nil || gouuid.Validate(id) != nil {
 			t.Fatal("metadata mutation omitted its owned UUID")
 		}
 		return id
@@ -252,6 +252,11 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 		l.definition = resultID(call(l.identity, "tag_definition_write", map[string]any{"action": "create", "input": map[string]any{"key": "customer"}}, true))
 		l.rule = resultID(call(l.identity, "tag_rule_write", map[string]any{"action": "create", "context_id": routingContext, "input": ruleInput(l.definition, "initial")}, true))
 		l.assignment = resultID(call(l.identity, "tag_assignment_write", map[string]any{"action": "create", "context_id": routingContext, "input": assignmentInput(l.definition, "initial")}, true))
+		for _, side := range []string{"agent", "test", "prefix"} {
+			call(l.identity, "tag_rule_write", map[string]any{"action": "update", "context_id": routingContext,
+				"id": l.rule, "input": map[string]any{"tag_id": l.definition, "target_kind": side,
+					"match_kind": "cidr", "address_side": side, "cidr": "10.42.0.0/16", "value": "canonical"}}, true)
+		}
 	}
 	// Same context/entity IDs and tag keys do not make another tenant's IDs usable.
 	for i, l := range lanes {
@@ -296,7 +301,7 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 	}
 	core.abac.invalidate(a)
 	// Imported provenance is not writable through the manual family.
-	importedID := uuid.NewString()
+	importedID := gouuid.NewString()
 	if _, err := db.Pool().Exec(ctx, `INSERT INTO tenant_tag_assignments
 		(tenant_id,context_id,id,tag_id,target_kind,entity_id,entity_kind,value,source,source_ref,reviewed_at)
 		VALUES ($1,$2,$3,$4,'device',$5,'device','imported','netbox','reviewed-1',clock_timestamp())`, a, routingContext, importedID, lanes[0].definition, entityID); err != nil {
@@ -340,7 +345,7 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 	if err := db.Pool().QueryRow(ctx, `SELECT revision FROM tenant_tag_revisions WHERE tenant_id=$1`, a).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	fault := "probectl_qa_beta_tag_audit_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	fault := "probectl_qa_beta_tag_audit_" + strings.ReplaceAll(gouuid.NewString(), "-", "")
 	if _, err := db.Pool().Exec(ctx, `CREATE FUNCTION public.`+fault+`() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
 		IF NEW.tenant_id='`+a+`'::uuid AND NEW.action LIKE 'tag.%' THEN RAISE EXCEPTION 'QA tag audit refused'; END IF;
 		RETURN NEW; END $$; CREATE TRIGGER `+fault+` BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION public.`+fault+`()`); err != nil {

@@ -261,6 +261,21 @@ func TestTagRuleAPIEnforcesTenantContextAndPermissions(t *testing.T) {
 		if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &stored) != nil || stored.SNMPValue != tc.text {
 			t.Fatalf("REST lost exact bounded SNMP text: %d", created.Code)
 		}
+		for _, side := range []string{"agent", "test", "prefix"} {
+			input, err := json.Marshal(map[string]any{"tag_id": key.ID, "target_kind": side,
+				"match_kind": "cidr", "address_side": side, "cidr": "10.42.0.0/16", "value": "canonical"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			created := request(http.MethodPost, tc.path, tc.tenant, string(input), "")
+			var canonical tags.Rule
+			if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &canonical) != nil || canonical.AddressSide != side || canonical.TargetKind != side {
+				t.Fatalf("REST/store lost canonical CIDR side %s: %d", side, created.Code)
+			}
+			if deleted := request(http.MethodDelete, tc.path+"/"+canonical.ID, tc.tenant, "", ""); deleted.Code != http.StatusNoContent {
+				t.Fatalf("delete canonical side proof: %d", deleted.Code)
+			}
+		}
 		principal := &auth.Principal{TenantID: tc.tenant, UserID: "tag-reader", Permissions: map[string]bool{permTagsRead: true}}
 		listed, err := readBackend.TagRuleList(context.Background(), principal,
 			mcp.TagContextListInput{ContextID: tc.routingContext, Limit: 100})

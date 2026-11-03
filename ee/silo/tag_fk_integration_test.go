@@ -149,6 +149,27 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 		t.Fatal("physical silo bulk write changed the wrong tenant revision or advanced more than once")
 	}
 	ruleID := uuid.NewString()
+	canonicalIDs := map[string]string{"agent": uuid.NewString(), "test": uuid.NewString(), "prefix": uuid.NewString()}
+	assertCanonicalSides := func() {
+		t.Helper()
+		for _, row := range []struct{ schema, tenant, context, tag string }{
+			{schemaA, a, contextA, tagA}, {schemaB, b, contextB, tagB},
+		} {
+			for _, side := range []string{"agent", "test", "prefix"} {
+				if err := appExec(row.tenant, `INSERT INTO `+row.schema+`.tenant_tag_rules
+					(tenant_id,context_id,id,tag_id,target_kind,match_kind,address_side,cidr,value)
+					VALUES ($1,$2,$3,$4,$5,'cidr',$5,'10.42.0.0/16','canonical')
+					ON CONFLICT (tenant_id,context_id,id) DO UPDATE SET address_side=EXCLUDED.address_side`,
+					row.tenant, row.context, canonicalIDs[side], row.tag, side); err != nil {
+					t.Fatalf("silo refused canonical side %s: %v", side, err)
+				}
+				var got string
+				if err := pool.QueryRow(ctx, `SELECT address_side FROM `+row.schema+`.tenant_tag_rules WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, row.tenant, row.context, canonicalIDs[side]).Scan(&got); err != nil || got != side {
+					t.Fatalf("silo lost canonical side %s: %v", side, err)
+				}
+			}
+		}
+	}
 	assertSNMPText := func() {
 		t.Helper()
 		for _, row := range []struct{ schema, tenant, routingContext, tagID, value string }{
@@ -166,7 +187,7 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 				err := appExec(row.tenant, `UPDATE `+row.schema+`.tenant_tag_rules
 					SET snmp_value=$3 WHERE tenant_id=$1 AND id=$2`, row.tenant, ruleID, bad)
 				var pgErr *pgconn.PgError
-				if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "tenant_tag_rules_match_v2_check" {
+				if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "tenant_tag_rules_match_v3_check" {
 					t.Fatalf("silo did not reject invalid source text via CHECK: %v", err)
 				}
 			}
@@ -178,8 +199,38 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 		}
 	}
 	assertSNMPText()
+	// Simulate an older LIKE copy retaining the previous whole-rule CHECK.
+	// The new public/silo constraint alone cannot override an old narrow one.
 	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.tenant_tag_rules
-		DROP CONSTRAINT tenant_tag_rules_match_v2_check;
+		ADD CONSTRAINT tenant_tag_rules_match_v2_check CHECK (
+		 (match_kind='cidr' AND address_side IS NOT NULL
+		  AND address_side IN ('src','dst','exporter','interface','device') AND cidr IS NOT NULL
+		  AND name_pattern IS NULL AND snmp_field IS NULL AND snmp_value IS NULL) OR
+		 (match_kind='name_pattern' AND name_pattern IS NOT NULL
+		  AND octet_length(name_pattern) BETWEEN 1 AND 256
+		  AND address_side IS NULL AND cidr IS NULL AND snmp_field IS NULL AND snmp_value IS NULL) OR
+		 (match_kind='snmp_field' AND snmp_field IN ('sys_name','sys_descr','if_name','if_descr')
+		  AND snmp_value IS NOT NULL AND octet_length(snmp_value) BETWEEN 1 AND 1024
+		  AND snmp_value !~ U&'[\007F-\009F]'
+		  AND CASE WHEN snmp_field='sys_descr' THEN translate(snmp_value,E'\t\n\r','') !~ '[[:cntrl:]]'
+		      ELSE snmp_value !~ '[[:cntrl:]]' END
+		  AND address_side IS NULL AND cidr IS NULL AND name_pattern IS NULL)
+		) NOT VALID`); err != nil {
+		t.Fatal(err)
+	}
+	if err := appExec(a, `INSERT INTO `+schemaA+`.tenant_tag_rules
+		(tenant_id,context_id,id,tag_id,target_kind,match_kind,address_side,cidr,value)
+		VALUES ($1,$2,$3,$4,'prefix','cidr','prefix','10.42.0.0/16','canonical')`, a, contextA, uuid.NewString(), tagA); err == nil {
+		t.Fatal("old silo side CHECK unexpectedly admitted a prefix side")
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := prov.CatchUpSchema(ctx, a); err != nil {
+			t.Fatalf("catch up canonical side CHECK: %v", err)
+		}
+	}
+	assertCanonicalSides()
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+schemaA+`.tenant_tag_rules
+		DROP CONSTRAINT tenant_tag_rules_match_v3_check;
 		ALTER TABLE `+schemaA+`.tenant_tag_rules ADD CONSTRAINT legacy_tag_match_shape CHECK (
 		 (match_kind='snmp_field' AND address_side IS NULL AND snmp_value IS NOT NULL
 		  AND octet_length(snmp_value) BETWEEN 1 AND 256) OR match_kind IN ('cidr','name_pattern')) NOT VALID`); err != nil {
@@ -204,6 +255,7 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 		t.Fatalf("repeat value catch-up: %v", err)
 	}
 	assertSNMPText()
+	assertCanonicalSides()
 	if err := appExec(a, `UPDATE `+schemaA+`.tenant_tag_assignments SET value=$2 WHERE tenant_id=$1`, a, strings.Repeat("🌐", 24000)); err != nil {
 		t.Fatalf("caught-up silo refused full character reach: %v", err)
 	}

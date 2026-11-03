@@ -263,6 +263,28 @@ describe('Tenant tag definitions in Admin', () => {
     expect(capture.ruleBodies?.[0]).toMatchObject({ snmp_field: 'sys_descr', snmp_value: value })
   })
 
+  test.each(['agent', 'test', 'prefix'])('preserves the canonical %s CIDR side', async (side) => {
+    const capture: TagCapture = { bodies: [], deleted: [], ruleBodies: [] }
+    vi.stubGlobal('fetch', tagFetch(capture))
+    renderApp('/admin', { me: { permissions: ['tags.read', 'tags.write'] } })
+    const table = await screen.findByRole('table', {
+      name: 'Tag rules in selected routing context',
+    })
+    const card = table.closest('[data-tenant-tag-rules]') as HTMLElement
+    const user = userEvent.setup()
+    await user.selectOptions(within(card).getByRole('combobox', { name: 'Target kind' }), side)
+    await user.selectOptions(within(card).getByRole('combobox', { name: 'Address side' }), side)
+    await user.type(within(card).getByRole('textbox', { name: 'Canonical CIDR' }), '10.42.0.0/16')
+    await user.type(within(card).getByRole('textbox', { name: 'Tag value' }), 'canonical')
+    await user.click(within(card).getByRole('button', { name: 'Create rule' }))
+    await waitFor(() => expect(capture.ruleBodies).toHaveLength(1))
+    expect(capture.ruleBodies?.[0]).toMatchObject({
+      target_kind: side,
+      address_side: side,
+      cidr: '10.42.0.0/16',
+    })
+  })
+
   test('creates, edits and confirms deletion of a context-scoped rule', async () => {
     const capture: TagCapture = { bodies: [], deleted: [], ruleBodies: [], deletedRules: [] }
     vi.stubGlobal('fetch', tagFetch(capture))

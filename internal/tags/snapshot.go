@@ -7,6 +7,7 @@
 package tags
 
 import (
+	"context"
 	"net/netip"
 	"regexp"
 	"sort"
@@ -62,6 +63,15 @@ func snmpKey(kind, field, value string) string {
 // caller's slices, so a later rule edit cannot change an existing query page.
 func NewSnapshot(scope Scope, revision int64, definitions []Definition,
 	assignments []Assignment, rules []Rule) (*Snapshot, error) {
+	return NewSnapshotContext(context.Background(), scope, revision, definitions, assignments, rules)
+}
+
+// NewSnapshotContext also bounds compilation work by the query's lifetime.
+func NewSnapshotContext(ctx context.Context, scope Scope, revision int64, definitions []Definition,
+	assignments []Assignment, rules []Rule) (*Snapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if !validScope(scope) || revision <= 0 {
 		return nil, ErrScopeMismatch
 	}
@@ -76,6 +86,9 @@ func NewSnapshot(scope Scope, revision int64, definitions []Definition,
 		snmpRules:   make(map[string][]compiledRule)}
 	keys := make(map[string]bool, len(definitions))
 	for _, def := range definitions {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if def.TenantID != scope.TenantID {
 			return nil, ErrScopeMismatch
 		}
@@ -89,6 +102,9 @@ func NewSnapshot(scope Scope, revision int64, definitions []Definition,
 	}
 	seenAssignment := make(map[string]bool, len(assignments))
 	for _, assignment := range assignments {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if err := validateAssignment(scope, s.definitions, assignment); err != nil {
 			return nil, err
 		}
@@ -102,6 +118,9 @@ func NewSnapshot(scope Scope, revision int64, definitions []Definition,
 	}
 	seenRule := make(map[string]bool, len(rules))
 	for _, rule := range rules {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !sameScope(scope, rule.Scope) {
 			return nil, ErrScopeMismatch
 		}
@@ -126,6 +145,9 @@ func NewSnapshot(scope Scope, revision int64, definitions []Definition,
 			key := snmpKey(rule.TargetKind, rule.SNMPField, rule.SNMPValue)
 			s.snmpRules[key] = append(s.snmpRules[key], compiled)
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -193,6 +215,15 @@ func compileRule(rule Rule) (compiledRule, netip.Prefix, error) {
 // came from retained historical telemetry. The same Snapshot must be kept for
 // all pages, comparisons and exports of one query.
 func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
+	return s.ResolveContext(context.Background(), subject)
+}
+
+// ResolveContext evaluates the complete admitted fact set without publishing
+// partial tags when the caller's query deadline or cancellation expires.
+func (s *Snapshot) ResolveContext(ctx context.Context, subject Subject) ([]Resolved, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	revision, err := s.Revision()
 	if err != nil || !sameScope(s.scope, subject.Scope) {
 		return nil, ErrScopeMismatch
@@ -202,8 +233,30 @@ func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
 		(subject.AddressSide != "" && !validSide(subject.AddressSide)) {
 		return nil, ErrInvalid
 	}
+	if subject.Kind == "prefix" && (subject.Address.IsValid() || len(subject.Addresses) != 0) {
+		return nil, ErrInvalid // a host cannot stand in for a whole prefix
+	}
+	for _, address := range subject.Addresses {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if !address.IsValid() || address.Zone() != "" {
+			return nil, ErrInvalid
+		}
+	}
+	for _, prefix := range subject.Prefixes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if !prefix.IsValid() || prefix.Addr().Zone() != "" || prefix != prefix.Masked() {
+			return nil, ErrInvalid
+		}
+	}
 	selected := make(map[string]candidate)
 	for _, assignment := range s.assignments[subjectKey(subject.Kind, subject.ID)] {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		rank := 1
 		if assignment.Source == "manual" {
 			rank = 3
@@ -228,6 +281,9 @@ func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
 	}
 	if subject.Name != "" {
 		for _, compiled := range s.nameRules[subject.Kind] {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if compiled.pattern.MatchString(subject.Name) {
 				selectRule(compiled)
 			}
@@ -236,15 +292,44 @@ func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
 	for _, field := range []string{"sys_name", "sys_descr", "if_name", "if_descr"} {
 		if value := subject.SNMP[field]; value != "" {
 			for _, compiled := range s.snmpRules[snmpKey(subject.Kind, field, value)] {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 				selectRule(compiled)
 			}
 		}
 	}
-	if subject.Address.IsValid() && subject.AddressSide != "" {
-		for bits := 0; bits <= subject.Address.BitLen(); bits++ {
-			prefix := netip.PrefixFrom(subject.Address, bits).Masked()
+	matchCIDRs := func(address netip.Addr, lastBit int) error {
+		for bits := 0; bits <= lastBit; bits++ {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			prefix := netip.PrefixFrom(address, bits).Masked()
 			for _, compiled := range s.cidrRules[cidrKey(subject.Kind, subject.AddressSide, prefix.String())] {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
 				selectRule(compiled)
+			}
+		}
+		return nil
+	}
+	if subject.AddressSide != "" {
+		if subject.Address.IsValid() {
+			if err := matchCIDRs(subject.Address, subject.Address.BitLen()); err != nil {
+				return nil, err
+			}
+		}
+		for _, address := range subject.Addresses {
+			if err := matchCIDRs(address, address.BitLen()); err != nil {
+				return nil, err
+			}
+		}
+		for _, prefix := range subject.Prefixes {
+			// Only enclosing CIDRs can cover this complete prefix. Walking
+			// to the address width would admit narrower subnets and hosts.
+			if err := matchCIDRs(prefix.Addr(), prefix.Bits()); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -253,5 +338,8 @@ func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
 		out = append(out, selected.Resolved)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }

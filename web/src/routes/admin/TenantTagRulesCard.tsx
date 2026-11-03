@@ -35,7 +35,16 @@ import { TagValue } from './TagValue'
 import styles from './EntityRegistryCard.module.css'
 
 const targetKinds = ['device', 'interface', 'prefix', 'exporter', 'agent', 'test'] as const
-const addressSides = ['src', 'dst', 'exporter', 'interface', 'device'] as const
+const addressSides = [
+  'src',
+  'dst',
+  'exporter',
+  'interface',
+  'device',
+  'agent',
+  'test',
+  'prefix',
+] as const
 const snmpFields = ['sys_name', 'sys_descr', 'if_name', 'if_descr'] as const
 
 type TargetKind = (typeof targetKinds)[number]

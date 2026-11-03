@@ -540,6 +540,12 @@ hints are refused. Results contain only declared metadata fields. These tools
 are available only with the configured control service and metadata store; the
 same consent, redaction and call-audit gates apply on HTTP and stdio.
 
+CIDR rule sides include `src`, `dst`, `exporter`, `interface`, `device`, `agent`,
+`test` and `prefix`. Internal rule evaluation considers every admitted
+address; a prefix matches only a rule covering its entire range. Rule inputs
+do not supply those underlying facts. Complete live subject and flow association
+proof remains required before the full tagging capability leaves preview.
+
 When NetBox is configured, `tag_netbox_preview` additionally requires
 `cmdb.read`; it is hidden without either grant. Its inputs match the preview
 API plus `context_id`: an immutable tag ID, registered exporter agent/source

@@ -58,6 +58,14 @@ func (s *TenantTagSnapshot) Definitions() ([]tags.Definition, error) {
 // The caller's byte budget bounds the whole lookup; partial projections are
 // never returned because they would silently label some flow rows unmatched.
 func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]tags.ExporterProjection, error) {
+	return s.ProjectExportersContext(context.Background(), maxBytes)
+}
+
+// ProjectExportersContext applies the query lifetime to the complete projection.
+func (s *TenantTagSnapshot) ProjectExportersContext(ctx context.Context, maxBytes int64) ([]tags.ExporterProjection, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if _, err := s.Revision(); err != nil {
 		return nil, err
 	}
@@ -71,13 +79,16 @@ func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]tags.ExporterPro
 	}
 	addresses := make([]string, 0, len(s.byAddress))
 	for address := range s.byAddress {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		addresses = append(addresses, address)
 	}
 	sort.Strings(addresses)
 	used := int64(0)
 	out := []tags.ExporterProjection{}
 	for _, address := range addresses {
-		resolved, err := s.ResolveExporter(netip.MustParseAddr(address))
+		resolved, err := s.ResolveExporterContext(ctx, netip.MustParseAddr(address))
 		if err != nil {
 			return nil, err
 		}
@@ -87,6 +98,9 @@ func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]tags.ExporterPro
 		row := tags.ExporterProjection{Exporter: address, Values: make(map[string]string, len(resolved))}
 		used += 256 + int64(len(address))
 		for _, tag := range resolved {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			used += 128 + int64(len(tag.Key)+len(tag.Value))
 			if used > maxBytes {
 				return nil, ErrTagSnapshotBudget
@@ -95,6 +109,9 @@ func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]tags.ExporterPro
 		}
 		out = append(out, row)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -102,6 +119,14 @@ func (s *TenantTagSnapshot) ProjectExporters(maxBytes int64) ([]tags.ExporterPro
 // A claimed agent ID from a raw row is deliberately absent from this API.
 // Unknown, expired and multiply-owned addresses yield no tags.
 func (s *TenantTagSnapshot) ResolveExporter(exporter netip.Addr) ([]tags.Resolved, error) {
+	return s.ResolveExporterContext(context.Background(), exporter)
+}
+
+// ResolveExporterContext cancels rule work without returning partial metadata.
+func (s *TenantTagSnapshot) ResolveExporterContext(ctx context.Context, exporter netip.Addr) ([]tags.Resolved, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if _, err := s.Revision(); err != nil {
 		return nil, err
 	}
@@ -121,7 +146,7 @@ func (s *TenantTagSnapshot) ResolveExporter(exporter netip.Addr) ([]tags.Resolve
 	if err != nil {
 		return nil, err
 	}
-	return contextSnapshot.Resolve(tags.Subject{
+	return contextSnapshot.ResolveContext(ctx, tags.Subject{
 		Scope: tags.Scope{TenantID: s.tenantID, ContextID: binding.contextID},
 		Kind:  "exporter", ID: id, AddressSide: "exporter", Address: exporter,
 	})

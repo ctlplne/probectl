@@ -109,6 +109,11 @@ func TestTagTenantSnapshotUsesOnlyUniqueOwnedExporterAddress(t *testing.T) {
 		if _, err := loaded.ProjectExporters(128); !errors.Is(err, ErrTagSnapshotBudget) {
 			t.Fatalf("tenant %s partial query projection admitted: %v", row.tenantID, err)
 		}
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		if projection, err := loaded.ProjectExportersContext(cancelled, 1<<20); !errors.Is(err, context.Canceled) || projection != nil {
+			t.Fatal("cancelled exporter projection returned partial metadata")
+		}
 		if unknown, err := loaded.ResolveExporter(netip.MustParseAddr("192.0.2.11")); err != nil || len(unknown) != 0 {
 			t.Fatalf("unknown exporter resolved tags: %+v, %v", unknown, err)
 		}

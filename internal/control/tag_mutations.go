@@ -10,7 +10,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -34,7 +34,7 @@ func validateTagMutation(action tagMutationAction, id string) error {
 			return nil
 		}
 	case tagUpdate, tagDelete:
-		if parsed, err := uuid.Parse(id); err == nil && parsed != uuid.Nil {
+		if parsed, err := gouuid.Parse(id); err == nil && parsed != gouuid.Nil {
 			return nil
 		}
 	}

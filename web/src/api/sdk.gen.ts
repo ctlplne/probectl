@@ -2531,7 +2531,7 @@ export interface TagDefinitionList {
 }
 
 export interface TagRule {
-  address_side?: "src" | "dst" | "exporter" | "interface" | "device"
+  address_side?: "src" | "dst" | "exporter" | "interface" | "device" | "agent" | "test" | "prefix"
   cidr?: string
   context_id: string
   id: string
@@ -2547,7 +2547,7 @@ export interface TagRule {
 }
 
 export interface TagRuleInput {
-  address_side?: "src" | "dst" | "exporter" | "interface" | "device"
+  address_side?: "src" | "dst" | "exporter" | "interface" | "device" | "agent" | "test" | "prefix"
   cidr?: string
   match_kind: "cidr" | "name_pattern" | "snmp_field"
   name_pattern?: string

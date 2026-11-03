@@ -107,7 +107,7 @@ func (s *Server) loadFlowTagQuery(ctx context.Context, principal *auth.Principal
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}
-	projection, err := snapshot.ProjectExporters(limit)
+	projection, err := snapshot.ProjectExportersContext(ctx, limit)
 	if err != nil {
 		return nil, flowTagQueryError(err)
 	}

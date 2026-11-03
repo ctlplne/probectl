@@ -93,8 +93,13 @@ type Subject struct {
 	ID          string
 	AddressSide string
 	Address     netip.Addr
-	Name        string
-	SNMP        map[string]string
+	// Addresses and Prefixes are already-authorized current facts, never
+	// caller-provided API inputs. Every fact uses AddressSide. A prefix must
+	// be covered in full; its base address is not a representative host.
+	Addresses []netip.Addr
+	Prefixes  []netip.Prefix
+	Name      string
+	SNMP      map[string]string
 }
 
 type Assignment struct {
@@ -194,7 +199,7 @@ func validKind(kind string) bool {
 
 func validSide(side string) bool {
 	switch side {
-	case "src", "dst", "exporter", "interface", "device":
+	case "src", "dst", "exporter", "interface", "device", "agent", "test", "prefix":
 		return true
 	default:
 		return false

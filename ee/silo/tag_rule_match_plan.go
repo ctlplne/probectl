@@ -12,7 +12,7 @@ import "fmt"
 // that CHECK atomically, without scanning history or dropping ownership FKs.
 func tagRuleMatchConstraintPlan(schema string) []string {
 	child := quoteIdent(schema) + `."tenant_tag_rules"`
-	const name = "tenant_tag_rules_match_v2_check"
+	const name = "tenant_tag_rules_match_v3_check"
 	return []string{fmt.Sprintf(`DO $tag_match_silo$
 DECLARE old_check record;
 BEGIN
@@ -27,7 +27,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=%s) THEN
         ALTER TABLE %s ADD CONSTRAINT %s CHECK (
             (match_kind='cidr' AND address_side IS NOT NULL AND address_side IN
-              ('src','dst','exporter','interface','device') AND cidr IS NOT NULL
+              ('src','dst','exporter','interface','device','agent','test','prefix') AND cidr IS NOT NULL
               AND name_pattern IS NULL AND snmp_field IS NULL AND snmp_value IS NULL) OR
             (match_kind='name_pattern' AND name_pattern IS NOT NULL
               AND octet_length(name_pattern) BETWEEN 1 AND 256
