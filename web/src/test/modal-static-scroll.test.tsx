@@ -28,6 +28,8 @@ test('static modal content is a named keyboard stop and preserves trap/restorati
   const trigger = screen.getByRole('button', { name: 'Inspect record' })
   await user.click(trigger)
   const close = screen.getByRole('button', { name: 'Close dialog' })
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('dialog')))
+  await user.tab()
   await waitFor(() => expect(document.activeElement).toBe(close))
   await user.tab()
   expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Static record' }))
