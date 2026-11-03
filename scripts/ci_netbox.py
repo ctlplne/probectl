@@ -97,6 +97,8 @@ def bootstrap_failure(raw: bytes) -> str:
         "device_type",
         "source_tenants",
         "source_addresses",
+        "source_prefixes",
+        "prefix_metadata_update",
         "ownership_move",
         "worker_identity",
         "worker_db_default",
@@ -941,6 +943,23 @@ def restore_ip(source: str) -> None:
     )
 
 
+def prefix_vrf(source: str, selection: str) -> None:
+    if source not in {"a", "b"} or selection not in {"original", "next"}:
+        raise ValueError(
+            "fixture prefix metadata needs a lane and original/next selection"
+        )
+    manifest = json.loads((RUNTIME / "manifest.json").read_text())
+    key = "prefix_vrfs" if selection == "original" else "prefix_next_vrfs"
+    bootstrap(
+        {
+            "action": "prefix-vrf",
+            "prefix_id": manifest["prefixes"][source],
+            "tenant_id": manifest["tenants"][source],
+            "vrf_id": manifest[key][source],
+        }
+    )
+
+
 def cleanup() -> None:
     if (RUNTIME / ".env").exists():
         compose("down", "--volumes", "--remove-orphans", timeout=120)
@@ -1270,11 +1289,13 @@ if __name__ == "__main__":
             selftest()
         elif len(sys.argv) == 4 and sys.argv[1] == "move-ip":
             move_ip(sys.argv[2], sys.argv[3])
+        elif len(sys.argv) == 4 and sys.argv[1] == "prefix-vrf":
+            prefix_vrf(sys.argv[2], sys.argv[3])
         elif len(sys.argv) == 3 and sys.argv[1] == "restore-ip":
             restore_ip(sys.argv[2])
         else:
             raise ValueError(
-                "usage: ci_netbox.py start|cleanup|selftest|move-ip a b|restore-ip a"
+                "usage: ci_netbox.py start|cleanup|selftest|move-ip a b|restore-ip a|prefix-vrf a original|next"
             )
     except (RuntimeError, ValueError, OSError) as error:
         # Errors above contain stage names only; never dump captured processes.

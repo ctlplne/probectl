@@ -564,30 +564,37 @@ range on a non-prefix kind is accepted. The range is explicit operator metadata,
 never inferred from a label or claimed as a live routing observation.
 
 When NetBox is configured, `tag_netbox_preview` additionally requires
-`cmdb.read`; it is hidden without either grant. Its inputs match the preview
-API plus `context_id`: an immutable tag ID, registered exporter agent/source
-pair, and `field` set to `role` or `site`. The backend resolves the unique owned
-exporter before any external read and freshly attests both the IP CI and its
-related device/VM under the deployment tenant mapping. Cached enrichment never
-authorizes the preview. The result contains the checked CI/value/provenance and
-an exact decimal tag revision, while omitting the packet address and encoded
-exporter target. Source errors, ambiguous ownership or current permission
-denials return no candidate. The operation writes no assignment.
+`cmdb.read` and the selected subject's read grant with current context policy:
+`flow.read` for exporters, `metrics.read` for device/interface, `entities.read`
+for prefix, `agent.read` for agent and `test.read` for test. Inputs match the
+preview API plus `context_id`: tag ID, `field` (`role` or `site`), and either
+`target_kind`/`target_id` or the registered exporter pair. An omitted kind
+retains the exporter input form. Optional `source_id` selects a NetBox prefix
+ID for prefixes or an IP-address CI ID for other kinds.
 
-`tag_netbox_apply` requires `tags.write` in addition to both read grants and
-an authenticated user. Supply `confirmed:true`, the original registered
-`exporter_agent_id` / `exporter_source_ref` and the unchanged preview result as
-`preview`. It uses the control server's same reviewed apply service: current
-context authorization, an uncached source comparison, target/revision recheck
-under the tenant write lock, and atomic assignment/audit. A changed candidate
-or revision refuses the write. The declared result contains the assignment ID,
-tag/value, provenance and review time, omitting the exporter address and encoded
-target. The tool is installed only with the configured audited control service;
-the existing MCP consent/redaction and admission/terminal audits also apply.
+Owned current facts are resolved before external reads. The source and related
+device/VM must freshly attest the deployment tenant mapping. Prefixes match
+their exact explicit range, use the IPAM role and obtain site only from a
+verified site-type scope. Ambiguous VRFs or different parent CIs need exact
+selection. Enrichment caches, display labels and hostname-to-IP inference
+never authorize a suggestion. The result contains checked CI/value/provenance,
+exact decimal tag revision and non-exporter target reference, while omitting
+private addresses, address hashes and the encoded exporter target. No assignment
+is written. Existing query admission, execution/memory/response bounds apply.
 
-This source preview remains labelled preview until its real NetBox receipt
-passes. The shared MCP consent, response redaction and tenant audit gates apply
-on HTTP and stdio.
+`tag_netbox_apply` adds `tags.write` and requires an authenticated user.
+Supply `confirmed:true` and the unchanged preview as `preview`; exporter reviews
+also need the original `exporter_agent_id` / `exporter_source_ref`. It uses the
+same audited control service as the API: re-attest the selected CI, compare
+reviewed value/provenance, recheck current grants after source I/O and verify
+current local correspondence/revision inside a tenant write snapshot. No source
+I/O runs in that transaction. Manual assignments retain precedence. The result
+contains assignment ID, context/tag/value, provenance and review time, without
+private facts or exporter identity. The configured audited service is required.
+
+These source operations remain preview until their real release receipt passes.
+The shared MCP consent, response redaction and admission/terminal audits apply
+on HTTP and stdio. See [reviewed import semantics](flow.md#fresh-netbox-tag-preview).
 
 Effective subject tags are available through `tag_subject_resolve` for a tenant
 user with `tags.read`, the subject's read grant and current context policy. The

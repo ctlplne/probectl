@@ -190,8 +190,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"assignments-create": {Method: http.MethodPost, Path: "/v1/entity-contexts/{context_id}/tag-assignments", ArgName: "context_id", Description: "create a manual assignment; --body with tag_id, target_kind, target_id or exporter source, and value"},
 		"assignments-update": {Method: http.MethodPut, Path: "/v1/entity-contexts/{context_id}/tag-assignments/{id}", ArgName: "context_id,id", Description: "replace one manual assignment; imported values are read-only here"},
 		"assignments-delete": {Method: http.MethodDelete, Path: "/v1/entity-contexts/{context_id}/tag-assignments/{id}", ArgName: "context_id,id", Description: "delete one manual assignment; imported values are read-only here"},
-		"netbox-preview":     {Method: http.MethodPost, Path: "/v1/entity-contexts/{context_id}/tag-imports/netbox/preview", ArgName: "context_id", Description: "fresh role/site preview for an owned exporter; --body with tag_id, exporter_agent_id, exporter_source_ref and field"},
-		"netbox-apply":       {Method: http.MethodPost, Path: "/v1/entity-contexts/{context_id}/tag-imports/netbox/apply", ArgName: "context_id", Description: "apply a reviewed exporter preview; --body with confirmed:true and the unchanged preview response"},
+		"netbox-preview":     {Method: http.MethodPost, Path: "/v1/entity-contexts/{context_id}/tag-imports/netbox/preview", ArgName: "context_id", Description: "fresh role/site preview for an owned subject; --body with tag_id, field and target_kind/target_id or the exporter pair, optional source_id"},
+		"netbox-apply":       {Method: http.MethodPost, Path: "/v1/entity-contexts/{context_id}/tag-imports/netbox/apply", ArgName: "context_id", Description: "apply a reviewed subject preview; --body with confirmed:true and the unchanged preview response"},
 	}},
 	"nms-import": {Name: "nms-import", Summary: "tenant-scoped incumbent NMS import", Ops: map[string]apiOp{
 		"poll-proposals": {Method: http.MethodGet, Path: "/v1/nms-imports/poll-proposals",

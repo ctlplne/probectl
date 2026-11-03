@@ -16,8 +16,11 @@ import (
 type NetBoxTagPreviewInput struct {
 	ContextID         string `json:"context_id"`
 	TagID             string `json:"tag_id"`
-	ExporterAgentID   string `json:"exporter_agent_id"`
-	ExporterSourceRef string `json:"exporter_source_ref"`
+	TargetKind        string `json:"target_kind,omitempty"`
+	TargetID          string `json:"target_id,omitempty"`
+	SourceID          string `json:"source_id,omitempty"`
+	ExporterAgentID   string `json:"exporter_agent_id,omitempty"`
+	ExporterSourceRef string `json:"exporter_source_ref,omitempty"`
 	Field             string `json:"field"`
 }
 
@@ -25,6 +28,8 @@ type NetBoxTagPreviewInput struct {
 // omits the encoded exporter target and packet address from result fields.
 type NetBoxTagPreviewResult struct {
 	ContextID      string `json:"context_id"`
+	TargetKind     string `json:"target_kind,omitempty"`
+	TargetID       string `json:"target_id,omitempty"`
 	TagID          string `json:"tag_id"`
 	TagKey         string `json:"tag_key"`
 	TagRevision    string `json:"tag_revision"`
@@ -48,8 +53,8 @@ func WithNetBoxTagBackend(backend NetBoxTagBackend) Option {
 		}
 		tool := Tool{Name: "tag_netbox_preview", Permission: "tags.read",
 			ExtraPermissions: []string{"cmdb.read"}, RequiresUser: true,
-			Description: "Preview a fresh mapped NetBox role/site value for an owned exporter; writes no assignment.",
-			InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["context_id","tag_id","exporter_agent_id","exporter_source_ref","field"],"properties":{"context_id":{"type":"string","format":"uuid"},"tag_id":{"type":"string","format":"uuid"},"exporter_agent_id":{"type":"string","maxLength":128},"exporter_source_ref":{"type":"string","maxLength":45},"field":{"type":"string","enum":["role","site"]}}}`),
+			Description: "Preview a fresh mapped NetBox role/site value for an owned subject; requires its current read grant and writes no assignment.",
+			InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["context_id","tag_id","field"],"properties":{"tag_id":{"type":"string","format":"uuid"},"exporter_agent_id":{"type":"string","maxLength":128},"exporter_source_ref":{"type":"string","maxLength":45},"field":{"type":"string","enum":["role","site"]},"target_kind":{"type":"string","enum":["exporter","device","interface","prefix","agent","test"],"description":"Defaults to exporter for legacy input; other kinds require target_id and no exporter fields."},"target_id":{"type":"string","format":"uuid","description":"Exact owned subject ID for a non-exporter kind."},"source_id":{"type":"string","pattern":"^[1-9][0-9]*$","maxLength":19,"description":"Optional exact NetBox prefix ID for prefixes, otherwise IP-address CI ID. The selected object must correspond to current owned facts."},"context_id":{"type":"string","format":"uuid"}}}`),
 			Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
 				var input NetBoxTagPreviewInput
 				if err := decodeNativeArgs(raw, &input); err != nil {

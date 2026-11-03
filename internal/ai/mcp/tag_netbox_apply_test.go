@@ -108,7 +108,7 @@ func TestNetBoxTagMCPApplyPreviewSchemaMatchesAPIFields(t *testing.T) {
 	for key, field := range spec.Components.Schemas["NetBoxTagCandidate"].Properties {
 		want[key] = field
 	}
-	for _, key := range []string{"context_id", "tag_id", "tag_key", "tag_revision"} {
+	for _, key := range []string{"context_id", "tag_id", "tag_key", "tag_revision", "target_kind", "target_id"} {
 		want[key] = spec.Components.Schemas["NetBoxTagPreviewTarget"].Properties[key]
 	}
 	if !reflect.DeepEqual(want, preview) {

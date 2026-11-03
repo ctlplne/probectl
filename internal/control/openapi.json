@@ -84,8 +84,8 @@
           "stage": "preview"
         },
         "operationId": "applyNetBoxTag",
-        "summary": "Apply an explicitly reviewed fresh NetBox exporter tag preview",
-        "description": "Requires tags.read, tags.write and cmdb.read with current routing-context ABAC. confirmed must be true and preview must be the unchanged observed preview. Resolves the owned exporter before external I/O, freshly rechecks the mapped source candidate, then rechecks target and tag revision under the tenant write lock. Writes a reviewed NetBox assignment and its audit atomically. Manual values retain precedence. Any source identity/value/provenance, ownership or revision change requires a new preview.",
+        "summary": "Apply an explicitly reviewed fresh NetBox subject tag preview",
+        "description": "Requires tags.read, tags.write, cmdb.read and the selected subject read grant with current routing-context ABAC. confirmed must be true and preview must be unchanged. Re-attests the exact selected source CI against current owned facts and compares its reviewed role/site identity, value and provenance. After external I/O, rechecks current context grants, then locks the tag revision and re-resolves local authority in an audited tenant repeatable-read write snapshot. Loss of the selected relationship, a changed source value/identity or tag revision requires a new preview. Unrelated source polls do not invalidate an unchanged selected relationship. Source requests never run inside the database transaction. Existing imported annotations are upserted atomically with audit; manual values retain precedence.",
         "tags": [
           "tags"
         ],
@@ -149,8 +149,8 @@
           "stage": "preview"
         },
         "operationId": "previewNetBoxTag",
-        "summary": "Preview a fresh NetBox role or site tag for an owned exporter",
-        "description": "Requires tags.read and cmdb.read with current routing-context ABAC. Resolves the exporter and immutable tag ID under tenant RLS before any source read. Uses only a unique current operator-owned exporter address and the deployment NetBox tenant mapping. A related device or VM must separately attest that tenant. Bypasses all enrichment caches and writes no assignment. Missing, changed or ambiguous ownership fails closed. Apply is a separate reviewed action; this operation never changes identity or telemetry.",
+        "summary": "Preview a fresh NetBox role or site tag for an owned subject",
+        "description": "Requires tags.read, cmdb.read and the selected subject read grant with current routing-context ABAC: flow.read for exporters, metrics.read for devices/interfaces, entities.read for prefixes, agent.read for agents and test.read for tests. Resolves canonical ownership and current private facts in a tenant RLS snapshot before source I/O. Uses registered exporter addresses, complete current attested device/interface/agent IPs, explicit prefix ranges, or configured test IP/DNS hosts without DNS resolution or label inference. Optional source_id selects a prefix or IP CI when automatic lookup is ambiguous. The source and any related device/VM must freshly attest the provider-mapped tenant. Prefixes use their own IPAM role; site requires an ID-consistent dcim.site scope. Previews contain no private address bag or fact hash and write no assignment. Source errors or ambiguity fail closed; enrichment caches never authorize an import.",
         "tags": [
           "tags"
         ],
@@ -12956,8 +12956,6 @@
         "additionalProperties": false,
         "required": [
           "tag_id",
-          "exporter_agent_id",
-          "exporter_source_ref",
           "field"
         ],
         "properties": {
@@ -12979,6 +12977,29 @@
               "role",
               "site"
             ]
+          },
+          "target_kind": {
+            "type": "string",
+            "enum": [
+              "exporter",
+              "device",
+              "interface",
+              "prefix",
+              "agent",
+              "test"
+            ],
+            "description": "Defaults to exporter for legacy input; other kinds require target_id and no exporter fields."
+          },
+          "target_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Exact owned subject ID for a non-exporter kind."
+          },
+          "source_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "maxLength": 19,
+            "description": "Optional exact NetBox prefix ID for prefixes, otherwise IP-address CI ID. The selected object must correspond to current owned facts."
           }
         }
       },
@@ -13011,7 +13032,12 @@
           "target_kind": {
             "type": "string",
             "enum": [
-              "exporter"
+              "exporter",
+              "device",
+              "interface",
+              "prefix",
+              "agent",
+              "test"
             ]
           },
           "target_id": {

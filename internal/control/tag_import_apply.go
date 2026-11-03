@@ -9,7 +9,6 @@ package control
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/store"
@@ -22,11 +21,14 @@ type netBoxTagApplyRequest struct {
 	Preview   netBoxTagPreview `json:"preview"`
 }
 
-func (s *Server) authorizeNetBoxTagApply(r *http.Request, contextID string) (string, error) {
+func (s *Server) authorizeNetBoxTagApply(r *http.Request, contextID, kind string) (string, error) {
+	permission, err := tagSubjectReadPermission(kind)
+	if err != nil {
+		return "", err
+	}
 	var tenantID string
-	for _, permission := range []string{permTagsRead, permTagsWrite, permCMDBRead} {
-		var err error
-		tenantID, err = s.authorizeTagContext(r, contextID, permission)
+	for _, grant := range []string{permTagsRead, permTagsWrite, permCMDBRead, permission} {
+		tenantID, err = s.authorizeTagContext(r, contextID, grant)
 		if err != nil {
 			return "", err
 		}
@@ -49,56 +51,56 @@ func (s *Server) handleApplyNetBoxTag(w http.ResponseWriter, r *http.Request) er
 
 func (s *Server) applyReviewedNetBoxTag(r *http.Request, input netBoxTagApplyRequest) (store.TagAssignmentRecord, error) {
 	contextID := r.PathValue("context_id")
-	tenantID, err := s.authorizeNetBoxTagApply(r, contextID)
+	expected := input.Preview.Target
+	tenantID, err := s.authorizeNetBoxTagApply(r, contextID, expected.TargetKind)
 	if err != nil {
 		return store.TagAssignmentRecord{}, err
 	}
-	expected := input.Preview.Target
-	if !input.Confirmed || expected.ContextID != contextID || expected.TargetKind != "exporter" ||
+	if !input.Confirmed || expected.ContextID != contextID ||
 		(input.Preview.Candidate.Field != "role" && input.Preview.Candidate.Field != "site") {
-		return store.TagAssignmentRecord{}, apierror.BadRequest("confirm an unchanged exporter preview for this context")
+		return store.TagAssignmentRecord{}, apierror.BadRequest("confirm an unchanged subject preview for this context")
 	}
-	var target store.NetBoxTagTarget
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		target, err = (store.TagAssignments{}).NetBoxExporterTarget(ctx, sc,
-			contextID, expected.TagID, expected.ExporterAgentID, expected.ExporterSourceRef)
-		return err
-	}); err != nil {
+	if err := s.cmdbReady(); err != nil {
+		return store.TagAssignmentRecord{}, err
+	}
+	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(tenantID))
+	ctx, budget, done, err := beginNetBoxImport(ctx, s.flowStore, s.fairnessGate)
+	if err != nil {
+		return store.TagAssignmentRecord{}, err
+	}
+	defer done()
+	r = r.WithContext(ctx)
+	target, facts, err := readNetBoxTagTarget(ctx, s.pool, contextID, expected.TagID, netBoxTargetReference(expected), budget.MemoryBytes/4)
+	if err != nil {
 		return store.TagAssignmentRecord{}, tagAssignmentAPIError(err)
 	}
 	if target != expected {
 		return store.TagAssignmentRecord{}, apierror.Conflict("tag import target or revision changed; request a new preview")
 	}
-	if err := s.cmdbReady(); err != nil {
-		return store.TagAssignmentRecord{}, err
-	}
-	ctx, cancel := context.WithTimeout(tenancy.WithTenant(r.Context(), tenancy.ID(tenantID)), 15*time.Second)
-	defer cancel()
-	r = r.WithContext(ctx)
-	candidate, err := s.cmdb.PreviewNetBoxTag(ctx, target.ExporterSourceRef, input.Preview.Candidate.Field)
+	selected, err := s.cmdb.RecheckNetBoxSubjectTag(ctx, sourceTagFacts(facts), input.Preview.Candidate)
 	if err != nil {
 		return store.TagAssignmentRecord{}, netBoxTagPreviewError(err)
 	}
+	candidate := selected.Candidate()
 	if candidate != input.Preview.Candidate {
 		return store.TagAssignmentRecord{}, apierror.Conflict("NetBox tag candidate changed; request a new preview")
 	}
-	// Recheck context authorization after external I/O, before the audited write.
-	if _, err := s.authorizeNetBoxTagApply(r, contextID); err != nil {
+	// Current context grants are reloaded after remote I/O. The audited write
+	// then re-reads local authority and the exact revision in one RLS snapshot.
+	if _, err := s.authorizeNetBoxTagApply(r, contextID, expected.TargetKind); err != nil {
 		return store.TagAssignmentRecord{}, err
 	}
 	var record store.TagAssignmentRecord
-	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+	err = tenancy.InTenantWriteSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		record, err = (store.TagAssignments{}).ApplyNetBoxExporter(ctx, sc, expected,
-			candidate.Value, candidate.SourceRef)
+		record, err = (store.TagAssignments{}).ApplyNetBoxTag(ctx, sc, expected, candidate.Value, candidate.SourceRef, budget.MemoryBytes/4,
+			func(current store.TagImportFacts) bool { return selected.Matches(sourceTagFacts(current)) })
 		if err != nil {
 			return err
 		}
-		return s.recordAudit(ctx, sc, r, "tag.assignment.imported", record.ID,
-			map[string]any{"context_id": contextID, "tag_id": record.TagID,
-				"target_kind": record.TargetKind, "target_id": record.TargetID,
-				"source": "netbox", "source_ref": record.SourceRef})
+		return s.recordAudit(ctx, sc, r, "tag.assignment.imported", record.ID, map[string]any{
+			"context_id": contextID, "tag_id": record.TagID, "target_kind": record.TargetKind, "target_id": record.TargetID,
+			"source": "netbox", "source_ref": record.SourceRef})
 	})
 	if err != nil {
 		return store.TagAssignmentRecord{}, tagAssignmentAPIError(err)

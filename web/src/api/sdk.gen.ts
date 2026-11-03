@@ -2237,10 +2237,13 @@ export interface NetBoxTagPreview {
 }
 
 export interface NetBoxTagPreviewInput {
-  exporter_agent_id: string
-  exporter_source_ref: string
+  exporter_agent_id?: string
+  exporter_source_ref?: string
   field: "role" | "site"
+  source_id?: string
   tag_id: string
+  target_id?: string
+  target_kind?: "exporter" | "device" | "interface" | "prefix" | "agent" | "test"
 }
 
 export interface NetBoxTagPreviewTarget {
@@ -2251,7 +2254,7 @@ export interface NetBoxTagPreviewTarget {
   tag_key: string
   tag_revision: string
   target_id: string
-  target_kind: "exporter"
+  target_kind: "exporter" | "device" | "interface" | "prefix" | "agent" | "test"
 }
 
 export interface OnboardingFinding {

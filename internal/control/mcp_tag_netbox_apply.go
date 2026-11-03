@@ -26,11 +26,18 @@ func (b mcpNetBoxTagApplyBackend) NetBoxTagApply(ctx context.Context, p *auth.Pr
 	if b.server == nil || p == nil || p.TenantID == "" || p.UserID == "" {
 		return mcp.NetBoxTagApplyResult{}, apierror.Forbidden("an authenticated tenant user is required")
 	}
-	targetID, err := tags.ExporterTargetID(input.ExporterAgentID, input.ExporterSourceRef)
-	if err != nil {
-		return mcp.NetBoxTagApplyResult{}, tagAssignmentAPIError(err)
-	}
 	observed := input.Preview
+	kind, targetID := observed.TargetKind, observed.TargetID
+	if kind == "" {
+		kind = "exporter"
+	}
+	if kind == "exporter" {
+		var err error
+		targetID, err = tags.ExporterTargetID(input.ExporterAgentID, input.ExporterSourceRef)
+		if err != nil {
+			return mcp.NetBoxTagApplyResult{}, tagAssignmentAPIError(err)
+		}
+	}
 	request, err := http.NewRequestWithContext(auth.WithPrincipal(ctx, p), http.MethodPost,
 		"/v1/entity-contexts/"+observed.ContextID+"/tag-imports/netbox/apply", nil)
 	if err != nil {
@@ -41,7 +48,7 @@ func (b mcpNetBoxTagApplyBackend) NetBoxTagApply(ctx context.Context, p *auth.Pr
 		Confirmed: input.Confirmed, Preview: netBoxTagPreview{
 			Target: store.NetBoxTagTarget{ContextID: observed.ContextID,
 				TagID: observed.TagID, TagKey: observed.TagKey, TagRevision: observed.TagRevision,
-				TargetKind: "exporter", TargetID: targetID,
+				TargetKind: kind, TargetID: targetID,
 				ExporterAgentID: input.ExporterAgentID, ExporterSourceRef: input.ExporterSourceRef},
 			Candidate: cmdb.NetBoxTagCandidate{NetBoxTenantID: observed.NetBoxTenantID,
 				LookupCIID: observed.LookupCIID, CIID: observed.CIID, Name: observed.Name,

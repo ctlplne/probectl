@@ -2357,10 +2357,13 @@ type NetBoxTagPreview struct {
 }
 
 type NetBoxTagPreviewInput struct {
-	ExporterAgentId   string `json:"exporter_agent_id"`
-	ExporterSourceRef string `json:"exporter_source_ref"`
+	ExporterAgentId   string `json:"exporter_agent_id,omitempty"`
+	ExporterSourceRef string `json:"exporter_source_ref,omitempty"`
 	Field             string `json:"field"`
+	SourceId          string `json:"source_id,omitempty"`
 	TagId             string `json:"tag_id"`
+	TargetId          string `json:"target_id,omitempty"`
+	TargetKind        string `json:"target_kind,omitempty"`
 }
 
 type NetBoxTagPreviewTarget struct {
@@ -4806,7 +4809,7 @@ func (c *Client) DeleteManualTagAssignment(ctx context.Context, req DeleteManual
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
-// Apply an explicitly reviewed fresh NetBox exporter tag preview
+// Apply an explicitly reviewed fresh NetBox subject tag preview
 type ApplyNetBoxTagRequest struct {
 	ContextId string               `json:"-"`
 	Body      *NetBoxTagApplyInput `json:"-"`
@@ -4826,7 +4829,7 @@ func (c *Client) ApplyNetBoxTag(ctx context.Context, req ApplyNetBoxTagRequest) 
 	return &out, nil
 }
 
-// Preview a fresh NetBox role or site tag for an owned exporter
+// Preview a fresh NetBox role or site tag for an owned subject
 type PreviewNetBoxTagRequest struct {
 	ContextId string                 `json:"-"`
 	Body      *NetBoxTagPreviewInput `json:"-"`

@@ -105,7 +105,7 @@ def seed(spec):
         Manufacturer,
         Site,
     )
-    from ipam.models import IPAddress, VRF
+    from ipam.models import IPAddress, Prefix, Role, VRF
     from tenancy.models import Tenant
     from users.models import ObjectPermission, Token, User
 
@@ -158,7 +158,16 @@ def seed(spec):
         device_type = DeviceType.objects.create(
             manufacturer=manufacturer, model="Fixture router", slug="fixture-router"
         )
-        result = {"tenants": {}, "devices": {}, "ips": {}}
+        result = {
+            "tenants": {},
+            "devices": {},
+            "ips": {},
+            "prefixes": {},
+            "prefixes_v6": {},
+            "prefix_alternates": {},
+            "prefix_vrfs": {},
+            "prefix_next_vrfs": {},
+        }
         for index, lane in enumerate(["a", "b"], start=1):
             BOOTSTRAP_STAGE = "source_tenants"
             tenant = Tenant.objects.create(
@@ -192,6 +201,52 @@ def seed(spec):
                 assigned_object_type=ContentType.objects.get_for_model(Interface),
                 assigned_object_id=interface.pk,
             )
+            BOOTSTRAP_STAGE = "source_prefixes"
+            ipam_role = Role.objects.create(
+                name="ipam-role-" + lane, slug="ipam-role-" + lane
+            )
+            prefix = Prefix.objects.create(
+                prefix="192.0.2.0/24",
+                tenant=tenant,
+                vrf=vrf,
+                role=ipam_role,
+                scope_type=ContentType.objects.get_for_model(Site),
+                scope_id=site.pk,
+            )
+            ipv6 = Prefix.objects.create(
+                prefix="2001:db8::/32",
+                tenant=tenant,
+                vrf=vrf,
+                role=ipam_role,
+                scope_type=ContentType.objects.get_for_model(Site),
+                scope_id=site.pk,
+            )
+            if lane == "a":
+                alternate = VRF.objects.create(
+                    name="overlapping-vrf",
+                    rd="64512:101",
+                    tenant=tenant,
+                    enforce_unique=True,
+                )
+                other = Prefix.objects.create(
+                    prefix="192.0.2.0/24",
+                    tenant=tenant,
+                    vrf=alternate,
+                    role=ipam_role,
+                    scope_type=ContentType.objects.get_for_model(Site),
+                    scope_id=site.pk,
+                )
+                result["prefix_alternates"][lane] = str(other.pk)
+            next_vrf = VRF.objects.create(
+                name="review-next-vrf-" + lane,
+                rd=f"64512:{index + 200}",
+                tenant=tenant,
+                enforce_unique=True,
+            )
+            result["prefix_vrfs"][lane] = str(vrf.pk)
+            result["prefix_next_vrfs"][lane] = str(next_vrf.pk)
+            result["prefixes"][lane] = str(prefix.pk)
+            result["prefixes_v6"][lane] = str(ipv6.pk)
             result["tenants"][lane] = str(tenant.pk)
             result["devices"][lane] = str(device.pk)
             result["ips"][lane] = str(address.pk)
@@ -208,6 +263,23 @@ def main():
         print(json.dumps(seed(spec)))
     elif spec.get("action") == "worker-tls-proof":
         print(json.dumps(worker_tls_proof()))
+    elif spec.get("action") == "prefix-vrf":
+        BOOTSTRAP_STAGE = "prefix_metadata_update"
+        from django.db import transaction
+        from ipam.models import Prefix, VRF
+
+        with transaction.atomic():
+            prefix = Prefix.objects.select_for_update().get(pk=spec["prefix_id"])
+            vrf = VRF.objects.get(pk=spec["vrf_id"])
+            if (
+                str(prefix.tenant_id) != spec["tenant_id"]
+                or vrf.tenant_id != prefix.tenant_id
+            ):
+                raise RuntimeError("fixture prefix metadata crossed tenant ownership")
+            prefix.vrf = vrf
+            prefix.full_clean()
+            prefix.save()
+        print(json.dumps({"updated": True}))
     elif spec.get("action") in {"move-ip", "restore-ip"}:
         BOOTSTRAP_STAGE = "ownership_move"
         from django.db import transaction

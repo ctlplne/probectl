@@ -133,6 +133,13 @@ func InTenantReadSnapshot(ctx context.Context, pool *pgxpool.Pool, fn func(conte
 	}, fn)
 }
 
+// InTenantWriteSnapshot preserves the tenant, lifecycle and silo guards while
+// allowing an audited write based on one consistent view of current authority.
+// Remote source I/O must finish before entering this transaction.
+func InTenantWriteSnapshot(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, Scope) error) error {
+	return inTenantTx(WithSiloTableLock(ctx), pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, fn)
+}
+
 func inTenantTx(ctx context.Context, pool *pgxpool.Pool, options pgx.TxOptions,
 	fn func(context.Context, Scope) error) error {
 	id, ok := FromContext(ctx)

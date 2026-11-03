@@ -819,64 +819,94 @@ does not add a new MCP tool: native MCP wiring and protocol proof remain in prog
 ### Fresh NetBox tag preview
 
 `POST /v1/entity-contexts/{context_id}/tag-imports/netbox/preview` is a preview
-read. It requires both `tags.read` and `cmdb.read`, with access to the routing
-context. Supply an existing tag ID, an operator-registered exporter agent/source
-pair and `field` set to `role` or `site`. The exporter address must have exactly
-one current owner in the tenant. An arbitrary external key or a display name
-cannot select a source object.
+read requiring `tags.read`, `cmdb.read`, the subject's read grant and current
+routing-context access. Choose `target_kind` and an exact owned `target_id` for
+a device, interface, prefix, agent or test. Exporters use their registered
+`exporter_agent_id` / `exporter_source_ref` pair; omitting `target_kind` retains
+that input form. The exporter address must have exactly one current owner.
+Display labels, caller tenant hints and arbitrary lookup keys never select a CI.
+
+| Subject | Required read grant | Local correspondence |
+| --- | --- | --- |
+| Exporter | `flow.read` | Current unique registered address and agent/context binding |
+| Device/interface | `metrics.read` | Complete current authenticated source IP facts |
+| Prefix | `entities.read` | Explicit canonical `network_prefix`, covering the whole range |
+| Agent | `agent.read` | Complete current sender-bound address snapshot; hostname is not IP evidence |
+| Test | `test.read` | Owned configured IP or DNS host, without DNS resolution |
 
 For example, `probectl tags netbox-preview CONTEXT --body-file preview.json`
-uses this body:
+can review an explicitly selected NetBox prefix:
 
 ```json
 {
   "tag_id": "11111111-1111-4111-8111-111111111111",
-  "exporter_agent_id": "flow-collector",
-  "exporter_source_ref": "192.0.2.10",
-  "field": "site"
+  "target_kind": "prefix",
+  "target_id": "22222222-2222-4222-8222-222222222222",
+  "source_id": "101",
+  "field": "role"
 }
 ```
 
+`source_id` is optional and is always a positive decimal string: a NetBox
+prefix ID for prefixes, otherwise an IP-address CI ID. The server constructs
+the endpoint and verifies the selected object still corresponds to a current
+private fact. A test's configured DNS host can match an IP CI's `dns_name` or
+an unambiguous tenant-owned device/VM name; no DNS query is made. Multiple
+addresses auto-resolve only when every mapped candidate names the same
+attested parent CI and field value. An unmapped address can be ignored;
+ownership errors or different CIs require correction or exact source selection.
+
+Prefixes use their own IPAM role and exact canonical range. Site is available
+only from an ID-consistent `dcim.site` scope; a region, site group or location
+is not guessed to be a site. Overlapping ranges or VRFs require `source_id`.
+No VRF display-name mapping, first-host substitution or routing observation is
+inferred. NetBox's own prefix model does not accept `/0`; local manual/rule tag
+semantics are independent of that source restriction.
+
 Configure the deployment's NetBox tenant map as described in
-[configuration](configuration.md). Preview reads fresh source
-state, even when cached enrichment exists. The IP CI and any related device or
-VM must each attest the mapped source tenant; a brief related-object name is
-insufficient. A missing binding, outage, ambiguous result or noncanonical target
-refuses the preview. Values support up to 24,000 Unicode code points (96,000 UTF-8 bytes),
-without control characters. The whole preview has a 15-second deadline and each source response
-is bounded to 4 MiB.
+[configuration](configuration.md). Source and related device/VM reads freshly
+attest that mapped tenant; a brief related-object name is insufficient.
+Enrichment caches never authorize import. Missing bindings, outages, source
+ambiguity and changed ownership refuse a candidate. Values support 24,000
+Unicode code points (96,000 UTF-8 bytes), without control characters. Query
+concurrency, execution, memory and response budgets apply; the operation also
+has a 15-second deadline and a 4 MiB bound per source response.
 
-The response contains the exact source CI and field, value, structured
-provenance and the owned target's tag revision as a decimal string. This read
-writes no assignment and changes no canonical identity or telemetry. Fixture
-transport tests are not a live NetBox proof; the operation remains preview
-until its real-service receipt passes.
+The response contains the checked source CI, field, value, provenance and
+owned target revision as decimal strings. Private address bags and address
+hashes are omitted. The read writes no assignment or canonical identity.
+Fixture transport tests are component evidence; the operation remains preview
+until its real-service release receipt passes.
 
-In Admin, **NetBox tag preview** is visible with both read permissions. Choose
-a routing context and tag, enter the registered exporter agent/address, then
-select **Preview NetBox value**. Context discovery also needs `entities.read`;
-without it, enter an authorized routing context ID directly. The result shows
-the proposed value, source identity, provenance and exact tag revision. Changing
-the input, context, tag, user or tenant clears the result. Source failures never
-substitute cached enrichment.
+In Admin, choose a routing context, tag and subject kind, then enter its exact
+ID or registered exporter pair. Only kinds covered by the current read grants
+are offered. An optional source object ID disambiguates inventory. Context
+discovery requires `entities.read`; otherwise enter an authorized context ID.
+Changing an input, context, tag, user, tenant or available subject grants clears
+the review. A source failure never substitutes cached enrichment.
 
-With `tags.write` as well, choose **Review NetBox import**, inspect the exact
-value, source reference and tag revision, then explicitly confirm. The server
-reads the source again and compares the complete candidate before acquiring
-the tenant revision lock and rechecking the owned target. A changed source,
-target or revision returns a conflict requiring a new preview. A successful
-write records `source=netbox`, its checked provenance and `reviewed_at`, with
-`tag.assignment.imported` in the same tenant transaction. Manual values retain
-precedence. The preview is metadata for operator review; it is not a signed
-authorization token and cannot select a tenant.
+With `tags.write` as well, choose **Review NetBox import** and explicitly
+confirm the exact value, provenance and tag revision. The server re-attests
+the selected CI against current private facts and compares the complete
+candidate, including selected field identity and prefix VRF/scope provenance.
+After source I/O, it rechecks current context grants, locks the tag revision
+and resolves local authority again in an audited tenant write snapshot.
+Loss of the selected correspondence, changed source metadata or a changed
+revision requires a fresh preview. Unrelated polls or additional unselected
+addresses do not expire an unchanged selected relationship. Remote source
+requests never run inside the database transaction.
+
+A successful write upserts `source=netbox`, checked provenance and `reviewed_at`
+with `tag.assignment.imported` in the same tenant transaction. Manual values
+retain precedence. The preview is an operator review, not a stored plan or
+signed authorization token, and cannot select a tenant.
 
 The CLI equivalent is `probectl tags netbox-apply CONTEXT --body-file apply.json`.
 Use `{"confirmed":true,"preview":PREVIEW_RESPONSE}` with the unchanged complete
-preview object. `POST /v1/entity-contexts/{context_id}/tag-imports/netbox/apply`
-requires all three grants and routing-context access. Replaying an already
-applied revision is refused. A fresh preview can update the existing imported
-assignment without duplicating it. Both source operations remain labelled
-preview until their real NetBox service receipt passes.
+preview. Apply requires the same subject read grant plus all three tag/CMDB
+grants. Replaying an applied revision is refused; a fresh preview updates the
+same imported annotation without duplication. Both operations remain preview
+until their real NetBox release receipt passes.
 
 ### Tag value and page budgets
 

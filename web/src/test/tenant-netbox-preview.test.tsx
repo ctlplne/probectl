@@ -6,6 +6,7 @@
 
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { axe } from 'jest-axe'
 import { describe, expect, test, vi } from 'vitest'
 import { Providers } from '../App'
 import { AuthContext, type AuthContextValue } from '../auth/AuthProvider'
@@ -16,7 +17,15 @@ const tenantA = '00000000-0000-0000-0000-000000000001'
 const tenantB = '00000000-0000-0000-0000-000000000002'
 const contextID = '00000000-0000-0000-0000-000000000072'
 const otherContextID = '00000000-0000-0000-0000-000000000073'
-const grants = ['tags.read', 'cmdb.read', 'entities.read']
+const grants = [
+  'tags.read',
+  'cmdb.read',
+  'entities.read',
+  'flow.read',
+  'metrics.read',
+  'agent.read',
+  'test.read',
+]
 
 function identity(tenantID = tenantA, permissions = grants): AuthContextValue {
   return {
@@ -298,3 +307,112 @@ describe('Fresh tenant-scoped NetBox tag previews', () => {
     },
   )
 })
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const tenantID of [tenantA, tenantB]) {
+    for (const kind of ['exporter', 'device', 'interface', 'prefix', 'agent', 'test'] as const) {
+      test(`reviewed NetBox import retains exact subject/source selection: ${theme} ${tenantID} ${kind}`, async () => {
+        const storage = Object.getOwnPropertyDescriptor(window, 'localStorage')
+        Object.defineProperty(window, 'localStorage', {
+          configurable: true,
+          enumerable: true,
+          value: { getItem: () => theme, setItem: vi.fn() },
+        })
+        let app: ReturnType<typeof render> | undefined
+        try {
+          const requests: Record<string, unknown>[] = []
+          const applies: Record<string, unknown>[] = []
+          const targetID = '00000000-0000-4000-8000-000000000301'
+          const sourceID = '9007199254740993'
+          const observed = candidate(tenantID === tenantA ? 'blue' : 'red')
+          observed.target.target_kind = kind
+          if (kind !== 'exporter') {
+            observed.target.target_id = targetID
+            observed.target.exporter_agent_id = ''
+            observed.target.exporter_source_ref = ''
+          }
+          observed.candidate.lookup_ci_id = `netbox:ipam.${kind === 'prefix' ? 'prefix' : 'ip_address'}:${sourceID}`
+          vi.stubGlobal(
+            'fetch',
+            sourceFetch(
+              async (_input, init) => {
+                expect(new Headers(init?.headers).get('X-Probectl-Tenant')).toBe(tenantID)
+                requests.push(JSON.parse(String(init?.body)))
+                return jsonResponse(observed)
+              },
+              async (_input, init) => {
+                expect(new Headers(init?.headers).get('X-Probectl-Tenant')).toBe(tenantID)
+                applies.push(JSON.parse(String(init?.body)))
+                return jsonResponse({
+                  id: 'assignment',
+                  source: 'netbox',
+                  value: observed.candidate.value,
+                })
+              },
+            ),
+          )
+          app = render(tree(identity(tenantID, [...grants, 'tags.write'])))
+          await chooseContext()
+          expect(document.documentElement).toHaveAttribute('data-theme', theme)
+          const card = screen
+            .getByText('NetBox tag preview')
+            .closest('[data-tenant-netbox-tag-preview]') as HTMLElement
+          await userEvent.selectOptions(
+            screen.getByRole('combobox', { name: 'NetBox target kind' }),
+            kind,
+          )
+          if (kind === 'exporter') {
+            await userEvent.type(
+              screen.getByRole('textbox', { name: 'NetBox exporter agent ID' }),
+              'collector',
+            )
+            await userEvent.type(
+              screen.getByRole('textbox', { name: 'NetBox exporter address' }),
+              '192.0.2.10',
+            )
+          } else {
+            await userEvent.type(
+              screen.getByRole('textbox', { name: 'NetBox target ID' }),
+              targetID,
+            )
+          }
+          await userEvent.type(
+            screen.getByRole('textbox', { name: 'NetBox source object ID' }),
+            sourceID,
+          )
+          await userEvent.click(screen.getByRole('button', { name: 'Preview NetBox value' }))
+          await screen.findByRole('table', { name: 'Fresh NetBox tag preview' })
+          const expected = {
+            tag_id: 'tag-1',
+            field: 'site',
+            source_id: sourceID,
+            ...(kind === 'exporter'
+              ? { exporter_agent_id: 'collector', exporter_source_ref: '192.0.2.10' }
+              : { target_kind: kind, target_id: targetID }),
+          }
+          expect(requests).toEqual([expected])
+          expect(applies).toHaveLength(0)
+          await userEvent.click(screen.getByRole('button', { name: 'Review NetBox import' }))
+          await userEvent.click(screen.getByRole('button', { name: 'Apply reviewed NetBox tag' }))
+          await screen.findByText('NetBox tag imported. Manual assignments retain precedence.')
+          expect(applies).toEqual([{ confirmed: true, preview: observed }])
+          expect(card).toBeInTheDocument()
+          expect(await axe(card)).toHaveNoViolations()
+          await userEvent.type(
+            screen.getByRole('textbox', { name: 'NetBox source object ID' }),
+            '1',
+          )
+          expect(
+            screen.queryByRole('table', { name: 'Fresh NetBox tag preview' }),
+          ).not.toBeInTheDocument()
+          expect(
+            screen.queryByRole('button', { name: 'Review NetBox import' }),
+          ).not.toBeInTheDocument()
+        } finally {
+          app?.unmount()
+          if (storage) Object.defineProperty(window, 'localStorage', storage)
+        }
+      })
+    }
+  }
+}

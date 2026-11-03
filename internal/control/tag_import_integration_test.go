@@ -66,7 +66,7 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 			t.Errorf("NetBox preview source read was not scoped: %s", r.URL.RawQuery)
 		}
 		if r.URL.Path == "/api/ipam/ip-addresses/" {
-			if r.URL.Query().Get("address") != "192.0.2.10" {
+			if (r.URL.Query().Get("id") == "" && r.URL.Query().Get("address") != "192.0.2.10") || (r.URL.Query().Get("id") != "" && r.URL.Query().Get("id") != "10") {
 				t.Errorf("preview source key was not the owned exporter: %s", r.URL.RawQuery)
 			}
 			fmt.Fprintf(w, `{"count":1,"results":[{"id":10,"tenant":{"id":%s},"address":"192.0.2.10/32","assigned_object":{"device":{"id":42}}}]}`, tenant)
@@ -84,7 +84,7 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 		if version := sourceVersion.Load(); version != 0 {
 			value += fmt.Sprintf("-v%d", version)
 		}
-		fmt.Fprintf(w, `{"count":1,"results":[{"id":42,"tenant":{"id":%s},"name":"owned-router","site":{"name":%q}}]}`, tenant, value)
+		fmt.Fprintf(w, `{"count":1,"results":[{"id":42,"tenant":{"id":%s},"name":"owned-router","site":{"id":61,"name":%q}}]}`, tenant, value)
 	}))
 	defer source.Close()
 	resolver := cmdb.NewResolver(cmdb.NewNetBox(source.URL, "test-token", map[string]string{a: "7", b: "8"}), time.Hour)
@@ -114,7 +114,7 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 		ExporterAgentID: "collector", ExporterSourceRef: "192.0.2.10", Field: "site"}
 	for _, row := range []struct{ tenant, value string }{{a, "site-7"}, {b, "site-8"}} {
 		reader := &auth.Principal{TenantID: row.tenant, UserID: "tag-reader",
-			Permissions: map[string]bool{permTagsRead: true, permCMDBRead: true}}
+			Permissions: map[string]bool{permTagsRead: true, permCMDBRead: true, permFlowRead: true}}
 		preview, err := backend.NetBoxTagPreview(context.Background(), reader, previewInput)
 		if err != nil || preview.Value != row.value || preview.TagID != tagID {
 			t.Fatalf("MCP tenant %s preview: %+v, %v", row.tenant, preview, err)
@@ -131,7 +131,7 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 	}
 	beforePolicy := calls.Load()
 	if _, err := deniedBackend.NetBoxTagPreview(context.Background(), &auth.Principal{TenantID: a, UserID: "tag-reader",
-		Permissions: map[string]bool{permTagsRead: true, permCMDBRead: true}}, previewInput); err == nil || calls.Load() != beforePolicy {
+		Permissions: map[string]bool{permTagsRead: true, permCMDBRead: true, permFlowRead: true}}, previewInput); err == nil || calls.Load() != beforePolicy {
 		t.Fatal("MCP ABAC denial reached NetBox source")
 	}
 	for _, row := range []struct {
@@ -140,6 +140,7 @@ func TestNetBoxTagPreviewResolvesTenantTargetBeforeSourceRead(t *testing.T) {
 	}{
 		{body, "tags.read", http.StatusForbidden},
 		{body, "cmdb.read", http.StatusForbidden},
+		{body, "flow.read", http.StatusForbidden},
 		{strings.Replace(body, tagID, uuidx.NewString(), 1), "", http.StatusNotFound},
 		{strings.Replace(body, "192.0.2.10", "192.0.2.11", 1), "", http.StatusNotFound},
 		{strings.Replace(body, "collector", "other-agent", 1), "", http.StatusNotFound},
@@ -303,7 +304,7 @@ func testNetBoxReviewedApply(t *testing.T, srv *Server, db *store.DB,
 	writer := mcpNetBoxTagApplyBackend{server: srv}
 	for _, tenant := range []string{a, b} {
 		p := &auth.Principal{TenantID: tenant, UserID: "tag-importer",
-			Permissions: map[string]bool{permTagsRead: true, permTagsWrite: true, permCMDBRead: true}}
+			Permissions: map[string]bool{permTagsRead: true, permTagsWrite: true, permCMDBRead: true, permFlowRead: true}}
 		observed, err := sourceBackend.NetBoxTagPreview(context.Background(), p, mcp.NetBoxTagPreviewInput{
 			ContextID: contextID, TagID: expectedA.Target.TagID, ExporterAgentID: "collector",
 			ExporterSourceRef: "192.0.2.10", Field: "site"})

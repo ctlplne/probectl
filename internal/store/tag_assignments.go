@@ -38,8 +38,8 @@ type TagAssignmentRecord struct {
 	ReviewedAt        *time.Time `json:"reviewed_at,omitempty"`
 }
 
-// TagAssignments writes only manual assignments. Imported NetBox suggestions
-// have a separate reviewed apply path; manual updates cannot erase provenance.
+// TagAssignments stores manual annotations and explicitly reviewed imports.
+// Separate write paths prevent manual updates from erasing import provenance.
 type TagAssignments struct{}
 
 func (TagAssignments) CreateManual(ctx context.Context, sc tenancy.Scope,
@@ -261,6 +261,8 @@ func tagAssignmentError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
+		case "40001":
+			return ErrTagImportChanged
 		case "23503":
 			return ErrTagReference
 		case "23505":

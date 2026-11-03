@@ -108,6 +108,7 @@ func compactNetBoxCIRef(ci CI) (string, error) {
 	for prefix, code := range map[string]string{
 		"netbox:ipam.ip_address:": "ip", "netbox:dcim.device:": "d",
 		"netbox:virtualization.virtual_machine:": "vm",
+		"netbox:ipam.prefix:":                    "p",
 	} {
 		if raw, ok := strings.CutPrefix(ci.SysID, prefix); ok {
 			id, err := strconv.ParseInt(raw, 10, 64)
@@ -139,11 +140,11 @@ func (n *NetBox) relatedTagCI(ctx context.Context, source, kind string, id int64
 		Count   int    `json:"count"`
 		Next    string `json:"next"`
 		Results []struct {
-			ID     int64         `json:"id"`
-			Tenant *netBoxTenant `json:"tenant"`
-			Name   string        `json:"name"`
-			Role   named         `json:"role"`
-			Site   named         `json:"site"`
+			ID     int64              `json:"id"`
+			Tenant *netBoxTenant      `json:"tenant"`
+			Name   string             `json:"name"`
+			Role   netBoxTagAttribute `json:"role"`
+			Site   netBoxTagAttribute `json:"site"`
 		} `json:"results"`
 	}
 	if err := n.get(ctx, path+"?"+q.Encode(), &page); err != nil {
@@ -156,6 +157,7 @@ func (n *NetBox) relatedTagCI(ctx context.Context, source, kind string, id int64
 	if row.ID != id || !row.Tenant.matches(source) {
 		return CI{}, ErrTenantBinding
 	}
-	return CI{SysID: prefix + strconv.FormatInt(id, 10), Name: row.Name,
-		Class: class, Extra: compactExtra(map[string]string{"role": row.Role.Name, "site": row.Site.Name})}, nil
+	return CI{SysID: prefix + strconv.FormatInt(id, 10), Name: row.Name, FQDN: CanonicalKey(row.Name),
+		Class: class, Extra: compactExtra(map[string]string{"role": row.Role.Name, "site": row.Site.Name,
+			"role_id": strconv.FormatInt(row.Role.ID, 10), "site_id": strconv.FormatInt(row.Site.ID, 10)})}, nil
 }

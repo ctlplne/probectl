@@ -50,6 +50,8 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 		Tenants     map[string]string `json:"tenants"`
 		Devices     map[string]string `json:"devices"`
 		IPs         map[string]string `json:"ips"`
+		Prefixes    map[string]string `json:"prefixes"`
+		PrefixesV6  map[string]string `json:"prefixes_v6"`
 	}
 	if json.Unmarshal(raw, &manifest) != nil || manifest.Origin != "https://localhost:18443" ||
 		manifest.CAFile != runtime+"/ca.crt" || manifest.TokenFile != runtime+"/token" {
@@ -116,6 +118,7 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 			}
 		}
 	}
+	liveNetBoxSubjectProof(t, resolver, manifest.Tenants, manifest.IPs, manifest.Prefixes, manifest.PrefixesV6)
 	for _, ctx := range []context.Context{t.Context(), netBoxContext("33333333-3333-4333-8333-333333333333")} {
 		if cis, err := resolver.Lookup(ctx, "192.0.2.10"); !errors.Is(err, ErrTenantBinding) || len(cis) != 0 {
 			t.Fatal("unmapped caller reached a warmed source lookup")
@@ -146,6 +149,9 @@ func TestNetBoxLiveTenantMappingAndFreshPreview(t *testing.T) {
 		"role and site require fresh full related-CI ownership",
 		"missing tenant mapping refuses warmed cache and source preview",
 		"actual source ownership move refuses fresh previews despite warm enrichment",
+		"typed IP and prefix candidates re-attest selected tenant-bound identities",
+		"overlapping VRFs require exact prefix selection; range and tenant must match",
+		"actual prefix VRF change alters same-value reviewed provenance",
 	}}
 	encoded, err := json.MarshalIndent(proof, "", "  ")
 	if err != nil || os.WriteFile(filepath.Join(runtime, "provider-proof.json"), append(encoded, '\n'), 0o600) != nil {

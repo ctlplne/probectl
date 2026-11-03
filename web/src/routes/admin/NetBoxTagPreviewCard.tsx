@@ -24,6 +24,17 @@ import {
 import { TagValue } from './TagValue'
 import styles from './EntityRegistryCard.module.css'
 
+const importKinds = ['exporter', 'device', 'interface', 'prefix', 'agent', 'test'] as const
+type ImportKind = (typeof importKinds)[number]
+const importReadGrant: Record<ImportKind, string> = {
+  exporter: 'flow.read',
+  device: 'metrics.read',
+  interface: 'metrics.read',
+  prefix: 'entities.read',
+  agent: 'agent.read',
+  test: 'test.read',
+}
+
 export function NetBoxTagPreviewCard() {
   const { permissions, tenant, user } = useAuth()
   if (!permissions.includes('tags.read') || !permissions.includes('cmdb.read')) return null
@@ -33,6 +44,7 @@ export function NetBoxTagPreviewCard() {
       tenantID={tenant.id}
       canListContexts={permissions.includes('entities.read')}
       canWrite={permissions.includes('tags.write')}
+      readKinds={importKinds.filter((kind) => permissions.includes(importReadGrant[kind]))}
     />
   )
 }
@@ -41,10 +53,12 @@ function NetBoxTagPreviewContents({
   tenantID,
   canListContexts,
   canWrite,
+  readKinds,
 }: {
   tenantID: string
   canListContexts: boolean
   canWrite: boolean
+  readKinds: ImportKind[]
 }) {
   const contexts = useEntityContexts(tenantID, canListContexts)
   const definitions = useTagDefinitions(tenantID)
@@ -64,7 +78,7 @@ function NetBoxTagPreviewContents({
     <Card data-tenant-netbox-tag-preview>
       <CardHeader
         title="NetBox tag preview"
-        description="Preview a fresh role or site for an owned exporter. No assignment is written."
+        description="Preview a fresh role or site for an owned device, interface, prefix, agent, test or exporter. No assignment is written."
       />
       <CardBody>
         <div className={styles.stack}>
@@ -122,12 +136,13 @@ function NetBoxTagPreviewContents({
           />
           {contextID && selectedTag ? (
             <NetBoxPreviewForm
-              key={`${contextID}:${selectedTag.id}:${selectedTag.key}`}
+              key={`${contextID}:${selectedTag.id}:${selectedTag.key}:${readKinds.join(',')}`}
               tenantID={tenantID}
               contextID={contextID}
               tagID={selectedTag.id}
               tagKey={selectedTag.key}
               canWrite={canWrite}
+              readKinds={readKinds}
             />
           ) : null}
         </div>
@@ -142,16 +157,21 @@ function NetBoxPreviewForm({
   tagID,
   tagKey,
   canWrite,
+  readKinds,
 }: {
   tenantID: string
   contextID: string
   tagID: string
   tagKey: string
   canWrite: boolean
+  readKinds: ImportKind[]
 }) {
   const preview = useNetBoxTagPreview(tenantID, contextID)
   const apply = useApplyNetBoxTag(tenantID, contextID)
   const [reviewing, setReviewing] = useState(false)
+  const [kind, setKind] = useState<ImportKind>(readKinds[0] ?? 'exporter')
+  const [targetID, setTargetID] = useState('')
+  const [sourceID, setSourceID] = useState('')
   const [agentID, setAgentID] = useState('')
   const [sourceRef, setSourceRef] = useState('')
   const [field, setField] = useState<'role' | 'site'>('site')
@@ -164,13 +184,19 @@ function NetBoxPreviewForm({
 
   async function onPreview(event: FormEvent) {
     event.preventDefault()
-    if (!agentID.trim() || !sourceRef.trim()) return
+    if (
+      !readKinds.includes(kind) ||
+      (kind === 'exporter' ? !agentID.trim() || !sourceRef.trim() : !targetID.trim())
+    )
+      return
     apply.reset()
     try {
       await preview.mutateAsync({
         tag_id: tagID,
-        exporter_agent_id: agentID.trim(),
-        exporter_source_ref: sourceRef.trim(),
+        ...(kind === 'exporter'
+          ? { exporter_agent_id: agentID.trim(), exporter_source_ref: sourceRef.trim() }
+          : { target_kind: kind, target_id: targetID.trim() }),
+        ...(sourceID.trim() ? { source_id: sourceID.trim() } : {}),
         field,
       })
     } catch {
@@ -184,9 +210,12 @@ function NetBoxPreviewForm({
     result.target.context_id === contextID &&
     result.target.tag_id === tagID &&
     result.target.tag_key === tagKey &&
-    result.target.target_kind === 'exporter' &&
-    result.target.exporter_agent_id === agentID.trim() &&
-    result.target.exporter_source_ref === sourceRef.trim() &&
+    readKinds.includes(kind) &&
+    result.target.target_kind === kind &&
+    (kind === 'exporter'
+      ? result.target.exporter_agent_id === agentID.trim() &&
+        result.target.exporter_source_ref === sourceRef.trim()
+      : result.target.target_id === targetID.trim()) &&
     result.candidate.field === field
   const columns: Column<{ label: string; value: string }>[] = [
     { key: 'label', header: 'Field', render: (row) => row.label },
@@ -214,27 +243,74 @@ function NetBoxPreviewForm({
   return (
     <div className={styles.stack}>
       <form className={styles.form} onSubmit={(event) => void onPreview(event)}>
-        <Field
-          label="NetBox exporter agent ID"
-          required
-          maxLength={128}
-          disabled={preview.isPending || apply.isPending}
-          value={agentID}
+        <Select
+          label="NetBox target kind"
+          value={kind}
+          disabled={preview.isPending || apply.isPending || readKinds.length === 0}
+          options={readKinds.map((value) => ({ value, label: value }))}
           onChange={(event) => {
             clearResult()
-            setAgentID(event.target.value)
+            setKind(event.target.value as ImportKind)
+            setSourceID('')
           }}
         />
+        {readKinds.length === 0 ? (
+          <ErrorState description="A subject read permission is required to preview NetBox tags." />
+        ) : null}
+        {kind === 'exporter' ? (
+          <>
+            <Field
+              label="NetBox exporter agent ID"
+              required
+              maxLength={128}
+              disabled={preview.isPending || apply.isPending}
+              value={agentID}
+              onChange={(event) => {
+                clearResult()
+                setAgentID(event.target.value)
+              }}
+            />
+            <Field
+              label="NetBox exporter address"
+              hint="The current registered exporter IP address in this routing context."
+              required
+              maxLength={45}
+              disabled={preview.isPending || apply.isPending}
+              value={sourceRef}
+              onChange={(event) => {
+                clearResult()
+                setSourceRef(event.target.value)
+              }}
+            />
+          </>
+        ) : (
+          <Field
+            label="NetBox target ID"
+            hint="The exact owned subject ID in this routing context; labels never select inventory."
+            required
+            maxLength={36}
+            disabled={preview.isPending || apply.isPending}
+            value={targetID}
+            onChange={(event) => {
+              clearResult()
+              setTargetID(event.target.value)
+            }}
+          />
+        )}
         <Field
-          label="NetBox exporter address"
-          hint="The current registered exporter IP address in this routing context."
-          required
-          maxLength={45}
+          label="NetBox source object ID"
+          hint={
+            kind === 'prefix'
+              ? 'Optional exact NetBox prefix ID to select an overlapping range or VRF.'
+              : 'Optional exact NetBox IP-address CI ID when automatic matching is ambiguous.'
+          }
+          maxLength={19}
+          inputMode="numeric"
           disabled={preview.isPending || apply.isPending}
-          value={sourceRef}
+          value={sourceID}
           onChange={(event) => {
             clearResult()
-            setSourceRef(event.target.value)
+            setSourceID(event.target.value)
           }}
         />
         <Select
@@ -252,7 +328,12 @@ function NetBoxPreviewForm({
         />
         <Button
           type="submit"
-          disabled={preview.isPending || apply.isPending || !agentID.trim() || !sourceRef.trim()}
+          disabled={
+            preview.isPending ||
+            apply.isPending ||
+            !readKinds.includes(kind) ||
+            (kind === 'exporter' ? !agentID.trim() || !sourceRef.trim() : !targetID.trim())
+          }
         >
           Preview NetBox value
         </Button>
@@ -288,7 +369,7 @@ function NetBoxPreviewForm({
         >
           <div className={styles.stack}>
             <p>
-              Import {result.target.tag_key} = {result.candidate.value} for this exporter?
+              Import {result.target.tag_key} = {result.candidate.value} for this {kind}?
             </p>
             <p>
               Source {result.candidate.source_ref}; reviewed tag revision{' '}
