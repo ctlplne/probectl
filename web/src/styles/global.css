@@ -118,6 +118,12 @@
     border: 0;
   }
 
+  /* Native disclosures are controls, including on fine-pointer layouts. */
+  summary {
+    min-block-size: var(--density-touch-target);
+    min-inline-size: var(--density-touch-target);
+  }
+
   /* Compact density is visual density, not a smaller motor target. */
   @media (pointer: coarse) {
     :where(button, input, select, textarea, [role='button'], a[href]) {
