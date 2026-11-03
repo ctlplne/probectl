@@ -6,6 +6,15 @@
 
 package store
 
+import "strings"
+
+// A tag read snapshot keeps one temporal reference as well as one MVCC view.
+// Derive it from the complete predicate, including nested source/support
+// checks, so expiry between SELECTs cannot mix fact epochs in one result.
+func currentEntityEvidenceSnapshotSQL() string {
+	return strings.ReplaceAll(currentEntityEvidenceSQL(), "statement_timestamp()", "transaction_timestamp()")
+}
+
 // currentEntityEvidenceSQL is the registry's complete current-evidence
 // predicate for a row aliased e. Consumers keep their explicit tenant/context
 // predicates inside the same FORCE-RLS snapshot; this expression establishes

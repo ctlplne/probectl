@@ -218,6 +218,28 @@ func (s *Snapshot) Resolve(subject Subject) ([]Resolved, error) {
 	return s.ResolveContext(context.Background(), subject)
 }
 
+func (s *Snapshot) matchSubjectNames(ctx context.Context, subject Subject, selectRule func(compiledRule)) error {
+	for _, compiled := range s.nameRules[subject.Kind] {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if subject.Name != "" && compiled.pattern.MatchString(subject.Name) {
+			selectRule(compiled)
+			continue
+		}
+		for _, name := range subject.Names {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if name != "" && compiled.pattern.MatchString(name) {
+				selectRule(compiled)
+				break
+			}
+		}
+	}
+	return nil
+}
+
 // ResolveContext evaluates the complete admitted fact set without publishing
 // partial tags when the caller's query deadline or cancellation expires.
 func (s *Snapshot) ResolveContext(ctx context.Context, subject Subject) ([]Resolved, error) {
@@ -279,15 +301,8 @@ func (s *Snapshot) ResolveContext(ctx context.Context, subject Subject) ([]Resol
 			selected[rule.TagID] = proposed
 		}
 	}
-	if subject.Name != "" {
-		for _, compiled := range s.nameRules[subject.Kind] {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			if compiled.pattern.MatchString(subject.Name) {
-				selectRule(compiled)
-			}
-		}
+	if err := s.matchSubjectNames(ctx, subject, selectRule); err != nil {
+		return nil, err
 	}
 	for _, field := range []string{"sys_name", "sys_descr", "if_name", "if_descr"} {
 		if value := subject.SNMP[field]; value != "" {

@@ -99,6 +99,7 @@ type Subject struct {
 	Addresses []netip.Addr
 	Prefixes  []netip.Prefix
 	Name      string
+	Names     []string
 	SNMP      map[string]string
 }
 
@@ -175,6 +176,21 @@ func validSNMPValue(field, value string) bool {
 		return unicode.IsControl(r) &&
 			(field != "sys_descr" || (r != '\t' && r != '\r' && r != '\n'))
 	}) < 0
+}
+
+// ValidateSNMPFact shares rule text semantics while admitting an empty latest
+// observation, which clears an older scalar fact instead of reviving it.
+func ValidateSNMPFact(field, value string) error {
+	if value == "" {
+		switch field {
+		case "sys_name", "sys_descr", "if_name", "if_descr":
+			return nil
+		}
+	}
+	if !validSNMPValue(field, value) {
+		return ErrInvalid
+	}
+	return nil
 }
 
 // ExporterTargetID combines the authenticated agent and its operator-owned

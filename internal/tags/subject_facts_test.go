@@ -38,7 +38,7 @@ func TestCanonicalCIDRFactsConsiderEveryAddressAndWholePrefix(t *testing.T) {
 				if err != nil || len(got) != 1 || got[0].Value != "narrow" {
 					t.Fatalf("complete %s facts lost strongest matching rule: %+v, %v", kind, got, err)
 				}
-				subject.Scope.TenantID = tenantB
+				subject.TenantID = tenantB
 				if got, err := snapshot.Resolve(subject); !errors.Is(err, ErrScopeMismatch) || got != nil {
 					t.Fatal("fact set crossed tenant scope")
 				}
@@ -118,5 +118,18 @@ func TestTagFactCompilationAndEvaluationCancelWithoutPartialResults(t *testing.T
 				t.Fatal("evaluation published partial tags or did not propagate cancellation")
 			}
 		})
+	}
+}
+
+func TestTagNamePatternsUseAllAdmittedNames(t *testing.T) {
+	rule := Rule{Scope: testScope(), ID: ruleA, TagID: tagID, TargetKind: "interface", Match: "name_pattern", NamePattern: "^Gig", Value: "uplink"}
+	snapshot, err := NewSnapshot(testScope(), 1, []Definition{testDefinition()}, nil, []Rule{rule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject := Subject{Scope: testScope(), Kind: "interface", ID: "owned", Name: "ifIndex 7", Names: []string{"other", "Gig0/7", "Gig0/7"}}
+	got, err := snapshot.ResolveContext(t.Context(), subject)
+	if err != nil || len(got) != 1 || got[0].Value != "uplink" {
+		t.Fatal("current observed name could not match or duplicated a value")
 	}
 }

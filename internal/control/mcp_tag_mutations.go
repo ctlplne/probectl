@@ -29,9 +29,10 @@ func (b mcpTagMutationBackend) request(ctx context.Context, p *auth.Principal, a
 		return nil, apierror.Forbidden("an authenticated tenant user is required")
 	}
 	method := http.MethodPost
-	if action == "update" {
+	switch action {
+	case "update":
 		method = http.MethodPut
-	} else if action == "delete" {
+	case "delete":
 		method = http.MethodDelete
 	}
 	return http.NewRequestWithContext(auth.WithPrincipal(ctx, p), method, path, nil)
