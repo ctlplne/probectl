@@ -97,6 +97,7 @@ def bootstrap_failure(raw: bytes) -> str:
         "source_tenants",
         "source_addresses",
         "ownership_move",
+        "http_request",
     }
     classes = {
         "ImportError",
@@ -119,10 +120,11 @@ def bootstrap_failure(raw: bytes) -> str:
     }
     prefix = b"PROBECTL_NETBOX_BOOTSTRAP_FAILURE "
     for line in raw[-16384:].splitlines():
-        if not line.startswith(prefix):
+        _, marker, payload = line.partition(prefix)
+        if not marker:
             continue
         try:
-            value = json.loads(line[len(prefix) :])
+            value = json.loads(payload)
         except (ValueError, UnicodeError):
             continue
         if (
@@ -521,6 +523,9 @@ def startup_diagnostics() -> None:
         print("NetBox fixture startup state unavailable")
     try:
         raw = compose("logs", "--no-color", "--tail", "100", "netbox")
+        safe_failure = bootstrap_failure(raw)
+        if safe_failure:
+            print("NetBox fixture request failure:" + safe_failure)
         # Fixed signals help distinguish startup failures without allowing log
         # strings, tokens, URLs, environment or Python tracebacks into CI output.
         signals = {
@@ -881,9 +886,10 @@ def selftest() -> None:
         queue = copy.deepcopy(base_queue)
         queue.update(bad_override or {})
         base = SimpleNamespace(
-            __all__=["RQ_QUEUES", "PRESERVED_SETTING"],
+            __all__=["RQ_QUEUES", "PRESERVED_SETTING", "LOGGING"],
             RQ_QUEUES={"default": queue, "high": queue},
             PRESERVED_SETTING="base",
+            LOGGING={},
         )
         derived = {}
         with patch.dict(
@@ -913,6 +919,20 @@ def selftest() -> None:
             raise RuntimeError(
                 "fixture settings lost base settings, credentials or explicit TLS checks"
             )
+        error_output = io.StringIO()
+        with patch("sys.stderr", error_output):
+            derived["SafeRequestFailure"]().emit(
+                SimpleNamespace(
+                    exc_info=(RuntimeError, RuntimeError("untrusted-detail"), None)
+                )
+            )
+        safe_error = error_output.getvalue().encode()
+        if (
+            b"untrusted-detail" in safe_error
+            or bootstrap_failure(b"netbox | " + safe_error)
+            != " bootstrap stage=http_request error_class=RuntimeError"
+        ):
+            raise RuntimeError("fixture request diagnostic leaked exception text")
     if (
         config["CENSUS_REPORTING_ENABLED"]
         or not config["ISOLATED_DEPLOYMENT"]

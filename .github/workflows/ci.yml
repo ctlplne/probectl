@@ -1186,21 +1186,14 @@ jobs:
         if: always()
         run: python3 scripts/ci_nms_vendor.py cleanup
 
-  integration:
-    name: integration
-    # Boots the control plane against a real Postgres and asserts migrations are
-    # idempotent and /readyz passes (S1 Done-when). Uses a service container
-    # rather than the full compose stack — only Postgres is needed yet.
+  netbox-live:
+    name: netbox-live (NetBox tenant mapping)
     runs-on: ubuntu-latest
-    timeout-minutes: 45 # the real-stack receipts (G4) took the lane from ~19 to ~30 minutes (run 39794445141 hit 30)
-    # Postgres runs as a docker step so it serves TLS under a per-run test CA;
-    # the client connects sslmode=verify-full like production (OPS-010).
-    env:
-      # Result pipeline (S6): the TSDB remote-write test targets this Prometheus.
-      PROBECTL_PROM_URL: http://localhost:9090
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
@@ -1224,6 +1217,25 @@ jobs:
       - name: Remove the exact owned NetBox source and runtime secrets
         if: always()
         run: python3 scripts/ci_netbox.py cleanup
+
+  integration:
+    name: integration
+    # Runs the stateful control-plane and four-store proofs independently of
+    # the NetBox source. Both lanes are mandatory in verify-all.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45 # the real-stack receipts (G4) took the lane from ~19 to ~30 minutes (run 39794445141 hit 30)
+    # Postgres runs as a docker step so it serves TLS under a per-run test CA;
+    # the client connects sslmode=verify-full like production (OPS-010).
+    env:
+      # Result pipeline (S6): the TSDB remote-write test targets this Prometheus.
+      PROBECTL_PROM_URL: http://localhost:9090
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
       - name: Start TLS Postgres (verify-full, test CA — OPS-010)
         run: ./scripts/ci_pg_tls.sh
       - name: Start Prometheus with the remote-write receiver and the admin API
@@ -2035,6 +2047,7 @@ jobs:
       - first-data
       - cross-tenant-isolation
       - integration
+      - netbox-live
       - nms-vendor-live
       - perf-smoke
       - backup-drill

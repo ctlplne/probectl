@@ -1,8 +1,9 @@
 # Real NetBox source proof
 
-The `integration` check starts the digest-pinned NetBox 4.4.5 application,
-PostgreSQL and Valkey in an internal disposable network before the other test
-stacks. It stops this source before starting those stacks. This proves the
+The `netbox-live` check starts the digest-pinned NetBox 4.4.5 application,
+PostgreSQL and Valkey in an internal disposable network on its own runner.
+It runs independently of the stateful `integration` check, and `verify-all`
+requires both checks to pass. This proves the
 actual provider protocol, tenant filtering and fresh role/site lookups. The
 complete release-binary FX-3 receipt remains a separate acceptance requirement.
 
