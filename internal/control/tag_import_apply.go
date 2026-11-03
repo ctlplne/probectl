@@ -43,7 +43,7 @@ func (s *Server) handleApplyNetBoxTag(w http.ResponseWriter, r *http.Request) er
 	}
 	record, err := s.applyReviewedNetBoxTag(r, input)
 	if err != nil {
-		return err
+		return tagQueryResponseError(w, err)
 	}
 	writeJSON(w, http.StatusOK, record)
 	return nil

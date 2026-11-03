@@ -7,7 +7,6 @@
 package control
 
 import (
-	"context"
 	"errors"
 	"net/http"
 
@@ -69,7 +68,7 @@ func (s *Server) handlePreviewNetBoxTag(w http.ResponseWriter, r *http.Request) 
 	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(tenantID))
 	ctx, budget, done, err := beginNetBoxImport(ctx, s.flowStore, s.fairnessGate)
 	if err != nil {
-		return err
+		return tagQueryResponseError(w, err)
 	}
 	defer done()
 	target, facts, err := readNetBoxTagTarget(ctx, s.pool, contextID, input.TagID, input.reference(), budget.MemoryBytes/4)

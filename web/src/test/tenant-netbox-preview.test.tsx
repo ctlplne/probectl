@@ -182,7 +182,7 @@ describe('Fresh tenant-scoped NetBox tag previews', () => {
       jsonResponse({ error: { message: 'Fresh source unavailable' } }, 503),
     )
     vi.stubGlobal('fetch', fetcher)
-    const app = render(tree(identity(tenantA, ['tags.read', 'cmdb.read'])))
+    const app = render(tree(identity(tenantA, ['tags.read', 'cmdb.read', 'flow.read'])))
     await userEvent.type(
       screen.getByRole('textbox', { name: 'NetBox preview routing context ID' }),
       contextID,
@@ -396,7 +396,8 @@ for (const theme of ['light', 'dark'] as const) {
           await userEvent.click(screen.getByRole('button', { name: 'Apply reviewed NetBox tag' }))
           await screen.findByText('NetBox tag imported. Manual assignments retain precedence.')
           expect(applies).toEqual([{ confirmed: true, preview: observed }])
-          expect(card).toBeInTheDocument()
+          await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+          expect(card).toBeVisible()
           expect(await axe(card)).toHaveNoViolations()
           await userEvent.type(
             screen.getByRole('textbox', { name: 'NetBox source object ID' }),
@@ -416,3 +417,24 @@ for (const theme of ['light', 'dark'] as const) {
     }
   }
 }
+
+test('withholds NetBox source reads without a subject read grant', async () => {
+  const fetcher = sourceFetch(async () => jsonResponse(candidate('must-not-read')))
+  vi.stubGlobal('fetch', fetcher)
+  const app = render(tree(identity(tenantA, ['tags.read', 'cmdb.read'])))
+  try {
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'NetBox preview routing context ID' }),
+      contextID,
+    )
+    expect(await screen.findByRole('button', { name: 'Preview NetBox value' })).toBeDisabled()
+    expect(
+      screen.getByText('A subject read permission is required to preview NetBox tags.'),
+    ).toBeInTheDocument()
+    expect(fetcher.mock.calls.some(([input]) => pathOf(input).includes('/tag-imports/'))).toBe(
+      false,
+    )
+  } finally {
+    app.unmount()
+  }
+})

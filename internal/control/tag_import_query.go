@@ -23,22 +23,21 @@ import (
 
 func beginNetBoxImport(ctx context.Context, src flowstore.Store, gate *fairness.Gate) (context.Context, flowstore.ExplorerBudget, func(), error) {
 	budget := flowstore.ExplorerOperationBudget(ctx, src)
+	tenant, scoped := tenancy.FromContext(ctx)
+	if !scoped {
+		return nil, budget, nil, tenancy.ErrNoTenant
+	}
 	if err := budget.Validate(); err != nil {
 		return nil, budget, nil, apierror.Unavailable("tag import cost policy is unavailable")
 	}
 	ctx, cancel := context.WithTimeout(ctx, min(budget.ExecutionLimit, 15*time.Second))
 	release := func() {}
 	if gate != nil {
-		tenant, ok := tenancy.FromContext(ctx)
-		if !ok {
-			cancel()
-			return nil, budget, nil, tenancy.ErrNoTenant
-		}
 		var err error
 		release, err = gate.BeginQuery(ctx, tenant.String())
 		if err != nil {
 			cancel()
-			return nil, budget, nil, err
+			return nil, budget, nil, tagQueryAdmissionError(err)
 		}
 	}
 	return ctx, budget, func() { release(); cancel() }, nil

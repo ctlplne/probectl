@@ -20,11 +20,16 @@ import (
 )
 
 func tagReadOptions(pool *pgxpool.Pool, loader mcp.PolicyLoader, src AISources, gate *fairness.Gate) []mcp.Option {
+	backend := tagReadBackend(pool, loader, src, gate)
+	return []mcp.Option{mcp.WithTagBackend(backend), mcp.WithTagSubjectBackend(backend)}
+}
+
+func tagReadBackend(pool *pgxpool.Pool, loader mcp.PolicyLoader, src AISources, gate *fairness.Gate) mcpTagBackend {
 	backend := mcpTagBackend{pool: pool, policyLoader: loader, flowStore: src.Flow, fairnessGate: gate}
 	if src.NativeFlow != nil {
 		backend.flowStore = src.NativeFlow.flowStore
 	}
-	return []mcp.Option{mcp.WithTagBackend(backend), mcp.WithTagSubjectBackend(backend)}
+	return backend
 }
 
 func (b mcpTagBackend) TagSubjectResolve(ctx context.Context, p *auth.Principal, input mcp.TagSubjectInput) (tags.SubjectResolution, error) {

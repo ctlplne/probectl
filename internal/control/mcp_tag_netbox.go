@@ -14,7 +14,6 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/cmdb"
 	"github.com/ctlplne/probectl/internal/entity"
-	"github.com/ctlplne/probectl/internal/store"
 )
 
 type mcpNetBoxTagBackend struct {

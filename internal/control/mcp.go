@@ -150,7 +150,7 @@ func newMCPServer(
 				options = append(options, mcp.WithNetBoxTagApplyBackend(mcpNetBoxTagApplyBackend{server: src.NativeFlow}))
 			}
 			options = append(options, mcp.WithNetBoxTagBackend(mcpNetBoxTagBackend{
-				mcpTagBackend: mcpTagBackend{pool: pool, policyLoader: policyLoader}, source: source}))
+				mcpTagBackend: tagReadBackend(pool, policyLoader, src, gate), source: source}))
 		}
 		options = append(options, mcp.WithNMSImportBackend(mcpNMSImportBackend{pool: pool, policyLoader: policyLoader, owner: src.NativeFlow}))
 	}

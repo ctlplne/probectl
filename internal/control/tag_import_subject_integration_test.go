@@ -22,7 +22,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -30,6 +32,7 @@ import (
 
 func TestReviewedNetBoxImportsCoverAllOwnedKindsRESTAndMCP(t *testing.T) {
 	f := newTagImportSubjectFixture(t)
+	testNetBoxImportAdmission(t, f)
 	root := "/v1/entity-contexts/" + f.contextID + "/tag-imports/netbox/"
 	preview := mcpNetBoxTagBackend{mcpTagBackend: mcpTagBackend{pool: f.db.Pool(), policyLoader: f.srv.abac.policies}, source: f.srv.cmdb}
 	apply := mcpNetBoxTagApplyBackend{server: f.srv}
@@ -236,5 +239,28 @@ func testNetBoxImportFactAndContextRecheck(t *testing.T, f *tagImportSubjectFixt
 	other := apiReq(t, f.srv.Handler(), http.MethodPost, root+"preview", f.b, f.input(f.b, "prefix"))
 	if other.Code != http.StatusOK {
 		t.Fatal("one tenant's current deny affected the other tenant")
+	}
+}
+
+func testNetBoxImportAdmission(t *testing.T, f *tagImportSubjectFixture) {
+	t.Helper()
+	gate := fairness.NewGate(fairness.Policy{QueryConcurrency: 1, QueriesPerMin: 600}, nil)
+	f.srv.WithFairness(gate)
+	defer f.srv.WithFairness(nil)
+	release, err := gate.BeginQuery(t.Context(), f.a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	before := f.calls.Load()
+	rec := apiReq(t, f.srv.Handler(), http.MethodPost, "/v1/entity-contexts/"+f.contextID+"/tag-imports/netbox/preview", f.a, f.input(f.a, "prefix"))
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" || f.calls.Load() != before {
+		t.Fatal("REST import query admission bypassed cost policy or source boundary")
+	}
+	p := &auth.Principal{TenantID: f.a, UserID: "reader", Permissions: map[string]bool{permTagsRead: true, permCMDBRead: true, "entities.read": true}}
+	b := mcpNetBoxTagBackend{mcpTagBackend: mcpTagBackend{pool: f.db.Pool(), policyLoader: f.srv.abac.policies, fairnessGate: gate}, source: f.srv.cmdb}
+	_, err = b.NetBoxTagPreview(t.Context(), p, mcp.NetBoxTagPreviewInput{ContextID: f.contextID, TagID: f.tagID, TargetKind: "prefix", TargetID: f.prefix, Field: "role"})
+	if domain, ok := apierror.As(err); !ok || domain.Kind != apierror.KindRateLimited || f.calls.Load() != before {
+		t.Fatal("MCP admission bypassed tenant query policy")
 	}
 }

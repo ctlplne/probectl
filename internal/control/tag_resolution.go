@@ -70,7 +70,7 @@ func (s *Server) handleResolveSubjectTags(w http.ResponseWriter, r *http.Request
 	out, err := resolveSubjectTags(ctx, s.pool, s.flowStore, s.fairnessGate,
 		tags.Scope{TenantID: tenantID, ContextID: contextID}, ref)
 	if err != nil {
-		return err
+		return tagQueryResponseError(w, err)
 	}
 	writeJSON(w, http.StatusOK, out)
 	return nil
@@ -108,7 +108,7 @@ func resolveSubjectTags(ctx context.Context, pool *pgxpool.Pool, flowStore flows
 	if gate != nil {
 		done, err := gate.BeginQuery(ctx, scope.TenantID)
 		if err != nil {
-			return tags.SubjectResolution{}, err
+			return tags.SubjectResolution{}, tagQueryAdmissionError(err)
 		}
 		defer done()
 	}

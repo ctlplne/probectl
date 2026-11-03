@@ -138,6 +138,12 @@
           },
           "409": {
             "description": "The source candidate, target or revision changed; request a fresh preview."
+          },
+          "422": {
+            "description": "Current facts or response exceed the configured query memory/response budget."
+          },
+          "429": {
+            "description": "Tenant query concurrency or per-minute budget exceeded; Retry-After is supplied."
           }
         }
       }
@@ -200,6 +206,12 @@
           },
           "503": {
             "description": "Source, storage or mapped source tenant is unavailable or inconsistent."
+          },
+          "422": {
+            "description": "Current facts or response exceed the configured query memory/response budget."
+          },
+          "429": {
+            "description": "Tenant query concurrency or per-minute budget exceeded; Retry-After is supplied."
           }
         }
       }
@@ -4743,7 +4755,9 @@
     },
     "/v1/entity-contexts/{context_id}/resolved-tags": {
       "get": {
-        "x-additional-permissions": ["subject-specific read grant"],
+        "x-additional-permissions": [
+          "subject-specific read grant"
+        ],
         "x-probectl-pagination": {
           "mode": "bounded",
           "max_items": 64,
@@ -4837,10 +4851,13 @@
             "description": "Current observational facts conflict; no partial result."
           },
           "422": {
-            "description": "Query memory or response budget exceeded."
+            "description": "Current facts or response exceed the configured query memory/response budget."
           },
           "503": {
             "description": "Snapshot storage or cost policy unavailable."
+          },
+          "429": {
+            "description": "Tenant query concurrency or per-minute budget exceeded; Retry-After is supplied."
           }
         }
       }
