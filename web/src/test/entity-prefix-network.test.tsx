@@ -97,7 +97,8 @@ for (const theme of ['light', 'dark'] as const) {
           me: { tenant_id: tenant, permissions: ['entities.read', 'agent.write'] },
         })
         const inspect = await view.findByRole('button', { name: `Inspect prefix Prefix ${tenant}` })
-        const card = within(inspect.closest('[data-entity-registry]') as HTMLElement)
+        const cardElement = inspect.closest('[data-entity-registry]') as HTMLElement
+        const card = within(cardElement)
         fireEvent.click(inspect)
         let editor = await card.findByRole('textbox', {
           name: 'Network range (CIDR, empty clears)',
@@ -168,9 +169,8 @@ for (const theme of ['light', 'dark'] as const) {
             card.getByRole('textbox', { name: 'Network range (CIDR, empty clears)' }),
           ).toHaveValue(''),
         )
-        expect(
-          await axe(inspect.closest('[data-entity-registry]') as HTMLElement),
-        ).toHaveNoViolations()
+        expect(cardElement).toBeInTheDocument()
+        expect(await axe(cardElement)).toHaveNoViolations()
       } finally {
         cleanup()
         if (storage) Object.defineProperty(window, 'localStorage', storage)
