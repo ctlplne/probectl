@@ -146,17 +146,36 @@ def certificates() -> None:
             str(RUNTIME / "ca.key"),
             "-out",
             str(RUNTIME / "ca.crt"),
+            "-addext",
+            "basicConstraints=critical,CA:TRUE,pathlen:0",
+            "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign",
+            "-addext",
+            "subjectKeyIdentifier=hash",
             "-subj",
             "/CN=probectl-netbox-fixture-ca",
         ],
         "test CA",
     )
-    for name, names in {
-        "db": "DNS:netbox-db",
-        "cache": "DNS:netbox-cache",
-        "netbox": "DNS:localhost,DNS:netbox,IP:127.0.0.1",
+    for name, (names, hostname) in {
+        "db": ("DNS:netbox-db", "netbox-db"),
+        "cache": ("DNS:netbox-cache", "netbox-cache"),
+        "netbox": ("DNS:localhost,DNS:netbox,IP:127.0.0.1", "localhost"),
     }.items():
-        private_file(name + ".ext", "subjectAltName=" + names + "\n")
+        private_file(
+            name + ".ext",
+            "\n".join(
+                [
+                    "subjectAltName=" + names,
+                    "basicConstraints=critical,CA:FALSE",
+                    "keyUsage=critical,digitalSignature,keyEncipherment",
+                    "extendedKeyUsage=serverAuth",
+                    "subjectKeyIdentifier=hash",
+                    "authorityKeyIdentifier=keyid,issuer",
+                    "",
+                ]
+            ),
+        )
         command(
             [
                 "openssl",
@@ -193,6 +212,21 @@ def certificates() -> None:
                 str(RUNTIME / (name + ".ext")),
             ],
             "test source certificate",
+        )
+        command(
+            [
+                "openssl",
+                "verify",
+                "-x509_strict",
+                "-purpose",
+                "sslserver",
+                "-verify_hostname",
+                hostname,
+                "-CAfile",
+                str(RUNTIME / "ca.crt"),
+                str(RUNTIME / (name + ".crt")),
+            ],
+            "strict server certificate profile",
         )
     private_file(
         "netbox.bundle",
@@ -383,14 +417,40 @@ def start() -> None:
     compose("pull", timeout=300)
     compose("up", "-d", "--no-build", timeout=180)
     deadline = time.monotonic() + 240
+    readiness = {
+        "last_http_status": None,
+        "transport": "not_attempted",
+        "certificate_verify_code": None,
+    }
     while True:
         try:
             status, _ = request("/login/")
+            readiness = {
+                "last_http_status": status,
+                "transport": "verified_tls",
+                "certificate_verify_code": None,
+            }
             if status == 200:
                 break
-        except (URLError, TimeoutError):
-            pass
+        except (URLError, TimeoutError) as error:
+            reason = error.reason if isinstance(error, URLError) else error
+            if isinstance(reason, ssl.SSLCertVerificationError):
+                readiness = {
+                    "last_http_status": None,
+                    "transport": "certificate_verification_refused",
+                    "certificate_verify_code": reason.verify_code,
+                }
+            else:
+                readiness = {
+                    "last_http_status": None,
+                    "transport": "tls_or_connection_unavailable",
+                    "certificate_verify_code": None,
+                }
         if time.monotonic() >= deadline:
+            print(
+                "NetBox fixture client readiness: "
+                + json.dumps(readiness, sort_keys=True)
+            )
             startup_diagnostics()
             raise RuntimeError("NetBox fixture verified-TLS readiness timed out")
         time.sleep(2)
