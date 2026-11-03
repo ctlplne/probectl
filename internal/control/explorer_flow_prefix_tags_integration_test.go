@@ -140,7 +140,7 @@ func TestExplorerPrefixTagsUseOwnedNetworksAndCurrentReadGrants(t *testing.T) {
 	p := &auth.Principal{TenantID: f.a, UserID: "dev", Permissions: map[string]bool{permAIQuery: true, permFlowRead: true, permTagsRead: true, "entities.read": true}}
 	backend := nativeMCPFlowBackend{srv}
 	for _, tenant := range []string{f.a, f.b} {
-		for _, withheld := range []string{"", "entities.read"} {
+		for _, withheld := range []string{"", "entities.read", permTagsRead} {
 			req := httptest.NewRequest(http.MethodGet, "/v1/explorer/schema", nil)
 			req.Header.Set("X-Probectl-Tenant", tenant)
 			if withheld != "" {
@@ -169,15 +169,17 @@ func TestExplorerPrefixTagsUseOwnedNetworksAndCurrentReadGrants(t *testing.T) {
 						}
 					}
 				}
-				if found != (withheld == "") {
-					t.Fatal("REST schema ignored prefix source read grant")
+				if found != (withheld != permTagsRead) {
+					t.Fatal("REST schema ignored tag discovery grant")
 				}
 			}
 		}
 	}
-	for _, granted := range []bool{true, false} {
-		if !granted {
-			delete(p.Permissions, "entities.read")
+	// Discovery describes the tenant's tag vocabulary and extra query grant;
+	// it reads no prefix facts. Execution below still requires entities.read.
+	for _, withheld := range []string{"", "entities.read", permTagsRead} {
+		if withheld != "" {
+			delete(p.Permissions, withheld)
 		}
 		schema, err := backend.FlowSchema(t.Context(), p)
 		if err != nil {
@@ -193,12 +195,14 @@ func TestExplorerPrefixTagsUseOwnedNetworksAndCurrentReadGrants(t *testing.T) {
 					}
 				}
 			}
-			if found != granted {
-				t.Fatal("native schema ignored prefix source read grant")
+			if found != (withheld != permTagsRead) {
+				t.Fatal("native schema ignored tag discovery grant")
 			}
 		}
+		if withheld != "" {
+			p.Permissions[withheld] = true
+		}
 	}
-	p.Permissions["entities.read"] = true
 	native, err := backend.FlowQuery(t.Context(), p, plan)
 	if err != nil {
 		t.Fatalf("authorized native prefix query failed: %v", err)
