@@ -104,7 +104,7 @@ func (s *Server) handleSetEntityNetworkPrefix(w http.ResponseWriter, r *http.Req
 		return err
 	}
 	if req.NetworkPrefix == nil {
-		return apierror.Validation("network_prefix is required; an empty string clears it")
+		return apierror.BadRequest("network_prefix is required; an empty string clears it")
 	}
 	if err := s.authorizeEntityWriteContext(r, req.ContextID); err != nil {
 		return err

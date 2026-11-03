@@ -124,7 +124,7 @@ func (b mcpEntityBackend) EntityCreate(ctx context.Context, p *auth.Principal, i
 
 func (b mcpEntityBackend) EntityNetworkPrefixSet(ctx context.Context, p *auth.Principal, input mcp.EntityNetworkPrefixInput) (mcp.EntityItemResult, error) {
 	if input.NetworkPrefix == nil {
-		return mcp.EntityItemResult{}, apierror.Validation("network_prefix is required; an empty string clears it")
+		return mcp.EntityItemResult{}, apierror.BadRequest("network_prefix is required; an empty string clears it")
 	}
 	ctx, scope, err := entityMCPContext(ctx, p, input.ContextID)
 	if err != nil {
