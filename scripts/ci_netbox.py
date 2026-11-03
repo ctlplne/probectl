@@ -16,6 +16,7 @@ import ipaddress
 import json
 import io
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -423,6 +424,38 @@ def verify_source_tls() -> None:
         raise RuntimeError("NetBox source TLS accepted a wrong CA or hostname")
 
 
+def verify_application_version(status: int, raw: bytes) -> None:
+    version = None
+    try:
+        document = json.loads(raw)
+        if isinstance(document, dict):
+            value = document.get("netbox-version")
+            if isinstance(value, str) and re.fullmatch(
+                r"[0-9]{1,3}(?:\.[0-9]{1,3}){2}", value
+            ):
+                version = value
+    except (ValueError, UnicodeError):
+        pass
+    if status == 200 and version == "4.4.5":
+        return
+    # Numeric status and a bounded numeric version only; never an error body,
+    # source-supplied string, hostname, URL or credential.
+    print(
+        "NetBox fixture version check: "
+        + json.dumps(
+            {
+                "http_status": status
+                if type(status) is int and 100 <= status <= 599
+                else None,
+                "numeric_version": version,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    raise RuntimeError("NetBox fixture did not report its pinned application version")
+
+
 def bootstrap(spec: dict) -> dict:
     script = (ROOT / "test/netbox/seed.py").read_text()
     raw = compose(
@@ -499,6 +532,9 @@ def startup_diagnostics() -> None:
                 "permission_error": b"Permission denied",
                 "configuration_error": b"ImproperlyConfigured",
                 "tls_verification_error": b"CERTIFICATE_VERIFY_FAILED",
+                "task_authentication_error": b"AuthenticationError",
+                "source_type_error": b"TypeError",
+                "source_attribute_error": b"AttributeError",
                 "memory_error": b"MemoryError",
                 "unit_error": b"[alert]",
             }.items()
@@ -606,6 +642,7 @@ def start() -> None:
     verify_source_tls()
     print("NetBox fixture source transport verified", flush=True)
     manifest = bootstrap({"action": "seed", "token": token})
+    print("NetBox fixture ORM bootstrap verified", flush=True)
     manifest.update(
         {
             "origin": ORIGIN,
@@ -616,12 +653,11 @@ def start() -> None:
     )
     private_file("manifest.json", json.dumps(manifest, sort_keys=True) + "\n")
     status, raw = request("/api/status/", token=token)
-    if status != 200 or not json.loads(raw).get("netbox-version", "").startswith(
-        "4.4.5"
-    ):
-        raise RuntimeError(
-            "NetBox fixture did not report its pinned application version"
-        )
+    try:
+        verify_application_version(status, raw)
+    except RuntimeError:
+        startup_diagnostics()
+        raise
     status, _ = request("/api/tenancy/tenants/", token=token, method="POST", body=b"{}")
     if status != 403:
         raise RuntimeError("NetBox fixture API credential was not read-only")
@@ -711,6 +747,25 @@ def cleanup() -> None:
 
 def selftest() -> None:
     verify_tls_config(tls_config())
+    verify_application_version(200, b'{"netbox-version":"4.4.5"}')
+    for status, raw in [
+        (500, b"untrusted-detail"),
+        (200, b'{"netbox-version":"4.4.50"}'),
+        (200, b'{"netbox-version":"untrusted-detail"}'),
+        (200, b"[]"),
+    ]:
+        diagnostic = io.StringIO()
+        with patch("sys.stdout", diagnostic):
+            try:
+                verify_application_version(status, raw)
+            except RuntimeError:
+                pass
+            else:
+                raise RuntimeError(
+                    "fixture version check accepted an error or unpinned version"
+                )
+        if "untrusted-detail" in diagnostic.getvalue():
+            raise RuntimeError("fixture version diagnostic leaked source text")
     diagnostic = b'PROBECTL_NETBOX_BOOTSTRAP_FAILURE {"stage":"cache_tls","error_class":"ConnectionError"}'
     if (
         bootstrap_failure(diagnostic)
