@@ -47,6 +47,58 @@ capabilities:
 	}
 }
 
+func TestCapabilityValidationMatchesFullSelectedAndGlobalDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		edit func(*Registry)
+	}{
+		{"baseline", func(*Registry) {}},
+		{"selected source", func(r *Registry) {
+			r.Capabilities[0].Binary = Cell{Refs: []string{"file:cmd/missing/main.go#func main"}}
+		}},
+		{"selected CLI", func(r *Registry) { r.Capabilities[0].CLI = Cell{Refs: []string{"cli:probectl unknown command"}} }},
+		{"selected proof", func(r *Registry) { r.Capabilities[0].RealStackProof = Cell{} }},
+		{"global schema", func(r *Registry) { r.Schema = "invalid" }},
+		{"global catalogue", func(r *Registry) { r.SourceCatalog = "" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fixtureRepo(t)
+			registry := fixtureRegistry()
+			other := registry.Capabilities[0]
+			other.ID = "F2"
+			other.Binary = Cell{Refs: []string{"file:cmd/other-missing/main.go#func main"}}
+			registry.Capabilities = append(registry.Capabilities, other)
+			tc.edit(&registry)
+			fullValidator, err := NewValidator(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selectedValidator, err := NewValidator(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			full := fullValidator.Validate(registry)
+			want := make([]Violation, 0)
+			for _, violation := range full {
+				if violation.Capability == "" || violation.Capability == "F1" {
+					want = append(want, violation)
+				}
+			}
+			if got := selectedValidator.ValidateCapability(registry, "F1"); !reflect.DeepEqual(got, want) {
+				t.Fatalf("selected receipt changed accepted diagnostics: got%v want%v", got, want)
+			}
+			if !containsViolation(full, "F2", "binary", "invalid-ref") {
+				t.Fatal("whole-product validation stopped checking other capabilities")
+			}
+			for _, id := range []string{"", "unknown"} {
+				if len(selectedValidator.ValidateCapability(registry, id)) == 0 {
+					t.Fatal("missing selected capability was accepted")
+				}
+			}
+		})
+	}
+}
+
 func TestValidatorChecksEveryEvidenceSurface(t *testing.T) {
 	root := fixtureRepo(t)
 	validator, err := NewValidator(root)

@@ -25,7 +25,8 @@ const (
 )
 
 // lintReachabilitySource reruns the repository's existing completeness static
-// analyzer against the exact source tree supplied by the independent runner.
+// analyzer for the receipt's capability against the exact source tree. Global
+// integrity checks remain; unrelated reference diagnostics were never consumed.
 // Receipt strings and a matching JSON echo therefore cannot invent a binary,
 // API, CLI operation, UI route, or documentation path.
 func lintReachabilitySource(receipt Receipt, artifact ReachabilityArtifact, sourceRoot string) []Diagnostic {
@@ -64,7 +65,7 @@ func lintReachabilitySource(receipt Receipt, artifact ReachabilityArtifact, sour
 	if err != nil {
 		return append(out, Diagnostic{Code: "reachability-source-unverified", Field: "reachability", Problem: fmt.Sprintf("initialize completeness validator: %v", err)})
 	}
-	violations := validator.Validate(registry)
+	violations := validator.ValidateCapability(registry, receipt.CapabilityID)
 
 	var capability *completeness.Capability
 	for i := range registry.Capabilities {

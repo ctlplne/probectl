@@ -456,6 +456,31 @@ func (v *Validator) loadOpenAPI(relative string) error {
 // the canonical release catalog, and every declared evidence reference.
 // Returned violations are stably sorted.
 func (v *Validator) Validate(registry Registry) []Violation {
+	return v.validate(registry, "")
+}
+
+// ValidateCapability retains registry-wide integrity checks and all checks
+// for one receipt's capability. Other capabilities' reference-cell work is
+// omitted; the caller must use Validate for a whole-product delivery decision.
+func (v *Validator) ValidateCapability(registry Registry, selected string) []Violation {
+	found := false
+	for _, capability := range registry.Capabilities {
+		found = found || capability.ID == selected
+	}
+	if selected == "" || !found {
+		return []Violation{{Capability: selected, Code: "id", Problem: "requested capability is absent"}}
+	}
+	violations := v.validate(registry, selected)
+	out := make([]Violation, 0, len(violations))
+	for _, violation := range violations {
+		if violation.Capability == "" || violation.Capability == selected {
+			out = append(out, violation)
+		}
+	}
+	return out
+}
+
+func (v *Validator) validate(registry Registry, selected string) []Violation {
 	var out []Violation
 	if registry.Schema != RegistrySchema {
 		out = append(out, Violation{Code: "schema", Problem: fmt.Sprintf("schema must be %q", RegistrySchema)})
@@ -519,7 +544,9 @@ func (v *Validator) Validate(registry Registry) []Violation {
 			if strings.TrimSpace(named.Cell.Gap) != "" {
 				gapCells++
 			}
-			out = append(out, v.validateCell(capability.ID, named.Name, evidenceStatus, named.Cell, uiAliases)...)
+			if selected == "" || selected == capability.ID {
+				out = append(out, v.validateCell(capability.ID, named.Name, evidenceStatus, named.Cell, uiAliases)...)
+			}
 			if named.Name == "real_stack_proof" {
 				// PLAT-11: a wired real_stack_proof asserts a passing real-stack
 				// proof, and the honest delivered headline is tied to that proof
