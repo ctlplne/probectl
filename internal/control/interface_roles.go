@@ -204,7 +204,7 @@ func classifyInterfaceRole(ctx context.Context, scope entity.Scope, at time.Time
 				return none, err
 			}
 			if peer.ASN == declaration.ASN {
-				if err := add(declaration.Role, peer.SourceID, declaration.SourceID); err != nil {
+				if err := add(declaration.Role, facts.SourceID, peer.SourceID, declaration.SourceID); err != nil {
 					return none, err
 				}
 			}

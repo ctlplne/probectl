@@ -3,7 +3,7 @@
 # Use of this source code is governed by the Business Source License 1.1
 # in the LICENSE file at the root of this repository; on its Change Date
 # each version converts to the Mozilla Public License 2.0.
-"""Require complete SNMP prefix component proofs and a packet-error control."""
+"""Require complete interface-role component proofs and exact omission controls."""
 
 import argparse
 import json
@@ -28,68 +28,77 @@ TESTS = (
 ROOT = "TestSNMPInterfacePrefixPacketsRejectErrorsAfterPositiveRows"
 CHILD = "packet-generr"
 MARKER = "late protocol failure became successful prefix completion"
+ROLE_PACKAGE = "github.com/ctlplne/probectl/internal/control"
+ROLE_TESTS = (
+    "TestInterfaceRoleClassificationKeepsOwnedEvidenceAndOverrides",
+    "TestInterfaceRoleClassifierRefusesForeignMalformedAndOverBudgetFacts",
+    "TestInterfaceRoleClassifierKeepsCompleteStableProvenanceAndCancellation",
+)
+ROLE_ROOT = ROLE_TESTS[2]
+ROLE_MARKER = "role provenance omitted matching current evidence"
 
 
 def encode(events):
     return "\n".join(json.dumps(event) for event in events)
 
 
-def selftest() -> None:
+def selftest_suite(package, tests, root, child, marker) -> None:
     events = [
-        {"Package": PACKAGE, "Test": root, "Action": action}
-        for root in TESTS
+        {"Package": package, "Test": root, "Action": action}
+        for root in tests
         for action in ("run", "pass")
-    ] + [{"Package": PACKAGE, "Action": "pass"}]
-    assert not classify(encode(events), 0, package=PACKAGE, tests=TESTS)
-    for root in TESTS:
-        missing = [event for event in events if event.get("Test") != root]
-        assert classify(encode(missing), 0, package=PACKAGE, tests=TESTS)
+    ] + [{"Package": package, "Action": "pass"}]
+    assert not classify(encode(events), 0, package=package, tests=tests)
+    for name in tests:
+        missing = [event for event in events if event.get("Test") != name]
+        assert classify(encode(missing), 0, package=package, tests=tests)
         for action in ("skip", "fail", "pass"):
-            extra = events + [{"Package": PACKAGE, "Test": root, "Action": action}]
-            assert classify(encode(extra), 0, package=PACKAGE, tests=TESTS)
-    assert classify("", 0, package=PACKAGE, tests=TESTS)
-    assert classify(encode(events), 1, package=PACKAGE, tests=TESTS)
+            extra = events + [{"Package": package, "Test": name, "Action": action}]
+            assert classify(encode(extra), 0, package=package, tests=tests)
+    assert classify("", 0, package=package, tests=tests)
+    assert classify(encode(events), 1, package=package, tests=tests)
     control = [
-        {"Package": PACKAGE, "Test": ROOT, "Action": "run"},
-        {"Package": PACKAGE, "Test": ROOT + "/" + CHILD, "Action": "run"},
+        {"Package": package, "Test": root, "Action": "run"},
+        {"Package": package, "Test": root + "/" + child, "Action": "run"},
         {
-            "Package": PACKAGE,
-            "Test": ROOT + "/" + CHILD,
+            "Package": package,
+            "Test": root + "/" + child,
             "Action": "output",
-            "Output": MARKER,
+            "Output": marker,
         },
-        {"Package": PACKAGE, "Test": ROOT + "/" + CHILD, "Action": "fail"},
-        {"Package": PACKAGE, "Test": ROOT, "Action": "fail"},
-        {"Package": PACKAGE, "Action": "fail"},
+        {"Package": package, "Test": root + "/" + child, "Action": "fail"},
+        {"Package": package, "Test": root, "Action": "fail"},
+        {"Package": package, "Action": "fail"},
     ]
 
     def exact(values, code):
         return report_regression_failed_on_assertion(
-            encode(values), code, root=ROOT, marker=MARKER, package=PACKAGE, child=CHILD
+            encode(values), code, root=root, marker=marker, package=package, child=child
         )
 
     assert exact(control, 1)
     for bad, code in ((control, 0), (control[1:], 1), (control[:2] + control[3:], 1)):
         assert not exact(bad, code)
-    assert not exact([{"Package": PACKAGE, "Action": "build-fail"}], 1)
+    assert not exact([{"Package": package, "Action": "build-fail"}], 1)
     print(
-        "Prefix proof classifier refuses missing, duplicate, skipped and false assertion proof"
+        package
+        + ": proof classifier refuses missing, duplicate, skipped and false assertion proof"
     )
 
 
-def run_tests(pattern: str) -> subprocess.CompletedProcess[str]:
+def selftest() -> None:
+    selftest_suite(PACKAGE, TESTS, ROOT, CHILD, MARKER)
+    selftest_suite(ROLE_PACKAGE, ROLE_TESTS, ROLE_ROOT, "success", ROLE_MARKER)
+
+
+def run_tests(
+    pattern: str, package: str, *, integration: bool
+) -> subprocess.CompletedProcess[str]:
+    command = ["go", "test", "-race", "-count=1", "-timeout=3m", "-json"]
+    if integration:
+        command.append("-tags=integration")
     result = subprocess.run(
-        [
-            "go",
-            "test",
-            "-race",
-            "-count=1",
-            "-timeout=3m",
-            "-json",
-            "-run",
-            pattern,
-            "./internal/device",
-        ],
+        command + ["-run", pattern, package],
         capture_output=True,
         text=True,
         timeout=240,
@@ -100,46 +109,65 @@ def run_tests(pattern: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def run() -> None:
-    # Positive prerequisites must run before the deliberately broken packet guard.
-    current = run_tests("^(" + "|".join(TESTS) + ")$")
+def run(*, classifier: bool = False) -> None:
+    if classifier:
+        package, tests, root, child, marker = (
+            ROLE_PACKAGE,
+            ROLE_TESTS,
+            ROLE_ROOT,
+            "success",
+            ROLE_MARKER,
+        )
+        source = Path("internal/control/interface_roles.go")
+        seam = (
+            "add(declaration.Role, facts.SourceID, peer.SourceID, declaration.SourceID)"
+        )
+        replacement = "add(declaration.Role, peer.SourceID, declaration.SourceID)"
+        control_name = "interface_source_provenance"
+    else:
+        package, tests, root, child, marker = PACKAGE, TESTS, ROOT, CHILD, MARKER
+        source = Path("internal/device/snmp_interface_prefix_walk.go")
+        seam, replacement = "packet.Error != gosnmp.NoError || ", ""
+        control_name = "packet_error"
+    # Positive prerequisites must run before the deliberately broken guard.
+    current = run_tests("^(" + "|".join(tests) + ")$", package, integration=classifier)
     failures = classify(
-        current.stdout, current.returncode, package=PACKAGE, tests=TESTS
+        current.stdout, current.returncode, package=package, tests=tests
     )
     if failures:
         raise RuntimeError(
-            "mandatory prefix component proofs did not pass: " + repr(failures)
+            "mandatory interface-role component proofs did not pass: " + repr(failures)
         )
-    source = Path("internal/device/snmp_interface_prefix_walk.go")
     original = source.read_text()
-    seam = "packet.Error != gosnmp.NoError || "
     if original.count(seam) != 1:
-        raise RuntimeError("prefix packet-error assertion seam unavailable")
+        raise RuntimeError("interface-role assertion seam unavailable")
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
     try:
-        source.write_text(original.replace(seam, ""))
-        broken = run_tests("^" + ROOT + "$/^" + CHILD + "$")
+        source.write_text(original.replace(seam, replacement))
+        broken = run_tests(
+            "^" + root + "$/^" + child + "$", package, integration=classifier
+        )
     finally:
         source.write_text(original)
     if not report_regression_failed_on_assertion(
         broken.stdout,
         broken.returncode,
-        root=ROOT,
-        marker=MARKER,
-        package=PACKAGE,
-        child=CHILD,
+        root=root,
+        marker=marker,
+        package=package,
+        child=child,
     ):
         raise RuntimeError(
-            "omitted packet status did not fail its exact late-error assertion"
+            "omitted " + control_name + " did not fail its exact assertion"
         )
     print(
         json.dumps(
             {
                 "kind": "simulation",
-                "tests": TESTS,
-                "packet_error_assertion_control": True,
+                "tests": tests,
+                "assertion_control": control_name,
                 "passed": True,
-                "scope": "protocol fixtures only; no sender, registry or real router acceptance",
+                "scope": "component fixtures only; no sender, registry or real router acceptance",
             }
         )
     )
@@ -148,7 +176,9 @@ def run() -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true")
-    if parser.parse_args().selftest:
+    parser.add_argument("--classifier", action="store_true")
+    args = parser.parse_args()
+    if args.selftest:
         selftest()
     else:
-        run()
+        run(classifier=args.classifier)

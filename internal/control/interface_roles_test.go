@@ -228,6 +228,10 @@ func TestInterfaceRoleClassifierRefusesForeignMalformedAndOverBudgetFacts(t *tes
 }
 
 func TestInterfaceRoleClassifierKeepsCompleteStableProvenanceAndCancellation(t *testing.T) {
+	t.Run("success", testInterfaceRoleCompleteProvenance)
+}
+
+func testInterfaceRoleCompleteProvenance(t *testing.T) {
 	f, p, at := interfaceRoleFixture("11111111-1111-4111-8111-111111111111")
 	peer := f.Peers[0]
 	peer.SourceID = "a-second-peer"
@@ -237,7 +241,9 @@ func TestInterfaceRoleClassifierKeepsCompleteStableProvenanceAndCancellation(t *
 	p.Declarations = append(p.Declarations, declaration)
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(f.Scope.TenantID))
 	first, err := classifyInterfaceRole(ctx, f.Scope, at, f, p, nil, interfaceRoleTestBudget())
-	if err != nil || len(first.Sources) != 4 {
+	wantSources := []string{f.SourceID, f.Peers[0].SourceID, peer.SourceID, p.Declarations[0].SourceID, declaration.SourceID}
+	slices.Sort(wantSources)
+	if err != nil || !reflect.DeepEqual(first.Sources, wantSources) {
 		t.Fatal("role provenance omitted matching current evidence", first, err)
 	}
 	slices.Reverse(f.Peers)
