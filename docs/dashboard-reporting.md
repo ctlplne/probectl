@@ -313,3 +313,12 @@ shares stay inside the operator envelope, and query admission remains held until
 staging/publication finishes. Failure returns no partial capture. Its paired
 Postgres/current-metadata and memory-flow proof is a component check; public
 source configuration, recipient wiring and full release proof remain pending.
+
+The frozen-source reader component rechecks current owner/shared source
+visibility independently of edited query text and versions. It requires current
+user grants and the actual credential, complete captured context attributes,
+and current stored context attributes under the same tenant boundary. A move
+between sites must satisfy both scopes; sharing can be revoked without changing
+frozen values. The required proof covers these changes and deliberately omits
+the captured-context check to verify refusal. This component still needs wiring
+across every artifact metadata and body surface before live sources are public.

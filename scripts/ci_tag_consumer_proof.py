@@ -56,6 +56,7 @@ PROJECTION_TEST = "TestReportFlowProjectionPreservesCompleteSections"
 PROJECTION_ASSERTION = "complete report matrix cells are missing"
 LIVE_SOURCE_TEST = "TestReportLiveFlowCaptureUsesCurrentOwnedSourcesAndOneBatch"
 LIVE_SOURCE_ASSERTION = "report comparison bypassed cumulative source read budget"
+FROZEN_CONTEXT_ASSERTION = "frozen source ignored a denied captured or current context"
 AUTHORITY_ASSERTION = "current/credential intersection ="
 
 
@@ -373,16 +374,33 @@ def report_projection_regression(env: dict[str, str]) -> None:
     print(json.dumps({"report_projection_omission_assertion_failed": True}))
 
 
-def report_live_source_regression(env: dict[str, str]) -> None:
-    source = Path("internal/store/flowstore/explorer_batch.go")
-    original = source.read_text()
-    start = original.index("func chargeBatchRead(")
-    body = original.index("{", start)
-    end = original.index("\n}", body) + 2
+def report_live_source_regression(
+    env: dict[str, str], *, captured_scope: bool = False
+) -> None:
+    if captured_scope:
+        source = Path("internal/control/dashboard_report_source_access.go")
+        original = source.read_text()
+        seam = (
+            "[]map[string]string{requirement.Resource, entityContextResource(record)}"
+        )
+        if original.count(seam) != 1:
+            raise RuntimeError("captured-context omission seam is unavailable")
+        changed = original.replace(
+            seam, "[]map[string]string{entityContextResource(record)}"
+        )
+        marker = FROZEN_CONTEXT_ASSERTION
+    else:
+        source = Path("internal/store/flowstore/explorer_batch.go")
+        original = source.read_text()
+        start = original.index("func chargeBatchRead(")
+        body = original.index("{", start)
+        end = original.index("\n}", body) + 2
+        changed = original[:body] + "{\n\treturn nil\n}" + original[end:]
+        marker = LIVE_SOURCE_ASSERTION
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
     root = LIVE_SOURCE_TEST
     try:
-        source.write_text(original[:body] + "{\n\treturn nil\n}" + original[end:])
+        source.write_text(changed)
         result = subprocess.run(
             [
                 "go",
@@ -410,12 +428,20 @@ def report_live_source_regression(env: dict[str, str]) -> None:
         result.stdout,
         result.returncode,
         root=root,
-        marker=LIVE_SOURCE_ASSERTION,
+        marker=marker,
     ):
         raise RuntimeError(
-            "live source bypass did not fail its exact cumulative assertion"
+            "live source omission did not fail its exact assertion: " + marker
         )
-    print(json.dumps({"report_live_source_accounting_omission_assertion_failed": True}))
+    print(
+        json.dumps(
+            {
+                "report_live_source_omission_assertion_failed": True,
+                "captured_scope": captured_scope,
+                "assertion": marker,
+            }
+        )
+    )
 
 
 def selftest() -> None:
@@ -474,6 +500,7 @@ def selftest() -> None:
         (AUTHORITY_TEST, AUTHORITY_ASSERTION, PACKAGE, "credential_ceiling"),
         (PROJECTION_TEST, PROJECTION_ASSERTION, PACKAGE, "success"),
         (LIVE_SOURCE_TEST, LIVE_SOURCE_ASSERTION, PACKAGE, "success"),
+        (LIVE_SOURCE_TEST, FROZEN_CONTEXT_ASSERTION, PACKAGE, "success"),
     ):
 
         def make_event(
@@ -564,6 +591,7 @@ def main() -> int:
         report_csv_proof(env)
         report_projection_regression(env)
         report_live_source_regression(env)
+        report_live_source_regression(env, captured_scope=True)
         current_authority_regression(env)
         report_regression(env)
         report_regression(env, scheduled=True)

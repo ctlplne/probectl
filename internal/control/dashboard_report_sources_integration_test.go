@@ -180,12 +180,17 @@ func testReportLiveFlowCapture(t *testing.T) {
 	if err := flowstore.AttachExplorerBudget(rows, flowstore.DefaultExplorerBudget()); err != nil {
 		t.Fatal(err)
 	}
+	item = reportFrozenSourceReaderProof(ctx, t, f, actors[f.a], roles[f.a], views, item, frozen)
+	refs = []reportFlowSourceRef{{ID: item.ID, Version: item.Version}}
 	mutate(f.a, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, f.a, roles[f.a], permFlowRead)
 		return err
 	})
 	if value, err := f.srv.captureReportFlowSources(ctx, actors[f.a], refs); err == nil || value != nil || gate.SnapshotTenant(ctx, f.a).Queries.InFlight != 0 {
 		t.Fatal("stale caller grants survived current role revocation or leaked admission")
+	}
+	if err := f.srv.revalidateReportFlowCapture(ctx, actors[f.a], frozen); err == nil {
+		t.Fatal("frozen source reader retained revoked current source grants")
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
