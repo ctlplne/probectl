@@ -270,7 +270,9 @@ def selftest() -> None:
 
     for tests, package in ((TESTS, PACKAGE), (CSV_TESTS, CSV_PACKAGE)):
 
-        def make_event(action: str, name: str | None = None) -> dict:
+        def make_event(
+            action: str, name: str | None = None, package: str = package
+        ) -> dict:
             return event(action, name, package)
 
         records = [
@@ -311,7 +313,9 @@ def selftest() -> None:
         (CSV_TESTS[0], CSV_ASSERTION, CSV_PACKAGE),
     ):
 
-        def make_event(action: str, name: str | None = None) -> dict:
+        def make_event(
+            action: str, name: str | None = None, package: str = package
+        ) -> dict:
             return event(action, name, package)
 
         baseline = [

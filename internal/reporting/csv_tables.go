@@ -41,8 +41,9 @@ type CSVColumn struct {
 }
 
 type CSVLimits struct {
-	Bytes       int64
-	TableRows   int64
+	Bytes     int64
+	TableRows int64
+	// Schema and record workspace; the caller accounts for staging storage.
 	MemoryBytes int64
 }
 

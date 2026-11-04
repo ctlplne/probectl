@@ -61,8 +61,9 @@ field is absent. This prevents a chart from becoming an apparently universal cla
 after its tenant or observation window is separated from it.
 
 The internal source-table CSV renderer stages complete logical records with a
-500,000-row, 256 MiB output envelope and a separate 128 MiB rendering-memory
-envelope. Embedded newlines remain inside their quoted cell. Stable field keys,
+500,000-row, 256 MiB output envelope and a separate 128 MiB schema/record
+workspace. The caller accounts for staging storage separately. Embedded
+newlines remain inside their quoted cell. Stable field keys,
 absolute source intervals and exact metadata revision/time pairs accompany the
 table; numeric source cells are validated decimal strings. A foreign tenant,
 changed row count/schema, source failure, invalid value, exhausted budget or
