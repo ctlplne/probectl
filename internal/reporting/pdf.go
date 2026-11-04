@@ -710,10 +710,8 @@ func (p *pdfDocument) finishFonts() error {
 			}
 			shift := float64(0)
 			if subset.rtl {
-				shift = -float64(advance)
-				left += shift
-				right += shift
-				advance = -advance
+				shift = float64(advance)
+				left, right = shift-right, shift-left
 			}
 			minX = math.Min(minX, left)
 			minY = math.Min(minY, bottom)
@@ -721,7 +719,7 @@ func (p *pdfDocument) finishFonts() error {
 			maxY = math.Max(maxY, top)
 			body := fmt.Sprintf("%.4f 0 %.4f %.4f %.4f %.4f d1\n", advance, left, bottom, right, top)
 			if subset.rtl {
-				body += fmt.Sprintf("q 1 0 0 1 %.4f 0 cm /g%d Do Q\n", shift, code)
+				body += fmt.Sprintf("q -1 0 0 1 %.4f 0 cm /g%d Do Q\n", shift, code)
 			} else {
 				body += fmt.Sprintf("/g%d Do\n", code)
 			}
@@ -759,7 +757,11 @@ func (p *pdfDocument) finishFonts() error {
 			return err
 		}
 		scale := 1 / float64(subset.face.Upem())
-		body := fmt.Sprintf("<< /Type /Font /Subtype /Type3 /FontBBox [%.4f %.4f %.4f %.4f] /FontMatrix [%.10f 0 0 %.10f 0 0] /CharProcs << %s >> /Encoding << /Type /Encoding /Differences [1 %s] >> /FirstChar 1 /LastChar %d /Widths [%s] /Resources << /XObject << %s >> >> /ToUnicode %d 0 R >>", minX, minY, maxX, maxY, scale, scale, charprocs.String(), encoding.String(), len(subset.keys), widths.String(), resources.String(), mapping)
+		xScale := scale
+		if subset.rtl {
+			xScale = -scale
+		}
+		body := fmt.Sprintf("<< /Type /Font /Subtype /Type3 /FontBBox [%.4f %.4f %.4f %.4f] /FontMatrix [%.10f 0 0 %.10f 0 0] /CharProcs << %s >> /Encoding << /Type /Encoding /Differences [1 %s] >> /FirstChar 1 /LastChar %d /Widths [%s] /Resources << /XObject << %s >> >> /ToUnicode %d 0 R >>", minX, minY, maxX, maxY, xScale, scale, charprocs.String(), encoding.String(), len(subset.keys), widths.String(), resources.String(), mapping)
 		if err := p.charge(int64(len(body))*2 + 128); err != nil {
 			return err
 		}
