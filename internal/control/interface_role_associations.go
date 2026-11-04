@@ -90,39 +90,12 @@ func associateInterfaceRolePeer(ctx context.Context, scope entity.Scope, routerI
 	if err := budget.charge(ctx, len(snapshot.Rows), 256, 2); err != nil {
 		return none, err
 	}
-	byIndex := make(map[uint32]interfaceRoleInterfaceBinding, len(bindings))
-	ids := make(map[string]bool, len(bindings))
-	for _, binding := range bindings {
-		if err := ctx.Err(); err != nil {
-			return none, err
-		}
-		if binding.Scope != owned || binding.RouterID != routerID {
-			return none, entity.ErrScopeMismatch
-		}
-		if !interfaceRoleAssociationID(binding.InterfaceID) || binding.IfIndex == 0 ||
-			!interfaceRoleSource(binding.SourceID) || !binding.Clock.valid() || ids[binding.InterfaceID] {
-			return none, errInterfaceRoleInput
-		}
-		if _, duplicate := byIndex[binding.IfIndex]; duplicate {
-			return none, errInterfaceRoleInput
-		}
-		byIndex[binding.IfIndex], ids[binding.InterfaceID] = binding, true
+	byIndex, err := interfaceRoleAssociationBindings(ctx, owned, routerID, bindings)
+	if err != nil {
+		return none, err
 	}
-	type prefixKey struct {
-		index  uint32
-		prefix netip.Prefix
-	}
-	seen := make(map[prefixKey]bool, len(snapshot.Rows))
-	for _, row := range snapshot.Rows {
-		if err := ctx.Err(); err != nil {
-			return none, err
-		}
-		key := prefixKey{row.IfIndex, row.Prefix}
-		if row.IfIndex == 0 || !row.Prefix.IsValid() || row.Prefix.Masked() != row.Prefix ||
-			row.Prefix.Addr().Is4In6() || seen[key] {
-			return none, errInterfaceRoleInput
-		}
-		seen[key] = true
+	if err := validateInterfaceRolePrefixRows(ctx, snapshot); err != nil {
+		return none, err
 	}
 	if err := ctx.Err(); err != nil {
 		return none, err
@@ -190,4 +163,47 @@ func associateInterfaceRolePeer(ctx context.Context, scope entity.Scope, routerI
 		Scope: owned, InterfaceID: strings.Clone(match.InterfaceID), SourceID: strings.Clone(peer.SourceID), ASN: peer.ASN,
 		SourceActive: true, Clock: clock, AssociationSources: provenance,
 	}}, nil
+}
+
+func interfaceRoleAssociationBindings(ctx context.Context, owned entity.Scope, routerID string,
+	bindings []interfaceRoleInterfaceBinding) (map[uint32]interfaceRoleInterfaceBinding, error) {
+	byIndex := make(map[uint32]interfaceRoleInterfaceBinding, len(bindings))
+	ids := make(map[string]bool, len(bindings))
+	for _, binding := range bindings {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if binding.Scope != owned || binding.RouterID != routerID {
+			return nil, entity.ErrScopeMismatch
+		}
+		if !interfaceRoleAssociationID(binding.InterfaceID) || binding.IfIndex == 0 ||
+			!interfaceRoleSource(binding.SourceID) || !binding.Clock.valid() || ids[binding.InterfaceID] {
+			return nil, errInterfaceRoleInput
+		}
+		if _, duplicate := byIndex[binding.IfIndex]; duplicate {
+			return nil, errInterfaceRoleInput
+		}
+		byIndex[binding.IfIndex], ids[binding.InterfaceID] = binding, true
+	}
+	return byIndex, nil
+}
+
+func validateInterfaceRolePrefixRows(ctx context.Context, snapshot interfaceRolePrefixSnapshot) error {
+	type prefixKey struct {
+		index  uint32
+		prefix netip.Prefix
+	}
+	seen := make(map[prefixKey]bool, len(snapshot.Rows))
+	for _, row := range snapshot.Rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		key := prefixKey{row.IfIndex, row.Prefix}
+		if row.IfIndex == 0 || !row.Prefix.IsValid() || row.Prefix.Masked() != row.Prefix ||
+			row.Prefix.Addr().Is4In6() || seen[key] {
+			return errInterfaceRoleInput
+		}
+		seen[key] = true
+	}
+	return nil
 }
