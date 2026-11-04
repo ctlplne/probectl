@@ -105,7 +105,7 @@ func TestReportPDFBudgetsCancellationWriterAndFontIntegrity(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if body, err := RenderPDFContext(ctx, d); !errors.Is(err, context.Canceled) || body != nil {
-		t.Fatal("cancelled PDF published output")
+		t.Fatal("canceled PDF published output")
 	}
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()

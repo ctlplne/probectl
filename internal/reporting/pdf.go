@@ -81,7 +81,7 @@ func WritePDF(ctx context.Context, target io.Writer, d Document, limits PDFLimit
 		if identities[table.ID] {
 			return PDFReceipt{}, fmt.Errorf("report table identities must be unique")
 		}
-		if err := validateCSVTable(table, d.TenantScope, CSVLimits{Bytes: limits.Bytes, TableRows: limits.TableRows, MemoryBytes: limits.MemoryBytes}, &remaining); err != nil {
+		if err := validateCSVTable(table, d.TenantScope, CSVLimits(limits), &remaining); err != nil {
 			if errors.Is(err, ErrCSVLimit) {
 				err = ErrPDFLimit
 			}
