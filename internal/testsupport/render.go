@@ -68,16 +68,20 @@ type RenderControl struct {
 // looks for the control only inside the one element that CSS selector matches
 // (a dialog whose button shares the name of the control that opened it).
 type RenderStep struct {
-	Click    string   `json:"click,omitempty"`
-	Role     string   `json:"role,omitempty"`
-	Within   string   `json:"within,omitempty"`
-	Expect   []string `json:"expect,omitempty"`
-	Gone     bool     `json:"gone,omitempty"`
-	Vanish   string   `json:"vanish,omitempty"`
-	Fill     string   `json:"fill,omitempty"`
-	Select   string   `json:"select,omitempty"`
-	Value    string   `json:"value,omitempty"`
-	Download string   `json:"download,omitempty"`
+	Click  string   `json:"click,omitempty"`
+	Role   string   `json:"role,omitempty"`
+	Within string   `json:"within,omitempty"`
+	Expect []string `json:"expect,omitempty"`
+	// ExpectWithin scopes this step's expected/absent text only. Within
+	// continues to scope the click, whose toast may be outside that element.
+	ExpectWithin string   `json:"expectWithin,omitempty"`
+	Absent       []string `json:"absent,omitempty"`
+	Gone         bool     `json:"gone,omitempty"`
+	Vanish       string   `json:"vanish,omitempty"`
+	Fill         string   `json:"fill,omitempty"`
+	Select       string   `json:"select,omitempty"`
+	Value        string   `json:"value,omitempty"`
+	Download     string   `json:"download,omitempty"`
 }
 
 // RenderCookie is a cookie set on the page's origin before it loads, or one

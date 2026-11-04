@@ -79,6 +79,17 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool, reach int) {
 		})
 		rows = ch
 	}
+	if realSource && reach > 1 {
+		// This is a completeness/cost oracle, not a runner-speed benchmark.
+		// Keep every other default budget and enforce a finite policy; the
+		// product default and the independent deadline refusal tests stay put.
+		budget := flowstore.DefaultExplorerBudget()
+		budget.ExecutionLimit = 30 * time.Second
+		if err := flowstore.AttachExplorerBudget(rows, budget); err != nil {
+			t.Fatal(err)
+		}
+		t.Log("complete selected-table source policy: execution_limit=30s; all other default budgets retained")
+	}
 	f.srv.WithFlowStore(rows)
 	policy := fairness.DefaultPolicy()
 	policy.QueryConcurrency, policy.QueriesPerMin = 1, 10000

@@ -59,6 +59,7 @@ var clickhousePlanes = []string{"pathstore", "flowstore", "otelstore", "ebpfstor
 type storeSecrets struct {
 	kafkaStore, kafkaSASL                                string
 	clickhouseAdmin, clickhouseControl, clickhouseReader string
+	prometheusControl                                    string
 }
 
 func newStoreSecrets(t *testing.T) storeSecrets {
@@ -66,6 +67,7 @@ func newStoreSecrets(t *testing.T) storeSecrets {
 	return storeSecrets{
 		kafkaStore: randomHex(t, 24), kafkaSASL: randomHex(t, 24),
 		clickhouseAdmin: randomHex(t, 24), clickhouseControl: randomHex(t, 24), clickhouseReader: randomHex(t, 24),
+		prometheusControl: randomHex(t, 24),
 	}
 }
 
@@ -78,6 +80,7 @@ func (s storeSecrets) composeEnv() []string {
 		"PROBECTL_E2E_CLICKHOUSE_ADMIN_PASSWORD=" + s.clickhouseAdmin,
 		"PROBECTL_E2E_CLICKHOUSE_CONTROL_PASSWORD=" + s.clickhouseControl,
 		"PROBECTL_E2E_CLICKHOUSE_READER_PASSWORD=" + s.clickhouseReader,
+		"PROBECTL_E2E_PROMETHEUS_CONTROL_PASSWORD=" + s.prometheusControl,
 	}
 }
 
@@ -91,6 +94,7 @@ func storeEnv(t *testing.T, ctl *controlImage, secretsDir, serverCA string, s st
 	t.Helper()
 	controlAuth := writeBasicAuthFile(t, filepath.Join(secretsDir, "clickhouse-basic-auth.json"), "probectl", s.clickhouseControl)
 	readerAuth := writeBasicAuthFile(t, filepath.Join(secretsDir, "clickhouse-reader-basic-auth.json"), clickhouseReaderUser, s.clickhouseReader)
+	prometheusAuth := writeBasicAuthFile(t, filepath.Join(secretsDir, "prometheus-basic-auth.json"), "probectl", s.prometheusControl)
 	env := map[string]string{
 		// The certgen CA verifies the HTTPS ClickHouse hop (SSL_CERT_FILE, as
 		// probectl.prod.yml sets it); the IdP keeps its own CA file.
@@ -106,6 +110,9 @@ func storeEnv(t *testing.T, ctl *controlImage, secretsDir, serverCA string, s st
 
 		"PROBECTL_CLICKHOUSE_BASIC_AUTH_FILE":        ctl.path(t, controlAuth),
 		"PROBECTL_CLICKHOUSE_READER_BASIC_AUTH_FILE": ctl.path(t, readerAuth),
+		"PROBECTL_TSDB_MODE":                         "prometheus",
+		"PROBECTL_TSDB_URL":                          "https://prometheus:9090",
+		"PROBECTL_TSDB_BASIC_AUTH_FILE":              ctl.path(t, prometheusAuth),
 	}
 	for _, plane := range clickhousePlanes {
 		key := "PROBECTL_" + strings.ToUpper(plane)
@@ -399,9 +406,65 @@ const composeOverride = `services:
       - no-new-privileges:true
     restart: "no"
 
+  prometheus-secrets:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        /bin/bash /bootstrap/secrets-init.sh
+        cp -a /out/prometheus/. /prometheus-out/
+        chown 65534:65534 /prometheus-out
+        chmod 0700 /prometheus-out
+    environment:
+      NATS_PASSWORD: ${PROBECTL_E2E_KAFKA_SASL_PASSWORD:?}
+      CLICKHOUSE_CONTROL_PASSWORD: ${PROBECTL_E2E_CLICKHOUSE_CONTROL_PASSWORD:?}
+      CLICKHOUSE_READER_PASSWORD: ${PROBECTL_E2E_CLICKHOUSE_READER_PASSWORD:?}
+      PROMETHEUS_CONTROL_PASSWORD: ${PROBECTL_E2E_PROMETHEUS_CONTROL_PASSWORD:?}
+    volumes:
+      - ${PROBECTL_E2E_TLS_DIR}:/certs:ro
+      - ./prod/secrets-init.sh:/bootstrap/secrets-init.sh:ro
+      - e2e_promsecrets:/prometheus-out
+    network_mode: "none"
+    read_only: true
+    tmpfs:
+      - /out:size=1m,mode=0700
+      - /var/lib/postgresql/data:size=1m,mode=0700
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+  prometheus:
+    ports: !override
+      - "127.0.0.1:${PROBECTL_DEV_PROMETHEUS_PORT}:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
+      - --web.config.file=/run/probectl-prometheus/web.yml
+    volumes: !override
+      - ${PROBECTL_E2E_PROMETHEUS_CONFIG}:/etc/prometheus/prometheus.yml:ro
+      - e2e_promsecrets:/run/probectl-prometheus:ro
+      - promdata:/prometheus
+    depends_on:
+      prometheus-secrets:
+        condition: service_completed_successfully
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/bin/promtool", "check", "healthy", "--url=https://prometheus:9090", "--http.config.file=/run/probectl-prometheus/health-client.yml"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
 volumes:
   kafkasecrets: {}
   chsecrets: {}
+  e2e_promsecrets: {}
 `
 
 // e2eRuntimePassword is the disposable serve login's password: a throwaway
