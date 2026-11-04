@@ -160,8 +160,14 @@ The API accepts `PATCH /v1/dashboard-report-schedules/{id}` with
 `{"enabled":false}` or `{"enabled":true}`; the CLI equivalent is
 `probectl dashboard-report update-schedule <id> --body '{"enabled":false}'`.
 Only the owning user with `metrics.write` in the same tenant can change it.
-Pause stops future worker claims; a delivery already in progress may finish.
-Artifacts and audit history remain available. Resume keeps the existing next-run
+The worker releases its database connection while rendering, then rechecks
+current sharing, schedule ownership, enabled state and the exact captured due
+state before publishing. A pause, reschedule, owner change or dashboard edit
+that wins this check discards the old render without advancing the schedule.
+Concurrent workers may render the same due state, but only one can publish its
+artifact, next-run advance and delivery audit together. An audit failure rolls
+all three back so the due state can be retried. Already committed artifacts and
+audit history remain available. Resume keeps the existing next-run
 clock: an overdue schedule delivers once, then advances beyond the current time.
 
 - It is local PostgreSQL storage, not an email address or webhook.

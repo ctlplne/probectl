@@ -106,9 +106,8 @@ type ReportArtifact struct {
 	CoverageLimitations json.RawMessage `json:"coverage_limitations"`
 }
 
-// DueDashboardReport is one locked schedule plus the tenant-local saved view
-// it will render. The lock lives for the surrounding tenancy.Scope transaction,
-// so HA workers use SKIP LOCKED without producing duplicate artifacts.
+// DueDashboardReport captures one schedule and its currently accessible view.
+// It holds no claim: publication must recheck the captured state after rendering.
 type DueDashboardReport struct {
 	Schedule ReportSchedule
 	View     DashboardView
@@ -266,10 +265,9 @@ func (DashboardReports) SetScheduleEnabled(ctx context.Context, s tenancy.Scope,
 	return &out, nil
 }
 
-// ClaimDue returns at most limit schedules due in this tenant and row-locks
-// them until the caller atomically stores an artifact, advances next_run_at,
-// and appends the audit event.
-func (DashboardReports) ClaimDue(ctx context.Context, s tenancy.Scope, now time.Time, limit int) ([]DueDashboardReport, error) {
+// ListDueForRendering captures bounded due work without holding schedule locks
+// or a connection during source IO/rendering. Publication is a separate claim.
+func (DashboardReports) ListDueForRendering(ctx context.Context, s tenancy.Scope, now time.Time, limit int) ([]DueDashboardReport, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -282,9 +280,9 @@ func (DashboardReports) ClaimDue(ctx context.Context, s tenancy.Scope, now time.
 		  FROM dashboard_report_schedules s
 		  JOIN dashboard_views v
 		    ON v.tenant_id = s.tenant_id AND v.id = s.dashboard_id
-		 WHERE s.tenant_id = $1 AND s.enabled AND s.next_run_at <= $2
+		 WHERE s.tenant_id = $1 AND v.tenant_id = $1 AND s.enabled AND s.next_run_at <= $2
+		   AND (v.owner_id = s.owner_id OR v.shared)
 		 ORDER BY s.next_run_at, s.id
-		 FOR UPDATE OF s SKIP LOCKED
 		 LIMIT $3`, s.Tenant.String(), now, limit)
 	if err != nil {
 		return nil, err
@@ -310,6 +308,30 @@ func (DashboardReports) ClaimDue(ctx context.Context, s tenancy.Scope, now time.
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+// TryClaimDueForPublication locks only an unchanged enabled due state. The
+// caller first locks its currently accessible dashboard, then compares all
+// captured schedule fields and commits artifact/advance/audit in this scope.
+// Busy, already consumed or rescheduled captures return nil without a claim.
+func (DashboardReports) TryClaimDueForPublication(ctx context.Context, s tenancy.Scope, captured ReportSchedule, now time.Time) (*ReportSchedule, error) {
+	if captured.TenantID != s.Tenant.String() {
+		return nil, apierror.Forbidden("report schedule tenant scope differs")
+	}
+	var out ReportSchedule
+	err := scanReportSchedule(s.Q.QueryRow(ctx, `
+		SELECT `+reportScheduleColumns+`
+		  FROM dashboard_report_schedules
+		 WHERE tenant_id=$1 AND id=$2 AND enabled AND next_run_at<=$3
+		   AND next_run_at=$4 AND updated_at=$5
+		 FOR UPDATE SKIP LOCKED`, s.Tenant.String(), captured.ID, now, captured.NextRunAt, captured.UpdatedAt), &out)
+	if domain, ok := apierror.As(err); ok && domain.Kind == apierror.KindNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (DashboardReports) MarkScheduleDelivered(ctx context.Context, s tenancy.Scope, id string, deliveredAt, nextRunAt time.Time) error {

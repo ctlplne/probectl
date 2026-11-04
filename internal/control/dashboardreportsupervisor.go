@@ -9,12 +9,14 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/reporting"
@@ -26,13 +28,14 @@ const dashboardReportSchedulerActor = "probectl-report-scheduler"
 
 // DashboardReportSupervisor materializes due PDF/CSV schedules into each
 // tenant's local report inbox. It enumerates only tenant registry metadata,
-// then opens a distinct FORCE-RLS transaction per tenant; report data from two
-// tenants is never present in the same storage scope or artifact.
+// then captures and publishes work in distinct FORCE-RLS transactions per
+// tenant. Rendering holds no database transaction or schedule lock.
 type DashboardReportSupervisor struct {
 	pool     *pgxpool.Pool
 	interval time.Duration
 	log      *slog.Logger
 	now      func() time.Time
+	render   dashboardReportRenderer
 }
 
 func BuildDashboardReportSupervisor(pool *pgxpool.Pool, interval time.Duration, log *slog.Logger) (*DashboardReportSupervisor, bool) {
@@ -45,7 +48,7 @@ func BuildDashboardReportSupervisor(pool *pgxpool.Pool, interval time.Duration, 
 	if log == nil {
 		log = slog.Default()
 	}
-	return &DashboardReportSupervisor{pool: pool, interval: interval, log: log, now: time.Now}, true
+	return &DashboardReportSupervisor{pool: pool, interval: interval, log: log, now: time.Now, render: renderDashboardReport}, true
 }
 
 func (s *DashboardReportSupervisor) Run(ctx context.Context) {
@@ -76,10 +79,7 @@ func (s *DashboardReportSupervisor) Tick(ctx context.Context) {
 			continue
 		}
 		now := s.now().UTC()
-		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)), s.pool,
-			func(ctx context.Context, sc tenancy.Scope) error {
-				return materializeDueDashboardReports(ctx, sc, now)
-			})
+		err := s.materializeTenantReports(ctx, tenant.ID, now)
 		if err != nil {
 			// Tenant id is routing metadata, not report content. Never log the
 			// saved view, exact values, or artifact bytes.
@@ -88,41 +88,93 @@ func (s *DashboardReportSupervisor) Tick(ctx context.Context) {
 	}
 }
 
-func materializeDueDashboardReports(ctx context.Context, sc tenancy.Scope, now time.Time) error {
-	due, err := (store.DashboardReports{}).ClaimDue(ctx, sc, now, 20)
-	if err != nil {
+func (s *DashboardReportSupervisor) materializeTenantReports(ctx context.Context, tenantID string, now time.Time) error {
+	ctx = tenancy.WithTenant(ctx, tenancy.ID(tenantID))
+	var due []store.DueDashboardReport
+	var tenantName string
+	if err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		due, err = (store.DashboardReports{}).ListDueForRendering(ctx, sc, now, 20)
+		if err != nil || len(due) == 0 {
+			return err
+		}
+		tenantName, err = dashboardTenantName(ctx, sc)
+		return err
+	}); err != nil {
 		return err
 	}
-	tenantName, err := dashboardTenantName(ctx, sc)
-	if err != nil {
-		return err
-	}
+	var failures error
 	for _, item := range due {
-		if item.Schedule.DestinationID != reportInboxDestination {
-			return fmt.Errorf("schedule %s has an unconfigured destination", item.Schedule.ID)
+		if err := ctx.Err(); err != nil {
+			return errors.Join(failures, err)
 		}
-		var definition dashboardDefinition
-		if err := json.Unmarshal(item.View.Definition, &definition); err != nil {
-			return fmt.Errorf("decode schedule %s dashboard: %w", item.Schedule.ID, err)
+		_, err := s.materializeCapturedReport(ctx, tenantName, item, now)
+		failures = errors.Join(failures, err)
+	}
+	return failures
+}
+
+func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Context, tenantName string, item store.DueDashboardReport, now time.Time) (bool, error) {
+	tenant, bound := tenancy.FromContext(ctx)
+	if !bound || item.Schedule.TenantID != tenant.String() || item.View.TenantID != tenant.String() || item.Schedule.DashboardID != item.View.ID {
+		return false, apierror.Forbidden("report publication tenant scope differs")
+	}
+	if s.render == nil {
+		return false, apierror.Unavailable("scheduled report renderer is unavailable")
+	}
+	if item.Schedule.DestinationID != reportInboxDestination {
+		return false, apierror.Validation("scheduled report destination is unavailable")
+	}
+	var definition dashboardDefinition
+	if err := json.Unmarshal(item.View.Definition, &definition); err != nil {
+		return false, apierror.Internal("stored scheduled dashboard definition is invalid").Wrap(err)
+	}
+	if err := cleanDashboardDefinition(&definition); err != nil {
+		return false, err
+	}
+	document := reporting.Document{
+		Title: item.View.Name, Preset: item.View.Preset, TenantName: tenantName,
+		TenantScope: tenant.String(), AbsoluteFrom: definition.AbsoluteFrom,
+		AbsoluteTo: definition.AbsoluteTo, GeneratedAt: now,
+		GeneratedBy: dashboardReportSchedulerActor, Provenance: definition.Provenance,
+		RedactionState:      definition.RedactionState,
+		CoverageLimitations: definition.CoverageLimitations, Metrics: definition.Metrics,
+	}
+	content, mediaType, err := s.render(ctx, item.Schedule.Format, document)
+	if err != nil {
+		return false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	next, err := nextDashboardReportRun(item.Schedule.Cadence, item.Schedule.NextRunAt, now)
+	if err != nil {
+		return false, err
+	}
+	artifactID, err := crypto.UUIDv4()
+	if err != nil {
+		return false, err
+	}
+	published := false
+	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		// Lock the parent before the schedule, matching deletion's order. A
+		// revoked share is a discarded capture, never authority to publish.
+		view, err := (store.DashboardReports{}).GetViewForReportPublication(ctx, sc, item.View.ID, item.Schedule.OwnerID)
+		if domain, ok := apierror.As(err); ok && domain.Kind == apierror.KindNotFound {
+			return nil
 		}
-		if err := cleanDashboardDefinition(&definition); err != nil {
-			return fmt.Errorf("validate schedule %s dashboard: %w", item.Schedule.ID, err)
-		}
-		artifactID, err := crypto.UUIDv4()
 		if err != nil {
 			return err
 		}
-		document := reporting.Document{
-			Title: item.View.Name, Preset: item.View.Preset, TenantName: tenantName,
-			TenantScope: sc.Tenant.String(), AbsoluteFrom: definition.AbsoluteFrom,
-			AbsoluteTo: definition.AbsoluteTo, GeneratedAt: now,
-			GeneratedBy: dashboardReportSchedulerActor, Provenance: definition.Provenance,
-			RedactionState:      definition.RedactionState,
-			CoverageLimitations: definition.CoverageLimitations, Metrics: definition.Metrics,
+		if !dashboardReportViewMatches(&item.View, view) {
+			return nil
 		}
-		content, mediaType, err := renderReport(item.Schedule.Format, document)
+		current, err := (store.DashboardReports{}).TryClaimDueForPublication(ctx, sc, item.Schedule, now)
 		if err != nil {
 			return err
+		}
+		if current == nil || !dashboardReportScheduleMatches(item.Schedule, *current) {
+			return nil
 		}
 		scheduleID := item.Schedule.ID
 		if _, err := (store.DashboardReports{}).CreateArtifact(ctx, sc, store.ReportArtifactInput{
@@ -136,10 +188,6 @@ func materializeDueDashboardReports(ctx context.Context, sc tenancy.Scope, now t
 		}); err != nil {
 			return err
 		}
-		next, err := nextDashboardReportRun(item.Schedule.Cadence, item.Schedule.NextRunAt, now)
-		if err != nil {
-			return err
-		}
 		if err := (store.DashboardReports{}).MarkScheduleDelivered(ctx, sc, item.Schedule.ID, now, next); err != nil {
 			return err
 		}
@@ -151,8 +199,26 @@ func materializeDueDashboardReports(ctx context.Context, sc tenancy.Scope, now t
 			}); err != nil {
 			return err
 		}
+		published = true
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
-	return nil
+	return published, nil
+}
+
+func dashboardReportScheduleMatches(captured, current store.ReportSchedule) bool {
+	lastRunMatches := captured.LastRunAt == nil && current.LastRunAt == nil
+	if captured.LastRunAt != nil && current.LastRunAt != nil {
+		lastRunMatches = captured.LastRunAt.Equal(*current.LastRunAt)
+	}
+	return captured.ID == current.ID && captured.TenantID == current.TenantID &&
+		captured.DashboardID == current.DashboardID && captured.OwnerID == current.OwnerID &&
+		captured.Name == current.Name && captured.Format == current.Format &&
+		captured.Cadence == current.Cadence && captured.DestinationID == current.DestinationID &&
+		captured.Enabled == current.Enabled && captured.NextRunAt.Equal(current.NextRunAt) &&
+		captured.CreatedAt.Equal(current.CreatedAt) && captured.UpdatedAt.Equal(current.UpdatedAt) && lastRunMatches
 }
 
 func nextDashboardReportRun(cadence string, scheduled, now time.Time) (time.Time, error) {

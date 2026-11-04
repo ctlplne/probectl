@@ -20,15 +20,26 @@ TESTS = (
     "TestAlertTagFiltersRecheckCurrentOwnedUserAndNeverRewriteSeries",
     "TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit",
     "TestDashboardReportRenderingReleasesTransactionAndRechecksPublication",
+    "TestScheduledDashboardReportsRecheckCapturedStateAndPublishOnce",
 )
 DATABASE = "probectl_qa_beta_tag_consumers"
 REPORT_TEST = "TestDashboardReportRenderingReleasesTransactionAndRechecksPublication"
 REPORT_ASSERTION = (
     "single-connection report did not publish exact tenant data and audit"
 )
+SCHEDULE_TEST = "TestScheduledDashboardReportsRecheckCapturedStateAndPublishOnce"
+SCHEDULE_ASSERTION = (
+    "single-connection scheduled report did not publish and advance atomically"
+)
 
 
-def report_regression_failed_on_assertion(output: str, returncode: int) -> bool:
+def report_regression_failed_on_assertion(
+    output: str,
+    returncode: int,
+    *,
+    root: str = REPORT_TEST,
+    marker: str = REPORT_ASSERTION,
+) -> bool:
     """A compiler error, skip, unrelated assertion or passing run is not proof."""
     runs = failures = child_runs = child_failures = package_failures = 0
     assertion = False
@@ -42,19 +53,17 @@ def report_regression_failed_on_assertion(output: str, returncode: int) -> bool:
         action, name = event.get("Action"), event.get("Test", "")
         if action == "skip" or (action == "pass" and not name):
             return False
-        if name == REPORT_TEST:
+        if name == root:
             runs += action == "run"
             failures += action == "fail"
             if action == "pass":
                 return False
-        if name == REPORT_TEST + "/success":
+        if name == root + "/success":
             child_runs += action == "run"
             child_failures += action == "fail"
             if action == "pass":
                 return False
-            assertion |= action == "output" and REPORT_ASSERTION in event.get(
-                "Output", ""
-            )
+            assertion |= action == "output" and marker in event.get("Output", "")
         if not name:
             package_failures += action == "fail"
     return (
@@ -64,22 +73,37 @@ def report_regression_failed_on_assertion(output: str, returncode: int) -> bool:
     )
 
 
-def report_regression(env: dict[str, str]) -> None:
-    source = Path("internal/control/dashboardreporting.go")
-    original = source.read_text()
-    line = "\tcontent, mediaType, err := render(r.Context(), req.Format, doc)"
-    if original.count(line) != 1:
-        raise RuntimeError("report regression renderer seam is unavailable")
-    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
-    # Restore exactly the old transaction lifetime, without modifying the
-    # one-connection test, assertions, isolation, output or publication checks.
-    held = """\tvar content []byte
+def report_regression(env: dict[str, str], *, scheduled: bool = False) -> None:
+    if scheduled:
+        source = Path("internal/control/dashboardreportsupervisor.go")
+        root, marker = SCHEDULE_TEST, SCHEDULE_ASSERTION
+        line = (
+            "\tcontent, mediaType, err := s.render(ctx, item.Schedule.Format, document)"
+        )
+        held = """\tvar content []byte
+\tvar mediaType string
+\terr := tenancy.InTenant(ctx, s.pool, func(renderContext context.Context, _ tenancy.Scope) error {
+\t\tvar err error
+\t\tcontent, mediaType, err = s.render(renderContext, item.Schedule.Format, document)
+\t\treturn err
+\t})"""
+    else:
+        source = Path("internal/control/dashboardreporting.go")
+        root, marker = REPORT_TEST, REPORT_ASSERTION
+        line = "\tcontent, mediaType, err := render(r.Context(), req.Format, doc)"
+        held = """\tvar content []byte
 \tvar mediaType string
 \terr := s.inTenant(r, func(ctx context.Context, _ tenancy.Scope) error {
 \t\tvar err error
 \t\tcontent, mediaType, err = render(ctx, req.Format, doc)
 \t\treturn err
 \t})"""
+    original = source.read_text()
+    if original.count(line) != 1:
+        raise RuntimeError("report regression renderer seam is unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    # Reintroduce the old held-transaction invariant without modifying any
+    # one-connection test, assertion, scope, output or publication check.
     try:
         source.write_text(original.replace(line, held))
         result = subprocess.run(
@@ -92,7 +116,7 @@ def report_regression(env: dict[str, str]) -> None:
                 "-timeout=4m",
                 "-json",
                 "-run",
-                "^" + REPORT_TEST + "$/^success$",
+                "^" + root + "$/^success$",
                 "./internal/control",
             ],
             env=env,
@@ -105,14 +129,14 @@ def report_regression(env: dict[str, str]) -> None:
         source.write_text(original)
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
-    if not report_regression_failed_on_assertion(result.stdout, result.returncode):
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, root=root, marker=marker
+    ):
         raise RuntimeError(
             "held-transaction report regression did not fail its exact assertion"
         )
     print(
-        json.dumps(
-            {"report_publication_baseline_assertion_failed": True, "test": REPORT_TEST}
-        )
+        json.dumps({"report_publication_baseline_assertion_failed": True, "test": root})
     )
 
 
@@ -186,30 +210,44 @@ def selftest() -> None:
     assert classify(encoded(records), 1)
     assert classify(encoded(records) + "\nnot an event", 0)
     assert classify("", 0)
-    baseline = [
-        event("run", REPORT_TEST),
-        event("run", REPORT_TEST + "/success"),
-        dict(event("output", REPORT_TEST + "/success"), Output=REPORT_ASSERTION),
-        event("fail", REPORT_TEST + "/success"),
-        event("fail", REPORT_TEST),
-        event("fail"),
-    ]
-    assert report_regression_failed_on_assertion(encoded(baseline), 1)
-    assert not report_regression_failed_on_assertion(encoded(baseline), 0)
-    for bad in (
-        [],
-        baseline[1:],
-        baseline[:1] + baseline[2:],
-        baseline[:-1],
-        baseline + [event("pass", REPORT_TEST)],
-        baseline + [event("pass", REPORT_TEST + "/success")],
-        baseline + [event("skip", REPORT_TEST + "/success")],
-        baseline + [event("fail", REPORT_TEST)],
-        [dict(item, Output="unrelated assertion") for item in baseline],
-        [dict(item, Package="foreign/package") for item in baseline],
-        [event("fail")],
+    for root, marker in (
+        (REPORT_TEST, REPORT_ASSERTION),
+        (SCHEDULE_TEST, SCHEDULE_ASSERTION),
     ):
-        assert not report_regression_failed_on_assertion(encoded(bad), 1)
+        baseline = [
+            event("run", root),
+            event("run", root + "/success"),
+            dict(event("output", root + "/success"), Output=marker),
+            event("fail", root + "/success"),
+            event("fail", root),
+            event("fail"),
+        ]
+        assert report_regression_failed_on_assertion(
+            encoded(baseline), 1, root=root, marker=marker
+        )
+        assert not report_regression_failed_on_assertion(
+            encoded(baseline), 0, root=root, marker=marker
+        )
+        for bad in (
+            [],
+            baseline[1:],
+            baseline[:1] + baseline[2:],
+            baseline[:-1],
+            baseline + [event("pass", root)],
+            baseline + [event("pass", root + "/success")],
+            baseline + [event("skip", root + "/success")],
+            baseline + [event("fail", root)],
+            [dict(item, Output="unrelated assertion") for item in baseline],
+            [dict(item, Package="foreign/package") for item in baseline],
+            [event("fail")],
+        ):
+            assert not report_regression_failed_on_assertion(
+                encoded(bad), 1, root=root, marker=marker
+            )
+        other = SCHEDULE_TEST if root == REPORT_TEST else REPORT_TEST
+        assert not report_regression_failed_on_assertion(
+            encoded(baseline), 1, root=other, marker=marker
+        )
     print("Tag consumer classifier rejects missing/skipped/failed/duplicate proof")
 
 
@@ -243,6 +281,7 @@ def main() -> int:
             os.environ, PROBECTL_DATABASE_URL=dsn, PROBECTL_TEST_REQUIRE_SERVICES="1"
         )
         report_regression(env)
+        report_regression(env, scheduled=True)
         result = subprocess.run(
             [
                 "go",
