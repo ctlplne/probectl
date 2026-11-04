@@ -51,8 +51,9 @@ type interfaceRolePeer struct {
 	Scope                 entity.Scope
 	InterfaceID, SourceID string
 	ASN                   uint32
-	Internal, Active      bool
-	Clock                 interfaceRoleClock
+	// Current verified producer/certificate binding.
+	SourceActive bool
+	Clock        interfaceRoleClock
 }
 type interfaceRoleIXPrefix struct {
 	SourceID string
@@ -83,16 +84,16 @@ type interfaceRoleFacts struct {
 	Scope                 entity.Scope
 	InterfaceID, SourceID string
 	Clock                 interfaceRoleClock
-	Addresses             []netip.Addr
-	Peers                 []interfaceRolePeer
+	// Current verified interface source binding.
+	SourceActive bool
+	Addresses    []netip.Addr
+	Peers        []interfaceRolePeer
 }
 type interfaceRolePolicy struct {
-	Scope          entity.Scope
-	OwnASN         uint32
-	OwnASNSourceID string
-	Declarations   []interfaceRoleDeclaration
-	Rules          []interfaceRoleRuleMatch // explicit operator order
-	Override       *interfaceRoleOverride
+	Scope        entity.Scope
+	Declarations []interfaceRoleDeclaration
+	Rules        []interfaceRoleRuleMatch // explicit operator order
+	Override     *interfaceRoleOverride
 }
 type interfaceRoleDecision struct {
 	Scope       entity.Scope
@@ -152,7 +153,7 @@ func classifyInterfaceRole(ctx context.Context, scope entity.Scope, at time.Time
 		result.Role, result.Reason, result.Sources = override.Role, "operator_override", []string{strings.Clone(override.SourceID)}
 		return finishInterfaceRoleDecision(ctx, result)
 	}
-	if !facts.Clock.current(at) {
+	if !facts.SourceActive || !facts.Clock.current(at) {
 		return finishInterfaceRoleDecision(ctx, result)
 	}
 	for _, rule := range policy.Rules {
@@ -195,19 +196,14 @@ func classifyInterfaceRole(ctx context.Context, scope entity.Scope, at time.Time
 		}
 	}
 	for _, peer := range facts.Peers {
-		if !peer.Active || !peer.Clock.current(at) {
+		if !peer.SourceActive || !peer.Clock.current(at) {
 			continue
-		}
-		if peer.Internal && policy.OwnASN != 0 && peer.ASN == policy.OwnASN {
-			if err := add(interfaceRoleBackbone, peer.SourceID, policy.OwnASNSourceID); err != nil {
-				return none, err
-			}
 		}
 		for _, declaration := range policy.Declarations {
 			if err := budget.charge(ctx, 1, 1, 1); err != nil {
 				return none, err
 			}
-			if !peer.Internal && peer.ASN == declaration.ASN {
+			if peer.ASN == declaration.ASN {
 				if err := add(declaration.Role, peer.SourceID, declaration.SourceID); err != nil {
 					return none, err
 				}
@@ -240,9 +236,6 @@ func validateInterfaceRoleInputs(ctx context.Context, scope entity.Scope, facts 
 			return err
 		}
 	}
-	if policy.OwnASN != 0 && !interfaceRoleSource(policy.OwnASNSourceID) {
-		return errInterfaceRoleInput
-	}
 	for _, address := range facts.Addresses {
 		if !address.IsValid() || address.Zone() != "" || address.IsUnspecified() || address.IsMulticast() {
 			return errInterfaceRoleInput
@@ -261,7 +254,7 @@ func validateInterfaceRoleInputs(ctx context.Context, scope entity.Scope, facts 
 		if declaration.Scope != scope {
 			return entity.ErrScopeMismatch
 		}
-		if declaration.ASN == 0 || declaration.ASN == policy.OwnASN || !interfaceRoleSource(declaration.SourceID) || declaration.Role != interfaceRoleTransit && declaration.Role != interfaceRoleCustomer {
+		if declaration.ASN == 0 || !interfaceRoleSource(declaration.SourceID) || declaration.Role != interfaceRoleTransit && declaration.Role != interfaceRoleCustomer {
 			return errInterfaceRoleInput
 		}
 		if previous, ok := declarations[declaration.ASN]; ok && previous != declaration.Role {

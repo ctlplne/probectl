@@ -25,8 +25,8 @@ func interfaceRoleFixture(tenant string) (interfaceRoleFacts, interfaceRolePolic
 	scope := entity.Scope{TenantID: tenant, ContextID: "22222222-2222-4222-8222-222222222222"}
 	clock := interfaceRoleClock{ObservedAt: at.Add(-time.Minute), ValidUntil: at.Add(time.Minute)}
 	id := "33333333-3333-4333-8333-333333333333"
-	facts := interfaceRoleFacts{Scope: scope, InterfaceID: id, SourceID: "fact-" + tenant, Clock: clock, Addresses: []netip.Addr{netip.MustParseAddr("198.51.100.7")}, Peers: []interfaceRolePeer{{Scope: scope, InterfaceID: id, SourceID: "peer-" + tenant, ASN: 64496, Active: true, Clock: clock}}}
-	policy := interfaceRolePolicy{Scope: scope, OwnASN: 64500, OwnASNSourceID: "own-as-" + tenant, Declarations: []interfaceRoleDeclaration{{Scope: scope, ASN: 64496, Role: interfaceRoleTransit, SourceID: "provider-" + tenant}}}
+	facts := interfaceRoleFacts{Scope: scope, InterfaceID: id, SourceID: "fact-" + tenant, Clock: clock, SourceActive: true, Addresses: []netip.Addr{netip.MustParseAddr("198.51.100.7")}, Peers: []interfaceRolePeer{{Scope: scope, InterfaceID: id, SourceID: "peer-" + tenant, ASN: 64496, SourceActive: true, Clock: clock}}}
+	policy := interfaceRolePolicy{Scope: scope, Declarations: []interfaceRoleDeclaration{{Scope: scope, ASN: 64496, Role: interfaceRoleTransit, SourceID: "provider-" + tenant}}}
 	return facts, policy, at
 }
 func interfaceRoleTestBudget() interfaceRoleBudget {
@@ -39,7 +39,7 @@ func TestInterfaceRoleClassificationKeepsOwnedEvidenceAndOverrides(t *testing.T)
 	tenants := []string{"11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
 	for lane, tenant := range tenants {
 		t.Run(tenant, func(t *testing.T) {
-			for _, name := range []string{"transit", "customer", "backbone", "private-rule", "ix", "ix-ipv6", "outside-ix", "conflict", "unknown-external", "inactive", "stale-peer", "stale-facts", "ordered-rule", "override", "stale-override"} {
+			for _, name := range []string{"transit", "customer", "backbone", "private-rule", "ix", "ix-ipv6", "outside-ix", "conflict", "unknown-external", "inactive-source", "inactive-facts", "stale-peer", "stale-facts", "ordered-rule", "override", "stale-override", "inactive-source-override"} {
 				t.Run(name, func(t *testing.T) {
 					facts, policy, at := interfaceRoleFixture(tenant)
 					expected, reason := interfaceRoleTransit, "current_evidence"
@@ -51,9 +51,9 @@ func TestInterfaceRoleClassificationKeepsOwnedEvidenceAndOverrides(t *testing.T)
 						policy.Declarations[0].Role = interfaceRoleCustomer
 						expected = interfaceRoleCustomer
 					case "backbone":
-						facts.Peers[0].ASN = policy.OwnASN
-						facts.Peers[0].Internal = true
-						expected = interfaceRoleBackbone
+						rule.Role = interfaceRoleBackbone
+						policy.Rules = []interfaceRoleRuleMatch{rule}
+						expected, reason = interfaceRoleBackbone, "description_rule"
 					case "private-rule":
 						policy.Rules = []interfaceRoleRuleMatch{rule}
 						expected, reason = interfaceRolePrivate, "description_rule"
@@ -78,11 +78,14 @@ func TestInterfaceRoleClassificationKeepsOwnedEvidenceAndOverrides(t *testing.T)
 					case "unknown-external":
 						policy.Declarations = nil
 						expected, reason = interfaceRoleOther, "insufficient_evidence"
-					case "inactive":
-						facts.Peers[0].Active = false
+					case "inactive-source":
+						facts.Peers[0].SourceActive = false
 						expected, reason = interfaceRoleOther, "insufficient_evidence"
 					case "stale-peer":
 						facts.Peers[0].Clock.ValidUntil = at.Add(-time.Second)
+						expected, reason = interfaceRoleOther, "insufficient_evidence"
+					case "inactive-facts":
+						facts.SourceActive = false
 						expected, reason = interfaceRoleOther, "insufficient_evidence"
 					case "stale-facts":
 						facts.Clock.ValidUntil = at.Add(-time.Second)
@@ -94,11 +97,14 @@ func TestInterfaceRoleClassificationKeepsOwnedEvidenceAndOverrides(t *testing.T)
 						rule.RuleID = "z-first-rule"
 						policy.Rules = []interfaceRoleRuleMatch{rule, second}
 						expected, reason = interfaceRolePrivate, "description_rule"
-					case "override", "stale-override":
+					case "override", "stale-override", "inactive-source-override":
 						prefixes = []interfaceRoleIXPrefix{ix}
 						policy.Rules = []interfaceRoleRuleMatch{rule}
 						policy.Override = &interfaceRoleOverride{Scope: facts.Scope, InterfaceID: facts.InterfaceID, SourceID: "override-" + tenant, Role: interfaceRoleCustomer}
 						expected, reason = interfaceRoleCustomer, "operator_override"
+						if name == "inactive-source-override" {
+							facts.SourceActive = false
+						}
 						if name == "stale-override" {
 							facts.Clock.ValidUntil = at.Add(-time.Second)
 						}
@@ -139,9 +145,6 @@ func TestInterfaceRoleClassifierRefusesForeignMalformedAndOverBudgetFacts(t *tes
 			d := p.Declarations[0]
 			d.Role = interfaceRoleCustomer
 			p.Declarations = append(p.Declarations, d)
-		},
-		"own-as-provider": func(_ *interfaceRoleFacts, p *interfaceRolePolicy, _ *[]interfaceRoleIXPrefix) {
-			p.Declarations[0].ASN = p.OwnASN
 		},
 		"zero-as": func(f *interfaceRoleFacts, _ *interfaceRolePolicy, _ *[]interfaceRoleIXPrefix) { f.Peers[0].ASN = 0 },
 		"invalid-interface": func(f *interfaceRoleFacts, _ *interfaceRolePolicy, _ *[]interfaceRoleIXPrefix) {
