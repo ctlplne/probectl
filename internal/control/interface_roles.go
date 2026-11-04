@@ -120,7 +120,7 @@ func interfaceRoleValid(role interfaceRole) bool {
 	return slices.Contains([]interfaceRole{interfaceRoleTransit, interfaceRoleIX, interfaceRolePrivate, interfaceRoleCustomer, interfaceRoleBackbone, interfaceRoleOther}, role)
 }
 func interfaceRoleSource(id string) bool {
-	return id != "" && len(id) <= 1024 && utf8.ValidString(id) && strings.IndexFunc(id, unicode.IsControl) < 0
+	return id != "" && strings.TrimSpace(id) == id && len(id) <= 1024 && utf8.ValidString(id) && strings.IndexFunc(id, unicode.IsControl) < 0
 }
 
 // classifyInterfaceRole combines already authenticated, current, owned facts.

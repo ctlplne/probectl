@@ -150,6 +150,12 @@ func TestInterfaceRoleClassifierRefusesForeignMalformedAndOverBudgetFacts(t *tes
 		"invalid-source": func(f *interfaceRoleFacts, _ *interfaceRolePolicy, _ *[]interfaceRoleIXPrefix) {
 			f.SourceID = "bad\nsource"
 		},
+		"blank-source": func(f *interfaceRoleFacts, _ *interfaceRolePolicy, _ *[]interfaceRoleIXPrefix) {
+			f.SourceID = " "
+		},
+		"padded-source": func(f *interfaceRoleFacts, _ *interfaceRolePolicy, _ *[]interfaceRoleIXPrefix) {
+			f.SourceID = " padded-source "
+		},
 		"invalid-clock": func(f *interfaceRoleFacts, _ *interfaceRolePolicy, _ *[]interfaceRoleIXPrefix) {
 			f.Clock.ValidUntil = f.Clock.ObservedAt
 		},
