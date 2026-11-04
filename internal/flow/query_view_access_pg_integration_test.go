@@ -24,7 +24,7 @@ import (
 // Runs inside the existing real application-role/RLS/lifecycle root. Temporary
 // edits to its owned fixture demonstrate that visibility never interprets the
 // current query text or substitutes it for a frozen report's source capture.
-func queryViewMetadataAccessProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, st *flow.PostgresQueryViewStore, red, blue string, saved flow.SavedQueryView) {
+func queryViewMetadataAccessProof(ctx context.Context, t *testing.T, pool *pgxpool.Pool, st *flow.PostgresQueryViewStore, red, blue string, saved flow.SavedQueryView) {
 	t.Helper()
 	redContext := tenancy.WithTenant(ctx, tenancy.ID(red))
 	blueContext := tenancy.WithTenant(ctx, tenancy.ID(blue))
@@ -96,6 +96,6 @@ func queryViewMetadataAccessProof(t *testing.T, ctx context.Context, pool *pgxpo
 	canceled, cancel := context.WithCancel(redContext)
 	cancel()
 	if _, err := st.GetQueryViewAccess(canceled, red, "alice", saved.ID); !errors.Is(err, context.Canceled) {
-		t.Fatal("cancelled current visibility read ran", err)
+		t.Fatal("canceled current visibility read ran", err)
 	}
 }

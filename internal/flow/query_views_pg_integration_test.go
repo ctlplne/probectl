@@ -191,7 +191,7 @@ func TestQueryViewsPostgresRealScopePersistenceAuditAndLifecycle(t *testing.T) {
 		t.Fatal("shared view unavailable", err)
 	}
 	t.Run("current_visibility", func(t *testing.T) {
-		queryViewMetadataAccessProof(t, ctx, pool, st, red.ID, blue.ID, saved)
+		queryViewMetadataAccessProof(ctx, t, pool, st, red.ID, blue.ID, saved)
 	})
 	if err := st.DeleteQueryView(ctx, red.ID, "bob", saved.ID, saved.Version); !errors.Is(err, flow.ErrQueryViewNotFound) {
 		t.Fatal("shared view grants ownership", err)

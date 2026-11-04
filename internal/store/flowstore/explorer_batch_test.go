@@ -147,6 +147,7 @@ func TestExplorerPlanBatchTLSChargesEveryResponseAndRejectsMissingReceipts(t *te
 		if r.URL.Query().Get(tenantSettingName) != "red" || r.URL.Query().Get("wait_end_of_query") != "1" {
 			t.Error("source batch lost tenant or buffered response contract")
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			t.Error(err)
 			return

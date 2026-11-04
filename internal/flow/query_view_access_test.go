@@ -70,6 +70,6 @@ func TestQueryViewCurrentAccessRefusesMissingMismatchedAndMalformedScope(t *test
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	if _, err := store.GetQueryViewAccess(canceled, "red", "owner", "same"); !errors.Is(err, context.Canceled) {
-		t.Fatal("cancelled source visibility read ran", err)
+		t.Fatal("canceled source visibility read ran", err)
 	}
 }
