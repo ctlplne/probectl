@@ -189,7 +189,7 @@ func TestReportCSVWholeOperationBudgetsCancellationAndFailure(t *testing.T) {
 			limits := DefaultCSVLimits()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			var target io.Writer = io.Discard
+			target := io.Discard
 			var want error
 			sentinel := errors.New("source or destination unavailable")
 			switch kind {
