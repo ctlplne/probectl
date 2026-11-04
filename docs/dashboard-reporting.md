@@ -367,8 +367,8 @@ ordinal sequence and byte count, then independently hashes the staged bytes
 before returning a readable body. Missing, additional or corrupted chunks
 produce no body. The writer reads length and digest from the sealed stage itself;
 callers cannot supply a separate integrity claim. Metadata listing never loads
-binary bodies. Public generation and download use remains an item acceptance
-step until current source/reader authorization is connected and proven.
+binary bodies. Source-aware generation and schedule materialization remain in progress;
+download now uses the current-authority verified reader.
 
 Artifact download checks current source, context and credential-ceiling access
 before body I/O and again in the final audited transaction. Private and foreign
@@ -378,3 +378,11 @@ The response carries exact `Content-Length`, `X-Report-SHA256`, a strong `ETag`
 and `Cache-Control: no-store`. Legacy inline downloads use the verified reader
 as well. Source-aware generation, schedule materialization and complete report
 surface acceptance remain separate required work.
+
+The inbox lists metadata from the most recent 200 owned or shared dashboard
+artifacts. Each source-aware item must pass current source, context and
+credential checks in the tenant snapshot; unavailable or private objects stay
+hidden. Listing loads no report body and returns no stored access requirements.
+`body_bytes` and optional `body_sha256` describe the stored body; download
+independently verifies its bytes. One execution budget covers the full list,
+and a budget failure returns no partial response.

@@ -109,6 +109,8 @@ export interface ReportArtifact {
   redaction_state: string
   coverage_limitations: string[]
   download_url: string
+  body_bytes?: number
+  body_sha256?: string
 }
 
 interface DashboardList {

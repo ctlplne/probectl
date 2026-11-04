@@ -684,6 +684,8 @@ export interface DashboardManifestSpec {
 export interface DashboardReportArtifact {
   absolute_from: string
   absolute_to: string
+  body_bytes?: number
+  body_sha256?: string
   coverage_limitations: string[]
   dashboard_id: string
   download_url: string

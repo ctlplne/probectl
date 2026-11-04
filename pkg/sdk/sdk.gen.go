@@ -770,6 +770,8 @@ type DashboardManifestSpec struct {
 type DashboardReportArtifact struct {
 	AbsoluteFrom        string   `json:"absolute_from"`
 	AbsoluteTo          string   `json:"absolute_to"`
+	BodyBytes           int      `json:"body_bytes,omitempty"`
+	BodySha256          string   `json:"body_sha256,omitempty"`
 	CoverageLimitations []string `json:"coverage_limitations"`
 	DashboardId         string   `json:"dashboard_id"`
 	DownloadUrl         string   `json:"download_url"`

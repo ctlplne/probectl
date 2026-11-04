@@ -312,6 +312,39 @@ def preauthorization_privacy_proof() -> None:
     )
 
 
+def metadata_reader_proof() -> None:
+    source = Path("internal/control/dashboard_report_list.go")
+    original = source.read_text()
+    seam = "accessErr = s.revalidateReportFlowCaptureScope(ctx, sc, actor, capture)"
+    if original.count(seam) != 1:
+        raise RuntimeError("current report metadata reader seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(seam, "accessErr = nil\n_ = capture"))
+        before = run_tests("^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        before.stdout,
+        before.returncode,
+        root=CAPTURE_TESTS[0],
+        marker="scoped credential listed private source report metadata",
+        package=CAPTURE_PACKAGE,
+    ):
+        raise RuntimeError(
+            "metadata reader omission did not fail its exact current-source refusal assertion"
+        )
+    print(
+        json.dumps(
+            {
+                "test": CAPTURE_TESTS[0],
+                "metadata_reader_omission_control": True,
+                "passed": True,
+            }
+        )
+    )
+
+
 def run() -> None:
     if (
         os.environ.get("GITHUB_ACTIONS") != "true"
@@ -377,6 +410,7 @@ def run() -> None:
         )
     post_verification_reader_proof()
     preauthorization_privacy_proof()
+    metadata_reader_proof()
 
 
 if __name__ == "__main__":

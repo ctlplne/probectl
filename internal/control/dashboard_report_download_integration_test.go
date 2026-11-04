@@ -11,6 +11,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -122,9 +123,16 @@ func publishCapturedReportDownloadProof(ctx context.Context, t *testing.T, f *ta
 	return proof
 }
 
+func reportProofRoute(id string) string {
+	if id == "" {
+		return "/v1/dashboard-report-artifacts"
+	}
+	return "/v1/dashboard-report-artifacts/" + id
+}
+
 func requestCapturedReport(t *testing.T, socket *httptest.Server, token, id string) (int, http.Header, []byte) {
 	t.Helper()
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, socket.URL+"/v1/dashboard-report-artifacts/"+id, nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, socket.URL+reportProofRoute(id), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +183,7 @@ func proveCapturedReportHTTPReaders(t *testing.T, f *tagImportSubjectFixture, pr
 	defer func() { socket.Close(); f.srv.pool = originalPool; single.Close() }()
 	for i, proof := range proofs {
 		proof.requireOwn(t, socket)
+		proveCurrentReportMetadataList(t, socket, proof)
 		status, _, body := requestCapturedReport(t, socket, proof.scopedToken, "same-source-artifact")
 		if status != http.StatusNotFound || bytes.Contains(body, proof.expected) {
 			t.Fatal("scoped credential borrowed a report source grant", status)
@@ -235,6 +244,11 @@ func proveCapturedReportHTTPReaders(t *testing.T, f *tagImportSubjectFixture, pr
 	status, _, body = requestCapturedReport(t, socket, first.token, "same-source-artifact")
 	if status == http.StatusOK || bytes.Contains(body, first.expected) {
 		t.Fatal("revoked current source role retained a public report body", status)
+	}
+
+	listed := readReportMetadataList(t, socket, first.token)
+	if len(listed) != 0 {
+		t.Fatal("revoked current source role retained report metadata")
 	}
 	if err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(first.tenant)), f.db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 		return (store.Roles{}).AddPermission(ctx, sc, first.role, permFlowRead)
@@ -338,4 +352,45 @@ func proveReportRevocationAfterVerification(t *testing.T, f *tagImportSubjectFix
 	restore()
 	restored = true
 	proof.requireOwn(t, socket)
+}
+
+func readReportMetadataList(t *testing.T, socket *httptest.Server, token string) []reportArtifactView {
+	t.Helper()
+	status, _, raw := requestCapturedReport(t, socket, token, "")
+	if status != http.StatusOK {
+		t.Fatal("report metadata list failed", status)
+	}
+	for _, forbidden := range []string{`"source_capture"`, `"content"`, `"inputs"`, `"permissions"`, `"contexts"`} {
+		if bytes.Contains(bytes.ToLower(raw), []byte(forbidden)) {
+			t.Fatal("metadata list loaded a body or exposed source requirements")
+		}
+	}
+	var result struct {
+		Items []reportArtifactView `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal(err)
+	}
+	return result.Items
+}
+
+func proveCurrentReportMetadataList(t *testing.T, socket *httptest.Server, proof *reportDownloadProof) {
+	t.Helper()
+	listed := readReportMetadataList(t, socket, proof.token)
+	if len(listed) != 2 {
+		t.Fatal("owned current report metadata is missing", len(listed))
+	}
+	ids := map[string]bool{}
+	for _, item := range listed {
+		ids[item.ID] = true
+		if item.BodyBytes != int64(len(proof.expected)) || item.BodySHA256 != proof.digest || item.Format != proof.format || item.GeneratedBy != proof.user {
+			t.Fatal("metadata lost stored body integrity or tenant owner")
+		}
+	}
+	if !ids["same-source-artifact"] || !ids[proof.foreignID] {
+		t.Fatal("metadata returned another tenant's artifact ids")
+	}
+	if listed := readReportMetadataList(t, socket, proof.scopedToken); len(listed) != 0 {
+		t.Fatal("scoped credential listed private source report metadata")
+	}
 }

@@ -149,6 +149,8 @@ type reportArtifactView struct {
 	RedactionState      string          `json:"redaction_state"`
 	CoverageLimitations json.RawMessage `json:"coverage_limitations"`
 	DownloadURL         string          `json:"download_url"`
+	BodyBytes           int64           `json:"body_bytes,omitempty"`
+	BodySHA256          string          `json:"body_sha256,omitempty"`
 }
 
 func dashboardActorID(r *http.Request) string {
@@ -822,20 +824,7 @@ func artifactView(item store.ReportArtifact) reportArtifactView {
 }
 
 func (s *Server) handleListDashboardReportArtifacts(w http.ResponseWriter, r *http.Request) error {
-	var items []store.ReportArtifact
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		items, err = (store.DashboardReports{}).ListArtifacts(ctx, sc, dashboardActorID(r))
-		return err
-	}); err != nil {
-		return err
-	}
-	views := make([]reportArtifactView, 0, len(items))
-	for _, item := range items {
-		views = append(views, artifactView(item))
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": views})
-	return nil
+	return s.listCurrentReportArtifactMetadata(w, r)
 }
 
 func (s *Server) handleDownloadDashboardReportArtifact(w http.ResponseWriter, r *http.Request) error {

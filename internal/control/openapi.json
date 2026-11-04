@@ -12843,13 +12843,20 @@
           },
           "401": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         },
         "x-probectl-pagination": {
           "mode": "bounded",
           "max_items": 200,
           "reason": "Artifact metadata is SQL-limited newest-first; binary content is excluded."
-        }
+        },
+        "description": "List metadata from the most recent 200 owned or shared dashboard artifacts in this tenant. Source-aware artifacts are included only with current source, context and credential access. Binary bodies and stored source requirements are never loaded into the response. Validation shares one bounded operation; a budget failure returns no partial list."
       }
     },
     "/v1/dashboard-report-artifacts/{id}": {
@@ -14708,6 +14715,18 @@
           "download_url": {
             "type": "string",
             "description": "Same-origin authenticated path; never an external URL."
+          },
+          "body_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 268435456,
+            "description": "Exact stored attachment byte count; present on current metadata listings."
+          },
+          "body_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Expected sealed body SHA256; legacy rows may omit it. Download independently verifies the complete body."
           }
         }
       },
