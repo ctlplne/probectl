@@ -307,6 +307,10 @@ jobs:
           PROBECTL_TEST_SNMP_COMMUNITY: public
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
         run: bash scripts/device_snmp_live_ci.sh
+      - name: Complete SNMP prefix component and packet-error proof
+        run: |
+          python3 scripts/ci_interface_role_evidence.py --selftest
+          python3 scripts/ci_interface_role_evidence.py
 
   path-raw-live:
     name: path-raw-live (CAP_NET_RAW)
