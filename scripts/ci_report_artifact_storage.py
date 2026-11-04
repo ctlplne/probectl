@@ -122,6 +122,20 @@ def run():
         )
     source = Path("internal/tenantlife/subject.go")
     original = source.read_text()
+    owner_seam = "OR EXISTS (SELECT 1 FROM dashboard_report_schedules report_schedule"
+    if original.count(owner_seam) != 1:
+        raise RuntimeError("scheduled report subject ownership seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(owner_seam, "OR FALSE AND EXISTS (SELECT 1 FROM dashboard_report_schedules report_schedule"))
+        owned = execute(LIFECYCLE_PACKAGE, "^" + LIFECYCLE_ROOT + "$")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        owned.stdout, owned.returncode, root=LIFECYCLE_ROOT,
+        marker="scheduled-owner report missing from subject portability", package=LIFECYCLE_PACKAGE,
+    ):
+        raise RuntimeError("schedule owner omission did not fail exact subject export assertion")
     seam = "flowsnapshot.InvalidateSourceGenerationInScope(ctx, sc)"
     if original.count(seam) != 1:
         raise RuntimeError("subject erasure source generation seam unavailable")
@@ -190,6 +204,7 @@ def run():
                 "digest_omission_control": True,
                 "silo_relationship_omission_control": True,
                 "pre_telemetry_erasure_generation_omission_control": True,
+                "scheduled_owner_omission_control": True,
                 "passed": True,
             }
         )

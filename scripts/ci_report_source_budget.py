@@ -338,6 +338,25 @@ def publication_state_proof() -> None:
             raise RuntimeError("publication omission did not fail exact source state assertion")
 
 
+def source_pdf_metadata_allowance_proof() -> None:
+    source = Path("internal/control/dashboard_report_generate.go")
+    original = source.read_text()
+    seam = "renderLimits := reporting.DefaultPDFLimits()\n\t\trenderLimits.TableRows *= 2"
+    if original.count(seam) != 1:
+        raise RuntimeError("source PDF logical allowance seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(seam, "renderLimits := reporting.DefaultPDFLimits()"))
+        result = run_tests("^" + CAPTURE_TESTS[2] + "$/^success$", "./internal/control")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, root=CAPTURE_TESTS[2], child="success",
+        marker="source metadata consumed selected PDF detail allowance", package=CAPTURE_PACKAGE,
+    ):
+        raise RuntimeError("source PDF metadata omission did not fail exact complete detail assertion")
+
+
 def metadata_reader_proof() -> None:
     source = Path("internal/control/dashboard_report_list.go")
     original = source.read_text()
@@ -438,6 +457,7 @@ def run() -> None:
     preauthorization_privacy_proof()
     metadata_reader_proof()
     publication_state_proof()
+    source_pdf_metadata_allowance_proof()
 
 
 if __name__ == "__main__":

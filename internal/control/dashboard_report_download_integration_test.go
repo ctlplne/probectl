@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -67,6 +68,9 @@ func publishCapturedReportDownloadProof(ctx context.Context, t *testing.T, f *ta
 		Provenance: []string{"current owned saved flow capture"}, RedactionState: "query redaction applied",
 		CoverageLimitations: []string{"source/store/HTTPS component; release acceptance is separate"}, Tables: capture.Tables}
 	stage, _, err := stageSourceDashboardReport(ctx, format, document, flowstore.ExplorerQueryBudget(f.srv.flowStore))
+	if errors.Is(err, reporting.ErrPDFLimit) {
+		t.Fatal("source metadata consumed selected PDF detail allowance")
+	}
 	if err != nil {
 		t.Fatal("stage actual captured report", err)
 	}

@@ -400,3 +400,5 @@ Subject erasure marks the existing tenant flow lifecycle generation invalidating
 The current native dashboard format refuses source-backed export with a conflict because it does not yet carry explicit destination source bindings. It never silently drops source references or copies a source tenant's identities.
 
 Source-backed documents count identity, total and filter-version tables as well as detail rows. Their combined logical-row envelopes are 1,000,000 for CSV and 8,000 for PDF, so complete selected data is accompanied by its metadata. The generic renderer defaults remain 500,000/4,000 logical rows. All serialized-byte, source read, memory, deadline and fairness limits remain enforced; exceeding any of them refuses the whole document.
+
+Subject portability selects generated reports by the subject's exact normalized generator identity or by the owner of their same-tenant schedule. Opaque chunk bytes follow only those selected parent artifacts. Unrelated/foreign schedule owners are excluded; conservative erasure of all source-derived reports does not broaden export.
