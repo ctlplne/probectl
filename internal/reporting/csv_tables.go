@@ -29,6 +29,7 @@ type CSVTable struct {
 	TagRevision                 string
 	TagAsOf                     time.Time
 	Columns                     []CSVColumn
+	FieldIDs                    map[string]string
 	ExpectedRows                int64
 	WalkRows                    func(context.Context, func([]string) error) error
 }
@@ -230,6 +231,19 @@ func validateCSVTable(table CSVTable, tenant string, limits CSVLimits, memory *i
 		remaining -= int64(len(column.Name)) + 32
 		seen[column.Name] = true
 	}
+	if int64(len(table.FieldIDs)) > *memory/128 {
+		return ErrCSVLimit
+	}
+	*memory -= int64(len(table.FieldIDs)) * 128
+	for name, id := range table.FieldIDs {
+		if !seen[name] || id == "" || !utf8.ValidString(id) {
+			return fmt.Errorf("report field identity requires its complete schema key and immutable ID")
+		}
+		if int64(len(name)+len(id)) > *memory/2 {
+			return ErrCSVLimit
+		}
+		*memory -= int64(len(name)+len(id)) * 2
+	}
 	return nil
 }
 
@@ -244,6 +258,9 @@ func writeCSVTable(ctx context.Context, writer *csv.Writer, table CSVTable, memo
 	if table.TagRevision != "" {
 		metadata = append(metadata, [2]string{"table_tag_revision", table.TagRevision},
 			[2]string{"table_tag_as_of", table.TagAsOf.UTC().Format(time.RFC3339Nano)})
+	}
+	for _, name := range reportFieldNames(table.FieldIDs) {
+		metadata = append(metadata, [2]string{"table_field_id:" + name, table.FieldIDs[name]})
 	}
 	for _, pair := range metadata {
 		if err := writer.Write([]string{pair[0], CSVText(pair[1])}); err != nil {
@@ -291,6 +308,15 @@ func writeCSVTable(ctx context.Context, writer *csv.Writer, table CSVTable, memo
 		return fmt.Errorf("report table row count differs from its captured source")
 	}
 	return nil
+}
+
+func reportFieldNames(ids map[string]string) []string {
+	names := make([]string, 0, len(ids))
+	for name := range ids {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func encodeCSVTableRow(row []string, columns []CSVColumn, memory int64) ([]string, error) {

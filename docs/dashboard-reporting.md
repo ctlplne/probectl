@@ -87,6 +87,16 @@ Poppler is not a product runtime dependency. A CI-only offline Chromium image
 of the same bundled font samples accompanies the PDF page images for visual
 comparison; product rendering uses Go only.
 
+The internal flow-result projection retains detail, Other, totals, chart groups
+and points, total points, both matrix-axis summaries and every matrix cell. It
+preserves exact numeric strings and complete axis-qualified field keys; captured
+immutable field IDs accompany the schema, including a separate record for
+filter-only input identities. Projection workspace and logical rows are charged
+across the complete batch. Captured records remain unchanged after source-map
+edits. This component grants no source access and does not turn a private query
+cache into report authority. Live saved-source composition, current-recipient
+authorization and larger persisted artifacts still require their own wiring.
+
 When an operator saves the current screen, the outer saved-view record captures
 the visible Operator/Executive preset. Its definition captures absolute UTC
 bounds calculated from the same relative clock and records the relative scope

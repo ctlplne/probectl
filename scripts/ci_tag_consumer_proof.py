@@ -26,6 +26,8 @@ TESTS = (
     "TestCurrentAuthorizationBackgroundHasNoWriteOrMFAAuthority",
     "TestCurrentAuthorizationSnapshotCannotBorrowAnotherIdentityOrCache",
     "TestCurrentAuthorizationKeepsScopedCredentialAndImmutableSnapshot",
+    "TestReportFlowProjectionPreservesCompleteSections",
+    "TestReportFlowProjectionScopesSourcesAndWholeBatchRefusal",
 )
 DATABASE = "probectl_qa_beta_tag_consumers"
 REPORT_TEST = "TestDashboardReportRenderingReleasesTransactionAndRechecksPublication"
@@ -43,9 +45,12 @@ CSV_TESTS = (
     "TestReportCSVRefusesIncompleteForeignOrMalformedSources",
     "TestReportCSVWholeOperationBudgetsCancellationAndFailure",
     "TestReportCSVLegacyBytesStayStable",
+    "TestReportFieldIdentitiesRetainCompleteSchemaAndCapture",
 )
 CSV_ASSERTION = "complete table header is missing"
 AUTHORITY_TEST = "TestCurrentAuthorizationIntersectsCredentialAndCurrentGrants"
+PROJECTION_TEST = "TestReportFlowProjectionPreservesCompleteSections"
+PROJECTION_ASSERTION = "complete report matrix cells are missing"
 AUTHORITY_ASSERTION = "current/credential intersection ="
 
 
@@ -315,6 +320,54 @@ def current_authority_regression(env: dict[str, str]) -> None:
     print(json.dumps({"current_authority_baseline_assertion_failed": True}))
 
 
+def report_projection_regression(env: dict[str, str]) -> None:
+    source = Path("internal/control/dashboard_flow_records.go")
+    original = source.read_text()
+    seam = "\t\tif err := p.matrix(c); err != nil {\n\t\t\treturn err\n\t\t}"
+    if original.count(seam) != 1:
+        raise RuntimeError("report matrix projection control seam is unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(
+            original.replace(
+                seam, "\t\t// Omission control: no matrix cells projected."
+            )
+        )
+        result = subprocess.run(
+            [
+                "go",
+                "test",
+                "-race",
+                "-tags=integration",
+                "-count=1",
+                "-timeout=4m",
+                "-json",
+                "-run",
+                "^" + PROJECTION_TEST + "$/^success$",
+                "./internal/control",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    finally:
+        source.write_text(original)
+    sys.stdout.write(result.stdout)
+    sys.stderr.write(result.stderr)
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        root=PROJECTION_TEST,
+        marker=PROJECTION_ASSERTION,
+    ):
+        raise RuntimeError(
+            "report matrix omission did not fail its exact complete-section assertion"
+        )
+    print(json.dumps({"report_projection_omission_assertion_failed": True}))
+
+
 def selftest() -> None:
     def event(action: str, name: str | None = None, package: str = PACKAGE) -> dict:
         item = {"Action": action, "Package": package}
@@ -369,6 +422,7 @@ def selftest() -> None:
         (SCHEDULE_TEST, SCHEDULE_ASSERTION, PACKAGE, "success"),
         (CSV_TESTS[0], CSV_ASSERTION, CSV_PACKAGE, "success"),
         (AUTHORITY_TEST, AUTHORITY_ASSERTION, PACKAGE, "credential_ceiling"),
+        (PROJECTION_TEST, PROJECTION_ASSERTION, PACKAGE, "success"),
     ):
 
         def make_event(
@@ -457,6 +511,7 @@ def main() -> int:
             os.environ, PROBECTL_DATABASE_URL=dsn, PROBECTL_TEST_REQUIRE_SERVICES="1"
         )
         report_csv_proof(env)
+        report_projection_regression(env)
         current_authority_regression(env)
         report_regression(env)
         report_regression(env, scheduled=True)

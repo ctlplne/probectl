@@ -417,6 +417,9 @@ func (p *pdfDocument) table(table CSVTable) error {
 	if table.TagRevision != "" {
 		metadata = append(metadata, "Metadata revision: "+table.TagRevision, "Metadata captured: "+table.TagAsOf.UTC().Format(time.RFC3339Nano))
 	}
+	for _, name := range reportFieldNames(table.FieldIDs) {
+		metadata = append(metadata, "Field identity "+name+": "+table.FieldIDs[name])
+	}
 	for _, value := range metadata {
 		if err := p.text(value); err != nil {
 			return err
