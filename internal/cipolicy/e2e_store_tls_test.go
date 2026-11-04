@@ -65,7 +65,7 @@ func TestE2EStoresRunTheProductionTLSShape(t *testing.T) {
 		{`KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:SSL,EXTERNAL:SASL_SSL,INTERNAL:SASL_SSL\n`, "the broker serves SASL_SSL on its client listeners and SSL on its controller listener"},
 		{`KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https\n`, "the broker verifies the controller hop's hostname"},
 		{`ssl.endpoint.identification.algorithm=https`, "the admin tools verify the broker's hostname"},
-		{`PROBECTL_CERT_HOSTS=localhost,127.0.0.1,postgres,kafka,clickhouse"`, "certgen issues the kafka and clickhouse SANs every hop is verified against"},
+		{`PROBECTL_CERT_HOSTS=localhost,127.0.0.1,postgres,kafka,clickhouse,prometheus"`, "certgen issues the kafka, clickhouse and prometheus SANs every hop is verified against"},
 		// The control plane's bus.
 		{`"PROBECTL_BUS_TLS_ENABLED":\s+"true"`, "the control plane dials the broker over TLS"},
 		{`"PROBECTL_BUS_TLS_CA_FILE":\s+ctl\.path\(t, serverCA\)`, "the control plane verifies the broker against the run's CA"},
