@@ -55,70 +55,30 @@ func (a *alertTagAuthority) permits(ctx context.Context, principal *auth.Princip
 // user authority. Only a live request may carry its actual MFA assertion;
 // source evaluation always uses the separate non-MFA read principal.
 func (a *alertTagAuthority) permitsRequest(ctx context.Context, actor *auth.Principal, permission string) bool {
-	if a == nil || a.current == nil || actor == nil || actor.UserID != a.current.UserID || actor.TenantID != a.current.TenantID {
+	if a == nil || a.current == nil || a.decider == nil {
 		return false
 	}
-	fresh := auth.ClonePrincipal(a.current)
-	fresh.MFASatisfied = actor.MFASatisfied
-	fresh.Attributes = composeSubjectAttributes(fresh.Attributes, actor.MFASatisfied)
-	resource := map[string]string{auth.ResourceTenantKey: actor.TenantID}
-	for _, principal := range []*auth.Principal{actor, fresh} {
-		if reason, err := a.decider.decideLoaded(ctx, principal, permission, auth.RBACGlobal, resource, a.policies); err != nil || reason != auth.DecisionAllowed {
-			return false
-		}
+	current := &currentUserAuthority{principal: a.current, policies: a.policies}
+	ctx, principal, err := current.requestContext(ctx, actor)
+	if err != nil {
+		return false
 	}
-	return true
+	reason, err := a.decider.decide(ctx, principal, permission, auth.RBACGlobal,
+		map[string]string{auth.ResourceTenantKey: principal.TenantID})
+	return err == nil && reason == auth.DecisionAllowed
 }
 
 // Load the actual active user/grants/policy in the already bound tenant, not a
 // role or MFA claim stored with the rule. This principal has only source-read
 // permissions; it cannot authorize a human-only action or widen token scopes.
 func loadAlertTagAuthority(ctx context.Context, pool *pgxpool.Pool, tenantID, userID string) (*alertTagAuthority, error) {
-	bound, ok := tenancy.FromContext(ctx)
-	if pool == nil || !ok || bound.String() != tenantID || userID == "" {
-		return nil, apierror.Forbidden("current alert metadata owner is unavailable")
-	}
-	// The registry is provider-owned operational metadata, not an app-role
-	// tenant table. A fresh existing lifecycle source preserves that boundary
-	// and never serves a cached admission result to this background read.
-	status, err := NewTenantStatusCache(pool, 0).TenantStatus(ctx, tenantID)
+	current, err := loadCurrentUserAuthority(ctx, pool, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
-	if status != "active" {
-		return nil, apierror.Forbidden("current alert metadata tenant is inactive")
-	}
-	out := &alertTagAuthority{decider: &Server{pool: pool}}
-	err = tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
-		user, err := (store.Users{}).Get(ctx, sc, userID)
-		if err != nil {
-			return err
-		}
-		if user.TenantID != tenantID || user.Status != "active" {
-			return apierror.Forbidden("current alert metadata owner is inactive")
-		}
-		grants, err := (store.Permissions{}).ForSubject(ctx, sc, "user", userID)
-		if err != nil {
-			return err
-		}
-		policies, err := (store.ABACPolicies{}).List(ctx, sc)
-		if err != nil {
-			return err
-		}
-		principal := auth.PrincipalWithPermissionGrants(&auth.Principal{
-			TenantID: tenantID, UserID: user.ID, Email: user.Email,
-			DisplayName: user.DisplayName, ViaBearerToken: true,
-			Attributes: composeSubjectAttributes(user.Attributes, false),
-		}, grants)
-		out.current = principal
-		out.principal = narrowPrincipalToScopes(auth.ClonePrincipal(principal), alertTagPermissions())
-		out.policies = policies
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return &alertTagAuthority{decider: &Server{pool: pool}, current: current.principal,
+		principal: narrowPrincipalToScopes(auth.ClonePrincipal(current.principal), alertTagPermissions()),
+		policies:  current.policies}, nil
 }
 
 type alertTagMetricSource struct {

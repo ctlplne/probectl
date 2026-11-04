@@ -21,6 +21,11 @@ TESTS = (
     "TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit",
     "TestDashboardReportRenderingReleasesTransactionAndRechecksPublication",
     "TestScheduledDashboardReportsRecheckCapturedStateAndPublishOnce",
+    "TestCurrentAuthorizationIntersectsCredentialAndCurrentGrants",
+    "TestCurrentAuthorizationUsesFreshAttributesAndActualMFA",
+    "TestCurrentAuthorizationBackgroundHasNoWriteOrMFAAuthority",
+    "TestCurrentAuthorizationSnapshotCannotBorrowAnotherIdentityOrCache",
+    "TestCurrentAuthorizationKeepsScopedCredentialAndImmutableSnapshot",
 )
 DATABASE = "probectl_qa_beta_tag_consumers"
 REPORT_TEST = "TestDashboardReportRenderingReleasesTransactionAndRechecksPublication"
@@ -40,6 +45,8 @@ CSV_TESTS = (
     "TestReportCSVLegacyBytesStayStable",
 )
 CSV_ASSERTION = "complete table header is missing"
+AUTHORITY_TEST = "TestCurrentAuthorizationIntersectsCredentialAndCurrentGrants"
+AUTHORITY_ASSERTION = "current/credential intersection ="
 
 
 def report_regression_failed_on_assertion(
@@ -49,6 +56,7 @@ def report_regression_failed_on_assertion(
     root: str = REPORT_TEST,
     marker: str = REPORT_ASSERTION,
     package: str = PACKAGE,
+    child: str = "success",
 ) -> bool:
     """A compiler error, skip, unrelated assertion or passing run is not proof."""
     runs = failures = child_runs = child_failures = package_failures = 0
@@ -68,7 +76,7 @@ def report_regression_failed_on_assertion(
             failures += action == "fail"
             if action == "pass":
                 return False
-        if name == root + "/success":
+        if name == root + "/" + child:
             child_runs += action == "run"
             child_failures += action == "fail"
             if action == "pass":
@@ -258,6 +266,55 @@ def report_csv_proof(env: dict[str, str]) -> None:
         raise RuntimeError("current complete report CSV proof failed")
 
 
+def current_authority_regression(env: dict[str, str]) -> None:
+    source = Path("internal/control/abac.go")
+    original = source.read_text()
+    seam = "if loaded, ok := ctx.Value(loadedUserAuthorizationKey{}).(*loadedUserAuthorization); ok {"
+    if original.count(seam) != 1:
+        raise RuntimeError("current authorization regression seam is unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        # Restore the cached-only decision path while keeping all test inputs,
+        # current user loading, credential scopes and assertions unchanged.
+        source.write_text(
+            original.replace(seam, seam.replace("; ok {", "; false && ok {"))
+        )
+        result = subprocess.run(
+            [
+                "go",
+                "test",
+                "-race",
+                "-tags=integration",
+                "-count=1",
+                "-timeout=4m",
+                "-json",
+                "-run",
+                "^" + AUTHORITY_TEST + "$/^credential_ceiling$",
+                "./internal/control",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    finally:
+        source.write_text(original)
+    sys.stdout.write(result.stdout)
+    sys.stderr.write(result.stderr)
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        root=AUTHORITY_TEST,
+        marker=AUTHORITY_ASSERTION,
+        child="credential_ceiling",
+    ):
+        raise RuntimeError(
+            "cached-only authorization did not fail the exact credential assertion"
+        )
+    print(json.dumps({"current_authority_baseline_assertion_failed": True}))
+
+
 def selftest() -> None:
     def event(action: str, name: str | None = None, package: str = PACKAGE) -> dict:
         item = {"Action": action, "Package": package}
@@ -307,10 +364,11 @@ def selftest() -> None:
             encoded(records) + "\nnot an event", 0, package=package, tests=tests
         )
         assert classify("", 0, package=package, tests=tests)
-    for root, marker, package in (
-        (REPORT_TEST, REPORT_ASSERTION, PACKAGE),
-        (SCHEDULE_TEST, SCHEDULE_ASSERTION, PACKAGE),
-        (CSV_TESTS[0], CSV_ASSERTION, CSV_PACKAGE),
+    for root, marker, package, child in (
+        (REPORT_TEST, REPORT_ASSERTION, PACKAGE, "success"),
+        (SCHEDULE_TEST, SCHEDULE_ASSERTION, PACKAGE, "success"),
+        (CSV_TESTS[0], CSV_ASSERTION, CSV_PACKAGE, "success"),
+        (AUTHORITY_TEST, AUTHORITY_ASSERTION, PACKAGE, "credential_ceiling"),
     ):
 
         def make_event(
@@ -318,19 +376,20 @@ def selftest() -> None:
         ) -> dict:
             return event(action, name, package)
 
+        child_name = root + "/" + child
         baseline = [
             make_event("run", root),
-            make_event("run", root + "/success"),
-            dict(make_event("output", root + "/success"), Output=marker),
-            make_event("fail", root + "/success"),
+            make_event("run", child_name),
+            dict(make_event("output", child_name), Output=marker),
+            make_event("fail", child_name),
             make_event("fail", root),
             make_event("fail"),
         ]
         assert report_regression_failed_on_assertion(
-            encoded(baseline), 1, root=root, marker=marker, package=package
+            encoded(baseline), 1, root=root, marker=marker, package=package, child=child
         )
         assert not report_regression_failed_on_assertion(
-            encoded(baseline), 0, root=root, marker=marker, package=package
+            encoded(baseline), 0, root=root, marker=marker, package=package, child=child
         )
         for bad in (
             [],
@@ -338,19 +397,32 @@ def selftest() -> None:
             baseline[:1] + baseline[2:],
             baseline[:-1],
             baseline + [make_event("pass", root)],
-            baseline + [make_event("pass", root + "/success")],
-            baseline + [make_event("skip", root + "/success")],
+            baseline + [make_event("pass", child_name)],
+            baseline + [make_event("skip", child_name)],
             baseline + [make_event("fail", root)],
             [dict(item, Output="unrelated assertion") for item in baseline],
             [dict(item, Package="foreign/package") for item in baseline],
             [make_event("fail")],
         ):
             assert not report_regression_failed_on_assertion(
-                encoded(bad), 1, root=root, marker=marker, package=package
+                encoded(bad), 1, root=root, marker=marker, package=package, child=child
             )
         other = SCHEDULE_TEST if root == REPORT_TEST else REPORT_TEST
         assert not report_regression_failed_on_assertion(
-            encoded(baseline), 1, root=other, marker=marker, package=package
+            encoded(baseline),
+            1,
+            root=other,
+            marker=marker,
+            package=package,
+            child=child,
+        )
+        assert not report_regression_failed_on_assertion(
+            encoded(baseline),
+            1,
+            root=root,
+            marker=marker,
+            package=package,
+            child="wrong_case",
         )
     print("Tag/report CSV classifier rejects missing/skipped/failed/duplicate proof")
 
@@ -385,6 +457,7 @@ def main() -> int:
             os.environ, PROBECTL_DATABASE_URL=dsn, PROBECTL_TEST_REQUIRE_SERVICES="1"
         )
         report_csv_proof(env)
+        current_authority_regression(env)
         report_regression(env)
         report_regression(env, scheduled=True)
         result = subprocess.run(

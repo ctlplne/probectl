@@ -219,6 +219,15 @@ entry expires, a failed database refresh also returns **503 unavailable** and
 the protected handler does not run; an expired empty or allow policy set is
 never treated as authority.
 
+Metadata operations that explicitly reload the active user, role grants and
+policies use that request-local policy snapshot throughout their source checks.
+The same decision door requires both the captured current role and the
+originating credential's scopes; an older principal or preverified check cannot
+widen either. Directory attributes are current, while MFA comes only from the
+actual live request. Background source principals contain only selected reads
+and carry no stored MFA or human authority. A mismatched user/tenant, failed
+current-state load or cancellation refuses the operation.
+
 ## Directory connectors
 
 Entra ID and Okta integrate via the **standard path probectl already

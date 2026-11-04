@@ -211,6 +211,29 @@ func (c *abacCache) invalidate(tenantID string) {
 // authoring extras all pass here; the authz-chokepoint gate bans new direct
 // uses of the underlying evaluation primitives outside this file.
 func (s *Server) decide(ctx context.Context, p *auth.Principal, perm string, mode auth.RBACCheck, resource map[string]string) (auth.DecisionReason, error) {
+	if loaded, ok := ctx.Value(loadedUserAuthorizationKey{}).(*loadedUserAuthorization); ok {
+		bound, boundOK := tenancy.FromContext(ctx)
+		if loaded == nil || loaded.current == nil || loaded.ceiling == nil || p == nil || !boundOK ||
+			loaded.userID == "" || bound.String() != loaded.tenantID || p.TenantID != loaded.tenantID || p.UserID != loaded.userID ||
+			loaded.ceiling.TenantID != loaded.tenantID || loaded.ceiling.UserID != loaded.userID ||
+			loaded.current.TenantID != loaded.tenantID || loaded.current.UserID != loaded.userID {
+			return auth.DecisionTenantBoundary, apierror.Forbidden("current authorization scope does not match the caller")
+		}
+		// Earlier preverification cannot establish either newly loaded roles
+		// or the separate originating credential's tenant-wide source grant.
+		if mode == auth.RBACPreverified {
+			mode = auth.RBACGlobal
+		}
+		decision, err := s.decideLoaded(ctx, p, perm, mode, resource, loaded.policies)
+		if err != nil || decision != auth.DecisionAllowed {
+			return decision, err
+		}
+		decision, err = s.decideLoaded(ctx, loaded.current, perm, mode, resource, loaded.policies)
+		if err != nil || decision != auth.DecisionAllowed {
+			return decision, err
+		}
+		return s.decideLoaded(ctx, loaded.ceiling, perm, mode, resource, loaded.policies)
+	}
 	var policies []auth.Policy
 	if s.abac != nil && p != nil {
 		loaded, err := s.abac.policies(ctx, p.TenantID)

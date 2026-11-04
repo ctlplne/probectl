@@ -254,7 +254,8 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 		if actor == nil || actor.UserID == "" {
 			return apierror.Unauthorized("a current user is required for alert metadata")
 		}
-		authority, err := loadAlertTagAuthority(tenancy.WithTenant(r.Context(), tenancy.ID(actor.TenantID)), s.pool, actor.TenantID, actor.UserID)
+		r = r.WithContext(tenancy.WithTenant(r.Context(), tenancy.ID(actor.TenantID)))
+		authority, err := loadAlertTagAuthority(r.Context(), s.pool, actor.TenantID, actor.UserID)
 		if err != nil {
 			return err
 		}
