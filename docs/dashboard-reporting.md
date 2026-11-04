@@ -332,3 +332,11 @@ streams full500,000-row CSV and4,000-row PDF output through this path and reject
 a deliberately borrowed caller buffer. This introduces no persisted body,
 object path, file spool or background cleanup state; larger artifact storage
 and all public source/recipient wiring remain in progress.
+
+CI also runs each complete staged format in its own non-race test process and
+retains `report-body-memory` observations. These distinguish charged staging
+allocation from Linux peak process RSS. The RSS includes fonts, runtime and
+independent verification; compiler memory is excluded. It measures the tested
+renderer/stager/verifier process, rather than source-query or production-only
+memory. Durations remain observations and existing output/allocation limits
+remain enforced.

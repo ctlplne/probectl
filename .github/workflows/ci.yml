@@ -383,6 +383,17 @@ jobs:
         run: |
           python3 scripts/ci_report_pdf.py --selftest
           python3 scripts/ci_report_pdf.py
+      - name: Observe complete report body memory (CI only)
+        run: |
+          python3 scripts/ci_report_body_memory.py --selftest
+          python3 scripts/ci_report_body_memory.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: report-body-memory
+          path: dist/report-body-memory/*.json
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: always()
         with:
@@ -1348,7 +1359,7 @@ jobs:
         run: ./scripts/ci_pg_tls.sh
       - name: Current tag alert, native and report publication proof
         # Separate TLS DB preserves the full suite's clean initial state.
-        # Both named tests must execute and pass; skips/missing tests fail.
+        # Every named root must execute and pass; skips/missing tests fail.
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
         run: |
