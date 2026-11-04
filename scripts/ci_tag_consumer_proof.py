@@ -49,6 +49,11 @@ CSV_TESTS = (
     "TestReportCSVWholeOperationBudgetsCancellationAndFailure",
     "TestReportCSVLegacyBytesStayStable",
     "TestReportFieldIdentitiesRetainCompleteSchemaAndCapture",
+    "TestReportBodyStageCopiesExactBytesAndSealsIntegrity",
+    "TestReportBodyStageRefusesPartialOverBudgetAndCanceledOutput",
+    "TestReportBodyStageHashFailureNeverReturnsPartialDigest",
+    "TestReportBodyStageStreamsCompleteCSV",
+    "TestReportBodyStageStreamsCompletePDF",
 )
 CSV_ASSERTION = "complete table header is missing"
 AUTHORITY_TEST = "TestCurrentAuthorizationIntersectsCredentialAndCurrentGrants"
@@ -57,6 +62,8 @@ PROJECTION_ASSERTION = "complete report matrix cells are missing"
 LIVE_SOURCE_TEST = "TestReportLiveFlowCaptureUsesCurrentOwnedSourcesAndOneBatch"
 LIVE_SOURCE_ASSERTION = "report comparison bypassed cumulative source read budget"
 FROZEN_CONTEXT_ASSERTION = "frozen source ignored a denied captured or current context"
+STAGING_TEST = "TestReportBodyStageCopiesExactBytesAndSealsIntegrity"
+STAGING_ASSERTION = "staged original bytes or independent SHA256 vector changed"
 AUTHORITY_ASSERTION = "current/credential intersection ="
 
 
@@ -444,6 +451,57 @@ def report_live_source_regression(
     )
 
 
+def report_staging_regression(env: dict[str, str]) -> None:
+    source = Path("internal/reporting/body_stage.go")
+    original = source.read_text()
+    seam = "\t\tcopied := copy(s.chunks[index][inside:], value[offset:])"
+    if original.count(seam) != 1:
+        raise RuntimeError("report staging ownership omission seam is unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(
+            original.replace(
+                seam,
+                seam
+                + "\n\t\tif s.size == 0 && len(value) <= BodyChunkBytes { s.chunks[index] = value }",
+            )
+        )
+        result = subprocess.run(
+            [
+                "go",
+                "test",
+                "-race",
+                "-count=1",
+                "-timeout=4m",
+                "-json",
+                "-run",
+                "^" + STAGING_TEST + "$/^red$",
+                "./internal/reporting",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    finally:
+        source.write_text(original)
+    sys.stdout.write(result.stdout)
+    sys.stderr.write(result.stderr)
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        root=STAGING_TEST,
+        marker=STAGING_ASSERTION,
+        package=CSV_PACKAGE,
+        child="red",
+    ):
+        raise RuntimeError(
+            "borrowed staging buffer did not fail its exact integrity assertion"
+        )
+    print(json.dumps({"report_staging_borrowed_buffer_assertion_failed": True}))
+
+
 def selftest() -> None:
     def event(action: str, name: str | None = None, package: str = PACKAGE) -> dict:
         item = {"Action": action, "Package": package}
@@ -501,6 +559,7 @@ def selftest() -> None:
         (PROJECTION_TEST, PROJECTION_ASSERTION, PACKAGE, "success"),
         (LIVE_SOURCE_TEST, LIVE_SOURCE_ASSERTION, PACKAGE, "success"),
         (LIVE_SOURCE_TEST, FROZEN_CONTEXT_ASSERTION, PACKAGE, "success"),
+        (STAGING_TEST, STAGING_ASSERTION, CSV_PACKAGE, "red"),
     ):
 
         def make_event(
@@ -589,6 +648,7 @@ def main() -> int:
             os.environ, PROBECTL_DATABASE_URL=dsn, PROBECTL_TEST_REQUIRE_SERVICES="1"
         )
         report_csv_proof(env)
+        report_staging_regression(env)
         report_projection_regression(env)
         report_live_source_regression(env)
         report_live_source_regression(env, captured_scope=True)

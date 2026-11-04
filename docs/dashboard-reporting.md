@@ -322,3 +322,13 @@ between sites must satisfy both scopes; sharing can be revoked without changing
 frozen values. The required proof covers these changes and deliberately omits
 the captured-context check to verify refusal. This component still needs wiring
 across every artifact metadata and body surface before live sources are public.
+
+Renderer output can be staged in fixed request-owned memory chunks before any
+storage choice is made. Whole-output and allocation budgets are distinct from
+source and renderer workspace. Only a complete successful render and streaming
+digest produce readable staging; tenant scope, cancellation and reader lifetime
+are checked, and closing clears the buffers. The mandatory component proof
+streams full500,000-row CSV and4,000-row PDF output through this path and rejects
+a deliberately borrowed caller buffer. This introduces no persisted body,
+object path, file spool or background cleanup state; larger artifact storage
+and all public source/recipient wiring remain in progress.
