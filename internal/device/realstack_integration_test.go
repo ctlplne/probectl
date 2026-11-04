@@ -76,10 +76,12 @@ const pollInterval = 15 * time.Second
 // LLDP-MIB rows are served by snmpd itself (override directives), read over
 // the same authenticated session as every other walk.
 //
-// The stack is the shipped control plane on the four-store profile
-// (shipped.Start): least-privilege PostgreSQL, Kafka with strict tenant
-// lanes, ClickHouse, Prometheus as the TSDB, TLS everywhere, the real IdP
-// (production session auth in Chromium) and an MSP license.
+// The stack is the shipped control plane on the shared four-store CI profile
+// (shipped.Start): least-privilege PostgreSQL, strict tenant bus lanes,
+// ClickHouse, Prometheus, the real IdP (production session auth in Chromium)
+// and an MSP license. The public API and agent evidence listener use verified
+// TLS. Shared dev-service transports are distinct from the authenticated
+// TLS/SASL release-image proof in test/e2e.
 //
 //  1. A registers its device collector through the API (topology-rich
 //     profile), B with `probectl agent enroll-token` + `probectl collector
