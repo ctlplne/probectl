@@ -102,6 +102,7 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 	plan = append(plan, entityMetadataCheckPlan(schema, tenantTables)...)
 	plan = append(plan, entityNetworkPrefixCheckPlan(schema, tenantTables)...)
 	plan = append(plan, tagStoragePlan(schema, tenantTables, true)...)
+	plan = append(plan, reportArtifactStoragePlan(schema, tenantTables)...)
 	return plan
 }
 
@@ -452,6 +453,12 @@ func tableRolePlan(quotedTable, table string) []string {
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
 			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_provider",
 		}
+	case "dashboard_report_artifacts", "dashboard_report_artifact_chunks":
+		return []string{
+			"REVOKE ALL ON " + quotedTable + " FROM probectl_app",
+			"GRANT SELECT, INSERT, DELETE ON " + quotedTable + " TO probectl_app",
+			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
+		}
 	}
 	return []string{
 		"GRANT SELECT, INSERT, UPDATE, DELETE ON " + quotedTable + " TO probectl_app",
@@ -617,6 +624,7 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 	plan = append(plan, entityMetadataCheckPlan(schema, cat.TenantTables)...)
 	plan = append(plan, entityNetworkPrefixCheckPlan(schema, cat.TenantTables)...)
 	plan = append(plan, tagStoragePlan(schema, cat.TenantTables, false)...)
+	plan = append(plan, reportArtifactStoragePlan(schema, cat.TenantTables)...)
 	return plan
 }
 

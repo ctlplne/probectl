@@ -1365,6 +1365,12 @@ jobs:
         run: |
           python3 scripts/ci_tag_consumer_proof.py --selftest
           python3 scripts/ci_tag_consumer_proof.py
+      - name: Report artifact storage isolation and old-reader refusal
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_report_artifact_storage.py --selftest
+          python3 scripts/ci_report_artifact_storage.py
       - name: Targetless test metadata isolation and original refusal
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
