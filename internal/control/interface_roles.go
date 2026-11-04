@@ -16,7 +16,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -134,8 +134,8 @@ func classifyInterfaceRole(ctx context.Context, scope entity.Scope, at time.Time
 	if err != nil || !ok || bound.String() != normalized.TenantID || facts.Scope != normalized || policy.Scope != normalized {
 		return none, entity.ErrScopeMismatch
 	}
-	id, err := uuid.Parse(facts.InterfaceID)
-	if err != nil || id == uuid.Nil || id.String() != facts.InterfaceID || !interfaceRoleSource(facts.SourceID) || !facts.Clock.valid() || at.IsZero() {
+	id, err := gouuid.Parse(facts.InterfaceID)
+	if err != nil || id == gouuid.Nil || id.String() != facts.InterfaceID || !interfaceRoleSource(facts.SourceID) || !facts.Clock.valid() || at.IsZero() {
 		return none, errInterfaceRoleInput
 	}
 	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 {
