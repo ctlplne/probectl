@@ -70,6 +70,86 @@
       "path": "proto/gnmi_ext/gnmi_ext.proto",
       "source": "openconfig/gnmi v0.14.1, Copyright 2018 Google Inc.; internal/gen holds the Go generated from it",
       "sha256": "dd102b5eb4c92c6892aaaa82a225359a25910171bc5f08c9e86c5b1854eec461"
+    },
+    {
+      "ecosystem": "font:reporting",
+      "name": "NotoSans upright variable",
+      "version": "2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "internal/reporting/fonts/NotoSans.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/notosans/NotoSans%5Bwdth%2Cwght%5D.ttf",
+      "sha256": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
+    },
+    {
+      "ecosystem": "font:reporting",
+      "name": "NotoSansArabic upright variable",
+      "version": "2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "internal/reporting/fonts/NotoSansArabic.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf",
+      "sha256": "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e"
+    },
+    {
+      "ecosystem": "font:reporting",
+      "name": "NotoSansDevanagari upright variable",
+      "version": "2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "internal/reporting/fonts/NotoSansDevanagari.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/notosansdevanagari/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf",
+      "sha256": "14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e"
+    },
+    {
+      "ecosystem": "font:reporting",
+      "name": "NotoSansSC upright variable",
+      "version": "2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "internal/reporting/fonts/NotoSansSC.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
+      "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+    },
+    {
+      "ecosystem": "font:reporting",
+      "name": "NotoEmoji upright variable",
+      "version": "2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "internal/reporting/fonts/NotoEmoji.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/notoemoji/NotoEmoji%5Bwght%5D.ttf",
+      "sha256": "de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551"
+    },
+    {
+      "ecosystem": "font:reporting",
+      "name": "NotoSansSymbols2",
+      "version": "2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "internal/reporting/fonts/NotoSansSymbols2.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/notosanssymbols2/NotoSansSymbols2-Regular.ttf",
+      "sha256": "7d5fb73b7ca67a6798101741f5d280a3d016a56a197afcd4199dbb57b4b82a21"
+    },
+    {
+      "ecosystem": "font:reporting",
+      "name": "NotoSansHebrew upright variable",
+      "version": "2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "internal/reporting/fonts/NotoSansHebrew.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/notosanshebrew/NotoSansHebrew%5Bwdth%2Cwght%5D.ttf",
+      "sha256": "7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88"
+    },
+    {
+      "ecosystem": "font:reporting",
+      "name": "NotoSansThai upright variable",
+      "version": "2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc",
+      "scope": "runtime (vendored)",
+      "license": "OFL-1.1",
+      "path": "internal/reporting/fonts/NotoSansThai.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc/ofl/notosansthai/NotoSansThai%5Bwdth%2Cwght%5D.ttf",
+      "sha256": "5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8"
     }
   ]
 }

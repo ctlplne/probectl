@@ -646,7 +646,8 @@ func renderDashboardReport(ctx context.Context, format string, doc reporting.Doc
 		content, err = reporting.RenderCSVContext(ctx, doc)
 		mediaType = "text/csv"
 	} else {
-		content, mediaType, err = renderReport(format, doc)
+		content, err = reporting.RenderPDFContext(ctx, doc)
+		mediaType = "application/pdf"
 	}
 	if err != nil {
 		return nil, "", err

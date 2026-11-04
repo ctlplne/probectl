@@ -10,6 +10,7 @@ require (
 	github.com/cilium/ebpf v0.22.0
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/go-jose/go-jose/v4 v4.1.6
+	github.com/go-text/typesetting v0.3.5
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/klauspost/compress v1.18.7
@@ -20,6 +21,7 @@ require (
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260515175617-8268a5d078c0
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1
 	go.opentelemetry.io/proto/otlp v1.10.0
+	golang.org/x/image v0.47.0
 	golang.org/x/net v0.62.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.24.0

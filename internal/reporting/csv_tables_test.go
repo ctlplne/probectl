@@ -131,8 +131,18 @@ func TestReportCSVKeepsWholeUnicodeFormulaAndCRLFCells(t *testing.T) {
 	if !reflect.DeepEqual(rows[len(rows)-2], wantHeader) || !reflect.DeepEqual(rows[len(rows)-1], want) {
 		t.Fatal("complete field keys, wide literal cells or exact numeric cells changed")
 	}
-	if pdf, err := RenderPDF(d); err == nil || pdf != nil {
-		t.Fatal("PDF silently accepted and omitted unsupported table records")
+	if pdf, err := RenderPDF(d); err != nil || len(pdf) == 0 {
+		t.Fatalf("PDF rejected complete table records: %v", err)
+	} else {
+		semantic := pdfSemanticText(t, pdf)
+		for _, want := range []string{"＝field", "tag:site", "9007199254740993", "+SUM(1,2)", "終\r\n末,"} {
+			if !strings.Contains(semantic, want) {
+				t.Fatalf("PDF table omitted complete value %q", want)
+			}
+		}
+		if strings.Count(semantic, "界") != 30000 || strings.Count(semantic, "🚀") != 30000 {
+			t.Fatal("PDF table omitted wide Unicode text")
+		}
 	}
 }
 

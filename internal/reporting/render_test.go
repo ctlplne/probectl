@@ -8,12 +8,16 @@ package reporting
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/csv"
+	"encoding/hex"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 )
 
 func testDocument() Document {
@@ -54,7 +58,7 @@ func TestDashboardReportCarriesMandatoryScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderPDF: %v", err)
 	}
-	if !bytes.HasPrefix(pdfBytes, []byte("%PDF-1.4")) || !bytes.Contains(pdfBytes, []byte(`Tenant: Acme \(tenant-a\)`)) {
+	if !bytes.HasPrefix(pdfBytes, []byte("%PDF-1.4")) || !strings.Contains(pdfSemanticText(t, pdfBytes), "Tenant: Acme (tenant-a)") {
 		t.Fatalf("PDF does not carry a valid header and tenant scope: %q", pdfBytes[:min(len(pdfBytes), 120)])
 	}
 }
@@ -100,7 +104,7 @@ func TestPDFWrapsDisclosuresAndPreservesAllMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(pdf)
+	text := pdfSemanticText(t, pdf)
 	if strings.Contains(text, "omitted") {
 		t.Error("valid exact values were omitted")
 	}
@@ -109,20 +113,24 @@ func TestPDFWrapsDisclosuresAndPreservesAllMetrics(t *testing.T) {
 			t.Errorf("missing metric %d", i)
 		}
 	}
-	// Each Courier glyph is 6 points at 10pt. 88 glyphs fit inside 40pt
-	// margins on a 612pt page. Escapes are PDF syntax, not extra glyphs.
-	linePattern := regexp.MustCompile(`(?m)^\((.*)\) Tj$`)
-	for _, match := range linePattern.FindAllStringSubmatch(text, -1) {
-		line := strings.NewReplacer(`\(`, "(", `\)`, ")", `\\`, `\`).Replace(match[1])
-		if len(line) > 88 {
-			t.Errorf("line exceeds printable width: %d glyphs", len(line))
+	// Check every positioned glyph, independently of the wrapping code.
+	positions := regexp.MustCompile(`1 0 0 1 ([0-9.]+) ([0-9.]+) Tm`).FindAllStringSubmatch(string(pdf), -1)
+	if len(positions) == 0 {
+		t.Fatal("PDF contains no positioned glyphs")
+	}
+	for _, position := range positions {
+		x, _ := strconv.ParseFloat(position[1], 64)
+		y, _ := strconv.ParseFloat(position[2], 64)
+		if x < 43.99 || x > 568.01 || y < 30 || y > 750 {
+			t.Fatalf("positioned glyph escaped page margins: %v", position)
 		}
 	}
-	pages := strings.Count(text, "/Type /Page /Parent")
-	if pages < 3 {
+
+	pages := strings.Count(string(pdf), "/Type /Page /Parent")
+	if pages < 2 {
 		t.Errorf("expected pagination, got %d pages", pages)
 	}
-	if strings.Count(text, `Tenant: Acme \(tenant-a\)`) != pages {
+	if strings.Count(text, "Tenant: Acme (tenant-a)") != pages {
 		t.Error("tenant scope must repeat on every page")
 	}
 	if strings.Count(text, "Absolute time:") != pages {
@@ -148,7 +156,7 @@ func TestPDFPreservesWhitespaceInsideExactValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(pdf, []byte("opaque value: left  right")) {
+	if !strings.Contains(pdfSemanticText(t, pdf), "opaque value: left  right") {
 		t.Fatal("PDF changed significant whitespace in an exact value")
 	}
 }
@@ -200,4 +208,23 @@ func TestReportCSVPreservesCompleteLiteralTextAcrossEveryUntrustedField(t *testi
 			t.Fatal("ordinary text changed")
 		}
 	}
+}
+
+// Decode PDF semantic text independently of the renderer's UTF-16 encoder.
+// Poppler separately checks extraction and ink bounds in the CI PDF proof.
+func pdfSemanticText(t *testing.T, body []byte) string {
+	t.Helper()
+	var out strings.Builder
+	for _, match := range regexp.MustCompile(`/ActualText <([0-9A-F]+)>`).FindAllSubmatch(body, -1) {
+		raw, err := hex.DecodeString(string(match[1]))
+		if err != nil || len(raw) < 2 || len(raw)%2 != 0 || raw[0] != 0xfe || raw[1] != 0xff {
+			t.Fatal("invalid PDF ActualText encoding")
+		}
+		units := make([]uint16, (len(raw)-2)/2)
+		for i := range units {
+			units[i] = binary.BigEndian.Uint16(raw[2+i*2 : 4+i*2])
+		}
+		out.WriteString(string(utf16.Decode(units)))
+	}
+	return out.String()
 }

@@ -50,8 +50,10 @@ The page keeps these facts visible above the panels:
 Every generated PDF/CSV repeats the same contract and adds generation time and
 generator identity. PDF text wraps within the page margins and continues onto
 additional pages; all supported exact values are retained. Every page repeats tenant scope and
-the absolute observation interval. The built-in PDF font uses printable ASCII;
-CSV preserves Unicode text. Formula-like text cells use a quoted leading tab
+the absolute observation interval. The offline PDF renderer uses bundled, hash-verified Noto fonts and shapes
+bidirectional and complex-script Unicode text. Glyph outlines and semantic
+Unicode remain in the artifact; system fonts and network fallback are never
+used. Unsupported glyphs fail explicitly. CSV preserves Unicode text. Formula-like text cells use a quoted leading tab
 before their complete rendered text, including ASCII and full-width formula
 markers and leading whitespace/control characters. Report labels, disclosures
 and metric strings follow the same display-text encoder as flow CSV labels.
@@ -70,8 +72,16 @@ changed row count/schema, source failure, invalid value, exhausted budget or
 cancellation makes the staged output unusable. This renderer component is not
 yet exposed as a live-query saved dashboard definition: current saved metrics,
 manifest limits and the 2 MiB persisted artifact limit described below remain
-the public API behavior. PDF table integration remains pending; the renderer
-rejects unsupported tables rather than omitting them.
+the public API behavior. The internal PDF renderer stages complete source tables
+as labelled records, retaining full field keys, source clocks and decimal
+strings. Its envelope is 4,000 logical table rows, 256 MiB output and 128 MiB
+renderer workspace; staging storage and source query costs remain separate.
+Long cells wrap across pages. Missing font coverage, invalid source records,
+budget exhaustion, cancellation or a writer failure refuses the artifact rather
+than producing a shortened report. These component limits do not change the
+current API manifest or persisted artifact limits. The report-pdf CI check uses
+Poppler for independent Unicode extraction, every-page bounds and page images;
+Poppler is not a product runtime dependency.
 
 When an operator saves the current screen, the outer saved-view record captures
 the visible Operator/Executive preset. Its definition captures absolute UTC

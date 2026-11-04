@@ -114,3 +114,59 @@ path = "web/src/styles/fonts/syne-*.woff2"
 precedence = "override"
 SPDX-FileCopyrightText = "2019 The Syne Project Authors (https://gitlab.com/bonjour-monde/fonderie/syne-typeface)"
 SPDX-License-Identifier = "OFL-1.1"
+
+# Unmodified bundled report font and its original upstream notice.
+[[annotations]]
+path = ["internal/reporting/fonts/NotoSans.ttf", "internal/reporting/fonts/NotoSans-OFL.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)"
+SPDX-License-Identifier = "OFL-1.1"
+
+# Unmodified bundled report font and its original upstream notice.
+[[annotations]]
+path = ["internal/reporting/fonts/NotoSansArabic.ttf", "internal/reporting/fonts/NotoSansArabic-OFL.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 The Noto Project Authors (https://github.com/notofonts/arabic)"
+SPDX-License-Identifier = "OFL-1.1"
+
+# Unmodified bundled report font and its original upstream notice.
+[[annotations]]
+path = ["internal/reporting/fonts/NotoSansDevanagari.ttf", "internal/reporting/fonts/NotoSansDevanagari-OFL.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 The Noto Project Authors (https://github.com/notofonts/devanagari)"
+SPDX-License-Identifier = "OFL-1.1"
+
+# Unmodified bundled report font and its original upstream notice.
+[[annotations]]
+path = ["internal/reporting/fonts/NotoSansSC.ttf", "internal/reporting/fonts/NotoSansSC-OFL.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = "2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'"
+SPDX-License-Identifier = "OFL-1.1"
+
+# Unmodified bundled report font and its original upstream notice.
+[[annotations]]
+path = ["internal/reporting/fonts/NotoEmoji.ttf", "internal/reporting/fonts/NotoEmoji-OFL.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = "2013 Google LLC"
+SPDX-License-Identifier = "OFL-1.1"
+
+# Unmodified bundled report font and its original upstream notice.
+[[annotations]]
+path = ["internal/reporting/fonts/NotoSansSymbols2.ttf", "internal/reporting/fonts/NotoSansSymbols2-OFL.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 The Noto Project Authors (https://github.com/notofonts/symbols)"
+SPDX-License-Identifier = "OFL-1.1"
+
+# Unmodified bundled report font and its original upstream notice.
+[[annotations]]
+path = ["internal/reporting/fonts/NotoSansHebrew.ttf", "internal/reporting/fonts/NotoSansHebrew-OFL.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 The Noto Project Authors (https://github.com/notofonts/hebrew)"
+SPDX-License-Identifier = "OFL-1.1"
+
+# Unmodified bundled report font and its original upstream notice.
+[[annotations]]
+path = ["internal/reporting/fonts/NotoSansThai.ttf", "internal/reporting/fonts/NotoSansThai-OFL.txt"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 The Noto Project Authors (https://github.com/notofonts/thai)"
+SPDX-License-Identifier = "OFL-1.1"
