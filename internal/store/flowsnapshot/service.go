@@ -9,7 +9,6 @@ package flowsnapshot
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -629,7 +628,7 @@ func makeCursor(m manifest, key []byte, offset int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base64.RawURLEncoding.EncodeToString(body) + "." + base64.RawURLEncoding.EncodeToString(crypto.Sign(key, body)), nil
+	return encodeCursor(body, crypto.Sign(key, body)), nil
 }
 
 func parseCursor(cursor string) (cursorPayload, []byte, []byte, error) {
@@ -637,15 +636,7 @@ func parseCursor(cursor string) (cursorPayload, []byte, []byte, error) {
 	if len(cursor) > 2048 {
 		return bad()
 	}
-	encoded, signature, ok := strings.Cut(cursor, ".")
-	if !ok {
-		return bad()
-	}
-	body, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return bad()
-	}
-	mac, err := base64.RawURLEncoding.DecodeString(signature)
+	body, mac, err := decodeCursorParts(cursor)
 	if err != nil || len(mac) != 32 {
 		return bad()
 	}

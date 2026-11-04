@@ -362,14 +362,16 @@ func TestSnapshotsScopePermissionsIntegrityAndRetentionFailClosed(t *testing.T) 
 				want = errors.New("source coverage no longer available")
 				s.validate = func(context.Context, Scope, json.RawMessage) error { return want }
 			case "cursor modified":
-				payload, _, _, err := parseCursor(cursor)
+				payload, _, mac, err := parseCursor(cursor)
 				if err != nil {
 					t.Fatal(err)
 				}
 				payload.Offset++
 				body, _ := json.Marshal(payload)
-				_, signature, _ := strings.Cut(cursor, ".")
-				cursor = base64.RawURLEncoding.EncodeToString(body) + "." + signature
+				cursor = encodeCursor(body, mac)
+				if _, _, _, err := parseCursor(cursor); err != nil {
+					t.Fatal("MAC tamper fixture must retain valid cursor syntax")
+				}
 				want = ErrCursor
 			case "manifest modified":
 				repo.mu.Lock()
