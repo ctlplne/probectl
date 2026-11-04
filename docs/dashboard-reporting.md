@@ -286,3 +286,12 @@ exact positive revision in stable order. These use the same complete-record and
 workspace limits as other source sections; a later filter edit cannot change a
 captured revision, and decimal versions above JavaScript's integer range remain
 exact in CSV and PDF.
+
+Current saved-query visibility has a separate storage read for report recipients.
+It selects the authenticated tenant partition and current owner/shared predicate
+before returning identity, visibility and exact current version metadata. It
+does not decode current query text or replace frozen input values when a tag or
+query changes. This metadata grants no source permission: report reads still
+require fresh user authority, actual credential ceilings and captured context
+grants. Publication continues to require the complete exact-version source
+check. Full live-source and recipient integration remains in progress.

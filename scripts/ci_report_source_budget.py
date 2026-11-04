@@ -25,9 +25,28 @@ TESTS = (
     "TestExplorerClickHouseRealPlanBatchCostAndTenantBoundary",
 )
 MARKER = "repeated source plan received a fresh read allowance"
+VIEW_PACKAGE = "github.com/ctlplne/probectl/internal/flow"
+VIEW_TESTS = (
+    "TestQueryViewCurrentAccessIsScopedAndIndependentOfFrozenDefinition",
+    "TestQueryViewCurrentAccessRefusesMissingMismatchedAndMalformedScope",
+    "TestQueryViewsPostgresRealScopePersistenceAuditAndLifecycle",
+)
+VIEW_MARKER = "source metadata must remain readable after definition change"
 
 
 def selftest() -> None:
+    view_events = [
+        {"Package": VIEW_PACKAGE, "Test": test, "Action": action}
+        for test in VIEW_TESTS
+        for action in ("run", "pass")
+    ] + [{"Package": VIEW_PACKAGE, "Action": "pass"}]
+    view_log = "\n".join(json.dumps(event) for event in view_events)
+    assert not classify(view_log, 0, package=VIEW_PACKAGE, tests=VIEW_TESTS)
+    for removed in VIEW_TESTS:
+        partial = "\n".join(
+            json.dumps(event) for event in view_events if event.get("Test") != removed
+        )
+        assert classify(partial, 0, package=VIEW_PACKAGE, tests=VIEW_TESTS)
     events = [
         {"Package": PACKAGE, "Test": test, "Action": action}
         for test in TESTS
@@ -71,12 +90,41 @@ def selftest() -> None:
         assert not report_regression_failed_on_assertion(
             encode(bad), code, root=TESTS[0], marker=MARKER, package=PACKAGE
         )
+    view_control = []
+    for event in control:
+        copied = dict(event, Package=VIEW_PACKAGE)
+        copied["Test"] = (
+            event["Test"]
+            .replace(TESTS[0], VIEW_TESTS[-1])
+            .replace("/success", "/current_visibility")
+        )
+        if copied.get("Output") == MARKER:
+            copied["Output"] = VIEW_MARKER
+        view_control.append(copied)
+    assert report_regression_failed_on_assertion(
+        encode(view_control),
+        1,
+        root=VIEW_TESTS[-1],
+        marker=VIEW_MARKER,
+        package=VIEW_PACKAGE,
+        child="current_visibility",
+    )
+    assert not report_regression_failed_on_assertion(
+        encode(view_control),
+        0,
+        root=VIEW_TESTS[-1],
+        marker=VIEW_MARKER,
+        package=VIEW_PACKAGE,
+        child="current_visibility",
+    )
     print(
         "Batch source classifier refuses missing, duplicate, skipped and false assertion proof"
     )
 
 
-def run_tests(pattern: str) -> subprocess.CompletedProcess:
+def run_tests(
+    pattern: str, go_package: str = "./internal/store/flowstore"
+) -> subprocess.CompletedProcess:
     result = subprocess.run(
         [
             "go",
@@ -88,7 +136,7 @@ def run_tests(pattern: str) -> subprocess.CompletedProcess:
             "-json",
             "-run",
             pattern,
-            "./internal/store/flowstore",
+            go_package,
         ],
         capture_output=True,
         text=True,
@@ -98,6 +146,62 @@ def run_tests(pattern: str) -> subprocess.CompletedProcess:
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
     return result
+
+
+def visibility_proof() -> None:
+    source = Path("internal/flow/query_view_access.go")
+    original = source.read_text()
+    signature = "func (s *PostgresQueryViewStore) GetQueryViewAccess("
+    if original.count(signature) != 1:
+        raise RuntimeError("current source visibility seam unavailable")
+    start = original.index(signature)
+    end = original.index("\nvar (", start)
+    decoded = """func (s *PostgresQueryViewStore) GetQueryViewAccess(ctx context.Context, tenant, owner, id string) (QueryViewAccess, error) {
+    if err := queryViewAccessScope(ctx, tenant, owner, id); err != nil { return QueryViewAccess{}, err }
+    current, err := s.GetQueryView(ctx, tenant, owner, id)
+    if err != nil { return QueryViewAccess{}, err }
+    version, err := strconv.ParseInt(current.Version, 10, 64)
+    if err != nil { return QueryViewAccess{}, err }
+    return validateQueryViewAccess(QueryViewAccess{ID: current.ID, TenantID: current.TenantID, OwnerID: current.OwnerID, Visibility: current.Definition.Visibility, Version: strconv.FormatInt(version, 10)}, tenant, owner)
+}
+"""
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original[:start] + decoded + original[end:])
+        before = run_tests(
+            "^" + VIEW_TESTS[-1] + "$/^current_visibility$", "./internal/flow"
+        )
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        before.stdout,
+        before.returncode,
+        root=VIEW_TESTS[-1],
+        marker=VIEW_MARKER,
+        package=VIEW_PACKAGE,
+        child="current_visibility",
+    ):
+        raise RuntimeError(
+            "current visibility control did not fail its exact frozen-definition assertion"
+        )
+    current = run_tests("^(" + "|".join(VIEW_TESTS) + ")$", "./internal/flow")
+    failures = classify(
+        current.stdout, current.returncode, package=VIEW_PACKAGE, tests=VIEW_TESTS
+    )
+    print(
+        json.dumps(
+            {
+                "tests": VIEW_TESTS,
+                "assertion_control": True,
+                "passed": not failures,
+                "failures": failures,
+            }
+        )
+    )
+    if failures:
+        raise RuntimeError(
+            "mandatory current source visibility proofs did not all execute and pass"
+        )
 
 
 def run() -> None:
@@ -146,6 +250,7 @@ def run() -> None:
     )
     if failures:
         raise RuntimeError("mandatory source batch proofs did not all execute and pass")
+    visibility_proof()
 
 
 if __name__ == "__main__":
