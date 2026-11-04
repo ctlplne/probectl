@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -34,21 +35,12 @@ func TestSnapshotCursorEncodingSurvivesMandatoryRedaction(t *testing.T) {
 		t.Fatal("invalid synthetic MAC fixture")
 	}
 	legacy := base64.RawURLEncoding.EncodeToString(body) + "." + shape
-	mask := func(value string) string {
-		value = redactpat.MaskSecrets(value, func(redactpat.SecretShape, string) string { return "[secret:fixture]" })
-		value = redactpat.MaskPAN(value, func(string) string { return "[pan:fixture]" })
-		value = redactpat.SSN.ReplaceAllString(value, "[ssn:fixture]")
-		value = redactpat.Email.ReplaceAllString(value, "[email:fixture]")
-		value = redactpat.MAC.ReplaceAllString(value, "[mac:fixture]")
-		value = redactpat.MaskIPv4(value, func(string) string { return "[ip:fixture]" })
-		value = redactpat.MaskIPv6(value, func(string) string { return "[ip:fixture]" })
-		return redactpat.Hostname.ReplaceAllString(value, "[host:fixture]")
-	}
-	if mask(legacy) == legacy {
+
+	if redactCursorFixture(legacy) == legacy {
 		t.Fatal("legacy cursor collision control did not exercise mandatory secret masking")
 	}
 	cursor := encodeCursor(body, mac)
-	if mask(cursor) != cursor {
+	if redactCursorFixture(cursor) != cursor {
 		t.Fatal("opaque continuation changed under mandatory redaction")
 	}
 	if len(cursor) > 2048 {
@@ -96,10 +88,58 @@ func TestSnapshotCursorEncodingKeepsLegacyAndRealMACValidation(t *testing.T) {
 			t.Fatal("malformed cursor encoding was accepted")
 		}
 	}
+	// Prove a real signed control message collides, using only throwaway
+	// keys derived through the crypto door. Inspect only the fixed-size MAC
+	// prefix while searching; full parsing/redaction runs once after a match.
+	foundSignedCollision := false
+	for sequence := 1; sequence <= 1<<22; sequence++ {
+		candidateKey := crypto.Hash([]byte(fmt.Sprintf("cursor redaction fixture %d", sequence)))
+		signature := crypto.Sign(candidateKey, body)
+		signatureText := base64.RawURLEncoding.EncodeToString(signature)
+		if !strings.EqualFold(signatureText[:3], "sk-") {
+			continue
+		}
+		if !redactpat.ProviderToken.MatchString(signatureText) {
+			t.Fatal("signed collision fixture did not match the actual secret rule")
+		}
+		legacy := base64.RawURLEncoding.EncodeToString(body) + "." + signatureText
+		_, legacyControl, legacyMAC, err := parseCursor(legacy)
+		if err != nil || !bytes.Equal(body, legacyControl) || !crypto.Verify(candidateKey, legacyControl, legacyMAC) {
+			t.Fatal("signed legacy fixture was not a valid continuation")
+		}
+		if redactCursorFixture(legacy) == legacy {
+			t.Fatal("valid signed legacy fixture bypassed mandatory secret redaction")
+		}
+		foundSignedCollision = true
+		signed, err := makeCursor(m, candidateKey, 5000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, unchanged, unchangedMAC, err := parseCursor(redactCursorFixture(signed))
+		if err != nil || !bytes.Equal(unchanged, body) || !bytes.Equal(unchangedMAC, signature) || !crypto.Verify(candidateKey, unchanged, unchangedMAC) {
+			t.Fatal("valid signed continuation changed under built-in redaction")
+		}
+		break
+	}
+	if !foundSignedCollision {
+		t.Fatal("deterministic actual-MAC legacy collision fixture did not exercise built-in redaction")
+	}
 	// Canonical JSON and the supported payload version remain mandatory.
 	for _, invalid := range [][]byte{append([]byte(" "), body...), bytes.Replace(body, []byte(`"v":1`), []byte(`"v":2`), 1)} {
 		if _, _, _, err := parseCursor(encodeCursor(invalid, mac)); err != ErrCursor {
 			t.Fatal("noncanonical or unknown cursor payload was accepted")
 		}
 	}
+}
+
+// Same immutable built-in recognition floor as the native result boundary.
+func redactCursorFixture(value string) string {
+	value = redactpat.MaskSecrets(value, func(redactpat.SecretShape, string) string { return "[secret:fixture]" })
+	value = redactpat.MaskPAN(value, func(string) string { return "[pan:fixture]" })
+	value = redactpat.SSN.ReplaceAllString(value, "[ssn:fixture]")
+	value = redactpat.Email.ReplaceAllString(value, "[email:fixture]")
+	value = redactpat.MAC.ReplaceAllString(value, "[mac:fixture]")
+	value = redactpat.MaskIPv4(value, func(string) string { return "[ip:fixture]" })
+	value = redactpat.MaskIPv6(value, func(string) string { return "[ip:fixture]" })
+	return redactpat.Hostname.ReplaceAllString(value, "[host:fixture]")
 }
