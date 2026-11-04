@@ -599,6 +599,16 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
   fire A's rule before A sent anything); and byte-searches logs, responses,
   the page, the webhook bodies and every lane record for the credentials. gNMI is not part of it: it stays proven
   against the in-process mock only.
+  The same journey adds an evidence-only SVID for each registered collector,
+  configures its restricted mTLS channel, and creates owned source anchors and
+  `sys_descr` tag rules through public APIs. Both tag projections start empty;
+  A's first live poll must populate only A, then B's poll must populate B.
+  API and CLI reads require exact owned identities, values and provenance.
+  A real target configuration reload must change the next poll's metadata;
+  manual assignment/reset and source reanchoring must preserve current
+  authority, and foreign contexts and subjects remain hidden. Private evidence
+  keys join the existing secret scans. This shared dev-service fixture does
+  not replace the authenticated TLS/SASL release-image proof.
 - The correlation contract (hop IP ↔ interface, flow exporter+ifIndex ↔
   interface) is pinned by `TestCorrelatorHopToInterface` and
   `TestCorrelatorFlowToInterface`. `TestPollSNMPHealthyDevice`,

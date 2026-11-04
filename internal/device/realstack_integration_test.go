@@ -150,12 +150,12 @@ func TestDeviceTelemetryRealStack(t *testing.T) {
 	opEnv := map[string]string{"PROBECTL_API_TOKEN": op}
 
 	A := &deviceTenant{slug: "dev-acme-" + run, name: "Device Acme", model: "pooled", admin: "ada@acme.example",
-		profile: "topology-rich", sysName: "acme-core-sw1", neighbor: "acme-dist-sw2", neighborPort: "Gi0/48",
+		profile: "topology-rich", sysName: "acme-core-sw1", sysDescr: "Acme firmware v1 Unicode 🌐 é", neighbor: "acme-dist-sw2", neighborPort: "Gi0/48",
 		transport: "snmpv3", credential: "acme-core-ro", user: "acme-ro",
 		authPass: "acme-auth-words-" + run, privPass: "acme-priv-words-" + run,
 		hookHost: "hooks.acme-traps.example", hookSecret: "acme-trap-hook-word-" + run}
 	B := &deviceTenant{slug: "dev-globex-" + run, name: "Device Globex", model: "hybrid", admin: "bob@globex.example",
-		profile: "standard", sysName: "globex-edge-r1", neighbor: "globex-core-r9", neighborPort: "xe-0/0/1",
+		profile: "standard", sysName: "globex-edge-r1", sysDescr: "Globex firmware v1 Unicode 🌐 é", neighbor: "globex-core-r9", neighborPort: "xe-0/0/1",
 		transport: "snmpv2c", credential: "globex-edge-ro", community: "globex-community-words-" + run,
 		hookHost: "hooks.globex-traps.example", hookSecret: "globex-trap-hook-word-" + run}
 	tenants := []*deviceTenant{A, B}
@@ -165,7 +165,7 @@ func TestDeviceTelemetryRealStack(t *testing.T) {
 			fmt.Sprintf(`{"slug":%q,"name":%q,"isolation_model":%q}`, tn.slug, tn.name, tn.model))
 		tn.id = row.ID
 		tn.cookie = st.SignIn(t, tn.id, tn.admin, tn.name)
-		tn.token = st.APIToken(t, tn.cookie, "tenant.read", "agent.write", "metrics.read", "topology.read", "alert.read", "alert.write")
+		tn.token = st.APIToken(t, tn.cookie, "tenant.read", "agent.write", "metrics.read", "topology.read", "alert.read", "alert.write", "tags.read", "entities.read")
 		tn.receiver = hooks[tn.hookHost]
 		tn.device = lab.startDevice(t, tn)
 	}
@@ -173,9 +173,14 @@ func TestDeviceTelemetryRealStack(t *testing.T) {
 	// 1. Registration: A through the API, B through the CLI.
 	A.registerAPI(t, st)
 	B.registerCLI(t, st)
-	for _, tn := range tenants {
-		tn.startAgent(t, st, lab)
-	}
+	proofA, proofB := prepareSNMPTagProof(t, st, A), prepareSNMPTagProof(t, st, B)
+	proofA.requireValue(t, st, "", "")
+	proofB.requireValue(t, st, "", "")
+	A.startAgent(t, st, lab)
+	proofA.awaitValue(t, st, proofA.initialValue, "rule")
+	proofB.requireValue(t, st, "", "") // A's real poll must not populate B.
+	B.startAgent(t, st, lab)
+	proofB.awaitValue(t, st, proofB.initialValue, "rule")
 
 	// 2. Each tenant's telemetry, through the API and the CLI.
 	for _, tn := range tenants {
@@ -230,6 +235,9 @@ func TestDeviceTelemetryRealStack(t *testing.T) {
 	for _, tn := range tenants {
 		tn.renderPage(t, st, tenants)
 	}
+	t.Run("sender-attested-snmp-tag-metadata", func(t *testing.T) {
+		proveSNMPTagMetadata(t, st, proofA, proofB)
+	})
 
 	// 7. No credential leaves the device, the agent's resolver or the wire
 	// format it was meant for.
@@ -239,24 +247,26 @@ func TestDeviceTelemetryRealStack(t *testing.T) {
 // --- the tenants ---
 
 type deviceTenant struct {
-	slug, name, model, admin string
-	profile, sysName         string
-	neighbor, neighborPort   string
-	transport, credential    string
-	user, authPass, privPass string
-	community                string
-	id, cookie, token        string
-	collectorID, lane        string
-	device                   *snmpDevice
-	agentLog                 string
-	trapListen, trapSource   string
-	hookHost, hookSecret     string
-	receiver                 *hookReceiver
-	trapRuleID               string
-	hint                     map[string]any
-	seen                     [][]byte // every API/CLI body and rendered page text, for the secret check
-	mu                       sync.Mutex
-	outOctetsLast            float64 // eth0 out-octets on the API after the burst
+	slug, name, model, admin   string
+	profile, sysName, sysDescr string
+	neighbor, neighborPort     string
+	transport, credential      string
+	user, authPass, privPass   string
+	community                  string
+	id, cookie, token          string
+	collectorID, lane          string
+	device                     *snmpDevice
+	agentLog                   string
+	trapListen, trapSource     string
+	hookHost, hookSecret       string
+	receiver                   *hookReceiver
+	trapRuleID                 string
+	hint                       map[string]any
+	evidence                   map[string]string
+	evidenceKey                string
+	seen                       [][]byte // every API/CLI body and rendered page text, for the secret check
+	mu                         sync.Mutex
+	outOctetsLast              float64 // eth0 out-octets on the API after the burst
 }
 
 func (tn *deviceTenant) env() map[string]string {
@@ -266,7 +276,7 @@ func (tn *deviceTenant) env() map[string]string {
 // secrets are the credential values the tenant's device and agent share.
 func (tn *deviceTenant) secrets() []string {
 	var out []string
-	for _, s := range []string{tn.authPass, tn.privPass, tn.community} {
+	for _, s := range []string{tn.authPass, tn.privPass, tn.community, tn.evidenceKey} {
 		if s != "" {
 			out = append(out, s)
 		}
@@ -368,6 +378,9 @@ func (tn *deviceTenant) startAgent(t *testing.T, st *shipped.Stack, lab *snmpLab
 	cfg := map[string]any{"apiVersion": "probectl.io/device-agent/v1"}
 	for k, v := range tn.hint {
 		cfg[k] = v
+	}
+	if len(tn.evidence) > 0 {
+		cfg["evidence"] = tn.evidence
 	}
 	overrides := map[string]any{"interval": pollInterval.String()}
 	if tn.profile != "topology-rich" {
@@ -1182,7 +1195,7 @@ func (lab *snmpLab) startDevice(t *testing.T, tn *deviceTenant) *snmpDevice {
 		fmt.Fprintf(&agent, "rocommunity %s\n", tn.community)
 		fmt.Fprintf(&client, "defVersion 2c\ndefCommunity %s\n", tn.community)
 	}
-	fmt.Fprintf(&agent, "sysName %s\nsysLocation %s lab\nsysContact noc@%s.example\n", tn.sysName, tn.name, short)
+	fmt.Fprintf(&agent, "sysName %s\nsysDescr %s\nsysLocation %s lab\nsysContact noc@%s.example\n", tn.sysName, tn.sysDescr, tn.name, short)
 	// LLDP-MIB: the local port (lldpLocPortNum 2, eth0) and one remote system
 	// learned on it (lldpRemTimeMark 0, lldpRemLocalPortNum 2, lldpRemIndex 1),
 	// served by snmpd itself.
