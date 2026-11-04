@@ -146,7 +146,7 @@ func TestSNMPInterfacePrefixSnapshotCancellationReturnsNoPartialTable(t *testing
 			}
 			got, err := collectSNMPInterfacePrefixes(ctx, conn, snmpPrefixSnapshotBudgetForTest(rows))
 			if !errors.Is(err, context.Canceled) || got != nil || phase == "before-walk" && conn.calls != 0 {
-				t.Fatal("cancelled prefix walk returned partial evidence or started IO", got, err)
+				t.Fatal("canceled prefix walk returned partial evidence or started IO", got, err)
 			}
 		})
 	}

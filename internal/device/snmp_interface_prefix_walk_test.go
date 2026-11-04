@@ -111,7 +111,7 @@ func TestSNMPInterfacePrefixPacketsPreserveCancellationAndCallbackRefusal(t *tes
 				t.Fatal("packet walk lost collector refusal", err, calls, rows)
 			}
 		} else if !errors.Is(err, context.Canceled) || rows != 0 || phase == "before-request" && calls != 0 {
-			t.Fatal("cancelled walk performed or accepted prefix IO", err, calls, rows)
+			t.Fatal("canceled walk performed or accepted prefix IO", err, calls, rows)
 		}
 	}
 	if err := (gosnmpConn{}).walkInterfacePrefixes(context.Background(), func(gosnmp.SnmpPDU) error { return nil }); !errors.Is(err, errSNMPInterfacePrefixIncomplete) {
