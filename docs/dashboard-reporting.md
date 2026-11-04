@@ -87,6 +87,13 @@ Poppler is not a product runtime dependency. A CI-only offline Chromium image
 of the same bundled font samples accompanies the PDF page images for visual
 comparison; product rendering uses Go only.
 
+The independent word API must return the original logical Unicode, including
+right-to-left combining sequences. Plain-text presentation is checked separately
+because a text dumper can apply bidi reordering. A required adversarial PDF
+reverses replacement Unicode while keeping visible glyphs unchanged; the source
+word check must reject it even when the plain-text token check would accept it.
+Every original row, counter, bounds, raster and font check remains required.
+
 The internal flow-result projection retains detail, Other, totals, chart groups
 and points, total points, both matrix-axis summaries and every matrix cell. It
 preserves exact numeric strings and complete axis-qualified field keys; captured

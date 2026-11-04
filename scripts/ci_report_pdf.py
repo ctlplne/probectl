@@ -14,7 +14,14 @@ from pathlib import Path
 import subprocess
 import xml.etree.ElementTree as ET
 
-from ci_report_pdf_direction import diagnose
+from ci_report_pdf_direction import (
+    RTL_TOKENS,
+    assert_complete_records,
+    assert_default_presentation,
+    diagnose,
+    original_semantics_control,
+    semantics_selftest,
+)
 
 TESTS = (
     "TestReportPDFWholeUnicodeAndCompleteRows",
@@ -71,6 +78,7 @@ def assert_tests(log: str, returncode: int) -> None:
 
 
 def selftest() -> None:
+    semantics_selftest()
     events = [
         {"Package": PACKAGE, "Test": test, "Action": action}
         for test in TESTS
@@ -197,6 +205,8 @@ def run(output: Path) -> None:
     if not images or any(image.stat().st_size < 1000 for image in images):
         raise RuntimeError("PDF rasterization did not produce reviewable pages")
     diagnose(specimen, output)
+    logical = original_semantics_control(specimen, output)
+    assert_default_presentation(text.stdout)
     for token in (
         "LATIN-BEGIN",
         "café",
@@ -236,16 +246,14 @@ def run(output: Path) -> None:
         "WRAP-BEGIN",
         "WRAP-END",
     ):
-        if token not in text.stdout:
+        if token not in logical or (
+            token not in RTL_TOKENS and token not in text.stdout
+        ):
             raise RuntimeError(
                 f"independent PDF extraction lost complete text: {token!r}"
             )
-    for i in range(120):
-        for token in (f"proof-row-{i:03}", str(9_007_199_254_740_993 + i)):
-            if text.stdout.count(token) != 1:
-                raise RuntimeError(
-                    f"independent PDF extraction omitted or duplicated row: {token}"
-                )
+    assert_complete_records(text.stdout)
+    assert_complete_records(logical)
     # Check every word's actual ink/text box rather than trusting renderer math.
     boxes = subprocess.run(
         ["pdftotext", "-bbox", str(specimen), "-"],
