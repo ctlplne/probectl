@@ -203,16 +203,12 @@ func proveSNMPTagMetadata(t *testing.T, st *shipped.Stack, a, b *snmpTagProof) {
 		}
 		snmpTagWrite(t, st, p.tenant, http.StatusNoContent, http.MethodDelete, path+"/"+manual.ID, nil, nil)
 		p.requireValue(t, st, p.changedValue, "rule")
-		// Moving the source must retire its old subject's automatic facts.
-		var nextContext struct {
-			ID string `json:"context_id"`
-		}
-		snmpTagWrite(t, st, p.tenant, http.StatusCreated, http.MethodPost, "/v1/entity-contexts",
-			map[string]string{"site_label": "replacement SNMP site", "vrf_label": "replacement SNMP VRF"}, &nextContext)
+		// Reanchor inside the agent's existing routing context. Assigning a
+		// source never authorizes moving that agent across context boundaries.
 		var nextDevice struct{ ID string }
 		snmpTagWrite(t, st, p.tenant, http.StatusCreated, http.MethodPost, "/v1/entities",
-			map[string]string{"context_id": nextContext.ID, "kind": "device", "label": "replacement SNMP device"}, &nextDevice)
-		p.assignSource(t, st, nextContext.ID, nextDevice.ID)
+			map[string]string{"context_id": p.contextID, "kind": "device", "label": "replacement SNMP device"}, &nextDevice)
+		p.assignSource(t, st, p.contextID, nextDevice.ID)
 		p.requireValue(t, st, "", "")
 		current[p] = ""
 	}
