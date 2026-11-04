@@ -480,7 +480,7 @@ jobs:
   coverage-comment:
     name: coverage-comment
     needs: coverage
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2192,7 +2192,9 @@ jobs:
     name: verify-all (executed-verification umbrella)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: always()
+    # Main keeps its unconditional fail-closed umbrella. A cancelled PR
+    # must release its concurrency group; noncancelled failures still run.
+    if: ${{ always() && (github.event_name != 'pull_request' || !cancelled()) }}
     needs:
       - action-pins
       - secret-scan

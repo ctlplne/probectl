@@ -166,8 +166,9 @@ check_workflow() {
   fi
   grep -Eq '^    needs: coverage[[:space:]]*$' <<<"$commenter" ||
     { echo "workflow-permissions: coverage-comment must depend on coverage" >&2; failed=1; }
-  grep -Eq '^    if:.*always\(\).*pull_request' <<<"$commenter" ||
-    { echo "workflow-permissions: coverage-comment must remain a PR-only always() follow-up" >&2; failed=1; }
+  local expected_comment_condition="    if: \${{ !cancelled() && github.event_name == 'pull_request' }}"
+  grep -Fqx "$expected_comment_condition" <<<"$commenter" ||
+    { echo "workflow-permissions: coverage-comment must remain an exactly PR-only cancellable follow-up" >&2; failed=1; }
   grep -Eq '^    continue-on-error: true[[:space:]]*$' <<<"$commenter" ||
     { echo "workflow-permissions: coverage-comment must remain best-effort" >&2; failed=1; }
   commands="$(printf '%s\n' "$commenter" | job_run_commands)"
@@ -219,7 +220,7 @@ jobs:
           retention-days: 1
   coverage-comment:
     needs: coverage
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     continue-on-error: true
     permissions:
       actions: read
@@ -235,6 +236,19 @@ YAML
 
   check_workflow "$fixture" >/dev/null ||
     { echo "workflow-permissions SELFTEST: valid fixture was rejected" >&2; exit 1; }
+
+  for unsafe_condition in \
+    "    if: \${{ always() && github.event_name == 'pull_request' }}" \
+    "    if: \${{ !cancelled() || github.event_name == 'pull_request' }}"; do
+    awk -v unsafe_condition="$unsafe_condition" '
+      /^    if:/ { print unsafe_condition; next }
+      { print }
+    ' "$fixture" >"$bad"
+    if check_workflow "$bad" >/dev/null 2>&1; then
+      echo "workflow-permissions SELFTEST: unsafe commenter cancellation/event condition was accepted" >&2
+      exit 1
+    fi
+  done
 
   sed '/contents: read/a\
       pull-requests: write' "$fixture" >"$bad"
