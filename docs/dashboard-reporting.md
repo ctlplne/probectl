@@ -1,432 +1,245 @@
 # Dashboards and tenant report delivery
 
-The `/dashboards` screen is the dense, first-party view for joining probectl's
-network planes. It has two presentation presets—**Operator** and **Executive**—but
-they are not cosmetic toggles: Operator shows detailed plane tables, while
-Executive keeps the cross-plane summary, risk, incident, SLO, and policy panels.
-Exact values remain tables, coverage gaps stay attached to the view, and every
-panel says whether it follows the selected interval or shows latest state.
+The native `/dashboards` screen joins network planes in Operator and Executive
+presets. Operator shows detailed plane tables; Executive shows cross-plane
+summary, risk, incidents, SLOs and policy. Exact values and coverage notes stay
+attached to each view.
 
-The native relative-time controller accepts only `15m`, `1h`, `6h`, and `24h`.
-It records the selection as one `range` query parameter, so reload, Back,
-Forward, and a copied same-tenant link reproduce the same evidence question.
-Missing, repeated, oversized, or unknown values canonicalize to `range=1h`.
-Client-supplied tenant keys are removed; authenticated server state remains the
-only tenant authority. The controller uses no browser storage.
+Saved-source reporting is preview while complete source, release and surface
+acceptance is being qualified. Report delivery uses the local tenant inbox.
 
-Flow contributors, flow capacity, flow anomalies, and synthetic result history
-all receive the selected duration. Current topology, inventory, alerts,
-incidents, SLO evaluations, compliance verdicts, detections, and other
-latest-state read models remain explicit rather than pretending to be historical
-queries. This is a native control over existing APIs, not an embedded dashboard
-runtime or a new backend contract.
+## Observation scope and saved recipes
 
-Think of a saved dashboard as a sealed recipe card. The card records which
-tenant it belongs to, who owns it, the absolute time range, the exact values the
-authorized browser saw, provenance, redaction state, and known blind spots. A
-report renderer can turn that card into PDF or CSV without contacting another
-service.
+The dashboard time controller supports `15m`, `1h`, `6h` and `24h` in
+one `range` query parameter. Reload, Back, Forward and a copied same-tenant link
+reproduce that selection. Invalid/repeated values canonicalize to `range=1h`.
+Client-supplied tenant parameters are removed; authentication supplies tenant
+identity. The controller uses no browser storage.
 
-The portable manifest is a deliberately smaller recipe card. Its stable
-`probectl.io/dashboard/v1` document contains only the name, preset, same-tenant
-sharing choice, bounded absolute interval, disclosure notes, and exact metric
-name/value pairs. It cannot carry a tenant ID, owner ID, dashboard ID,
-credential, storage locator, or creation/update timestamp. The bounded
-`absolute_from` / `absolute_to` observation interval remains part of the recipe.
-Export removes known tenant/owner identifiers and applies the native telemetry
-secret/PII redactor before bytes leave the API.
+Flow contributors, capacity, anomalies and synthetic history receive that
+duration. Latest-state inventory, topology, alerts, incidents, SLOs, compliance
+and detections keep their stated clocks. The page shows tenant name/UUID,
+preset, relative selection, actual UTC interval and provenance/coverage receipt.
 
-## Scope shown in every view and artifact
+A saved dashboard is a recipe with one of two data modes:
 
-The page keeps these facts visible above the panels:
+- **Screen snapshot:** the definition contains absolute observation bounds,
+  exact metric strings, provenance, redaction state and coverage notes. Delivery
+  preserves those values and bounds. Save another view to change the observation.
+- **Saved flow sources:** select exact saved-query references with
+  `flow_sources: [{"id":"<saved-query UUID>","version":"<decimal version>"}]`.
+  Omit caller `metrics`, `absolute_from` and `absolute_to`. Each query must
+  currently be owned or shared in this tenant. Generation resolves its configured
+  time mode, executes the complete selected row set, and freezes the actual
+  source/comparison intervals and query/filter/tag revisions in the artifact.
 
-- tenant display name and immutable tenant UUID;
-- Operator or Executive preset;
-- selected bounded relative scope (`15m`, `1h`, `6h`, or `24h`);
-- absolute `from` and `to` timestamps in UTC;
-- the coordinated chart window;
-- an expandable receipt for provenance, redaction, and coverage limitations.
+Choose **Build from saved flow queries**, then select current queries from the
+library. The UI shows pinned versions and clears draft selection when the
+authenticated identity changes. A source edit requires an explicit new
+selection before generation can use that version.
 
-Every generated PDF/CSV repeats the same contract and adds generation time and
-generator identity. PDF text wraps within the page margins and continues onto
-additional pages; all supported exact values are retained. Every page repeats tenant scope and
-the absolute observation interval. The offline PDF renderer uses bundled, hash-verified Noto fonts and shapes
-bidirectional and complex-script Unicode text. Glyph outlines and semantic
-Unicode remain in the artifact; system fonts and network fallback are never
-used. Each visible line carries its complete logical Unicode text, including
-mixed scripts and significant spaces. Unsupported glyphs fail explicitly.
-CSV preserves Unicode text. Formula-like text cells use a quoted leading tab
-before their complete rendered text, including ASCII and full-width formula
-markers and leading whitespace/control characters. Report labels, disclosures
-and metric strings follow the same display-text encoder as flow CSV labels.
-This presentation prefix is absent from structured JSON; validated flow numeric
-columns and signed comparison deltas keep their separate exact representation. A report is rejected before storage if any mandatory
-field is absent. This prevents a chart from becoming an apparently universal claim
-after its tenant or observation window is separated from it.
+Reports include tenant scope, source intervals, generation time, generator,
+provenance, redaction and coverage notes. Source projection preserves detail,
+Other, totals, chart groups/points, total points, both matrix axes/cells and
+filter-input identities. Field keys and immutable IDs remain complete; numeric
+cells retain exact decimal strings.
 
-The internal source-table CSV renderer stages complete logical records with a
-500,000-row, 256 MiB output envelope and a separate 128 MiB schema/record
-workspace. The caller accounts for staging storage separately. Embedded
-newlines remain inside their quoted cell. Stable field keys,
-absolute source intervals and exact metadata revision/time pairs accompany the
-table; numeric source cells are validated decimal strings. A foreign tenant,
-changed row count/schema, source failure, invalid value, exhausted budget or
-cancellation makes the staged output unusable. This renderer component is not
-yet exposed as a live-query saved dashboard definition: current saved metrics,
-manifest limits and the 2 MiB persisted artifact limit described below remain
-the public API behavior. The internal PDF renderer stages complete source tables
-as labelled records, retaining full field keys, source clocks and decimal
-strings. Its envelope is 4,000 logical table rows, 256 MiB output and 128 MiB
-renderer workspace; staging storage and source query costs remain separate.
-Long cells wrap across pages. Missing font coverage, invalid source records,
-budget exhaustion, cancellation or a writer failure refuses the artifact rather
-than producing a shortened report. These component limits do not change the
-current API manifest or persisted artifact limits. The report-pdf CI check uses
-Poppler for independent Unicode extraction, every-page bounds and page images;
-Poppler is not a product runtime dependency. A CI-only offline Chromium image
-of the same bundled font samples accompanies the PDF page images for visual
-comparison; product rendering uses Go only.
+## API and current authorization
 
-The independent word API must return the original logical Unicode, including
-right-to-left combining sequences. Plain-text presentation is checked separately
-because a text dumper can apply bidi reordering. A required adversarial PDF
-reverses replacement Unicode while keeping visible glyphs unchanged; the source
-word check must reject it even when the plain-text token check would accept it.
-Every original row, counter, bounds, raster and font check remains required.
+Every route resolves the authenticated tenant before RBAC/ABAC. Tenant-owned
+queries also enforce the storage boundary and explicit tenant predicates.
 
-The internal flow-result projection retains detail, Other, totals, chart groups
-and points, total points, both matrix-axis summaries and every matrix cell. It
-preserves exact numeric strings and complete axis-qualified field keys; captured
-immutable field IDs accompany the schema, including a separate record for
-filter-only input identities. Projection workspace and logical rows are charged
-across the complete batch. Captured records remain unchanged after source-map
-edits. This component grants no source access and does not turn a private query
-cache into report authority. Live saved-source composition, current-recipient
-authorization and larger persisted artifacts still require their own wiring.
+| Route | Permission | Purpose |
+| --- | --- | --- |
+| `GET /v1/dashboards` | `metrics.read` | List owned/shared tenant views |
+| `POST /v1/dashboards` | `metrics.write` | Save a dashboard recipe |
+| `GET /v1/dashboards/{id}` | `metrics.read` | Read an accessible view |
+| `GET /v1/dashboards/{id}/manifest` | `metrics.read` | Export a portable recipe |
+| `POST /v1/dashboard-manifests/import` | `metrics.write` | Preview or confirm import |
+| `GET /v1/dashboard-report-schedules` | `metrics.read` | List owned schedules and destinations |
+| `POST /v1/dashboard-report-schedules` | `metrics.write` | Create an owned schedule |
+| `PATCH /v1/dashboard-report-schedules/{id}` | `metrics.write` | Pause/resume an owned schedule |
+| `POST /v1/dashboard-reports` | `metrics.write` | Generate an immutable inbox artifact |
+| `GET /v1/dashboard-report-artifacts` | `metrics.read` | List current-authorized body-free metadata |
+| `GET /v1/dashboard-report-artifacts/{id}` | `metrics.read` | Download a verified, audited body |
 
-When an operator saves the current screen, the outer saved-view record captures
-the visible Operator/Executive preset. Its definition captures absolute UTC
-bounds calculated from the same relative clock and records the relative scope
-among the exact metrics. Scheduled reports preserve that sealed snapshot; they
-do not silently advance a relative clock later.
+Sources additionally require current `ai.query`, `flow.read`, applicable
+metadata permissions such as `tags.read`, and permission on selected contexts.
+Current user grants are intersected with the original credential ceiling.
+Stored source requirements describe what a reader must prove; they confer no
+permission.
 
-## API and authorization
+Malformed/unknown-field JSON returns `400`; a manifest above 64 KiB returns
+`413`; invalid bounds, duplicate names, kinds or versions return `422`.
+Unavailable/private/foreign objects share the `404` shape apart from request
+ID. Stale capture returns `409`. Cost, fairness and unavailable-source
+refusals publish no partial artifact.
 
-All routes resolve tenant identity from the authenticated principal before
-checking RBAC. The browser never sends `tenant_id`.
+Generation releases its database connection before source work/rendering. One
+existing tenant fairness admission and deadline cover the source batch,
+projection, staging and publication. Read rows/bytes, response allocation,
+workspace and output are charged cumulatively across comparisons, coverage
+probes and retries. Missing/malformed ClickHouse cost receipts refuse the batch.
+Existing query reach and deployment defaults remain; output never truncates to
+fit a budget.
 
-| Route                                     | Permission                       | Purpose                                                     |
-| ----------------------------------------- | -------------------------------- | ----------------------------------------------------------- |
-| `GET /v1/dashboards`                      | `metrics.read`                   | List views owned by the caller or shared inside this tenant |
-| `POST /v1/dashboards`                     | `metrics.write`                  | Save a bounded dashboard definition                         |
-| `GET /v1/dashboards/{id}`                 | `metrics.read`                   | Read an owned/shared view; foreign IDs look missing         |
-| `GET /v1/dashboards/{id}/manifest`        | `metrics.read`                   | Export a deterministic, redacted native JSON manifest       |
-| `POST /v1/dashboard-manifests/import`     | `metrics.write`                  | Preview or explicitly confirm a strictly validated import   |
-| `GET/POST /v1/dashboard-report-schedules` | `metrics.read` / `metrics.write` | Inspect configured destinations or create a schedule        |
-| `PATCH /v1/dashboard-report-schedules/{id}` | `metrics.write` | Pause/resume a caller-owned schedule; foreign IDs look missing |
-| `POST /v1/dashboard-reports`              | `metrics.write`                  | Generate (persist) a PDF/CSV artifact in the tenant inbox   |
-| `GET /v1/dashboard-report-artifacts`      | `metrics.read`                   | List artifact metadata without loading binary bodies        |
-| `GET /v1/dashboard-report-artifacts/{id}` | `metrics.read`                   | Audited artifact download                                   |
+A short publication transaction rechecks the dashboard, lifecycle generation,
+current grants/credential/context authority and exact query/filter/tag capture.
+It commits metadata, immutable chunks and export audit atomically. A changed
+source, subject-erasure invalidation, cancellation, rendering failure or failed
+audit leaves no published body.
 
-Malformed or unknown-field JSON is `400`; a manifest over 64 KiB is `413`;
-semantically invalid bounds, duplicate metric names, kinds, or versions are
-`422`. A missing, private, or cross-tenant object is the same `404` shape
-(apart from the unique request ID), so an identifier cannot be used to
-discover another tenant's objects.
+## Portable manifests, CLI and native tools
 
-On-demand generation captures the accessible dashboard, then releases its
-database connection before rendering. Publication rechecks current sharing and
-the complete captured definition under a short row lock. A changed definition
-returns `409`; a deleted or newly private dashboard returns `404`. A render
-failure or cancellation before publication creates no artifact. An audit failure
-rolls publication back. Artifact creation and its export audit commit together.
-These checks also apply when generation is
-invoked through the CLI or the native API tools.
+The `probectl.io/dashboard/v1` manifest carries name, preset, tenant-local
+sharing and redacted disclosure notes. Screen snapshots include absolute bounds
+and exact metric pairs. Source recipes contain ordered slots such as
+`{"slot":"flow-1"}`, with no local query, tenant, owner or dashboard IDs,
+credentials or storage locations.
 
-Import is two-step:
+Bind each slot explicitly to a current destination query in the import request:
+`source_bindings: {"flow-1":{"id":"<destination UUID>","version":"<version>"}}`.
+Missing, extra, foreign or stale bindings are refused. Validation checks current
+destination metadata without fetching telemetry. Preview returns the normalized
+recipe and creates no dashboard. Confirmation validates again and derives
+tenant/owner from authentication. The preview is stateless.
 
-1. Send `confirm: false`. The server validates every bound, runs redaction
-   again, returns the canonical manifest plus a preview, and creates no row.
-2. After a human reviews that preview, send its returned manifest with
-   `confirm: true`. The server generates a fresh ID and derives tenant and owner
-   from the authenticated request before the forced-RLS insert.
-
-The preview is intentionally stateless. There is no import staging table,
-background service, external dashboard engine, or outbound call.
-
-The same operations are available from the terminal surface:
-
-- `probectl dashboard list|create|get` manages saved views;
-- `probectl dashboard export <id> > dashboard.json` writes the redacted native
-  manifest to standard output;
-- `probectl dashboard import --file dashboard.json` previews without creating;
-- `probectl dashboard import --file - --confirm < dashboard.json` explicitly
-  creates after validation;
-- `probectl dashboard-report schedules|create-schedule|generate|artifacts`
-  manages the local report inbox; and
-- `probectl dashboard-report download <id>` streams the audited PDF/CSV bytes to
-  standard output, so an operator chooses the destination explicitly.
-
-Requests use the authenticated session's `--tenant` scope; no command accepts
-`tenant_id` in a request body.
-
-## Storage isolation
-
-Migration `0061_dashboard_reporting.sql` creates three tenant-owned tables:
-
-1. `dashboard_views` stores the saved definition.
-2. `dashboard_report_schedules` references a view through
-   `(tenant_id, dashboard_id)`.
-3. `dashboard_report_artifacts` references its view and optional schedule
-   through composite tenant keys and caps binary content at 2 MiB.
-
-All three tables have non-null `tenant_id`, tenant-leading indexes, `ENABLE ROW
-LEVEL SECURITY`, and `FORCE ROW LEVEL SECURITY`. Store queries also carry an
-explicit tenant predicate. That is two locks on the same door: the query asks
-for one tenant, and PostgreSQL refuses to reveal any other tenant even if a
-future query forgets.
-
-The global `tenants` registry remains provider-only. Migration
-`0062_current_tenant_identity.sql` exposes only the current transaction's name
-and slug through a `SECURITY DEFINER` function bound to
-`probectl.tenant_id`; it does **not** grant the application role permission to
-enumerate the registry.
-
-Tenant deletion cascades through views, schedules, and artifacts. Artifact list
-queries return metadata only; loading bytes is a separate audited action.
-
-## Scheduling and delivery
-
-Core ships one configured destination: `tenant-report-inbox`.
-
-Use **Pause** or **Resume** beside an owned schedule to control recurrence.
-The API accepts `PATCH /v1/dashboard-report-schedules/{id}` with
-`{"enabled":false}` or `{"enabled":true}`; the CLI equivalent is
-`probectl dashboard-report update-schedule <id> --body '{"enabled":false}'`.
-Only the owning user with `metrics.write` in the same tenant can change it.
-The worker releases its database connection while rendering, then rechecks
-current sharing, schedule ownership, enabled state and the exact captured due
-state before publishing. A pause, reschedule, owner change or dashboard edit
-that wins this check discards the old render without advancing the schedule.
-Concurrent workers may render the same due state, but only one can publish its
-artifact, next-run advance and delivery audit together. An audit failure rolls
-all three back so the due state can be retried. Already committed artifacts and
-audit history remain available. Resume keeps the existing next-run
-clock: an overdue schedule delivers once, then advances beyond the current time.
-
-- It is local PostgreSQL storage, not an email address or webhook.
-- `outbound_default` is always `false`.
-- An unknown destination fails validation; the scheduler never guesses an
-  endpoint.
-- The UI disables scheduling when no configured destination is ready.
-
-The control-plane singleton `dashboard-report-scheduler` scans active tenant
-registry metadata, then opens a **separate RLS transaction for each tenant**.
-Due rows are selected with `FOR UPDATE ... SKIP LOCKED`, which makes HA workers
-safe: only one worker owns a schedule in a transaction. It renders the bounded
-saved definition, stores the artifact, advances the next daily/weekly/monthly
-run beyond the current time, and appends `dashboard.report_delivery` atomically.
-Missed intervals are collapsed into one current delivery rather than replayed
-as a burst.
-
-Scheduled artifacts intentionally preserve the saved dashboard's absolute
-observation interval and values. `generated_at` tells when delivery happened;
-`absolute_from`/`absolute_to` tell when the evidence was observed. This is a
-repeatable evidence snapshot, not a claim that old values were freshly sampled.
-Save a new view when the intended observation interval changes.
-
-## Audit events
-
-The tenant hash chain records:
-
-- `dashboard.save`;
-- `dashboard.manifest_export`;
-- `dashboard.manifest_import` with `confirmed: false|true`;
-- `dashboard.report_schedule`;
-- `dashboard.report_schedule_update` with the new enabled state;
-- `dashboard.report_export`;
-- `dashboard.report_delivery` (actor `probectl-report-scheduler`);
-- `dashboard.report_download`.
-
-The audit payload carries IDs, format, destination, and redaction state—not
-artifact bytes or exact telemetry values.
-
-## Operator checks
+Terminal commands use the authenticated API and verified TLS:
 
 ```sh
-cd web
-npx vitest run src/test/dashboard-time-scope.test.ts \
-  src/test/dashboards.test.tsx src/test/dashboard-reporting.test.tsx \
-  src/test/context-contract.test.tsx --maxWorkers=1
-
-cd ..
-GOCACHE=/private/tmp/probectl-gocache go test ./internal/control ./internal/store \
-  -run 'Test.*Dashboard.*Tenant|Test.*DashboardManifest|Test.*Report.*Tenant|Test.*Export.*Audit' -count=1
-
-GOCACHE=/private/tmp/probectl-gocache go test ./internal/cli \
-  -run 'TestCLIDashboardManifest' -count=1
-
-PROBECTL_DATABASE_URL='postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable' \
-GOCACHE=/private/tmp/probectl-gocache go test -tags=integration ./internal/control ./internal/store \
-  -run 'TestDashboardManifestRoundTripAndTenantIsolation|TestDashboardExportAuditAndTenantIsolation|TestDashboardReportTenantIsolation' -count=1
+probectl dashboard list
+probectl dashboard export VIEW_ID > dashboard.json
+probectl dashboard import --file dashboard.json --source-bindings-file bindings.json
+probectl dashboard import --file dashboard.json --source-bindings-file bindings.json --confirm
+probectl dashboard-report generate --body-file report-request.json
+probectl dashboard-report artifacts
+probectl dashboard-report download ARTIFACT_ID > report.csv
 ```
 
-If scheduled delivery stops, check the singleton coordinator and search the
-tenant audit stream for the last `dashboard.report_delivery`. Renderer/storage
-failure leaves the schedule due and commits neither a partial artifact nor a
-misleading audit receipt.
+Source-free recipes need no bindings file. Bindings use bounded JSON; stdin
+remains available for the manifest. The UI exposes the same explicit library
+bindings, preview and confirmation. Changing the template clears its prior
+preview and bindings.
 
-The source-query layer provides a tenant-bound serial batch for complete report
-composition. It captures one operator deadline and policy, divides retained
-workspace and response allocations across declared plans, and charges source
-read rows/bytes and HTTP response bytes cumulatively, including coverage probes
-and source retries. Successful ClickHouse reads must carry a bounded canonical
-read-cost receipt; missing or malformed receipts refuse the batch. Metadata
-contexts cannot reset query admission, and a failed batch cannot continue with
-partial source results. Existing standalone query limits are unchanged. The
-required isolation proof includes paired real ClickHouse lanes, TLS transport
-simulations and an assertion control that removes cumulative read accounting.
-Live report definitions and full source/reader integration remain in progress.
+Eleven native MCP operations reuse these current services:
+`report_dashboards`, `report_dashboard`, `report_dashboard_save`,
+`report_dashboard_export`, `report_dashboard_import`, `report_schedules`,
+`report_schedule_create`, `report_schedule_update`, `report_generate`,
+`report_artifacts` and `report_artifact_link`. They retain current grants,
+original credential ceilings, consent, audit and bounded typed responses.
 
-Frozen flow source records also retain every saved-filter input identity and its
-exact positive revision in stable order. These use the same complete-record and
-workspace limits as other source sections; a later filter edit cannot change a
-captured revision, and decimal versions above JavaScript's integer range remain
-exact in CSV and PDF.
+An artifact link contains a REST path relative to the operator's API base,
+without a token or durable grant. Metadata hashes describe stored expectations;
+download independently authorizes and verifies bytes. Binary bodies and stored
+source requirements are absent from MCP output.
 
-Current saved-query visibility has a separate storage read for report recipients.
-It selects the authenticated tenant partition and current owner/shared predicate
-before returning identity, visibility and exact current version metadata. It
-does not decode current query text or replace frozen input values when a tag or
-query changes. This metadata grants no source permission: report reads still
-require fresh user authority, actual credential ceilings and captured context
-grants. Publication continues to require the complete exact-version source
-check. Full live-source and recipient integration remains in progress.
+## Immutable storage, readers and lifecycle
 
-The request-owned source capture component loads current active-user authority
-and intersects it with the actual credential. It resolves exact saved-query and
-filter versions, then collects both comparison periods through the same tenant
-source batch and successful metadata snapshot. Captured context requirements
-preserve the allowed site/VRF identities and selected related-source permissions;
-they confer no future reader permission. Source, metadata and projection memory
-shares stay inside the operator envelope, and query admission remains held until
-staging/publication finishes. Failure returns no partial capture. Its paired
-Postgres/current-metadata and memory-flow proof is a component check; public
-source configuration, recipient wiring and full release proof remain pending.
+Migration `0061_dashboard_reporting.sql` introduced tenant-owned views,
+schedules and artifacts. Migration `0168_dashboard_report_artifact_chunks.sql`
+adds ordered 64 KiB Postgres chunks, at most 256 MiB per complete body. Existing
+inline bodies retain their 2 MiB limit. Effective source output allowance also
+depends on the finite operation memory/output policy.
 
-The frozen-source reader component rechecks current owner/shared source
-visibility independently of edited query text and versions. It requires current
-user grants and the actual credential, complete captured context attributes,
-and current stored context attributes under the same tenant boundary. A move
-between sites must satisfy both scopes; sharing can be revoked without changing
-frozen values. The required proof covers these changes and deliberately omits
-the captured-context check to verify refusal. This component still needs wiring
-across every artifact metadata and body surface before live sources are public.
+Metadata and chunks have non-null tenant keys, FORCE RLS, tenant-leading indexes
+and composite tenant foreign keys. Silo/hybrid catch-up installs equivalent local
+relationships and immutable permissions. Metadata/chunk publication shares one
+transaction; the migration preserves legacy inline bytes. Older readers fail
+explicitly on the new format. Upgrade readers before source-aware publication.
 
-Renderer output can be staged in fixed request-owned memory chunks before any
-storage choice is made. Whole-output and allocation budgets are distinct from
-source and renderer workspace. Only a complete successful render and streaming
-digest produce readable staging; tenant scope, cancellation and reader lifetime
-are checked, and closing clears the buffers. The mandatory component proof
-streams full500,000-row CSV and4,000-row PDF output through this path and rejects
-a deliberately borrowed caller buffer. This introduces no persisted body,
-object path, file spool or background cleanup state; larger artifact storage
-and all public source/recipient wiring remain in progress.
+The global tenant registry stays provider-only. Its transaction-scoped identity
+function exposes only the current tenant's name and slug.
 
-CI also runs each complete staged format in its own non-race test process and
-retains `report-body-memory` observations. These distinguish charged staging
-allocation from Linux peak process RSS. The RSS includes fonts, runtime and
-independent verification; compiler memory is excluded. It measures the tested
-renderer/stager/verifier process, rather than source-query or production-only
-memory. Durations remain observations and existing output/allocation limits
+Download checks current source ownership/sharing, actual credential ceilings and
+captured/current context grants before body I/O, then again in the final audited
+transaction. Later query/tag edits do not replace frozen values. Current
+visibility or grant changes can still withdraw access.
+
+The reader stages one coherent tenant snapshot and verifies every chunk ordinal,
+complete byte count and independent full-body hash before success headers or
+attachment bytes. Missing, extra or corrupt chunks produce no body. Legacy
+inline bodies use the same verified path. Responses carry exact
+`Content-Length`, `X-Report-SHA256`, a strong `ETag`,
+`Cache-Control: no-store` and `nosniff`. Request-owned staging is bounded,
+sealed only after complete success and cleared on close.
+
+The inbox examines the latest 200 owned/shared artifact headers. Every source
+item must pass current authorization; inaccessible items stay hidden. Listing
+loads no body or stored requirements. One finite budget covers the list; failure
+returns no partial response.
+
+Subject portability includes reports generated by that subject or owned through
+its same-tenant schedule. Subject erasure conservatively invalidates all
+source-aware derived reports in that tenant because opaque documents cannot
+prove absence of the erased subject. It fences in-flight captures before source
+cleanup, and its receipt verifies chunk removal. Legacy reports retain generator
+matching. Tenant erasure cascades through views, schedules, artifacts and chunks.
+
+## Scheduling and audit
+
+Core configures `tenant-report-inbox` with `outbound_default: false`.
+Unknown destinations fail validation; the UI requires a ready destination.
+
+Create/resume of a source schedule proves the current caller's credential can
+execute every selected source. This bounded preflight runs outside publication,
+discards its rows and retains fairness admission through final configuration,
+lifecycle and grant checks. Pausing delegates no source read.
+
+The existing scheduler independently reloads the owner's current read-only
+background authority. It asserts no interactive MFA; a current-MFA requirement
+cannot silently become a background grant. Source recipes execute their pinned
+queries for each delivery; screen snapshots retain their stored observation.
+
+Publication rechecks ownership, sharing, enabled state and exact due state.
+Artifact creation, next-run advance and audit commit together. A competing pause,
+edit, revocation or delivery discards the obsolete render. An overdue schedule
+delivers once and advances beyond now. Rendering/storage/audit failure leaves
+the schedule due.
+
+The tenant hash chain records `dashboard.save`,
+`dashboard.manifest_export`, `dashboard.manifest_import`,
+`dashboard.report_schedule`, `dashboard.report_schedule_update`,
+`dashboard.report_export`, `dashboard.report_delivery` and
+`dashboard.report_download`. Payloads contain IDs, format, destination and
+redaction state. Artifact bytes and exact telemetry values stay out of audit
+payloads.
+
+## Required verification
+
+The general renderer supports 500,000 logical CSV rows and 4,000 PDF rows.
+Source publication reserves 1,000,000/8,000 logical records respectively so
+identity, filters, totals and other metadata are charged alongside detail.
+Byte, memory, deadline and cumulative source-read limits still apply.
+
+Required CI includes paired Postgres/ClickHouse sources, complete 500,000-detail
+CSV from ten disjoint 50,000-row queries, independent streamed CSV/digest parsing,
+and independent extraction of actual 4,000-detail source PDF output. The large
+fixture records a finite operator cost profile without changing defaults.
+Complete field IDs, exact integers, Unicode, formula safety, nested filters,
+comparison and matrix sections remain required.
+
+The offline Go PDF renderer uses bundled hash-verified Noto fonts and shapes
+complex scripts/bidirectional text. Logical Unicode accompanies visible glyphs.
+Unsupported glyphs, invalid records and exhausted budgets refuse the document.
+CI-only Poppler verifies extraction, page bounds and raster output; an adversarial
+replacement-Unicode case must fail independently. Offline Chromium font-reference
+images supplement those checks. These tools are absent from the product runtime.
+
+Isolated-process receipts distinguish charged staging allocation from Linux
+peak RSS, including renderer/runtime/verifier overhead. Source generation also
+records heap observations. Durations are observations; finite resource policies
 remain enforced.
 
-## Stored body compatibility
+The native-flow real-service receipt drives collector-derived data, compiled CLI,
+TLS MCP and signed-in Chromium in both themes through source selection,
+generation and explicit destination binding. It verifies exact counters, frozen
+bytes and source-removal withdrawal. Development bus/TSDB transports and
+generated-protocol provenance remain explicit.
 
-The report store can represent an immutable body inline or as ordered 64 KiB
-Postgres chunks. Chunks use the same tenant boundary and transaction as their
-artifact metadata; their composite foreign key cannot borrow a parent from a
-different tenant. Silo catch-up installs the equivalent constraints, schema-local
-foreign key, format policy and immutable body permissions. Existing inline bytes
-are preserved by the migration.
-
-A transaction from an older reader that encounters the chunk format fails
-explicitly rather than returning a successful empty download. Upgrade report
-readers before enabling source-aware chunk publication. The storage migration
-alone does not enable that publication or claim complete live-source reporting.
-
-Subject erasure invalidates all source-aware derived reports in that tenant:
-an opaque PDF or CSV cannot establish that it contains no erased subject.
-The erasure receipt records this conservative invalidation and verifies that
-chunk bytes are gone. Legacy reports keep their generator-subject matching.
-Subject export remains generator-scoped and does not include another generator's
-report merely because erasure would invalidate that derived copy.
-
-The store's chunk reader stages one tenant snapshot, verifies the complete
-ordinal sequence and byte count, then independently hashes the staged bytes
-before returning a readable body. Missing, additional or corrupted chunks
-produce no body. The writer reads length and digest from the sealed stage itself;
-callers cannot supply a separate integrity claim. Metadata listing never loads
-binary bodies. Source-aware generation and schedule materialization remain in progress;
-download now uses the current-authority verified reader.
-
-Artifact download checks current source, context and credential-ceiling access
-before body I/O and again in the final audited transaction. Private and foreign
-artifacts return the same missing-object shape. The whole body must pass its
-snapshot/order/length/hash checks before success headers or attachment bytes.
-The response carries exact `Content-Length`, `X-Report-SHA256`, a strong `ETag`
-and `Cache-Control: no-store`. Legacy inline downloads use the verified reader
-as well. Source-aware generation, schedule materialization and complete report
-surface acceptance remain separate required work.
-
-The inbox lists metadata from the most recent 200 owned or shared dashboard
-artifacts. Each source-aware item must pass current source, context and
-credential checks in the tenant snapshot; unavailable or private objects stay
-hidden. Listing loads no report body and returns no stored access requirements.
-`body_bytes` and optional `body_sha256` describe the stored body; download
-independently verifies its bytes. One execution budget covers the full list,
-and a budget failure returns no partial response.
-
-### Saved flow sources and complete publication
-
-A dashboard definition can select `flow_sources: [{"id":"<saved-query UUID>","version":"<exact current version>"}]`. Omit `absolute_from`, `absolute_to` and caller `metrics` in this mode. Each source must currently be owned by the requesting user or shared within that tenant. Its saved-query plan defines the selected row set and absolute/comparison intervals; the document records those actual intervals and exact source versions. Query and metadata reads use existing tenant-first source services, RBAC/ABAC, credential ceilings and fairness. Query cost and output/memory/deadline policy refuse an incomplete report rather than truncate it.
-
-`POST /v1/dashboard-reports` stages complete CSV/PDF in bounded request memory, then atomically commits immutable Postgres chunks, metadata and the mandatory audit. It checks the current dashboard and all captured saved-query/filter/tag versions again, plus current source/context grants and the existing lifecycle generation. No database transaction spans source IO or rendering. A changed source/lifecycle returns conflict; exhausted cost/output/deadline policy returns rate limited with `Retry-After`. No response contains a body or captured authority grant. Download independently verifies all stored bytes and current reader authority.
-
-Schedules reuse those same source services with the current schedule owner's read-only, non-MFA background delegation. Changed/disabled/delivered schedule state, revoked source authority or failed audit cannot advance delivery or leave a partial artifact. Existing destinations remain the local tenant report inbox. A stored source envelope is a future-reader requirements checklist, never a durable permission.
-
-Subject erasure marks the existing tenant flow lifecycle generation invalidating in the same Postgres transaction that deletes derived reports, before telemetry cleanup. The existing invalidation workflow clears the marker only on successful cleanup, including installations with no object snapshot cache. In-flight captures from an earlier generation cannot republish erased rows.
-
-Native export replaces saved-query references with ordered `flow-1`, `flow-2`, … slots. Import requires an explicit `source_bindings` object mapping every slot to a current destination-local saved-query `id` and exact `version`. Preview validates without creating a dashboard; confirmation creates only the dashboard. Missing, extra, stale or foreign bindings are refused. No query identities, credentials or grants are copied into the portable slots.
-
-Source-backed documents count identity, total and filter-version tables as well as detail rows. Their combined logical-row envelopes are 1,000,000 for CSV and 8,000 for PDF, so complete selected data is accompanied by its metadata. The generic renderer defaults remain 500,000/4,000 logical rows. All serialized-byte, source read, memory, deadline and fairness limits remain enforced; exceeding any of them refuses the whole document.
-
-Subject portability selects generated reports by the subject's exact normalized generator identity or by the owner of their same-tenant schedule. Opaque chunk bytes follow only those selected parent artifacts. Unrelated/foreign schedule owners are excluded; conservative erasure of all source-derived reports does not broaden export.
-
-For CLI import, use `probectl dashboard import --file dashboard.json --source-bindings-file bindings.json` to preview, then repeat with `--confirm`. The bindings file is one bounded JSON object such as `{"flow-1":{"id":"<destination saved-query UUID>","version":"1"}}`; it uses a separate file so the manifest can still arrive on stdin. The UI requires a destination query selection for every slot and clears bindings when tenant, user or template changes.
-
-Binding validation uses the same tenant query admission and a single existing metadata execution deadline for all slots. It reads current source metadata in the caller's tenant transaction without fetching telemetry or opening a nested connection. Source mutations cannot commit their mandatory audit through this short publication check; every generated report and future reader still performs its own current execution/context authorization.
-
-Creating or resuming a source-backed schedule first proves the caller's current credential can execute all selected sources and contexts. This bounded preflight runs outside a publication transaction, discards its rows, and keeps one fairness admission through the final configuration/lifecycle/grant check. It does not store a credential or durable grant. Future deliveries independently use the owner's current read-only, non-MFA authority. Pausing delegates no read and remains an owned metadata write.
-
-Native MCP report tools use the same authenticated reporting services and committed request grammar: dashboard list/get/save/native export/import, schedule list/create/update, report generation, current artifact metadata and an authenticated artifact link. The link's `download_url` is a path relative to the operator's control-plane REST base URL. It contains no bearer token or access grant; every download independently checks current source authority and complete byte integrity. Link/list hashes describe stored metadata. Whole binary files and stored source requirements are not embedded in MCP results. Current user roles and the original credential ceiling are both enforced, with existing MCP byte/node policy and reporting source admission.
-
-Complete-output verification includes a paired real Postgres/ClickHouse source document with ten disjoint 50,000-row saved queries, preserving the per-query reach. The fixture records an explicit finite cost profile rather than changing deployment defaults; every selected address, tag, exact integer and total is parsed independently from the downloaded 500,000-row CSV. Observed generation heap and elapsed time are reported separately from source/read/output limits. Actual 4,000-detail source PDF output is also inspected through CI-only Poppler, checking selected addresses, exact values and owned tags independently of the renderer. These source/storage/transport checks remain distinct from final release-binary, sender and four-store acceptance.
-
-The native flow real-stack receipt also drives saved-source reporting through the
-compiled CLI, current TLS MCP links and signed-in Chromium in both themes. Its
-download verifier checks all four collector-derived protocol rows, exact byte
-quantities, tenant and saved-source identities, and the independent body digest.
-The browser selects pinned sources, generates a CSV, and previews/confirms a
-portable template with an explicit destination binding. Removing a source must
-withdraw earlier artifact access on REST, CLI and MCP. This receipt retains the
-existing development-service transport and generated-protocol provenance; the
-production TLS/SASL release-image acceptance is a separate proof.
-
-The release-image E2E receipt separately registers real flow collectors and sends
-known NetFlowv5 protocol inputs over the existing verified TLS/SASL bus profile.
-It reads the actual HTTPS ClickHouse backend, publishes source-backed reports,
-and exports encrypted filesystem snapshots through public API and compiled CLI
-paths. Paired tenant refusals and unchanged report/snapshot bytes after a control
-restart are required. The existing real mTLS probe to authenticated TLS Prometheus
-leg remains required; generated NetFlow inputs are not hardware-exporter evidence.
+The release-image E2E separately uses registered collectors over verified
+TLS/SASL Kafka, the HTTPS ClickHouse reader, encrypted filesystem snapshots,
+Postgres report publication and paired API/compiled CLI refusals plus restart
+survival. Its real mTLS agent to authenticated TLS Prometheus leg remains
+mandatory. Generated inputs do not establish hardware-exporter behavior.
+Receipts require successful execution on the candidate; source checks alone do
+not qualify the feature.
