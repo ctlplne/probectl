@@ -75,11 +75,8 @@ func associateInterfaceRolePeer(ctx context.Context, scope entity.Scope, routerI
 		peer.RouterID != routerID || snapshot.RouterID != routerID {
 		return none, entity.ErrScopeMismatch
 	}
-	if !interfaceRoleAssociationID(routerID) || at.IsZero() || peer.ASN == 0 ||
-		!interfaceRoleSource(peer.SourceID) || !interfaceRoleSource(snapshot.SourceID) ||
-		!peer.Clock.valid() || !snapshot.Clock.valid() || !peer.Address.IsValid() ||
-		peer.Address.Is4In6() || peer.Address.IsUnspecified() || peer.Address.IsMulticast() {
-		return none, errInterfaceRoleInput
+	if err := validateInterfaceRoleAssociationInputs(routerID, at, peer, snapshot); err != nil {
+		return none, err
 	}
 	if err := budget.charge(ctx, 1, 4096, 1); err != nil {
 		return none, err
@@ -163,6 +160,17 @@ func associateInterfaceRolePeer(ctx context.Context, scope entity.Scope, routerI
 		Scope: owned, InterfaceID: strings.Clone(match.InterfaceID), SourceID: strings.Clone(peer.SourceID), ASN: peer.ASN,
 		SourceActive: true, Clock: clock, AssociationSources: provenance,
 	}}, nil
+}
+
+func validateInterfaceRoleAssociationInputs(routerID string, at time.Time,
+	peer interfaceRoleUnboundPeer, snapshot interfaceRolePrefixSnapshot) error {
+	if !interfaceRoleAssociationID(routerID) || at.IsZero() || peer.ASN == 0 ||
+		!interfaceRoleSource(peer.SourceID) || !interfaceRoleSource(snapshot.SourceID) ||
+		!peer.Clock.valid() || !snapshot.Clock.valid() || !peer.Address.IsValid() ||
+		peer.Address.Is4In6() || peer.Address.IsUnspecified() || peer.Address.IsMulticast() {
+		return errInterfaceRoleInput
+	}
+	return nil
 }
 
 func interfaceRoleAssociationBindings(ctx context.Context, owned entity.Scope, routerID string,
