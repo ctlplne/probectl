@@ -60,7 +60,7 @@ func proveTargetlessNoopTagContext(t *testing.T) {
 			}
 			l.context = context.ContextID
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,type,target) VALUES
-				($1,$2,'same-targetless','noop',''),($1,$3,'same-targetless','noop',''),
+				($1,$2,'same-targetless-1','noop',''),($1,$3,'same-targetless-2','noop',''),
 				($1,$4,'network test','http','https://192.0.2.10/health')`, l.tenant, l.noop, l.secondNoop, l.path); err != nil {
 				return err
 			}
@@ -70,7 +70,7 @@ func proveTargetlessNoopTagContext(t *testing.T) {
 			}
 			l.tag = definition.ID
 			_, err = (TagRules{}).Create(ctx, sc, tags.Rule{Scope: tags.Scope{TenantID: l.tenant, ContextID: l.context}, TagID: l.tag,
-				TargetKind: "test", Match: "name_pattern", NamePattern: "^same-targetless$", Value: "own-" + l.tenant})
+				TargetKind: "test", Match: "name_pattern", NamePattern: "^same-targetless-[12]$", Value: "own-" + l.tenant})
 			return err
 		}); err != nil {
 			t.Fatal(err)
