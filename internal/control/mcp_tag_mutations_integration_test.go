@@ -359,6 +359,26 @@ func TestTagMCPMetadataMutationsUseRealTenantAuthorizationAndAtomicAudit(t *test
 			}
 			return request(id, "tools/call", "test_tag_context", input, wantOK)
 		})
+	proveTargetlessTestNativeContext(t, db.Pool(), []string{a, b}, routingContext,
+		func(tenant, tool string, input any, wantOK bool) json.RawMessage {
+			id := first
+			if tenant == b {
+				id = second
+			}
+			return request(id, "tools/call", tool, input, wantOK)
+		}, func(tenant string, enabled bool) error {
+			id := first
+			if tenant == b {
+				id = second
+			}
+			return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+				if enabled {
+					return (store.Roles{}).AddPermission(ctx, sc, id.role, permAgentWrite)
+				}
+				_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, tenant, id.role, permAgentWrite)
+				return err
+			})
+		})
 	scoped := first
 	var tokenErr error
 	scoped.token, tokenErr = auth.RandomToken()
