@@ -14,6 +14,8 @@ from pathlib import Path
 import subprocess
 import xml.etree.ElementTree as ET
 
+from ci_report_pdf_direction import diagnose
+
 TESTS = (
     "TestReportPDFWholeUnicodeAndCompleteRows",
     "TestReportPDFRefusesIncompleteForeignAndUnrenderableSources",
@@ -194,6 +196,7 @@ def run(output: Path) -> None:
     images = sorted(output.glob("page-*.png"))
     if not images or any(image.stat().st_size < 1000 for image in images):
         raise RuntimeError("PDF rasterization did not produce reviewable pages")
+    diagnose(specimen, output)
     for token in (
         "LATIN-BEGIN",
         "café",
