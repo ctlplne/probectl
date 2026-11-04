@@ -137,7 +137,7 @@ def variant(
 
 def diagnose(specimen: Path, output: Path) -> None:
     observations = {}
-    for mode in ("raw", "layout"):
+    for mode in ("raw", "layout", "bbox"):
         text = extract(specimen, ("-" + mode,))
         (output / f"direction-current-{mode}.txt").write_text(text)
         observations["current-" + mode] = text
