@@ -55,6 +55,7 @@ func reportRecordFixture() capturedReportFlow {
 	result.MatrixRows = []flowstore.PlanRow{{Group: row, Metrics: metrics("9007199254740993")}}
 	result.MatrixColumns = []flowstore.PlanRow{{Group: col, Metrics: metrics("9007199254740993")}}
 	result.Matrix = []flowstore.PlanMatrixCell{{Row: row, Column: col, Metrics: metrics("9007199254740993")}}
+	result.SavedFilterVersions = map[string]int64{"filter-alpha": 1, "filter-東京": 9007199254740993}
 	return capturedReportFlow{TenantID: reportRecordTenant, ID: "saved-view", Version: "9007199254740993", Name: "Whole source", Period: "current", TagAsOf: at.Add(time.Hour), Result: result}
 }
 
@@ -77,7 +78,7 @@ func reportFlowCompleteSections(t *testing.T) {
 	if _, ok := sections["matrix_cells"]; !ok {
 		t.Fatal("complete report matrix cells are missing")
 	}
-	wantCounts := map[string]int64{"field_identities": 1, "detail": 3, "chart_groups": 2, "points": 3, "matrix_rows": 1, "matrix_columns": 1, "matrix_cells": 1}
+	wantCounts := map[string]int64{"saved_filter_versions": 2, "field_identities": 1, "detail": 3, "chart_groups": 2, "points": 3, "matrix_rows": 1, "matrix_columns": 1, "matrix_cells": 1}
 	if len(sections) != len(wantCounts) {
 		t.Fatal("complete report source sections changed")
 	}
@@ -114,16 +115,24 @@ func reportFlowCompleteSections(t *testing.T) {
 	if matrix.FieldIDs["row.tag.customer"] != reportRecordFieldID || matrix.FieldIDs["column.tag.customer"] != reportRecordFieldID {
 		t.Fatal("axis-qualified immutable field identity changed")
 	}
+	versions := sections["saved_filter_versions"]
+	if got := readReportRecordRows(t, versions); !reflect.DeepEqual(got, [][]string{{"filter-alpha", "1"}, {"filter-東京", "9007199254740993"}}) {
+		t.Fatal("complete captured saved-filter versions changed or lost precision")
+	}
 	// Captured records and IDs cannot be changed by a later query/rule mutation,
 	// nor by a renderer that modifies the temporary yielded slice.
 	c.Result.Matrix[0].Row["tag.customer"] = "later rule"
 	c.Result.Matrix[0].Metrics["bytes:total"] = "0"
 	c.Result.TagIDs["tag.customer"] = "replacement"
+	c.Result.SavedFilterVersions["filter-東京"] = 2
 	if err := matrix.WalkRows(ctx, func(row []string) error { row[2] = "renderer mutation"; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if got := readReportRecordRows(t, matrix)[0]; got[2] != reportRecordLiteral || got[18] != "9007199254740993" || matrix.FieldIDs["row.tag.customer"] != reportRecordFieldID {
 		t.Fatal("frozen report records changed after capture")
+	}
+	if got := readReportRecordRows(t, versions)[1]; got[1] != "9007199254740993" {
+		t.Fatal("later filter edit changed frozen report input revision")
 	}
 	doc := reportProjectionDocument(c.TenantID, tables)
 	body, err := reporting.RenderCSV(doc)
@@ -136,8 +145,11 @@ func reportFlowCompleteSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var identity, cell bool
+	var identity, cell, filterVersion bool
 	for _, record := range records {
+		if reflect.DeepEqual(record, []string{"filter-東京", "9007199254740993"}) {
+			filterVersion = true
+		}
 		if reflect.DeepEqual(record, []string{"table_field_id:column.tag.customer", reportRecordFieldID}) {
 			identity = true
 		}
@@ -145,7 +157,7 @@ func reportFlowCompleteSections(t *testing.T) {
 			cell = true
 		}
 	}
-	if !identity || !cell {
+	if !identity || !cell || !filterVersion {
 		t.Fatal("report CSV lost full field identity, one literal prefix or exact cell")
 	}
 	filter := reportRecordFixture()
@@ -155,7 +167,13 @@ func reportFlowCompleteSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projected[0].ExpectedRows != 2 {
+	var filterIdentities [][]string
+	for _, table := range projected {
+		if strings.HasSuffix(table.ID, "/field_identities") {
+			filterIdentities = readReportRecordRows(t, table)
+		}
+	}
+	if len(filterIdentities) != 2 || !reflect.DeepEqual(filterIdentities[1], []string{"tag.site", "00000000-0000-0000-0000-000000000011"}) {
 		t.Fatal("filter-only immutable field identity was omitted")
 	}
 }
@@ -218,6 +236,9 @@ func TestReportFlowProjectionScopesSourcesAndWholeBatchRefusal(t *testing.T) {
 		{"missing_totals", func(c *capturedReportFlow) { c.Result.Totals = nil }},
 		{"incomplete_source", func(c *capturedReportFlow) { c.Result.Coverage.CompleteInputs = false }},
 		{"bad_version", func(c *capturedReportFlow) { c.Version = "1e4" }},
+		{"bad_filter_version", func(c *capturedReportFlow) { c.Result.SavedFilterVersions["filter-alpha"] = 0 }},
+		{"missing_filter_identity", func(c *capturedReportFlow) { c.Result.SavedFilterVersions[""] = 1 }},
+		{"invalid_filter_identity", func(c *capturedReportFlow) { c.Result.SavedFilterVersions[string([]byte{0xff})] = 1 }},
 		{"bad_point", func(c *capturedReportFlow) { c.Result.TotalSeries[0].DurationSeconds = "0.0" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

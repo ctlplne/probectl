@@ -280,3 +280,9 @@ partial source results. Existing standalone query limits are unchanged. The
 required isolation proof includes paired real ClickHouse lanes, TLS transport
 simulations and an assertion control that removes cumulative read accounting.
 Live report definitions and full source/reader integration remain in progress.
+
+Frozen flow source records also retain every saved-filter input identity and its
+exact positive revision in stable order. These use the same complete-record and
+workspace limits as other source sections; a later filter edit cannot change a
+captured revision, and decimal versions above JavaScript's integer range remain
+exact in CSV and PDF.

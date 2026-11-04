@@ -81,6 +81,11 @@ func (p *reportFlowProjection) add(c capturedReportFlow) error {
 		return err
 	}
 	r := c.Result
+	if len(r.SavedFilterVersions) > 0 {
+		if err := p.filterVersions(c); err != nil {
+			return err
+		}
+	}
 	if len(r.TagIDs) > 0 {
 		names := make([]string, 0, len(r.TagIDs))
 		for name := range r.TagIDs {
@@ -116,6 +121,27 @@ func (p *reportFlowProjection) add(c capturedReportFlow) error {
 		}
 	}
 	return nil
+}
+
+func (p *reportFlowProjection) filterVersions(c capturedReportFlow) error {
+	versions := c.Result.SavedFilterVersions
+	if int64(len(versions)) > p.memory/64 {
+		return reportProjectionLimit()
+	}
+	if err := p.charge(int64(len(versions)) * 64); err != nil {
+		return err
+	}
+	names := make([]string, 0, len(versions))
+	for id, version := range versions {
+		if id == "" || !utf8.ValidString(id) || version < 1 {
+			return apierror.Validation("report source requires complete saved-filter identities and exact revisions")
+		}
+		names = append(names, id)
+	}
+	sort.Strings(names)
+	return p.table(c, "saved_filter_versions", []reporting.CSVColumn{{Name: "filter_id"}, {Name: "filter_version", Numeric: true}}, nil, len(names), func(i int) ([]string, error) {
+		return []string{names[i], strconv.FormatInt(versions[names[i]], 10)}, nil
+	})
 }
 
 func (p *reportFlowProjection) validate(c capturedReportFlow) error {
