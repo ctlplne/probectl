@@ -1209,6 +1209,12 @@ jobs:
           python3 scripts/ci_related_tag_regression.py --prefixes
           go test -tags=integration -count=1 -run '^TestExplorer(RelatedTagsUseCurrentOwnedSubjectsAndReadGrants|InterfaceTagsUseAttestedIndicesUnderOwnedExporter|TagRollupFreezesActualCompleteRetainedInputs|PrefixTagsUseOwnedNetworksAndCurrentReadGrants)$' ./internal/control
           go test -v -tags=integration -count=1 -run '^TestExplorerClickHouse(RelatedTagNamespacesUseOneTenantExporterJoin|InterfaceTagsKeepIndependentSidesAndTenantTotals|PrefixTagsKeepOwnedContextAndExactRanges)$' ./internal/store/flowstore
+      - name: Whole-report source budget and paired-tenant proof
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_report_source_budget.py --selftest
+          python3 scripts/ci_report_source_budget.py
       - name: Original tag context-policy reproduction
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"

@@ -405,7 +405,10 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if strings.TrimSpace(query.TenantID) == "" {
 		return PlanResult{}, ErrNoTenant
 	}
-	budget := ExplorerQueryBudget(m)
+	budget, err := explorerPlanBudget(ctx, m, query.TenantID, m)
+	if err != nil {
+		return PlanResult{}, err
+	}
 	if err := budget.Validate(); err != nil {
 		return PlanResult{}, err
 	}

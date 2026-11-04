@@ -33,6 +33,10 @@ func (c *ClickHouse) WithExplorerInterfaces(source ExplorerInterfaceSource) *Cli
 // explorerQueryRows is the common bounded POST transport for structured plans.
 // Bound values never appear in an HTTP URL, diagnostic body or public error.
 func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane chclient.ReadLane, tenant, sql string, params chParams, external ...explorerExternalData) ([]map[string]any, error) {
+	sql, responseLimit, err := batchQueryLimits(ctx, tenant, sql)
+	if err != nil {
+		return nil, err
+	}
 	remaining := explorerBudgetFor(ctx).MemoryBytes / 4
 	seen := map[explorerExternalKind]bool{}
 	for _, data := range external {
@@ -93,7 +97,7 @@ func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane 
 		return nil, err
 	}
 	defer response.Body.Close()
-	raw, err := chclient.ReadResponseBodyBounded(response.Body, explorerBudgetFor(ctx).ResponseBytes)
+	raw, err := chclient.ReadResponseBodyBounded(response.Body, responseLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +109,9 @@ func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane 
 			return nil, ErrExplorerBudget
 		}
 		return nil, fmt.Errorf("flow query store status %d (code %s)", response.StatusCode, code)
+	}
+	if err := chargeBatchResponse(ctx, tenant, response.Header, int64(len(raw))); err != nil {
+		return nil, err
 	}
 	rows, err := chclient.Decode(raw)
 	if err != nil {

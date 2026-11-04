@@ -26,7 +26,10 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if strings.TrimSpace(query.TenantID) == "" {
 		return PlanResult{}, ErrNoTenant
 	}
-	budget := ExplorerQueryBudget(c)
+	budget, err := explorerPlanBudget(ctx, c, query.TenantID, c)
+	if err != nil {
+		return PlanResult{}, err
+	}
 	if err := budget.Validate(); err != nil {
 		return PlanResult{}, err
 	}
@@ -34,7 +37,6 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
 	var vocabulary flow.QueryVocabulary
-	var err error
 	var external []explorerExternalData
 	if query.Tags != nil {
 		vocabulary, err = query.Tags.Vocabulary(query.TenantID)

@@ -268,3 +268,15 @@ If scheduled delivery stops, check the singleton coordinator and search the
 tenant audit stream for the last `dashboard.report_delivery`. Renderer/storage
 failure leaves the schedule due and commits neither a partial artifact nor a
 misleading audit receipt.
+
+The source-query layer provides a tenant-bound serial batch for complete report
+composition. It captures one operator deadline and policy, divides retained
+workspace and response allocations across declared plans, and charges source
+read rows/bytes and HTTP response bytes cumulatively, including coverage probes
+and source retries. Successful ClickHouse reads must carry a bounded canonical
+read-cost receipt; missing or malformed receipts refuse the batch. Metadata
+contexts cannot reset query admission, and a failed batch cannot continue with
+partial source results. Existing standalone query limits are unchanged. The
+required isolation proof includes paired real ClickHouse lanes, TLS transport
+simulations and an assertion control that removes cumulative read accounting.
+Live report definitions and full source/reader integration remain in progress.
