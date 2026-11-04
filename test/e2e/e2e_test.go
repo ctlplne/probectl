@@ -61,6 +61,7 @@ const (
 	agentAID       = "a7000000-0000-4000-8000-000000000001"
 	agentBID       = "a7000000-0000-4000-8000-000000000002"
 	canaryAgentID  = "a7000000-0000-4000-8000-000000000003"
+	canaryBAgentID = "a7000000-0000-4000-8000-000000000006"
 	expiredAgentID = "a7000000-0000-4000-8000-000000000004"
 	plainAgentID   = "a7000000-0000-4000-8000-000000000005"
 	canaryTarget   = "e2e-mtls-noop"
@@ -80,6 +81,7 @@ var tokenScopes = []string{
 	"tenant.read", "test.read", "test.write", "alert.read", "alert.write",
 	"agent.read", "agent.write", "topology.read",
 	"tags.read", "tags.write", "entities.read",
+	"metrics.read",
 }
 
 func TestE2E(t *testing.T) {
@@ -93,14 +95,14 @@ func TestE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prefix := envOr("PROBECTL_E2E_NAME_PREFIX", "probectl-e2e")
+	prefix := envOr("PROBECTL_E2E_NAME_PREFIX", "probectl-qa-beta-e2e")
 	project := fmt.Sprintf("%s-%d-%d", prefix, os.Getpid(), time.Now().UnixNano())
 	network := project + "-network"
 
 	// ── the release image, and its certgen ──────────────────────────────
 	ctl := &controlImage{image: releaseImage(t, root, project), network: network, work: work, project: project}
 	tlsDir := mkdir(t, work, "tls")
-	ctl.oneShot(t, "none", nil, []string{"PROBECTL_CERT_HOSTS=localhost,127.0.0.1,postgres,kafka,clickhouse"},
+	ctl.oneShot(t, "none", nil, []string{"PROBECTL_CERT_HOSTS=localhost,127.0.0.1,postgres,kafka,clickhouse,prometheus"},
 		"gen-cert", ctl.path(t, tlsDir))
 	serverCA := filepath.Join(tlsDir, "ca.crt")
 
@@ -108,12 +110,21 @@ func TestE2E(t *testing.T) {
 	// A unique Compose project gives this run empty, disposable volumes and its
 	// own network, never the developer's probectl-dev project. Every backing
 	// service serves TLS from the certgen bundle (composeOverride).
-	pgPort, kafkaPort := freeTCPPort(t), freeTCPPort(t)
+	pgPort, kafkaPort, promPort := freeTCPPort(t), freeTCPPort(t), freeTCPPort(t)
+	promConfig := filepath.Join(work, "prometheus.yml")
+	writeFile(t, promConfig, "global:\n  scrape_interval: 15s\nscrape_configs: []\n")
+	// No secret is present in this config. The service runs as 65534, while
+	// private TLS/auth material is installed in its separate owned volume.
+	if err := os.Chmod(promConfig, 0o644); err != nil {
+		t.Fatal("make the nonsecret scrape-free Prometheus config readable")
+	}
 	secrets := newStoreSecrets(t)
 	stack := composeStack{project: project, env: append([]string{
 		"PROBECTL_ISOLATED_NETWORK=" + network,
 		"PROBECTL_DEV_POSTGRES_PORT=" + pgPort,
 		"PROBECTL_DEV_KAFKA_PORT=" + kafkaPort,
+		"PROBECTL_DEV_PROMETHEUS_PORT=" + promPort,
+		"PROBECTL_E2E_PROMETHEUS_CONFIG=" + promConfig,
 		"PROBECTL_E2E_TLS_DIR=" + tlsDir,
 	}, secrets.composeEnv()...)}
 	overrideFile := filepath.Join(work, "e2e-override.yml")
@@ -124,7 +135,7 @@ func TestE2E(t *testing.T) {
 		cmd.Env = append(os.Environ(), stack.env...)
 		_ = cmd.Run()
 	})
-	runCmd(t, root, stack.env, "docker", stack.args("up", "-d", "--wait", "postgres", "kafka", "clickhouse")...)
+	runCmd(t, root, stack.env, "docker", stack.args("up", "-d", "--wait", "postgres", "kafka", "clickhouse", "prometheus")...)
 	provisionClickHouseLogins(t, root, stack)
 	createKafkaTopics(t, root, stack,
 		"probectl."+laneA+".ebpf.flows",
@@ -241,7 +252,7 @@ func TestE2E(t *testing.T) {
 		proveReleaseTestTagMetadata(t, root, work, serverCA, a, b, objA, objB)
 	})
 
-	agentAndFlows(t, root, work, stack, secrets, cli, a, b, apiPort, agentPort, serverCA, canaryToken)
+	agentAndFlows(t, root, work, stack, secrets, cli, a, b, apiPort, agentPort, promPort, serverCA, canaryToken)
 
 	// The ClickHouse-backed read works per tenant through the reader login and
 	// shows nothing of the other tenant; then a restart re-runs the boot
@@ -261,7 +272,7 @@ func TestE2E(t *testing.T) {
 // enrollment refusals, the mTLS canary with rotation and revocation, and the
 // two tenants' Kafka flow lanes, each read back through the public API.
 func agentAndFlows(t *testing.T, root, work string, stack composeStack, secrets storeSecrets,
-	cli func(...string) string, a, b api, apiPort, agentPort, serverCA, canaryToken string) {
+	cli func(...string) string, a, b api, apiPort, agentPort, promPort, serverCA, canaryToken string) {
 	t.Helper()
 	ebpfAgent := filepath.Join(work, "probectl-ebpf-agent")
 	canaryAgent := filepath.Join(work, "probectl-agent")
@@ -340,6 +351,9 @@ canaries:
 	}
 	assertNoForeign(t, b, tenantB, "/v1/results/latest", canaryTarget, canaryAgentID)
 	assertNoForeign(t, b, tenantB, "/v1/agents", canaryAgentID, plainAgentID)
+	t.Run("persisted-probe-metrics", func(t *testing.T) {
+		provePersistedProbeMetrics(t, work, canaryAgent, enrollBase, agentGRPCAddr, promPort, serverCA, secrets, cli, a, b)
+	})
 
 	// Force a public-binary rotation, preserving the SPIFFE identity while the
 	// leaf fingerprint changes, then prove the rotated credential reconnects.
