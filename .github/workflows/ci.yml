@@ -258,12 +258,18 @@ jobs:
         run: |
           set -o pipefail
           make test 2>&1 | tee test-go.log
+      - name: Opaque continuation redaction and legacy-reader proof
+        run: |
+          python3 scripts/ci_flow_cursor_encoding.py --selftest
+          python3 scripts/ci_flow_cursor_encoding.py
       # Sprint 1 (DATAROOM-011): the test log is a retained receipt.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: test-go-log
-          path: test-go.log
+          path: |
+            test-go.log
+            artifacts/flow-cursor-encoding/
           retention-days: 90
       - name: Backup-encryption + erasure-covers-backups gate (OPS-002, COMPLY-002)
         run: go test -count=1 -v -run "Backup|Restore|Erasure|Retention|Coverage|SealOpen|Tamper" ./internal/backup/ ./internal/tenantlife/
