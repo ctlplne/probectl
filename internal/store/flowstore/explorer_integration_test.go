@@ -197,9 +197,13 @@ func TestExplorerClickHouseRealD102Plan(t *testing.T) {
 			all = append(all, flow.QueryMetric{Measure: definition.Name, Calculation: calc, Role: role})
 		}
 	}
-	compare := func(t *testing.T, plan flow.QueryPlan) {
+	compare := func(t *testing.T, plan flow.QueryPlan, tenants ...string) {
 		t.Helper()
-		query := PlanQuery{TenantID: red, Plan: plan}
+		tenant := red
+		if len(tenants) > 0 {
+			tenant = tenants[0]
+		}
+		query := PlanQuery{TenantID: tenant, Plan: plan}
 		want, err := memory.ExplorePlan(ctx, query)
 		if err != nil {
 			t.Fatal(err)
@@ -224,6 +228,23 @@ func TestExplorerClickHouseRealD102Plan(t *testing.T) {
 	}
 	base := flow.QueryPlan{From: first.TS, To: first.TS.Add(20 * time.Minute), Metrics: all, GroupBy: []string{"protocol"}, RowLimit: 1, PageSize: 1}
 	t.Run("all metric statistics with sparse zero buckets", func(t *testing.T) { compare(t, base) })
+	for _, source := range []string{"raw", "rollup"} {
+		for _, tenant := range []string{red, blue} {
+			for _, metrics := range [][]flow.QueryMetric{
+				{{Measure: "bytes", Calculation: "total", Role: "primary"}, {Measure: "bps", Calculation: "avg", Role: "secondary"}, {Measure: "flows", Calculation: "total", Role: "additional"}},
+				{{Measure: "bytes", Calculation: "p95", Role: "primary"}, {Measure: "bytes", Calculation: "p99", Role: "secondary"}, {Measure: "unique_src", Calculation: "bucket_total", Role: "additional"}},
+				{{Measure: "unique_src", Calculation: "total", Role: "primary"}, {Measure: "unique_src", Calculation: "bucket_total", Role: "secondary"}, {Measure: "bytes", Calculation: "total", Role: "additional"}},
+			} {
+				t.Run(source+"/"+tenant+"/"+metrics[0].Measure+"/"+metrics[0].Calculation, func(t *testing.T) {
+					plan := base
+					plan.DataSeries = source
+					plan.To = first.TS.Add(90 * time.Second)
+					plan.Metrics = metrics
+					compare(t, plan, tenant)
+				})
+			}
+		}
+	}
 	t.Run("chart groups and Other", func(t *testing.T) {
 		plan := base
 		plan.View = "line"

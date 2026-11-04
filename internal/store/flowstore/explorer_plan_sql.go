@@ -365,12 +365,23 @@ func planStatsSQL(prefix, input string, plan flow.QueryPlan) []string {
 	for i, measure := range measures {
 		totals = append(totals, planAggregateSQL(measure)+" AS t"+strconv.Itoa(i))
 	}
-	ctes := []string{planBucketSQL(prefix, input, plan), prefix + "_totals AS (SELECT " + planSQLGroup + "," + strings.Join(totals, ",") + " FROM " + input + " GROUP BY " + planSQLGroup + ")"}
+	ctes := []string{planBucketSQL(prefix, input, plan)}
+	source := prefix + "_buckets"
+	wholeTotals := planNeedsWholeTotals(plan)
+	if wholeTotals {
+		ctes = append(ctes, prefix+"_totals AS (SELECT "+planSQLGroup+","+strings.Join(totals, ",")+" FROM "+input+" GROUP BY "+planSQLGroup+")")
+		source += " INNER JOIN " + prefix + "_totals USING (" + planSQLGroup + ")"
+	}
 	calculations := []string{}
 	bucketCount := "toUInt64(intDiv({window_ns:Int64}-1,{width_ns:Int64})+1)"
 	for i, metric := range plan.Metrics {
 		value := "v" + strconv.Itoa(indices[metric.Measure])
-		total := "any(t" + strconv.Itoa(indices[metric.Measure]) + ")"
+		// Additive bucket sums are the exact underlying whole-window total.
+		// Distinct identities may span buckets and require their separate set.
+		total := "sum(" + value + ")"
+		if wholeTotals {
+			total = "any(t" + strconv.Itoa(indices[metric.Measure]) + ")"
+		}
 		sample := planSampleSQL(metric.Measure, value, "duration_ns")
 		expression := ""
 		switch metric.Calculation {
@@ -397,8 +408,23 @@ func planStatsSQL(prefix, input string, plan flow.QueryPlan) []string {
 		}
 		calculations = append(calculations, expression+" AS m"+strconv.Itoa(i))
 	}
-	ctes = append(ctes, prefix+"_stats AS (SELECT "+planSQLGroup+","+strings.Join(calculations, ",")+" FROM "+prefix+"_buckets INNER JOIN "+prefix+"_totals USING ("+planSQLGroup+") GROUP BY "+planSQLGroup+")")
+	ctes = append(ctes, prefix+"_stats AS (SELECT "+planSQLGroup+","+strings.Join(calculations, ",")+" FROM "+source+" GROUP BY "+planSQLGroup+")")
 	return ctes
+}
+
+func planNeedsWholeTotals(plan flow.QueryPlan) bool {
+	for _, metric := range plan.Metrics {
+		if metric.Calculation != "total" {
+			continue
+		}
+		switch metric.Measure {
+		case "bytes", "packets", "flows", "bps", "pps", "fps":
+			// Disjoint time buckets partition these exact additive measures.
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func planSQLMeasures(plan flow.QueryPlan) ([]string, map[string]int) {
