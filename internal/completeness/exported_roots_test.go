@@ -14,7 +14,10 @@ import (
 )
 
 func TestExportedRootsKeepCheckoutIsolationAndDoNotCacheParseFailure(t *testing.T) {
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	file := filepath.Join(root, "entry.go")
 	write := func(source string) {
 		t.Helper()
@@ -25,12 +28,12 @@ func TestExportedRootsKeepCheckoutIsolationAndDoNotCacheParseFailure(t *testing.
 	write("package example\nfunc First() {}\nfunc hidden() {}\n")
 	v := &Validator{root: root}
 	got, err := v.exportedPackageRoots(".")
-	if err != nil || !slices.Equal(got, []string{"First"}) {
+	if err != nil || !slices.Equal(got, []string{"func:First"}) {
 		t.Fatal("exported dispatch root changed", got, err)
 	}
 	got[0] = "forged"
 	again, err := v.exportedPackageRoots(".")
-	if err != nil || !slices.Equal(again, []string{"First"}) {
+	if err != nil || !slices.Equal(again, []string{"func:First"}) {
 		t.Fatal("caller mutated cached dispatch roots", again, err)
 	}
 	write("package example\nfunc Broken(\n")
@@ -40,7 +43,7 @@ func TestExportedRootsKeepCheckoutIsolationAndDoNotCacheParseFailure(t *testing.
 	}
 	write("package example\nfunc Second() {}\n")
 	got, err = fresh.exportedPackageRoots(".")
-	if err != nil || !slices.Equal(got, []string{"Second"}) {
+	if err != nil || !slices.Equal(got, []string{"func:Second"}) {
 		t.Fatal("parse failure was cached or another validator supplied roots", got, err)
 	}
 	if roots, err := fresh.exportedPackageRoots("../"); err == nil || roots != nil {
