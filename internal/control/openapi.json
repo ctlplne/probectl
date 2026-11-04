@@ -12747,6 +12747,7 @@
         "x-required-permission": "metrics.write",
         "operationId": "generateDashboardReport",
         "summary": "Generate an audited PDF or CSV artifact in the tenant report inbox",
+        "description": "Rendering runs outside the tenant database transaction. Publication rechecks current dashboard sharing and the captured definition; a changed definition returns 409 without publishing an artifact. Artifact creation and its export audit commit together.",
         "tags": [
           "dashboards"
         ],
@@ -12800,6 +12801,9 @@
             "$ref": "#/components/responses/ErrorResponse"
           },
           "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
             "$ref": "#/components/responses/ErrorResponse"
           }
         }

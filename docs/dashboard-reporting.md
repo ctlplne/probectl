@@ -90,6 +90,15 @@ semantically invalid bounds, duplicate metric names, kinds, or versions are
 (apart from the unique request ID), so an identifier cannot be used to
 discover another tenant's objects.
 
+On-demand generation captures the accessible dashboard, then releases its
+database connection before rendering. Publication rechecks current sharing and
+the complete captured definition under a short row lock. A changed definition
+returns `409`; a deleted or newly private dashboard returns `404`. A render
+failure or cancellation before publication creates no artifact. An audit failure
+rolls publication back. Artifact creation and its export audit commit together.
+These checks also apply when generation is
+invoked through the CLI or the native API tools.
+
 Import is two-step:
 
 1. Send `confirm: false`. The server validates every bound, runs redaction

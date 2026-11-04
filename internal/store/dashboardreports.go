@@ -160,6 +160,22 @@ func (DashboardReports) GetView(ctx context.Context, s tenancy.Scope, id, userID
 	return &out, nil
 }
 
+// GetViewForReportPublication repeats current visibility under FORCE RLS and
+// holds a short shared row lock through artifact/audit publication. Rendering
+// and source IO must finish before the caller opens this transaction.
+func (DashboardReports) GetViewForReportPublication(ctx context.Context, s tenancy.Scope, id, userID string) (*DashboardView, error) {
+	var out DashboardView
+	err := scanDashboardView(s.Q.QueryRow(ctx, `
+		SELECT `+dashboardViewColumns+`
+		  FROM dashboard_views
+		 WHERE tenant_id = $1 AND id = $2 AND (owner_id = $3 OR shared)
+		 FOR SHARE`, s.Tenant.String(), id, userID), &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (DashboardReports) ListViews(ctx context.Context, s tenancy.Scope, userID string) ([]DashboardView, error) {
 	rows, err := s.Q.Query(ctx, `
 		SELECT `+dashboardViewColumns+`

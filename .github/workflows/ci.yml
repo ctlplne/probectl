@@ -1292,7 +1292,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Start TLS Postgres (verify-full, test CA — OPS-010)
         run: ./scripts/ci_pg_tls.sh
-      - name: Current tag alert and native consumer proof
+      - name: Current tag alert, native and report publication proof
         # Separate TLS DB preserves the full suite's clean initial state.
         # Both named tests must execute and pass; skips/missing tests fail.
         env:

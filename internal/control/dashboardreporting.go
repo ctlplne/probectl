@@ -7,6 +7,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -623,43 +624,90 @@ func (s *Server) handleGenerateDashboardReport(w http.ResponseWriter, r *http.Re
 	if req.DashboardID == "" || (req.Format != "pdf" && req.Format != "csv") {
 		return apierror.Validation("dashboard_id and format pdf or csv are required")
 	}
-	id, err := crypto.UUIDv4()
+	artifact, err := s.generateDashboardReport(r, req, renderDashboardReport)
 	if err != nil {
-		return apierror.Internal("could not generate report artifact id").Wrap(err)
+		return err
 	}
-	var artifact *store.ReportArtifact
+	w.Header().Set("Location", "/v1/dashboard-report-artifacts/"+artifact.ID)
+	writeJSON(w, http.StatusCreated, artifactView(*artifact))
+	return nil
+}
+
+type dashboardReportRenderer func(context.Context, string, reporting.Document) ([]byte, string, error)
+
+func renderDashboardReport(ctx context.Context, format string, doc reporting.Document) ([]byte, string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+	content, mediaType, err := renderReport(format, doc)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+	return content, mediaType, nil
+}
+
+// Rendering may need current source reads. It runs after the capture transaction
+// has released its connection; no database transaction is held during that IO.
+// A separate short transaction rechecks visibility and the complete definition
+// before committing the artifact and audit together.
+func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequest, render dashboardReportRenderer) (*store.ReportArtifact, error) {
+	if render == nil {
+		return nil, apierror.Unavailable("dashboard report renderer is unavailable")
+	}
+	var view *store.DashboardView
+	var definition dashboardDefinition
+	var tenantName string
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		view, err := (store.DashboardReports{}).GetView(ctx, sc, req.DashboardID, dashboardActorID(r))
+		var err error
+		view, err = (store.DashboardReports{}).GetView(ctx, sc, req.DashboardID, dashboardActorID(r))
 		if err != nil {
 			return err
 		}
-		var definition dashboardDefinition
 		if err := json.Unmarshal(view.Definition, &definition); err != nil {
 			return apierror.Internal("stored dashboard definition is invalid").Wrap(err)
 		}
 		if err := cleanDashboardDefinition(&definition); err != nil {
 			return apierror.Internal("stored dashboard definition failed validation").Wrap(err)
 		}
-		tenantName, err := dashboardTenantName(ctx, sc)
+		tenantName, err = dashboardTenantName(ctx, sc)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	doc := reporting.Document{
+		Title: view.Name, Preset: view.Preset, TenantName: tenantName,
+		TenantScope: view.TenantID, AbsoluteFrom: definition.AbsoluteFrom,
+		AbsoluteTo: definition.AbsoluteTo, GeneratedAt: now, GeneratedBy: auditActor(r),
+		Provenance: definition.Provenance, RedactionState: definition.RedactionState,
+		CoverageLimitations: definition.CoverageLimitations, Metrics: definition.Metrics,
+	}
+	content, mediaType, err := render(r.Context(), req.Format, doc)
+	if err != nil {
+		return nil, apierror.Internal("could not render dashboard report").Wrap(err)
+	}
+	if err := r.Context().Err(); err != nil {
+		return nil, err
+	}
+	id, err := crypto.UUIDv4()
+	if err != nil {
+		return nil, apierror.Internal("could not generate report artifact id").Wrap(err)
+	}
+	var artifact *store.ReportArtifact
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		current, err := (store.DashboardReports{}).GetViewForReportPublication(ctx, sc, view.ID, dashboardActorID(r))
 		if err != nil {
 			return err
 		}
-		now := time.Now().UTC()
-		doc := reporting.Document{
-			Title: view.Name, Preset: view.Preset, TenantName: tenantName,
-			TenantScope: sc.Tenant.String(), AbsoluteFrom: definition.AbsoluteFrom,
-			AbsoluteTo: definition.AbsoluteTo, GeneratedAt: now, GeneratedBy: auditActor(r),
-			Provenance: definition.Provenance, RedactionState: definition.RedactionState,
-			CoverageLimitations: definition.CoverageLimitations, Metrics: definition.Metrics,
+		if !dashboardReportViewMatches(view, current) {
+			return apierror.Conflict("dashboard changed while the report was generated; retry with its current definition")
 		}
-		content, mediaType, err := renderReport(req.Format, doc)
-		if err != nil {
-			return apierror.Internal("could not render dashboard report").Wrap(err)
-		}
-		filename := reportFilename(view.Name, req.Format, now)
 		created, err := (store.DashboardReports{}).CreateArtifact(ctx, sc, store.ReportArtifactInput{
 			ID: id, DashboardID: view.ID, Format: req.Format, MediaType: mediaType,
-			Filename: filename, Content: content, GeneratedBy: auditActor(r),
+			Filename: reportFilename(view.Name, req.Format, now), Content: content, GeneratedBy: auditActor(r),
 			AbsoluteFrom: definition.AbsoluteFrom, AbsoluteTo: definition.AbsoluteTo,
 			Provenance: definition.Provenance, RedactionState: definition.RedactionState,
 			CoverageLimitations: definition.CoverageLimitations,
@@ -676,11 +724,17 @@ func (s *Server) handleGenerateDashboardReport(w http.ResponseWriter, r *http.Re
 		artifact = created
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
-	w.Header().Set("Location", "/v1/dashboard-report-artifacts/"+id)
-	writeJSON(w, http.StatusCreated, artifactView(*artifact))
-	return nil
+	return artifact, nil
+}
+
+func dashboardReportViewMatches(captured, current *store.DashboardView) bool {
+	return captured != nil && current != nil && captured.ID == current.ID &&
+		captured.TenantID == current.TenantID && captured.OwnerID == current.OwnerID &&
+		captured.Name == current.Name && captured.Preset == current.Preset && captured.Shared == current.Shared &&
+		captured.CreatedAt.Equal(current.CreatedAt) && captured.UpdatedAt.Equal(current.UpdatedAt) &&
+		bytes.Equal(captured.Definition, current.Definition)
 }
 
 func renderReport(format string, doc reporting.Document) ([]byte, string, error) {
