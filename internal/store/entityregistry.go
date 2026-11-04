@@ -83,13 +83,37 @@ func (s *EntityRegistry) GetEntityContext(ctx context.Context, scope entity.Scop
 	if err != nil {
 		return entity.ContextRecord{}, err
 	}
-	record := entity.ContextRecord{TenantID: want.TenantID, ContextID: want.ContextID}
+	var record entity.ContextRecord
 	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(ctx, `SELECT site_id::text,vrf_id::text,site_label,vrf_label,created_at
-			FROM entity_contexts WHERE tenant_id=$1 AND id=$2`,
-			want.TenantID, want.ContextID).Scan(&record.SiteID, &record.VRFID,
-			&record.SiteLabel, &record.VRFLabel, &record.CreatedAt)
+		var err error
+		record, err = s.GetEntityContextInScope(ctx, sc, want.ContextID)
+		return err
 	})
+	if err != nil {
+		return entity.ContextRecord{}, err
+	}
+	return record, nil
+}
+
+// GetEntityContextInScope reads current stored policy attributes using an
+// existing tenant transaction. It never acquires a connection or supplies
+// lifecycle, credential, writer-fence or publication authority.
+func (s *EntityRegistry) GetEntityContextInScope(ctx context.Context, sc tenancy.Scope, contextID string) (entity.ContextRecord, error) {
+	if sc.Q == nil {
+		return entity.ContextRecord{}, ErrEntityRegistryUnavailable
+	}
+	want, err := s.scope(ctx, entity.Scope{TenantID: sc.Tenant.String(), ContextID: contextID})
+	if err != nil {
+		return entity.ContextRecord{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return entity.ContextRecord{}, err
+	}
+	record := entity.ContextRecord{TenantID: want.TenantID, ContextID: want.ContextID}
+	err = sc.Q.QueryRow(ctx, `SELECT site_id::text,vrf_id::text,site_label,vrf_label,created_at
+		FROM entity_contexts WHERE tenant_id=$1 AND id=$2`,
+		want.TenantID, want.ContextID).Scan(&record.SiteID, &record.VRFID,
+		&record.SiteLabel, &record.VRFLabel, &record.CreatedAt)
 	if err != nil {
 		return entity.ContextRecord{}, err
 	}
