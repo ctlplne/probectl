@@ -134,13 +134,15 @@ const (
 	subjectTableNoSubject
 	subjectTableRetainEncryptedEvidence
 	subjectTableDerivedFlowCache
+	subjectTableReportChunks
 )
 
 type subjectTablePolicy struct {
-	plane       string
-	disposition subjectTableDisposition
-	exact       []string
-	contains    []string
+	plane          string
+	disposition    subjectTableDisposition
+	exact          []string
+	contains       []string
+	derivedReports bool // erase opaque source-aware copies; export stays owner-scoped
 }
 
 // subjectPostgresTablePolicies is the fail-closed privacy inventory for the
@@ -238,7 +240,10 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	},
 	"dashboard_report_artifacts": {
 		plane: "postgres:dashboard_report_artifacts", disposition: subjectTableDeleteMatches,
-		exact: []string{"generated_by"},
+		exact: []string{"generated_by"}, derivedReports: true,
+	},
+	"dashboard_report_artifact_chunks": {
+		plane: "postgres:dashboard_report_artifact_chunks", disposition: subjectTableReportChunks,
 	},
 	"dashboard_report_schedules": {
 		plane: "postgres:dashboard_report_schedules", disposition: subjectTableDeleteMatches,
@@ -574,7 +579,7 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 	tctx := tenancy.WithTenant(x.ctx, tenancy.ID(x.tenantID))
 	var flowAliases subjectAliasSet
 	for _, table := range tables {
-		if flowQuerySubjectTable(table) {
+		if flowQuerySubjectTable(table) || table == "dashboard_report_artifacts" || table == "dashboard_report_artifact_chunks" {
 			if err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 				captured, err := e.captureSubjectAliases(ctx, sc, x.subject)
 				flowAliases = captured.aliases
@@ -589,6 +594,19 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 	subjectHash := audit.SubjectErasureHash(x.tenantID, x.subject)
 	for _, table := range tables {
 		policy := policies[table]
+		if table == "dashboard_report_artifacts" || table == "dashboard_report_artifact_chunks" {
+			count, err := streamPlaneToTar(x.tw, "postgres/"+table+".jsonl", x.man.ExportedAt, x.redact, x.pol, func(w io.Writer) (int64, error) {
+				return e.exportSubjectReportRows(tctx, x.tenantID, table, policy, flowAliases, w)
+			})
+			if err != nil {
+				return fmt.Errorf("tenantlife: subject report export %s: %w", table, err)
+			}
+			if count > 0 {
+				x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: policy.plane, Status: SubjectStatusExported, Rows: count,
+					Notes: "generator-scoped report metadata or relational chunks; derived invalidation does not broaden subject export"})
+			}
+			continue
+		}
 
 		if policy.disposition == subjectTableDerivedFlowCache {
 			x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: policy.plane, Status: SubjectStatusCoveredByPlane, Notes: ordinaryPortabilityFlowCacheNote})
@@ -1143,6 +1161,24 @@ func (e *Engine) eraseSubjectPostgres(
 				// The cache lease and physical object purge run after directory
 				// validation; never delete the generation row here.
 				continue
+			case subjectTableReportChunks:
+				// Every source-aware parent is invalidated first. Clear and
+				// verify the opaque sidecar as well, including any bad residual.
+				ident := pgIdent(table.name)
+				tag, err := sc.Q.Exec(ctx, `DELETE FROM `+ident+` WHERE tenant_id=$1`, tenantID)
+				if err != nil {
+					return fmt.Errorf("erase derived report chunks: %w", err)
+				}
+				var remaining int64
+				if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM `+ident+` WHERE tenant_id=$1`, tenantID).Scan(&remaining); err != nil {
+					return fmt.Errorf("verify derived report chunk erasure: %w", err)
+				}
+				if remaining != 0 {
+					return fmt.Errorf("verify derived report chunk erasure: %d remain", remaining)
+				}
+				out = append(out, SubjectPlaneResult{Plane: table.policy.plane, Status: SubjectStatusDeleted,
+					Deleted: tag.RowsAffected(), Remaining: 0, Notes: "source-aware derived report bytes invalidated; parent cascade may account for deleted rows"})
+				continue
 			case subjectTableNoSubject:
 				out = append(out, SubjectPlaneResult{
 					Plane: table.policy.plane, Status: SubjectStatusCoveredByPlane,
@@ -1169,7 +1205,7 @@ func (e *Engine) eraseSubjectPostgres(
 				continue
 			}
 			ident := pgIdent(table.name)
-			predicate := subjectTableMatchPredicate(table.policy)
+			predicate := subjectTableErasurePredicate(table.policy)
 			tag, err := sc.Q.Exec(ctx,
 				`DELETE FROM `+ident+` AS subject_row
 				  WHERE subject_row.tenant_id = $1
@@ -1186,10 +1222,14 @@ func (e *Engine) eraseSubjectPostgres(
 				tenantID, exactAliases, containsPatterns).Scan(&remaining); err != nil {
 				return fmt.Errorf("verify classified subject rows in %s: %w", table.name, err)
 			}
+			notes := "explicit subject columns count-verified after deletion"
+			if table.policy.derivedReports {
+				notes = "subject-owned legacy reports and all source-aware derived reports invalidated; opaque binary copies cannot prove absence of the erased subject"
+			}
 			out = append(out, SubjectPlaneResult{
 				Plane: table.policy.plane, Status: SubjectStatusDeleted,
 				Deleted: tag.RowsAffected(), Remaining: remaining,
-				Notes: "explicit subject columns count-verified after deletion",
+				Notes: notes,
 			})
 			if remaining != 0 {
 				return fmt.Errorf("verify classified subject rows in %s: %d remain", table.name, remaining)
@@ -1249,7 +1289,8 @@ func classifySubjectPostgresTables(tables []string) ([]classifiedSubjectTable, e
 		case subjectTableProjectMatches,
 			subjectTableNoSubject,
 			subjectTableRetainEncryptedEvidence,
-			subjectTableDerivedFlowCache:
+			subjectTableDerivedFlowCache,
+			subjectTableReportChunks:
 			valid = len(policy.exact) == 0 && len(policy.contains) == 0
 		default:
 			valid = false
@@ -1281,8 +1322,10 @@ func subjectTableSortKey(table string) string {
 		return "dashboard_0_views"
 	case "dashboard_report_artifacts":
 		return "dashboard_1_report_artifacts"
+	case "dashboard_report_artifact_chunks":
+		return "dashboard_2_report_chunks"
 	case "dashboard_report_schedules":
-		return "dashboard_2_report_schedules"
+		return "dashboard_3_report_schedules"
 	default:
 		return table
 	}
@@ -1292,6 +1335,12 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 	// Reference both arrays for every policy so the prepared statement has a
 	// stable three-argument shape even when this table uses only one match mode.
 	var parts []string
+	if policy.disposition == subjectTableReportChunks {
+		return `(($3::text[] IS NULL AND FALSE) OR EXISTS (
+ SELECT 1 FROM dashboard_report_artifacts report_parent
+ WHERE report_parent.tenant_id=subject_row.tenant_id AND report_parent.id=subject_row.artifact_id
+   AND lower(COALESCE(report_parent.generated_by,''))=ANY($2::text[])))`
+	}
 	if len(policy.exact) == 0 {
 		parts = append(parts, `($2::text[] IS NULL AND FALSE)`)
 	}
@@ -1310,6 +1359,16 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 )`)
 	}
 	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
+func subjectTableErasurePredicate(policy subjectTablePolicy) string {
+	predicate := subjectTableMatchPredicate(policy)
+	if policy.derivedReports {
+		// A binary export cannot safely prove that an arbitrary erased source
+		// subject is absent. Withdraw derived copies; preserve legacy matching.
+		return "(" + predicate + " OR subject_row.source_capture IS NOT NULL)"
+	}
+	return predicate
 }
 
 // subjectTenantOwnedTables uses pg_catalog rather than information_schema so

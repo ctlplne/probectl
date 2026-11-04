@@ -189,7 +189,7 @@ func inTenantTx(ctx context.Context, pool *pgxpool.Pool, options pgx.TxOptions,
 			return fmt.Errorf("route tenant schema: %w", err)
 		}
 	}
-	if _, err := tx.Exec(ctx, "SELECT set_config('probectl.tenant_id', $1, true)", id.String()); err != nil {
+	if _, err := tx.Exec(ctx, "SELECT set_config('probectl.tenant_id', $1, true), set_config('probectl.report_artifact_format', '1', true)", id.String()); err != nil {
 		return fmt.Errorf("bind tenant scope: %w", err)
 	}
 
@@ -251,7 +251,7 @@ func InTenantProviderMaintenance(
 	}
 	if _, err := tx.Exec(
 		ctx,
-		"SELECT set_config('probectl.tenant_id', $1, true)",
+		"SELECT set_config('probectl.tenant_id', $1, true), set_config('probectl.report_artifact_format', '1', true)",
 		id.String(),
 	); err != nil {
 		return fmt.Errorf("bind tenant provider-maintenance scope: %w", err)

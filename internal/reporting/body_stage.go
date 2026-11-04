@@ -154,6 +154,30 @@ func (s *BodyStage) Seal() (BodyStageReceipt, error) {
 	return s.receipt, nil
 }
 
+// Receipt returns only the receipt sealed by this stage, never a caller's
+// claim about its length or hash. The stage remains immutable and tenant-bound.
+func (s *BodyStage) Receipt(ctx context.Context) (BodyStageReceipt, error) {
+	if s == nil {
+		return BodyStageReceipt{}, ErrBodyStageState
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || bound.String() != s.tenant {
+		return BodyStageReceipt{}, ErrBodyStageScope
+	}
+	if s.state != "ready" || s.err != nil {
+		return BodyStageReceipt{}, ErrBodyStageState
+	}
+	if err := s.ctx.Err(); err != nil {
+		return BodyStageReceipt{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return BodyStageReceipt{}, err
+	}
+	return s.receipt, nil
+}
+
 // Open permits one active reader, so callers cannot allocate an unbounded set
 // of staging cursors. A closed reader may be replaced for a validation pass.
 func (s *BodyStage) Open(ctx context.Context) (io.ReadCloser, error) {

@@ -340,3 +340,32 @@ independent verification; compiler memory is excluded. It measures the tested
 renderer/stager/verifier process, rather than source-query or production-only
 memory. Durations remain observations and existing output/allocation limits
 remain enforced.
+
+## Stored body compatibility
+
+The report store can represent an immutable body inline or as ordered 64 KiB
+Postgres chunks. Chunks use the same tenant boundary and transaction as their
+artifact metadata; their composite foreign key cannot borrow a parent from a
+different tenant. Silo catch-up installs the equivalent constraints, schema-local
+foreign key, format policy and immutable body permissions. Existing inline bytes
+are preserved by the migration.
+
+A transaction from an older reader that encounters the chunk format fails
+explicitly rather than returning a successful empty download. Upgrade report
+readers before enabling source-aware chunk publication. The storage migration
+alone does not enable that publication or claim complete live-source reporting.
+
+Subject erasure invalidates all source-aware derived reports in that tenant:
+an opaque PDF or CSV cannot establish that it contains no erased subject.
+The erasure receipt records this conservative invalidation and verifies that
+chunk bytes are gone. Legacy reports keep their generator-subject matching.
+Subject export remains generator-scoped and does not include another generator's
+report merely because erasure would invalidate that derived copy.
+
+The store's chunk reader stages one tenant snapshot, verifies the complete
+ordinal sequence and byte count, then independently hashes the staged bytes
+before returning a readable body. Missing, additional or corrupted chunks
+produce no body. The writer reads length and digest from the sealed stage itself;
+callers cannot supply a separate integrity claim. Metadata listing never loads
+binary bodies. Public generation and download use remains an item acceptance
+step until current source/reader authorization is connected and proven.

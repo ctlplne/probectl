@@ -1111,6 +1111,12 @@ func (v *Validator) exportedPackageRoots(relativeDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A Validator describes one checkout, like its package reachability cache.
+	// Many protocol anchors share a package; enumerate its exported roots once
+	// instead of reparsing every control-plane file for every registry cell.
+	if roots, found := v.exportedRoots[directory]; found {
+		return append([]string(nil), roots...), nil
+	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, fmt.Errorf("read non-REST API package %q: %w", relativeDir, err)
@@ -1149,7 +1155,11 @@ func (v *Validator) exportedPackageRoots(relativeDir string) ([]string, error) {
 		}
 	}
 	sort.Strings(roots)
-	return roots, nil
+	if v.exportedRoots == nil {
+		v.exportedRoots = make(map[string][]string)
+	}
+	v.exportedRoots[directory] = roots
+	return append([]string(nil), roots...), nil
 }
 
 func (p *packageReachability) reachableProtocolAnchor(file, anchor string) bool {

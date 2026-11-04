@@ -405,7 +405,8 @@ func (DashboardReports) GetArtifact(ctx context.Context, s tenancy.Scope, id, us
 		  FROM dashboard_report_artifacts a
 		  JOIN dashboard_views v
 		    ON v.tenant_id = a.tenant_id AND v.id = a.dashboard_id
-		 WHERE a.tenant_id = $1 AND a.id = $2 AND (v.owner_id = $3 OR v.shared)`,
+		 WHERE a.tenant_id = $1 AND a.id = $2 AND (v.owner_id = $3 OR v.shared)
+		   AND a.body_storage='inline' AND a.source_capture IS NULL`,
 		s.Tenant.String(), id, userID), &out)
 	if err != nil {
 		return nil, err
@@ -423,6 +424,7 @@ func (DashboardReports) ListArtifacts(ctx context.Context, s tenancy.Scope, user
 		  JOIN dashboard_views v
 		    ON v.tenant_id = a.tenant_id AND v.id = a.dashboard_id
 		 WHERE a.tenant_id = $1 AND (v.owner_id = $2 OR v.shared)
+		   AND a.body_storage='inline' AND a.source_capture IS NULL
 		 ORDER BY a.generated_at DESC, a.id LIMIT 200`, s.Tenant.String(), userID)
 	if err != nil {
 		return nil, err

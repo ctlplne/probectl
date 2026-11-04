@@ -232,6 +232,9 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	if err := assertSiloSchemaGuards(ctx, q, siloTables); err != nil {
 		return err
 	}
+	if err := assertReportArtifactFormatGuards(ctx, q); err != nil {
+		return err
+	}
 	if err := assertStrictPreTenantPolicies(ctx, q); err != nil {
 		return err
 	}

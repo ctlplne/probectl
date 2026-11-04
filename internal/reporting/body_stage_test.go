@@ -30,6 +30,9 @@ func TestReportBodyStageCopiesExactBytesAndSealsIntegrity(t *testing.T) {
 			if reader, err := stage.Open(ctx); err == nil || reader != nil {
 				t.Fatal("unsealed bytes became readable")
 			}
+			if receipt, err := stage.Receipt(ctx); err == nil || receipt != (BodyStageReceipt{}) {
+				t.Fatal("unsealed receipt became publishable")
+			}
 			input := []byte("abc")
 			if n, err := stage.Write(input); err != nil || n != 3 {
 				t.Fatal(n, err)
@@ -40,7 +43,13 @@ func TestReportBodyStageCopiesExactBytesAndSealsIntegrity(t *testing.T) {
 				t.Fatal("staged original bytes or independent SHA256 vector changed", receipt, err)
 			}
 			foreign := tenancy.WithTenant(t.Context(), tenancy.ID(tenant+"-other"))
+			if current, err := stage.Receipt(ctx); err != nil || current != receipt {
+				t.Fatal("sealed storage receipt differs from stage integrity receipt", current, err)
+			}
 			for _, denied := range []context.Context{t.Context(), foreign} {
+				if receipt, err := stage.Receipt(denied); !errors.Is(err, ErrBodyStageScope) || receipt != (BodyStageReceipt{}) {
+					t.Fatal("staged receipt escaped tenant scope", err)
+				}
 				if reader, err := stage.Open(denied); !errors.Is(err, ErrBodyStageScope) || reader != nil {
 					t.Fatal("staged bytes escaped bound tenant scope", err)
 				}
@@ -67,6 +76,9 @@ func TestReportBodyStageCopiesExactBytesAndSealsIntegrity(t *testing.T) {
 			}
 			retained := append([][]byte(nil), stage.chunks...)
 			_ = stage.Close()
+			if receipt, err := stage.Receipt(ctx); err == nil || receipt != (BodyStageReceipt{}) {
+				t.Fatal("closed stage retained a publishable receipt")
+			}
 			if n, err := second.Read(make([]byte, 8)); err == nil || n != 0 {
 				t.Fatal("closed body remained readable")
 			}

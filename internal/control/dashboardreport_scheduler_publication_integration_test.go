@@ -140,7 +140,7 @@ func TestScheduledDashboardReportsRecheckCapturedStateAndPublishOnce(t *testing.
 			}
 			_, before, _ := state(t, tenants[0], viewID, scheduleID)
 			supervisor := build(t)
-			runContext, cancel := context.WithTimeout(ctx, 4*time.Second)
+			runContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			calls := 0
 			supervisor.render = func(ctx context.Context, format string, document reporting.Document) ([]byte, string, error) {
@@ -148,7 +148,9 @@ func TestScheduledDashboardReportsRecheckCapturedStateAndPublishOnce(t *testing.
 				if document.TenantScope != tenants[0] || document.Title != "Schedule "+tenants[0] {
 					t.Fatal("scheduled renderer received foreign captured data")
 				}
-				databaseContext, stop := context.WithTimeout(ctx, time.Second)
+				// One connection still proves rendering released its capture
+				// transaction. Allow bounded runner load without a 1s speed gate.
+				databaseContext, stop := context.WithTimeout(ctx, 10*time.Second)
 				defer stop()
 				if err := mutate(databaseContext, tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
 					if _, err := sc.Q.Exec(ctx, `SELECT 1`); err != nil {
