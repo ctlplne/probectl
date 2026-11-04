@@ -250,7 +250,15 @@
       "ref": "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack",
       "profile": "integration",
       "capabilities": [
-        "F17"
+        "F17",
+        "F9"
+      ]
+    },
+    {
+      "ref": "test:test/e2e/e2e_test.go#TestE2E",
+      "profile": "e2e",
+      "capabilities": [
+        "F9"
       ]
     }
   ]

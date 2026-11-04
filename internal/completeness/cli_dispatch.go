@@ -335,6 +335,86 @@ const runRawOperationWithStdinSpine = `{
 }`
 
 var customCLIHandlerSpines = map[string]string{
+	"dashboardExport": `{
+	if wantsHelp(args) {
+		usage(stdout, cfg.Locale)
+		return 0
+	}
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "dashboard export: missing <id>")
+		return 2
+	}
+	if len(args) > 1 {
+		fmt.Fprintf(stderr, "dashboard export: unexpected args: %s\n", strings.Join(args[1:], " "))
+		return 2
+	}
+	path := "/v1/dashboards/" + url.PathEscape(args[0]) + "/manifest"
+	if err := newClient(cfg).stream(http.MethodGet, path, nil, stdout); err != nil {
+		return fail(stderr, err)
+	}
+	return 0
+}`,
+	"dashboardImport": `{
+	fs := flag.NewFlagSet("dashboard import", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	filename := fs.String("file", "-", "manifest path, or - for stdin")
+	confirm := fs.Bool("confirm", false, "create the dashboard after server validation; otherwise preview only")
+	bindingsFile := fs.String("source-bindings-file", "", "destination source slot bindings JSON file (never stdin)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if len(fs.Args()) > 0 {
+		fmt.Fprintf(stderr, "dashboard import: unexpected args: %s\n", strings.Join(fs.Args(), " "))
+		return 2
+	}
+	manifest, err := readDashboardManifest(*filename, stdin)
+	if err != nil {
+		fmt.Fprintln(stderr, "dashboard import: "+err.Error())
+		return 2
+	}
+	payload := map[string]any{"manifest": json.RawMessage(manifest), "confirm": *confirm}
+	if *bindingsFile != "" {
+		if *bindingsFile == "-" {
+			fmt.Fprintln(stderr, "dashboard import: source bindings must use a file; stdin is reserved for the manifest")
+			return 2
+		}
+		data, err := readDashboardManifest(*bindingsFile, nil)
+		if err != nil {
+			fmt.Fprintln(stderr, "dashboard import source bindings: "+err.Error())
+			return 2
+		}
+		var bindings map[string]json.RawMessage
+		if err := json.Unmarshal(data, &bindings); err != nil {
+			fmt.Fprintln(stderr, "dashboard import: source bindings must be a JSON object")
+			return 2
+		}
+		payload["source_bindings"] = bindings
+	}
+	var out any
+	if err := newClient(cfg).do(http.MethodPost, "/v1/dashboard-manifests/import", payload, &out); err != nil {
+		return fail(stderr, err)
+	}
+	return printJSON(stdout, out)
+}`,
+	"dashboardReportDownload": `{
+	if wantsHelp(args) {
+		usage(stdout, cfg.Locale)
+		return 0
+	}
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "dashboard-report download: missing <id>")
+		return 2
+	}
+	if len(args) > 1 {
+		fmt.Fprintf(stderr, "dashboard-report download: unexpected args: %s\n", strings.Join(args[1:], " "))
+		return 2
+	}
+	path := "/v1/dashboard-report-artifacts/" + url.PathEscape(args[0])
+	if err := newClient(cfg).stream(http.MethodGet, path, nil, stdout); err != nil {
+		return fail(stderr, err)
+	}
+	return 0
+}`,
 	"lifecycleExport": `{
 	fs := flag.NewFlagSet("lifecycle export", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -459,6 +539,9 @@ func (v *Validator) loadExplicitCLIOperations(handlers map[string]string, comman
 	callable := map[string]bool{}
 	for name, definitions := range functions {
 		callable[name] = len(definitions) == 1 && customCLIHandlerExecutesRequest(name, definitions[0].Body)
+	}
+	if callable["dashboardImport"] && !v.dashboardManifestReaderIsBounded(functions) {
+		callable["dashboardImport"] = false
 	}
 	for group, handler := range handlers {
 		definitions := functions[handler]
@@ -615,7 +698,11 @@ func cliReturnRoutesOperation(statement *ast.ReturnStmt, group, operation string
 	if !ok || !callable[identifier.Name] || !cliCustomHandlerMatches(identifier.Name, group, operation) {
 		return false
 	}
-	if identifier.Name == "aiAsk" {
+	if identifier.Name == "dashboardImport" {
+		return len(call.Args) == 5 && isIdentifier(call.Args[0], "cfg") && isArgsTail(call.Args[1]) &&
+			isIdentifier(call.Args[2], "stdin") && isIdentifier(call.Args[3], "stdout") && isIdentifier(call.Args[4], "stderr")
+	}
+	if identifier.Name == "aiAsk" || identifier.Name == "dashboardExport" || identifier.Name == "dashboardReportDownload" {
 		return len(call.Args) == 4 && isIdentifier(call.Args[0], "cfg") && isArgsTail(call.Args[1]) &&
 			isIdentifier(call.Args[2], "stdout") && isIdentifier(call.Args[3], "stderr")
 	}

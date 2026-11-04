@@ -95,7 +95,7 @@ func (s *DashboardReportSupervisor) Tick(ctx context.Context) {
 			// saved view, exact values, or artifact bytes.
 			reason := "unavailable"
 			if domain, ok := apierror.As(err); ok {
-				reason = string(domain.Kind)
+				reason = domain.Code
 			}
 			s.log.Warn("dashboard report delivery failed", "tenant_id", tenant.ID, "reason", reason)
 		}
