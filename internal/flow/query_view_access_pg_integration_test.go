@@ -28,6 +28,52 @@ func queryViewMetadataAccessProof(ctx context.Context, t *testing.T, pool *pgxpo
 	t.Helper()
 	redContext := tenancy.WithTenant(ctx, tenancy.ID(red))
 	blueContext := tenancy.WithTenant(ctx, tenancy.ID(blue))
+	configuration := pool.Config().Copy()
+	configuration.MaxConns, configuration.MinConns = 1, 0
+	limited, err := pgxpool.NewWithConfig(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(limited.Close)
+	scopedStore := flow.NewPostgresQueryViewStore(limited, 0, nil)
+	readScoped := func(tenant, reader, owner, version string, visible bool) {
+		t.Helper()
+		parent := tenancy.WithSiloTableLock(tenancy.WithTenant(ctx, tenancy.ID(tenant)))
+		readContext, cancel := context.WithTimeout(parent, 5*time.Second)
+		defer cancel()
+		err := tenancy.InTenantReadSnapshot(readContext, limited, func(ctx context.Context, sc tenancy.Scope) error {
+			item, err := scopedStore.GetQueryViewAccessInScope(ctx, sc, reader, saved.ID)
+			if visible {
+				if err != nil || item.TenantID != tenant || item.ID != saved.ID || item.OwnerID != owner || item.Version != version {
+					t.Fatal("one-connection visibility lost current owned metadata", err)
+				}
+			} else if !errors.Is(err, flow.ErrQueryViewNotFound) || item != (flow.QueryViewAccess{}) {
+				t.Fatal("scoped visibility disclosed a revoked source", err)
+			}
+			wrong := sc
+			if tenant == red {
+				wrong.Tenant = tenancy.ID(blue)
+			} else {
+				wrong.Tenant = tenancy.ID(red)
+			}
+			if item, err := scopedStore.GetQueryViewAccessInScope(ctx, wrong, reader, saved.ID); !errors.Is(err, flow.ErrQueryViewNotFound) || item != (flow.QueryViewAccess{}) {
+				t.Fatal("scoped source visibility overrode its bound tenant", err)
+			}
+			if item, err := scopedStore.GetQueryViewAccessInScope(t.Context(), sc, reader, saved.ID); !errors.Is(err, flow.ErrQueryViewNotFound) || item != (flow.QueryViewAccess{}) {
+				t.Fatal("unbound source visibility disclosed metadata", err)
+			}
+			canceled, stop := context.WithCancel(ctx)
+			stop()
+			if item, err := scopedStore.GetQueryViewAccessInScope(canceled, sc, reader, saved.ID); !errors.Is(err, context.Canceled) || item != (flow.QueryViewAccess{}) {
+				t.Fatal("canceled source visibility returned partial metadata", err)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal("single-connection visibility read failed", err)
+		}
+	}
+	readScoped(red, "bob", "alice", saved.Version, true)
 	if item, err := st.GetQueryViewAccess(redContext, red, "bob", saved.ID); err != nil || item.TenantID != red || item.OwnerID != "alice" || item.Visibility != "tenant" || item.Version != saved.Version {
 		t.Fatal("current shared source metadata lost exact identity", err)
 	}
@@ -74,10 +120,13 @@ func queryViewMetadataAccessProof(ctx context.Context, t *testing.T, pool *pgxpo
 	if item, err := st.GetQueryViewAccess(redContext, red, "bob", saved.ID); err != nil || item.Version != saved.Version || item.OwnerID != "alice" {
 		t.Fatal("source metadata must remain readable after definition change", err)
 	}
+	readScoped(red, "bob", "alice", saved.Version, true)
 	if err := write(ctx, blue, `INSERT INTO flow_query_views(tenant_id,id,owner_id,name,visibility,definition,version,created_at,updated_at) VALUES($1::uuid,$2::uuid,'blue-owner',$3,'tenant',$4::jsonb,9007199254740993,now(),now())`, blue, saved.ID, saved.Definition.Name, string(encoded)); err != nil {
 		t.Fatal(err)
 	}
 	blueCreated = true
+	readScoped(blue, "viewer", "blue-owner", "9007199254740993", true)
+	readScoped(red, "bob", "alice", saved.Version, true)
 	if item, err := st.GetQueryViewAccess(blueContext, blue, "viewer", saved.ID); err != nil || item.TenantID != blue || item.OwnerID != "blue-owner" || item.Version != "9007199254740993" {
 		t.Fatal("same source ID crossed its storage tenant or lost revision precision", err)
 	}
@@ -93,6 +142,8 @@ func queryViewMetadataAccessProof(ctx context.Context, t *testing.T, pool *pgxpo
 	if item, err := st.GetQueryViewAccess(redContext, red, "alice", saved.ID); err != nil || item.Visibility != "private" {
 		t.Fatal("current owner access depended on mutable query decoding", err)
 	}
+	readScoped(red, "bob", "", "", false)
+	readScoped(red, "alice", "alice", saved.Version, true)
 	canceled, cancel := context.WithCancel(redContext)
 	cancel()
 	if _, err := st.GetQueryViewAccess(canceled, red, "alice", saved.ID); !errors.Is(err, context.Canceled) {

@@ -156,7 +156,10 @@ def visibility_proof() -> None:
     if original.count(signature) != 1:
         raise RuntimeError("current source visibility seam unavailable")
     start = original.index(signature)
-    end = original.index("\nvar (", start)
+    # Replace only the pool-owned getter. Keep the scoped store path available
+    # so its one-connection proof compiles and the counterexample still has to
+    # reach the original invalid-definition assertion.
+    end = original.index("\n// GetQueryViewAccessInScope", start)
     decoded = """func (s *PostgresQueryViewStore) GetQueryViewAccess(ctx context.Context, tenant, owner, id string) (QueryViewAccess, error) {
     if err := queryViewAccessScope(ctx, tenant, owner, id); err != nil { return QueryViewAccess{}, err }
     current, err := s.GetQueryView(ctx, tenant, owner, id)

@@ -74,10 +74,31 @@ func (s *PostgresQueryViewStore) GetQueryViewAccess(ctx context.Context, tenant,
 		return QueryViewAccess{}, err
 	}
 	var item QueryViewAccess
-	var version int64
 	err := s.inTenant(ctx, tenant, owner, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(ctx, `SELECT id::text,tenant_id::text,owner_id,visibility,version FROM flow_query_views WHERE tenant_id=$1::uuid AND (owner_id=$2 OR visibility='tenant') AND id=$3::uuid`, tenant, owner, id).Scan(&item.ID, &item.TenantID, &item.OwnerID, &item.Visibility, &version)
+		var err error
+		item, err = s.GetQueryViewAccessInScope(ctx, sc, owner, id)
+		return err
 	})
+	if err != nil {
+		return QueryViewAccess{}, queryViewStorageError(err)
+	}
+	return validateQueryViewAccess(item, tenant, owner)
+}
+
+// GetQueryViewAccessInScope reads current visibility through a caller-owned
+// tenant transaction. It never acquires a connection, decodes frozen query
+// configuration or grants source-data/lifecycle/publication authority.
+func (s *PostgresQueryViewStore) GetQueryViewAccessInScope(ctx context.Context, sc tenancy.Scope, owner, id string) (QueryViewAccess, error) {
+	tenant := sc.Tenant.String()
+	if err := queryViewAccessScope(ctx, tenant, owner, id); err != nil {
+		return QueryViewAccess{}, err
+	}
+	if s == nil || sc.Q == nil {
+		return QueryViewAccess{}, ErrQueryViewNotFound
+	}
+	var item QueryViewAccess
+	var version int64
+	err := sc.Q.QueryRow(ctx, `SELECT id::text,tenant_id::text,owner_id,visibility,version FROM flow_query_views WHERE tenant_id=$1::uuid AND (owner_id=$2 OR visibility='tenant') AND id=$3::uuid`, tenant, owner, id).Scan(&item.ID, &item.TenantID, &item.OwnerID, &item.Visibility, &version)
 	if err != nil {
 		return QueryViewAccess{}, queryViewStorageError(err)
 	}
