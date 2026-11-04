@@ -59,9 +59,13 @@ func TestReportFieldIdentitiesRetainCompleteSchemaAndCapture(t *testing.T) {
 			t.Fatal("PDF accepted a missing or malformed field identity")
 		}
 	}
-	d.Tables[0].FieldIDs = map[string]string{"row.tag.customer": strings.Repeat("x", 10000)}
 	limits := DefaultCSVLimits()
-	limits.MemoryBytes = 4096
+	limits.MemoryBytes = 24 << 10
+	d.Tables[0].FieldIDs = map[string]string{"row.tag.customer": "definition-row"}
+	if _, err := WriteCSV(context.Background(), &bytes.Buffer{}, d, limits); err != nil {
+		t.Fatalf("field identity budget fixture cannot render its baseline: %v", err)
+	}
+	d.Tables[0].FieldIDs = map[string]string{"row.tag.customer": strings.Repeat("x", 10000)}
 	if _, err := WriteCSV(context.Background(), &bytes.Buffer{}, d, limits); err == nil {
 		t.Fatal("field identities escaped the schema workspace budget")
 	}
