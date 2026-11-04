@@ -378,3 +378,158 @@ test.each([
     }
   },
 )
+
+// UI fixture proof only. Real authenticated service and rendered release
+// acceptance are separate required checks for source-backed reports.
+test.each([
+  {
+    tenant: '00000000-0000-0000-0000-000000000001',
+    source: '00000000-0000-0000-0000-000000000011',
+    name: 'Lane A',
+  },
+  {
+    tenant: '00000000-0000-0000-0000-000000000002',
+    source: '00000000-0000-0000-0000-000000000022',
+    name: 'Lane B',
+  },
+])(
+  'saved report sources and native bindings stay explicit in $name',
+  async ({ tenant, source, name }) => {
+    const fallback = defaultFetch()
+    const requests: Array<{ path: string; body: Record<string, unknown> }> = []
+    const views: Array<Record<string, unknown>> = []
+    const sourceName = `${name} owned query`
+    const manifest = {
+      api_version: 'probectl.io/dashboard/v1',
+      kind: 'Dashboard',
+      metadata: { name: 'Portable source report' },
+      spec: {
+        preset: 'operator',
+        shared: false,
+        definition: {
+          provenance: ['saved source'],
+          redaction_state: 'current source policy',
+          coverage_limitations: ['selected source rows'],
+          metrics: [],
+          flow_sources: [{ slot: 'flow-1' }],
+        },
+      },
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = pathOf(input)
+        const method = init?.method ?? 'GET'
+        if (path === '/v1/explorer/flow-views')
+          return jsonResponse({
+            items: [
+              {
+                id: source,
+                version: '7',
+                owner_id: 'u_test',
+                definition: { name: sourceName, visibility: 'private' },
+              },
+            ],
+          })
+        if (path === '/v1/dashboards') {
+          if (method === 'POST') {
+            const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+            requests.push({ path, body })
+            const view = {
+              id: `${name}-view`,
+              tenant_id: tenant,
+              owner_id: 'u_test',
+              ...body,
+              created_at: '2026-11-04T12:00:00Z',
+              updated_at: '2026-11-04T12:00:00Z',
+            }
+            views.push(view)
+            return jsonResponse(view, 201)
+          }
+          return jsonResponse({ items: views })
+        }
+        if (path === '/v1/dashboard-report-schedules')
+          return jsonResponse({ items: [], destinations: [], outbound_default: false })
+        if (path === '/v1/dashboard-report-artifacts') return jsonResponse({ items: [] })
+        if (path === '/v1/dashboard-manifests/import' && method === 'POST') {
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+          requests.push({ path, body })
+          return jsonResponse({
+            status: 'preview',
+            manifest: body.manifest,
+            preview: {
+              name: 'Portable source report',
+              preset: 'operator',
+              shared: false,
+              source_count: 1,
+              metric_count: 0,
+              provenance_count: 1,
+              coverage_limitation_count: 1,
+            },
+          })
+        }
+        return fallback(input, init)
+      }),
+    )
+    renderApp('/dashboards', {
+      me: {
+        tenant_id: tenant,
+        tenant_name: name,
+        permissions: ['metrics.read', 'metrics.write', 'ai.query', 'flow.read', 'tags.read'],
+      },
+    })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('checkbox', { name: 'Build from saved flow queries' }))
+    expect(screen.getByRole('button', { name: 'Save dashboard' })).toBeDisabled()
+    const sources = screen.getByRole('region', { name: 'Report saved flow sources' })
+    await user.click(await within(sources).findByRole('button', { name: `Open ${sourceName}` }))
+    expect(
+      within(sources).getByRole('list', { name: 'Selected report sources' }),
+    ).toHaveTextContent(`${sourceName} · version 7`)
+    await user.click(screen.getByRole('button', { name: 'Save dashboard' }))
+    await waitFor(() =>
+      expect(requests.some((request) => request.path === '/v1/dashboards')).toBe(true),
+    )
+    const saved = requests.find((request) => request.path === '/v1/dashboards')!.body
+    expect(saved).not.toHaveProperty('tenant_id')
+    expect(saved).not.toHaveProperty('owner_id')
+    expect(saved.definition).toMatchObject({ flow_sources: [{ id: source, version: '7' }] })
+    expect(saved.definition).not.toHaveProperty('metrics')
+    expect(saved.definition).not.toHaveProperty('absolute_from')
+    expect(saved.definition).not.toHaveProperty('absolute_to')
+    const text = screen.getByRole('textbox', { name: 'Manifest JSON' })
+    fireEvent.change(text, { target: { value: JSON.stringify(manifest) } })
+    const preview = screen.getByRole('button', { name: 'Preview import' })
+    expect(preview).toBeDisabled()
+    const bindings = screen.getByRole('region', { name: 'Destination report source bindings' })
+    await user.click(await within(bindings).findByRole('button', { name: `Open ${sourceName}` }))
+    expect(
+      within(bindings).getByRole('list', { name: 'Bound report source slots' }),
+    ).toHaveTextContent(`flow-1: ${sourceName} · version 7`)
+    await user.click(preview)
+    expect(await screen.findByRole('button', { name: 'Confirm import' })).toBeEnabled()
+    const imported = requests.find(
+      (request) => request.path === '/v1/dashboard-manifests/import',
+    )!.body
+    expect(imported).toMatchObject({
+      confirm: false,
+      source_bindings: { 'flow-1': { id: source, version: '7' } },
+    })
+    expect(imported).not.toHaveProperty('tenant_id')
+    expect(imported).not.toHaveProperty('owner_id')
+    expect(JSON.stringify(imported.manifest)).not.toContain(source)
+    expect(screen.getByRole('region', { name: 'Dashboard import preview' })).toHaveTextContent(
+      '1 explicitly bound saved flow sources',
+    )
+    fireEvent.change(text, {
+      target: {
+        value: JSON.stringify({ ...manifest, metadata: { name: 'Different source report' } }),
+      },
+    })
+    expect(screen.getByRole('button', { name: 'Preview import' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Confirm import' })).not.toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Bound report source slots' })).toHaveTextContent(
+      'Not bound',
+    )
+  },
+)
