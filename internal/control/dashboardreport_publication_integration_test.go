@@ -86,7 +86,7 @@ func TestDashboardReportRenderingReleasesTransactionAndRechecksPublication(t *te
 		}
 		return artifacts, audits
 	}
-	for _, scenario := range []string{"success", "changed-name", "changed-definition", "withdraw-sharing", "deleted", "cancelled", "render-failed", "audit-failed"} {
+	for _, scenario := range []string{"success", "changed-name", "changed-definition", "withdraw-sharing", "deleted", "canceled", "render-failed", "audit-failed"} {
 		t.Run(scenario, func(t *testing.T) {
 			id := uuid(t)
 			for _, tenant := range tenants {
@@ -138,7 +138,7 @@ func TestDashboardReportRenderingReleasesTransactionAndRechecksPublication(t *te
 				}); err != nil {
 					return nil, "", err
 				}
-				if scenario == "cancelled" {
+				if scenario == "canceled" {
 					cancel()
 				}
 				if scenario == "render-failed" {
@@ -168,9 +168,9 @@ func TestDashboardReportRenderingReleasesTransactionAndRechecksPublication(t *te
 					if domain, ok := apierror.As(err); !ok || domain.Kind != apierror.KindNotFound {
 						t.Fatal("hidden/deleted capture did not preserve not-found semantics", err)
 					}
-				case "cancelled":
+				case "canceled":
 					if !errors.Is(err, context.Canceled) {
-						t.Fatal("cancelled renderer published or lost cancellation", err)
+						t.Fatal("canceled renderer published or lost cancellation", err)
 					}
 				}
 			}
