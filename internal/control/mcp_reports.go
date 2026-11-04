@@ -94,7 +94,7 @@ func (w *reportMetadataWriter) Write(data []byte) (int, error) {
 // Current authorization is repeated here because handlers rely on their REST
 // route guard. The bounded response is strictly decoded into a named contract;
 // unknown fields, malformed projections and partial writes never escape MCP.
-func invokeReportHandler[T any](b mcpReportBackend, ctx context.Context, p *auth.Principal, write bool, method, path, id string, input any, handler func(http.ResponseWriter, *http.Request) error) (T, error) {
+func invokeReportHandler[T any](ctx context.Context, b mcpReportBackend, p *auth.Principal, write bool, method, path, id string, input any, handler func(http.ResponseWriter, *http.Request) error) (T, error) {
 	var result T
 	ctx, principal, err := b.current(ctx, p, write)
 	if err != nil {
@@ -144,37 +144,37 @@ func invokeReportHandler[T any](b mcpReportBackend, ctx context.Context, p *auth
 }
 
 func (b mcpReportBackend) ReportDashboards(ctx context.Context, p *auth.Principal) (mcp.ReportDashboardList, error) {
-	return invokeReportHandler[mcp.ReportDashboardList](b, ctx, p, false, http.MethodGet, "/v1/dashboards", "", nil, b.server.handleListDashboards)
+	return invokeReportHandler[mcp.ReportDashboardList](ctx, b, p, false, http.MethodGet, "/v1/dashboards", "", nil, b.server.handleListDashboards)
 }
 func (b mcpReportBackend) ReportDashboard(ctx context.Context, p *auth.Principal, id string) (mcp.ReportDashboard, error) {
-	return invokeReportHandler[mcp.ReportDashboard](b, ctx, p, false, http.MethodGet, "/v1/dashboards/"+url.PathEscape(id), id, nil, b.server.handleGetDashboard)
+	return invokeReportHandler[mcp.ReportDashboard](ctx, b, p, false, http.MethodGet, "/v1/dashboards/"+url.PathEscape(id), id, nil, b.server.handleGetDashboard)
 }
 func (b mcpReportBackend) ReportDashboardSave(ctx context.Context, p *auth.Principal, input reporting.DashboardCreateInput) (mcp.ReportDashboard, error) {
-	return invokeReportHandler[mcp.ReportDashboard](b, ctx, p, true, http.MethodPost, "/v1/dashboards", "", input, b.server.handleCreateDashboard)
+	return invokeReportHandler[mcp.ReportDashboard](ctx, b, p, true, http.MethodPost, "/v1/dashboards", "", input, b.server.handleCreateDashboard)
 }
 func (b mcpReportBackend) ReportDashboardExport(ctx context.Context, p *auth.Principal, id string) (reporting.DashboardManifest, error) {
-	return invokeReportHandler[reporting.DashboardManifest](b, ctx, p, false, http.MethodGet, "/v1/dashboards/"+url.PathEscape(id)+"/manifest", id, nil, b.server.handleExportDashboardManifest)
+	return invokeReportHandler[reporting.DashboardManifest](ctx, b, p, false, http.MethodGet, "/v1/dashboards/"+url.PathEscape(id)+"/manifest", id, nil, b.server.handleExportDashboardManifest)
 }
 func (b mcpReportBackend) ReportDashboardImport(ctx context.Context, p *auth.Principal, input reporting.DashboardManifestImportInput) (mcp.ReportImportResult, error) {
-	return invokeReportHandler[mcp.ReportImportResult](b, ctx, p, true, http.MethodPost, "/v1/dashboard-manifests/import", "", input, b.server.handleImportDashboardManifest)
+	return invokeReportHandler[mcp.ReportImportResult](ctx, b, p, true, http.MethodPost, "/v1/dashboard-manifests/import", "", input, b.server.handleImportDashboardManifest)
 }
 func (b mcpReportBackend) ReportSchedules(ctx context.Context, p *auth.Principal) (mcp.ReportScheduleList, error) {
-	return invokeReportHandler[mcp.ReportScheduleList](b, ctx, p, false, http.MethodGet, "/v1/dashboard-report-schedules", "", nil, b.server.handleListReportSchedules)
+	return invokeReportHandler[mcp.ReportScheduleList](ctx, b, p, false, http.MethodGet, "/v1/dashboard-report-schedules", "", nil, b.server.handleListReportSchedules)
 }
 func (b mcpReportBackend) ReportScheduleCreate(ctx context.Context, p *auth.Principal, input reporting.ReportScheduleInput) (mcp.ReportSchedule, error) {
-	return invokeReportHandler[mcp.ReportSchedule](b, ctx, p, true, http.MethodPost, "/v1/dashboard-report-schedules", "", input, b.server.handleCreateReportSchedule)
+	return invokeReportHandler[mcp.ReportSchedule](ctx, b, p, true, http.MethodPost, "/v1/dashboard-report-schedules", "", input, b.server.handleCreateReportSchedule)
 }
 func (b mcpReportBackend) ReportScheduleUpdate(ctx context.Context, p *auth.Principal, input mcp.ReportScheduleUpdateInput) (mcp.ReportSchedule, error) {
 	body := struct {
 		Enabled *bool `json:"enabled"`
 	}{input.Enabled}
-	return invokeReportHandler[mcp.ReportSchedule](b, ctx, p, true, http.MethodPatch, "/v1/dashboard-report-schedules/"+url.PathEscape(input.ID), input.ID, body, b.server.handleUpdateReportSchedule)
+	return invokeReportHandler[mcp.ReportSchedule](ctx, b, p, true, http.MethodPatch, "/v1/dashboard-report-schedules/"+url.PathEscape(input.ID), input.ID, body, b.server.handleUpdateReportSchedule)
 }
 func (b mcpReportBackend) ReportGenerate(ctx context.Context, p *auth.Principal, input reporting.ReportGenerateInput) (mcp.ReportArtifact, error) {
-	return invokeReportHandler[mcp.ReportArtifact](b, ctx, p, true, http.MethodPost, "/v1/dashboard-reports", "", input, b.server.handleGenerateDashboardReport)
+	return invokeReportHandler[mcp.ReportArtifact](ctx, b, p, true, http.MethodPost, "/v1/dashboard-reports", "", input, b.server.handleGenerateDashboardReport)
 }
 func (b mcpReportBackend) ReportArtifacts(ctx context.Context, p *auth.Principal) (mcp.ReportArtifactList, error) {
-	return invokeReportHandler[mcp.ReportArtifactList](b, ctx, p, false, http.MethodGet, "/v1/dashboard-report-artifacts", "", nil, b.server.handleListDashboardReportArtifacts)
+	return invokeReportHandler[mcp.ReportArtifactList](ctx, b, p, false, http.MethodGet, "/v1/dashboard-report-artifacts", "", nil, b.server.handleListDashboardReportArtifacts)
 }
 
 func (b mcpReportBackend) ReportArtifactLink(ctx context.Context, p *auth.Principal, id string) (mcp.ReportArtifactLink, error) {

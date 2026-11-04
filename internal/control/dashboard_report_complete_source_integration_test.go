@@ -132,7 +132,8 @@ func TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV(t *testin
 					case <-ticker.C:
 						var current runtime.MemStats
 						runtime.ReadMemStats(&current)
-						for old := peak.Load(); current.Alloc > old && !peak.CompareAndSwap(old, current.Alloc); old = peak.Load() {
+						if current.Alloc > peak.Load() {
+							peak.Store(current.Alloc)
 						}
 					}
 				}

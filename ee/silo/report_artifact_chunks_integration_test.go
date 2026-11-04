@@ -87,7 +87,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 					t.Fatalf("chunk FK falls through to another schema: %s", fkTarget)
 				}
 			}
-			read := func(tenant, schema, sql string, capable bool) error {
+			read := func(tenant, _, sql string, capable bool) error {
 				tx, err := pool.Begin(ctx)
 				if err != nil {
 					return err

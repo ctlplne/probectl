@@ -10,7 +10,6 @@ package control
 
 import (
 	"context"
-	"fmt"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -99,5 +98,5 @@ func verifyIndependentSourcePDF(t *testing.T, proof *reportDownloadProof, captur
 	if rows != 4000 || len(addresses) != 4000 {
 		t.Fatal("independent PDF source completeness disagrees", rows, len(addresses))
 	}
-	t.Log(fmt.Sprintf("independent source PDF selected_rows=%d unique_addresses=%d extracted_bytes=%d complete_actual_source_values=true", rows, len(addresses), len(raw)))
+	t.Logf("independent source PDF selected_rows=%d unique_addresses=%d extracted_bytes=%d complete_actual_source_values=true", rows, len(addresses), len(raw))
 }
