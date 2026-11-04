@@ -7,8 +7,8 @@ name: codeql
 # settings change — is impossible to repeat quietly once this file is the source
 # of truth: dropping a language is a reviewable code change.
 #
-# ACTIVATION (one-time, repo settings — see design-partner-readiness
-# decisions-needed.md): this advanced workflow requires CodeQL *default setup*
+# ACTIVATION (one-time repository setting): this advanced workflow requires
+# CodeQL *default setup*
 # to be DISABLED under Settings → Code security & analysis. GitHub refuses to run
 # advanced setup while default setup owns the configuration.
 #
@@ -27,6 +27,12 @@ on:
 # security-events:write for itself to upload SARIF.
 permissions:
   contents: read
+
+# Superseded PR scans share one group; scheduled/manual scans stay independent.
+# The current candidate still runs every language and the complete analysis.
+concurrency:
+  group: codeql-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
