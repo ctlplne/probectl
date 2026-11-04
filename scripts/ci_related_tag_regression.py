@@ -97,29 +97,69 @@ def classified(code: int, raw: str, original: bool) -> bool:
 
 
 def execute(cwd: Path) -> tuple[int, str]:
+    # Cold compilation has a separate bound. It is never accepted as a test
+    # receipt, and the runtime command and timeout below remain unchanged.
+    with tempfile.TemporaryDirectory(prefix="probectl-qa-beta-tag-compile-") as build:
+        with tempfile.TemporaryFile(mode="w+") as output:
+            try:
+                compiled = subprocess.run(
+                    [
+                        "go",
+                        "test",
+                        *GO_EXTRA,
+                        "-c",
+                        "-o",
+                        str(Path(build) / "proof.test"),
+                        GO_PACKAGE,
+                    ],
+                    cwd=cwd,
+                    env={**os.environ, "GOWORK": "off"},
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
+                    timeout=600,
+                )
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(
+                    "related tag regression compile phase exceeded 600s"
+                ) from None
+            if compiled.returncode:
+                raise RuntimeError(
+                    "related tag regression compile phase failed: exit_code="
+                    + str(compiled.returncode)
+                )
+    print("Related tag regression compile phase passed", flush=True)
     with tempfile.TemporaryFile(mode="w+") as output:
-        result = subprocess.run(
-            [
-                "go",
-                "test",
-                *GO_EXTRA,
-                "-json",
-                "-count=1",
-                "-timeout=3m",
-                "-run",
-                "^" + TEST + "$",
-                GO_PACKAGE,
-            ],
-            cwd=cwd,
-            env={**os.environ, "GOWORK": "off"},
-            stdout=output,
-            stderr=subprocess.STDOUT,
-            timeout=300,
-        )
+        timed_out = False
+        try:
+            result = subprocess.run(
+                [
+                    "go",
+                    "test",
+                    *GO_EXTRA,
+                    "-json",
+                    "-count=1",
+                    "-timeout=3m",
+                    "-run",
+                    "^" + TEST + "$",
+                    GO_PACKAGE,
+                ],
+                cwd=cwd,
+                env={**os.environ, "GOWORK": "off"},
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
         output.seek(0)
         raw = output.read((4 << 20) + 1)
     if len(raw.encode()) > 4 << 20:
         raise RuntimeError("related tag regression output exceeded its bound")
+    if timed_out:
+        raise RuntimeError(
+            "related tag regression runtime phase exceeded 300s: "
+            + diagnostic(124, raw)
+        )
     return result.returncode, raw
 
 
@@ -218,6 +258,8 @@ def run() -> None:
 
 
 def selftest() -> None:
+    from unittest.mock import patch
+
     events = [
         {"Action": "run", "Package": PACKAGE, "Test": TEST},
         {"Action": "output", "Package": PACKAGE, "Test": TEST, "Output": MARKER},
@@ -279,6 +321,35 @@ def selftest() -> None:
             raise RuntimeError(
                 "related tag classifier accepted absent or failing current proof"
             )
+    # Even a partial passing event stream must fail on either phase timeout,
+    # while arbitrary captured output remains private. Never launch Go here.
+    for phase in ("compile", "runtime"):
+        calls = 0
+
+        def interrupted(
+            command: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess:
+            nonlocal calls
+            calls += 1
+            if phase == "compile" or calls == 2:
+                kwargs["stdout"].write(passed + "\n" + private)
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return subprocess.CompletedProcess(command, 0)
+
+        with (
+            patch("subprocess.run", side_effect=interrupted),
+            patch("builtins.print"),
+        ):
+            try:
+                execute(ROOT)
+            except RuntimeError as error:
+                message = str(error)
+                if phase + " phase exceeded" not in message or private in message:
+                    raise RuntimeError(
+                        "phase timeout lost its safe diagnostic"
+                    ) from None
+            else:
+                raise RuntimeError("phase timeout accepted partial passing evidence")
     print("Related tag current/original classifiers passed")
 
 
