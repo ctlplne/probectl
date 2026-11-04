@@ -123,13 +123,14 @@ func explorerPlanBudget(ctx context.Context, backend PlanStore, tenant string, s
 		if ctx.Value(explorerBatchOwnerKey{}) != nil {
 			return ExplorerBudget{}, ErrExplorerBudget
 		}
-		return ExplorerQueryBudget(store), nil
+		budget := ExplorerQueryBudget(store)
+		return budget, budget.Validate()
 	}
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || bound.String() != tenant || b.tenant != tenant || b.backend != backend {
 		return ExplorerBudget{}, ErrNoTenant
 	}
-	return b.budget, nil
+	return b.budget, b.budget.Validate()
 }
 
 func chargeBatchRead(ctx context.Context, tenant string, rows int, bytes int64) error {

@@ -30,9 +30,6 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if err != nil {
 		return PlanResult{}, err
 	}
-	if err := budget.Validate(); err != nil {
-		return PlanResult{}, err
-	}
 	ctx = withExplorerBudget(ctx, budget)
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()

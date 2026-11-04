@@ -409,9 +409,6 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if err != nil {
 		return PlanResult{}, err
 	}
-	if err := budget.Validate(); err != nil {
-		return PlanResult{}, err
-	}
 	ctx = withExplorerBudget(ctx, budget)
 	vocabulary, err := memoryPlanTagVocabulary(query)
 	if err != nil {
