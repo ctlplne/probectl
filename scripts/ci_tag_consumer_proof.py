@@ -31,6 +31,15 @@ SCHEDULE_TEST = "TestScheduledDashboardReportsRecheckCapturedStateAndPublishOnce
 SCHEDULE_ASSERTION = (
     "single-connection scheduled report did not publish and advance atomically"
 )
+CSV_PACKAGE = "github.com/ctlplne/probectl/internal/reporting"
+CSV_TESTS = (
+    "TestReportCSVStreamsCompleteLineItemReachAndExactCells",
+    "TestReportCSVKeepsWholeUnicodeFormulaAndCRLFCells",
+    "TestReportCSVRefusesIncompleteForeignOrMalformedSources",
+    "TestReportCSVWholeOperationBudgetsCancellationAndFailure",
+    "TestReportCSVLegacyBytesStayStable",
+)
+CSV_ASSERTION = "complete table header is missing"
 
 
 def report_regression_failed_on_assertion(
@@ -39,6 +48,7 @@ def report_regression_failed_on_assertion(
     *,
     root: str = REPORT_TEST,
     marker: str = REPORT_ASSERTION,
+    package: str = PACKAGE,
 ) -> bool:
     """A compiler error, skip, unrelated assertion or passing run is not proof."""
     runs = failures = child_runs = child_failures = package_failures = 0
@@ -48,7 +58,7 @@ def report_regression_failed_on_assertion(
             event = json.loads(line)
         except (ValueError, TypeError):
             return False
-        if not isinstance(event, dict) or event.get("Package") != PACKAGE:
+        if not isinstance(event, dict) or event.get("Package") != package:
             return False
         action, name = event.get("Action"), event.get("Test", "")
         if action == "skip" or (action == "pass" and not name):
@@ -140,10 +150,16 @@ def report_regression(env: dict[str, str], *, scheduled: bool = False) -> None:
     )
 
 
-def classify(output: str, returncode: int) -> list[str]:
+def classify(
+    output: str,
+    returncode: int,
+    *,
+    package: str = PACKAGE,
+    tests: tuple[str, ...] = TESTS,
+) -> list[str]:
     failures = []
-    runs = dict.fromkeys(TESTS, 0)
-    passes = dict.fromkeys(TESTS, 0)
+    runs = dict.fromkeys(tests, 0)
+    passes = dict.fromkeys(tests, 0)
     package_passes = 0
     for line in output.splitlines():
         try:
@@ -154,19 +170,19 @@ def classify(output: str, returncode: int) -> list[str]:
         if not isinstance(event, dict):
             failures.append("invalid test event")
             continue
-        if event.get("Package") != PACKAGE:
+        if event.get("Package") != package:
             failures.append("unexpected test package")
             continue
         action, name = event.get("Action"), event.get("Test")
         if action in ("skip", "fail"):
-            failures.append(f"{action}: {name or PACKAGE}")
+            failures.append(f"{action}: {name or package}")
         if name in runs and action == "run":
             runs[name] += 1
         if name in passes and action == "pass":
             passes[name] += 1
         if not name and action == "pass":
             package_passes += 1
-    for name in TESTS:
+    for name in tests:
         if runs[name] != 1 or passes[name] != 1:
             failures.append(f"missing or duplicate executed pass: {name}")
     if package_passes != 1:
@@ -176,79 +192,163 @@ def classify(output: str, returncode: int) -> list[str]:
     return failures
 
 
+def report_csv_proof(env: dict[str, str]) -> None:
+    source = Path("internal/reporting/csv_tables.go")
+    original = source.read_text()
+    seam = """\tfor _, table := range d.Tables {
+\t\tif err := writeCSVTable(ctx, writer, table, remainingMemory); err != nil {
+\t\t\treturn CSVReceipt{}, err
+\t\t}
+\t}"""
+    if original.count(seam) != 1:
+        raise RuntimeError("report CSV table regression seam is unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+
+    def run(pattern: str) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            [
+                "go",
+                "test",
+                "-race",
+                "-count=1",
+                "-timeout=4m",
+                "-json",
+                "-run",
+                pattern,
+                "./internal/reporting",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        sys.stdout.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        return result
+
+    # Restore the prior renderer's omission of source tables while preserving
+    # the complete independent-reader test, types, scope, limits and assertions.
+    try:
+        source.write_text(
+            original.replace(
+                seam, "\t// Negative control: source tables are not emitted."
+            )
+        )
+        result = run("^" + CSV_TESTS[0] + "$/^success$")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        root=CSV_TESTS[0],
+        marker=CSV_ASSERTION,
+        package=CSV_PACKAGE,
+    ):
+        raise RuntimeError("omitted-table regression did not fail its exact assertion")
+    print(json.dumps({"report_csv_table_baseline_assertion_failed": True}))
+    result = run("^(" + "|".join(CSV_TESTS) + ")$")
+    failures = classify(
+        result.stdout, result.returncode, package=CSV_PACKAGE, tests=CSV_TESTS
+    )
+    print(
+        json.dumps({"tests": CSV_TESTS, "passed": not failures, "failures": failures})
+    )
+    if failures:
+        raise RuntimeError("current complete report CSV proof failed")
+
+
 def selftest() -> None:
-    def event(action: str, name: str | None = None) -> dict:
-        item = {"Action": action, "Package": PACKAGE}
+    def event(action: str, name: str | None = None, package: str = PACKAGE) -> dict:
+        item = {"Action": action, "Package": package}
         if name:
             item["Test"] = name
         return item
 
-    records = [
-        item for name in TESTS for item in (event("run", name), event("pass", name))
-    ]
-    records.append(event("pass"))
-
     def encoded(items: list[dict]) -> str:
         return "\n".join(json.dumps(item) for item in items)
 
-    assert not classify(encoded(records), 0)
-    for name in TESTS:
+    for tests, package in ((TESTS, PACKAGE), (CSV_TESTS, CSV_PACKAGE)):
+
+        def make_event(action: str, name: str | None = None) -> dict:
+            return event(action, name, package)
+
+        records = [
+            item
+            for name in tests
+            for item in (make_event("run", name), make_event("pass", name))
+        ]
+        records.append(make_event("pass"))
+        assert not classify(encoded(records), 0, package=package, tests=tests)
+        for name in tests:
+            assert classify(
+                encoded([item for item in records if item.get("Test") != name]),
+                0,
+                package=package,
+                tests=tests,
+            )
+        for bad in (
+            records[:-1],
+            records[2:],
+            records + [make_event("pass", tests[0])],
+            records + [make_event("run", tests[0])],
+            records + [make_event("skip", tests[0] + "/source")],
+            records + [make_event("fail", tests[1])],
+            records + [make_event("fail")],
+            [dict(item, Package="foreign/package") for item in records],
+        ):
+            assert classify(encoded(bad), 0, package=package, tests=tests), (
+                "vacuous consumer proof accepted"
+            )
+        assert classify(encoded(records), 1, package=package, tests=tests)
         assert classify(
-            encoded([item for item in records if item.get("Test") != name]), 0
+            encoded(records) + "\nnot an event", 0, package=package, tests=tests
         )
-    for bad in (
-        records[:-1],
-        records[2:],
-        records + [event("pass", TESTS[0])],
-        records + [event("run", TESTS[0])],
-        records + [event("skip", TESTS[0] + "/source")],
-        records + [event("fail", TESTS[1])],
-        records + [event("fail")],
-        [dict(item, Package="foreign/package") for item in records],
+        assert classify("", 0, package=package, tests=tests)
+    for root, marker, package in (
+        (REPORT_TEST, REPORT_ASSERTION, PACKAGE),
+        (SCHEDULE_TEST, SCHEDULE_ASSERTION, PACKAGE),
+        (CSV_TESTS[0], CSV_ASSERTION, CSV_PACKAGE),
     ):
-        assert classify(encoded(bad), 0), "vacuous consumer proof accepted"
-    assert classify(encoded(records), 1)
-    assert classify(encoded(records) + "\nnot an event", 0)
-    assert classify("", 0)
-    for root, marker in (
-        (REPORT_TEST, REPORT_ASSERTION),
-        (SCHEDULE_TEST, SCHEDULE_ASSERTION),
-    ):
+
+        def make_event(action: str, name: str | None = None) -> dict:
+            return event(action, name, package)
+
         baseline = [
-            event("run", root),
-            event("run", root + "/success"),
-            dict(event("output", root + "/success"), Output=marker),
-            event("fail", root + "/success"),
-            event("fail", root),
-            event("fail"),
+            make_event("run", root),
+            make_event("run", root + "/success"),
+            dict(make_event("output", root + "/success"), Output=marker),
+            make_event("fail", root + "/success"),
+            make_event("fail", root),
+            make_event("fail"),
         ]
         assert report_regression_failed_on_assertion(
-            encoded(baseline), 1, root=root, marker=marker
+            encoded(baseline), 1, root=root, marker=marker, package=package
         )
         assert not report_regression_failed_on_assertion(
-            encoded(baseline), 0, root=root, marker=marker
+            encoded(baseline), 0, root=root, marker=marker, package=package
         )
         for bad in (
             [],
             baseline[1:],
             baseline[:1] + baseline[2:],
             baseline[:-1],
-            baseline + [event("pass", root)],
-            baseline + [event("pass", root + "/success")],
-            baseline + [event("skip", root + "/success")],
-            baseline + [event("fail", root)],
+            baseline + [make_event("pass", root)],
+            baseline + [make_event("pass", root + "/success")],
+            baseline + [make_event("skip", root + "/success")],
+            baseline + [make_event("fail", root)],
             [dict(item, Output="unrelated assertion") for item in baseline],
             [dict(item, Package="foreign/package") for item in baseline],
-            [event("fail")],
+            [make_event("fail")],
         ):
             assert not report_regression_failed_on_assertion(
-                encoded(bad), 1, root=root, marker=marker
+                encoded(bad), 1, root=root, marker=marker, package=package
             )
         other = SCHEDULE_TEST if root == REPORT_TEST else REPORT_TEST
         assert not report_regression_failed_on_assertion(
-            encoded(baseline), 1, root=other, marker=marker
+            encoded(baseline), 1, root=other, marker=marker, package=package
         )
-    print("Tag consumer classifier rejects missing/skipped/failed/duplicate proof")
+    print("Tag/report CSV classifier rejects missing/skipped/failed/duplicate proof")
 
 
 def main() -> int:
@@ -280,6 +380,7 @@ def main() -> int:
         env = dict(
             os.environ, PROBECTL_DATABASE_URL=dsn, PROBECTL_TEST_REQUIRE_SERVICES="1"
         )
+        report_csv_proof(env)
         report_regression(env)
         report_regression(env, scheduled=True)
         result = subprocess.run(

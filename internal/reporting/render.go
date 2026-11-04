@@ -10,7 +10,7 @@ package reporting
 
 import (
 	"bytes"
-	"encoding/csv"
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -32,6 +32,7 @@ type Document struct {
 	RedactionState      string
 	CoverageLimitations []string
 	Metrics             map[string]string
+	Tables              []CSVTable
 }
 
 // Validate rejects incomplete/honesty-ambiguous documents before any artifact
@@ -54,42 +55,12 @@ func (d Document) Validate() error {
 }
 
 func RenderCSV(d Document) ([]byte, error) {
-	if err := d.Validate(); err != nil {
-		return nil, err
-	}
+	return RenderCSVContext(context.Background(), d)
+}
+
+func RenderCSVContext(ctx context.Context, d Document) ([]byte, error) {
 	var buf bytes.Buffer
-	w := csv.NewWriter(&buf)
-	rows := [][2]string{
-		{"banner", Banner}, {"title", d.Title}, {"preset", d.Preset},
-		{"tenant_name", d.TenantName}, {"tenant_scope", d.TenantScope},
-		{"absolute_from", d.AbsoluteFrom.UTC().Format(time.RFC3339Nano)},
-		{"absolute_to", d.AbsoluteTo.UTC().Format(time.RFC3339Nano)},
-		{"generated_at", d.GeneratedAt.UTC().Format(time.RFC3339Nano)},
-		{"generated_by", d.GeneratedBy},
-		{"provenance", strings.Join(d.Provenance, " | ")},
-		{"redaction_state", d.RedactionState},
-		{"coverage_limitations", strings.Join(d.CoverageLimitations, " | ")},
-	}
-	for _, row := range rows {
-		if err := w.Write([]string{row[0], CSVText(row[1])}); err != nil {
-			return nil, err
-		}
-	}
-	if err := w.Write([]string{"metric", "exact_value"}); err != nil {
-		return nil, err
-	}
-	keys := make([]string, 0, len(d.Metrics))
-	for key := range d.Metrics {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if err := w.Write([]string{CSVText(key), CSVText(d.Metrics[key])}); err != nil {
-			return nil, err
-		}
-	}
-	w.Flush()
-	if err := w.Error(); err != nil {
+	if _, err := WriteCSV(ctx, &buf, d, DefaultCSVLimits()); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -102,6 +73,9 @@ func RenderCSV(d Document) ([]byte, error) {
 func RenderPDF(d Document) ([]byte, error) {
 	if err := d.Validate(); err != nil {
 		return nil, err
+	}
+	if len(d.Tables) != 0 {
+		return nil, fmt.Errorf("PDF table rendering is unavailable")
 	}
 	lines := []string{
 		d.Title + " - " + d.Preset,

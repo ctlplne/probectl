@@ -60,6 +60,18 @@ columns and signed comparison deltas keep their separate exact representation. A
 field is absent. This prevents a chart from becoming an apparently universal claim
 after its tenant or observation window is separated from it.
 
+The internal source-table CSV renderer stages complete logical records with a
+500,000-row, 256 MiB output envelope and a separate 128 MiB rendering-memory
+envelope. Embedded newlines remain inside their quoted cell. Stable field keys,
+absolute source intervals and exact metadata revision/time pairs accompany the
+table; numeric source cells are validated decimal strings. A foreign tenant,
+changed row count/schema, source failure, invalid value, exhausted budget or
+cancellation makes the staged output unusable. This renderer component is not
+yet exposed as a live-query saved dashboard definition: current saved metrics,
+manifest limits and the 2 MiB persisted artifact limit described below remain
+the public API behavior. PDF table integration remains pending; the renderer
+rejects unsupported tables rather than omitting them.
+
 When an operator saves the current screen, the outer saved-view record captures
 the visible Operator/Executive preset. Its definition captures absolute UTC
 bounds calculated from the same relative clock and records the relative scope

@@ -639,7 +639,15 @@ func renderDashboardReport(ctx context.Context, format string, doc reporting.Doc
 	if err := ctx.Err(); err != nil {
 		return nil, "", err
 	}
-	content, mediaType, err := renderReport(format, doc)
+	var content []byte
+	var mediaType string
+	var err error
+	if format == "csv" {
+		content, err = reporting.RenderCSVContext(ctx, doc)
+		mediaType = "text/csv"
+	} else {
+		content, mediaType, err = renderReport(format, doc)
+	}
 	if err != nil {
 		return nil, "", err
 	}
