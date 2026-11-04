@@ -45,7 +45,7 @@ func TestReportPDFWholeUnicodeAndCompleteRows(t *testing.T) {
 	if receipt.Pages < 2 {
 		t.Fatal("complete PDF table did not paginate")
 	}
-	for _, word := range []string{"東京", "नमस्ते", "e\u0301", "🚀", "＝SUM(1,2)", "left  right"} {
+	for _, word := range []string{"東京", "العربية", "שָׁלוֹם", "नमस्ते", "e\u0301", "🚀", "＝SUM(1,2)", "left  right"} {
 		if !strings.Contains(semantic, word) {
 			t.Fatalf("PDF lost Unicode or significant text: %q", word)
 		}

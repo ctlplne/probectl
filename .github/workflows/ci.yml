@@ -383,6 +383,29 @@ jobs:
         run: |
           python3 scripts/ci_report_pdf.py --selftest
           python3 scripts/ci_report_pdf.py
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: always()
+        with:
+          node-version: "26.12.1"
+      - name: Existing pinned Chromium payload for font reference (CI only)
+        if: always()
+        working-directory: browser-worker
+        env:
+          PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+        # Match the existing integration workaround for ZIP extraction on Node26.
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npx --no-install playwright install-deps chromium
+          export PLAYWRIGHT_BROWSERS_PATH="$(mktemp -d "$RUNNER_TEMP/probectl-browsers.XXXXXX")"
+          browser_container="$(docker create --name "probectl-qa-beta-pdf-browser-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$PLAYWRIGHT_IMAGE")"
+          trap 'docker rm "$browser_container" >/dev/null' EXIT
+          docker cp "$browser_container:/ms-playwright/." "$PLAYWRIGHT_BROWSERS_PATH/"
+          node --input-type=module -e 'import fs from "node:fs"; import { chromium } from "playwright"; fs.accessSync(chromium.executablePath(), fs.constants.X_OK);'
+          echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
+      - name: Independent bundled-font visual reference (CI only)
+        if: always()
+        run: node scripts/ci_report_font_reference.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

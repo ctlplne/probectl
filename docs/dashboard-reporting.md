@@ -53,7 +53,9 @@ additional pages; all supported exact values are retained. Every page repeats te
 the absolute observation interval. The offline PDF renderer uses bundled, hash-verified Noto fonts and shapes
 bidirectional and complex-script Unicode text. Glyph outlines and semantic
 Unicode remain in the artifact; system fonts and network fallback are never
-used. Unsupported glyphs fail explicitly. CSV preserves Unicode text. Formula-like text cells use a quoted leading tab
+used. Each visible line carries its complete logical Unicode text, including
+mixed scripts and significant spaces. Unsupported glyphs fail explicitly.
+CSV preserves Unicode text. Formula-like text cells use a quoted leading tab
 before their complete rendered text, including ASCII and full-width formula
 markers and leading whitespace/control characters. Report labels, disclosures
 and metric strings follow the same display-text encoder as flow CSV labels.
@@ -81,7 +83,9 @@ budget exhaustion, cancellation or a writer failure refuses the artifact rather
 than producing a shortened report. These component limits do not change the
 current API manifest or persisted artifact limits. The report-pdf CI check uses
 Poppler for independent Unicode extraction, every-page bounds and page images;
-Poppler is not a product runtime dependency.
+Poppler is not a product runtime dependency. A CI-only offline Chromium image
+of the same bundled font samples accompanies the PDF page images for visual
+comparison; product rendering uses Go only.
 
 When an operator saves the current screen, the outer saved-view record captures
 the visible Operator/Executive preset. Its definition captures absolute UTC

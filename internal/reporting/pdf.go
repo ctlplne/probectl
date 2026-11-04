@@ -153,6 +153,7 @@ type pdfLine struct {
 	text                 []rune
 	runs                 shaping.Line
 	height, ascent, left float64
+	start, end           int
 }
 type pdfOutlineKey struct {
 	face *font.Face
@@ -256,7 +257,9 @@ func (p *pdfDocument) layout(value string) ([]pdfLine, error) {
 		}
 		covered := make([]bool, len(runes))
 		for _, runs := range lines {
-			line := pdfLine{text: runes, runs: append(shaping.Line(nil), runs...), height: 15, ascent: 11}
+			line := pdfLine{text: runes, runs: append(shaping.Line(nil), runs...), height: 15, ascent: 11, start: len(runes)}
+			clusters := make(map[int]int)
+			logicalCount := 0
 			// VisualIndex, not slice order, describes bidirectional placement.
 			sort.Slice(line.runs, func(i, j int) bool { return line.runs[i].VisualIndex < line.runs[j].VisualIndex })
 			var x, minX, maxX, descent float64
@@ -266,9 +269,22 @@ func (p *pdfDocument) layout(value string) ([]pdfLine, error) {
 					if start < 0 || count < 0 || start > len(runes)-count {
 						return nil, fmt.Errorf("PDF layout returned an invalid text cluster")
 					}
-					for i := start; i < start+count; i++ {
-						covered[i] = true
+					if previous, ok := clusters[start]; ok {
+						if previous != count {
+							return nil, fmt.Errorf("PDF layout changed a text cluster")
+						}
+					} else {
+						clusters[start] = count
+						logicalCount += count
+						for i := start; i < start+count; i++ {
+							if covered[i] {
+								return nil, fmt.Errorf("PDF layout duplicated a text cluster")
+							}
+							covered[i] = true
+						}
 					}
+					line.start = min(line.start, start)
+					line.end = max(line.end, start+count)
 					if glyph.GlyphID == 0 && !pdfClusterIgnorable(layoutRunes[start:start+count]) {
 						return nil, fmt.Errorf("PDF shaping returned a missing glyph")
 					}
@@ -281,6 +297,12 @@ func (p *pdfDocument) layout(value string) ([]pdfLine, error) {
 				}
 			}
 			maxX = math.Max(maxX, x)
+			if line.start > line.end {
+				line.start = line.end
+			}
+			if line.end-line.start != logicalCount {
+				return nil, fmt.Errorf("PDF layout returned a noncontiguous logical line")
+			}
 			line.left = math.Max(0, -minX)
 			if maxX-minX > pdfRight-pdfLeft {
 				return nil, fmt.Errorf("PDF unbreakable glyph cluster exceeds page width")
@@ -354,6 +376,13 @@ func (p *pdfDocument) paint(line pdfLine) error {
 	stream := p.pages[len(p.pages)-1].stream
 	p.y -= line.ascent
 	x := pdfLeft + line.left
+	// ActualText binds the complete logical line to its visible glyphs. Cluster
+	// spans leave fallback-font and combining-mark order to extractor heuristics.
+	actual, err := pdfUnicode(string(line.text[line.start:line.end]))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stream, "/Span << /ActualText <%s> >> BDC\n", actual)
 	for _, run := range line.runs {
 		for i := 0; i < len(run.Glyphs); {
 			first := run.Glyphs[i]
@@ -362,11 +391,6 @@ func (p *pdfDocument) paint(line pdfLine) error {
 				end++
 			}
 			cluster := string(line.text[first.TextIndex() : first.TextIndex()+first.RunesCount()])
-			actual, err := pdfUnicode(cluster)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(stream, "/Span << /ActualText <%s> >> BDC\n", actual)
 			for j := i; j < end; j++ {
 				g := run.Glyphs[j]
 				semantic := ""
@@ -380,10 +404,10 @@ func (p *pdfDocument) paint(line pdfLine) error {
 				fmt.Fprintf(stream, "BT /F%d %d Tf 1 0 0 1 %.4f %.4f Tm <%02X> Tj ET\n", glyph.subset+1, pdfSize, x+float64(g.XOffset)/64, p.y+float64(g.YOffset)/64, glyph.code)
 				x += float64(g.Advance) / 64
 			}
-			fmt.Fprint(stream, "EMC\n")
 			i = end
 		}
 	}
+	fmt.Fprint(stream, "EMC\n")
 	p.y -= line.height - line.ascent
 	return stream.err
 }
@@ -699,7 +723,7 @@ func pdfUnicode(text string) (string, error) {
 	if !utf8.ValidString(text) {
 		return "", fmt.Errorf("PDF semantic text is not complete UTF-8")
 	}
-	if len(text) > 32760 {
+	if len(text) > 3*32766 {
 		return "", ErrPDFLimit
 	}
 	units := utf16.Encode([]rune(text))

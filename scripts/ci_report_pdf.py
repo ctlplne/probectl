@@ -182,6 +182,17 @@ def run(output: Path) -> None:
     if text.stderr.strip():
         raise RuntimeError(f"Poppler text warnings: {text.stderr}")
     (output / "extracted.txt").write_text(text.stdout)
+    raster = subprocess.run(
+        ["pdftoppm", "-r", "96", "-png", str(specimen), str(output / "page")],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    if raster.stderr.strip():
+        raise RuntimeError(f"Poppler raster warnings: {raster.stderr}")
+    images = sorted(output.glob("page-*.png"))
+    if not images or any(image.stat().st_size < 1000 for image in images):
+        raise RuntimeError("PDF rasterization did not produce reviewable pages")
     for token in (
         "LATIN-BEGIN",
         "café",
@@ -264,18 +275,7 @@ def run(output: Path) -> None:
                 )
     if words < 300:
         raise RuntimeError("PDF geometry proof did not inspect all report content")
-    raster = subprocess.run(
-        ["pdftoppm", "-r", "96", "-png", str(specimen), str(output / "page")],
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    if raster.stderr.strip():
-        raise RuntimeError(f"Poppler raster warnings: {raster.stderr}")
-    images = sorted(output.glob("page-*.png"))
-    if len(images) != len(pages) or any(
-        image.stat().st_size < 1000 for image in images
-    ):
+    if len(images) != len(pages):
         raise RuntimeError("PDF rasterization omitted a page")
     receipt = {
         "component": "offline Go PDF",
