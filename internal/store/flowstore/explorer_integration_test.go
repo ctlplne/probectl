@@ -204,13 +204,23 @@ func TestExplorerClickHouseRealD102Plan(t *testing.T) {
 			tenant = tenants[0]
 		}
 		query := PlanQuery{TenantID: tenant, Plan: plan}
-		want, err := memory.ExplorePlan(ctx, query)
+		reference := query
+		if plan.DataSeries == "rollup" {
+			reference.Plan.DataSeries = "raw"
+		}
+		want, err := memory.ExplorePlan(ctx, reference)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if plan.DataSeries == "rollup" {
+			want.Query.DataSeries = "rollup"
 		}
 		got, err := store.ExplorePlan(ctx, query)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if (plan.DataSeries == "raw" || plan.DataSeries == "rollup") && got.Source != plan.DataSeries {
+			t.Fatalf("explicit input source changed: requested=%s got=%s", plan.DataSeries, got.Source)
 		}
 		if got.Source == "rollup" {
 			if got.Coverage == nil || !got.Coverage.CompleteInputs || got.ResolutionSeconds != 60 {
