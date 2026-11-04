@@ -26,6 +26,14 @@ import (
 
 func reportFrozenSourceReaderProof(ctx context.Context, t *testing.T, f *tagImportSubjectFixture, owner *auth.Principal, role string, views *flow.PostgresQueryViewStore, item flow.SavedQueryView, frozen *reportFlowCapture) flow.SavedQueryView {
 	t.Helper()
+	stored, err := marshalReportSourceRequirements(ctx, frozen)
+	if err != nil {
+		t.Fatal("freeze report source requirements", err)
+	}
+	frozen, err = parseReportSourceRequirements(ctx, stored)
+	if err != nil || len(frozen.Tables) != 0 || frozen.release != nil {
+		t.Fatal("stored requirements retained result rows or a permission/admission grant", err)
+	}
 	mutate := func(fn func(context.Context, tenancy.Scope) error) {
 		t.Helper()
 		if err := tenancy.InTenant(ctx, f.db.Pool(), fn); err != nil {

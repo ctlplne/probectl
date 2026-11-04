@@ -20,9 +20,9 @@ import (
 // Requirements describe the actual captured scope; they grant no authority to
 // a future reader. Every recipient must pass fresh source and context checks.
 type reportContextRequirement struct {
-	ContextID   string
-	Resource    map[string]string
-	Permissions []string
+	ContextID   string            `json:"context_id"`
+	Resource    map[string]string `json:"resource"`
+	Permissions []string          `json:"permissions"`
 }
 
 type reportContextCaptureKey struct{}

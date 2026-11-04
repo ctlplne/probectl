@@ -38,8 +38,13 @@ type reportFlowSourceRef struct {
 }
 
 type reportFlowInput struct {
-	ID, Version, Period, TagRevision string
-	From, To, TagAsOf                time.Time
+	ID          string    `json:"id"`
+	Version     string    `json:"version"`
+	Period      string    `json:"period"`
+	TagRevision string    `json:"tag_revision,omitempty"`
+	From        time.Time `json:"from"`
+	To          time.Time `json:"to"`
+	TagAsOf     time.Time `json:"tag_as_of,omitempty"`
 }
 
 // The caller owns the capture and must Close after staging/publication. Values
