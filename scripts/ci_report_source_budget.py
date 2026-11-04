@@ -277,6 +277,41 @@ def post_verification_reader_proof() -> None:
     )
 
 
+def preauthorization_privacy_proof() -> None:
+    source = Path("internal/control/dashboard_report_download.go")
+    original = source.read_text()
+    seam = "return s.reportArtifactSourceAccessError(actor.TenantID, metadata.ID, err)"
+    if original.count(seam) != 1:
+        raise RuntimeError("report preauthorization privacy seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(
+            original.replace(seam, "return reportArtifactReaderError(err)")
+        )
+        before = run_tests("^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        before.stdout,
+        before.returncode,
+        root=CAPTURE_TESTS[0],
+        marker="unverifiable report source exposed existence before source authorization",
+        package=CAPTURE_PACKAGE,
+    ):
+        raise RuntimeError(
+            "old preauthorization error mapping did not fail its exact privacy assertion"
+        )
+    print(
+        json.dumps(
+            {
+                "test": CAPTURE_TESTS[0],
+                "preauthorization_privacy_omission_control": True,
+                "passed": True,
+            }
+        )
+    )
+
+
 def run() -> None:
     if (
         os.environ.get("GITHUB_ACTIONS") != "true"
@@ -341,6 +376,7 @@ def run() -> None:
             "mandatory real source capture/staging proof did not execute and pass"
         )
     post_verification_reader_proof()
+    preauthorization_privacy_proof()
 
 
 if __name__ == "__main__":

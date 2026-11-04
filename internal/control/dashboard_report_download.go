@@ -42,7 +42,7 @@ func (s *Server) downloadDashboardReportArtifact(w http.ResponseWriter, r *http.
 	}
 	capture, err := s.authorizeStoredReportReader(ctx, actor, metadata)
 	if err != nil {
-		return reportArtifactReaderError(err)
+		return s.reportArtifactSourceAccessError(actor.TenantID, metadata.ID, err)
 	}
 	if capture != nil {
 		if s.fairnessGate == nil {
@@ -157,6 +157,18 @@ func reportArtifactReaderError(err error) error {
 		return apierror.NotFound("dashboard report artifact not found")
 	}
 	return err
+}
+
+// Before source visibility is proven, an invalid/unavailable requirements
+// envelope must not reveal that this artifact exists to an unprivileged reader.
+func (s *Server) reportArtifactSourceAccessError(tenant, id string, err error) error {
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	if failure, ok := apierror.As(err); ok && (failure.Kind == apierror.KindInternal || failure.Kind == apierror.KindUnavailable) {
+		s.log.Warn("report source authority could not be verified", "tenant_id", tenant, "artifact_id", id, "reason", failure.Kind)
+	}
+	return apierror.NotFound("dashboard report artifact not found")
 }
 
 func serveVerifiedReportBody(ctx context.Context, w http.ResponseWriter, metadata *store.ReportArtifactMetadata, stage *reporting.BodyStage) error {

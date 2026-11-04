@@ -188,6 +188,25 @@ func proveCapturedReportHTTPReaders(t *testing.T, f *tagImportSubjectFixture, pr
 	// must not start, even though its source authorization is otherwise valid.
 	first := proofs[0]
 	proveReportRevocationAfterVerification(t, f, socket, first, application)
+	var originalRequirements []byte
+	if err := f.db.Pool().QueryRow(t.Context(), `SELECT source_capture FROM dashboard_report_artifacts WHERE tenant_id=$1 AND id='same-source-artifact'`, first.tenant).Scan(&originalRequirements); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Pool().Exec(t.Context(), `UPDATE dashboard_report_artifacts SET source_capture=jsonb_build_object('version',1,'tenant_id',tenant_id::text) WHERE tenant_id=$1 AND id='same-source-artifact'`, first.tenant); err != nil {
+		t.Fatal(err)
+	}
+	denied, deniedHeaders, deniedBody := requestCapturedReport(t, socket, first.scopedToken, "same-source-artifact")
+	missingStatus, _, missingBody := requestCapturedReport(t, socket, first.scopedToken, "missing-source-artifact")
+	deniedRecord, missingRecord := httptest.NewRecorder(), httptest.NewRecorder()
+	_, _ = deniedRecord.Body.Write(deniedBody)
+	_, _ = missingRecord.Body.Write(missingBody)
+	if denied != http.StatusNotFound || missingStatus != http.StatusNotFound || dashboardErrorShape(t, deniedRecord) != dashboardErrorShape(t, missingRecord) || deniedHeaders.Get("X-Report-SHA256") != "" || bytes.Contains(deniedBody, first.expected) {
+		t.Fatal("unverifiable report source exposed existence before source authorization", denied)
+	}
+	if _, err := f.db.Pool().Exec(t.Context(), `UPDATE dashboard_report_artifacts SET source_capture=$2::jsonb WHERE tenant_id=$1 AND id='same-source-artifact'`, first.tenant, originalRequirements); err != nil {
+		t.Fatal(err)
+	}
+	first.requireOwn(t, socket)
 	var original []byte
 	if err := f.db.Pool().QueryRow(t.Context(), `SELECT content FROM dashboard_report_artifact_chunks WHERE tenant_id=$1 AND artifact_id='same-source-artifact' AND ordinal=0`, first.tenant).Scan(&original); err != nil {
 		t.Fatal(err)
