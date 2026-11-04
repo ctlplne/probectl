@@ -195,4 +195,15 @@ func TestDashboardReportRenderingReleasesTransactionAndRechecksPublication(t *te
 			t.Fatal("foreign/missing report source reached rendering or disclosed data", err)
 		}
 	}
+	create(tenants[1], id)
+	mismatched := tenancy.WithTenant(ctx, tenancy.ID(tenants[0]))
+	calls := 0
+	render := func(ctx context.Context, format string, document reporting.Document) ([]byte, string, error) {
+		calls++
+		return renderDashboardReport(ctx, format, document)
+	}
+	out, err := core.generateDashboardReport(request(mismatched, tenants[1]), reportGenerateRequest{DashboardID: id, Format: "csv"}, render)
+	if domain, ok := apierror.As(err); !ok || domain.Kind != apierror.KindForbidden || out != nil || calls != 0 {
+		t.Fatal("prebound foreign tenant reached rendering or publication", err)
+	}
 }

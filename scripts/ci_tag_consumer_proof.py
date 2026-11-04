@@ -27,6 +27,7 @@ TESTS = (
     "TestCurrentAuthorizationSnapshotCannotBorrowAnotherIdentityOrCache",
     "TestCurrentAuthorizationKeepsScopedCredentialAndImmutableSnapshot",
     "TestCurrentUserAuthorityScopeUsesOneConnectionAndForcedTenant",
+    "TestDashboardReportRendererStagesOwnedCompleteInlineBodies",
     "TestReportFlowProjectionPreservesCompleteSections",
     "TestReportFlowProjectionScopesSourcesAndWholeBatchRefusal",
     "TestReportContextCaptureKeepsOnlyAuthorizedOwnedRequirements",
@@ -127,10 +128,10 @@ def report_regression(env: dict[str, str], *, scheduled: bool = False) -> None:
     else:
         source = Path("internal/control/dashboardreporting.go")
         root, marker = REPORT_TEST, REPORT_ASSERTION
-        line = "\tcontent, mediaType, err := render(r.Context(), req.Format, doc)"
+        line = "\tcontent, mediaType, err := render(renderContext, req.Format, doc)"
         held = """\tvar content []byte
 \tvar mediaType string
-\terr := s.inTenant(r, func(ctx context.Context, _ tenancy.Scope) error {
+\terr := s.inTenant(r.WithContext(renderContext), func(ctx context.Context, _ tenancy.Scope) error {
 \t\tvar err error
 \t\tcontent, mediaType, err = render(ctx, req.Format, doc)
 \t\treturn err

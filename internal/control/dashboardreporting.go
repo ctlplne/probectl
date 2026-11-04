@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"sort"
@@ -33,6 +34,9 @@ const (
 	maxDashboardManifestBytes = 64 << 10
 	maxReportMetrics          = 100
 	maxReportDisclosure       = 20
+	// Match the existing inline artifact storage constraint. Streaming
+	// renderers independently support larger complete documents.
+	maxInlineReportBytes = 2 << 20
 )
 
 type dashboardDefinition struct {
@@ -639,16 +643,37 @@ func renderDashboardReport(ctx context.Context, format string, doc reporting.Doc
 	if err := ctx.Err(); err != nil {
 		return nil, "", err
 	}
-	var content []byte
-	var mediaType string
-	var err error
+	limits := reporting.DefaultBodyStageLimits()
+	limits.Bytes = maxInlineReportBytes
+	limits.MemoryBytes = maxInlineReportBytes + 256<<10
+	mediaType := "application/pdf"
 	if format == "csv" {
-		content, err = reporting.RenderCSVContext(ctx, doc)
 		mediaType = "text/csv"
-	} else {
-		content, err = reporting.RenderPDFContext(ctx, doc)
-		mediaType = "application/pdf"
 	}
+	stage, _, err := reporting.StageBody(ctx, doc.TenantScope, limits, func(target io.Writer) error {
+		if format == "csv" {
+			renderLimits := reporting.DefaultCSVLimits()
+			renderLimits.Bytes = maxInlineReportBytes
+			_, err := reporting.WriteCSV(ctx, target, doc, renderLimits)
+			return err
+		}
+		renderLimits := reporting.DefaultPDFLimits()
+		renderLimits.Bytes = maxInlineReportBytes
+		_, err := reporting.WritePDF(ctx, target, doc, renderLimits)
+		return err
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = stage.Close() }()
+	body, err := stage.Open(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = body.Close() }()
+	// The sealed body cannot exceed the existing inline storage limit. This
+	// compatibility copy is discarded on any read or cancellation failure.
+	content, err := io.ReadAll(body)
 	if err != nil {
 		return nil, "", err
 	}
@@ -669,7 +694,12 @@ func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequ
 	var view *store.DashboardView
 	var definition dashboardDefinition
 	var tenantName string
+	var capturedTenant tenancy.ID
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if bound, ok := tenancy.FromContext(r.Context()); ok && bound != sc.Tenant {
+			return apierror.Forbidden("dashboard report tenant scope disagrees")
+		}
+		capturedTenant = sc.Tenant
 		var err error
 		view, err = (store.DashboardReports{}).GetView(ctx, sc, req.DashboardID, dashboardActorID(r))
 		if err != nil {
@@ -694,7 +724,8 @@ func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequ
 		Provenance: definition.Provenance, RedactionState: definition.RedactionState,
 		CoverageLimitations: definition.CoverageLimitations, Metrics: definition.Metrics,
 	}
-	content, mediaType, err := render(r.Context(), req.Format, doc)
+	renderContext := tenancy.WithTenant(r.Context(), capturedTenant)
+	content, mediaType, err := render(renderContext, req.Format, doc)
 	if err != nil {
 		return nil, apierror.Internal("could not render dashboard report").Wrap(err)
 	}
