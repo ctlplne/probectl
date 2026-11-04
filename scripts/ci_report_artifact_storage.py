@@ -142,6 +142,28 @@ def run():
         raise RuntimeError(
             "digest omission did not fail the exact corruption assertion"
         )
+    source = Path("ee/silo/report_artifact_plan.go")
+    original = source.read_text()
+    seam = "return append(statements, reportArtifactRelationshipPlan(schema, owned)...)"
+    if original.count(seam) != 1:
+        raise RuntimeError("silo report relationship repair seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(seam, "return statements"))
+        missing_fk = execute(SILO_PACKAGE, "^" + SILO_ROOT + "$/^siloed$")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        missing_fk.stdout,
+        missing_fk.returncode,
+        root=SILO_ROOT,
+        marker="silo report parent borrowed a foreign dashboard or schedule",
+        package=SILO_PACKAGE,
+        child="siloed",
+    ):
+        raise RuntimeError(
+            "relationship omission did not fail the exact local-parent assertion"
+        )
     print(
         json.dumps(
             {
@@ -149,6 +171,7 @@ def run():
                 "tests": [ROOT, IO_ROOT, SILO_ROOT, LIFECYCLE_ROOT],
                 "format_policy_omission_control": True,
                 "digest_omission_control": True,
+                "silo_relationship_omission_control": True,
                 "passed": True,
             }
         )
