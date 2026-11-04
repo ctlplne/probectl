@@ -12857,7 +12857,7 @@
         "x-required-permission": "metrics.read",
         "operationId": "downloadDashboardReportArtifact",
         "summary": "Download and audit one tenant-confined report artifact",
-        "description": "Missing and cross-tenant artifact IDs are indistinguishable. CSV untrusted text cells with formula-like prefixes use a quoted tab prefix followed by the complete original text; This presentation prefix is absent from JSON definitions.",
+        "description": "Missing and cross-tenant artifact IDs are indistinguishable. CSV untrusted text cells with formula-like prefixes use a quoted tab prefix followed by the complete original text; This presentation prefix is absent from JSON definitions. The server checks current source access before body I/O and again before audited delivery. It validates the complete stored body in one tenant snapshot before any attachment bytes or success headers. Missing, private and cross-tenant artifacts are indistinguishable. Corruption or unavailable current authority returns no attachment. Responses are not cached.",
         "tags": [
           "dashboards"
         ],
@@ -12876,7 +12876,7 @@
         ],
         "responses": {
           "200": {
-            "description": "PDF or CSV attachment.",
+            "description": "Complete integrity-verified PDF or CSV attachment, audited before delivery.",
             "content": {
               "application/pdf": {
                 "schema": {
@@ -12889,9 +12889,54 @@
                   "type": "string"
                 }
               }
+            },
+            "headers": {
+              "Content-Length": {
+                "description": "Exact verified attachment byte count.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 1,
+                  "maximum": 268435456
+                }
+              },
+              "X-Report-SHA256": {
+                "description": "SHA256 of the complete verified attachment bytes.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "ETag": {
+                "description": "Strong identifier of the verified attachment body.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Sensitive tenant report attachments are not cached.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
             }
           },
           "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
             "$ref": "#/components/responses/ErrorResponse"
           }
         }

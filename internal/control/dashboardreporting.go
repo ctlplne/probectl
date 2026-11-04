@@ -839,26 +839,5 @@ func (s *Server) handleListDashboardReportArtifacts(w http.ResponseWriter, r *ht
 }
 
 func (s *Server) handleDownloadDashboardReportArtifact(w http.ResponseWriter, r *http.Request) error {
-	var artifact *store.ReportArtifact
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		item, err := (store.DashboardReports{}).GetArtifact(ctx, sc, r.PathValue("id"), dashboardActorID(r))
-		if err != nil {
-			return err
-		}
-		if err := s.recordAudit(ctx, sc, r, "dashboard.report_download", item.ID, map[string]any{
-			"dashboard_id": item.DashboardID, "format": item.Format,
-		}); err != nil {
-			return err
-		}
-		artifact = item
-		return nil
-	}); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", artifact.MediaType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", artifact.Filename))
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	_, err := w.Write(artifact.Content)
-	return err
+	return s.downloadDashboardReportArtifact(w, r)
 }

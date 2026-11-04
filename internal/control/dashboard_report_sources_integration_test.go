@@ -48,6 +48,10 @@ func TestReportRealFlowCaptureRetainsCompleteSelectedTable(t *testing.T) {
 	t.Run("success", func(t *testing.T) { testReportLiveFlowCapture(t, true, 50_000) })
 }
 
+func TestReportRealFlowCaptureDownloadsCompletePDF(t *testing.T) {
+	t.Run("success", func(t *testing.T) { testReportLiveFlowCapture(t, true, 4000) })
+}
+
 func testReportLiveFlowCapture(t *testing.T, realSource bool, reach int) {
 	f := newTagImportSubjectFixture(t)
 	views := flow.NewPostgresQueryViewStore(f.db.Pool(), 0, audit.TenantRecord)
@@ -176,6 +180,7 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool, reach int) {
 		saved[tenant] = item
 	}
 	var frozen *reportFlowCapture
+	var downloadProofs []*reportDownloadProof
 	for lane, tenant := range []string{f.a, f.b} {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		item := saved[tenant]
@@ -216,6 +221,13 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool, reach int) {
 			}
 			t.Fatal("captured source released fairness before staging/publication", err)
 		}
+		if realSource {
+			format := "csv"
+			if reach == 4000 {
+				format = "pdf"
+			}
+			downloadProofs = append(downloadProofs, publishCapturedReportDownloadProof(ctx, t, f, actors[tenant], roles[tenant], capture, format))
+		}
 		if tenant == f.a {
 			frozen = capture
 		}
@@ -224,6 +236,9 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool, reach int) {
 		if gate.SnapshotTenant(ctx, tenant).Queries.InFlight != 0 {
 			t.Fatal("capture Close leaked its single admission")
 		}
+	}
+	if realSource {
+		proveCapturedReportHTTPReaders(t, f, downloadProofs)
 	}
 	if reach > 1 {
 		return
