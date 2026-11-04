@@ -12,12 +12,13 @@ export type ReportFormat = 'pdf' | 'csv'
 export type ReportCadence = 'daily' | 'weekly' | 'monthly'
 
 export interface DashboardDefinition {
-  absolute_from: string
-  absolute_to: string
+  flow_sources?: Array<{ id: string; version: string }>
+  absolute_from?: string
+  absolute_to?: string
   provenance: string[]
   redaction_state: string
   coverage_limitations: string[]
-  metrics: Record<string, string>
+  metrics?: Record<string, string>
 }
 
 export interface DashboardView {
@@ -46,7 +47,7 @@ export interface DashboardManifest {
   spec: {
     preset: DashboardPreset
     shared: boolean
-    definition: Omit<DashboardDefinition, 'metrics'> & {
+    definition: Omit<DashboardDefinition, 'metrics' | 'flow_sources'> & {
       metrics: Array<{ name: string; value: string }>
     }
   }

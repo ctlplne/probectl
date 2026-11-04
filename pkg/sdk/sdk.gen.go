@@ -704,11 +704,13 @@ type DashboardCreateRequest struct {
 	Shared     bool                `json:"shared"`
 }
 
+// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication.
 type DashboardDefinition struct {
-	AbsoluteFrom        string            `json:"absolute_from"`
-	AbsoluteTo          string            `json:"absolute_to"`
+	AbsoluteFrom        string            `json:"absolute_from,omitempty"`
+	AbsoluteTo          string            `json:"absolute_to,omitempty"`
 	CoverageLimitations []string          `json:"coverage_limitations"`
-	Metrics             map[string]string `json:"metrics"`
+	FlowSources         []map[string]any  `json:"flow_sources,omitempty"`
+	Metrics             map[string]string `json:"metrics,omitempty"`
 	Provenance          []string          `json:"provenance"`
 	RedactionState      string            `json:"redaction_state"`
 }

@@ -26,12 +26,14 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type reportDownloadProof struct {
 	tenant, user, role, token, scopedToken, foreignID, digest string
 	format, media                                             string
+	sources                                                   []reportFlowSourceRef
 	expected                                                  []byte
 }
 
@@ -41,6 +43,7 @@ type reportDownloadProof struct {
 func publishCapturedReportDownloadProof(ctx context.Context, t *testing.T, f *tagImportSubjectFixture, actor *auth.Principal, role string, capture *reportFlowCapture, format string) *reportDownloadProof {
 	t.Helper()
 	proof := &reportDownloadProof{tenant: actor.TenantID, user: actor.UserID, role: role, foreignID: "foreign-only-" + actor.TenantID, format: format, media: "text/csv"}
+	proof.sources = []reportFlowSourceRef{{ID: capture.Inputs[0].ID, Version: capture.Inputs[0].Version}}
 	if format == "pdf" {
 		proof.media = "application/pdf"
 	}
@@ -63,18 +66,15 @@ func publishCapturedReportDownloadProof(ctx context.Context, t *testing.T, f *ta
 		Preset: "operator", AbsoluteFrom: from, AbsoluteTo: to, GeneratedAt: time.Now().UTC(), GeneratedBy: actor.UserID,
 		Provenance: []string{"current owned saved flow capture"}, RedactionState: "query redaction applied",
 		CoverageLimitations: []string{"source/store/HTTPS component; release acceptance is separate"}, Tables: capture.Tables}
-	stage, receipt, err := reporting.StageBody(ctx, actor.TenantID, reporting.DefaultBodyStageLimits(), func(w io.Writer) error {
-		if format == "pdf" {
-			_, err := reporting.WritePDF(ctx, w, document, reporting.DefaultPDFLimits())
-			return err
-		}
-		_, err := reporting.WriteCSV(ctx, w, document, reporting.DefaultCSVLimits())
-		return err
-	})
+	stage, _, err := stageSourceDashboardReport(ctx, format, document, flowstore.ExplorerQueryBudget(f.srv.flowStore))
 	if err != nil {
 		t.Fatal("stage actual captured report", err)
 	}
 	defer stage.Close()
+	receipt, err := stage.Receipt(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	reader, err := stage.Open(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -257,6 +257,7 @@ func proveCapturedReportHTTPReaders(t *testing.T, f *tagImportSubjectFixture, pr
 	}
 	first.requireOwn(t, socket)
 	proofs[1].requireOwn(t, socket)
+	proveSourceReportPublicGenerationAndSchedule(t, f, socket, proofs, application)
 }
 
 // Hold the actual audit lock, then revoke after the HTTPS reader is waiting

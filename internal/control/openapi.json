@@ -12805,6 +12805,26 @@
           },
           "409": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "description": "Current credential or source read authority is insufficient."
+          },
+          "429": {
+            "description": "Current query, output, memory or execution budget cannot produce the complete report.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic artifact storage or mandatory audit failed; no partial artifact is committed."
+          },
+          "503": {
+            "description": "Required report source or admission service is unavailable."
           }
         }
       }
@@ -14099,12 +14119,9 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "absolute_from",
-          "absolute_to",
           "provenance",
           "redaction_state",
-          "coverage_limitations",
-          "metrics"
+          "coverage_limitations"
         ],
         "properties": {
           "absolute_from": {
@@ -14145,8 +14162,65 @@
               "type": "string",
               "maxLength": 240
             }
+          },
+          "flow_sources": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Exact current saved-query version; no implicit refresh."
+                }
+              }
+            }
           }
-        }
+        },
+        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication.",
+        "oneOf": [
+          {
+            "required": [
+              "absolute_from",
+              "absolute_to",
+              "metrics"
+            ],
+            "properties": {
+              "flow_sources": {
+                "maxItems": 0
+              }
+            }
+          },
+          {
+            "required": [
+              "flow_sources"
+            ],
+            "properties": {
+              "flow_sources": {
+                "minItems": 1
+              },
+              "metrics": {
+                "maxProperties": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z"
+              }
+            }
+          }
+        ]
       },
       "DashboardCreateRequest": {
         "type": "object",

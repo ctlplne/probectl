@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/reporting"
+	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -51,6 +52,8 @@ type reportFlowInput struct {
 // are frozen records; the requirements never stand in for current reader grants.
 type reportFlowCapture struct {
 	TenantID         string
+	SourceGeneration int64
+	FilterVersions   map[string]int64
 	Tables           []reporting.CSVTable
 	Inputs           []reportFlowInput
 	Permissions      []string
@@ -127,6 +130,14 @@ func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Princ
 	if err != nil {
 		return nil, err
 	}
+	var sourceGeneration int64
+	if err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		sourceGeneration, err = flowsnapshot.SourceGenerationInScope(ctx, sc)
+		return err
+	}); err != nil {
+		return nil, err
+	}
 	at := time.Now().UTC()
 	prepared, cost, count, err := s.prepareReportFlows(ctx, principal, refs, at, budget.MemoryBytes/4)
 	if err != nil {
@@ -149,6 +160,16 @@ func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Princ
 	if err != nil {
 		return nil, err
 	}
+	capture.FilterVersions = make(map[string]int64)
+	for _, source := range prepared {
+		for id, version := range source.versions {
+			if previous, ok := capture.FilterVersions[id]; ok && previous != version {
+				return nil, apierror.Conflict("report source filters changed during capture")
+			}
+			capture.FilterVersions[id] = version
+		}
+	}
+	capture.SourceGeneration = sourceGeneration
 	capture.release = release
 	return capture, nil
 }
@@ -319,7 +340,7 @@ func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prep
 			captures = append(captures, reportFlowResult(p.TenantID, value.view, "previous", before, tagAsOf))
 		}
 	}
-	tables, err := projectReportFlowRecords(ctx, captures, workspace/4, reporting.DefaultCSVLimits().TableRows)
+	tables, err := projectReportFlowRecords(ctx, captures, workspace/4, 2*reporting.DefaultCSVLimits().TableRows)
 	if err != nil {
 		return nil, err
 	}

@@ -31,11 +31,12 @@ const dashboardReportSchedulerActor = "probectl-report-scheduler"
 // then captures and publishes work in distinct FORCE-RLS transactions per
 // tenant. Rendering holds no database transaction or schedule lock.
 type DashboardReportSupervisor struct {
-	pool     *pgxpool.Pool
-	interval time.Duration
-	log      *slog.Logger
-	now      func() time.Time
-	render   dashboardReportRenderer
+	pool         *pgxpool.Pool
+	sourceServer *Server
+	interval     time.Duration
+	log          *slog.Logger
+	now          func() time.Time
+	render       dashboardReportRenderer
 }
 
 func BuildDashboardReportSupervisor(pool *pgxpool.Pool, interval time.Duration, log *slog.Logger) (*DashboardReportSupervisor, bool) {
@@ -49,6 +50,15 @@ func BuildDashboardReportSupervisor(pool *pgxpool.Pool, interval time.Duration, 
 		log = slog.Default()
 	}
 	return &DashboardReportSupervisor{pool: pool, interval: interval, log: log, now: time.Now, render: renderDashboardReport}, true
+}
+
+// WithReportSources reuses the existing server's tenant-scoped source services.
+// No independent query plane or background credential is constructed.
+func (s *DashboardReportSupervisor) WithReportSources(server *Server) *DashboardReportSupervisor {
+	if s != nil && server != nil && server.pool == s.pool {
+		s.sourceServer = server
+	}
+	return s
 }
 
 func (s *DashboardReportSupervisor) Run(ctx context.Context) {
@@ -83,7 +93,11 @@ func (s *DashboardReportSupervisor) Tick(ctx context.Context) {
 		if err != nil {
 			// Tenant id is routing metadata, not report content. Never log the
 			// saved view, exact values, or artifact bytes.
-			s.log.Warn("dashboard report delivery failed", "tenant_id", tenant.ID, "error", err)
+			reason := "unavailable"
+			if domain, ok := apierror.As(err); ok {
+				reason = string(domain.Kind)
+			}
+			s.log.Warn("dashboard report delivery failed", "tenant_id", tenant.ID, "reason", reason)
 		}
 	}
 }
@@ -132,6 +146,9 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 	if err := cleanDashboardDefinition(&definition); err != nil {
 		return false, err
 	}
+	if len(definition.FlowSources) > 0 {
+		return s.materializeSourceReport(ctx, tenantName, item, definition, now)
+	}
 	document := reporting.Document{
 		Title: item.View.Name, Preset: item.View.Preset, TenantName: tenantName,
 		TenantScope: tenant.String(), AbsoluteFrom: definition.AbsoluteFrom,
@@ -157,6 +174,9 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 	}
 	published := false
 	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, tenant.String()); err != nil {
+			return err
+		}
 		// Lock the parent before the schedule, matching deletion's order. A
 		// revoked share is a discarded capture, never authority to publish.
 		view, err := (store.DashboardReports{}).GetViewForReportPublication(ctx, sc, item.View.ID, item.Schedule.OwnerID)

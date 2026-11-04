@@ -1141,6 +1141,13 @@ func (e *Engine) eraseSubjectPostgres(
 		exactAliases := aliases.normalizedValues()
 		containsPatterns := aliases.safeContainsPatterns()
 
+		// The marker commits with the derived report deletion. Captures from
+		// before this transaction can never republish erased source rows;
+		// captures during telemetry erasure fail closed even without a cache.
+		if err := flowsnapshot.InvalidateSourceGenerationInScope(ctx, sc); err != nil {
+			return fmt.Errorf("invalidate derived source generation before subject erasure: %w", err)
+		}
+
 		locatorsDeleted, err := store.DeleteSubjectCredentialLocatorsScoped(
 			ctx, sc, captured.sessionIDs, captured.mcpTokenIDs,
 		)

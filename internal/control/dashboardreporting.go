@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/govern"
@@ -40,12 +41,13 @@ const (
 )
 
 type dashboardDefinition struct {
-	AbsoluteFrom        time.Time         `json:"absolute_from"`
-	AbsoluteTo          time.Time         `json:"absolute_to"`
-	Provenance          []string          `json:"provenance"`
-	RedactionState      string            `json:"redaction_state"`
-	CoverageLimitations []string          `json:"coverage_limitations"`
-	Metrics             map[string]string `json:"metrics"`
+	FlowSources         []reportFlowSourceRef `json:"flow_sources,omitempty"`
+	AbsoluteFrom        time.Time             `json:"absolute_from"`
+	AbsoluteTo          time.Time             `json:"absolute_to"`
+	Provenance          []string              `json:"provenance"`
+	RedactionState      string                `json:"redaction_state"`
+	CoverageLimitations []string              `json:"coverage_limitations"`
+	Metrics             map[string]string     `json:"metrics"`
 }
 
 type dashboardCreateRequest struct {
@@ -180,10 +182,13 @@ func cleanDashboardCreate(req dashboardCreateRequest) (dashboardCreateRequest, e
 }
 
 func cleanDashboardDefinition(d *dashboardDefinition) error {
-	if d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.After(d.AbsoluteFrom) {
+	if err := cleanDashboardFlowSources(d); err != nil {
+		return err
+	}
+	if len(d.FlowSources) == 0 && (d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.After(d.AbsoluteFrom)) {
 		return apierror.Validation("definition requires an absolute_from earlier than absolute_to")
 	}
-	if d.AbsoluteTo.Sub(d.AbsoluteFrom) > 366*24*time.Hour {
+	if len(d.FlowSources) == 0 && d.AbsoluteTo.Sub(d.AbsoluteFrom) > 366*24*time.Hour {
 		return apierror.Validation("dashboard time range may not exceed 366 days")
 	}
 	d.RedactionState = strings.TrimSpace(d.RedactionState)
@@ -343,6 +348,9 @@ func dashboardManifestFromView(view *store.DashboardView) (dashboardManifest, er
 	var definition dashboardDefinition
 	if err := json.Unmarshal(view.Definition, &definition); err != nil {
 		return dashboardManifest{}, apierror.Internal("stored dashboard definition is invalid").Wrap(err)
+	}
+	if len(definition.FlowSources) > 0 {
+		return dashboardManifest{}, apierror.Conflict("source-backed dashboard portability requires explicit destination source bindings")
 	}
 	clean, err := cleanDashboardCreate(dashboardCreateRequest{
 		Name: view.Name, Preset: view.Preset, Shared: view.Shared, Definition: definition,
@@ -585,6 +593,9 @@ func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Reque
 	}
 	var schedule *store.ReportSchedule
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
+			return err
+		}
 		updated, err := (store.DashboardReports{}).SetScheduleEnabled(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.Enabled)
 		if err != nil {
 			return err
@@ -632,7 +643,7 @@ func (s *Server) handleGenerateDashboardReport(w http.ResponseWriter, r *http.Re
 	}
 	artifact, err := s.generateDashboardReport(r, req, renderDashboardReport)
 	if err != nil {
-		return err
+		return tagQueryResponseError(w, reportGenerationError(err))
 	}
 	w.Header().Set("Location", "/v1/dashboard-report-artifacts/"+artifact.ID)
 	writeJSON(w, http.StatusCreated, artifactView(*artifact))
@@ -718,6 +729,13 @@ func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequ
 	}); err != nil {
 		return nil, err
 	}
+	if len(definition.FlowSources) > 0 {
+		metadata, err := s.generateSourceDashboardReport(r, req, view, definition, tenantName, capturedTenant)
+		if err != nil {
+			return nil, err
+		}
+		return &metadata.ReportArtifact, nil
+	}
 	now := time.Now().UTC()
 	doc := reporting.Document{
 		Title: view.Name, Preset: view.Preset, TenantName: tenantName,
@@ -740,6 +758,9 @@ func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequ
 	}
 	var artifact *store.ReportArtifact
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
+			return err
+		}
 		current, err := (store.DashboardReports{}).GetViewForReportPublication(ctx, sc, view.ID, dashboardActorID(r))
 		if err != nil {
 			return err

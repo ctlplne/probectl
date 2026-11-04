@@ -386,3 +386,17 @@ hidden. Listing loads no report body and returns no stored access requirements.
 `body_bytes` and optional `body_sha256` describe the stored body; download
 independently verifies its bytes. One execution budget covers the full list,
 and a budget failure returns no partial response.
+
+### Saved flow sources and complete publication
+
+A dashboard definition can select `flow_sources: [{"id":"<saved-query UUID>","version":"<exact current version>"}]`. Omit `absolute_from`, `absolute_to` and caller `metrics` in this mode. Each source must currently be owned by the requesting user or shared within that tenant. Its saved-query plan defines the selected row set and absolute/comparison intervals; the document records those actual intervals and exact source versions. Query and metadata reads use existing tenant-first source services, RBAC/ABAC, credential ceilings and fairness. Query cost and output/memory/deadline policy refuse an incomplete report rather than truncate it.
+
+`POST /v1/dashboard-reports` stages complete CSV/PDF in bounded request memory, then atomically commits immutable Postgres chunks, metadata and the mandatory audit. It checks the current dashboard and all captured saved-query/filter/tag versions again, plus current source/context grants and the existing lifecycle generation. No database transaction spans source IO or rendering. A changed source/lifecycle returns conflict; exhausted cost/output/deadline policy returns rate limited with `Retry-After`. No response contains a body or captured authority grant. Download independently verifies all stored bytes and current reader authority.
+
+Schedules reuse those same source services with the current schedule owner's read-only, non-MFA background delegation. Changed/disabled/delivered schedule state, revoked source authority or failed audit cannot advance delivery or leave a partial artifact. Existing destinations remain the local tenant report inbox. A stored source envelope is a future-reader requirements checklist, never a durable permission.
+
+Subject erasure marks the existing tenant flow lifecycle generation invalidating in the same Postgres transaction that deletes derived reports, before telemetry cleanup. The existing invalidation workflow clears the marker only on successful cleanup, including installations with no object snapshot cache. In-flight captures from an earlier generation cannot republish erased rows.
+
+The current native dashboard format refuses source-backed export with a conflict because it does not yet carry explicit destination source bindings. It never silently drops source references or copies a source tenant's identities.
+
+Source-backed documents count identity, total and filter-version tables as well as detail rows. Their combined logical-row envelopes are 1,000,000 for CSV and 8,000 for PDF, so complete selected data is accompanied by its metadata. The generic renderer defaults remain 500,000/4,000 logical rows. All serialized-byte, source read, memory, deadline and fairness limits remain enforced; exceeding any of them refuses the whole document.

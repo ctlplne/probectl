@@ -619,10 +619,11 @@ export interface DashboardCreateRequest {
 }
 
 export interface DashboardDefinition {
-  absolute_from: string
-  absolute_to: string
+  absolute_from?: string
+  absolute_to?: string
   coverage_limitations: string[]
-  metrics: { [key: string]: string }
+  flow_sources?: JsonObject[]
+  metrics?: { [key: string]: string }
   provenance: string[]
   redaction_state: string
 }

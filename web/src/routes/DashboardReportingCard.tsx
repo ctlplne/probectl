@@ -27,6 +27,7 @@ import { appPath } from '../lib/links'
 import { useAuth } from '../auth/useAuth'
 import { Badge, Button, Card, CardBody, CardHeader, Field, Select, useToast } from '../components'
 import { DateTime } from '../time/DateTime'
+import { FlowViewLibrary } from './FlowViewLibrary'
 import styles from './dashboards.module.css'
 
 export function DashboardReportingCard({
@@ -37,7 +38,20 @@ export function DashboardReportingCard({
   definition: DashboardDefinition
 }) {
   const { push } = useToast()
-  const { permissions } = useAuth()
+  const { permissions, user, tenant, hasScopedGrants } = useAuth()
+  const sourceIdentity = JSON.stringify([
+    tenant.id,
+    user.id,
+    permissions.slice().sort(),
+    hasScopedGrants,
+  ])
+  const [sourceMode, setSourceMode] = useState(false)
+  const [sourceDraft, setSourceDraft] = useState<{
+    identity: string
+    items: Array<{ id: string; version: string; name: string }>
+  }>({ identity: sourceIdentity, items: [] })
+  const sourceItems = sourceDraft.identity === sourceIdentity ? sourceDraft.items : []
+  const canReadSources = permissions.includes('ai.query') && permissions.includes('flow.read')
   const [searchParams, setSearchParams] = useSearchParams()
   const dashboards = useDashboards()
   const schedules = useReportSchedules()
@@ -75,7 +89,20 @@ export function DashboardReportingCard({
 
   async function save() {
     try {
-      const view = await createDashboard.mutateAsync({ name, preset, shared, definition })
+      const disclosures = {
+        provenance: definition.provenance,
+        redaction_state: definition.redaction_state,
+        coverage_limitations: definition.coverage_limitations,
+      }
+      const savedDefinition: DashboardDefinition = sourceMode
+        ? { ...disclosures, flow_sources: sourceItems.map(({ id, version }) => ({ id, version })) }
+        : definition
+      const view = await createDashboard.mutateAsync({
+        name,
+        preset,
+        shared,
+        definition: savedDefinition,
+      })
       selectView(view.id)
       push({
         tone: 'success',
@@ -209,6 +236,58 @@ export function DashboardReportingCard({
               That saved dashboard is unavailable in this tenant or authorization scope.
             </p>
           ) : null}
+          {canReadSources ? (
+            <section aria-label="Report saved flow sources" className={styles.manifestSection}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={sourceMode}
+                  disabled={!canWrite}
+                  onChange={(event) => setSourceMode(event.target.checked)}
+                />
+                Build from saved flow queries
+              </label>
+              {sourceMode ? (
+                <>
+                  <p>
+                    Choose current saved queries. Each selected version stays fixed until you select
+                    it again; reports use its complete selected rows and time range.
+                  </p>
+                  <FlowViewLibrary
+                    identity={sourceIdentity}
+                    onSelect={(item) =>
+                      setSourceDraft((previous) => ({
+                        identity: sourceIdentity,
+                        items: [
+                          ...(previous.identity === sourceIdentity
+                            ? previous.items.filter((source) => source.id !== item.id)
+                            : []),
+                          { id: item.id, version: item.version, name: item.definition.name },
+                        ],
+                      }))
+                    }
+                  />
+                  <ul aria-label="Selected report sources">
+                    {sourceItems.map((source) => (
+                      <li key={source.id}>
+                        {source.name} · version {source.version}{' '}
+                        <Button
+                          onClick={() =>
+                            setSourceDraft({
+                              identity: sourceIdentity,
+                              items: sourceItems.filter((item) => item.id !== source.id),
+                            })
+                          }
+                        >
+                          Remove {source.name}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </section>
+          ) : null}
           <div className={styles.reportingControls} aria-busy={loading}>
             <Field
               label="Dashboard name"
@@ -227,7 +306,13 @@ export function DashboardReportingCard({
             </label>
             <Button
               onClick={() => void save()}
-              disabled={!canWrite || !name.trim() || createDashboard.isPending || failed}
+              disabled={
+                !canWrite ||
+                !name.trim() ||
+                createDashboard.isPending ||
+                failed ||
+                (sourceMode && (!canReadSources || sourceItems.length === 0))
+              }
             >
               {createDashboard.isPending ? 'Saving…' : 'Save dashboard'}
             </Button>
@@ -302,11 +387,22 @@ export function DashboardReportingCard({
             <section className={styles.savedSnapshot} aria-label="Selected saved snapshot">
               <strong>{activeView.name}</strong>
               <span>{activeView.preset} preset</span>
-              <span>
-                <DateTime value={activeView.definition.absolute_from} /> –{' '}
-                <DateTime value={activeView.definition.absolute_to} />
-              </span>
-              <span>{Object.keys(activeView.definition.metrics).length} exact values</span>
+              {activeView.definition.flow_sources?.length ? (
+                <span>
+                  {activeView.definition.flow_sources.length} saved flow sources; current source
+                  access is checked for every report.
+                </span>
+              ) : (
+                <>
+                  <span>
+                    <DateTime value={activeView.definition.absolute_from} /> –{' '}
+                    <DateTime value={activeView.definition.absolute_to} />
+                  </span>
+                  <span>
+                    {Object.keys(activeView.definition.metrics ?? {}).length} exact values
+                  </span>
+                </>
+              )}
             </section>
           ) : null}
 

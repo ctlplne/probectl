@@ -312,6 +312,32 @@ def preauthorization_privacy_proof() -> None:
     )
 
 
+def publication_state_proof() -> None:
+    source = Path("internal/control/dashboard_report_generate.go")
+    original = source.read_text()
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    cases = (
+        ("err := flowsnapshot.MatchSourceGenerationInScope(ctx, sc, capture.SourceGeneration); err != nil",
+         "err := flowsnapshot.MatchSourceGenerationInScope(ctx, sc, capture.SourceGeneration); false && err != nil",
+         "invalidated source capture published through the public report route"),
+        ("if current.Version != input.Version {", "if false && current.Version != input.Version {",
+         "changed source version published through the public report route"),
+    )
+    for seam, replacement, marker in cases:
+        if original.count(seam) != 1:
+            raise RuntimeError("source publication state seam unavailable")
+        try:
+            source.write_text(original.replace(seam, replacement))
+            result = run_tests("^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control")
+        finally:
+            source.write_text(original)
+        if not report_regression_failed_on_assertion(
+            result.stdout, result.returncode, root=CAPTURE_TESTS[0],
+            child="success", marker=marker, package=CAPTURE_PACKAGE,
+        ):
+            raise RuntimeError("publication omission did not fail exact source state assertion")
+
+
 def metadata_reader_proof() -> None:
     source = Path("internal/control/dashboard_report_list.go")
     original = source.read_text()
@@ -411,6 +437,7 @@ def run() -> None:
     post_verification_reader_proof()
     preauthorization_privacy_proof()
     metadata_reader_proof()
+    publication_state_proof()
 
 
 if __name__ == "__main__":
