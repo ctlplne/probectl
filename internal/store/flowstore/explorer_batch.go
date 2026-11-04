@@ -40,7 +40,7 @@ type PlanBatch struct {
 // NewPlanBatch captures the operator policy once and shares one deadline.
 // Declared plans reserve their share of retained result/workspace allocations;
 // reads consume one cumulative envelope, including probes and retries.
-func NewPlanBatch(ctx context.Context, store Store, tenant string, plans int) (*PlanBatch, error) {
+func NewPlanBatch(ctx context.Context, store Store, tenant string, plans int, sharedMemorySlots ...int) (*PlanBatch, error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || bound.String() != tenant || tenant == "" {
 		return nil, ErrNoTenant
@@ -68,8 +68,18 @@ func NewPlanBatch(ctx context.Context, store Store, tenant string, plans int) (*
 	if err := budget.Validate(); err != nil || plans <= 0 {
 		return nil, ErrExplorerBudget
 	}
+	if len(sharedMemorySlots) > 1 {
+		return nil, ErrExplorerBudget
+	}
+	shared := 0
+	if len(sharedMemorySlots) == 1 {
+		shared = sharedMemorySlots[0]
+	}
+	if shared < 0 || shared > int(^uint(0)>>1)-plans {
+		return nil, ErrExplorerBudget
+	}
 	allocated := budget
-	allocated.MemoryBytes /= int64(plans)
+	allocated.MemoryBytes /= int64(plans + shared)
 	allocated.ResponseBytes /= int64(plans)
 	allocated.IntermediateGroups /= plans
 	allocated.InterfaceItems /= plans

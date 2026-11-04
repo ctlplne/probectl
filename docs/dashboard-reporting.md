@@ -302,3 +302,14 @@ query changes. This metadata grants no source permission: report reads still
 require fresh user authority, actual credential ceilings and captured context
 grants. Publication continues to require the complete exact-version source
 check. Full live-source and recipient integration remains in progress.
+
+The request-owned source capture component loads current active-user authority
+and intersects it with the actual credential. It resolves exact saved-query and
+filter versions, then collects both comparison periods through the same tenant
+source batch and successful metadata snapshot. Captured context requirements
+preserve the allowed site/VRF identities and selected related-source permissions;
+they confer no future reader permission. Source, metadata and projection memory
+shares stay inside the operator envelope, and query admission remains held until
+staging/publication finishes. Failure returns no partial capture. Its paired
+Postgres/current-metadata and memory-flow proof is a component check; public
+source configuration, recipient wiring and full release proof remain pending.

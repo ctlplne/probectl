@@ -94,6 +94,9 @@ func (s *Server) flowTagContextAuthorization(ctx context.Context, p *auth.Princi
 	if err != nil || int64(len(encoded)) > limit {
 		return nil, nil, "", flowTagQueryError(store.ErrTagSnapshotBudget)
 	}
+	if err := captureReportContextRequirements(ctx, p, records, allowed, related, selected); err != nil {
+		return nil, nil, "", err
+	}
 	return allowed, related, hex.EncodeToString(crypto.Hash(encoded)), nil
 }
 

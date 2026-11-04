@@ -258,3 +258,24 @@ func TestExplorerPlanBatchSummaryAndResponseBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerPlanBatchSharedMetadataCannotWidenBudgets(t *testing.T) {
+	store := NewMemory()
+	ctx := tenancy.WithTenant(t.Context(), "red")
+	policy := DefaultExplorerBudget()
+	for _, shared := range []int{1, 3} {
+		batch, err := NewPlanBatch(ctx, store, "red", 2, shared)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(batch.Close)
+		if batch.budget.MemoryBytes != policy.MemoryBytes/int64(2+shared) || batch.budget.ResponseBytes != policy.ResponseBytes/2 || batch.queries != 2 || batch.readRows != policy.ReadRows || batch.readBytes != policy.ReadBytes {
+			t.Fatal("shared metadata slots reset or widened the source operation policy")
+		}
+	}
+	for _, slots := range [][]int{{-1}, {1, 1}, {int(^uint(0) >> 1)}} {
+		if candidate, err := NewPlanBatch(ctx, store, "red", 2, slots...); err == nil || candidate != nil {
+			t.Fatal("invalid shared workspace reservation accepted")
+		}
+	}
+}

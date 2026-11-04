@@ -162,7 +162,16 @@ func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.Qu
 	if len(membership) >= 3 {
 		selectedMatrixRows = membership[2]
 	}
-	result, err := backend.ExplorePlan(ctx, flowstore.PlanQuery{TenantID: tenant, Plan: plan, Tags: tagData, SelectedGroups: selected, SelectedColumns: selectedColumns, SelectedChartGroups: selectedChart, SelectedMatrixRows: selectedMatrixRows})
+	query := flowstore.PlanQuery{TenantID: tenant, Plan: plan, Tags: tagData, SelectedGroups: selected, SelectedColumns: selectedColumns, SelectedChartGroups: selectedChart, SelectedMatrixRows: selectedMatrixRows}
+	var result flowstore.PlanResult
+	if batch, ok := ctx.Value(reportFlowBatchKey{}).(*flowstore.PlanBatch); ok {
+		if batch == nil {
+			return flowstore.PlanResult{}, apierror.Unavailable("report source batch is unavailable")
+		}
+		result, err = batch.ExplorePlan(query)
+	} else {
+		result, err = backend.ExplorePlan(ctx, query)
+	}
 	if err != nil {
 		return flowstore.PlanResult{}, flowExplorerStoreError(err)
 	}

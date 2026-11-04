@@ -28,6 +28,9 @@ TESTS = (
     "TestCurrentAuthorizationKeepsScopedCredentialAndImmutableSnapshot",
     "TestReportFlowProjectionPreservesCompleteSections",
     "TestReportFlowProjectionScopesSourcesAndWholeBatchRefusal",
+    "TestReportContextCaptureKeepsOnlyAuthorizedOwnedRequirements",
+    "TestReportContextCaptureRefusesScopeCostAndCancellationAtomically",
+    "TestReportLiveFlowCaptureUsesCurrentOwnedSourcesAndOneBatch",
 )
 DATABASE = "probectl_qa_beta_tag_consumers"
 REPORT_TEST = "TestDashboardReportRenderingReleasesTransactionAndRechecksPublication"
@@ -51,6 +54,8 @@ CSV_ASSERTION = "complete table header is missing"
 AUTHORITY_TEST = "TestCurrentAuthorizationIntersectsCredentialAndCurrentGrants"
 PROJECTION_TEST = "TestReportFlowProjectionPreservesCompleteSections"
 PROJECTION_ASSERTION = "complete report matrix cells are missing"
+LIVE_SOURCE_TEST = "TestReportLiveFlowCaptureUsesCurrentOwnedSourcesAndOneBatch"
+LIVE_SOURCE_ASSERTION = "report comparison bypassed cumulative source read budget"
 AUTHORITY_ASSERTION = "current/credential intersection ="
 
 
@@ -368,6 +373,51 @@ def report_projection_regression(env: dict[str, str]) -> None:
     print(json.dumps({"report_projection_omission_assertion_failed": True}))
 
 
+def report_live_source_regression(env: dict[str, str]) -> None:
+    source = Path("internal/store/flowstore/explorer_batch.go")
+    original = source.read_text()
+    start = original.index("func chargeBatchRead(")
+    body = original.index("{", start)
+    end = original.index("\n}", body) + 2
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    root = LIVE_SOURCE_TEST
+    try:
+        source.write_text(original[:body] + "{\n\treturn nil\n}" + original[end:])
+        result = subprocess.run(
+            [
+                "go",
+                "test",
+                "-race",
+                "-tags=integration",
+                "-count=1",
+                "-timeout=4m",
+                "-json",
+                "-run",
+                "^" + root + "$/^success$",
+                "./internal/control",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    finally:
+        source.write_text(original)
+    sys.stdout.write(result.stdout)
+    sys.stderr.write(result.stderr)
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        root=root,
+        marker=LIVE_SOURCE_ASSERTION,
+    ):
+        raise RuntimeError(
+            "live source bypass did not fail its exact cumulative assertion"
+        )
+    print(json.dumps({"report_live_source_accounting_omission_assertion_failed": True}))
+
+
 def selftest() -> None:
     def event(action: str, name: str | None = None, package: str = PACKAGE) -> dict:
         item = {"Action": action, "Package": package}
@@ -423,6 +473,7 @@ def selftest() -> None:
         (CSV_TESTS[0], CSV_ASSERTION, CSV_PACKAGE, "success"),
         (AUTHORITY_TEST, AUTHORITY_ASSERTION, PACKAGE, "credential_ceiling"),
         (PROJECTION_TEST, PROJECTION_ASSERTION, PACKAGE, "success"),
+        (LIVE_SOURCE_TEST, LIVE_SOURCE_ASSERTION, PACKAGE, "success"),
     ):
 
         def make_event(
@@ -512,6 +563,7 @@ def main() -> int:
         )
         report_csv_proof(env)
         report_projection_regression(env)
+        report_live_source_regression(env)
         current_authority_regression(env)
         report_regression(env)
         report_regression(env, scheduled=True)

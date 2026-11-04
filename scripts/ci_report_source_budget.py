@@ -22,6 +22,7 @@ TESTS = (
     "TestExplorerPlanBatchRefusesScopeMissingPolicyAndCancellation",
     "TestExplorerPlanBatchTLSChargesEveryResponseAndRejectsMissingReceipts",
     "TestExplorerPlanBatchSummaryAndResponseBounds",
+    "TestExplorerPlanBatchSharedMetadataCannotWidenBudgets",
     "TestExplorerClickHouseRealPlanBatchCostAndTenantBoundary",
 )
 MARKER = "repeated source plan received a fresh read allowance"

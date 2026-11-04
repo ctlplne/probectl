@@ -101,7 +101,7 @@ func (s *Server) recordFlowComparison(ctx context.Context, principal *auth.Princ
 // result is persisted. Both periods use the same detail/chart/matrix axes.
 func (s *Server) collectFlowComparison(ctx context.Context, principal *auth.Principal, current, previous ai.ExplorerQuery, versions map[string]int64) (explorerComparisonResult, error) {
 	started := time.Now()
-	budget := flowstore.ExplorerQueryBudget(s.flowStore)
+	budget := flowstore.ExplorerOperationBudget(ctx, s.flowStore)
 	if err := budget.Validate(); err != nil {
 		return explorerComparisonResult{}, apierror.Unavailable("flow cost policy unavailable")
 	}
