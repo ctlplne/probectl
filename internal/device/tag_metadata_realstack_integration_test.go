@@ -17,9 +17,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/tags"
+	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
 
@@ -173,6 +175,7 @@ func proveSNMPTagMetadata(t *testing.T, st *shipped.Stack, a, b *snmpTagProof) {
 		if _, err := time.Parse(time.RFC3339Nano, fromCLI.AsOf); err != nil {
 			t.Fatal("real CLI lost the SNMP tag current as-of")
 		}
+		p.renderMetadata(t, st, foreign, initial.TagRevision)
 		for _, route := range []string{
 			"/v1/entity-contexts/" + foreign.contextID + "/resolved-tags?target_kind=device&target_id=" + foreign.entityID,
 			"/v1/entity-contexts/" + p.contextID + "/resolved-tags?target_kind=device&target_id=" + foreign.entityID,
@@ -212,5 +215,40 @@ func proveSNMPTagMetadata(t *testing.T, st *shipped.Stack, a, b *snmpTagProof) {
 		p.assignSource(t, st, nextContext.ID, nextDevice.ID)
 		p.requireValue(t, st, "", "")
 		current[p] = ""
+	}
+}
+
+func (p *snmpTagProof) renderMetadata(t *testing.T, st *shipped.Stack, foreign *snmpTagProof, revision string) {
+	t.Helper()
+	const card = "[data-tag-subject-resolution]"
+	for _, theme := range []string{"light", "dark"} {
+		if !t.Run(p.tenant.model+"/"+theme, func(t *testing.T) {
+			spec := testsupport.RenderSpec{
+				URL: st.BaseURL + "/ui/admin", Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: p.tenant.cookie}},
+				TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile,
+				Expect:   []string{p.tenant.name, "Effective subject tags"},
+				Absent:   []string{foreign.initialValue, foreign.changedValue, foreign.tenant.name},
+				Controls: []testsupport.RenderControl{{Role: "button", Name: "Switch theme (current: " + theme + ")"}},
+			}
+			if theme == "dark" {
+				spec.Steps = append(spec.Steps, testsupport.RenderStep{Click: "Switch theme (current: light)"})
+			}
+			// Before context selection this card has exactly one select; after
+			// selection it has exactly one subject-ID input. No generated IDs.
+			spec.Steps = append(spec.Steps,
+				testsupport.RenderStep{Select: card + " select", Value: p.contextID},
+				testsupport.RenderStep{Fill: card + " input", Value: p.entityID},
+				testsupport.RenderStep{Click: "Resolve effective tags", Within: card, ExpectWithin: card,
+					Expect: []string{p.initialValue, "snmp_firmware", "rule", "Tag revision " + revision + ". Snapshot"}},
+				testsupport.RenderStep{Fill: card + " input", Value: foreign.entityID},
+				testsupport.RenderStep{Click: "Resolve effective tags", Within: card, ExpectWithin: card,
+					Expect: []string{"Effective tags could not be resolved. Check the owned subject, context permission and current source facts, then retry."},
+					Absent: []string{p.initialValue, foreign.initialValue, foreign.changedValue, "Tag revision"}},
+			)
+			result := testsupport.RenderUI(t, spec)
+			p.tenant.keep([]byte(result.Text))
+		}) {
+			t.FailNow()
+		}
 	}
 }

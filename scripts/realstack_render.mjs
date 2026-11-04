@@ -98,12 +98,13 @@ async function main() {
     await page.goto(spec.url, { waitUntil: "domcontentloaded", timeout });
     const deadline = Date.now() + timeout;
     const remaining = () => Math.max(1000, deadline - Date.now());
-    const awaitTexts = async (texts) => {
+    const awaitTexts = async (texts, within) => {
+      const scope = within ? page.locator(within) : page;
       for (const want of texts ?? []) {
         try {
           // Any visible match counts: the first in DOM order may be hidden
           // (a closed <select>'s option), which is not a missing text.
-          await page.getByText(want, { exact: false }).filter({ visible: true }).first()
+          await scope.getByText(want, { exact: false }).filter({ visible: true }).first()
             .waitFor({ state: "visible", timeout: remaining() });
         } catch {
           result.missing.push(want);
@@ -127,9 +128,9 @@ async function main() {
         }
       }
     };
-    const absentNow = async () => {
-      const text = await settled(() => page.locator("body").innerText({ timeout: remaining() }), "");
-      for (const t of spec.absent ?? []) {
+    const absentNow = async (texts = spec.absent, within = "body") => {
+      const text = await settled(() => page.locator(within).innerText({ timeout: remaining() }), "");
+      for (const t of texts ?? []) {
         if (text.includes(t) && !result.present.includes(t)) result.present.push(t);
       }
       return text;
@@ -174,7 +175,8 @@ async function main() {
         result.missing.push(`click ${step.role ?? "button"} "${step.click}": ${String(err).split("\n")[0]}`);
         break;
       }
-      await awaitTexts(step.expect);
+      await awaitTexts(step.expect, step.expectWithin);
+      if (step.absent?.length) await absentNow(step.absent, step.expectWithin);
       if (step.gone) {
         try {
           await control.waitFor({ state: "detached", timeout: remaining() });

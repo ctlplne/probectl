@@ -607,8 +607,12 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
   A real target configuration reload must change the next poll's metadata;
   manual assignment/reset and source reanchoring must preserve current
   authority, and foreign contexts and subjects remain hidden. Private evidence
-  keys join the existing secret scans. This shared dev-service fixture does
-  not replace the authenticated TLS/SASL release-image proof.
+  keys join the existing secret scans. In both browser themes, each tenant's
+  Admin form must show its real collected tag and then clear the result when
+  a foreign subject is refused. These assertions target the effective-result
+  card, independently of the rule configuration also visible on the page.
+  This shared dev-service fixture does not replace the authenticated TLS/SASL
+  release-image proof.
 - The correlation contract (hop IP ↔ interface, flow exporter+ifIndex ↔
   interface) is pinned by `TestCorrelatorHopToInterface` and
   `TestCorrelatorFlowToInterface`. `TestPollSNMPHealthyDevice`,
