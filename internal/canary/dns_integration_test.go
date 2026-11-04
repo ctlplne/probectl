@@ -10,7 +10,6 @@ package canary_test
 
 import (
 	"context"
-	"crypto"
 	"io"
 	"net"
 	"net/http"
@@ -160,11 +159,7 @@ func signForZone(t *testing.T, name, ip string, expired bool) (a *dns.A, sig *dn
 		Protocol:  3,
 		Algorithm: dns.ECDSAP256SHA256,
 	}
-	priv, err := key.Generate(256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signer := priv.(crypto.Signer)
+	signer := testDNSSECSigningKey(t, key)
 	a = aRecord(name, ip)
 	a.Hdr.Ttl = 3600
 	incep := time.Now().Add(-time.Hour)

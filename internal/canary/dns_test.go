@@ -8,7 +8,6 @@ package canary
 
 import (
 	"context"
-	"crypto"
 	"net"
 	"strings"
 	"testing"
@@ -121,14 +120,7 @@ func signedA(t *testing.T, ip string) (rrset []dns.RR, sig *dns.RRSIG, key *dns.
 		Protocol:  3,
 		Algorithm: dns.ECDSAP256SHA256,
 	}
-	priv, err := key.Generate(256)
-	if err != nil {
-		t.Fatalf("Generate: %v", err)
-	}
-	signer, ok := priv.(crypto.Signer)
-	if !ok {
-		t.Fatal("generated key is not a crypto.Signer")
-	}
+	signer := testDNSSECSigningKey(t, key)
 	a := &dns.A{
 		Hdr: dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 3600},
 		A:   net.ParseIP(ip),

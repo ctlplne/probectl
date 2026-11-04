@@ -8,7 +8,6 @@ package canary
 
 import (
 	"context"
-	"crypto"
 	"net"
 	"testing"
 	"time"
@@ -124,20 +123,14 @@ func mintZone(t *testing.T, zone, ip string) (answer, keyset *dns.Msg, ds *dns.D
 		Protocol:  3,
 		Algorithm: dns.ECDSAP256SHA256,
 	}
-	kskPriv, err := ksk.Generate(256)
-	if err != nil {
-		t.Fatalf("ksk Generate: %v", err)
-	}
+	kskPriv := testDNSSECSigningKey(t, ksk)
 	zsk := &dns.DNSKEY{
 		Hdr:       dns.RR_Header{Name: zone, Rrtype: dns.TypeDNSKEY, Class: dns.ClassINET, Ttl: 3600},
 		Flags:     256, // zone-signing key
 		Protocol:  3,
 		Algorithm: dns.ECDSAP256SHA256,
 	}
-	zskPriv, err := zsk.Generate(256)
-	if err != nil {
-		t.Fatalf("zsk Generate: %v", err)
-	}
+	zskPriv := testDNSSECSigningKey(t, zsk)
 
 	incep := uint32(time.Now().Add(-time.Hour).Unix())
 	expir := uint32(time.Now().Add(time.Hour).Unix())
@@ -151,7 +144,7 @@ func mintZone(t *testing.T, zone, ip string) (answer, keyset *dns.Msg, ds *dns.D
 		KeyTag:     ksk.KeyTag(),
 		SignerName: zone,
 	}
-	if err := keySig.Sign(kskPriv.(crypto.Signer), []dns.RR{ksk, zsk}); err != nil {
+	if err := keySig.Sign(kskPriv, []dns.RR{ksk, zsk}); err != nil {
 		t.Fatalf("sign DNSKEY RRset: %v", err)
 	}
 
@@ -168,7 +161,7 @@ func mintZone(t *testing.T, zone, ip string) (answer, keyset *dns.Msg, ds *dns.D
 		KeyTag:     zsk.KeyTag(),
 		SignerName: zone,
 	}
-	if err := aSig.Sign(zskPriv.(crypto.Signer), []dns.RR{a}); err != nil {
+	if err := aSig.Sign(zskPriv, []dns.RR{a}); err != nil {
 		t.Fatalf("sign A: %v", err)
 	}
 
