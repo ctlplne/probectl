@@ -25,10 +25,10 @@ import (
 )
 
 type releaseFlowReport struct {
-	api                                                  api
-	tenant, address, source, version, snapshot, artifact string
-	quantity                                             uint32
-	body, frozen                                         []byte
+	api                                                                         api
+	tenant, address, source, version, snapshot, artifact, dashboard, sourceName string
+	quantity                                                                    uint32
+	body, frozen                                                                []byte
 }
 
 // Generated NetFlow wire -> actual registered collector -> TLS/SASL Kafka ->
@@ -133,6 +133,7 @@ func proveReleaseSourceReports(t *testing.T, root, work, ca, cert, key string, s
 			t.Fatal("release source lost its pinned saved identity")
 		}
 		p.source, p.version = view.ID, view.Version
+		p.sourceName = "Release source " + strconv.Itoa(i)
 		var dashboard struct {
 			ID       string
 			TenantID string `json:"tenant_id"`
@@ -145,6 +146,7 @@ func proveReleaseSourceReports(t *testing.T, root, work, ca, cert, key string, s
 		if dashboard.TenantID != p.tenant || dashboard.ID == "" {
 			t.Fatal("release source dashboard changed tenant")
 		}
+		p.dashboard = dashboard.ID
 		var artifact struct{ ID string }
 		p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/dashboard-reports", map[string]string{"dashboard_id": dashboard.ID, "format": "csv"}, &artifact)
 		p.artifact = artifact.ID

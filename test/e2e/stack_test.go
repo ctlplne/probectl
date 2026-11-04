@@ -255,7 +255,14 @@ var formAction = regexp.MustCompile(`(?is)<form[^>]*\baction="([^"]*)"`)
 // exchange back on /auth/callback, and the session cookie that sets. It then
 // mints, from that session, the tenant-bound API token every later request
 // presents — the production path an operator's CLI token takes.
+type releaseSession struct{ Token, Cookie string }
+
 func ssoSignIn(t *testing.T, apiBase string, caFiles []string, tenant, email, password string, scopes []string) string {
+	t.Helper()
+	return ssoSignInSession(t, apiBase, caFiles, tenant, email, password, scopes).Token
+}
+
+func ssoSignInSession(t *testing.T, apiBase string, caFiles []string, tenant, email, password string, scopes []string) releaseSession {
 	t.Helper()
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -304,7 +311,13 @@ func ssoSignIn(t *testing.T, apiBase string, caFiles []string, tenant, email, pa
 	if resp.StatusCode != http.StatusCreated || json.Unmarshal(body, &minted) != nil || minted.Token == "" {
 		t.Fatalf("mint %s's API token from the SSO session = %d: %s", email, resp.StatusCode, body)
 	}
-	return minted.Token
+	for _, cookie := range jar.Cookies(base) {
+		if cookie.Name == "probectl_session" && cookie.Value != "" {
+			return releaseSession{Token: minted.Token, Cookie: cookie.Value}
+		}
+	}
+	t.Fatal("real SSO callback did not retain the tenant session cookie")
+	return releaseSession{}
 }
 
 func readBody(t *testing.T, resp *http.Response) []byte {

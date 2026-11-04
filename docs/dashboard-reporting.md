@@ -238,8 +238,9 @@ generated-protocol provenance remain explicit.
 
 The release-image E2E separately uses registered collectors over verified
 TLS/SASL Kafka, the HTTPS ClickHouse reader, encrypted filesystem snapshots,
-Postgres report publication and paired API/compiled CLI refusals plus restart
-survival. Its real mTLS agent to authenticated TLS Prometheus leg remains
+Postgres report publication, TLS MCP consent/current-link controls and real
+Dex-authenticated Chromium source selection/native binding in both themes.
+Paired API/compiled CLI refusals and restart survival remain required. Its real mTLS agent to authenticated TLS Prometheus leg remains
 mandatory. Generated inputs do not establish hardware-exporter behavior.
 Receipts require successful execution on the candidate; source checks alone do
 not qualify the feature.

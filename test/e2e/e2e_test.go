@@ -149,7 +149,7 @@ func TestE2E(t *testing.T) {
 	)
 
 	// ── the real IdP, on the stack's network ────────────────────────────
-	apiPort, agentPort := freeTCPPort(t), freeTCPPort(t)
+	apiPort, agentPort, mcpPort := freeTCPPort(t), freeTCPPort(t), freeTCPPort(t)
 	apiBase := "https://localhost:" + apiPort
 	dexDir := mkdir(t, work, "dex")
 	dex := startDex(t, root, dexDir, network, project+"-dex", apiBase+"/auth/callback")
@@ -217,9 +217,12 @@ func TestE2E(t *testing.T) {
 		"PROBECTL_AGENT_TLS_CERT_FILE": base["PROBECTL_TLS_CERT_FILE"],
 		"PROBECTL_AGENT_TLS_KEY_FILE":  base["PROBECTL_TLS_KEY_FILE"],
 		"PROBECTL_AGENT_TLS_CA_FILE":   ctl.path(t, agentCABundle),
+		"PROBECTL_MCP_HTTP_ADDR":       ":9444",
+		"PROBECTL_MCP_TLS_CERT_FILE":   base["PROBECTL_TLS_CERT_FILE"],
+		"PROBECTL_MCP_TLS_KEY_FILE":    base["PROBECTL_TLS_KEY_FILE"],
 	})
 	controlRunning := ctl.serve(t, []string{baseEnv, serveEnv},
-		"127.0.0.1:"+apiPort+":"+apiListen, "127.0.0.1:"+agentPort+":"+agentListen)
+		"127.0.0.1:"+apiPort+":"+apiListen, "127.0.0.1:"+agentPort+":"+agentListen, "127.0.0.1:"+mcpPort+":9444")
 	anon := api{base: apiBase, client: newHTTPS(t, nil, serverCA)}
 	waitFor(t, "control plane /readyz", 120*time.Second, func() bool {
 		controlRunning()
@@ -259,14 +262,24 @@ func TestE2E(t *testing.T) {
 	agentAndFlows(t, root, work, stack, secrets, cli, a, b, apiPort, agentPort, promPort, serverCA, canaryToken)
 
 	// Separate narrow report credentials retain the earlier E2E tokens unchanged.
-	reportScopes := []string{"tenant.read", "agent.write", "ai.query", "flow.read", "flow.views.write", "metrics.read", "metrics.write"}
+	reportScopes := []string{"tenant.read", "agent.write", "ai.query", "flow.read", "flow.views.write", "metrics.read", "metrics.write", "governance.write"}
+	reportSessions := []releaseSession{
+		ssoSignInSession(t, apiBase, caFiles, tenantA, adminA, password, reportScopes),
+		ssoSignInSession(t, apiBase, caFiles, tenantB, adminB, password, reportScopes),
+	}
 	reportReaders := []api{
-		{base: apiBase, client: anon.client, token: ssoSignIn(t, apiBase, caFiles, tenantA, adminA, password, reportScopes)},
-		{base: apiBase, client: anon.client, token: ssoSignIn(t, apiBase, caFiles, tenantB, adminB, password, reportScopes)},
+		{base: apiBase, client: anon.client, token: reportSessions[0].Token},
+		{base: apiBase, client: anon.client, token: reportSessions[1].Token},
 	}
 	var reports []releaseFlowReport
 	t.Run("release-source-report-storage", func(t *testing.T) {
 		reports = proveReleaseSourceReports(t, root, work, serverCA, filepath.Join(tlsDir, "tls.crt"), filepath.Join(tlsDir, "tls.key"), stack, secrets, cli, reportReaders)
+	})
+	t.Run("release-source-report-surfaces", func(t *testing.T) {
+		if len(reports) != 2 {
+			t.Fatal("paired source storage must pass before surface proof")
+		}
+		proveReleaseReportSurfaces(t, root, cli, "https://localhost:"+mcpPort, filepath.Join(tlsDir, "tls.crt"), reportSessions, reports)
 	})
 
 	// The ClickHouse-backed read works per tenant through the reader login and
