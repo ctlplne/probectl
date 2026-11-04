@@ -33,9 +33,34 @@ VIEW_TESTS = (
     "TestQueryViewsPostgresRealScopePersistenceAuditAndLifecycle",
 )
 VIEW_MARKER = "source metadata must remain readable after definition change"
+CAPTURE_PACKAGE = "github.com/ctlplne/probectl/internal/control"
+CAPTURE_TESTS = ("TestReportRealFlowCaptureStagesCurrentOwnedSources",)
 
 
 def selftest() -> None:
+    capture_events = [
+        {"Package": CAPTURE_PACKAGE, "Test": test, "Action": action}
+        for test in CAPTURE_TESTS
+        for action in ("run", "pass")
+    ] + [{"Package": CAPTURE_PACKAGE, "Action": "pass"}]
+    capture_log = "\n".join(json.dumps(event) for event in capture_events)
+    assert not classify(capture_log, 0, package=CAPTURE_PACKAGE, tests=CAPTURE_TESTS)
+    for action in ("skip", "fail"):
+        bad = (
+            capture_log
+            + "\n"
+            + json.dumps(
+                {"Package": CAPTURE_PACKAGE, "Test": CAPTURE_TESTS[0], "Action": action}
+            )
+        )
+        assert classify(bad, 0, package=CAPTURE_PACKAGE, tests=CAPTURE_TESTS)
+    assert classify("", 0, package=CAPTURE_PACKAGE, tests=CAPTURE_TESTS)
+    assert classify(
+        capture_log + "\n" + capture_log,
+        0,
+        package=CAPTURE_PACKAGE,
+        tests=CAPTURE_TESTS,
+    )
     view_events = [
         {"Package": VIEW_PACKAGE, "Test": test, "Action": action}
         for test in VIEW_TESTS
@@ -255,6 +280,22 @@ def run() -> None:
     if failures:
         raise RuntimeError("mandatory source batch proofs did not all execute and pass")
     visibility_proof()
+    captured = run_tests("^(" + "|".join(CAPTURE_TESTS) + ")$", "./internal/control")
+    failures = classify(
+        captured.stdout,
+        captured.returncode,
+        package=CAPTURE_PACKAGE,
+        tests=CAPTURE_TESTS,
+    )
+    print(
+        json.dumps(
+            {"tests": CAPTURE_TESTS, "passed": not failures, "failures": failures}
+        )
+    )
+    if failures:
+        raise RuntimeError(
+            "mandatory real source capture/staging proof did not execute and pass"
+        )
 
 
 if __name__ == "__main__":

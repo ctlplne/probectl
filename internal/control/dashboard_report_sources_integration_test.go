@@ -10,9 +10,12 @@ package control
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -22,22 +25,55 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/testsupport/chtest"
 )
 
 // Actual PG current users/grants, saved sources, contexts and tag snapshots;
 // source rows are in-process. This is not a sender or four-store release proof.
 func TestReportLiveFlowCaptureUsesCurrentOwnedSourcesAndOneBatch(t *testing.T) {
-	t.Run("success", testReportLiveFlowCapture)
+	t.Run("success", func(t *testing.T) { testReportLiveFlowCapture(t, false) })
 }
 
-func testReportLiveFlowCapture(t *testing.T) {
+func TestReportRealFlowCaptureStagesCurrentOwnedSources(t *testing.T) {
+	t.Run("success", func(t *testing.T) { testReportLiveFlowCapture(t, true) })
+}
+
+func testReportLiveFlowCapture(t *testing.T, realSource bool) {
 	f := newTagImportSubjectFixture(t)
 	views := flow.NewPostgresQueryViewStore(f.db.Pool(), 0, audit.TenantRecord)
 	f.srv.WithFlowQueryViews(views).WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(f.db.Pool(), 0, audit.TenantRecord))
-	rows := flowstore.NewMemory()
+	var rows flowstore.Store = flowstore.NewMemory()
+	if realSource {
+		endpoint := os.Getenv("PROBECTL_FLOWSTORE_URL")
+		if endpoint == "" {
+			testsupport.SkipOrFatal(t, "PROBECTL_FLOWSTORE_URL is required for real report source proof")
+		}
+		ch, err := flowstore.NewClickHouse(endpoint, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ch.Close() })
+		readerUser, reader := chtest.ProvisionReader(t, endpoint, "fx3_report_reader")
+		ch.WithTenantScoping(true).WithReader(reader)
+		if err := ch.EnsureReaderRowPolicy(t.Context(), readerUser); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			for _, tenant := range []string{f.a, f.b} {
+				if _, err := ch.DeleteTenant(ctx, tenant); err != nil {
+					t.Error("owned report source cleanup failed", err)
+				}
+			}
+		})
+		rows = ch
+	}
 	f.srv.WithFlowStore(rows)
 	policy := fairness.DefaultPolicy()
 	policy.QueryConcurrency, policy.QueriesPerMin = 1, 10000
@@ -81,10 +117,16 @@ func testReportLiveFlowCapture(t *testing.T) {
 			 VALUES($1,$2,$3,$4,'exporter',$5,'flow_exporter','192.0.2.10',$6,'manual')`, tenant, f.contextID, uuid(t), f.tagID, f.agents[tenant], "OWN-"+tenant)
 			return err
 		})
-		if err := rows.Insert(t.Context(), []flowstore.Row{
-			{TenantID: tenant, AgentID: f.agents[tenant], Exporter: "192.0.2.10", Protocol: "ipfix", TS: at, BytesScaled: uint64(100 + lane*800)},
-			{TenantID: tenant, AgentID: f.agents[tenant], Exporter: "192.0.2.10", Protocol: "ipfix", TS: at.Add(-2 * time.Minute), BytesScaled: uint64(70 + lane*700)},
-		}); err != nil {
+		current := flowstore.Row{TenantID: tenant, AgentID: f.agents[tenant], Exporter: "192.0.2.10", Protocol: "ipfix", TS: at, StartTS: at.Add(-time.Second),
+			SrcAddr: "10.0.0.1", DstAddr: "10.0.0.2", SrcPort: 12345, DstPort: 443, Transport: "tcp", Sampling: 1, Bytes: uint64(100 + lane*800), BytesScaled: uint64(100 + lane*800), Packets: 1, PacketsScaled: 1}
+		if realSource {
+			// Untrusted row claims cannot select the foreign agent's context.
+			current.AgentID = f.agents[[]string{f.a, f.b}[1-lane]]
+		}
+		previous := current
+		previous.TS, previous.StartTS = at.Add(-2*time.Minute), at.Add(-2*time.Minute-time.Second)
+		previous.Bytes, previous.BytesScaled = uint64(70+lane*700), uint64(70+lane*700)
+		if err := rows.Insert(t.Context(), []flowstore.Row{current, previous}); err != nil {
 			t.Fatal(err)
 		}
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
@@ -118,6 +160,9 @@ func testReportLiveFlowCapture(t *testing.T) {
 		}
 		for _, expected := range []struct{ period, value string }{{"current", fmt.Sprint(100 + lane*800)}, {"previous", fmt.Sprint(70 + lane*700)}} {
 			assertCapturedReportDetail(ctx, t, capture, expected.period, "OWN-"+tenant, expected.value, f.tagID)
+		}
+		if realSource {
+			assertCapturedReportCSV(ctx, t, capture)
 		}
 		if release, err := gate.BeginQuery(ctx, tenant); !errors.Is(err, fairness.ErrQueryConcurrency) {
 			if release != nil {
@@ -226,4 +271,88 @@ func assertCapturedReportDetail(ctx context.Context, t *testing.T, capture *repo
 		encoded, _ := json.Marshal(capture.Inputs)
 		t.Fatal("live report source omitted exact own detail", period, tag, counter, string(encoded))
 	}
+}
+
+// Independent CSV parsing checks every frozen source section, header, record,
+// tenant and metadata identity after the real source capture has completed.
+func assertCapturedReportCSV(ctx context.Context, t *testing.T, capture *reportFlowCapture) {
+	t.Helper()
+	doc := reporting.Document{
+		Title: "Real source report", TenantName: "Owned tenant", TenantScope: capture.TenantID,
+		AbsoluteFrom: capture.Inputs[0].From, AbsoluteTo: capture.Inputs[0].To,
+		GeneratedAt: time.Now().UTC(), GeneratedBy: "CI source proof",
+		Provenance:     []string{"real PostgreSQL metadata and ClickHouse query"},
+		RedactionState: "authorized metadata only", CoverageLimitations: []string{"directly seeded rows; release senders and bus remain separate proof"},
+		Tables: capture.Tables,
+	}
+	var rendered reporting.CSVReceipt
+	stage, receipt, err := reporting.StageBody(ctx, capture.TenantID, reporting.DefaultBodyStageLimits(), func(target io.Writer) error {
+		var err error
+		rendered, err = reporting.WriteCSV(ctx, target, doc, reporting.DefaultCSVLimits())
+		return err
+	})
+	if err != nil {
+		t.Fatal("real source CSV staging failed", err)
+	}
+	defer func() { _ = stage.Close() }()
+	body, err := stage.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = body.Close() }()
+	parser := csv.NewReader(body)
+	parser.FieldsPerRecord = -1
+	records, err := parser.ReadAll()
+	if err != nil {
+		t.Fatal("real source CSV could not be parsed", err)
+	}
+	cursor := 0
+	for cursor < len(records) && (len(records[cursor]) != 2 || records[cursor][0] != "table_id") {
+		cursor++
+	}
+	var count int64
+	for _, table := range capture.Tables {
+		if cursor >= len(records) || !slices.Equal(records[cursor], []string{"table_id", table.ID}) {
+			t.Fatal("staged real source omitted or reordered a complete section")
+		}
+		columns := make([]string, len(table.Columns))
+		for i, column := range table.Columns {
+			columns[i] = column.Name
+		}
+		metadata := map[string]string{}
+		for cursor < len(records) && !slices.Equal(records[cursor], columns) {
+			if len(records[cursor]) != 2 {
+				t.Fatal("staged real source has malformed section metadata")
+			}
+			metadata[records[cursor][0]] = records[cursor][1]
+			cursor++
+		}
+		asOf := ""
+		if table.TagRevision != "" {
+			asOf = table.TagAsOf.UTC().Format(time.RFC3339Nano)
+		}
+		if cursor >= len(records) || metadata["table_tenant_scope"] != capture.TenantID || metadata["table_tag_revision"] != table.TagRevision || metadata["table_tag_as_of"] != asOf || metadata["table_rows"] != fmt.Sprint(table.ExpectedRows) || metadata["table_absolute_from"] != table.AbsoluteFrom.UTC().Format(time.RFC3339Nano) || metadata["table_absolute_to"] != table.AbsoluteTo.UTC().Format(time.RFC3339Nano) {
+			t.Fatal("staged real source lost its exact header, tenant or captured clock")
+		}
+		for field, id := range table.FieldIDs {
+			if metadata["table_field_id:"+field] != id {
+				t.Fatal("staged real source lost its immutable field identity")
+			}
+		}
+		cursor++
+		if err := table.WalkRows(ctx, func(row []string) error {
+			if cursor >= len(records) || !slices.Equal(records[cursor], row) {
+				t.Fatal("staged real source lost an exact captured record")
+			}
+			cursor++
+			count++
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if cursor != len(records) || count != rendered.TableRows || receipt.Bytes != rendered.Bytes || receipt.SHA256 == "" {
+		t.Fatal("staged real source has missing or duplicated records or integrity receipt")
+	}
+	t.Logf("real PG/ClickHouse source CSV: tenant_sections=%d complete_records=%d bytes=%d", len(capture.Tables), count, receipt.Bytes)
 }
