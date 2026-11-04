@@ -66,6 +66,8 @@ export function validateAlertTagMatrix(checks, themes, viewports) {
                 (stage) =>
                   stage.name === name &&
                   stage.passed === true &&
+                  stage.screenshot ===
+                    `alert-tags-${viewport.name}-${theme}-${mode}-${name}.png` &&
                   ["axe", "targets", "overflow", "clipping"].every(
                     (key) =>
                       Array.isArray(stage[key]) && stage[key].length === 0,
@@ -160,6 +162,7 @@ export function alertTagSelfTest() {
         no_disclosure: true,
         stages: stagesFor(mode).map((name) => ({
           name,
+          screenshot: `alert-tags-${viewport.name}-${theme}-${mode}-${name}.png`,
           passed: true,
           axe: [],
           targets: [],
@@ -176,6 +179,12 @@ export function alertTagSelfTest() {
     (r) => r.push(r[0]),
     (r) => {
       r[0].stages.pop();
+    },
+    (r) => {
+      delete r[0].stages[0].screenshot;
+    },
+    (r) => {
+      r[0].stages[0].screenshot = "../unrelated.png";
     },
     (r) => {
       r[0].full_value_exact = false;
@@ -257,6 +266,7 @@ export async function runAlertTagChecks({
         const inspect = async (name) => {
           const stage = {
             name,
+            screenshot: `alert-tags-${viewport.name}-${theme}-${mode}-${name}.png`,
             passed: false,
             axe: [],
             targets: [],
@@ -271,10 +281,7 @@ export async function runAlertTagChecks({
           stage.overflow = await helpers.horizontalOverflowCheck(page);
           stage.clipping = await helpers.interactiveClippingCheck(page);
           await page.screenshot({
-            path: join(
-              receiptDir,
-              `alert-tags-${viewport.name}-${theme}-${mode}-${name}.png`,
-            ),
+            path: join(receiptDir, stage.screenshot),
             fullPage: true,
           });
           if (

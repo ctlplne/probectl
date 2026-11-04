@@ -2215,7 +2215,7 @@ async function targetAndTabChecks(page) {
       '[tabindex]:not([tabindex="-1"])',
     ].join(",");
     const isVisible = (el) => {
-      if (el.closest("[inert]")) return false;
+      if (el.matches(":disabled") || el.closest("[inert]")) return false;
       const closedDetails = el.closest("details:not([open])");
       if (closedDetails) {
         const summary = closedDetails.querySelector(":scope > summary");
@@ -2291,6 +2291,99 @@ async function targetAndTabChecks(page) {
     }
     return problems;
   });
+}
+
+// Native fieldset disabling includes descendants, except the first legend.
+// Keep enabled controls inside that legend subject to every keyboard/target rule.
+async function nativeDisabledControlChecks(browser) {
+  const context = await browser.newContext({
+    viewport: { width: 1024, height: 768 },
+  });
+  const page = await context.newPage();
+  try {
+    await page.setContent(`<!doctype html><html lang="en"><head><title>Native control proof</title><style>
+      button { min-width: 40px; min-height: 32px; }
+      button:focus-visible { outline: 2px solid black; outline-offset: 2px; }
+    </style></head><body><main>
+      <fieldset disabled><legend><button id="legend-enabled">Legend action</button></legend>
+        <button id="inherited">Inherited disabled</button>
+        <fieldset><legend>Nested controls</legend><button id="nested">Nested disabled</button></fieldset>
+      </fieldset>
+      <button id="direct" disabled tabindex="0">Direct disabled</button>
+      <button id="enabled">Enabled action</button>
+    </main></body></html>`);
+    const nativeState = await page.evaluate(
+      () =>
+        ["inherited", "nested", "direct"].every((id) =>
+          document.getElementById(id).matches(":disabled"),
+        ) &&
+        ["enabled", "legend-enabled"].every(
+          (id) => !document.getElementById(id).matches(":disabled"),
+        ),
+    );
+    if (!nativeState) throw new Error("native disabled/legend state differs");
+    const baseline = await targetAndTabChecks(page);
+    if (baseline.length)
+      throw new Error(
+        `native disabled target fixture refused: ${baseline.join("; ")}`,
+      );
+    for (const id of ["enabled", "legend-enabled"]) {
+      await page.$eval(`#${id}`, (element) => {
+        element.tabIndex = 2;
+      });
+      const problems = await targetAndTabChecks(page);
+      if (
+        !problems.some(
+          (message) =>
+            message.includes(`#${id}`) &&
+            message.includes("positive tabindex=2"),
+        )
+      ) {
+        throw new Error(`enabled target guard ignored ${id}`);
+      }
+      await page.$eval(`#${id}`, (element) => {
+        element.tabIndex = 0;
+      });
+    }
+    await page.$eval("#enabled", (element) => {
+      element.style.minHeight = "0";
+      element.style.height = "20px";
+    });
+    const geometry = await targetAndTabChecks(page);
+    if (
+      !geometry.some(
+        (message) =>
+          message.includes("#enabled") && message.includes("target is"),
+      )
+    ) {
+      throw new Error("enabled small-target guard did not fire");
+    }
+    await page.$eval("#enabled", (element) => {
+      element.style.minHeight = "32px";
+      element.style.height = "";
+      element.style.outline = "none";
+    });
+    const focus = await targetAndTabChecks(page);
+    if (
+      !focus.some(
+        (message) =>
+          message.includes("#enabled") &&
+          message.includes("no visible focus indicator"),
+      )
+    ) {
+      throw new Error("enabled focus-indicator guard did not fire");
+    }
+    return {
+      passed: true,
+      native_state: true,
+      legend_exception: true,
+      enabled_tabindex_guard: true,
+      enabled_geometry_guard: true,
+      enabled_focus_guard: true,
+    };
+  } finally {
+    await context.close();
+  }
 }
 
 // DPR-171: a sticky or fixed BAR painted with a translucent color lets the
@@ -3713,6 +3806,7 @@ async function main() {
     native_flow_checks: [],
     test_tag_context_checks: [],
     alert_tag_checks: [],
+    native_control_checks: { passed: false },
     test_tag_context_source:
       "simulation: synthetic API/current production build; no sender/storage isolation claim",
     native_flow_source:
@@ -3728,6 +3822,8 @@ async function main() {
 
   try {
     await selfCheck(browser, axeSource);
+    a11yReceipt.native_control_checks =
+      await nativeDisabledControlChecks(browser);
     for (const viewport of viewports) {
       for (const theme of themes) {
         const context = await browser.newContext({
@@ -4120,6 +4216,9 @@ async function main() {
       `browser gate aborted: ${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
+    if (a11yReceipt.native_control_checks.passed !== true) {
+      failures.push("native disabled control proof did not pass");
+    }
     // Even an aborted route sweep cannot leave an unrun native matrix green.
     failures.push(
       ...validateNativeFlowMatrix(

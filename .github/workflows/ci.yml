@@ -1782,6 +1782,7 @@ jobs:
           path: |
             receipts/web-ux/rendered-a11y.json
             receipts/web-ux/web-performance.json
+            receipts/web-ux/*.png
           retention-days: 90
 
   dependency-scan:
