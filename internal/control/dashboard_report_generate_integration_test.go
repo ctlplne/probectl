@@ -33,7 +33,11 @@ func reportProofJSON(t *testing.T, socket *httptest.Server, token, method, route
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := http.NewRequestWithContext(t.Context(), method, socket.URL+route, bytes.NewReader(data))
+	var reader io.Reader
+	if method != http.MethodGet {
+		reader = bytes.NewReader(data)
+	}
+	request, err := http.NewRequestWithContext(t.Context(), method, socket.URL+route, reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +186,7 @@ func proveSourceReportPublicGenerationAndSchedule(t *testing.T, f *tagImportSubj
 	for _, kind := range []string{"lifecycle", "version"} {
 		proveSourcePublicationRace(t, f, socket, proofs[0], views[0], application, kind)
 	}
+	proveSourceReportNativeBindings(t, f, socket, proofs, views)
 }
 
 // Hold the real final publication lock until the public generator has staged

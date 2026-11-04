@@ -49,6 +49,7 @@ export interface DashboardManifest {
     shared: boolean
     definition: Omit<DashboardDefinition, 'metrics' | 'flow_sources'> & {
       metrics: Array<{ name: string; value: string }>
+      flow_sources?: Array<{ slot: string }>
     }
   }
 }
@@ -60,6 +61,7 @@ export interface DashboardManifestPreview {
   absolute_from: string
   absolute_to: string
   metric_count: number
+  source_count?: number
   provenance_count: number
   coverage_limitation_count: number
 }
@@ -151,7 +153,11 @@ export function useCreateDashboard() {
 export function useImportDashboardManifest() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (input: { manifest: DashboardManifest; confirm: boolean }) =>
+    mutationFn: (input: {
+      manifest: DashboardManifest
+      confirm: boolean
+      source_bindings?: Record<string, { id: string; version: string }>
+    }) =>
       apiFetch<DashboardManifestImportResponse>(
         '/dashboard-manifests/import',
         jsonInit('POST', input),

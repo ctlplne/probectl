@@ -68,6 +68,45 @@ export function DashboardReportingCard({
   const [cadence, setCadence] = useState<ReportCadence>('weekly')
   const [manifestText, setManifestText] = useState('')
   const [manifestPreview, setManifestPreview] = useState<DashboardManifestImportResponse>()
+  const [nativeSlot, setNativeSlot] = useState('')
+  const [bindingDraft, setBindingDraft] = useState<{
+    identity: string
+    manifest: string
+    items: Record<string, { id: string; version: string; name: string }>
+  }>({ identity: sourceIdentity, manifest: '', items: {} })
+  const nativeSlots = useMemo(() => {
+    try {
+      const parsed = JSON.parse(manifestText) as {
+        spec?: { definition?: { flow_sources?: unknown } }
+      }
+      const sources = parsed?.spec?.definition?.flow_sources
+      if (!Array.isArray(sources)) return []
+      return sources
+        .filter(
+          (item): item is { slot: string } =>
+            Boolean(item) &&
+            typeof item === 'object' &&
+            typeof item.slot === 'string' &&
+            item.slot.length <= 80,
+        )
+        .slice(0, 1024)
+        .map((item) => item.slot)
+    } catch {
+      return []
+    }
+  }, [manifestText])
+  const nativeBindings =
+    bindingDraft.identity === sourceIdentity && bindingDraft.manifest === manifestText
+      ? bindingDraft.items
+      : {}
+  const activeNativeSlot = nativeSlots.includes(nativeSlot) ? nativeSlot : (nativeSlots[0] ?? '')
+  const missingNativeBindings =
+    nativeSlots.length > 0 && (!canReadSources || nativeSlots.some((slot) => !nativeBindings[slot]))
+  const sourceBindingsInput = nativeSlots.length
+    ? Object.fromEntries(
+        Object.entries(nativeBindings).map(([slot, { id, version }]) => [slot, { id, version }]),
+      )
+    : undefined
 
   const views = dashboards.data?.items ?? []
   const requestedID = searchParams.get('view') ?? ''
@@ -179,9 +218,12 @@ export function DashboardReportingCard({
       const result = await importDashboard.mutateAsync({
         manifest: parseManifest(),
         confirm: false,
+        source_bindings: sourceBindingsInput,
       })
       setManifestPreview(result)
-      setManifestText(JSON.stringify(result.manifest, null, 2))
+      const normalized = JSON.stringify(result.manifest, null, 2)
+      setManifestText(normalized)
+      setBindingDraft({ identity: sourceIdentity, manifest: normalized, items: nativeBindings })
       push({
         tone: 'success',
         title: 'Manifest validated',
@@ -199,6 +241,7 @@ export function DashboardReportingCard({
       const result = await importDashboard.mutateAsync({
         manifest: manifestPreview.manifest,
         confirm: true,
+        source_bindings: sourceBindingsInput,
       })
       if (!result.dashboard) throw new Error('The server did not return the created dashboard.')
       setManifestPreview(undefined)
@@ -444,10 +487,67 @@ export function DashboardReportingCard({
                 }}
               />
             </label>
+            {nativeSlots.length ? (
+              <section
+                aria-label="Destination report source bindings"
+                className={styles.manifestSection}
+              >
+                <p>
+                  Bind each portable slot to a saved query in this tenant. These explicit selections
+                  determine the imported report's data.
+                </p>
+                {canReadSources ? (
+                  <>
+                    <Select
+                      label="Source slot to bind"
+                      value={activeNativeSlot}
+                      options={nativeSlots.map((slot) => ({ value: slot, label: slot }))}
+                      onChange={(event) => setNativeSlot(event.target.value)}
+                    />
+                    <FlowViewLibrary
+                      identity={sourceIdentity}
+                      onSelect={(item) => {
+                        setBindingDraft({
+                          identity: sourceIdentity,
+                          manifest: manifestText,
+                          items: {
+                            ...nativeBindings,
+                            [activeNativeSlot]: {
+                              id: item.id,
+                              version: item.version,
+                              name: item.definition.name,
+                            },
+                          },
+                        })
+                        setManifestPreview(undefined)
+                      }}
+                    />
+                    <ul aria-label="Bound report source slots">
+                      {nativeSlots.map((slot) => (
+                        <li key={slot}>
+                          {slot}:{' '}
+                          {nativeBindings[slot]
+                            ? `${nativeBindings[slot].name} · version ${nativeBindings[slot].version}`
+                            : 'Not bound'}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p role="alert">Current flow read access is required to bind report sources.</p>
+                )}
+              </section>
+            ) : null}
             <div className={styles.reportActions}>
               <Button
                 onClick={() => void previewManifest()}
-                disabled={!canWrite || !manifestText.trim() || importDashboard.isPending || failed}
+                disabled={
+                  !canWrite ||
+                  !manifestText.trim() ||
+                  importDashboard.isPending ||
+                  failed ||
+                  missingNativeBindings
+                }
               >
                 {importDashboard.isPending ? 'Validating…' : 'Preview import'}
               </Button>
@@ -455,7 +555,7 @@ export function DashboardReportingCard({
                 <Button
                   variant="primary"
                   onClick={() => void confirmManifestImport()}
-                  disabled={!canWrite || importDashboard.isPending}
+                  disabled={!canWrite || importDashboard.isPending || missingNativeBindings}
                 >
                   Confirm import
                 </Button>
@@ -469,11 +569,19 @@ export function DashboardReportingCard({
                   {manifestPreview.preview.preset} ·{' '}
                   {manifestPreview.preview.shared ? 'shared in this tenant' : 'private'}
                 </span>
-                <span>
-                  <DateTime value={manifestPreview.preview.absolute_from} /> –{' '}
-                  <DateTime value={manifestPreview.preview.absolute_to} />
-                </span>
-                <span>{manifestPreview.preview.metric_count} exact values</span>
+                {manifestPreview.preview.source_count ? (
+                  <span>
+                    {manifestPreview.preview.source_count} explicitly bound saved flow sources
+                  </span>
+                ) : (
+                  <>
+                    <span>
+                      <DateTime value={manifestPreview.preview.absolute_from} /> –{' '}
+                      <DateTime value={manifestPreview.preview.absolute_to} />
+                    </span>
+                    <span>{manifestPreview.preview.metric_count} exact values</span>
+                  </>
+                )}
                 <span>
                   {manifestPreview.preview.provenance_count} provenance ·{' '}
                   {manifestPreview.preview.coverage_limitation_count} coverage notes

@@ -722,18 +722,21 @@ type DashboardManifest struct {
 	Spec       DashboardManifestSpec     `json:"spec"`
 }
 
+// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings.
 type DashboardManifestDefinition struct {
-	AbsoluteFrom        string                    `json:"absolute_from"`
-	AbsoluteTo          string                    `json:"absolute_to"`
+	AbsoluteFrom        string                    `json:"absolute_from,omitempty"`
+	AbsoluteTo          string                    `json:"absolute_to,omitempty"`
 	CoverageLimitations []string                  `json:"coverage_limitations"`
+	FlowSources         []map[string]any          `json:"flow_sources,omitempty"`
 	Metrics             []DashboardManifestMetric `json:"metrics"`
 	Provenance          []string                  `json:"provenance"`
 	RedactionState      string                    `json:"redaction_state"`
 }
 
 type DashboardManifestImportRequest struct {
-	Confirm  bool              `json:"confirm"`
-	Manifest DashboardManifest `json:"manifest"`
+	Confirm        bool                      `json:"confirm"`
+	Manifest       DashboardManifest         `json:"manifest"`
+	SourceBindings map[string]map[string]any `json:"source_bindings,omitempty"`
 }
 
 type DashboardManifestImportResponse struct {
@@ -761,6 +764,7 @@ type DashboardManifestPreview struct {
 	Preset                  string `json:"preset"`
 	ProvenanceCount         int    `json:"provenance_count"`
 	Shared                  bool   `json:"shared"`
+	SourceCount             int    `json:"source_count,omitempty"`
 }
 
 type DashboardManifestSpec struct {

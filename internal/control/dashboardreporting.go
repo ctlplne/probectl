@@ -78,12 +78,13 @@ type dashboardManifestSpec struct {
 }
 
 type dashboardManifestDefinition struct {
-	AbsoluteFrom        time.Time                 `json:"absolute_from"`
-	AbsoluteTo          time.Time                 `json:"absolute_to"`
-	Provenance          []string                  `json:"provenance"`
-	RedactionState      string                    `json:"redaction_state"`
-	CoverageLimitations []string                  `json:"coverage_limitations"`
-	Metrics             []dashboardManifestMetric `json:"metrics"`
+	FlowSources         []dashboardManifestFlowSource `json:"flow_sources,omitempty"`
+	AbsoluteFrom        time.Time                     `json:"absolute_from"`
+	AbsoluteTo          time.Time                     `json:"absolute_to"`
+	Provenance          []string                      `json:"provenance"`
+	RedactionState      string                        `json:"redaction_state"`
+	CoverageLimitations []string                      `json:"coverage_limitations"`
+	Metrics             []dashboardManifestMetric     `json:"metrics"`
 }
 
 type dashboardManifestMetric struct {
@@ -91,12 +92,18 @@ type dashboardManifestMetric struct {
 	Value string `json:"value"`
 }
 
+type dashboardManifestFlowSource struct {
+	Slot string `json:"slot"`
+}
+
 type dashboardManifestImportRequest struct {
-	Manifest dashboardManifest `json:"manifest"`
-	Confirm  bool              `json:"confirm"`
+	SourceBindings map[string]reportFlowSourceRef `json:"source_bindings,omitempty"`
+	Manifest       dashboardManifest              `json:"manifest"`
+	Confirm        bool                           `json:"confirm"`
 }
 
 type dashboardManifestPreview struct {
+	SourceCount             int       `json:"source_count,omitempty"`
 	Name                    string    `json:"name"`
 	Preset                  string    `json:"preset"`
 	Shared                  bool      `json:"shared"`
@@ -233,6 +240,10 @@ func cleanDisclosure(values *[]string, field string) error {
 }
 
 func dashboardManifestToCreate(manifest dashboardManifest) (dashboardCreateRequest, error) {
+	return dashboardManifestToCreateBound(manifest, nil)
+}
+
+func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[string]reportFlowSourceRef) (dashboardCreateRequest, error) {
 	if manifest.APIVersion != dashboardManifestVersion {
 		return dashboardCreateRequest{}, apierror.Validation(
 			"unsupported dashboard manifest api_version; expected " + dashboardManifestVersion,
@@ -243,6 +254,10 @@ func dashboardManifestToCreate(manifest dashboardManifest) (dashboardCreateReque
 	}
 	if len(manifest.Spec.Definition.Metrics) > maxReportMetrics {
 		return dashboardCreateRequest{}, apierror.Validation("dashboard definition may contain at most 100 exact metrics")
+	}
+	refs, err := dashboardManifestSourceRefs(manifest.Spec.Definition.FlowSources, bindings)
+	if err != nil {
+		return dashboardCreateRequest{}, err
 	}
 	metrics := make(map[string]string, len(manifest.Spec.Definition.Metrics))
 	for _, metric := range manifest.Spec.Definition.Metrics {
@@ -257,6 +272,7 @@ func dashboardManifestToCreate(manifest dashboardManifest) (dashboardCreateReque
 		Preset: manifest.Spec.Preset,
 		Shared: manifest.Spec.Shared,
 		Definition: dashboardDefinition{
+			FlowSources:         refs,
 			AbsoluteFrom:        manifest.Spec.Definition.AbsoluteFrom,
 			AbsoluteTo:          manifest.Spec.Definition.AbsoluteTo,
 			Provenance:          manifest.Spec.Definition.Provenance,
@@ -285,6 +301,7 @@ func dashboardCreateToManifest(req dashboardCreateRequest) dashboardManifest {
 			Preset: req.Preset,
 			Shared: req.Shared,
 			Definition: dashboardManifestDefinition{
+				FlowSources:         dashboardManifestSourceSlots(req.Definition.FlowSources),
 				AbsoluteFrom:        req.Definition.AbsoluteFrom,
 				AbsoluteTo:          req.Definition.AbsoluteTo,
 				Provenance:          req.Definition.Provenance,
@@ -339,6 +356,7 @@ func dashboardManifestPreviewFor(req dashboardCreateRequest) dashboardManifestPr
 		AbsoluteFrom:            req.Definition.AbsoluteFrom,
 		AbsoluteTo:              req.Definition.AbsoluteTo,
 		MetricCount:             len(req.Definition.Metrics),
+		SourceCount:             len(req.Definition.FlowSources),
 		ProvenanceCount:         len(req.Definition.Provenance),
 		CoverageLimitationCount: len(req.Definition.CoverageLimitations),
 	}
@@ -349,16 +367,17 @@ func dashboardManifestFromView(view *store.DashboardView) (dashboardManifest, er
 	if err := json.Unmarshal(view.Definition, &definition); err != nil {
 		return dashboardManifest{}, apierror.Internal("stored dashboard definition is invalid").Wrap(err)
 	}
-	if len(definition.FlowSources) > 0 {
-		return dashboardManifest{}, apierror.Conflict("source-backed dashboard portability requires explicit destination source bindings")
-	}
 	clean, err := cleanDashboardCreate(dashboardCreateRequest{
 		Name: view.Name, Preset: view.Preset, Shared: view.Shared, Definition: definition,
 	})
 	if err != nil {
 		return dashboardManifest{}, apierror.Internal("stored dashboard definition is invalid").Wrap(err)
 	}
-	clean, err = sanitizeDashboardCreate(clean, view.TenantID, view.OwnerID)
+	identities := []string{view.TenantID, view.OwnerID}
+	for _, ref := range clean.Definition.FlowSources {
+		identities = append(identities, ref.ID)
+	}
+	clean, err = sanitizeDashboardCreate(clean, identities...)
 	if err != nil {
 		return dashboardManifest{}, err
 	}
@@ -384,6 +403,12 @@ func (s *Server) handleCreateDashboard(w http.ResponseWriter, r *http.Request) e
 	}
 	var view *store.DashboardView
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
+			return err
+		}
+		if err := s.validateDashboardFlowSourceRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.FlowSources); err != nil {
+			return tagQueryResponseError(w, err)
+		}
 		created, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{
 			ID: id, OwnerID: dashboardActorID(r), Name: clean.Name, Preset: clean.Preset,
 			Shared: clean.Shared, Definition: definition,
@@ -461,13 +486,19 @@ func (s *Server) handleImportDashboardManifest(w http.ResponseWriter, r *http.Re
 	if err := decodeJSONLimit(r, maxDashboardManifestBytes, &body); err != nil {
 		return err
 	}
-	clean, err := dashboardManifestToCreate(body.Manifest)
+	clean, err := dashboardManifestToCreateBound(body.Manifest, body.SourceBindings)
 	if err != nil {
 		return err
 	}
 
 	var response dashboardManifestImportResponse
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
+			return err
+		}
+		if err := s.validateDashboardFlowSourceRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.FlowSources); err != nil {
+			return tagQueryResponseError(w, err)
+		}
 		sanitized, err := sanitizeDashboardCreate(clean, sc.Tenant.String(), dashboardActorID(r))
 		if err != nil {
 			return err

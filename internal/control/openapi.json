@@ -12442,6 +12442,21 @@
           },
           "401": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "description": "Current destination user or source credential authority is insufficient."
+          },
+          "404": {
+            "description": "A destination source is missing or not visible in the current tenant."
+          },
+          "409": {
+            "description": "A destination saved source version changed; explicitly select its current version."
+          },
+          "429": {
+            "description": "Current source metadata validation admission or execution budget is exhausted."
+          },
+          "503": {
+            "description": "Required source metadata or admission service is unavailable."
           }
         }
       }
@@ -12588,6 +12603,21 @@
           },
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "description": "Current destination user or source credential authority is insufficient."
+          },
+          "404": {
+            "description": "A destination source is missing or not visible in the current tenant."
+          },
+          "409": {
+            "description": "A destination saved source version changed; explicitly select its current version."
+          },
+          "429": {
+            "description": "Current source metadata validation admission or execution budget is exhausted."
+          },
+          "503": {
+            "description": "Required source metadata or admission service is unavailable."
           }
         }
       }
@@ -14326,8 +14356,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "absolute_from",
-          "absolute_to",
           "provenance",
           "redaction_state",
           "coverage_limitations",
@@ -14374,8 +14402,59 @@
             "items": {
               "$ref": "#/components/schemas/DashboardManifestMetric"
             }
+          },
+          "flow_sources": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "slot"
+              ],
+              "properties": {
+                "slot": {
+                  "type": "string",
+                  "pattern": "^flow-[1-9][0-9]*$",
+                  "description": "Canonical flow-N slot in document order, starting at flow-1."
+                }
+              }
+            }
           }
-        }
+        },
+        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings.",
+        "oneOf": [
+          {
+            "required": [
+              "absolute_from",
+              "absolute_to"
+            ],
+            "properties": {
+              "flow_sources": {
+                "maxItems": 0
+              }
+            }
+          },
+          {
+            "required": [
+              "flow_sources"
+            ],
+            "properties": {
+              "flow_sources": {
+                "minItems": 1
+              },
+              "metrics": {
+                "maxItems": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z"
+              }
+            }
+          }
+        ]
       },
       "DashboardManifestMetadata": {
         "type": "object",
@@ -14456,6 +14535,29 @@
           "confirm": {
             "type": "boolean",
             "description": "False validates and previews only; true explicitly creates a new dashboard."
+          },
+          "source_bindings": {
+            "type": "object",
+            "maxProperties": 1024,
+            "description": "Explicit destination-local binding for every source slot. Foreign, stale, missing and extra bindings fail without creating a dashboard. Bindings are not portable grants.",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$"
+                }
+              }
+            }
           }
         }
       },
@@ -14508,6 +14610,11 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 20
+          },
+          "source_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1024
           }
         }
       },

@@ -357,6 +357,28 @@ def source_pdf_metadata_allowance_proof() -> None:
         raise RuntimeError("source PDF metadata omission did not fail exact complete detail assertion")
 
 
+def native_source_binding_proof() -> None:
+    source = Path("internal/control/dashboard_report_native_sources.go")
+    original = source.read_text()
+    seam = "func (s *Server) validateDashboardFlowSourceRefs("
+    if original.count(seam) != 1:
+        raise RuntimeError("native destination source authority seam unavailable")
+    signature = original.index(seam)
+    start = original.index("\tfor _, ref := range refs {", signature)
+    end = original.index("\n\treturn ctx.Err()", start)
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original[:start] + "\t_ = access\n" + original[end:])
+        result = run_tests("^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, root=CAPTURE_TESTS[0], child="success",
+        marker="native binding accepted a foreign source identity", package=CAPTURE_PACKAGE,
+    ):
+        raise RuntimeError("native authority omission did not fail exact foreign binding assertion")
+
+
 def metadata_reader_proof() -> None:
     source = Path("internal/control/dashboard_report_list.go")
     original = source.read_text()
@@ -458,6 +480,7 @@ def run() -> None:
     metadata_reader_proof()
     publication_state_proof()
     source_pdf_metadata_allowance_proof()
+    native_source_binding_proof()
 
 
 if __name__ == "__main__":

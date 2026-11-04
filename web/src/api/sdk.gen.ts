@@ -636,9 +636,10 @@ export interface DashboardManifest {
 }
 
 export interface DashboardManifestDefinition {
-  absolute_from: string
-  absolute_to: string
+  absolute_from?: string
+  absolute_to?: string
   coverage_limitations: string[]
+  flow_sources?: JsonObject[]
   metrics: DashboardManifestMetric[]
   provenance: string[]
   redaction_state: string
@@ -647,6 +648,7 @@ export interface DashboardManifestDefinition {
 export interface DashboardManifestImportRequest {
   confirm: boolean
   manifest: DashboardManifest
+  source_bindings?: { [key: string]: JsonObject }
 }
 
 export interface DashboardManifestImportResponse {
@@ -674,6 +676,7 @@ export interface DashboardManifestPreview {
   preset: "operator" | "executive"
   provenance_count: number
   shared: boolean
+  source_count?: number
 }
 
 export interface DashboardManifestSpec {
