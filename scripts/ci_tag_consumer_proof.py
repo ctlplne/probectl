@@ -26,6 +26,7 @@ TESTS = (
     "TestCurrentAuthorizationBackgroundHasNoWriteOrMFAAuthority",
     "TestCurrentAuthorizationSnapshotCannotBorrowAnotherIdentityOrCache",
     "TestCurrentAuthorizationKeepsScopedCredentialAndImmutableSnapshot",
+    "TestCurrentUserAuthorityScopeUsesOneConnectionAndForcedTenant",
     "TestReportFlowProjectionPreservesCompleteSections",
     "TestReportFlowProjectionScopesSourcesAndWholeBatchRefusal",
     "TestReportContextCaptureKeepsOnlyAuthorizedOwnedRequirements",

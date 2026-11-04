@@ -38,35 +38,49 @@ func loadCurrentUserAuthority(ctx context.Context, pool *pgxpool.Pool, tenantID,
 	if status != "active" {
 		return nil, apierror.Forbidden("current metadata tenant is inactive")
 	}
-	out := &currentUserAuthority{}
+	var out *currentUserAuthority
 	err = tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
-		user, err := (store.Users{}).Get(ctx, sc, userID)
-		if err != nil {
-			return err
-		}
-		if user.TenantID != tenantID || user.Status != "active" {
-			return apierror.Forbidden("current metadata user is inactive")
-		}
-		grants, err := (store.Permissions{}).ForSubject(ctx, sc, "user", userID)
-		if err != nil {
-			return err
-		}
-		policies, err := (store.ABACPolicies{}).List(ctx, sc)
-		if err != nil {
-			return err
-		}
-		out.principal = auth.PrincipalWithPermissionGrants(&auth.Principal{
-			TenantID: tenantID, UserID: user.ID, Email: user.Email,
-			DisplayName: user.DisplayName, ViaBearerToken: true,
-			Attributes: composeSubjectAttributes(user.Attributes, false),
-		}, grants)
-		out.policies = policies
-		return nil
+		var readErr error
+		out, readErr = readCurrentUserAuthorityScope(ctx, sc, userID)
+		return readErr
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// The caller owns the active-tenant/lifecycle guard and writer fence. This
+// reads only current subject state through an already bound RLS scope; it
+// never acquires a pool connection or replaces actual credential authority.
+func readCurrentUserAuthorityScope(ctx context.Context, sc tenancy.Scope, userID string) (*currentUserAuthority, error) {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || sc.Q == nil || bound != sc.Tenant || sc.Tenant.String() == "" || userID == "" {
+		return nil, apierror.Forbidden("current metadata user scope is unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	user, err := (store.Users{}).Get(ctx, sc, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.TenantID != sc.Tenant.String() || user.Status != "active" {
+		return nil, apierror.Forbidden("current metadata user is inactive")
+	}
+	grants, err := (store.Permissions{}).ForSubject(ctx, sc, "user", userID)
+	if err != nil {
+		return nil, err
+	}
+	policies, err := (store.ABACPolicies{}).List(ctx, sc)
+	if err != nil {
+		return nil, err
+	}
+	return &currentUserAuthority{principal: auth.PrincipalWithPermissionGrants(&auth.Principal{
+		TenantID: sc.Tenant.String(), UserID: user.ID, Email: user.Email,
+		DisplayName: user.DisplayName, ViaBearerToken: true,
+		Attributes: composeSubjectAttributes(user.Attributes, false),
+	}, grants), policies: policies}, nil
 }
 
 type loadedUserAuthorizationKey struct{}
