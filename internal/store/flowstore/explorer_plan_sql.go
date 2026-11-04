@@ -123,7 +123,10 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		}
 		from = prefixTagProjectionSQL(from, sides)
 	}
-	ctes := []string{"filtered AS (SELECT " + key(plan.GroupBy) + " AS g," + key(plan.MatrixWith) + " AS c," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')} AND (" + filter + "))"}
+	// Original keys have names distinct from the transformed g/c aliases below.
+	// In particular column_input remaps the original column into g and clears c;
+	// nested scalar expansion must keep referring to the original source keys.
+	ctes := []string{"filtered AS (SELECT " + key(plan.GroupBy) + " AS __probectl_source_row," + key(plan.MatrixWith) + " AS __probectl_source_column," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')} AND (" + filter + "))"}
 	empty := "CAST([],'Array(String)')"
 	input := func(name, g, c, o, p, condition string) {
 		sql := name + " AS (SELECT " + g + " AS g," + c + " AS c,toUInt8(" + o + ") AS o,toUInt8(" + p + ") AS p," + planSQLColumns + " FROM filtered"
@@ -132,7 +135,7 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		}
 		ctes = append(ctes, sql+")")
 	}
-	input("full_input", "filtered.g", empty, "0", "0", "")
+	input("full_input", "filtered.__probectl_source_row", empty, "0", "0", "")
 	ctes = append(ctes, planStatsSQL("full", "full_input", plan)...)
 	primary := 0
 	for i, metric := range plan.Metrics {
@@ -208,8 +211,8 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	for i := range zeroMetrics {
 		zeroMetrics[i] = "'0'"
 	}
-	outputs = append(outputs, "SELECT 'counts' AS kind,"+empty+" AS g,"+empty+" AS c,toUInt8(0) AS o,toUInt8(0) AS p,toInt64(-1) AS bi,'0' AS duration,["+strings.Join(zeroMetrics, ",")+"] AS metrics,toUInt64(uniqExact(filtered.g)) AS total_groups,if(count()=0,'',toString(min(event_time),'UTC')) AS oldest_input FROM filtered")
-	input("other_input", empty, empty, "1", "0", "filtered.g NOT IN (SELECT g FROM ranked WHERE rk<={detail_limit:UInt64})")
+	outputs = append(outputs, "SELECT 'counts' AS kind,"+empty+" AS g,"+empty+" AS c,toUInt8(0) AS o,toUInt8(0) AS p,toInt64(-1) AS bi,'0' AS duration,["+strings.Join(zeroMetrics, ",")+"] AS metrics,toUInt64(uniqExact(filtered.__probectl_source_row)) AS total_groups,if(count()=0,'',toString(min(event_time),'UTC')) AS oldest_input FROM filtered")
+	input("other_input", empty, empty, "1", "0", "filtered.__probectl_source_row NOT IN (SELECT g FROM ranked WHERE rk<={detail_limit:UInt64})")
 	ctes = append(ctes, planStatsSQL("other", "other_input", plan)...)
 	outputs = append(outputs, output("other", "other_stats", "", "toInt64(-1)", "'0'", "toUInt64(0)"))
 	input("total_input", empty, empty, "0", "0", "")
@@ -238,10 +241,10 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 			chartTop = "SELECT arrayJoin(JSONExtract({selected_chart:String},'Array(Array(String))'))"
 		}
 		outputs = append(outputs, output("chart_detail", "full_stats", "g IN ("+chartTop+")", "toInt64(-1)", "'0'", "toUInt64(0)"))
-		input("chart_other_input", empty, empty, "1", "0", "filtered.g NOT IN ("+chartTop+")")
+		input("chart_other_input", empty, empty, "1", "0", "filtered.__probectl_source_row NOT IN ("+chartTop+")")
 		ctes = append(ctes, planStatsSQL("chart_other", "chart_other_input", plan)...)
 		outputs = append(outputs, output("chart_other", "chart_other_stats", "", "toInt64(-1)", "'0'", "toUInt64(0)"))
-		input("chart_input", "if(filtered.g IN ("+chartTop+"),filtered.g,"+empty+")", empty, "filtered.g NOT IN ("+chartTop+")", "0", "")
+		input("chart_input", "if(filtered.__probectl_source_row IN ("+chartTop+"),filtered.__probectl_source_row,"+empty+")", empty, "filtered.__probectl_source_row NOT IN ("+chartTop+")", "0", "")
 		ctes = append(ctes, planBucketSQL("chart", "chart_input", plan))
 		ctes = append(ctes, pointProjection("chart"))
 		outputs = append(outputs, output("point", "chart_points", "", "bucket_index", "toString(duration_ns)", "toUInt64(0)"))
@@ -265,7 +268,7 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		}
 		rowMember := func(group string) string { return "has(" + rowGroups + "," + group + ")" }
 		outputs = append(outputs, output("matrix_row", "full_stats", rowMember("g"), "toInt64(-1)", "'0'", "toUInt64(0)"))
-		input("column_input", "filtered.c", empty, "0", "0", rowMember("filtered.g"))
+		input("column_input", "filtered.__probectl_source_column", empty, "0", "0", rowMember("filtered.__probectl_source_row"))
 		ctes = append(ctes, planStatsSQL("column", "column_input", plan)...)
 		if selectedColumns == nil {
 			rank("column_ranked", "column_stats")
@@ -289,7 +292,7 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		// Keep complete Array(String) group keys as elements of the scalar
 		// Array(Array(String)); avoid constructing an IN subquery/set here.
 		columnMember := func(group string) string { return "has(" + columnGroups + "," + group + ")" }
-		input("matrix_input", "if("+rowMember("filtered.g")+",filtered.g,"+empty+")", "if("+columnMember("filtered.c")+",filtered.c,"+empty+")", "NOT "+rowMember("filtered.g"), "NOT "+columnMember("filtered.c"), "")
+		input("matrix_input", "if("+rowMember("filtered.__probectl_source_row")+",filtered.__probectl_source_row,"+empty+")", "if("+columnMember("filtered.__probectl_source_column")+",filtered.__probectl_source_column,"+empty+")", "NOT "+rowMember("filtered.__probectl_source_row"), "NOT "+columnMember("filtered.__probectl_source_column"), "")
 		ctes = append(ctes, planStatsSQL("matrix", "matrix_input", plan)...)
 		outputs = append(outputs, output("matrix", "matrix_stats", "", "toInt64(-1)", "'0'", "toUInt64(0)"))
 	}

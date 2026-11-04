@@ -44,7 +44,7 @@ func TestExplorerPlanSQLKeepsScopeOutsideExclusionsAndValuesBound(t *testing.T) 
 	if len(params) == 0 || !strings.Contains(params["interfaces"], literal) {
 		t.Fatal("metadata was lost instead of bound")
 	}
-	if !strings.Contains(sql, "filtered.g NOT IN (SELECT g FROM ranked") {
+	if !strings.Contains(sql, "filtered.__probectl_source_row NOT IN (SELECT g FROM ranked") {
 		t.Fatal("Other membership did not use the original input key")
 	}
 	for _, guard := range []string{"max_execution_time=5", "max_memory_usage=536870912", "max_bytes_to_read=268435456", "read_overflow_mode='throw'", "result_overflow_mode='throw'"} {

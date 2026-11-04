@@ -143,6 +143,9 @@ func TestExplorerClickHousePrefixTagsKeepOwnedContextAndExactRanges(t *testing.T
 				want.Source, want.Coverage, want.ResolutionSeconds = got.Source, got.Coverage, got.ResolutionSeconds
 			}
 			if !reflect.DeepEqual(got, want) {
+				if plan.View == "matrix" {
+					diagnoseMatrixMembers(t, store, PlanQuery{TenantID: tenant, Plan: plan, Tags: lookup})
+				}
 				t.Fatalf("owned prefix SQL/reference results differ: SQL columns=%+v matrix=%+v; reference columns=%+v matrix=%+v", got.MatrixColumns, got.Matrix, want.MatrixColumns, want.Matrix)
 			}
 			return got

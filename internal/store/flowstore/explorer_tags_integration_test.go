@@ -119,6 +119,7 @@ func TestExplorerClickHouseRelatedTagNamespacesUseOneTenantExporterJoin(t *testi
 		t.Fatalf("actual external tag lookup overwrote a namespace or multiplied tenant rows: %+v %v", result, err)
 	}
 	if len(result.Matrix) != 1 || result.Matrix[0].Column["tag.agent.customer"] != "agent" {
+		diagnoseMatrixMembers(t, store, PlanQuery{TenantID: a, Plan: plan, Tags: lookup})
 		t.Fatalf("matrix column did not retain its independent subject value: columns=%+v matrix=%+v", result.MatrixColumns, result.Matrix)
 	}
 }
@@ -158,6 +159,7 @@ func TestExplorerClickHouseInterfaceTagsKeepIndependentSidesAndTenantTotals(t *t
 		}
 		for _, item := range result.Matrix {
 			if item.Row["tag.in_interface.customer"] == "input" && item.Column["tag.out_interface.customer"] != "output" {
+				diagnoseMatrixMembers(t, store, PlanQuery{TenantID: a, Plan: plan, Tags: lookup})
 				t.Fatalf("actual output interface used input value: columns=%+v matrix=%+v", result.MatrixColumns, result.Matrix)
 			}
 		}
