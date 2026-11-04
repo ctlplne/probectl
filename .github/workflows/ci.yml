@@ -1160,7 +1160,7 @@ jobs:
           python3 scripts/ci_related_tag_regression.py --prefixes --selftest
           python3 scripts/ci_related_tag_regression.py --prefixes
           go test -tags=integration -count=1 -run '^TestExplorer(RelatedTagsUseCurrentOwnedSubjectsAndReadGrants|InterfaceTagsUseAttestedIndicesUnderOwnedExporter|TagRollupFreezesActualCompleteRetainedInputs|PrefixTagsUseOwnedNetworksAndCurrentReadGrants)$' ./internal/control
-          go test -tags=integration -count=1 -run '^TestExplorerClickHouse(RelatedTagNamespacesUseOneTenantExporterJoin|InterfaceTagsKeepIndependentSidesAndTenantTotals|PrefixTagsKeepOwnedContextAndExactRanges)$' ./internal/store/flowstore
+          go test -v -tags=integration -count=1 -run '^TestExplorerClickHouse(RelatedTagNamespacesUseOneTenantExporterJoin|InterfaceTagsKeepIndependentSidesAndTenantTotals|PrefixTagsKeepOwnedContextAndExactRanges)$' ./internal/store/flowstore
       - name: Original tag context-policy reproduction
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"

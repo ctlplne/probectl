@@ -10,6 +10,7 @@ package flowstore
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -121,6 +122,31 @@ func TestExplorerClickHouseRelatedTagNamespacesUseOneTenantExporterJoin(t *testi
 	if len(result.Matrix) != 1 || result.Matrix[0].Column["tag.agent.customer"] != "agent" {
 		diagnoseMatrixMembers(t, store, PlanQuery{TenantID: a, Plan: plan, Tags: lookup})
 		t.Fatalf("matrix column did not retain its independent subject value: columns=%+v matrix=%+v", result.MatrixColumns, result.Matrix)
+	}
+	memory := NewMemory()
+	if err := memory.Insert(t.Context(), []Row{row, foreign}); err != nil {
+		t.Fatal(err)
+	}
+	for _, metrics := range [][]flow.QueryMetric{
+		{{Measure: "packets", Calculation: "total", Role: "secondary"}, {Measure: "bytes", Calculation: "total", Role: "primary"}},
+		{{Measure: "bytes", Calculation: "p95", Role: "primary"}, {Measure: "bytes", Calculation: "total", Role: "secondary"}},
+	} {
+		variant := plan
+		variant.Metrics = metrics
+		query := PlanQuery{TenantID: a, Plan: variant, Tags: lookup}
+		want, err := memory.ExplorePlan(t.Context(), query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.ExplorePlan(t.Context(), query)
+		if err != nil {
+			t.Fatal("matrix primary-only ranking refused", err)
+		}
+		want.Source, want.Coverage, want.ResolutionSeconds = got.Source, got.Coverage, got.ResolutionSeconds
+		if !reflect.DeepEqual(got, want) {
+			diagnoseMatrixMembers(t, store, query)
+			t.Fatal("nonzero-index or percentile primary changed complete matrix/reference results")
+		}
 	}
 }
 
