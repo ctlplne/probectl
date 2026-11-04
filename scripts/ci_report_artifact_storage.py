@@ -120,6 +120,37 @@ def run():
         raise RuntimeError(
             "format-policy omission did not fail the exact legacy-reader assertion"
         )
+    source = Path("internal/tenantlife/subject.go")
+    original = source.read_text()
+    owner_seam = "OR EXISTS (SELECT 1 FROM dashboard_report_schedules report_schedule"
+    if original.count(owner_seam) != 1:
+        raise RuntimeError("scheduled report subject ownership seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(owner_seam, "OR FALSE AND EXISTS (SELECT 1 FROM dashboard_report_schedules report_schedule"))
+        owned = execute(LIFECYCLE_PACKAGE, "^" + LIFECYCLE_ROOT + "$")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        owned.stdout, owned.returncode, root=LIFECYCLE_ROOT,
+        marker="scheduled-owner report missing from subject portability", package=LIFECYCLE_PACKAGE,
+    ):
+        raise RuntimeError("schedule owner omission did not fail exact subject export assertion")
+    seam = "flowsnapshot.InvalidateSourceGenerationInScope(ctx, sc)"
+    if original.count(seam) != 1:
+        raise RuntimeError("subject erasure source generation seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(seam, "error(nil)"))
+        erased = execute(LIFECYCLE_PACKAGE, "^" + LIFECYCLE_ROOT + "$")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        erased.stdout, erased.returncode, root=LIFECYCLE_ROOT,
+        marker="subject deletion left source generation publishable before telemetry erasure",
+        package=LIFECYCLE_PACKAGE,
+    ):
+        raise RuntimeError("generation omission did not fail exact pre-telemetry erasure assertion")
     source = Path("internal/store/report_artifact_read.go")
     original = source.read_text()
     seam = "receipt.SHA256 != metadata.BodySHA256"
@@ -142,6 +173,28 @@ def run():
         raise RuntimeError(
             "digest omission did not fail the exact corruption assertion"
         )
+    source = Path("ee/silo/report_artifact_plan.go")
+    original = source.read_text()
+    seam = "return append(statements, reportArtifactRelationshipPlan(schema, owned)...)"
+    if original.count(seam) != 1:
+        raise RuntimeError("silo report relationship repair seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(seam, "return statements"))
+        missing_fk = execute(SILO_PACKAGE, "^" + SILO_ROOT + "$/^siloed$")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        missing_fk.stdout,
+        missing_fk.returncode,
+        root=SILO_ROOT,
+        marker="silo report parent borrowed a foreign dashboard or schedule",
+        package=SILO_PACKAGE,
+        child="siloed",
+    ):
+        raise RuntimeError(
+            "relationship omission did not fail the exact local-parent assertion"
+        )
     print(
         json.dumps(
             {
@@ -149,6 +202,9 @@ def run():
                 "tests": [ROOT, IO_ROOT, SILO_ROOT, LIFECYCLE_ROOT],
                 "format_policy_omission_control": True,
                 "digest_omission_control": True,
+                "silo_relationship_omission_control": True,
+                "pre_telemetry_erasure_generation_omission_control": True,
+                "scheduled_owner_omission_control": True,
                 "passed": True,
             }
         )

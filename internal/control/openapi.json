@@ -12442,6 +12442,21 @@
           },
           "401": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "description": "Current destination user or source credential authority is insufficient."
+          },
+          "404": {
+            "description": "A destination source is missing or not visible in the current tenant."
+          },
+          "409": {
+            "description": "A destination saved source version changed; explicitly select its current version."
+          },
+          "429": {
+            "description": "Current source metadata validation admission or execution budget is exhausted."
+          },
+          "503": {
+            "description": "Required source metadata or admission service is unavailable."
           }
         }
       }
@@ -12588,6 +12603,21 @@
           },
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "description": "Current destination user or source credential authority is insufficient."
+          },
+          "404": {
+            "description": "A destination source is missing or not visible in the current tenant."
+          },
+          "409": {
+            "description": "A destination saved source version changed; explicitly select its current version."
+          },
+          "429": {
+            "description": "Current source metadata validation admission or execution budget is exhausted."
+          },
+          "503": {
+            "description": "Required source metadata or admission service is unavailable."
           }
         }
       }
@@ -12668,6 +12698,18 @@
           },
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "description": "Current credential lacks source execution authority for creating or resuming this schedule."
+          },
+          "409": {
+            "description": "Captured dashboard/source configuration or lifecycle changed during source preflight."
+          },
+          "429": {
+            "description": "Current source admission or execution budget is exhausted."
+          },
+          "503": {
+            "description": "Required source execution or admission service is unavailable."
           }
         }
       }
@@ -12738,6 +12780,15 @@
           },
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "description": "Captured dashboard/source configuration or lifecycle changed during source preflight."
+          },
+          "429": {
+            "description": "Current source admission or execution budget is exhausted."
+          },
+          "503": {
+            "description": "Required source execution or admission service is unavailable."
           }
         }
       }
@@ -12805,6 +12856,26 @@
           },
           "409": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "description": "Current credential or source read authority is insufficient."
+          },
+          "429": {
+            "description": "Current query, output, memory or execution budget cannot produce the complete report.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic artifact storage or mandatory audit failed; no partial artifact is committed."
+          },
+          "503": {
+            "description": "Required report source or admission service is unavailable."
           }
         }
       }
@@ -12843,13 +12914,20 @@
           },
           "401": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         },
         "x-probectl-pagination": {
           "mode": "bounded",
           "max_items": 200,
           "reason": "Artifact metadata is SQL-limited newest-first; binary content is excluded."
-        }
+        },
+        "description": "List metadata from the most recent 200 owned or shared dashboard artifacts in this tenant. Source-aware artifacts are included only with current source, context and credential access. Binary bodies and stored source requirements are never loaded into the response. Validation shares one bounded operation; a budget failure returns no partial list."
       }
     },
     "/v1/dashboard-report-artifacts/{id}": {
@@ -12857,7 +12935,7 @@
         "x-required-permission": "metrics.read",
         "operationId": "downloadDashboardReportArtifact",
         "summary": "Download and audit one tenant-confined report artifact",
-        "description": "Missing and cross-tenant artifact IDs are indistinguishable. CSV untrusted text cells with formula-like prefixes use a quoted tab prefix followed by the complete original text; This presentation prefix is absent from JSON definitions.",
+        "description": "Missing and cross-tenant artifact IDs are indistinguishable. CSV untrusted text cells with formula-like prefixes use a quoted tab prefix followed by the complete original text; This presentation prefix is absent from JSON definitions. The server checks current source access before body I/O and again before audited delivery. It validates the complete stored body in one tenant snapshot before any attachment bytes or success headers. Missing, private and cross-tenant artifacts are indistinguishable. Corruption or unavailable current authority returns no attachment. Responses are not cached.",
         "tags": [
           "dashboards"
         ],
@@ -12876,7 +12954,7 @@
         ],
         "responses": {
           "200": {
-            "description": "PDF or CSV attachment.",
+            "description": "Complete integrity-verified PDF or CSV attachment, audited before delivery.",
             "content": {
               "application/pdf": {
                 "schema": {
@@ -12889,9 +12967,54 @@
                   "type": "string"
                 }
               }
+            },
+            "headers": {
+              "Content-Length": {
+                "description": "Exact verified attachment byte count.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 1,
+                  "maximum": 268435456
+                }
+              },
+              "X-Report-SHA256": {
+                "description": "SHA256 of the complete verified attachment bytes.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "ETag": {
+                "description": "Strong identifier of the verified attachment body.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Sensitive tenant report attachments are not cached.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
             }
           },
           "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
             "$ref": "#/components/responses/ErrorResponse"
           }
         }
@@ -14047,12 +14170,9 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "absolute_from",
-          "absolute_to",
           "provenance",
           "redaction_state",
-          "coverage_limitations",
-          "metrics"
+          "coverage_limitations"
         ],
         "properties": {
           "absolute_from": {
@@ -14093,8 +14213,65 @@
               "type": "string",
               "maxLength": 240
             }
+          },
+          "flow_sources": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Exact current saved-query version; no implicit refresh."
+                }
+              }
+            }
           }
-        }
+        },
+        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication.",
+        "oneOf": [
+          {
+            "required": [
+              "absolute_from",
+              "absolute_to",
+              "metrics"
+            ],
+            "properties": {
+              "flow_sources": {
+                "maxItems": 0
+              }
+            }
+          },
+          {
+            "required": [
+              "flow_sources"
+            ],
+            "properties": {
+              "flow_sources": {
+                "minItems": 1
+              },
+              "metrics": {
+                "maxProperties": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z"
+              }
+            }
+          }
+        ]
       },
       "DashboardCreateRequest": {
         "type": "object",
@@ -14200,8 +14377,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "absolute_from",
-          "absolute_to",
           "provenance",
           "redaction_state",
           "coverage_limitations",
@@ -14248,8 +14423,59 @@
             "items": {
               "$ref": "#/components/schemas/DashboardManifestMetric"
             }
+          },
+          "flow_sources": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "slot"
+              ],
+              "properties": {
+                "slot": {
+                  "type": "string",
+                  "pattern": "^flow-[1-9][0-9]*$",
+                  "description": "Canonical flow-N slot in document order, starting at flow-1."
+                }
+              }
+            }
           }
-        }
+        },
+        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings.",
+        "oneOf": [
+          {
+            "required": [
+              "absolute_from",
+              "absolute_to"
+            ],
+            "properties": {
+              "flow_sources": {
+                "maxItems": 0
+              }
+            }
+          },
+          {
+            "required": [
+              "flow_sources"
+            ],
+            "properties": {
+              "flow_sources": {
+                "minItems": 1
+              },
+              "metrics": {
+                "maxItems": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z"
+              }
+            }
+          }
+        ]
       },
       "DashboardManifestMetadata": {
         "type": "object",
@@ -14330,6 +14556,29 @@
           "confirm": {
             "type": "boolean",
             "description": "False validates and previews only; true explicitly creates a new dashboard."
+          },
+          "source_bindings": {
+            "type": "object",
+            "maxProperties": 1024,
+            "description": "Explicit destination-local binding for every source slot. Foreign, stale, missing and extra bindings fail without creating a dashboard. Bindings are not portable grants.",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$"
+                }
+              }
+            }
           }
         }
       },
@@ -14382,6 +14631,11 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 20
+          },
+          "source_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1024
           }
         }
       },
@@ -14663,6 +14917,18 @@
           "download_url": {
             "type": "string",
             "description": "Same-origin authenticated path; never an external URL."
+          },
+          "body_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 268435456,
+            "description": "Exact stored attachment byte count; present on current metadata listings."
+          },
+          "body_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Expected sealed body SHA256; legacy rows may omit it. Download independently verifies the complete body."
           }
         }
       },

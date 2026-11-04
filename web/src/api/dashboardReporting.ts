@@ -12,12 +12,13 @@ export type ReportFormat = 'pdf' | 'csv'
 export type ReportCadence = 'daily' | 'weekly' | 'monthly'
 
 export interface DashboardDefinition {
-  absolute_from: string
-  absolute_to: string
+  flow_sources?: Array<{ id: string; version: string }>
+  absolute_from?: string
+  absolute_to?: string
   provenance: string[]
   redaction_state: string
   coverage_limitations: string[]
-  metrics: Record<string, string>
+  metrics?: Record<string, string>
 }
 
 export interface DashboardView {
@@ -46,8 +47,9 @@ export interface DashboardManifest {
   spec: {
     preset: DashboardPreset
     shared: boolean
-    definition: Omit<DashboardDefinition, 'metrics'> & {
+    definition: Omit<DashboardDefinition, 'metrics' | 'flow_sources'> & {
       metrics: Array<{ name: string; value: string }>
+      flow_sources?: Array<{ slot: string }>
     }
   }
 }
@@ -59,6 +61,7 @@ export interface DashboardManifestPreview {
   absolute_from: string
   absolute_to: string
   metric_count: number
+  source_count?: number
   provenance_count: number
   coverage_limitation_count: number
 }
@@ -109,6 +112,8 @@ export interface ReportArtifact {
   redaction_state: string
   coverage_limitations: string[]
   download_url: string
+  body_bytes?: number
+  body_sha256?: string
 }
 
 interface DashboardList {
@@ -148,7 +153,11 @@ export function useCreateDashboard() {
 export function useImportDashboardManifest() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (input: { manifest: DashboardManifest; confirm: boolean }) =>
+    mutationFn: (input: {
+      manifest: DashboardManifest
+      confirm: boolean
+      source_bindings?: Record<string, { id: string; version: string }>
+    }) =>
       apiFetch<DashboardManifestImportResponse>(
         '/dashboard-manifests/import',
         jsonInit('POST', input),

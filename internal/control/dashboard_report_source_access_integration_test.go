@@ -26,6 +26,15 @@ import (
 
 func reportFrozenSourceReaderProof(ctx context.Context, t *testing.T, f *tagImportSubjectFixture, owner *auth.Principal, role string, views *flow.PostgresQueryViewStore, item flow.SavedQueryView, frozen *reportFlowCapture) flow.SavedQueryView {
 	t.Helper()
+	originalCapture := frozen
+	stored, err := marshalReportSourceRequirements(ctx, frozen)
+	if err != nil {
+		t.Fatal("freeze report source requirements", err)
+	}
+	frozen, err = parseReportSourceRequirements(ctx, stored)
+	if err != nil || len(frozen.Tables) != 0 || frozen.release != nil {
+		t.Fatal("stored requirements retained result rows or a permission/admission grant", err)
+	}
 	mutate := func(fn func(context.Context, tenancy.Scope) error) {
 		t.Helper()
 		if err := tenancy.InTenant(ctx, f.db.Pool(), fn); err != nil {
@@ -171,6 +180,6 @@ func reportFrozenSourceReaderProof(ctx context.Context, t *testing.T, f *tagImpo
 	if err := f.srv.revalidateReportFlowCapture(ctx, owner, &bad); err == nil {
 		t.Fatal("frozen source accepted missing captured policy attributes")
 	}
-	assertCapturedReportDetail(ctx, t, frozen, "current", "OWN-"+f.a, "100", f.tagID)
+	assertCapturedReportDetail(ctx, t, originalCapture, "current", "OWN-"+f.a, "100", f.tagID)
 	return item
 }

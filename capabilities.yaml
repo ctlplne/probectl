@@ -164,16 +164,16 @@ capabilities:
     name: Dashboards and incident timeline
     status: delivered
     owner: platform/release
-    engine: {refs: ["file:internal/incident", "file:internal/entity", "file:internal/reporting"]}
+    engine: {refs: ["file:internal/incident", "file:internal/entity", "file:internal/reporting", "file:internal/control/dashboard_report_sources.go", "file:internal/store/report_artifact_read.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildDashboardReportSupervisor("]}
-    api: {refs: ["api:GET /v1/incidents", "api:GET /v1/dashboards"]}
-    cli: {refs: ["cli:probectl incident list", "cli:probectl dashboard list"]}
+    api: {refs: ["api:GET /v1/incidents", "api:GET /v1/dashboards", "api:POST /v1/dashboards", "api:GET /v1/dashboards/{id}/manifest", "api:POST /v1/dashboard-manifests/import", "api:GET /v1/dashboard-report-schedules", "api:POST /v1/dashboard-report-schedules", "api:PATCH /v1/dashboard-report-schedules/{id}", "api:POST /v1/dashboard-reports", "api:GET /v1/dashboard-report-artifacts", "api:GET /v1/dashboard-report-artifacts/{id}"]}
+    cli: {refs: ["cli:probectl incident list", "cli:probectl dashboard list", "cli:probectl dashboard create", "cli:probectl dashboard export", "cli:probectl dashboard import", "cli:probectl dashboard-report generate", "cli:probectl dashboard-report artifacts", "cli:probectl dashboard-report download"]}
     ui: {refs: ["ui:F9@/incidents", "ui:F9@/dashboards"]}
     docs: {refs: ["file:docs/dashboard-reporting.md#Dashboards and tenant report delivery"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/incident"]}
-    real_stack_proof: {refs: ["test:internal/control/crossplane_e2e_integration_test.go#TestCrossPlaneCorrelationE2E", "test:internal/control/dashboardreporting_integration_test.go#TestDashboardExportAuditAndTenantIsolation"]}
-    migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql", "file:migrations/0137_incident_entity_identity.sql", "file:migrations/0140_entity_fault_receipts.sql"]}
+    real_stack_proof: {refs: ["test:internal/control/crossplane_e2e_integration_test.go#TestCrossPlaneCorrelationE2E", "test:internal/control/dashboardreporting_integration_test.go#TestDashboardExportAuditAndTenantIsolation", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack", "test:test/e2e/e2e_test.go#TestE2E"]}
+    migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql", "file:migrations/0137_incident_entity_identity.sql", "file:migrations/0140_entity_fault_receipts.sql", "file:migrations/0168_dashboard_report_artifact_chunks.sql"]}
 
   - id: F10
     name: Control plane, REST/gRPC, and CLI

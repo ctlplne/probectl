@@ -251,6 +251,16 @@ func (DashboardReports) ListSchedules(ctx context.Context, s tenancy.Scope, user
 	return out, rows.Err()
 }
 
+// GetSchedule resolves a caller-owned job through both the tenant storage
+// boundary and owner predicate, before any source delegation is considered.
+func (DashboardReports) GetSchedule(ctx context.Context, s tenancy.Scope, id, ownerID string) (*ReportSchedule, error) {
+	var out ReportSchedule
+	if err := scanReportSchedule(s.Q.QueryRow(ctx, `SELECT `+reportScheduleColumns+` FROM dashboard_report_schedules WHERE tenant_id=$1 AND id=$2 AND owner_id=$3`, s.Tenant.String(), id, ownerID), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // SetScheduleEnabled changes only a caller-owned schedule within the tenant.
 // The UPDATE row lock serializes with worker claims; prior artifacts remain intact.
 func (DashboardReports) SetScheduleEnabled(ctx context.Context, s tenancy.Scope, id, ownerID string, enabled bool) (*ReportSchedule, error) {

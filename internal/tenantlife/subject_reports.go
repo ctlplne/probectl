@@ -34,12 +34,12 @@ func (e *Engine) exportSubjectReportRows(ctx context.Context, tenant, table stri
 			if err := rows.Scan(&raw); err != nil {
 				return err
 			}
-			line := append(raw, '\n')
-			n, err := w.Write(line)
+			raw = append(raw, '\n')
+			n, err := w.Write(raw)
 			if err != nil {
 				return err
 			}
-			if n != len(line) {
+			if n != len(raw) {
 				return io.ErrShortWrite
 			}
 			count++

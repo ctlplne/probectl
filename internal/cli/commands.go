@@ -296,19 +296,23 @@ func cmdDashboardReport(cfg Config, args []string, stdout, stderr io.Writer) int
 	if len(args) == 0 || args[0] != "download" {
 		return cmdSurface(cfg, surfaceCommands["dashboard-report"], args, stdout, stderr)
 	}
+	return dashboardReportDownload(cfg, args[1:], stdout, stderr)
+}
+
+func dashboardReportDownload(cfg Config, args []string, stdout, stderr io.Writer) int {
 	if wantsHelp(args) {
 		usage(stdout, cfg.Locale)
 		return 0
 	}
-	if len(args) < 2 {
+	if len(args) < 1 {
 		fmt.Fprintln(stderr, "dashboard-report download: missing <id>")
 		return 2
 	}
-	if len(args) > 2 {
-		fmt.Fprintf(stderr, "dashboard-report download: unexpected args: %s\n", strings.Join(args[2:], " "))
+	if len(args) > 1 {
+		fmt.Fprintf(stderr, "dashboard-report download: unexpected args: %s\n", strings.Join(args[1:], " "))
 		return 2
 	}
-	path := "/v1/dashboard-report-artifacts/" + url.PathEscape(args[1])
+	path := "/v1/dashboard-report-artifacts/" + url.PathEscape(args[0])
 	if err := newClient(cfg).stream(http.MethodGet, path, nil, stdout); err != nil {
 		return fail(stderr, err)
 	}
@@ -323,35 +327,40 @@ func cmdDashboard(cfg Config, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	switch args[0] {
 	case "export":
-		if wantsHelp(args) {
-			usage(stdout, cfg.Locale)
-			return 0
-		}
-		if len(args) < 2 {
-			fmt.Fprintln(stderr, "dashboard export: missing <id>")
-			return 2
-		}
-		if len(args) > 2 {
-			fmt.Fprintf(stderr, "dashboard export: unexpected args: %s\n", strings.Join(args[2:], " "))
-			return 2
-		}
-		path := "/v1/dashboards/" + url.PathEscape(args[1]) + "/manifest"
-		if err := newClient(cfg).stream(http.MethodGet, path, nil, stdout); err != nil {
-			return fail(stderr, err)
-		}
-		return 0
+		return dashboardExport(cfg, args[1:], stdout, stderr)
 	case "import":
-		return dashboardManifestImport(cfg, args[1:], stdin, stdout, stderr)
+		return dashboardImport(cfg, args[1:], stdin, stdout, stderr)
 	default:
 		return cmdSurface(cfg, surfaceCommands["dashboard"], args, stdout, stderr)
 	}
 }
 
-func dashboardManifestImport(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func dashboardExport(cfg Config, args []string, stdout, stderr io.Writer) int {
+	if wantsHelp(args) {
+		usage(stdout, cfg.Locale)
+		return 0
+	}
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "dashboard export: missing <id>")
+		return 2
+	}
+	if len(args) > 1 {
+		fmt.Fprintf(stderr, "dashboard export: unexpected args: %s\n", strings.Join(args[1:], " "))
+		return 2
+	}
+	path := "/v1/dashboards/" + url.PathEscape(args[0]) + "/manifest"
+	if err := newClient(cfg).stream(http.MethodGet, path, nil, stdout); err != nil {
+		return fail(stderr, err)
+	}
+	return 0
+}
+
+func dashboardImport(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dashboard import", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	filename := fs.String("file", "-", "manifest path, or - for stdin")
 	confirm := fs.Bool("confirm", false, "create the dashboard after server validation; otherwise preview only")
+	bindingsFile := fs.String("source-bindings-file", "", "destination source slot bindings JSON file (never stdin)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -365,11 +374,26 @@ func dashboardManifestImport(cfg Config, args []string, stdin io.Reader, stdout,
 		fmt.Fprintln(stderr, "dashboard import: "+err.Error())
 		return 2
 	}
+	payload := map[string]any{"manifest": json.RawMessage(manifest), "confirm": *confirm}
+	if *bindingsFile != "" {
+		if *bindingsFile == "-" {
+			fmt.Fprintln(stderr, "dashboard import: source bindings must use a file; stdin is reserved for the manifest")
+			return 2
+		}
+		data, err := readDashboardManifest(*bindingsFile, nil)
+		if err != nil {
+			fmt.Fprintln(stderr, "dashboard import source bindings: "+err.Error())
+			return 2
+		}
+		var bindings map[string]json.RawMessage
+		if err := json.Unmarshal(data, &bindings); err != nil {
+			fmt.Fprintln(stderr, "dashboard import: source bindings must be a JSON object")
+			return 2
+		}
+		payload["source_bindings"] = bindings
+	}
 	var out any
-	if err := newClient(cfg).do(http.MethodPost, "/v1/dashboard-manifests/import", map[string]any{
-		"manifest": json.RawMessage(manifest),
-		"confirm":  *confirm,
-	}, &out); err != nil {
+	if err := newClient(cfg).do(http.MethodPost, "/v1/dashboard-manifests/import", payload, &out); err != nil {
 		return fail(stderr, err)
 	}
 	return printJSON(stdout, out)

@@ -258,12 +258,18 @@ jobs:
         run: |
           set -o pipefail
           make test 2>&1 | tee test-go.log
+      - name: Opaque continuation redaction and legacy-reader proof
+        run: |
+          python3 scripts/ci_flow_cursor_encoding.py --selftest
+          python3 scripts/ci_flow_cursor_encoding.py
       # Sprint 1 (DATAROOM-011): the test log is a retained receipt.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: test-go-log
-          path: test-go.log
+          path: |
+            test-go.log
+            artifacts/flow-cursor-encoding/
           retention-days: 90
       - name: Backup-encryption + erasure-covers-backups gate (OPS-002, COMPLY-002)
         run: go test -count=1 -v -run "Backup|Restore|Erasure|Retention|Coverage|SealOpen|Tamper" ./internal/backup/ ./internal/tenantlife/
@@ -478,7 +484,7 @@ jobs:
   coverage-comment:
     name: coverage-comment
     needs: coverage
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1112,6 +1118,30 @@ jobs:
             EDITION=core
           load: true
           tags: probectl/probectl-control:e2e
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "26.12.1"
+          cache: npm
+          cache-dependency-path: browser-worker/package-lock.json
+      - name: Install the pinned Chromium for release-source reporting
+        # Reuse the exact browser payload tested by browser-worker and a11y.
+        # Older Playwright ZIP extraction hangs on Node26 (upstream40724).
+        # Copy only browser files; execution keeps setup-node's Node26/npm11.
+        # The local CLI still installs OS dependencies and verifies that its
+        # expected Chromium revision exists before any receipt can run.
+        working-directory: browser-worker
+        env:
+          PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npx --no-install playwright install-deps chromium
+          export PLAYWRIGHT_BROWSERS_PATH="$(mktemp -d "$RUNNER_TEMP/probectl-browsers.XXXXXX")"
+          browser_container="$(docker create "$PLAYWRIGHT_IMAGE")"
+          trap 'docker rm "$browser_container" >/dev/null' EXIT
+          docker cp "$browser_container:/ms-playwright/." "$PLAYWRIGHT_BROWSERS_PATH/"
+          node --input-type=module -e 'import fs from "node:fs"; import { chromium } from "playwright"; fs.accessSync(chromium.executablePath(), fs.constants.X_OK); console.log("Verified pinned Chromium:", chromium.executablePath());'
+          echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
       - name: Black-box e2e against the release image (session auth via Dex, HTTPS, two tenants)
         env:
           PROBECTL_E2E_IMAGE: probectl/probectl-control:e2e
@@ -1224,6 +1254,8 @@ jobs:
           python3 scripts/ci_related_tag_regression.py --prefixes
           go test -tags=integration -count=1 -run '^TestExplorer(RelatedTagsUseCurrentOwnedSubjectsAndReadGrants|InterfaceTagsUseAttestedIndicesUnderOwnedExporter|TagRollupFreezesActualCompleteRetainedInputs|PrefixTagsUseOwnedNetworksAndCurrentReadGrants)$' ./internal/control
           go test -v -tags=integration -count=1 -run '^TestExplorerClickHouse(RelatedTagNamespacesUseOneTenantExporterJoin|InterfaceTagsKeepIndependentSidesAndTenantTotals|PrefixTagsKeepOwnedContextAndExactRanges)$' ./internal/store/flowstore
+      - name: Install independent source report PDF verifier
+        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y poppler-utils
       - name: Whole-report source budget and paired-tenant proof
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
@@ -1485,6 +1517,8 @@ jobs:
         # from the same digest-pinned image as the Dex demo stacks, bound to
         # loopback. The script exports PROBECTL_TEST_DEX_* via $GITHUB_ENV.
         run: ./scripts/ci_dex.sh .ci-dex
+      - name: Initial navigation retry and fail-closed controls
+        run: node --test scripts/realstack_navigation.test.mjs
       - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
         # WIRE-005: require services so the mTLS/enroll wire-defense integration
         # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,
@@ -2167,7 +2201,9 @@ jobs:
     name: verify-all (executed-verification umbrella)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: always()
+    # Main keeps its unconditional fail-closed umbrella. A cancelled PR
+    # must release its concurrency group; noncancelled failures still run.
+    if: ${{ always() && (github.event_name != 'pull_request' || !cancelled()) }}
     needs:
       - action-pins
       - secret-scan

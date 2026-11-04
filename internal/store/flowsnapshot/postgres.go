@@ -169,6 +169,9 @@ func (p *postgres) expired(ctx context.Context, tenant string, now time.Time, li
 func (p *postgres) beginInvalidation(ctx context.Context, tenant, token string, prepare Preparation) (bool, error) {
 	var audited bool
 	err := p.scoped(ctx, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, tenant); err != nil {
+			return err
+		}
 		if err := ensureEpoch(ctx, sc); err != nil {
 			return err
 		}
@@ -200,6 +203,9 @@ func (p *postgres) beginInvalidation(ctx context.Context, tenant, token string, 
 
 func (p *postgres) endInvalidation(ctx context.Context, tenant, token string, audited bool) error {
 	return p.scoped(ctx, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, tenant); err != nil {
+			return err
+		}
 		command, err := sc.Q.Exec(ctx, `UPDATE flow_snapshot_epochs SET generation=generation+1,invalidating=false,transition_token=NULL WHERE tenant_id=$1::uuid AND invalidating AND transition_token=$2::uuid`, tenant, token)
 		if err == nil && command.RowsAffected() != 1 {
 			return ErrInvalidating

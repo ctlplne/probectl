@@ -603,7 +603,7 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 			}
 			if count > 0 {
 				x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: policy.plane, Status: SubjectStatusExported, Rows: count,
-					Notes: "generator-scoped report metadata or relational chunks; derived invalidation does not broaden subject export"})
+					Notes: "generator/schedule-owner-scoped report metadata or relational chunks; derived invalidation does not broaden subject export"})
 			}
 			continue
 		}
@@ -1141,6 +1141,13 @@ func (e *Engine) eraseSubjectPostgres(
 		exactAliases := aliases.normalizedValues()
 		containsPatterns := aliases.safeContainsPatterns()
 
+		// The marker commits with the derived report deletion. Captures from
+		// before this transaction can never republish erased source rows;
+		// captures during telemetry erasure fail closed even without a cache.
+		if err := flowsnapshot.InvalidateSourceGenerationInScope(ctx, sc); err != nil {
+			return fmt.Errorf("invalidate derived source generation before subject erasure: %w", err)
+		}
+
 		locatorsDeleted, err := store.DeleteSubjectCredentialLocatorsScoped(
 			ctx, sc, captured.sessionIDs, captured.mcpTokenIDs,
 		)
@@ -1331,6 +1338,15 @@ func subjectTableSortKey(table string) string {
 	}
 }
 
+// Aliases are internal SQL identifiers, never request input. Schedule identity
+// is meaningful only with the parent tenant, even though FORCE RLS applies too.
+func subjectReportOwnerPredicate(alias string) string {
+	return `(lower(COALESCE(` + alias + `.generated_by,''))=ANY($2::text[])
+ OR EXISTS (SELECT 1 FROM dashboard_report_schedules report_schedule
+ WHERE report_schedule.tenant_id=` + alias + `.tenant_id AND report_schedule.id=` + alias + `.schedule_id
+ AND lower(COALESCE(report_schedule.owner_id,''))=ANY($2::text[])))`
+}
+
 func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 	// Reference both arrays for every policy so the prepared statement has a
 	// stable three-argument shape even when this table uses only one match mode.
@@ -1339,7 +1355,10 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 		return `(($3::text[] IS NULL AND FALSE) OR EXISTS (
  SELECT 1 FROM dashboard_report_artifacts report_parent
  WHERE report_parent.tenant_id=subject_row.tenant_id AND report_parent.id=subject_row.artifact_id
-   AND lower(COALESCE(report_parent.generated_by,''))=ANY($2::text[])))`
+   AND ` + subjectReportOwnerPredicate("report_parent") + `))`
+	}
+	if policy.derivedReports {
+		return `(($3::text[] IS NULL AND FALSE) OR ` + subjectReportOwnerPredicate("subject_row") + `)`
 	}
 	if len(policy.exact) == 0 {
 		parts = append(parts, `($2::text[] IS NULL AND FALSE)`)

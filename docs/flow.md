@@ -394,6 +394,16 @@ remain missing, rather than becoming zero measurements. Comparison pages count
 with only `{"query":{"source":"flow","flow":{"cursor":"<next_cursor>"}}}`.
 A query cursor cannot be used on the comparison endpoint or vice versa.
 
+Continuation values are opaque control tokens and must be copied unchanged.
+Current writers use a letter-only payload/MAC encoding with a non-DNS separator
+so mandatory secret/PII/hostname redaction cannot mistake random authentication
+bytes for display data. Every result still passes through the same redactor.
+Readers also accept intact legacy continuations; older binaries refuse the new
+encoding, so coordinate the reader upgrade across control-plane replicas before
+using new continuations. Payload canonicality, MAC, creator, tenant, expiry and
+current source/permission checks remain mandatory.
+
+
 `GET /v1/explorer/flow-snapshots/{id}/csv` exports every selected group from the
 same frozen result, with explicit `detail`, `other` and `totals` record types.
 Single-query metrics are columns; comparison records name the metric/calculation

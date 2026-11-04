@@ -619,10 +619,11 @@ export interface DashboardCreateRequest {
 }
 
 export interface DashboardDefinition {
-  absolute_from: string
-  absolute_to: string
+  absolute_from?: string
+  absolute_to?: string
   coverage_limitations: string[]
-  metrics: { [key: string]: string }
+  flow_sources?: JsonObject[]
+  metrics?: { [key: string]: string }
   provenance: string[]
   redaction_state: string
 }
@@ -635,9 +636,10 @@ export interface DashboardManifest {
 }
 
 export interface DashboardManifestDefinition {
-  absolute_from: string
-  absolute_to: string
+  absolute_from?: string
+  absolute_to?: string
   coverage_limitations: string[]
+  flow_sources?: JsonObject[]
   metrics: DashboardManifestMetric[]
   provenance: string[]
   redaction_state: string
@@ -646,6 +648,7 @@ export interface DashboardManifestDefinition {
 export interface DashboardManifestImportRequest {
   confirm: boolean
   manifest: DashboardManifest
+  source_bindings?: { [key: string]: JsonObject }
 }
 
 export interface DashboardManifestImportResponse {
@@ -673,6 +676,7 @@ export interface DashboardManifestPreview {
   preset: "operator" | "executive"
   provenance_count: number
   shared: boolean
+  source_count?: number
 }
 
 export interface DashboardManifestSpec {
@@ -684,6 +688,8 @@ export interface DashboardManifestSpec {
 export interface DashboardReportArtifact {
   absolute_from: string
   absolute_to: string
+  body_bytes?: number
+  body_sha256?: string
   coverage_limitations: string[]
   dashboard_id: string
   download_url: string

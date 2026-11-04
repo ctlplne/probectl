@@ -36,7 +36,7 @@ func reportArtifactStoragePlan(schema string, tables []string) []string {
         AND source_capture->>'tenant_id' IS NOT NULL
         AND source_capture->>'tenant_id'=tenant_id::text
         AND octet_length(source_capture::text)<=1048576))`
-	return []string{
+	statements := []string{
 		fmt.Sprintf(`DO $report_shape$ BEGIN
     IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass
         AND conname='dashboard_report_artifacts_body_representation') THEN
@@ -54,4 +54,31 @@ END $report_shape$`, quoteLiteral(parent), parent, shape),
     END IF;
 END $report_fk$`, quoteLiteral(child), child, parent),
 	}
+	return append(statements, reportArtifactRelationshipPlan(schema, owned)...)
+}
+
+// LIKE omits the original report-to-view and report-to-schedule references
+// too. New writes must use parents inside this same physical tenant target.
+func reportArtifactRelationshipPlan(schema string, owned map[string]bool) []string {
+	type relation struct{ child, column, parent, name, deletion string }
+	var statements []string
+	for _, edge := range []relation{
+		{"dashboard_report_schedules", "dashboard_id", "dashboard_views", "report_schedule_dashboard_fk", "CASCADE"},
+		{"dashboard_report_artifacts", "dashboard_id", "dashboard_views", "report_artifact_dashboard_fk", "CASCADE"},
+		{"dashboard_report_artifacts", "schedule_id", "dashboard_report_schedules", "report_artifact_schedule_fk", "RESTRICT"},
+	} {
+		if !owned[edge.child] || !owned[edge.parent] {
+			continue
+		}
+		child := quoteIdent(schema) + "." + quoteIdent(edge.child)
+		parent := quoteIdent(schema) + "." + quoteIdent(edge.parent)
+		statements = append(statements, fmt.Sprintf(`DO $report_relationship$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=%s) THEN
+      ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY(tenant_id,%s)
+        REFERENCES %s(tenant_id,id) ON DELETE %s NOT VALID;
+    END IF;
+END $report_relationship$`, quoteLiteral(child), quoteLiteral(edge.name), child,
+			quoteIdent(edge.name), quoteIdent(edge.column), parent, edge.deletion))
+	}
+	return statements
 }

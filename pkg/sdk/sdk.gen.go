@@ -704,11 +704,13 @@ type DashboardCreateRequest struct {
 	Shared     bool                `json:"shared"`
 }
 
+// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication.
 type DashboardDefinition struct {
-	AbsoluteFrom        string            `json:"absolute_from"`
-	AbsoluteTo          string            `json:"absolute_to"`
+	AbsoluteFrom        string            `json:"absolute_from,omitempty"`
+	AbsoluteTo          string            `json:"absolute_to,omitempty"`
 	CoverageLimitations []string          `json:"coverage_limitations"`
-	Metrics             map[string]string `json:"metrics"`
+	FlowSources         []map[string]any  `json:"flow_sources,omitempty"`
+	Metrics             map[string]string `json:"metrics,omitempty"`
 	Provenance          []string          `json:"provenance"`
 	RedactionState      string            `json:"redaction_state"`
 }
@@ -720,18 +722,21 @@ type DashboardManifest struct {
 	Spec       DashboardManifestSpec     `json:"spec"`
 }
 
+// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings.
 type DashboardManifestDefinition struct {
-	AbsoluteFrom        string                    `json:"absolute_from"`
-	AbsoluteTo          string                    `json:"absolute_to"`
+	AbsoluteFrom        string                    `json:"absolute_from,omitempty"`
+	AbsoluteTo          string                    `json:"absolute_to,omitempty"`
 	CoverageLimitations []string                  `json:"coverage_limitations"`
+	FlowSources         []map[string]any          `json:"flow_sources,omitempty"`
 	Metrics             []DashboardManifestMetric `json:"metrics"`
 	Provenance          []string                  `json:"provenance"`
 	RedactionState      string                    `json:"redaction_state"`
 }
 
 type DashboardManifestImportRequest struct {
-	Confirm  bool              `json:"confirm"`
-	Manifest DashboardManifest `json:"manifest"`
+	Confirm        bool                      `json:"confirm"`
+	Manifest       DashboardManifest         `json:"manifest"`
+	SourceBindings map[string]map[string]any `json:"source_bindings,omitempty"`
 }
 
 type DashboardManifestImportResponse struct {
@@ -759,6 +764,7 @@ type DashboardManifestPreview struct {
 	Preset                  string `json:"preset"`
 	ProvenanceCount         int    `json:"provenance_count"`
 	Shared                  bool   `json:"shared"`
+	SourceCount             int    `json:"source_count,omitempty"`
 }
 
 type DashboardManifestSpec struct {
@@ -770,6 +776,8 @@ type DashboardManifestSpec struct {
 type DashboardReportArtifact struct {
 	AbsoluteFrom        string   `json:"absolute_from"`
 	AbsoluteTo          string   `json:"absolute_to"`
+	BodyBytes           int      `json:"body_bytes,omitempty"`
+	BodySha256          string   `json:"body_sha256,omitempty"`
 	CoverageLimitations []string `json:"coverage_limitations"`
 	DashboardId         string   `json:"dashboard_id"`
 	DownloadUrl         string   `json:"download_url"`

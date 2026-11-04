@@ -33,6 +33,8 @@ TESTS = (
     "TestReportContextCaptureKeepsOnlyAuthorizedOwnedRequirements",
     "TestReportContextCaptureRefusesScopeCostAndCancellationAtomically",
     "TestReportLiveFlowCaptureUsesCurrentOwnedSourcesAndOneBatch",
+    "TestReportStoredRequirementsPreserveExactIdentityWithoutRowsOrGrants",
+    "TestReportStoredRequirementsRefuseIncompleteAmbiguousOrOverBudgetEnvelope",
 )
 DATABASE = "probectl_qa_beta_tag_consumers"
 REPORT_TEST = "TestDashboardReportRenderingReleasesTransactionAndRechecksPublication"

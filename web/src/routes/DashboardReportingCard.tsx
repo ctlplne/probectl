@@ -27,6 +27,7 @@ import { appPath } from '../lib/links'
 import { useAuth } from '../auth/useAuth'
 import { Badge, Button, Card, CardBody, CardHeader, Field, Select, useToast } from '../components'
 import { DateTime } from '../time/DateTime'
+import { FlowViewLibrary } from './FlowViewLibrary'
 import styles from './dashboards.module.css'
 
 export function DashboardReportingCard({
@@ -37,7 +38,20 @@ export function DashboardReportingCard({
   definition: DashboardDefinition
 }) {
   const { push } = useToast()
-  const { permissions } = useAuth()
+  const { permissions, user, tenant, hasScopedGrants } = useAuth()
+  const sourceIdentity = JSON.stringify([
+    tenant.id,
+    user.id,
+    permissions.slice().sort(),
+    hasScopedGrants,
+  ])
+  const [sourceMode, setSourceMode] = useState(false)
+  const [sourceDraft, setSourceDraft] = useState<{
+    identity: string
+    items: Array<{ id: string; version: string; name: string }>
+  }>({ identity: sourceIdentity, items: [] })
+  const sourceItems = sourceDraft.identity === sourceIdentity ? sourceDraft.items : []
+  const canReadSources = permissions.includes('ai.query') && permissions.includes('flow.read')
   const [searchParams, setSearchParams] = useSearchParams()
   const dashboards = useDashboards()
   const schedules = useReportSchedules()
@@ -54,6 +68,45 @@ export function DashboardReportingCard({
   const [cadence, setCadence] = useState<ReportCadence>('weekly')
   const [manifestText, setManifestText] = useState('')
   const [manifestPreview, setManifestPreview] = useState<DashboardManifestImportResponse>()
+  const [nativeSlot, setNativeSlot] = useState('')
+  const [bindingDraft, setBindingDraft] = useState<{
+    identity: string
+    manifest: string
+    items: Record<string, { id: string; version: string; name: string }>
+  }>({ identity: sourceIdentity, manifest: '', items: {} })
+  const nativeSlots = useMemo(() => {
+    try {
+      const parsed = JSON.parse(manifestText) as {
+        spec?: { definition?: { flow_sources?: unknown } }
+      }
+      const sources = parsed?.spec?.definition?.flow_sources
+      if (!Array.isArray(sources)) return []
+      return sources
+        .filter(
+          (item): item is { slot: string } =>
+            Boolean(item) &&
+            typeof item === 'object' &&
+            typeof item.slot === 'string' &&
+            item.slot.length <= 80,
+        )
+        .slice(0, 1024)
+        .map((item) => item.slot)
+    } catch {
+      return []
+    }
+  }, [manifestText])
+  const nativeBindings =
+    bindingDraft.identity === sourceIdentity && bindingDraft.manifest === manifestText
+      ? bindingDraft.items
+      : {}
+  const activeNativeSlot = nativeSlots.includes(nativeSlot) ? nativeSlot : (nativeSlots[0] ?? '')
+  const missingNativeBindings =
+    nativeSlots.length > 0 && (!canReadSources || nativeSlots.some((slot) => !nativeBindings[slot]))
+  const sourceBindingsInput = nativeSlots.length
+    ? Object.fromEntries(
+        Object.entries(nativeBindings).map(([slot, { id, version }]) => [slot, { id, version }]),
+      )
+    : undefined
 
   const views = dashboards.data?.items ?? []
   const requestedID = searchParams.get('view') ?? ''
@@ -75,7 +128,20 @@ export function DashboardReportingCard({
 
   async function save() {
     try {
-      const view = await createDashboard.mutateAsync({ name, preset, shared, definition })
+      const disclosures = {
+        provenance: definition.provenance,
+        redaction_state: definition.redaction_state,
+        coverage_limitations: definition.coverage_limitations,
+      }
+      const savedDefinition: DashboardDefinition = sourceMode
+        ? { ...disclosures, flow_sources: sourceItems.map(({ id, version }) => ({ id, version })) }
+        : definition
+      const view = await createDashboard.mutateAsync({
+        name,
+        preset,
+        shared,
+        definition: savedDefinition,
+      })
       selectView(view.id)
       push({
         tone: 'success',
@@ -152,9 +218,12 @@ export function DashboardReportingCard({
       const result = await importDashboard.mutateAsync({
         manifest: parseManifest(),
         confirm: false,
+        source_bindings: sourceBindingsInput,
       })
       setManifestPreview(result)
-      setManifestText(JSON.stringify(result.manifest, null, 2))
+      const normalized = JSON.stringify(result.manifest, null, 2)
+      setManifestText(normalized)
+      setBindingDraft({ identity: sourceIdentity, manifest: normalized, items: nativeBindings })
       push({
         tone: 'success',
         title: 'Manifest validated',
@@ -172,6 +241,7 @@ export function DashboardReportingCard({
       const result = await importDashboard.mutateAsync({
         manifest: manifestPreview.manifest,
         confirm: true,
+        source_bindings: sourceBindingsInput,
       })
       if (!result.dashboard) throw new Error('The server did not return the created dashboard.')
       setManifestPreview(undefined)
@@ -209,6 +279,58 @@ export function DashboardReportingCard({
               That saved dashboard is unavailable in this tenant or authorization scope.
             </p>
           ) : null}
+          {canReadSources ? (
+            <section aria-label="Report saved flow sources" className={styles.manifestSection}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={sourceMode}
+                  disabled={!canWrite}
+                  onChange={(event) => setSourceMode(event.target.checked)}
+                />
+                Build from saved flow queries
+              </label>
+              {sourceMode ? (
+                <>
+                  <p>
+                    Choose current saved queries. Each selected version stays fixed until you select
+                    it again; reports use its complete selected rows and time range.
+                  </p>
+                  <FlowViewLibrary
+                    identity={sourceIdentity}
+                    onSelect={(item) =>
+                      setSourceDraft((previous) => ({
+                        identity: sourceIdentity,
+                        items: [
+                          ...(previous.identity === sourceIdentity
+                            ? previous.items.filter((source) => source.id !== item.id)
+                            : []),
+                          { id: item.id, version: item.version, name: item.definition.name },
+                        ],
+                      }))
+                    }
+                  />
+                  <ul aria-label="Selected report sources">
+                    {sourceItems.map((source) => (
+                      <li key={source.id}>
+                        {source.name} · version {source.version}{' '}
+                        <Button
+                          onClick={() =>
+                            setSourceDraft({
+                              identity: sourceIdentity,
+                              items: sourceItems.filter((item) => item.id !== source.id),
+                            })
+                          }
+                        >
+                          Remove {source.name}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </section>
+          ) : null}
           <div className={styles.reportingControls} aria-busy={loading}>
             <Field
               label="Dashboard name"
@@ -227,7 +349,13 @@ export function DashboardReportingCard({
             </label>
             <Button
               onClick={() => void save()}
-              disabled={!canWrite || !name.trim() || createDashboard.isPending || failed}
+              disabled={
+                !canWrite ||
+                !name.trim() ||
+                createDashboard.isPending ||
+                failed ||
+                (sourceMode && (!canReadSources || sourceItems.length === 0))
+              }
             >
               {createDashboard.isPending ? 'Saving…' : 'Save dashboard'}
             </Button>
@@ -302,11 +430,22 @@ export function DashboardReportingCard({
             <section className={styles.savedSnapshot} aria-label="Selected saved snapshot">
               <strong>{activeView.name}</strong>
               <span>{activeView.preset} preset</span>
-              <span>
-                <DateTime value={activeView.definition.absolute_from} /> –{' '}
-                <DateTime value={activeView.definition.absolute_to} />
-              </span>
-              <span>{Object.keys(activeView.definition.metrics).length} exact values</span>
+              {activeView.definition.flow_sources?.length ? (
+                <span>
+                  {activeView.definition.flow_sources.length} saved flow sources; current source
+                  access is checked for every report.
+                </span>
+              ) : (
+                <>
+                  <span>
+                    <DateTime value={activeView.definition.absolute_from} /> –{' '}
+                    <DateTime value={activeView.definition.absolute_to} />
+                  </span>
+                  <span>
+                    {Object.keys(activeView.definition.metrics ?? {}).length} exact values
+                  </span>
+                </>
+              )}
             </section>
           ) : null}
 
@@ -348,10 +487,67 @@ export function DashboardReportingCard({
                 }}
               />
             </label>
+            {nativeSlots.length ? (
+              <section
+                aria-label="Destination report source bindings"
+                className={styles.manifestSection}
+              >
+                <p>
+                  Bind each portable slot to a saved query in this tenant. These explicit selections
+                  determine the imported report's data.
+                </p>
+                {canReadSources ? (
+                  <>
+                    <Select
+                      label="Source slot to bind"
+                      value={activeNativeSlot}
+                      options={nativeSlots.map((slot) => ({ value: slot, label: slot }))}
+                      onChange={(event) => setNativeSlot(event.target.value)}
+                    />
+                    <FlowViewLibrary
+                      identity={sourceIdentity}
+                      onSelect={(item) => {
+                        setBindingDraft({
+                          identity: sourceIdentity,
+                          manifest: manifestText,
+                          items: {
+                            ...nativeBindings,
+                            [activeNativeSlot]: {
+                              id: item.id,
+                              version: item.version,
+                              name: item.definition.name,
+                            },
+                          },
+                        })
+                        setManifestPreview(undefined)
+                      }}
+                    />
+                    <ul aria-label="Bound report source slots">
+                      {nativeSlots.map((slot) => (
+                        <li key={slot}>
+                          {slot}:{' '}
+                          {nativeBindings[slot]
+                            ? `${nativeBindings[slot].name} · version ${nativeBindings[slot].version}`
+                            : 'Not bound'}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p role="alert">Current flow read access is required to bind report sources.</p>
+                )}
+              </section>
+            ) : null}
             <div className={styles.reportActions}>
               <Button
                 onClick={() => void previewManifest()}
-                disabled={!canWrite || !manifestText.trim() || importDashboard.isPending || failed}
+                disabled={
+                  !canWrite ||
+                  !manifestText.trim() ||
+                  importDashboard.isPending ||
+                  failed ||
+                  missingNativeBindings
+                }
               >
                 {importDashboard.isPending ? 'Validating…' : 'Preview import'}
               </Button>
@@ -359,7 +555,7 @@ export function DashboardReportingCard({
                 <Button
                   variant="primary"
                   onClick={() => void confirmManifestImport()}
-                  disabled={!canWrite || importDashboard.isPending}
+                  disabled={!canWrite || importDashboard.isPending || missingNativeBindings}
                 >
                   Confirm import
                 </Button>
@@ -373,11 +569,19 @@ export function DashboardReportingCard({
                   {manifestPreview.preview.preset} ·{' '}
                   {manifestPreview.preview.shared ? 'shared in this tenant' : 'private'}
                 </span>
-                <span>
-                  <DateTime value={manifestPreview.preview.absolute_from} /> –{' '}
-                  <DateTime value={manifestPreview.preview.absolute_to} />
-                </span>
-                <span>{manifestPreview.preview.metric_count} exact values</span>
+                {manifestPreview.preview.source_count ? (
+                  <span>
+                    {manifestPreview.preview.source_count} explicitly bound saved flow sources
+                  </span>
+                ) : (
+                  <>
+                    <span>
+                      <DateTime value={manifestPreview.preview.absolute_from} /> –{' '}
+                      <DateTime value={manifestPreview.preview.absolute_to} />
+                    </span>
+                    <span>{manifestPreview.preview.metric_count} exact values</span>
+                  </>
+                )}
                 <span>
                   {manifestPreview.preview.provenance_count} provenance ·{' '}
                   {manifestPreview.preview.coverage_limitation_count} coverage notes

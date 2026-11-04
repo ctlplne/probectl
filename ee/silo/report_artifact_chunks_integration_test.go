@@ -54,6 +54,9 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation`,
 					`DROP POLICY report_artifact_format ON ` + schema + `.dashboard_report_artifacts`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifact_chunks DROP CONSTRAINT dashboard_report_artifact_chunks_artifact_fk`,
+					`ALTER TABLE ` + schema + `.dashboard_report_schedules DROP CONSTRAINT IF EXISTS report_schedule_dashboard_fk`,
+					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT IF EXISTS report_artifact_dashboard_fk`,
+					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT IF EXISTS report_artifact_schedule_fk`,
 					`GRANT UPDATE ON ` + schema + `.dashboard_report_artifacts,` + schema + `.dashboard_report_artifact_chunks TO probectl_app`,
 				} {
 					if _, err := pool.Exec(ctx, sql); err != nil {
@@ -84,7 +87,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 					t.Fatalf("chunk FK falls through to another schema: %s", fkTarget)
 				}
 			}
-			read := func(tenant, schema, sql string, capable bool) error {
+			read := func(tenant, _, sql string, capable bool) error {
 				tx, err := pool.Begin(ctx)
 				if err != nil {
 					return err
@@ -147,6 +150,23 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 			// a parent existing only in the other tenant's physical schema.
 			if _, err := pool.Exec(ctx, `INSERT INTO `+own+`.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,'same-artifact',1,$2)`, ids[1], []byte("no")); err == nil {
 				t.Fatal("silo child accepted other tenant's parent")
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO `+other+`.dashboard_views(tenant_id,id,owner_id,name,preset,definition) VALUES($1,'foreign-view-only','alice','Foreign view','operator','{}')`, ids[1]); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO `+other+`.dashboard_report_schedules(tenant_id,id,dashboard_id,owner_id,name,format,cadence,destination_id,next_run_at) VALUES($1,'foreign-schedule-only','foreign-view-only','alice','Foreign schedule','csv','daily','tenant-report-inbox',statement_timestamp())`, ids[1]); err != nil {
+				t.Fatal(err)
+			}
+			for _, query := range []string{
+				`INSERT INTO ` + own + `.dashboard_report_artifacts(tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state) VALUES($1,'bad-dashboard','foreign-view-only','csv','text/csv','bad.csv','legacy','alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none')`,
+				`INSERT INTO ` + own + `.dashboard_report_schedules(tenant_id,id,dashboard_id,owner_id,name,format,cadence,destination_id,next_run_at) VALUES($1,'bad-dashboard','foreign-view-only','alice','Bad schedule','csv','daily','tenant-report-inbox',statement_timestamp())`,
+				`INSERT INTO ` + own + `.dashboard_report_artifacts(tenant_id,id,dashboard_id,schedule_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state) VALUES($1,'bad-schedule','same-view','foreign-schedule-only','csv','text/csv','bad.csv','legacy','alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none')`,
+			} {
+				_, err := pool.Exec(ctx, query, ids[0])
+				var pgerr *pgconn.PgError
+				if !errors.As(err, &pgerr) || pgerr.Code != "23503" {
+					t.Fatal("silo report parent borrowed a foreign dashboard or schedule", err)
+				}
 			}
 		})
 	}
