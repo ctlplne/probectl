@@ -175,7 +175,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"sources-assign": {Method: http.MethodPut, Path: "/v1/entity-source-contexts",
 			Description: "entities sources-assign --body with agent_id, source_kind, source_ref, context_id and optional anchor_entity_id"},
 		"path-context-assign": {Method: http.MethodPut, Path: "/v1/tests/{id}/entity-context", ArgName: "id",
-			Description: "assign a test's control-plane path to one operator-owned routing context; --body with context_id; one binding per tenant destination"},
+			Description: "assign an owned test's context; --body with context_id; targetless noop has metadata only, destination paths keep one binding per tenant destination"},
 		"path-resolve": {Method: http.MethodGet, Path: "/v1/tests/{id}/path/entities", ArgName: "id",
 			Description: "show current canonical identity evidence for this test's path responders in its bound context"},
 	}},

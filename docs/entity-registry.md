@@ -91,6 +91,13 @@ the same existing path view or wait until the first binding is removed.
 Changing a test's target clears its old context binding in the test-update
 transaction. The operator assigns a context for the new destination.
 
+The same explicit test-context binding supports a valid `noop` test with no
+target, so its name rules and manual tags can resolve in the owned context.
+It creates only general test metadata context. It creates no path destination
+binding or discovery authority, and removes any earlier path binding for that
+test. Multiple targetless noop tests do not claim a shared empty destination.
+Tenant ownership, `agent.write`, context policy and atomic audit still apply.
+
 ## Sender-bound evidence
 
 Raw device, flow, BMP and agent telemetry keeps its existing transport.

@@ -28,9 +28,10 @@ type PathTestBinding struct {
 	AssignedAt time.Time
 }
 
-// AssignPathTestContext binds a control-plane path test to an operator-owned
-// routing context. Both compound FKs enforce the tenant at the storage layer;
-// the caller must append its audit event in the same transaction.
+// AssignPathTestContext binds an owned test to a routing context. A valid
+// targetless noop gets general metadata context only, never path authority.
+// Both compound FKs enforce the tenant at the storage layer; the caller must
+// append its audit event in the same transaction.
 func (s *EntityRegistry) AssignPathTestContext(ctx context.Context, sc tenancy.Scope, testID, contextID string) error {
 	if s == nil || s.pool == nil {
 		return ErrEntityRegistryUnavailable
@@ -43,17 +44,18 @@ func (s *EntityRegistry) AssignPathTestContext(ctx context.Context, sc tenancy.S
 	if err != nil {
 		return err
 	}
-	var testTarget string
-	if err := sc.Q.QueryRow(ctx, `SELECT target FROM tests
+	var testType, testTarget string
+	if err := sc.Q.QueryRow(ctx, `SELECT type,target FROM tests
 		WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
-		sc.Tenant.String(), testID).Scan(&testTarget); err != nil {
+		sc.Tenant.String(), testID).Scan(&testType, &testTarget); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return entity.ErrScopeMismatch
 		}
 		return err
 	}
 	pathTarget := path.TargetHost(testTarget)
-	if pathTarget == "" || len(pathTarget) > 1024 {
+	withoutPath := testType == "noop" && testTarget == ""
+	if !withoutPath && (pathTarget == "" || len(pathTarget) > 1024) {
 		return entity.ErrInvalidClaim
 	}
 	// The path and general test contexts are one explicit operator binding.
@@ -68,6 +70,13 @@ func (s *EntityRegistry) AssignPathTestContext(ctx context.Context, sc tenancy.S
 		(tenant_id,test_id,context_id) VALUES ($1,$2,$3)
 		ON CONFLICT (tenant_id,test_id) DO NOTHING`,
 		sc.Tenant.String(), testID, contextID); err != nil {
+		return err
+	}
+	if withoutPath {
+		// A metadata-only binding cannot preserve an earlier destination's
+		// path authority, including after a type/target change.
+		_, err := sc.Q.Exec(ctx, `DELETE FROM entity_path_test_contexts
+			WHERE tenant_id=$1 AND test_id=$2`, sc.Tenant.String(), testID)
 		return err
 	}
 	_, err = sc.Q.Exec(ctx, `INSERT INTO entity_path_test_contexts

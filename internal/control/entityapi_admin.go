@@ -157,8 +157,8 @@ func (s *Server) handleAssignEntitySource(w http.ResponseWriter, r *http.Request
 	return nil
 }
 
-// The current path engine runs in the control plane. An operator assigns the
-// test's routing context; a hop's untrusted IP never selects one.
+// An operator assigns the test's metadata context. A targetless noop gets no
+// path destination binding; a hop's untrusted IP never selects a context.
 func (s *Server) handleAssignPathTestContext(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
 		ContextID string `json:"context_id"`
