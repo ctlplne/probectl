@@ -250,17 +250,6 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 		outputs = append(outputs, output("point", "chart_points", "", "bucket_index", "toString(duration_ns)", "toUInt64(0)"))
 	}
 	if plan.View == "matrix" {
-		// Top-set membership needs only the primary metric. Expanding every
-		// secondary statistic through nested scalar subqueries needlessly
-		// repeats their analysis; public outputs still compute all metrics.
-		rankingPlan := plan
-		rankingPlan.Metrics = []flow.QueryMetric{plan.Metrics[primary]}
-		rankMembers := func(name, source string) string {
-			ctes = append(ctes, planStatsSQL(name, source, rankingPlan)...)
-			ranked := name + "_ranked"
-			ctes = append(ctes, ranked+" AS (SELECT *,row_number() OVER (ORDER BY m0 DESC,g,c,o,p) AS rk FROM "+name+"_stats)")
-			return ranked
-		}
 		rowGroups := "tupleElement(__probectl_matrix_rows,2)"
 		if selectedMatrixRows != nil {
 			encoded, err := json.Marshal(selectedMatrixRows)
@@ -275,8 +264,7 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 			// including owned prefix joins; compute the exact top set once.
 			// Keep row and conditioned-column scalar domains explicit: their
 			// arrays have the same type but must never share a cached binding.
-			members := rankMembers("matrix_row_members", "full_input")
-			ctes = append(ctes, "(SELECT tuple('matrix_rows',groupArray(row_members.g)) FROM "+members+" AS row_members WHERE row_members.rk<={matrix_depth:UInt64}) AS __probectl_matrix_rows")
+			ctes = append(ctes, planMatrixMembersSQL(plan, primary, false)...)
 		}
 		rowMember := func(group string) string { return "has(" + rowGroups + "," + group + ")" }
 		outputs = append(outputs, output("matrix_row", "full_stats", rowMember("g"), "toInt64(-1)", "'0'", "toUInt64(0)"))
@@ -298,8 +286,7 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 			// this period's Other rows and has no conditioned statistics.
 			columnGroups = "JSONExtract({selected_columns:String},'Array(Array(String))')"
 		} else {
-			members := rankMembers("matrix_column_members", "column_input")
-			ctes = append(ctes, "(SELECT tuple('matrix_columns',groupArray(column_members.g)) FROM "+members+" AS column_members WHERE column_members.rk<={matrix_depth:UInt64}) AS __probectl_matrix_columns")
+			ctes = append(ctes, planMatrixMembersSQL(plan, primary, true)...)
 		}
 		outputs = append(outputs, output("matrix_column", "column_ranked", "rk<={matrix_depth:UInt64}", "toInt64(-1)", "'0'", "toUInt64(0)"))
 		// Keep complete Array(String) group keys as elements of the scalar
@@ -312,6 +299,24 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	// Throw on every cost limit: no silently truncated or approximate response.
 	sql := "WITH " + strings.Join(ctes, ",\n") + "\n" + strings.Join(outputs, "\nUNION ALL\n") + "\n" + settings
 	return sql, params, nil
+}
+
+// Automatic top-set membership needs only the primary metric, while public
+// output retains every metric. Preserve each axis's exact compiler-owned CTE,
+// source, member alias and scalar domain through this decomposition.
+func planMatrixMembersSQL(plan flow.QueryPlan, primary int, columns bool) []string {
+	name, source, member := "matrix_row_members", "full_input", "row_members"
+	domain, scalar := "matrix_rows", "__probectl_matrix_rows"
+	if columns {
+		name, source, member = "matrix_column_members", "column_input", "column_members"
+		domain, scalar = "matrix_columns", "__probectl_matrix_columns"
+	}
+	plan.Metrics = []flow.QueryMetric{plan.Metrics[primary]}
+	ctes := planStatsSQL(name, source, plan)
+	ranked := name + "_ranked"
+	ctes = append(ctes, ranked+" AS (SELECT *,row_number() OVER (ORDER BY m0 DESC,g,c,o,p) AS rk FROM "+name+"_stats)")
+	ctes = append(ctes, "(SELECT tuple('"+domain+"',groupArray("+member+".g)) FROM "+ranked+" AS "+member+" WHERE "+member+".rk<={matrix_depth:UInt64}) AS "+scalar)
+	return ctes
 }
 
 func planAggregateSQL(measure string) string {
