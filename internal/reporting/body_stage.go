@@ -227,7 +227,7 @@ func (r *bodyStageReader) Read(target []byte) (int, error) {
 	s := r.stage
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if r.closed || s.err != nil || s.state != "ready" && !(r.sealing && s.state == "sealing") {
+	if r.closed || s.err != nil || s.state != "ready" && (!r.sealing || s.state != "sealing") {
 		return 0, ErrBodyStageState
 	}
 	if err := s.ctx.Err(); err != nil {
