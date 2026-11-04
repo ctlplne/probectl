@@ -148,13 +148,32 @@ func TestExplorerPlanBatchTLSChargesEveryResponseAndRejectsMissingReceipts(t *te
 			t.Error("source batch lost tenant or buffered response contract")
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		if err := r.ParseMultipartForm(1 << 20); err != nil {
+		parts, err := r.MultipartReader()
+		if err != nil {
 			t.Error(err)
 			return
 		}
-		defer func() { _ = r.MultipartForm.RemoveAll() }()
-		query := r.FormValue("query")
-		if r.FormValue("param_tenant") != "red" || !strings.Contains(query, "max_rows_to_read=") || !strings.Contains(query, "tenant_id={tenant:String}") {
+		fields := map[string]string{}
+		for {
+			part, err := parts.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			value, readErr := io.ReadAll(io.LimitReader(part, (1<<20)+1))
+			closeErr := part.Close()
+			_, duplicate := fields[part.FormName()]
+			if readErr != nil || closeErr != nil || len(value) > 1<<20 || part.FileName() != "" || part.FormName() == "" || duplicate {
+				t.Error("source query fixture rejected malformed or oversized multipart input", readErr, closeErr)
+				return
+			}
+			fields[part.FormName()] = string(value)
+		}
+		query := fields["query"]
+		if fields["param_tenant"] != "red" || !strings.Contains(query, "max_rows_to_read=") || !strings.Contains(query, "tenant_id={tenant:String}") {
 			t.Error("source batch lost bound SQL scope or remaining settings")
 		}
 		if receipt := summary.Load().(string); receipt != "" {
