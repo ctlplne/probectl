@@ -36,6 +36,14 @@ ROLE_TESTS = (
 )
 ROLE_ROOT = ROLE_TESTS[2]
 ROLE_MARKER = "role provenance omitted matching current evidence"
+ASSOCIATION_TESTS = (
+    "TestInterfaceRolePeerAssociationUsesOwnedRouterAndCompletePrefixes",
+    "TestInterfaceRolePeerAssociationRefusesForeignAndMalformedSnapshots",
+    "TestInterfaceRolePeerAssociationKeepsAmbiguousAndUnavailableEvidenceUnresolved",
+    "TestInterfaceRolePeerAssociationPreservesProvenanceBudgetsAndCancellation",
+)
+ASSOCIATION_ROOT = ASSOCIATION_TESTS[3]
+ASSOCIATION_MARKER = "peer association provenance omitted current prefix"
 
 
 def encode(events):
@@ -88,6 +96,13 @@ def selftest_suite(package, tests, root, child, marker) -> None:
 
 def selftest() -> None:
     selftest_suite(PACKAGE, TESTS, ROOT, CHILD, MARKER)
+    selftest_suite(
+        ROLE_PACKAGE,
+        ASSOCIATION_TESTS,
+        ASSOCIATION_ROOT,
+        "success",
+        ASSOCIATION_MARKER,
+    )
     selftest_suite(ROLE_PACKAGE, ROLE_TESTS, ROLE_ROOT, "success", ROLE_MARKER)
 
 
@@ -109,8 +124,20 @@ def run_tests(
     return result
 
 
-def run(*, classifier: bool = False) -> None:
-    if classifier:
+def run(*, classifier: bool = False, associations: bool = False) -> None:
+    if associations:
+        package, tests, root, child, marker = (
+            ROLE_PACKAGE,
+            ASSOCIATION_TESTS,
+            ASSOCIATION_ROOT,
+            "success",
+            ASSOCIATION_MARKER,
+        )
+        source = Path("internal/control/interface_role_associations.go")
+        seam = "provenance := []string{snapshot.SourceID, binding.SourceID}"
+        replacement = "provenance := []string{binding.SourceID}"
+        control_name = "prefix_association_provenance"
+    elif classifier:
         package, tests, root, child, marker = (
             ROLE_PACKAGE,
             ROLE_TESTS,
@@ -130,7 +157,9 @@ def run(*, classifier: bool = False) -> None:
         seam, replacement = "packet.Error != gosnmp.NoError || ", ""
         control_name = "packet_error"
     # Positive prerequisites must run before the deliberately broken guard.
-    current = run_tests("^(" + "|".join(tests) + ")$", package, integration=classifier)
+    current = run_tests(
+        "^(" + "|".join(tests) + ")$", package, integration=classifier or associations
+    )
     failures = classify(
         current.stdout, current.returncode, package=package, tests=tests
     )
@@ -145,7 +174,9 @@ def run(*, classifier: bool = False) -> None:
     try:
         source.write_text(original.replace(seam, replacement))
         broken = run_tests(
-            "^" + root + "$/^" + child + "$", package, integration=classifier
+            "^" + root + "$/^" + child + "$",
+            package,
+            integration=classifier or associations,
         )
     finally:
         source.write_text(original)
@@ -176,9 +207,11 @@ def run(*, classifier: bool = False) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true")
-    parser.add_argument("--classifier", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--classifier", action="store_true")
+    mode.add_argument("--associations", action="store_true")
     args = parser.parse_args()
     if args.selftest:
         selftest()
     else:
-        run(classifier=args.classifier)
+        run(classifier=args.classifier, associations=args.associations)

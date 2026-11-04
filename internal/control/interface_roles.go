@@ -54,6 +54,9 @@ type interfaceRolePeer struct {
 	// Current verified producer/certificate binding.
 	SourceActive bool
 	Clock        interfaceRoleClock
+	// Current prefix and canonical-binding provenance, when association was
+	// needed. These are owned snapshot references, not client-supplied joins.
+	AssociationSources []string
 }
 type interfaceRoleIXPrefix struct {
 	SourceID string
@@ -207,6 +210,14 @@ func classifyInterfaceRole(ctx context.Context, scope entity.Scope, at time.Time
 				if err := add(declaration.Role, facts.SourceID, peer.SourceID, declaration.SourceID); err != nil {
 					return none, err
 				}
+				for _, source := range peer.AssociationSources {
+					if err := budget.charge(ctx, 1, 1, 1); err != nil {
+						return none, err
+					}
+					if err := add(declaration.Role, source); err != nil {
+						return none, err
+					}
+				}
 			}
 		}
 	}
@@ -247,6 +258,14 @@ func validateInterfaceRoleInputs(ctx context.Context, scope entity.Scope, facts 
 		}
 		if peer.ASN == 0 || !interfaceRoleSource(peer.SourceID) || !peer.Clock.valid() {
 			return errInterfaceRoleInput
+		}
+		if err := budget.charge(ctx, len(peer.AssociationSources), 1024, 1); err != nil {
+			return err
+		}
+		for _, source := range peer.AssociationSources {
+			if !interfaceRoleSource(source) {
+				return errInterfaceRoleInput
+			}
 		}
 	}
 	declarations := map[uint32]interfaceRole{}
