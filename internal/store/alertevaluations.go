@@ -10,10 +10,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -41,7 +41,7 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 			return err
 		}
 		if len(encodedSelection) > 1024 {
-			return fmt.Errorf("alert selection receipt exceeds budget")
+			return apierror.Internal("alert selection receipt exceeds budget")
 		}
 	}
 	labels := receipt.Labels
@@ -195,7 +195,7 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 		}
 		if len(selection) > 0 {
 			if len(selection) > 1024 {
-				return nil, false, fmt.Errorf("alert selection receipt exceeds budget")
+				return nil, false, apierror.Internal("alert selection receipt exceeds budget")
 			}
 			receipt.TagSelection = &alert.TagSelectionReceipt{}
 			decoder := json.NewDecoder(bytes.NewReader(selection))
