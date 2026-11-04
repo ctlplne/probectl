@@ -26,6 +26,7 @@ import (
 
 func reportFrozenSourceReaderProof(ctx context.Context, t *testing.T, f *tagImportSubjectFixture, owner *auth.Principal, role string, views *flow.PostgresQueryViewStore, item flow.SavedQueryView, frozen *reportFlowCapture) flow.SavedQueryView {
 	t.Helper()
+	originalCapture := frozen
 	stored, err := marshalReportSourceRequirements(ctx, frozen)
 	if err != nil {
 		t.Fatal("freeze report source requirements", err)
@@ -179,6 +180,6 @@ func reportFrozenSourceReaderProof(ctx context.Context, t *testing.T, f *tagImpo
 	if err := f.srv.revalidateReportFlowCapture(ctx, owner, &bad); err == nil {
 		t.Fatal("frozen source accepted missing captured policy attributes")
 	}
-	assertCapturedReportDetail(ctx, t, frozen, "current", "OWN-"+f.a, "100", f.tagID)
+	assertCapturedReportDetail(ctx, t, originalCapture, "current", "OWN-"+f.a, "100", f.tagID)
 	return item
 }
