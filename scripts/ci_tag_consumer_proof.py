@@ -504,6 +504,54 @@ def report_staging_regression(env: dict[str, str]) -> None:
     print(json.dumps({"report_staging_borrowed_buffer_assertion_failed": True}))
 
 
+def report_reader_pool_regression(env: dict[str, str]) -> None:
+    source = Path("internal/control/dashboard_report_source_access.go")
+    original = source.read_text()
+    seam = "\tcurrent, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)"
+    if original.count(seam) != 1:
+        raise RuntimeError("scoped report reader seam is unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    marker = "single-connection frozen source check nested a pool read"
+    try:
+        source.write_text(
+            original.replace(
+                seam,
+                "\tcurrent, err := loadCurrentUserAuthority(ctx, s.pool, actor.TenantID, actor.UserID)",
+            )
+        )
+        result = subprocess.run(
+            [
+                "go",
+                "test",
+                "-race",
+                "-tags=integration",
+                "-count=1",
+                "-timeout=4m",
+                "-json",
+                "-run",
+                "^" + LIVE_SOURCE_TEST + "$/^success$",
+                "./internal/control",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    finally:
+        source.write_text(original)
+    sys.stdout.write(result.stdout)
+    sys.stderr.write(result.stderr)
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        root=LIVE_SOURCE_TEST,
+        marker=marker,
+    ):
+        raise RuntimeError("nested reader control did not fail its exact assertion")
+    print(json.dumps({"report_reader_nested_pool_assertion_failed": True}))
+
+
 def selftest() -> None:
     def event(action: str, name: str | None = None, package: str = PACKAGE) -> dict:
         item = {"Action": action, "Package": package}
@@ -654,6 +702,7 @@ def main() -> int:
         report_projection_regression(env)
         report_live_source_regression(env)
         report_live_source_regression(env, captured_scope=True)
+        report_reader_pool_regression(env)
         current_authority_regression(env)
         report_regression(env)
         report_regression(env, scheduled=True)

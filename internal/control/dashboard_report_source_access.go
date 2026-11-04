@@ -12,21 +12,25 @@ import (
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
-	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-// Revalidation is source IO outside a publication transaction. It grants no
-// publication authority and does not reinterpret a frozen source definition.
+type reportScopedSourceAccess interface {
+	GetQueryViewAccessInScope(context.Context, tenancy.Scope, string, string) (flow.QueryViewAccess, error)
+}
+
+// Revalidation reads only current access metadata, never telemetry or query
+// configuration. Lifecycle is checked before the coherent tenant snapshot.
+// It grants no publication authority and never changes frozen source data.
 func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Principal, capture *reportFlowCapture) error {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID || len(capture.Inputs) == 0 {
 		return apierror.Forbidden("report source reader scope is unavailable")
 	}
-	access, ok := s.flowQueryViews.(flow.QueryViewAccessStore)
+	_, ok = s.flowQueryViews.(reportScopedSourceAccess)
 	if !ok || s.pool == nil {
 		return apierror.Unavailable("current report source access is unavailable")
 	}
@@ -36,6 +40,30 @@ func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Pr
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
+	status, err := NewTenantStatusCache(s.pool, 0).TenantStatus(ctx, actor.TenantID)
+	if err != nil {
+		return err
+	}
+	if status != "active" {
+		return apierror.Forbidden("current metadata tenant is inactive")
+	}
+	return tenancy.InTenantReadSnapshot(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return s.revalidateReportFlowCaptureScope(ctx, sc, actor, capture)
+	})
+}
+
+// The caller owns fresh lifecycle, writer-fence and configuration checks.
+// This scoped recipient check never acquires a connection or renders/fetches
+// source telemetry; it is not a publication or persistent access grant.
+func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, capture *reportFlowCapture) error {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || sc.Q == nil || bound != sc.Tenant || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID {
+		return apierror.Forbidden("report source reader scope is unavailable")
+	}
+	access, ok := s.flowQueryViews.(reportScopedSourceAccess)
+	if !ok || len(capture.Inputs) == 0 {
+		return apierror.Unavailable("current report source access is unavailable")
+	}
 	for _, table := range capture.Tables {
 		if table.TenantID != capture.TenantID {
 			return apierror.Forbidden("report source record scope is unavailable")
@@ -45,7 +73,7 @@ func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Pr
 		slices.Contains(capture.Permissions, permTagsRead) && !capture.ContextsCaptured || len(capture.Contexts) > 0 && (!capture.ContextsCaptured || !slices.Contains(capture.Permissions, permTagsRead)) {
 		return apierror.Forbidden("report source requirements are incomplete")
 	}
-	current, err := loadCurrentUserAuthority(ctx, s.pool, actor.TenantID, actor.UserID)
+	current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
 	if err != nil {
 		return err
 	}
@@ -81,7 +109,7 @@ func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Pr
 			}
 			continue
 		}
-		item, err := access.GetQueryViewAccess(ctx, principal.TenantID, principal.UserID, input.ID)
+		item, err := access.GetQueryViewAccessInScope(ctx, sc, principal.UserID, input.ID)
 		if err != nil {
 			return s.mapFlowViewStoreError(ctx, principal, err)
 		}
@@ -94,7 +122,7 @@ func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Pr
 		seen[input.ID] = input.Version
 	}
 	for _, requirement := range capture.Contexts {
-		if err := s.revalidateReportContext(ctx, principal, requirement); err != nil {
+		if err := s.revalidateReportContext(ctx, sc, principal, requirement); err != nil {
 			return err
 		}
 	}
@@ -105,7 +133,7 @@ func reportFlowReadPermission(permission string) bool {
 	return slices.Contains([]string{permFlowRead, permTagsRead, "metrics.read", "agent.read", "entities.read"}, permission)
 }
 
-func (s *Server) revalidateReportContext(ctx context.Context, p *auth.Principal, requirement reportContextRequirement) error {
+func (s *Server) revalidateReportContext(ctx context.Context, sc tenancy.Scope, p *auth.Principal, requirement reportContextRequirement) error {
 	if requirement.ContextID == "" || requirement.Resource[auth.ResourceTenantKey] != p.TenantID || requirement.Resource["context_id"] != requirement.ContextID ||
 		!slices.Contains(requirement.Permissions, permFlowRead) || !slices.Contains(requirement.Permissions, permTagsRead) {
 		return apierror.Forbidden("report context requirements are unavailable")
@@ -118,7 +146,7 @@ func (s *Server) revalidateReportContext(ctx context.Context, p *auth.Principal,
 			return apierror.Forbidden("report context labels are incomplete")
 		}
 	}
-	record, err := store.NewEntityRegistry(s.pool).GetEntityContext(ctx, entity.Scope{TenantID: p.TenantID, ContextID: requirement.ContextID})
+	record, err := store.NewEntityRegistry(s.pool).GetEntityContextInScope(ctx, sc, requirement.ContextID)
 	if err != nil {
 		return entityAPIError(err)
 	}

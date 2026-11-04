@@ -14,6 +14,9 @@ import (
 	"maps"
 	"slices"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
@@ -29,6 +32,44 @@ func reportFrozenSourceReaderProof(ctx context.Context, t *testing.T, f *tagImpo
 			t.Fatal(err)
 		}
 	}
+	configuration := f.db.Pool().Config().Copy()
+	configuration.MaxConns, configuration.MinConns = 1, 0
+	pool, err := pgxpool.NewWithConfig(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	func() {
+		originalPool, originalViews := f.srv.pool, f.srv.flowQueryViews
+		f.srv.pool = pool
+		f.srv.flowQueryViews = flow.NewPostgresQueryViewStore(pool, 0, nil)
+		defer func() {
+			f.srv.pool, f.srv.flowQueryViews = originalPool, originalViews
+		}()
+		checkContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := f.srv.revalidateReportFlowCapture(checkContext, owner, frozen); err != nil {
+			t.Fatal("single-connection frozen source check nested a pool read", err)
+		}
+		if err := tenancy.InTenantReadSnapshot(tenancy.WithSiloTableLock(checkContext), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			if err := f.srv.revalidateReportFlowCaptureScope(ctx, sc, owner, frozen); err != nil {
+				return err
+			}
+			wrong := sc
+			wrong.Tenant = tenancy.ID(f.b)
+			if err := f.srv.revalidateReportFlowCaptureScope(ctx, wrong, owner, frozen); err == nil {
+				t.Fatal("scoped frozen source check accepted a foreign tenant")
+			}
+			canceled, stop := context.WithCancel(ctx)
+			stop()
+			if err := f.srv.revalidateReportFlowCaptureScope(canceled, sc, owner, frozen); err == nil {
+				t.Fatal("scoped frozen source check ignored cancellation")
+			}
+			return nil
+		}); err != nil {
+			t.Fatal("single-connection frozen source check nested a pool read", err)
+		}
+	}()
 	if err := f.srv.revalidateReportFlowCapture(ctx, owner, frozen); err != nil {
 		t.Fatal("current owner cannot read its frozen source after a metadata edit", err)
 	}
