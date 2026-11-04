@@ -1373,6 +1373,12 @@ jobs:
         run: |
           python3 scripts/ci_interface_role_evidence.py --selftest
           python3 scripts/ci_interface_role_evidence.py --classifier
+      - name: Targetless test metadata isolation and original refusal
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_targetless_test_context.py --selftest
+          python3 scripts/ci_targetless_test_context.py
       - name: Start Prometheus with the remote-write receiver and the admin API
         # A service container cannot take the required --web.enable-remote-write-receiver
         # flag, so run it as a step instead. The admin API is the dev stack's

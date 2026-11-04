@@ -7356,7 +7356,7 @@ func (c *Client) DeleteTest(ctx context.Context, req DeleteTestRequest) error {
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
-// Bind a tenant path test to an operator-owned routing context
+// Bind an owned test to its routing context
 type AssignPathTestEntityContextRequest struct {
 	Id   string                        `json:"-"`
 	Body *AssignEntityPathContextInput `json:"-"`

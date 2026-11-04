@@ -5325,8 +5325,8 @@
       "put": {
         "x-required-permission": "agent.write",
         "operationId": "assignPathTestEntityContext",
-        "summary": "Bind a tenant path test to an operator-owned routing context",
-        "description": "The current path engine runs in the control plane and stores rounds by tenant and normalized destination. The authenticated tenant's test and routing context are joined by tenant-composite foreign keys in FORCE-RLS storage. Only one test per tenant destination can hold a routing-context binding; changing a test target makes the old binding inactive until reassigned. A responding hop IP cannot choose a context. Mutation and audit append share one transaction.",
+        "summary": "Bind an owned test to its routing context",
+        "description": "The authenticated tenant's test and routing context are joined by tenant-composite foreign keys in FORCE-RLS storage. A valid targetless noop receives general test metadata context and no path destination or discovery authority. Tests with a destination retain the current path engine's tenant and normalized-destination boundary: only one test per tenant destination can hold a path binding, and changing a target makes the old binding inactive until reassigned. A responding hop IP cannot choose a context. Mutation and audit append share one transaction.",
         "tags": ["entities", "paths"],
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},

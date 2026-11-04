@@ -79,6 +79,7 @@ const (
 var tokenScopes = []string{
 	"tenant.read", "test.read", "test.write", "alert.read", "alert.write",
 	"agent.read", "agent.write", "topology.read",
+	"tags.read", "tags.write", "entities.read",
 }
 
 func TestE2E(t *testing.T) {
@@ -236,6 +237,9 @@ func TestE2E(t *testing.T) {
 	assertOwnOnly(t, a, objA, objB, b)
 	assertOwnOnly(t, b, objB, objA, a)
 	assertUnauthenticated(t, anon, b, tenantA, objA.mark)
+	t.Run("release-test-tag-metadata", func(t *testing.T) {
+		proveReleaseTestTagMetadata(t, root, work, serverCA, a, b, objA, objB)
+	})
 
 	agentAndFlows(t, root, work, stack, secrets, cli, a, b, apiPort, agentPort, serverCA, canaryToken)
 
