@@ -89,6 +89,9 @@ func publishCapturedReportDownloadProof(ctx context.Context, t *testing.T, f *ta
 		t.Fatal(err)
 	}
 	proof.digest = receipt.SHA256
+	if format == "pdf" {
+		verifyIndependentSourcePDF(t, proof, capture)
+	}
 	if err := tenancy.InTenant(ctx, f.db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
 		if err := (store.Roles{}).AddPermission(ctx, sc, role, "metrics.read"); err != nil {
 			return err

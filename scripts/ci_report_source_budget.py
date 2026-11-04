@@ -39,6 +39,7 @@ CAPTURE_TESTS = (
     "TestReportRealFlowCaptureRetainsCompleteSelectedTable",
     "TestReportRealFlowCaptureDownloadsCompletePDF",
 )
+LARGE_CAPTURE_TESTS = ("TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV",)
 
 
 def selftest() -> None:
@@ -154,13 +155,19 @@ def selftest() -> None:
         package=VIEW_PACKAGE,
         child="current_visibility",
     )
+    large_events = [{"Package": CAPTURE_PACKAGE, "Test": test, "Action": action}
+                    for test in LARGE_CAPTURE_TESTS for action in ("run", "pass")]
+    large_events.append({"Package": CAPTURE_PACKAGE, "Action": "pass"})
+    assert not classify(encode(large_events), 0, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS)
+    assert classify(encode(large_events[1:]), 0, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS)
+    assert classify(encode(large_events + [{"Package": CAPTURE_PACKAGE, "Test": LARGE_CAPTURE_TESTS[0], "Action": "skip"}]), 0, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS)
     print(
         "Batch source classifier refuses missing, duplicate, skipped and false assertion proof"
     )
 
 
 def run_tests(
-    pattern: str, go_package: str = "./internal/store/flowstore"
+    pattern: str, go_package: str = "./internal/store/flowstore", timeout_seconds: int = 300
 ) -> subprocess.CompletedProcess:
     result = subprocess.run(
         [
@@ -169,7 +176,7 @@ def run_tests(
             "-race",
             "-tags=integration",
             "-count=1",
-            "-timeout=5m",
+            f"-timeout={timeout_seconds}s",
             "-json",
             "-run",
             pattern,
@@ -177,7 +184,7 @@ def run_tests(
         ],
         capture_output=True,
         text=True,
-        timeout=360,
+        timeout=timeout_seconds + 60,
         check=False,
     )
     sys.stdout.write(result.stdout)
@@ -521,6 +528,11 @@ def run() -> None:
         raise RuntimeError(
             "mandatory real source capture/staging proof did not execute and pass"
         )
+    complete = run_tests("^(" + "|".join(LARGE_CAPTURE_TESTS) + ")$", "./internal/control", timeout_seconds=600)
+    failures = classify(complete.stdout, complete.returncode, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS)
+    print(json.dumps({"tests": LARGE_CAPTURE_TESTS, "passed": not failures, "failures": failures}))
+    if failures:
+        raise RuntimeError("mandatory complete selected-source output did not execute and pass")
     post_verification_reader_proof()
     preauthorization_privacy_proof()
     metadata_reader_proof()
