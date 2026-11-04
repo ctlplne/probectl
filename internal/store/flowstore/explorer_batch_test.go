@@ -137,7 +137,12 @@ func TestExplorerPlanBatchTLSChargesEveryResponseAndRejectsMissingReceipts(t *te
 	var summary atomic.Value
 	summary.Store("")
 	var calls atomic.Int64
+	var querying atomic.Bool
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !querying.Load() {
+			// Construction issues DDL; only subsequent reads use the batch door.
+			return
+		}
 		calls.Add(1)
 		if r.URL.Query().Get(tenantSettingName) != "red" || r.URL.Query().Get("wait_end_of_query") != "1" {
 			t.Error("source batch lost tenant or buffered response contract")
@@ -173,6 +178,7 @@ func TestExplorerPlanBatchTLSChargesEveryResponseAndRejectsMissingReceipts(t *te
 		t.Fatal(err)
 	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID("red"))
+	querying.Store(true)
 	for _, receipt := range []string{"", `{}`, `{"read_rows":"1","read_bytes":"-1"}`, `{"read_rows":"01","read_bytes":"1"}`, `{"read_rows":"1","read_rows":"0","read_bytes":"1"}`, `{"read_rows":1,"read_bytes":"1"}`, `{"read_rows":"9223372036854775808","read_bytes":"1"}`} {
 		summary.Store(receipt)
 		batch, err := NewPlanBatch(ctx, store, "red", 2)
@@ -215,6 +221,9 @@ func TestExplorerPlanBatchTLSChargesEveryResponseAndRejectsMissingReceipts(t *te
 	before := calls.Load()
 	if _, _, err := batchQueryLimits(batch.queryContext(), "red", sql+" altered"); err == nil || calls.Load() != before {
 		t.Fatal("unrecognized SQL settings admitted")
+	}
+	if calls.Load() != 9 {
+		t.Fatal("TLS fixture did not execute every declared source request")
 	}
 	t.Logf("TLS receipt simulations: %d bounded requests; actual ClickHouse proof separate", calls.Load())
 }
