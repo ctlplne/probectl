@@ -63,6 +63,7 @@ func reportProofJSON(t *testing.T, socket *httptest.Server, token, method, route
 func proveSourceReportPublicGenerationAndSchedule(t *testing.T, f *tagImportSubjectFixture, socket *httptest.Server, proofs []*reportDownloadProof, application string) {
 	t.Helper()
 	views := make([]store.DashboardView, len(proofs))
+	scheduleIDs := make([]string, len(proofs))
 	for i, proof := range proofs {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(proof.tenant))
 		if err := tenancy.InTenant(ctx, f.db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
@@ -118,6 +119,21 @@ func proveSourceReportPublicGenerationAndSchedule(t *testing.T, f *tagImportSubj
 			t.Fatal("public generation did not persist sealed source requirements", err)
 		}
 		due := time.Now().UTC().Truncate(time.Microsecond).Add(5 * time.Second)
+		denied, _ = reportProofJSON(t, socket, limited, http.MethodPost, "/v1/dashboard-report-schedules", reportScheduleCreateRequest{DashboardID: views[i].ID, Name: "Restricted delegation", Format: proof.format, Cadence: "daily", DestinationID: reportInboxDestination, FirstRunAt: due})
+		if denied != http.StatusForbidden {
+			t.Fatal("restricted writer delegated report source reads through a schedule", denied)
+		}
+		withoutTags, err := auth.RandomToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.NewMCPTokens(f.db.Pool()).CreateWithLifetime(ctx, proof.tenant, proof.user, "source-writer-without-metadata", crypto.Hash([]byte(withoutTags)), time.Now().Add(time.Hour), []string{permMetricsWrite, "metrics.read", permAIQuery, permFlowRead}); err != nil {
+			t.Fatal(err)
+		}
+		denied, _ = reportProofJSON(t, socket, withoutTags, http.MethodPost, "/v1/dashboard-report-schedules", reportScheduleCreateRequest{DashboardID: views[i].ID, Name: "Missing metadata delegation", Format: proof.format, Cadence: "daily", DestinationID: reportInboxDestination, FirstRunAt: due})
+		if denied >= 200 && denied < 300 {
+			t.Fatal("schedule delegated selected tag reads outside credential scope", denied)
+		}
 		status, body = reportProofJSON(t, socket, proof.token, http.MethodPost, "/v1/dashboard-report-schedules", reportScheduleCreateRequest{DashboardID: views[i].ID, Name: "Source delivery", Format: proof.format, Cadence: "daily", DestinationID: reportInboxDestination, FirstRunAt: due})
 		if status != http.StatusCreated {
 			t.Fatal("public source schedule creation failed", status, string(body))
@@ -126,6 +142,7 @@ func proveSourceReportPublicGenerationAndSchedule(t *testing.T, f *tagImportSubj
 		if err := json.Unmarshal(body, &schedule); err != nil {
 			t.Fatal(err)
 		}
+		scheduleIDs[i] = schedule.ID
 		supervisor, ok := BuildDashboardReportSupervisor(f.srv.pool, time.Minute, nil)
 		if !ok {
 			t.Fatal("source scheduler builder unavailable")
@@ -178,10 +195,33 @@ func proveSourceReportPublicGenerationAndSchedule(t *testing.T, f *tagImportSubj
 		if after != 1 || lastAfter == nil || !lastAfter.Equal(*last) {
 			t.Fatal("refused source delivery committed partial advancement or bytes")
 		}
+		status, _ = reportProofJSON(t, socket, proof.token, http.MethodPatch, "/v1/dashboard-report-schedules/"+schedule.ID, map[string]bool{"enabled": false})
+		if status != http.StatusOK {
+			t.Fatal("current owner could not pause source schedule", status)
+		}
+		status, _ = reportProofJSON(t, socket, limited, http.MethodPatch, "/v1/dashboard-report-schedules/"+schedule.ID, map[string]bool{"enabled": true})
+		if status != http.StatusForbidden {
+			t.Fatal("restricted writer resumed delegated source reads", status)
+		}
+		var enabled bool
+		if err := f.db.Pool().QueryRow(ctx, `SELECT enabled FROM dashboard_report_schedules WHERE tenant_id=$1 AND id=$2`, proof.tenant, schedule.ID).Scan(&enabled); err != nil {
+			t.Fatal(err)
+		}
+		if enabled {
+			t.Fatal("refused source resume changed schedule state")
+		}
+		status, _ = reportProofJSON(t, socket, proof.token, http.MethodPatch, "/v1/dashboard-report-schedules/"+schedule.ID, map[string]bool{"enabled": true})
+		if status != http.StatusOK {
+			t.Fatal("current source owner could not explicitly resume", status)
+		}
 	}
 	status, _ := reportProofJSON(t, socket, proofs[0].token, http.MethodPost, "/v1/dashboard-reports", reportGenerateRequest{DashboardID: views[1].ID, Format: "csv"})
 	if status != http.StatusNotFound {
 		t.Fatal("public source generation crossed the actual token tenant", status)
+	}
+	status, _ = reportProofJSON(t, socket, proofs[0].token, http.MethodPatch, "/v1/dashboard-report-schedules/"+scheduleIDs[1], map[string]bool{"enabled": true})
+	if status != http.StatusNotFound {
+		t.Fatal("source resume crossed tenant-owned schedule storage", status)
 	}
 	for _, kind := range []string{"lifecycle", "version"} {
 		proveSourcePublicationRace(t, f, socket, proofs[0], views[0], application, kind)

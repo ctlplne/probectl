@@ -33,10 +33,7 @@ type reportFlowBatchKey struct{}
 // retain that charge alongside prepared definitions until the capture ends.
 const reportFlowPreparationReserve = int64(tags.MaxDefinitions) * 8192
 
-type reportFlowSourceRef struct {
-	ID      string `json:"id"`
-	Version string `json:"version"`
-}
+type reportFlowSourceRef = reporting.FlowSourceRef
 
 type reportFlowInput struct {
 	ID          string    `json:"id"`

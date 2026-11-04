@@ -12698,6 +12698,18 @@
           },
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "description": "Current credential lacks source execution authority for creating or resuming this schedule."
+          },
+          "409": {
+            "description": "Captured dashboard/source configuration or lifecycle changed during source preflight."
+          },
+          "429": {
+            "description": "Current source admission or execution budget is exhausted."
+          },
+          "503": {
+            "description": "Required source execution or admission service is unavailable."
           }
         }
       }
@@ -12768,6 +12780,15 @@
           },
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "description": "Captured dashboard/source configuration or lifecycle changed during source preflight."
+          },
+          "429": {
+            "description": "Current source admission or execution budget is exhausted."
+          },
+          "503": {
+            "description": "Required source execution or admission service is unavailable."
           }
         }
       }

@@ -165,6 +165,11 @@ func newMCPServer(
 		options = append(options, mcp.WithNMSImportBackend(mcpNMSImportBackend{pool: pool, policyLoader: policyLoader, owner: src.NativeFlow}))
 	}
 	if src.NativeFlow != nil {
+		if schemas, err := reportToolSchemas(); err != nil {
+			log.Error("native report schemas are unavailable", "error_class", mcp.ErrorClass(err))
+		} else {
+			options = append(options, mcp.WithReportBackend(mcpReportBackend{server: src.NativeFlow}, schemas))
+		}
 		schemas, err := nativeFlowToolSchemas()
 		if err != nil {
 			log.Error("native MCP flow schemas are unavailable", "error_class", mcp.ErrorClass(err))

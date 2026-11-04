@@ -163,7 +163,7 @@ func (proof *reportDownloadProof) requireOwn(t *testing.T, socket *httptest.Serv
 	}
 }
 
-func proveCapturedReportHTTPReaders(t *testing.T, f *tagImportSubjectFixture, proofs []*reportDownloadProof) {
+func proveCapturedReportHTTPReaders(t *testing.T, f *tagImportSubjectFixture, proofs []*reportDownloadProof, reach int) {
 	t.Helper()
 	// Force the real token resolver; this fixture must not use dev principals.
 	f.srv.cfg.AuthMode = ""
@@ -262,6 +262,7 @@ func proveCapturedReportHTTPReaders(t *testing.T, f *tagImportSubjectFixture, pr
 	first.requireOwn(t, socket)
 	proofs[1].requireOwn(t, socket)
 	proveSourceReportPublicGenerationAndSchedule(t, f, socket, proofs, application)
+	proveReportsMCP(t, f, socket, proofs, reach == 1)
 }
 
 // Hold the actual audit lock, then revoke after the HTTPS reader is waiting

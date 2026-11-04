@@ -379,6 +379,52 @@ def native_source_binding_proof() -> None:
         raise RuntimeError("native authority omission did not fail exact foreign binding assertion")
 
 
+def mcp_report_reader_proof() -> None:
+    source = Path("internal/control/mcp_reports.go")
+    original = source.read_text()
+    cases = (
+        ("credential := auth.ClonePrincipal(actor)", "credential := auth.ClonePrincipal(principal)",
+         "scoped MCP reader received a private report link"),
+        ("metadata, err = b.server.currentReportArtifactMetadata(ctx, sc, principal, id, principal.UserID)", "err = nil",
+         "scoped MCP reader received a private report link"),
+        ("if len(data) > w.limit-w.body.Len() {", "if false && len(data) > w.limit-w.body.Len() {",
+         "bounded report bridge returned a partial or over-budget MCP result"),
+    )
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    for seam, replacement, marker in cases:
+        if original.count(seam) != 1:
+            raise RuntimeError("MCP report current-reader or budget seam unavailable")
+        try:
+            source.write_text(original.replace(seam, replacement))
+            result = run_tests("^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control")
+        finally:
+            source.write_text(original)
+        if not report_regression_failed_on_assertion(
+            result.stdout, result.returncode, root=CAPTURE_TESTS[0], child="success",
+            marker=marker, package=CAPTURE_PACKAGE,
+        ):
+            raise RuntimeError("MCP report omission did not fail exact reader/budget assertion")
+
+
+def schedule_source_delegation_proof() -> None:
+    source = Path("internal/control/dashboard_report_schedule_authority.go")
+    original = source.read_text()
+    seam = "if len(definition.FlowSources) == 0 {"
+    if original.count(seam) != 1:
+        raise RuntimeError("schedule source execution preflight seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(seam, "if true {"))
+        result = run_tests("^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, root=CAPTURE_TESTS[0], child="success",
+        marker="restricted writer delegated report source reads through a schedule", package=CAPTURE_PACKAGE,
+    ):
+        raise RuntimeError("schedule source omission did not fail exact restricted delegation assertion")
+
+
 def metadata_reader_proof() -> None:
     source = Path("internal/control/dashboard_report_list.go")
     original = source.read_text()
@@ -481,6 +527,8 @@ def run() -> None:
     publication_state_proof()
     source_pdf_metadata_allowance_proof()
     native_source_binding_proof()
+    mcp_report_reader_proof()
+    schedule_source_delegation_proof()
 
 
 if __name__ == "__main__":

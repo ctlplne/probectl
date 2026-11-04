@@ -667,3 +667,19 @@ credential and fresh role/policy allow all three source reads (`tags.read`,
 `test.read`, `metrics.read`). This is the same domain read as the REST/CLI/UI
 ledger. A saved filter-binding revision is never presented as the snapshot used
 for evaluation, and legacy receipts have no fabricated execution clock.
+
+### Native report operations
+
+Report tools share current reporting services and OpenAPI request contracts. They require an authenticated tenant user with `metrics.read` and `ai.query`; saving/importing, generating and schedule writes also require `metrics.write`. Source operations check current source/context rights and the original credential ceiling. Creating or resuming automatic delivery proves current caller execution rights; future runs independently check current owner authority without MFA delegation.
+
+| Tools | Behavior |
+| --- | --- |
+| `report_dashboards`, `report_dashboard` | Current owned/shared dashboard configuration |
+| `report_dashboard_save`, `report_dashboard_export`, `report_dashboard_import` | Audited save, redacted portable slots and explicit destination bindings; import previews unless `confirm` is true |
+| `report_schedules`, `report_schedule_create`, `report_schedule_update` | Current owned jobs, local inbox destinations, explicit pause/resume |
+| `report_generate` | Complete source-backed or static generation under current authority and cost policy |
+| `report_artifacts`, `report_artifact_link` | Current-authorized metadata and authenticated download path; no body or stored source requirements |
+
+Resolve `download_url` against the operator's control-plane REST base URL. It carries no token or access grant. Download independently rechecks current tenant/source permissions and the complete stored body before bytes. Metadata hashes are expected stored digests; the metadata call does not verify binary bytes. Large PDF/CSV files use that authenticated HTTP door and are not embedded in tool responses.
+
+Existing native byte/node bounds and tenant query admission apply. Reporting services own source admission through publication, with no second source-query slot in MCP. Unknown fields, malformed projections and over-budget metadata fail without partial structured output. Consent, egress redaction and protocol/policy/call audits remain in force.

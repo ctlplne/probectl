@@ -40,79 +40,28 @@ const (
 	maxInlineReportBytes = 2 << 20
 )
 
-type dashboardDefinition struct {
-	FlowSources         []reportFlowSourceRef `json:"flow_sources,omitempty"`
-	AbsoluteFrom        time.Time             `json:"absolute_from"`
-	AbsoluteTo          time.Time             `json:"absolute_to"`
-	Provenance          []string              `json:"provenance"`
-	RedactionState      string                `json:"redaction_state"`
-	CoverageLimitations []string              `json:"coverage_limitations"`
-	Metrics             map[string]string     `json:"metrics"`
-}
+type dashboardDefinition = reporting.DashboardDefinition
 
-type dashboardCreateRequest struct {
-	Name       string              `json:"name"`
-	Preset     string              `json:"preset"`
-	Shared     bool                `json:"shared"`
-	Definition dashboardDefinition `json:"definition"`
-}
+type dashboardCreateRequest = reporting.DashboardCreateInput
 
 // dashboardManifest is the stable, portable representation of a native saved
 // dashboard. Identity and storage fields are absent by construction: the
 // importing server derives tenant, owner, id, and timestamps.
-type dashboardManifest struct {
-	APIVersion string                    `json:"api_version"`
-	Kind       string                    `json:"kind"`
-	Metadata   dashboardManifestMetadata `json:"metadata"`
-	Spec       dashboardManifestSpec     `json:"spec"`
-}
+type dashboardManifest = reporting.DashboardManifest
 
-type dashboardManifestMetadata struct {
-	Name string `json:"name"`
-}
+type dashboardManifestMetadata = reporting.DashboardManifestMetadata
 
-type dashboardManifestSpec struct {
-	Preset     string                      `json:"preset"`
-	Shared     bool                        `json:"shared"`
-	Definition dashboardManifestDefinition `json:"definition"`
-}
+type dashboardManifestSpec = reporting.DashboardManifestSpec
 
-type dashboardManifestDefinition struct {
-	FlowSources         []dashboardManifestFlowSource `json:"flow_sources,omitempty"`
-	AbsoluteFrom        time.Time                     `json:"absolute_from"`
-	AbsoluteTo          time.Time                     `json:"absolute_to"`
-	Provenance          []string                      `json:"provenance"`
-	RedactionState      string                        `json:"redaction_state"`
-	CoverageLimitations []string                      `json:"coverage_limitations"`
-	Metrics             []dashboardManifestMetric     `json:"metrics"`
-}
+type dashboardManifestDefinition = reporting.DashboardManifestDefinition
 
-type dashboardManifestMetric struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
+type dashboardManifestMetric = reporting.DashboardManifestMetric
 
-type dashboardManifestFlowSource struct {
-	Slot string `json:"slot"`
-}
+type dashboardManifestFlowSource = reporting.DashboardManifestFlowSource
 
-type dashboardManifestImportRequest struct {
-	SourceBindings map[string]reportFlowSourceRef `json:"source_bindings,omitempty"`
-	Manifest       dashboardManifest              `json:"manifest"`
-	Confirm        bool                           `json:"confirm"`
-}
+type dashboardManifestImportRequest = reporting.DashboardManifestImportInput
 
-type dashboardManifestPreview struct {
-	SourceCount             int       `json:"source_count,omitempty"`
-	Name                    string    `json:"name"`
-	Preset                  string    `json:"preset"`
-	Shared                  bool      `json:"shared"`
-	AbsoluteFrom            time.Time `json:"absolute_from"`
-	AbsoluteTo              time.Time `json:"absolute_to"`
-	MetricCount             int       `json:"metric_count"`
-	ProvenanceCount         int       `json:"provenance_count"`
-	CoverageLimitationCount int       `json:"coverage_limitation_count"`
-}
+type dashboardManifestPreview = reporting.DashboardManifestPreview
 
 type dashboardManifestImportResponse struct {
 	Status    string                   `json:"status"`
@@ -121,19 +70,9 @@ type dashboardManifestImportResponse struct {
 	Dashboard *store.DashboardView     `json:"dashboard,omitempty"`
 }
 
-type reportScheduleCreateRequest struct {
-	DashboardID   string    `json:"dashboard_id"`
-	Name          string    `json:"name"`
-	Format        string    `json:"format"`
-	Cadence       string    `json:"cadence"`
-	DestinationID string    `json:"destination_id"`
-	FirstRunAt    time.Time `json:"first_run_at"`
-}
+type reportScheduleCreateRequest = reporting.ReportScheduleInput
 
-type reportGenerateRequest struct {
-	DashboardID string `json:"dashboard_id"`
-	Format      string `json:"format"`
-}
+type reportGenerateRequest = reporting.ReportGenerateInput
 
 type reportDestination struct {
 	ID       string `json:"id"`
@@ -582,12 +521,24 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return err
 	}
+	authority, err := s.prepareScheduledReportAuthority(r, clean.DashboardID)
+	if err != nil {
+		return tagQueryResponseError(w, err)
+	}
+	defer authority.close()
+	r = authority.request
 	id, err := crypto.UUIDv4()
 	if err != nil {
 		return apierror.Internal("could not generate report schedule id").Wrap(err)
 	}
 	var schedule *store.ReportSchedule
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
+			return err
+		}
+		if err := s.validateScheduledReportAuthority(ctx, sc, authority); err != nil {
+			return err
+		}
 		created, err := (store.DashboardReports{}).CreateSchedule(ctx, sc, store.ReportScheduleInput{
 			ID: id, DashboardID: clean.DashboardID, OwnerID: dashboardActorID(r), Name: clean.Name,
 			Format: clean.Format, Cadence: clean.Cadence, DestinationID: clean.DestinationID,
@@ -622,10 +573,33 @@ func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Reque
 	if req.Enabled == nil {
 		return apierror.Validation("enabled must be a boolean")
 	}
+	var authority *scheduledReportAuthority
+	if *req.Enabled {
+		var current *store.ReportSchedule
+		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			current, err = (store.DashboardReports{}).GetSchedule(ctx, sc, r.PathValue("id"), dashboardActorID(r))
+			return err
+		}); err != nil {
+			return err
+		}
+		var err error
+		authority, err = s.prepareScheduledReportAuthority(r, current.DashboardID)
+		if err != nil {
+			return tagQueryResponseError(w, err)
+		}
+		defer authority.close()
+		r = authority.request
+	}
 	var schedule *store.ReportSchedule
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 			return err
+		}
+		if authority != nil {
+			if err := s.validateScheduledReportAuthority(ctx, sc, authority); err != nil {
+				return err
+			}
 		}
 		updated, err := (store.DashboardReports{}).SetScheduleEnabled(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.Enabled)
 		if err != nil {

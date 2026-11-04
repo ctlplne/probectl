@@ -238,7 +238,7 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool, reach int) {
 		}
 	}
 	if realSource {
-		proveCapturedReportHTTPReaders(t, f, downloadProofs)
+		proveCapturedReportHTTPReaders(t, f, downloadProofs, reach)
 	}
 	if reach > 1 {
 		return

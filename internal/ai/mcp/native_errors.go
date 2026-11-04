@@ -25,7 +25,7 @@ func nativeFailureMessage(err error) string {
 	case apierror.CodeFlowQueryCoverage:
 		return "flow_query_coverage_unavailable: requested fields or time span lack complete source coverage; check the registry and available source resolution"
 	case apierror.CodeValidation:
-		return "validation: arguments must match the advertised native schema and flow registry"
+		return "validation: arguments must match the advertised native schema and authorized resource"
 	case apierror.CodeNotFound:
 		return "not_found: private result or configuration is unavailable; refresh your authorized list or run a fresh query"
 	case apierror.CodeConflict:
@@ -36,8 +36,10 @@ func nativeFailureMessage(err error) string {
 		return "unauthorized: authenticated tenant and user identity are required"
 	case apierror.CodeUnavailable:
 		return "unavailable: source or shared result services are temporarily unavailable; retry after backoff"
+	case apierror.CodeRateLimited:
+		return "rate_limited: current admission or resource budget is exhausted; reduce the request or retry after backoff"
 	case apierror.CodeQuotaExceeded:
-		return "quota_exceeded: configuration resource budget exceeded; review the operator's configured storage budget"
+		return "quota_exceeded: configuration resource budget exceeded; review the operator's configured resource budgets"
 	default:
 		return "tool execution failed"
 	}
