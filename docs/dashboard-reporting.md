@@ -412,3 +412,13 @@ Creating or resuming a source-backed schedule first proves the caller's current 
 Native MCP report tools use the same authenticated reporting services and committed request grammar: dashboard list/get/save/native export/import, schedule list/create/update, report generation, current artifact metadata and an authenticated artifact link. The link's `download_url` is a path relative to the operator's control-plane REST base URL. It contains no bearer token or access grant; every download independently checks current source authority and complete byte integrity. Link/list hashes describe stored metadata. Whole binary files and stored source requirements are not embedded in MCP results. Current user roles and the original credential ceiling are both enforced, with existing MCP byte/node policy and reporting source admission.
 
 Complete-output verification includes a paired real Postgres/ClickHouse source document with ten disjoint 50,000-row saved queries, preserving the per-query reach. The fixture records an explicit finite cost profile rather than changing deployment defaults; every selected address, tag, exact integer and total is parsed independently from the downloaded 500,000-row CSV. Observed generation heap and elapsed time are reported separately from source/read/output limits. Actual 4,000-detail source PDF output is also inspected through CI-only Poppler, checking selected addresses, exact values and owned tags independently of the renderer. These source/storage/transport checks remain distinct from final release-binary, sender and four-store acceptance.
+
+The native flow real-stack receipt also drives saved-source reporting through the
+compiled CLI, current TLS MCP links and signed-in Chromium in both themes. Its
+download verifier checks all four collector-derived protocol rows, exact byte
+quantities, tenant and saved-source identities, and the independent body digest.
+The browser selects pinned sources, generates a CSV, and previews/confirms a
+portable template with an explicit destination binding. Removing a source must
+withdraw earlier artifact access on REST, CLI and MCP. This receipt retains the
+existing development-service transport and generated-protocol provenance; the
+production TLS/SASL release-image acceptance is a separate proof.

@@ -87,6 +87,9 @@ func TestNativeFlowExplorerRealStack(t *testing.T) {
 	for i, lane := range lanes {
 		lane.proveMCP(t, st, mcpAddr, lanes[1-i], at)
 	}
+	t.Run("saved-source-reports", func(t *testing.T) {
+		proveNativeSourceReports(t, st, mcpAddr, lanes)
+	})
 }
 
 type nativeLane struct {
