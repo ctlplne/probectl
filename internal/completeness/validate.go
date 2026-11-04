@@ -54,6 +54,7 @@ type Validator struct {
 	configKeys           map[string]bool
 	proofs               map[string]proofBinding
 	reachability         map[string]*packageReachability
+	exportedRoots        map[string][]string
 	expectedCapabilities map[string]bool
 	noneByDesign         map[string]bool
 }
