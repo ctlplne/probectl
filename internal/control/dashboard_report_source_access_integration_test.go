@@ -116,8 +116,10 @@ func reportFrozenSourceReaderProof(ctx context.Context, t *testing.T, f *tagImpo
 	if err := f.srv.revalidateReportFlowCapture(ctx, owner, frozen); err != nil {
 		t.Fatal("equivalent current authority could not read the unchanged frozen source", err)
 	}
-	bad := *frozen
-	bad.Contexts = slices.Clone(frozen.Contexts)
+	bad := reportFlowCapture{
+		TenantID: frozen.TenantID, Tables: slices.Clone(frozen.Tables), Inputs: slices.Clone(frozen.Inputs),
+		Permissions: slices.Clone(frozen.Permissions), Contexts: slices.Clone(frozen.Contexts), ContextsCaptured: frozen.ContextsCaptured,
+	}
 	bad.Contexts[0].Resource = maps.Clone(frozen.Contexts[0].Resource)
 	bad.Contexts[0].Resource[auth.ResourceTenantKey] = f.b
 	if err := f.srv.revalidateReportFlowCapture(ctx, owner, &bad); err == nil {
