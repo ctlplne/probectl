@@ -361,3 +361,11 @@ The erasure receipt records this conservative invalidation and verifies that
 chunk bytes are gone. Legacy reports keep their generator-subject matching.
 Subject export remains generator-scoped and does not include another generator's
 report merely because erasure would invalidate that derived copy.
+
+The store's chunk reader stages one tenant snapshot, verifies the complete
+ordinal sequence and byte count, then independently hashes the staged bytes
+before returning a readable body. Missing, additional or corrupted chunks
+produce no body. The writer reads length and digest from the sealed stage itself;
+callers cannot supply a separate integrity claim. Metadata listing never loads
+binary bodies. Public generation and download use remains an item acceptance
+step until current source/reader authorization is connected and proven.

@@ -8,6 +8,7 @@
 import argparse
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 
@@ -16,6 +17,8 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 PACKAGE = "github.com/ctlplne/probectl/internal/store"
 ROOT = "TestReportArtifactChunksTenantIsolationAndLegacyRefusal"
 MARKER = "legacy reader did not refuse chunk representation"
+IO_ROOT = "TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption"
+IO_MARKER = "corrupt report exposed metadata or partial bytes"
 SILO_PACKAGE = "github.com/ctlplne/probectl/ee/silo"
 SILO_ROOT = "TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies"
 LIFECYCLE_PACKAGE = "github.com/ctlplne/probectl/internal/tenantlife"
@@ -98,6 +101,7 @@ def run():
         raise RuntimeError("report storage proof requires real Postgres without skips")
     for package, root in (
         (PACKAGE, ROOT),
+        (PACKAGE, IO_ROOT),
         (SILO_PACKAGE, SILO_ROOT),
         (LIFECYCLE_PACKAGE, LIFECYCLE_ROOT),
     ):
@@ -116,12 +120,35 @@ def run():
         raise RuntimeError(
             "format-policy omission did not fail the exact legacy-reader assertion"
         )
+    source = Path("internal/store/report_artifact_read.go")
+    original = source.read_text()
+    seam = "receipt.SHA256 != metadata.BodySHA256"
+    if original.count(seam) != 1:
+        raise RuntimeError("stored report digest comparison seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(seam, "false && " + seam))
+        corrupt = execute(PACKAGE, "^" + IO_ROOT + "$/^digest$")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        corrupt.stdout,
+        corrupt.returncode,
+        root=IO_ROOT,
+        marker=IO_MARKER,
+        package=PACKAGE,
+        child="digest",
+    ):
+        raise RuntimeError(
+            "digest omission did not fail the exact corruption assertion"
+        )
     print(
         json.dumps(
             {
                 "kind": "real-integration",
-                "tests": [ROOT, SILO_ROOT, LIFECYCLE_ROOT],
+                "tests": [ROOT, IO_ROOT, SILO_ROOT, LIFECYCLE_ROOT],
                 "format_policy_omission_control": True,
+                "digest_omission_control": True,
                 "passed": True,
             }
         )
