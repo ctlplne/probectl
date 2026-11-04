@@ -34,7 +34,10 @@ VIEW_TESTS = (
 )
 VIEW_MARKER = "source metadata must remain readable after definition change"
 CAPTURE_PACKAGE = "github.com/ctlplne/probectl/internal/control"
-CAPTURE_TESTS = ("TestReportRealFlowCaptureStagesCurrentOwnedSources",)
+CAPTURE_TESTS = (
+    "TestReportRealFlowCaptureStagesCurrentOwnedSources",
+    "TestReportRealFlowCaptureRetainsCompleteSelectedTable",
+)
 
 
 def selftest() -> None:
@@ -45,6 +48,13 @@ def selftest() -> None:
     ] + [{"Package": CAPTURE_PACKAGE, "Action": "pass"}]
     capture_log = "\n".join(json.dumps(event) for event in capture_events)
     assert not classify(capture_log, 0, package=CAPTURE_PACKAGE, tests=CAPTURE_TESTS)
+    for removed in CAPTURE_TESTS:
+        partial = "\n".join(
+            json.dumps(event)
+            for event in capture_events
+            if event.get("Test") != removed
+        )
+        assert classify(partial, 0, package=CAPTURE_PACKAGE, tests=CAPTURE_TESTS)
     for action in ("skip", "fail"):
         bad = (
             capture_log

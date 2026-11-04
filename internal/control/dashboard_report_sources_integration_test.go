@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -36,14 +37,18 @@ import (
 // Actual PG current users/grants, saved sources, contexts and tag snapshots;
 // source rows are in-process. This is not a sender or four-store release proof.
 func TestReportLiveFlowCaptureUsesCurrentOwnedSourcesAndOneBatch(t *testing.T) {
-	t.Run("success", func(t *testing.T) { testReportLiveFlowCapture(t, false) })
+	t.Run("success", func(t *testing.T) { testReportLiveFlowCapture(t, false, 1) })
 }
 
 func TestReportRealFlowCaptureStagesCurrentOwnedSources(t *testing.T) {
-	t.Run("success", func(t *testing.T) { testReportLiveFlowCapture(t, true) })
+	t.Run("success", func(t *testing.T) { testReportLiveFlowCapture(t, true, 1) })
 }
 
-func testReportLiveFlowCapture(t *testing.T, realSource bool) {
+func TestReportRealFlowCaptureRetainsCompleteSelectedTable(t *testing.T) {
+	t.Run("success", func(t *testing.T) { testReportLiveFlowCapture(t, true, 50_000) })
+}
+
+func testReportLiveFlowCapture(t *testing.T, realSource bool, reach int) {
 	f := newTagImportSubjectFixture(t)
 	views := flow.NewPostgresQueryViewStore(f.db.Pool(), 0, audit.TenantRecord)
 	f.srv.WithFlowQueryViews(views).WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(f.db.Pool(), 0, audit.TenantRecord))
@@ -126,7 +131,16 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool) {
 		previous := current
 		previous.TS, previous.StartTS = at.Add(-2*time.Minute), at.Add(-2*time.Minute-time.Second)
 		previous.Bytes, previous.BytesScaled = uint64(70+lane*700), uint64(70+lane*700)
-		if err := rows.Insert(t.Context(), []flowstore.Row{current, previous}); err != nil {
+		input := []flowstore.Row{current, previous}
+		if reach > 1 {
+			input = make([]flowstore.Row, reach)
+			for i := range input {
+				input[i] = current
+				input[i].SrcAddr = fmt.Sprintf("198.18.%d.%d", i/256, i%256)
+			}
+			input[0].Bytes, input[0].BytesScaled = 9_007_199_254_740_993+uint64(lane), 9_007_199_254_740_993+uint64(lane)
+		}
+		if err := rows.Insert(t.Context(), input); err != nil {
 			t.Fatal(err)
 		}
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
@@ -134,10 +148,17 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		item, err := views.SaveQueryView(ctx, tenant, actors[tenant].UserID, flow.SaveQueryView{Definition: flow.QueryViewDefinition{
+		definition := flow.QueryViewDefinition{
 			Name: "Own retained flow", Visibility: "private", Time: flow.QueryViewTime{Mode: "absolute"}, Comparison: &flow.QueryViewComparison{Mode: "preceding"},
 			TagIDs: map[string]string{"tag.role": f.tagID}, Plan: flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), View: "table", GroupBy: []string{"tag.role"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}},
-		}})
+		}
+		if reach > 1 {
+			definition.Comparison = nil
+			definition.Plan.GroupBy = []string{"tag.role", "src_addr"}
+			definition.Plan.RowLimit, definition.Plan.PageSize = reach, 1
+			definition.Plan.DataSeries = "raw"
+		}
+		item, err := views.SaveQueryView(ctx, tenant, actors[tenant].UserID, flow.SaveQueryView{Definition: definition})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,11 +176,25 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool) {
 		if capture.TenantID != tenant || !capture.ContextsCaptured || len(capture.Contexts) != 1 || capture.Contexts[0].ContextID != f.contextID || capture.Contexts[0].Resource[auth.ResourceTenantKey] != tenant {
 			t.Fatal("live capture lost its actual authorized tenant/context requirements")
 		}
-		if len(capture.Inputs) != 2 || capture.Inputs[0].TagRevision == "" || capture.Inputs[0].TagAsOf.IsZero() || capture.Inputs[0].TagRevision != capture.Inputs[1].TagRevision || !capture.Inputs[0].TagAsOf.Equal(capture.Inputs[1].TagAsOf) || !slices.Contains(capture.Permissions, permTagsRead) {
+		inputs := 2
+		if reach > 1 {
+			inputs = 1
+		}
+		if len(capture.Inputs) != inputs || capture.Inputs[0].TagRevision == "" || capture.Inputs[0].TagAsOf.IsZero() || !slices.Contains(capture.Permissions, permTagsRead) {
 			t.Fatal("source batch lost exact references or its single actual metadata clock")
 		}
-		for _, expected := range []struct{ period, value string }{{"current", fmt.Sprint(100 + lane*800)}, {"previous", fmt.Sprint(70 + lane*700)}} {
+		if inputs == 2 && (capture.Inputs[0].TagRevision != capture.Inputs[1].TagRevision || !capture.Inputs[0].TagAsOf.Equal(capture.Inputs[1].TagAsOf)) {
+			t.Fatal("comparison periods lost their single actual metadata clock")
+		}
+		periods := []struct{ period, value string }{{"current", fmt.Sprint(100 + lane*800)}}
+		if inputs == 2 {
+			periods = append(periods, struct{ period, value string }{"previous", fmt.Sprint(70 + lane*700)})
+		}
+		for _, expected := range periods {
 			assertCapturedReportDetail(ctx, t, capture, expected.period, "OWN-"+tenant, expected.value, f.tagID)
+		}
+		if reach > 1 {
+			assertCapturedReportReach(ctx, t, capture, reach, uint64(lane))
 		}
 		if realSource {
 			assertCapturedReportCSV(ctx, t, capture)
@@ -178,6 +213,9 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool) {
 		if gate.SnapshotTenant(ctx, tenant).Queries.InFlight != 0 {
 			t.Fatal("capture Close leaked its single admission")
 		}
+	}
+	if reach > 1 {
+		return
 	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(f.a))
 	item := saved[f.a]
@@ -355,4 +393,65 @@ func assertCapturedReportCSV(ctx context.Context, t *testing.T, capture *reportF
 		t.Fatal("staged real source has missing or duplicated records or integrity receipt")
 	}
 	t.Logf("real PG/ClickHouse source CSV: tenant_sections=%d complete_records=%d bytes=%d", len(capture.Tables), count, receipt.Bytes)
+}
+
+func assertCapturedReportReach(ctx context.Context, t *testing.T, capture *reportFlowCapture, reach int, lane uint64) {
+	t.Helper()
+	seen := make(map[string]bool, reach)
+	var sum uint64
+	var totals int
+	large := uint64(9_007_199_254_740_993) + lane
+	expected := large + uint64(reach-1)*(100+lane*800)
+	for _, table := range capture.Tables {
+		if !strings.HasSuffix(table.ID, "/current/detail") {
+			continue
+		}
+		if err := table.WalkRows(ctx, func(row []string) error {
+			values := map[string]string{}
+			for i, column := range table.Columns {
+				values[column.Name] = row[i]
+			}
+			address := values["src_addr"]
+			if values["record_type"] == "totals" {
+				if address != "" || values["bytes:total"] != strconv.FormatUint(expected, 10) {
+					t.Fatal("complete report changed the independent exact total")
+				}
+				totals++
+				return nil
+			}
+			if values["record_type"] == "other" && values["bytes:total"] == "0" {
+				return nil
+			}
+			if address == "" || values["record_type"] != "detail" || values["is_other"] != "false" {
+				t.Fatal("complete report hid selected source records in another section")
+			}
+			if seen[address] || values["tag.role"] != "OWN-"+capture.TenantID {
+				t.Fatal("complete report borrowed or duplicated an owned source record")
+			}
+			seen[address] = true
+			amount, err := strconv.ParseUint(values["bytes:total"], 10, 64)
+			if err != nil {
+				return err
+			}
+			want := uint64(100) + lane*800
+			if address == "198.18.0.0" {
+				want = large
+			}
+			if amount != want {
+				t.Fatal("complete report changed an exact source counter")
+			}
+			sum += amount
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < reach; i++ {
+		if !seen[fmt.Sprintf("198.18.%d.%d", i/256, i%256)] {
+			t.Fatal("complete report omitted a selected group beyond the display page")
+		}
+	}
+	if len(seen) != reach || sum != expected || totals != 1 {
+		t.Fatal("complete report lost independent source reach or exact totals", len(seen), sum, expected, totals)
+	}
 }
