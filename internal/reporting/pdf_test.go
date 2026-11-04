@@ -33,7 +33,7 @@ func TestReportPDFWholeUnicodeAndCompleteRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.TableRows != 4000 || receipt.Bytes != int64(out.Len()) || receipt.Pages < 2 {
+	if receipt.TableRows != 4000 || receipt.Bytes != int64(out.Len()) {
 		t.Fatalf("incomplete PDF receipt: %+v", receipt)
 	}
 	semantic := pdfSemanticText(t, out.Bytes())
@@ -41,6 +41,9 @@ func TestReportPDFWholeUnicodeAndCompleteRows(t *testing.T) {
 		if strings.Count(semantic, rows[i][0]) != 1 || strings.Count(semantic, rows[i][1]) != 1 {
 			t.Fatalf("PDF omitted or duplicated complete row %d", i)
 		}
+	}
+	if receipt.Pages < 2 {
+		t.Fatal("complete PDF table did not paginate")
 	}
 	for _, word := range []string{"東京", "नमस्ते", "e\u0301", "🚀", "＝SUM(1,2)", "left  right"} {
 		if !strings.Contains(semantic, word) {
