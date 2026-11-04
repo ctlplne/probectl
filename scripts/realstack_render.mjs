@@ -60,6 +60,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { navigateInitialPage } from "./realstack_navigation.mjs";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const bwRequire = createRequire(join(repoRoot, "browser-worker", "package.json"));
@@ -95,7 +96,7 @@ async function main() {
     page.on("response", (resp) => {
       if (resp.status() >= 400) result.errors.push(`HTTP ${resp.status()}: ${resp.url()}`);
     });
-    await page.goto(spec.url, { waitUntil: "domcontentloaded", timeout });
+    await navigateInitialPage(page, spec.url, timeout, spec.absent ?? []);
     const deadline = Date.now() + timeout;
     const remaining = () => Math.max(1000, deadline - Date.now());
     const awaitTexts = async (texts) => {
