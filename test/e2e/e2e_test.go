@@ -142,6 +142,10 @@ func TestE2E(t *testing.T) {
 		"probectl."+laneB+".ebpf.flows",
 		"probectl."+laneA+".network.results",
 		"probectl."+laneB+".network.results",
+		"probectl."+laneA+".flow.events",
+		"probectl."+laneB+".flow.events",
+		"probectl."+laneA+".flow.ingest-quality",
+		"probectl."+laneB+".flow.ingest-quality",
 	)
 
 	// ── the real IdP, on the stack's network ────────────────────────────
@@ -254,6 +258,17 @@ func TestE2E(t *testing.T) {
 
 	agentAndFlows(t, root, work, stack, secrets, cli, a, b, apiPort, agentPort, promPort, serverCA, canaryToken)
 
+	// Separate narrow report credentials retain the earlier E2E tokens unchanged.
+	reportScopes := []string{"tenant.read", "agent.write", "ai.query", "flow.read", "flow.views.write", "metrics.read", "metrics.write"}
+	reportReaders := []api{
+		{base: apiBase, client: anon.client, token: ssoSignIn(t, apiBase, caFiles, tenantA, adminA, password, reportScopes)},
+		{base: apiBase, client: anon.client, token: ssoSignIn(t, apiBase, caFiles, tenantB, adminB, password, reportScopes)},
+	}
+	var reports []releaseFlowReport
+	t.Run("release-source-report-storage", func(t *testing.T) {
+		reports = proveReleaseSourceReports(t, root, work, serverCA, filepath.Join(tlsDir, "tls.crt"), filepath.Join(tlsDir, "tls.key"), stack, secrets, cli, reportReaders)
+	})
+
 	// The ClickHouse-backed read works per tenant through the reader login and
 	// shows nothing of the other tenant; then a restart re-runs the boot
 	// self-check over tables that now hold both tenants' rows, and the durable
@@ -261,6 +276,9 @@ func TestE2E(t *testing.T) {
 	assertClickHouseReads(t, a, b)
 	restartAndReverify(t, ctl, anon, controlRunning)
 	assertClickHouseReads(t, a, b)
+	for i := range reports {
+		reports[i].recheck(t)
+	}
 
 	t.Logf("e2e PASS: release image %s in session auth (Dex OIDC) over HTTPS + verify-full Postgres; "+
 		"two tenants' writes and reads stay their own both ways; join token -> SVID -> mTLS canary -> result API; "+

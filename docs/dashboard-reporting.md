@@ -422,3 +422,11 @@ portable template with an explicit destination binding. Removing a source must
 withdraw earlier artifact access on REST, CLI and MCP. This receipt retains the
 existing development-service transport and generated-protocol provenance; the
 production TLS/SASL release-image acceptance is a separate proof.
+
+The release-image E2E receipt separately registers real flow collectors and sends
+known NetFlowv5 protocol inputs over the existing verified TLS/SASL bus profile.
+It reads the actual HTTPS ClickHouse backend, publishes source-backed reports,
+and exports encrypted filesystem snapshots through public API and compiled CLI
+paths. Paired tenant refusals and unchanged report/snapshot bytes after a control
+restart are required. The existing real mTLS probe to authenticated TLS Prometheus
+leg remains required; generated NetFlow inputs are not hardware-exporter evidence.
