@@ -19,6 +19,7 @@ TESTS = (
     "TestReportPDFRefusesIncompleteForeignAndUnrenderableSources",
     "TestReportPDFBudgetsCancellationWriterAndFontIntegrity",
     "TestReportPDFIndependentSpecimen",
+    "TestReportPDFDirectionalUnicodeKeepsLogicalContent",
 )
 PACKAGE = "github.com/ctlplne/probectl/internal/reporting"
 OMISSION_ASSERTION = "PDF omitted or duplicated complete row 0"
@@ -212,6 +213,9 @@ def run(output: Path) -> None:
         "HEBREW-BEGIN",
         "שָׁלוֹם",
         "HEBREW-END",
+        "HEBREW-CLUSTER-BEGIN",
+        "שָׁ",
+        "HEBREW-CLUSTER-END",
         "THAI-BEGIN",
         "สวัสดี",
         "THAI-END",

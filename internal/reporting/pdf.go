@@ -162,12 +162,14 @@ type pdfOutlineKey struct {
 type pdfGlyphKey struct {
 	pdfOutlineKey
 	text string
+	rtl  bool
 }
 type pdfGlyph struct{ subset, code int }
 type pdfSubset struct {
 	face   *font.Face
 	object int
 	keys   []pdfGlyphKey
+	rtl    bool
 }
 type pdfPage struct {
 	object, content int
@@ -182,6 +184,7 @@ type pdfDocument struct {
 	objects         []string
 	glyphs          map[pdfGlyphKey]pdfGlyph
 	forms           map[pdfOutlineKey]int
+	graphics        map[int]bool
 	subsets         []pdfSubset
 	header          []pdfLine
 	headerHeight, y float64
@@ -372,43 +375,152 @@ func (p *pdfDocument) newPage() error {
 	return nil
 }
 
-func (p *pdfDocument) paint(line pdfLine) error {
-	stream := p.pages[len(p.pages)-1].stream
-	p.y -= line.ascent
+type pdfPlacedGlyph struct {
+	key         pdfGlyphKey
+	x, y, width float64
+	graphic     bool
+}
+
+type pdfPaintSpan struct {
+	start, end int
+	rtl        bool
+	glyphs     []pdfPlacedGlyph
+}
+
+func (p *pdfDocument) placedSpans(line pdfLine, baseline float64) []pdfPaintSpan {
+	runs := make([]pdfPaintSpan, 0, len(line.runs))
 	x := pdfLeft + line.left
-	// ActualText binds the complete logical line to its visible glyphs. Cluster
-	// spans leave fallback-font and combining-mark order to extractor heuristics.
-	actual, err := pdfUnicode(string(line.text[line.start:line.end]))
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(stream, "/Span << /ActualText <%s> >> BDC\n", actual)
 	for _, run := range line.runs {
+		span := pdfPaintSpan{start: len(line.text), rtl: run.Direction == di.DirectionRTL, glyphs: make([]pdfPlacedGlyph, 0, len(run.Glyphs))}
 		for i := 0; i < len(run.Glyphs); {
 			first := run.Glyphs[i]
 			end := i + 1
 			for end < len(run.Glyphs) && run.Glyphs[end].TextIndex() == first.TextIndex() {
 				end++
 			}
-			cluster := string(line.text[first.TextIndex() : first.TextIndex()+first.RunesCount()])
+			startGlyph := len(span.glyphs)
+			semantic := -1
 			for j := i; j < end; j++ {
 				g := run.Glyphs[j]
-				semantic := ""
-				if j == i {
-					semantic = cluster
+				width := float64(run.Face.HorizontalAdvance(g.GlyphID)) * pdfSize / float64(run.Face.Upem())
+				graphic := width == 0 || g.Advance == 0 && g.Width == 0 && g.Height == 0
+				placed := pdfPlacedGlyph{key: pdfGlyphKey{pdfOutlineKey: pdfOutlineKey{run.Face, g.GlyphID}, rtl: span.rtl}, x: x + float64(g.XOffset)/64, y: baseline + float64(g.YOffset)/64, width: width, graphic: graphic}
+				if semantic < 0 && !graphic {
+					semantic = len(span.glyphs)
 				}
-				glyph, glyphErr := p.glyph(pdfGlyphKey{pdfOutlineKey{run.Face, g.GlyphID}, semantic})
-				if glyphErr != nil {
-					return glyphErr
-				}
-				fmt.Fprintf(stream, "BT /F%d %d Tf 1 0 0 1 %.4f %.4f Tm <%02X> Tj ET\n", glyph.subset+1, pdfSize, x+float64(g.XOffset)/64, p.y+float64(g.YOffset)/64, glyph.code)
+				span.glyphs = append(span.glyphs, placed)
 				x += float64(g.Advance) / 64
 			}
+			if semantic < 0 {
+				semantic = startGlyph
+			} // A real zero-width source glyph, never a substitute.
+			span.glyphs[semantic].key.text = string(line.text[first.TextIndex() : first.TextIndex()+first.RunesCount()])
+			span.start = min(span.start, first.TextIndex())
+			span.end = max(span.end, first.TextIndex()+first.RunesCount())
 			i = end
 		}
+		if len(span.glyphs) > 0 {
+			runs = append(runs, span)
+		}
+	}
+	sort.Slice(runs, func(i, j int) bool { return runs[i].start < runs[j].start })
+	spans := make([]pdfPaintSpan, 0, len(runs))
+	for _, run := range runs {
+		if len(spans) > 0 && spans[len(spans)-1].rtl == run.rtl && spans[len(spans)-1].end == run.start {
+			previous := &spans[len(spans)-1]
+			previous.end = run.end
+			previous.glyphs = append(previous.glyphs, run.glyphs...)
+		} else {
+			spans = append(spans, run)
+		}
+	}
+	return spans
+}
+
+func (p *pdfDocument) paint(line pdfLine) error {
+	stream := p.pages[len(p.pages)-1].stream
+	var count int64
+	for _, run := range line.runs {
+		count += int64(len(run.Glyphs))
+	}
+	if count > p.remaining/384 {
+		return ErrPDFLimit
+	}
+	workspace := count * 384
+	if err := p.charge(workspace); err != nil {
+		return err
+	}
+	defer func() { p.remaining += workspace }()
+	p.y -= line.ascent
+	for _, span := range p.placedSpans(line, p.y) {
+		if err := p.paintSpan(stream, line.text, span); err != nil {
+			return err
+		}
+	}
+	p.y -= line.height - line.ascent
+	return stream.err
+}
+
+func (p *pdfDocument) paintSpan(stream *pdfBuffer, text []rune, span pdfPaintSpan) error {
+	actual, err := pdfUnicode(string(text[span.start:span.end]))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stream, "/Span << /ActualText <%s> >> BDC\n", actual)
+	hasText := false
+	for _, g := range span.glyphs {
+		hasText = hasText || !g.graphic
+	}
+	// Combining outlines keep their exact shaped positions without introducing
+	// a zero-length replacement-text advance into the enclosing directional span.
+	for i, g := range span.glyphs {
+		if !g.graphic {
+			continue
+		}
+		if !hasText && i == 0 {
+			span.glyphs[i].graphic = false
+			continue
+		}
+		form, err := p.outline(g.key.pdfOutlineKey)
+		if err != nil {
+			return err
+		}
+		if p.graphics == nil {
+			p.graphics = make(map[int]bool)
+		}
+		if !p.graphics[form] {
+			if err := p.charge(64); err != nil {
+				return err
+			}
+			p.graphics[form] = true
+		}
+		scale := float64(pdfSize) / float64(g.key.face.Upem())
+		fmt.Fprintf(stream, "q %.10f 0 0 %.10f %.4f %.4f cm /G%d Do Q\n", scale, scale, g.x, g.y, form)
+	}
+	sort.SliceStable(span.glyphs, func(i, j int) bool {
+		left, right := span.glyphs[i].x, span.glyphs[j].x
+		if span.rtl {
+			left += span.glyphs[i].width
+			right += span.glyphs[j].width
+			return left > right
+		}
+		return left < right
+	})
+	for _, g := range span.glyphs {
+		if g.graphic {
+			continue
+		}
+		glyph, err := p.glyph(g.key)
+		if err != nil {
+			return err
+		}
+		x := g.x
+		if span.rtl {
+			x += g.width
+		}
+		fmt.Fprintf(stream, "BT /F%d %d Tf 1 0 0 1 %.4f %.4f Tm <%02X> Tj ET\n", glyph.subset+1, pdfSize, x, g.y, glyph.code)
 	}
 	fmt.Fprint(stream, "EMC\n")
-	p.y -= line.height - line.ascent
 	return stream.err
 }
 
@@ -495,14 +607,14 @@ func (p *pdfDocument) glyph(key pdfGlyphKey) (pdfGlyph, error) {
 	}
 	subset := -1
 	for i := range p.subsets {
-		if p.subsets[i].face == key.face && len(p.subsets[i].keys) < 255 {
+		if p.subsets[i].face == key.face && p.subsets[i].rtl == key.rtl && len(p.subsets[i].keys) < 255 {
 			subset = i
 			break
 		}
 	}
 	if subset < 0 {
 		subset = len(p.subsets)
-		p.subsets = append(p.subsets, pdfSubset{face: key.face, object: p.reserve()})
+		p.subsets = append(p.subsets, pdfSubset{face: key.face, object: p.reserve(), rtl: key.rtl})
 	}
 	p.subsets[subset].keys = append(p.subsets[subset].keys, key)
 	glyph := pdfGlyph{subset: subset, code: len(p.subsets[subset].keys)}
@@ -596,11 +708,24 @@ func (p *pdfDocument) finishFonts() error {
 			if key.gid == 0 {
 				left, bottom, right, top = 0, 0, 0, 0
 			}
+			shift := float64(0)
+			if subset.rtl {
+				shift = -float64(advance)
+				left += shift
+				right += shift
+				advance = -advance
+			}
 			minX = math.Min(minX, left)
 			minY = math.Min(minY, bottom)
 			maxX = math.Max(maxX, right)
 			maxY = math.Max(maxY, top)
-			proc, err := p.stream(fmt.Sprintf("%.4f 0 %.4f %.4f %.4f %.4f d1\n/g%d Do\n", advance, left, bottom, right, top, code), "")
+			body := fmt.Sprintf("%.4f 0 %.4f %.4f %.4f %.4f d1\n", advance, left, bottom, right, top)
+			if subset.rtl {
+				body += fmt.Sprintf("q 1 0 0 1 %.4f 0 cm /g%d Do Q\n", shift, code)
+			} else {
+				body += fmt.Sprintf("/g%d Do\n", code)
+			}
+			proc, err := p.stream(body, "")
 			if err != nil {
 				return err
 			}
@@ -609,8 +734,8 @@ func (p *pdfDocument) finishFonts() error {
 			fmt.Fprintf(widths, "%.4f ", advance)
 			fmt.Fprintf(encoding, "/c%d ", code)
 		}
-		// Only the leading glyph maps a cluster; ActualText encloses every glyph
-		// in it. An unmapped combining glyph cannot duplicate semantic text.
+		// One visible glyph maps each source cluster; directional ActualText
+		// spans retain its complete logical Unicode without duplicating marks.
 		for start := 0; start < len(mapped); start += 100 {
 			end := min(start+100, len(mapped))
 			fmt.Fprintf(cmap, "%d beginbfchar\n", end-start)
@@ -673,6 +798,18 @@ func (p *pdfDocument) finish() error {
 	if resources.err != nil {
 		return resources.err
 	}
+	graphics := &pdfBuffer{document: p}
+	ids := make([]int, 0, len(p.graphics))
+	for id := range p.graphics {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	for _, id := range ids {
+		fmt.Fprintf(graphics, "/G%d %d 0 R ", id, id)
+	}
+	if graphics.err != nil {
+		return graphics.err
+	}
 	kids := &pdfBuffer{document: p}
 	for _, page := range p.pages {
 		if page.stream.err != nil {
@@ -683,7 +820,7 @@ func (p *pdfDocument) finish() error {
 			return err
 		}
 		p.objects[page.content-1] = fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(body), body)
-		p.objects[page.object-1] = fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << %s >> >> /Contents %d 0 R >>", resources.String(), page.content)
+		p.objects[page.object-1] = fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << %s >> /XObject << %s >> >> /Contents %d 0 R >>", resources.String(), graphics.String(), page.content)
 		fmt.Fprintf(kids, "%d 0 R ", page.object)
 	}
 	if kids.err != nil {

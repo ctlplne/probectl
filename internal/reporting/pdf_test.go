@@ -130,6 +130,25 @@ type pdfShortWriter struct{}
 
 func (pdfShortWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
 
+func TestReportPDFDirectionalUnicodeKeepsLogicalContent(t *testing.T) {
+	d := testDocument()
+	mixed := "Latin العربية שָׁלוֹם 東京 🚀 suffix"
+	d.Metrics = map[string]string{"mixed": mixed, "cluster": "RTL-MARK-BEGIN שָׁ RTL-MARK-END", "wrapped": strings.Repeat("العربية שָׁלוֹם 東京 🚀 ", 80)}
+	body, err := RenderPDF(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	semantic := pdfSemanticText(t, body)
+	if !strings.Contains(semantic, "mixed: "+mixed) || !strings.Contains(semantic, "RTL-MARK-BEGIN שָׁ RTL-MARK-END") {
+		t.Fatal("directional fallback changed original logical Unicode")
+	}
+	for _, word := range []string{"العربية", "שָׁלוֹם", "東京", "🚀"} {
+		if strings.Count(semantic, word) != 81 {
+			t.Fatalf("wrapped directional source omitted or duplicated %q", word)
+		}
+	}
+}
+
 // CI invokes this root explicitly with an owned artifact directory. Normal
 // unit runs still exercise the same specimen without requiring external tools.
 func TestReportPDFIndependentSpecimen(t *testing.T) {
@@ -137,15 +156,16 @@ func TestReportPDFIndependentSpecimen(t *testing.T) {
 	d.Title = "Unicode report proof"
 	d.TenantName = "Acme 東京"
 	d.Metrics = map[string]string{
-		"latin":   "LATIN-BEGIN café naïve Straße e\u0301 LATIN-END",
-		"arabic":  "ARABIC-BEGIN العربية موقع الشبكة ARABIC-END",
-		"indic":   "INDIC-BEGIN नमस्ते दुनिया INDIC-END",
-		"hebrew":  "HEBREW-BEGIN שָׁלוֹם HEBREW-END",
-		"thai":    "THAI-BEGIN สวัสดี THAI-END",
-		"cjk":     "CJK-BEGIN 東京 中文 CJK-END",
-		"emoji":   "EMOJI-BEGIN 🚀 🌐 EMOJI-END",
-		"literal": "LITERAL-BEGIN ＝SUM(1,2) (quoted) \\ left  right LITERAL-END",
-		"wrapped": "WRAP-BEGIN " + strings.Repeat("complete-value ", 120) + "WRAP-END",
+		"latin":          "LATIN-BEGIN café naïve Straße e\u0301 LATIN-END",
+		"arabic":         "ARABIC-BEGIN العربية موقع الشبكة ARABIC-END",
+		"indic":          "INDIC-BEGIN नमस्ते दुनिया INDIC-END",
+		"hebrew":         "HEBREW-BEGIN שָׁלוֹם HEBREW-END",
+		"hebrew_cluster": "HEBREW-CLUSTER-BEGIN שָׁ HEBREW-CLUSTER-END",
+		"thai":           "THAI-BEGIN สวัสดี THAI-END",
+		"cjk":            "CJK-BEGIN 東京 中文 CJK-END",
+		"emoji":          "EMOJI-BEGIN 🚀 🌐 EMOJI-END",
+		"literal":        "LITERAL-BEGIN ＝SUM(1,2) (quoted) \\ left  right LITERAL-END",
+		"wrapped":        "WRAP-BEGIN " + strings.Repeat("complete-value ", 120) + "WRAP-END",
 	}
 	rows := make([][]string, 120)
 	for i := range rows {

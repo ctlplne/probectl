@@ -20,6 +20,7 @@ const samples = [
   "cjk: CJK-BEGIN 東京 中文 CJK-END",
   "emoji: EMOJI-BEGIN 🚀 🌐 EMOJI-END",
   "hebrew: HEBREW-BEGIN שָׁלוֹם HEBREW-END",
+  "hebrew_cluster: HEBREW-CLUSTER-BEGIN שָׁ HEBREW-CLUSTER-END",
   "indic: INDIC-BEGIN नमस्ते दुनिया INDIC-END",
   "latin: LATIN-BEGIN café naïve Straße e\u0301 LATIN-END",
   "literal: LITERAL-BEGIN ＝SUM(1,2) (quoted) \\ left  right LITERAL-END",
