@@ -93,8 +93,8 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 		} else {
 			t.Fatal("same-tenant private artifact read succeeded, want NotFound")
 		}
-		artifacts, err := (DashboardReports{}).ListArtifactHeaders(ctx, sc, "bob")
-		if err != nil || len(artifacts) != 0 {
+		artifacts, charged, err := (DashboardReports{}).ListArtifactHeaderBatch(ctx, sc, "bob", nil, 1<<20)
+		if err != nil || len(artifacts) != 0 || charged != 0 {
 			t.Fatalf("same-tenant private artifact list = %+v / %v", artifacts, err)
 		}
 		return nil
@@ -132,8 +132,8 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 		if err != nil || len(schedules) != 0 {
 			t.Fatalf("tenant B schedule list = %+v / %v", schedules, err)
 		}
-		artifacts, err := (DashboardReports{}).ListArtifactHeaders(ctx, sc, "alice")
-		if err != nil || len(artifacts) != 0 {
+		artifacts, charged, err := (DashboardReports{}).ListArtifactHeaderBatch(ctx, sc, "alice", nil, 1<<20)
+		if err != nil || len(artifacts) != 0 || charged != 0 {
 			t.Fatalf("tenant B artifact list = %+v / %v", artifacts, err)
 		}
 		return nil
