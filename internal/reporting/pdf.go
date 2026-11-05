@@ -97,7 +97,7 @@ func WritePDF(ctx context.Context, target io.Writer, d Document, limits PDFLimit
 	if err != nil {
 		return PDFReceipt{}, err
 	}
-	p := &pdfDocument{ctx: ctx, remaining: remaining, limits: limits, fonts: fonts, objects: []string{"", ""}, glyphs: make(map[pdfGlyphKey]pdfGlyph), forms: make(map[pdfOutlineKey]int)}
+	p := &pdfDocument{ctx: ctx, remaining: remaining, limits: limits, fonts: fonts, objects: []pdfObject{{}, {}}, glyphs: make(map[pdfGlyphKey]pdfGlyph), forms: make(map[pdfOutlineKey]int)}
 	p.shaper.SetFontCacheSize(len(fonts.faces))
 	header := []string{Banner, "Tenant: " + d.TenantName + " (" + d.TenantScope + ")", "Absolute time: " + d.AbsoluteFrom.UTC().Format(time.RFC3339Nano) + " to " + d.AbsoluteTo.UTC().Format(time.RFC3339Nano)}
 	for _, value := range header {
@@ -175,13 +175,20 @@ type pdfPage struct {
 	object, content int
 	stream          *pdfBuffer
 }
+
+// Page content retains its already-accounted body; framing is serialized separately.
+type pdfObject struct {
+	body   string
+	stream bool
+}
+
 type pdfDocument struct {
 	ctx             context.Context
 	remaining       int64
 	limits          PDFLimits
 	fonts           *pdfFontSet
 	shaper          shaping.HarfbuzzShaper
-	objects         []string
+	objects         []pdfObject
 	glyphs          map[pdfGlyphKey]pdfGlyph
 	forms           map[pdfOutlineKey]int
 	graphics        map[int]bool
@@ -585,13 +592,16 @@ func (p *pdfDocument) table(table CSVTable) error {
 	return nil
 }
 
-func (p *pdfDocument) reserve() int { p.objects = append(p.objects, ""); return len(p.objects) }
+func (p *pdfDocument) reserve() int {
+	p.objects = append(p.objects, pdfObject{})
+	return len(p.objects)
+}
 func (p *pdfDocument) object(body string) (int, error) {
 	if err := p.charge(int64(len(body))*2 + 128); err != nil {
 		return 0, err
 	}
 	id := p.reserve()
-	p.objects[id-1] = body
+	p.objects[id-1] = pdfObject{body: body}
 	return id, nil
 }
 func (p *pdfDocument) stream(body string, dictionary string) (int, error) {
@@ -765,7 +775,7 @@ func (p *pdfDocument) finishFonts() error {
 		if err := p.charge(int64(len(body))*2 + 128); err != nil {
 			return err
 		}
-		p.objects[subset.object-1] = body
+		p.objects[subset.object-1] = pdfObject{body: body}
 	}
 	return nil
 }
@@ -818,18 +828,18 @@ func (p *pdfDocument) finish() error {
 			return page.stream.err
 		}
 		body := page.stream.String()
-		if err := p.charge(int64(len(body))*2 + 256); err != nil {
+		if err := p.charge(256); err != nil {
 			return err
 		}
-		p.objects[page.content-1] = fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(body), body)
-		p.objects[page.object-1] = fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << %s >> /XObject << %s >> >> /Contents %d 0 R >>", resources.String(), graphics.String(), page.content)
+		p.objects[page.content-1] = pdfObject{body: body, stream: true}
+		p.objects[page.object-1] = pdfObject{body: fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << %s >> /XObject << %s >> >> /Contents %d 0 R >>", resources.String(), graphics.String(), page.content)}
 		fmt.Fprintf(kids, "%d 0 R ", page.object)
 	}
 	if kids.err != nil {
 		return kids.err
 	}
-	p.objects[0] = "<< /Type /Catalog /Pages 2 0 R >>"
-	p.objects[1] = fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", kids.String(), len(p.pages))
+	p.objects[0] = pdfObject{body: "<< /Type /Catalog /Pages 2 0 R >>"}
+	p.objects[1] = pdfObject{body: fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", kids.String(), len(p.pages))}
 	return p.ctx.Err()
 }
 
@@ -840,11 +850,15 @@ func (p *pdfDocument) serialize(out *boundedPDFWriter) error {
 	}
 	offsets := make([]int64, len(p.objects))
 	for i, object := range p.objects {
-		if object == "" {
+		if object.body == "" {
 			return fmt.Errorf("PDF contains an incomplete object")
 		}
 		offsets[i] = p.limits.Bytes - out.remaining
-		fmt.Fprintf(out, "%d 0 obj\n%s\nendobj\n", i+1, object)
+		if object.stream {
+			fmt.Fprintf(out, "%d 0 obj\n<< /Length %d >>\nstream\n%sendstream\nendobj\n", i+1, len(object.body), object.body)
+		} else {
+			fmt.Fprintf(out, "%d 0 obj\n%s\nendobj\n", i+1, object.body)
+		}
 		if out.err != nil {
 			return out.err
 		}

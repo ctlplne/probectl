@@ -66,7 +66,7 @@ func TestSubjectErasureInvalidatesOpaqueReportChunksOnlyInTenant(t *testing.T) {
 				}
 				if _, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_report_artifacts
      (tenant_id,id,dashboard_id,schedule_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
-     VALUES($1,$2,'same-view',$4,'csv','text/csv','owned.csv',NULL,$3,statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::text))`, tenant, id, generator, schedule); err != nil {
+     VALUES($1,$2,'same-view',$4,'csv','text/csv','owned.csv',NULL,$3,statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::uuid::text))`, tenant, id, generator, schedule); err != nil {
 					return err
 				}
 				if _, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,$2,0,$3)`, tenant, id, []byte("body")); err != nil {

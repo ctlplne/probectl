@@ -40,10 +40,10 @@ type releaseFlowReport struct {
 func proveReleaseSourceReports(t *testing.T, root, work, ca, cert, key string, stack composeStack, secrets storeSecrets,
 	cli func(...string) string, readers []api) []releaseFlowReport {
 	t.Helper()
-	return proveReleaseSourceReportsForSender(t, root, work, ca, cert, key, stack, secrets, cli, readers, false)
+	return proveReleaseSourceReportsForSender(t, root, work, ca, cert, key, "", stack, secrets, cli, readers, false)
 }
 
-func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key string, stack composeStack, secrets storeSecrets,
+func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key, evidenceAddr string, stack composeStack, secrets storeSecrets,
 	cli func(...string) string, readers []api, packet bool) []releaseFlowReport {
 	t.Helper()
 	collector, command := filepath.Join(work, "probectl-flow-agent"), filepath.Join(work, "probectl-report-cli")
@@ -68,7 +68,7 @@ func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key 
 		if p.packet {
 			p.sourceName = "Captured packet source " + strconv.Itoa(i)
 		}
-		address, stop, exited := startReleaseReportCollector(t, p, collector, work, ca, cert, key, stack, secrets, cli, i)
+		address, stop, exited := startReleaseReportCollector(t, p, collector, work, ca, cert, key, evidenceAddr, stack, secrets, cli, i)
 		defer stop()
 		if p.packet {
 			stopExporter := p.sendCapturedPackets(t, address)
@@ -86,6 +86,12 @@ func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key 
 				ID string `json:"snapshot_id"`
 			} `json:"flow_paging"`
 		}
+		ingested := false
+		defer func() {
+			if p.packet && !ingested {
+				t.Logf("real packet last stored query: rows=%d bytes=%s packets=%s flows=%s; expected packets=%d bytes=%d flows=1", len(observed.Flow.Rows), observed.Flow.Totals["bytes:total"], observed.Flow.Totals["packets:total"], observed.Flow.Totals["flows:total"], releasePacketCount, p.quantity)
+			}
+		}()
 		waitFor(t, "release flow through tenant-forced ClickHouse reader", 90*time.Second, func() bool {
 			if err := exited(); err != nil {
 				t.Fatal("release flow collector exited during source ingestion", err)
@@ -96,6 +102,7 @@ func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key 
 		if observed.Flow.Totals["flows:total"] != "1" || observed.Paging.ID == "" {
 			t.Fatal("release source lost exact flow count or object-backed snapshot")
 		}
+		ingested = true
 		if p.packet {
 			p.retagCapturedHistory(t, plan)
 			p.api.json(t, http.StatusOK, http.MethodPost, "/v1/explorer/query", map[string]any{"source": "flow", "flow": plan}, &observed)
@@ -186,7 +193,7 @@ func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key 
 	return proofs
 }
 
-func startReleaseReportCollector(t *testing.T, p *releaseFlowReport, collector, work, ca, cert, key string,
+func startReleaseReportCollector(t *testing.T, p *releaseFlowReport, collector, work, ca, cert, key, evidenceAddr string,
 	stack composeStack, secrets storeSecrets, cli func(...string) string, i int) (string, func(), func() error) {
 	t.Helper()
 	number := 7 + i
@@ -215,6 +222,7 @@ func startReleaseReportCollector(t *testing.T, p *releaseFlowReport, collector, 
 	}
 	if p.packet {
 		p.preparePacketTag(t, agent)
+		p.preparePacketIdentity(t, cli, agent, hostname, ca, evidenceAddr, env)
 	}
 	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {

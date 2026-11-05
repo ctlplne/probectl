@@ -151,7 +151,7 @@ def run(output: Path) -> None:
     source = Path("internal/reporting/pdf.go")
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
     original = source.read_text()
-    seam = "\tfor _, table := range d.Tables {\n\t\tif err := p.table(table); err != nil {\n\t\t\treturn PDFReceipt{}, err\n\t\t}\n\t}"
+    seam = '\tfor _, table := range d.Tables {\n\t\tif err := p.table(table); err != nil {\n\t\t\treturn PDFReceipt{}, fmt.Errorf("PDF table rendering: %w", err)\n\t\t}\n\t}'
     if original.count(seam) != 1:
         raise RuntimeError("PDF complete-table omission control seam is unavailable")
     try:
