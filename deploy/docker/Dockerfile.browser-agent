@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Chromium and its OS dependencies stay pinned independently of Node. This
 # target also supplies the local rendered-a11y toolchain, so it cannot silently
 # inherit an older npm from the Playwright base.
-FROM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS node-toolchain
+FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS node-toolchain
 FROM mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c AS browser-toolchain
 # CQA-005: apply published Ubuntu security fixes without changing Chromium or
 # the distro. Exact versions fail closed if the repository stops serving them.
