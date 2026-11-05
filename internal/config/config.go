@@ -1339,13 +1339,13 @@ func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.MCPTLSCertFile = l.str("PROBECTL_MCP_TLS_CERT_FILE", "")
 	cfg.MCPTLSKeyFile = l.str("PROBECTL_MCP_TLS_KEY_FILE", "")
 	cfg.MCPRatePerMin = l.intRange("PROBECTL_MCP_RATE_PER_MIN", 120, 0, 100000)
-	cfg.MCPStdioWorkers = l.intRange("PROBECTL_MCP_STDIO_WORKERS", 2, 1, 10000)
-	cfg.MCPStdioQueued = l.intRange("PROBECTL_MCP_STDIO_QUEUED", 8, 1, 10000)
+	cfg.MCPStdioWorkers = l.intRange("PROBECTL_MCP_STDIO_WORKERS", 2, 1, min(int(^uint(0)>>1)/80, 1<<31-2))
+	cfg.MCPStdioQueued = l.intRange("PROBECTL_MCP_STDIO_QUEUED", 8, 1, int(^uint(0)>>1)/24)
 	cfg.MCPHTTPWorkTimeout = l.dur("PROBECTL_MCP_HTTP_WORK_TIMEOUT", time.Minute)
-	if cfg.MCPHTTPWorkTimeout <= 0 || cfg.MCPHTTPWorkTimeout > 24*time.Hour {
-		l.errf("PROBECTL_MCP_HTTP_WORK_TIMEOUT must be positive and at most24h")
+	if cfg.MCPHTTPWorkTimeout <= 0 {
+		l.errf("PROBECTL_MCP_HTTP_WORK_TIMEOUT must be positive")
 	}
-	cfg.MCPHTTPActiveRequests = l.intRange("PROBECTL_MCP_HTTP_ACTIVE_REQUESTS", 1024, 1, 1000000)
+	cfg.MCPHTTPActiveRequests = l.intRange("PROBECTL_MCP_HTTP_ACTIVE_REQUESTS", 1024, 1, int(^uint(0)>>1))
 	for _, value := range l.list("PROBECTL_MCP_ALLOWED_ORIGINS") {
 		origin, err := auth.CanonicalHTTPOrigin(value)
 		if err != nil {

@@ -72,16 +72,23 @@ func TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV(t *testin
 				}
 			}
 		})
-		budget := flowstore.DefaultExplorerBudget()
+		perSource := flowstore.DefaultExplorerBudget()
+		budget := perSource
 		budget.ExecutionLimit = 120 * time.Second
 		budget.MemoryBytes = 8 << 30
-		budget.ResponseBytes = 128 << 20
-		budget.IntermediateGroups = 1000000
-		budget.ReadRows = 20000000
-		budget.ReadBytes = 4 << 30
+		// Each source selects the already-supported complete 50,000-row result.
+		// PlanBatch divides retained allowances across its declared sources, so
+		// reserve a full standalone allowance for each, rather than shrinking
+		// those results to fit the old aggregate test profile.
+		budget.ResponseBytes = perSource.ResponseBytes * completeSourceParts
+		budget.IntermediateGroups = perSource.IntermediateGroups * completeSourceParts
+		budget.InterfaceItems = perSource.InterfaceItems * completeSourceParts
+		budget.ReadRows = perSource.ReadRows * completeSourceParts
+		budget.ReadBytes = 8 << 30
 		if err := flowstore.AttachExplorerBudget(source, budget); err != nil {
 			t.Fatal(err)
 		}
+		t.Logf("complete source operator profile: sources=%d read_rows=%d read_bytes=%d response_bytes=%d intermediate_groups=%d interface_items=%d memory_bytes=%d execution=%s", completeSourceParts, budget.ReadRows, budget.ReadBytes, budget.ResponseBytes, budget.IntermediateGroups, budget.InterfaceItems, budget.MemoryBytes, budget.ExecutionLimit)
 		views := flow.NewPostgresQueryViewStore(f.db.Pool(), 0, audit.TenantRecord)
 		f.srv.WithFlowStore(source).WithFlowQueryViews(views).WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(f.db.Pool(), 0, audit.TenantRecord))
 		policy := fairness.DefaultPolicy()

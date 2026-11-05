@@ -114,7 +114,9 @@ func TestModernStdioCancellationReleasesSourceAndSuppressesLateOutput(t *testing
 		active.Add(1)
 		return func() { active.Add(-1); releases.Add(1); released <- struct{}{} }, nil
 	})
-	WithStdioLimits(StdioLimits{Workers: 1, Queued: 2})(s)
+	// Exercise cancellation under an operator queue above the former 10,000
+	// ceiling; admission remains finite and only one worker executes.
+	WithStdioLimits(StdioLimits{Workers: 1, Queued: 10001})(s)
 	p := nativePrincipal()
 	pipe := openModernStdio(t, s, p, func(context.Context) (*auth.Principal, error) { return p, nil })
 	pipe.send(t, progressRequest(t, "owned-progress"))
@@ -267,7 +269,10 @@ func TestModernStdioInvalidRefreshCancelsActiveAndQueuedRequests(t *testing.T) {
 }
 
 func TestModernStdioInvalidLimitsRefuseBeforeReading(t *testing.T) {
-	for _, limits := range []StdioLimits{{}, {Workers: -1, Queued: 8}, {Workers: 2, Queued: 10001}} {
+	if err := (StdioLimits{Workers: 10001, Queued: 10001}).Validate(); err != nil {
+		t.Fatal("valid operator capacity rejected by a fixed maximum", err)
+	}
+	for _, limits := range []StdioLimits{{}, {Workers: -1, Queued: 8}, {Workers: 2, Queued: int(^uint(0) >> 1)}} {
 		s := newTestServer(&fakeBackend{}, testGate(), WithStdioLimits(limits))
 		var output bytes.Buffer
 		if err := s.ServeStdio(t.Context(), strings.NewReader("not read"), &output, stdioPrincipal()); err == nil || output.Len() != 0 {

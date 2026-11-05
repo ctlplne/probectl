@@ -20,8 +20,13 @@ type StdioLimits struct {
 func DefaultStdioLimits() StdioLimits { return StdioLimits{Workers: 2, Queued: 8} }
 
 func (b StdioLimits) Validate() error {
-	if b.Workers < 1 || b.Workers > 10000 || b.Queued < 1 || b.Queued > 10000 {
-		return errors.New("mcp: stdio workers and queued requests must each be between 1 and 10000")
+	// One output channel has two 40-byte entries per worker; WaitGroup also tracks
+	// one writer. The control queue stores 24-byte slice headers on 64-bit
+	// hosts (this conservative divisor is safe on 32-bit hosts as well).
+	// Capacity is operator policy, bounded here only by representation.
+	maxInt := int(^uint(0) >> 1)
+	if b.Workers < 1 || b.Workers > min(maxInt/80, 1<<31-2) || b.Queued < 1 || b.Queued > maxInt/24 {
+		return errors.New("mcp: stdio workers and queued requests must be positive and counter/channel-size safe")
 	}
 	return nil
 }
