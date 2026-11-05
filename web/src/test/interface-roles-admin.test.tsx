@@ -106,6 +106,7 @@ for (const theme of ['light', 'dark']) {
       const previous = Object.getOwnPropertyDescriptor(window, 'localStorage')
       Object.defineProperty(window, 'localStorage', {
         configurable: true,
+        enumerable: true,
         value: { getItem: () => theme, setItem: vi.fn() },
       })
       try {
@@ -181,7 +182,7 @@ for (const theme of ['light', 'dark']) {
         if (previous) Object.defineProperty(window, 'localStorage', previous)
       }
     }
-  })
+  }, 60_000)
 }
 
 test('read-only role configuration exposes no mutation controls', async () => {
