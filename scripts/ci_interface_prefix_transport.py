@@ -372,18 +372,18 @@ def configuration_regexp_expansion_control():
 def prefix_poll_refresh_control():
     source = Path("internal/device/entity_evidence.go").resolve()
     original = source.read_text()
-    seam = "if skip && !inv.prefixAttempted {"
+    seam = "PrefixAttempted: inv.prefixAttempted, Prefixes: inv.interfacePrefixes"
     assert original.count(seam) == 1
     out = Path("artifacts/interface-prefix-transport").resolve()
-    path = out / "prefix_poll_identity_refresh_restored.go"
-    path.write_text(original.replace(seam, "if skip {"))
-    overlay = out / "prefix_poll_identity_refresh_restored.json"
+    path = out / "prefix_poll_metadata_fingerprint_omitted.go"
+    path.write_text(original.replace(seam, "PrefixAttempted: false, Prefixes: nil"))
+    overlay = out / "prefix_poll_metadata_fingerprint_omitted.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
     root = "TestSNMPPollPrefixEvidenceKeepsCompleteEpochAndUnavailableFence"
     result = execute(
         "internal/device",
         (root,),
-        "prefix_poll_identity_refresh_restored",
+        "prefix_poll_metadata_fingerprint_omitted",
         overlay=overlay,
     )
     if not report_regression_failed_on_assertion(
@@ -392,10 +392,10 @@ def prefix_poll_refresh_control():
         package=PREFIX + "internal/device",
         root=root,
         child="",
-        marker="new prefix attempt retained the identity refresh epoch instead of current authority",
+        marker="changed prefix availability retained the identity refresh epoch",
     ):
         raise RuntimeError(
-            "restored identity refresh did not fail its current-prefix assertion"
+            "omitted prefix fingerprint did not fail its current-prefix assertion"
         )
     print(json.dumps({"prefix_poll_current_epoch_control": True}))
 

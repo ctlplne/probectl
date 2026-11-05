@@ -40,7 +40,7 @@ func (r *Runtime) collectSNMPPrefixEvidence(ctx context.Context, conn snmpConn, 
 
 // Only the configured-target observation may carry the complete prefix set.
 // Unavailable/over-budget input publishes nil, never a previous/partial table.
-// Its new collection epoch fences old metadata at the current-source loader.
+// Its changed fingerprint sends a new collection epoch that fences old data.
 func (r *Runtime) withSNMPPrefixMetadata(claim entity.Observation, inv Inventory, at time.Time) entity.Observation {
 	if !inv.prefixAttempted || inv.interfacePrefixes == nil {
 		return claim

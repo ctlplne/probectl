@@ -32,8 +32,11 @@ poll reads the complete supported IP-MIB interface-prefix table over that same
 connection. The table travels only on the configured-target observation, in
 its own bounded request. An unsupported, malformed, incomplete or over-budget
 walk publishes no prefix table in the new poll epoch; readers must withhold
-older tables. Identity deduplication does not delay these epochs for twelve
-hours. Collector counters `interface_prefix_snapshots` and
+older tables. Prefix contents and availability participate in the identity
+fingerprint, so changes send immediately while unchanged complete observations
+retain the existing twelve-hour refresh and explicit 24-hour receiver expiry.
+Fault recovery forces a new successful observation even if the fingerprint is
+unchanged. Collector counters `interface_prefix_snapshots` and
 `interface_prefix_unavailable` expose the outcomes. Raw device metrics continue
 when prefix evidence is unavailable. Current-source freshness enforcement and
 same-router FRR/SNMP proof remain required before automatic role activation.

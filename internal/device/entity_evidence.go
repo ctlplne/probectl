@@ -23,8 +23,9 @@ import (
 // The writer retains every historical observation. A stable poll therefore
 // refreshes its 24-hour authority twice daily instead of creating a new row
 // for every one-minute SNMP poll. A changed identifier sends immediately.
-// Complete prefix attempts use each poll's epoch instead: they must refresh
-// current metadata and fence prior tables when the latest walk is unavailable.
+// Prefix content and availability participate in the same fingerprint. A
+// changed/withdrawn table sends immediately; unchanged verified observations
+// retain the refresh cadence and the receiver's explicit 24-hour expiry.
 const (
 	entityEvidenceRefresh         = 12 * time.Hour
 	entityEvidenceUnresolvedRetry = time.Hour
@@ -50,7 +51,10 @@ func identityFingerprint(target string, inv Inventory, neighbors []NeighborEvide
 		Target, SysName, SysDescr, PeerAddress string
 		Interfaces                             []interfaceIdentity
 		Neighbors                              []neighborIdentity
-	}{Target: target, SysName: inv.SysName, SysDescr: inv.SysDescr, PeerAddress: inv.peerAddress.String()}
+		PrefixAttempted                        bool
+		Prefixes                               []snmpInterfacePrefix
+	}{Target: target, SysName: inv.SysName, SysDescr: inv.SysDescr, PeerAddress: inv.peerAddress.String(),
+		PrefixAttempted: inv.prefixAttempted, Prefixes: inv.interfacePrefixes}
 	indexes := make([]uint32, 0, len(inv.Interfaces))
 	for index := range inv.Interfaces {
 		indexes = append(indexes, index)
@@ -109,6 +113,12 @@ func (r *Runtime) RefreshEvidenceAfterRotation() {
 
 func (r *Runtime) clearSNMPFault(address string) {
 	r.evidenceMu.Lock()
+	if !r.faultLast[address].IsZero() || r.faultPending[address].ID != "" {
+		// A successful base poll must restate current evidence after a fault,
+		// even when the complete fingerprint is unchanged. A failed evidence
+		// RPC leaves the cache absent so the next successful poll retries.
+		delete(r.evidenceLast, address)
+	}
 	delete(r.faultLast, address)
 	delete(r.faultPending, address)
 	r.evidenceMu.Unlock()
@@ -187,10 +197,10 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 		((!last.sentAt.IsZero() && time.Since(last.sentAt) < entityEvidenceRefresh) ||
 			(!last.retryAt.IsZero() && time.Since(last.retryAt) < entityEvidenceUnresolvedRetry))
 	r.evidenceMu.Unlock()
-	// A complete prefix attempt is a new collection epoch and negative fence,
-	// including an unavailable result. Its full interface inventory must share
-	// that epoch; identity deduplication must not retain an older prefix table.
-	if skip && !inv.prefixAttempted {
+	// The fingerprint includes complete prefix contents and availability.
+	// Changes bypass the ordinary identity refresh without a per-poll append
+	// stream. Fault recovery also invalidates the previous cached receipt.
+	if skip {
 		return
 	}
 	source := entity.SourceKey{AgentID: r.cfg.AgentID, Kind: entity.DeviceTarget,

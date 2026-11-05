@@ -74,8 +74,14 @@ func TestSNMPPollPrefixEvidenceKeepsCompleteEpochAndUnavailableFence(t *testing.
 		before := len(evidence.claims)
 		runtime.pollOnce(t.Context(), runtime.cfg.Devices[0], Credential{Community: "public"})
 		claims := evidence.claims[before:]
+		if cycle == 1 {
+			if len(claims) != 0 {
+				t.Fatal("unchanged complete prefix snapshot created a per-poll durable append")
+			}
+			continue
+		}
 		if len(claims) == 0 || claims[0].SourceRef != "snmp:configured-target" || claims[0].ID == previousID {
-			t.Fatal("new prefix attempt retained the identity refresh epoch instead of current authority")
+			t.Fatal("changed prefix availability retained the identity refresh epoch")
 		}
 		root := claims[0]
 		previousID = root.ID
@@ -95,13 +101,23 @@ func TestSNMPPollPrefixEvidenceKeepsCompleteEpochAndUnavailableFence(t *testing.
 			}
 		}
 	}
+	beforeRecovery := len(evidence.claims)
+	runtime.emitSNMPFault(t.Context(), runtime.cfg.Devices[0], evidence.claims[len(evidence.claims)-1].ObservedAt)
+	if len(evidence.faults) != 1 {
+		t.Fatal("fault recovery prerequisite did not record the owned fault")
+	}
+	runtime.pollOnce(t.Context(), runtime.cfg.Devices[0], Credential{Community: "public"})
+	recovered := evidence.claims[beforeRecovery:]
+	if len(recovered) == 0 || recovered[0].ID == previousID || len(recovered[0].SNMPInterfacePrefixes) != 2 {
+		t.Fatal("unchanged prefix fingerprint suppressed successful evidence after a fault")
+	}
 	for _, batch := range evidence.batches {
 		if batch[0].SourceRef == "snmp:configured-target" && len(batch) != 1 {
 			t.Fatal("complete prefix table did not receive its own request envelope")
 		}
 	}
 	stats := runtime.StatsSnapshot()
-	if conn.prefix.calls != 4 || stats["interface_prefix_snapshots"] != 3 || stats["interface_prefix_unavailable"] != 1 || stats["poll_errors"] != 0 || len(metrics.snapshot()) == 0 {
+	if conn.prefix.calls != 5 || stats["interface_prefix_snapshots"] != 4 || stats["interface_prefix_unavailable"] != 1 || stats["poll_errors"] != 0 || len(metrics.snapshot()) == 0 {
 		t.Fatal("prefix unavailability suppressed raw metrics or lost its observable outcome", stats)
 	}
 }
