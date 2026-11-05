@@ -198,9 +198,14 @@ func (p *reportFlowProjection) validate(c capturedReportFlow) error {
 	return nil
 }
 
-func reportFlowMetrics(plan flow.QueryPlan) []reporting.CSVColumn {
+func reportFlowMetrics(plan flow.QueryPlan, plotted bool) []reporting.CSVColumn {
 	columns := make([]reporting.CSVColumn, 0, len(plan.Metrics))
 	for _, metric := range plan.Metrics {
+		// Native points contain plotted roles only; additional selections are
+		// table metrics and remain complete in the group and matrix sections.
+		if plotted && metric.Role == "additional" {
+			continue
+		}
 		columns = append(columns, reporting.CSVColumn{Name: metric.Measure + ":" + metric.Calculation, Numeric: true})
 	}
 	return columns
@@ -254,7 +259,7 @@ func appendReportFlowMetrics(row []string, columns []reporting.CSVColumn, metric
 }
 
 func (p *reportFlowProjection) groups(c capturedReportFlow, section string, fields []string, groups []flowstore.PlanRow, other *flowstore.PlanRow, totals map[string]string) error {
-	metrics := reportFlowMetrics(c.Result.Query)
+	metrics := reportFlowMetrics(c.Result.Query, false)
 	columns := []reporting.CSVColumn{{Name: "record_type"}, {Name: "is_other"}}
 	columns = append(columns, reportFlowFields(fields, "")...)
 	columns = append(columns, metrics...)
@@ -292,7 +297,7 @@ func (p *reportFlowProjection) groups(c capturedReportFlow, section string, fiel
 
 func (p *reportFlowProjection) points(c capturedReportFlow) error {
 	r := c.Result
-	metrics := reportFlowMetrics(r.Query)
+	metrics := reportFlowMetrics(r.Query, true)
 	columns := []reporting.CSVColumn{{Name: "record_type"}, {Name: "is_other"}, {Name: "event_time"}, {Name: "duration_seconds", Numeric: true}}
 	columns = append(columns, reportFlowFields(r.Query.GroupBy, "")...)
 	columns = append(columns, metrics...)
@@ -327,7 +332,7 @@ func (p *reportFlowProjection) points(c capturedReportFlow) error {
 
 func (p *reportFlowProjection) matrix(c capturedReportFlow) error {
 	r := c.Result
-	metrics := reportFlowMetrics(r.Query)
+	metrics := reportFlowMetrics(r.Query, false)
 	columns := []reporting.CSVColumn{{Name: "row_is_other"}, {Name: "column_is_other"}}
 	columns = append(columns, reportFlowFields(r.Query.GroupBy, "row.")...)
 	columns = append(columns, reportFlowFields(r.Query.MatrixWith, "column.")...)

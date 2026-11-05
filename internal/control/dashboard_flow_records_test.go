@@ -63,6 +63,86 @@ func TestReportFlowProjectionPreservesCompleteSections(t *testing.T) {
 	t.Run("success", reportFlowCompleteSections)
 }
 
+func TestReportFlowProjectionPreservesPlottedAndTableMetricRoles(t *testing.T) {
+	const blue = "00000000-0000-0000-0000-000000000002"
+	at := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	store := flowstore.NewMemory()
+	if err := store.Insert(t.Context(), []flowstore.Row{
+		{TenantID: reportRecordTenant, TS: at, Protocol: "RED_ONLY", BytesScaled: 11, PacketsScaled: 3},
+		{TenantID: blue, TS: at, Protocol: "BLUE_ONLY", BytesScaled: 22, PacketsScaled: 5},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	plan := flow.QueryPlan{From: at, To: at.Add(time.Minute), View: "bar", GroupBy: []string{"protocol"}, Metrics: []flow.QueryMetric{
+		{Measure: "bytes", Calculation: "total", Role: "primary"},
+		{Measure: "packets", Calculation: "total", Role: "secondary"},
+		{Measure: "flows", Calculation: "total", Role: "additional"},
+	}}
+	for _, lane := range []struct{ tenant, protocol, bytes, packets string }{
+		{reportRecordTenant, "RED_ONLY", "11", "3"}, {blue, "BLUE_ONLY", "22", "5"},
+	} {
+		t.Run(lane.protocol, func(t *testing.T) {
+			ctx := tenancy.WithTenant(t.Context(), tenancy.ID(lane.tenant))
+			capture := func() capturedReportFlow {
+				result, err := store.ExplorePlan(ctx, flowstore.PlanQuery{TenantID: lane.tenant, Plan: plan})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return capturedReportFlow{TenantID: lane.tenant, ID: "same-view", Version: "1", Name: "Native bar", Period: "current", Result: result}
+			}
+			tables, err := projectReportFlowRecords(ctx, []capturedReportFlow{capture()}, 1<<20, 500000)
+			if err != nil {
+				t.Fatal("complete native bar report refused", err)
+			}
+			var detail, points bool
+			for _, table := range tables {
+				if !strings.HasSuffix(table.ID, "/detail") && !strings.HasSuffix(table.ID, "/points") {
+					continue
+				}
+				isPoint := strings.HasSuffix(table.ID, "/points")
+				columns := map[string]int{}
+				for i, column := range table.Columns {
+					columns[column.Name] = i
+				}
+				_, additional := columns["flows:total"]
+				if additional == isPoint {
+					t.Fatal("native point/table metric roles changed")
+				}
+				for _, row := range readReportRecordRows(t, table) {
+					if row[0] != "detail" && row[0] != "point" {
+						continue
+					}
+					if row[columns["protocol"]] != lane.protocol || row[columns["bytes:total"]] != lane.bytes || row[columns["packets:total"]] != lane.packets {
+						t.Fatal("native report changed exact plotted values or tenant scope")
+					}
+					if isPoint {
+						points = true
+					} else {
+						detail = true
+						if row[columns["flows:total"]] != "1" {
+							t.Fatal("report lost additional table metric")
+						}
+					}
+				}
+			}
+			if !detail || !points {
+				t.Fatal("native report omitted detail or plotted records")
+			}
+			for _, missing := range []string{"bytes:total", "packets:total", "flows:total"} {
+				bad := capture()
+				if missing == "flows:total" {
+					delete(bad.Result.Rows[0].Metrics, missing)
+				} else {
+					delete(bad.Result.Series[0].Metrics, missing)
+				}
+				if partial, err := projectReportFlowRecords(ctx, []capturedReportFlow{bad}, 1<<20, 500000); err == nil || partial != nil {
+					t.Fatalf("missing required metric %s published partial report", missing)
+				}
+			}
+		})
+	}
+}
+
 func reportFlowCompleteSections(t *testing.T) {
 	c := reportRecordFixture()
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(c.TenantID))
