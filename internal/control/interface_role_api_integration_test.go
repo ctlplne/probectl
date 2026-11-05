@@ -14,10 +14,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -37,16 +38,16 @@ func TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAud
 			t.Error(err)
 		}
 	})
-	contextID, interfaceID, routerID, foreignContext := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	contextID, interfaceID, routerID, foreignContext := gouuid.NewString(), gouuid.NewString(), gouuid.NewString(), gouuid.NewString()
 	for _, tenant := range tenants {
-		if _, err := db.Pool().Exec(t.Context(), `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$3,$4,'shared site','shared vrf')`, tenant, contextID, uuid.NewString(), uuid.NewString()); err != nil {
+		if _, err := db.Pool().Exec(t.Context(), `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$3,$4,'shared site','shared vrf')`, tenant, contextID, gouuid.NewString(), gouuid.NewString()); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := db.Pool().Exec(t.Context(), `INSERT INTO entities(tenant_id,context_id,id,kind,label) VALUES($1,$2,$3,'device','router'),($1,$2,$4,'interface','uplink')`, tenant, contextID, routerID, interfaceID); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.Pool().Exec(t.Context(), `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$3,$4,'foreign','foreign')`, tenants[1], foreignContext, uuid.NewString(), uuid.NewString()); err != nil {
+	if _, err := db.Pool().Exec(t.Context(), `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$3,$4,'foreign','foreign')`, tenants[1], foreignContext, gouuid.NewString(), gouuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
 	request := func(method, path, tenant string, input any, withheld string) *httptest.ResponseRecorder {
@@ -115,11 +116,12 @@ func TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAud
 			t.Fatal("owned override unreadable without source", got.Code)
 		}
 	}
+	firstDefinition := policies[tenants[0]].Definition
 	for _, tc := range []struct {
 		method, path, grant string
 		input               any
 	}{
-		{http.MethodGet, policyPath, "entities.read", nil}, {http.MethodPut, policyPath, "agent.write", interfaceRolePolicyInput{ExpectedRevision: "0", Definition: &policies[tenants[0]].Definition}},
+		{http.MethodGet, policyPath, "entities.read", nil}, {http.MethodPut, policyPath, "agent.write", interfaceRolePolicyInput{ExpectedRevision: "0", Definition: &firstDefinition}},
 		{http.MethodGet, overridePath, "entities.read", nil}, {http.MethodPut, overridePath, "agent.write", interfaceRoleOverrideInput{ExpectedRevision: "0", Role: entity.InterfaceRoleTransit}},
 		{http.MethodDelete, overridePath, "agent.write", interfaceRoleResetInput{ExpectedID: overrides[tenants[0]].ID, ExpectedRevision: "1", Confirmed: true}},
 	} {
@@ -179,7 +181,7 @@ func TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAud
 	}
 	s.abac = originalABAC
 	// A domain-audit fault must roll back the mutation and exact version.
-	fault := "probectl_qa_beta_role_audit_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	fault := "probectl_qa_beta_role_audit_" + strings.ReplaceAll(gouuid.NewString(), "-", "")
 	if _, err := db.Pool().Exec(t.Context(), `CREATE FUNCTION public.`+fault+`() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.tenant_id='`+tenants[0]+`'::uuid AND NEW.action LIKE 'interface.role.%' THEN RAISE EXCEPTION 'owned QA role audit refused'; END IF; RETURN NEW; END $$; CREATE TRIGGER `+fault+` BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION public.`+fault+`()`); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +199,9 @@ func TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAud
 	if err := db.Pool().QueryRow(t.Context(), `SELECT revision::text FROM interface_role_policies WHERE tenant_id=$1 AND context_id=$2`, tenants[0], contextID).Scan(&stored); err != nil || stored != old.Revision {
 		t.Fatal("audit refusal committed role configuration revision", err)
 	}
-	if got := request(http.MethodGet, policyPath, tenants[0], nil, ""); got.Code != http.StatusOK || strings.Contains(got.Body.String(), "64496") {
-		t.Fatal("audit refusal committed the new policy body", got.Code)
+	afterRead := request(http.MethodGet, policyPath, tenants[0], nil, "")
+	var afterPolicy entity.InterfaceRolePolicyRecord
+	if afterRead.Code != http.StatusOK || json.Unmarshal(afterRead.Body.Bytes(), &afterPolicy) != nil || !reflect.DeepEqual(afterPolicy, old) {
+		t.Fatal("audit refusal committed the new policy body or its identity/version", afterRead.Code)
 	}
 }
