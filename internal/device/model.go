@@ -107,4 +107,8 @@ type Inventory struct {
 	// The connected SNMP peer, retained only inside this collector. A DNS
 	// target can report its actual observed IP without a query-time lookup.
 	peerAddress netip.Addr
+	// Every complete-poll prefix attempt is a new authority/negative fence,
+	// including unavailable input. Never reuse another poll's prefix table.
+	prefixAttempted   bool
+	interfacePrefixes []snmpInterfacePrefix
 }

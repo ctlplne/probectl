@@ -43,7 +43,7 @@ type snmpInterfacePrefixWalker interface {
 // An empty walk cannot prove MIB support and is unavailable, never a clear.
 // Neither result grants authority over a tenant, router or interface. Default
 // and non-on-link prefixes remain observations; association must reject them
-// independently. This component is not yet enabled by the steady-state poller.
+// independently. The sender-bound steady-state poller supplies these budgets.
 func collectSNMPInterfacePrefixes(ctx context.Context, conn snmpInterfacePrefixWalker, limits snmpInterfacePrefixLimits) ([]snmpInterfacePrefix, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

@@ -35,6 +35,8 @@ type Stats struct {
 	EvidenceAccepted            atomic.Uint64
 	EvidenceUnresolved          atomic.Uint64
 	EvidenceErrors              atomic.Uint64
+	InterfacePrefixSnapshots    atomic.Uint64
+	InterfacePrefixUnavailable  atomic.Uint64
 	// CredErrors counts per-cycle credential re-resolutions that failed (S41:
 	// the cycle is SKIPPED — fail closed, never poll with stale material).
 	CredErrors atomic.Uint64
@@ -132,6 +134,8 @@ func (r *Runtime) StatsSnapshot() map[string]uint64 {
 		"entity_evidence_accepted":       r.stats.EvidenceAccepted.Load(),
 		"entity_evidence_unresolved":     r.stats.EvidenceUnresolved.Load(),
 		"entity_evidence_errors":         r.stats.EvidenceErrors.Load(),
+		"interface_prefix_snapshots":     r.stats.InterfacePrefixSnapshots.Load(),
+		"interface_prefix_unavailable":   r.stats.InterfacePrefixUnavailable.Load(),
 	}
 }
 
@@ -288,6 +292,9 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 		return
 	}
 	r.clearSNMPFault(dev.Address)
+	if r.evidence != nil {
+		r.collectSNMPPrefixEvidence(ctx, conn, &inv)
+	}
 	r.correlator.UpdateAt(inv, observedAt)
 	r.pruneCorrelator(observedAt)
 

@@ -23,6 +23,8 @@ import (
 // The writer retains every historical observation. A stable poll therefore
 // refreshes its 24-hour authority twice daily instead of creating a new row
 // for every one-minute SNMP poll. A changed identifier sends immediately.
+// Complete prefix attempts use each poll's epoch instead: they must refresh
+// current metadata and fence prior tables when the latest walk is unavailable.
 const (
 	entityEvidenceRefresh         = 12 * time.Hour
 	entityEvidenceUnresolvedRetry = time.Hour
@@ -185,7 +187,10 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 		((!last.sentAt.IsZero() && time.Since(last.sentAt) < entityEvidenceRefresh) ||
 			(!last.retryAt.IsZero() && time.Since(last.retryAt) < entityEvidenceUnresolvedRetry))
 	r.evidenceMu.Unlock()
-	if skip {
+	// A complete prefix attempt is a new collection epoch and negative fence,
+	// including an unavailable result. Its full interface inventory must share
+	// that epoch; identity deduplication must not retain an older prefix table.
+	if skip && !inv.prefixAttempted {
 		return
 	}
 	source := entity.SourceKey{AgentID: r.cfg.AgentID, Kind: entity.DeviceTarget,
@@ -232,8 +237,14 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 		}
 		if originalRef == "snmp:configured-target" {
 			claim = r.withSNMPSystemMetadata(claim, inv, at)
+			claim = r.withSNMPPrefixMetadata(claim, inv, at)
 		}
 		items = append(items, claim)
+		if originalRef == "snmp:configured-target" && inv.prefixAttempted {
+			// Give the complete table its own wire envelope, rather than
+			// combining it with an arbitrary number of interface aliases.
+			return flush()
+		}
 		if len(items) == 64 {
 			return flush()
 		}

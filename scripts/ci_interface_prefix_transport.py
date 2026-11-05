@@ -14,6 +14,11 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
+    "internal/device": (
+        "TestSNMPPollPrefixEvidenceKeepsCompleteEpochAndUnavailableFence",
+        "TestSNMPPollPrefixEvidenceRetainsWholePopulationAndOwnsInput",
+        "TestSNMPPollSkipsExtraPrefixFetchWithoutEvidenceChannel",
+    ),
     "internal/ai/mcp": (
         "TestInterfaceRoleNativeToolsPreserveCompleteInputAndUserTenantBoundary",
     ),
@@ -364,6 +369,37 @@ def configuration_regexp_expansion_control():
     print(json.dumps({"role_regexp_expansion_admission_control": True}))
 
 
+def prefix_poll_refresh_control():
+    source = Path("internal/device/entity_evidence.go").resolve()
+    original = source.read_text()
+    seam = "if skip && !inv.prefixAttempted {"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    path = out / "prefix_poll_identity_refresh_restored.go"
+    path.write_text(original.replace(seam, "if skip {"))
+    overlay = out / "prefix_poll_identity_refresh_restored.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
+    root = "TestSNMPPollPrefixEvidenceKeepsCompleteEpochAndUnavailableFence"
+    result = execute(
+        "internal/device",
+        (root,),
+        "prefix_poll_identity_refresh_restored",
+        overlay=overlay,
+    )
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        package=PREFIX + "internal/device",
+        root=root,
+        child="",
+        marker="new prefix attempt retained the identity refresh epoch instead of current authority",
+    ):
+        raise RuntimeError(
+            "restored identity refresh did not fail its current-prefix assertion"
+        )
+    print(json.dumps({"prefix_poll_current_epoch_control": True}))
+
+
 def configuration_api_controls():
     source = Path("internal/control/interface_role_api.go").resolve()
     original = source.read_text()
@@ -430,6 +466,7 @@ def main(integration):
         configuration_api_controls()
         configuration_silo_lock_control()
     if not integration:
+        prefix_poll_refresh_control()
         configuration_regexp_expansion_control()
         configuration_native_request_control()
         configuration_raw_cli_body_control()

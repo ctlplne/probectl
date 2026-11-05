@@ -27,6 +27,17 @@ Withdrawn or stale source observations cannot produce a description match.
 This component still requires the current-source loader and real-router proof
 before automatic labels are enabled.
 
+When sender-bound device evidence is configured, each successful base SNMP
+poll reads the complete supported IP-MIB interface-prefix table over that same
+connection. The table travels only on the configured-target observation, in
+its own bounded request. An unsupported, malformed, incomplete or over-budget
+walk publishes no prefix table in the new poll epoch; readers must withhold
+older tables. Identity deduplication does not delay these epochs for twelve
+hours. Collector counters `interface_prefix_snapshots` and
+`interface_prefix_unavailable` expose the outcomes. Raw device metrics continue
+when prefix evidence is unavailable. Current-source freshness enforcement and
+same-router FRR/SNMP proof remain required before automatic role activation.
+
 Reads require `entities.read`; writes require `agent.write`, deployment MFA
 when enabled, and the current context's resource policy. The authenticated
 principal chooses the tenant. Context and interface ownership are enforced in
