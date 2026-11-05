@@ -17,8 +17,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/gosnmp/gosnmp"
+
+	"github.com/ctlplne/probectl/internal/entity"
 )
 
 // Real pollOnce path, modeled SNMP packets and evidence sink. Current sender,
@@ -139,9 +140,9 @@ func TestSNMPPollPrefixEvidenceRetainsWholePopulationAndOwnsInput(t *testing.T) 
 			t.Fatal("complete prefix evidence lost exact ordered values")
 		}
 	}
-	copy := slices.Clone(captured)
+	capturedCopy := slices.Clone(captured)
 	conn.prefix.rows[0].Name, conn.prefix.rows[0].Value = "mutated after capture", 2
-	if !reflect.DeepEqual(captured, copy) {
+	if !reflect.DeepEqual(captured, capturedCopy) {
 		t.Fatal("retained prefix evidence aliases transport buffers")
 	}
 }
