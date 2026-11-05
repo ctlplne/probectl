@@ -49,66 +49,74 @@ func questionOwnerContext(t *testing.T) context.Context {
 
 func TestModelPrivateContextUsesBothActualRedactionPassesOverTLS(t *testing.T) {
 	for _, kind := range []ModelKind{KindOllama, KindOpenAI, KindAnthropic} {
-		t.Run(string(kind), func(t *testing.T) {
-			var calls, events atomic.Int32
-			var observed atomic.Value
-			model := completionTLSModel(t, kind, func(w http.ResponseWriter, r *http.Request) {
-				var body struct {
-					Messages []struct{ Role, Content string } `json:"messages"`
+		for _, selection := range []struct {
+			name, clause string
+			rows         int
+		}{
+			{"complete-all-rows", "all rows", 2147483647},
+			{"original-selected-50000", "limit 50000", 50000},
+		} {
+			t.Run(string(kind)+"/"+selection.name, func(t *testing.T) {
+				var calls, events atomic.Int32
+				var observed atomic.Value
+				model := completionTLSModel(t, kind, func(w http.ResponseWriter, r *http.Request) {
+					var body struct {
+						Messages []struct{ Role, Content string } `json:"messages"`
+					}
+					if json.NewDecoder(r.Body).Decode(&body) != nil {
+						t.Error("invalid actual provider request")
+						w.WriteHeader(400)
+						return
+					}
+					var user string
+					for _, message := range body.Messages {
+						if message.Role == "user" {
+							user = message.Content
+						}
+					}
+					observed.Store(user)
+					calls.Add(1)
+					reply, err := questionEchoIntent("", user)
+					if err != nil {
+						t.Error(err)
+						w.WriteHeader(400)
+						return
+					}
+					_ = json.NewEncoder(w).Encode(completionWireFrame(kind, reply, "complete"))
+				})
+				// Force the actual remote policy path on the owned loopback TLS
+				// reference handler. No external provider/account is contacted.
+				model.remote = true
+				model.redact.CustomPatterns = []*regexp.Regexp{regexp.MustCompile(`adapter-private-value`)}
+				policy := DefaultRedaction
+				policy.CustomPatterns = []*regexp.Regexp{regexp.MustCompile(`gate-private-value`)}
+				gate := NewEgressGate(func(context.Context, string) (bool, error) { return true, nil }, func(_ context.Context, event EgressEvent) error {
+					if event.Surface != "flow_question" || event.TenantID != "owned-blue" || event.Denied {
+						t.Error("source path changed the durable tenant egress event")
+					}
+					events.Add(1)
+					return nil
+				}, policy)
+				planner, err := NewModelFlowQuestionPlanner(NewGatedCompleter(NewResilientModel(model, NewBuiltinModel(), 10*time.Second), gate), DefaultFlowQuestionBudget())
+				if err != nil {
+					t.Fatal(err)
 				}
-				if json.NewDecoder(r.Body).Decode(&body) != nil {
-					t.Error("invalid actual provider request")
-					w.WriteHeader(400)
-					return
+				input := modelQuestionInput()
+				input.Question = `show traffic where src_as_name eq gate-private-value or src_as_name eq adapter-private-value or src_addr cidr '2001:db8::/32' or src_as_name=plain-owned-label group by src_as_name for last 400 days ` + selection.clause + ` page size 5000`
+				proposal, err := planner.Plan(questionOwnerContext(t), input)
+				if err != nil || proposal.Plan == nil || proposal.NeedsConfirmation || proposal.Plan.RowLimit != selection.rows || proposal.Plan.PageSize != 5000 || calls.Load() != 1 || events.Load() != 1 {
+					t.Fatal("actual gated/budgeted adapter lost complete native intent", err, calls.Load(), events.Load())
 				}
-				var user string
-				for _, message := range body.Messages {
-					if message.Role == "user" {
-						user = message.Content
+				for _, private := range []string{"gate-private-value", "adapter-private-value", "2001:db8::/32", "plain-owned-label"} {
+					if strings.Contains(observed.Load().(string), private) {
+						t.Fatal("exact private operand entered actual remote protocol body")
 					}
 				}
-				observed.Store(user)
-				calls.Add(1)
-				reply, err := questionEchoIntent("", user)
-				if err != nil {
-					t.Error(err)
-					w.WriteHeader(400)
-					return
+				if strings.Contains(observed.Load().(string), "owned-blue") || !strings.Contains(observed.Load().(string), "literal_ref") {
+					t.Fatal("model received authority or no private binding")
 				}
-				_ = json.NewEncoder(w).Encode(completionWireFrame(kind, reply, "complete"))
 			})
-			// Force the actual remote policy path on the owned loopback TLS
-			// reference handler. No external provider/account is contacted.
-			model.remote = true
-			model.redact.CustomPatterns = []*regexp.Regexp{regexp.MustCompile(`adapter-private-value`)}
-			policy := DefaultRedaction
-			policy.CustomPatterns = []*regexp.Regexp{regexp.MustCompile(`gate-private-value`)}
-			gate := NewEgressGate(func(context.Context, string) (bool, error) { return true, nil }, func(_ context.Context, event EgressEvent) error {
-				if event.Surface != "flow_question" || event.TenantID != "owned-blue" || event.Denied {
-					t.Error("source path changed the durable tenant egress event")
-				}
-				events.Add(1)
-				return nil
-			}, policy)
-			planner, err := NewModelFlowQuestionPlanner(NewGatedCompleter(NewResilientModel(model, NewBuiltinModel(), 10*time.Second), gate), DefaultFlowQuestionBudget())
-			if err != nil {
-				t.Fatal(err)
-			}
-			input := modelQuestionInput()
-			input.Question = `show traffic where src_as_name eq gate-private-value or src_as_name eq adapter-private-value or src_addr cidr '2001:db8::/32' or src_as_name=plain-owned-label group by src_as_name for last 400 days all rows page size 5000`
-			proposal, err := planner.Plan(questionOwnerContext(t), input)
-			if err != nil || proposal.Plan == nil || proposal.NeedsConfirmation || proposal.Plan.RowLimit != 50000 || proposal.Plan.PageSize != 5000 || calls.Load() != 1 || events.Load() != 1 {
-				t.Fatal("actual gated/budgeted adapter lost complete native intent", err, calls.Load(), events.Load())
-			}
-			for _, private := range []string{"gate-private-value", "adapter-private-value", "2001:db8::/32", "plain-owned-label"} {
-				if strings.Contains(observed.Load().(string), private) {
-					t.Fatal("exact private operand entered actual remote protocol body")
-				}
-			}
-			if strings.Contains(observed.Load().(string), "owned-blue") || !strings.Contains(observed.Load().(string), "literal_ref") {
-				t.Fatal("model received authority or no private binding")
-			}
-		})
+		}
 	}
 }
 
