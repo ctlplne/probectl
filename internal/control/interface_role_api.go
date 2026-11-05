@@ -104,6 +104,10 @@ func interfaceRoleBodyBytes(b flowstore.ExplorerBudget) int64 {
 	return min(b.ResponseBytes, b.MemoryBytes/16)
 }
 
+// Multi-statement configuration/audit transactions retain the existing silo
+// relation locks from entry through commit, including not-yet-read tables. A
+// concurrent DROP must never redirect a later statement to pooled public data.
+//
 // Encode before the audit/transaction commits. A complete response that cannot
 // fit the positive operator profile rolls the entire write back, never leaves
 // a successful mutation followed by a response-budget error.
@@ -143,7 +147,7 @@ func (s *Server) interfaceRolePolicy(r *http.Request) (json.RawMessage, error) {
 		}
 	}
 	var body json.RawMessage
-	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+	err = s.inTenant(r.WithContext(tenancy.WithSiloTableLock(r.Context())), func(ctx context.Context, sc tenancy.Scope) error {
 		var out entity.InterfaceRolePolicyRecord
 		var err error
 		contextID := r.PathValue("context_id")
@@ -206,7 +210,7 @@ func (s *Server) interfaceRoleOverride(r *http.Request) (json.RawMessage, error)
 		}
 	}
 	var body json.RawMessage
-	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+	err = s.inTenant(r.WithContext(tenancy.WithSiloTableLock(r.Context())), func(ctx context.Context, sc tenancy.Scope) error {
 		var out entity.InterfaceRoleOverrideRecord
 		var err error
 		contextID, interfaceID := r.PathValue("context_id"), r.PathValue("id")

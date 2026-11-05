@@ -50,6 +50,7 @@ UNIT = {
     ),
 }
 INTEGRATION = {
+    "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
     "internal/control": (
         "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",
     ),
@@ -292,6 +293,38 @@ def configuration_native_request_control():
     print(json.dumps({"role_native_request_admission_control": True}))
 
 
+def configuration_silo_lock_control():
+    source = Path("internal/control/interface_role_api.go").resolve()
+    original = source.read_text()
+    seam = "tenancy.WithSiloTableLock(r.Context())"
+    assert original.count(seam) == 2
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    path = out / "role_silo_relation_locks_omitted.go"
+    path.write_text(original.replace(seam, "r.Context()"))
+    overlay = out / "role_silo_relation_locks_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
+    root = "TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL"
+    result = execute(
+        "ee/silo",
+        (root,),
+        "role_silo_relation_locks_omitted",
+        integration=True,
+        overlay=overlay,
+    )
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        package=PREFIX + "ee/silo",
+        root=root,
+        child="",
+        marker="role transaction left an unvisited silo configuration table unlocked",
+    ):
+        raise RuntimeError(
+            "omitted silo relation lock did not fail the actual Postgres-lock assertion"
+        )
+    print(json.dumps({"role_configuration_silo_relation_lock_control": True}))
+
+
 def configuration_api_controls():
     source = Path("internal/control/interface_role_api.go").resolve()
     original = source.read_text()
@@ -356,6 +389,7 @@ def main(integration):
     if integration:
         configuration_incarnation_controls()
         configuration_api_controls()
+        configuration_silo_lock_control()
     if not integration:
         configuration_native_request_control()
         configuration_raw_cli_body_control()
