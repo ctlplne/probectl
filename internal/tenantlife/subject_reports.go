@@ -13,15 +13,15 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-// Report chunks contain opaque binary fragments rather than a subject field.
-// Match their generator through the tenant-composite parent and stream one
-// bounded database row at a time instead of collecting a complete report.
-func (e *Engine) exportSubjectReportRows(ctx context.Context, tenant, table string, policy subjectTablePolicy,
+// Export the same explicit fields used for erasure and verification. Evidence
+// addresses compare as typed members; opaque report chunks match their owner
+// through the tenant-composite parent. Stream one row at a time.
+func (e *Engine) exportClassifiedSubjectRows(ctx context.Context, tenant, table string, policy subjectTablePolicy,
 	aliases subjectAliasSet, w io.Writer) (int64, error) {
 	var count int64
 	err := tenancy.InTenant(ctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		rows, err := sc.Q.Query(ctx, `SELECT row_to_json(subject_row) FROM `+pgIdent(table)+` subject_row
-		 WHERE subject_row.tenant_id=$1 AND `+subjectTableMatchPredicate(policy), tenant, aliases.normalizedValues(), aliases.safeContainsPatterns())
+		 WHERE subject_row.tenant_id=$1 AND `+subjectTableMatchPredicate(policy), subjectTableMatchArgs(tenant, aliases, policy)...)
 		if err != nil {
 			return err
 		}
