@@ -265,6 +265,10 @@ jobs:
           python3 scripts/ci_netbox.py selftest
       - name: Report inbox cursor and pagination contract
         run: python3 scripts/ci_report_inbox.py --unit
+      - name: Complete CMDB capacity and original restriction controls
+        run: |
+          python3 scripts/ci_cmdb_capacity.py --selftest
+          python3 scripts/ci_cmdb_capacity.py
       - name: Unit tests (all workspace modules)
         run: |
           set -o pipefail
@@ -273,10 +277,6 @@ jobs:
         run: |
           python3 scripts/ci_flow_cursor_encoding.py --selftest
           python3 scripts/ci_flow_cursor_encoding.py
-      - name: Complete CMDB capacity and original restriction controls
-        run: |
-          python3 scripts/ci_cmdb_capacity.py --selftest
-          python3 scripts/ci_cmdb_capacity.py
       - name: Complete selected flow rows and original quota controls
         run: |
           python3 scripts/ci_flow_row_capacity.py --selftest
