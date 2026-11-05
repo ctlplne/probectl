@@ -286,7 +286,7 @@ func TestE2E(t *testing.T) {
 	var packetReports []releaseFlowReport
 	t.Run("release-real-packet-report-storage", func(t *testing.T) {
 		readers := releasePacketReaders(t, reportSessions, reportReaders)
-		packetReports = proveReleaseSourceReportsForSender(t, root, work, serverCA, filepath.Join(tlsDir, "tls.crt"), filepath.Join(tlsDir, "tls.key"), stack, secrets, cli, readers, true)
+		packetReports = proveReleaseSourceReportsForSender(t, root, work, serverCA, filepath.Join(tlsDir, "tls.crt"), filepath.Join(tlsDir, "tls.key"), "127.0.0.1:"+agentPort, stack, secrets, cli, readers, true)
 	})
 	t.Run("release-real-packet-report-surfaces", func(t *testing.T) {
 		if len(packetReports) != 2 {
