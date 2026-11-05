@@ -75,7 +75,10 @@ func TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV(t *testin
 		perSource := flowstore.DefaultExplorerBudget()
 		budget := perSource
 		budget.ExecutionLimit = 120 * time.Second
-		budget.MemoryBytes = 8 << 30
+		// All ten result sets remain live while the projection copies complete
+		// records. Its accounted five-column rows exceed the old165MiB share;
+		// size this whole workload profile for those retained representations.
+		budget.MemoryBytes = 16 << 30
 		// Each source selects the already-supported complete 50,000-row result.
 		// PlanBatch divides retained allowances across its declared sources, so
 		// reserve a full standalone allowance for each, rather than shrinking

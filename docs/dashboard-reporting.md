@@ -229,7 +229,7 @@ CSV from ten disjoint 50,000-row queries, independent streamed CSV/digest parsin
 and independent extraction of actual 4,000-detail source PDF output. The large
 fixture reserves a full standalone response, intermediate-group and interface
 allowance for each source before the batch divides retained capacity. Its
-recorded ten-source operator profile uses 120 seconds, 8 GiB operation memory,
+recorded ten-source operator profile uses 120 seconds, 16 GiB operation memory,
 640 MiB response bytes, 50 million cumulative read rows, 8 GiB cumulative read
 bytes, 5 million intermediate groups and 100,000 interface items. These are
 workload admission settings, not immutable product maxima. Deployments can
