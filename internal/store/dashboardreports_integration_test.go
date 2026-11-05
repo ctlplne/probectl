@@ -77,7 +77,7 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("create A artifact: %v", err)
 		}
-		if _, err := (DashboardReports{}).GetArtifact(ctx, sc, "artifact-a", "alice"); err != nil {
+		if _, err := (DashboardReports{}).GetArtifactMetadata(ctx, sc, "artifact-a", "alice"); err != nil {
 			t.Fatalf("owner read A artifact: %v", err)
 		}
 		if _, err := (DashboardReports{}).CreateView(ctx, sc, DashboardViewInput{
@@ -86,14 +86,14 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("create manifest-imported A dashboard: %v", err)
 		}
-		if _, err := (DashboardReports{}).GetArtifact(ctx, sc, "artifact-a", "bob"); err != nil {
+		if _, err := (DashboardReports{}).GetArtifactMetadata(ctx, sc, "artifact-a", "bob"); err != nil {
 			if apiErr, ok := apierror.As(err); !ok || apiErr.Kind != apierror.KindNotFound {
 				t.Fatalf("same-tenant private artifact read = %v, want NotFound", err)
 			}
 		} else {
 			t.Fatal("same-tenant private artifact read succeeded, want NotFound")
 		}
-		artifacts, err := (DashboardReports{}).ListArtifacts(ctx, sc, "bob")
+		artifacts, err := (DashboardReports{}).ListArtifactHeaders(ctx, sc, "bob")
 		if err != nil || len(artifacts) != 0 {
 			t.Fatalf("same-tenant private artifact list = %+v / %v", artifacts, err)
 		}
@@ -115,7 +115,7 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 				return err
 			},
 			"artifact": func() error {
-				_, err := (DashboardReports{}).GetArtifact(ctx, sc, "artifact-a", "alice")
+				_, err := (DashboardReports{}).GetArtifactMetadata(ctx, sc, "artifact-a", "alice")
 				return err
 			},
 		} {
@@ -132,7 +132,7 @@ func TestDashboardReportTenantIsolation(t *testing.T) {
 		if err != nil || len(schedules) != 0 {
 			t.Fatalf("tenant B schedule list = %+v / %v", schedules, err)
 		}
-		artifacts, err := (DashboardReports{}).ListArtifacts(ctx, sc, "alice")
+		artifacts, err := (DashboardReports{}).ListArtifactHeaders(ctx, sc, "alice")
 		if err != nil || len(artifacts) != 0 {
 			t.Fatalf("tenant B artifact list = %+v / %v", artifacts, err)
 		}

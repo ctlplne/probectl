@@ -31,6 +31,10 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 	prov := NewProvisioner(pool, CHPlanes{}, nil, 0, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	for _, model := range []tenancy.IsolationModel{tenancy.IsolationSiloed, tenancy.IsolationHybrid} {
 		t.Run(string(model), func(t *testing.T) {
+			if model == tenancy.IsolationHybrid {
+				proveHybridReportChunks(t, pool, prov)
+				return
+			}
 			ids := []string{mkTenant(t, pool, fmt.Sprintf("report-%s-a-%d", model, time.Now().UnixNano()), string(model), ""), mkTenant(t, pool, fmt.Sprintf("report-%s-b-%d", model, time.Now().UnixNano()), string(model), "")}
 			t.Cleanup(func() {
 				for _, id := range ids {
@@ -73,7 +77,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				}
 				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifacts
       (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
-      VALUES($1,'same-artifact','same-view','csv','text/csv','owned.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::text))`, id); err != nil {
+      VALUES($1,'same-artifact','same-view','csv','text/csv','owned.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::uuid::text))`, id); err != nil {
 					t.Fatal("silo rejected own chunk parent", err)
 				}
 				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,'same-artifact',0,$2)`, id, []byte("body")); err != nil {

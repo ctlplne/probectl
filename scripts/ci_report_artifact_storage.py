@@ -21,6 +21,7 @@ IO_ROOT = "TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption"
 IO_MARKER = "corrupt report exposed metadata or partial bytes"
 SILO_PACKAGE = "github.com/ctlplne/probectl/ee/silo"
 SILO_ROOT = "TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies"
+SILO_TESTS = (SILO_ROOT, SILO_ROOT + "/siloed", SILO_ROOT + "/hybrid")
 LIFECYCLE_PACKAGE = "github.com/ctlplne/probectl/internal/tenantlife"
 LIFECYCLE_ROOT = "TestSubjectErasureInvalidatesOpaqueReportChunksOnlyInTenant"
 
@@ -42,6 +43,14 @@ def selftest():
         positive + [{"Package": PACKAGE, "Test": ROOT, "Action": "skip"}],
     ):
         assert classify(encode(bad), 0, package=PACKAGE, tests=(ROOT,))
+    silo_events = [
+        {"Package": SILO_PACKAGE, "Test": test, "Action": action}
+        for test in SILO_TESTS for action in ("run", "pass")
+    ] + [{"Package": SILO_PACKAGE, "Action": "pass"}]
+    assert not classify(encode(silo_events), 0, package=SILO_PACKAGE, tests=SILO_TESTS)
+    for missing in SILO_TESTS:
+        omitted = [event for event in silo_events if event.get("Test") != missing]
+        assert classify(encode(omitted), 0, package=SILO_PACKAGE, tests=SILO_TESTS)
     broken = [
         {"Package": PACKAGE, "Test": ROOT, "Action": "run"},
         {"Package": PACKAGE, "Test": ROOT + "/success", "Action": "run"},
@@ -107,7 +116,8 @@ def run():
     ):
         result = execute(package, "^" + root + "$")
         failed = classify(
-            result.stdout, result.returncode, package=package, tests=(root,)
+            result.stdout, result.returncode, package=package,
+            tests=SILO_TESTS if root == SILO_ROOT else (root,),
         )
         if failed:
             raise RuntimeError(
