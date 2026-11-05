@@ -250,11 +250,15 @@ func (s *MemoryQueryViewStore) SaveQueryView(ctx context.Context, tenant, owner 
 	return s.decorate(tenant, owner, item)
 }
 
-func (s *MemoryQueryViewStore) decorate(tenant, owner string, item SavedQueryView) (SavedQueryView, error) {
+func (s *MemoryQueryViewStore) withPreferences(tenant, owner string, item SavedQueryView) SavedQueryView {
 	pref := s.preferences[tenant][owner][item.ID]
 	item.Favorite = pref.Favorite
 	item.LastOpenedAt = pref.Opened
-	return cloneQueryView(item)
+	return item
+}
+
+func (s *MemoryQueryViewStore) decorate(tenant, owner string, item SavedQueryView) (SavedQueryView, error) {
+	return cloneQueryView(s.withPreferences(tenant, owner, item))
 }
 
 func (s *MemoryQueryViewStore) GetQueryView(ctx context.Context, tenant, owner, id string) (SavedQueryView, error) {
@@ -293,23 +297,23 @@ func (s *MemoryQueryViewStore) ListQueryViews(ctx context.Context, tenant, owner
 		if !ok || !queryViewVisible(after, owner) {
 			return QueryViewPage{}, ErrQueryViewNotFound
 		}
-		after, err = s.decorate(tenant, owner, after)
-		if err != nil {
-			return QueryViewPage{}, err
-		}
+		after = s.withPreferences(tenant, owner, after)
 		if input.Tab == "recents" && after.LastOpenedAt == nil {
 			return QueryViewPage{}, ErrQueryViewNotFound
 		}
 	}
 	items := []SavedQueryView{}
 	for _, stored := range s.byTenant[tenant] {
+		if err := ctx.Err(); err != nil {
+			return QueryViewPage{}, err
+		}
 		if !queryViewVisible(stored, owner) || input.Visibility != "" && stored.Definition.Visibility != input.Visibility || input.Owner != "" && stored.OwnerID != input.Owner || !strings.Contains(strings.ToLower(stored.Definition.Name), strings.ToLower(input.Search)) {
 			continue
 		}
-		item, err := s.decorate(tenant, owner, stored)
-		if err != nil {
-			return QueryViewPage{}, err
-		}
+		// The lock protects the immutable stored definitions while selecting
+		// metadata. Copy full query bodies only for the bounded output page,
+		// rather than cloning the entire library again on every continuation.
+		item := s.withPreferences(tenant, owner, stored)
 		if input.Tab == "favorites" && !item.Favorite || input.Tab == "recents" && item.LastOpenedAt == nil {
 			continue
 		}
@@ -331,6 +335,17 @@ func (s *MemoryQueryViewStore) ListQueryViews(ctx context.Context, tenant, owner
 	page := QueryViewPage{Items: []SavedQueryView{}}
 	used := 0
 	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			return QueryViewPage{}, err
+		}
+		if len(page.Items) == input.Limit {
+			page.Next = page.Items[len(page.Items)-1].ID
+			break
+		}
+		item, err := cloneQueryView(item)
+		if err != nil {
+			return QueryViewPage{}, err
+		}
 		more, err := appendQueryViewPage(&page, item, input.Limit, &used)
 		if err != nil {
 			return QueryViewPage{}, err

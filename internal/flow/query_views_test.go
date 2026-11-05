@@ -182,6 +182,15 @@ func TestQueryViewMemoryTenantOwnerSharingVersionsPreferencesAndQuota(t *testing
 	if err != nil || len(page.Items) != 1 || !page.Items[0].Favorite || page.Items[0].LastOpenedAt == nil {
 		t.Fatal("private preference/list missing", err)
 	}
+	opened := *page.Items[0].LastOpenedAt
+	page.Items[0].Definition.Plan.Filter.Groups[0].Conditions[0].Values[0] = "response-only"
+	*page.Items[0].LastOpenedAt = time.Time{}
+	page.Items[0].Favorite = false
+	bob, err := store.GetQueryView(ctx, "red", "bob", shared.ID)
+	if err != nil || bob.Definition.Plan.Filter.Groups[0].Conditions[0].Values[0] == "response-only" ||
+		!bob.Favorite || bob.LastOpenedAt == nil || !bob.LastOpenedAt.Equal(opened) {
+		t.Fatal("paged query or private preference aliases mutable stored data", err)
+	}
 	alice, _ := store.GetQueryView(ctx, "red", "alice", shared.ID)
 	if alice.Favorite || alice.LastOpenedAt != nil {
 		t.Fatal("preferences crossed owners")

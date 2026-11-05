@@ -292,6 +292,10 @@ func (s *MemoryQueryFilterStore) ListQueryFilters(ctx context.Context, tenant, a
 	page := QueryFilterPage{Items: []SavedQueryFilter{}}
 	bytesUsed := 0
 	for _, id := range ids {
+		if len(page.Items) == limit {
+			page.Next = page.Items[len(page.Items)-1].ID
+			break
+		}
 		item, err := cloneSavedQueryFilter(ctx, s.byTenant[tenant][id])
 		if err != nil {
 			return QueryFilterPage{}, err

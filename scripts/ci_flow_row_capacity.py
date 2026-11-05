@@ -21,6 +21,7 @@ UNIT = (
             "TestSelectedDetailReachUsesRepresentationRatherThanFormerQuota",
             "TestQueryLibraryAdmissionKeepsCompletePairedPopulation",
             "TestQueryLibraryAdmissionArithmeticCannotWrap",
+            "TestQueryViewMemoryTenantOwnerSharingVersionsPreferencesAndQuota",
         ),
     ),
     (
