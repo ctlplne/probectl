@@ -83,9 +83,10 @@ export function DashboardReportingCard({
       if (!Array.isArray(sources)) return []
       return sources
         .filter(
-          (item): item is { slot: string } =>
-            Boolean(item) &&
+          (item: unknown): item is { slot: string } =>
+            item !== null &&
             typeof item === 'object' &&
+            'slot' in item &&
             typeof item.slot === 'string' &&
             item.slot.length <= 80,
         )
