@@ -18,6 +18,15 @@ This configuration surface is available while automatic classification and its
 real-router acceptance are being completed. Saving a policy does not yet enable
 automatic labels or add role dimensions to Explorer.
 
+The evaluation component validates a complete policy before choosing the first
+matching description rule. Explanations retain the policy ID, exact revision
+and rule ID, or the manual override ID and revision. Regex execution accounts
+for repeat expansion, capture state and matching work before compilation and
+matching; resource refusal or cancellation returns no partial classification.
+Withdrawn or stale source observations cannot produce a description match.
+This component still requires the current-source loader and real-router proof
+before automatic labels are enabled.
+
 Reads require `entities.read`; writes require `agent.write`, deployment MFA
 when enabled, and the current context's resource policy. The authenticated
 principal chooses the tenant. Context and interface ownership are enforced in

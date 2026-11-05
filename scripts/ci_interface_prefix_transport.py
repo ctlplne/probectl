@@ -24,6 +24,10 @@ UNIT = {
     "internal/control": (
         "TestInterfaceRoleConfigurationRoutesRequireSeparateReadAndWriteGrants",
         "TestInterfaceRoleOwnedManualOverrideDoesNotInventSourceFreshness",
+        "TestInterfaceRoleConfiguredEvaluationKeepsCompleteOrderAndVersionedSources",
+        "TestInterfaceRoleConfiguredEvaluationRefusesForeignInvalidAndPartialResults",
+        "TestInterfaceRoleConfiguredEvaluationAdmitsExpansionBeforeCompilation",
+        "TestInterfaceRoleConfiguredEvaluationKeepsOverrideAcrossWithdrawalAndReset",
         "TestOpenAPIMatchesRoutes",
         "TestAuditPolicyMatrixCoversRequiredRoutes",
     ),
@@ -325,6 +329,41 @@ def configuration_silo_lock_control():
     print(json.dumps({"role_configuration_silo_relation_lock_control": True}))
 
 
+def configuration_regexp_expansion_control():
+    source = Path("internal/control/interface_role_evaluation.go").resolve()
+    original = source.read_text()
+    start = original.index("func admitInterfaceRoleRegexp(")
+    end = original.index("\nfunc interfaceRoleRegexpStates(", start)
+    signature = original[start : original.index(" {\n", start)]
+    mutant = (
+        original[:start] + signature + " {\n\treturn ctx.Err()\n}\n" + original[end:]
+    )
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    path = out / "role_regexp_expansion_admission_omitted.go"
+    path.write_text(mutant)
+    overlay = out / "role_regexp_expansion_admission_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
+    root = "TestInterfaceRoleConfiguredEvaluationAdmitsExpansionBeforeCompilation"
+    result = execute(
+        "internal/control",
+        (root,),
+        "role_regexp_expansion_admission_omitted",
+        overlay=overlay,
+    )
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        package=PREFIX + "internal/control",
+        root=root,
+        child="",
+        marker="expanded role regex compiled without complete resource admission",
+    ):
+        raise RuntimeError(
+            "omitted regex admission did not fail its expansion assertion"
+        )
+    print(json.dumps({"role_regexp_expansion_admission_control": True}))
+
+
 def configuration_api_controls():
     source = Path("internal/control/interface_role_api.go").resolve()
     original = source.read_text()
@@ -391,6 +430,7 @@ def main(integration):
         configuration_api_controls()
         configuration_silo_lock_control()
     if not integration:
+        configuration_regexp_expansion_control()
         configuration_native_request_control()
         configuration_raw_cli_body_control()
         configuration_missing_source_control()
