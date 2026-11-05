@@ -661,10 +661,8 @@ def run() -> None:
             {"tests": LARGE_CAPTURE_TESTS, "passed": not failures, "failures": failures}
         )
     )
-    if failures:
-        raise RuntimeError(
-            "mandatory complete selected-source output did not execute and pass"
-        )
+    # Their one-source baseline passed above. Finish independent controls even
+    # if this largest cohort failed; its required failure still fails the job.
     post_verification_reader_proof()
     preauthorization_privacy_proof()
     metadata_reader_proof()
@@ -673,6 +671,10 @@ def run() -> None:
     native_source_binding_proof()
     mcp_report_reader_proof()
     schedule_source_delegation_proof()
+    if failures:
+        raise RuntimeError(
+            "mandatory complete selected-source output did not execute and pass"
+        )
 
 
 if __name__ == "__main__":
