@@ -45,7 +45,8 @@ def selftest():
         assert classify(encode(bad), 0, package=PACKAGE, tests=(ROOT,))
     silo_events = [
         {"Package": SILO_PACKAGE, "Test": test, "Action": action}
-        for test in SILO_TESTS for action in ("run", "pass")
+        for test in SILO_TESTS
+        for action in ("run", "pass")
     ] + [{"Package": SILO_PACKAGE, "Action": "pass"}]
     assert not classify(encode(silo_events), 0, package=SILO_PACKAGE, tests=SILO_TESTS)
     for missing in SILO_TESTS:
@@ -116,7 +117,9 @@ def run():
     ):
         result = execute(package, "^" + root + "$")
         failed = classify(
-            result.stdout, result.returncode, package=package,
+            result.stdout,
+            result.returncode,
+            package=package,
             tests=SILO_TESTS if root == SILO_ROOT else (root,),
         )
         if failed:
@@ -137,15 +140,25 @@ def run():
         raise RuntimeError("scheduled report subject ownership seam unavailable")
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
     try:
-        source.write_text(original.replace(owner_seam, "OR FALSE AND EXISTS (SELECT 1 FROM dashboard_report_schedules report_schedule"))
+        source.write_text(
+            original.replace(
+                owner_seam,
+                "OR FALSE AND EXISTS (SELECT 1 FROM dashboard_report_schedules report_schedule",
+            )
+        )
         owned = execute(LIFECYCLE_PACKAGE, "^" + LIFECYCLE_ROOT + "$")
     finally:
         source.write_text(original)
     if not report_regression_failed_on_assertion(
-        owned.stdout, owned.returncode, root=LIFECYCLE_ROOT,
-        marker="scheduled-owner report missing from subject portability", package=LIFECYCLE_PACKAGE,
+        owned.stdout,
+        owned.returncode,
+        root=LIFECYCLE_ROOT,
+        marker="scheduled-owner report missing from subject portability",
+        package=LIFECYCLE_PACKAGE,
     ):
-        raise RuntimeError("schedule owner omission did not fail exact subject export assertion")
+        raise RuntimeError(
+            "schedule owner omission did not fail exact subject export assertion"
+        )
     seam = "flowsnapshot.InvalidateSourceGenerationInScope(ctx, sc)"
     if original.count(seam) != 1:
         raise RuntimeError("subject erasure source generation seam unavailable")
@@ -156,11 +169,15 @@ def run():
     finally:
         source.write_text(original)
     if not report_regression_failed_on_assertion(
-        erased.stdout, erased.returncode, root=LIFECYCLE_ROOT,
+        erased.stdout,
+        erased.returncode,
+        root=LIFECYCLE_ROOT,
         marker="subject deletion left source generation publishable before telemetry erasure",
         package=LIFECYCLE_PACKAGE,
     ):
-        raise RuntimeError("generation omission did not fail exact pre-telemetry erasure assertion")
+        raise RuntimeError(
+            "generation omission did not fail exact pre-telemetry erasure assertion"
+        )
     source = Path("internal/store/report_artifact_read.go")
     original = source.read_text()
     seam = "receipt.SHA256 != metadata.BodySHA256"
