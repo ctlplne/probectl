@@ -9,6 +9,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"time"
 
@@ -141,11 +142,16 @@ func reportTool[A, R any](name, description string, schema json.RawMessage, writ
 			}
 		}
 		var input A
-		if err := decodeBoundedNativeArgs(raw, &input, 64<<10); err != nil {
+		if err := decodeBoundedNativeArgsWithMaps(raw, &input, 64<<10, reportArgumentMap); err != nil {
 			return nil, apierror.Validation("invalid native report arguments")
 		}
 		return invoke(ctx, p, input)
 	}}
+}
+
+func reportArgumentMap(typ reflect.Type) bool {
+	return typ == reflect.TypeFor[map[string]reporting.FlowSourceRef]() ||
+		typ == reflect.TypeFor[map[string]string]()
 }
 
 func WithReportBackend(backend ReportBackend, schemas NativeFlowSchemas) Option {

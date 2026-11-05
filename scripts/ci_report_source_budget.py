@@ -39,7 +39,9 @@ CAPTURE_TESTS = (
     "TestReportRealFlowCaptureRetainsCompleteSelectedTable",
     "TestReportRealFlowCaptureDownloadsCompletePDF",
 )
-LARGE_CAPTURE_TESTS = ("TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV",)
+LARGE_CAPTURE_TESTS = (
+    "TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV",
+)
 
 
 def selftest() -> None:
@@ -155,19 +157,42 @@ def selftest() -> None:
         package=VIEW_PACKAGE,
         child="current_visibility",
     )
-    large_events = [{"Package": CAPTURE_PACKAGE, "Test": test, "Action": action}
-                    for test in LARGE_CAPTURE_TESTS for action in ("run", "pass")]
+    large_events = [
+        {"Package": CAPTURE_PACKAGE, "Test": test, "Action": action}
+        for test in LARGE_CAPTURE_TESTS
+        for action in ("run", "pass")
+    ]
     large_events.append({"Package": CAPTURE_PACKAGE, "Action": "pass"})
-    assert not classify(encode(large_events), 0, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS)
-    assert classify(encode(large_events[1:]), 0, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS)
-    assert classify(encode(large_events + [{"Package": CAPTURE_PACKAGE, "Test": LARGE_CAPTURE_TESTS[0], "Action": "skip"}]), 0, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS)
+    assert not classify(
+        encode(large_events), 0, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS
+    )
+    assert classify(
+        encode(large_events[1:]), 0, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS
+    )
+    assert classify(
+        encode(
+            large_events
+            + [
+                {
+                    "Package": CAPTURE_PACKAGE,
+                    "Test": LARGE_CAPTURE_TESTS[0],
+                    "Action": "skip",
+                }
+            ]
+        ),
+        0,
+        package=CAPTURE_PACKAGE,
+        tests=LARGE_CAPTURE_TESTS,
+    )
     print(
         "Batch source classifier refuses missing, duplicate, skipped and false assertion proof"
     )
 
 
 def run_tests(
-    pattern: str, go_package: str = "./internal/store/flowstore", timeout_seconds: int = 300
+    pattern: str,
+    go_package: str = "./internal/store/flowstore",
+    timeout_seconds: int = 300,
 ) -> subprocess.CompletedProcess:
     result = subprocess.run(
         [
@@ -324,44 +349,67 @@ def publication_state_proof() -> None:
     original = source.read_text()
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
     cases = (
-        ("err := flowsnapshot.MatchSourceGenerationInScope(ctx, sc, capture.SourceGeneration); err != nil",
-         "err := flowsnapshot.MatchSourceGenerationInScope(ctx, sc, capture.SourceGeneration); false && err != nil",
-         "invalidated source capture published through the public report route"),
-        ("if current.Version != input.Version {", "if false && current.Version != input.Version {",
-         "changed source version published through the public report route"),
+        (
+            "err := flowsnapshot.MatchSourceGenerationInScope(ctx, sc, capture.SourceGeneration); err != nil",
+            "err := flowsnapshot.MatchSourceGenerationInScope(ctx, sc, capture.SourceGeneration); false && err != nil",
+            "invalidated source capture published through the public report route",
+        ),
+        (
+            "if current.Version != input.Version {",
+            "if false && current.Version != input.Version {",
+            "changed source version published through the public report route",
+        ),
     )
     for seam, replacement, marker in cases:
         if original.count(seam) != 1:
             raise RuntimeError("source publication state seam unavailable")
         try:
             source.write_text(original.replace(seam, replacement))
-            result = run_tests("^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control")
+            result = run_tests(
+                "^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control"
+            )
         finally:
             source.write_text(original)
         if not report_regression_failed_on_assertion(
-            result.stdout, result.returncode, root=CAPTURE_TESTS[0],
-            child="success", marker=marker, package=CAPTURE_PACKAGE,
+            result.stdout,
+            result.returncode,
+            root=CAPTURE_TESTS[0],
+            child="success",
+            marker=marker,
+            package=CAPTURE_PACKAGE,
         ):
-            raise RuntimeError("publication omission did not fail exact source state assertion")
+            raise RuntimeError(
+                "publication omission did not fail exact source state assertion"
+            )
 
 
 def source_pdf_metadata_allowance_proof() -> None:
     source = Path("internal/control/dashboard_report_generate.go")
     original = source.read_text()
-    seam = "renderLimits := reporting.DefaultPDFLimits()\n\t\trenderLimits.TableRows *= 2"
+    seam = (
+        "renderLimits := reporting.DefaultPDFLimits()\n\t\trenderLimits.TableRows *= 2"
+    )
     if original.count(seam) != 1:
         raise RuntimeError("source PDF logical allowance seam unavailable")
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
     try:
-        source.write_text(original.replace(seam, "renderLimits := reporting.DefaultPDFLimits()"))
+        source.write_text(
+            original.replace(seam, "renderLimits := reporting.DefaultPDFLimits()")
+        )
         result = run_tests("^" + CAPTURE_TESTS[2] + "$/^success$", "./internal/control")
     finally:
         source.write_text(original)
     if not report_regression_failed_on_assertion(
-        result.stdout, result.returncode, root=CAPTURE_TESTS[2], child="success",
-        marker="source metadata consumed selected PDF detail allowance", package=CAPTURE_PACKAGE,
+        result.stdout,
+        result.returncode,
+        root=CAPTURE_TESTS[2],
+        child="success",
+        marker="source metadata consumed selected PDF detail allowance",
+        package=CAPTURE_PACKAGE,
     ):
-        raise RuntimeError("source PDF metadata omission did not fail exact complete detail assertion")
+        raise RuntimeError(
+            "source PDF metadata omission did not fail exact complete detail assertion"
+        )
 
 
 def native_source_binding_proof() -> None:
@@ -380,22 +428,37 @@ def native_source_binding_proof() -> None:
     finally:
         source.write_text(original)
     if not report_regression_failed_on_assertion(
-        result.stdout, result.returncode, root=CAPTURE_TESTS[0], child="success",
-        marker="native binding accepted a foreign source identity", package=CAPTURE_PACKAGE,
+        result.stdout,
+        result.returncode,
+        root=CAPTURE_TESTS[0],
+        child="success",
+        marker="native binding accepted a foreign source identity",
+        package=CAPTURE_PACKAGE,
     ):
-        raise RuntimeError("native authority omission did not fail exact foreign binding assertion")
+        raise RuntimeError(
+            "native authority omission did not fail exact foreign binding assertion"
+        )
 
 
 def mcp_report_reader_proof() -> None:
     source = Path("internal/control/mcp_reports.go")
     original = source.read_text()
     cases = (
-        ("credential := auth.ClonePrincipal(actor)", "credential := auth.ClonePrincipal(principal)",
-         "scoped MCP reader received a private report link"),
-        ("metadata, err = b.server.currentReportArtifactMetadata(ctx, sc, principal, id, principal.UserID)", "err = nil",
-         "scoped MCP reader received a private report link"),
-        ("if len(data) > w.limit-w.body.Len() {", "if false && len(data) > w.limit-w.body.Len() {",
-         "bounded report bridge returned a partial or over-budget MCP result"),
+        (
+            "credential := auth.ClonePrincipal(actor)",
+            "credential := auth.ClonePrincipal(principal)",
+            "scoped MCP reader received a private report link",
+        ),
+        (
+            "metadata, err = b.server.currentReportArtifactMetadata(ctx, sc, principal, id, principal.UserID)",
+            "err = nil",
+            "scoped MCP reader received a private report link",
+        ),
+        (
+            "if len(data) > w.limit-w.body.Len() {",
+            "if false && len(data) > w.limit-w.body.Len() {",
+            "bounded report bridge returned a partial or over-budget MCP result",
+        ),
     )
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
     for seam, replacement, marker in cases:
@@ -403,14 +466,22 @@ def mcp_report_reader_proof() -> None:
             raise RuntimeError("MCP report current-reader or budget seam unavailable")
         try:
             source.write_text(original.replace(seam, replacement))
-            result = run_tests("^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control")
+            result = run_tests(
+                "^" + CAPTURE_TESTS[0] + "$/^success$", "./internal/control"
+            )
         finally:
             source.write_text(original)
         if not report_regression_failed_on_assertion(
-            result.stdout, result.returncode, root=CAPTURE_TESTS[0], child="success",
-            marker=marker, package=CAPTURE_PACKAGE,
+            result.stdout,
+            result.returncode,
+            root=CAPTURE_TESTS[0],
+            child="success",
+            marker=marker,
+            package=CAPTURE_PACKAGE,
         ):
-            raise RuntimeError("MCP report omission did not fail exact reader/budget assertion")
+            raise RuntimeError(
+                "MCP report omission did not fail exact reader/budget assertion"
+            )
 
 
 def schedule_source_delegation_proof() -> None:
@@ -426,10 +497,16 @@ def schedule_source_delegation_proof() -> None:
     finally:
         source.write_text(original)
     if not report_regression_failed_on_assertion(
-        result.stdout, result.returncode, root=CAPTURE_TESTS[0], child="success",
-        marker="restricted writer delegated report source reads through a schedule", package=CAPTURE_PACKAGE,
+        result.stdout,
+        result.returncode,
+        root=CAPTURE_TESTS[0],
+        child="success",
+        marker="restricted writer delegated report source reads through a schedule",
+        package=CAPTURE_PACKAGE,
     ):
-        raise RuntimeError("schedule source omission did not fail exact restricted delegation assertion")
+        raise RuntimeError(
+            "schedule source omission did not fail exact restricted delegation assertion"
+        )
 
 
 def metadata_reader_proof() -> None:
@@ -465,6 +542,45 @@ def metadata_reader_proof() -> None:
     )
 
 
+def report_argument_map_proof() -> None:
+    package = "github.com/ctlplne/probectl/internal/ai/mcp"
+    root = "TestReportArgumentsKeepExactTypedMaps"
+    tests = (root, "TestReportArgumentsRefuseUndeclaredMapShapes")
+    current = run_tests("^(" + "|".join(tests) + ")$", "./internal/ai/mcp")
+    failures = classify(
+        current.stdout, current.returncode, package=package, tests=tests
+    )
+    if failures:
+        raise RuntimeError(
+            "typed report arguments did not execute and pass: " + repr(failures)
+        )
+    source = Path("internal/ai/mcp/reports.go")
+    original = source.read_text()
+    seam = "64<<10, reportArgumentMap)"
+    if original.count(seam) != 1:
+        raise RuntimeError("typed report map admission seam unavailable")
+    subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
+    try:
+        source.write_text(original.replace(seam, "64<<10, nil)"))
+        refused = run_tests("^" + root + "$", "./internal/ai/mcp")
+    finally:
+        source.write_text(original)
+    if not report_regression_failed_on_assertion(
+        refused.stdout,
+        refused.returncode,
+        root=root,
+        marker="native report rejected or changed its declared source binding",
+        package=package,
+        child="",
+    ):
+        raise RuntimeError(
+            "report map omission did not fail the exact typed binding assertion"
+        )
+    print(
+        json.dumps({"tests": tests, "typed_map_omission_control": True, "passed": True})
+    )
+
+
 def run() -> None:
     if (
         os.environ.get("GITHUB_ACTIONS") != "true"
@@ -474,6 +590,7 @@ def run() -> None:
         raise RuntimeError(
             "source batch proof requires the existing isolated CI services"
         )
+    report_argument_map_proof()
     source = Path("internal/store/flowstore/explorer_memory.go")
     original = source.read_text()
     seam = "\t\tif err := chargeBatchRead(ctx, tenant, 1, int64(entryBytes)); err != nil {\n\t\t\treturn nil, err\n\t\t}"
@@ -528,11 +645,26 @@ def run() -> None:
         raise RuntimeError(
             "mandatory real source capture/staging proof did not execute and pass"
         )
-    complete = run_tests("^(" + "|".join(LARGE_CAPTURE_TESTS) + ")$", "./internal/control", timeout_seconds=600)
-    failures = classify(complete.stdout, complete.returncode, package=CAPTURE_PACKAGE, tests=LARGE_CAPTURE_TESTS)
-    print(json.dumps({"tests": LARGE_CAPTURE_TESTS, "passed": not failures, "failures": failures}))
+    complete = run_tests(
+        "^(" + "|".join(LARGE_CAPTURE_TESTS) + ")$",
+        "./internal/control",
+        timeout_seconds=600,
+    )
+    failures = classify(
+        complete.stdout,
+        complete.returncode,
+        package=CAPTURE_PACKAGE,
+        tests=LARGE_CAPTURE_TESTS,
+    )
+    print(
+        json.dumps(
+            {"tests": LARGE_CAPTURE_TESTS, "passed": not failures, "failures": failures}
+        )
+    )
     if failures:
-        raise RuntimeError("mandatory complete selected-source output did not execute and pass")
+        raise RuntimeError(
+            "mandatory complete selected-source output did not execute and pass"
+        )
     post_verification_reader_proof()
     preauthorization_privacy_proof()
     metadata_reader_proof()
