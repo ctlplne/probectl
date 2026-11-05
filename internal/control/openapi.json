@@ -79,6 +79,7 @@
   "paths": {
     "/v1/entity-contexts/{context_id}/interface-role-policy": {
       "get": {
+        "x-required-permission": "entities.read",
         "tags": [
           "entities"
         ],
@@ -190,6 +191,7 @@
         }
       },
       "put": {
+        "x-required-permission": "agent.write",
         "tags": [
           "entities"
         ],
@@ -313,6 +315,7 @@
     },
     "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override": {
       "get": {
+        "x-required-permission": "entities.read",
         "tags": [
           "entities"
         ],
@@ -433,6 +436,7 @@
         }
       },
       "put": {
+        "x-required-permission": "agent.write",
         "tags": [
           "entities"
         ],
@@ -563,6 +567,7 @@
         }
       },
       "delete": {
+        "x-required-permission": "agent.write",
         "tags": [
           "entities"
         ],

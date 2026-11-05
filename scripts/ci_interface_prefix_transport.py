@@ -34,6 +34,8 @@ UNIT = {
         "TestInterfaceRoleConfiguredEvaluationAdmitsExpansionBeforeCompilation",
         "TestInterfaceRoleConfiguredEvaluationKeepsOverrideAcrossWithdrawalAndReset",
         "TestOpenAPIMatchesRoutes",
+        "TestOpenAPISecurityModelMatchesRoutes",
+        "TestOpenAPISecurityGateCatchesPlantedDefects",
         "TestAuditPolicyMatrixCoversRequiredRoutes",
     ),
     "internal/entity": (
