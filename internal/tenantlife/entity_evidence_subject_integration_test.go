@@ -124,14 +124,26 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 				continue
 			}
 			var row struct {
-				ID     string `json:"id"`
-				Tenant string `json:"tenant_id"`
+				ID       string `json:"id"`
+				Tenant   string `json:"tenant_id"`
+				Prefixes []struct {
+					IfIndex uint32 `json:"if_index"`
+					Prefix  string `json:"prefix"`
+					OnLink  bool   `json:"on_link"`
+				} `json:"snmp_interface_prefixes"`
 			}
 			if err := json.Unmarshal([]byte(line), &row); err != nil {
 				t.Fatal(err)
 			}
 			if row.Tenant != tenants[0] || !want[row.ID] || got[row.ID] {
 				t.Fatal("entity evidence export selected unrelated rows")
+			}
+			for _, expected := range samples {
+				if expected.id == row.ID && expected.field == "snmp_interface_prefixes" {
+					if len(row.Prefixes) != 1 || row.Prefixes[0].IfIndex != 1 || row.Prefixes[0].Prefix != expected.value || !row.Prefixes[0].OnLink {
+						t.Fatal("prefix evidence portability omitted or changed original metadata")
+					}
+				}
 			}
 			got[row.ID] = true
 		}
