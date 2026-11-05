@@ -76,7 +76,7 @@ func TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV(t *testin
 		budget := perSource
 		budget.ExecutionLimit = 120 * time.Second
 		// All ten result sets remain live while the projection copies complete
-		// records. Its accounted five-column rows exceed the old165MiB share;
+		// records. Its accounted five-column rows exceed the old 158 MiB share;
 		// size this whole workload profile for those retained representations.
 		budget.MemoryBytes = 16 << 30
 		// Each source selects the already-supported complete 50,000-row result.
@@ -101,6 +101,7 @@ func TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV(t *testin
 		f.srv.cfg.AuthMode = ""
 		socket := httptest.NewTLSServer(f.srv.Handler())
 		defer socket.Close()
+		cliBinary := buildCompleteSourceCLI(t)
 		for lane, tenant := range []string{f.a, f.b} {
 			actor := completeSourceIdentity(t, f, tenant)
 			seedCompleteSourceRows(t, source, tenant, f.agents[tenant], at, lane)
@@ -159,7 +160,11 @@ func TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV(t *testin
 					readTrace.finish(t)
 					t.Logf("complete source generation elapsed_observation=%s", time.Since(started))
 				}()
-				return completeSourcePost[reportArtifactView](t, socket, token, "/v1/dashboard-reports", reportGenerateRequest{DashboardID: created.ID, Format: "csv"})
+				input := reportGenerateRequest{DashboardID: created.ID, Format: "csv"}
+				if lane == 1 {
+					return completeSourceGenerateCLI(t, cliBinary, socket, token, tenant, input)
+				}
+				return completeSourcePost[reportArtifactView](t, socket, token, "/v1/dashboard-reports", input)
 			}()
 			stopSampler()
 			elapsed := time.Since(started)

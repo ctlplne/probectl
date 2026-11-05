@@ -48,6 +48,9 @@ type Config struct {
 	// ignores SSL_CERT_FILE, so without this knob the CLI could only reach a
 	// control plane whose issuer is in the OS trust store.
 	CAFile string
+	// Operator HTTP admission, expressed as flag/environment strings and
+	// validated before network IO; empty retains the existing finite defaults.
+	RequestTimeout, DownloadTimeout, MaxResponseBytes string
 }
 
 // run executes one CLI invocation and returns a process exit code. It is pure
@@ -69,7 +72,10 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		SessionCookieFile: getenv(
 			"PROBECTL_SESSION_COOKIE_FILE",
 		),
-		CAFile: getenv("PROBECTL_CA_FILE"),
+		CAFile:           getenv("PROBECTL_CA_FILE"),
+		RequestTimeout:   getenv("PROBECTL_CLI_REQUEST_TIMEOUT"),
+		DownloadTimeout:  getenv("PROBECTL_CLI_DOWNLOAD_TIMEOUT"),
+		MaxResponseBytes: getenv("PROBECTL_CLI_MAX_RESPONSE_BYTES"),
 	}
 	// --json may appear anywhere; strip it before flag parsing.
 	args, cfg.JSON = extractBoolFlag(args, "--json")
@@ -85,6 +91,9 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 	fs.StringVar(&cfg.Token, "token", cfg.Token, "API auth token, sent as Bearer (env PROBECTL_API_TOKEN)")
 	fs.StringVar(&cfg.Tenant, "tenant", cfg.Tenant, "tenant UUID, sent as X-Probectl-Tenant (env PROBECTL_TENANT)")
 	fs.StringVar(&cfg.CAFile, "ca-file", cfg.CAFile, "PEM CA bundle that verifies the control plane's certificate (env PROBECTL_CA_FILE); default: the OS trust store")
+	fs.StringVar(&cfg.RequestTimeout, "request-timeout", cfg.RequestTimeout, "positive HTTP request duration (env PROBECTL_CLI_REQUEST_TIMEOUT; default: route budget)")
+	fs.StringVar(&cfg.DownloadTimeout, "download-timeout", cfg.DownloadTimeout, "positive download duration (env PROBECTL_CLI_DOWNLOAD_TIMEOUT; default: 15m)")
+	fs.StringVar(&cfg.MaxResponseBytes, "max-response-bytes", cfg.MaxResponseBytes, "positive complete JSON response byte admission (env PROBECTL_CLI_MAX_RESPONSE_BYTES; default: 33554432)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -331,6 +340,10 @@ func (c *client) requestHTTPClient(initial *url.URL, sensitive bool) *http.Clien
 
 // do performs a request and returns the decoded body or a domain error message.
 func (c *client) do(method, path string, body any, out any) error {
+	policy, err := c.cfg.httpPolicy()
+	if err != nil {
+		return err
+	}
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -367,13 +380,13 @@ func (c *client) do(method, path string, body any, out any) error {
 	_, sensitivePath := sensitiveProviderOperationPath(method, path)
 	sensitive := sensitiveTarget || sensitivePath
 	hc := c.requestHTTPClient(target, sensitive)
-	hc.Timeout = requestBudget(method, path)
+	hc.Timeout = policy.requestBudget(method, path)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	data, err := readBufferedResponse(resp)
+	data, err := readBufferedResponse(resp, policy.responseBytes)
 	if err != nil {
 		return err
 	}
@@ -460,6 +473,10 @@ func requestPath(path string) string {
 }
 
 func (c *client) stream(method, path string, body any, w io.Writer) error {
+	policy, err := c.cfg.httpPolicy()
+	if err != nil {
+		return err
+	}
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -495,14 +512,14 @@ func (c *client) stream(method, path string, body any, w io.Writer) error {
 	_, sensitivePath := sensitiveProviderOperationPath(method, path)
 	sensitive := sensitiveTarget || sensitivePath
 	hc := c.requestHTTPClient(target, sensitive)
-	hc.Timeout = downloadTimeout
+	hc.Timeout = policy.downloadTimeout
 	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		data, err := readBufferedResponse(resp)
+		data, err := readBufferedResponse(resp, policy.responseBytes)
 		if err != nil {
 			return err
 		}
@@ -515,8 +532,7 @@ func (c *client) stream(method, path string, body any, w io.Writer) error {
 	return err
 }
 
-func readBufferedResponse(resp *http.Response) ([]byte, error) {
-	limit := maxBufferedResponseBody
+func readBufferedResponse(resp *http.Response, limit int64) ([]byte, error) {
 	if resp.StatusCode/100 != 2 {
 		limit = maxBufferedErrorResponseBody
 	}

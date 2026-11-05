@@ -23,6 +23,10 @@ import (
 // look like a successful CSV, and the generic32MiB JSON cap does not reduce the
 // server's50k row reach. Disk IO is bounded by --max-bytes, memory by io.Copy.
 func (c *client) downloadFlowCSV(path string, maxBytes int64, output io.Writer) error {
+	policy, err := c.cfg.httpPolicy()
+	if err != nil {
+		return err
+	}
 	target, err := resolveAPIURL(c.cfg.BaseURL, path)
 	if err != nil {
 		return err
@@ -41,14 +45,14 @@ func (c *client) downloadFlowCSV(path string, maxBytes int64, output io.Writer) 
 		req.Header.Set("X-Probectl-Tenant", c.cfg.Tenant)
 	}
 	hc := c.requestHTTPClient(target, false)
-	hc.Timeout = downloadTimeout
+	hc.Timeout = policy.downloadTimeout
 	response, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("CSV request failed: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode/100 != 2 {
-		body, err := readBufferedResponse(response)
+		body, err := readBufferedResponse(response, policy.responseBytes)
 		if err != nil {
 			return err
 		}

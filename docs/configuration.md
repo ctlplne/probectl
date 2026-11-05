@@ -1597,13 +1597,29 @@ console shows it — and in other locales the localized message for the `code`.
 When an API error includes `request_id`, the CLI includes it in the
 terminal error output for support/debugging.
 
-A CLI request gives up after 15 seconds, except where the server itself runs
+By default, a CLI request gives up after 15 seconds, except where the server itself runs
 longer and lifts its write timeout for the route: export and other downloads
 get 15 minutes, a tenant or subject erasure 15 minutes, a tenant provisioning
 (`provider create-tenant`, `tenant create`) 5 minutes, a path discovery
 (`test path <id> --body`) 150 seconds, and `ai ask` 90 seconds.
 `PROBECTL_HTTP_WRITE_TIMEOUT` sets the server's ordinary write timeout; the
 long routes keep their own budgets above it.
+
+Size client admission for the workload configured on the server. Global
+`--request-timeout` (`PROBECTL_CLI_REQUEST_TIMEOUT`) supplies a positive finite
+request deadline; unset preserves the route defaults above. `--download-timeout`
+(`PROBECTL_CLI_DOWNLOAD_TIMEOUT`) independently sizes streamed downloads,
+default15m. `--max-response-bytes` (`PROBECTL_CLI_MAX_RESPONSE_BYTES`) sizes the
+complete buffered success response, default33554432bytes; positive values may
+be raised within the host's sentinel-safe allocation representation. Flags
+precede the command and override environment values. Zero is refused rather
+than interpreted as unlimited. Configure sufficient client memory for buffered
+responses. Report download streams its body and does not inherit the JSON
+buffer ceiling; error envelopes retain their separate1MiB admission. TLS,
+authentication, tenant scope, redirect and signed-export checks still apply.
+Offline help/version does not need a usable server or HTTP capacity profile.
+For example, a report operation admitted for120seconds can use
+`probectl --request-timeout 150s --json dashboard-report generate --body-file report.json`.
 
 The terminal-native product surface is the CLI. There is no separate committed
 TUI mode today; if one is added later it must be declared in the surface catalog

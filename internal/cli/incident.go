@@ -195,6 +195,10 @@ func cmdIncidentVerify(args []string, stdout, stderr io.Writer) int {
 }
 
 func (c *client) raw(method, path string, body any, limit int64) ([]byte, error) {
+	policy, err := c.cfg.httpPolicy()
+	if err != nil {
+		return nil, err
+	}
 	var r io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -226,7 +230,9 @@ func (c *client) raw(method, path string, body any, limit int64) ([]byte, error)
 	_, sensitiveTarget := sensitiveProviderOperationURL(method, target)
 	_, sensitivePath := sensitiveProviderOperationPath(method, path)
 	sensitive := sensitiveTarget || sensitivePath
-	resp, err := c.requestHTTPClient(target, sensitive).Do(req)
+	hc := c.requestHTTPClient(target, sensitive)
+	hc.Timeout = policy.requestBudget(method, path)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
