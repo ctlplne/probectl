@@ -9,6 +9,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCMDBNetBoxTenantMapConfiguration(t *testing.T) {
@@ -21,6 +22,24 @@ func TestCMDBNetBoxTenantMapConfiguration(t *testing.T) {
 	for _, raw := range []string{`null`, `{"tenant":"7"}`, `{"` + tenant + `":"7","` + tenant + `":"8"}`} {
 		if _, err := Load(envFunc(map[string]string{key: raw})); err == nil || !strings.Contains(err.Error(), key) {
 			t.Fatalf("unsafe NetBox mapping accepted: %s: %v", raw, err)
+		}
+	}
+}
+
+func TestCMDBCompleteLookupCapacityProfiles(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil || cfg.CMDBLookupTimeout != 15*time.Second || cfg.CMDBResponseBytes != 4<<20 || cfg.CMDBMemoryBytes != 512<<20 {
+		t.Fatal("complete lookup default profile drifted", err)
+	}
+	cfg, err = Load(envFunc(map[string]string{"PROBECTL_CMDB_LOOKUP_TIMEOUT": "25h", "PROBECTL_CMDB_MAX_RESPONSE_BYTES": "67108864", "PROBECTL_CMDB_MEMORY_BYTES": "4294967296"}))
+	if err != nil || cfg.CMDBLookupTimeout != 25*time.Hour || cfg.CMDBResponseBytes != 64<<20 || cfg.CMDBMemoryBytes != 4<<30 {
+		t.Fatal("larger finite complete lookup profile refused", err)
+	}
+	for _, key := range []string{"PROBECTL_CMDB_LOOKUP_TIMEOUT", "PROBECTL_CMDB_MAX_RESPONSE_BYTES", "PROBECTL_CMDB_MEMORY_BYTES"} {
+		for _, value := range []string{"0", "-1"} {
+			if _, err := Load(envFunc(map[string]string{key: value})); err == nil || !strings.Contains(err.Error(), key) {
+				t.Fatalf("nonpositive operation admission accepted: %s=%s err=%v", key, value, err)
+			}
 		}
 	}
 }

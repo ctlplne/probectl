@@ -621,6 +621,9 @@ type Config struct {
 	CMDBSecret          string
 	CMDBTable           string
 	CMDBCacheTTL        time.Duration
+	CMDBLookupTimeout   time.Duration
+	CMDBResponseBytes   int
+	CMDBMemoryBytes     int
 	CMDBNetBoxTenantMap map[string]string
 
 	// OTLP receiver (S22): TLS-only, authenticated, tenant-scoped ingest of
@@ -1246,6 +1249,12 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.CMDBSecret = l.str("PROBECTL_CMDB_SECRET", "")
 	cfg.CMDBTable = l.str("PROBECTL_CMDB_TABLE", "cmdb_ci")
 	cfg.CMDBCacheTTL = l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute)
+	cfg.CMDBLookupTimeout = l.dur("PROBECTL_CMDB_LOOKUP_TIMEOUT", 15*time.Second)
+	if cfg.CMDBLookupTimeout <= 0 {
+		l.errf("PROBECTL_CMDB_LOOKUP_TIMEOUT must be positive")
+	}
+	cfg.CMDBResponseBytes = l.intRange("PROBECTL_CMDB_MAX_RESPONSE_BYTES", 4<<20, 1, int(^uint(0)>>1))
+	cfg.CMDBMemoryBytes = l.intRange("PROBECTL_CMDB_MEMORY_BYTES", 512<<20, 1, int(^uint(0)>>1))
 	cfg.CMDBNetBoxTenantMap = l.netBoxTenantMap()
 	cfg.AlertEvalInterval = l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second)
 	cfg.ProvisionReapInterval = l.dur("PROBECTL_PROVISION_REAP_INTERVAL", 15*time.Minute)

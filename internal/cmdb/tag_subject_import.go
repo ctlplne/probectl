@@ -63,6 +63,11 @@ func (r *Resolver) PreviewNetBoxSubjectTag(ctx context.Context, facts NetBoxTagF
 	if err != nil {
 		return NetBoxTagSelection{}, err
 	}
+	ctx, cancel, err := beginLookup(ctx, provider, provider.policy, provider.policyErr)
+	if err != nil {
+		return NetBoxTagSelection{}, err
+	}
+	defer cancel()
 	if sourceID != "" && !canonicalNetBoxID(sourceID) {
 		return NetBoxTagSelection{}, ErrNoTagCandidate
 	}
@@ -79,6 +84,11 @@ func (r *Resolver) RecheckNetBoxSubjectTag(ctx context.Context, facts NetBoxTagF
 	if err != nil {
 		return NetBoxTagSelection{}, err
 	}
+	ctx, cancel, err := beginLookup(ctx, provider, provider.policy, provider.policyErr)
+	if err != nil {
+		return NetBoxTagSelection{}, err
+	}
+	defer cancel()
 	if expected.NetBoxTenantID != source {
 		return NetBoxTagSelection{}, errors.Join(ErrTagReviewChanged, ErrTenantBinding)
 	}
@@ -146,7 +156,7 @@ func (r *Resolver) readSubjectTag(ctx context.Context, n *NetBox, source string,
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		for key, epoch := range epochs {
-			if errors.Is(err, ErrTenantBinding) || errors.Is(err, ErrNoTagCandidate) {
+			if errors.Is(err, ErrTenantBinding) || errors.Is(err, ErrNoTagCandidate) || errors.Is(err, ErrLookupBudget) {
 				r.epochs[key]++
 				delete(r.cache, key)
 			} else if epoch != r.epochs[key] {

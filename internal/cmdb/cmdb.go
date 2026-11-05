@@ -115,7 +115,7 @@ func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err != nil {
-		if errors.Is(err, ErrTenantBinding) {
+		if errors.Is(err, ErrTenantBinding) || errors.Is(err, ErrLookupBudget) {
 			r.epochs[cacheKey]++
 			delete(r.cache, cacheKey)
 			return nil, err

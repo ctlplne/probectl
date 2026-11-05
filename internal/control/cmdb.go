@@ -28,6 +28,16 @@ import (
 // is configured (the feature stays off). Secrets come from the environment via
 // config — they are never logged.
 func BuildCMDB(cfg *config.Config, log *slog.Logger) *cmdb.Resolver {
+	policy := cmdb.DefaultLookupPolicy()
+	if cfg.CMDBLookupTimeout != 0 {
+		policy.Timeout = cfg.CMDBLookupTimeout
+	}
+	if cfg.CMDBResponseBytes != 0 {
+		policy.ResponseBytes = int64(cfg.CMDBResponseBytes)
+	}
+	if cfg.CMDBMemoryBytes != 0 {
+		policy.MemoryBytes = int64(cfg.CMDBMemoryBytes)
+	}
 	switch cfg.CMDBProvider {
 	case "":
 		return nil
@@ -36,7 +46,7 @@ func BuildCMDB(cfg *config.Config, log *slog.Logger) *cmdb.Resolver {
 		return cmdb.NewResolver(cmdb.NewServiceNow(cfg.CMDBURL, cfg.CMDBTable, cfg.CMDBSecret), cfg.CMDBCacheTTL)
 	case "netbox":
 		log.Info("cmdb provider configured", "provider", "netbox")
-		return cmdb.NewResolver(cmdb.NewNetBox(cfg.CMDBURL, cfg.CMDBSecret, cfg.CMDBNetBoxTenantMap), cfg.CMDBCacheTTL)
+		return cmdb.NewResolver(cmdb.NewNetBox(cfg.CMDBURL, cfg.CMDBSecret, cfg.CMDBNetBoxTenantMap, policy), cfg.CMDBCacheTTL)
 	default:
 		// config.Load validates the enum; this is a defensive default.
 		log.Error("unknown CMDB provider ignored", "provider", cfg.CMDBProvider)

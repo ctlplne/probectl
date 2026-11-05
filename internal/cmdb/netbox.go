@@ -10,12 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 )
@@ -35,17 +33,22 @@ type NetBox struct {
 	client     *http.Client
 	tenants    map[string]string
 	bindingErr error
+	policy     LookupPolicy
+	policyErr  error
 }
 
 // NewNetBox builds a NetBox CMDB provider. base is the NetBox instance URL,
-// e.g. https://netbox.example.com.
-func NewNetBox(base, token string, tenants map[string]string) *NetBox {
+// e.g. https://netbox.example.com. An optional deployment-owned profile replaces
+// the starting capacity; invalid or multiple profiles refuse source work.
+func NewNetBox(base, token string, tenants map[string]string, profiles ...LookupPolicy) *NetBox {
 	bindings, err := validatedNetBoxTenantMap(tenants)
+	policy, policyErr := lookupPolicy(profiles)
 	return &NetBox{
 		tenants: bindings, bindingErr: err,
 		base:   strings.TrimRight(base, "/"),
 		token:  token,
-		client: crypto.HardenedHTTPClient(15 * time.Second),
+		client: crypto.HardenedHTTPClient(policy.Timeout),
+		policy: policy, policyErr: policyErr,
 	}
 }
 
@@ -58,6 +61,11 @@ func (n *NetBox) Lookup(ctx context.Context, key string) ([]CI, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel, err := beginLookup(ctx, n, n.policy, n.policyErr)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
 	key = CanonicalKey(key)
 	if key == "" {
 		return nil, nil
@@ -80,10 +88,7 @@ func (n *NetBox) lookupIP(ctx context.Context, key, source string) ([]CI, error)
 	q := url.Values{}
 	q.Set("tenant_id", source)
 	q.Set("address", key)
-	q.Set("limit", fmt.Sprint(maxCIsPerLookup))
 	var parsed struct {
-		Count   int    `json:"count"`
-		Next    string `json:"next"`
 		Results []struct {
 			ID             int           `json:"id"`
 			Tenant         *netBoxTenant `json:"tenant"`
@@ -108,14 +113,14 @@ func (n *NetBox) lookupIP(ctx context.Context, key, source string) ([]CI, error)
 			} `json:"assigned_object"`
 		} `json:"results"`
 	}
-	if err := n.get(ctx, "/api/ipam/ip-addresses/?"+q.Encode(), &parsed); err != nil {
+	if err := readNetBoxPages(ctx, n, "/api/ipam/ip-addresses/", q, &parsed.Results); err != nil {
 		return nil, err
-	}
-	if parsed.Next != "" || parsed.Count != len(parsed.Results) || parsed.Count > maxCIsPerLookup {
-		return nil, ErrTenantBinding
 	}
 	out := make([]CI, 0, len(parsed.Results))
 	for _, r := range parsed.Results {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if r.ID <= 0 || !r.Tenant.matches(source) {
 			return nil, ErrTenantBinding
 		}
@@ -158,10 +163,7 @@ func (n *NetBox) lookupDevices(ctx context.Context, key, source string) ([]CI, e
 	q := url.Values{}
 	q.Set("tenant_id", source)
 	q.Set("name", key)
-	q.Set("limit", fmt.Sprint(maxCIsPerLookup))
 	var parsed struct {
-		Count   int    `json:"count"`
-		Next    string `json:"next"`
 		Results []struct {
 			ID        int           `json:"id"`
 			Tenant    *netBoxTenant `json:"tenant"`
@@ -178,14 +180,14 @@ func (n *NetBox) lookupDevices(ctx context.Context, key, source string) ([]CI, e
 			} `json:"device_type"`
 		} `json:"results"`
 	}
-	if err := n.get(ctx, "/api/dcim/devices/?"+q.Encode(), &parsed); err != nil {
+	if err := readNetBoxPages(ctx, n, "/api/dcim/devices/", q, &parsed.Results); err != nil {
 		return nil, err
-	}
-	if parsed.Next != "" || parsed.Count != len(parsed.Results) || parsed.Count > maxCIsPerLookup {
-		return nil, ErrTenantBinding
 	}
 	out := make([]CI, 0, len(parsed.Results))
 	for _, r := range parsed.Results {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if r.ID <= 0 || !r.Tenant.matches(source) {
 			return nil, ErrTenantBinding
 		}
@@ -214,10 +216,7 @@ func (n *NetBox) lookupVMs(ctx context.Context, key, source string) ([]CI, error
 	q := url.Values{}
 	q.Set("tenant_id", source)
 	q.Set("name", key)
-	q.Set("limit", fmt.Sprint(maxCIsPerLookup))
 	var parsed struct {
-		Count   int    `json:"count"`
-		Next    string `json:"next"`
 		Results []struct {
 			ID        int           `json:"id"`
 			Tenant    *netBoxTenant `json:"tenant"`
@@ -232,14 +231,14 @@ func (n *NetBox) lookupVMs(ctx context.Context, key, source string) ([]CI, error
 			} `json:"primary_ip4"`
 		} `json:"results"`
 	}
-	if err := n.get(ctx, "/api/virtualization/virtual-machines/?"+q.Encode(), &parsed); err != nil {
+	if err := readNetBoxPages(ctx, n, "/api/virtualization/virtual-machines/", q, &parsed.Results); err != nil {
 		return nil, err
-	}
-	if parsed.Next != "" || parsed.Count != len(parsed.Results) || parsed.Count > maxCIsPerLookup {
-		return nil, ErrTenantBinding
 	}
 	out := make([]CI, 0, len(parsed.Results))
 	for _, r := range parsed.Results {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if r.ID <= 0 || !r.Tenant.matches(source) {
 			return nil, ErrTenantBinding
 		}
@@ -265,6 +264,11 @@ func (n *NetBox) lookupVMs(ctx context.Context, key, source string) ([]CI, error
 }
 
 func (n *NetBox) get(ctx context.Context, path string, out any) error {
+	ctx, cancel, err := beginLookup(ctx, n, n.policy, n.policyErr)
+	if err != nil {
+		return err
+	}
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, n.base+path, nil)
 	if err != nil {
 		return err
@@ -278,15 +282,12 @@ func (n *NetBox) get(ctx context.Context, path string, out any) error {
 		return fmt.Errorf("netbox: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
-	if err != nil {
-		return fmt.Errorf("netbox read: %w", err)
-	}
-	if len(body) > 4<<20 {
-		return ErrTenantBinding
-	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("netbox: status %d", resp.StatusCode)
+	}
+	body, err := readLookupBody(ctx, n, resp.Body)
+	if err != nil {
+		return fmt.Errorf("netbox read: %w", err)
 	}
 	if err := validateNetBoxJSON(body); err != nil {
 		return err
@@ -294,7 +295,7 @@ func (n *NetBox) get(ctx context.Context, path string, out any) error {
 	if err := json.Unmarshal(body, out); err != nil {
 		return ErrTenantBinding
 	}
-	return nil
+	return ctx.Err()
 }
 
 type named struct {

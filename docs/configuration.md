@@ -2268,6 +2268,9 @@ is the payments edge proxy, owned by team X". It is off unless configured:
 | `PROBECTL_CMDB_SECRET`      | (none)    | ServiceNow `user:password` or NetBox token for a read-only integration user (env only — never in files/logs) |
 | `PROBECTL_CMDB_TABLE`       | `cmdb_ci` | ServiceNow CI table queried via the Table API; ignored for NetBox      |
 | `PROBECTL_CMDB_CACHE_TTL`   | `10m`     | CI lookup cache TTL (a down CMDB serves stale entries)              |
+| `PROBECTL_CMDB_LOOKUP_TIMEOUT` | `15s` | Positive whole-operation NetBox lookup deadline, shared by pages, related CIs and selected subject facts; raise for larger complete workloads |
+| `PROBECTL_CMDB_MAX_RESPONSE_BYTES` | `4194304` | Positive cumulative NetBox response-byte admission; raise with the complete source workload |
+| `PROBECTL_CMDB_MEMORY_BYTES` | `536870912` | Positive conservative NetBox parser/result workspace admission (64 times source bytes plus record bookkeeping); an allowance, not a preallocation |
 | `PROBECTL_CMDB_NETBOX_TENANT_MAP` | (none) | Deployment-owned JSON object mapping probectl tenant UUIDs to distinct NetBox tenant ID strings; required for every tenant using NetBox correlation |
 
 For NetBox, configure an explicit ownership mapping, for example
