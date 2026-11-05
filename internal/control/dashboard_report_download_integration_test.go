@@ -69,7 +69,7 @@ func publishCapturedReportDownloadProof(ctx context.Context, t *testing.T, f *ta
 		CoverageLimitations: []string{"source/store/HTTPS component; release acceptance is separate"}, Tables: capture.Tables}
 	stage, _, err := stageSourceDashboardReport(ctx, format, document, flowstore.ExplorerQueryBudget(f.srv.flowStore))
 	if errors.Is(err, reporting.ErrPDFLimit) {
-		t.Fatal("source metadata consumed selected PDF detail allowance")
+		t.Fatalf("source metadata consumed selected PDF detail allowance or another PDF budget: %v", err)
 	}
 	if err != nil {
 		t.Fatal("stage actual captured report", err)

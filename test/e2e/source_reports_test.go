@@ -194,7 +194,11 @@ func startReleaseReportCollector(t *testing.T, p *releaseFlowReport, collector, 
 		number += 10
 	}
 	agent := fmt.Sprintf("a7000000-0000-4000-8000-%012d", number)
-	token := mintEnrollTokenTTL(t, cli, p.tenant, agent, "release-report-source", "10m")
+	hostname := "release-report-source"
+	if p.packet {
+		hostname = "release-packet-source"
+	}
+	token := mintEnrollTokenTTL(t, cli, p.tenant, agent, hostname, "10m")
 	var registration struct {
 		TenantID string `json:"tenant_id"`
 		AgentID  string `json:"agent_id"`
@@ -203,7 +207,7 @@ func startReleaseReportCollector(t *testing.T, p *releaseFlowReport, collector, 
 		} `json:"config"`
 	}
 	p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/collectors/register",
-		map[string]string{"token": token, "plane": "flow", "hostname": "release-report-source"}, &registration)
+		map[string]string{"token": token, "plane": "flow", "hostname": hostname}, &registration)
 	env := registration.Config.Env
 	if registration.TenantID != p.tenant || registration.AgentID != agent || env["PROBECTL_FLOW_TENANT"] != p.tenant ||
 		env["PROBECTL_FLOW_AGENT_ID"] != agent || env["PROBECTL_FLOW_BUS_NAMESPACE"] == "" {

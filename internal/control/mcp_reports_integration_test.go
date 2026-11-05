@@ -128,6 +128,8 @@ func proveReportsMCP(t *testing.T, f *tagImportSubjectFixture, rest *httptest.Se
 	for i, proof := range proofs {
 		client := reportMCPClient{t: t, socket: socket, foreignTenant: proofs[1-i].tenant}
 		var dashboards mcp.ReportDashboardList
+		client.call(proof.token, "report_dashboards", map[string]any{}, nil, false, "unconsented report MCP exposed current dashboards")
+		consentCapturedReportMCP(t, f, proof)
 		client.call(proof.token, "report_dashboards", map[string]any{}, &dashboards, true, "current report MCP list failed")
 		if len(dashboards.Items) == 0 {
 			t.Fatal("report MCP lost current dashboards")
