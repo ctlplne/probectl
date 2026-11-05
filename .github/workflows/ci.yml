@@ -271,6 +271,10 @@ jobs:
         run: |
           python3 scripts/ci_cmdb_capacity.py --selftest
           python3 scripts/ci_cmdb_capacity.py
+      - name: Complete selected flow rows and original quota controls
+        run: |
+          python3 scripts/ci_flow_row_capacity.py --selftest
+          python3 scripts/ci_flow_row_capacity.py
       # Sprint 1 (DATAROOM-011): the test log is a retained receipt.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -280,6 +284,7 @@ jobs:
             test-go.log
             artifacts/flow-cursor-encoding/
             artifacts/cmdb-capacity/
+            artifacts/flow-row-capacity/
           retention-days: 90
       - name: Backup-encryption + erasure-covers-backups gate (OPS-002, COMPLY-002)
         run: go test -count=1 -v -run "Backup|Restore|Erasure|Retention|Coverage|SealOpen|Tamper" ./internal/backup/ ./internal/tenantlife/
@@ -1471,6 +1476,21 @@ jobs:
         # the fix is to supply the server, exactly as kafka and clickhouse are
         # supplied above.
         run: docker compose -f deploy/compose/dev.yml up -d --wait nats
+      - name: Complete selected row ClickHouse and Postgres isolation
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+          PROBECTL_TEST_NATS: "nats://localhost:4222"
+          PROBECTL_FLOWSTORE_URL: "http://probectl:probectl@localhost:8123"
+        run: |
+          python3 scripts/ci_flow_row_capacity.py --selftest
+          python3 scripts/ci_flow_row_capacity.py --integration
+      - name: Upload selected row isolation receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: selected-row-integration
+          path: artifacts/flow-row-capacity/
+          retention-days: 90
       - name: Permit unprivileged datagram ICMP (DPR-221 — the loopback probe tests need a socket)
         # DPR-221: TestICMPLoopback (both 127.0.0.1 and ::1) and TestRunLoopback
         # died on "icmp: open socket: socket: permission denied". Both deliberately

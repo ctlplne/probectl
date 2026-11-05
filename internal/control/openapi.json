@@ -18589,7 +18589,7 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 50000,
+            "maximum": 2147483647,
             "description": "Native flow detail groups:1-50000 for table or1-350 for chart views. Retained legacy capacity and other-source recipes keep their existing500-row bound."
           },
           "flow": {
@@ -18786,7 +18786,7 @@
           "row_limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 50000
+            "maximum": 2147483647
           }
         },
         "description": "The normalized time and row bounds enforced by the server."
@@ -18913,7 +18913,7 @@
           "returned_rows": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 50001
+            "maximum": 2147483648
           },
           "truncated": {
             "type": "boolean"
@@ -19037,7 +19037,7 @@
               "additionalProperties": true
             },
             "description": "Compatibility projection of aggregate totals; record flow measures also have exact *_str values and structural is_other. Complete totals/series/resolution appear under flow.",
-            "maxItems": 50001
+            "maxItems": 2147483648
           },
           "suggestions": {
             "type": "object",
@@ -19084,12 +19084,12 @@
               "selected_rows": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 50000
+                "maximum": 2147483647
               },
               "offset": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 50000
+                "maximum": 2147483647
               },
               "page_size": {
                 "type": "integer",
@@ -19417,12 +19417,12 @@
               "selected_rows": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 50000
+                "maximum": 2147483647
               },
               "offset": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 50000
+                "maximum": 2147483647
               },
               "page_size": {
                 "type": "integer",
@@ -24305,7 +24305,7 @@
           "row_limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 50000
+            "maximum": 2147483647
           },
           "page_size": {
             "type": "integer",
@@ -24476,12 +24476,12 @@
               "max_chart_rows": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 536870912
+                "maximum": 2147483647
               },
               "max_table_rows": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 536870912
+                "maximum": 2147483647
               },
               "max_page_rows": {
                 "type": "integer",
@@ -25010,7 +25010,7 @@
             "items": {
               "$ref": "#/components/schemas/FlowExplorerRow"
             },
-            "maxItems": 50000
+            "maxItems": 2147483647
           },
           "other": {
             "$ref": "#/components/schemas/FlowExplorerRow"

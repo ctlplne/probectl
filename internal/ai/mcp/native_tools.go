@@ -99,7 +99,7 @@ func buildNativeFlowTools(b NativeFlowBackend, schemas NativeFlowSchemas) []Tool
 		nativeFlowTool("flow_explorer_schema", "Discover the native flow registry, all operators/metrics and source/cost limits. No user SQL.", schemas["flow_explorer_schema"], "", false, func(ctx context.Context, p *auth.Principal, _ struct{}) (NativeFlowSchemaResult, error) {
 			return b.FlowSchema(ctx, p)
 		}),
-		nativeFlowTool("flow_explorer_query", "Execute the same structured native flow plan as REST/CLI/UI. Up to8dimensions,40chart series,350chart detail rows or50000paged table rows within retention; exact decimal values, no SQL.", schemas["flow_explorer_query"], "", true, func(ctx context.Context, p *auth.Principal, a nativeFlowQueryArgs) (NativeFlowQueryResult, error) {
+		nativeFlowTool("flow_explorer_query", "Execute the same structured native flow plan as REST/CLI/UI. Selected table and chart details follow deployment resource admission within retention; up to8dimensions and40chart series, exact decimal values, no SQL.", schemas["flow_explorer_query"], "", true, func(ctx context.Context, p *auth.Principal, a nativeFlowQueryArgs) (NativeFlowQueryResult, error) {
 			return b.FlowQuery(ctx, p, a.Plan)
 		}),
 		nativeFlowTool("flow_explorer_compare", "Compare a native flow plan with any explicit previous period, retaining both exact source periods and frozen paging.", schemas["flow_explorer_compare"], "", true, b.FlowCompare),

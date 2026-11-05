@@ -256,8 +256,9 @@ func createFixture(t *testing.T, s *Service, scope Scope, n, pageSize int) Page 
 }
 
 func TestSnapshotsFiftyThousandRowsAcrossReplicasStayExactAndFrozen(t *testing.T) {
+	const selectedRows = 50000
 	s, _, objects := fixtureService(t)
-	input := fixtureInput(MaxRows)
+	input := fixtureInput(selectedRows)
 	first, err := s.Create(t.Context(), redScope, []string{"flow.read", "ai.query", "metrics.read"}, 4999, allowSnapshot, func(context.Context) (Input, error) { return input, nil })
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +279,7 @@ func TestSnapshotsFiftyThousandRowsAcrossReplicasStayExactAndFrozen(t *testing.T
 			}
 			count++
 		}
-		if page.SelectedRows != MaxRows || string(page.Data) != string(first.Data) {
+		if page.SelectedRows != selectedRows || string(page.Data) != string(first.Data) {
 			t.Fatal("global summaries changed between pages")
 		}
 		if page.NextCursor == "" {
@@ -292,12 +293,12 @@ func TestSnapshotsFiftyThousandRowsAcrossReplicasStayExactAndFrozen(t *testing.T
 			t.Fatalf("page read %d objects, expected common header + at most two chunks", reads)
 		}
 	}
-	if count != MaxRows || pages != 11 {
+	if count != selectedRows || pages != 11 {
 		t.Fatalf("membership %d rows / %d pages", count, pages)
 	}
 	exported := 0
 	err = second.Walk(t.Context(), redScope, first.SnapshotID, allowSnapshot, func(header Header) error {
-		if header.SelectedRows != MaxRows {
+		if header.SelectedRows != selectedRows {
 			return ErrIntegrity
 		}
 		return nil
@@ -313,7 +314,7 @@ func TestSnapshotsFiftyThousandRowsAcrossReplicasStayExactAndFrozen(t *testing.T
 		}
 		return nil
 	})
-	if err != nil || exported != MaxRows {
+	if err != nil || exported != selectedRows {
 		t.Fatalf("export membership %d: %v", exported, err)
 	}
 	keys, err := objects.List(t.Context(), "tenant/"+redTenant+"/")

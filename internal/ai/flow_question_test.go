@@ -19,7 +19,8 @@ import (
 
 func questionReachPlan() flow.QueryPlan {
 	now := time.Date(2026, 10, 29, 8, 0, 0, 123456789, time.UTC)
-	plan := flow.QueryPlan{From: now.Add(-401 * 24 * time.Hour), To: now, View: "table", RowLimit: flow.MaxPlanTableRows, PageSize: flow.MaxPlanPageRows}
+	// Preserve the original complete 50,000-row model corpus as capacity grows.
+	plan := flow.QueryPlan{From: now.Add(-401 * 24 * time.Hour), To: now, View: "table", RowLimit: 50000, PageSize: flow.MaxPlanPageRows}
 	for _, definition := range flow.QueryMetricDefinitions() {
 		for _, calculation := range definition.Calculations {
 			role := "additional"

@@ -55,12 +55,12 @@ func TestFlowExplorerTagFieldRequiresTenantVocabulary(t *testing.T) {
 	}
 }
 
-func TestFlowExplorerRejectsOverBudgetRows(t *testing.T) {
+func TestFlowExplorerRejectsUnrepresentableSelectedRows(t *testing.T) {
 	_, err := NormalizeExplorerQuery(ExplorerQuery{
 		Question: "Traffic by site", Source: ExplorerFlow,
-		Dimensions: []string{"src_addr"}, Measures: []string{"bps"}, Limit: 50001,
+		Dimensions: []string{"src_addr"}, Measures: []string{"bps"}, Limit: 2147483648,
 	}, time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC))
 	if err == nil {
-		t.Fatal("over-budget flow query must refuse, never silently clamp")
+		t.Fatal("unrepresentable selected count must refuse, never silently clamp")
 	}
 }
