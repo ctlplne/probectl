@@ -133,6 +133,7 @@ func TestTenantQuarantineRealStack(t *testing.T) {
 
 	// 3. Quarantine mode, eu still down: everyone but X starts.
 	st.RestartControl(t, "control-quarantine", nil)
+	awaitQuarantineOTLPListener(t, st)
 	code, body := st.Do(t, cookies[X], http.MethodGet, "/v1/otlp/traces?service="+before[X], nil)
 	assertQuarantined(t, "X's session read of its traces", code, body)
 	t.Logf("RECEIPT X API (session) GET /v1/otlp/traces = %d %s", code, body)
@@ -280,6 +281,26 @@ func awaitTrace(t *testing.T, st *shipped.Stack, token, service string) {
 }
 
 // postSpan sends one span over OTLP/HTTP and returns the status.
+// API readiness proves its database connection; OTLP starts independently.
+// Probe only listener arrival, then keep each original export assertion once.
+func awaitQuarantineOTLPListener(t *testing.T, st *shipped.Stack) {
+	t.Helper()
+	client := *st.Client()
+	client.Timeout = time.Second
+	shipped.Await(t, "verified TLS quarantine OTLP listener", 30*time.Second, func() bool {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, st.OTLPURL+"/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			return false
+		}
+		_ = response.Body.Close()
+		return true
+	})
+}
+
 func postSpan(t *testing.T, st *shipped.Stack, token, service string) int {
 	t.Helper()
 	traceID, err := crypto.Random(16)
