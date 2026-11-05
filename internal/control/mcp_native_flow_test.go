@@ -91,6 +91,9 @@ func TestNativeMCPAndRESTSchemaReportConfiguredQueryBudgets(t *testing.T) {
 	if rest.Flow.Limits["max_tag_value_characters"] != float64(24000) || rest.Flow.Limits["max_tag_value_bytes"] != float64(96000) {
 		t.Fatal("REST discovery omitted the Unicode tag-value limits")
 	}
+	if rest.Flow.Limits["min_bucket_seconds"] != float64(1) || rest.Flow.Limits["max_bucket_seconds"] != float64(9223372036) {
+		t.Fatal("REST discovery retained arbitrary raw bucket bounds")
+	}
 	if json.Unmarshal(wire, &reply) != nil || !reflect.DeepEqual(reply.Result.Data.Limits, rest.Flow.Limits) {
 		t.Fatal("MCP cost discovery diverged from REST")
 	}
@@ -275,6 +278,16 @@ func TestNativeMCPQueriesAndLibrariesUseAuthenticatedTenantAndOwner(t *testing.T
 		var result mcp.NativeFlowQueryResult
 		if failed || json.Unmarshal(raw, &result) != nil || len(result.Flow.Rows) != 1 || result.Flow.Rows[0].Group[0].Value != lane.protocol || result.Flow.Rows[0].Metrics[0].Value != lane.current || strings.Contains(string(raw), lane.foreign) || strings.Contains(string(raw), lane.tenant) {
 			t.Fatalf("native MCP query changed isolation or exact data: failed=%v data=%s", failed, raw)
+		}
+		for _, width := range []int{1, 30 * 86400} {
+			candidate := plan
+			candidate.BucketSeconds = width
+			candidate.View = "line"
+			data, failed := nativeControlCall(t, server, p, "flow_explorer_query", map[string]any{"plan": candidate})
+			var output mcp.NativeFlowQueryResult
+			if failed || json.Unmarshal(data, &output) != nil || len(output.Flow.Rows) != 1 || output.Flow.Rows[0].Group[0].Value != lane.protocol || output.Flow.Rows[0].Metrics[0].Value != lane.current || strings.Contains(string(data), lane.foreign) || strings.Contains(string(data), lane.tenant) {
+				t.Fatalf("native MCP bucket width%d changed tenant or exact values: failed=%v data=%s", width, failed, data)
+			}
 		}
 		raw, failed = nativeControlCall(t, server, p, "flow_explorer_compare", mcp.NativeFlowCompareInput{Plan: plan, PreviousFrom: before.Add(-time.Minute), PreviousTo: before.Add(time.Minute)})
 		var comparison mcp.NativeFlowComparisonResult

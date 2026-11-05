@@ -15,16 +15,18 @@ import (
 
 // Public reach is independent of execution-cost budgets (D102/D103).
 const (
-	MaxPlanDimensions       = 8
-	MaxPlanMatrixDimensions = 8
-	MaxPlanMatrixDepth      = 15
-	MaxPlanChartSeries      = 40
-	MaxPlanChartRows        = 350
-	MaxPlanTableRows        = 50000
-	MaxPlanPageRows         = 5000
-	MinPlanBucketSeconds    = 60
-	MaxPlanBucketSeconds    = 604800
-	MaxPlanGrammarBytes     = 2 << 20
+	MaxPlanDimensions        = 8
+	MaxPlanMatrixDimensions  = 8
+	MaxPlanMatrixDepth       = 15
+	MaxPlanChartSeries       = 40
+	MaxPlanChartRows         = 350
+	MaxPlanTableRows         = 50000
+	MaxPlanPageRows          = 5000
+	MinPlanBucketSeconds     = 1
+	DefaultPlanBucketSeconds = 60
+	// Width is represented as a signed nanosecond duration in both backends.
+	MaxPlanBucketSeconds = int((1<<63 - 1) / time.Second)
+	MaxPlanGrammarBytes  = 2 << 20
 )
 
 // QueryPlan is the shared structured flow grammar for every user surface.
@@ -108,10 +110,10 @@ func normalizeQueryPlan(plan QueryPlan, now time.Time, lookup func(string) (Quer
 		return QueryPlan{}, errors.New("flow dataseries must be auto, raw or rollup")
 	}
 	if plan.BucketSeconds == 0 {
-		plan.BucketSeconds = MinPlanBucketSeconds
+		plan.BucketSeconds = DefaultPlanBucketSeconds
 	}
 	if plan.BucketSeconds < MinPlanBucketSeconds || plan.BucketSeconds > MaxPlanBucketSeconds {
-		return QueryPlan{}, errors.New("flow bucket width must be between one minute and one week")
+		return QueryPlan{}, errors.New("flow bucket width must be a positive whole second and fit a signed nanosecond duration")
 	}
 	if plan.SeriesDepth == 0 {
 		plan.SeriesDepth = MaxPlanChartSeries
