@@ -272,6 +272,7 @@ func TestE2E(t *testing.T) {
 
 	agentAndFlows(t, root, work, stack, secrets, cli, a, b, apiPort, agentPort, promPort, serverCA, canaryToken)
 
+	reportConsent := newReleaseCoreReportConsent(t, stack, serverCA)
 	var reports []releaseFlowReport
 	t.Run("release-source-report-storage", func(t *testing.T) {
 		reports = proveReleaseSourceReports(t, root, work, serverCA, filepath.Join(tlsDir, "tls.crt"), filepath.Join(tlsDir, "tls.key"), stack, secrets, cli, reportReaders)
@@ -280,7 +281,7 @@ func TestE2E(t *testing.T) {
 		if len(reports) != 2 {
 			t.Fatal("paired source storage must pass before surface proof")
 		}
-		proveReleaseReportSurfaces(t, root, cli, "https://localhost:"+mcpPort, filepath.Join(tlsDir, "tls.crt"), reportSessions, reports)
+		proveReleaseReportSurfaces(t, root, cli, "https://localhost:"+mcpPort, filepath.Join(tlsDir, "tls.crt"), reportSessions, reports, reportConsent)
 	})
 	var packetReports []releaseFlowReport
 	t.Run("release-real-packet-report-storage", func(t *testing.T) {
@@ -292,11 +293,11 @@ func TestE2E(t *testing.T) {
 			t.Fatal("paired real packet storage must pass before surface proof")
 		}
 		// Re-establish explicit denial so this independent cohort repeats the
-		// original consent-negative proof through the real policy API.
+		// original consent-negative proof after the core operator update.
 		for i := range packetReports {
-			packetReports[i].api.json(t, http.StatusOK, http.MethodPut, "/v1/governance/policy", map[string]any{"ai_remote_egress": false, "redact_export": true}, nil)
+			reportConsent.set(t, &packetReports[i], false)
 		}
-		proveReleaseReportSurfaces(t, root, cli, "https://localhost:"+mcpPort, filepath.Join(tlsDir, "tls.crt"), reportSessions, packetReports)
+		proveReleaseReportSurfaces(t, root, cli, "https://localhost:"+mcpPort, filepath.Join(tlsDir, "tls.crt"), reportSessions, packetReports, reportConsent)
 	})
 	reports = append(reports, packetReports...)
 
