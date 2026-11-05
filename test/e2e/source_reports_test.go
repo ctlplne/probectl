@@ -166,7 +166,10 @@ func proveReleaseSourceReports(t *testing.T, root, work, ca, cert, key string, s
 		p, foreign := &proofs[i], &proofs[1-i]
 		for _, path := range []string{"/v1/dashboard-report-artifacts/" + p.artifact, "/v1/explorer/flow-snapshots/" + p.snapshot + "/csv",
 			"/v1/explorer/flow-views/" + p.source} {
-			if status, _ := foreign.api.do(t, http.MethodGet, path, nil, "X-Probectl-Tenant", p.tenant); status != http.StatusNotFound {
+			if status, _ := foreign.api.do(t, http.MethodGet, path, nil, "X-Probectl-Tenant", p.tenant); status != http.StatusUnauthorized {
+				t.Fatal("forged release tenant header was not rejected at authentication", status)
+			}
+			if status, _ := foreign.api.do(t, http.MethodGet, path, nil); status != http.StatusNotFound {
 				t.Fatal("foreign release report/source/object was not hidden", status)
 			}
 		}

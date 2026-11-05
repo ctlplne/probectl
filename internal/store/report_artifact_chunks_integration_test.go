@@ -68,7 +68,7 @@ func TestReportArtifactChunksTenantIsolationAndLegacyRefusal(t *testing.T) {
        body_storage,body_bytes,body_digest,source_capture)
       VALUES($1,$2,'same-view','csv','text/csv','owned.csv',NULL,'alice',
        statement_timestamp()-interval '1 hour',statement_timestamp(),'[]','none','[]',
-       'chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::text))`, tenant, id)
+       'chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::uuid::text))`, tenant, id)
 				if err != nil {
 					return err
 				}
