@@ -115,48 +115,161 @@ export function validateTestTagContextMatrix(checks, themes, viewports) {
   return failures;
 }
 
-function fixtureSource(mode) {
-  return `(() => {
-    const mode = ${JSON.stringify(mode)};
-    const id = ${JSON.stringify(testID)};
-    const revision = ${JSON.stringify(revision)};
-    const wide = '🌐'.repeat(24000);
-    const base = window.fetch.bind(window);
-    const state = window.__probectlTestTagProof = { refuse: false, requests: [] };
-    const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'x-probectl-fixture': '1' } });
-    window.fetch = async (input, init) => {
-      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, window.location.href);
-      const path = url.pathname;
-      if (path === '/v1/me') {
-        const response = await base(input, init);
-        const me = await response.json();
-        state.tenantID = me.tenant_id;
-        me.permissions = mode === 'missing-grant' ? ['ai.query', 'test.read'] : ['ai.query', 'test.read', 'tags.read'];
-        return json(me);
-      }
-      if (path === '/v1/ai/ask') return json({
-        id: 'test-tag-proof-answer', tenant: mode === 'foreign' ? 'foreign-tenant' : state.tenantID,
-        question: 'Why is this test slow?', root_cause: 'The cited test metric has elevated latency.',
-        root_cause_citations: [{ evidence_id: 'E1' }], root_cause_grounded: true,
-        confidence: 'medium', findings: [], model: 'builtin', insufficient_evidence: false,
-        reasoning: { adapter: 'builtin', execution: 'builtin_local', egress_consent: 'not_required' },
+// Parsed with the module, rather than reconstructing executable code from
+// fixture data for a syntax-only check. Browser installation still runs in the
+// same init script after the shared fetch stub, preserving request ordering.
+function installTestTagFixture({ mode, id, revision }) {
+  const wide = "🌐".repeat(24000);
+  const base = window.fetch.bind(window);
+  const state = (window.__probectlTestTagProof = {
+    refuse: false,
+    requests: [],
+  });
+  const json = (body, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: {
+        "content-type": "application/json",
+        "x-probectl-fixture": "1",
+      },
+    });
+  window.fetch = async (input, init) => {
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url,
+      window.location.href,
+    );
+    const path = url.pathname;
+    if (path === "/v1/me") {
+      const response = await base(input, init);
+      const me = await response.json();
+      state.tenantID = me.tenant_id;
+      me.permissions =
+        mode === "missing-grant"
+          ? ["ai.query", "test.read"]
+          : ["ai.query", "test.read", "tags.read"];
+      return json(me);
+    }
+    if (path === "/v1/ai/ask")
+      return json({
+        id: "test-tag-proof-answer",
+        tenant: mode === "foreign" ? "foreign-tenant" : state.tenantID,
+        question: "Why is this test slow?",
+        root_cause: "The cited test metric has elevated latency.",
+        root_cause_citations: [{ evidence_id: "E1" }],
+        root_cause_grounded: true,
+        confidence: "medium",
+        findings: [],
+        model: "builtin",
+        insufficient_evidence: false,
+        reasoning: {
+          adapter: "builtin",
+          execution: "builtin_local",
+          egress_consent: "not_required",
+        },
         evidence: [
-          { id: 'E1', domain: 'metrics', title: 'Test latency', fields: mode === 'legacy' ? { target: 'https://probe.example/health' } : { test_id: id } },
-          { id: 'E2', domain: 'metrics', fields: { test_id: '22222222-2222-4222-8222-222222222222' } },
+          {
+            id: "E1",
+            domain: "metrics",
+            title: "Test latency",
+            fields:
+              mode === "legacy"
+                ? { target: "https://probe.example/health" }
+                : { test_id: id },
+          },
+          {
+            id: "E2",
+            domain: "metrics",
+            fields: { test_id: "22222222-2222-4222-8222-222222222222" },
+          },
         ],
       });
-      if (path === '/v1/tests') return json({ items: [{ id, name: 'Tag proof probe', type: 'http', target: 'https://probe.example/health', interval_seconds: 60, timeout_seconds: 5, enabled: true, params: {}, created_at: '2026-11-03T00:00:00Z', updated_at: '2026-11-03T00:00:00Z' }] });
-      if (path === '/v1/results/latest') return json({ collector_running: true, items: [{ agent_id: 'fixture-agent', type: 'http', target: 'https://probe.example/health', success: true, duration_ms: 184, metrics: { 'http.total.ms': 184, 'http.status': 200 }, observed_at: '2026-11-02T00:00:00Z', attributes: mode === 'legacy' ? {} : { 'probectl.test.id': mode === 'foreign' ? '22222222-2222-4222-8222-222222222222' : id } }] });
-      if (path === '/v1/tags/tests/resolve') {
-        const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
-        const body = init?.body ?? (input instanceof Request ? await input.clone().text() : '');
-        state.requests.push({ method, body: JSON.parse(String(body)) });
-        if (state.refuse) return json({ error: { code: 'forbidden', message: 'Current context refused' } }, 403);
-        return json({ tag_revision: revision, as_of: '2026-11-03T00:00:00Z', items: [{ context_id: '33333333-3333-4333-8333-333333333333', target_kind: 'test', target_id: id, tag_revision: revision, as_of: '2026-11-03T00:00:00Z', items: [{ tag_id: '44444444-4444-4444-8444-444444444444', key: 'customer', value: wide, source: 'rule' }] }] });
-      }
-      return base(input, init);
-    };
-  })();`;
+    if (path === "/v1/tests")
+      return json({
+        items: [
+          {
+            id,
+            name: "Tag proof probe",
+            type: "http",
+            target: "https://probe.example/health",
+            interval_seconds: 60,
+            timeout_seconds: 5,
+            enabled: true,
+            params: {},
+            created_at: "2026-11-03T00:00:00Z",
+            updated_at: "2026-11-03T00:00:00Z",
+          },
+        ],
+      });
+    if (path === "/v1/results/latest")
+      return json({
+        collector_running: true,
+        items: [
+          {
+            agent_id: "fixture-agent",
+            type: "http",
+            target: "https://probe.example/health",
+            success: true,
+            duration_ms: 184,
+            metrics: { "http.total.ms": 184, "http.status": 200 },
+            observed_at: "2026-11-02T00:00:00Z",
+            attributes:
+              mode === "legacy"
+                ? {}
+                : {
+                    "probectl.test.id":
+                      mode === "foreign"
+                        ? "22222222-2222-4222-8222-222222222222"
+                        : id,
+                  },
+          },
+        ],
+      });
+    if (path === "/v1/tags/tests/resolve") {
+      const method =
+        init?.method ?? (input instanceof Request ? input.method : "GET");
+      const body =
+        init?.body ??
+        (input instanceof Request ? await input.clone().text() : "");
+      state.requests.push({ method, body: JSON.parse(String(body)) });
+      if (state.refuse)
+        return json(
+          { error: { code: "forbidden", message: "Current context refused" } },
+          403,
+        );
+      return json({
+        tag_revision: revision,
+        as_of: "2026-11-03T00:00:00Z",
+        items: [
+          {
+            context_id: "33333333-3333-4333-8333-333333333333",
+            target_kind: "test",
+            target_id: id,
+            tag_revision: revision,
+            as_of: "2026-11-03T00:00:00Z",
+            items: [
+              {
+                tag_id: "44444444-4444-4444-8444-444444444444",
+                key: "customer",
+                value: wide,
+                source: "rule",
+              },
+            ],
+          },
+        ],
+      });
+    }
+    return base(input, init);
+  };
+}
+
+function fixtureSource(mode) {
+  if (!TEST_TAG_CONTEXT_CASES.includes(mode))
+    throw Error("unknown test-tag fixture mode");
+  return `(${installTestTagFixture.toString()})(${JSON.stringify({ mode, id: testID, revision })});`;
 }
 
 export function testTagContextSelfTest() {
@@ -230,7 +343,35 @@ export function testTagContextSelfTest() {
   ])
     if (!validateTestTagContextMatrix(invalid, themes, viewports).length)
       throw Error("missing/duplicate/unproved test-tag state was accepted");
-  for (const mode of TEST_TAG_CONTEXT_CASES) new Function(fixtureSource(mode));
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  try {
+    for (const mode of TEST_TAG_CONTEXT_CASES) {
+      const fetch = () => {
+        throw Error("fixture self-test made a network request");
+      };
+      globalThis.window = { fetch };
+      installTestTagFixture({ mode, id: testID, revision });
+      if (
+        window.fetch === fetch ||
+        window.__probectlTestTagProof.refuse !== false ||
+        window.__probectlTestTagProof.requests.length !== 0
+      )
+        throw Error(
+          "test-tag fixture failed to install its isolated request observer",
+        );
+      fixtureSource(mode);
+    }
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, "window", descriptor);
+    else delete globalThis.window;
+  }
+  try {
+    fixtureSource("untrusted-mode");
+  } catch (error) {
+    if (error.message === "unknown test-tag fixture mode") return;
+    throw error;
+  }
+  throw Error("unknown test-tag fixture mode was accepted");
 }
 
 export async function runTestTagContextChecks({

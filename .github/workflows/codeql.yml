@@ -16,10 +16,12 @@ name: codeql
 # suspenders API check that every required language has a fresh analysis.
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   schedule:
-    # Weekly, plus every PR above — a cadence the staleness gate (14 days) passes.
+    # Weekly plus main/PR changes — direct-main development stays analyzed.
     - cron: "27 3 * * 1"
   workflow_dispatch:
 

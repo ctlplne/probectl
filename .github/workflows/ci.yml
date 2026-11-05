@@ -259,6 +259,10 @@ jobs:
           go test -race -count=1 -run '^TestQuestionIntegerPreservesRepresentableReachWithoutWrapping$' ./internal/ai
           go test -race -count=1 -run '^(TestExplorerAllocationsFollowCompleteActualPopulation|TestFlowComparisonConfiguredAllocationRefusesWithoutPartialRows)$' ./internal/control
           go test -race -count=1 -run '^TestModernHTTPProgressTokenCannotInjectHTMLOrEvents$' ./internal/ai/mcp
+          go test -race -count=1 -run '^(TestPlanDigestBindsScopeOrderAndNormalizedContent|TestPlanDigestRejectsUnboundHeader|TestNormalizedPageHashBindsRetryIdentity)$' ./internal/nmsimport
+          go test -race -count=1 -run '^TestSnapshotCursorEncodingSurvivesMandatoryRedaction$' ./internal/store/flowsnapshot
+          node --input-type=module -e 'import {testTagContextSelfTest} from "./scripts/web_rendered_test_tags.mjs"; testTagContextSelfTest()'
+          python3 scripts/ci_netbox.py selftest
       - name: Report inbox cursor and pagination contract
         run: python3 scripts/ci_report_inbox.py --unit
       - name: Unit tests (all workspace modules)

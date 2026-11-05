@@ -62,7 +62,8 @@ func (d *planDigest) appendPage(rows []planRow) error {
 		if err != nil {
 			return ErrInvalidPage
 		}
-		material := make([]byte, 0, len(sum)+1+len(wire))
+		// Append the complete row without an unchecked aggregate size hint.
+		var material []byte
 		material = append(material, sum...)
 		material = append(material, 0)
 		material = append(material, wire...)

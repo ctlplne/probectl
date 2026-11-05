@@ -23,10 +23,11 @@ func encodeCursor(body, mac []byte) string {
 }
 
 func encodeCursorPart(body []byte) string {
-	result := make([]byte, 2*len(body))
-	for i, value := range body {
-		result[2*i] = cursorEncodingLetters[value>>4]
-		result[2*i+1] = cursorEncodingLetters[value&15]
+	// Grow from the actual bytes rather than multiplying an input length for
+	// an allocation. The wire alphabet and every decoded byte stay unchanged.
+	var result []byte
+	for _, value := range body {
+		result = append(result, cursorEncodingLetters[value>>4], cursorEncodingLetters[value&15])
 	}
 	return string(result)
 }

@@ -8,6 +8,8 @@ name: security-scan
 # dependency-scan, so a new serious CVE in an unchanged repo still goes red.
 
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: "17 5 * * 1" # Mondays 05:17 UTC (off the top-of-hour stampede)
   workflow_dispatch:
@@ -89,9 +91,9 @@ jobs:
         run: |
           set -o pipefail
           govulncheck ./... | tee govulncheck.txt
-          # A scan that produced no symbol verdict did not happen; do not let an
-          # empty or truncated run read as a clean bill of health.
-          grep -q 'Your code is affected by' govulncheck.txt || {
+          # Require the current clean verdict or the legacy symbol summary; an
+          # empty/truncated output still fails, as does a nonzero scanner exit.
+          grep -Eq '^No vulnerabilities found\.$|Your code is affected by' govulncheck.txt || {
             echo "::error::govulncheck produced no symbol verdict — the scan did not run"; exit 1; }
 
   npm-audit:

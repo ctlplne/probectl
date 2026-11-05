@@ -378,6 +378,12 @@ class FixtureHTTPSConnection(HTTPSConnection):
     """Route only this owned source; retain localhost SNI/hostname checking."""
 
     def __init__(self, context: ssl.SSLContext):
+        if (
+            context.minimum_version < ssl.TLSVersion.TLSv1_2
+            or context.verify_mode != ssl.CERT_REQUIRED
+            or not context.check_hostname
+        ):
+            raise ValueError("fixture requires verified TLS 1.2 or newer")
         super().__init__("localhost", 18443, timeout=8, context=context)
         self.fixture_context = context
 
@@ -1168,6 +1174,25 @@ def selftest() -> None:
             continue
         raise RuntimeError("fixture accepted an unowned or non-TLS dial target")
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    for weakness in ("protocol", "hostname", "certificate"):
+        weak = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        weak.minimum_version = ssl.TLSVersion.TLSv1_2
+        if weakness == "protocol":
+            # The negative context is never dialled or used for TLS.
+            weak.minimum_version = ssl.TLSVersion.TLSv1
+        else:
+            weak.check_hostname = False
+            if weakness == "certificate":
+                weak.verify_mode = ssl.CERT_NONE
+        with patch.object(socket, "create_connection") as refused_dial:
+            try:
+                FixtureHTTPSConnection(weak)
+            except ValueError:
+                pass
+            else:
+                raise RuntimeError("fixture accepted weakened TLS " + weakness)
+            refused_dial.assert_not_called()
     with patch.dict(globals(), {"source_endpoint": lambda: ("172.18.0.2", 8443)}):
         with patch.object(socket, "create_connection") as dial:
             with patch.object(context, "wrap_socket") as wrap:
