@@ -61,7 +61,7 @@ normalizes its display.
 readable preview, bounded value suggestions, truncation state, the native evidence path, and a
 sanitized logical execution receipt. Legacy recipe queries retain their500-row,
 12-exact-filter and90-day limits. The native flow workspace uses the richer
-[flow grammar](flow.md#native-flow-explorer-preview):50,000 selected table groups,
+[flow grammar](flow.md#native-flow-explorer-preview): admitted selected table groups,
 eight dimensions on either matrix axis,and any range covered by tenant retention.
 It has no90-day cap. No source accepts arbitrary SQL,PromQL or ClickHouse syntax.
 
@@ -100,10 +100,13 @@ and SLO currently expose latest/current state through Explorer, so the schema om
 snapshot is historical data.
 
 For legacy recipe comparison,both input windows and the aligned output stay under
-the query's bounded row limit (at most500). Native flow comparison uses a shared
-selected population of up to50,000 table groups and explicit Other statistics;
-see the native flow contract for frozen pagination and complete source coverage. `current_truncated`, `previous_truncated`, and `rows_truncated` make a partial result
-explicit. Narrow both windows or add a filter before interpreting a partial delta.
+the query's bounded row limit (at most500). Its `current_truncated`,
+`previous_truncated`, and `rows_truncated` flags explicitly identify a partial
+legacy result. Native flow comparison instead uses a shared selected population
+under positive query/snapshot resource admission and the snapshot integer
+representation, with explicit Other statistics. See the native flow contract
+for frozen pagination and complete source coverage; an insufficient execution
+budget refuses the complete operation.
 
 ## Logical execution receipt
 
@@ -232,3 +235,23 @@ probectl explorer compare --body '{
 
 The CLI and web client both use the versioned API. Authentication supplies tenant scope; do not
 put a tenant selector in the body or URL.
+
+### Complete snapshot manifests
+
+A result is stored in encrypted physical chunks with one authenticated private
+manifest containing their exact digests and keys. The manifest has no separate
+64 KiB or reference-count quota: its encrypted bytes must fit both
+`PROBECTL_FLOW_SNAPSHOT_OBJECT_BYTES` and `PROBECTL_FLOW_SNAPSHOT_MAX_BYTES`,
+and count toward the tenant's stored-byte admission. Increase these positive
+profiles for the intended complete workload; a refused result is never presented
+as a complete truncated one. Physical row chunks and continuation page sizes do
+not cap the total selected population.
+
+Readers apply the same byte profile in the tenant/owner SQL projection before
+materializing encrypted metadata. Lowering a profile can therefore refuse an
+older larger result until the operator restores sufficient admission. Reclaim
+batches share the manifest byte allowance and retain their storage charge on
+failure; a smaller physical batch can make progress without raising admission.
+Tenant erasure still uses its existing object-prefix and storage/lifecycle fence.
+The expand/contract migration preserves existing encrypted bodies, ownership,
+RLS, epoch invalidation and current-source authorization.

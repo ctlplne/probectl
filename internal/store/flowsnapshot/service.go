@@ -47,7 +47,8 @@ type Service struct {
 // substituting a process-local cache, plaintext, or pooled routing.
 func New(pool *pgxpool.Pool, objects objectstore.Store, router tenancy.Router, fence tenancy.WriterFence, validate Validate, config Config) *Service {
 	admission, err := admissionFor(pool)
-	return &Service{repo: &postgres{pool}, objects: objects, router: router, fence: fence, validate: validate, config: config.defaults(), now: time.Now, seal: tenantcrypto.Seal, open: tenantcrypto.Open, hasScheme: tenantcrypto.HasScheme, admission: admission, setupErr: err}
+	config = config.defaults()
+	return &Service{repo: &postgres{pool: pool, headerBytes: config.privateHeaderBytes()}, objects: objects, router: router, fence: fence, validate: validate, config: config, now: time.Now, seal: tenantcrypto.Seal, open: tenantcrypto.Open, hasScheme: tenantcrypto.HasScheme, admission: admission, setupErr: err}
 }
 
 func (s *Service) available() error {
@@ -93,7 +94,8 @@ func (s *Service) Reclaimable(ctx context.Context, tenant string) (bool, error) 
 
 func NewLifecycle(pool *pgxpool.Pool, objects objectstore.Store, fence tenancy.WriterFence) PreparedLifecycle {
 	admission, err := admissionFor(pool)
-	return &Service{repo: &postgres{pool}, objects: objects, fence: fence, admission: admission, setupErr: err, now: time.Now, config: Config{}.defaults()}
+	config := Config{}.defaults()
+	return &Service{repo: &postgres{pool: pool, headerBytes: config.privateHeaderBytes()}, objects: objects, fence: fence, admission: admission, setupErr: err, now: time.Now, config: config}
 }
 
 func (s *Service) readable() error {
@@ -296,9 +298,13 @@ func (s *Service) load(ctx context.Context, scope Scope, id string, authorize Au
 		return manifest{}, privateHeader{}, ErrIntegrity
 	}
 	m, err := s.repo.get(ctx, scope, id)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrBudget) {
 		return manifest{}, privateHeader{}, err
 	}
+	// SQL withholds an oversized private field while retaining only public
+	// control metadata. Current ownership/source permissions must still win
+	// over a budget diagnostic; revoked callers learn no metadata-size bit.
+	admissionErr := err
 	if m.Scope != scope {
 		return manifest{}, privateHeader{}, ErrNotFound
 	}
@@ -307,6 +313,9 @@ func (s *Service) load(ctx context.Context, scope Scope, id string, authorize Au
 	}
 	if err := authorize(ctx, scope, slices.Clone(m.Permissions)); err != nil {
 		return manifest{}, privateHeader{}, err
+	}
+	if admissionErr != nil {
+		return manifest{}, privateHeader{}, admissionErr
 	}
 	private, err := s.openPrivate(ctx, m)
 	return m, private, err

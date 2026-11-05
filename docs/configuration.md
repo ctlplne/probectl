@@ -1892,7 +1892,7 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 
 Native flow cost budgets are deployment settings shared by the serving process
 and standalone MCP. Every value must be positive; zero never means unlimited.
-They bound work independently of the eight-dimension grammar, 50,000-row paged
+They bound work independently of the grouping grammar and admitted paged
 table reach and retention-covered time range. A refusal returns no partial
 result. The authenticated Explorer schema reports the configured cost policy;
 query input cannot override it. Other telemetry stores retain their existing
@@ -1918,7 +1918,7 @@ response allocation defaults.
 | `PROBECTL_FLOW_SNAPSHOT_LIFETIME` | `15m` | private result-cache lifetime, further bounded by contributing input retention; expiry and lifecycle checks still apply |
 | `PROBECTL_FLOW_SNAPSHOT_TENANT_BYTES` | `536870912` | aggregate private result-cache charge per tenant |
 | `PROBECTL_FLOW_SNAPSHOT_MAX_BYTES` | `134217728` | materialization/charge admission for one frozen query or comparison |
-| `PROBECTL_FLOW_SNAPSHOT_OBJECT_BYTES` | `67108864` | admission for each encrypted result object; records never truncate to fit |
+| `PROBECTL_FLOW_SNAPSHOT_OBJECT_BYTES` | `67108864` | admission for each encrypted result object or complete manifest; records never truncate to fit |
 | `PROBECTL_FLOW_SNAPSHOT_EXPORT_BYTES` | `268435456` | complete authenticated CSV preparation budget; a refusal publishes no partial export |
 | `PROBECTL_FLOW_MCP_SOURCE_BYTES` | `33554432` | native MCP source JSON and post-redaction byte admission; legacy tools retain their 1 MiB bound |
 | `PROBECTL_FLOW_MCP_WIRE_BYTES` | `134217728` | complete native JSON-RPC response, including text/structured copies and framing; refuses atomically |
@@ -1957,6 +1957,13 @@ response allocation defaults.
 | `PROBECTL_FLOW_ENRICH_GEOIP_DB`   | *(unset)* | path to an operator-supplied MaxMind GeoLite2 `.mmdb` (country/city/lat-lon). probectl never ships or fetches the database (see `opendata-aup.md` for licensing). Local file — no egress, air-gap friendly. An unreadable path degrades honestly: the source shows `unavailable` in `GET /v1/threat/intel/status` and the control plane keeps serving |
 | `PROBECTL_FLOW_ENRICH_RIR_DIR`    | *(unset)* | directory of RIR delegated-extended stats files (RIR, allocation status/date; drop in all five registries' files for the global view). Local files — no egress. Same honest `unavailable` degradation as the geo source |
 | `PROBECTL_FLOW_ENRICH_IXP`        | `false`  | opt-in PeeringDB IXP/facility enrichment. Off by default because it makes outbound HTTPS calls to the PeeringDB API (the no-phone-home guardrail). Requires `PROBECTL_FLOW_ENRICH_ASN=true` — PeeringDB keys on the ASN the Cymru source resolves, and the control plane refuses to start with an IXP source that could never contribute |
+
+Snapshot object-byte admission also bounds each complete encrypted object
+manifest and the retained manifest bytes in a physical reclaim batch. It is a
+positive operator resource profile, not a selected-row or history-population
+quota. The manifest also fits the per-snapshot profile and is fully charged to
+the tenant. A lower read profile refuses before loading an oversized encrypted
+metadata field; it does not weaken current-owner/source or lifecycle checks.
 
 `PROBECTL_PATH_RETENTION_DAYS` applies the same pattern to raw path/traceroute
 ClickHouse rows: raw hops/links age out, while hourly tenant-scoped hop/link

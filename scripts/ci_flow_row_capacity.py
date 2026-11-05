@@ -25,7 +25,10 @@ UNIT = (
     ),
     (
         "internal/store/flowsnapshot",
-        ("TestSnapshotsCompleteRowsPastFormerQuotaStayPrivateAcrossReplicas",),
+        (
+            "TestSnapshotsCompleteRowsPastFormerQuotaStayPrivateAcrossReplicas",
+            "TestSnapshotsCompleteObjectManifestFollowsConfiguredAdmission",
+        ),
     ),
     (
         "internal/control",
@@ -55,7 +58,10 @@ INTEGRATION = (
     ),
     (
         "internal/store/flowsnapshot",
-        ("TestSnapshotsPostgresCompleteRowsPastFormerQuotaAndIdempotentRepair",),
+        (
+            "TestSnapshotsPostgresCompleteRowsPastFormerQuotaAndIdempotentRepair",
+            "TestSnapshotsPostgresManifestChargeRepairAndBoundedRead",
+        ),
     ),
 )
 CONTROLS = (
@@ -82,6 +88,14 @@ CONTROLS = (
         UNIT[2][0],
         UNIT[2][1][0],
         "complete snapshot still uses former selected row quota",
+    ),
+    (
+        "internal/store/flowsnapshot/snapshot.go",
+        r"(?m)^(\s*return )min\(c[.]ObjectBytes, c[.]SnapshotBytes\)$",
+        "min(int64(65536), c.ObjectBytes, c.SnapshotBytes)",
+        UNIT[2][0],
+        UNIT[2][1][1],
+        "complete admitted manifest still uses former metadata quota",
     ),
 )
 
@@ -202,7 +216,7 @@ def main() -> int:
                 raise RuntimeError("restored quota did not fail its exact assertion")
         finally:
             path.write_bytes(original)
-    print("Complete selected flow rows and all three original quota controls PASS")
+    print("Complete selected flow rows and all four original quota controls PASS")
     return 0
 
 

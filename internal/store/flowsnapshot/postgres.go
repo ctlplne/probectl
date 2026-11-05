@@ -18,7 +18,10 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-type postgres struct{ pool *pgxpool.Pool }
+type postgres struct {
+	pool        *pgxpool.Pool
+	headerBytes int64
+}
 
 func (p *postgres) scoped(ctx context.Context, tenant string, fn func(context.Context, tenancy.Scope) error) error {
 	if !canonicalID(tenant) {
@@ -109,13 +112,17 @@ func (p *postgres) publish(ctx context.Context, m manifest) error {
 	})
 }
 
-const manifestColumns = `tenant_id::text,id::text,owner_id,generation,query_hash,object_lane,created_at,expires_at,row_count,page_size,permissions,private_header,charged_bytes,(state='ready')`
+const manifestColumns = `tenant_id::text,id::text,owner_id,generation,query_hash,object_lane,created_at,expires_at,row_count,page_size,permissions,CASE WHEN octet_length(private_header)<=$4::bigint THEN private_header ELSE '' END,charged_bytes,(state='ready'),(octet_length(private_header)>$4::bigint)`
 
 type scanner interface{ Scan(...any) error }
 
 func scanManifest(row scanner) (manifest, error) {
 	var m manifest
-	err := row.Scan(&m.TenantID, &m.ID, &m.Owner, &m.Generation, &m.QueryHash, &m.Lane, &m.CreatedAt, &m.ExpiresAt, &m.Rows, &m.PageSize, &m.Permissions, &m.Private, &m.ChargedBytes, &m.Ready)
+	var oversized bool
+	err := row.Scan(&m.TenantID, &m.ID, &m.Owner, &m.Generation, &m.QueryHash, &m.Lane, &m.CreatedAt, &m.ExpiresAt, &m.Rows, &m.PageSize, &m.Permissions, &m.Private, &m.ChargedBytes, &m.Ready, &oversized)
+	if err == nil && oversized {
+		return m, ErrBudget
+	}
 	return m, err
 }
 
@@ -126,7 +133,7 @@ func (p *postgres) get(ctx context.Context, scope Scope, id string) (manifest, e
 	var m manifest
 	err := p.scoped(ctx, scope.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		m, err = scanManifest(sc.Q.QueryRow(ctx, `SELECT `+manifestColumns+` FROM flow_snapshots WHERE tenant_id=$1::uuid AND id=$2::uuid AND owner_id=$3 AND state='ready'`, scope.TenantID, id, scope.Owner))
+		m, err = scanManifest(sc.Q.QueryRow(ctx, `SELECT `+manifestColumns+` FROM flow_snapshots WHERE tenant_id=$1::uuid AND id=$2::uuid AND owner_id=$3 AND state='ready'`, scope.TenantID, id, scope.Owner, p.headerBytes))
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -149,16 +156,24 @@ func (p *postgres) remove(ctx context.Context, tenant, id string) error {
 func (p *postgres) expired(ctx context.Context, tenant string, now time.Time, limit int) ([]manifest, error) {
 	var result []manifest
 	err := p.scoped(ctx, tenant, func(ctx context.Context, sc tenancy.Scope) error {
-		rows, err := sc.Q.Query(ctx, `SELECT `+manifestColumns+` FROM flow_snapshots WHERE tenant_id=$1::uuid AND (state='pending' OR expires_at<=$2) ORDER BY created_at,id LIMIT $3`, tenant, now, limit)
+		rows, err := sc.Q.Query(ctx, `SELECT `+manifestColumns+` FROM flow_snapshots WHERE tenant_id=$1::uuid AND (state='pending' OR expires_at<=$2) ORDER BY created_at,id LIMIT $3`, tenant, now, limit, p.headerBytes)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
+		var retainedBytes int64
 		for rows.Next() {
 			m, err := scanManifest(rows)
 			if err != nil {
 				return err
 			}
+			// Refuse the whole maintenance batch before retaining another
+			// header beyond its shared allowance; no object has been deleted.
+			bytes := int64(len(m.Private))
+			if bytes > p.headerBytes || retainedBytes > p.headerBytes-bytes {
+				return ErrBudget
+			}
+			retainedBytes += bytes
 			result = append(result, m)
 		}
 		return rows.Err()

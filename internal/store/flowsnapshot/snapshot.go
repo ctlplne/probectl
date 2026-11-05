@@ -101,6 +101,13 @@ func (c Config) defaults() Config {
 	return c
 }
 
+// The encrypted manifest is one admitted object, not an independent row or
+// reference-count quota. Its actual bytes also count toward SnapshotBytes and
+// tenant storage admission. Both existing positive profiles are raiseable.
+func (c Config) privateHeaderBytes() int64 {
+	return min(c.ObjectBytes, c.SnapshotBytes)
+}
+
 // Input is a fully authorized, bounded materialization. Rows retain exact JSON
 // strings for counters; Header carries global Other, totals and chart/matrix
 // membership once. Validity is an internal source-policy receipt, not grammar.

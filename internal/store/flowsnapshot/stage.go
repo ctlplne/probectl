@@ -162,7 +162,7 @@ func (s *Service) stage(ctx context.Context, scope Scope, generation int64, requ
 	if !s.hasScheme(sealed) {
 		return nil, ErrEncryption
 	}
-	if len(sealed) > 65536 {
+	if int64(len(sealed)) > s.config.privateHeaderBytes() {
 		return nil, ErrBudget
 	}
 	staged.manifest.Private = sealed
@@ -188,7 +188,10 @@ func minTime(a, b time.Time) time.Time {
 }
 
 func (s *Service) openPrivate(ctx context.Context, m manifest) (privateHeader, error) {
-	if len(m.Private) > 65536 || !s.hasScheme(m.Private) {
+	if int64(len(m.Private)) > s.config.privateHeaderBytes() {
+		return privateHeader{}, ErrBudget
+	}
+	if !s.hasScheme(m.Private) {
 		return privateHeader{}, ErrEncryption
 	}
 	plaintext, err := s.open(ctx, m.TenantID, m.Private, privateAAD(m))

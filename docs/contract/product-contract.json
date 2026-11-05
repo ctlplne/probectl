@@ -129,7 +129,7 @@
       ],
       "name": "Flow analytics",
       "status": "delivered",
-      "evidence": "`internal/flow`, `internal/store/flowstore`, `internal/control/explorer_flow.go`, `web/src/routes/NativeFlowPage.tsx` · native registry, builder/charts, saved filters/views, frozen paging/CSV and stateless proposals; `TestNativeFlowExplorerRealStack` binds constructed protocol senders, REST/CLI/MCP and rendered query receipt in the integration profile; CI development transport is distinct from production TLS image proofs. FX-2 exporter identity uses `internal/flow/entity_evidence.go` and the current Explorer pivot."
+      "evidence": "`internal/flow`, `internal/store/flowstore`, `internal/control/explorer_flow.go`, `web/src/routes/NativeFlowPage.tsx` · native registry, builder/charts, saved filters/views, frozen paging/CSV and stateless proposals; `TestNativeFlowExplorerRealStack` binds constructed protocol senders, REST/CLI/MCP and rendered query receipt in the integration profile; CI development transport is distinct from production TLS image proofs. FX-2 exporter identity uses `internal/flow/entity_evidence.go` and the current Explorer pivot. Complete object manifests follow configured object/snapshot bytes and tenant storage charge, with bounded current-owner SQL reads and migrations/0173_flow_snapshot_manifest_capacity.sql; original row/MAC/current-source proofs remain required."
     },
     {
       "ids": [
