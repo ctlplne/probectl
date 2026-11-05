@@ -58,6 +58,7 @@ func TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV(t *testin
 		}
 		t.Cleanup(func() { _ = source.Close() })
 		readerUser, reader := chtest.ProvisionReader(t, endpoint, "fx3_complete_report_reader")
+		reader, readTrace := observeCompleteSourceReads(reader)
 		source.WithTenantScoping(true).WithReader(reader)
 		if err := source.EnsureReaderRowPolicy(t.Context(), readerUser); err != nil {
 			t.Fatal(err)
@@ -142,7 +143,14 @@ func TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV(t *testin
 			stopSampler := func() { stopOnce.Do(func() { close(stop); <-stopped }) }
 			defer stopSampler()
 			started := time.Now()
-			artifact := completeSourcePost[reportArtifactView](t, socket, token, "/v1/dashboard-reports", reportGenerateRequest{DashboardID: created.ID, Format: "csv"})
+			artifact := func() reportArtifactView {
+				readTrace.begin()
+				defer func() {
+					readTrace.finish(t)
+					t.Logf("complete source generation elapsed_observation=%s", time.Since(started))
+				}()
+				return completeSourcePost[reportArtifactView](t, socket, token, "/v1/dashboard-reports", reportGenerateRequest{DashboardID: created.ID, Format: "csv"})
+			}()
 			stopSampler()
 			elapsed := time.Since(started)
 			path, digest, size := downloadCompleteSourceCSV(t, socket, token, artifact.ID)
