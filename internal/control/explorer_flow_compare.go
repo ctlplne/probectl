@@ -233,7 +233,7 @@ func alignExactFlowComparison(current, previous []flowstore.PlanRow, fields, mea
 		ordered = append(ordered, key)
 	}
 	sort.Strings(ordered)
-	result := make([]explorerComparisonRow, 0, len(keys)*len(measures))
+	result := []explorerComparisonRow{}
 	for _, key := range ordered {
 		now, hasNow := currentByKey[key]
 		before, hasBefore := previousByKey[key]
@@ -343,7 +343,7 @@ func selectFlowComparisonGroups(current, previous []flowstore.PlanRow, plan flow
 		}
 		return keys[i] < keys[j]
 	})
-	selected := make([][]string, 0, min(len(keys), plan.RowLimit))
+	selected := [][]string{}
 	for _, key := range keys[:min(len(keys), plan.RowLimit)] {
 		selected = append(selected, groups[key].tuple)
 	}

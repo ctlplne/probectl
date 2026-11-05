@@ -849,7 +849,7 @@ func filterExplorerRows(rows []ai.Row, filters map[string]string) []ai.Row {
 }
 
 func explorerColumns(query ai.ExplorerQuery) []explorerColumn {
-	columns := make([]explorerColumn, 0, len(query.Dimensions)+len(query.Measures)+1)
+	columns := []explorerColumn{}
 	seen := map[string]bool{}
 	// Time visualizations declare the bucket timestamp the source rows already
 	// carry (flow points, change/routing events, endpoint and TLS records), so

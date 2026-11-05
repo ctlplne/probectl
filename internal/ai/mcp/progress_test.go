@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -178,5 +179,47 @@ func TestModernProgressTokenRejectsFractionalAndOpaqueValues(t *testing.T) {
 		if failure == nil || failure.Error.Code != codeInvalidParams {
 			t.Fatal("non-integer/string progress token accepted")
 		}
+	}
+}
+
+// A caller's progress token is echoed only as a JSON string in an explicitly
+// typed event stream. HTML metacharacters and event separators retain their
+// exact decoded value without becoming response markup or extra SSE frames.
+func TestModernHTTPProgressTokenCannotInjectHTMLOrEvents(t *testing.T) {
+	token := "<script>alert(1)</script>\n\ndata: forged-event"
+	backend := &nativeBackendProbe{}
+	server := nativeProbeServer(backend, nil)
+	socket := httptest.NewTLSServer(server.HTTPHandler(fakeAuthn{p: nativePrincipal()}))
+	defer socket.Close()
+	response := modernTLSCall(t, socket, progressRequest(t, token))
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatal("progress response lost its non-HTML media boundary", err)
+	}
+	if bytes.Contains(body, []byte("<script")) || bytes.Contains(body, []byte("\n\ndata: forged-event")) {
+		t.Fatal("progress token became raw markup or an injected event")
+	}
+	frames := 0
+	for _, line := range bytes.Split(body, []byte("\n")) {
+		if !bytes.HasPrefix(line, []byte("data: ")) {
+			continue
+		}
+		var frame struct {
+			Method string `json:"method"`
+			Params struct {
+				Token string `json:"progressToken"`
+			} `json:"params"`
+		}
+		if err := json.Unmarshal(bytes.TrimPrefix(line, []byte("data: ")), &frame); err != nil {
+			t.Fatal("progress framing contains unencoded caller bytes", err)
+		}
+		if frame.Method == "notifications/progress" && frame.Params.Token != token {
+			t.Fatal("progress safety narrowed the supported correlation value")
+		}
+		frames++
+	}
+	if frames != 3 {
+		t.Fatal("progress token changed the number of bounded service frames", frames)
 	}
 }

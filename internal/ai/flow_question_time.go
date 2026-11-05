@@ -30,8 +30,8 @@ func (c *questionCursor) integer() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	value, err := strconv.ParseUint(text, 10, 64)
-	if err != nil || value > uint64(^uint(0)>>1) {
+	value, err := strconv.ParseInt(text, 10, strconv.IntSize)
+	if err != nil || value < 0 {
 		return 0, errQuestionClause
 	}
 	return int(value), nil
