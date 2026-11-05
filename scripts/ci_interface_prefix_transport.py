@@ -18,6 +18,8 @@ UNIT = {
         "TestSNMPPrefixSnapshotKeepsCompleteOwnedCanonicalRows",
         "TestSNMPPrefixSnapshotRejectsPartialMalformedAndForeignClaims",
         "TestSNMPPrefixSnapshotAdmissionNeverTruncatesToFit",
+        "TestInterfaceRolePolicyCompleteReachKeepsOrderAndOwnedCopies",
+        "TestInterfaceRolePolicyRefusesAmbiguityAndKeepsCanonicalSets",
     ),
     "internal/agent": (
         "TestSNMPPrefixEvidenceWireKeepsCompleteSetAndWholeRequestAdmission",
@@ -25,13 +27,21 @@ UNIT = {
     "internal/agenttransport": (
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
-    "ee/silo": ("TestEntityRegistryForeignKeysFollowAllSiloCopies",),
+    "internal/store": (
+        "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
+        "TestInterfaceRoleStorageRequiresTenantBeforeAnyQuery",
+    ),
+    "ee/silo": (
+        "TestEntityRegistryForeignKeysFollowAllSiloCopies",
+        "TestInterfaceRoleStoragePlanKeepsLocalKindAndTenantForeignKeys",
+    ),
 }
 INTEGRATION = {
     "internal/store": (
         "TestEntityRegistryTenantAndContextIsolation",
         "TestSNMPPrefixStorageKeepsCompleteWirePopulationAndRepairsManagedCopies",
         "TestDashboardReportTenantIsolation",
+        "TestInterfaceRoleConfigurationPostgresKeepsTenantCASAndOverrideIncarnations",
     ),
     "internal/agenttransport": (
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
@@ -96,10 +106,12 @@ def selftest():
     print("Prefix transport classifier refuses missing, skipped and unrelated proof")
 
 
-def execute(package, roots, label, integration=False):
+def execute(package, roots, label, integration=False, overlay=None):
     args = ["go", "test", "-race", "-count=1", "-timeout=5m", "-json"]
     if integration:
         args += ["-tags=integration"]
+    if overlay is not None:
+        args += ["-overlay", str(overlay)]
     result = subprocess.run(
         args + ["-run", "^(" + "|".join(roots) + ")$", "./" + package],
         text=True,
@@ -116,6 +128,63 @@ def execute(package, roots, label, integration=False):
     return result
 
 
+def configuration_incarnation_controls():
+    source = Path("internal/store/interface_role_configuration.go").resolve()
+    original = source.read_text()
+    root = "TestInterfaceRoleConfigurationPostgresKeepsTenantCASAndOverrideIncarnations"
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    for name, start, end, clause, marker in (
+        (
+            "policy",
+            "func (s InterfaceRoleConfiguration) PutPolicy(",
+            "func sameInterfaceRolePolicy(",
+            "AND id=$3 AND revision=$4",
+            "stale role policy incarnation replaced recreated configuration",
+        ),
+        (
+            "override",
+            "func (s InterfaceRoleConfiguration) PutOverride(",
+            "func (InterfaceRoleConfiguration) ResetOverride(",
+            "AND id=$4 AND revision=$5",
+            "stale override incarnation replaced reset configuration",
+        ),
+    ):
+        a, b = original.index(start), original.index(end)
+        section = original[a:b]
+        assert section.count("previous.ID != expectedID || ") == 1
+        assert section.count(clause) == 1
+        mutant = section.replace("previous.ID != expectedID || ", "")
+        parameter = "$3" if name == "policy" else "$4"
+        mutant = mutant.replace(
+            clause,
+            f"AND {parameter}::uuid IS NOT NULL AND revision="
+            + ("$4" if name == "policy" else "$5"),
+        )
+        path = out / (name + "_incarnation_omitted.go")
+        path.write_text(original[:a] + mutant + original[b:])
+        overlay = out / (name + "_incarnation_omitted.json")
+        overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
+        result = execute(
+            "internal/store",
+            (root,),
+            name + "_incarnation_omitted",
+            integration=True,
+            overlay=overlay,
+        )
+        if not report_regression_failed_on_assertion(
+            result.stdout,
+            result.returncode,
+            package=PREFIX + "internal/store",
+            root=root,
+            child="",
+            marker=marker,
+        ):
+            raise RuntimeError(
+                f"omitted {name} incarnation guard did not fail its exact stale-write assertion"
+            )
+    print(json.dumps({"role_configuration_incarnation_controls": True}))
+
+
 def main(integration):
     for package, roots in (INTEGRATION if integration else UNIT).items():
         result = execute(
@@ -128,6 +197,8 @@ def main(integration):
             raise RuntimeError(
                 f"required prefix transport proof missing/failed: {failures}"
             )
+    if integration:
+        configuration_incarnation_controls()
     if not integration:
         source = Path("internal/agent/entity_client.go")
         original = source.read_text()

@@ -324,6 +324,14 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:tenant_tag_rules", disposition: subjectTableDeleteMatches,
 		contains: []string{"value", "name_pattern", "snmp_value"},
 	},
+	// Policy patterns can contain explicit subject text. Overrides retain
+	// only owned interface/configuration UUIDs and a fixed role vocabulary;
+	// the actor remains in the existing audit stream, not a new owner column.
+	"interface_role_policies": {
+		plane: "postgres:interface_role_policies", disposition: subjectTableDeleteMatches,
+		contains: []string{"definition"},
+	},
+	"interface_role_overrides": {plane: "postgres:interface_role_overrides", disposition: subjectTableNoSubject},
 	"entity_fault_receipts": {
 		plane: "postgres:entity_fault_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id"}, contains: []string{"source_ref"},

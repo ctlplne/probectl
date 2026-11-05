@@ -22,15 +22,15 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-type interfaceRole string
+type interfaceRole = entity.InterfaceRole
 
 const (
-	interfaceRoleTransit  interfaceRole = "transit"
-	interfaceRoleIX       interfaceRole = "ix_peering"
-	interfaceRolePrivate  interfaceRole = "private_peering"
-	interfaceRoleCustomer interfaceRole = "customer"
-	interfaceRoleBackbone interfaceRole = "backbone"
-	interfaceRoleOther    interfaceRole = "other"
+	interfaceRoleTransit  = entity.InterfaceRoleTransit
+	interfaceRoleIX       = entity.InterfaceRoleIX
+	interfaceRolePrivate  = entity.InterfaceRolePrivate
+	interfaceRoleCustomer = entity.InterfaceRoleCustomer
+	interfaceRoleBackbone = entity.InterfaceRoleBackbone
+	interfaceRoleOther    = entity.InterfaceRoleOther
 )
 
 var (
@@ -121,7 +121,7 @@ func (b *interfaceRoleBudget) charge(ctx context.Context, count int, bytesEach, 
 	return nil
 }
 func interfaceRoleValid(role interfaceRole) bool {
-	return slices.Contains([]interfaceRole{interfaceRoleTransit, interfaceRoleIX, interfaceRolePrivate, interfaceRoleCustomer, interfaceRoleBackbone, interfaceRoleOther}, role)
+	return entity.ValidInterfaceRole(role)
 }
 func interfaceRoleSource(id string) bool {
 	return id != "" && strings.TrimSpace(id) == id && len(id) <= 1024 && utf8.ValidString(id) && strings.IndexFunc(id, unicode.IsControl) < 0
