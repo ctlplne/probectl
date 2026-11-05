@@ -47,6 +47,10 @@ func (v *Validator) validateFlowCSVSpine() error {
 }
 
 const downloadFlowCSVSpine = `{
+	policy, err := c.cfg.httpPolicy()
+	if err != nil {
+		return err
+	}
 	target, err := resolveAPIURL(c.cfg.BaseURL, path)
 	if err != nil {
 		return err
@@ -65,14 +69,14 @@ const downloadFlowCSVSpine = `{
 		req.Header.Set("X-Probectl-Tenant", c.cfg.Tenant)
 	}
 	hc := c.requestHTTPClient(target, false)
-	hc.Timeout = downloadTimeout
+	hc.Timeout = policy.downloadTimeout
 	response, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("CSV request failed: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode/100 != 2 {
-		body, err := readBufferedResponse(response)
+		body, err := readBufferedResponse(response, policy.responseBytes)
 		if err != nil {
 			return err
 		}
