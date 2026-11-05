@@ -91,55 +91,123 @@ func TestStaticReportKeepsCompleteValidatedMultilingualDocument(t *testing.T) {
 	assertStaticDocumentSemanticText(t, actual, doc)
 }
 
-// Decode the standard UTF-16 ActualText spans independently of the renderer.
-// Every unique original field must survive; a smaller cropped output cannot pass.
-func assertStaticDocumentSemanticText(t *testing.T, body []byte, doc reporting.Document) {
-	t.Helper()
+// Decode standard UTF-16 ActualText spans independently of the renderer.
+// Validate each page's furniture, then rejoin all body text in page order.
+func staticDocumentSemanticText(body []byte, doc reporting.Document) (string, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	scanner.Buffer(make([]byte, 4096), 1<<20)
-	var text strings.Builder
+	var pages []string
+	var content strings.Builder
+	inStream, semantic := false, false
 	for scanner.Scan() {
-		const prefix = "/Span << /ActualText <"
 		line := scanner.Text()
+		if line == "stream" {
+			if inStream {
+				return "", fmt.Errorf("nested PDF stream")
+			}
+			inStream, semantic = true, false
+			content.Reset()
+			continue
+		}
+		if line == "endstream" {
+			if semantic {
+				pages = append(pages, content.String())
+			}
+			inStream = false
+			continue
+		}
+		const prefix = "/Span << /ActualText <"
 		if !strings.HasPrefix(line, prefix) {
 			continue
+		}
+		if !inStream {
+			return "", fmt.Errorf("PDF semantic text outside a stream")
 		}
 		encoded, _, ok := strings.Cut(strings.TrimPrefix(line, prefix), ">")
 		raw, err := hex.DecodeString(encoded)
 		if !ok || err != nil || len(raw) < 2 || len(raw)%2 != 0 || raw[0] != 0xfe || raw[1] != 0xff {
-			t.Fatal("static PDF semantic encoding invalid")
+			return "", fmt.Errorf("static PDF semantic encoding invalid")
 		}
 		units := make([]uint16, (len(raw)-2)/2)
 		for i := range units {
 			units[i] = binary.BigEndian.Uint16(raw[2+i*2:])
 		}
-		text.WriteString(string(utf16.Decode(units)))
+		content.WriteString(string(utf16.Decode(units)))
+		semantic = true
 	}
 	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
+		return "", err
+	}
+	if len(pages) == 0 || (inStream && semantic) {
+		return "", fmt.Errorf("PDF has no complete semantic pages")
+	}
+	header := reporting.Banner + "Tenant: " + doc.TenantName + " (" + doc.TenantScope + ")" + "Absolute time: " + doc.AbsoluteFrom.UTC().Format(time.RFC3339Nano) + " to " + doc.AbsoluteTo.UTC().Format(time.RFC3339Nano)
+	var text strings.Builder
+	for i, page := range pages {
+		footer := fmt.Sprintf("Page %d of %d", i+1, len(pages))
+		if !strings.HasPrefix(page, header) || !strings.HasSuffix(page, footer) || len(page) < len(header)+len(footer) {
+			return "", fmt.Errorf("PDF page %d has incomplete or conflicting tenant header/footer", i+1)
+		}
+		text.WriteString(page[len(header) : len(page)-len(footer)])
 	}
 	full := text.String()
 	for key, value := range doc.Metrics {
 		if !strings.Contains(full, key) || !strings.Contains(full, value) {
-			t.Fatal("static report metric text incomplete")
+			return "", fmt.Errorf("static report metric text incomplete")
 		}
 	}
 	for kind, values := range [][]string{doc.Provenance, doc.CoverageLimitations} {
 		for index, value := range values {
 			if !strings.Contains(full, value) {
-				wanted := []rune(value)
-				start := strings.IndexRune(full, wanted[0])
-				matched := 0
-				var next []rune
-				if start >= 0 {
-					actual := []rune(full[start:])
-					for matched < len(wanted) && matched < len(actual) && wanted[matched] == actual[matched] {
-						matched++
-					}
-					next = actual[matched:min(matched+8, len(actual))]
-				}
-				t.Fatalf("static report disclosure text incomplete: kind=%d index=%d wanted_runes=%d contiguous_prefix_runes=%d next_codepoints=%U repeated_header_count=%d", kind, index, len(wanted), matched, next, strings.Count(full, reporting.Banner))
+				return "", fmt.Errorf("static report disclosure text incomplete: kind=%d index=%d", kind, index)
 			}
+		}
+	}
+	return full, nil
+}
+
+func assertStaticDocumentSemanticText(t *testing.T, body []byte, doc reporting.Document) {
+	t.Helper()
+	if _, err := staticDocumentSemanticText(body, doc); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStaticSemanticReaderRejoinsPagesWithoutDroppingDocumentText(t *testing.T) {
+	doc := reporting.Document{TenantName: "Owned fixture", TenantScope: "tenant-a", Metrics: map[string]string{"metric-key": "metric-value"}, Provenance: []string{"provenance-field"}, CoverageLimitations: []string{"coverage-field"}}
+	header := reporting.Banner + "Tenant: " + doc.TenantName + " (" + doc.TenantScope + ")" + "Absolute time: " + doc.AbsoluteFrom.UTC().Format(time.RFC3339Nano) + " to " + doc.AbsoluteTo.UTC().Format(time.RFC3339Nano)
+	full := "metric-key: metric-value provenance-field coverage-field"
+	parts := []string{full[:20], full[20:45], full[45:]}
+	encode := func(pageHeader string, content []string, badFooter bool) []byte {
+		var pdf strings.Builder
+		span := func(value string) {
+			pdf.WriteString("/Span << /ActualText <FEFF")
+			for _, unit := range utf16.Encode([]rune(value)) {
+				fmt.Fprintf(&pdf, "%04X", unit)
+			}
+			pdf.WriteString("> >> BDC\n")
+		}
+		for i, part := range content {
+			pdf.WriteString("stream\n")
+			span(pageHeader)
+			span(part)
+			page := i + 1
+			if badFooter && i == 1 {
+				page++
+			}
+			span(fmt.Sprintf("Page %d of %d", page, len(content)))
+			pdf.WriteString("endstream\n")
+		}
+		return []byte(pdf.String())
+	}
+	if actual, err := staticDocumentSemanticText(encode(header, parts, false), doc); err != nil || actual != full {
+		t.Fatal("reader did not preserve exact known content across page furniture", actual, err)
+	}
+	missing := append([]string(nil), parts...)
+	missing[1] = missing[1][1:]
+	for _, bad := range [][]byte{encode(header, missing, false), encode(header+"foreign", parts, false), encode(header, parts, true)} {
+		if _, err := staticDocumentSemanticText(bad, doc); err == nil {
+			t.Fatal("reader accepted missing original content or conflicting page furniture")
 		}
 	}
 }
