@@ -282,7 +282,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/dashboard-report-artifacts", s.handleListDashboardReportArtifacts, permMetricsRead},
 		{http.MethodGet, "/v1/dashboard-report-artifacts/{id}", s.handleDownloadDashboardReportArtifact, permMetricsRead},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
-	}, s.tagRoutes()...)
+	}, append(s.tagRoutes(), s.interfaceRoleRoutes()...)...)
 }
 
 // inTenant runs fn inside the caller's tenant — resolved from the authenticated

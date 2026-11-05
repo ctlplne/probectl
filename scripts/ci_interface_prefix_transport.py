@@ -14,6 +14,15 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
+    "internal/ai/mcp": (
+        "TestInterfaceRoleNativeToolsPreserveCompleteInputAndUserTenantBoundary",
+    ),
+    "internal/cli": ("TestInterfaceRoleCLIUsesOwnedRoutesAndExactDecimalRevision",),
+    "internal/control": (
+        "TestInterfaceRoleConfigurationRoutesRequireSeparateReadAndWriteGrants",
+        "TestOpenAPIMatchesRoutes",
+        "TestAuditPolicyMatrixCoversRequiredRoutes",
+    ),
     "internal/entity": (
         "TestSNMPPrefixSnapshotKeepsCompleteOwnedCanonicalRows",
         "TestSNMPPrefixSnapshotRejectsPartialMalformedAndForeignClaims",
@@ -37,6 +46,9 @@ UNIT = {
     ),
 }
 INTEGRATION = {
+    "internal/control": (
+        "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",
+    ),
     "internal/store": (
         "TestEntityRegistryTenantAndContextIsolation",
         "TestSNMPPrefixStorageKeepsCompleteWirePopulationAndRepairsManagedCopies",
@@ -185,6 +197,83 @@ def configuration_incarnation_controls():
     print(json.dumps({"role_configuration_incarnation_controls": True}))
 
 
+def configuration_native_request_control():
+    source = Path("internal/ai/mcp/server.go").resolve()
+    original = source.read_text()
+    seam = "return max(4<<20, s.nativeRenderBudget.SourceBytes)"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    path = out / "native_request_old_quota.go"
+    path.write_text(original.replace(seam, "return 4<<20"))
+    overlay = out / "native_request_old_quota.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
+    root = "TestInterfaceRoleNativeToolsPreserveCompleteInputAndUserTenantBoundary"
+    result = execute(
+        "internal/ai/mcp", (root,), "native_request_old_quota", overlay=overlay
+    )
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        package=PREFIX + "internal/ai/mcp",
+        root=root,
+        child="",
+        marker="native policy retained an obsolete envelope ceiling or changed complete tenant input",
+    ):
+        raise RuntimeError(
+            "restored native request quota did not fail the complete-input assertion"
+        )
+    print(json.dumps({"role_native_request_admission_control": True}))
+
+
+def configuration_api_controls():
+    source = Path("internal/control/interface_role_api.go").resolve()
+    original = source.read_text()
+    root = (
+        "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit"
+    )
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    start = original.index(
+        'return s.recordAudit(ctx, sc, r, "interface.role.policy.updated"'
+    )
+    end = original.index("\n\t\t})", start) + len("\n\t\t})")
+    old_audit = original[start:end]
+    for name, mutant, marker in (
+        (
+            "policy_body_old_quota",
+            original.replace(
+                "return min(b.ResponseBytes, b.MemoryBytes/16)",
+                "return min(int64(1<<20), b.ResponseBytes, b.MemoryBytes/16)",
+            ),
+            "complete owned role policy was not published",
+        ),
+        (
+            "policy_atomic_audit_omitted",
+            original.replace(old_audit, "return nil"),
+            "audit refusal did not fail the write",
+        ),
+    ):
+        assert mutant != original
+        path = out / (name + ".go")
+        path.write_text(mutant)
+        overlay = out / (name + ".json")
+        overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
+        result = execute(
+            "internal/control", (root,), name, integration=True, overlay=overlay
+        )
+        if not report_regression_failed_on_assertion(
+            result.stdout,
+            result.returncode,
+            package=PREFIX + "internal/control",
+            root=root,
+            child="",
+            marker=marker,
+        ):
+            raise RuntimeError(
+                f"role API control {name} did not fail its exact assertion"
+            )
+    print(json.dumps({"role_configuration_api_controls": True}))
+
+
 def main(integration):
     for package, roots in (INTEGRATION if integration else UNIT).items():
         result = execute(
@@ -199,7 +288,9 @@ def main(integration):
             )
     if integration:
         configuration_incarnation_controls()
+        configuration_api_controls()
     if not integration:
+        configuration_native_request_control()
         source = Path("internal/agent/entity_client.go")
         original = source.read_text()
         seam = "if proto.Size(request) > 1<<20 {"

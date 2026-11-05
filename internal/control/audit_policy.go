@@ -206,6 +206,11 @@ var auditOperationalRoutes = map[string]bool{
 const auditAlertWorkflowRoute = "GET /v1/alerts/active/{fingerprint}/workflow"
 
 var auditPolicyMatrix = map[string]auditRoutePolicy{
+	"GET /v1/entity-contexts/{context_id}/interface-role-policy":            auditWrapped(auditFacetSensitiveRead),
+	"PUT /v1/entity-contexts/{context_id}/interface-role-policy":            auditExplicit(auditFacetMutation, "interface.role.policy.updated"),
+	"GET /v1/entity-contexts/{context_id}/interfaces/{id}/role-override":    auditWrapped(auditFacetSensitiveRead),
+	"PUT /v1/entity-contexts/{context_id}/interfaces/{id}/role-override":    auditExplicit(auditFacetMutation, "interface.role.override.updated"),
+	"DELETE /v1/entity-contexts/{context_id}/interfaces/{id}/role-override": auditExplicit(auditFacetMutation, "interface.role.override.reset"),
 	"POST /v1/audit/ir/{event_ref}/reveal": auditExplicit(
 		auditFacetSensitiveRead,
 		"provider.ir_attribution_reveal",

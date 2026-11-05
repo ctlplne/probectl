@@ -2003,6 +2003,57 @@ export interface IncidentShareSelection {
   kind: "evidence" | "entity"
 }
 
+export type InterfaceRole = "transit" | "ix_peering" | "private_peering" | "customer" | "backbone" | "other"
+
+export interface InterfaceRoleDescriptionRule {
+  id?: string
+  pattern: string
+  role: InterfaceRole
+}
+
+export interface InterfaceRoleOverride {
+  context_id: string
+  id: string
+  interface_id: string
+  revision: string
+  role: "" | "transit" | "ix_peering" | "private_peering" | "customer" | "backbone" | "other"
+  tenant_id: string
+  updated_at: string
+}
+
+export interface InterfaceRoleOverrideInput {
+  expected_id: string
+  expected_revision: string
+  role: InterfaceRole
+}
+
+export interface InterfaceRoleOverrideResetInput {
+  confirmed: boolean
+  expected_id: string
+  expected_revision: string
+}
+
+export interface InterfaceRolePolicy {
+  context_id: string
+  definition: InterfaceRolePolicyDefinition
+  id: string
+  revision: string
+  tenant_id: string
+  updated_at: string
+}
+
+export interface InterfaceRolePolicyDefinition {
+  customer_asns: number[]
+  description_rules: InterfaceRoleDescriptionRule[]
+  provider_asns: number[]
+}
+
+export interface InterfaceRolePolicyInput {
+  definition: InterfaceRolePolicyDefinition
+  expected_id: string
+  expected_revision: string
+}
+
 export interface InventorySavedView {
   created_at: string
   filters: { [key: string]: string }
@@ -3450,6 +3501,42 @@ export interface CreateEntityContextRequest {
 }
 
 export type CreateEntityContextResponse = EntityContext
+
+export interface GetInterfaceRolePolicyRequest {
+  contextId: string
+}
+
+export type GetInterfaceRolePolicyResponse = InterfaceRolePolicy
+
+export interface PutInterfaceRolePolicyRequest {
+  contextId: string
+  body: InterfaceRolePolicyInput
+}
+
+export type PutInterfaceRolePolicyResponse = InterfaceRolePolicy
+
+export interface GetInterfaceRoleOverrideRequest {
+  contextId: string
+  id: string
+}
+
+export type GetInterfaceRoleOverrideResponse = InterfaceRoleOverride
+
+export interface PutInterfaceRoleOverrideRequest {
+  contextId: string
+  id: string
+  body: InterfaceRoleOverrideInput
+}
+
+export type PutInterfaceRoleOverrideResponse = InterfaceRoleOverride
+
+export interface ResetInterfaceRoleOverrideRequest {
+  contextId: string
+  id: string
+  body: InterfaceRoleOverrideResetInput
+}
+
+export type ResetInterfaceRoleOverrideResponse = void
 
 export interface ResolveSubjectTagsRequest {
   contextId: string
@@ -5183,6 +5270,44 @@ export class ProbectlSDKClient {
     let path = "/v1/entity-contexts"
     const query = new URLSearchParams()
     return this.requestJSON<CreateEntityContextResponse>("POST", path, query, request.body)
+  }
+
+  async getInterfaceRolePolicy(request: GetInterfaceRolePolicyRequest): Promise<GetInterfaceRolePolicyResponse> {
+    let path = "/v1/entity-contexts/{context_id}/interface-role-policy"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetInterfaceRolePolicyResponse>("GET", path, query, undefined)
+  }
+
+  async putInterfaceRolePolicy(request: PutInterfaceRolePolicyRequest): Promise<PutInterfaceRolePolicyResponse> {
+    let path = "/v1/entity-contexts/{context_id}/interface-role-policy"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    return this.requestJSON<PutInterfaceRolePolicyResponse>("PUT", path, query, request.body)
+  }
+
+  async getInterfaceRoleOverride(request: GetInterfaceRoleOverrideRequest): Promise<GetInterfaceRoleOverrideResponse> {
+    let path = "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetInterfaceRoleOverrideResponse>("GET", path, query, undefined)
+  }
+
+  async putInterfaceRoleOverride(request: PutInterfaceRoleOverrideRequest): Promise<PutInterfaceRoleOverrideResponse> {
+    let path = "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<PutInterfaceRoleOverrideResponse>("PUT", path, query, request.body)
+  }
+
+  async resetInterfaceRoleOverride(request: ResetInterfaceRoleOverrideRequest): Promise<ResetInterfaceRoleOverrideResponse> {
+    let path = "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, request.body)
   }
 
   async resolveSubjectTags(request: ResolveSubjectTagsRequest): Promise<ResolveSubjectTagsResponse> {

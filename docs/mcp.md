@@ -683,3 +683,19 @@ Report tools share current reporting services and OpenAPI request contracts. The
 Resolve `download_url` against the operator's control-plane REST base URL. It carries no token or access grant. Download independently rechecks current tenant/source permissions and the complete stored body before bytes. Metadata hashes are expected stored digests; the metadata call does not verify binary bytes. Large PDF/CSV files use that authenticated HTTP door and are not embedded in tool responses.
 
 Existing native byte/node bounds and tenant query admission apply. Reporting services own source admission through publication, with no second source-query slot in MCP. Unknown fields, malformed projections and over-budget metadata fail without partial structured output. Consent, egress redaction and protocol/policy/call audits remain in force.
+
+### Interface role configuration
+
+`interface_role_policy` and `interface_role_override` read owned current
+configuration with `entities.read`. `interface_role_policy_set`,
+`interface_role_override_set` and `interface_role_override_reset` require an
+actual tenant user with `agent.write`. Every tool takes `context_id`; overrides
+also take `interface_id`. Sets take the REST mutation fields directly, including
+`expected_id` and exact decimal-text `expected_revision`; reset additionally
+requires `confirmed:true`. Complete ordered policies are not truncated into a
+preview. Current context authorization, deployment MFA, lifecycle, fairness,
+atomic domain audit, consent/redaction and final publication checks apply.
+Native request envelopes use the operator's existing native source-byte
+admission on both HTTP and stdio. These tools configure classification; they do
+not assert source freshness or activate automatic role labels. See
+[interface role configuration](features/interface-roles.md).

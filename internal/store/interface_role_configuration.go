@@ -137,7 +137,7 @@ func (s InterfaceRoleConfiguration) PutPolicy(ctx context.Context, sc tenancy.Sc
 	if err := lockInterfaceRoleContext(ctx, sc, scope); err != nil {
 		return entity.InterfaceRolePolicyRecord{}, err
 	}
-	previous, err := s.Policy(ctx, sc, contextID, entity.InterfaceRolePolicyBudget{MemoryBytes: budget.MemoryBytes / 4, WorkUnits: budget.WorkUnits / 4})
+	previous, err := s.Policy(ctx, sc, contextID, entity.InterfaceRolePolicyBudget{MemoryBytes: budget.MemoryBytes / 8 * 3, WorkUnits: budget.WorkUnits / 4})
 	if err != nil {
 		return entity.InterfaceRolePolicyRecord{}, err
 	}
@@ -176,10 +176,10 @@ func (s InterfaceRoleConfiguration) PutPolicy(ctx context.Context, sc tenancy.Sc
 	if err != nil {
 		return entity.InterfaceRolePolicyRecord{}, err
 	}
-	if int64(len(body)) > budget.MemoryBytes/4 {
+	if int64(len(body)) > budget.MemoryBytes/8 {
 		return entity.InterfaceRolePolicyRecord{}, entity.ErrInterfaceRoleBudget
 	}
-	// The already-normalized old value is still bounded by its own quarter
+	// The already-normalized old value is still bounded by its own retained-state
 	// allowance. Compare without retaining a second encoded publication body.
 	if previous.Revision != "0" && sameInterfaceRolePolicy(definition, previous.Definition) {
 		return previous, nil

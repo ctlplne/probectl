@@ -66,7 +66,7 @@ func (s *Server) serveVersionedStdio(ctx context.Context, scanner *bufio.Scanner
 	runCtx, cancel := context.WithCancel(ctx)
 	stream := &stdioStream{server: s, ctx: runCtx, cancel: cancel, writer: writer, initial: initial, tenant: tenant, user: user, refresh: refresh,
 		active: map[string]*stdioJob{}, tokens: map[string]*stdioJob{}, jobs: make(chan *stdioJob, s.stdioLimits.Queued), control: make(chan []byte, s.stdioLimits.Queued), output: make(chan stdioOutput, 2*s.stdioLimits.Workers)}
-	firstRequest, _ := decodeRPC(first, false)
+	firstRequest, _ := s.decodeRPC(first, false)
 	stream.legacy = firstRequest.protocol.version == legacyProtocolVersion && !firstRequest.protocol.modern
 	closed := make(chan struct{})
 	context.AfterFunc(runCtx, func() {
@@ -136,12 +136,12 @@ func (s *stdioStream) current(ctx context.Context) (*auth.Principal, error) {
 }
 
 func (s *stdioStream) receive(raw []byte) {
-	req, failure := decodeRPC(raw, false)
+	req, failure := s.server.decodeRPC(raw, false)
 	if !req.protocol.modern {
 		if s.legacy || req.protocol.version == legacyProtocolVersion {
-			req, failure = decodeLegacy2025RPC(raw)
+			req, failure = decodeLegacy2025RPCBudget(raw, s.server.nativeRequestBytes())
 		} else {
-			req, failure = decodeRPC(raw, true)
+			req, failure = s.server.decodeRPC(raw, true)
 		}
 	}
 	_, authErr := s.current(s.ctx)

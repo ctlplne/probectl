@@ -16,7 +16,14 @@ const legacyProtocolVersion = "2025-11-25"
 // The negotiated legacy revision comes only from the transport's explicit
 // initialize context. Metadata never supplies tenant, grants or store scope.
 func decodeLegacy2025RPC(raw []byte) (rpcRequest, *rpcResponse) {
+	return decodeLegacy2025RPCBudget(raw, 4<<20)
+}
+
+func decodeLegacy2025RPCBudget(raw []byte, maxBytes int) (rpcRequest, *rpcResponse) {
 	req := rpcRequest{protocol: requestProtocol{version: legacyProtocolVersion}}
+	if maxBytes <= 0 || len(raw) > maxBytes {
+		return req, errorResponse(nil, codeInvalidRequest, "request exceeds operation admission")
+	}
 	if !utf8.Valid(raw) || !json.Valid(raw) {
 		return req, errorResponse(nil, codeParse, "parse error")
 	}
@@ -28,7 +35,7 @@ func decodeLegacy2025RPC(raw []byte) (rpcRequest, *rpcResponse) {
 	invalid := func(code int, message string) (rpcRequest, *rpcResponse) {
 		return req, errorResponse(req.ID, code, message)
 	}
-	if boundedJSONObjectSyntax(raw, 4<<20, false) != nil || json.Unmarshal(root["jsonrpc"], &req.JSONRPC) != nil || req.JSONRPC != jsonRPCVersion || json.Unmarshal(root["method"], &req.Method) != nil || req.Method == "" {
+	if boundedJSONObjectSyntax(raw, maxBytes, false) != nil || json.Unmarshal(root["jsonrpc"], &req.JSONRPC) != nil || req.JSONRPC != jsonRPCVersion || json.Unmarshal(root["method"], &req.Method) != nil || req.Method == "" {
 		return invalid(codeInvalidRequest, "invalid request envelope")
 	}
 	if _, valid := requestIDKey(req.ID); !valid {

@@ -47,6 +47,7 @@ import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
 import { IdentityCard } from './IdentityCard'
 import { EntityRegistryCard } from './EntityRegistryCard'
 import { TenantTagsCard } from './TenantTagsCard'
+import { InterfaceRolesCard } from './InterfaceRolesCard'
 import { TenantTagRulesCard } from './TenantTagRulesCard'
 import { TenantTagAssignmentsCard } from './TenantTagAssignmentsCard'
 import { TagSubjectResolutionCard } from './TagSubjectResolutionCard'
@@ -1112,6 +1113,7 @@ export function AdminPage() {
       <SecretBackendsCard />
       <IdentityCard />
       <EntityRegistryCard />
+      <InterfaceRolesCard />
       <TenantTagsCard />
       <TenantTagRulesCard />
       <TenantTagAssignmentsCard />

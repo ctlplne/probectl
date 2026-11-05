@@ -53,7 +53,7 @@ func (s *Server) serveStdio(ctx context.Context, r io.Reader, w io.Writer, initi
 		tenant, user = initial.TenantID, initial.UserID
 	}
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), s.nativeRequestBytes())
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -62,7 +62,7 @@ func (s *Server) serveStdio(ctx context.Context, r io.Reader, w io.Writer, initi
 		if len(line) == 0 {
 			continue
 		}
-		if req, _ := decodeRPC(line, false); req.protocol.modern || req.protocol.version == legacyProtocolVersion {
+		if req, _ := s.decodeRPC(line, false); req.protocol.modern || req.protocol.version == legacyProtocolVersion {
 			return s.serveVersionedStdio(ctx, scanner, line, r, w, initial, tenant, user, refresh)
 		}
 		principal := initial

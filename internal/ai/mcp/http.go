@@ -106,7 +106,7 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 		}
 		limit := int64(1 << 20)
 		if s.nativeEnabled {
-			limit = 4 << 20
+			limit = int64(s.nativeRequestBytes())
 		}
 		body, err := httpbody.ReadLimited(r.Body, limit)
 		if err != nil {
@@ -123,9 +123,9 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 		}
 		versionValues := headerValues(r.Header, "MCP-Protocol-Version")
 		version, _ := singleHeaderValue(versionValues)
-		req, failure := decodeRPC(body, modernVersionHeader(version) || len(versionValues) > 1)
+		req, failure := s.decodeRPC(body, modernVersionHeader(version) || len(versionValues) > 1)
 		if !req.protocol.modern && version == legacyProtocolVersion {
-			req, failure = decodeLegacy2025RPC(body)
+			req, failure = decodeLegacy2025RPCBudget(body, s.nativeRequestBytes())
 		}
 		if !req.protocol.modern && req.protocol.version == legacyProtocolVersion {
 			if notice, _ := stdioNotification(body); notice && (req.Method == notificationCanceled || boundedJSONObjectSyntax(body, 4<<20, false) == nil) {

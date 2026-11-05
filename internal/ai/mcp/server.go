@@ -178,11 +178,11 @@ func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []by
 		// Authentication has already failed. Read protocol intent solely to
 		// choose the negotiated error-code vocabulary; never return a decode
 		// failure or dispatch an unauthenticated request.
-		request, _ := decodeRPC(raw, false)
+		request, _ := s.decodeRPC(raw, false)
 		request.ID = envelope.ID
 		return marshal(s.prepareResponse(request, errorResponse(envelope.ID, codeUnauthorized, "no tenant on principal")))
 	}
-	req, failure := decodeRPC(raw, false)
+	req, failure := s.decodeRPC(raw, false)
 	if failure != nil {
 		return marshal(s.prepareResponse(req, failure))
 	}
@@ -190,8 +190,11 @@ func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []by
 }
 
 func (s *Server) handleRequest(ctx context.Context, p *auth.Principal, req rpcRequest, raw []byte) []byte {
+	if len(raw) > 4<<20 && !s.isNativeCall(raw) {
+		return marshal(errorResponse(req.ID, codeInvalidRequest, "request exceeds operation admission"))
+	}
 	if req.Method == "tools/call" && s.isNativeCall(raw) {
-		if err := nativeJSONSyntax(raw, 4<<20); err != nil {
+		if err := nativeJSONSyntax(raw, s.nativeRequestBytes()); err != nil {
 			return marshal(errorResponse(nil, codeInvalidParams, "invalid native request JSON"))
 		}
 		var fields map[string]json.RawMessage
@@ -829,7 +832,7 @@ func toolResult(text string, structured any, isErr bool) map[string]any {
 
 // The larger authenticated body allowance belongs only to declared native tools.
 func (s *Server) isNativeCall(raw []byte) bool {
-	req, failure := decodeRPC(raw, false)
+	req, failure := s.decodeRPC(raw, false)
 	if failure != nil || req.Method != "tools/call" {
 		return false
 	}
@@ -840,4 +843,17 @@ func (s *Server) isNativeCall(raw []byte) bool {
 	}
 	tool, ok := s.tools[name]
 	return ok && tool.Native
+}
+
+// Native configuration carries complete definitions. Reuse the operator's
+// existing positive native source-byte profile for authenticated request
+// envelopes as well as output; legacy tools keep their previous admission.
+func (s *Server) nativeRequestBytes() int {
+	if !s.nativeEnabled || s.nativeRenderBudget.Validate() != nil {
+		return 4 << 20
+	}
+	return max(4<<20, s.nativeRenderBudget.SourceBytes)
+}
+func (s *Server) decodeRPC(raw []byte, modern bool) (rpcRequest, *rpcResponse) {
+	return decodeRPCBudget(raw, modern, s.nativeRequestBytes())
 }

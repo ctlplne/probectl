@@ -3259,3 +3259,12 @@ rule/assignment snapshots charge every row. Raise
 execution settings for larger metadata workloads. A budget refusal returns no
 partial vocabulary or partial snapshot. Per-row validation, tenant storage
 scoping, revision locking and audit remain mandatory.
+
+Interface-role policies and manual overrides reuse the existing positive
+Explorer operation profile and tenant query fairness. Complete definitions have
+no separate rule/ASN count quota. Input/decode, retained current definition,
+normalization and publication share the captured memory profile; publication
+budget failure rolls the transaction back. Raise memory, response and execution
+settings coherently for larger complete policies. Native MCP configuration
+requests reuse the existing native source-byte setting; HTTP and stdio apply the
+same admission. See [interface role configuration](features/interface-roles.md).

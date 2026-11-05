@@ -2125,6 +2125,57 @@ type IncidentShareSelection struct {
 	Kind string `json:"kind"`
 }
 
+type InterfaceRole string
+
+type InterfaceRoleDescriptionRule struct {
+	Id      string        `json:"id,omitempty"`
+	Pattern string        `json:"pattern"`
+	Role    InterfaceRole `json:"role"`
+}
+
+type InterfaceRoleOverride struct {
+	ContextId   string `json:"context_id"`
+	Id          string `json:"id"`
+	InterfaceId string `json:"interface_id"`
+	Revision    string `json:"revision"`
+	Role        string `json:"role"`
+	TenantId    string `json:"tenant_id"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+type InterfaceRoleOverrideInput struct {
+	ExpectedId       string        `json:"expected_id"`
+	ExpectedRevision string        `json:"expected_revision"`
+	Role             InterfaceRole `json:"role"`
+}
+
+type InterfaceRoleOverrideResetInput struct {
+	Confirmed        bool   `json:"confirmed"`
+	ExpectedId       string `json:"expected_id"`
+	ExpectedRevision string `json:"expected_revision"`
+}
+
+type InterfaceRolePolicy struct {
+	ContextId  string                        `json:"context_id"`
+	Definition InterfaceRolePolicyDefinition `json:"definition"`
+	Id         string                        `json:"id"`
+	Revision   string                        `json:"revision"`
+	TenantId   string                        `json:"tenant_id"`
+	UpdatedAt  string                        `json:"updated_at"`
+}
+
+type InterfaceRolePolicyDefinition struct {
+	CustomerAsns     []int                          `json:"customer_asns"`
+	DescriptionRules []InterfaceRoleDescriptionRule `json:"description_rules"`
+	ProviderAsns     []int                          `json:"provider_asns"`
+}
+
+type InterfaceRolePolicyInput struct {
+	Definition       InterfaceRolePolicyDefinition `json:"definition"`
+	ExpectedId       string                        `json:"expected_id"`
+	ExpectedRevision string                        `json:"expected_revision"`
+}
+
 type InventorySavedView struct {
 	CreatedAt string            `json:"created_at"`
 	Filters   map[string]string `json:"filters"`
@@ -4819,6 +4870,115 @@ func (c *Client) CreateEntityContext(ctx context.Context, req CreateEntityContex
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Read current owned InterfaceRolePolicy
+type GetInterfaceRolePolicyRequest struct {
+	ContextId string `json:"-"`
+}
+
+func (c *Client) GetInterfaceRolePolicy(ctx context.Context, req GetInterfaceRolePolicyRequest) (*InterfaceRolePolicy, error) {
+	path := "/v1/entity-contexts/{context_id}/interface-role-policy"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	var out InterfaceRolePolicy
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Replace complete owned InterfaceRolePolicy
+type PutInterfaceRolePolicyRequest struct {
+	ContextId string                    `json:"-"`
+	Body      *InterfaceRolePolicyInput `json:"-"`
+}
+
+func (c *Client) PutInterfaceRolePolicy(ctx context.Context, req PutInterfaceRolePolicyRequest) (*InterfaceRolePolicy, error) {
+	path := "/v1/entity-contexts/{context_id}/interface-role-policy"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	var out InterfaceRolePolicy
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read current owned InterfaceRoleOverride
+type GetInterfaceRoleOverrideRequest struct {
+	ContextId string `json:"-"`
+	Id        string `json:"-"`
+}
+
+func (c *Client) GetInterfaceRoleOverride(ctx context.Context, req GetInterfaceRoleOverrideRequest) (*InterfaceRoleOverride, error) {
+	path := "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out InterfaceRoleOverride
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Replace complete owned InterfaceRoleOverride
+type PutInterfaceRoleOverrideRequest struct {
+	ContextId string                      `json:"-"`
+	Id        string                      `json:"-"`
+	Body      *InterfaceRoleOverrideInput `json:"-"`
+}
+
+func (c *Client) PutInterfaceRoleOverride(ctx context.Context, req PutInterfaceRoleOverrideRequest) (*InterfaceRoleOverride, error) {
+	path := "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out InterfaceRoleOverride
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Reset owned InterfaceRoleOverride
+type ResetInterfaceRoleOverrideRequest struct {
+	ContextId string                           `json:"-"`
+	Id        string                           `json:"-"`
+	Body      *InterfaceRoleOverrideResetInput `json:"-"`
+}
+
+func (c *Client) ResetInterfaceRoleOverride(ctx context.Context, req ResetInterfaceRoleOverrideRequest) error {
+	path := "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override"
+	if req.ContextId == "" {
+		return fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, req.Body, nil)
 }
 
 // Resolve effective tags for one owned current subject

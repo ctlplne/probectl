@@ -77,6 +77,615 @@
     }
   ],
   "paths": {
+    "/v1/entity-contexts/{context_id}/interface-role-policy": {
+      "get": {
+        "tags": [
+          "entities"
+        ],
+        "operationId": "getInterfaceRolePolicy",
+        "summary": "Read current owned InterfaceRolePolicy",
+        "description": "Tenant selected by authenticated identity; current context authorization precedes configuration storage. Reads require entities.read; writes require agent.write and deployment MFA. Mutations and existing tenant audit commit atomically. A manual override survives automatic source changes and does not grant telemetry authority. Complete policies share positive operator Explorer memory/response/deadline admission and tenant query fairness, with no rule/ASN count quota. Revisions are exact decimal text paired with configuration IDs. Reload on409.",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete current configuration; absent saved state has empty ID and revision0.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterfaceRolePolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid complete configuration or missing reset confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, context policy or MFA denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Context/interface absent in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale configuration ID/revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Complete input exceeds operation admission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Tenant fairness or operation memory admission exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Store or execution admission unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "entities"
+        ],
+        "operationId": "putInterfaceRolePolicy",
+        "summary": "Replace complete owned InterfaceRolePolicy",
+        "description": "Tenant selected by authenticated identity; current context authorization precedes configuration storage. Reads require entities.read; writes require agent.write and deployment MFA. Mutations and existing tenant audit commit atomically. A manual override survives automatic source changes and does not grant telemetry authority. Complete policies share positive operator Explorer memory/response/deadline admission and tenant query fairness, with no rule/ASN count quota. Revisions are exact decimal text paired with configuration IDs. Reload on409.",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete current configuration; absent saved state has empty ID and revision0.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterfaceRolePolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid complete configuration or missing reset confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, context policy or MFA denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Context/interface absent in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale configuration ID/revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Complete input exceeds operation admission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Tenant fairness or operation memory admission exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Store or execution admission unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InterfaceRolePolicyInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override": {
+      "get": {
+        "tags": [
+          "entities"
+        ],
+        "operationId": "getInterfaceRoleOverride",
+        "summary": "Read current owned InterfaceRoleOverride",
+        "description": "Tenant selected by authenticated identity; current context authorization precedes configuration storage. Reads require entities.read; writes require agent.write and deployment MFA. Mutations and existing tenant audit commit atomically. A manual override survives automatic source changes and does not grant telemetry authority. Complete policies share positive operator Explorer memory/response/deadline admission and tenant query fairness, with no rule/ASN count quota. Revisions are exact decimal text paired with configuration IDs. Reload on409.",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete current configuration; absent saved state has empty ID and revision0.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterfaceRoleOverride"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid complete configuration or missing reset confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, context policy or MFA denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Context/interface absent in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale configuration ID/revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Complete input exceeds operation admission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Tenant fairness or operation memory admission exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Store or execution admission unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "entities"
+        ],
+        "operationId": "putInterfaceRoleOverride",
+        "summary": "Replace complete owned InterfaceRoleOverride",
+        "description": "Tenant selected by authenticated identity; current context authorization precedes configuration storage. Reads require entities.read; writes require agent.write and deployment MFA. Mutations and existing tenant audit commit atomically. A manual override survives automatic source changes and does not grant telemetry authority. Complete policies share positive operator Explorer memory/response/deadline admission and tenant query fairness, with no rule/ASN count quota. Revisions are exact decimal text paired with configuration IDs. Reload on409.",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete current configuration; absent saved state has empty ID and revision0.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterfaceRoleOverride"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid complete configuration or missing reset confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, context policy or MFA denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Context/interface absent in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale configuration ID/revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Complete input exceeds operation admission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Tenant fairness or operation memory admission exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Store or execution admission unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InterfaceRoleOverrideInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "entities"
+        ],
+        "operationId": "resetInterfaceRoleOverride",
+        "summary": "Reset owned InterfaceRoleOverride",
+        "description": "Tenant selected by authenticated identity; current context authorization precedes configuration storage. Reads require entities.read; writes require agent.write and deployment MFA. Mutations and existing tenant audit commit atomically. A manual override survives automatic source changes and does not grant telemetry authority. Complete policies share positive operator Explorer memory/response/deadline admission and tenant query fairness, with no rule/ASN count quota. Revisions are exact decimal text paired with configuration IDs. Reload on409.",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Override reset; automatic classification may apply on the next current-source read."
+          },
+          "400": {
+            "description": "Invalid complete configuration or missing reset confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, context policy or MFA denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Context/interface absent in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale configuration ID/revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Complete input exceeds operation admission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Tenant fairness or operation memory admission exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Store or execution admission unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InterfaceRoleOverrideResetInput"
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/entity-contexts/{context_id}/tag-imports/netbox/apply": {
       "post": {
         "x-required-permission": "tags.write",
@@ -13375,6 +13984,230 @@
       }
     },
     "schemas": {
+      "InterfaceRole": {
+        "type": "string",
+        "enum": [
+          "transit",
+          "ix_peering",
+          "private_peering",
+          "customer",
+          "backbone",
+          "other"
+        ]
+      },
+      "InterfaceRoleDescriptionRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Server-generated stable rule UUID. Omit or use empty text for a new rule; retain the returned ID when editing."
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/InterfaceRole"
+          }
+        },
+        "required": [
+          "pattern",
+          "role"
+        ]
+      },
+      "InterfaceRolePolicyDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider_asns": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          },
+          "customer_asns": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          },
+          "description_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InterfaceRoleDescriptionRule"
+            },
+            "description": "First-match operator order; complete collection, never truncated."
+          }
+        },
+        "required": [
+          "provider_asns",
+          "customer_asns",
+          "description_rules"
+        ]
+      },
+      "InterfaceRolePolicyInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expected_id": {
+            "type": "string",
+            "description": "Empty only with revision0; otherwise the exact current configuration UUID. Prevents stale edits after reset/recreation."
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Exact decimal bigint revision; 0 denotes no saved configuration. Always submit the matching incarnation ID."
+          },
+          "definition": {
+            "$ref": "#/components/schemas/InterfaceRolePolicyDefinition"
+          }
+        },
+        "required": [
+          "expected_id",
+          "expected_revision",
+          "definition"
+        ]
+      },
+      "InterfaceRoleOverrideInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expected_id": {
+            "type": "string",
+            "description": "Empty only with revision0; otherwise the exact current configuration UUID. Prevents stale edits after reset/recreation."
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Exact decimal bigint revision; 0 denotes no saved configuration. Always submit the matching incarnation ID."
+          },
+          "role": {
+            "$ref": "#/components/schemas/InterfaceRole"
+          }
+        },
+        "required": [
+          "expected_id",
+          "expected_revision",
+          "role"
+        ]
+      },
+      "InterfaceRoleOverrideResetInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expected_id": {
+            "type": "string",
+            "description": "Empty only with revision0; otherwise the exact current configuration UUID. Prevents stale edits after reset/recreation."
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Exact decimal bigint revision; 0 denotes no saved configuration. Always submit the matching incarnation ID."
+          },
+          "confirmed": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "expected_id",
+          "expected_revision",
+          "confirmed"
+        ]
+      },
+      "InterfaceRolePolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Exact decimal bigint revision; 0 denotes no saved configuration. Always submit the matching incarnation ID."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/InterfaceRolePolicyDefinition"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "context_id",
+          "id",
+          "revision",
+          "updated_at",
+          "definition"
+        ]
+      },
+      "InterfaceRoleOverride": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Exact decimal bigint revision; 0 denotes no saved configuration. Always submit the matching incarnation ID."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "",
+              "transit",
+              "ix_peering",
+              "private_peering",
+              "customer",
+              "backbone",
+              "other"
+            ],
+            "description": "Empty with revision0 means no manual override; it is not an inferred role."
+          }
+        },
+        "required": [
+          "tenant_id",
+          "context_id",
+          "id",
+          "revision",
+          "updated_at",
+          "interface_id",
+          "role"
+        ]
+      },
       "NetBoxTagApplyInput": {
         "type": "object",
         "additionalProperties": false,

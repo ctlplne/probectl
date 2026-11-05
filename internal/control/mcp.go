@@ -134,6 +134,11 @@ func newMCPServer(
 		options = append(options, mcp.WithEntityBackend(mcpEntityBackend{pool: pool, pathStore: pathStore, policyLoader: policyLoader}))
 		options = append(options, tagReadOptions(pool, policyLoader, src, gate)...)
 		if src.NativeFlow != nil {
+			if option, err := interfaceRoleToolOption(src.NativeFlow); err != nil {
+				log.Error("MCP interface role schemas are unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, option)
+			}
 			if schemas, err := alertTagToolSchemas(); err != nil {
 				log.Error("MCP alert tag schemas are unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

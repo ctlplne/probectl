@@ -38,8 +38,15 @@ type requestProtocol struct {
 // One canonical envelope is reused by HTTP validation, stream admission and
 // dispatch. Metadata is untrusted protocol context, never an identity source.
 func decodeRPC(raw []byte, requireModern bool) (rpcRequest, *rpcResponse) {
+	return decodeRPCBudget(raw, requireModern, 4<<20)
+}
+
+func decodeRPCBudget(raw []byte, requireModern bool, maxBytes int) (rpcRequest, *rpcResponse) {
 	var req rpcRequest
 	req.protocol.modern = requireModern
+	if maxBytes <= 0 || len(raw) > maxBytes {
+		return req, errorResponse(nil, codeInvalidRequest, "request exceeds operation admission")
+	}
 	if !utf8.Valid(raw) || !json.Valid(raw) {
 		return req, errorResponse(nil, codeParse, "parse error")
 	}
@@ -61,7 +68,7 @@ func decodeRPC(raw []byte, requireModern bool) (rpcRequest, *rpcResponse) {
 	if !intent {
 		var requested string
 		if method == "initialize" && json.Unmarshal(params["protocolVersion"], &requested) == nil && requested == legacyProtocolVersion {
-			return decodeLegacy2025RPC(raw)
+			return decodeLegacy2025RPCBudget(raw, maxBytes)
 		}
 		// Preserve historical2024 decoding only in the explicit legacy branch.
 		if json.Unmarshal(raw, &req) != nil {
@@ -83,7 +90,7 @@ func decodeRPC(raw []byte, requireModern bool) (rpcRequest, *rpcResponse) {
 	invalid := func(code int, message string) (rpcRequest, *rpcResponse) {
 		return req, errorResponse(req.ID, code, message)
 	}
-	if err := boundedJSONObjectSyntax(raw, 4<<20, false); err != nil {
+	if err := boundedJSONObjectSyntax(raw, maxBytes, false); err != nil {
 		return invalid(codeInvalidRequest, "invalid request envelope")
 	}
 	if req.JSONRPC != jsonRPCVersion || len(root["jsonrpc"]) == 0 || len(root["method"]) == 0 || req.Method == "" {
