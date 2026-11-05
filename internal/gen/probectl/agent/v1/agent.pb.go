@@ -1400,35 +1400,144 @@ func (x *AgentAddressSnapshot) GetAddresses() []string {
 	return nil
 }
 
+// A complete supported RFC4293 prefix walk from the configured device.
+// Rows are observations, never canonical interface or routing authority.
+type SnmpInterfacePrefix struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IfIndex       uint32                 `protobuf:"varint,1,opt,name=if_index,json=ifIndex,proto3" json:"if_index,omitempty"`
+	Prefix        string                 `protobuf:"bytes,2,opt,name=prefix,proto3" json:"prefix,omitempty"`
+	OnLink        bool                   `protobuf:"varint,3,opt,name=on_link,json=onLink,proto3" json:"on_link,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SnmpInterfacePrefix) Reset() {
+	*x = SnmpInterfacePrefix{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SnmpInterfacePrefix) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SnmpInterfacePrefix) ProtoMessage() {}
+
+func (x *SnmpInterfacePrefix) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SnmpInterfacePrefix.ProtoReflect.Descriptor instead.
+func (*SnmpInterfacePrefix) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *SnmpInterfacePrefix) GetIfIndex() uint32 {
+	if x != nil {
+		return x.IfIndex
+	}
+	return 0
+}
+
+func (x *SnmpInterfacePrefix) GetPrefix() string {
+	if x != nil {
+		return x.Prefix
+	}
+	return ""
+}
+
+func (x *SnmpInterfacePrefix) GetOnLink() bool {
+	if x != nil {
+		return x.OnLink
+	}
+	return false
+}
+
+// Absent is unavailable/legacy. A present empty unsupported walk is invalid,
+// rather than an authoritative removal of previously observed prefixes.
+type SnmpInterfacePrefixSnapshot struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Prefixes      []*SnmpInterfacePrefix `protobuf:"bytes,1,rep,name=prefixes,proto3" json:"prefixes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SnmpInterfacePrefixSnapshot) Reset() {
+	*x = SnmpInterfacePrefixSnapshot{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SnmpInterfacePrefixSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SnmpInterfacePrefixSnapshot) ProtoMessage() {}
+
+func (x *SnmpInterfacePrefixSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SnmpInterfacePrefixSnapshot.ProtoReflect.Descriptor instead.
+func (*SnmpInterfacePrefixSnapshot) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *SnmpInterfacePrefixSnapshot) GetPrefixes() []*SnmpInterfacePrefix {
+	if x != nil {
+		return x.Prefixes
+	}
+	return nil
+}
+
 type EntityEvidenceObservation struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	ObservationId             string                 `protobuf:"bytes,1,opt,name=observation_id,json=observationId,proto3" json:"observation_id,omitempty"`
-	SourceKind                string                 `protobuf:"bytes,2,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`          // device_target | flow_exporter | path_agent | bmp_peer | agent_site
-	ConfiguredRef             string                 `protobuf:"bytes,3,opt,name=configured_ref,json=configuredRef,proto3" json:"configured_ref,omitempty"` // must match the operator-owned assignment
-	AliasKind                 string                 `protobuf:"bytes,4,opt,name=alias_kind,json=aliasKind,proto3" json:"alias_kind,omitempty"`             // typed observation, e.g. address or snmp_device_id
-	AliasValue                string                 `protobuf:"bytes,5,opt,name=alias_value,json=aliasValue,proto3" json:"alias_value,omitempty"`          // untrusted; validated and normalized server-side
-	SourceRef                 string                 `protobuf:"bytes,6,opt,name=source_ref,json=sourceRef,proto3" json:"source_ref,omitempty"`             // original plane identifier retained for provenance
-	ObservedUnixNanos         int64                  `protobuf:"varint,7,opt,name=observed_unix_nanos,json=observedUnixNanos,proto3" json:"observed_unix_nanos,omitempty"`
-	OriginSerial              string                 `protobuf:"bytes,8,opt,name=origin_serial,json=originSerial,proto3" json:"origin_serial,omitempty"`                               // BMP only: exact verified router SVID serial
-	InterfaceName             string                 `protobuf:"bytes,9,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`                            // SNMP interface claim only: observed ifName
-	InterfaceDescription      string                 `protobuf:"bytes,10,opt,name=interface_description,json=interfaceDescription,proto3" json:"interface_description,omitempty"`      // SNMP interface claim only: observed ifDescr
-	NeighborProtocol          string                 `protobuf:"bytes,11,opt,name=neighbor_protocol,json=neighborProtocol,proto3" json:"neighbor_protocol,omitempty"`                  // LLDP or CDP, never routing authority
-	NeighborLocalIfIndex      uint32                 `protobuf:"varint,12,opt,name=neighbor_local_if_index,json=neighborLocalIfIndex,proto3" json:"neighbor_local_if_index,omitempty"` // full SNMP ifIndex on the local device
-	NeighborLocalPortId       string                 `protobuf:"bytes,13,opt,name=neighbor_local_port_id,json=neighborLocalPortId,proto3" json:"neighbor_local_port_id,omitempty"`
-	NeighborRemotePortId      string                 `protobuf:"bytes,14,opt,name=neighbor_remote_port_id,json=neighborRemotePortId,proto3" json:"neighbor_remote_port_id,omitempty"`
-	NeighborChassisId         string                 `protobuf:"bytes,15,opt,name=neighbor_chassis_id,json=neighborChassisId,proto3" json:"neighbor_chassis_id,omitempty"`
-	NeighborDeviceName        string                 `protobuf:"bytes,16,opt,name=neighbor_device_name,json=neighborDeviceName,proto3" json:"neighbor_device_name,omitempty"`
-	NeighborManagementAddress string                 `protobuf:"bytes,17,opt,name=neighbor_management_address,json=neighborManagementAddress,proto3" json:"neighbor_management_address,omitempty"` // observed IP, not a context selector
-	SystemDescription         string                 `protobuf:"bytes,18,opt,name=system_description,json=systemDescription,proto3" json:"system_description,omitempty"`                           // bounded SNMP sysDescr on the configured-target address claim only
-	SystemName                *string                `protobuf:"bytes,19,opt,name=system_name,json=systemName,proto3,oneof" json:"system_name,omitempty"`                                          // raw bounded sysName; absent is legacy, present empty clears
-	AgentAddresses            *AgentAddressSnapshot  `protobuf:"bytes,20,opt,name=agent_addresses,json=agentAddresses,proto3" json:"agent_addresses,omitempty"`                                    // agent_site claim only; complete local IP metadata
+	state                     protoimpl.MessageState       `protogen:"open.v1"`
+	ObservationId             string                       `protobuf:"bytes,1,opt,name=observation_id,json=observationId,proto3" json:"observation_id,omitempty"`
+	SourceKind                string                       `protobuf:"bytes,2,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`          // device_target | flow_exporter | path_agent | bmp_peer | agent_site
+	ConfiguredRef             string                       `protobuf:"bytes,3,opt,name=configured_ref,json=configuredRef,proto3" json:"configured_ref,omitempty"` // must match the operator-owned assignment
+	AliasKind                 string                       `protobuf:"bytes,4,opt,name=alias_kind,json=aliasKind,proto3" json:"alias_kind,omitempty"`             // typed observation, e.g. address or snmp_device_id
+	AliasValue                string                       `protobuf:"bytes,5,opt,name=alias_value,json=aliasValue,proto3" json:"alias_value,omitempty"`          // untrusted; validated and normalized server-side
+	SourceRef                 string                       `protobuf:"bytes,6,opt,name=source_ref,json=sourceRef,proto3" json:"source_ref,omitempty"`             // original plane identifier retained for provenance
+	ObservedUnixNanos         int64                        `protobuf:"varint,7,opt,name=observed_unix_nanos,json=observedUnixNanos,proto3" json:"observed_unix_nanos,omitempty"`
+	OriginSerial              string                       `protobuf:"bytes,8,opt,name=origin_serial,json=originSerial,proto3" json:"origin_serial,omitempty"`                               // BMP only: exact verified router SVID serial
+	InterfaceName             string                       `protobuf:"bytes,9,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`                            // SNMP interface claim only: observed ifName
+	InterfaceDescription      string                       `protobuf:"bytes,10,opt,name=interface_description,json=interfaceDescription,proto3" json:"interface_description,omitempty"`      // SNMP interface claim only: observed ifDescr
+	NeighborProtocol          string                       `protobuf:"bytes,11,opt,name=neighbor_protocol,json=neighborProtocol,proto3" json:"neighbor_protocol,omitempty"`                  // LLDP or CDP, never routing authority
+	NeighborLocalIfIndex      uint32                       `protobuf:"varint,12,opt,name=neighbor_local_if_index,json=neighborLocalIfIndex,proto3" json:"neighbor_local_if_index,omitempty"` // full SNMP ifIndex on the local device
+	NeighborLocalPortId       string                       `protobuf:"bytes,13,opt,name=neighbor_local_port_id,json=neighborLocalPortId,proto3" json:"neighbor_local_port_id,omitempty"`
+	NeighborRemotePortId      string                       `protobuf:"bytes,14,opt,name=neighbor_remote_port_id,json=neighborRemotePortId,proto3" json:"neighbor_remote_port_id,omitempty"`
+	NeighborChassisId         string                       `protobuf:"bytes,15,opt,name=neighbor_chassis_id,json=neighborChassisId,proto3" json:"neighbor_chassis_id,omitempty"`
+	NeighborDeviceName        string                       `protobuf:"bytes,16,opt,name=neighbor_device_name,json=neighborDeviceName,proto3" json:"neighbor_device_name,omitempty"`
+	NeighborManagementAddress string                       `protobuf:"bytes,17,opt,name=neighbor_management_address,json=neighborManagementAddress,proto3" json:"neighbor_management_address,omitempty"` // observed IP, not a context selector
+	SystemDescription         string                       `protobuf:"bytes,18,opt,name=system_description,json=systemDescription,proto3" json:"system_description,omitempty"`                           // bounded SNMP sysDescr on the configured-target address claim only
+	SystemName                *string                      `protobuf:"bytes,19,opt,name=system_name,json=systemName,proto3,oneof" json:"system_name,omitempty"`                                          // raw bounded sysName; absent is legacy, present empty clears
+	AgentAddresses            *AgentAddressSnapshot        `protobuf:"bytes,20,opt,name=agent_addresses,json=agentAddresses,proto3" json:"agent_addresses,omitempty"`                                    // agent_site claim only; complete local IP metadata
+	SnmpInterfacePrefixes     *SnmpInterfacePrefixSnapshot `protobuf:"bytes,21,opt,name=snmp_interface_prefixes,json=snmpInterfacePrefixes,proto3" json:"snmp_interface_prefixes,omitempty"`             // configured-target device address claim only
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *EntityEvidenceObservation) Reset() {
 	*x = EntityEvidenceObservation{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[23]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1440,7 +1549,7 @@ func (x *EntityEvidenceObservation) String() string {
 func (*EntityEvidenceObservation) ProtoMessage() {}
 
 func (x *EntityEvidenceObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[23]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1453,7 +1562,7 @@ func (x *EntityEvidenceObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityEvidenceObservation.ProtoReflect.Descriptor instead.
 func (*EntityEvidenceObservation) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{23}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *EntityEvidenceObservation) GetObservationId() string {
@@ -1596,6 +1705,13 @@ func (x *EntityEvidenceObservation) GetAgentAddresses() *AgentAddressSnapshot {
 	return nil
 }
 
+func (x *EntityEvidenceObservation) GetSnmpInterfacePrefixes() *SnmpInterfacePrefixSnapshot {
+	if x != nil {
+		return x.SnmpInterfacePrefixes
+	}
+	return nil
+}
+
 // A bounded fault observation shares the evidence-only RPC and live mTLS
 // sender. No tenant, agent, context, canonical entity or arbitrary severity is
 // accepted from the payload; the server derives those or leaves identity
@@ -1614,7 +1730,7 @@ type EntityFaultObservation struct {
 
 func (x *EntityFaultObservation) Reset() {
 	*x = EntityFaultObservation{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[24]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1626,7 +1742,7 @@ func (x *EntityFaultObservation) String() string {
 func (*EntityFaultObservation) ProtoMessage() {}
 
 func (x *EntityFaultObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[24]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1639,7 +1755,7 @@ func (x *EntityFaultObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityFaultObservation.ProtoReflect.Descriptor instead.
 func (*EntityFaultObservation) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{24}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *EntityFaultObservation) GetObservationId() string {
@@ -1694,7 +1810,7 @@ type SubmitEntityEvidenceRequest struct {
 
 func (x *SubmitEntityEvidenceRequest) Reset() {
 	*x = SubmitEntityEvidenceRequest{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[25]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1706,7 +1822,7 @@ func (x *SubmitEntityEvidenceRequest) String() string {
 func (*SubmitEntityEvidenceRequest) ProtoMessage() {}
 
 func (x *SubmitEntityEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[25]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1719,7 +1835,7 @@ func (x *SubmitEntityEvidenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitEntityEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*SubmitEntityEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{25}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *SubmitEntityEvidenceRequest) GetObservations() []*EntityEvidenceObservation {
@@ -1747,7 +1863,7 @@ type SubmitEntityEvidenceResponse struct {
 
 func (x *SubmitEntityEvidenceResponse) Reset() {
 	*x = SubmitEntityEvidenceResponse{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[26]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1759,7 +1875,7 @@ func (x *SubmitEntityEvidenceResponse) String() string {
 func (*SubmitEntityEvidenceResponse) ProtoMessage() {}
 
 func (x *SubmitEntityEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[26]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1772,7 +1888,7 @@ func (x *SubmitEntityEvidenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitEntityEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*SubmitEntityEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{26}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *SubmitEntityEvidenceResponse) GetAccepted() uint32 {
@@ -1889,7 +2005,13 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x17ReportL7PostureResponse\x12\x18\n" +
 	"\achanged\x18\x01 \x01(\bR\achanged\"4\n" +
 	"\x14AgentAddressSnapshot\x12\x1c\n" +
-	"\taddresses\x18\x01 \x03(\tR\taddresses\"\xc3\a\n" +
+	"\taddresses\x18\x01 \x03(\tR\taddresses\"a\n" +
+	"\x13SnmpInterfacePrefix\x12\x19\n" +
+	"\bif_index\x18\x01 \x01(\rR\aifIndex\x12\x16\n" +
+	"\x06prefix\x18\x02 \x01(\tR\x06prefix\x12\x17\n" +
+	"\aon_link\x18\x03 \x01(\bR\x06onLink\"a\n" +
+	"\x1bSnmpInterfacePrefixSnapshot\x12B\n" +
+	"\bprefixes\x18\x01 \x03(\v2&.probectl.agent.v1.SnmpInterfacePrefixR\bprefixes\"\xab\b\n" +
 	"\x19EntityEvidenceObservation\x12%\n" +
 	"\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n" +
 	"\vsource_kind\x18\x02 \x01(\tR\n" +
@@ -1916,7 +2038,8 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x12system_description\x18\x12 \x01(\tR\x11systemDescription\x12$\n" +
 	"\vsystem_name\x18\x13 \x01(\tH\x00R\n" +
 	"systemName\x88\x01\x01\x12P\n" +
-	"\x0fagent_addresses\x18\x14 \x01(\v2'.probectl.agent.v1.AgentAddressSnapshotR\x0eagentAddressesB\x0e\n" +
+	"\x0fagent_addresses\x18\x14 \x01(\v2'.probectl.agent.v1.AgentAddressSnapshotR\x0eagentAddresses\x12f\n" +
+	"\x17snmp_interface_prefixes\x18\x15 \x01(\v2..probectl.agent.v1.SnmpInterfacePrefixSnapshotR\x15snmpInterfacePrefixesB\x0e\n" +
 	"\f_system_name\"\xf2\x01\n" +
 	"\x16EntityFaultObservation\x12%\n" +
 	"\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n" +
@@ -1965,7 +2088,7 @@ func file_probectl_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_probectl_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_probectl_agent_v1_agent_proto_goTypes = []any{
 	(A2ARole)(0),                         // 0: probectl.agent.v1.A2ARole
 	(*RegisterRequest)(nil),              // 1: probectl.agent.v1.RegisterRequest
@@ -1991,49 +2114,53 @@ var file_probectl_agent_v1_agent_proto_goTypes = []any{
 	(*ReportL7PostureRequest)(nil),       // 21: probectl.agent.v1.ReportL7PostureRequest
 	(*ReportL7PostureResponse)(nil),      // 22: probectl.agent.v1.ReportL7PostureResponse
 	(*AgentAddressSnapshot)(nil),         // 23: probectl.agent.v1.AgentAddressSnapshot
-	(*EntityEvidenceObservation)(nil),    // 24: probectl.agent.v1.EntityEvidenceObservation
-	(*EntityFaultObservation)(nil),       // 25: probectl.agent.v1.EntityFaultObservation
-	(*SubmitEntityEvidenceRequest)(nil),  // 26: probectl.agent.v1.SubmitEntityEvidenceRequest
-	(*SubmitEntityEvidenceResponse)(nil), // 27: probectl.agent.v1.SubmitEntityEvidenceResponse
-	nil,                                  // 28: probectl.agent.v1.RegisterRequest.LabelsEntry
-	nil,                                  // 29: probectl.agent.v1.AttestRequest.PlatformEntry
+	(*SnmpInterfacePrefix)(nil),          // 24: probectl.agent.v1.SnmpInterfacePrefix
+	(*SnmpInterfacePrefixSnapshot)(nil),  // 25: probectl.agent.v1.SnmpInterfacePrefixSnapshot
+	(*EntityEvidenceObservation)(nil),    // 26: probectl.agent.v1.EntityEvidenceObservation
+	(*EntityFaultObservation)(nil),       // 27: probectl.agent.v1.EntityFaultObservation
+	(*SubmitEntityEvidenceRequest)(nil),  // 28: probectl.agent.v1.SubmitEntityEvidenceRequest
+	(*SubmitEntityEvidenceResponse)(nil), // 29: probectl.agent.v1.SubmitEntityEvidenceResponse
+	nil,                                  // 30: probectl.agent.v1.RegisterRequest.LabelsEntry
+	nil,                                  // 31: probectl.agent.v1.AttestRequest.PlatformEntry
 }
 var file_probectl_agent_v1_agent_proto_depIdxs = []int32{
-	28, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
-	29, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
+	30, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
+	31, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
 	13, // 2: probectl.agent.v1.PollCoordinationResponse.task:type_name -> probectl.agent.v1.A2ATask
 	0,  // 3: probectl.agent.v1.A2ATask.role:type_name -> probectl.agent.v1.A2ARole
 	20, // 4: probectl.agent.v1.ReportL7PostureRequest.posture:type_name -> probectl.agent.v1.L7CapturePosture
-	23, // 5: probectl.agent.v1.EntityEvidenceObservation.agent_addresses:type_name -> probectl.agent.v1.AgentAddressSnapshot
-	24, // 6: probectl.agent.v1.SubmitEntityEvidenceRequest.observations:type_name -> probectl.agent.v1.EntityEvidenceObservation
-	25, // 7: probectl.agent.v1.SubmitEntityEvidenceRequest.faults:type_name -> probectl.agent.v1.EntityFaultObservation
-	1,  // 8: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
-	3,  // 9: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
-	5,  // 10: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
-	7,  // 11: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
-	9,  // 12: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
-	11, // 13: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
-	14, // 14: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
-	16, // 15: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
-	18, // 16: probectl.agent.v1.AgentService.FetchL7Policy:input_type -> probectl.agent.v1.FetchL7PolicyRequest
-	21, // 17: probectl.agent.v1.AgentService.ReportL7Posture:input_type -> probectl.agent.v1.ReportL7PostureRequest
-	26, // 18: probectl.agent.v1.AgentService.SubmitEntityEvidence:input_type -> probectl.agent.v1.SubmitEntityEvidenceRequest
-	2,  // 19: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
-	4,  // 20: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
-	6,  // 21: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
-	8,  // 22: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
-	10, // 23: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
-	12, // 24: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
-	15, // 25: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
-	17, // 26: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
-	19, // 27: probectl.agent.v1.AgentService.FetchL7Policy:output_type -> probectl.agent.v1.FetchL7PolicyResponse
-	22, // 28: probectl.agent.v1.AgentService.ReportL7Posture:output_type -> probectl.agent.v1.ReportL7PostureResponse
-	27, // 29: probectl.agent.v1.AgentService.SubmitEntityEvidence:output_type -> probectl.agent.v1.SubmitEntityEvidenceResponse
-	19, // [19:30] is the sub-list for method output_type
-	8,  // [8:19] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	24, // 5: probectl.agent.v1.SnmpInterfacePrefixSnapshot.prefixes:type_name -> probectl.agent.v1.SnmpInterfacePrefix
+	23, // 6: probectl.agent.v1.EntityEvidenceObservation.agent_addresses:type_name -> probectl.agent.v1.AgentAddressSnapshot
+	25, // 7: probectl.agent.v1.EntityEvidenceObservation.snmp_interface_prefixes:type_name -> probectl.agent.v1.SnmpInterfacePrefixSnapshot
+	26, // 8: probectl.agent.v1.SubmitEntityEvidenceRequest.observations:type_name -> probectl.agent.v1.EntityEvidenceObservation
+	27, // 9: probectl.agent.v1.SubmitEntityEvidenceRequest.faults:type_name -> probectl.agent.v1.EntityFaultObservation
+	1,  // 10: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
+	3,  // 11: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
+	5,  // 12: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
+	7,  // 13: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
+	9,  // 14: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
+	11, // 15: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
+	14, // 16: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
+	16, // 17: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
+	18, // 18: probectl.agent.v1.AgentService.FetchL7Policy:input_type -> probectl.agent.v1.FetchL7PolicyRequest
+	21, // 19: probectl.agent.v1.AgentService.ReportL7Posture:input_type -> probectl.agent.v1.ReportL7PostureRequest
+	28, // 20: probectl.agent.v1.AgentService.SubmitEntityEvidence:input_type -> probectl.agent.v1.SubmitEntityEvidenceRequest
+	2,  // 21: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
+	4,  // 22: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
+	6,  // 23: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
+	8,  // 24: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
+	10, // 25: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
+	12, // 26: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
+	15, // 27: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
+	17, // 28: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
+	19, // 29: probectl.agent.v1.AgentService.FetchL7Policy:output_type -> probectl.agent.v1.FetchL7PolicyResponse
+	22, // 30: probectl.agent.v1.AgentService.ReportL7Posture:output_type -> probectl.agent.v1.ReportL7PostureResponse
+	29, // 31: probectl.agent.v1.AgentService.SubmitEntityEvidence:output_type -> probectl.agent.v1.SubmitEntityEvidenceResponse
+	21, // [21:32] is the sub-list for method output_type
+	10, // [10:21] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_probectl_agent_v1_agent_proto_init() }
@@ -2041,14 +2168,14 @@ func file_probectl_agent_v1_agent_proto_init() {
 	if File_probectl_agent_v1_agent_proto != nil {
 		return
 	}
-	file_probectl_agent_v1_agent_proto_msgTypes[23].OneofWrappers = []any{}
+	file_probectl_agent_v1_agent_proto_msgTypes[25].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_agent_v1_agent_proto_rawDesc), len(file_probectl_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   29,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

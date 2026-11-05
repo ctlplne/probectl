@@ -10,8 +10,11 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -150,6 +153,10 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 		if agentID == "collector-1" {
 			name = "" // positive empty presence must differ from legacy NULL
 		}
+		prefix := "192.0.2.0/24"
+		if agentID == "collector-1" {
+			prefix = "198.51.100.0/24"
+		}
 		return entity.Observation{
 			ID: observationID,
 			Source: entity.SourceKey{AgentID: agentID, Kind: entity.DeviceTarget,
@@ -159,6 +166,8 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 			ObservedAt:        observed,
 			SystemDescription: "router OS for " + agentID,
 			SystemName:        &name,
+			SNMPInterfacePrefixes: []entity.SNMPInterfacePrefix{{IfIndex: 7, Prefix: netip.MustParsePrefix(prefix), OnLink: true},
+				{IfIndex: 2147483647, Prefix: netip.MustParsePrefix("2001:db8::/32")}},
 		}
 	}
 	for _, tc := range []struct{ tenantID, agentID string }{
@@ -191,6 +200,15 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 				t.Fatalf("same-UUID replay collapsed absent, empty or raw name: %v", err)
 			}
 		}
+		for _, prefixes := range [][]entity.SNMPInterfacePrefix{nil,
+			{{IfIndex: 7, Prefix: netip.MustParsePrefix("203.0.113.0/24"), OnLink: true}}} {
+			changed := claim
+			changed.SNMPInterfacePrefixes = prefixes
+			if _, _, err := repo.WriteEvidenceBatch(tenancy.WithTenant(ctx, tenancy.ID(tc.tenantID)), tc.agentID,
+				serials[tc.tenantID+tc.agentID], []entity.Observation{changed}); !errors.Is(err, entity.ErrConflictingEvidence) {
+				t.Fatal("same-UUID replay changed complete prefix metadata or erased presence", err)
+			}
+		}
 		inTenant(ctx, t, pool, tc.tenantID, func(ctx context.Context, sc tenancy.Scope) error {
 			var description string
 			var name *string
@@ -201,6 +219,33 @@ func TestEntityRegistryTenantAndContextIsolation(t *testing.T) {
 			}
 			if description != claim.SystemDescription || name == nil || *name != *claim.SystemName {
 				t.Fatal("tenant evidence lost or crossed the system-description metadata")
+			}
+			// No tenant predicate: the application-role transaction must expose
+			// only its lane, even with equal observation UUIDs and source IPs.
+			rows, err := sc.Q.Query(ctx, `SELECT snmp_interface_prefixes FROM entity_evidence WHERE observation_id=$1`, observationID)
+			if err != nil {
+				return err
+			}
+			var prefixSets [][]entity.SNMPInterfacePrefix
+			for rows.Next() {
+				var body []byte
+				if err := rows.Scan(&body); err != nil {
+					rows.Close()
+					return err
+				}
+				var prefixes []entity.SNMPInterfacePrefix
+				if err := json.Unmarshal(body, &prefixes); err != nil {
+					rows.Close()
+					return err
+				}
+				prefixSets = append(prefixSets, prefixes)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			if len(prefixSets) != 1 || !slices.Equal(prefixSets[0], claim.SNMPInterfacePrefixes) {
+				t.Fatal("complete prefix bytes were lost or crossed the storage tenant boundary")
 			}
 			foreign := a.ID
 			if tc.tenantID == a.ID {

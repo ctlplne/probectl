@@ -139,6 +139,14 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 				addresses.Addresses[i] = address.String()
 			}
 		}
+		var prefixes *agentv1.SnmpInterfacePrefixSnapshot
+		if item.SNMPInterfacePrefixes != nil {
+			prefixes = &agentv1.SnmpInterfacePrefixSnapshot{}
+			for _, row := range item.SNMPInterfacePrefixes {
+				prefixes.Prefixes = append(prefixes.Prefixes, &agentv1.SnmpInterfacePrefix{
+					IfIndex: row.IfIndex, Prefix: row.Prefix.String(), OnLink: row.OnLink})
+			}
+		}
 		request.Observations = append(request.Observations,
 			&agentv1.EntityEvidenceObservation{
 				ObservationId: item.ID, SourceKind: string(item.Source.Kind),
@@ -151,6 +159,7 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 				SystemDescription:         item.SystemDescription,
 				SystemName:                item.SystemName,
 				AgentAddresses:            addresses,
+				SnmpInterfacePrefixes:     prefixes,
 				NeighborProtocol:          item.NeighborProtocol,
 				NeighborLocalIfIndex:      item.NeighborLocalIfIndex,
 				NeighborLocalPortId:       item.NeighborLocalPortID,

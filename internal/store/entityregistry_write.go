@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -380,6 +381,10 @@ func resolveEvidenceEndpoint(ctx context.Context, sc tenancy.Scope, tenantID,
 
 func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agentID,
 	serial string, claim entity.Observation, authority evidenceAuthority, endpoint evidenceEndpoint) error {
+	prefixes, err := snmpInterfacePrefixDocument(claim)
+	if err != nil {
+		return err
+	}
 	// Random evidence PKs come through internal/crypto. The observation
 	// UUID is a client idempotency key, never the canonical evidence PK.
 	evidenceID, err := newRegistryID()
@@ -395,12 +400,12 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 			  interface_name,interface_description,
 			  neighbor_protocol,neighbor_local_if_index,neighbor_local_port_id,
 			  neighbor_remote_port_id,neighbor_chassis_id,neighbor_device_name,
-			  neighbor_management_address,support_evidence_id,snmp_system_description,snmp_system_name,agent_addresses)
+			  neighbor_management_address,support_evidence_id,snmp_system_description,snmp_system_name,agent_addresses,snmp_interface_prefixes)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
 		        NULLIF($16,'')::text,NULLIF($17,'')::text,NULLIF($18,'')::text,
 		        NULLIF($19,'')::text,NULLIF($20::bigint,0::bigint),NULLIF($21,'')::text,
 		        NULLIF($22,'')::text,NULLIF($23,'')::text,NULLIF($24,'')::text,
-		        NULLIF($25,'')::text,NULLIF($26,'')::uuid,NULLIF($27,'')::text,$28::text,$29::inet[])
+		        NULLIF($25,'')::text,NULLIF($26,'')::uuid,NULLIF($27,'')::text,$28::text,$29::inet[],$30::jsonb)
 			ON CONFLICT (tenant_id,agent_id,source_kind,configured_ref,observation_id)
 			DO NOTHING RETURNING id::text`,
 		tenantID, authority.contextID, evidenceID, claim.ID, endpoint.entityID,
@@ -413,7 +418,7 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 		int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
 		claim.NeighborRemotePortID, claim.NeighborChassisID,
 		claim.NeighborDeviceName, claim.NeighborAddress, authority.supportID,
-		claim.SystemDescription, claim.SystemName, claim.AgentAddresses).Scan(&inserted)
+		claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes).Scan(&inserted)
 	if err == nil {
 		if endpoint.interfaceClaim {
 			linkID, err := newRegistryID()
@@ -467,8 +472,12 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 // and support row are selected by the server and remain historical on replay.
 func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 	agentID, serial string, claim entity.Observation) (bool, bool, error) {
+	prefixes, err := snmpInterfacePrefixDocument(claim)
+	if err != nil {
+		return false, false, err
+	}
 	var same bool
-	err := sc.Q.QueryRow(ctx, `SELECT
+	err = sc.Q.QueryRow(ctx, `SELECT
 		alias_kind=$6 AND alias_value=$7 AND source_ref=$8 AND observed_at=$9
 		AND COALESCE(sender_serial,'')=$10 AND COALESCE(origin_serial,'')=$11
 		AND COALESCE(interface_name,'')=$12
@@ -483,6 +492,7 @@ func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 		AND COALESCE(snmp_system_description,'')=$21
 		AND snmp_system_name IS NOT DISTINCT FROM $22::text
 		AND agent_addresses IS NOT DISTINCT FROM $23::inet[]
+		AND snmp_interface_prefixes IS NOT DISTINCT FROM $24::jsonb
 		FROM entity_evidence
 		WHERE tenant_id=$1 AND agent_id=$2 AND source_kind=$3
 		  AND configured_ref=$4 AND observation_id=$5
@@ -493,11 +503,18 @@ func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 		claim.InterfaceDescription, claim.NeighborProtocol,
 		int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
 		claim.NeighborRemotePortID, claim.NeighborChassisID,
-		claim.NeighborDeviceName, claim.NeighborAddress, claim.SystemDescription, claim.SystemName, claim.AgentAddresses).Scan(&same)
+		claim.NeighborDeviceName, claim.NeighborAddress, claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes).Scan(&same)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, false, nil
 	}
 	return err == nil, same, err
+}
+
+func snmpInterfacePrefixDocument(claim entity.Observation) ([]byte, error) {
+	if claim.SNMPInterfacePrefixes == nil {
+		return nil, nil
+	}
+	return json.Marshal(claim.SNMPInterfacePrefixes)
 }
 
 // resolveNeighborRemote is deliberately stricter than general alias lookup:

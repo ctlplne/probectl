@@ -1385,7 +1385,10 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 	if policy.agentAddressMembers {
 		parts = append(parts, `EXISTS (
  SELECT 1 FROM unnest(subject_row.agent_addresses) AS subject_address(value)
- WHERE subject_address.value = ANY($4::inet[]))`)
+ WHERE subject_address.value = ANY($4::inet[]))`, `EXISTS (
+ SELECT 1 FROM jsonb_array_elements(COALESCE(subject_row.snmp_interface_prefixes,'[]'::jsonb)) AS subject_prefix(value)
+ WHERE lower(subject_prefix.value->>'prefix') = ANY($2::text[])
+    OR (subject_prefix.value->>'prefix')::inet = ANY($4::inet[]))`)
 	}
 	return "(" + strings.Join(parts, " OR ") + ")"
 }

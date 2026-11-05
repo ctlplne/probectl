@@ -77,10 +77,16 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	if total == 0 || total > 64 {
 		return nil, status.Error(codes.InvalidArgument, "evidence batch must contain 1–64 observations and faults combined")
 	}
+	requestBytes := proto.Size(req)
+	for _, item := range items {
+		if item != nil && item.SnmpInterfacePrefixes != nil && requestBytes > entity.MaxSNMPInterfacePrefixWireBytes {
+			return nil, status.Error(codes.ResourceExhausted, "complete prefix evidence exceeds request byte admission")
+		}
+	}
 	if len(rawFaults) > 0 && svc.entityFaultCorrelator == nil {
 		return nil, status.Error(codes.Unavailable, "entity fault correlation is not configured")
 	}
-	if !svc.admitEntityEvidence(ctx, id.TenantID, total, proto.Size(req)) {
+	if !svc.admitEntityEvidence(ctx, id.TenantID, total, requestBytes) {
 		return nil, status.Error(codes.ResourceExhausted, "tenant entity evidence rate exceeded")
 	}
 	faults, err := validateEntityFaults(ctx, id, rawFaults)
@@ -102,6 +108,10 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 				return nil, status.Error(codes.InvalidArgument, "invalid agent address snapshot")
 			}
 		}
+		prefixes, err := parseSNMPPrefixEvidence(item.SnmpInterfacePrefixes)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid complete SNMP interface prefix snapshot")
+		}
 		observations = append(observations, entity.Observation{
 			ID: item.GetObservationId(),
 			Source: entity.SourceKey{
@@ -112,19 +122,20 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 				Kind: entity.AliasKind(item.GetAliasKind()), Value: item.GetAliasValue(),
 			},
 			SourceRef: item.GetSourceRef(), OriginSerial: item.GetOriginSerial(),
-			InterfaceName:        item.GetInterfaceName(),
-			InterfaceDescription: item.GetInterfaceDescription(),
-			SystemDescription:    item.GetSystemDescription(),
-			SystemName:           item.SystemName,
-			AgentAddresses:       addresses,
-			NeighborProtocol:     item.GetNeighborProtocol(),
-			NeighborLocalIfIndex: item.GetNeighborLocalIfIndex(),
-			NeighborLocalPortID:  item.GetNeighborLocalPortId(),
-			NeighborRemotePortID: item.GetNeighborRemotePortId(),
-			NeighborChassisID:    item.GetNeighborChassisId(),
-			NeighborDeviceName:   item.GetNeighborDeviceName(),
-			NeighborAddress:      item.GetNeighborManagementAddress(),
-			ObservedAt:           time.Unix(0, item.GetObservedUnixNanos()),
+			InterfaceName:         item.GetInterfaceName(),
+			InterfaceDescription:  item.GetInterfaceDescription(),
+			SystemDescription:     item.GetSystemDescription(),
+			SystemName:            item.SystemName,
+			AgentAddresses:        addresses,
+			SNMPInterfacePrefixes: prefixes,
+			NeighborProtocol:      item.GetNeighborProtocol(),
+			NeighborLocalIfIndex:  item.GetNeighborLocalIfIndex(),
+			NeighborLocalPortID:   item.GetNeighborLocalPortId(),
+			NeighborRemotePortID:  item.GetNeighborRemotePortId(),
+			NeighborChassisID:     item.GetNeighborChassisId(),
+			NeighborDeviceName:    item.GetNeighborDeviceName(),
+			NeighborAddress:       item.GetNeighborManagementAddress(),
+			ObservedAt:            time.Unix(0, item.GetObservedUnixNanos()),
 		})
 	}
 	var accepted, unresolved int
@@ -187,4 +198,22 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		Accepted: uint32(accepted), Unresolved: uint32(unresolved),
 		FaultsPersisted: uint32(faultsPersisted),
 	}, nil
+}
+
+func parseSNMPPrefixEvidence(snapshot *agentv1.SnmpInterfacePrefixSnapshot) ([]entity.SNMPInterfacePrefix, error) {
+	if snapshot == nil {
+		return nil, nil
+	}
+	rows := []entity.SNMPInterfacePrefix{}
+	for _, row := range snapshot.Prefixes {
+		if row == nil {
+			return nil, entity.ErrInvalidClaim
+		}
+		prefix, err := netip.ParsePrefix(row.Prefix)
+		if err != nil {
+			return nil, entity.ErrInvalidClaim
+		}
+		rows = append(rows, entity.SNMPInterfacePrefix{IfIndex: row.IfIndex, Prefix: prefix, OnLink: row.OnLink})
+	}
+	return entity.NormalizeSNMPInterfacePrefixes(rows)
 }

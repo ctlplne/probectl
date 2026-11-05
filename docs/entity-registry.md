@@ -42,6 +42,24 @@ observations fail closed. This is operator metadata, with no claim that a
 live routing collector observed the prefix; live prefix and full tag-consumer
 proofs remain required before the tagging capability leaves preview.
 
+## Complete observed interface prefixes (preview)
+
+The authenticated evidence protocol also accepts optional complete RFC4293
+interface-prefix snapshots on the configured device's address observation.
+Each row retains its positive ifIndex, canonical IPv4/IPv6 network and on-link
+flag. An absent snapshot means unavailable or legacy metadata; an empty,
+duplicate, malformed or incomplete table cannot clear an earlier complete set.
+Source, tenant, routing context and canonical device still come from the live
+certificate and operator assignment. Prefixes and ifIndexes confer none of
+that authority. A retry must preserve the normalized complete set and original
+observation time, including whether the snapshot was absent.
+
+The complete request must fit the existing 1 MiB evidence envelope. Its JSONB
+storage representation may expand within an 8 MiB physical bound; receivers
+refuse an oversized complete request rather than truncate rows. This protocol
+and retained metadata are preparatory: steady-state prefix polling, current
+role-source loading and automatic interface-role labels are not yet enabled.
+
 ## Set up a routing context
 
 In **Admin → Canonical entity registry**, create a context with a site name and

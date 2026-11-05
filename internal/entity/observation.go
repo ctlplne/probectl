@@ -41,15 +41,18 @@ type Observation struct {
 	SystemName *string
 	// AgentAddresses is a complete optional local-IP snapshot on the existing
 	// sender-bound site claim. Nil is legacy/withheld; present empty clears.
-	AgentAddresses       []netip.Addr
-	NeighborProtocol     string
-	NeighborLocalIfIndex uint32
-	NeighborLocalPortID  string
-	NeighborRemotePortID string
-	NeighborChassisID    string
-	NeighborDeviceName   string
-	NeighborAddress      string
-	ObservedAt           time.Time
+	AgentAddresses []netip.Addr
+	// SNMPInterfacePrefixes is one complete optional prefix table on the
+	// configured-target address claim only. Nil is unavailable, never a clear.
+	SNMPInterfacePrefixes []SNMPInterfacePrefix
+	NeighborProtocol      string
+	NeighborLocalIfIndex  uint32
+	NeighborLocalPortID   string
+	NeighborRemotePortID  string
+	NeighborChassisID     string
+	NeighborDeviceName    string
+	NeighborAddress       string
+	ObservedAt            time.Time
 }
 
 // NormalizeObservation checks the bounded identity fields before any tenant
@@ -97,6 +100,15 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 			return Observation{}, ErrInvalidClaim
 		}
 		o.AgentAddresses, err = NormalizeAgentAddresses(o.AgentAddresses)
+		if err != nil {
+			return Observation{}, ErrInvalidClaim
+		}
+	}
+	if o.SNMPInterfacePrefixes != nil {
+		if o.Source.Kind != DeviceTarget || o.Alias.Kind != AddressAlias || o.SourceRef != "snmp:configured-target" {
+			return Observation{}, ErrInvalidClaim
+		}
+		o.SNMPInterfacePrefixes, err = NormalizeSNMPInterfacePrefixes(o.SNMPInterfacePrefixes)
 		if err != nil {
 			return Observation{}, ErrInvalidClaim
 		}

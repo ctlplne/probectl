@@ -50,6 +50,11 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 		{uuid.NewString(), "agent_addresses", "2001:db8::7"},
 		{uuid.NewString(), "agent_addresses", "2001:db8::70"},
 		{uuid.NewString(), "snmp_system_name", "unrelated-router"},
+		{uuid.NewString(), "snmp_interface_prefixes", "192.0.2.7/32"},
+		{uuid.NewString(), "snmp_interface_prefixes", "192.0.2.70/32"},
+		{uuid.NewString(), "snmp_interface_prefixes", "2001:db8::7/128"},
+		{uuid.NewString(), "snmp_interface_prefixes", "2001:db8::70/128"},
+		{uuid.NewString(), "snmp_interface_prefixes", "192.0.2.0/24"},
 	}
 	contextID, entityID := uuid.NewString(), uuid.NewString()
 	generations := make(map[string]int64)
@@ -62,7 +67,7 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 				return err
 			}
 			for _, row := range samples {
-				var name, description, addresses any
+				var name, description, addresses, prefixes any
 				kind, alias, sourceRef, configured := "device_target", "address", "snmp:configured-target", "neutral-target"
 				switch row.field {
 				case "snmp_system_name":
@@ -72,10 +77,12 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 				case "agent_addresses":
 					addresses = []netip.Addr{netip.MustParseAddr(row.value)}
 					kind, alias, sourceRef, configured = "agent_site", "agent_site_id", "agent:label:site", "neutral-agent"
+				case "snmp_interface_prefixes":
+					prefixes = fmt.Sprintf(`[{"if_index":1,"prefix":%q,"on_link":true}]`, row.value)
 				}
 				_, err := sc.Q.Exec(ctx, `INSERT INTO entity_evidence
- (tenant_id,context_id,id,observation_id,entity_id,alias_kind,alias_value,source,source_ref,agent_id,source_kind,configured_ref,sender_serial,observed_at,snmp_system_name,snmp_system_description,agent_addresses)
- VALUES($1,$2,$3,$3,$4,$5,'neutral-alias','lifecycle-component',$6,'neutral-agent',$7,$8,'abc',statement_timestamp(),$9,$10,$11::inet[])`, tenant, contextID, row.id, entityID, alias, sourceRef, kind, configured, name, description, addresses)
+ (tenant_id,context_id,id,observation_id,entity_id,alias_kind,alias_value,source,source_ref,agent_id,source_kind,configured_ref,sender_serial,observed_at,snmp_system_name,snmp_system_description,agent_addresses,snmp_interface_prefixes)
+ VALUES($1,$2,$3,$3,$4,$5,'neutral-alias','lifecycle-component',$6,'neutral-agent',$7,$8,'abc',statement_timestamp(),$9,$10,$11::inet[],$12::jsonb)`, tenant, contextID, row.id, entityID, alias, sourceRef, kind, configured, name, description, addresses, prefixes)
 				if err != nil {
 					return err
 				}
@@ -99,8 +106,8 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 		indexes []int
 	}{
 		{person, []int{0, 1}},
-		{"192.0.2.7", []int{2}},
-		{"2001:0db8:0:0:0:0:0:7", []int{4}},
+		{"192.0.2.7", []int{2, 7}},
+		{"2001:0db8:0:0:0:0:0:7", []int{4, 9}},
 	} {
 		want := map[string]bool{}
 		for _, index := range query.indexes {

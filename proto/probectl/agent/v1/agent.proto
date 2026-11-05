@@ -232,6 +232,20 @@ message AgentAddressSnapshot {
   repeated string addresses = 1;
 }
 
+// A complete supported RFC4293 prefix walk from the configured device.
+// Rows are observations, never canonical interface or routing authority.
+message SnmpInterfacePrefix {
+  uint32 if_index = 1;
+  string prefix = 2;
+  bool on_link = 3;
+}
+
+// Absent is unavailable/legacy. A present empty unsupported walk is invalid,
+// rather than an authoritative removal of previously observed prefixes.
+message SnmpInterfacePrefixSnapshot {
+  repeated SnmpInterfacePrefix prefixes = 1;
+}
+
 message EntityEvidenceObservation {
   string observation_id = 1;
   string source_kind = 2;       // device_target | flow_exporter | path_agent | bmp_peer | agent_site
@@ -253,6 +267,7 @@ message EntityEvidenceObservation {
   string system_description = 18; // bounded SNMP sysDescr on the configured-target address claim only
   optional string system_name = 19; // raw bounded sysName; absent is legacy, present empty clears
   AgentAddressSnapshot agent_addresses = 20; // agent_site claim only; complete local IP metadata
+  SnmpInterfacePrefixSnapshot snmp_interface_prefixes = 21; // configured-target device address claim only
 }
 
 // A bounded fault observation shares the evidence-only RPC and live mTLS

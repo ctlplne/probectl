@@ -217,6 +217,7 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "entity_evidence_snmp_system_description_check" CHECK`,
 				`ADD CONSTRAINT "entity_evidence_snmp_system_name_check" CHECK`,
 				`ADD CONSTRAINT "entity_evidence_agent_addresses_check" CHECK`,
+				`ADD CONSTRAINT "entity_evidence_snmp_prefix_snapshot_check" CHECK`,
 				`ADD CONSTRAINT "entities_network_prefix_kind_check"`,
 			}
 			for _, want := range wants {
