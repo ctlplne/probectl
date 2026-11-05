@@ -65,7 +65,7 @@ func TestTagDefinitionWritesStayInTenantAndAdvanceRevision(t *testing.T) {
 		tenantID, wantID string
 	}{{a.ID, definitionA.ID}, {b.ID, definitionB.ID}} {
 		if err := run(row.tenantID, func(ctx context.Context, sc tenancy.Scope) error {
-			definitions, err := (TagDefinitions{}).List(ctx, sc)
+			definitions, err := (TagDefinitions{}).ListBounded(ctx, sc, 1<<20)
 			if err != nil {
 				return err
 			}
@@ -118,7 +118,7 @@ func TestTagDefinitionWritesStayInTenantAndAdvanceRevision(t *testing.T) {
 		t.Fatalf("rename did not advance revision: %d -> %d, %v", revisionBefore, revisionAfter, err)
 	}
 	if err := run(b.ID, func(ctx context.Context, sc tenancy.Scope) error {
-		definitions, err := (TagDefinitions{}).List(ctx, sc)
+		definitions, err := (TagDefinitions{}).ListBounded(ctx, sc, 1<<20)
 		if err != nil {
 			return err
 		}

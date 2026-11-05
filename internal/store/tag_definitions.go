@@ -23,12 +23,7 @@ import (
 // are the outer boundary; the handler appends audit in the same transaction.
 type TagDefinitions struct{}
 
-// List is the library default; public surfaces pass the operator's live profile
-// to ListBounded. Byte admission is finite and does not truncate the vocabulary.
-func (s TagDefinitions) List(ctx context.Context, sc tenancy.Scope) ([]tags.Definition, error) {
-	return s.ListBounded(ctx, sc, 64<<20)
-}
-
+// ListBounded uses the caller's finite byte admission without truncating the vocabulary.
 func (TagDefinitions) ListBounded(ctx context.Context, sc tenancy.Scope, maxBytes int64) ([]tags.Definition, error) {
 	if maxBytes <= 0 {
 		return nil, ErrTagSnapshotBudget
