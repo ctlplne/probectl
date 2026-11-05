@@ -52,12 +52,13 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				}
 				schema := quoteIdent(SchemaName(id))
 				// Simulate an old empty report table and restored overly broad grant.
-				// Catch-up must repair all four controls, and be idempotent.
+				// Catch-up must repair every control, and be idempotent.
 				for _, sql := range []string{
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ALTER COLUMN content SET NOT NULL`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v2`,
 					`DROP POLICY report_artifact_format ON ` + schema + `.dashboard_report_artifacts`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifact_chunks DROP CONSTRAINT dashboard_report_artifact_chunks_artifact_fk`,
+					`DROP TRIGGER tenant_write_fence ON ` + schema + `.dashboard_report_artifact_chunks`,
 					`ALTER TABLE ` + schema + `.dashboard_report_schedules DROP CONSTRAINT IF EXISTS report_schedule_dashboard_fk`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT IF EXISTS report_artifact_dashboard_fk`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT IF EXISTS report_artifact_schedule_fk`,
@@ -171,6 +172,17 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				if !errors.As(err, &pgerr) || pgerr.Code != "23503" {
 					t.Fatal("silo report parent borrowed a foreign dashboard or schedule", err)
 				}
+			}
+			if _, err := pool.Exec(ctx, `UPDATE public.tenants SET status='offboarding',audit_write_fenced_at=statement_timestamp() WHERE id=$1`, ids[0]); err != nil {
+				t.Fatal(err)
+			}
+			_, err = pool.Exec(ctx, `INSERT INTO `+own+`.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,'same-artifact',1,$2)`, ids[0], []byte("late"))
+			var fenced *pgconn.PgError
+			if !errors.As(err, &fenced) || fenced.Code != "55000" {
+				t.Fatalf("restored silo chunk writer ignored erasure fence: %v", err)
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO `+other+`.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,'same-artifact',1,$2)`, ids[1], []byte("live")); err != nil {
+				t.Fatalf("sibling silo chunk writer blocked: %v", err)
 			}
 		})
 	}
