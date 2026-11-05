@@ -49,7 +49,7 @@ CONTROLS = (
     (
         "internal/cmdb/cmdb.go",
         '\tcacheKey := tenant.String() + "\\x00" + key\n',
-        "\tcacheKey := key\n",
+        "\tcacheKey := key\n\t_ = tenant // The omission control retains the required tenant admission.\n",
         TESTS[3],
         "generic cache reused another tenant's CI",
     ),
