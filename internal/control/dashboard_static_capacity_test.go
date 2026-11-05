@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -81,7 +82,11 @@ func TestStaticReportKeepsCompleteValidatedMultilingualDocument(t *testing.T) {
 	}
 	t.Logf("unverified static reference: input_bytes=%d exact_metrics=%d provenance_entries=%d coverage_entries=%d reference_pdf_bytes=%d", len(encoded), len(doc.Metrics), len(doc.Provenance), len(doc.CoverageLimitations), receipt.Bytes)
 	assertStaticDocumentSemanticText(t, reference, doc)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	started := time.Now()
 	actual, media, err := renderDashboardReport(ctx, "pdf", doc)
+	runtime.ReadMemStats(&after)
 	if err != nil {
 		t.Fatalf("static renderer refused complete validated document: complete_pdf_bytes=%d error=%v", receipt.Bytes, err)
 	}
@@ -89,6 +94,7 @@ func TestStaticReportKeepsCompleteValidatedMultilingualDocument(t *testing.T) {
 		t.Fatal("static renderer changed media type")
 	}
 	assertStaticDocumentSemanticText(t, actual, doc)
+	t.Logf("verified shipping static capacity: input_bytes=%d body_bytes=%d elapsed=%s heap_alloc_bytes=%d allocated_during_render=%d admission_bytes=%d; heap observations are not a peak or preallocation claim", len(encoded), len(actual), time.Since(started), after.HeapAlloc, after.TotalAlloc-before.TotalAlloc, int64(1)<<30)
 }
 
 // Decode standard UTF-16 ActualText spans independently of the renderer.

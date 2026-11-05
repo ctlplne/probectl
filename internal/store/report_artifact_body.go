@@ -45,7 +45,7 @@ func (DashboardReports) ListArtifactHeaders(ctx context.Context, s tenancy.Scope
 	rows, err := s.Q.Query(ctx, `SELECT `+reportArtifactHeaderColumns+`,NULL::jsonb
  FROM dashboard_report_artifacts a JOIN dashboard_views v ON v.tenant_id=a.tenant_id AND v.id=a.dashboard_id
  WHERE a.tenant_id=$1 AND (v.owner_id=$2 OR v.shared)
- AND ((a.body_storage='inline' AND a.source_capture IS NULL) OR a.body_storage='chunks')
+ AND ((a.body_storage IN ('inline','document-chunks') AND a.source_capture IS NULL) OR a.body_storage='chunks')
  ORDER BY a.generated_at DESC,a.id LIMIT 200`, s.Tenant.String(), userID)
 	if err != nil {
 		return nil, err

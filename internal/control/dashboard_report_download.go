@@ -41,14 +41,23 @@ func (s *Server) downloadDashboardReportArtifact(w http.ResponseWriter, r *http.
 	}); err != nil {
 		return err
 	}
+	if staticReportMetadata(metadata) {
+		profile, err := s.staticReportOperation()
+		if err != nil {
+			return err
+		}
+		bounded, cancel := profile.context(ctx)
+		ctx = bounded
+		defer cancel()
+	}
 	capture, err := s.authorizeStoredReportReader(ctx, actor, metadata)
 	if err != nil {
 		return s.reportArtifactSourceAccessError(actor.TenantID, metadata.ID, err)
 	}
-	if capture != nil {
-		if s.fairnessGate == nil {
-			return apierror.Unavailable("report body admission is unavailable")
-		}
+	if capture != nil && s.fairnessGate == nil {
+		return apierror.Unavailable("report body admission is unavailable")
+	}
+	if s.fairnessGate != nil {
 		release, err := s.fairnessGate.BeginQuery(ctx, actor.TenantID)
 		if err != nil {
 			return tagQueryResponseError(w, tagQueryAdmissionError(err))
@@ -66,7 +75,7 @@ func (s *Server) downloadDashboardReportArtifact(w http.ResponseWriter, r *http.
 	if err := s.currentReportTenant(ctx, actor.TenantID); err != nil {
 		return err
 	}
-	if err := s.auditVerifiedReportDownload(r, actor, verified, capture); err != nil {
+	if err := s.auditVerifiedReportDownload(r.WithContext(ctx), actor, verified, capture); err != nil {
 		return reportArtifactReaderError(err)
 	}
 	return serveVerifiedReportBody(ctx, w, verified, stage)
@@ -84,7 +93,10 @@ func (s *Server) currentReportTenant(ctx context.Context, tenant string) error {
 }
 
 func (s *Server) authorizeStoredReportReader(ctx context.Context, actor *auth.Principal, metadata *store.ReportArtifactMetadata) (*reportFlowCapture, error) {
-	if metadata.BodyStorage == "inline" && len(metadata.SourceCapture) == 0 {
+	if metadata == nil || actor == nil || metadata.TenantID != actor.TenantID {
+		return nil, apierror.Forbidden("stored report tenant differs")
+	}
+	if staticReportMetadata(metadata) {
 		return nil, nil
 	}
 	if metadata.BodyStorage != "chunks" {
@@ -103,12 +115,23 @@ func (s *Server) authorizeStoredReportReader(ctx context.Context, actor *auth.Pr
 func (s *Server) stageStoredReport(ctx context.Context, id, user string) (*store.ReportArtifactMetadata, *reporting.BodyStage, error) {
 	var metadata *store.ReportArtifactMetadata
 	var stage *reporting.BodyStage
-	limits, err := reportBodyStageLimits(s.reportOutputPolicy(), flowstore.ExplorerQueryBudget(s.flowStore))
-	if err != nil {
-		return nil, nil, err
-	}
-	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
+	err := tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		header, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, id, user)
+		if err != nil {
+			return err
+		}
+		budget := flowstore.ExplorerQueryBudget(s.flowStore)
+		if staticReportMetadata(header) {
+			profile, err := s.staticReportOperation()
+			if err != nil {
+				return err
+			}
+			budget = profile.budget
+		}
+		limits, err := reportBodyStageLimits(s.reportOutputPolicy(), budget)
+		if err != nil {
+			return err
+		}
 		metadata, stage, err = (store.DashboardReports{}).StageArtifactBody(ctx, sc, id, user, limits)
 		return err
 	})

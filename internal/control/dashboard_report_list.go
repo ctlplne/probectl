@@ -55,7 +55,7 @@ func (s *Server) listCurrentReportArtifactMetadata(w http.ResponseWriter, r *htt
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if header.BodyStorage == "inline" {
+			if staticReportMetadata(&header) {
 				views = append(views, artifactMetadataView(header))
 				continue
 			}
@@ -91,7 +91,7 @@ func (s *Server) currentReportArtifactMetadata(ctx context.Context, sc tenancy.S
 		return nil, err
 	}
 	item, accessErr := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, id, user)
-	if accessErr == nil {
+	if accessErr == nil && !staticReportMetadata(item) {
 		var capture *reportFlowCapture
 		capture, accessErr = parseReportSourceRequirements(ctx, item.SourceCapture)
 		if accessErr == nil {

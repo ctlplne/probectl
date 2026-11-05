@@ -52,11 +52,22 @@ func TestDashboardReportRendererStagesOwnedCompleteInlineBodies(t *testing.T) {
 			}
 		})
 	}
-	// Complete CSV data over the legacy storage constraint is refused, never
-	// silently truncated or returned as a partially successful artifact.
+	// The previous inline-size refusal is now a complete default-profile
+	// positive. A genuinely smaller deployment budget still refuses all bytes.
 	doc.Metrics = map[string]string{"large": strings.Repeat("x", maxInlineReportBytes)}
 	content, media, err := renderDashboardReport(own, "csv", doc)
+	if err != nil || media != "text/csv" || len(content) <= maxInlineReportBytes || !bytes.Contains(content, []byte(doc.Metrics["large"])) {
+		t.Fatal("complete static renderer retained the legacy total ceiling", err)
+	}
+	profile, err := (*Server)(nil).staticReportOperation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.output.Bytes = 1024
+	bounded, cancel := profile.context(own)
+	defer cancel()
+	content, media, err = renderDashboardReport(bounded, "csv", doc)
 	if err == nil || content != nil || media != "" {
-		t.Fatal("over-limit inline report returned a partial artifact")
+		t.Fatal("small static operation admission returned a partial artifact")
 	}
 }

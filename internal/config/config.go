@@ -494,6 +494,8 @@ type Config struct {
 	ReportCSVRows                   int
 	ReportPDFRows                   int
 	ReportMaxBytes                  int
+	ReportRenderMemoryBytes         int
+	ReportOperationTimeout          time.Duration
 	FlowSnapshotLifetime            time.Duration
 	FlowSnapshotTenantBytes         int
 	FlowSnapshotBytes               int
@@ -2304,6 +2306,7 @@ func (c *Config) Redacted() map[string]any {
 		},
 		"report_output_cost": map[string]any{
 			"csv_rows": c.ReportCSVRows, "pdf_rows": c.ReportPDFRows, "bytes": c.ReportMaxBytes,
+			"render_memory_bytes": c.ReportRenderMemoryBytes, "operation_timeout": c.ReportOperationTimeout.String(),
 		},
 		"flow_snapshot_cost": map[string]any{
 			"lifetime": c.FlowSnapshotLifetime.String(), "tenant_bytes": c.FlowSnapshotTenantBytes,

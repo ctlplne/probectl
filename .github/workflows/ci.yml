@@ -262,6 +262,10 @@ jobs:
         run: |
           python3 scripts/ci_flow_cursor_encoding.py --selftest
           python3 scripts/ci_flow_cursor_encoding.py
+      - name: Complete static reports and original capacity refusals
+        run: |
+          python3 scripts/ci_static_report_capacity.py --selftest
+          python3 scripts/ci_static_report_capacity.py
       # Sprint 1 (DATAROOM-011): the test log is a retained receipt.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -270,6 +274,7 @@ jobs:
           path: |
             test-go.log
             artifacts/flow-cursor-encoding/
+            artifacts/static-report-capacity/
           retention-days: 90
       - name: Backup-encryption + erasure-covers-backups gate (OPS-002, COMPLY-002)
         run: go test -count=1 -v -run "Backup|Restore|Erasure|Retention|Coverage|SealOpen|Tamper" ./internal/backup/ ./internal/tenantlife/

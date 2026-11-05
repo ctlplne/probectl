@@ -41,6 +41,10 @@ func (repo DashboardReports) StageArtifactBody(ctx context.Context, s tenancy.Sc
 		if len(metadata.SourceCapture) != 0 {
 			return nil, nil, ErrReportArtifactIntegrity
 		}
+	case "document-chunks":
+		if len(metadata.SourceCapture) != 0 || len(metadata.BodySHA256) != 64 {
+			return nil, nil, ErrReportArtifactIntegrity
+		}
 	case "chunks":
 		if err := reportArtifactSourceCapture(s.Tenant.String(), metadata.SourceCapture); err != nil {
 			return nil, nil, err

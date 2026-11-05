@@ -9,6 +9,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReportOutputCapacityConfiguration(t *testing.T) {
@@ -32,6 +33,26 @@ func TestReportOutputCapacityConfiguration(t *testing.T) {
 			if _, err := Load(envFunc(map[string]string{key: value})); err == nil || !strings.Contains(err.Error(), key) {
 				t.Fatal("invalid report capacity admitted", key, value)
 			}
+		}
+	}
+}
+
+func TestStaticReportOperationCapacityProfilesAreRaiseable(t *testing.T) {
+	defaults, err := Load(envFunc(nil))
+	if err != nil || defaults.ReportRenderMemoryBytes != 1<<30 || defaults.ReportOperationTimeout != time.Minute {
+		t.Fatal("static report operation defaults missing", err)
+	}
+	configured, err := Load(envFunc(map[string]string{"PROBECTL_REPORT_RENDER_MEMORY_BYTES": "2147483648", "PROBECTL_REPORT_OPERATION_TIMEOUT": "25h"}))
+	if err != nil || configured.ReportRenderMemoryBytes != 2<<30 || configured.ReportOperationTimeout != 25*time.Hour {
+		t.Fatal("larger finite static operation profile refused", err)
+	}
+	diagnostic, ok := configured.Redacted()["report_output_cost"].(map[string]any)
+	if !ok || diagnostic["render_memory_bytes"] != 2<<30 || diagnostic["operation_timeout"] != "25h0m0s" {
+		t.Fatal("static operation admission missing from safe diagnostics")
+	}
+	for _, item := range []struct{ key, value string }{{"PROBECTL_REPORT_RENDER_MEMORY_BYTES", "0"}, {"PROBECTL_REPORT_RENDER_MEMORY_BYTES", "-1"}, {"PROBECTL_REPORT_RENDER_MEMORY_BYTES", "999999999999999999999"}, {"PROBECTL_REPORT_OPERATION_TIMEOUT", "0s"}, {"PROBECTL_REPORT_OPERATION_TIMEOUT", "-1s"}, {"PROBECTL_REPORT_OPERATION_TIMEOUT", "999999999999999h"}} {
+		if _, err := Load(envFunc(map[string]string{item.key: item.value})); err == nil || !strings.Contains(err.Error(), item.key) {
+			t.Fatal("invalid static operation profile admitted", item.key, item.value)
 		}
 	}
 }
