@@ -91,19 +91,30 @@ func NewResolver(provider Provider, ttl time.Duration) *Resolver {
 // ProviderName names the wrapped provider (for API responses/logs).
 func (r *Resolver) ProviderName() string { return r.provider.Name() }
 
-// Lookup resolves one key, serving fresh cache hits first. On provider error a
-// stale cache entry (if any) is served — a down CMDB must not break probectl.
-func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
+func lookupTenant(ctx context.Context) (tenancy.ID, error) {
 	if ctx == nil {
-		return nil, ErrTenantBinding
+		return "", ErrTenantBinding
 	}
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok {
-		return nil, ErrTenantBinding
+		return "", ErrTenantBinding
 	}
 	id, err := uuid.Parse(tenant.String())
 	if err != nil || id == uuid.Nil || id.String() != tenant.String() {
-		return nil, ErrTenantBinding
+		return "", ErrTenantBinding
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return tenant, nil
+}
+
+// Lookup resolves one key, serving fresh cache hits first. Availability errors
+// may use a complete stale entry; binding and incomplete-result errors revoke it.
+func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
+	tenant, err := lookupTenant(ctx)
+	if err != nil {
+		return nil, err
 	}
 	key = CanonicalKey(key)
 	if key == "" {
@@ -130,10 +141,13 @@ func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err != nil {
-		if errors.Is(err, ErrTenantBinding) || errors.Is(err, ErrLookupBudget) {
+		if errors.Is(err, ErrTenantBinding) || errors.Is(err, ErrLookupBudget) || errors.Is(err, ErrLookupIncomplete) {
 			r.epochs[cacheKey]++
 			delete(r.cache, cacheKey)
 			return nil, err
+		}
+		if canceled := ctx.Err(); canceled != nil {
+			return nil, canceled
 		}
 		if epoch != r.epochs[cacheKey] {
 			return nil, ErrTenantBinding
@@ -142,6 +156,9 @@ func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
 			return current.cis, nil
 		}
 		return nil, errors.Join(ErrUnavailable, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if epoch != r.epochs[cacheKey] {
 		return nil, ErrTenantBinding

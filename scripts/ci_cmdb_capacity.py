@@ -20,8 +20,32 @@ TESTS = (
     "TestNetBoxCompleteLookupProfilesAreCumulativeAndRaiseable",
     "TestNetBoxInvalidAndCancelledLookupProfilesDoNotFetch",
     "TestResolverEveryProviderCacheRequiresTenantScope",
+    "TestServiceNowCompletePhysicalPagesKeepAllAuthorizedCIs",
+    "TestServiceNowLookupAdmissionIsCumulativeAcrossPhysicalPages",
+    "TestServiceNowCompleteLookupProfilesAreRaiseableAndCancelBeforeIO",
+    "TestServiceNowLinkMetadataPreservesFixedRequestAuthority",
+)
+API_PACKAGE = "github.com/ctlplne/probectl/internal/control"
+API_TESTS = (
+    "TestCMDBAPIEqualOwnedKeysKeepIndependentTenantCaches",
+    "TestCMDBBuilderAppliesCompleteLookupCapacityProfiles",
+    "TestCMDBAdmissionRefusalAPIIsExplicitAndDoesNotEchoSourceData",
 )
 CONTROLS = (
+    (
+        "internal/cmdb/servicenow.go",
+        "\t\t\treturn out, nil\n",
+        "\t\t\tif len(out) > 10 { return out[:10], nil }\n\t\t\treturn out, nil\n",
+        TESTS[4],
+        "complete ServiceNow physical-page scan omitted authorized CIs",
+    ),
+    (
+        "internal/cmdb/servicenow.go",
+        "\t\ttotal = count\n",
+        "\t\ttotal = count\n\t\tif len(page) == 0 { return out, nil }\n",
+        TESTS[4],
+        "complete ServiceNow physical-page scan omitted authorized CIs",
+    ),
     (
         "internal/cmdb/cmdb.go",
         '\tcacheKey := tenant.String() + "\\x00" + key\n',
@@ -72,6 +96,19 @@ def selftest() -> None:
             tests=TESTS,
         )
     assert classify("", 0, package=PACKAGE, tests=TESTS)
+    api_events = [
+        {"Package": API_PACKAGE, "Test": test, "Action": action}
+        for test in API_TESTS
+        for action in ("run", "pass")
+    ] + [{"Package": API_PACKAGE, "Action": "pass"}]
+    assert not classify(encode(api_events), 0, package=API_PACKAGE, tests=API_TESTS)
+    for test in API_TESTS:
+        assert classify(
+            encode([event for event in api_events if event.get("Test") != test]),
+            0,
+            package=API_PACKAGE,
+            tests=API_TESTS,
+        )
     for _, _, _, root, marker in CONTROLS:
         fail = [
             {"Package": PACKAGE, "Test": root, "Action": "run"},
@@ -94,7 +131,9 @@ def selftest() -> None:
     print("CMDB complete capacity classifier selftest PASS")
 
 
-def run(tests: tuple[str, ...], log: Path) -> subprocess.CompletedProcess:
+def run(
+    tests: tuple[str, ...], log: Path, package: str = "./internal/cmdb"
+) -> subprocess.CompletedProcess:
     result = subprocess.run(
         [
             "go",
@@ -103,7 +142,7 @@ def run(tests: tuple[str, ...], log: Path) -> subprocess.CompletedProcess:
             "-count=1",
             "-run",
             "^(" + "|".join(tests) + ")$",
-            "./internal/cmdb",
+            package,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -132,6 +171,13 @@ def main() -> int:
     if failures:
         print("complete lookup baseline failed:", failures)
         return 1
+    api = run(API_TESTS, out / "api.jsonl", "./internal/control")
+    failures = classify(
+        api.stdout, api.returncode, package=API_PACKAGE, tests=API_TESTS
+    )
+    if failures:
+        print("CMDB API capacity and isolation proof failed:", failures)
+        return 1
     for index, (filename, old, new, root, marker) in enumerate(CONTROLS):
         path = Path(filename)
         original = path.read_bytes()
@@ -154,7 +200,7 @@ def main() -> int:
                 )
         finally:
             path.write_bytes(original)
-    print("Complete CMDB capacity and all four original restriction controls PASS")
+    print("Complete CMDB capacity and all six original restriction controls PASS")
     return 0
 
 

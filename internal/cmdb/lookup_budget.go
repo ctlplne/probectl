@@ -18,6 +18,9 @@ import (
 // ErrLookupBudget refuses an incomplete lookup without returning earlier pages.
 var ErrLookupBudget = errors.New("cmdb: complete lookup exceeds operation admission")
 
+// ErrLookupIncomplete refuses a source response that cannot prove complete pages.
+var ErrLookupIncomplete = errors.New("cmdb: source lookup is incomplete or inconsistent")
+
 // LookupPolicy is deployment-owned capacity, never source or caller authority.
 // Admission is cumulative over pages, related CIs and selected subject facts.
 type LookupPolicy struct {

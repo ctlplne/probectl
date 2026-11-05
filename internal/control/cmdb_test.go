@@ -142,7 +142,9 @@ func TestAgentCIRouteRegistered(t *testing.T) {
 func TestCMDBLookupThroughServiceNowShape(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Total-Count", "0")
 		if strings.Contains(r.URL.RawQuery, "10.0.0.9") {
+			w.Header().Set("X-Total-Count", "1")
 			fmt.Fprint(w, `{"result":[{"sys_id":"xyz","name":"edge-fw1","sys_class_name":"cmdb_ci_firewall","ip_address":"10.0.0.9"}]}`)
 			return
 		}

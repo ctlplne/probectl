@@ -55,10 +55,13 @@ func mockSNow(t *testing.T, calls *atomic.Int64, fail *atomic.Bool) *httptest.Se
 		}
 		q := r.URL.Query().Get("sysparm_query")
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Total-Count", "0")
 		switch {
 		case strings.Contains(q, "10.0.0.1"):
+			w.Header().Set("X-Total-Count", "1")
 			fmt.Fprint(w, `{"result":[{"sys_id":"abc123","name":"core-sw1","sys_class_name":"cmdb_ci_ip_switch","ip_address":"10.0.0.1","fqdn":"core-sw1.acme.example"}]}`)
 		case strings.Contains(q, "web.acme.example"):
+			w.Header().Set("X-Total-Count", "1")
 			fmt.Fprint(w, `{"result":[{"sys_id":"def456","name":"web01","sys_class_name":"cmdb_ci_server","ip_address":"10.0.0.7","fqdn":"web.acme.example"}]}`)
 		default:
 			fmt.Fprint(w, `{"result":[]}`)
@@ -207,20 +210,21 @@ func TestUncachedCMDBLookupRefusesStaleData(t *testing.T) {
 	ts := mockSNow(t, &calls, &fail)
 	defer ts.Close()
 	resolver := NewResolver(NewServiceNow(ts.URL, "", "user:pass"), time.Hour)
-	if _, err := resolver.Lookup(t.Context(), "10.0.0.1"); err != nil {
+	ctx := netBoxContext(netBoxTenantA)
+	if _, err := resolver.Lookup(ctx, "10.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	fail.Store(true)
-	if cis, err := resolver.Lookup(t.Context(), "10.0.0.1"); err != nil || len(cis) != 1 {
+	if cis, err := resolver.Lookup(ctx, "10.0.0.1"); err != nil || len(cis) != 1 {
 		t.Fatalf("best-effort correlation lost its cached result: %v, %v", cis, err)
 	}
-	if cis, err := resolver.lookupFresh(t.Context(), "10.0.0.1"); err == nil || len(cis) != 0 {
+	if cis, err := resolver.lookupFresh(ctx, "10.0.0.1"); err == nil || len(cis) != 0 {
 		t.Fatalf("reviewed import accepted a stale CI: %v, %v", cis, err)
 	}
 	if got := calls.Load(); got != 2 {
 		t.Fatalf("fresh lookup did not reach the provider: %d calls", got)
 	}
-	if _, err := resolver.lookupFresh(t.Context(), "bad key!"); err == nil {
+	if _, err := resolver.lookupFresh(ctx, "bad key!"); err == nil {
 		t.Fatal("invalid operator lookup key reached provider")
 	}
 }

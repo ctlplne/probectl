@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -43,7 +44,7 @@ func BuildCMDB(cfg *config.Config, log *slog.Logger) *cmdb.Resolver {
 		return nil
 	case "servicenow":
 		log.Info("cmdb provider configured", "provider", "servicenow", "table", cfg.CMDBTable)
-		return cmdb.NewResolver(cmdb.NewServiceNow(cfg.CMDBURL, cfg.CMDBTable, cfg.CMDBSecret), cfg.CMDBCacheTTL)
+		return cmdb.NewResolver(cmdb.NewServiceNow(cfg.CMDBURL, cfg.CMDBTable, cfg.CMDBSecret, policy), cfg.CMDBCacheTTL)
 	case "netbox":
 		log.Info("cmdb provider configured", "provider", "netbox")
 		return cmdb.NewResolver(cmdb.NewNetBox(cfg.CMDBURL, cfg.CMDBSecret, cfg.CMDBNetBoxTenantMap, policy), cfg.CMDBCacheTTL)
@@ -93,6 +94,14 @@ func (s *Server) handleCMDBLookup(w http.ResponseWriter, r *http.Request) error 
 	}
 	cis, lookupErr := s.cmdb.Lookup(tenancy.WithTenant(r.Context(), tenancy.ID(tenantID)), key)
 	if lookupErr != nil {
+		if errors.Is(lookupErr, cmdb.ErrLookupBudget) {
+			s.log.Warn("CMDB lookup refused", "tenant_id", tenantID, "provider", s.cmdb.ProviderName(), "error.type", "cmdb.lookup.budget")
+			return apierror.Unavailable("CMDB complete lookup exceeded deployment capacity")
+		}
+		if errors.Is(lookupErr, cmdb.ErrLookupIncomplete) {
+			s.log.Warn("CMDB lookup refused", "tenant_id", tenantID, "provider", s.cmdb.ProviderName(), "error.type", "cmdb.lookup.incomplete")
+			return apierror.Unavailable("CMDB source returned an incomplete result")
+		}
 		return apierror.Unavailable("CMDB lookup failed (provider unreachable)")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
