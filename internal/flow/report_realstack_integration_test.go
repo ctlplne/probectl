@@ -104,6 +104,7 @@ func proveNativeSourceReports(t *testing.T, st *shipped.Stack, addr string, lane
 	for i := range proofs {
 		p, other := &proofs[i], &proofs[1-i]
 		p.download(t, st, other.lane, p.artifact, http.StatusNotFound)
+		p.downloadWithTenantHint(t, st, other.lane, p.artifact, p.lane.id, http.StatusUnauthorized)
 		var link mcp.ReportArtifactLink
 		if p.mcpLink(t, st, addr, other.lane.id, p.artifact.ID, &link) || !link.AuthenticationRequired ||
 			link.Artifact.ID != p.artifact.ID || link.Artifact.BodySHA256 != hex.EncodeToString(crypto.Hash(p.body)) ||
@@ -156,12 +157,17 @@ func nativeReportCLI(t *testing.T, st *shipped.Stack, binary string, lane *nativ
 
 func (p *nativeReportLane) download(t *testing.T, st *shipped.Stack, actor *nativeLane, artifact mcp.ReportArtifact, want int) []byte {
 	t.Helper()
+	return p.downloadWithTenantHint(t, st, actor, artifact, actor.id, want)
+}
+
+func (p *nativeReportLane) downloadWithTenantHint(t *testing.T, st *shipped.Stack, actor *nativeLane, artifact mcp.ReportArtifact, hint string, want int) []byte {
+	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, st.BaseURL+"/v1/dashboard-report-artifacts/"+artifact.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+actor.apiToken)
-	req.Header.Set("X-Probectl-Tenant", p.lane.id) // never overrides actor credential
+	req.Header.Set("X-Probectl-Tenant", hint) // must agree with the bearer before object lookup
 	response, err := st.Client().Do(req)
 	if err != nil {
 		t.Fatal("native report TLS download failed")
