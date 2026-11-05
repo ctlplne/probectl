@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-func proveReleaseReportSurfaces(t *testing.T, root string, cli func(...string) string, mcpBase, cert string, sessions []releaseSession, reports []releaseFlowReport) {
+func proveReleaseReportSurfaces(t *testing.T, root string, cli func(...string) string, mcpBase, cert string, sessions []releaseSession, reports []releaseFlowReport, consent *releaseCoreReportConsent) {
 	t.Helper()
 	manifests := make([]json.RawMessage, len(reports))
 	for i := range reports {
@@ -37,7 +37,7 @@ func proveReleaseReportSurfaces(t *testing.T, root string, cli func(...string) s
 		if !p.mcpReportLink(t, mcpBase, token, reports[1-i].tenant, p.artifact) {
 			t.Fatal("release reporting native tool bypassed explicit tenant consent")
 		}
-		p.api.json(t, http.StatusOK, http.MethodPut, "/v1/governance/policy", map[string]any{"ai_remote_egress": true, "redact_export": true}, nil)
+		consent.set(t, p, true)
 		if p.mcpReportLink(t, mcpBase, token, reports[1-i].tenant, p.artifact) {
 			t.Fatal("release reporting native tool refused its current owned artifact")
 		}
