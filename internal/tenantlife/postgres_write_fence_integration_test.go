@@ -10,12 +10,14 @@ package tenantlife
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/audit"
@@ -56,6 +58,24 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 			tenantB,
 		)
 	})
+	for _, tenant := range []string{tenantA, tenantB} {
+		if _, err := pool.Exec(ctx, `INSERT INTO public.dashboard_views(tenant_id,id,owner_id,name,preset,definition)
+VALUES($1,'fenced-view','alice','Owned report','operator','{}')`, tenant); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO public.dashboard_report_artifacts
+(tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
+VALUES($1,'fenced-artifact','fenced-view','csv','text/csv','owned.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::uuid::text))`, tenant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendChunk := func(tenant string) error {
+		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `INSERT INTO public.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content)
+VALUES($1,'fenced-artifact',0,$2)`, tenant, []byte("body"))
+			return err
+		})
+	}
 
 	inflight, inflightPID, resultA := beginPooledResultWrite(
 		ctx,
@@ -111,6 +131,17 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 		t.Fatalf("establish PostgreSQL write fence: %v", err)
 	}
 	assertTenantStatus(ctx, t, pool, tenantA, "offboarding")
+	var fenced *pgconn.PgError
+	if err := appendChunk(tenantA); !errors.As(err, &fenced) || fenced.Code != "55000" {
+		t.Fatalf("application chunk INSERT after tenant fence = %v, want SQLSTATE55000", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content)
+VALUES($1,'fenced-artifact',0,$2)`, tenantA, []byte("body")); !errors.As(err, &fenced) || fenced.Code != "55000" {
+		t.Fatalf("table-owner chunk INSERT after tenant fence = %v, want SQLSTATE55000", err)
+	}
+	if err := appendChunk(tenantB); err != nil {
+		t.Fatalf("sibling chunk INSERT blocked by other tenant's fence: %v", err)
+	}
 
 	if _, err := appendPooledResult(ctx, pool, tenantA); err == nil {
 		t.Fatal("tenant A INSERT succeeded after the durable PostgreSQL fence")
