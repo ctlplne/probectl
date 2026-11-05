@@ -24289,8 +24289,8 @@
           },
           "bucket_seconds": {
             "type": "integer",
-            "minimum": 60,
-            "maximum": 604800
+            "minimum": 1,
+            "maximum": 9223372036
           },
           "series_depth": {
             "type": "integer",
@@ -24496,7 +24496,7 @@
               "max_bucket_seconds": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 536870912
+                "maximum": 9223372036
               },
               "max_group_entries": {
                 "type": "integer",
@@ -24996,7 +24996,7 @@
           "resolution_seconds": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 604800
+            "maximum": 9223372036
           },
           "total_groups": {
             "type": "integer",

@@ -353,7 +353,11 @@ Metrics include bits/s,packets/s,flows/s,sampling-corrected bytes and packets,
 and unique source/destination IPs,ports,ASNs and countries. Each supports average,
 p95,p99,maximum and total,with exact decimal text. Charts have one primary and up
 to three secondary metrics;additional table selections are bounded by the registry.
-Bucket widths run from one minute to one week. Explicit previous periods need not
+Raw bucket widths start at one whole second and may be monthly, yearly or coarser, up to
+the signed nanosecond duration representation (9,223,372,036 whole seconds).
+The default remains 60 seconds. Retained rollups keep their actual minute/hour
+resolution and refuse unavailable finer queries. Existing query cost admission
+bounds the work independently of bucket width. Explicit previous periods need not
 be adjacent. Longer ranges automatically select retained rollup inputs,or refuse
 if the requested fields/resolution are unavailable;the UI reports that coverage.
 

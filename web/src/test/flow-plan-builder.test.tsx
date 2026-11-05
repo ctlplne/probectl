@@ -82,6 +82,12 @@ describe('native flow plan controls', () => {
     await user.type(bucket, '604800')
     expect(JSON.parse(screen.getByTestId('plan').textContent).row_limit).toBe(50000)
     expect(JSON.parse(screen.getByTestId('plan').textContent).bucket_seconds).toBe(604800)
+    await user.clear(bucket)
+    await user.type(bucket, '2592000')
+    expect(JSON.parse(screen.getByTestId('plan').textContent).bucket_seconds).toBe(2592000)
+    await user.clear(bucket)
+    await user.type(bucket, '1')
+    expect(JSON.parse(screen.getByTestId('plan').textContent).bucket_seconds).toBe(1)
     expect(screen.getByLabelText('Plotted group series')).toHaveValue(40)
   })
 

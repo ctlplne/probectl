@@ -127,7 +127,17 @@ func TestQueryD102PlanPublishedReachAndRetentionRange(t *testing.T) {
 	if got, err := NormalizeQueryPlan(plan, now); err != nil || len(got.MatrixWith) != 8 || got.MatrixDepth != 15 {
 		t.Fatalf("8x8 dimension matrix /15-axis values rejected: %+v %v", got, err)
 	}
-	for _, bucket := range []int{59, 604801} {
+	for _, bucket := range []int{1, 30, 59, 604801, 30 * 86400, 365 * 86400, MaxPlanBucketSeconds} {
+		plan.BucketSeconds = bucket
+		if got, err := NormalizeQueryPlan(plan, now); err != nil || got.BucketSeconds != bucket {
+			t.Fatalf("representable bucket width %d refused: %v", bucket, err)
+		}
+	}
+	plan.BucketSeconds = 0
+	if got, err := NormalizeQueryPlan(plan, now); err != nil || got.BucketSeconds != 60 {
+		t.Fatalf("existing one-minute default changed: %v", err)
+	}
+	for _, bucket := range []int{-1, MaxPlanBucketSeconds + 1} {
 		plan.BucketSeconds = bucket
 		if _, err := NormalizeQueryPlan(plan, now); err == nil {
 			t.Fatalf("bucket structural bound %d ignored", bucket)

@@ -276,6 +276,23 @@ func TestExplorerClickHouseRealD102Plan(t *testing.T) {
 		plan.Filter = &flow.QueryFilterGroup{Match: "any", Groups: []flow.QueryFilterGroup{{Match: "all", Conditions: []flow.QueryPredicate{{Field: "src_as_name", Op: flow.QueryContains, Values: []string{"SOURCE"}}, {Field: "dst_port", Op: flow.QueryGreater, Values: []string{"400"}}, {Field: "tcp_flags", Op: flow.QueryBitAnd, Values: []string{"2"}}}}, {Mode: "exclude", Conditions: []flow.QueryPredicate{{Field: "protocol", Op: flow.QueryRegex, Values: []string{"^(ipfix|sflow)$"}}}}}}
 		compare(t, plan)
 	})
+	for _, tenant := range []string{red, blue} {
+		t.Run("sub-minute bucket paired "+tenant, func(t *testing.T) {
+			plan := base
+			plan.View = "line"
+			plan.BucketSeconds = 1
+			plan.Metrics = []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}
+			compare(t, plan, tenant)
+		})
+		t.Run("monthly bucket paired "+tenant, func(t *testing.T) {
+			plan := base
+			plan.View = "line"
+			plan.From = first.TS.AddDate(-2, 0, 0)
+			plan.BucketSeconds = 30 * 86400
+			plan.Metrics = []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}
+			compare(t, plan, tenant)
+		})
+	}
 	t.Run("published250 conditions and multiyear range", func(t *testing.T) {
 		plan := base
 		plan.From = first.TS.AddDate(-2, 0, 0)

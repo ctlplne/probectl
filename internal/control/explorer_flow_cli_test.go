@@ -79,6 +79,20 @@ func TestExplorerCLIExpandedPlanAndFiltersOverPairedTLSAPI(t *testing.T) {
 		if status != 0 || !strings.Contains(out, own) || strings.Contains(out, foreign) || !strings.Contains(out, "1801439850948198") || !strings.Contains(out, `"matrix"`) {
 			t.Fatalf("query lane%d code%d err%s out%s", i, status, errs, out)
 		}
+		for _, width := range []int{1, 30 * 86400} {
+			candidate := plan
+			candidate.BucketSeconds = width
+			candidate.From = at.Add(-time.Second)
+			candidate.To = at.Add(time.Minute)
+			input, err := json.Marshal(ai.ExplorerQuery{Question: "Exact raw bucket reach", Source: ai.ExplorerFlow, Flow: &candidate})
+			if err != nil {
+				t.Fatal(err)
+			}
+			output, stderr, code := invoke(tenant, input, "query", "--body-file", "-")
+			if code != 0 || !strings.Contains(output, own) || strings.Contains(output, foreign) || !strings.Contains(output, fmt.Sprint(9007199254740993+uint64(i))) {
+				t.Fatalf("CLI bucket width%d lane%d code%d err%s out%s", width, i, code, stderr, output)
+			}
+		}
 		create := saveFlowFilterRequest{Name: "filter-" + own, Expression: flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "src_addr", Op: flow.QueryEqual, Values: []string{own}}}}}
 		input, err := json.Marshal(create)
 		if err != nil {

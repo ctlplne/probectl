@@ -270,6 +270,92 @@ func TestExplorerPlanFiftyThousandDetailsSeparateFromFortyChartSeries(t *testing
 	}
 }
 
+func TestExplorerPlanSubMinuteBucketsKeepExactTenantValuesAndPartialDurations(t *testing.T) {
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	store := NewMemory()
+	for lane, tenant := range []string{"red", "blue"} {
+		for i, second := range []int{1, 31, 65} {
+			row := explorerFixtureRow(tenant)
+			row.TS = at.Add(time.Duration(second) * time.Second)
+			row.Protocol = tenant
+			row.BytesScaled = uint64((lane + 1) * (i + 1) * 10)
+			if err := store.Insert(t.Context(), []Row{row}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, width := range []int{1, 30} {
+		plan := flow.QueryPlan{From: at, To: at.Add(75 * time.Second), View: "line", GroupBy: []string{"protocol"}, BucketSeconds: width, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+		for lane, tenant := range []string{"red", "blue"} {
+			result, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: plan})
+			if err != nil || len(result.Rows) != 1 || result.Rows[0].Group["protocol"] != tenant || result.Totals["bytes:total"] != fmt.Sprint((lane+1)*60) || len(result.Series) != 3 || len(result.TotalSeries) != 3 {
+				t.Fatalf("sub-minute plan lost exact tenant population: width=%d result=%+v err=%v", width, result, err)
+			}
+			for _, points := range [][]PlanPoint{result.Series, result.TotalSeries} {
+				for i, point := range points {
+					second := []int{1, 31, 65}[i]
+					start := second / width * width
+					wantDuration := "1.000000000"
+					if width == 30 {
+						wantDuration = "30.000000000"
+						if i == 2 {
+							wantDuration = "15.000000000"
+						}
+					}
+					if !point.TS.Equal(at.Add(time.Duration(start)*time.Second)) || point.DurationSeconds != wantDuration || point.Metrics["bytes:total"] != fmt.Sprint((lane+1)*(i+1)*10) {
+						t.Fatalf("sub-minute exact bucket or partial duration changed: %+v", point)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestExplorerPlanMonthlyBucketsKeepExactTenantValuesAndPartialDurations(t *testing.T) {
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	store := NewMemory()
+	for lane, tenant := range []string{"red", "blue"} {
+		for i, day := range []int{1, 31, 65} {
+			row := explorerFixtureRow(tenant)
+			row.TS = at.Add(time.Duration(day) * 24 * time.Hour)
+			row.Protocol = tenant
+			row.BytesScaled = uint64((lane + 1) * (i + 1) * 10)
+			if err := store.Insert(t.Context(), []Row{row}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	plan := flow.QueryPlan{From: at, To: at.Add(75 * 24 * time.Hour), View: "line", GroupBy: []string{"protocol"}, BucketSeconds: 30 * 86400, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+	for lane, tenant := range []string{"red", "blue"} {
+		result, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: plan})
+		if err != nil {
+			t.Fatal("monthly native plan refused", err)
+		}
+		if len(result.Rows) != 1 || result.Rows[0].Group["protocol"] != tenant || result.Totals["bytes:total"] != fmt.Sprint((lane+1)*60) || len(result.Series) != 3 || len(result.TotalSeries) != 3 {
+			t.Fatalf("monthly plan lost exact tenant population: %+v", result)
+		}
+		for _, points := range [][]PlanPoint{result.Series, result.TotalSeries} {
+			for i, point := range points {
+				wantDuration := "2592000.000000000"
+				if i == 2 {
+					wantDuration = "1296000.000000000"
+				}
+				if !point.TS.Equal(at.Add(time.Duration(i*30)*24*time.Hour)) || point.DurationSeconds != wantDuration || point.Metrics["bytes:total"] != fmt.Sprint((lane+1)*(i+1)*10) {
+					t.Fatalf("monthly exact bucket or partial duration changed: %+v", point)
+				}
+			}
+		}
+		// The largest representable width must not overflow bucket count or
+		// duration arithmetic; the one partial bucket has the actual range.
+		coarse := plan
+		coarse.BucketSeconds = flow.MaxPlanBucketSeconds
+		one, err := store.ExplorePlan(t.Context(), PlanQuery{TenantID: tenant, Plan: coarse})
+		if err != nil || len(one.TotalSeries) != 1 || one.TotalSeries[0].DurationSeconds != "6480000.000000000" || one.TotalSeries[0].Metrics["bytes:total"] != fmt.Sprint((lane+1)*60) {
+			t.Fatalf("maximum duration width overflowed or changed tenant total: %+v %v", one, err)
+		}
+	}
+}
+
 func TestExplorerPlanLongRangeNested250AndCancellation(t *testing.T) {
 	base := explorerFixtureRow("red")
 	store := NewMemory()
