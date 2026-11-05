@@ -87,9 +87,8 @@ func NewSnapshotContext(ctx context.Context, scope Scope, revision int64, defini
 	if !validScope(scope) || revision <= 0 {
 		return nil, ErrScopeMismatch
 	}
-	if len(definitions) > maxDefinitions || len(assignments) > maxAssignments || len(rules) > maxRules {
-		return nil, ErrInvalid
-	}
+	// Storage readers charge every input against the operation memory profile.
+	// This pure compiler adds no unrelated persisted-object quota.
 	s := &Snapshot{scope: scope, revision: revision,
 		definitions: make(map[string]Definition, len(definitions)),
 		assignments: make(map[string][]Assignment),

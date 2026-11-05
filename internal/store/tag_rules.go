@@ -86,7 +86,7 @@ func (TagRules) Create(ctx context.Context, sc tenancy.Scope, input tags.Rule) (
 	if err := tags.ValidateRule(input); err != nil {
 		return tags.Rule{}, err
 	}
-	if err := lockTagRuleQuota(ctx, sc); err != nil {
+	if err := lockTagRuleRevision(ctx, sc); err != nil {
 		return tags.Rule{}, err
 	}
 	_, err = sc.Q.Exec(ctx, `INSERT INTO tenant_tag_rules
@@ -141,7 +141,7 @@ func (TagRules) Delete(ctx context.Context, sc tenancy.Scope, contextID, id stri
 	return nil
 }
 
-func lockTagRuleQuota(ctx context.Context, sc tenancy.Scope) error {
+func lockTagRuleRevision(ctx context.Context, sc tenancy.Scope) error {
 	tenantID := sc.Tenant.String()
 	if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_revisions(tenant_id,revision)
 		VALUES ($1,1) ON CONFLICT (tenant_id) DO NOTHING`, tenantID); err != nil {
@@ -151,14 +151,6 @@ func lockTagRuleQuota(ctx context.Context, sc tenancy.Scope) error {
 	if err := sc.Q.QueryRow(ctx, `SELECT revision FROM tenant_tag_revisions
 		WHERE tenant_id=$1 FOR UPDATE`, tenantID).Scan(&revision); err != nil {
 		return err
-	}
-	var count int
-	if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM tenant_tag_rules
-		WHERE tenant_id=$1`, tenantID).Scan(&count); err != nil {
-		return err
-	}
-	if count >= tags.MaxRules {
-		return tags.ErrInvalid
 	}
 	return nil
 }

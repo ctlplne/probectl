@@ -36,7 +36,7 @@ func (b mcpTagBackend) TagDefinitionList(ctx context.Context, p *auth.Principal)
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(p.TenantID))
 	out := mcp.TagDefinitionListResult{Items: []mcp.TagDefinitionResult{}}
 	err := tenancy.InTenant(ctx, b.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		items, err := (store.TagDefinitions{}).List(ctx, sc)
+		items, err := (store.TagDefinitions{}).ListBounded(ctx, sc, flowstore.ExplorerQueryBudget(b.flowStore).MemoryBytes/4)
 		if err != nil {
 			return err
 		}

@@ -142,7 +142,7 @@ func (s *Server) handleDeleteTagRule(w http.ResponseWriter, r *http.Request) err
 func tagRuleAPIError(err error) error {
 	switch {
 	case errors.Is(err, tags.ErrInvalid):
-		return apierror.BadRequest("invalid tag rule or tenant rule quota reached")
+		return apierror.BadRequest("invalid tag rule")
 	case errors.Is(err, tags.ErrScopeMismatch):
 		return apierror.BadRequest("invalid tenant routing context")
 	case errors.Is(err, store.ErrTagReference), errors.Is(err, pgx.ErrNoRows):

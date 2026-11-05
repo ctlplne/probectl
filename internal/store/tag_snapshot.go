@@ -66,7 +66,7 @@ func loadTagContextSnapshot(ctx context.Context, sc tenancy.Scope, scope tags.Sc
 func loadTagDefinitions(ctx context.Context, sc tenancy.Scope, scope tags.Scope,
 	charge func(...string) error) ([]tags.Definition, error) {
 	rows, err := sc.Q.Query(ctx, `SELECT id::text,key FROM tenant_tag_definitions
-		WHERE tenant_id=$1 ORDER BY id LIMIT $2`, scope.TenantID, tags.MaxDefinitions+1)
+		WHERE tenant_id=$1 ORDER BY id`, scope.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -77,13 +77,14 @@ func loadTagDefinitions(ctx context.Context, sc tenancy.Scope, scope tags.Scope,
 		if err := rows.Scan(&item.ID, &item.Key); err != nil {
 			return nil, err
 		}
-		if err := charge(item.ID, item.Key); err != nil {
-			return nil, err
+		// Seven derived field variants and their maps/slices are retained by
+		// vocabulary consumers. Reserve their cost before retaining this row.
+		for range 4 {
+			if err := charge(item.ID, item.Key); err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, item)
-		if len(out) > tags.MaxDefinitions {
-			return nil, tags.ErrInvalid
-		}
 	}
 	return out, rows.Err()
 }
@@ -96,7 +97,7 @@ func loadTagAssignments(ctx context.Context, sc tenancy.Scope, scope tags.Scope,
 		value,source,COALESCE(source_ref,'')
 		FROM tenant_tag_assignments
 		WHERE tenant_id=$1 AND context_id=$2
-		ORDER BY id LIMIT $3`, scope.TenantID, scope.ContextID, tags.MaxAssignments+1)
+		ORDER BY id`, scope.TenantID, scope.ContextID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,9 +131,6 @@ func loadTagAssignments(ctx context.Context, sc tenancy.Scope, scope tags.Scope,
 			return nil, err
 		}
 		out = append(out, item)
-		if len(out) > tags.MaxAssignments {
-			return nil, tags.ErrInvalid
-		}
 	}
 	return out, rows.Err()
 }
@@ -144,7 +142,7 @@ func loadTagRules(ctx context.Context, sc tenancy.Scope, scope tags.Scope,
 		COALESCE(name_pattern,''),COALESCE(snmp_field,''),COALESCE(snmp_value,''),
 		value,priority FROM tenant_tag_rules
 		WHERE tenant_id=$1 AND context_id=$2
-		ORDER BY id LIMIT $3`, scope.TenantID, scope.ContextID, tags.MaxRules+1)
+		ORDER BY id`, scope.TenantID, scope.ContextID)
 	if err != nil {
 		return nil, err
 	}
@@ -163,9 +161,6 @@ func loadTagRules(ctx context.Context, sc tenancy.Scope, scope tags.Scope,
 			return nil, err
 		}
 		out = append(out, item)
-		if len(out) > tags.MaxRules {
-			return nil, tags.ErrInvalid
-		}
 	}
 	return out, rows.Err()
 }

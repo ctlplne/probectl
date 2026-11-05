@@ -587,9 +587,14 @@ Rules and assignments name an operator-owned routing context in their path:
 with a UUID cursor. Context ABAC runs after tenant authentication and before
 forced-RLS storage. Rules can match a canonical CIDR and declared address
 side, a bounded RE2 name pattern, or one of the collected SNMP fields
-`sys_name`, `sys_descr`, `if_name`, `if_descr`. Tenant-wide limits are 25,000
-rules and 25,000 assignments, enforced under a per-tenant write lock. The
-same flows are available through `probectl tags` commands.
+`sys_name`, `sys_descr`, `if_name`, `if_descr`. There is no independent tenant
+count quota for definitions, rules or assignments. Writes serialize the tenant
+revision and audit event. Complete snapshots, vocabulary listings and derived
+fields charge the existing positive query memory profile; deadlines and fairness
+admission still apply. An exhausted operation refuses the entire result rather
+than truncating metadata. Increase `PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES` and the
+associated response/execution profiles for a larger complete workload. The same
+flows are available through `probectl tags` commands.
 SNMP equality values support the full retained field boundary: 1–1,024 UTF-8
 bytes, with significant leading and trailing spaces. Only `sys_descr` admits
 tab, carriage return and line feed. Admin's `sys_descr` editor accepts a quoted

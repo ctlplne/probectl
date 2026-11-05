@@ -79,7 +79,7 @@ type TagFilter struct {
 // Callers still reload current ownership, grants, policy and immutable bindings.
 func (f TagFilter) Validate() error {
 	owner, err := gouuid.Parse(f.OwnerUserID)
-	if err != nil || owner == gouuid.Nil || owner.String() != f.OwnerUserID || f.Version != TagFilterVersion || f.TargetKind != "test" || f.Filter == nil || len(f.TagIDs) == 0 || len(f.TagIDs) > tags.MaxDefinitions {
+	if err != nil || owner == gouuid.Nil || owner.String() != f.OwnerUserID || f.Version != TagFilterVersion || f.TargetKind != "test" || f.Filter == nil || len(f.TagIDs) == 0 {
 		return fmt.Errorf("alert: invalid current test tag filter configuration")
 	}
 	revision, err := strconv.ParseInt(f.TagRevision, 10, 64)

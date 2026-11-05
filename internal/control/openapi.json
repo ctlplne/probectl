@@ -4904,13 +4904,13 @@
         "x-required-permission": "tags.write",
         "operationId": "createTagDefinition",
         "summary": "Create one tenant tag key",
-        "description": "A tenant transaction serializes the 64-key quota and commits the definition with its audit event. Keys cannot shadow native fields.",
+        "description": "A tenant transaction serializes the revision and commits the definition with its audit event. Complete reads use the configured query memory profile; there is no separate key-count quota. Keys cannot shadow native fields.",
         "tags": ["tags"],
         "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagDefinitionInput"}}}},
         "responses": {
           "201": {"description": "Tag key created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagDefinition"}}}},
-          "400": {"description": "Malformed or reserved key, or tenant quota reached."},
+          "400": {"description": "Malformed or reserved key."},
           "403": {"description": "Tenant or tags.write permission denied."},
           "409": {"description": "Tag key already exists in this tenant."}
         }
@@ -5155,7 +5155,7 @@
         "x-required-permission": "tags.write",
         "operationId": "createTagRule",
         "summary": "Create a bounded rule in one owned routing context",
-        "description": "CIDR rules name an address side; RE2 patterns and collected SNMP field names are bounded and validated. A tenant-wide 25,000-rule cap is serialized before insert. The rule and tenant audit event commit together.",
+        "description": "CIDR rules name an address side; RE2 patterns and collected SNMP field names are bounded and validated. Tenant revision writes are serialized; complete rule snapshots use the configured query memory profile without a separate rule-count quota. The rule and tenant audit event commit together.",
         "tags": ["tags"],
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},
@@ -5164,7 +5164,7 @@
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagRuleInput"}}}},
         "responses": {
           "201": {"description": "Tag rule created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagRule"}}}},
-          "400": {"description": "Invalid rule or tenant rule quota reached."},
+          "400": {"description": "Invalid rule."},
           "403": {"description": "Tenant, context ABAC or tags.write permission denied."},
           "404": {"description": "Context or tag key does not exist in this tenant."}
         }
@@ -5234,7 +5234,7 @@
         "x-required-permission": "tags.write",
         "operationId": "createManualTagAssignment",
         "summary": "Assign one tag value to an owned context subject",
-        "description": "Manual writes use tenant-qualified typed foreign keys for canonical entities, enrolled agents, bound tests and operator-owned flow exporters. For an exporter, provide exporter_agent_id and exporter_source_ref and omit target_id; other kinds use target_id. A tenant-wide 25,000-assignment cap is serialized. The write and audit event commit together.",
+        "description": "Manual writes use tenant-qualified typed foreign keys for canonical entities, enrolled agents, bound tests and operator-owned flow exporters. For an exporter, provide exporter_agent_id and exporter_source_ref and omit target_id; other kinds use target_id. Tenant revision writes are serialized; complete assignment snapshots use the configured query memory profile without a separate assignment-count quota. The write and audit event commit together.",
         "tags": ["tags"],
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},
@@ -5243,7 +5243,7 @@
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManualTagAssignmentInput"}}}},
         "responses": {
           "201": {"description": "Manual assignment created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TagAssignment"}}}},
-          "400": {"description": "Malformed assignment or tenant quota reached."},
+          "400": {"description": "Malformed assignment."},
           "403": {"description": "Tenant, context ABAC or tags.write permission denied."},
           "404": {"description": "Context, key or subject does not exist in this tenant."},
           "409": {"description": "Manual assignment already exists for this tag and subject."}

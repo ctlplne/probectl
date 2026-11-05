@@ -1397,6 +1397,12 @@ jobs:
         run: |
           python3 scripts/ci_tag_consumer_proof.py --selftest
           python3 scripts/ci_tag_consumer_proof.py
+      - name: Complete tag capacity and original quota refusals
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_tag_cardinality_capacity.py --selftest
+          python3 scripts/ci_tag_cardinality_capacity.py
       - name: Retained entity evidence subject lifecycle isolation
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"

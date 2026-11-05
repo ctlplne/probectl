@@ -71,18 +71,6 @@ func (s TagAssignments) ApplyNetBoxTag(ctx context.Context, sc tenancy.Scope,
 }
 
 func upsertNetBoxTag(ctx context.Context, sc tenancy.Scope, target NetBoxTagTarget, assignment tags.Assignment, fields manualTargetFields) (TagAssignmentRecord, error) {
-	var total, existing int
-	if err := sc.Q.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE context_id=$2 AND tag_id=$3 AND target_kind=$4 AND source='netbox'
-  AND entity_id IS NOT DISTINCT FROM $5::uuid AND agent_id IS NOT DISTINCT FROM $6::text
-  AND test_id IS NOT DISTINCT FROM $7::uuid AND exporter_agent_id IS NOT DISTINCT FROM $8::text
-  AND exporter_source_ref IS NOT DISTINCT FROM $9::text)
-  FROM tenant_tag_assignments WHERE tenant_id=$1`, sc.Tenant.String(), target.ContextID, target.TagID, target.TargetKind,
-		fields.entityID, fields.agentID, fields.testID, fields.exporterAgentID, fields.exporterSourceRef).Scan(&total, &existing); err != nil {
-		return TagAssignmentRecord{}, err
-	}
-	if total >= tags.MaxAssignments && existing == 0 {
-		return TagAssignmentRecord{}, tags.ErrInvalid
-	}
 	record := TagAssignmentRecord{Assignment: assignment, ExporterAgentID: target.ExporterAgentID, ExporterSourceRef: target.ExporterSourceRef}
 	err := sc.Q.QueryRow(ctx, `UPDATE tenant_tag_assignments SET value=$10,source_ref=$11,reviewed_at=clock_timestamp()
   WHERE tenant_id=$1 AND context_id=$2 AND tag_id=$3 AND target_kind=$4 AND source='netbox'
