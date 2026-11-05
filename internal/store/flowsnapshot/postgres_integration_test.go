@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -347,8 +349,20 @@ func TestSnapshotsPostgresRealErasureDrainsSourceReadAndPublication(t *testing.T
 	ctx := t.Context()
 	scope := flowsnapshot.Scope{TenantID: f.red.ID, Owner: "alice@example.test"}
 	replica := f.replica(tenancy.PooledRouter{}, t.TempDir())
+	prior, err := replica.Create(ctx, scope, []string{"flow.read"}, 1, allowPostgresSnapshot, func(context.Context) (flowsnapshot.Input, error) { return postgresInput(3), nil })
+	if err != nil || prior.NextCursor == "" {
+		t.Fatal("pre-existing tenant snapshot unavailable", err)
+	}
+	siblingScope := flowsnapshot.Scope{TenantID: f.blue.ID, Owner: scope.Owner}
+	sibling, err := replica.Create(ctx, siblingScope, []string{"flow.read"}, 1, allowPostgresSnapshot, func(context.Context) (flowsnapshot.Input, error) { return postgresInput(3), nil })
+	if err != nil || sibling.NextCursor == "" {
+		t.Fatal("pre-existing sibling snapshot unavailable", err)
+	}
 	entered := make(chan struct{})
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseSource := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseSource)
 	built := make(chan flowsnapshot.Page, 1)
 	buildError := make(chan error, 1)
 	go func() {
@@ -371,24 +385,56 @@ func TestSnapshotsPostgresRealErasureDrainsSourceReadAndPublication(t *testing.T
 	}()
 	select {
 	case err := <-erased:
-		close(release)
+		releaseSource()
 		t.Fatalf("erasure passed the live query lease: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
-	close(release)
+	// Subject deletion commits this marker before waiting for the source-read
+	// lease. Observe it explicitly: this paused builder must refuse publication,
+	// rather than publishing data whose source generation was just erased.
+	observation, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var invalidating bool
+		if err := f.admin.QueryRow(observation, `SELECT invalidating FROM flow_snapshot_epochs WHERE tenant_id=$1`, scope.TenantID).Scan(&invalidating); err != nil {
+			t.Fatal("observe source generation fence", err)
+		}
+		if invalidating {
+			break
+		}
+		select {
+		case err := <-erased:
+			t.Fatalf("erasure passed the paused read lease: %v", err)
+		case <-observation.Done():
+			t.Fatal("subject deletion did not commit its source generation fence")
+		case <-ticker.C:
+		}
+	}
+	releaseSource()
 	page := <-built
-	if err := <-buildError; err != nil {
-		t.Fatal(err)
+	if err := <-buildError; !errors.Is(err, flowsnapshot.ErrInvalidating) || !reflect.DeepEqual(page, flowsnapshot.Page{}) {
+		t.Fatalf("paused builder published after committed source fence: rows=%d cursor=%t err=%v", len(page.Rows), page.NextCursor != "", err)
 	}
 	if err := <-erased; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := replica.Resume(ctx, scope, page.NextCursor, allowPostgresSnapshot); !errors.Is(err, flowsnapshot.ErrNotFound) {
-		t.Fatalf("paused query replayed after erasure: %v", err)
+	if _, err := replica.Resume(ctx, scope, prior.NextCursor, allowPostgresSnapshot); !errors.Is(err, flowsnapshot.ErrNotFound) {
+		t.Fatalf("pre-erasure query replayed after erasure: %v", err)
 	}
-	keys, err := f.objects.List(ctx, "tenant/"+f.red.ID+"/flow-explorer/snapshots/")
-	if err != nil || len(keys) != 0 {
-		t.Fatalf("paused query left objects after completed erasure: %d %v", len(keys), err)
+	for _, prefix := range []string{"tenant/" + f.red.ID + "/flow-explorer/snapshots/", "silo/" + f.red.ID + "/flow-explorer/snapshots/"} {
+		keys, err := f.objects.List(ctx, prefix)
+		if err != nil || len(keys) != 0 {
+			t.Fatalf("paused query left objects after completed erasure: %d %v", len(keys), err)
+		}
+	}
+	var manifests int
+	if err := f.admin.QueryRow(ctx, `SELECT count(*) FROM flow_snapshots WHERE tenant_id=$1`, scope.TenantID).Scan(&manifests); err != nil || manifests != 0 {
+		t.Fatalf("paused query left manifest rows after erasure: %d %v", manifests, err)
+	}
+	if _, err := replica.Resume(ctx, siblingScope, sibling.NextCursor, allowPostgresSnapshot); err != nil {
+		t.Fatalf("sibling snapshot affected by source erasure: %v", err)
 	}
 }
 
