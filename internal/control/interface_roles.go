@@ -139,8 +139,11 @@ func classifyInterfaceRole(ctx context.Context, scope entity.Scope, at time.Time
 		return none, entity.ErrScopeMismatch
 	}
 	id, err := gouuid.Parse(facts.InterfaceID)
-	if err != nil || id == gouuid.Nil || id.String() != facts.InterfaceID || !interfaceRoleSource(facts.SourceID) || !facts.Clock.valid() || at.IsZero() {
+	if err != nil || id == gouuid.Nil || id.String() != facts.InterfaceID || at.IsZero() {
 		return none, errInterfaceRoleInput
+	}
+	if err := validateInterfaceRoleSourcePresence(facts); err != nil {
+		return none, err
 	}
 	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 {
 		return none, errInterfaceRoleBudget
@@ -312,4 +315,17 @@ func finishInterfaceRoleDecision(ctx context.Context, result interfaceRoleDecisi
 		return interfaceRoleDecision{}, err
 	}
 	return result, nil
+}
+
+// The storage caller still proves the canonical interface's ownership. Missing
+// automatic facts have exactly one empty representation; they cannot invent a
+// source/clock, carry addresses/peers or make a manual override foreign-owned.
+func validateInterfaceRoleSourcePresence(facts interfaceRoleFacts) error {
+	if facts.SourceID == "" && !facts.SourceActive && facts.Clock.ObservedAt.IsZero() && facts.Clock.ValidUntil.IsZero() && len(facts.Addresses) == 0 && len(facts.Peers) == 0 {
+		return nil
+	}
+	if !interfaceRoleSource(facts.SourceID) || !facts.Clock.valid() {
+		return errInterfaceRoleInput
+	}
+	return nil
 }

@@ -281,3 +281,37 @@ func (c *interfaceRoleCancelContext) Err() error {
 	}
 	return c.Context.Err()
 }
+
+func TestInterfaceRoleOwnedManualOverrideDoesNotInventSourceFreshness(t *testing.T) {
+	for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "44444444-4444-4444-8444-444444444444"} {
+		original, policy, at := interfaceRoleFixture(tenant)
+		facts := interfaceRoleFacts{Scope: original.Scope, InterfaceID: original.InterfaceID}
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		result, err := classifyInterfaceRole(ctx, facts.Scope, at, facts, policy, nil, interfaceRoleTestBudget())
+		if err != nil || result.Role != interfaceRoleOther || result.Reason != "insufficient_evidence" || len(result.Sources) != 0 {
+			t.Fatal("missing automatic facts invented a source or role", err)
+		}
+		policy.Override = &interfaceRoleOverride{Scope: facts.Scope, InterfaceID: facts.InterfaceID, SourceID: "owned-override-" + tenant, Role: interfaceRoleCustomer}
+		result, err = classifyInterfaceRole(ctx, facts.Scope, at, facts, policy, nil, interfaceRoleTestBudget())
+		if err != nil || result.Role != interfaceRoleCustomer || result.Reason != "operator_override" || len(result.Sources) != 1 || result.Sources[0] != policy.Override.SourceID {
+			t.Fatal("owned manual override still requires a fabricated source clock", err)
+		}
+		foreign := facts.Scope
+		foreign.TenantID = "55555555-5555-4555-8555-555555555555"
+		policy.Override.Scope = foreign
+		if out, err := classifyInterfaceRole(ctx, facts.Scope, at, facts, policy, nil, interfaceRoleTestBudget()); err == nil || out.InterfaceID != "" {
+			t.Fatal("missing source bypassed override tenant ownership")
+		}
+		policy.Override.Scope = facts.Scope
+		for _, bad := range []interfaceRoleFacts{
+			{Scope: facts.Scope, InterfaceID: facts.InterfaceID, SourceActive: true},
+			{Scope: facts.Scope, InterfaceID: facts.InterfaceID, SourceID: "invented"},
+			{Scope: facts.Scope, InterfaceID: facts.InterfaceID, Clock: original.Clock},
+			{Scope: facts.Scope, InterfaceID: facts.InterfaceID, Peers: original.Peers},
+		} {
+			if out, err := classifyInterfaceRole(ctx, facts.Scope, at, bad, policy, nil, interfaceRoleTestBudget()); err == nil || out.InterfaceID != "" {
+				t.Fatal("partial unavailable source became admissible through override")
+			}
+		}
+	}
+}

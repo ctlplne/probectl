@@ -20,6 +20,7 @@ UNIT = {
     "internal/cli": ("TestInterfaceRoleCLIUsesOwnedRoutesAndExactDecimalRevision",),
     "internal/control": (
         "TestInterfaceRoleConfigurationRoutesRequireSeparateReadAndWriteGrants",
+        "TestInterfaceRoleOwnedManualOverrideDoesNotInventSourceFreshness",
         "TestOpenAPIMatchesRoutes",
         "TestAuditPolicyMatrixCoversRequiredRoutes",
     ),
@@ -197,6 +198,41 @@ def configuration_incarnation_controls():
     print(json.dumps({"role_configuration_incarnation_controls": True}))
 
 
+def configuration_missing_source_control():
+    source = Path("internal/control/interface_roles.go").resolve()
+    original = source.read_text()
+    offset = original.index("func validateInterfaceRoleSourcePresence(")
+    section = original[offset:]
+    assert section.count("\t\treturn nil") == 1
+    mutant = original[:offset] + section.replace(
+        "\t\treturn nil", "\t\treturn errInterfaceRoleInput", 1
+    )
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    path = out / "manual_override_old_source_requirement.go"
+    path.write_text(mutant)
+    overlay = out / "manual_override_old_source_requirement.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
+    root = "TestInterfaceRoleOwnedManualOverrideDoesNotInventSourceFreshness"
+    result = execute(
+        "internal/control",
+        (root,),
+        "manual_override_old_source_requirement",
+        overlay=overlay,
+    )
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        package=PREFIX + "internal/control",
+        root=root,
+        child="",
+        marker="missing automatic facts invented a source or role",
+    ):
+        raise RuntimeError(
+            "restored source requirement did not fail the owned unavailable-facts assertion"
+        )
+    print(json.dumps({"manual_override_without_fabricated_source_control": True}))
+
+
 def configuration_native_request_control():
     source = Path("internal/ai/mcp/server.go").resolve()
     original = source.read_text()
@@ -291,6 +327,7 @@ def main(integration):
         configuration_api_controls()
     if not integration:
         configuration_native_request_control()
+        configuration_missing_source_control()
         source = Path("internal/agent/entity_client.go")
         original = source.read_text()
         seam = "if proto.Size(request) > 1<<20 {"
