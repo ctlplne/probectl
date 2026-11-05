@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -47,7 +48,7 @@ func (s *Server) handleListTagDefinitions(w http.ResponseWriter, r *http.Request
 	var items []tags.Definition
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		items, err = (store.TagDefinitions{}).List(ctx, sc)
+		items, err = (store.TagDefinitions{}).ListBounded(ctx, sc, flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
 		return err
 	}); err != nil {
 		return tagDefinitionAPIError(err)
@@ -96,8 +97,10 @@ func (s *Server) handleDeleteTagDefinition(w http.ResponseWriter, r *http.Reques
 
 func tagDefinitionAPIError(err error) error {
 	switch {
+	case errors.Is(err, store.ErrTagSnapshotBudget):
+		return apierror.RateLimited("tag vocabulary memory admission exhausted")
 	case errors.Is(err, tags.ErrInvalid):
-		return apierror.BadRequest("invalid tag key or tenant tag quota reached")
+		return apierror.BadRequest("invalid tag key")
 	case errors.Is(err, tags.ErrConflict):
 		return apierror.Conflict("tag key already exists in this tenant")
 	case errors.Is(err, pgx.ErrNoRows):

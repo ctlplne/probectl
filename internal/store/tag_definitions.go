@@ -23,10 +23,20 @@ import (
 // are the outer boundary; the handler appends audit in the same transaction.
 type TagDefinitions struct{}
 
-func (TagDefinitions) List(ctx context.Context, sc tenancy.Scope) ([]tags.Definition, error) {
+// List is the library default; public surfaces pass the operator's live profile
+// to ListBounded. Byte admission is finite and does not truncate the vocabulary.
+func (s TagDefinitions) List(ctx context.Context, sc tenancy.Scope) ([]tags.Definition, error) {
+	return s.ListBounded(ctx, sc, 64<<20)
+}
+
+func (TagDefinitions) ListBounded(ctx context.Context, sc tenancy.Scope, maxBytes int64) ([]tags.Definition, error) {
+	if maxBytes <= 0 {
+		return nil, ErrTagSnapshotBudget
+	}
+	used := int64(0)
 	tenantID := sc.Tenant.String()
 	rows, err := sc.Q.Query(ctx, `SELECT id::text,key FROM tenant_tag_definitions
-		WHERE tenant_id=$1 ORDER BY key,id LIMIT $2`, tenantID, tags.MaxDefinitions+1)
+		WHERE tenant_id=$1 ORDER BY key,id`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -37,10 +47,14 @@ func (TagDefinitions) List(ctx context.Context, sc tenancy.Scope) ([]tags.Defini
 		if err := rows.Scan(&item.ID, &item.Key); err != nil {
 			return nil, err
 		}
-		out = append(out, item)
-		if len(out) > tags.MaxDefinitions {
-			return nil, tags.ErrInvalid
+		// Include the seven derived field variants and their maps/slices before
+		// any caller expands this definition into a query vocabulary.
+		cost := int64(8192 + len(item.ID) + len(item.Key))
+		if cost > maxBytes-used {
+			return nil, ErrTagSnapshotBudget
 		}
+		used += cost
+		out = append(out, item)
 	}
 	return out, rows.Err()
 }
@@ -50,8 +64,8 @@ func (TagDefinitions) Create(ctx context.Context, sc tenancy.Scope, key string) 
 		return tags.Definition{}, err
 	}
 	tenantID := sc.Tenant.String()
-	// Serialize all tag-definition creation in this tenant before counting.
-	// A concurrent pair of valid writes must not jointly exceed 64 keys.
+	// Serialize tag mutations with the tenant revision and its audit event.
+	// Persisted cardinality is not an independent product quota.
 	if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_revisions(tenant_id,revision)
 		VALUES ($1,1) ON CONFLICT (tenant_id) DO NOTHING`, tenantID); err != nil {
 		return tags.Definition{}, err
@@ -60,14 +74,6 @@ func (TagDefinitions) Create(ctx context.Context, sc tenancy.Scope, key string) 
 	if err := sc.Q.QueryRow(ctx, `SELECT revision FROM tenant_tag_revisions
 		WHERE tenant_id=$1 FOR UPDATE`, tenantID).Scan(&revision); err != nil {
 		return tags.Definition{}, err
-	}
-	var count int
-	if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM tenant_tag_definitions
-		WHERE tenant_id=$1`, tenantID).Scan(&count); err != nil {
-		return tags.Definition{}, err
-	}
-	if count >= tags.MaxDefinitions {
-		return tags.Definition{}, tags.ErrInvalid
 	}
 	id, err := crypto.UUIDv4()
 	if err != nil {

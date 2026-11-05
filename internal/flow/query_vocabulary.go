@@ -28,6 +28,10 @@ type QueryVocabulary struct {
 
 type queryVocabularyContextKey struct{}
 
+// TagDefinitionCount supports operation-local accounting for all derived fields.
+// Definitions were already loaded through a tenant-scoped, memory-bounded read.
+func (v QueryVocabulary) TagDefinitionCount() int { return len(v.tagIDs) }
+
 // WithQueryVocabulary binds a tenant-validated field registry to a single
 // saved-configuration operation. Storage can revalidate fields under its own
 // transaction without trusting a client-supplied key or process-global state.
@@ -56,9 +60,6 @@ func QueryVocabularyFromContext(ctx context.Context, tenant string) (QueryVocabu
 func NewTagQueryVocabulary(tenantID string, definitions []tags.Definition) (QueryVocabulary, error) {
 	if id, err := uuid.Parse(tenantID); err != nil || id == uuid.Nil || id.String() != tenantID {
 		return QueryVocabulary{}, tags.ErrScopeMismatch
-	}
-	if len(definitions) > tags.MaxDefinitions {
-		return QueryVocabulary{}, tags.ErrInvalid
 	}
 	vocab := QueryVocabulary{tenantID: tenantID,
 		byName: make(map[string]QueryField, len(definitions)),

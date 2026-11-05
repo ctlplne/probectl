@@ -143,7 +143,7 @@ func readAlertTagEditor(ctx context.Context, sc tenancy.Scope, maxBytes int64) (
 	if maxBytes < 2048 {
 		return nil, store.ErrTagSnapshotBudget
 	}
-	definitions, err := (store.TagDefinitions{}).List(ctx, sc)
+	definitions, err := (store.TagDefinitions{}).ListBounded(ctx, sc, maxBytes)
 	if err != nil {
 		return nil, err
 	}

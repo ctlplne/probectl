@@ -120,7 +120,7 @@ func tagAssignmentAPIError(err error) error {
 	case errors.Is(err, store.ErrTagSubjectFactsAmbiguous), errors.Is(err, store.ErrTagSnapshotBudget):
 		return tagSubjectAPIError(err)
 	case errors.Is(err, tags.ErrInvalid):
-		return apierror.BadRequest("invalid tag assignment or tenant assignment quota reached")
+		return apierror.BadRequest("invalid tag assignment")
 	case errors.Is(err, tags.ErrScopeMismatch):
 		return apierror.BadRequest("invalid tenant routing context")
 	case errors.Is(err, store.ErrTagReference), errors.Is(err, pgx.ErrNoRows):

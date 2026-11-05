@@ -29,17 +29,8 @@ var (
 )
 
 const (
-	// MaxDefinitions bounds one tenant's tag vocabulary.
-	MaxDefinitions = 64
-	// MaxRules meets the published 25,000-populator incumbent tier.
-	MaxRules = 25000
-	// MaxAssignments admits the same number of reviewed bindings.
-	MaxAssignments = 25000
 	// MaxSNMPValueBytes matches the sender-bound inventory field boundary.
 	MaxSNMPValueBytes = 1024
-	maxDefinitions    = MaxDefinitions
-	maxRules          = MaxRules
-	maxAssignments    = MaxAssignments
 	maxPatternBytes   = 256
 	maxTargetIDBytes  = 2048
 )

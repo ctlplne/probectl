@@ -22,16 +22,14 @@ import (
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
-	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type reportFlowBatchKey struct{}
 
-// The existing registry has at most 64 keys, each expanded to seven fields.
-// Reserve their strings, operator slices and map storage before the schema read;
-// retain that charge alongside prepared definitions until the capture ends.
-const reportFlowPreparationReserve = int64(tags.MaxDefinitions) * 8192
+// Reserve fixed preparation bookkeeping plus the current vocabulary's actual
+// cardinality. The schema reader charges its seven field variants per definition.
+const reportFlowPreparationReserve int64 = 512 << 10
 
 type reportFlowSourceRef = reporting.FlowSourceRef
 
@@ -176,12 +174,21 @@ func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Princ
 }
 
 func (s *Server) prepareReportFlows(ctx context.Context, p *auth.Principal, refs []reportFlowSourceRef, at time.Time, limit int64) ([]preparedReportFlow, int64, int, error) {
-	if limit < reportFlowPreparationReserve || int64(len(refs)) > (limit-reportFlowPreparationReserve)/256 {
+	reserve := reportFlowPreparationReserve
+	vocabulary, _, err := flow.QueryVocabularyFromContext(ctx, p.TenantID)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if limit < reserve || int64(vocabulary.TagDefinitionCount()) > (limit-reserve)/8192 {
+		return nil, 0, 0, reportProjectionLimit()
+	}
+	reserve += int64(vocabulary.TagDefinitionCount()) * 8192
+	if int64(len(refs)) > (limit-reserve)/256 {
 		return nil, 0, 0, reportProjectionLimit()
 	}
 	seen := make(map[string]bool, len(refs))
 	prepared := make([]preparedReportFlow, 0, len(refs))
-	used := reportFlowPreparationReserve
+	used := reserve
 	count := 0
 	for _, ref := range refs {
 		if ref.ID == "" || strings.TrimSpace(ref.ID) != ref.ID || seen[ref.ID] {

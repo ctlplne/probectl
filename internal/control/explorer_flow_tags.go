@@ -314,7 +314,7 @@ func (s *Server) loadFlowQueryVocabulary(ctx context.Context, principal *auth.Pr
 	var definitions []tags.Definition
 	err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, scope tenancy.Scope) error {
 		var loadErr error
-		definitions, loadErr = (store.TagDefinitions{}).List(ctx, scope)
+		definitions, loadErr = (store.TagDefinitions{}).ListBounded(ctx, scope, flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
 		return loadErr
 	})
 	if err != nil {

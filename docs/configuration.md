@@ -3233,3 +3233,12 @@ the deployment CA and hostname. `CH_USER`, `CH_PASSWORD`, `CH_DB`,
 `CH_SERVICE`, and `COMPOSE_FILE` select the existing credentials and Compose
 service. These are one-shot script settings, not control-plane environment keys.
 See [backup and restore](ops/backup-restore.md) for encrypted staging and artifact custody.
+
+Tag vocabulary and rule/assignment cardinality use the existing finite flow-query
+resource profiles rather than separate persisted object-count quotas. Complete
+definition lists and their expanded fields reserve memory before retention;
+rule/assignment snapshots charge every row. Raise
+`PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES` with the corresponding response and
+execution settings for larger metadata workloads. A budget refusal returns no
+partial vocabulary or partial snapshot. Per-row validation, tenant storage
+scoping, revision locking and audit remain mandatory.

@@ -627,7 +627,7 @@
   {
    "id": "CLM-VERDICT-COVERAGE",
    "kind": "capability",
-   "statement": "Every surface that reports what probectl observed also reports what was observing. Each one carries a provenance declaration — whether the producer behind it exists and is running for this tenant (collector_running, ingest_running, correlation_running, change_ingest_configured, agent_transport_running, coverage, methodology, measurement_fidelity, silent_planes, freshness) — and, where it applies a bound, a completeness declaration (effective_limit, truncated, next_cursor). An empty answer therefore never has to be read as good news: the reader is told whether nothing was wrong or nothing was measuring. Surfaces that return rows the caller created declare nothing, because an empty list there is unambiguous. The web UI turns those fields into what a person sees, and a producer that is not running is shown as blocked rather than as a zero-valued chart.",
+   "statement": "Every surface that reports what probectl observed also reports what was observing. Each one carries a provenance declaration \u2014 whether the producer behind it exists and is running for this tenant (collector_running, ingest_running, correlation_running, change_ingest_configured, agent_transport_running, coverage, methodology, measurement_fidelity, silent_planes, freshness) \u2014 and, where it applies a bound, a completeness declaration (effective_limit, truncated, next_cursor). An empty answer therefore never has to be read as good news: the reader is told whether nothing was wrong or nothing was measuring. Surfaces that return rows the caller created declare nothing, because an empty list there is unambiguous. The web UI turns those fields into what a person sees, and a producer that is not running is shown as blocked rather than as a zero-valued chart.",
    "pattern": "verdict coverage|nothing was measuring|was observing|producer that is not running",
    "surfaces": [
     "docs/verdict-coverage.md"
@@ -998,6 +998,24 @@
     "test:internal/store/tag_agent_addresses_integration_test.go#TestAgentAddressRulesRequireCurrentIssuedSourceAndNeverReviveOlderSnapshots",
     "test:internal/agenttransport/entity_agent_addresses_integration_test.go#TestAgentAddressSnapshotRealMTLSClientKeepsTenantAndMetadataPresence",
     "test:internal/control/tag_agent_addresses_integration_test.go#TestAgentCIDRTagsRESTAndMCPUseAttestedFactsAndCurrentContextGrants"
+   ]
+  },
+  {
+   "id": "CLM-ENTITY-EVIDENCE-SUBJECT-LIFECYCLE",
+   "kind": "capability",
+   "statement": "Retained SNMP metadata and typed agent address members use shared explicit subject export/erasure predicates, with tenant storage scope, current lifecycle fences and physical deletion verification.",
+   "pattern": "uses the tenant storage scope and FORCE-RLS",
+   "surfaces": [
+    "docs/lifecycle.md"
+   ],
+   "code": [
+    "internal/tenantlife/subject.go",
+    "internal/tenantlife/subject_reports.go"
+   ],
+   "proof": [
+    "test:internal/tenantlife/entity_evidence_subject_integration_test.go#TestEntityEvidenceSubjectMetadataExportErasureAndIsolation",
+    "test:internal/tenantlife/entity_evidence_subject_test.go#TestSubjectAddressAliasesRequireExplicitIPSubject",
+    "script:scripts/ci_entity_subject_lifecycle.py"
    ]
   }
  ]

@@ -25,7 +25,7 @@ func (r PlanResult) OutputVocabulary(tenant string) (flow.QueryVocabulary, error
 		}
 		return flow.QueryVocabulary{}, nil
 	}
-	if r.TagRevision < 1 || tenant == "" || r.TagTenantID != tenant || len(r.TagIDs) > tags.MaxDefinitions*7 {
+	if r.TagRevision < 1 || tenant == "" || r.TagTenantID != tenant {
 		return flow.QueryVocabulary{}, ErrTagQueryScope
 	}
 	byKey := make(map[string]string)

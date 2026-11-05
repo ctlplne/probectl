@@ -250,7 +250,7 @@ func TestSnapshotZeroValueFailsClosed(t *testing.T) {
 
 func TestSnapshotAdmitsPublishedRuleCardinalityWithoutTruncating(t *testing.T) {
 	scope, subject := testScope(), testSubject()
-	rules := make([]Rule, maxRules)
+	rules := make([]Rule, 25000) // Preserve the original published-tier proof.
 	for i := range rules {
 		// Distinct /32s force the snapshot to retain the complete candidate set;
 		// a low input cap or silent truncation loses the final matching rule.
