@@ -181,14 +181,14 @@ func TestMCPStdioNativeSourcesUseSharedPrivateResultsAndLibraries(t *testing.T) 
 	for _, id := range []identity{red, blue} {
 		var proposal mcp.NativeFlowQuestionResult
 		call(a, id, "flow_explorer_plan", mcp.NativeFlowQuestionInput{Question: "show bps all rows"}, &proposal, true)
-		if proposal.Proposal.Status != "ready" || proposal.Proposal.Plan == nil || proposal.Proposal.Plan.RowLimit != 50000 {
+		if proposal.Proposal.Status != "ready" || proposal.Proposal.Plan == nil || proposal.Proposal.Plan.RowLimit != flow.MaxPlanTableRows {
 			t.Fatal("actual stdio source did not expose stateless native planning")
 		}
 		call(b, id, "flow_explorer_plan", map[string]any{"question": "show bps", "tenant_id": id.tenant}, nil, false)
 		call(b, id, "flow_explorer_plan", map[string]any{"question": "show bps", "parent": map[string]any{}}, nil, false)
 		var schema mcp.NativeFlowSchemaResult
 		call(a, id, "flow_explorer_schema", struct{}{}, &schema, true)
-		if schema.Limits.MaxTableRows != 50000 {
+		if schema.Limits.MaxTableRows != flow.MaxPlanTableRows {
 			t.Fatal("stdio constructor narrowed native reach")
 		}
 		if schema.RenderCost.SourceBytes != cfg.FlowMCPSourceBytes || schema.RenderCost.WireBytes != cfg.FlowMCPWireBytes || schema.RenderCost.Nodes != cfg.FlowMCPResultNodes || schema.RenderCost.CSVPageBytes != cfg.FlowMCPCSVPageBytes {

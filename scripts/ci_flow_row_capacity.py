@@ -36,6 +36,17 @@ UNIT = (
             "TestFlowQuestionStatelessProductionBuiltinAndSafeFailures",
         ),
     ),
+    (
+        "internal/ai",
+        (
+            "TestBudgetedModelFullLargeGrammarThroughTLSResilienceAndGate",
+            "TestModelPrivateContextUsesBothActualRedactionPassesOverTLS",
+            "TestFlowQuestionJSONPreservesFullGrammarAndDerivesComparison",
+            "TestQuestionLiteralBindingPreservesFullReachConcurrently",
+            "TestModelFlowQuestionKeepsFullTypedReachAndExplicitParent",
+            "TestFlowQuestionProposalKeepsFullNativeReachAndCopiesContext",
+        ),
+    ),
 )
 INTEGRATION = (
     (
