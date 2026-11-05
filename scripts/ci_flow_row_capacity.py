@@ -56,7 +56,11 @@ UNIT = (
     ),
     (
         "internal/config",
-        ("TestFlowQueryLibraryAdmissionIsPositiveRaiseableAndObserved",),
+        (
+            "TestFlowQueryLibraryAdmissionIsPositiveRaiseableAndObserved",
+            "TestLogValueEmitsOnlyAllowlistedFields",
+            "TestRedactedEmitsNoSecretMaterial",
+        ),
     ),
 )
 INTEGRATION = (

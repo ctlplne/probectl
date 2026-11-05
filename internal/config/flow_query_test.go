@@ -59,12 +59,15 @@ func TestFlowQueryLibraryAdmissionIsPositiveRaiseableAndObserved(t *testing.T) {
 	}
 	found := false
 	for _, attribute := range cfg.LogValue().Group() {
-		if attribute.Key == "flow_query_cost" {
-			policy, ok := attribute.Value.Any().(map[string]any)
-			found = ok && policy["library_bytes"] == 1<<30
+		if attribute.Key == "flow_query_library_bytes" {
+			found = attribute.Value.Int64() == 1<<30
 		}
 	}
 	if !found {
 		t.Fatal("configured library admission absent from safe config observation")
+	}
+	policy, ok := cfg.Redacted()["flow_query_cost"].(map[string]any)
+	if !ok || policy["library_bytes"] != 1<<30 {
+		t.Fatal("configured library admission absent from redacted configuration view")
 	}
 }

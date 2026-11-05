@@ -263,7 +263,8 @@ operator allowances above that default. The same configured value reaches both
 REST and native MCP, including lightweight memory mode. It applies independently
 per tenant to the saved-filter library, saved-query library and query preference
 set. This is logical stored-configuration byte admission, not memory preallocation.
-The configured value appears in the safe `flow_query_cost` configuration log.
+The configured value appears as `flow_query_library_bytes` in the safe startup
+log and as `flow_query_cost.library_bytes` in the redacted configuration view.
 
 A full library returns a storage-budget refusal for the complete mutation, with
 no partial save, eviction or shortened expression. Raise admission for the intended

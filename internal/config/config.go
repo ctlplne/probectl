@@ -2271,6 +2271,7 @@ func (c *Config) LogValue() slog.Value {
 		slog.Bool("otlp_freshness", len(c.OTLPFreshnessHMACKey) == crypto.KeySize),
 		slog.String("bus_mode", c.BusMode),
 		slog.String("tsdb_mode", c.TSDBMode),
+		slog.Int("flow_query_library_bytes", c.FlowQueryLibraryBytes),
 	)
 }
 
