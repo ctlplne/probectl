@@ -56,7 +56,7 @@ bounded by response admission; decoding reserves a quarter, and retained state,
 normalization and output use the rest. A complete response is encoded before a
 write commits. A resource refusal publishes no partial policy and rolls back a
 mutation. Raise the existing `PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES`, response and
-execution settings coherently for larger intended workloads. The CLI accepts
+execution settings coherently for larger intended workloads. The named CLI command and raw `api PUT` path accept
 complete policy body files through 64 MiB; the server retains its own independent
 operator admission. No request can disable a resource bound with zero.
 

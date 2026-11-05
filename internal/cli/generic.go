@@ -72,6 +72,10 @@ func cmdAPIWithStdin(cfg Config, args []string, stdin io.Reader, stdout, stderr 
 	method := strings.ToUpper(args[0])
 	path := args[1]
 	op := apiOp{Method: method, Path: path}
+	if method == http.MethodPut && pathMatchesTemplate("/v1/entity-contexts/{context_id}/interface-role-policy", requestPath(path)) {
+		profile := surfaceCommands["interface-roles"].Ops["set-policy"]
+		op.ExactJSON, op.MaxBodyBytes = profile.ExactJSON, profile.MaxBodyBytes
+	}
 	if method == http.MethodGet && pathMatchesTemplate("/v1/explorer/flow-snapshots/{id}/csv", requestPath(path)) {
 		op.VerifiedDownload = true
 	}

@@ -17,7 +17,10 @@ UNIT = {
     "internal/ai/mcp": (
         "TestInterfaceRoleNativeToolsPreserveCompleteInputAndUserTenantBoundary",
     ),
-    "internal/cli": ("TestInterfaceRoleCLIUsesOwnedRoutesAndExactDecimalRevision",),
+    "internal/cli": (
+        "TestInterfaceRoleCLIUsesOwnedRoutesAndExactDecimalRevision",
+        "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
+    ),
     "internal/control": (
         "TestInterfaceRoleConfigurationRoutesRequireSeparateReadAndWriteGrants",
         "TestInterfaceRoleOwnedManualOverrideDoesNotInventSourceFreshness",
@@ -198,6 +201,34 @@ def configuration_incarnation_controls():
     print(json.dumps({"role_configuration_incarnation_controls": True}))
 
 
+def configuration_raw_cli_body_control():
+    source = Path("internal/cli/generic.go").resolve()
+    original = source.read_text()
+    seam = "op.ExactJSON, op.MaxBodyBytes = profile.ExactJSON, profile.MaxBodyBytes"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    path = out / "raw_cli_policy_old_quota.go"
+    path.write_text(original.replace(seam, "op.ExactJSON = profile.ExactJSON"))
+    overlay = out / "raw_cli_policy_old_quota.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
+    root = "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK"
+    result = execute(
+        "internal/cli", (root,), "raw_cli_policy_old_quota", overlay=overlay
+    )
+    if not report_regression_failed_on_assertion(
+        result.stdout,
+        result.returncode,
+        package=PREFIX + "internal/cli",
+        root=root,
+        child="",
+        marker="complete policy was refused by a former CLI body cap",
+    ):
+        raise RuntimeError(
+            "restored raw CLI quota did not fail the complete-body assertion"
+        )
+    print(json.dumps({"role_raw_cli_policy_body_control": True}))
+
+
 def configuration_missing_source_control():
     source = Path("internal/control/interface_roles.go").resolve()
     original = source.read_text()
@@ -327,6 +358,7 @@ def main(integration):
         configuration_api_controls()
     if not integration:
         configuration_native_request_control()
+        configuration_raw_cli_body_control()
         configuration_missing_source_control()
         source = Path("internal/agent/entity_client.go")
         original = source.read_text()
