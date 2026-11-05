@@ -31,7 +31,7 @@ func TestFlowQuestionCompositionKeepsBuiltinAndOperatorResources(t *testing.T) {
 	}
 	input := ai.FlowQuestionInput{Question: "show bps all rows", Now: time.Now().UTC()}
 	proposal, err := planner.Plan(t.Context(), input)
-	if err != nil || proposal.Plan.RowLimit != 50000 {
+	if err != nil || proposal.Plan.RowLimit != 2147483647 {
 		t.Fatal("default construction did not retain native builtin reach", err)
 	}
 	planner, err = BuildFlowQuestionPlanner(&config.Config{FlowQuestionMaxBytes: 4}, log, nil)

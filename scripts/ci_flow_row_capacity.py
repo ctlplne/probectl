@@ -32,6 +32,8 @@ UNIT = (
         (
             "TestExplorerCLIExpandedPlanAndFiltersOverPairedTLSAPI",
             "TestNativeMCPQueriesAndLibrariesUseAuthenticatedTenantAndOwner",
+            "TestFlowQuestionCompositionKeepsBuiltinAndOperatorResources",
+            "TestFlowQuestionStatelessProductionBuiltinAndSafeFailures",
         ),
     ),
 )

@@ -141,7 +141,7 @@ func TestFlowQuestionStatelessRechecksPermissionsAndValidatesModelGrammar(t *tes
 func TestFlowQuestionStatelessProductionBuiltinAndSafeFailures(t *testing.T) {
 	srv := testServer(fakePinger{})
 	result, err := srv.planFlowQuestion(t.Context(), statelessFlowPrincipal("red"), "show bps all rows")
-	if err != nil || result.Proposal.Status != ai.FlowQuestionReady || result.Proposal.Plan.RowLimit != 50000 {
+	if err != nil || result.Proposal.Status != ai.FlowQuestionReady || result.Proposal.Plan.RowLimit != 2147483647 {
 		t.Fatal("production composition did not use stateless builtin", err)
 	}
 	for _, cause := range []error{ai.ErrFlowQuestionBudget, ai.ErrFlowQuestionInput, ai.ErrEgressDenied, errors.New("private-provider-detail")} {
