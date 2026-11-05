@@ -138,11 +138,12 @@ const (
 )
 
 type subjectTablePolicy struct {
-	plane          string
-	disposition    subjectTableDisposition
-	exact          []string
-	contains       []string
-	derivedReports bool // erase opaque source-aware copies; export stays owner-scoped
+	plane               string
+	disposition         subjectTableDisposition
+	exact               []string
+	contains            []string
+	derivedReports      bool // erase opaque source-aware copies; export stays owner-scoped
+	agentAddressMembers bool // exact typed members, never an array text substring
 }
 
 // subjectPostgresTablePolicies is the fail-closed privacy inventory for the
@@ -299,11 +300,11 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		contains: []string{"label", "configured_ref"},
 	},
 	"entity_evidence": {
-		plane: "postgres:entity_evidence", disposition: subjectTableDeleteMatches,
+		plane: "postgres:entity_evidence", disposition: subjectTableDeleteMatches, agentAddressMembers: true,
 		exact: []string{"agent_id", "origin_serial"},
 		contains: []string{"alias_value", "source_ref", "configured_ref", "interface_name", "interface_description",
 			"neighbor_local_port_id", "neighbor_remote_port_id", "neighbor_chassis_id",
-			"neighbor_device_name", "neighbor_management_address"},
+			"neighbor_device_name", "neighbor_management_address", "snmp_system_name", "snmp_system_description"},
 	},
 	"entity_links": {plane: "postgres:entity_links", disposition: subjectTableNoSubject},
 	// FX-3 tags can carry a subject in a reviewed value, a collected SNMP
@@ -579,7 +580,7 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 	tctx := tenancy.WithTenant(x.ctx, tenancy.ID(x.tenantID))
 	var flowAliases subjectAliasSet
 	for _, table := range tables {
-		if flowQuerySubjectTable(table) || table == "dashboard_report_artifacts" || table == "dashboard_report_artifact_chunks" {
+		if flowQuerySubjectTable(table) || table == "entity_evidence" || table == "dashboard_report_artifacts" || table == "dashboard_report_artifact_chunks" {
 			if err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 				captured, err := e.captureSubjectAliases(ctx, sc, x.subject)
 				flowAliases = captured.aliases
@@ -594,16 +595,16 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 	subjectHash := audit.SubjectErasureHash(x.tenantID, x.subject)
 	for _, table := range tables {
 		policy := policies[table]
-		if table == "dashboard_report_artifacts" || table == "dashboard_report_artifact_chunks" {
+		if table == "entity_evidence" || table == "dashboard_report_artifacts" || table == "dashboard_report_artifact_chunks" {
 			count, err := streamPlaneToTar(x.tw, "postgres/"+table+".jsonl", x.man.ExportedAt, x.redact, x.pol, func(w io.Writer) (int64, error) {
-				return e.exportSubjectReportRows(tctx, x.tenantID, table, policy, flowAliases, w)
+				return e.exportClassifiedSubjectRows(tctx, x.tenantID, table, policy, flowAliases, w)
 			})
 			if err != nil {
 				return fmt.Errorf("tenantlife: subject report export %s: %w", table, err)
 			}
 			if count > 0 {
 				x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: policy.plane, Status: SubjectStatusExported, Rows: count,
-					Notes: "generator/schedule-owner-scoped report metadata or relational chunks; derived invalidation does not broaden subject export"})
+					Notes: "explicit subject evidence fields or generator/schedule-owner-scoped reports and relational chunks"})
 			}
 			continue
 		}
@@ -1138,8 +1139,6 @@ func (e *Engine) eraseSubjectPostgres(
 			return err
 		}
 		aliases = captured.aliases
-		exactAliases := aliases.normalizedValues()
-		containsPatterns := aliases.safeContainsPatterns()
 
 		// The marker commits with the derived report deletion. Captures from
 		// before this transaction can never republish erased source rows;
@@ -1213,11 +1212,12 @@ func (e *Engine) eraseSubjectPostgres(
 			}
 			ident := pgIdent(table.name)
 			predicate := subjectTableErasurePredicate(table.policy)
+			matchArgs := subjectTableMatchArgs(tenantID, aliases, table.policy)
 			tag, err := sc.Q.Exec(ctx,
 				`DELETE FROM `+ident+` AS subject_row
 				  WHERE subject_row.tenant_id = $1
 				    AND `+predicate,
-				tenantID, exactAliases, containsPatterns)
+				matchArgs...)
 			if err != nil {
 				return fmt.Errorf("erase classified subject rows from %s: %w", table.name, err)
 			}
@@ -1226,7 +1226,7 @@ func (e *Engine) eraseSubjectPostgres(
 				`SELECT count(*) FROM `+ident+` AS subject_row
 				  WHERE subject_row.tenant_id = $1
 				    AND `+predicate,
-				tenantID, exactAliases, containsPatterns).Scan(&remaining); err != nil {
+				matchArgs...).Scan(&remaining); err != nil {
 				return fmt.Errorf("verify classified subject rows in %s: %w", table.name, err)
 			}
 			notes := "explicit subject columns count-verified after deletion"
@@ -1350,6 +1350,7 @@ func subjectReportOwnerPredicate(alias string) string {
 func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 	// Reference both arrays for every policy so the prepared statement has a
 	// stable three-argument shape even when this table uses only one match mode.
+	// Typed agent address members add a fourth inet-array argument.
 	var parts []string
 	if policy.disposition == subjectTableReportChunks {
 		return `(($3::text[] IS NULL AND FALSE) OR EXISTS (
@@ -1377,7 +1378,20 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 	 WHERE COALESCE(subject_row.`+pgIdent(column)+`::text, '') ILIKE subject_pattern.value ESCAPE '!'
 )`)
 	}
+	if policy.agentAddressMembers {
+		parts = append(parts, `EXISTS (
+ SELECT 1 FROM unnest(subject_row.agent_addresses) AS subject_address(value)
+ WHERE subject_address.value = ANY($4::inet[]))`)
+	}
 	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
+func subjectTableMatchArgs(tenant string, aliases subjectAliasSet, policy subjectTablePolicy) []any {
+	args := []any{tenant, aliases.normalizedValues(), aliases.safeContainsPatterns()}
+	if policy.agentAddressMembers {
+		args = append(args, aliases.addresses)
+	}
+	return args
 }
 
 func subjectTableErasurePredicate(policy subjectTablePolicy) string {
@@ -1477,11 +1491,15 @@ func stringSetDifference(left, right []string) []string {
 
 type subjectAliasSet struct {
 	valuesByNormalized map[string]string
+	addresses          []netip.Addr // only an explicitly typed original subject, never an identity alias
 }
 
 func newSubjectAliasSet(subject string) subjectAliasSet {
 	aliases := subjectAliasSet{valuesByNormalized: map[string]string{}}
 	aliases.add(subject)
+	if address, err := netip.ParseAddr(strings.TrimSpace(subject)); err == nil && address.Zone() == "" {
+		aliases.addresses = []netip.Addr{address.Unmap()}
+	}
 	return aliases
 }
 

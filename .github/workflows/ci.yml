@@ -1401,6 +1401,12 @@ jobs:
         run: |
           python3 scripts/ci_tag_consumer_proof.py --selftest
           python3 scripts/ci_tag_consumer_proof.py
+      - name: Retained entity evidence subject lifecycle isolation
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_entity_subject_lifecycle.py --selftest
+          python3 scripts/ci_entity_subject_lifecycle.py
       - name: Interface role classifier scope and provenance proof
         run: |
           python3 scripts/ci_interface_role_evidence.py --selftest

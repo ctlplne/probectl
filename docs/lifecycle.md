@@ -353,3 +353,13 @@ skew, and the staged-rollout model. Two related-but-separate concerns live
 elsewhere: multi-region active-active HA and disaster-recovery failover (RPO/RTO)
 are in [`multi-region.md`](multi-region.md), and per-tenant backup/restore plus
 verifiable deletion are a separate compliance capability.
+
+Retained entity evidence participates in subject portability and erasure through
+the same explicit field policy. This includes observed SNMP system names and
+descriptions and exact members of an agent address snapshot. Address subjects
+use normalized IP equality; a neighboring address that merely shares text is
+not a match. Other identity aliases do not acquire IP authority. Every query
+uses the tenant storage scope and FORCE-RLS. Derived report invalidation and
+source-generation fences still apply. The retained-evidence lifecycle CI proof
+checks paired tenants, equivalent IPv6 spellings, neighboring addresses and
+physical deletion, with export/erasure/matching omission controls.
