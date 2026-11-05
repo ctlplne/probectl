@@ -83,6 +83,7 @@ def report_regression_failed_on_assertion(
     """A compiler error, skip, unrelated assertion or passing run is not proof."""
     runs = failures = child_runs = child_failures = package_failures = 0
     assertion = False
+    selected = root + "/" + child if child else root
     for line in output.splitlines():
         try:
             event = json.loads(line)
@@ -93,12 +94,14 @@ def report_regression_failed_on_assertion(
         action, name = event.get("Action"), event.get("Test", "")
         if action == "skip" or (action == "pass" and not name):
             return False
+        if action == "fail" and name and name not in (root, selected):
+            return False
         if name == root:
             runs += action == "run"
             failures += action == "fail"
             if action == "pass":
                 return False
-        if name == root + "/" + child:
+        if name == selected:
             child_runs += action == "run"
             child_failures += action == "fail"
             if action == "pass":
