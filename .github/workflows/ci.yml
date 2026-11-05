@@ -259,6 +259,8 @@ jobs:
           go test -race -count=1 -run '^TestQuestionIntegerPreservesRepresentableReachWithoutWrapping$' ./internal/ai
           go test -race -count=1 -run '^(TestExplorerAllocationsFollowCompleteActualPopulation|TestFlowComparisonConfiguredAllocationRefusesWithoutPartialRows)$' ./internal/control
           go test -race -count=1 -run '^TestModernHTTPProgressTokenCannotInjectHTMLOrEvents$' ./internal/ai/mcp
+      - name: Report inbox cursor and pagination contract
+        run: python3 scripts/ci_report_inbox.py --unit
       - name: Unit tests (all workspace modules)
         run: |
           set -o pipefail
@@ -290,6 +292,7 @@ jobs:
             artifacts/cmdb-capacity/
             artifacts/flow-row-capacity/
             artifacts/static-report-capacity/
+            artifacts/report-inbox/
           retention-days: 90
       - name: Backup-encryption + erasure-covers-backups gate (OPS-002, COMPLY-002)
         run: go test -count=1 -v -run "Backup|Restore|Erasure|Retention|Coverage|SealOpen|Tamper" ./internal/backup/ ./internal/tenantlife/
@@ -1437,6 +1440,7 @@ jobs:
         run: |
           python3 scripts/ci_report_artifact_storage.py --selftest
           python3 scripts/ci_report_artifact_storage.py
+          python3 scripts/ci_report_inbox.py --integration
       - name: Targetless test metadata isolation and original refusal
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
@@ -1864,6 +1868,8 @@ jobs:
             --lock package-lock.json \
             --policy ../docs/security/npm-audit-policy.json \
             --omit-dev
+      - name: Complete inbox pages and original UI quota control
+        run: python3 ../scripts/ci_report_inbox.py --web
       - name: Typecheck
         run: npm run typecheck
       - name: Format check (CODE-009 — prettier)
@@ -1900,7 +1906,10 @@ jobs:
         if: always()
         with:
           name: web-bundle-budget-receipt
-          path: receipts/web-ux/bundle-budget.json
+          path: |
+            receipts/web-ux/bundle-budget.json
+            artifacts/report-inbox/
+
           retention-days: 90
 
   web-rendered-a11y:

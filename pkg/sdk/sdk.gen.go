@@ -3962,11 +3962,19 @@ func (c *Client) ImportDashboardManifest(ctx context.Context, req ImportDashboar
 
 // List generated artifacts in the caller tenant's report inbox
 type ListDashboardReportArtifactsRequest struct {
+	Limit  *int    `json:"-"`
+	Cursor *string `json:"-"`
 }
 
 func (c *Client) ListDashboardReportArtifacts(ctx context.Context, req ListDashboardReportArtifactsRequest) (map[string]any, error) {
 	path := "/v1/dashboard-report-artifacts"
 	query := url.Values{}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err

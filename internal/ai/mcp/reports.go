@@ -30,7 +30,7 @@ type ReportBackend interface {
 	ReportScheduleCreate(context.Context, *auth.Principal, reporting.ReportScheduleInput) (ReportSchedule, error)
 	ReportScheduleUpdate(context.Context, *auth.Principal, ReportScheduleUpdateInput) (ReportSchedule, error)
 	ReportGenerate(context.Context, *auth.Principal, reporting.ReportGenerateInput) (ReportArtifact, error)
-	ReportArtifacts(context.Context, *auth.Principal) (ReportArtifactList, error)
+	ReportArtifacts(context.Context, *auth.Principal, ReportArtifactListInput) (ReportArtifactList, error)
 	ReportArtifactLink(context.Context, *auth.Principal, string) (ReportArtifactLink, error)
 }
 
@@ -103,8 +103,13 @@ type ReportArtifact struct {
 	BodyBytes           int64     `json:"body_bytes,omitempty"`
 	BodySHA256          string    `json:"body_sha256,omitempty"`
 }
+type ReportArtifactListInput struct {
+	Limit  *int   `json:"limit,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
+}
 type ReportArtifactList struct {
-	Items []ReportArtifact `json:"items"`
+	Items      []ReportArtifact `json:"items"`
+	NextCursor string           `json:"next_cursor,omitempty"`
 }
 type ReportArtifactLink struct {
 	Artifact               ReportArtifact `json:"artifact"`
@@ -177,8 +182,8 @@ func WithReportBackend(backend ReportBackend, schemas NativeFlowSchemas) Option 
 			reportTool("report_schedule_create", "Create an audited local-inbox schedule with current owner authority checked at delivery.", schemas["report_schedule_create"], true, backend.ReportScheduleCreate),
 			reportTool("report_schedule_update", "Explicitly pause or resume an owned report schedule.", schemas["report_schedule_update"], true, backend.ReportScheduleUpdate),
 			reportTool("report_generate", "Generate a complete audited report under current source, lifecycle and cost checks; fetch binary bytes through the authenticated download URL.", schemas["report_generate"], true, backend.ReportGenerate),
-			reportTool("report_artifacts", "List current-authorized report metadata, never report bytes or stored source grants.", schemas["report_artifacts"], false, func(ctx context.Context, p *auth.Principal, _ reportEmptyInput) (ReportArtifactList, error) {
-				return backend.ReportArtifacts(ctx, p)
+			reportTool("report_artifacts", "List current-authorized report metadata, never report bytes or stored source grants.", schemas["report_artifacts"], false, func(ctx context.Context, p *auth.Principal, input ReportArtifactListInput) (ReportArtifactList, error) {
+				return backend.ReportArtifacts(ctx, p, input)
 			}),
 			reportTool("report_artifact_link", "Read current-authorized artifact metadata and its authenticated REST URI; metadata alone does not verify body integrity or grant future access.", schemas["report_artifact_link"], false, func(ctx context.Context, p *auth.Principal, in reportIDInput) (ReportArtifactLink, error) {
 				return backend.ReportArtifactLink(ctx, p, in.ID)

@@ -586,7 +586,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/remediation/proposals":                        "bounded",
 	"/v1/dashboards":                                   "bounded",
 	"/v1/dashboard-report-schedules":                   "bounded",
-	"/v1/dashboard-report-artifacts":                   "bounded",
+	"/v1/dashboard-report-artifacts":                   "cursor",
 }
 
 // TestOpenAPICollectionPaginationContract is PRODUCT-009's guardrail. Every

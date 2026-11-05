@@ -31,9 +31,30 @@ func reportToolSchemas() (mcp.NativeFlowSchemas, error) {
 		return result
 	}
 	roots := map[string]any{}
-	for _, name := range []string{"report_dashboards", "report_schedules", "report_artifacts"} {
+	for _, name := range []string{"report_dashboards", "report_schedules"} {
 		roots[name] = object(map[string]any{})
 	}
+	var inbox struct {
+		Parameters []struct {
+			Name   string          `json:"name"`
+			In     string          `json:"in"`
+			Schema json.RawMessage `json:"schema"`
+		} `json:"parameters"`
+	}
+	if err := json.Unmarshal(document.Paths["/v1/dashboard-report-artifacts"]["get"], &inbox); err != nil {
+		return nil, err
+	}
+	properties := map[string]any{}
+	for _, parameter := range inbox.Parameters {
+		if parameter.In == "query" {
+			var schema any
+			if err := json.Unmarshal(parameter.Schema, &schema); err != nil {
+				return nil, err
+			}
+			properties[parameter.Name] = schema
+		}
+	}
+	roots["report_artifacts"] = object(properties)
 	for _, name := range []string{"report_dashboard", "report_dashboard_export", "report_artifact_link"} {
 		roots[name] = object(map[string]any{"id": map[string]any{"type": "string", "minLength": 1, "maxLength": 160}}, "id")
 	}

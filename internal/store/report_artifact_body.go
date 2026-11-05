@@ -39,29 +39,6 @@ const reportArtifactHeaderColumns = `a.id,a.tenant_id::text,a.dashboard_id,a.sch
 const reportArtifactMetadataColumns = reportArtifactHeaderColumns + `,
  CASE WHEN octet_length(a.source_capture::text)<=1048576 THEN a.source_capture ELSE NULL END`
 
-// ListArtifactHeaders does not load bodies or source envelopes. A chunk
-// header remains private to its caller until current source access is checked.
-func (DashboardReports) ListArtifactHeaders(ctx context.Context, s tenancy.Scope, userID string) ([]ReportArtifactMetadata, error) {
-	rows, err := s.Q.Query(ctx, `SELECT `+reportArtifactHeaderColumns+`,NULL::jsonb
- FROM dashboard_report_artifacts a JOIN dashboard_views v ON v.tenant_id=a.tenant_id AND v.id=a.dashboard_id
- WHERE a.tenant_id=$1 AND (v.owner_id=$2 OR v.shared)
- AND ((a.body_storage IN ('inline','document-chunks') AND a.source_capture IS NULL) OR a.body_storage='chunks')
- ORDER BY a.generated_at DESC,a.id LIMIT 200`, s.Tenant.String(), userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]ReportArtifactMetadata, 0)
-	for rows.Next() {
-		var item ReportArtifactMetadata
-		if err := scanReportArtifactMetadata(rows, &item); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
-}
-
 func scanReportArtifactMetadata(row interface{ Scan(...any) error }, out *ReportArtifactMetadata) error {
 	var provenance, limitations, capture []byte
 	err := row.Scan(&out.ID, &out.TenantID, &out.DashboardID, &out.ScheduleID, &out.Format,

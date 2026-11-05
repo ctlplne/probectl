@@ -55,7 +55,16 @@ export function DashboardReportingCard({
   const [searchParams, setSearchParams] = useSearchParams()
   const dashboards = useDashboards()
   const schedules = useReportSchedules()
-  const artifacts = useReportArtifacts()
+  const [artifactPaging, setArtifactPaging] = useState({
+    identity: sourceIdentity,
+    cursor: '',
+    previous: [] as string[],
+  })
+  const artifactPage =
+    artifactPaging.identity === sourceIdentity
+      ? artifactPaging
+      : { identity: sourceIdentity, cursor: '', previous: [] as string[] }
+  const artifacts = useReportArtifacts(sourceIdentity, artifactPage.cursor)
   const createDashboard = useCreateDashboard()
   const createSchedule = useCreateReportSchedule()
   const updateSchedule = useUpdateReportSchedule()
@@ -160,6 +169,7 @@ export function DashboardReportingCard({
     if (!activeID) return
     try {
       await generateReport.mutateAsync({ dashboard_id: activeID, format })
+      setArtifactPaging({ identity: sourceIdentity, cursor: '', previous: [] })
       push({
         tone: 'success',
         title: `${format.toUpperCase()} generated`,
@@ -627,7 +637,7 @@ export function DashboardReportingCard({
                 <p className={styles.reportingEmpty}>No generated artifacts.</p>
               ) : (
                 <ul className={styles.compactList}>
-                  {artifacts.data?.items.slice(0, 4).map((item) => (
+                  {artifacts.data?.items.map((item) => (
                     <li key={item.id}>
                       <a href={item.download_url}>{item.filename}</a> ·{' '}
                       <DateTime value={item.generated_at} />
@@ -635,6 +645,38 @@ export function DashboardReportingCard({
                   ))}
                 </ul>
               )}
+              <nav
+                aria-label="Report inbox pages"
+                className={styles.reportingControls}
+                aria-busy={artifacts.isFetching}
+              >
+                <Button
+                  variant="secondary"
+                  disabled={artifactPage.previous.length === 0 || artifacts.isFetching}
+                  onClick={() =>
+                    setArtifactPaging({
+                      identity: sourceIdentity,
+                      cursor: artifactPage.previous.at(-1) ?? '',
+                      previous: artifactPage.previous.slice(0, -1),
+                    })
+                  }
+                >
+                  Newer reports
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!artifacts.data?.next_cursor || artifacts.isFetching}
+                  onClick={() =>
+                    setArtifactPaging({
+                      identity: sourceIdentity,
+                      cursor: artifacts.data?.next_cursor ?? '',
+                      previous: [...artifactPage.previous, artifactPage.cursor],
+                    })
+                  }
+                >
+                  Older reports
+                </Button>
+              </nav>
             </section>
           </div>
         </CardBody>
