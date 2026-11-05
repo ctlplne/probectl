@@ -138,9 +138,11 @@ func (p *releaseFlowReport) verifyPacketCSVCells(t *testing.T, row []string, col
 func (p *releaseFlowReport) sendCapturedPackets(t *testing.T, destination string) func() {
 	t.Helper()
 	name := "probectl-qa-beta-e2e-softflowd-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	// Absorb measured CI scheduling bursts without dropping selected packets.
+	// The traffic, exact independent counters and capture deadline stay fixed.
 	runCmd(t, "", nil, "docker", "create", "--name", name, "--network", "host", "--cap-add", "NET_RAW",
 		"--read-only", "--tmpfs", "/tmp:rw,nosuid,noexec", releasePacketImage,
-		"softflowd", "-d", "-N", "-i", "lo", "-v", "10", "-B", "65536", "-n", destination,
+		"softflowd", "-d", "-N", "-i", "lo", "-v", "10", "-B", "1048576", "-n", destination,
 		"-c", "/tmp/softflowd.ctl", "icmp and dst host 127.0.0.1")
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
 	runCmd(t, "", nil, "docker", "start", name)
