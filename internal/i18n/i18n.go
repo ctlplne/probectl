@@ -185,6 +185,9 @@ Global flags:
   --token <token>   Bearer auth token (env PROBECTL_API_TOKEN)
   --tenant <uuid>   tenant scope (env PROBECTL_TENANT)
   --ca-file <path>  PEM CA bundle that verifies the control plane (env PROBECTL_CA_FILE; default: OS trust store)
+  --request-timeout <duration> positive HTTP request budget (env PROBECTL_CLI_REQUEST_TIMEOUT; default: route budget)
+  --download-timeout <duration> positive download budget (env PROBECTL_CLI_DOWNLOAD_TIMEOUT; default: 15m)
+  --max-response-bytes <n> complete JSON response budget (env PROBECTL_CLI_MAX_RESPONSE_BYTES; default: 33554432)
   --json            output JSON instead of a table
 
 'test create' flags:
@@ -247,6 +250,9 @@ Flags globales:
   --token <token>   token Bearer de API (env PROBECTL_API_TOKEN)
   --tenant <uuid>   alcance de tenant (env PROBECTL_TENANT)
   --ca-file <path>  paquete CA en PEM que verifica el plano de control (env PROBECTL_CA_FILE; por defecto: almacen de confianza del SO)
+  --request-timeout <duracion> plazo HTTP positivo (env PROBECTL_CLI_REQUEST_TIMEOUT; por defecto: plazo de la ruta)
+  --download-timeout <duracion> plazo de descarga positivo (env PROBECTL_CLI_DOWNLOAD_TIMEOUT; por defecto: 15m)
+  --max-response-bytes <n> bytes de respuesta JSON completa (env PROBECTL_CLI_MAX_RESPONSE_BYTES; por defecto: 33554432)
   --json            salida JSON en vez de tabla
 
 Flags de 'test create':

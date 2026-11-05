@@ -226,6 +226,8 @@ Byte, memory, deadline and cumulative source-read admission still apply.
 
 Required CI includes paired Postgres/ClickHouse sources, complete 500,000-detail
 CSV from ten disjoint 50,000-row queries, independent streamed CSV/digest parsing,
+one generation lane through the compiled CLI with a matching finite request
+timeout and the other through the API client (the same single POST per tenant),
 and independent extraction of actual 4,000-detail source PDF output. The large
 fixture reserves a full standalone response, intermediate-group and interface
 allowance for each source before the batch divides retained capacity. Its
