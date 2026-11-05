@@ -55,7 +55,7 @@ func TestSnapshotsPostgresCompleteRowsPastFormerQuotaAndIdempotentRepair(t *test
 	})
 	replica := f.replica(tenancy.PooledRouter{}, t.TempDir())
 	scope := flowsnapshot.Scope{TenantID: f.red.ID, Owner: "selected-owner"}
-	if _, err := f.admin.Exec(ctx, "ALTER TABLE public.flow_snapshots DROP CONSTRAINT flow_snapshots_row_count_check; ALTER TABLE public.flow_snapshots ADD CONSTRAINT flow_snapshots_row_count_check CHECK(row_count BETWEEN 0 AND 50000)"); err != nil {
+	if _, err := f.admin.Exec(ctx, "ALTER TABLE public.flow_snapshots DROP CONSTRAINT IF EXISTS flow_snapshots_row_count_check; ALTER TABLE public.flow_snapshots ADD CONSTRAINT flow_snapshots_row_count_check CHECK(row_count BETWEEN 0 AND 50000)"); err != nil {
 		t.Fatal(err)
 	}
 	_, err = replica.Create(ctx, scope, []string{"flow.read", "ai.query"}, 4999, allowPostgresSnapshot, func(context.Context) (flowsnapshot.Input, error) { return postgresInput(50001), nil })
