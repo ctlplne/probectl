@@ -23,8 +23,8 @@ func DefaultHTTPWorkBudget() HTTPWorkBudget {
 }
 
 func (b HTTPWorkBudget) Validate() error {
-	if b.Timeout <= 0 || b.Timeout > 24*time.Hour || b.ActiveRequests < 1 || b.ActiveRequests > 1_000_000 {
-		return errors.New("mcp: HTTP work timeout must be positive and at most24h; active requests must be1..1000000")
+	if b.Timeout <= 0 || b.ActiveRequests < 1 {
+		return errors.New("mcp: HTTP work timeout and active request admission must be positive")
 	}
 	return nil
 }

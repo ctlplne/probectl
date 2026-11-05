@@ -290,6 +290,17 @@ func TestLegacy2025HTTPChangedAuthorityRefusesBeforeEgressSuccess(t *testing.T) 
 }
 
 func TestLegacy2025HTTPDeadlineAndActiveCostAreBounded(t *testing.T) {
+	t.Run("larger-operator-profile", func(t *testing.T) {
+		s := nativeProbeServer(&nativeBackendProbe{}, nil)
+		WithHTTPWorkBudget(HTTPWorkBudget{Timeout: 25 * time.Hour, ActiveRequests: 1000001})(s)
+		socket := httptest.NewTLSServer(s.HTTPHandler(fakeAuthn{p: nativePrincipal()}))
+		defer socket.Close()
+		response := legacyTLSCall(t, socket, legacy2025Request("ping", 2, map[string]any{}), "owned", legacyProtocolVersion)
+		defer response.Body.Close()
+		if raw := legacyBody(t, response); response.StatusCode != 200 || rpcErrorCode(raw) != 0 {
+			t.Fatal("finite operator HTTP capacity rejected by a fixed maximum")
+		}
+	})
 	t.Run("deadline", func(t *testing.T) {
 		b := &legacyBlockingBackend{nativeBackendProbe: &nativeBackendProbe{}, started: make(chan context.Context, 1), ended: make(chan struct{})}
 		released := make(chan struct{}, 1)
