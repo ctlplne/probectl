@@ -214,7 +214,21 @@ Byte, memory, deadline and cumulative source-read limits still apply.
 Required CI includes paired Postgres/ClickHouse sources, complete 500,000-detail
 CSV from ten disjoint 50,000-row queries, independent streamed CSV/digest parsing,
 and independent extraction of actual 4,000-detail source PDF output. The large
-fixture records a finite operator cost profile without changing defaults.
+fixture reserves a full standalone response, intermediate-group and interface
+allowance for each source before the batch divides retained capacity. Its
+recorded ten-source operator profile uses 120 seconds, 8 GiB operation memory,
+640 MiB response bytes, 50 million cumulative read rows, 8 GiB cumulative read
+bytes, 5 million intermediate groups and 100,000 interface items. These are
+workload admission settings, not immutable product maxima. Deployments can
+configure the same profile through `PROBECTL_FLOW_QUERY_TIMEOUT`,
+`PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES`, `PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES`,
+`PROBECTL_FLOW_QUERY_MAX_READ_ROWS`, `PROBECTL_FLOW_QUERY_MAX_READ_BYTES`,
+`PROBECTL_FLOW_QUERY_MAX_INTERMEDIATE_GROUPS` and
+`PROBECTL_FLOW_QUERY_MAX_INTERFACE_ITEMS`. Provision matching control-plane and
+ClickHouse capacity and tenant concurrency for the selected workload; size the
+profile upward when complete required results need it. No result is shortened
+to fit an earlier budget. The profile's runtime qualification is recorded by CI;
+these configured ceilings are not a measured peak-memory claim.
 Complete field IDs, exact integers, Unicode, formula safety, nested filters,
 comparison and matrix sections remain required.
 
