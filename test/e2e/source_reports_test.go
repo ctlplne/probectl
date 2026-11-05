@@ -28,6 +28,8 @@ type releaseFlowReport struct {
 	api                                                                         api
 	tenant, address, source, version, snapshot, artifact, dashboard, sourceName string
 	quantity                                                                    uint32
+	packet                                                                      bool
+	packetContext, packetTag, packetRule, packetValue                           string
 	body, frozen                                                                []byte
 }
 
@@ -38,6 +40,12 @@ type releaseFlowReport struct {
 func proveReleaseSourceReports(t *testing.T, root, work, ca, cert, key string, stack composeStack, secrets storeSecrets,
 	cli func(...string) string, readers []api) []releaseFlowReport {
 	t.Helper()
+	return proveReleaseSourceReportsForSender(t, root, work, ca, cert, key, stack, secrets, cli, readers, false)
+}
+
+func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key string, stack composeStack, secrets storeSecrets,
+	cli func(...string) string, readers []api, packet bool) []releaseFlowReport {
+	t.Helper()
 	collector, command := filepath.Join(work, "probectl-flow-agent"), filepath.Join(work, "probectl-report-cli")
 	runCmd(t, root, nil, "go", "build", "-o", collector, "./cmd/probectl-flow-agent")
 	runCmd(t, root, nil, "go", "build", "-o", command, "./cmd/probectl")
@@ -45,58 +53,29 @@ func proveReleaseSourceReports(t *testing.T, root, work, ca, cert, key string, s
 		{api: readers[0], tenant: tenantA, address: "10.211.1.1", quantity: 31337},
 		{api: readers[1], tenant: tenantB, address: "10.212.1.1", quantity: 77331},
 	}
+	if packet {
+		buildReleasePacketExporter(t, root)
+		for i := range proofs {
+			proofs[i].packet = true
+			proofs[i].address = "127.0.0." + strconv.Itoa(i+2)
+			proofs[i].quantity = releasePacketCount * (releasePacketPayload + 20 + 8)
+		}
+	}
 	at := time.Now().UTC()
 	for i := range proofs {
 		p := &proofs[i]
-		agent := fmt.Sprintf("a7000000-0000-4000-8000-%012d", 7+i)
-		token := mintEnrollTokenTTL(t, cli, p.tenant, agent, "release-report-source", "10m")
-		var registration struct {
-			TenantID string `json:"tenant_id"`
-			AgentID  string `json:"agent_id"`
-			Config   struct {
-				Env map[string]string `json:"env"`
-			} `json:"config"`
+		p.sourceName = "Release source " + strconv.Itoa(i)
+		if p.packet {
+			p.sourceName = "Captured packet source " + strconv.Itoa(i)
 		}
-		p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/collectors/register",
-			map[string]string{"token": token, "plane": "flow", "hostname": "release-report-source"}, &registration)
-		env := registration.Config.Env
-		if registration.TenantID != p.tenant || registration.AgentID != agent || env["PROBECTL_FLOW_TENANT"] != p.tenant ||
-			env["PROBECTL_FLOW_AGENT_ID"] != agent || env["PROBECTL_FLOW_BUS_NAMESPACE"] == "" {
-			t.Fatal("release flow registration did not bind current tenant, collector and bus lane")
-		}
-		listener, err := net.ListenPacket("udp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		address := listener.LocalAddr().String()
-		if err := listener.Close(); err != nil {
-			t.Fatal(err)
-		}
-		env["PROBECTL_FLOW_NETFLOW_ENABLED"] = "true"
-		env["PROBECTL_FLOW_NETFLOW_LISTEN"] = address
-		env["PROBECTL_FLOW_NETFLOW_ALLOWED_SOURCES"] = "127.0.0.1/32"
-		env["PROBECTL_FLOW_IPFIX_ENABLED"] = "false"
-		env["PROBECTL_FLOW_SFLOW_ENABLED"] = "false"
-		env["PROBECTL_FLOW_FLUSH_INTERVAL"] = "100ms"
-		env["PROBECTL_FLOW_BUS_MODE"] = "kafka"
-		env["PROBECTL_FLOW_BUS_BROKERS"] = "localhost:" + stack.envValue("PROBECTL_DEV_KAFKA_PORT")
-		env["PROBECTL_FLOW_METRICS_ADDR"] = "127.0.0.1:" + freeTCPPort(t)
-		env["PROBECTL_FLOW_METRICS_TLS_CERT_FILE"] = cert
-		env["PROBECTL_FLOW_METRICS_TLS_KEY_FILE"] = key
-		values := collectorBusEnv("PROBECTL_FLOW", ca, secrets)
-		for name, value := range env {
-			values = append(values, name+"="+value)
-		}
-		log, stop, exited := startProc(t, work, "release-report-collector-"+strconv.Itoa(i), collector, nil, values)
+		address, stop, exited := startReleaseReportCollector(t, p, collector, work, ca, cert, key, stack, secrets, cli, i)
 		defer stop()
-		waitFor(t, "registered release flow collector listener", 30*time.Second, func() bool {
-			if err := exited(); err != nil {
-				t.Fatal("release flow collector exited before input", err)
-			}
-			raw, err := os.ReadFile(log)
-			return err == nil && bytes.Contains(raw, []byte("flow: listening"))
-		})
-		p.send(t, address, i)
+		if p.packet {
+			stopExporter := p.sendCapturedPackets(t, address)
+			defer stopExporter()
+		} else {
+			p.send(t, address, i)
+		}
 		plan := p.plan(at)
 		var observed struct {
 			Flow struct {
@@ -117,6 +96,13 @@ func proveReleaseSourceReports(t *testing.T, root, work, ca, cert, key string, s
 		if observed.Flow.Totals["flows:total"] != "1" || observed.Paging.ID == "" {
 			t.Fatal("release source lost exact flow count or object-backed snapshot")
 		}
+		if p.packet {
+			p.retagCapturedHistory(t, plan)
+			p.api.json(t, http.StatusOK, http.MethodPost, "/v1/explorer/query", map[string]any{"source": "flow", "flow": plan}, &observed)
+			if len(observed.Flow.Rows) != 1 || observed.Flow.Totals["bytes:total"] != strconv.FormatUint(uint64(p.quantity), 10) || observed.Flow.Totals["flows:total"] != "1" || observed.Paging.ID == "" {
+				t.Fatal("real source rule edit changed historical input counters or snapshot")
+			}
+		}
 		p.snapshot = observed.Paging.ID
 		code, frozen := p.api.do(t, http.MethodGet, "/v1/explorer/flow-snapshots/"+p.snapshot+"/csv", nil)
 		if code != http.StatusOK || !bytes.Contains(frozen, []byte(p.address)) {
@@ -128,21 +114,28 @@ func proveReleaseSourceReports(t *testing.T, root, work, ca, cert, key string, s
 		}
 		var view struct{ ID, Version string }
 		p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/explorer/flow-views",
-			map[string]any{"definition": map[string]any{"name": "Release source " + strconv.Itoa(i), "visibility": "private", "time": map[string]string{"mode": "absolute"}, "plan": plan}}, &view)
+			map[string]any{"definition": map[string]any{"name": p.sourceName, "visibility": "private", "time": map[string]string{"mode": "absolute"}, "plan": plan}}, &view)
 		if view.ID == "" || view.Version == "" {
 			t.Fatal("release source lost its pinned saved identity")
 		}
 		p.source, p.version = view.ID, view.Version
-		p.sourceName = "Release source " + strconv.Itoa(i)
 		var dashboard struct {
 			ID       string
 			TenantID string `json:"tenant_id"`
 		}
+		name := "Release collector source " + strconv.Itoa(i)
+		provenance := []string{"actual compiled collector; generated NetFlowv5; verified TLS/SASL bus and HTTPS stores"}
+		limitations := []string{"software protocol fixture, no hardware-exporter claim"}
+		if p.packet {
+			name = "Captured collector report " + strconv.Itoa(i)
+			provenance = []string{"actual softflowd IPFIX capture of owned ICMP packets; verified TLS/SASL bus and HTTPS stores"}
+			limitations = []string{"real software exporter on loopback; no hardware or physical-router claim"}
+		}
 		p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/dashboards", map[string]any{
-			"name": "Release collector source " + strconv.Itoa(i), "preset": "operator", "shared": false,
+			"name": name, "preset": "operator", "shared": false,
 			"definition": map[string]any{"flow_sources": []map[string]string{{"id": view.ID, "version": view.Version}},
-				"provenance":      []string{"actual compiled collector; generated NetFlowv5; verified TLS/SASL bus and HTTPS stores"},
-				"redaction_state": "tenant-scoped", "coverage_limitations": []string{"software protocol fixture, no hardware-exporter claim"}}}, &dashboard)
+				"provenance":      provenance,
+				"redaction_state": "tenant-scoped", "coverage_limitations": limitations}}, &dashboard)
 		if dashboard.TenantID != p.tenant || dashboard.ID == "" {
 			t.Fatal("release source dashboard changed tenant")
 		}
@@ -185,14 +178,94 @@ func proveReleaseSourceReports(t *testing.T, root, work, ca, cert, key string, s
 			t.Fatal("release query source substitution crossed tenant store boundary")
 		}
 	}
-	t.Log("release profile source reports: actual registered collectors, TLS/SASL Kafka, HTTPS ClickHouse, encrypted snapshot objects and Postgres report publication, paired API/builtCLI and foreign refusals passed; generated NetFlow provenance retained")
+	if packet {
+		t.Log("real packet report sources: actual softflowd IPFIX capture, exact selected packet/IP-byte counters, query-time rule history, registered collectors, TLS/SASL Kafka, HTTPS ClickHouse, encrypted snapshots and stored reports, paired API/CLI and foreign refusals passed; no hardware claim")
+	} else {
+		t.Log("release profile source reports: actual registered collectors, TLS/SASL Kafka, HTTPS ClickHouse, encrypted snapshot objects and Postgres report publication, paired API/builtCLI and foreign refusals passed; generated NetFlow provenance retained")
+	}
 	return proofs
 }
 
+func startReleaseReportCollector(t *testing.T, p *releaseFlowReport, collector, work, ca, cert, key string,
+	stack composeStack, secrets storeSecrets, cli func(...string) string, i int) (string, func(), func() error) {
+	t.Helper()
+	number := 7 + i
+	if p.packet {
+		number += 10
+	}
+	agent := fmt.Sprintf("a7000000-0000-4000-8000-%012d", number)
+	token := mintEnrollTokenTTL(t, cli, p.tenant, agent, "release-report-source", "10m")
+	var registration struct {
+		TenantID string `json:"tenant_id"`
+		AgentID  string `json:"agent_id"`
+		Config   struct {
+			Env map[string]string `json:"env"`
+		} `json:"config"`
+	}
+	p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/collectors/register",
+		map[string]string{"token": token, "plane": "flow", "hostname": "release-report-source"}, &registration)
+	env := registration.Config.Env
+	if registration.TenantID != p.tenant || registration.AgentID != agent || env["PROBECTL_FLOW_TENANT"] != p.tenant ||
+		env["PROBECTL_FLOW_AGENT_ID"] != agent || env["PROBECTL_FLOW_BUS_NAMESPACE"] == "" {
+		t.Fatal("release flow registration did not bind current tenant, collector and bus lane")
+	}
+	if p.packet {
+		p.preparePacketTag(t, agent)
+	}
+	listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.LocalAddr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	env["PROBECTL_FLOW_NETFLOW_ENABLED"] = "true"
+	env["PROBECTL_FLOW_NETFLOW_LISTEN"] = address
+	env["PROBECTL_FLOW_NETFLOW_ALLOWED_SOURCES"] = "127.0.0.1/32"
+	env["PROBECTL_FLOW_IPFIX_ENABLED"] = "false"
+	env["PROBECTL_FLOW_SFLOW_ENABLED"] = "false"
+	if p.packet {
+		env["PROBECTL_FLOW_NETFLOW_ENABLED"] = "false"
+		env["PROBECTL_FLOW_IPFIX_ENABLED"] = "true"
+		env["PROBECTL_FLOW_IPFIX_LISTEN"] = address
+		env["PROBECTL_FLOW_IPFIX_ALLOWED_SOURCES"] = "127.0.0.1/32"
+	}
+	env["PROBECTL_FLOW_FLUSH_INTERVAL"] = "100ms"
+	env["PROBECTL_FLOW_BUS_MODE"] = "kafka"
+	env["PROBECTL_FLOW_BUS_BROKERS"] = "localhost:" + stack.envValue("PROBECTL_DEV_KAFKA_PORT")
+	env["PROBECTL_FLOW_METRICS_ADDR"] = "127.0.0.1:" + freeTCPPort(t)
+	env["PROBECTL_FLOW_METRICS_TLS_CERT_FILE"] = cert
+	env["PROBECTL_FLOW_METRICS_TLS_KEY_FILE"] = key
+	values := collectorBusEnv("PROBECTL_FLOW", ca, secrets)
+	for name, value := range env {
+		values = append(values, name+"="+value)
+	}
+	label := "release-report-collector-"
+	if p.packet {
+		label = "release-packet-collector-"
+	}
+	log, stop, exited := startProc(t, work, label+strconv.Itoa(i), collector, nil, values)
+	waitFor(t, "registered release flow collector listener", 30*time.Second, func() bool {
+		if err := exited(); err != nil {
+			t.Fatal("release flow collector exited before input", err)
+		}
+		raw, err := os.ReadFile(log)
+		return err == nil && bytes.Contains(raw, []byte("flow: listening"))
+	})
+	return address, stop, exited
+}
+
 func (p *releaseFlowReport) plan(at time.Time) map[string]any {
+	groups := []string{"src_addr", "exporter"}
+	metrics := []map[string]string{{"measure": "bytes", "calculation": "total", "role": "primary"}, {"measure": "flows", "calculation": "total", "role": "additional"}}
+	if p.packet {
+		groups = append(groups, "protocol", "tag.packet_customer")
+		metrics = append(metrics, map[string]string{"measure": "packets", "calculation": "total", "role": "additional"})
+	}
 	return map[string]any{"from": at.Add(-time.Minute).Format(time.RFC3339Nano), "to": at.Add(5 * time.Minute).Format(time.RFC3339Nano),
-		"view": "table", "group_by": []string{"src_addr", "exporter"}, "row_limit": 350, "page_size": 350, "bucket_seconds": 60,
-		"metrics": []map[string]string{{"measure": "bytes", "calculation": "total", "role": "primary"}, {"measure": "flows", "calculation": "total", "role": "additional"}},
+		"view": "table", "group_by": groups, "row_limit": 350, "page_size": 350, "bucket_seconds": 60,
+		"metrics": metrics,
 		"filter":  map[string]any{"conditions": []map[string]any{{"field": "src_addr", "op": "eq", "values": []string{p.address}}}}}
 }
 
@@ -228,6 +301,7 @@ func (p *releaseFlowReport) verify(t *testing.T, body []byte) {
 	reader.FieldsPerRecord = -1
 	detail := false
 	address, quantity := -1, -1
+	packetColumns := map[string]int{}
 	rows, totals := 0, 0
 	for {
 		row, err := reader.Read()
@@ -256,6 +330,7 @@ func (p *releaseFlowReport) verify(t *testing.T, body []byte) {
 		}
 		if row[0] == "record_type" {
 			for i, name := range row {
+				packetColumns[name] = i
 				if name == "src_addr" {
 					address = i
 				}
@@ -270,6 +345,9 @@ func (p *releaseFlowReport) verify(t *testing.T, body []byte) {
 		}
 		if quantity < 0 || quantity >= len(row) || address < 0 || address >= len(row) || row[quantity] != strconv.FormatUint(uint64(p.quantity), 10) {
 			t.Fatal("release source report lost exact counter/schema")
+		}
+		if p.packet {
+			p.verifyPacketCSVCells(t, row, packetColumns)
 		}
 		if row[0] == "detail" {
 			if row[address] != p.address {
