@@ -79,8 +79,8 @@ func TestStaticReportKeepsCompleteValidatedMultilingualDocument(t *testing.T) {
 	if err != nil || closeErr != nil || int64(len(reference)) != receipt.Bytes {
 		t.Fatal("complete static reference read failed", err, closeErr)
 	}
+	t.Logf("unverified static reference: input_bytes=%d exact_metrics=%d provenance_entries=%d coverage_entries=%d reference_pdf_bytes=%d", len(encoded), len(doc.Metrics), len(doc.Provenance), len(doc.CoverageLimitations), receipt.Bytes)
 	assertStaticDocumentSemanticText(t, reference, doc)
-	t.Logf("validated static capacity: input_bytes=%d exact_metrics=%d provenance_entries=%d coverage_entries=%d complete_pdf_bytes=%d", len(encoded), len(doc.Metrics), len(doc.Provenance), len(doc.CoverageLimitations), receipt.Bytes)
 	actual, media, err := renderDashboardReport(ctx, "pdf", doc)
 	if err != nil {
 		t.Fatalf("static renderer refused complete validated document: complete_pdf_bytes=%d error=%v", receipt.Bytes, err)
@@ -124,10 +124,21 @@ func assertStaticDocumentSemanticText(t *testing.T, body []byte, doc reporting.D
 			t.Fatal("static report metric text incomplete")
 		}
 	}
-	for _, values := range [][]string{doc.Provenance, doc.CoverageLimitations} {
-		for _, value := range values {
+	for kind, values := range [][]string{doc.Provenance, doc.CoverageLimitations} {
+		for index, value := range values {
 			if !strings.Contains(full, value) {
-				t.Fatal("static report disclosure text incomplete")
+				wanted := []rune(value)
+				start := strings.IndexRune(full, wanted[0])
+				matched := 0
+				var next []rune
+				if start >= 0 {
+					actual := []rune(full[start:])
+					for matched < len(wanted) && matched < len(actual) && wanted[matched] == actual[matched] {
+						matched++
+					}
+					next = actual[matched:min(matched+8, len(actual))]
+				}
+				t.Fatalf("static report disclosure text incomplete: kind=%d index=%d wanted_runes=%d contiguous_prefix_runes=%d next_codepoints=%U repeated_header_count=%d", kind, index, len(wanted), matched, next, strings.Count(full, reporting.Banner))
 			}
 		}
 	}
