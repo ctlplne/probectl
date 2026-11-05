@@ -1136,7 +1136,7 @@ func canonicalGoStatements(statements []ast.Stmt) (string, bool) {
 }
 
 const cliRunPreludeSpine = `{
-	cfg := Config{BaseURL: envOr(getenv, "PROBECTL_API_URL", "https://localhost:8443"), Token: getenv("PROBECTL_API_TOKEN"), Tenant: getenv("PROBECTL_TENANT"), Locale: i18n.Resolve(getenv("PROBECTL_LOCALE")), SessionCookieFile: getenv("PROBECTL_SESSION_COOKIE_FILE"), CAFile: getenv("PROBECTL_CA_FILE")}
+	cfg := Config{BaseURL: envOr(getenv, "PROBECTL_API_URL", "https://localhost:8443"), Token: getenv("PROBECTL_API_TOKEN"), Tenant: getenv("PROBECTL_TENANT"), Locale: i18n.Resolve(getenv("PROBECTL_LOCALE")), SessionCookieFile: getenv("PROBECTL_SESSION_COOKIE_FILE"), CAFile: getenv("PROBECTL_CA_FILE"), RequestTimeout: getenv("PROBECTL_CLI_REQUEST_TIMEOUT"), DownloadTimeout: getenv("PROBECTL_CLI_DOWNLOAD_TIMEOUT"), MaxResponseBytes: getenv("PROBECTL_CLI_MAX_RESPONSE_BYTES")}
 	args, cfg.JSON = extractBoolFlag(args, "--json")
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		usage(stdout, cfg.Locale)
@@ -1151,6 +1151,9 @@ const cliRunPreludeSpine = `{
 	fs.StringVar(&cfg.Token, "token", cfg.Token, "API auth token, sent as Bearer (env PROBECTL_API_TOKEN)")
 	fs.StringVar(&cfg.Tenant, "tenant", cfg.Tenant, "tenant UUID, sent as X-Probectl-Tenant (env PROBECTL_TENANT)")
 	fs.StringVar(&cfg.CAFile, "ca-file", cfg.CAFile, "PEM CA bundle that verifies the control plane's certificate (env PROBECTL_CA_FILE); default: the OS trust store")
+	fs.StringVar(&cfg.RequestTimeout, "request-timeout", cfg.RequestTimeout, "positive HTTP request duration (env PROBECTL_CLI_REQUEST_TIMEOUT; default: route budget)")
+	fs.StringVar(&cfg.DownloadTimeout, "download-timeout", cfg.DownloadTimeout, "positive download duration (env PROBECTL_CLI_DOWNLOAD_TIMEOUT; default: 15m)")
+	fs.StringVar(&cfg.MaxResponseBytes, "max-response-bytes", cfg.MaxResponseBytes, "positive complete JSON response byte admission (env PROBECTL_CLI_MAX_RESPONSE_BYTES; default: 33554432)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

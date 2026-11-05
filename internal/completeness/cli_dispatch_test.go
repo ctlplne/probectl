@@ -464,6 +464,29 @@ func TestTopLevelRootHelpPreludeMustRemainExact(t *testing.T) {
 	}
 }
 
+func TestCLIWorkloadProfilePreludeRejectsMisbinding(t *testing.T) {
+	for _, profile := range []struct{ field, env, flag string }{
+		{"RequestTimeout", "PROBECTL_CLI_REQUEST_TIMEOUT", "request-timeout"},
+		{"DownloadTimeout", "PROBECTL_CLI_DOWNLOAD_TIMEOUT", "download-timeout"},
+		{"MaxResponseBytes", "PROBECTL_CLI_MAX_RESPONSE_BYTES", "max-response-bytes"},
+	} {
+		for _, mutation := range []struct{ name, old, replacement string }{
+			{"environment", `getenv("` + profile.env + `")`, `getenv("PROBECTL_WRONG_PROFILE")`},
+			{"flag destination", `fs.StringVar(&cfg.` + profile.field + `, "` + profile.flag + `"`, `fs.StringVar(&cfg.Token, "` + profile.flag + `"`},
+			{"flag default", `"` + profile.flag + `", cfg.` + profile.field + `,`, `"` + profile.flag + `", cfg.Token,`},
+			{"flag name", `"` + profile.flag + `", cfg.` + profile.field + `,`, `"wrong-profile", cfg.` + profile.field + `,`},
+		} {
+			t.Run(profile.field+"/"+mutation.name, func(t *testing.T) {
+				root := fixtureRepo(t)
+				writeFixtureMutation(t, filepath.Join(root, "internal/cli/cli.go"), mutation.old, mutation.replacement)
+				if _, err := NewValidator(root); err == nil || !strings.Contains(err.Error(), "trusted config and flag-parser spine") {
+					t.Fatalf("NewValidator error = %v, want workload profile prelude rejection", err)
+				}
+			})
+		}
+	}
+}
+
 func TestGenericDispatcherBodyMustBeExactDelegate(t *testing.T) {
 	root := fixtureRepo(t)
 	path := filepath.Join(root, "internal", "cli", "cli.go")
@@ -700,6 +723,11 @@ func TestNativeGenericRequestSpineMatchesShippingSource(t *testing.T) {
 // allocation bounds,length,digest and stdout ordering remain part of the seal.
 func TestGenericVerifiedCSVDelegateRejectsUnsafeMutations(t *testing.T) {
 	for _, tc := range []struct{ name, old, replacement string }{
+		{"profile uses replacement configuration", `policy, err := c.cfg.httpPolicy()`, `policy, err := (Config{}).httpPolicy()`},
+		{"profile refusal ignored", `policy, err := c.cfg.httpPolicy()`, `policy, _ := c.cfg.httpPolicy(); var err error`},
+		{"configured download deadline discarded", `hc.Timeout = policy.downloadTimeout`, `hc.Timeout = downloadTimeout`},
+		{"wrong deadline profile", `hc.Timeout = policy.downloadTimeout`, `hc.Timeout = policy.requestTimeout`},
+		{"response profile discarded", `readBufferedResponse(response, policy.responseBytes)`, `readBufferedResponse(response, maxBufferedResponseBody)`},
 		{"default HTTP client", `hc := c.requestHTTPClient(target, false)`, `hc := http.DefaultClient`},
 		{"caller origin discarded", `resolveAPIURL(c.cfg.BaseURL, path)`, `resolveAPIURL("https://untrusted.invalid", path)`},
 		{"wrong request verb", `http.NewRequest(http.MethodGet, target.String(), nil)`, `http.NewRequest(http.MethodPost, target.String(), nil)`},
