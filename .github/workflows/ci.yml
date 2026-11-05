@@ -1378,7 +1378,7 @@ jobs:
     # Runs the stateful control-plane and four-store proofs independently of
     # the NetBox source. Both lanes are mandatory in verify-all.
     runs-on: ubuntu-latest
-    timeout-minutes: 60 # Setup, cold compilation and the complete serial real-stack suite share this finite budget.
+    timeout-minutes: 120 # Complete workload controls, cold setup, serial integration and fresh-database coverage all share this budget.
     # Postgres runs as a docker step so it serves TLS under a per-run test CA;
     # the client connects sslmode=verify-full like production (OPS-010).
     env:
