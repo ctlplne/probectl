@@ -17,7 +17,11 @@ PREFIX = "github.com/ctlplne/probectl/"
 UNIT = (
     (
         "internal/flow",
-        ("TestSelectedDetailReachUsesRepresentationRatherThanFormerQuota",),
+        (
+            "TestSelectedDetailReachUsesRepresentationRatherThanFormerQuota",
+            "TestQueryLibraryAdmissionKeepsCompletePairedPopulation",
+            "TestQueryLibraryAdmissionArithmeticCannotWrap",
+        ),
     ),
     (
         "internal/store/flowstore",
@@ -50,6 +54,10 @@ UNIT = (
             "TestFlowQuestionProposalKeepsFullNativeReachAndCopiesContext",
         ),
     ),
+    (
+        "internal/config",
+        ("TestFlowQueryLibraryAdmissionIsPositiveRaiseableAndObserved",),
+    ),
 )
 INTEGRATION = (
     (
@@ -62,6 +70,10 @@ INTEGRATION = (
             "TestSnapshotsPostgresCompleteRowsPastFormerQuotaAndIdempotentRepair",
             "TestSnapshotsPostgresManifestChargeRepairAndBoundedRead",
         ),
+    ),
+    (
+        "internal/flow",
+        ("TestQueryLibrariesPostgresCompletePopulationKeepsRLSAndPositiveAdmission",),
     ),
 )
 CONTROLS = (
@@ -96,6 +108,14 @@ CONTROLS = (
         UNIT[2][0],
         UNIT[2][1][1],
         "complete admitted manifest still uses former metadata quota",
+    ),
+    (
+        "internal/flow/query_saved_filter_store.go",
+        r"(?m)^(const DefaultQueryLibraryBytes = )256 << 20$",
+        "64 << 20",
+        UNIT[0][0],
+        UNIT[0][1][1],
+        "complete saved library retains former fixed byte quota",
     ),
 )
 
@@ -216,7 +236,7 @@ def main() -> int:
                 raise RuntimeError("restored quota did not fail its exact assertion")
         finally:
             path.write_bytes(original)
-    print("Complete selected flow rows and all four original quota controls PASS")
+    print("Complete selected flow rows and all five original quota controls PASS")
     return 0
 
 

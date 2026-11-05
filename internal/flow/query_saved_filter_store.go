@@ -22,6 +22,14 @@ import (
 
 const maxQueryFilterPageBytes = 8 << 20
 
+// DefaultQueryLibraryBytes admits the complete reference library without
+// allocating it. Deployments can raise each existing per-tenant library profile.
+const DefaultQueryLibraryBytes = 256 << 20
+
+func queryLibraryBytesFit(used, additional, budget int64) bool {
+	return used >= 0 && additional >= 0 && budget > 0 && additional <= budget && used <= budget-additional
+}
+
 var (
 	ErrQueryFilterNotFound      = errors.New("saved flow filter not found")
 	ErrQueryFilterConflict      = errors.New("saved flow filter version conflict")
@@ -65,7 +73,7 @@ type MemoryQueryFilterStore struct {
 // NewMemoryQueryFilterStore takes an explicit per-tenant storage-byte budget.
 func NewMemoryQueryFilterStore(maxBytesPerTenant int) *MemoryQueryFilterStore {
 	if maxBytesPerTenant <= 0 {
-		maxBytesPerTenant = 64 << 20
+		maxBytesPerTenant = DefaultQueryLibraryBytes
 	}
 	return &MemoryQueryFilterStore{byTenant: map[string]map[string]SavedQueryFilter{}, maxBytesPerTenant: maxBytesPerTenant, now: time.Now}
 }
@@ -234,6 +242,9 @@ func (s *MemoryQueryFilterStore) SaveQueryFilter(ctx context.Context, tenant, ac
 		return SavedQueryFilter{}, err
 	}
 	size := len(encoded)
+	if !queryLibraryBytesFit(0, int64(size), int64(s.maxBytesPerTenant)) {
+		return SavedQueryFilter{}, ErrQueryFilterStorageBudget
+	}
 	for otherID, stored := range s.byTenant[tenant] {
 		if otherID == id {
 			continue
@@ -242,10 +253,10 @@ func (s *MemoryQueryFilterStore) SaveQueryFilter(ctx context.Context, tenant, ac
 		if err != nil {
 			return SavedQueryFilter{}, err
 		}
-		size += len(body)
-		if size > s.maxBytesPerTenant {
+		if !queryLibraryBytesFit(int64(size), int64(len(body)), int64(s.maxBytesPerTenant)) {
 			return SavedQueryFilter{}, ErrQueryFilterStorageBudget
 		}
+		size += len(body)
 	}
 	if size > s.maxBytesPerTenant {
 		return SavedQueryFilter{}, ErrQueryFilterStorageBudget

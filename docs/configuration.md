@@ -1915,6 +1915,7 @@ response allocation defaults.
 | `PROBECTL_FLOW_QUERY_MAX_INTERMEDIATE_GROUPS` | `500000` | internal aggregation/result work; overflow throws, with no partial result |
 | `PROBECTL_FLOW_QUERY_MAX_INTERFACE_ITEMS` | `10000` | tenant-local interface-name lookup admission; reference telemetry sample admission is ten times this value |
 | `PROBECTL_FLOW_QUERY_MAX_THREADS` | `2` | ClickHouse threads per native flow query; shared tenant fairness still applies |
+| `PROBECTL_FLOW_QUERY_LIBRARY_BYTES` | `268435456` | positive per-tenant byte admission, independently for each existing saved-filter library, saved-query library and preference set; raise for the complete intended population, never silently evict or truncate |
 | `PROBECTL_FLOW_SNAPSHOT_LIFETIME` | `15m` | private result-cache lifetime, further bounded by contributing input retention; expiry and lifecycle checks still apply |
 | `PROBECTL_FLOW_SNAPSHOT_TENANT_BYTES` | `536870912` | aggregate private result-cache charge per tenant |
 | `PROBECTL_FLOW_SNAPSHOT_MAX_BYTES` | `134217728` | materialization/charge admission for one frozen query or comparison |

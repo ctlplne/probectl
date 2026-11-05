@@ -36,7 +36,7 @@ type PostgresQueryViewStore struct {
 
 func NewPostgresQueryViewStore(pool *pgxpool.Pool, maxBytes int, recordAudit QueryConfigAudit) *PostgresQueryViewStore {
 	if maxBytes <= 0 {
-		maxBytes = 64 << 20
+		maxBytes = DefaultQueryLibraryBytes
 	}
 	return &PostgresQueryViewStore{recordAudit: recordAudit, pool: pool, fence: tenancy.NewPostgresWriterFence(pool), maxBytes: maxBytes, now: time.Now}
 }
@@ -169,7 +169,7 @@ func (s *PostgresQueryViewStore) SaveQueryView(ctx context.Context, tenant, owne
 			if err := sc.Q.QueryRow(ctx, `SELECT COALESCE(sum(octet_length(definition::text)+octet_length(owner_id)+128),0)::bigint FROM flow_query_views WHERE tenant_id=$1::uuid AND ($2='' OR id::text<>$2)`, tenant, input.ID).Scan(&used); err != nil {
 				return err
 			}
-			if used+definitionBytes+int64(len(owner)+128) > int64(s.maxBytes) {
+			if !queryLibraryBytesFit(used, definitionBytes+int64(len(owner)+128), int64(s.maxBytes)) {
 				return ErrQueryViewBudget
 			}
 			now := s.now().UTC()
@@ -350,7 +350,7 @@ func (s *PostgresQueryViewStore) SetQueryViewPreference(ctx context.Context, ten
 			if err := sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM flow_query_view_preferences WHERE tenant_id=$1::uuid AND owner_id=$2 AND view_id=$3::uuid)`, tenant, owner, id).Scan(&exists); err != nil {
 				return err
 			}
-			if !exists && used+int64(len(owner)+128) > int64(s.maxBytes) {
+			if !exists && !queryLibraryBytesFit(used, int64(len(owner)+128), int64(s.maxBytes)) {
 				return ErrQueryViewBudget
 			}
 			var at *time.Time

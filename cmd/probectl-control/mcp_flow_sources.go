@@ -163,7 +163,7 @@ func buildMCPFlowSources(cfg *config.Config, log *slog.Logger, db *store.DB, pat
 	deviceOps := device.NewPostgresOpsStore(db.Pool())
 	core := control.New(cfg, log, db, db.Pool(), paths, nil).WithFlowStore(flows).WithTSDB(metrics).
 		WithDeviceOps(deviceOps).WithInventoryViews(inventory.NewPostgresViewStore(db.Pool())).
-		WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(db.Pool(), 0, audit.TenantRecord)).WithFlowQueryViews(flow.NewPostgresQueryViewStore(db.Pool(), 0, audit.TenantRecord)).
+		WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(db.Pool(), cfg.FlowQueryLibraryBytes, audit.TenantRecord)).WithFlowQueryViews(flow.NewPostgresQueryViewStore(db.Pool(), cfg.FlowQueryLibraryBytes, audit.TenantRecord)).
 		WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))
 	// Only RetentionFor and snapshot validity are reachable from this MCP
 	// backend. No lifecycle/erasure or background maintenance tool is installed.

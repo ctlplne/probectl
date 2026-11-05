@@ -21,6 +21,7 @@ func loadFlowQueryConfig(l *loader, cfg *Config) {
 	cfg.FlowQueryIntermediateGroups = l.intRange("PROBECTL_FLOW_QUERY_MAX_INTERMEDIATE_GROUPS", 500000, 1, maxInt)
 	cfg.FlowQueryInterfaceItems = l.intRange("PROBECTL_FLOW_QUERY_MAX_INTERFACE_ITEMS", 10000, 1, maxInt/10)
 	cfg.FlowQueryThreads = l.intRange("PROBECTL_FLOW_QUERY_MAX_THREADS", 2, 1, maxInt)
+	cfg.FlowQueryLibraryBytes = l.intRange("PROBECTL_FLOW_QUERY_LIBRARY_BYTES", 256<<20, 1, maxInt)
 	cfg.FlowSnapshotLifetime = l.dur("PROBECTL_FLOW_SNAPSHOT_LIFETIME", 15*time.Minute)
 	if cfg.FlowSnapshotLifetime <= 0 {
 		l.errf("PROBECTL_FLOW_SNAPSHOT_LIFETIME: must be positive")

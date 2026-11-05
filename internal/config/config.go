@@ -491,6 +491,7 @@ type Config struct {
 	FlowQueryIntermediateGroups     int
 	FlowQueryInterfaceItems         int
 	FlowQueryThreads                int
+	FlowQueryLibraryBytes           int
 	ReportCSVRows                   int
 	ReportPDFRows                   int
 	ReportMaxBytes                  int
@@ -2312,6 +2313,7 @@ func (c *Config) Redacted() map[string]any {
 			"read_rows": c.FlowQueryReadRows, "response_bytes": c.FlowQueryResponseBytes,
 			"memory_bytes": c.FlowQueryMemoryBytes, "intermediate_groups": c.FlowQueryIntermediateGroups,
 			"interface_items": c.FlowQueryInterfaceItems, "threads": c.FlowQueryThreads,
+			"library_bytes": c.FlowQueryLibraryBytes,
 		},
 		"report_output_cost": map[string]any{
 			"csv_rows": c.ReportCSVRows, "pdf_rows": c.ReportPDFRows, "bytes": c.ReportMaxBytes,

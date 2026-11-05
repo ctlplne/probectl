@@ -37,7 +37,7 @@ type PostgresQueryFilterStore struct {
 // NewPostgresQueryFilterStore uses the existing durable lifecycle write fence.
 func NewPostgresQueryFilterStore(pool *pgxpool.Pool, maxBytesPerTenant int, recordAudit QueryConfigAudit) *PostgresQueryFilterStore {
 	if maxBytesPerTenant <= 0 {
-		maxBytesPerTenant = 64 << 20
+		maxBytesPerTenant = DefaultQueryLibraryBytes
 	}
 	return &PostgresQueryFilterStore{recordAudit: recordAudit, pool: pool, fence: tenancy.NewPostgresWriterFence(pool), maxBytesPerTenant: maxBytesPerTenant, now: time.Now}
 }
@@ -147,7 +147,7 @@ func (s *PostgresQueryFilterStore) SaveQueryFilter(ctx context.Context, tenant, 
 			if err := scope.Q.QueryRow(ctx, `SELECT COALESCE(sum(octet_length(expression::text)+octet_length(name)+octet_length(description)+octet_length(updated_by)+128),0)::bigint FROM flow_query_filters WHERE tenant_id=$1::uuid AND ($2='' OR id::text<>$2)`, tenant, input.ID).Scan(&bytesUsed); err != nil {
 				return err
 			}
-			if bytesUsed+expressionBytes+int64(len(input.Name)+len(input.Description)+len(actor)+128) > int64(s.maxBytesPerTenant) {
+			if !queryLibraryBytesFit(bytesUsed, expressionBytes+int64(len(input.Name)+len(input.Description)+len(actor)+128), int64(s.maxBytesPerTenant)) {
 				return ErrQueryFilterStorageBudget
 			}
 			id := input.ID

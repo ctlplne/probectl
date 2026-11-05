@@ -363,8 +363,8 @@ func (rt *serveRuntime) buildAPIServer() error {
 		// process-memory defaults.
 		WithDeviceOps(device.NewPostgresOpsStore(rt.db.Pool())).
 		WithInventoryViews(inventory.NewPostgresViewStore(rt.db.Pool())).
-		WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(rt.db.Pool(), 0, audit.TenantRecord)).
-		WithFlowQueryViews(flow.NewPostgresQueryViewStore(rt.db.Pool(), 0, audit.TenantRecord)).
+		WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(rt.db.Pool(), rt.cfg.FlowQueryLibraryBytes, audit.TenantRecord)).
+		WithFlowQueryViews(flow.NewPostgresQueryViewStore(rt.db.Pool(), rt.cfg.FlowQueryLibraryBytes, audit.TenantRecord)).
 		WithCost(rt.costEngine).
 		WithCarbon(rt.carbonEngine).
 		// PLAT-09: external-backend reachability probes so an outage of the bus,

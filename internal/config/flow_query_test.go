@@ -33,7 +33,7 @@ func TestFlowQueryCostConfigRejectsUnlimitedAndPreservesDefaults(t *testing.T) {
 			}
 		}
 	}
-	for _, key := range []string{"PROBECTL_FLOW_QUERY_TIMEOUT", "PROBECTL_FLOW_QUERY_MAX_READ_BYTES", "PROBECTL_FLOW_QUERY_MAX_READ_ROWS", "PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES", "PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES", "PROBECTL_FLOW_QUERY_MAX_INTERMEDIATE_GROUPS", "PROBECTL_FLOW_QUERY_MAX_INTERFACE_ITEMS", "PROBECTL_FLOW_QUERY_MAX_THREADS", "PROBECTL_FLOW_SNAPSHOT_LIFETIME", "PROBECTL_FLOW_SNAPSHOT_TENANT_BYTES", "PROBECTL_FLOW_SNAPSHOT_MAX_BYTES", "PROBECTL_FLOW_SNAPSHOT_OBJECT_BYTES", "PROBECTL_FLOW_SNAPSHOT_EXPORT_BYTES"} {
+	for _, key := range []string{"PROBECTL_FLOW_QUERY_TIMEOUT", "PROBECTL_FLOW_QUERY_MAX_READ_BYTES", "PROBECTL_FLOW_QUERY_MAX_READ_ROWS", "PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES", "PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES", "PROBECTL_FLOW_QUERY_MAX_INTERMEDIATE_GROUPS", "PROBECTL_FLOW_QUERY_MAX_INTERFACE_ITEMS", "PROBECTL_FLOW_QUERY_MAX_THREADS", "PROBECTL_FLOW_QUERY_LIBRARY_BYTES", "PROBECTL_FLOW_SNAPSHOT_LIFETIME", "PROBECTL_FLOW_SNAPSHOT_TENANT_BYTES", "PROBECTL_FLOW_SNAPSHOT_MAX_BYTES", "PROBECTL_FLOW_SNAPSHOT_OBJECT_BYTES", "PROBECTL_FLOW_SNAPSHOT_EXPORT_BYTES"} {
 		t.Run(key, func(t *testing.T) {
 			for _, invalid := range []string{"0", "-1", "999999999999999999999999999999"} {
 				if _, err := Load(envFunc(map[string]string{key: invalid})); err == nil || !strings.Contains(err.Error(), key) {
@@ -45,5 +45,26 @@ func TestFlowQueryCostConfigRejectsUnlimitedAndPreservesDefaults(t *testing.T) {
 	cfg, err = Load(envFunc(map[string]string{"PROBECTL_FLOW_QUERY_TIMEOUT": "1.25s", "PROBECTL_FLOW_QUERY_MAX_READ_ROWS": "12345678", "PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES": "1073741824"}))
 	if err != nil || cfg.FlowQueryExecutionLimit != 1250*time.Millisecond || cfg.FlowQueryReadRows != 12345678 || cfg.FlowQueryMemoryBytes != 1<<30 {
 		t.Fatal("valid operator query policy was not retained", err)
+	}
+}
+
+func TestFlowQueryLibraryAdmissionIsPositiveRaiseableAndObserved(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil || cfg.FlowQueryLibraryBytes != 256<<20 {
+		t.Fatal("complete library default was not retained", err)
+	}
+	cfg, err = Load(envFunc(map[string]string{"PROBECTL_FLOW_QUERY_LIBRARY_BYTES": "1073741824"}))
+	if err != nil || cfg.FlowQueryLibraryBytes != 1<<30 {
+		t.Fatal("raised library admission was refused or clamped", err)
+	}
+	found := false
+	for _, attribute := range cfg.LogValue().Group() {
+		if attribute.Key == "flow_query_cost" {
+			policy, ok := attribute.Value.Any().(map[string]any)
+			found = ok && policy["library_bytes"] == 1<<30
+		}
+	}
+	if !found {
+		t.Fatal("configured library admission absent from safe config observation")
 	}
 }

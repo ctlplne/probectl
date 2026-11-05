@@ -255,3 +255,19 @@ failure; a smaller physical batch can make progress without raising admission.
 Tenant erasure still uses its existing object-prefix and storage/lifecycle fence.
 The expand/contract migration preserves existing encrypted bodies, ownership,
 RLS, epoch invalidation and current-source authorization.
+
+### Saved library capacity
+
+`PROBECTL_FLOW_QUERY_LIBRARY_BYTES` defaults to 256 MiB and accepts positive
+operator allowances above that default. The same configured value reaches both
+REST and native MCP, including lightweight memory mode. It applies independently
+per tenant to the saved-filter library, saved-query library and query preference
+set. This is logical stored-configuration byte admission, not memory preallocation.
+The configured value appears in the safe `flow_query_cost` configuration log.
+
+A full library returns a storage-budget refusal for the complete mutation, with
+no partial save, eviction or shortened expression. Raise admission for the intended
+complete population. Listings retain explicit continuation positions and current
+tenant, private-owner and source permissions. Physical page limits do not restrict
+the retained population. Stored definitions and mutations keep their existing
+FORCE-RLS, version, audit and lifecycle-fence boundaries.

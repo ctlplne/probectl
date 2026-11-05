@@ -544,12 +544,12 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	}
 	v := version.Get()
 	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover,
-		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), deviceOps: device.NewMemoryOpsStore(), inventoryViews: inventory.NewMemoryViewStore(), flowQueryFilters: flow.NewMemoryQueryFilterStore(0), startedAt: time.Now(),
+		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), deviceOps: device.NewMemoryOpsStore(), inventoryViews: inventory.NewMemoryViewStore(), flowQueryFilters: flow.NewMemoryQueryFilterStore(cfg.FlowQueryLibraryBytes), startedAt: time.Now(),
 		requireMFA: cfg.RequireMFA, metrics: metrics.New(v.Version, v.Commit),
 		scimLimiter: newKeyLimiter(scimDefaultRatePerMin), scimMaxUsers: scimDefaultMaxUsersPerTenant,
 		scimMaxGroups:   scimDefaultMaxGroupsPerTenant,
 		irRevealLimiter: newKeyLimiter(3)}
-	s.flowQueryViews = flow.NewMemoryQueryViewStore(flowViewFilterReader{s}, 0)
+	s.flowQueryViews = flow.NewMemoryQueryViewStore(flowViewFilterReader{s}, cfg.FlowQueryLibraryBytes)
 	s.flowRenderBudget = configuredNativeFlowRenderBudget(cfg)
 	flowstore.AttachExplorerInterfaces(s.flowStore, explorerDeviceInterfaces{server: s})
 	s.registerAuditRetentionMetrics()

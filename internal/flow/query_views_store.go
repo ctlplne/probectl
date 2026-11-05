@@ -159,7 +159,7 @@ type MemoryQueryViewStore struct {
 
 func NewMemoryQueryViewStore(filters QueryFilterReader, maxBytes int) *MemoryQueryViewStore {
 	if maxBytes <= 0 {
-		maxBytes = 64 << 20
+		maxBytes = DefaultQueryLibraryBytes
 	}
 	return &MemoryQueryViewStore{byTenant: map[string]map[string]SavedQueryView{}, preferences: map[string]map[string]map[string]queryViewPreference{}, filters: filters, maxBytes: maxBytes, now: time.Now}
 }
@@ -224,6 +224,9 @@ func (s *MemoryQueryViewStore) SaveQueryView(ctx context.Context, tenant, owner 
 		return SavedQueryView{}, err
 	}
 	used := len(body)
+	if !queryLibraryBytesFit(0, int64(used), int64(s.maxBytes)) {
+		return SavedQueryView{}, ErrQueryViewBudget
+	}
 	for otherID, stored := range s.byTenant[tenant] {
 		if otherID == id {
 			continue
@@ -231,6 +234,9 @@ func (s *MemoryQueryViewStore) SaveQueryView(ctx context.Context, tenant, owner 
 		body, err := json.Marshal(stored)
 		if err != nil {
 			return SavedQueryView{}, err
+		}
+		if !queryLibraryBytesFit(int64(used), int64(len(body)), int64(s.maxBytes)) {
+			return SavedQueryView{}, ErrQueryViewBudget
 		}
 		used += len(body)
 	}
@@ -390,11 +396,17 @@ func (s *MemoryQueryViewStore) SetQueryViewPreference(ctx context.Context, tenan
 		pref.Opened = &now
 	}
 	if _, exists := s.preferences[tenant][owner][id]; !exists {
-		count := 0
-		for _, preferences := range s.preferences[tenant] {
-			count += len(preferences)
+		used := int64(0)
+		for currentOwner, preferences := range s.preferences[tenant] {
+			for range preferences {
+				bytes := int64(len(currentOwner) + 128)
+				if !queryLibraryBytesFit(used, bytes, int64(s.maxBytes)) {
+					return ErrQueryViewBudget
+				}
+				used += bytes
+			}
 		}
-		if count > (s.maxBytes / 128) {
+		if !queryLibraryBytesFit(used, int64(len(owner)+128), int64(s.maxBytes)) {
 			return ErrQueryViewBudget
 		}
 	}
