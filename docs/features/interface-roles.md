@@ -41,6 +41,15 @@ unchanged. Collector counters `interface_prefix_snapshots` and
 when prefix evidence is unavailable. Current-source freshness enforcement and
 same-router FRR/SNMP proof remain required before automatic role activation.
 
+The read-time component follows the latest poll even when its prefix table is
+unavailable or expired; it never falls back to an older non-null table. A later
+authenticated poll fault withholds automatic facts until a successful new
+observation. Resolving the incident does not invent recovery. The latest peer
+observation replaces its previous ASN. These inputs share the owned interface,
+router and context, and retain the source's current certificate and assignment
+expiry. The loader and evaluator still need served/query integration before
+automatic labels are enabled.
+
 Reads require `entities.read`; writes require `agent.write`, deployment MFA
 when enabled, and the current context's resource policy. The authenticated
 principal chooses the tenant. Context and interface ownership are enforced in

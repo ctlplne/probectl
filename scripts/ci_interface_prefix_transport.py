@@ -54,6 +54,7 @@ UNIT = {
     "internal/store": (
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestInterfaceRoleStorageRequiresTenantBeforeAnyQuery",
+        "TestInterfaceRoleInputsRequireTenantBeforeStorageAndCanonicalPeerValues",
     ),
     "ee/silo": (
         "TestEntityRegistryForeignKeysFollowAllSiloCopies",
@@ -66,6 +67,9 @@ INTEGRATION = {
         "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",
     ),
     "internal/store": (
+        "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
+        "TestInterfaceRoleInputsRetainWholePrefixTableAndRefusePartialBudget",
+        "TestInterfaceRoleInputsRequireAuthenticatedFaultClockAndRecovery",
         "TestEntityRegistryTenantAndContextIsolation",
         "TestSNMPPrefixStorageKeepsCompleteWirePopulationAndRepairsManagedCopies",
         "TestDashboardReportTenantIsolation",
@@ -371,6 +375,58 @@ def configuration_regexp_expansion_control():
     print(json.dumps({"role_regexp_expansion_admission_control": True}))
 
 
+def current_role_source_controls():
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    for name, file, seam, replacement, root, marker in (
+        (
+            "prefix_latest_nonnull",
+            "interface_role_snmp_inputs.go",
+            "AND e.observed_at<=transaction_timestamp()",
+            "AND e.snmp_interface_prefixes IS NOT NULL AND e.observed_at<=transaction_timestamp()",
+            "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
+            "latest unavailable prefix snapshot revived old metadata",
+        ),
+        (
+            "poll_fault_withholding_omitted",
+            "interface_role_snmp_inputs.go",
+            "if err != nil || fault {",
+            "if err != nil || (fault && input.IfIndex == 0) {",
+            "TestInterfaceRoleInputsRequireAuthenticatedFaultClockAndRecovery",
+            "current authenticated poll fault retained automatic source authority",
+        ),
+        (
+            "peer_latest_asn_omitted",
+            "interface_role_peer_inputs.go",
+            "(e.agent_id,e.configured_ref,split_part(e.alias_value,'/as',1),e.observed_at)",
+            "(e.agent_id,e.configured_ref,split_part(e.alias_value,'/as',1),latest.observed)",
+            "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
+            "new peer ASN retained a superseded relationship",
+        ),
+    ):
+        source = Path("internal/store", file).resolve()
+        original = source.read_text()
+        assert original.count(seam) == 1
+        path = out / (name + ".go")
+        path.write_text(original.replace(seam, replacement))
+        overlay = out / (name + ".json")
+        overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
+        result = execute(
+            "internal/store", (root,), name, integration=True, overlay=overlay
+        )
+        if not report_regression_failed_on_assertion(
+            result.stdout,
+            result.returncode,
+            package=PREFIX + "internal/store",
+            root=root,
+            child="",
+            marker=marker,
+        ):
+            raise RuntimeError(
+                f"omitted current source guard {name} did not fail its exact assertion"
+            )
+    print(json.dumps({"current_role_source_assertion_controls": True}))
+
+
 def prefix_poll_refresh_control():
     source = Path("internal/device/entity_evidence.go").resolve()
     original = source.read_text()
@@ -464,6 +520,7 @@ def main(integration):
                 f"required prefix transport proof missing/failed: {failures}"
             )
     if integration:
+        current_role_source_controls()
         configuration_incarnation_controls()
         configuration_api_controls()
         configuration_silo_lock_control()
