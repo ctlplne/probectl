@@ -527,7 +527,10 @@ export function FlowPlanBuilder({
           }))}
           onChange={(event) => {
             const view = event.target.value as FlowQueryPlan['view']
-            const row_limit = Math.min(plan.row_limit ?? 100, view === 'table' ? 50000 : 350)
+            const row_limit = Math.min(
+              plan.row_limit ?? 100,
+              view === 'table' ? schema.limits.max_table_rows : schema.limits.max_chart_rows,
+            )
             onChange({
               view,
               row_limit,

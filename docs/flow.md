@@ -336,7 +336,10 @@ requires `flow.filters.write`. There is no user SQL.
 
 The grammar supports eight grouping dimensions, eight dimensions on each matrix
 axis, nested all/any include/exclude filters, and exact decimal statistics.
-A table can select 50,000 groups; charts can select 350 detail groups and 40
+Selected table and chart detail groups follow deployment query and snapshot
+admission rather than a fixed row quota. The selected count fits the existing
+Postgres integer metadata representation (2,147,483,647); this is distinct from
+the default of 100 detail groups and 5,000-row page granularity. Charts retain 40
 plotted groups plus a separate Other series. Matrix columns are ranked within
 the selected row population. Time bounds may cover any available retained
 history; unavailable historical fields/resolutions produce a coverage refusal.

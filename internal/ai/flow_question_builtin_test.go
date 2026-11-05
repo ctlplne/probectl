@@ -39,7 +39,7 @@ func TestBuiltinFlowQuestionComposesNativeReachAndAllMetricCalculations(t *testi
 		for _, calculation := range definition.Calculations {
 			question := fmt.Sprintf("show %s %s by source IP over the last 401 days all rows page size 5000", calculation, definition.Name)
 			proposal := planFlowQuestion(t, question, nil)
-			if proposal.Status != FlowQuestionReady || proposal.Plan.RowLimit != 50000 || proposal.Plan.PageSize != 5000 || len(proposal.Plan.Metrics) != 1 || proposal.Plan.Metrics[0].Measure != definition.Name || proposal.Plan.Metrics[0].Calculation != calculation || proposal.Plan.To.Sub(proposal.Plan.From) != 401*24*time.Hour || proposal.Plan.To.Nanosecond() != 123456789 {
+			if proposal.Status != FlowQuestionReady || proposal.Plan.RowLimit != 2147483647 || proposal.Plan.PageSize != 5000 || len(proposal.Plan.Metrics) != 1 || proposal.Plan.Metrics[0].Measure != definition.Name || proposal.Plan.Metrics[0].Calculation != calculation || proposal.Plan.To.Sub(proposal.Plan.From) != 401*24*time.Hour || proposal.Plan.To.Nanosecond() != 123456789 {
 				t.Fatal("metric/time/detail reach lost", question, proposal.Status)
 			}
 		}
@@ -93,7 +93,7 @@ func TestBuiltinFlowQuestionFullMetricAndConditionReachInOneQuestion(t *testing.
 	}
 	question := "show " + strings.Join(metrics, ", ") + " where " + strings.Join(conditions, " or ") + " and group by source IP and every 1 minute and over last 401 days all rows page size 5000"
 	proposal := planFlowQuestion(t, question, nil)
-	if proposal.Status != FlowQuestionReady || len(proposal.Plan.Metrics) != len(metrics) || proposal.Plan.RowLimit != 50000 || proposal.Plan.BucketSeconds != 60 || proposal.Plan.To.Sub(proposal.Plan.From) != 401*24*time.Hour {
+	if proposal.Status != FlowQuestionReady || len(proposal.Plan.Metrics) != len(metrics) || proposal.Plan.RowLimit != 2147483647 || proposal.Plan.BucketSeconds != 60 || proposal.Plan.To.Sub(proposal.Plan.From) != 401*24*time.Hour {
 		t.Fatal("one compositional question lost full native reach", proposal.Status)
 	}
 	var count func(flow.QueryFilterGroup) int
@@ -176,16 +176,20 @@ func TestBuiltinFlowQuestionFollowupRetainsExplicitParentWithoutMutation(t *test
 		t.Fatal(err)
 	}
 	child := planFlowQuestion(t, `what about destination ASN as bar add p95 packets where dst_country equals "DE"`, &parent)
-	if child.Status != FlowQuestionReady || child.Plan.View != "bar" || child.Plan.RowLimit != 350 || len(child.Plan.Metrics) != 2 || child.Plan.Metrics[0].Measure != "bps" || child.Plan.Metrics[1].Calculation != "p95" || child.Plan.From != parent.Plan.From || child.Previous == nil || child.Previous.To != parent.Plan.From {
+	if child.Status != FlowQuestionReady || child.Plan.View != "bar" || child.Plan.RowLimit != parent.Plan.RowLimit || len(child.Plan.Metrics) != 2 || child.Plan.Metrics[0].Measure != "bps" || child.Plan.Metrics[1].Calculation != "p95" || child.Plan.From != parent.Plan.From || child.Previous == nil || child.Previous.To != parent.Plan.From {
 		t.Fatal("follow-up lost named context", child.Status)
 	}
 	if !reflect.DeepEqual(parent, before) {
 		t.Fatal("child changed immutable history")
 	}
-	if child.Plan.PageSize != child.Plan.RowLimit {
+	if child.Plan.PageSize != parent.Plan.PageSize {
 		t.Fatal("implicit view conversion retained an invalid inherited page size")
 	}
-	conflict := planFlowQuestion(t, `as bar page size 5000`, &parent)
+	retained := planFlowQuestion(t, `as bar page size 5000`, &parent)
+	if retained.Status != FlowQuestionReady || retained.Plan.RowLimit != parent.Plan.RowLimit || retained.Plan.PageSize != 5000 {
+		t.Fatal("valid chart switch truncated inherited complete details")
+	}
+	conflict := planFlowQuestion(t, `as bar page size 5001`, &parent)
 	if conflict.Status != FlowQuestionClarify || conflict.Plan != nil {
 		t.Fatal("explicit conflicting chart page size was silently changed")
 	}
@@ -199,7 +203,7 @@ func TestBuiltinFlowQuestionRejectsUnknownSuffixActionsAndInvalidControls(t *tes
 	for _, question := range []string{
 		`show bps by source IP mystery-clause`, `show bps and`, `show bps? limit 50000`,
 		`show bps limit 0`, `show bps page size 0`, `show bps series 0`, `show bps matrix depth 0`, `show bps charts per row 0`,
-		`show bps limit 50001`, `show bps every 0 seconds`, `show bps every 1e99999999999999 seconds`,
+		`show bps limit 2147483648`, `show bps every 0 seconds`, `show bps every 1e99999999999999 seconds`,
 		`show bps by tenant_id`, `show bps by source IP using arbitrary-table`, `show bps from 2026-10-30 to 2026-10-29`,
 		`show bps ipv4 prefix /33`, `show bps ipv6 prefix /129`,
 	} {

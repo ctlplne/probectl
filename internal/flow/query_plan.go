@@ -8,19 +8,22 @@ package flow
 
 import (
 	"errors"
+	"math"
 	"slices"
 	"strings"
 	"time"
 )
 
 // Public reach is independent of execution-cost budgets (D102/D103).
+// Selected rows fit the existing Postgres integer metadata representation;
+// operator query and snapshot admission decide the actual complete workload.
 const (
 	MaxPlanDimensions        = 8
 	MaxPlanMatrixDimensions  = 8
 	MaxPlanMatrixDepth       = 15
 	MaxPlanChartSeries       = 40
-	MaxPlanChartRows         = 350
-	MaxPlanTableRows         = 50000
+	MaxPlanChartRows         = math.MaxInt32
+	MaxPlanTableRows         = math.MaxInt32
 	MaxPlanPageRows          = 5000
 	MinPlanBucketSeconds     = 1
 	DefaultPlanBucketSeconds = 60
@@ -135,7 +138,7 @@ func normalizeQueryPlan(plan QueryPlan, now time.Time, lookup func(string) (Quer
 		plan.RowLimit = min(100, maxRows)
 	}
 	if plan.RowLimit < 1 || plan.RowLimit > maxRows {
-		return QueryPlan{}, errors.New("flow detail rows must be 1-50000 for tables or 1-350 beside charts")
+		return QueryPlan{}, errors.New("flow detail rows must be positive and fit the snapshot integer representation")
 	}
 	if plan.PageSize == 0 {
 		plan.PageSize = min(1000, plan.RowLimit)

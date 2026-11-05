@@ -91,6 +91,22 @@ describe('native flow plan controls', () => {
     expect(screen.getByLabelText('Plotted group series')).toHaveValue(40)
   })
 
+  test('preserves complete selected detail counts while switching views', async () => {
+    const user = userEvent.setup()
+    render(
+      <Harness
+        initial={{ group_by: ['src_addr'], view: 'table', row_limit: 50001, page_size: 5000 }}
+      />,
+    )
+    expect(screen.getByLabelText('Selected detail groups')).toHaveValue(50001)
+    await user.selectOptions(screen.getByLabelText('Flow visualization'), 'line')
+    expect(JSON.parse(screen.getByTestId('plan').textContent).row_limit).toBe(50001)
+    expect(JSON.parse(screen.getByTestId('plan').textContent).page_size).toBe(5000)
+    expect(screen.getByLabelText('Selected detail groups')).toHaveValue(50001)
+    await user.selectOptions(screen.getByLabelText('Flow visualization'), 'table')
+    expect(JSON.parse(screen.getByTestId('plan').textContent).row_limit).toBe(50001)
+  })
+
   test('keeps exact operands, nested include/exclude and saved references', async () => {
     const user = userEvent.setup()
     render(<Harness />)

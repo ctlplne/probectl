@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 )
 
 const (
-	MaxRows                  = 50000
+	MaxRows                  = math.MaxInt32
 	MaxPageRows              = 5000
 	DefaultLifetime          = 15 * time.Minute
 	DefaultExportBytes int64 = 256 << 20

@@ -270,7 +270,7 @@ func TestNativeMCPQueriesAndLibrariesUseAuthenticatedTenantAndOwner(t *testing.T
 		p := principal(lane.tenant, "alice")
 		raw, failed := nativeControlCall(t, server, p, "flow_explorer_schema", struct{}{})
 		var schema mcp.NativeFlowSchemaResult
-		if failed || json.Unmarshal(raw, &schema) != nil || schema.Limits.MaxTableRows != 50000 || schema.Limits.MaxGroups != 8 || schema.Limits.MaxExpandedConditions != 1000 {
+		if failed || json.Unmarshal(raw, &schema) != nil || schema.Limits.MaxTableRows != 2147483647 || schema.Limits.MaxGroups != 8 || schema.Limits.MaxExpandedConditions != 1000 {
 			t.Fatal("native schema narrowed public reach")
 		}
 		plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"protocol"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
@@ -287,6 +287,17 @@ func TestNativeMCPQueriesAndLibrariesUseAuthenticatedTenantAndOwner(t *testing.T
 			var output mcp.NativeFlowQueryResult
 			if failed || json.Unmarshal(data, &output) != nil || len(output.Flow.Rows) != 1 || output.Flow.Rows[0].Group[0].Value != lane.protocol || output.Flow.Rows[0].Metrics[0].Value != lane.current || strings.Contains(string(data), lane.foreign) || strings.Contains(string(data), lane.tenant) {
 				t.Fatalf("native MCP bucket width%d changed tenant or exact values: failed=%v data=%s", width, failed, data)
+			}
+		}
+		for _, selected := range []int{351, 50001} {
+			candidate := plan
+			candidate.View = "line"
+			candidate.RowLimit = selected
+			candidate.PageSize = min(selected, 5000)
+			data, failed := nativeControlCall(t, server, p, "flow_explorer_query", map[string]any{"plan": candidate})
+			var output mcp.NativeFlowQueryResult
+			if failed || json.Unmarshal(data, &output) != nil || output.Flow.Query.RowLimit != selected || len(output.Flow.Rows) != 1 || output.Flow.Rows[0].Group[0].Value != lane.protocol || output.Flow.Rows[0].Metrics[0].Value != lane.current || strings.Contains(string(data), lane.foreign) {
+				t.Fatal("native MCP selected details refused, clamped or crossed tenant", selected, failed)
 			}
 		}
 		raw, failed = nativeControlCall(t, server, p, "flow_explorer_compare", mcp.NativeFlowCompareInput{Plan: plan, PreviousFrom: before.Add(-time.Minute), PreviousTo: before.Add(time.Minute)})

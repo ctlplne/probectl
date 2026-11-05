@@ -93,6 +93,21 @@ func TestExplorerCLIExpandedPlanAndFiltersOverPairedTLSAPI(t *testing.T) {
 				t.Fatalf("CLI bucket width%d lane%d code%d err%s out%s", width, i, code, stderr, output)
 			}
 		}
+		for _, selected := range []int{351, 50001} {
+			candidate := plan
+			candidate.View = "line"
+			candidate.MatrixWith = nil
+			candidate.RowLimit = selected
+			candidate.PageSize = min(selected, 5000)
+			input, err := json.Marshal(ai.ExplorerQuery{Question: "Complete selected detail reach", Source: ai.ExplorerFlow, Flow: &candidate})
+			if err != nil {
+				t.Fatal(err)
+			}
+			output, stderr, code := invoke(tenant, input, "query", "--body-file", "-")
+			if code != 0 || !strings.Contains(output, own) || strings.Contains(output, foreign) || !strings.Contains(output, fmt.Sprintf(`"row_limit": %d`, selected)) {
+				t.Fatalf("CLI/API selected details refused or clamped lane%d rows%d code%d err%s", i, selected, code, stderr)
+			}
+		}
 		create := saveFlowFilterRequest{Name: "filter-" + own, Expression: flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "src_addr", Op: flow.QueryEqual, Values: []string{own}}}}}
 		input, err := json.Marshal(create)
 		if err != nil {

@@ -322,14 +322,14 @@ func proveNativeMCPFlowTLSVersion(t *testing.T, admin, pool *pgxpool.Pool, objec
 		queriesBeforePlanning := source.queries.Load()
 		var proposal mcp.NativeFlowQuestionResult
 		call(first, id, "flow_explorer_plan", mcp.NativeFlowQuestionInput{Question: "show bps all rows"}, &proposal, true)
-		if proposal.Proposal.Status != "ready" || proposal.Proposal.Plan == nil || proposal.Proposal.Plan.RowLimit != 50000 || source.queries.Load() != queriesBeforePlanning {
+		if proposal.Proposal.Status != "ready" || proposal.Proposal.Plan == nil || proposal.Proposal.Plan.RowLimit != 2147483647 || source.queries.Load() != queriesBeforePlanning {
 			t.Fatal("native TLS planning read telemetry or narrowed the proposal")
 		}
 		call(second, id, "flow_explorer_plan", map[string]any{"question": "show bps", "tenant_id": red}, nil, false)
 		call(second, id, "flow_explorer_plan", map[string]any{"question": "show bps", "parent": map[string]any{}}, nil, false)
 		var schema mcp.NativeFlowSchemaResult
 		call(first, id, "flow_explorer_schema", struct{}{}, &schema, true)
-		if schema.Limits.MaxExpandedConditions != 1000 || schema.Limits.MaxTableRows != 50000 {
+		if schema.Limits.MaxExpandedConditions != 1000 || schema.Limits.MaxTableRows != 2147483647 {
 			t.Fatal("native TLS registry reduced reach")
 		}
 		exporter := "192.0.2.1"
