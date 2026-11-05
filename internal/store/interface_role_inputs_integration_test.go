@@ -122,9 +122,12 @@ func (f *roleInputsFixture) poll(tenant, description string, prefixes []entity.S
 	return root
 }
 func (f *roleInputsFixture) peer(tenant string, asn uint32) {
+	f.peerAtAddress(tenant, "10.42.0.1", asn)
+}
+func (f *roleInputsFixture) peerAtAddress(tenant, address string, asn uint32) {
 	f.t.Helper()
 	claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"},
-		Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("10.42.0.1/as%d", asn)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", asn), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
+		Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("%s/as%d", address, asn)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", asn), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
 	accepted, unresolved, err := NewEntityRegistry(f.pool).WriteEvidenceBatch(tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), "role-listener", f.serials[tenant+"role-listener"], []entity.Observation{claim})
 	if err != nil || accepted != 1 || unresolved != 0 {
 		f.t.Fatal("owned BMP observation was not accepted", accepted, unresolved, err)
@@ -278,5 +281,39 @@ func TestInterfaceRoleInputsRequireAuthenticatedFaultClockAndRecovery(t *testing
 	f.poll(a, "actual-recovery", roleInputsPrefixes())
 	if got := f.load(a); got.SNMP == nil || got.SNMP.Description != "actual-recovery" {
 		t.Fatal("new successful complete observation did not recover source authority")
+	}
+}
+
+func TestInterfaceRoleInputsRequireExplicitBMPOriginRouterBinding(t *testing.T) {
+	f := newRoleInputsFixture(t)
+	a, b := f.tenants[0], f.tenants[1]
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET anchor_entity_id=NULL WHERE tenant_id=$1 AND agent_id='role-listener' AND source_kind='bmp_peer' AND source_ref='role-router'`, a)
+		return err
+	})
+	// The actual writer may infer the peer's identity from independently
+	// attested SNMP. That legal registry identity is not the BMP origin.
+	f.peerAtAddress(a, "10.42.0.2", 64496)
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		var current int
+		err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entity_evidence e WHERE e.tenant_id=$1 AND e.context_id=$2 AND e.source_kind='bmp_peer' AND e.alias_kind='bmp_peer_id' AND e.support_evidence_id IS NOT NULL AND `+currentEntityEvidenceSnapshotSQL(), a, f.contextID).Scan(&current)
+		if err == nil && current != 1 {
+			t.Fatal("independently inferred current-peer prerequisite is missing", current)
+		}
+		return err
+	})
+	if got := f.load(a); len(got.Peers) != 0 {
+		t.Fatal("inferred BMP peer identity supplied origin-router role authority")
+	}
+	if got := f.load(b); len(got.Peers) != 1 || got.Peers[0].ASN != 64497 {
+		t.Fatal("origin binding refusal changed the other tenant")
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET anchor_entity_id=$2 WHERE tenant_id=$1 AND agent_id='role-listener' AND source_kind='bmp_peer' AND source_ref='role-router'`, a, f.routerID)
+		return err
+	})
+	f.peer(a, 64496)
+	if got := f.load(a); len(got.Peers) != 1 || got.Peers[0].Address != netip.MustParseAddr("10.42.0.1") {
+		t.Fatal("new explicitly anchored origin observation was refused", got.Peers)
 	}
 }
