@@ -235,6 +235,17 @@ func TestE2E(t *testing.T) {
 	password := dex["PROBECTL_TEST_DEX_PASSWORD"]
 	a := api{base: apiBase, client: anon.client, token: ssoSignIn(t, apiBase, caFiles, tenantA, adminA, password, tokenScopes)}
 	b := api{base: apiBase, client: anon.client, token: ssoSignIn(t, apiBase, caFiles, tenantB, adminB, password, tokenScopes)}
+	// Separate report credentials retain the earlier E2E tokens unchanged.
+	// Establish them before deliberate authentication refusals trigger IP lockout.
+	reportScopes := []string{"tenant.read", "agent.write", "ai.query", "flow.read", "flow.views.write", "metrics.read", "metrics.write", "governance.write"}
+	reportSessions := []releaseSession{
+		ssoSignInSession(t, apiBase, caFiles, tenantA, adminA, password, reportScopes),
+		ssoSignInSession(t, apiBase, caFiles, tenantB, adminB, password, reportScopes),
+	}
+	reportReaders := []api{
+		{base: apiBase, client: anon.client, token: reportSessions[0].Token},
+		{base: apiBase, client: anon.client, token: reportSessions[1].Token},
+	}
 	assertUnauthenticated(t, anon, b, tenantA, "")
 	// Each tenant's isolation posture is its own and reports the database
 	// boundary enforced: RLS forced on a non-bypass serve login.
@@ -261,16 +272,6 @@ func TestE2E(t *testing.T) {
 
 	agentAndFlows(t, root, work, stack, secrets, cli, a, b, apiPort, agentPort, promPort, serverCA, canaryToken)
 
-	// Separate narrow report credentials retain the earlier E2E tokens unchanged.
-	reportScopes := []string{"tenant.read", "agent.write", "ai.query", "flow.read", "flow.views.write", "metrics.read", "metrics.write", "governance.write"}
-	reportSessions := []releaseSession{
-		ssoSignInSession(t, apiBase, caFiles, tenantA, adminA, password, reportScopes),
-		ssoSignInSession(t, apiBase, caFiles, tenantB, adminB, password, reportScopes),
-	}
-	reportReaders := []api{
-		{base: apiBase, client: anon.client, token: reportSessions[0].Token},
-		{base: apiBase, client: anon.client, token: reportSessions[1].Token},
-	}
 	var reports []releaseFlowReport
 	t.Run("release-source-report-storage", func(t *testing.T) {
 		reports = proveReleaseSourceReports(t, root, work, serverCA, filepath.Join(tlsDir, "tls.crt"), filepath.Join(tlsDir, "tls.key"), stack, secrets, cli, reportReaders)
