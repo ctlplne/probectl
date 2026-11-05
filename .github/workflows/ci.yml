@@ -1198,7 +1198,7 @@ jobs:
     # idempotent and /readyz passes (S1 Done-when). Uses a service container
     # rather than the full compose stack — only Postgres is needed yet.
     runs-on: ubuntu-latest
-    timeout-minutes: 45 # the real-stack receipts (G4) took the lane from ~19 to ~30 minutes (run 39794445141 hit 30)
+    timeout-minutes: 60 # Setup, cold compilation and the complete serial real-stack suite share this finite budget.
     # Postgres runs as a docker step so it serves TLS under a per-run test CA;
     # the client connects sslmode=verify-full like production (OPS-010).
     env:
