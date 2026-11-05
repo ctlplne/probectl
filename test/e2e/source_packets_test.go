@@ -7,7 +7,6 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -146,7 +145,8 @@ func (p *releaseFlowReport) sendCapturedPackets(t *testing.T, destination string
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
 	runCmd(t, "", nil, "docker", "start", name)
 	waitFor(t, "owned real loopback packet exporter", 20*time.Second, func() bool {
-		return exec.Command("docker", "exec", name, "softflowctl", "-c", "/tmp/softflowd.ctl", "statistics").Run() == nil
+		_, err := releasePacketControl(t, name, "statistics")
+		return err == nil
 	})
 	ping := func(source, count, interval string) {
 		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
@@ -164,10 +164,18 @@ func (p *releaseFlowReport) sendCapturedPackets(t *testing.T, destination string
 	// flushes the final partial capture block without entering the selected
 	// flow, whose byte/packet calculation must remain unchanged.
 	ping("127.0.0.100", "256", "0.001")
+	complete := false
+	defer func() {
+		if !complete {
+			logReleasePacketStatistics(t, name)
+		}
+	}()
 	waitFor(t, "actual selected packets in exporter capture", 10*time.Second, func() bool {
-		output, err := exec.Command("docker", "exec", name, "softflowctl", "-c", "/tmp/softflowd.ctl", "dump-flows").Output()
-		return err == nil && bytes.Contains(output, []byte(p.address)) && bytes.Contains(output, []byte("proto:1"))
+		output, err := releasePacketControl(t, name, "dump-flows")
+		return err == nil && completeReleasePacketCapture(output, p.address)
 	})
+	complete = true
+	logReleasePacketStatistics(t, name)
 	runCmd(t, "", nil, "docker", "exec", name, "softflowctl", "-c", "/tmp/softflowd.ctl", "expire-all")
 	return func() { _ = exec.Command("docker", "stop", "-t", "2", name).Run() }
 }

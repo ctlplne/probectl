@@ -24,6 +24,10 @@ SILO_ROOT = "TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBod
 SILO_TESTS = (SILO_ROOT, SILO_ROOT + "/siloed", SILO_ROOT + "/hybrid")
 LIFECYCLE_PACKAGE = "github.com/ctlplne/probectl/internal/tenantlife"
 LIFECYCLE_ROOT = "TestSubjectErasureInvalidatesOpaqueReportChunksOnlyInTenant"
+OWNER_MARKER = "scheduled-owner report missing from subject portability"
+GENERATION_MARKER = (
+    "subject deletion left source generation publishable before telemetry erasure"
+)
 
 
 def selftest():
@@ -72,6 +76,64 @@ def selftest():
         assert not report_regression_failed_on_assertion(
             encode(bad), code, root=ROOT, marker=MARKER, package=PACKAGE
         )
+    for marker in (OWNER_MARKER, GENERATION_MARKER):
+        root_failure = [
+            {"Package": LIFECYCLE_PACKAGE, "Test": LIFECYCLE_ROOT, "Action": "run"},
+            {
+                "Package": LIFECYCLE_PACKAGE,
+                "Test": LIFECYCLE_ROOT,
+                "Action": "output",
+                "Output": marker,
+            },
+            {"Package": LIFECYCLE_PACKAGE, "Test": LIFECYCLE_ROOT, "Action": "fail"},
+            {"Package": LIFECYCLE_PACKAGE, "Action": "fail"},
+        ]
+        assert report_regression_failed_on_assertion(
+            encode(root_failure),
+            1,
+            root=LIFECYCLE_ROOT,
+            marker=marker,
+            package=LIFECYCLE_PACKAGE,
+            child="",
+        )
+        for bad, code in (
+            (root_failure, 0),
+            (root_failure[1:], 1),
+            (root_failure[:1] + root_failure[2:], 1),
+            (root_failure[:-1], 1),
+            (root_failure + [root_failure[2]], 1),
+            (
+                root_failure
+                + [
+                    {
+                        "Package": LIFECYCLE_PACKAGE,
+                        "Test": LIFECYCLE_ROOT,
+                        "Action": "skip",
+                    }
+                ],
+                1,
+            ),
+            (
+                root_failure
+                + [
+                    {
+                        "Package": LIFECYCLE_PACKAGE,
+                        "Test": LIFECYCLE_ROOT + "/unrelated",
+                        "Action": "fail",
+                    }
+                ],
+                1,
+            ),
+            ([dict(event, Output="unrelated assertion") for event in root_failure], 1),
+        ):
+            assert not report_regression_failed_on_assertion(
+                encode(bad),
+                code,
+                root=LIFECYCLE_ROOT,
+                marker=marker,
+                package=LIFECYCLE_PACKAGE,
+                child="",
+            )
     print(
         "Report storage classifier refuses skips, missing/duplicate roots and false controls"
     )
@@ -153,8 +215,9 @@ def run():
         owned.stdout,
         owned.returncode,
         root=LIFECYCLE_ROOT,
-        marker="scheduled-owner report missing from subject portability",
+        marker=OWNER_MARKER,
         package=LIFECYCLE_PACKAGE,
+        child="",
     ):
         raise RuntimeError(
             "schedule owner omission did not fail exact subject export assertion"
@@ -172,8 +235,9 @@ def run():
         erased.stdout,
         erased.returncode,
         root=LIFECYCLE_ROOT,
-        marker="subject deletion left source generation publishable before telemetry erasure",
+        marker=GENERATION_MARKER,
         package=LIFECYCLE_PACKAGE,
+        child="",
     ):
         raise RuntimeError(
             "generation omission did not fail exact pre-telemetry erasure assertion"

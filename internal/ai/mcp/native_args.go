@@ -27,13 +27,19 @@ func decodeNativeArgs(raw json.RawMessage, dst any) error {
 }
 
 func decodeBoundedNativeArgs(raw json.RawMessage, dst any, maxBytes int) error {
+	return decodeBoundedNativeArgsWithMaps(raw, dst, maxBytes, nil)
+}
+
+// Map admission is supplied only by adapters with declared typed map fields.
+// Ordinary native flow arguments retain their map and interface refusal.
+func decodeBoundedNativeArgsWithMaps(raw json.RawMessage, dst any, maxBytes int, allowMap func(reflect.Type) bool) error {
 	if len(raw) == 0 {
 		raw = json.RawMessage(`{}`)
 	}
 	if err := nativeJSONSyntax(raw, maxBytes); err != nil {
 		return err
 	}
-	if err := nativeArgumentShape(raw, reflect.TypeOf(dst), 0); err != nil {
+	if err := nativeArgumentShape(raw, reflect.TypeOf(dst), 0, allowMap); err != nil {
 		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -121,7 +127,7 @@ func boundedJSONObjectSyntax(raw json.RawMessage, maxBytes int, foldKeys bool) e
 
 // encoding/json accepts case-insensitive field aliases. Require canonical
 // public JSON names instead so the schema and the accepted authority agree.
-func nativeArgumentShape(raw json.RawMessage, typ reflect.Type, depth int) error {
+func nativeArgumentShape(raw json.RawMessage, typ reflect.Type, depth int, allowMap func(reflect.Type) bool) error {
 	if depth > 32 {
 		return argErr("native flow JSON exceeds structural budget")
 	}
@@ -167,7 +173,7 @@ func nativeArgumentShape(raw json.RawMessage, typ reflect.Type, depth int) error
 			if !ok {
 				return argErr("unknown or noncanonical native flow field")
 			}
-			if err := nativeArgumentShape(value, field, depth+1); err != nil {
+			if err := nativeArgumentShape(value, field, depth+1, allowMap); err != nil {
 				return err
 			}
 		}
@@ -177,11 +183,24 @@ func nativeArgumentShape(raw json.RawMessage, typ reflect.Type, depth int) error
 			return argErr("native flow array is invalid")
 		}
 		for _, value := range values {
-			if err := nativeArgumentShape(value, typ.Elem(), depth+1); err != nil {
+			if err := nativeArgumentShape(value, typ.Elem(), depth+1, allowMap); err != nil {
 				return err
 			}
 		}
-	case reflect.Map, reflect.Interface:
+	case reflect.Map:
+		if typ.Key().Kind() != reflect.String || allowMap == nil || !allowMap(typ) {
+			return argErr("native flow arguments require declared field types")
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil {
+			return argErr("native typed map is invalid")
+		}
+		for _, value := range fields {
+			if err := nativeArgumentShape(value, typ.Elem(), depth+1, allowMap); err != nil {
+				return err
+			}
+		}
+	case reflect.Interface:
 		return argErr("native flow arguments require declared field types")
 	}
 	return nil
