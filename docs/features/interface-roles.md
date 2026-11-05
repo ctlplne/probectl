@@ -50,6 +50,10 @@ router and context, and retain the source's current certificate and assignment
 expiry. The loader and evaluator still need served/query integration before
 automatic labels are enabled.
 
+Bind the BMP router source to its owned canonical router. A peer device
+inferred from an address is a different identity and cannot supply this
+origin-router binding for automatic roles.
+
 Reads require `entities.read`; writes require `agent.write`, deployment MFA
 when enabled, and the current context's resource policy. The authenticated
 principal chooses the tenant. Context and interface ownership are enforced in

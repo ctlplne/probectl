@@ -70,6 +70,7 @@ INTEGRATION = {
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
         "TestInterfaceRoleInputsRetainWholePrefixTableAndRefusePartialBudget",
         "TestInterfaceRoleInputsRequireAuthenticatedFaultClockAndRecovery",
+        "TestInterfaceRoleInputsRequireExplicitBMPOriginRouterBinding",
         "TestEntityRegistryTenantAndContextIsolation",
         "TestSNMPPrefixStorageKeepsCompleteWirePopulationAndRepairsManagedCopies",
         "TestDashboardReportTenantIsolation",
@@ -401,6 +402,14 @@ def current_role_source_controls():
             "(e.agent_id,e.configured_ref,split_part(e.alias_value,'/as',1),latest.observed)",
             "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
             "new peer ASN retained a superseded relationship",
+        ),
+        (
+            "peer_origin_anchor_omitted",
+            "interface_role_peer_inputs.go",
+            "AND source.anchor_entity_id=$3 AND e.support_evidence_id IS NULL",
+            "AND TRUE",
+            "TestInterfaceRoleInputsRequireExplicitBMPOriginRouterBinding",
+            "inferred BMP peer identity supplied origin-router role authority",
         ),
     ):
         source = Path("internal/store", file).resolve()

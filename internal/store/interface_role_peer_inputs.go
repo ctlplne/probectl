@@ -19,6 +19,8 @@ import (
 // Each peer's latest observation fences its old ASN, including expired or
 // revoked newer observations. Current exact sender/router certificates and
 // anchor/support are then proved by the shared current-evidence predicate.
+// Roles require an explicit canonical ORIGIN router assignment. An inferred
+// peer device identity is not that origin, even if it is independently current.
 // An observed relationship and its clock never assert a live BGP session.
 func loadInterfaceRolePeerInputs(ctx context.Context, sc tenancy.Scope, input InterfaceRoleInputs, budget *roleInputAdmission) ([]InterfaceRolePeerInput, error) {
 	rows, err := sc.Q.Query(ctx, `WITH latest AS (
@@ -32,6 +34,7 @@ func loadInterfaceRolePeerInputs(ctx context.Context, sc tenancy.Scope, input In
  (latest.agent_id,latest.configured_ref,latest.peer,latest.observed)=
  (e.agent_id,e.configured_ref,split_part(e.alias_value,'/as',1),e.observed_at) `+interfaceRoleAuthorityJoinsSQL()+`
  WHERE e.tenant_id=$1 AND e.context_id=$2 AND e.entity_id=$3 AND e.source_kind='bmp_peer'
+ AND source.anchor_entity_id=$3 AND e.support_evidence_id IS NULL
  AND e.alias_kind='bmp_peer_id' AND `+currentEntityEvidenceSnapshotSQL()+` ORDER BY e.id LIMIT $4`,
 		input.Scope.TenantID, input.Scope.ContextID, input.RouterID, budget.memory/2048+1)
 	if err != nil {
