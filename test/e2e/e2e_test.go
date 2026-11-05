@@ -282,6 +282,23 @@ func TestE2E(t *testing.T) {
 		}
 		proveReleaseReportSurfaces(t, root, cli, "https://localhost:"+mcpPort, filepath.Join(tlsDir, "tls.crt"), reportSessions, reports)
 	})
+	var packetReports []releaseFlowReport
+	t.Run("release-real-packet-report-storage", func(t *testing.T) {
+		readers := releasePacketReaders(t, reportSessions, reportReaders)
+		packetReports = proveReleaseSourceReportsForSender(t, root, work, serverCA, filepath.Join(tlsDir, "tls.crt"), filepath.Join(tlsDir, "tls.key"), stack, secrets, cli, readers, true)
+	})
+	t.Run("release-real-packet-report-surfaces", func(t *testing.T) {
+		if len(packetReports) != 2 {
+			t.Fatal("paired real packet storage must pass before surface proof")
+		}
+		// Re-establish explicit denial so this independent cohort repeats the
+		// original consent-negative proof through the real policy API.
+		for i := range packetReports {
+			packetReports[i].api.json(t, http.StatusOK, http.MethodPut, "/v1/governance/policy", map[string]any{"ai_remote_egress": false, "redact_export": true}, nil)
+		}
+		proveReleaseReportSurfaces(t, root, cli, "https://localhost:"+mcpPort, filepath.Join(tlsDir, "tls.crt"), reportSessions, packetReports)
+	})
+	reports = append(reports, packetReports...)
 
 	// The ClickHouse-backed read works per tenant through the reader login and
 	// shows nothing of the other tenant; then a restart re-runs the boot

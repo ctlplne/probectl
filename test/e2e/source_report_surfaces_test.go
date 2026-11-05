@@ -119,7 +119,7 @@ func (p *releaseFlowReport) mcpReportLink(t *testing.T, base, token, hint, id st
 func (p *releaseFlowReport) renderReport(t *testing.T, root, cert, cookie, theme string, manifest json.RawMessage, foreign *releaseFlowReport) {
 	t.Helper()
 	card := "#saved-dashboard"
-	name := "Release browser " + p.tenant + " " + theme
+	name := "Release browser " + p.tenant + " " + theme + " " + p.sourceName
 	step := func(click string, expect ...string) map[string]any {
 		return map[string]any{"click": click, "within": card, "expect": expect}
 	}
@@ -139,9 +139,13 @@ func (p *releaseFlowReport) renderReport(t *testing.T, root, cert, cookie, theme
 		step("Preview import", "Manifest validated", "1 explicitly bound saved flow sources"),
 		step("Confirm import", "Dashboard imported"),
 	)
+	absent := []string{foreign.address, foreign.sourceName}
+	if p.packet {
+		absent = append(absent, foreign.packetValue)
+	}
 	spec := map[string]any{"url": p.api.base + "/ui/dashboards", "cookies": []map[string]string{{"name": "probectl_session", "value": cookie}},
 		"trustCertFiles": []string{cert}, "timeoutMs": 60000, "expect": []string{"Saved views and report delivery", p.tenant},
-		"absent": []string{foreign.address, foreign.sourceName}, "steps": steps,
+		"absent": absent, "steps": steps,
 		"controls": []map[string]string{{"role": "button", "name": "Switch theme (current: " + theme + ")"}}}
 	raw, err := json.Marshal(spec)
 	if err != nil {
