@@ -37,6 +37,7 @@ type DashboardReportSupervisor struct {
 	log          *slog.Logger
 	now          func() time.Time
 	render       dashboardReportRenderer
+	stage        dashboardReportStager
 }
 
 func BuildDashboardReportSupervisor(pool *pgxpool.Pool, interval time.Duration, log *slog.Logger) (*DashboardReportSupervisor, bool) {
@@ -57,6 +58,7 @@ func BuildDashboardReportSupervisor(pool *pgxpool.Pool, interval time.Duration, 
 func (s *DashboardReportSupervisor) WithReportSources(server *Server) *DashboardReportSupervisor {
 	if s != nil && server != nil && server.pool == s.pool {
 		s.sourceServer = server
+		s.stage = stageStaticDashboardReport
 	}
 	return s
 }
@@ -133,7 +135,7 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 	if !bound || item.Schedule.TenantID != tenant.String() || item.View.TenantID != tenant.String() || item.Schedule.DashboardID != item.View.ID {
 		return false, apierror.Forbidden("report publication tenant scope differs")
 	}
-	if s.render == nil {
+	if s.render == nil && s.stage == nil {
 		return false, apierror.Unavailable("scheduled report renderer is unavailable")
 	}
 	if item.Schedule.DestinationID != reportInboxDestination {
@@ -157,10 +159,43 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 		RedactionState:      definition.RedactionState,
 		CoverageLimitations: definition.CoverageLimitations, Metrics: definition.Metrics,
 	}
-	content, mediaType, err := s.render(ctx, item.Schedule.Format, document)
+	profile, err := (*Server)(nil).staticReportOperation()
+	if s.sourceServer != nil {
+		profile, err = s.sourceServer.staticReportOperation()
+	}
 	if err != nil {
 		return false, err
 	}
+	operation, cancel := profile.context(ctx)
+	ctx = operation
+	defer cancel()
+	if s.sourceServer != nil && s.sourceServer.fairnessGate != nil {
+		release, err := s.sourceServer.fairnessGate.BeginQuery(ctx, tenant.String())
+		if err != nil {
+			return false, err
+		}
+		defer release()
+	}
+	stager := s.stage
+	if stager == nil {
+		stager = func(ctx context.Context, format string, doc reporting.Document) (*reporting.BodyStage, string, error) {
+			return stageLegacyDashboardReport(ctx, format, doc, s.render)
+		}
+	}
+	stage, mediaType, err := stager(ctx, item.Schedule.Format, document)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = stage.Close() }()
+	receipt, err := stage.Receipt(ctx)
+	if err != nil {
+		return false, err
+	}
+	content, err := inlineDashboardStage(ctx, stage)
+	if err != nil {
+		return false, err
+	}
+	defer clear(content)
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -197,7 +232,7 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 			return nil
 		}
 		scheduleID := item.Schedule.ID
-		if _, err := (store.DashboardReports{}).CreateArtifact(ctx, sc, store.ReportArtifactInput{
+		input := store.ReportArtifactInput{
 			ID: artifactID, DashboardID: item.View.ID, ScheduleID: &scheduleID,
 			Format: item.Schedule.Format, MediaType: mediaType,
 			Filename: reportFilename(item.View.Name, item.Schedule.Format, now), Content: content,
@@ -205,7 +240,12 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 			AbsoluteTo: definition.AbsoluteTo, Provenance: definition.Provenance,
 			RedactionState:      definition.RedactionState,
 			CoverageLimitations: definition.CoverageLimitations,
-		}); err != nil {
+		}
+		if receipt.Bytes > maxInlineReportBytes {
+			if _, err := (store.DashboardReports{}).CreateDocumentChunkedArtifact(ctx, sc, input, stage); err != nil {
+				return err
+			}
+		} else if _, err := (store.DashboardReports{}).CreateArtifact(ctx, sc, input); err != nil {
 			return err
 		}
 		if err := (store.DashboardReports{}).MarkScheduleDelivered(ctx, sc, item.Schedule.ID, now, next); err != nil {
@@ -216,6 +256,7 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 				"dashboard_id": item.View.ID, "schedule_id": item.Schedule.ID,
 				"format": item.Schedule.Format, "destination_id": reportInboxDestination,
 				"redaction_state": definition.RedactionState,
+				"body_bytes":      receipt.Bytes, "body_sha256": receipt.SHA256,
 			}); err != nil {
 			return err
 		}

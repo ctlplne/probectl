@@ -55,7 +55,8 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				// Catch-up must repair every control, and be idempotent.
 				for _, sql := range []string{
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ALTER COLUMN content SET NOT NULL`,
-					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v2`,
+					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v3`,
+					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ADD CONSTRAINT dashboard_report_artifacts_body_representation_v2 CHECK(body_storage='inline') NOT VALID`,
 					`DROP POLICY report_artifact_format ON ` + schema + `.dashboard_report_artifacts`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifact_chunks DROP CONSTRAINT dashboard_report_artifact_chunks_artifact_fk`,
 					`DROP TRIGGER tenant_write_fence ON ` + schema + `.dashboard_report_artifact_chunks`,
@@ -83,6 +84,14 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				}
 				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,'same-artifact',0,$2)`, id, []byte("body")); err != nil {
 					t.Fatal("silo rejected own chunk", err)
+				}
+				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifacts
+      (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
+      VALUES($1,'same-static','same-view','csv','text/csv','static.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','document-chunks',4,decode(repeat('00',32),'hex'),NULL)`, id); err != nil {
+					t.Fatal("silo rejected explicit static chunk format", err)
+				}
+				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,'same-static',0,$2)`, id, []byte("data")); err != nil {
+					t.Fatal(err)
 				}
 				var fkTarget string
 				if err := pool.QueryRow(ctx, `SELECT confrelid::regclass::text FROM pg_constraint WHERE conrelid=$1::regclass AND conname='dashboard_report_artifact_chunks_artifact_fk'`, schema+`.dashboard_report_artifact_chunks`).Scan(&fkTarget); err != nil {
@@ -138,6 +147,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 			}
 			for _, query := range []string{
 				`SELECT content FROM ` + own + `.dashboard_report_artifacts`,
+				`SELECT content FROM ` + own + `.dashboard_report_artifacts WHERE id='same-static'`,
 				`UPDATE ` + own + `.dashboard_report_artifact_chunks SET content='changed'`,
 				`UPDATE ` + own + `.dashboard_report_artifacts SET content='changed'`,
 			} {

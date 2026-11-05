@@ -1169,21 +1169,25 @@ func (e *Engine) eraseSubjectPostgres(
 				continue
 			case subjectTableReportChunks:
 				// Every source-aware parent is invalidated first. Clear and
-				// verify the opaque sidecar as well, including any bad residual.
+				// verify residual sidecars. Surviving unrelated static documents
+				// retain their complete bytes; subject-owned parents cascade.
 				ident := pgIdent(table.name)
-				tag, err := sc.Q.Exec(ctx, `DELETE FROM `+ident+` WHERE tenant_id=$1`, tenantID)
+				residual := `NOT EXISTS (SELECT 1 FROM dashboard_report_artifacts report_parent
+ WHERE report_parent.tenant_id=subject_row.tenant_id AND report_parent.id=subject_row.artifact_id
+ AND report_parent.body_storage='document-chunks' AND report_parent.source_capture IS NULL)`
+				tag, err := sc.Q.Exec(ctx, `DELETE FROM `+ident+` AS subject_row WHERE subject_row.tenant_id=$1 AND `+residual, tenantID)
 				if err != nil {
 					return fmt.Errorf("erase derived report chunks: %w", err)
 				}
 				var remaining int64
-				if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM `+ident+` WHERE tenant_id=$1`, tenantID).Scan(&remaining); err != nil {
+				if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM `+ident+` AS subject_row WHERE subject_row.tenant_id=$1 AND `+residual, tenantID).Scan(&remaining); err != nil {
 					return fmt.Errorf("verify derived report chunk erasure: %w", err)
 				}
 				if remaining != 0 {
 					return fmt.Errorf("verify derived report chunk erasure: %d remain", remaining)
 				}
 				out = append(out, SubjectPlaneResult{Plane: table.policy.plane, Status: SubjectStatusDeleted,
-					Deleted: tag.RowsAffected(), Remaining: 0, Notes: "source-aware derived report bytes invalidated; parent cascade may account for deleted rows"})
+					Deleted: tag.RowsAffected(), Remaining: 0, Notes: "source-aware derived report bytes invalidated; unrelated static documents preserved; parent cascade may account for deleted rows"})
 				continue
 			case subjectTableNoSubject:
 				out = append(out, SubjectPlaneResult{

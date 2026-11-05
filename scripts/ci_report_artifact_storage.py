@@ -20,14 +20,21 @@ MARKER = "legacy reader did not refuse chunk representation"
 IO_ROOT = "TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption"
 IO_MARKER = "corrupt report exposed metadata or partial bytes"
 CAPACITY_ROOT = "TestReportArtifactConfiguredCapacityBeyondFormerBodyCeiling"
+STATIC_ROOT = "TestStaticDocumentChunksKeepCompleteBodiesAndRejectSourceDowngrade"
 OUTPUT_PACKAGE = "github.com/ctlplne/probectl/internal/control"
 OUTPUT_ROOT = "TestReportConfiguredOutputRetainsRowsAboveFormerLimits"
+STATIC_SERVICE_ROOT = (
+    "TestStaticReportsPublishReadAndScheduleCompleteMultilingualDocuments"
+)
 OUTPUT_TESTS = (OUTPUT_ROOT, OUTPUT_ROOT + "/csv", OUTPUT_ROOT + "/pdf")
 SILO_PACKAGE = "github.com/ctlplne/probectl/ee/silo"
 SILO_ROOT = "TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies"
 SILO_TESTS = (SILO_ROOT, SILO_ROOT + "/siloed", SILO_ROOT + "/hybrid")
 LIFECYCLE_PACKAGE = "github.com/ctlplne/probectl/internal/tenantlife"
 LIFECYCLE_ROOT = "TestSubjectErasureInvalidatesOpaqueReportChunksOnlyInTenant"
+STATIC_LIFECYCLE_ROOT = (
+    "TestStaticDocumentChunksSubjectPortabilityErasureAndSiblingSurvival"
+)
 OWNER_MARKER = "scheduled-owner report missing from subject portability"
 GENERATION_MARKER = (
     "subject deletion left source generation publishable before telemetry erasure"
@@ -62,7 +69,10 @@ def selftest():
         assert classify(encode(omitted), 0, package=SILO_PACKAGE, tests=SILO_TESTS)
     for package, required in (
         (PACKAGE, (CAPACITY_ROOT,)),
+        (PACKAGE, (STATIC_ROOT,)),
         (OUTPUT_PACKAGE, OUTPUT_TESTS),
+        (OUTPUT_PACKAGE, (STATIC_SERVICE_ROOT,)),
+        (LIFECYCLE_PACKAGE, (STATIC_LIFECYCLE_ROOT,)),
     ):
         events = [
             {"Package": package, "Test": root, "Action": action}
@@ -192,9 +202,12 @@ def run():
         (PACKAGE, ROOT),
         (PACKAGE, IO_ROOT),
         (PACKAGE, CAPACITY_ROOT),
+        (PACKAGE, STATIC_ROOT),
         (OUTPUT_PACKAGE, OUTPUT_ROOT),
+        (OUTPUT_PACKAGE, STATIC_SERVICE_ROOT),
         (SILO_PACKAGE, SILO_ROOT),
         (LIFECYCLE_PACKAGE, LIFECYCLE_ROOT),
+        (LIFECYCLE_PACKAGE, STATIC_LIFECYCLE_ROOT),
     ):
         result = execute(package, "^" + root + "$")
         failed = classify(
@@ -213,6 +226,50 @@ def run():
             raise RuntimeError(
                 "report storage positive did not execute and pass: " + repr(failed)
             )
+    static_path = Path("internal/store/report_document_artifact.go")
+    static_original = static_path.read_bytes()
+    static_guard = "AND (NOT(v.definition ? 'flow_sources') OR v.definition->'flow_sources'='[]'::jsonb)"
+    if static_original.decode().count(static_guard) != 1:
+        raise RuntimeError("static source distinction control seam changed")
+    try:
+        static_path.write_text(
+            static_original.decode().replace(static_guard, "AND true")
+        )
+        downgrade = execute(PACKAGE, "^" + STATIC_ROOT + "$")
+    finally:
+        static_path.write_bytes(static_original)
+    if not report_regression_failed_on_assertion(
+        downgrade.stdout,
+        downgrade.returncode,
+        root=STATIC_ROOT,
+        marker="source-backed view accepted source-free static artifact",
+        package=PACKAGE,
+        child="",
+    ):
+        raise RuntimeError("source downgrade did not fail its exact static assertion")
+    lifecycle_path = Path("internal/tenantlife/subject.go")
+    lifecycle_original = lifecycle_path.read_bytes()
+    preserve = "AND report_parent.body_storage='document-chunks' AND report_parent.source_capture IS NULL)"
+    if lifecycle_original.decode().count(preserve) != 1:
+        raise RuntimeError("static lifecycle preservation seam changed")
+    try:
+        lifecycle_path.write_text(
+            lifecycle_original.decode().replace(preserve, "AND false " + preserve)
+        )
+        erased = execute(LIFECYCLE_PACKAGE, "^" + STATIC_LIFECYCLE_ROOT + "$")
+    finally:
+        lifecycle_path.write_bytes(lifecycle_original)
+    if not report_regression_failed_on_assertion(
+        erased.stdout,
+        erased.returncode,
+        root=STATIC_LIFECYCLE_ROOT,
+        marker="static surviving document is unreadable",
+        package=LIFECYCLE_PACKAGE,
+        child="",
+    ):
+        raise RuntimeError(
+            "old static chunk sweep did not fail exact complete surviving body assertion"
+        )
     broken = execute(PACKAGE, "^" + ROOT + "$/^success$", broken=True)
     if not report_regression_failed_on_assertion(
         broken.stdout, broken.returncode, root=ROOT, marker=MARKER, package=PACKAGE
@@ -315,8 +372,20 @@ def run():
         json.dumps(
             {
                 "kind": "real-integration",
-                "tests": [ROOT, IO_ROOT, SILO_ROOT, LIFECYCLE_ROOT],
+                "tests": [
+                    ROOT,
+                    IO_ROOT,
+                    CAPACITY_ROOT,
+                    STATIC_ROOT,
+                    OUTPUT_ROOT,
+                    STATIC_SERVICE_ROOT,
+                    SILO_ROOT,
+                    LIFECYCLE_ROOT,
+                    STATIC_LIFECYCLE_ROOT,
+                ],
                 "format_policy_omission_control": True,
+                "static_source_downgrade_omission_control": True,
+                "static_lifecycle_preservation_omission_control": True,
                 "digest_omission_control": True,
                 "silo_relationship_omission_control": True,
                 "pre_telemetry_erasure_generation_omission_control": True,

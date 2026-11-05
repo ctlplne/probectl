@@ -35,8 +35,7 @@ const (
 	maxDashboardManifestBytes = 64 << 10
 	maxReportMetrics          = 100
 	maxReportDisclosure       = 20
-	// Match the existing inline artifact storage constraint. Streaming
-	// renderers independently support larger complete documents.
+	// Compatibility-format threshold only; larger complete documents use chunks.
 	maxInlineReportBytes = 2 << 20
 )
 
@@ -646,7 +645,7 @@ func (s *Server) handleGenerateDashboardReport(w http.ResponseWriter, r *http.Re
 	if req.DashboardID == "" || (req.Format != "pdf" && req.Format != "csv") {
 		return apierror.Validation("dashboard_id and format pdf or csv are required")
 	}
-	artifact, err := s.generateDashboardReport(r, req, renderDashboardReport)
+	artifact, err := s.generateDashboardReportWithStager(r, req, stageStaticDashboardReport)
 	if err != nil {
 		return tagQueryResponseError(w, reportGenerationError(err))
 	}
@@ -657,55 +656,55 @@ func (s *Server) handleGenerateDashboardReport(w http.ResponseWriter, r *http.Re
 
 type dashboardReportRenderer func(context.Context, string, reporting.Document) ([]byte, string, error)
 
+// Compatibility adapter for embedded callers and the original publication
+// hooks. Production generation keeps the sealed stage instead of a body copy.
 func renderDashboardReport(ctx context.Context, format string, doc reporting.Document) ([]byte, string, error) {
-	if err := ctx.Err(); err != nil {
+	profile, err := staticReportOperation(ctx)
+	if err != nil {
 		return nil, "", err
 	}
-	limits := reporting.DefaultBodyStageLimits()
-	limits.Bytes = maxInlineReportBytes
-	limits.MemoryBytes = maxInlineReportBytes + 256<<10
-	mediaType := "application/pdf"
-	if format == "csv" {
-		mediaType = "text/csv"
-	}
-	stage, _, err := reporting.StageBody(ctx, doc.TenantScope, limits, func(target io.Writer) error {
-		if format == "csv" {
-			renderLimits := reporting.DefaultCSVLimits()
-			renderLimits.Bytes = maxInlineReportBytes
-			_, err := reporting.WriteCSV(ctx, target, doc, renderLimits)
-			return err
-		}
-		renderLimits := reporting.DefaultPDFLimits()
-		renderLimits.Bytes = maxInlineReportBytes
-		_, err := reporting.WritePDF(ctx, target, doc, renderLimits)
-		return err
-	})
+	// Reserve room for the compatibility byte copy as well as staged buffers.
+	profile.output.Bytes = min(profile.output.Bytes, profile.budget.MemoryBytes/4)
+	ctx, cancel := profile.context(ctx)
+	defer cancel()
+	stage, media, err := stageStaticDashboardReport(ctx, format, doc)
 	if err != nil {
 		return nil, "", err
 	}
 	defer func() { _ = stage.Close() }()
-	body, err := stage.Open(ctx)
+	reader, err := stage.Open(ctx)
 	if err != nil {
 		return nil, "", err
 	}
-	defer func() { _ = body.Close() }()
-	// The sealed body cannot exceed the existing inline storage limit. This
-	// compatibility copy is discarded on any read or cancellation failure.
-	content, err := io.ReadAll(body)
+	content, err := io.ReadAll(reader)
+	closed := reader.Close()
 	if err != nil {
 		return nil, "", err
+	}
+	if closed != nil {
+		return nil, "", closed
 	}
 	if err := ctx.Err(); err != nil {
+		clear(content)
 		return nil, "", err
 	}
-	return content, mediaType, nil
+	return content, media, nil
+}
+
+func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequest, render dashboardReportRenderer) (*store.ReportArtifact, error) {
+	if render == nil {
+		return nil, apierror.Unavailable("dashboard report renderer is unavailable")
+	}
+	return s.generateDashboardReportWithStager(r, req, func(ctx context.Context, format string, doc reporting.Document) (*reporting.BodyStage, string, error) {
+		return stageLegacyDashboardReport(ctx, format, doc, render)
+	})
 }
 
 // Rendering may need current source reads. It runs after the capture transaction
 // has released its connection; no database transaction is held during that IO.
 // A separate short transaction rechecks visibility and the complete definition
 // before committing the artifact and audit together.
-func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequest, render dashboardReportRenderer) (*store.ReportArtifact, error) {
+func (s *Server) generateDashboardReportWithStager(r *http.Request, req reportGenerateRequest, render dashboardReportStager) (*store.ReportArtifact, error) {
 	if render == nil {
 		return nil, apierror.Unavailable("dashboard report renderer is unavailable")
 	}
@@ -749,12 +748,34 @@ func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequ
 		Provenance: definition.Provenance, RedactionState: definition.RedactionState,
 		CoverageLimitations: definition.CoverageLimitations, Metrics: definition.Metrics,
 	}
-	renderContext := tenancy.WithTenant(r.Context(), capturedTenant)
-	content, mediaType, err := render(renderContext, req.Format, doc)
+	profile, err := s.staticReportOperation()
+	if err != nil {
+		return nil, err
+	}
+	renderContext, cancel := profile.context(tenancy.WithTenant(r.Context(), capturedTenant))
+	defer cancel()
+	if s.fairnessGate != nil {
+		release, err := s.fairnessGate.BeginQuery(renderContext, capturedTenant.String())
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
+	stage, mediaType, err := render(renderContext, req.Format, doc)
 	if err != nil {
 		return nil, apierror.Internal("could not render dashboard report").Wrap(err)
 	}
-	if err := r.Context().Err(); err != nil {
+	defer func() { _ = stage.Close() }()
+	receipt, err := stage.Receipt(renderContext)
+	if err != nil {
+		return nil, err
+	}
+	content, err := inlineDashboardStage(renderContext, stage)
+	if err != nil {
+		return nil, err
+	}
+	defer clear(content)
+	if err := renderContext.Err(); err != nil {
 		return nil, err
 	}
 	id, err := crypto.UUIDv4()
@@ -762,7 +783,7 @@ func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequ
 		return nil, apierror.Internal("could not generate report artifact id").Wrap(err)
 	}
 	var artifact *store.ReportArtifact
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+	if err := s.inTenant(r.WithContext(renderContext), func(ctx context.Context, sc tenancy.Scope) error {
 		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 			return err
 		}
@@ -773,19 +794,31 @@ func (s *Server) generateDashboardReport(r *http.Request, req reportGenerateRequ
 		if !dashboardReportViewMatches(view, current) {
 			return apierror.Conflict("dashboard changed while the report was generated; retry with its current definition")
 		}
-		created, err := (store.DashboardReports{}).CreateArtifact(ctx, sc, store.ReportArtifactInput{
+		input := store.ReportArtifactInput{
 			ID: id, DashboardID: view.ID, Format: req.Format, MediaType: mediaType,
 			Filename: reportFilename(view.Name, req.Format, now), Content: content, GeneratedBy: auditActor(r),
 			AbsoluteFrom: definition.AbsoluteFrom, AbsoluteTo: definition.AbsoluteTo,
 			Provenance: definition.Provenance, RedactionState: definition.RedactionState,
 			CoverageLimitations: definition.CoverageLimitations,
-		})
-		if err != nil {
-			return err
+		}
+		var created *store.ReportArtifact
+		if receipt.Bytes > maxInlineReportBytes {
+			metadata, err := (store.DashboardReports{}).CreateDocumentChunkedArtifact(ctx, sc, input, stage)
+			if err != nil {
+				return err
+			}
+			created = &metadata.ReportArtifact
+		} else {
+			var err error
+			created, err = (store.DashboardReports{}).CreateArtifact(ctx, sc, input)
+			if err != nil {
+				return err
+			}
 		}
 		if err := s.recordAudit(ctx, sc, r, "dashboard.report_export", id, map[string]any{
 			"dashboard_id": view.ID, "format": req.Format,
 			"destination_id": reportInboxDestination, "redaction_state": definition.RedactionState,
+			"body_bytes": receipt.Bytes, "body_sha256": receipt.SHA256,
 		}); err != nil {
 			return err
 		}
