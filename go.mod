@@ -19,7 +19,7 @@ require (
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/twmb/franz-go v1.21.2
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260515175617-8268a5d078c0
-	github.com/twmb/franz-go/pkg/kmsg v1.13.1
+	github.com/twmb/franz-go/pkg/kmsg v1.15.0
 	go.opentelemetry.io/proto/otlp v1.10.0
 	golang.org/x/image v0.47.0
 	golang.org/x/net v0.62.0
