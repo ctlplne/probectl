@@ -74,7 +74,7 @@ func serviceNowCapacitySource(t *testing.T, mode, calls *atomic.Int64) *httptest
 			}
 			rows = append(rows, row)
 		}
-		if end < 137 && mode.Load() != 8 && !(mode.Load() == 11 && offset >= 42) {
+		if end < 137 && mode.Load() != 8 && (mode.Load() != 11 || offset < 42) {
 			next := server.URL + r.URL.Path
 			q.Set("sysparm_offset", strconv.Itoa(end))
 			q.Set("sysparm_limit", "7")
@@ -185,10 +185,10 @@ func TestServiceNowCompleteLookupProfilesAreRaiseableAndCancelBeforeIO(t *testin
 	ctx, cancel := context.WithCancel(netBoxContext(netBoxTenantA))
 	cancel()
 	if cis, err := provider.Lookup(ctx, "10.0.0.1"); !errors.Is(err, context.Canceled) || cis != nil {
-		t.Fatal("cancelled ServiceNow request returned output", err)
+		t.Fatal("canceled ServiceNow request returned output", err)
 	}
 	if calls.Load() != before {
-		t.Fatal("cancelled ServiceNow request reached source")
+		t.Fatal("canceled ServiceNow request reached source")
 	}
 }
 

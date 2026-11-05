@@ -217,9 +217,9 @@ func TestNetBoxInvalidAndCancelledLookupProfilesDoNotFetch(t *testing.T) {
 	ctx, cancel := context.WithCancel(netBoxContext(netBoxTenantA))
 	cancel()
 	if cis, err := provider.Lookup(ctx, "10.0.0.1"); !errors.Is(err, context.Canceled) || cis != nil {
-		t.Fatal("cancelled lookup returned output", err)
+		t.Fatal("canceled lookup returned output", err)
 	}
 	if calls.Load() != 0 {
-		t.Fatal("invalid/cancelled lookup reached the source")
+		t.Fatal("invalid/canceled lookup reached the source")
 	}
 }

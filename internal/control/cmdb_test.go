@@ -99,7 +99,7 @@ func TestIncidentKeysExtraction(t *testing.T) {
 		t.Fatalf("keys = %v", keys)
 	}
 
-	matches := cmdb.NewResolver(fakeCMDB{}, time.Minute).Correlate(context.Background(), keys)
+	matches := cmdb.NewResolver(fakeCMDB{}, time.Minute).Correlate(tenancy.WithTenant(t.Context(), tenancy.DefaultTenantID), keys)
 	if len(matches) != 2 {
 		t.Fatalf("matches = %+v, want 2 (dedup + drop empties)", matches)
 	}
