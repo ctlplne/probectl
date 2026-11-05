@@ -35,7 +35,7 @@ dev = [
   # retains the hash-locked versions instead of adopting new minor releases.
   "platformdirs==4.13.6",
   "mypy-extensions==1.1.0",
-  "hypothesis==6.141.1",
+  "hypothesis==6.170.14",
 ]
 
 [tool.hatch.build.targets.wheel]
