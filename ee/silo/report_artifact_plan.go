@@ -29,7 +29,7 @@ func reportArtifactStoragePlan(schema string, tables []string) []string {
         AND (body_bytes IS NULL OR body_bytes=octet_length(content))
         AND (body_digest IS NULL OR octet_length(body_digest)=32))
       OR (body_storage='chunks' AND content IS NULL
-        AND body_bytes IS NOT NULL AND body_bytes BETWEEN 1 AND 268435456
+        AND body_bytes IS NOT NULL AND body_bytes BETWEEN 1 AND 140737488355328
         AND body_digest IS NOT NULL AND octet_length(body_digest)=32
         AND source_capture IS NOT NULL AND jsonb_typeof(source_capture)='object'
         AND source_capture @> '{"version":1}'::jsonb
@@ -39,10 +39,18 @@ func reportArtifactStoragePlan(schema string, tables []string) []string {
 	statements := []string{
 		fmt.Sprintf(`DO $report_shape$ BEGIN
     IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass
-        AND conname='dashboard_report_artifacts_body_representation') THEN
-        ALTER TABLE %s ADD CONSTRAINT dashboard_report_artifacts_body_representation CHECK %s NOT VALID;
+        AND conname='dashboard_report_artifacts_body_representation_v2') THEN
+        ALTER TABLE %s ADD CONSTRAINT dashboard_report_artifacts_body_representation_v2 CHECK %s NOT VALID;
     END IF;
 END $report_shape$`, quoteLiteral(parent), parent, shape),
+		"ALTER TABLE " + parent + " DROP CONSTRAINT IF EXISTS dashboard_report_artifacts_body_representation",
+		fmt.Sprintf(`DO $report_ordinal$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass
+        AND conname='dashboard_report_artifact_chunks_ordinal_nonnegative') THEN
+        ALTER TABLE %s ADD CONSTRAINT dashboard_report_artifact_chunks_ordinal_nonnegative CHECK (ordinal >= 0) NOT VALID;
+    END IF;
+END $report_ordinal$`, quoteLiteral(child), child),
+		"ALTER TABLE " + child + " DROP CONSTRAINT IF EXISTS dashboard_report_artifact_chunks_ordinal_check",
 		"ALTER TABLE " + parent + " ALTER COLUMN content DROP NOT NULL",
 		"DROP POLICY IF EXISTS report_artifact_format ON " + parent,
 		"CREATE POLICY report_artifact_format ON " + parent + " AS RESTRICTIVE USING (" + tenancy.ReportArtifactFormatPredicate + ") WITH CHECK (" + tenancy.ReportArtifactFormatPredicate + ")",

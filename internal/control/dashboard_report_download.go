@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -102,9 +103,13 @@ func (s *Server) authorizeStoredReportReader(ctx context.Context, actor *auth.Pr
 func (s *Server) stageStoredReport(ctx context.Context, id, user string) (*store.ReportArtifactMetadata, *reporting.BodyStage, error) {
 	var metadata *store.ReportArtifactMetadata
 	var stage *reporting.BodyStage
-	err := tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+	limits, err := reportBodyStageLimits(s.reportOutputPolicy(), flowstore.ExplorerQueryBudget(s.flowStore))
+	if err != nil {
+		return nil, nil, err
+	}
+	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		metadata, stage, err = (store.DashboardReports{}).StageArtifactBody(ctx, sc, id, user, reporting.DefaultBodyStageLimits())
+		metadata, stage, err = (store.DashboardReports{}).StageArtifactBody(ctx, sc, id, user, limits)
 		return err
 	})
 	if err != nil {

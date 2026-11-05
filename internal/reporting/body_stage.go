@@ -62,10 +62,13 @@ func NewBodyStage(ctx context.Context, tenant string, limits BodyStageLimits) (*
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if limits.Bytes <= 0 || limits.Bytes > DefaultCSVLimits().Bytes || limits.MemoryBytes <= 0 {
+	if limits.Bytes <= 0 || limits.Bytes > MaxBodyBytes || limits.MemoryBytes <= 0 {
 		return nil, ErrBodyStageLimit
 	}
 	count := (limits.Bytes + BodyChunkBytes - 1) / BodyChunkBytes
+	if count > int64(int(^uint(0)>>1))/64 {
+		return nil, ErrBodyStageLimit
+	}
 	// Capacity metadata, one reader and streaming hash scratch are reserved up
 	// front. Fixed data buffers are charged before allocation, including slack.
 	base := int64(128<<10) + count*64 + int64(len(tenant))*2

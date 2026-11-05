@@ -67,7 +67,7 @@ func publishCapturedReportDownloadProof(ctx context.Context, t *testing.T, f *ta
 		Preset: "operator", AbsoluteFrom: from, AbsoluteTo: to, GeneratedAt: time.Now().UTC(), GeneratedBy: actor.UserID,
 		Provenance: []string{"current owned saved flow capture"}, RedactionState: "query redaction applied",
 		CoverageLimitations: []string{"source/store/HTTPS component; release acceptance is separate"}, Tables: capture.Tables}
-	stage, _, err := stageSourceDashboardReport(ctx, format, document, flowstore.ExplorerQueryBudget(f.srv.flowStore))
+	stage, _, err := stageSourceDashboardReport(ctx, format, document, flowstore.ExplorerQueryBudget(f.srv.flowStore), f.srv.reportOutputPolicy())
 	if errors.Is(err, reporting.ErrPDFLimit) {
 		t.Fatalf("source metadata consumed selected PDF detail allowance or another PDF budget: %v", err)
 	}

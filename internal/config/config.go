@@ -491,6 +491,9 @@ type Config struct {
 	FlowQueryIntermediateGroups     int
 	FlowQueryInterfaceItems         int
 	FlowQueryThreads                int
+	ReportCSVRows                   int
+	ReportPDFRows                   int
+	ReportMaxBytes                  int
 	FlowSnapshotLifetime            time.Duration
 	FlowSnapshotTenantBytes         int
 	FlowSnapshotBytes               int
@@ -1202,6 +1205,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.FlowStoreMode = l.enum("PROBECTL_FLOWSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.FlowStoreURL = l.str("PROBECTL_FLOWSTORE_URL", "")
 	loadFlowQueryConfig(l, cfg)
+	loadReportOutputConfig(l, cfg)
 	cfg.OTelStoreMode = l.enum("PROBECTL_OTELSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.OTelStoreURL = l.str("PROBECTL_OTELSTORE_URL", "")
 	cfg.OTelRetentionDays = l.intRange("PROBECTL_OTEL_RETENTION_DAYS", 30, 0, 3650)
@@ -2297,6 +2301,9 @@ func (c *Config) Redacted() map[string]any {
 			"read_rows": c.FlowQueryReadRows, "response_bytes": c.FlowQueryResponseBytes,
 			"memory_bytes": c.FlowQueryMemoryBytes, "intermediate_groups": c.FlowQueryIntermediateGroups,
 			"interface_items": c.FlowQueryInterfaceItems, "threads": c.FlowQueryThreads,
+		},
+		"report_output_cost": map[string]any{
+			"csv_rows": c.ReportCSVRows, "pdf_rows": c.ReportPDFRows, "bytes": c.ReportMaxBytes,
 		},
 		"flow_snapshot_cost": map[string]any{
 			"lifetime": c.FlowSnapshotLifetime.String(), "tenant_bytes": c.FlowSnapshotTenantBytes,

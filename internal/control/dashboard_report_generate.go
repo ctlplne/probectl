@@ -75,7 +75,7 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 	if err != nil {
 		return nil, err
 	}
-	stage, mediaType, err := stageSourceDashboardReport(ctx, req.Format, document, budget)
+	stage, mediaType, err := stageSourceDashboardReport(ctx, req.Format, document, budget, s.reportOutputPolicy())
 	if err != nil {
 		return nil, err
 	}
@@ -133,15 +133,13 @@ func sourceReportDocument(view *store.DashboardView, definition dashboardDefinit
 		RedactionState: definition.RedactionState, CoverageLimitations: definition.CoverageLimitations, Tables: capture.Tables}, nil
 }
 
-func stageSourceDashboardReport(ctx context.Context, format string, doc reporting.Document, budget flowstore.ExplorerBudget) (*reporting.BodyStage, string, error) {
+func stageSourceDashboardReport(ctx context.Context, format string, doc reporting.Document, budget flowstore.ExplorerBudget, policy reporting.OutputPolicy) (*reporting.BodyStage, string, error) {
 	if err := budget.Validate(); err != nil {
 		return nil, "", err
 	}
-	limits := reporting.DefaultBodyStageLimits()
-	limits.MemoryBytes = budget.MemoryBytes / 2
-	limits.Bytes = min(limits.Bytes, limits.MemoryBytes-(1<<20))
-	if limits.Bytes <= 0 {
-		return nil, "", reporting.ErrBodyStageLimit
+	limits, err := reportBodyStageLimits(policy, budget)
+	if err != nil {
+		return nil, "", err
 	}
 	mediaType := "application/pdf"
 	if format == "csv" {
@@ -152,14 +150,14 @@ func stageSourceDashboardReport(ctx context.Context, format string, doc reportin
 	stage, _, err := reporting.StageBody(ctx, doc.TenantScope, limits, func(target io.Writer) error {
 		if format == "csv" {
 			renderLimits := reporting.DefaultCSVLimits()
-			renderLimits.TableRows *= 2
-			renderLimits.Bytes, renderLimits.MemoryBytes = limits.Bytes, min(renderLimits.MemoryBytes, budget.MemoryBytes/4)
+			renderLimits.TableRows = policy.CSVRows * 2
+			renderLimits.Bytes, renderLimits.MemoryBytes = limits.Bytes, budget.MemoryBytes/4
 			_, err := reporting.WriteCSV(ctx, target, doc, renderLimits)
 			return err
 		}
 		renderLimits := reporting.DefaultPDFLimits()
-		renderLimits.TableRows *= 2
-		renderLimits.Bytes, renderLimits.MemoryBytes = limits.Bytes, min(renderLimits.MemoryBytes, budget.MemoryBytes/4)
+		renderLimits.TableRows = policy.PDFRows * 2
+		renderLimits.Bytes, renderLimits.MemoryBytes = limits.Bytes, budget.MemoryBytes/4
 		_, err := reporting.WritePDF(ctx, target, doc, renderLimits)
 		return err
 	})

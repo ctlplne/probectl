@@ -1886,6 +1886,9 @@ response allocation defaults.
 | -------------------------------- | -------- | -------------------------------------------------------------------- |
 | `PROBECTL_FLOWSTORE_MODE`         | `memory` | where flow records live: `memory` (lightweight/single-binary) \| `clickhouse` (durable, high-cardinality) |
 | `PROBECTL_FLOWSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** in clickhouse mode. `multi-tenant`/`regulated` profiles require `https://` |
+| `PROBECTL_REPORT_CSV_ROWS` | `500000` | positive operator CSV detail/logical row allowance for source reports; publication reserves an equal additional metadata allowance and never truncates output. Configurable up to the counter representation bound. |
+| `PROBECTL_REPORT_PDF_ROWS` | `4000` | positive operator PDF detail/logical row allowance; the same additional complete metadata allowance applies. Renderer memory uses the configured query-operation quarter share. |
+| `PROBECTL_REPORT_MAX_BYTES` | `268435456` | positive complete source-report body admission shared by generation, schedules and verified reads. Defaults to256MiB, can be raised within integer/chunk representation. Raise `PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES` and provision runtime/store capacity accordingly; staging reserves half that operation memory and charges all chunk overhead. Smaller active admission refuses the whole operation, without partial bytes. |
 | `PROBECTL_FLOW_QUERY_TIMEOUT` | `5s` | native flow store-operation deadline; comparison has a bounded six-pass envelope |
 | `PROBECTL_FLOW_QUERY_MAX_READ_BYTES` | `268435456` | per-query uncompressed ClickHouse read budget and reference-store allocation accounting |
 | `PROBECTL_FLOW_QUERY_MAX_READ_ROWS` | `5000000` | examined source rows; tenant scope applies before reference-store accounting |

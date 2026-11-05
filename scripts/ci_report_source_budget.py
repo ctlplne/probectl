@@ -386,15 +386,16 @@ def publication_state_proof() -> None:
 def source_pdf_metadata_allowance_proof() -> None:
     source = Path("internal/control/dashboard_report_generate.go")
     original = source.read_text()
-    seam = (
-        "renderLimits := reporting.DefaultPDFLimits()\n\t\trenderLimits.TableRows *= 2"
-    )
+    seam = "renderLimits := reporting.DefaultPDFLimits()\n\t\trenderLimits.TableRows = policy.PDFRows * 2"
     if original.count(seam) != 1:
         raise RuntimeError("source PDF logical allowance seam unavailable")
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
     try:
         source.write_text(
-            original.replace(seam, "renderLimits := reporting.DefaultPDFLimits()")
+            original.replace(
+                seam,
+                "renderLimits := reporting.DefaultPDFLimits()\n\t\trenderLimits.TableRows = policy.PDFRows",
+            )
         )
         result = run_tests("^" + CAPTURE_TESTS[2] + "$/^success$", "./internal/control")
     finally:
