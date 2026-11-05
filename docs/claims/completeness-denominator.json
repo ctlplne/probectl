@@ -3,7 +3,7 @@
   "feature_range": {
     "prefix": "F",
     "first": 1,
-    "last": 57
+    "last": 58
   },
   "governed_claims": [
     "CLM-NO-PHONE-HOME",

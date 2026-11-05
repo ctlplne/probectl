@@ -173,7 +173,7 @@ capabilities:
     config_keys: *api_config
     telemetry: {refs: ["file:internal/incident"]}
     real_stack_proof: {refs: ["test:internal/control/crossplane_e2e_integration_test.go#TestCrossPlaneCorrelationE2E", "test:internal/control/dashboardreporting_integration_test.go#TestDashboardExportAuditAndTenantIsolation", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack", "test:test/e2e/e2e_test.go#TestE2E"]}
-    migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql", "file:migrations/0137_incident_entity_identity.sql", "file:migrations/0140_entity_fault_receipts.sql", "file:migrations/0168_dashboard_report_artifact_chunks.sql", "file:migrations/0169_report_output_capacity.sql"]}
+    migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql", "file:migrations/0137_incident_entity_identity.sql", "file:migrations/0140_entity_fault_receipts.sql", "file:migrations/0168_dashboard_report_artifact_chunks.sql", "file:migrations/0169_report_output_capacity.sql", "file:migrations/0170_report_artifact_chunks_write_fence.sql", "file:migrations/0172_static_report_artifact_chunks.sql"]}
 
   - id: F10
     name: Control plane, REST/gRPC, and CLI
@@ -310,7 +310,7 @@ capabilities:
     config_keys: {refs: ["config:PROBECTL_FLOW_CONFIG", "config:PROBECTL_FLOW_NETFLOW_LISTEN", "config:PROBECTL_FLOW_QUERY_TIMEOUT", "config:PROBECTL_FLOW_QUERY_MAX_READ_BYTES", "config:PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES"]}
     telemetry: {refs: ["file:internal/flow", "file:internal/control/explorer_flow_metrics.go"]}
     real_stack_proof: {refs: ["test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack"]}
-    migration: {refs: ["file:migrations/0132_flow_query_filters.sql", "file:migrations/0133_flow_snapshots.sql", "file:migrations/0134_flow_query_views.sql", "file:migrations/0136_entity_registry.sql"]}
+    migration: {refs: ["file:migrations/0132_flow_query_filters.sql", "file:migrations/0133_flow_snapshots.sql", "file:migrations/0134_flow_query_views.sql", "file:migrations/0171_flow_snapshot_row_capacity.sql", "file:migrations/0136_entity_registry.sql"]}
 
   # F18's real-stack receipt runs each tenant's shipped probectl-device-agent
   # against its own real SNMP agent (net-snmp snmpd, one per tenant: SNMPv3
@@ -955,6 +955,22 @@ capabilities:
     telemetry: {refs: ["file:internal/fairness"]}
     real_stack_proof: {refs: ["test:internal/control/fairness_live_ingest_integration_test.go#TestFairnessShedsTheFloodingTenantAndSparesItsNeighbour"]}
     migration: {refs: ["file:migrations/0031_fairness.sql", "file:migrations/0053_fairness_device_otlp_overrides.sql"]}
+
+  - id: F58
+    name: Tenant-defined tags
+    status: partial
+    evidence_status: partial
+    owner: product/release
+    engine: {refs: ["file:internal/tags", "file:internal/store/tag_definitions.go", "file:internal/control/tag_import_apply.go"]}
+    binary: {refs: ["file:cmd/probectl-control/main.go", "file:internal/control/tag_definitions.go#func (s *Server) tagRoutes()"]}
+    api: {refs: ["api:GET /v1/tags", "api:POST /v1/tags", "api:GET /v1/entity-contexts/{context_id}/tag-rules", "api:GET /v1/entity-contexts/{context_id}/tag-assignments", "api:GET /v1/entity-contexts/{context_id}/resolved-tags", "api:POST /v1/entity-contexts/{context_id}/tag-imports/netbox/preview", "api:POST /v1/entity-contexts/{context_id}/tag-imports/netbox/apply"]}
+    cli: {refs: ["cli:probectl tags list", "cli:probectl tags rules-list", "cli:probectl tags assignments-list", "cli:probectl tags netbox-preview", "cli:probectl tags netbox-apply"]}
+    ui: {refs: ["ui:F58@/admin"]}
+    docs: {refs: ["file:docs/tenant-tags.md#Tenant-defined tags (preview)"]}
+    config_keys: {refs: ["config:PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES", "config:PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES", "config:PROBECTL_FLOW_QUERY_TIMEOUT"]}
+    telemetry: {refs: ["file:internal/control/tag_definitions.go", "file:internal/control/tag_import_apply.go"]}
+    real_stack_proof: {gap: "Component and service tests are wired, but complete current integrated main, real sender/source, all consumer/output and served-surface acceptance remains owed. Preview is not a passing full-item receipt."}
+    migration: {refs: ["file:migrations/0156_tenant_tags.sql", "file:migrations/0157_tag_permissions.sql", "file:migrations/0158_tag_value_characters.sql", "file:migrations/0160_tag_snmp_match_text.sql", "file:migrations/0161_tag_bulk_revision.sql", "file:migrations/0162_tag_canonical_cidr_sides.sql", "file:migrations/0166_alert_tag_filter.sql", "file:migrations/0167_alert_evaluation_tag_selection.sql"]}
 
   - id: CLM-NO-PHONE-HOME
     name: No default outbound telemetry, beacon, or phone-home exists; telemetry never leaves the operator's network by default.

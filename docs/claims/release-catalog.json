@@ -1,6 +1,6 @@
 {
   "schema": "probectl.release-claim-catalog/v1",
-  "purpose": "Every audited F1-F57 capability, N1-N13 strategic need, BL-001-BL-048 work item, and repository governed claim has exactly one owner and receives exactly one strict status in the generated evidence index.",
+  "purpose": "Every audited F1-F58 capability, N1-N13 strategic need, BL-001-BL-048 work item, and repository governed claim has exactly one owner and receives exactly one strict status in the generated evidence index.",
   "claims": [
     {
       "id": "F1",
@@ -286,6 +286,11 @@
       "id": "F57",
       "kind": "capability",
       "owner": "release/docs"
+    },
+    {
+      "id": "F58",
+      "kind": "capability",
+      "owner": "product/release"
     },
     {
       "id": "N1",

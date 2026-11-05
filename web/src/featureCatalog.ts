@@ -336,4 +336,10 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     status: 'delivered',
     source: 'contract:features',
   },
+  {
+    id: 'F58',
+    name: 'Tenant-defined tags',
+    status: 'partial',
+    source: 'contract:features',
+  },
 ]

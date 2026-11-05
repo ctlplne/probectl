@@ -407,10 +407,11 @@ describe('frontend-coverage gate (S-FE6)', () => {
   })
 
   test('every contract feature and telemetry plane declares native, federated, or none-by-design status', () => {
-    expect(REQUIRED_FEATURES).toHaveLength(62)
+    expect(REQUIRED_FEATURES).toHaveLength(63)
     expect(REQUIRED_FEATURES[0].id).toBe('PLANE_ACTIVE_SYNTHETIC')
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F1')).toBe(true)
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F57')).toBe(true)
+    expect(REQUIRED_FEATURES.some((f) => f.id === 'F58')).toBe(true)
     expect(contractCatalogStatusViolations(REQUIRED_FEATURES)).toEqual([])
     expect(featureCoverageViolations(SURFACES)).toEqual([])
     expect(servedEvidenceViolations(REQUIRED_FEATURES, SURFACES)).toEqual([])

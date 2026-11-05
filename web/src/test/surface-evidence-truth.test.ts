@@ -41,6 +41,7 @@ describe('truthful native UI evidence', () => {
     ['F52', ['/provider']],
     ['F56', ['/admin']],
     ['F57', ['/provider']],
+    ['F58', ['/admin']],
   ]
 
   test.each(expectedNativeRoutes)(

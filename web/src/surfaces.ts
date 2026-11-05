@@ -178,6 +178,27 @@ export interface SurfaceDecl {
 }
 
 export const SURFACES: SurfaceDecl[] = [
+  {
+    capability:
+      'Tenant tag definitions, rules, owned assignments and reviewed NetBox imports (preview)',
+    featureIds: ['F58'],
+    sprint: 'S-TAGS',
+    kind: 'native',
+    route: '/admin',
+    evidence: [
+      'file:web/src/routes/admin/TenantTagsCard.tsx',
+      'file:web/src/routes/admin/TenantTagRulesCard.tsx',
+      'file:web/src/routes/admin/TenantTagAssignmentsCard.tsx',
+      'file:web/src/routes/admin/TagSubjectResolutionCard.tsx',
+      'file:web/src/routes/admin/NetBoxTagPreviewCard.tsx',
+      'file:web/src/test/tenant-tags-admin.test.tsx',
+      'openapi:/v1/tags',
+      'openapi:/v1/entity-contexts/{context_id}/resolved-tags',
+      'openapi:/v1/entity-contexts/{context_id}/tag-imports/netbox/preview',
+      'openapi:/v1/entity-contexts/{context_id}/tag-imports/netbox/apply',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
   // --- native screens (S8a shell) ---
   {
     capability: 'Design-system developer gallery',
