@@ -3160,6 +3160,8 @@ export interface ImportDashboardManifestRequest {
 export type ImportDashboardManifestResponse = DashboardManifestImportResponse
 
 export interface ListDashboardReportArtifactsRequest {
+  limit?: number
+  cursor?: string
 }
 
 export type ListDashboardReportArtifactsResponse = JsonObject
@@ -4860,9 +4862,11 @@ export class ProbectlSDKClient {
     return this.requestJSON<ImportDashboardManifestResponse>("POST", path, query, request.body)
   }
 
-  async listDashboardReportArtifacts(): Promise<ListDashboardReportArtifactsResponse> {
+  async listDashboardReportArtifacts(request: ListDashboardReportArtifactsRequest = {}): Promise<ListDashboardReportArtifactsResponse> {
     let path = "/v1/dashboard-report-artifacts"
     const query = new URLSearchParams()
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
     return this.requestJSON<ListDashboardReportArtifactsResponse>("GET", path, query, undefined)
   }
 

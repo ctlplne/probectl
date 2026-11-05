@@ -8,8 +8,10 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -45,42 +47,95 @@ func (s *Server) listCurrentReportArtifactMetadata(w http.ResponseWriter, r *htt
 		}
 		defer release()
 	}
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return apierror.Validation("report inbox query is invalid")
+	}
+	limit, position, err := parseReportInboxPage(query, actor.TenantID, dashboardActorID(r), budget.MemoryBytes)
+	if errors.Is(err, store.ErrReportMetadataBudget) {
+		w.Header().Set("Retry-After", "1")
+		return apierror.RateLimited("report metadata cursor budget exhausted")
+	}
+	if err != nil {
+		return err
+	}
 	views := make([]reportArtifactView, 0)
-	err := tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		headers, err := (store.DashboardReports{}).ListArtifactHeaders(ctx, sc, dashboardActorID(r))
-		if err != nil {
-			return err
-		}
-		for _, header := range headers {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if staticReportMetadata(&header) {
-				views = append(views, artifactMetadataView(header))
-				continue
-			}
-			// An unconfigured source lane supplies no current access proof.
-			if s.fairnessGate == nil {
-				continue
-			}
-			item, err := s.currentReportArtifactMetadata(ctx, sc, actor, header.ID, dashboardActorID(r))
+	nextCursor := ""
+	remaining := budget.MemoryBytes
+	responseBytes := int64(32)
+	var lastVisible store.ReportArtifactPosition
+	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		for {
+			headers, charged, err := (store.DashboardReports{}).ListArtifactHeaderBatch(ctx, sc, dashboardActorID(r), position, remaining)
 			if err != nil {
 				return err
 			}
-			if item != nil {
-				views = append(views, artifactMetadataView(*item))
+			remaining -= charged
+			for _, header := range headers {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				item := &header
+				if !staticReportMetadata(item) {
+					// An unconfigured source lane supplies no current access proof.
+					if s.fairnessGate == nil {
+						continue
+					}
+					item, err = s.currentReportArtifactMetadata(ctx, sc, actor, header.ID, dashboardActorID(r))
+					if err != nil {
+						return err
+					}
+					if item == nil {
+						continue
+					}
+				}
+				if len(views) == limit {
+					// The cursor names only metadata already returned to this caller.
+					nextCursor, err = encodeReportInboxCursor(actor.TenantID, dashboardActorID(r), lastVisible)
+					return err
+				}
+				view := artifactMetadataView(*item)
+				raw, err := json.Marshal(view)
+				if err != nil {
+					return err
+				}
+				if int64(len(raw))+1 > budget.ResponseBytes-responseBytes {
+					return store.ErrReportMetadataBudget
+				}
+				responseBytes += int64(len(raw)) + 1
+				views = append(views, view)
+				lastVisible = store.ReportArtifactPosition{GeneratedAt: header.GeneratedAt, ID: header.ID}
 			}
+			if len(headers) < store.ReportArtifactHeaderBatchRows {
+				return nil
+			}
+			last := headers[len(headers)-1]
+			position = &store.ReportArtifactPosition{GeneratedAt: last.GeneratedAt, ID: last.ID}
 		}
-		return nil
 	})
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) && r.Context().Err() == nil {
+		if (errors.Is(err, context.DeadlineExceeded) && r.Context().Err() == nil) || errors.Is(err, store.ErrReportMetadataBudget) {
 			w.Header().Set("Retry-After", "1")
 			return apierror.RateLimited("report metadata validation budget exhausted; retry shortly")
 		}
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": views})
+	page := struct {
+		Items      []reportArtifactView `json:"items"`
+		NextCursor string               `json:"next_cursor,omitempty"`
+	}{views, nextCursor}
+	raw, err := json.Marshal(page)
+	if err != nil {
+		return err
+	}
+	if int64(len(raw)) > budget.ResponseBytes {
+		w.Header().Set("Retry-After", "1")
+		return apierror.RateLimited("report metadata response budget exhausted; retry with a smaller page")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, page)
 	return nil
 }
 

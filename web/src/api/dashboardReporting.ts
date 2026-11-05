@@ -128,6 +128,7 @@ interface ScheduleList {
 
 interface ArtifactList {
   items: ReportArtifact[]
+  next_cursor?: string
 }
 
 function jsonInit(method: string, body: unknown): RequestInit {
@@ -207,10 +208,15 @@ export function useUpdateReportSchedule() {
   })
 }
 
-export function useReportArtifacts() {
+export function useReportArtifacts(identity: string, cursor: string) {
   return useQuery({
-    queryKey: ['dashboards', 'report-artifacts'],
-    queryFn: () => apiFetch<ArtifactList>('/dashboard-report-artifacts'),
+    queryKey: ['dashboards', 'report-artifacts', identity, cursor],
+    queryFn: () =>
+      apiFetch<ArtifactList>(
+        cursor
+          ? `/dashboard-report-artifacts?cursor=${encodeURIComponent(cursor)}`
+          : '/dashboard-report-artifacts',
+      ),
     refetchInterval: 60_000,
   })
 }

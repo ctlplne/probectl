@@ -12891,6 +12891,26 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Positive visible records per page; total retained inbox reach is not capped. Resource admission may refuse the whole page.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483646,
+              "default": 200
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque position from next_cursor, bound to this tenant and caller. Every page proves current view and source access.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         ],
         "responses": {
@@ -12906,6 +12926,10 @@
                       "items": {
                         "$ref": "#/components/schemas/DashboardReportArtifact"
                       }
+                    },
+                    "next_cursor": {
+                      "type": "string",
+                      "description": "Present only when another currently authorized record exists. Contains no hidden artifact position."
                     }
                   }
                 }
@@ -12920,14 +12944,19 @@
           },
           "503": {
             "$ref": "#/components/responses/ErrorResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         },
         "x-probectl-pagination": {
-          "mode": "bounded",
-          "max_items": 200,
-          "reason": "Artifact metadata is SQL-limited newest-first; binary content is excluded."
+          "mode": "cursor",
+          "cursor_param": "cursor",
+          "limit_param": "limit",
+          "next_cursor": "next_cursor",
+          "max_limit": 2147483646
         },
-        "description": "List metadata from the most recent 200 owned or shared dashboard artifacts in this tenant. Source-aware artifacts are included only with current source, context and credential access. Binary bodies and stored source requirements are never loaded into the response. Validation shares one bounded operation; a budget failure returns no partial list."
+        "description": "Page all retained owned/shared report metadata in this tenant. Source-aware artifacts require current source, context and credential access on every page. Binary bodies and source requirements remain excluded. Pages share finite time/memory/response admission; refusal returns no partial page. Cursors refer only to already visible records, never hidden source metadata or authority."
       }
     },
     "/v1/dashboard-report-artifacts/{id}": {

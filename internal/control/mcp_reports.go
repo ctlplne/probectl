@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -173,8 +174,19 @@ func (b mcpReportBackend) ReportScheduleUpdate(ctx context.Context, p *auth.Prin
 func (b mcpReportBackend) ReportGenerate(ctx context.Context, p *auth.Principal, input reporting.ReportGenerateInput) (mcp.ReportArtifact, error) {
 	return invokeReportHandler[mcp.ReportArtifact](ctx, b, p, true, http.MethodPost, "/v1/dashboard-reports", "", input, b.server.handleGenerateDashboardReport)
 }
-func (b mcpReportBackend) ReportArtifacts(ctx context.Context, p *auth.Principal) (mcp.ReportArtifactList, error) {
-	return invokeReportHandler[mcp.ReportArtifactList](ctx, b, p, false, http.MethodGet, "/v1/dashboard-report-artifacts", "", nil, b.server.handleListDashboardReportArtifacts)
+func (b mcpReportBackend) ReportArtifacts(ctx context.Context, p *auth.Principal, input mcp.ReportArtifactListInput) (mcp.ReportArtifactList, error) {
+	query := url.Values{}
+	if input.Limit != nil {
+		query.Set("limit", strconv.Itoa(*input.Limit))
+	}
+	if input.Cursor != "" {
+		query.Set("cursor", input.Cursor)
+	}
+	path := "/v1/dashboard-report-artifacts"
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	return invokeReportHandler[mcp.ReportArtifactList](ctx, b, p, false, http.MethodGet, path, "", nil, b.server.handleListDashboardReportArtifacts)
 }
 
 func (b mcpReportBackend) ReportArtifactLink(ctx context.Context, p *auth.Principal, id string) (mcp.ReportArtifactLink, error) {

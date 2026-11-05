@@ -254,6 +254,8 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
+      - name: Report inbox cursor and pagination contract
+        run: python3 scripts/ci_report_inbox.py --unit
       - name: Unit tests (all workspace modules)
         run: |
           set -o pipefail
@@ -275,6 +277,7 @@ jobs:
             test-go.log
             artifacts/flow-cursor-encoding/
             artifacts/static-report-capacity/
+            artifacts/report-inbox/
           retention-days: 90
       - name: Backup-encryption + erasure-covers-backups gate (OPS-002, COMPLY-002)
         run: go test -count=1 -v -run "Backup|Restore|Erasure|Retention|Coverage|SealOpen|Tamper" ./internal/backup/ ./internal/tenantlife/
@@ -1422,6 +1425,7 @@ jobs:
         run: |
           python3 scripts/ci_report_artifact_storage.py --selftest
           python3 scripts/ci_report_artifact_storage.py
+          python3 scripts/ci_report_inbox.py --integration
       - name: Targetless test metadata isolation and original refusal
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
@@ -1834,6 +1838,8 @@ jobs:
             --lock package-lock.json \
             --policy ../docs/security/npm-audit-policy.json \
             --omit-dev
+      - name: Complete inbox pages and original UI quota control
+        run: python3 ../scripts/ci_report_inbox.py --web
       - name: Typecheck
         run: npm run typecheck
       - name: Format check (CODE-009 — prettier)
@@ -1870,7 +1876,10 @@ jobs:
         if: always()
         with:
           name: web-bundle-budget-receipt
-          path: receipts/web-ux/bundle-budget.json
+          path: |
+            receipts/web-ux/bundle-budget.json
+            artifacts/report-inbox/
+
           retention-days: 90
 
   web-rendered-a11y:
