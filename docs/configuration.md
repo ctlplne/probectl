@@ -1964,7 +1964,11 @@ manifest and the retained manifest bytes in a physical reclaim batch. It is a
 positive operator resource profile, not a selected-row or history-population
 quota. The manifest also fits the per-snapshot profile and is fully charged to
 the tenant. A lower read profile refuses before loading an oversized encrypted
-metadata field; it does not weaken current-owner/source or lifecycle checks.
+metadata field. Because current context authority is inside that encrypted
+field, an unreadable existing snapshot is reported as unavailable in the same
+way as a missing snapshot, rather than disclosing its metadata size. Run a
+fresh query after changing the profile. Creation still reports resource
+admission refusals, and lifecycle/storage accounting remains enforced.
 
 `PROBECTL_PATH_RETENTION_DAYS` applies the same pattern to raw path/traceroute
 ClickHouse rows: raw hops/links age out, while hourly tenant-scoped hop/link

@@ -99,14 +99,14 @@ func TestSnapshotsPostgresManifestChargeRepairAndBoundedRead(t *testing.T) {
 			t.Fatal(err)
 		}
 		// These rows deliberately contain malformed encrypted metadata. A low
-		// profile must return budget refusal from the SQL projection, before
+		// profile must refuse from the SQL projection, before
 		// decryption or any output callback. It must not become a crypto pass.
 		low := flowsnapshot.New(f.pool, f.objects, tenancy.PooledRouter{}, tenancy.NewPostgresWriterFence(f.pool), f.validate,
 			flowsnapshot.Config{ObjectBytes: 65536, TempDir: t.TempDir()})
 		called := false
 		err := low.Walk(ctx, flowsnapshot.Scope{TenantID: tenant, Owner: "manifest-owner"}, id, allowPostgresSnapshot,
 			func(flowsnapshot.Header) error { called = true; return nil }, func([]json.RawMessage) error { called = true; return nil })
-		if !errors.Is(err, flowsnapshot.ErrBudget) || called {
+		if !errors.Is(err, flowsnapshot.ErrNotFound) || called {
 			t.Fatal("bounded SQL manifest read reached decryption/output or lost refusal", err)
 		}
 		denial := errors.New("current source permission refused")

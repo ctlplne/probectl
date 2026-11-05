@@ -32,6 +32,7 @@ UNIT = (
         (
             "TestSnapshotsCompleteRowsPastFormerQuotaStayPrivateAcrossReplicas",
             "TestSnapshotsCompleteObjectManifestFollowsConfiguredAdmission",
+            "TestSnapshotsUnreadableMetadataDoesNotDiscloseRevokedSource",
         ),
     ),
     (

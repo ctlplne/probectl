@@ -302,8 +302,8 @@ func (s *Service) load(ctx context.Context, scope Scope, id string, authorize Au
 		return manifest{}, privateHeader{}, err
 	}
 	// SQL withholds an oversized private field while retaining only public
-	// control metadata. Current ownership/source permissions must still win
-	// over a budget diagnostic; revoked callers learn no metadata-size bit.
+	// control metadata. Global permissions do not prove current source/context
+	// access: that receipt is encrypted in the unavailable private field.
 	admissionErr := err
 	if m.Scope != scope {
 		return manifest{}, privateHeader{}, ErrNotFound
@@ -315,9 +315,12 @@ func (s *Service) load(ctx context.Context, scope Scope, id string, authorize Au
 		return manifest{}, privateHeader{}, err
 	}
 	if admissionErr != nil {
-		return manifest{}, privateHeader{}, admissionErr
+		return manifest{}, privateHeader{}, ErrNotFound
 	}
 	private, err := s.openPrivate(ctx, m)
+	if errors.Is(err, ErrBudget) {
+		return manifest{}, privateHeader{}, ErrNotFound
+	}
 	return m, private, err
 }
 

@@ -77,7 +77,7 @@ func TestSnapshotsCompleteObjectManifestFollowsConfiguredAdmission(t *testing.T)
 		low := replica
 		low.config.ObjectBytes = 65536
 		reads := objects.reads.Load()
-		if _, err := low.Resume(t.Context(), scope, first.NextCursor, allowSnapshot); !errors.Is(err, ErrBudget) || objects.reads.Load() != reads {
+		if _, err := low.Resume(t.Context(), scope, first.NextCursor, allowSnapshot); !errors.Is(err, ErrNotFound) || objects.reads.Load() != reads {
 			t.Fatal("lower manifest admission read an object or lost whole-operation refusal", err)
 		}
 		denial := errors.New("current source permission refused")
