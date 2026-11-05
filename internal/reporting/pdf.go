@@ -88,7 +88,7 @@ func WritePDF(ctx context.Context, target io.Writer, d Document, limits PDFLimit
 			return PDFReceipt{}, err
 		}
 		if table.ExpectedRows > limits.TableRows-rows {
-			return PDFReceipt{}, ErrPDFLimit
+			return PDFReceipt{}, fmt.Errorf("%w: logical rows requested=%d available=%d", ErrPDFLimit, table.ExpectedRows, limits.TableRows-rows)
 		}
 		rows += table.ExpectedRows
 		identities[table.ID] = true
@@ -133,11 +133,11 @@ func WritePDF(ctx context.Context, target io.Writer, d Document, limits PDFLimit
 	}
 	for _, table := range d.Tables {
 		if err := p.table(table); err != nil {
-			return PDFReceipt{}, err
+			return PDFReceipt{}, fmt.Errorf("PDF table rendering: %w", err)
 		}
 	}
 	if err := p.finish(); err != nil {
-		return PDFReceipt{}, err
+		return PDFReceipt{}, fmt.Errorf("PDF document finalization: %w", err)
 	}
 	writer := &boundedPDFWriter{ctx: ctx, target: target, remaining: limits.Bytes}
 	if err := p.serialize(writer); err != nil {
@@ -196,7 +196,7 @@ func (p *pdfDocument) charge(n int64) error {
 		return err
 	}
 	if n < 0 || n > p.remaining {
-		return ErrPDFLimit
+		return fmt.Errorf("%w: renderer memory requested=%d available=%d", ErrPDFLimit, n, p.remaining)
 	}
 	p.remaining -= n
 	return nil
@@ -210,7 +210,7 @@ func (p *pdfDocument) layout(value string) ([]pdfLine, error) {
 		return nil, fmt.Errorf("PDF text is not complete UTF-8")
 	}
 	if int64(len(value)) > p.remaining/256 {
-		return nil, ErrPDFLimit
+		return nil, fmt.Errorf("%w: text workspace exceeds renderer memory available=%d", ErrPDFLimit, p.remaining)
 	}
 	if err := p.charge(int64(len(value))*256 + 512); err != nil {
 		return nil, err
@@ -444,7 +444,7 @@ func (p *pdfDocument) paint(line pdfLine) error {
 		count += int64(len(run.Glyphs))
 	}
 	if count > p.remaining/384 {
-		return ErrPDFLimit
+		return fmt.Errorf("%w: glyph workspace exceeds renderer memory available=%d", ErrPDFLimit, p.remaining)
 	}
 	workspace := count * 384
 	if err := p.charge(workspace); err != nil {
@@ -563,7 +563,7 @@ func (p *pdfDocument) table(table CSVTable) error {
 				return rowErr
 			}
 			if int64(len(value)) > p.remaining/256 {
-				rowErr = ErrPDFLimit
+				rowErr = fmt.Errorf("%w: cell workspace exceeds renderer memory available=%d", ErrPDFLimit, p.remaining)
 				return rowErr
 			}
 			if rowErr = p.text(table.Columns[i].Name + ": " + value); rowErr != nil {
@@ -913,7 +913,7 @@ func (w *boundedPDFWriter) Write(body []byte) (int, error) {
 		return 0, w.err
 	}
 	if int64(len(body)) > w.remaining {
-		w.err = ErrPDFLimit
+		w.err = fmt.Errorf("%w: serialized bytes requested=%d available=%d", ErrPDFLimit, len(body), w.remaining)
 		return 0, w.err
 	}
 	n, err := w.target.Write(body)
