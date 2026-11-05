@@ -137,7 +137,8 @@ source requirements are absent from MCP output.
 
 Migration `0061_dashboard_reporting.sql` introduced tenant-owned views,
 schedules and artifacts. Migration `0168_dashboard_report_artifact_chunks.sql`
-adds ordered 64 KiB Postgres chunks, at most 256 MiB per complete body. Existing
+adds ordered 64 KiB Postgres chunks. Complete body admission is operator-configurable
+(`PROBECTL_REPORT_MAX_BYTES`, default 256 MiB). Existing
 inline bodies retain their 2 MiB limit. Effective source output allowance also
 depends on the finite operation memory/output policy.
 
@@ -206,10 +207,22 @@ payloads.
 
 ## Required verification
 
-The general renderer supports 500,000 logical CSV rows and 4,000 PDF rows.
-Source publication reserves 1,000,000/8,000 logical records respectively so
+The default general renderer profile supports 500,000 logical CSV rows and 4,000 PDF rows.
+`PROBECTL_REPORT_CSV_ROWS` and `PROBECTL_REPORT_PDF_ROWS` configure source
+publication capacity; they are positive workload admission settings.
+At defaults, source publication reserves 1,000,000/8,000 logical records respectively so
 identity, filters, totals and other metadata are charged alongside detail.
-Byte, memory, deadline and cumulative source-read limits still apply.
+Generation, schedules, projection and verified downloads share the configured
+output policy. Renderer workspace uses the configured query-memory quarter
+share; staging uses half, with slice/hash/final-chunk overhead charged before
+allocation. Raise the operation memory budget with output bytes, and provision
+that capacity at the selected tenant concurrency. Serialized size is checked
+against the chunk ordinal representation (2^31 chunks); that representation
+bound is not a tested capacity or an allocation promise. Real CI separately
+requires complete above-default CSV/PDF rows and full paired-tenant body
+write/read/hash checks beyond the former 256 MiB limit. Existing corruption,
+missing/extra-chunk, lifecycle, old-reader and foreign refusal controls remain.
+Byte, memory, deadline and cumulative source-read admission still apply.
 
 Required CI includes paired Postgres/ClickHouse sources, complete 500,000-detail
 CSV from ten disjoint 50,000-row queries, independent streamed CSV/digest parsing,

@@ -55,7 +55,7 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
-	stage, mediaType, err := stageSourceDashboardReport(ctx, item.Schedule.Format, document, budget)
+	stage, mediaType, err := stageSourceDashboardReport(ctx, item.Schedule.Format, document, budget, server.reportOutputPolicy())
 	if err != nil {
 		return false, err
 	}

@@ -12975,7 +12975,7 @@
                   "type": "integer",
                   "format": "int64",
                   "minimum": 1,
-                  "maximum": 268435456
+                  "maximum": 140737488355328
                 }
               },
               "X-Report-SHA256": {
@@ -14922,7 +14922,7 @@
             "type": "integer",
             "format": "int64",
             "minimum": 1,
-            "maximum": 268435456,
+            "maximum": 140737488355328,
             "description": "Exact stored attachment byte count; present on current metadata listings."
           },
           "body_sha256": {

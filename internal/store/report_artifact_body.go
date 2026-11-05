@@ -18,7 +18,7 @@ import (
 )
 
 const ReportArtifactSourceEnvelopeMaxBytes = 1 << 20
-const reportArtifactMaxBytes int64 = 256 << 20
+const reportArtifactMaxBytes = reporting.MaxBodyBytes
 
 var ErrReportArtifactIntegrity = errors.New("stored report body is incomplete or inconsistent")
 var ErrReportArtifactSnapshot = errors.New("report body requires a tenant read snapshot")

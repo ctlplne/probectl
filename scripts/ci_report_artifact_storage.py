@@ -19,6 +19,10 @@ ROOT = "TestReportArtifactChunksTenantIsolationAndLegacyRefusal"
 MARKER = "legacy reader did not refuse chunk representation"
 IO_ROOT = "TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption"
 IO_MARKER = "corrupt report exposed metadata or partial bytes"
+CAPACITY_ROOT = "TestReportArtifactConfiguredCapacityBeyondFormerBodyCeiling"
+OUTPUT_PACKAGE = "github.com/ctlplne/probectl/internal/control"
+OUTPUT_ROOT = "TestReportConfiguredOutputRetainsRowsAboveFormerLimits"
+OUTPUT_TESTS = (OUTPUT_ROOT, OUTPUT_ROOT + "/csv", OUTPUT_ROOT + "/pdf")
 SILO_PACKAGE = "github.com/ctlplne/probectl/ee/silo"
 SILO_ROOT = "TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies"
 SILO_TESTS = (SILO_ROOT, SILO_ROOT + "/siloed", SILO_ROOT + "/hybrid")
@@ -56,6 +60,19 @@ def selftest():
     for missing in SILO_TESTS:
         omitted = [event for event in silo_events if event.get("Test") != missing]
         assert classify(encode(omitted), 0, package=SILO_PACKAGE, tests=SILO_TESTS)
+    for package, required in (
+        (PACKAGE, (CAPACITY_ROOT,)),
+        (OUTPUT_PACKAGE, OUTPUT_TESTS),
+    ):
+        events = [
+            {"Package": package, "Test": root, "Action": action}
+            for root in required
+            for action in ("run", "pass")
+        ] + [{"Package": package, "Action": "pass"}]
+        assert not classify(encode(events), 0, package=package, tests=required)
+        for omitted in required:
+            missing = [event for event in events if event.get("Test") != omitted]
+            assert classify(encode(missing), 0, package=package, tests=required)
     broken = [
         {"Package": PACKAGE, "Test": ROOT, "Action": "run"},
         {"Package": PACKAGE, "Test": ROOT + "/success", "Action": "run"},
@@ -174,6 +191,8 @@ def run():
     for package, root in (
         (PACKAGE, ROOT),
         (PACKAGE, IO_ROOT),
+        (PACKAGE, CAPACITY_ROOT),
+        (OUTPUT_PACKAGE, OUTPUT_ROOT),
         (SILO_PACKAGE, SILO_ROOT),
         (LIFECYCLE_PACKAGE, LIFECYCLE_ROOT),
     ):
@@ -182,7 +201,13 @@ def run():
             result.stdout,
             result.returncode,
             package=package,
-            tests=SILO_TESTS if root == SILO_ROOT else (root,),
+            tests=(
+                SILO_TESTS
+                if root == SILO_ROOT
+                else OUTPUT_TESTS
+                if root == OUTPUT_ROOT
+                else (root,)
+            ),
         )
         if failed:
             raise RuntimeError(

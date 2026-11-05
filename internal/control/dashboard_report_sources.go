@@ -94,6 +94,10 @@ func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Princ
 	if s.pool == nil || s.flowQueryViews == nil || s.fairnessGate == nil || len(refs) == 0 {
 		return nil, apierror.Unavailable("report source admission is unavailable")
 	}
+	policy := s.reportOutputPolicy()
+	if err := policy.Validate(); err != nil {
+		return nil, apierror.Unavailable("report output admission is unavailable")
+	}
 	budget := flowstore.ExplorerQueryBudget(s.flowStore)
 	if err := budget.Validate(); err != nil {
 		return nil, apierror.Unavailable("report source cost policy is unavailable")
@@ -337,7 +341,11 @@ func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prep
 			captures = append(captures, reportFlowResult(p.TenantID, value.view, "previous", before, tagAsOf))
 		}
 	}
-	tables, err := projectReportFlowRecords(ctx, captures, workspace/4, 2*reporting.DefaultCSVLimits().TableRows)
+	policy := s.reportOutputPolicy()
+	if err := policy.Validate(); err != nil {
+		return nil, err
+	}
+	tables, err := projectReportFlowRecords(ctx, captures, workspace/4, 2*max(policy.CSVRows, policy.PDFRows))
 	if err != nil {
 		return nil, err
 	}
