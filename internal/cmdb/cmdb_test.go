@@ -7,7 +7,6 @@
 package cmdb
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -74,7 +73,7 @@ func TestServiceNowLookupAndCorrelate(t *testing.T) {
 	defer ts.Close()
 
 	r := NewResolver(NewServiceNow(ts.URL, "", "user:pass"), time.Minute)
-	ctx := context.Background()
+	ctx := netBoxContext(netBoxTenantA)
 
 	cis, err := r.Lookup(ctx, "10.0.0.1")
 	if err != nil {
@@ -171,7 +170,7 @@ func TestResolverCacheAndGracefulDegrade(t *testing.T) {
 	defer ts.Close()
 
 	r := NewResolver(NewServiceNow(ts.URL, "", "user:pass"), 50*time.Millisecond)
-	ctx := context.Background()
+	ctx := netBoxContext(netBoxTenantA)
 
 	if _, err := r.Lookup(ctx, "10.0.0.1"); err != nil {
 		t.Fatal(err)
@@ -234,7 +233,7 @@ func TestResolverNegativeCache(t *testing.T) {
 
 	r := NewResolver(NewServiceNow(ts.URL, "", "user:pass"), time.Minute)
 	for i := 0; i < 3; i++ {
-		if cis, err := r.Lookup(context.Background(), "203.0.113.99"); err != nil || len(cis) != 0 {
+		if cis, err := r.Lookup(netBoxContext(netBoxTenantA), "203.0.113.99"); err != nil || len(cis) != 0 {
 			t.Fatalf("lookup: cis=%v err=%v", cis, err)
 		}
 	}

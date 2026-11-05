@@ -19,8 +19,16 @@ TESTS = (
     "TestNetBoxCompleteLookupPagesKeepAllMatchesAndTenantBinding",
     "TestNetBoxCompleteLookupProfilesAreCumulativeAndRaiseable",
     "TestNetBoxInvalidAndCancelledLookupProfilesDoNotFetch",
+    "TestResolverEveryProviderCacheRequiresTenantScope",
 )
 CONTROLS = (
+    (
+        "internal/cmdb/cmdb.go",
+        '\tcacheKey := tenant.String() + "\\x00" + key\n',
+        "\tcacheKey := key\n",
+        TESTS[3],
+        "generic cache reused another tenant's CI",
+    ),
     (
         "internal/cmdb/netbox_pages.go",
         "\t\ttotal = *page.Count\n",
@@ -146,7 +154,7 @@ def main() -> int:
                 )
         finally:
             path.write_bytes(original)
-    print("Complete CMDB capacity and all three original restriction controls PASS")
+    print("Complete CMDB capacity and all four original restriction controls PASS")
     return 0
 
 

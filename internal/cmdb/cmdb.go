@@ -26,6 +26,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // CI is one configuration item.
@@ -90,11 +94,22 @@ func (r *Resolver) ProviderName() string { return r.provider.Name() }
 // Lookup resolves one key, serving fresh cache hits first. On provider error a
 // stale cache entry (if any) is served — a down CMDB must not break probectl.
 func (r *Resolver) Lookup(ctx context.Context, key string) ([]CI, error) {
+	if ctx == nil {
+		return nil, ErrTenantBinding
+	}
+	tenant, ok := tenancy.FromContext(ctx)
+	if !ok {
+		return nil, ErrTenantBinding
+	}
+	id, err := uuid.Parse(tenant.String())
+	if err != nil || id == uuid.Nil || id.String() != tenant.String() {
+		return nil, ErrTenantBinding
+	}
 	key = CanonicalKey(key)
 	if key == "" {
 		return nil, nil
 	}
-	cacheKey := key
+	cacheKey := tenant.String() + "\x00" + key
 	if scoped, ok := r.provider.(interface {
 		cacheScope(context.Context) (string, error)
 	}); ok {
