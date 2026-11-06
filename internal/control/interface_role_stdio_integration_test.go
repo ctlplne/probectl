@@ -186,6 +186,12 @@ func TestInterfaceRoleStdioKeepsWholePoliciesAndRechecksCredentialWithinStream(t
 			saveCompleteRoleExplanationPolicy(f, a)
 			var expected, got entity.InterfaceRolePolicyRecord
 			f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+				// Model a valid possible generator output whose numeric prefix
+				// also passes a PAN checksum. It remains an opaque UUID,
+				// without changing any rule/pattern, order or population.
+				if _, err := sc.Q.Exec(ctx, `UPDATE interface_role_policies SET definition=jsonb_set(definition,'{description_rules,0,id}',to_jsonb($3::text)) WHERE tenant_id=$1 AND context_id=$2`, a, f.contextID, "40000000-0000-4004-8000-abcdefabcdef"); err != nil {
+					return err
+				}
 				var err error
 				expected, err = (store.InterfaceRoleConfiguration{}).Policy(ctx, sc, f.contextID, interfaceRoleStoreBudget(flowstore.DefaultExplorerBudget()))
 				return err
