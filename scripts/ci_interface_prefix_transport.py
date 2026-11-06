@@ -384,6 +384,50 @@ def configuration_regexp_expansion_control():
     print(json.dumps({"role_regexp_expansion_admission_control": True}))
 
 
+
+EXPLANATION_CONTROLS = {
+    "grant": (
+        "internal/control/interface_role_explanation_api.go",
+        "current.requestContext(ctx, actor)",
+        "(&currentUserAuthority{principal: actor, policies: current.policies}).requestContext(ctx, actor)",
+        "TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority",
+        "stale native principal retained revoked current grants",
+    ),
+    "publication": (
+        "internal/control/interface_role_explanation_api.go",
+        "if !sameInterfaceRoleInputs(before, after) {",
+        "if false && !sameInterfaceRoleInputs(before, after) {",
+        "TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges",
+        "role explanation published after its authority changed",
+    ),
+    "admission": (
+        "internal/control/interface_role_associations.go",
+        "budget *interfaceRoleBudget) (interfaceRolePeerAssociation, error) {",
+        "budget *interfaceRoleBudget) (interfaceRolePeerAssociation, error) {\ncopyBudget := *budget; budget = &copyBudget",
+        "TestInterfaceRolePeerAssociationSharesMultiPeerAdmission",
+        "peer association reset shared operation admission",
+    ),
+}
+
+
+def current_role_explanation_controls():
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    for name, (file, seam, replacement, root, marker) in EXPLANATION_CONTROLS.items():
+        source = Path(file).resolve()
+        original = source.read_text()
+        assert original.count(seam) == 1
+        mutant = out / ("role_explanation_" + name + ".go")
+        mutant.write_text(original.replace(seam, replacement))
+        overlay = out / ("role_explanation_" + name + ".json")
+        overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+        result = execute("internal/control", (root,), "role_explanation_" + name,
+                         integration=True, overlay=overlay)
+        if not report_regression_failed_on_assertion(result.stdout, result.returncode,
+                package=PREFIX + "internal/control", root=root, child="", marker=marker):
+            raise RuntimeError("role explanation control did not fail its exact assertion: " + name)
+    print(json.dumps({"current_role_explanation_controls": True}))
+
+
 def current_role_source_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, file, seam, replacement, root, marker in (
@@ -537,6 +581,7 @@ def main(integration):
                 f"required prefix transport proof missing/failed: {failures}"
             )
     if integration:
+        current_role_explanation_controls()
         current_role_source_controls()
         configuration_incarnation_controls()
         configuration_api_controls()
