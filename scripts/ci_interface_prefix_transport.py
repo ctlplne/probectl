@@ -179,7 +179,7 @@ INTEGRATION = {
         "TestEntityEvidenceSubjectMetadataExportErasureAndIsolation",
     ),
 }
-ROOT = UNIT["internal/agent"][0]
+ROOT = "TestSNMPPrefixEvidenceWireKeepsCompleteSetAndWholeRequestAdmission"
 MARKER = "combined complete prefix request escaped whole-wire admission"
 
 
@@ -252,6 +252,7 @@ def selftest():
             )
         assert classify("", 0, **options)
         assert classify(encode(events), 1, **options)
+    assert ROOT in UNIT["internal/agent"]
     control = [
         {"Package": PREFIX + "internal/agent", "Test": ROOT, "Action": "run"},
         {
@@ -275,6 +276,8 @@ def selftest():
         encode(control[:1] + control[2:]), 1, **options
     )
     assert not report_regression_failed_on_assertion("compiler error", 1, **options)
+    unrelated = [dict(row, Test="TestRoutingStageClientPreservesCompleteRequestAndRequiresPrivateReceipt") if "Test" in row else row for row in control]
+    assert not report_regression_failed_on_assertion(encode(unrelated), 1, **options)
     print("Prefix transport classifier refuses missing, skipped and unrelated proof")
 
 
