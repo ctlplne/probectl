@@ -231,6 +231,9 @@ func loadRoutingWriteView(ctx context.Context, sc tenancy.Scope, source BGPRouti
 	if errors.Is(err, pgx.ErrNoRows) {
 		return routingWriteView{}, ErrBGPRoutingSourceUnavailable
 	}
+	if err == nil && !routingSelectionSupportsAFI(source, view.afi) {
+		return routingWriteView{}, ErrBGPRoutingView
+	}
 	return view, err
 }
 

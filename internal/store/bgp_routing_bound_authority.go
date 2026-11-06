@@ -7,9 +7,11 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/netip"
 	"reflect"
 	"time"
@@ -82,7 +84,56 @@ func validRoutingSelection(source BGPRoutingSource, selected *routingSourceSelec
 	if normalizeRoutingBinding(&canonical) != nil || !reflect.DeepEqual(canonical, selected.Binding) {
 		return false
 	}
+	if len(selected.Families) == 0 || len(selected.Families) > 2 {
+		return false
+	}
+	var seen [3]bool
+	for _, afi := range selected.Families {
+		if afi < 1 || afi > 2 || seen[afi] {
+			return false
+		}
+		seen[afi] = true
+		permitted := false
+		for _, declared := range selected.Binding.Families {
+			permitted = permitted || afi == declared
+		}
+		if !permitted {
+			return false
+		}
+	}
 	return true
+}
+
+func decodeRoutingSelection(ctx context.Context, raw []byte, source BGPRoutingSource, budget BGPRoutingBudget) (*routingSourceSelection, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 || routingBatchPopulationCharge(&budget, len(raw), 128, 16) != nil {
+		return nil, ErrBGPRoutingBudget
+	}
+	var selected routingSourceSelection
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&selected) != nil || !validRoutingSelection(source, &selected) {
+		return nil, ErrBGPRoutingView
+	}
+	var trailing any
+	if decoder.Decode(&trailing) != io.EOF {
+		return nil, ErrBGPRoutingView
+	}
+	return &selected, nil
+}
+
+func routingSelectionSupportsAFI(source BGPRoutingSource, afi uint16) bool {
+	if source.routingSelection == nil {
+		return true
+	}
+	for _, permitted := range source.routingSelection.Families {
+		if afi == permitted {
+			return true
+		}
+	}
+	return false
 }
 
 func sameRoutingSelection(a, b routingSourceSelection) bool {

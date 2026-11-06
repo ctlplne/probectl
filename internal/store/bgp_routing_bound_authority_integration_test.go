@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"reflect"
 	"testing"
 	"time"
 
@@ -87,7 +88,25 @@ func TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant(t *test
 			definition.Peer.Distinguisher = [8]byte{0, 0, 0, 0, 0, 0, 0x12, 0x34}
 			definition.Peer.BGPIdentifier = netip.MustParseAddr("192.0.2.1")
 			ref := routingLookupBegin(t, f, source, definition)
-			routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 1, AFI: afi, SAFI: 1, EndOfRIB: true})
+			change := routingChangeFixture()
+			address := "192.0.2.19"
+			if afi == 2 {
+				change.Prefix = netip.MustParsePrefix("2001:db8:42::/48")
+				address = "2001:db8:42::19"
+			}
+			change.Segments[1].Values[0] = uint32(64496 + lane)
+			routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 1, AFI: afi, SAFI: 1, Changes: []BGPRoutingChange{change}})
+			routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 2, AFI: afi, SAFI: 1, EndOfRIB: true})
+			if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+				got, err := (BGPRouting{}).lookupRouterInScope(ctx, sc, source.Scope, source.RouterID, netip.MustParseAddr(address), routingViewBudget())
+				if err != nil || len(got.Paths) != 1 || got.Prefix != change.Prefix || !reflect.DeepEqual(got.Paths[0].Segments, change.Segments) ||
+					got.Source.routingSelection == nil || !sameRoutingSelection(*got.Source.routingSelection, *source.routingSelection) {
+					t.Fatal("bound routing lookup lost current owned path", err, got)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
 			if afi == 1 {
 				refs[lane] = ref
 			}

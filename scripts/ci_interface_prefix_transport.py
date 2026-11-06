@@ -109,6 +109,7 @@ UNIT = {
     "internal/store": (
         "TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity",
         "TestRoutingBindingReaderRefusesUnknownCorruptAndForeignMetadata",
+        "TestRoutingSelectionReaderRefusesUnknownBorrowedAndIncompleteBindings",
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
         "TestBGPRoutingLookupRequiresTenantExactViewAndWholeAdmissionBeforeStorage",
@@ -458,6 +459,22 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-selection-unknown": (
+        "internal/store/bgp_routing_bound_authority.go",
+        "decoder.DisallowUnknownFields()",
+        "_ = decoder",
+        "TestRoutingSelectionReaderRefusesUnknownBorrowedAndIncompleteBindings",
+        "",
+        "stored routing selection accepted unknown authority metadata",
+    ),
+    "routing-bound-read": (
+        "internal/store/bgp_routing_router.go",
+        "view_kind IN ('loc_rib','operator_loc_rib')",
+        "view_kind='loc_rib'",
+        "TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant",
+        "",
+        "bound routing lookup lost current owned path",
+    ),
     "routing-managed-generated": (
         "ee/silo/provisioner.go",
         "CASE WHEN a.attgenerated='s' THEN c.generation_expression ELSE '' END",
@@ -577,8 +594,8 @@ ROUTING_WRITE_CONTROLS = {
     ),
     "routing-lookup-view": (
         "internal/store/bgp_routing_lookup.go",
-        "AND view_kind='loc_rib' AND NOT filtered",
-        "AND NOT filtered",
+        "AND view_kind=$11 AND NOT filtered",
+        "AND $11::text IS NOT NULL AND NOT filtered",
         "TestBGPRoutingLookupKeepsLongestPrefixEveryPathTenantFamilyAndSelectedView",
         "", "adjacent route view impersonated a selected router lookup",
     ),

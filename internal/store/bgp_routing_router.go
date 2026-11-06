@@ -54,10 +54,10 @@ func (store BGPRouting) lookupRouterInScope(ctx context.Context, sc tenancy.Scop
 	// credentials or grants. A stale/filtered single view is refused below; two
 	// complete voices require an explicit source choice before route attribution.
 	const selected = ` FROM bgp_routing_views WHERE tenant_id=$1 AND context_id=$2 AND router_id=$3
- AND source_kind='router_bmp' AND view_kind='loc_rib' AND afi=$4 AND safi=1
+ AND source_kind='router_bmp' AND view_kind IN ('loc_rib','operator_loc_rib') AND afi=$4 AND safi=1
  AND state='current' AND completed_at IS NOT NULL`
 	var count, encoded int64
-	if err := sc.Q.QueryRow(ctx, `SELECT count(*),COALESCE(sum(octet_length(collector_agent_id)+octet_length(source_ref)+octet_length(sender_serial)+octet_length(origin_serial)),0)::bigint`+selected,
+	if err := sc.Q.QueryRow(ctx, `SELECT count(*),COALESCE(sum(octet_length(collector_agent_id)+octet_length(source_ref)+octet_length(sender_serial)+octet_length(origin_serial)+COALESCE(octet_length(routing_selection::text),0)),0)::bigint`+selected,
 		scope.TenantID, scope.ContextID, routerID, afi).Scan(&count, &encoded); err != nil {
 		return routingLookup{}, err
 	}
@@ -67,17 +67,27 @@ func (store BGPRouting) lookupRouterInScope(ctx context.Context, sc tenancy.Scop
 	if count != 1 {
 		return routingLookup{}, errBGPRoutingAmbiguousView
 	}
-	if encoded < 0 || encoded > budget.MemoryBytes/8 || encoded > budget.WorkUnits/4 {
+	if encoded < 0 || encoded > budget.MemoryBytes/128 || encoded > budget.WorkUnits/16 {
 		return routingLookup{}, ErrBGPRoutingBudget
 	}
-	if err := routingBatchCharge(&budget, encoded*8, encoded*4); err != nil {
+	if err := routingBatchCharge(&budget, encoded*128, encoded*16); err != nil {
 		return routingLookup{}, err
 	}
 	source := BGPRoutingSource{Scope: scope, RouterID: routerID}
 	var ref BGPRoutingViewRef
-	if err := sc.Q.QueryRow(ctx, `SELECT id::text,generation::text,collector_agent_id,source_ref,sender_serial,origin_serial,observed_at`+selected,
-		scope.TenantID, scope.ContextID, routerID, afi).Scan(&ref.ID, &ref.Generation, &source.CollectorAgentID, &source.SourceRef, &source.SenderSerial, &source.OriginSerial, &source.ObservedAt); err != nil {
+	var raw []byte
+	var kind string
+	if err := sc.Q.QueryRow(ctx, `SELECT id::text,generation::text,collector_agent_id,source_ref,sender_serial,origin_serial,observed_at,routing_selection,view_kind`+selected,
+		scope.TenantID, scope.ContextID, routerID, afi).Scan(&ref.ID, &ref.Generation, &source.CollectorAgentID, &source.SourceRef, &source.SenderSerial, &source.OriginSerial, &source.ObservedAt, &raw, &kind); err != nil {
 		return routingLookup{}, err
+	}
+	if kind == "operator_loc_rib" {
+		source.routingSelection, err = decodeRoutingSelection(ctx, raw, source, budget)
+		if err != nil {
+			return routingLookup{}, err
+		}
+	} else if raw != nil {
+		return routingLookup{}, ErrBGPRoutingView
 	}
 	return store.lookupViewInScope(ctx, sc, source, ref, address, budget)
 }
