@@ -758,10 +758,13 @@ def ix_prefix_controls():
         mutant.write_text(original.replace(seam, replacement))
         overlay = out / (name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
-        result = execute(package, (root,), name, overlay=overlay)
-        if not report_regression_failed_on_assertion(result.stdout, result.returncode,
-                package=PREFIX + package, root=root, child="", marker=marker):
-            raise RuntimeError("IX source control did not fail its exact assertion: " + name)
+        children = ("11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") if name == "ix_owned_input" else ("",)
+        for child in children:
+            label = name + ("_" + child if child else "")
+            result = execute(package, (root,), label, overlay=overlay, child=child)
+            if not report_regression_failed_on_assertion(result.stdout, result.returncode,
+                    package=PREFIX + package, root=root, child=child, marker=marker):
+                raise RuntimeError("role source control did not fail its exact assertion: " + label)
     print(json.dumps({"ix_source_and_owned_input_controls": True}))
 
 
