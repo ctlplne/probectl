@@ -45,6 +45,8 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestInterfaceRoleMCPMetadataKeepsExactGeneratedIDsAndFullTextRedaction",
+        "TestInterfaceRoleMCPMetadataRefusesMalformedIdentifiersAndRevisions",
         "TestInterfaceRoleIXSourceMatchesOnlyOwnedCurrentInputsAndPreservesOverrides",
         "TestBuildEnrichmentIXPrefixFailureRemainsVisibleAndMakesNoOutboundSource",
         "TestFlowRoleSnapshotRequiresCurrentTenantUserBeforeStorage",

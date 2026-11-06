@@ -72,16 +72,27 @@ func (b mcpInterfaceRoleBackend) InterfaceRoleConfiguration(ctx context.Context,
 		}
 	}
 	if name == "interface_role_explain" {
-		return b.server.interfaceRoleExplanation(r)
+		body, err := b.server.interfaceRoleExplanation(r)
+		if err != nil {
+			return nil, err
+		}
+		return marshalRoleMCPExplanation(body)
 	}
 	if name == "interface_role_policy" || name == "interface_role_policy_set" {
-		return b.server.interfaceRolePolicy(r)
+		body, err := b.server.interfaceRolePolicy(r)
+		if err != nil {
+			return nil, err
+		}
+		return marshalRoleMCPPolicy(body)
 	}
 	result, err := b.server.interfaceRoleOverride(r)
 	if err == nil && method == http.MethodDelete {
 		return json.RawMessage(`{"reset":true}`), nil
 	}
-	return result, err
+	if err != nil {
+		return nil, err
+	}
+	return marshalRoleMCPOverride(result)
 }
 
 func interfaceRoleToolSchemas() (mcp.NativeFlowSchemas, error) {
