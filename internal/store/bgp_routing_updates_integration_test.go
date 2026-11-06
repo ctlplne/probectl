@@ -310,3 +310,55 @@ func TestBGPRoutingBatchRollsBackLateStorageFaultAndOriginExpiry(t *testing.T) {
 		})
 	}
 }
+
+func TestBGPRoutingResetClosesKnownGenerationBeforeRefusedReplacement(t *testing.T) {
+	f := newRoleInputsFixture(t)
+	sources := []BGPRoutingSource{routingFixtureSource(f, 0), routingFixtureSource(f, 1)}
+	refs := []BGPRoutingViewRef{routingFixtureBegin(t, f, sources[0]), routingFixtureBegin(t, f, sources[1])}
+	for lane := range sources {
+		batch := BGPRoutingBatch{Sequence: 1, AFI: 1, SAFI: 1, ObservedAt: routingFixtureTime(f), EndOfRIB: true}
+		if result, err := routingFixtureApply(t, f, sources[lane], refs[lane], batch, routingViewBudget()); err != nil || result.Status != "applied" {
+			t.Fatal(result, err)
+		}
+	}
+	reset := func(source BGPRoutingSource, ref BGPRoutingViewRef) error {
+		source.ObservedAt = routingFixtureTime(f)
+		return routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
+			result, err := (BGPRouting{}).InvalidateViewInScope(ctx, sc, source, ref)
+			if err == nil && (result.Status != "invalidated" || result.Reason != "source-reset") {
+				t.Fatal("known routing reset did not report committed refusal", result)
+			}
+			return err
+		})
+	}
+	state := func(lane int) string {
+		var value string
+		f.in(sources[lane].TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(ctx, `SELECT state FROM bgp_routing_views WHERE tenant_id=$1 AND id=$2 AND generation=$3`, sources[lane].TenantID, refs[lane].ID, refs[lane].Generation).Scan(&value)
+		})
+		return value
+	}
+	foreign := sources[0]
+	foreign.SenderSerial = sources[1].SenderSerial
+	if err := reset(foreign, refs[0]); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || state(0) != "current" || state(1) != "current" {
+		t.Fatal("foreign routing reset changed an owned generation", err)
+	}
+	if err := reset(sources[0], refs[0]); err != nil {
+		t.Fatal(err)
+	}
+	// This is intentionally a separate transaction: a replacement refusal
+	// must never roll back the trusted closure of its former source generation.
+	sources[0].ObservedAt = routingFixtureTime(f)
+	err := routingFixtureWrite(t, f, sources[0], func(ctx context.Context, sc tenancy.Scope) error {
+		budget := routingViewBudget()
+		budget.StateBytes = 1
+		_, err := (BGPRouting{}).BeginViewInScope(ctx, sc, sources[0], routingViewFixture(), sources[0].ObservedAt.Add(time.Minute), budget)
+		return err
+	})
+	if !errors.Is(err, ErrBGPRoutingBudget) || state(0) != "invalid" || state(1) != "current" {
+		t.Fatal("refused replacement revived a reset routing generation or changed its sibling", err)
+	}
+	if err := reset(sources[0], refs[0]); err != nil || state(0) != "invalid" {
+		t.Fatal("replayed reset revived a former generation", err)
+	}
+}

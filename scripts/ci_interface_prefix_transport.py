@@ -144,6 +144,7 @@ INTEGRATION = {
         "TestBGPRoutingBatchesKeepCompleteTenantPathsReplayWithdrawalAndPublication",
         "TestBGPRoutingBatchRefusalInvalidatesWithoutPartialWritesOrEpochRevival",
         "TestBGPRoutingBatchRollsBackLateStorageFaultAndOriginExpiry",
+        "TestBGPRoutingResetClosesKnownGenerationBeforeRefusedReplacement",
     ),
     "internal/agenttransport": (
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
@@ -374,6 +375,13 @@ ROUTING_WRITE_CONTROLS = {
         "TestBGPRoutingBatchRollsBackLateStorageFaultAndOriginExpiry",
         "origin-expiry", "routing batch acknowledged a late store fault or expired origin",
     ),
+    "routing-source-reset": (
+        "internal/store/bgp_routing_updates.go",
+        'return invalidateRoutingView(ctx, sc, source, ref, "source-reset")',
+        'return BGPRoutingApplyResult{Status: "invalidated", Reason: "source-reset"}, nil',
+        "TestBGPRoutingResetClosesKnownGenerationBeforeRefusedReplacement",
+        "", "refused replacement revived a reset routing generation or changed its sibling",
+    ),
 }
 
 
@@ -382,7 +390,7 @@ def bgp_routing_write_controls():
     for name, (file, seam, replacement, root, child, marker) in ROUTING_WRITE_CONTROLS.items():
         source = Path(file).resolve()
         original = source.read_text()
-        assert original.count(seam) == (2 if name == "routing-final-authority" else 1)
+        assert original.count(seam) == (2 if name in ("routing-final-authority", "routing-birth-epoch") else 1)
         mutant = overlay_source_path(out, name + ".go")
         mutant.write_text(original.replace(seam, replacement))
         overlay = out / (name + ".json")

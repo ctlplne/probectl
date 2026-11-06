@@ -231,6 +231,32 @@ func invalidateRoutingView(ctx context.Context, sc tenancy.Scope, source BGPRout
 	return BGPRoutingApplyResult{Status: "invalidated", Reason: reason}, nil
 }
 
+// InvalidateViewInScope closes a known authenticated stream generation before
+// attempting any replacement metadata or route admission. It needs no payload
+// budget, so an exhausted replacement cannot keep former local attribution
+// alive. The caller commits this control transaction before starting a new one.
+func (store BGPRouting) InvalidateViewInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef) (BGPRoutingApplyResult, error) {
+	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
+		return BGPRoutingApplyResult{}, err
+	}
+	if err := lockBGPRoutingState(ctx, sc); err != nil {
+		return BGPRoutingApplyResult{}, err
+	}
+	view, err := loadRoutingWriteView(ctx, sc, source, ref)
+	if err != nil {
+		return BGPRoutingApplyResult{}, err
+	}
+	if _, err := store.SourceAuthorityForWriteInScope(ctx, sc, source); err != nil {
+		return BGPRoutingApplyResult{}, err
+	}
+	birth := source
+	birth.ObservedAt = view.born
+	if _, err := store.SourceAuthorityForWriteInScope(ctx, sc, birth); err != nil {
+		return BGPRoutingApplyResult{}, err
+	}
+	return invalidateRoutingView(ctx, sc, source, ref, "source-reset")
+}
+
 // ApplyBatchInScope applies a whole ordered generation batch or commits a
 // refusal invalidation. Caller owns a fenced read-committed tenant transaction;
 // all errors abort it. No rejected result extends the existing view lease.
