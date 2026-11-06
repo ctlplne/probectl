@@ -219,6 +219,9 @@
     },
     "bgp.parseBMPRouteUpdateFrame": {
       "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseBMPSourceRoute": {
+      "target": "FuzzBMPRouteMonitoring"
     }
   }
 }
