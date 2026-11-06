@@ -14,6 +14,10 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
+    "internal/store/flowstore": (
+        "TestInterfaceRoleQueryProjectionKeepsTenantIdentityAndCompleteMetadata",
+        "TestInterfaceRoleQueryProjectionRefusesAmbiguousExpiredOrPartialInputs",
+    ),
     "internal/device": (
         "TestSNMPPollPrefixEvidenceKeepsCompleteEpochAndUnavailableFence",
         "TestSNMPPollPrefixEvidenceRetainsWholePopulationAndOwnsInput",
@@ -534,6 +538,26 @@ def current_role_source_controls():
     print(json.dumps({"current_role_source_assertion_controls": True}))
 
 
+def role_query_tenant_control():
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    source = Path("internal/store/flowstore/explorer_roles.go").resolve()
+    seam = "scope.TenantID != tenant"
+    original = source.read_text()
+    assert original.count(seam) == 1
+    mutant = out / "role_query_tenant_omitted.go"
+    mutant.write_text(original.replace(seam, "false"))
+    overlay = out / "role_query_tenant_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestInterfaceRoleQueryProjectionRefusesAmbiguousExpiredOrPartialInputs"
+    result = execute("internal/store/flowstore", (root,), "role_query_tenant_omitted", overlay=overlay)
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, package=PREFIX + "internal/store/flowstore",
+        root=root, child="foreign",
+        marker="ambiguous, foreign or stale role projection was partially admitted",
+    ):
+        raise RuntimeError("role query tenant omission did not fail its exact foreign-row assertion")
+
+
 def prefix_poll_refresh_control():
     source = Path("internal/device/entity_evidence.go").resolve()
     original = source.read_text()
@@ -633,6 +657,7 @@ def main(integration):
         configuration_api_controls()
         configuration_silo_lock_control()
     if not integration:
+        role_query_tenant_control()
         prefix_poll_refresh_control()
         configuration_regexp_expansion_control()
         configuration_native_request_control()
