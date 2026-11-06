@@ -95,9 +95,9 @@ func TestReportRoleContextCapturePreservesTagsAndCurrentSourceRequirements(t *te
 	if err := captureReportRoleContextRequirements(ctx, principal, []entity.ContextRecord{foreign}, allowed); err == nil {
 		t.Fatal("report role capture accepted foreign tenant metadata")
 	}
-	cancelled, cancel := context.WithCancel(ctx)
+	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := captureReportRoleContextRequirements(cancelled, principal, []entity.ContextRecord{record}, allowed); !errors.Is(err, context.Canceled) {
+	if err := captureReportRoleContextRequirements(canceled, principal, []entity.ContextRecord{record}, allowed); !errors.Is(err, context.Canceled) {
 		t.Fatal("report role capture ignored cancellation", err)
 	}
 }

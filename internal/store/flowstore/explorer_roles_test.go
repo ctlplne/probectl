@@ -122,6 +122,6 @@ func TestInterfaceRoleQueryProjectionRefusesAmbiguousExpiredOrPartialInputs(t *t
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	if out, err := NewInterfaceRoleQueryData(canceled, tenant, at, nil, 1<<20); !errors.Is(err, context.Canceled) || out != nil {
-		t.Fatal("cancelled role projection was accepted", out, err)
+		t.Fatal("canceled role projection was accepted", out, err)
 	}
 }

@@ -79,7 +79,7 @@ func NewInterfaceRoleQueryData(ctx context.Context, tenant string, asOf time.Tim
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		scope, err := row.Scope.Normalize()
+		scope, err := row.Normalize()
 		address, addressErr := netip.ParseAddr(row.Exporter)
 		if err != nil || scope != row.Scope || scope.TenantID != tenant || !validTagProjectionID(row.RouterID) || !validTagProjectionID(row.InterfaceID) ||
 			addressErr != nil || address.Zone() != "" || address.Is4In6() || address.IsUnspecified() || address.IsMulticast() || address.String() != row.Exporter ||
