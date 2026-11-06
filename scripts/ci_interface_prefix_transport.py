@@ -94,6 +94,7 @@ UNIT = {
         "TestBGPRoutingBeginRefusesForeignTenantBeforeMetadataOrStorage",
         "TestBGPRoutingBatchKeepsCompleteValuesAndReplayIdentity",
         "TestBGPRoutingBatchRefusesWholeMalformedOrUnadmittedInput",
+        "TestBGPRoutingHeartbeatRequiresExclusiveFrameAndPositiveServerLease",
         "TestInterfaceRoleStorageRequiresTenantBeforeAnyQuery",
         "TestInterfaceRoleInputsRequireTenantBeforeStorageAndCanonicalPeerValues",
         "TestInterfaceRoleFlowBindingRequiresTenantBeforeStorageAndExactIdentity",
@@ -145,6 +146,8 @@ INTEGRATION = {
         "TestBGPRoutingBatchRefusalInvalidatesWithoutPartialWritesOrEpochRevival",
         "TestBGPRoutingBatchRollsBackLateStorageFaultAndOriginExpiry",
         "TestBGPRoutingResetClosesKnownGenerationBeforeRefusedReplacement",
+        "TestBGPRoutingHeartbeatKeepsIncarnationSequenceClockAndTenantLease",
+        "TestBGPRoutingMessageClockRejectsLegacyWritersAndUnusableHeartbeats",
     ),
     "internal/agenttransport": (
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
@@ -381,6 +384,27 @@ ROUTING_WRITE_CONTROLS = {
         'return BGPRoutingApplyResult{Status: "invalidated", Reason: "source-reset"}, nil',
         "TestBGPRoutingResetClosesKnownGenerationBeforeRefusedReplacement",
         "", "refused replacement revived a reset routing generation or changed its sibling",
+    ),
+    "routing-heartbeat-gap": (
+        "internal/store/bgp_routing_updates.go",
+        "if batch.Sequence != view.nextSequence {",
+        "if false && batch.Sequence != view.nextSequence {",
+        "TestBGPRoutingHeartbeatKeepsIncarnationSequenceClockAndTenantLease",
+        "", "routing heartbeat result differs",
+    ),
+    "routing-heartbeat-clock": (
+        "internal/store/bgp_routing_updates.go",
+        "batch.ObservedAt.Before(*view.lastObservedAt)",
+        "batch.ObservedAt.Before(view.born)",
+        "TestBGPRoutingMessageClockRejectsLegacyWritersAndUnusableHeartbeats",
+        "clock-regression", "unusable routing heartbeat retained former attribution",
+    ),
+    "routing-missing-clock": (
+        "internal/store/bgp_routing_updates.go",
+        'return invalidateRoutingView(ctx, sc, source, ref, "unavailable-message-clock")',
+        "view.lastObservedAt = &view.born; sequence := view.lastSequence; view.clockSequence = &sequence",
+        "TestBGPRoutingMessageClockRejectsLegacyWritersAndUnusableHeartbeats",
+        "legacy-clock", "unusable routing heartbeat retained former attribution",
     ),
 }
 

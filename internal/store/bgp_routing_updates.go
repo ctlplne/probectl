@@ -57,6 +57,7 @@ type BGPRoutingBatch struct {
 	SAFI       uint8
 	ObservedAt time.Time
 	EndOfRIB   bool
+	Heartbeat  bool `json:"Heartbeat,omitempty"`
 	Changes    []BGPRoutingChange
 }
 
@@ -83,6 +84,8 @@ type routingWriteView struct {
 	nextSequence, lastSequence int64
 	lastDigest                 []byte
 	born, validUntil           time.Time
+	lastObservedAt             *time.Time
+	clockSequence              *int64
 	bytes, rows                int64
 }
 
@@ -108,8 +111,12 @@ func prepareRoutingBatch(ctx context.Context, batch BGPRoutingBatch, afi uint16,
 		return nil, digest, err
 	}
 	if batch.Sequence <= 0 || batch.Sequence == math.MaxInt64 || batch.AFI != afi || batch.SAFI != safi ||
-		(afi != 1 && afi != 2) || safi != 1 || batch.ObservedAt.IsZero() || batch.EndOfRIB && len(batch.Changes) != 0 {
+		(afi != 1 && afi != 2) || safi != 1 || batch.ObservedAt.IsZero() ||
+		batch.EndOfRIB && len(batch.Changes) != 0 || batch.Heartbeat && (batch.EndOfRIB || len(batch.Changes) != 0) {
 		return nil, digest, ErrBGPRoutingBatch
+	}
+	if batch.Heartbeat && profile.LeaseDuration <= 0 {
+		return nil, digest, ErrBGPRoutingBudget
 	}
 	if err := routingBatchCharge(&profile, 1024, 64); err != nil {
 		return nil, digest, err
@@ -209,13 +216,13 @@ func loadRoutingWriteView(ctx context.Context, sc tenancy.Scope, source BGPRouti
 			return view, ErrBGPRoutingView
 		}
 	}
-	err := sc.Q.QueryRow(ctx, `SELECT state,afi,safi,next_sequence,last_sequence,last_digest,observed_at,valid_until,charged_bytes,row_count
+	err := sc.Q.QueryRow(ctx, `SELECT state,afi,safi,next_sequence,last_sequence,last_digest,observed_at,valid_until,charged_bytes,row_count,last_message_observed_at,message_clock_sequence
  FROM bgp_routing_views WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND generation=$4
  AND source_kind='router_bmp' AND router_id=$5 AND collector_agent_id=$6 AND source_ref=$7
  AND sender_serial=$8 AND origin_serial=$9 FOR UPDATE`, source.TenantID, source.ContextID, ref.ID, ref.Generation,
 		source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial).
 		Scan(&view.state, &view.afi, &view.safi, &view.nextSequence, &view.lastSequence, &view.lastDigest,
-			&view.born, &view.validUntil, &view.bytes, &view.rows)
+			&view.born, &view.validUntil, &view.bytes, &view.rows, &view.lastObservedAt, &view.clockSequence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return routingWriteView{}, ErrBGPRoutingSourceUnavailable
 	}
@@ -285,8 +292,11 @@ func (store BGPRouting) ApplyBatchInScope(ctx context.Context, sc tenancy.Scope,
 	if view.state == "invalid" || !view.validUntil.After(authority.AsOf) {
 		return invalidateRoutingView(ctx, sc, source, ref, "inactive-generation")
 	}
+	if view.lastObservedAt == nil || view.clockSequence == nil || *view.clockSequence != view.lastSequence {
+		return invalidateRoutingView(ctx, sc, source, ref, "unavailable-message-clock")
+	}
 	prepared, digest, err := prepareRoutingBatch(ctx, batch, view.afi, view.safi, profile)
-	if err != nil || !batch.ObservedAt.Equal(source.ObservedAt) || batch.ObservedAt.Before(view.born) {
+	if err != nil || !batch.ObservedAt.Equal(source.ObservedAt) || batch.ObservedAt.Before(*view.lastObservedAt) {
 		if ctx.Err() != nil {
 			return BGPRoutingApplyResult{}, ctx.Err()
 		}
@@ -300,6 +310,13 @@ func (store BGPRouting) ApplyBatchInScope(ctx context.Context, sc tenancy.Scope,
 	}
 	if batch.Sequence != view.nextSequence {
 		return invalidateRoutingView(ctx, sc, source, ref, "sequence-gap-or-conflict")
+	}
+	lease, err := routingBatchLease(ctx, sc, batch, profile.LeaseDuration, view.validUntil, authority.ValidUntil)
+	if errors.Is(err, ErrBGPRoutingSourceUnavailable) {
+		return invalidateRoutingView(ctx, sc, source, ref, "stale-heartbeat")
+	}
+	if err != nil {
+		return BGPRoutingApplyResult{}, err
 	}
 	plan, used, rows, err := planRoutingChanges(ctx, sc, source, ref, view, prepared, profile)
 	if errors.Is(err, ErrBGPRoutingBudget) {
@@ -318,13 +335,32 @@ func (store BGPRouting) ApplyBatchInScope(ctx context.Context, sc tenancy.Scope,
 	}
 	_, err = sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET next_sequence=$5::bigint+1,last_sequence=$5::bigint,last_digest=$6,
  charged_bytes=$7,row_count=$8,state=CASE WHEN $9 THEN 'current' ELSE state END,
- completed_at=CASE WHEN $9 THEN COALESCE(completed_at,clock_timestamp()) ELSE completed_at END,updated_at=clock_timestamp()
+ completed_at=CASE WHEN $9 THEN COALESCE(completed_at,clock_timestamp()) ELSE completed_at END,updated_at=clock_timestamp(),
+ last_message_observed_at=$10,message_clock_sequence=$5::bigint,valid_until=$11
  WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND generation=$4`, source.TenantID, source.ContextID, ref.ID, ref.Generation,
-		batch.Sequence, digest[:], used, rows, batch.EndOfRIB)
+		batch.Sequence, digest[:], used, rows, batch.EndOfRIB, batch.ObservedAt, lease)
 	if err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
 	return BGPRoutingApplyResult{Status: "applied"}, nil
+}
+
+func routingBatchLease(ctx context.Context, sc tenancy.Scope, batch BGPRoutingBatch, duration time.Duration, previous, authorityExpiry time.Time) (time.Time, error) {
+	if !batch.Heartbeat {
+		return previous, nil
+	}
+	lease := batch.ObservedAt.Add(duration)
+	if authorityExpiry.Before(lease) {
+		lease = authorityExpiry
+	}
+	var now time.Time
+	if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return time.Time{}, err
+	}
+	if !lease.After(now) {
+		return time.Time{}, ErrBGPRoutingSourceUnavailable
+	}
+	return lease, nil
 }
 
 func (store BGPRouting) checkRoutingWriteLease(ctx context.Context, sc tenancy.Scope, birth BGPRoutingSource, validUntil time.Time) error {

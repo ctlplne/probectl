@@ -95,3 +95,25 @@ func TestBGPRoutingBatchRefusesWholeMalformedOrUnadmittedInput(t *testing.T) {
 		t.Fatal("canceled routing batch returned work", err)
 	}
 }
+
+func TestBGPRoutingHeartbeatRequiresExclusiveFrameAndPositiveServerLease(t *testing.T) {
+	heartbeat := BGPRoutingBatch{Sequence: 1, AFI: 2, SAFI: 1, ObservedAt: time.Now(), Heartbeat: true}
+	profile := routingViewBudget()
+	profile.LeaseDuration = time.Minute
+	if changes, digest, err := prepareRoutingBatch(t.Context(), heartbeat, 2, 1, profile); err != nil || len(changes) != 0 || digest == ([32]byte{}) {
+		t.Fatal("exclusive routing heartbeat was refused", err)
+	}
+	if _, _, err := prepareRoutingBatch(t.Context(), heartbeat, 2, 1, routingViewBudget()); !errors.Is(err, ErrBGPRoutingBudget) {
+		t.Fatal("heartbeat invented missing operator lease policy", err)
+	}
+	heartbeat.EndOfRIB = true
+	if _, _, err := prepareRoutingBatch(t.Context(), heartbeat, 2, 1, profile); !errors.Is(err, ErrBGPRoutingBatch) {
+		t.Fatal("heartbeat manufactured initial synchronization", err)
+	}
+	heartbeat.EndOfRIB = false
+	heartbeat.Changes = []BGPRoutingChange{routingChangeFixture()}
+	heartbeat.Changes[0].Prefix = netip.MustParsePrefix("2001:db8::/64")
+	if _, _, err := prepareRoutingBatch(t.Context(), heartbeat, 2, 1, profile); !errors.Is(err, ErrBGPRoutingBatch) {
+		t.Fatal("heartbeat mixed unadmitted route data", err)
+	}
+}

@@ -29,7 +29,12 @@ var (
 
 // BGPRoutingBudget admits a complete operation and retained tenant state.
 // Positive byte/work profiles bound resources, never a route population.
-type BGPRoutingBudget struct{ MemoryBytes, WorkUnits, StateBytes int64 }
+type BGPRoutingBudget struct {
+	MemoryBytes, WorkUnits, StateBytes int64
+	// LeaseDuration is operator-owned policy, never supplied by a peer. Only
+	// a new ordered heartbeat may refresh the source lease by this duration.
+	LeaseDuration time.Duration
+}
 
 // BGPRoutingPeer retains the complete parsed Peer Up metadata. It is untrusted
 // protocol information; BGPRoutingSource supplies independent current authority.
@@ -217,8 +222,9 @@ func (store BGPRouting) BeginViewInScope(ctx context.Context, sc tenancy.Scope, 
 	}
 	err = sc.Q.QueryRow(ctx, `INSERT INTO bgp_routing_views
  (tenant_id,context_id,id,generation,source_kind,router_id,collector_agent_id,source_ref,binding_kind,
- sender_serial,origin_serial,view_kind,peer_key,peer_identity,afi,safi,filtered,state,charged_bytes,observed_at,valid_until)
- VALUES($1,$2,$3,$4,'router_bmp',$5,$6,$7,'bmp_peer',$8,$9,$10,$11,$12::jsonb,$13,$14,$15,'staging',$16,$17,$18)
+ sender_serial,origin_serial,view_kind,peer_key,peer_identity,afi,safi,filtered,state,charged_bytes,observed_at,valid_until,
+ last_message_observed_at,message_clock_sequence)
+ VALUES($1,$2,$3,$4,'router_bmp',$5,$6,$7,'bmp_peer',$8,$9,$10,$11,$12::jsonb,$13,$14,$15,'staging',$16,$17,$18,$17,0)
  RETURNING id::text,generation::text`, source.TenantID, source.ContextID, id, generation, source.RouterID,
 		source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, definition.Kind, key[:], string(body),
 		definition.AFI, definition.SAFI, definition.Filtered, metadataBytes, source.ObservedAt, validUntil).Scan(&id, &generation)
