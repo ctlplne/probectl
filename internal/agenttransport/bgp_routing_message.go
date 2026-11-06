@@ -44,12 +44,11 @@ func (svc *service) applyRoutingMessage(ctx context.Context, id crypto.SPIFFEID,
 			return nil, status.Error(codes.InvalidArgument, "routing view has no explicit source-context binding")
 		}
 	}
-	if !svc.admitEntityEvidence(ctx, id.TenantID, 1, proto.Size(req)) {
-		return nil, status.Error(codes.ResourceExhausted, "tenant routing evidence rate exceeded")
-	}
+	admitted := svc.admitEntityEvidence(ctx, id.TenantID, 1, proto.Size(req))
+
 	input := store.BGPRoutingStreamInput{CollectorAgentID: id.AgentID, SenderSerial: serial, SourceRef: raw.ConfiguredRef,
 		OriginSerial: raw.OriginSerial, Generation: raw.Generation, ObservedAt: time.Unix(0, raw.ObservedUnixNanos), Sequence: raw.Sequence,
-		Reset: raw.SourceReset && !raw.Heartbeat && len(raw.Message) == 0}
+		Reset: !admitted || raw.SourceReset && !raw.Heartbeat && len(raw.Message) == 0}
 	profile := store.BGPRoutingBudget{MemoryBytes: 256 << 20, WorkUnits: 256 << 20, StateBytes: 1 << 30, LeaseDuration: time.Minute}
 	var result store.BGPRoutingApplyResult
 	err := tenancy.FencedTenantWrite(ctx, svc.fence, id.TenantID, entity.ErrScopeMismatch, func(ctx context.Context) error {
@@ -64,6 +63,12 @@ func (svc *service) applyRoutingMessage(ctx context.Context, id crypto.SPIFFEID,
 	})
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "current routing source message is unavailable")
+	}
+	// A dropped known frame is uncertainty, not a lease on old attribution.
+	// Commit exact-source invalidation even when its data bucket is exhausted;
+	// this bounded control path cannot add rows, decode routes or renew a lease.
+	if !admitted {
+		return nil, status.Error(codes.ResourceExhausted, "tenant routing evidence rate exceeded")
 	}
 	return &agentv1.SubmitEntityEvidenceResponse{RoutingMessage: &agentv1.BmpRoutingMessageReceipt{Status: result.Status, Generation: raw.Generation, Sequence: raw.Sequence}}, nil
 }
