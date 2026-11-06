@@ -222,6 +222,9 @@
     },
     "bgp.parseBMPSourceRoute": {
       "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.decodeBMPRouteChanges": {
+      "target": "FuzzBMPRouteMonitoring"
     }
   }
 }

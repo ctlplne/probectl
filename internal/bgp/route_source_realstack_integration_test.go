@@ -84,7 +84,7 @@ func TestBMPLocRIBRealRouterKeepsCompletePeerAndFamilyMarkers(t *testing.T) {
 		if !present {
 			t.Fatal("actual Loc-RIB update preceded matching complete Peer Up")
 		}
-		frame, err := bgp.SourceRouteForTest(t.Context(), raw, peer, bgp.UpdateFrameBudget{MemoryBytes: 16 << 20, WorkUnits: 16 << 20})
+		frame, err := bgp.SourceChangesForTest(t.Context(), raw, peer, bgp.UpdateFrameBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20})
 		if err != nil {
 			t.Fatal("actual Loc-RIB UPDATE/source identity refused", err)
 		}
@@ -94,31 +94,13 @@ func TestBMPLocRIBRealRouterKeepsCompletePeerAndFamilyMarkers(t *testing.T) {
 		if !frame.Header.TimestampKnown {
 			unknownClocks++
 		}
-		if frame.Update.HasEndOfRIB {
-			markers[frame.Update.EndOfRIB] = true
-		}
-		if len(frame.Update.ReachableIPv4) > 0 {
-			prefixes, err := bgp.SourceLegacyPrefixesForTest(t.Context(), frame, peer)
-			if err != nil {
-				t.Fatal("actual Loc-RIB legacy NLRI refused", err)
+		for _, group := range frame.Groups {
+			if group.EndOfRIB {
+				markers[group.Family] = true
 			}
-			for _, prefix := range prefixes {
-				if prefix.Prefix.String() == prefixA {
-					announced[1] = true
-				}
-			}
-		}
-		for _, attr := range frame.Update.Attributes {
-			if attr.Type != 14 {
-				continue
-			}
-			reach, err := bgp.SourceMPReachForTest(t.Context(), attr.Value, frame, peer)
-			if err != nil {
-				t.Fatal("actual Loc-RIB multiprotocol reach refused", err)
-			}
-			for _, prefix := range reach.Prefixes {
-				if reach.Family.AFI == 1 && prefix.Prefix.String() == prefixA || reach.Family.AFI == 2 && prefix.Prefix.String() == link.prefix6 {
-					announced[reach.Family.AFI] = true
+			for _, prefix := range group.Announced {
+				if group.Family.AFI == 1 && prefix.Prefix.String() == prefixA || group.Family.AFI == 2 && prefix.Prefix.String() == link.prefix6 {
+					announced[group.Family.AFI] = true
 				}
 			}
 		}

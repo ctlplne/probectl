@@ -73,6 +73,9 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if out, err := decodeBMPRouteChanges(ctx, raw, peer, UpdateFrameBudget{int64(len(raw))*512 + (8 << 20), int64(len(raw))*64 + (8 << 20)}); err != nil && !reflect.DeepEqual(out, sourceRouteChanges{}) {
+		t.Fatal("invalid source changes exposed partial routes or interpreted fields")
+	}
 	if out, err := parseBMPSourceRoute(ctx, raw, peer, UpdateFrameBudget{memory + (1 << 20), work + (1 << 20)}); err != nil && !reflect.DeepEqual(out, sourceRouteFrame{}) {
 		t.Fatal("invalid BMP source route exposed partial peer or frame")
 	}

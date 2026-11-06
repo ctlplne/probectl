@@ -87,6 +87,9 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestBMPSourceChangesKeepCompleteDualFamilyPathsWithdrawalsAndAttributes",
+        "TestBMPSourceChangesRefuseMissingMandatoryFieldsAndLateMalformedTail",
+        "TestBMPSourceChangesKeepExclusiveCompletionAndWholeAdmission",
         "TestBMPPeerUpPreservesMalformedRealSourceCapabilityDiagnosis",
         "TestBMPSourceRouteBindsPeerButUsesActualViewEncodingAndWireClock",
         "TestBMPSourceRouteRefusesOtherPeerMalformedEnvelopeAndPartialAdmission",
@@ -314,6 +317,25 @@ def bgp_source_peer_control():
         child="", marker="route from another peer or malformed envelope exposed source metadata"
     ):
         raise RuntimeError("BMP route peer control did not fail its exact assertion")
+
+
+def bgp_source_origin_control():
+    source = Path("internal/bgp/route_source_changes.go").resolve()
+    original = source.read_text()
+    seam = "if !sourceHasOrigin(frame.Update.Attributes) {"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    mutant = overlay_source_path(out, "bmp_route_origin_omitted.go")
+    mutant.write_text(original.replace(seam, "if false && !sourceHasOrigin(frame.Update.Attributes) {"))
+    overlay = out / "bmp_route_origin_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestBMPSourceChangesRefuseMissingMandatoryFieldsAndLateMalformedTail"
+    result = execute("internal/bgp", (root,), "bmp_route_origin_omitted", overlay=overlay, child="origin")
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, package=PREFIX + "internal/bgp", root=root,
+        child="origin", marker="invalid source changes exposed partial routing data"
+    ):
+        raise RuntimeError("BMP route origin control did not fail its exact assertion")
 
 
 def bgp_peer_session_control():
@@ -1157,6 +1179,7 @@ def main(integration, flow_integration=False):
             )
     if integration and not flow_integration:
         bgp_source_peer_control()
+        bgp_source_origin_control()
         bgp_peer_session_control()
         bgp_routing_extended_control()
         bgp_routing_authority_control()
