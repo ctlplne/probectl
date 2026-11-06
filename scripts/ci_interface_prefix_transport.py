@@ -86,6 +86,10 @@ UNIT = {
     "internal/agenttransport": (
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
+    "internal/bgp": (
+        "TestBMPUpdateFrameUsesReceivingCapabilityAndKeepsFullProtocolMaximum",
+        "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
+    ),
     "internal/store": (
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
@@ -286,6 +290,25 @@ def execute(package, roots, label, integration=False, overlay=None, child=""):
     print(result.stderr, end="")
     return result
 
+
+
+def bgp_routing_extended_control():
+    source = Path("internal/bgp/route_extended.go").resolve()
+    original = source.read_text()
+    seam = "if receiver.extended {"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    mutant = overlay_source_path(out, "routing_extended_receiver_omitted.go")
+    mutant.write_text(original.replace(seam, "if receiver.extended || sent.extended || received.extended {"))
+    overlay = out / "routing_extended_receiver_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestBMPUpdateFrameUsesReceivingCapabilityAndKeepsFullProtocolMaximum"
+    result = execute("internal/bgp", (root,), "routing_extended_receiver_omitted", overlay=overlay)
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, package=PREFIX + "internal/bgp", root=root,
+        child="", marker="extended UPDATE guessed receiver permission from sender capability"
+    ):
+        raise RuntimeError("extended UPDATE receiver control did not fail its exact assertion")
 
 
 def bgp_routing_authority_control():
@@ -1090,6 +1113,7 @@ def main(integration, flow_integration=False):
                 f"required prefix transport proof missing/failed: {failures}"
             )
     if integration and not flow_integration:
+        bgp_routing_extended_control()
         bgp_routing_authority_control()
         bgp_routing_generation_control()
         bgp_routing_write_controls()

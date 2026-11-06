@@ -216,6 +216,9 @@
     },
     "siem.parseSyslogPRI": {
       "target": "FuzzParseSyslog"
+    },
+    "bgp.parseBMPRouteUpdateFrame": {
+      "target": "FuzzBMPRouteMonitoring"
     }
   }
 }

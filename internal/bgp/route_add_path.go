@@ -24,6 +24,7 @@ type routeOpenCapabilities struct {
 	mpFamilies map[RouteFamily]bool
 	nextHops   map[routeNextHopCapability]bool
 	addPath    map[RouteFamily]byte
+	extended   bool
 	fourAS     bool
 	asn        uint32
 }
@@ -147,6 +148,11 @@ func (c *routeOpenCapabilities) parseCapabilities(raw []byte, seenAddPath *bool)
 				}
 				value = value[6:]
 			}
+		case 6: // RFC8654: advertisement permits receiving extended messages.
+			if length != 0 {
+				return ErrRouteCapabilities
+			}
+			c.extended = true
 		case 65: // RFC6793 four-octet-AS capability, never BMP wire width.
 			if length != 4 {
 				return ErrRouteCapabilities

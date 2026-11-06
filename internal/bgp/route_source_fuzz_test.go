@@ -26,6 +26,7 @@ func addRouteSourceFuzzSeeds(f *testing.F) {
 	f.Add(peerDownFrameForTest(1, peerDownNotificationForTest(), false))
 	f.Add(peerDownFrameForTest(6, []byte{0, 3, 0, 1, 1, 0, 3, 0, 1, 2}, true))
 	f.Add(endOfRIBFrameForTest(nil, nil, nil))
+	f.Add(extendedRouteFrameForTest(65535))
 	f.Add(endOfRIBFrameForTest(nil, []byte{0x80, 15, 3, 0, 2, 1}, nil))
 	f.Add(endOfRIBFrameForTest([]byte{0}, []byte{0x40, 1, 1, 0, 0x40, 2, 0}, []byte{0}))
 	f.Add([]byte{0x40, 1, 1, 0, 0x40, 2, 0})
@@ -62,6 +63,17 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 	}
 	if out, err := parseBGPUpdateFrame(ctx, raw, UpdateFrameBudget{memory, work}); err != nil && !reflect.DeepEqual(out, UpdateFrame{}) {
 		t.Fatal("invalid UPDATE exposed a partial route change")
+	}
+	open := routeOpenForTest([]byte{65, 4, 0, 0, 0, 1, 6, 0}, false)
+	fixed := PeerUp{Header: BMPRouteViewHeader{View: BMPLocRIB}, SentOpen: open, ReceivedOpen: open}
+	if out, err := parseBMPRouteUpdateFrame(ctx, raw, fixed, UpdateFrameBudget{memory + (1 << 20), work + (1 << 20)}); err != nil && !reflect.DeepEqual(out, UpdateFrame{}) {
+		t.Fatal("invalid negotiated UPDATE exposed partial frame")
+	}
+	for _, view := range []BMPRouteView{BMPAdjRIBInPrePolicy, BMPAdjRIBOutPostPolicy, BMPLocRIB} {
+		source := PeerUp{Header: BMPRouteViewHeader{View: view}, SentOpen: raw[:len(raw)/2], ReceivedOpen: raw[len(raw)/2:]}
+		if out, err := parseBMPRouteUpdateFrame(ctx, raw, source, UpdateFrameBudget{memory, work}); err != nil && !reflect.DeepEqual(out, UpdateFrame{}) {
+			t.Fatal("invalid source UPDATE exposed partial frame")
+		}
 	}
 	for _, afi := range []uint16{1, 2} {
 		for _, addPath := range []bool{false, true} {
