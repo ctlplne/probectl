@@ -24,6 +24,9 @@ func TestInterfaceRoleFlowBindingRequiresTenantBeforeStorageAndExactIdentity(t *
 	if out, err := reader.ExporterOwnersInScope(t.Context(), tenancy.Scope{}, entity.InterfaceRolePolicyBudget{}); !errors.Is(err, entity.ErrScopeMismatch) || out != nil {
 		t.Fatal("missing tenant reached role exporter ownership storage", out, err)
 	}
+	if out, err := reader.RouterInterfacesInScope(t.Context(), tenancy.Scope{}, want, want.ContextID, entity.InterfaceRolePolicyBudget{}); !errors.Is(err, entity.ErrScopeMismatch) || out != nil {
+		t.Fatal("missing tenant reached role router children storage", out, err)
+	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(want.TenantID))
 	if out, err := reader.ExporterOwnersInScope(ctx, tenancy.Scope{Tenant: tenancy.ID(want.TenantID)}, entity.InterfaceRolePolicyBudget{}); !errors.Is(err, entity.ErrScopeMismatch) || out != nil {
 		t.Fatal("missing application snapshot reached role exporter ownership storage", out, err)

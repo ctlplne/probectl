@@ -109,11 +109,18 @@ func (s *Server) collectFlowComparison(ctx context.Context, principal *auth.Prin
 	defer cancel()
 	currentSpec, previousSpec := *current.Flow, *previous.Flow
 	var currentDuration, previousDuration time.Duration
+	roleDigest := ""
 	queryWindow := func(plan flow.QueryPlan, groups, columns, chart, matrixRows [][]string, elapsed *time.Duration) (flowstore.PlanResult, error) {
 		began := time.Now()
 		data, err := s.recordFlowSpec(ctx, principal.TenantID, plan, groups, columns, chart, matrixRows)
 		*elapsed += time.Since(began)
 		data.SavedFilterVersions = versions
+		if err == nil && flowstore.PlanUsesInterfaceRoles(plan) {
+			if data.RoleDigest == "" || roleDigest != "" && roleDigest != data.RoleDigest {
+				return flowstore.PlanResult{}, apierror.Unavailable("interface role inputs changed between source passes; run a fresh comparison")
+			}
+			roleDigest = data.RoleDigest
+		}
 		return data, err
 	}
 	currentData, err := queryWindow(currentSpec, nil, nil, nil, nil, &currentDuration)

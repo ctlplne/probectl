@@ -89,6 +89,7 @@ func (source *flowSnapshotSource) expiry(ctx context.Context, scope flowsnapshot
 type flowSnapshotValidity struct {
 	Inputs           []flowstore.SnapshotInputs `json:"inputs"`
 	TagAuthorization string                     `json:"tag_authorization,omitempty"`
+	RoleDigest       string                     `json:"role_digest,omitempty"`
 }
 
 func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapshot.Scope, results ...flowstore.PlanResult) (json.RawMessage, time.Time, error) {
@@ -116,6 +117,12 @@ func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapsho
 				return nil, time.Time{}, apierror.Unavailable("tag authorization receipt is unavailable")
 			}
 			proof.TagAuthorization = digest
+		}
+		if flowstore.PlanUsesInterfaceRoles(result.Query) {
+			if result.RoleTenantID != scope.TenantID || len(result.RoleDigest) != 64 || proof.RoleDigest != "" && proof.RoleDigest != result.RoleDigest {
+				return nil, time.Time{}, apierror.Unavailable("current role source receipt is unavailable")
+			}
+			proof.RoleDigest = result.RoleDigest
 		}
 		expiry, err := source.expiry(ctx, scope, clock)
 		if err != nil {
@@ -152,6 +159,9 @@ func (source *flowSnapshotSource) validate(ctx context.Context, scope flowsnapsh
 	if err := source.validateTagAuthorization(ctx, scope, receipt); err != nil {
 		return err
 	}
+	if err := source.validateRoleAuthorization(ctx, scope, receipt); err != nil {
+		return err
+	}
 	verifier, ok := flowstore.SnapshotInputVerifierOf(source.server.flowStore)
 	if !ok {
 		return apierror.Unavailable("flow snapshot source coverage cannot be validated")
@@ -163,6 +173,29 @@ func (source *flowSnapshotSource) validate(ctx context.Context, scope flowsnapsh
 		if err := verifier.VerifySnapshotInputs(ctx, scope.TenantID, clock); err != nil {
 			return flowExplorerStoreError(err)
 		}
+	}
+	return nil
+}
+
+func (source *flowSnapshotSource) validateRoleAuthorization(ctx context.Context, scope flowsnapshot.Scope, receipt flowSnapshotValidity) error {
+	roles := false
+	for _, input := range receipt.Inputs {
+		roles = roles || slices.Contains(input.Fields, "in_if_role") || slices.Contains(input.Fields, "out_if_role")
+	}
+	if !roles && receipt.RoleDigest == "" {
+		return nil
+	}
+	p := auth.PrincipalFrom(ctx)
+	if !roles || len(receipt.RoleDigest) != 64 || p == nil || p.TenantID != scope.TenantID || p.UserID != scope.Owner {
+		return apierror.Forbidden("current interface role authority is required; run a fresh query")
+	}
+	current, err := source.server.loadFlowRoleSnapshot(ctx, p, flowstore.ExplorerOperationBudget(ctx, source.server.flowStore))
+	if err != nil {
+		return err
+	}
+	digest, err := current.data.Digest(ctx, scope.TenantID, source.now().UTC())
+	if err != nil || digest != receipt.RoleDigest {
+		return apierror.Forbidden("interface role authority changed; run a fresh query")
 	}
 	return nil
 }

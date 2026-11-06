@@ -8,6 +8,8 @@ package control
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -23,6 +25,70 @@ type reportContextRequirement struct {
 	ContextID   string            `json:"context_id"`
 	Resource    map[string]string `json:"resource"`
 	Permissions []string          `json:"permissions"`
+}
+
+// Role results can coexist with arbitrary user tags. Merge their actual
+// captured contexts/permissions without replacing the tag requirements. A
+// repeated current-authority read is idempotent, not another retained grant.
+func captureReportRoleContextRequirements(ctx context.Context, p *auth.Principal, records []entity.ContextRecord, allowed map[string]bool) error {
+	sink, _ := ctx.Value(reportContextCaptureKey{}).(*reportContextCapture)
+	if sink == nil {
+		return nil
+	}
+	bound, present := tenancy.FromContext(ctx)
+	if p == nil || !present || bound.String() != sink.tenant || p.TenantID != sink.tenant || sink.remaining <= 0 {
+		return apierror.Forbidden("report interface role context scope is unavailable")
+	}
+	for _, record := range records {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if record.TenantID != sink.tenant || record.ContextID == "" {
+			return apierror.Forbidden("report interface role context scope is unavailable")
+		}
+		if !allowed[record.ContextID] {
+			continue
+		}
+		resource := entityContextResource(record)
+		found := -1
+		for i, existing := range sink.contexts {
+			if existing.ContextID == record.ContextID {
+				if !maps.Equal(existing.Resource, resource) {
+					return apierror.Forbidden("report interface role context changed during capture")
+				}
+				found = i
+				break
+			}
+		}
+		permissions := []string{permFlowRead, "entities.read", "metrics.read", "events.read"}
+		cost := int64(0)
+		if found >= 0 {
+			permissions = slices.Clone(sink.contexts[found].Permissions)
+			for _, permission := range []string{permFlowRead, "entities.read", "metrics.read", "events.read"} {
+				if !slices.Contains(permissions, permission) {
+					permissions = append(permissions, permission)
+					cost += 64
+				}
+			}
+		} else {
+			cost = int64(256 + len(record.ContextID)*2 + len(permissions)*64)
+			for key, value := range resource {
+				cost += int64(len(key)+len(value))*2 + 128
+			}
+		}
+		if cost > sink.remaining {
+			return apierror.Validation("report interface role context budget exceeded")
+		}
+		sort.Strings(permissions)
+		if found >= 0 {
+			sink.contexts[found].Permissions = permissions
+		} else {
+			sink.contexts = append(sink.contexts, reportContextRequirement{record.ContextID, maps.Clone(resource), permissions})
+		}
+		sink.remaining -= cost
+	}
+	sink.captured = true
+	return nil
 }
 
 type reportContextCaptureKey struct{}

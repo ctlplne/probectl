@@ -163,6 +163,14 @@ func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.Qu
 		selectedMatrixRows = membership[2]
 	}
 	query := flowstore.PlanQuery{TenantID: tenant, Plan: plan, Tags: tagData, SelectedGroups: selected, SelectedColumns: selectedColumns, SelectedChartGroups: selectedChart, SelectedMatrixRows: selectedMatrixRows}
+	var roleBefore flowRoleSnapshot
+	if flowstore.PlanUsesInterfaceRoles(plan) {
+		roleBefore, err = s.loadFlowRoleSnapshot(ctx, auth.PrincipalFrom(ctx), flowstore.ExplorerOperationBudget(ctx, s.flowStore))
+		if err != nil {
+			return flowstore.PlanResult{}, err
+		}
+		query.Roles = roleBefore.data
+	}
 	var result flowstore.PlanResult
 	if batch, ok := ctx.Value(reportFlowBatchKey{}).(*flowstore.PlanBatch); ok {
 		if batch == nil {
@@ -174,6 +182,16 @@ func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.Qu
 	}
 	if err != nil {
 		return flowstore.PlanResult{}, flowExplorerStoreError(err)
+	}
+	if flowstore.PlanUsesInterfaceRoles(plan) {
+		after, err := s.loadFlowRoleSnapshot(ctx, auth.PrincipalFrom(ctx), flowstore.ExplorerOperationBudget(ctx, s.flowStore))
+		if err != nil {
+			return flowstore.PlanResult{}, err
+		}
+		digest, err := after.data.Digest(ctx, tenant, time.Now().UTC())
+		if err != nil || roleBefore.inputDigest != after.inputDigest || result.RoleDigest != digest || result.RoleTenantID != tenant {
+			return flowstore.PlanResult{}, apierror.Unavailable("interface role inputs changed; run a fresh query")
+		}
 	}
 	return result, nil
 }

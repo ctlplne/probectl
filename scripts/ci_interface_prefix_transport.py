@@ -37,6 +37,9 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestFlowRoleSnapshotRequiresCurrentTenantUserBeforeStorage",
+        "TestRoleSnapshotReceiptRefusesMissingOrForeignAuthority",
+        "TestReportRoleContextCapturePreservesTagsAndCurrentSourceRequirements",
         "TestInterfaceRoleConfigurationRoutesRequireSeparateReadAndWriteGrants",
         "TestInterfaceRoleExplanationJoinsCompleteOwnedFactsAndPreservesOverride",
         "TestInterfaceRoleExplanationRefusesForeignCanceledAndIncompleteAdmission",
@@ -82,6 +85,7 @@ INTEGRATION = {
     ),
     "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
     "internal/control": (
+        "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
         "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",
         "TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority",
         "TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges",
@@ -404,6 +408,30 @@ def configuration_regexp_expansion_control():
 
 
 EXPLANATION_CONTROLS = {
+    "flow-publication": (
+        "internal/control/explorer_flow.go",
+        "if err != nil || roleBefore.inputDigest != after.inputDigest || result.RoleDigest != digest || result.RoleTenantID != tenant {",
+        "if err != nil || false && (roleBefore.inputDigest != after.inputDigest || result.RoleDigest != digest || result.RoleTenantID != tenant) {",
+        "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
+        "role query published stale source metadata after computation",
+        "",
+    ),
+    "flow-grant": (
+        "internal/control/explorer_flow_roles.go",
+        "current.requestContext(ctx, actor)",
+        "(&currentUserAuthority{principal: actor, policies: current.policies}).requestContext(ctx, actor)",
+        "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
+        "stale native principal retained role source access",
+        "",
+    ),
+    "flow-frozen": (
+        "internal/control/explorer_flow_snapshot_source.go",
+        'if !roles && receipt.RoleDigest == "" {',
+        'if !roles || receipt.RoleDigest != "" {',
+        "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
+        "old frozen role source identity survived reclassification",
+        "",
+    ),
     "memory": (
         "internal/store/flowstore/explorer_budget.go",
         "MemoryBytes: 2 << 30",

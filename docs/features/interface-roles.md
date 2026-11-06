@@ -16,15 +16,21 @@ evidence trustworthy or asserts that a BGP session is up.
 
 The current-role explanation preview joins owned SNMP and BMP evidence with
 this configuration through Admin, REST, CLI and native MCP. PeeringDB IX-prefix
-lookup, Explorer role dimensions and real-router acceptance remain unfinished.
+lookup and real-router acceptance remain unfinished. The role query components
+are under focused verification and do not qualify the complete feature.
 
 The flow-engine component accepts a request-local current role projection for
 `in_if_role` and `out_if_role`. It joins the uniquely owned exporter, protocol,
 complete observation-domain ID and interface index; a row's claimed agent ID
 cannot select a routing context. Unknown metadata remains `other`, with all
 traffic retained. Complete raw and retained inputs use the same classification,
-and result metadata retains source/configuration provenance. Public activation
-still requires the current-authority loader and frozen-reader integration.
+and result metadata retains source/configuration provenance. Execution refreshes
+the current user, credential ceiling, source grants and context policy in the
+same tenant snapshot as its source inputs, then reads them again before
+publication. Comparison passes must share the same role identity. Frozen pages
+recheck current authority and source identity; changed inputs require a fresh
+query. Report metadata captures every selected context and source grant alongside
+arbitrary user tag requirements.
 Selecting either field requires `entities.read`, `metrics.read` and
 `events.read`; a missing projection refuses execution rather than inventing
 authority. This component does not qualify the real-router feature.
@@ -68,7 +74,8 @@ observation. Resolving the incident does not invent recovery. The latest peer
 observation replaces its previous ASN. These inputs share the owned interface,
 router and context, and retain the source's current certificate and assignment
 expiry. The served explanation uses this loader and evaluator; Explorer role
-dimensions remain unfinished.
+dimensions use this same classifier and owned inputs; complete served/native,
+frozen-output and real-router acceptance remain required before qualification.
 
 Bind the BMP router source to its owned canonical router. A peer device
 inferred from an address is a different identity and cannot supply this

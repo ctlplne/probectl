@@ -43,6 +43,52 @@ type InterfaceRoleExporterOwner struct {
 	Exporter          netip.Addr
 }
 
+// RouterInterfacesInScope enumerates canonical children only after the caller
+// has authorized this routing context. Source/current-index proof is still
+// required for each child; registry membership alone does not map a flow.
+func (s *InterfaceRoleInputsStore) RouterInterfacesInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, routerID string, budget entity.InterfaceRolePolicyBudget) ([]string, error) {
+	want, err := scope.Normalize()
+	tenant, present := tenancy.FromContext(ctx)
+	if err != nil || !present || tenant != sc.Tenant || tenant.String() != want.TenantID || sc.Q == nil {
+		return nil, entity.ErrScopeMismatch
+	}
+	routerID, err = validRegistryUUID(routerID)
+	if err != nil {
+		return nil, err
+	}
+	admission := roleInputAdmission{memory: budget.MemoryBytes, work: budget.WorkUnits}
+	if err := admission.charge(ctx, 4096, 1); err != nil {
+		return nil, err
+	}
+	rows, err := sc.Q.Query(ctx, `SELECT node.id::text FROM entities node JOIN entities parent
+ ON (parent.tenant_id,parent.context_id,parent.id)=(node.tenant_id,node.context_id,node.parent_entity_id)
+ AND parent.kind='device' WHERE node.tenant_id=$1 AND node.context_id=$2 AND parent.id=$3
+ AND node.kind='interface' AND node.interface_index>0 ORDER BY node.id LIMIT $4`,
+		want.TenantID, want.ContextID, routerID, admission.memory/1024+1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		if err := admission.charge(ctx, 1024, 1); err != nil {
+			return nil, err
+		}
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *InterfaceRoleInputsStore) ExporterOwnersInScope(ctx context.Context, sc tenancy.Scope, budget entity.InterfaceRolePolicyBudget) ([]InterfaceRoleExporterOwner, error) {
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok || tenant != sc.Tenant || sc.Q == nil {
