@@ -189,6 +189,10 @@ func (source *flowSnapshotSource) validateRoleAuthorization(ctx context.Context,
 	if !roles || len(receipt.RoleDigest) != 64 || p == nil || p.TenantID != scope.TenantID || p.UserID != scope.Owner {
 		return apierror.Forbidden("current interface role authority is required; run a fresh query")
 	}
+	ctx, err := bindFlowRoleContext(ctx, p)
+	if err != nil {
+		return err
+	}
 	current, err := source.server.loadFlowRoleSnapshot(ctx, p, flowstore.ExplorerOperationBudget(ctx, source.server.flowStore))
 	if err != nil {
 		return err

@@ -28,6 +28,21 @@ type flowRoleSnapshot struct {
 	inputDigest string // complete private inputs, never public source text
 }
 
+// Service entry points bind database scope from the authenticated credential,
+// never from query JSON. An existing contradictory scope is not replaced.
+func bindFlowRoleContext(ctx context.Context, principal *auth.Principal) (context.Context, error) {
+	if principal == nil || principal.TenantID == "" || principal.UserID == "" {
+		return nil, apierror.Forbidden("current tenant user is required for interface roles")
+	}
+	if tenant, present := tenancy.FromContext(ctx); present && tenant.String() != principal.TenantID {
+		return nil, apierror.Forbidden("interface role tenant scope does not match its credential")
+	}
+	if actor := auth.PrincipalFrom(ctx); actor != nil && (actor.TenantID != principal.TenantID || actor.UserID != principal.UserID) {
+		return nil, apierror.Forbidden("interface role user scope does not match its credential")
+	}
+	return tenancy.WithTenant(auth.WithPrincipal(ctx, principal), tenancy.ID(principal.TenantID)), nil
+}
+
 // The same application-role snapshot reads current user/credential policy,
 // complete tenant-wide ownership, then authorized context facts. Source rows
 // cannot choose context by AgentID, nor make an unreadable competitor vanish.

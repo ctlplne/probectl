@@ -55,6 +55,12 @@ func (s *Server) recordFlowComparison(ctx context.Context, principal *auth.Princ
 	if err := s.authorizeFlowMetadata(ctx, principal, plan); err != nil {
 		return explorerComparisonResult{}, err
 	}
+	if flowstore.PlanUsesInterfaceRoles(plan) {
+		ctx, err = bindFlowRoleContext(ctx, principal)
+		if err != nil {
+			return explorerComparisonResult{}, err
+		}
+	}
 	current.Flow = &plan
 	previousPlan := plan
 	previousPlan.From, previousPlan.To = previous.From, previous.To

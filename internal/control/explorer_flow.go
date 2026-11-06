@@ -232,6 +232,12 @@ func (s *Server) recordFlowQuery(ctx context.Context, principal *auth.Principal,
 	if err := s.authorizeFlowMetadata(ctx, principal, plan); err != nil {
 		return explorerResult{}, err
 	}
+	if flowstore.PlanUsesInterfaceRoles(plan) {
+		ctx, err = bindFlowRoleContext(ctx, principal)
+		if err != nil {
+			return explorerResult{}, err
+		}
+	}
 	if s.flowSnapshots != nil {
 		return s.createFlowSnapshot(ctx, principal, query, plan, versions)
 	}

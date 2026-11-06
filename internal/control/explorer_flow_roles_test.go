@@ -33,6 +33,18 @@ func TestFlowRoleSnapshotRequiresCurrentTenantUserBeforeStorage(t *testing.T) {
 	if out, err := s.loadFlowRoleSnapshot(ctx, &auth.Principal{TenantID: tenant, UserID: "u"}, flowstore.DefaultExplorerBudget()); err == nil || out.data != nil {
 		t.Fatal("role query invented a metadata store", out, err)
 	}
+	actor := &auth.Principal{TenantID: tenant, UserID: "u"}
+	bound, err := bindFlowRoleContext(t.Context(), actor)
+	if err != nil {
+		t.Fatal("authenticated role service could not establish its tenant scope", err)
+	}
+	if id, present := tenancy.FromContext(bound); !present || id.String() != tenant || auth.PrincipalFrom(bound).UserID != "u" {
+		t.Fatal("authenticated role service lost its actual credential scope")
+	}
+	foreign := tenancy.WithTenant(t.Context(), tenancy.ID("33333333-3333-4333-8333-333333333333"))
+	if _, err := bindFlowRoleContext(foreign, actor); err == nil {
+		t.Fatal("role service overwrote an existing foreign tenant scope")
+	}
 }
 
 func TestRoleSnapshotReceiptRefusesMissingOrForeignAuthority(t *testing.T) {
