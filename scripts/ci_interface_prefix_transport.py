@@ -15,10 +15,6 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
-    "ee/silo": (
-        "TestBGPRoutingPlanKeepsEveryReferenceInItsTenantSchema",
-        "TestBGPRoutingBindingPlanPreservesStoredCollectorContextOnCatchUp",
-    ),
     "internal/opendata": (
         "TestPeeringDBIXPrefixesKeepCompletePopulationClockAndOwnedMatches",
         "TestPeeringDBIXPrefixesRefusePartialAmbiguousOrMalformedSnapshot",
@@ -128,9 +124,10 @@ UNIT = {
         "TestInterfaceRoleFlowBindingRequiresTenantBeforeStorageAndExactIdentity",
     ),
     "ee/silo": (
+        "TestBGPRoutingPlanKeepsEveryReferenceInItsTenantSchema",
+        "TestBGPRoutingBindingPlanPreservesStoredCollectorContextOnCatchUp",
         "TestEntityRegistryForeignKeysFollowAllSiloCopies",
         "TestInterfaceRoleStoragePlanKeepsLocalKindAndTenantForeignKeys",
-        "TestBGPRoutingPlanKeepsEveryReferenceInItsTenantSchema",
     ),
 }
 FLOW_INTEGRATION = {
