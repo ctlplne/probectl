@@ -87,6 +87,9 @@ UNIT = {
     "internal/store": (
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
+        "TestBGPRoutingViewMetadataKeepsStablePeerSlotsAndCompleteValues",
+        "TestBGPRoutingViewMetadataRefusesIncompleteShapeAndWholeAdmission",
+        "TestBGPRoutingBeginRefusesForeignTenantBeforeMetadataOrStorage",
         "TestInterfaceRoleStorageRequiresTenantBeforeAnyQuery",
         "TestInterfaceRoleInputsRequireTenantBeforeStorageAndCanonicalPeerValues",
         "TestInterfaceRoleFlowBindingRequiresTenantBeforeStorageAndExactIdentity",
@@ -131,6 +134,7 @@ INTEGRATION = {
         "TestInterfaceRoleConfigurationPostgresKeepsTenantCASAndOverrideIncarnations",
         "TestBGPRoutingSchemaKeepsTenantFamilyPathIdentityAndPublicationShape",
         "TestBGPRoutingAuthorityKeepsCurrentTenantOriginPurposeAndAssignmentEpoch",
+        "TestBGPRoutingBeginKeepsPrivateTenantGenerationsAndAtomicSlotReplacement",
     ),
     "internal/agenttransport": (
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
@@ -284,6 +288,26 @@ def bgp_routing_authority_control():
         child="origin-purpose", marker="changed source/credential retained routing authority"
     ):
         raise RuntimeError("routing origin purpose control did not fail its exact assertion")
+
+
+
+def bgp_routing_generation_control():
+    source = Path("internal/store/bgp_routing_views.go").resolve()
+    original = source.read_text()
+    seam = " WHERE tenant_id=$1 AND context_id=$2 AND router_id=$3 AND collector_agent_id=$4"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    mutant = overlay_source_path(out, "routing_slot_retirement_omitted.go")
+    mutant.write_text(original.replace(seam, seam.replace(" WHERE ", " WHERE false AND ")))
+    overlay = out / "routing_slot_retirement_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestBGPRoutingBeginKeepsPrivateTenantGenerationsAndAtomicSlotReplacement"
+    result = execute("internal/store", (root,), "routing_slot_retirement_omitted", integration=True, overlay=overlay)
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, package=PREFIX + "internal/store", root=root,
+        child="", marker="peer restart mixed former, sibling or unrelated route generations"
+    ):
+        raise RuntimeError("routing slot retirement control did not fail its exact assertion")
 
 
 def configuration_incarnation_controls():
@@ -923,6 +947,7 @@ def main(integration, flow_integration=False):
             )
     if integration and not flow_integration:
         bgp_routing_authority_control()
+        bgp_routing_generation_control()
         current_role_explanation_controls()
         standalone_role_source_control()
         interface_role_subject_control()

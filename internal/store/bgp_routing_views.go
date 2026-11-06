@@ -1,0 +1,245 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+package store
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/netip"
+	"slices"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/tenancy"
+)
+
+var (
+	ErrBGPRoutingBudget = errors.New("complete routing state admission exceeded")
+	ErrBGPRoutingView   = errors.New("routing view metadata is invalid")
+)
+
+// BGPRoutingBudget admits a complete operation and retained tenant state.
+// Positive byte/work profiles bound resources, never a route population.
+type BGPRoutingBudget struct{ MemoryBytes, WorkUnits, StateBytes int64 }
+
+// BGPRoutingPeer retains the complete parsed Peer Up metadata. It is untrusted
+// protocol information; BGPRoutingSource supplies independent current authority.
+type BGPRoutingPeer struct {
+	Type, Flags            uint8
+	Distinguisher          [8]byte
+	Address                netip.Addr
+	ASN                    uint32
+	BGPIdentifier          netip.Addr
+	LocalAddress           netip.Addr
+	LocalPort, RemotePort  uint16
+	SentOpen, ReceivedOpen []byte
+	Information            []BGPRoutingPeerInformation
+}
+
+type BGPRoutingPeerInformation struct {
+	Type  uint16
+	Value []byte
+}
+
+type BGPRoutingViewDefinition struct {
+	Kind     string
+	AFI      uint16
+	SAFI     uint8
+	Filtered bool
+	Peer     BGPRoutingPeer
+}
+
+// BGPRoutingView is a staging generation, not a published route or a live grant.
+// Birth observation is retained across heartbeat refreshes so rebinds cannot
+// make old rows current merely by advancing their observation timestamp.
+type BGPRoutingView struct {
+	BGPRoutingSource
+	ID, Generation string
+	Definition     BGPRoutingViewDefinition
+	PeerKey        [32]byte
+	ValidUntil     time.Time
+}
+
+func routingViewMetadata(ctx context.Context, definition BGPRoutingViewDefinition, budget BGPRoutingBudget) ([]byte, [32]byte, error) {
+	var key [32]byte
+	if err := ctx.Err(); err != nil {
+		return nil, key, err
+	}
+	if budget.MemoryBytes <= 1024 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
+		return nil, key, ErrBGPRoutingBudget
+	}
+	peer := definition.Peer
+	if (definition.AFI != 1 && definition.AFI != 2) || definition.SAFI != 1 || peer.Type > 3 ||
+		!peer.BGPIdentifier.Is4() || len(peer.SentOpen) == 0 || len(peer.ReceivedOpen) == 0 {
+		return nil, key, ErrBGPRoutingView
+	}
+	switch definition.Kind {
+	case "loc_rib":
+		if peer.Type != 3 || peer.Address.IsValid() || peer.LocalAddress.IsValid() || peer.LocalPort != 0 || peer.RemotePort != 0 {
+			return nil, key, ErrBGPRoutingView
+		}
+	case "adj_rib_in_pre_policy", "adj_rib_in_post_policy", "adj_rib_out_pre_policy", "adj_rib_out_post_policy":
+		if peer.Type == 3 || !peer.Address.IsValid() || peer.Address.Zone() != "" || definition.Filtered {
+			return nil, key, ErrBGPRoutingView
+		}
+	default:
+		return nil, key, ErrBGPRoutingView
+	}
+	memory, work := budget.MemoryBytes-1024, budget.WorkUnits
+	charge := func(size, overhead int64) bool {
+		if memory < overhead || size > (memory-overhead)/8 || work < 64 || size > (work-64)/4 {
+			return false
+		}
+		memory -= overhead + size*8
+		work -= 64 + size*4
+		return true
+	}
+	if !charge(int64(len(peer.SentOpen)), 0) || !charge(int64(len(peer.ReceivedOpen)), 0) {
+		return nil, key, ErrBGPRoutingBudget
+	}
+	for _, info := range peer.Information {
+		if err := ctx.Err(); err != nil {
+			return nil, key, err
+		}
+		if !charge(int64(len(info.Value)), 256) {
+			return nil, key, ErrBGPRoutingBudget
+		}
+	}
+	// Peer ASN/router-id/OPEN changes restart the same logical peer slot.
+	// Keep address families distinct even for IPv4-mapped IPv6 addresses.
+	identity := make([]byte, 26)
+	identity[0] = peer.Type
+	copy(identity[1:9], peer.Distinguisher[:])
+	if peer.Address.IsValid() {
+		identity[9] = 6
+		if peer.Address.Is4() {
+			identity[9] = 4
+		}
+		address := peer.Address.As16()
+		copy(identity[10:], address[:])
+	}
+	body, err := json.Marshal(peer)
+	if err != nil {
+		return nil, key, err
+	}
+	if int64(len(body)) > budget.MemoryBytes/2 {
+		return nil, key, ErrBGPRoutingBudget
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, key, err
+	}
+	digest := crypto.Hash(identity)
+	if len(digest) != len(key) {
+		return nil, key, ErrBGPRoutingView
+	}
+	copy(key[:], digest)
+	return body, key, nil
+}
+
+// BeginViewInScope requires the caller's fenced write transaction. The old slot
+// and new staging generation change atomically; callers must return every error
+// from their transaction callback. Nothing here publishes incomplete routes.
+func (store BGPRouting) BeginViewInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource,
+	definition BGPRoutingViewDefinition, validUntil time.Time, budget BGPRoutingBudget) (BGPRoutingView, error) {
+	none := BGPRoutingView{}
+	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
+		return none, err
+	}
+	if budget.MemoryBytes <= 1024 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
+		return none, ErrBGPRoutingBudget
+	}
+	operation := budget
+	for _, value := range []string{source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial} {
+		if operation.MemoryBytes <= 0 || operation.WorkUnits <= 0 || int64(len(value)) > operation.MemoryBytes/4 || int64(len(value)) > operation.WorkUnits/2 {
+			return none, ErrBGPRoutingBudget
+		}
+		operation.MemoryBytes -= int64(len(value)) * 4
+		operation.WorkUnits -= int64(len(value)) * 2
+	}
+	authority, err := store.SourceAuthorityInScope(ctx, sc, source)
+	if err != nil {
+		return none, err
+	}
+	body, key, err := routingViewMetadata(ctx, definition, operation)
+	if err != nil {
+		return none, err
+	}
+	if authority.ValidUntil.Before(validUntil) {
+		validUntil = authority.ValidUntil
+	}
+	if !validUntil.After(authority.AsOf) {
+		return none, ErrBGPRoutingSourceUnavailable
+	}
+	// Serialize the retained tenant byte account across contexts and sources;
+	// the lifecycle writer lease remains independently held by the caller.
+	if _, err := sc.Q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('bgp-routing-state:' || $1::text,0))`, source.TenantID); err != nil {
+		return none, err
+	}
+	var used, metadataBytes int64
+	if err := sc.Q.QueryRow(ctx, `SELECT COALESCE(sum(charged_bytes),0)::bigint FROM bgp_routing_views WHERE tenant_id=$1`, source.TenantID).Scan(&used); err != nil {
+		return none, err
+	}
+	if err := sc.Q.QueryRow(ctx, `SELECT octet_length($1::jsonb::text)::bigint+256`, string(body)).Scan(&metadataBytes); err != nil {
+		return none, err
+	}
+	for _, value := range []string{source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial} {
+		if int64(len(value)) > budget.StateBytes-metadataBytes {
+			return none, ErrBGPRoutingBudget
+		}
+		metadataBytes += int64(len(value))
+	}
+	if used < 0 || metadataBytes > budget.StateBytes || used > budget.StateBytes-metadataBytes {
+		return none, ErrBGPRoutingBudget
+	}
+	id, err := newRegistryID()
+	if err != nil {
+		return none, err
+	}
+	generation, err := newRegistryID()
+	if err != nil {
+		return none, err
+	}
+	_, err = sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET state='invalid',updated_at=transaction_timestamp()
+ WHERE tenant_id=$1 AND context_id=$2 AND router_id=$3 AND collector_agent_id=$4
+ AND source_kind='router_bmp' AND source_ref=$5 AND view_kind=$6 AND afi=$7 AND safi=$8
+ AND (view_kind='loc_rib' OR peer_key=$9) AND state IN ('staging','current')`,
+		source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef,
+		definition.Kind, definition.AFI, definition.SAFI, key[:])
+	if err != nil {
+		return none, err
+	}
+	err = sc.Q.QueryRow(ctx, `INSERT INTO bgp_routing_views
+ (tenant_id,context_id,id,generation,source_kind,router_id,collector_agent_id,source_ref,binding_kind,
+ sender_serial,origin_serial,view_kind,peer_key,peer_identity,afi,safi,filtered,state,charged_bytes,observed_at,valid_until)
+ VALUES($1,$2,$3,$4,'router_bmp',$5,$6,$7,'bmp_peer',$8,$9,$10,$11,$12::jsonb,$13,$14,$15,'staging',$16,$17,$18)
+ RETURNING id::text,generation::text`, source.TenantID, source.ContextID, id, generation, source.RouterID,
+		source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, definition.Kind, key[:], string(body),
+		definition.AFI, definition.SAFI, definition.Filtered, metadataBytes, source.ObservedAt, validUntil).Scan(&id, &generation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return none, ErrBGPRoutingView
+	}
+	if err != nil {
+		return none, err
+	}
+	// The persisted body owns all byte slices; do not return caller-owned OPENs
+	// or information values as the supposedly immutable generation definition.
+	definition.Peer = cloneBGPRoutingPeer(definition.Peer)
+	return BGPRoutingView{BGPRoutingSource: source, ID: id, Generation: generation, Definition: definition, PeerKey: key, ValidUntil: validUntil}, nil
+}
+
+func cloneBGPRoutingPeer(peer BGPRoutingPeer) BGPRoutingPeer {
+	peer.SentOpen, peer.ReceivedOpen = bytes.Clone(peer.SentOpen), bytes.Clone(peer.ReceivedOpen)
+	peer.Information = slices.Clone(peer.Information)
+	for index := range peer.Information {
+		peer.Information[index].Value = bytes.Clone(peer.Information[index].Value)
+	}
+	return peer
+}
