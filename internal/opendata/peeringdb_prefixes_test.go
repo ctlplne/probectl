@@ -199,8 +199,8 @@ func TestPeeringDBIXPrefixesKeepInactiveAndExpiredSourcesVisibleWithoutMembershi
 	if err != nil {
 		t.Fatal(err)
 	}
-	clear, err := LoadPeeringDBIXPrefixes(t.Context(), ixPrefixFile(t, body), time.Hour, 1<<20, time.Now())
-	if err != nil || len(clear.snapshot.entries) != 0 || clear.snapshot.Version == source.snapshot.Version {
+	withdrawn, err := LoadPeeringDBIXPrefixes(t.Context(), ixPrefixFile(t, body), time.Hour, 1<<20, time.Now())
+	if err != nil || len(withdrawn.snapshot.entries) != 0 || withdrawn.snapshot.Version == source.snapshot.Version {
 		t.Fatal("complete IX clear was not a distinct generation", err)
 	}
 }
