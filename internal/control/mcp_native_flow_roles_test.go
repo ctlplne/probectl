@@ -7,7 +7,9 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -102,5 +104,23 @@ func TestNativeFlowRoleProjectionRefusesForeignMissingStaleOrChangedIdentity(t *
 	b := nativeRoleProjectionFixture(t, tenant, entity.InterfaceRoleCustomer)
 	if _, err := projectNativeFlowComparison(explorerComparisonResult{Flow: &flowExplorerComparisonData{Current: a, Previous: b}}, tenant); err == nil {
 		t.Fatal("native role comparison admitted different current generations")
+	}
+}
+
+func TestNativeFlowRoleProjectionHonorsCancellationAndExistingTenantScope(t *testing.T) {
+	const tenant = "11111111-1111-4111-8111-111111111111"
+	source := nativeRoleProjectionFixture(t, tenant, entity.InterfaceRoleTransit)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := projectNativeFlow(source, tenant, nativeFlowProjectionOptions{ctx: ctx, budget: flowstore.DefaultExplorerBudget()}); !errors.Is(err, context.Canceled) {
+		t.Fatal("cancelled native role projection retained work", err)
+	}
+	foreign := tenancy.WithTenant(t.Context(), tenancy.ID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"))
+	if _, err := projectNativeFlow(source, tenant, nativeFlowProjectionOptions{ctx: foreign, budget: flowstore.DefaultExplorerBudget()}); err == nil {
+		t.Fatal("native role projection overwrote an existing foreign tenant scope")
+	}
+	ctx = tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+	if _, err := projectNativeFlow(source, tenant, nativeFlowProjectionOptions{ctx: ctx, budget: flowstore.DefaultExplorerBudget()}); err != nil {
+		t.Fatal("native role projection lost the authorized request context", err)
 	}
 }

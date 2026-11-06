@@ -107,9 +107,25 @@ func nativeFlowPoints(points []flowstore.PlanPoint, fields []string, metrics []f
 	return result, nil
 }
 
-func projectNativeFlow(source flowstore.PlanResult, tenant string, budgets ...flowstore.ExplorerBudget) (mcp.NativeFlowResult, error) {
+type nativeFlowProjectionOptions struct {
+	ctx    context.Context
+	budget flowstore.ExplorerBudget
+}
+
+func projectNativeFlow(source flowstore.PlanResult, tenant string, options ...nativeFlowProjectionOptions) (mcp.NativeFlowResult, error) {
 	if (source.Source != "raw" && source.Source != "rollup") || source.ResolutionSeconds < 1 || source.TotalGroups < 0 || source.Query.From.IsZero() || source.Query.To.IsZero() || source.Query.View == "" || len(source.Query.Metrics) == 0 {
 		return mcp.NativeFlowResult{}, nativeFlowProjectionError()
+	}
+	ctx := context.Background()
+	budget := flowstore.DefaultExplorerBudget()
+	if len(options) > 0 {
+		if options[0].ctx != nil {
+			ctx = options[0].ctx
+		}
+		budget = options[0].budget
+	}
+	if err := ctx.Err(); err != nil {
+		return mcp.NativeFlowResult{}, err
 	}
 	vocabulary, err := source.OutputVocabulary(tenant)
 	if err != nil {
@@ -120,11 +136,7 @@ func projectNativeFlow(source flowstore.PlanResult, tenant string, budgets ...fl
 		return mcp.NativeFlowResult{}, nativeFlowProjectionError()
 	}
 	out := mcp.NativeFlowResult{Query: query, Source: source.Source, ResolutionSeconds: source.ResolutionSeconds, TotalGroups: source.TotalGroups, DetailLimited: source.DetailLimited}
-	budget := flowstore.DefaultExplorerBudget()
-	if len(budgets) > 0 {
-		budget = budgets[0]
-	}
-	if err := projectNativeFlowRoles(&out, source, tenant, budget); err != nil {
+	if err := projectNativeFlowRoles(ctx, &out, source, tenant, budget); err != nil {
 		return mcp.NativeFlowResult{}, err
 	}
 
@@ -212,28 +224,28 @@ func nativeFlowPaging(source *flowSnapshotPaging) *mcp.NativeFlowPaging {
 	}
 	return &mcp.NativeFlowPaging{SnapshotID: source.SnapshotID, ExpiresAt: source.ExpiresAt, SelectedRows: source.SelectedRows, Offset: source.Offset, PageSize: source.PageSize, More: source.More, NextCursor: source.NextCursor}
 }
-func projectNativeFlowQuery(source explorerResult, tenant string, budgets ...flowstore.ExplorerBudget) (mcp.NativeFlowQueryResult, error) {
+func projectNativeFlowQuery(source explorerResult, tenant string, options ...nativeFlowProjectionOptions) (mcp.NativeFlowQueryResult, error) {
 	if source.Flow == nil {
 		return mcp.NativeFlowQueryResult{}, nativeFlowProjectionError()
 	}
-	data, err := projectNativeFlow(*source.Flow, tenant, budgets...)
+	data, err := projectNativeFlow(*source.Flow, tenant, options...)
 	if err != nil {
 		return mcp.NativeFlowQueryResult{}, err
 	}
 	return mcp.NativeFlowQueryResult{Flow: data, Paging: nativeFlowPaging(source.FlowPaging)}, nil
 }
-func projectNativeFlowComparison(source explorerComparisonResult, tenant string, budgets ...flowstore.ExplorerBudget) (mcp.NativeFlowComparisonResult, error) {
+func projectNativeFlowComparison(source explorerComparisonResult, tenant string, options ...nativeFlowProjectionOptions) (mcp.NativeFlowComparisonResult, error) {
 	if source.Flow == nil {
 		return mcp.NativeFlowComparisonResult{}, nativeFlowProjectionError()
 	}
 	if source.Flow.Current.RoleTenantID != source.Flow.Previous.RoleTenantID || source.Flow.Current.RoleDigest != source.Flow.Previous.RoleDigest || source.Flow.Current.TagTenantID != source.Flow.Previous.TagTenantID || source.Flow.Current.TagRevision != source.Flow.Previous.TagRevision || !maps.Equal(source.Flow.Current.TagIDs, source.Flow.Previous.TagIDs) {
 		return mcp.NativeFlowComparisonResult{}, nativeFlowProjectionError()
 	}
-	now, err := projectNativeFlow(source.Flow.Current, tenant, budgets...)
+	now, err := projectNativeFlow(source.Flow.Current, tenant, options...)
 	if err != nil {
 		return mcp.NativeFlowComparisonResult{}, err
 	}
-	before, err := projectNativeFlow(source.Flow.Previous, tenant, budgets...)
+	before, err := projectNativeFlow(source.Flow.Previous, tenant, options...)
 	if err != nil {
 		return mcp.NativeFlowComparisonResult{}, err
 	}
@@ -289,7 +301,7 @@ func projectNativeFlowView(source flow.SavedQueryView) mcp.NativeFlowView {
 // Reconstruct the immutable projection under the authenticated tenant and the
 // existing configured query admission. A digest is provenance, never a grant;
 // service/current-credential checks have already run and remain mandatory.
-func projectNativeFlowRoles(out *mcp.NativeFlowResult, source flowstore.PlanResult, tenant string, budget flowstore.ExplorerBudget) error {
+func projectNativeFlowRoles(ctx context.Context, out *mcp.NativeFlowResult, source flowstore.PlanResult, tenant string, budget flowstore.ExplorerBudget) error {
 	if !flowstore.PlanUsesInterfaceRoles(source.Query) {
 		if source.RoleTenantID != "" || source.RoleDigest != "" || len(source.RoleSources) > 0 {
 			return nativeFlowProjectionError()
@@ -300,7 +312,10 @@ func projectNativeFlowRoles(out *mcp.NativeFlowResult, source flowstore.PlanResu
 		return nativeFlowProjectionError()
 	}
 	at := time.Now().UTC()
-	ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
+	if bound, present := tenancy.FromContext(ctx); present && bound.String() != tenant {
+		return nativeFlowProjectionError()
+	}
+	ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant))
 	data, err := flowstore.NewInterfaceRoleQueryData(ctx, tenant, at, source.RoleSources, budget.MemoryBytes/8)
 	if err != nil {
 		return nativeFlowProjectionError()
@@ -312,8 +327,14 @@ func projectNativeFlowRoles(out *mcp.NativeFlowResult, source flowstore.PlanResu
 	out.RoleTenantID, out.RoleDigest = mcp.NativeRoleUUID(tenant), mcp.NativeRoleDigest(digest)
 	out.RoleSources = make([]mcp.NativeFlowRoleSource, 0, len(source.RoleSources))
 	for _, row := range source.RoleSources {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		refs := make([]mcp.NativeRoleSource, 0, len(row.Sources))
 		for _, ref := range row.Sources {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			refs = append(refs, mcp.NativeRoleSource(ref))
 		}
 		out.RoleSources = append(out.RoleSources, mcp.NativeFlowRoleSource{TenantID: mcp.NativeRoleUUID(row.TenantID), ContextID: mcp.NativeRoleUUID(row.ContextID), RouterID: mcp.NativeRoleUUID(row.RouterID), InterfaceID: mcp.NativeRoleUUID(row.InterfaceID), Exporter: row.Exporter, Protocol: row.Protocol, Domain: row.Domain, IfIndex: row.IfIndex, Role: string(row.Role), Reason: row.Reason, Sources: refs, ValidUntil: row.ValidUntil})
