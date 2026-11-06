@@ -117,7 +117,7 @@ func TestMCPFlowSourcesRetainConfiguredLocalIXGeneration(t *testing.T) {
 			} `json:"open_data_sources"`
 		}
 		if response.StatusCode != http.StatusOK || json.Unmarshal(body, &status) != nil {
-			t.Fatal("standalone source catalogue authentication fixture failed", response.StatusCode, string(body))
+			t.Fatal("standalone source catalog authentication fixture failed", response.StatusCode, string(body))
 		}
 		if !status.Enabled || len(status.Sources) != 1 || status.Sources[0].Name != "peeringdb-ix-prefix-file" || !status.Sources[0].Enabled || status.Sources[0].Status != "ok" {
 			t.Fatal("standalone role source omitted configured local IX prefixes", string(body))

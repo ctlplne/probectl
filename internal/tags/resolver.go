@@ -50,7 +50,7 @@ func ValidateKey(key string) error {
 var reservedKeys = map[string]bool{
 	"tenant_id": true, "agent_id": true, "bytes": true, "packets": true,
 	"flows": true, "src_addr": true, "dst_addr": true, "exporter": true,
-	"in_if": true, "out_if": true,
+	"in_if": true, "out_if": true, "in_if_role": true, "out_if_role": true,
 	// The native FX-1 registry and metric vocabulary cannot be shadowed by
 	// tenant metadata. New native fields must be added here in the same change.
 	"obs_domain": true, "protocol": true, "ts": true, "start_ts": true,

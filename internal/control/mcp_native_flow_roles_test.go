@@ -113,7 +113,7 @@ func TestNativeFlowRoleProjectionHonorsCancellationAndExistingTenantScope(t *tes
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := projectNativeFlow(source, tenant, nativeFlowProjectionOptions{ctx: ctx, budget: flowstore.DefaultExplorerBudget()}); !errors.Is(err, context.Canceled) {
-		t.Fatal("cancelled native role projection retained work", err)
+		t.Fatal("canceled native role projection retained work", err)
 	}
 	foreign := tenancy.WithTenant(t.Context(), tenancy.ID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"))
 	if _, err := projectNativeFlow(source, tenant, nativeFlowProjectionOptions{ctx: foreign, budget: flowstore.DefaultExplorerBudget()}); err == nil {

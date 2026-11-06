@@ -761,7 +761,7 @@ def ix_prefix_controls():
         ("native_role_context", "internal/control", "mcp_native_flow_projection.go",
          "ctx = options[0].ctx", "ctx = context.Background()",
          "TestNativeFlowRoleProjectionHonorsCancellationAndExistingTenantScope",
-         "cancelled native role projection retained work"),
+         "canceled native role projection retained work"),
         ("native_role_projection", "internal/control", "mcp_native_flow_projection.go",
          "projectNativeFlowRoles(ctx, &out, source, tenant, budget)", "func() error { _ = budget; return nil }()",
          "TestNativeFlowRoleProjectionRetainsCompleteTenantProvenance",
