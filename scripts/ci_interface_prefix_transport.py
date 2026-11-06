@@ -449,6 +449,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-rate-refusal": (
+        "internal/agenttransport/bgp_routing_message.go",
+        "Reset: !admitted || raw.SourceReset",
+        "Reset: raw.SourceReset",
+        "TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState",
+        "", "rate-refused routing frame retained stale or foreign current state",
+    ),
     "routing-stream-atomic": (
         "internal/store/bgp_routing_stream.go",
         "ROLLBACK TO SAVEPOINT routing_stream_message",
@@ -574,10 +581,11 @@ def bgp_routing_write_controls():
         mutant.write_text(original.replace(seam, replacement))
         overlay = out / (name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
-        result = execute("internal/store", (root,), name, integration=True,
+        package = str(Path(file).parent)
+        result = execute(package, (root,), name, integration=True,
                          overlay=overlay, child=child)
         if not report_regression_failed_on_assertion(
-            result.stdout, result.returncode, package=PREFIX + "internal/store",
+            result.stdout, result.returncode, package=PREFIX + package,
             root=root, child=child, marker=marker,
         ):
             raise RuntimeError(name + " did not fail its exact assertion")
