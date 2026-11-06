@@ -11,6 +11,7 @@ package store
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"strings"
 
 	"reflect"
@@ -156,6 +157,67 @@ func TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer(t *testing.
 	failed, err := stage(0, fresh, small)
 	if err != nil || failed.Status != "invalidated" || count(0, "staging") != 0 || count(1, "staging") != 2 {
 		t.Fatal("refused routing replacement left partial family state or foreign mutation", err, failed)
+	}
+}
+
+func TestRoutingStageReplacementWithdrawsOmittedFamiliesWithoutAffectingSibling(t *testing.T) {
+	f := newRoleInputsFixture(t)
+	profile := routingViewBudget()
+	profile.LeaseDuration = 5 * time.Minute
+	sources := []BGPRoutingSource{routingFixtureSource(f, 0), routingFixtureSource(f, 1)}
+	inputs := make([]BGPRoutingPeerUpInput, len(sources))
+	stage := func(lane int, up BGPRoutingPeerUpInput) BGPRoutingStageResult {
+		var got BGPRoutingStageResult
+		if err := routingFixtureWrite(t, f, sources[lane], func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			got, err = (BGPRouting{}).StagePeerInScope(ctx, sc, up, profile)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != "staged" {
+			t.Fatal("replacement source staging prerequisite failed", got)
+		}
+		return got
+	}
+	for lane, source := range sources {
+		inputs[lane] = BGPRoutingPeerUpInput{CollectorAgentID: source.CollectorAgentID, SenderSerial: source.SenderSerial, SourceRef: source.SourceRef,
+			OriginSerial: source.OriginSerial, ObservationID: uuid.NewString(), ObservedAt: routingFixtureTime(f), FrameDigest: crypto.Hash([]byte("complete initial dual-family source")),
+			Definitions: []BGPRoutingViewDefinition{routingLookupDefinition(1), routingLookupDefinition(2)}}
+		initial := stage(lane, inputs[lane])
+		for _, view := range initial.Views {
+			change := routingChangeFixture()
+			if view.AFI == 2 {
+				change.Prefix = netip.MustParsePrefix("2001:db8:42::/48")
+			}
+			routingLookupApply(t, f, source, view.BGPRoutingViewRef, BGPRoutingBatch{Sequence: 1, AFI: view.AFI, SAFI: 1, Changes: []BGPRoutingChange{change}})
+			routingLookupApply(t, f, source, view.BGPRoutingViewRef, BGPRoutingBatch{Sequence: 2, AFI: view.AFI, SAFI: 1, EndOfRIB: true})
+		}
+	}
+	replacement := inputs[0]
+	replacement.ObservationID, replacement.ObservedAt = uuid.NewString(), routingFixtureTime(f)
+	replacement.FrameDigest = crypto.Hash([]byte("complete replacement source with IPv4 only"))
+	replacement.Definitions = []BGPRoutingViewDefinition{routingLookupDefinition(1)}
+	if got := stage(0, replacement); len(got.Views) != 1 || got.Views[0].AFI != 1 {
+		t.Fatal("replacement source invented a family", got)
+	}
+	for lane, source := range sources {
+		f.in(source.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+			var old, current, staging int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE generation=$1 AND state IN ('staging','current')`, inputs[lane].ObservationID).Scan(&old); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FILTER (WHERE state='current'),count(*) FILTER (WHERE state='staging') FROM bgp_routing_views`).Scan(&current, &staging); err != nil {
+				return err
+			}
+			if lane == 0 && (old != 0 || current != 0 || staging != 1) {
+				t.Fatal("replacement routing peer retained an omitted address family", old, current, staging)
+			}
+			if lane == 1 && (old != 2 || current != 2 || staging != 0) {
+				t.Fatal("routing family replacement damaged another tenant", old, current, staging)
+			}
+			return nil
+		})
 	}
 }
 
