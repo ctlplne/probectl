@@ -35,6 +35,13 @@ Selecting either field requires `entities.read`, `metrics.read` and
 `events.read`; a missing projection refuses execution rather than inventing
 authority. This component does not qualify the real-router feature.
 
+The frozen flow result shows complete interface-role provenance in an expandable
+source list. Presentation pages retain access to every source, including full
+domain IDs, canonical context/router/interface IDs and versioned evidence
+references. A tenant or source-grant change hides the entire retained role
+result immediately and requires a fresh query; a failed query/page read also
+discards its previous role result.
+
 Explanations require a current tenant user with `entities.read`, `metrics.read`
 and `events.read` for the selected routing context. The actual credential is a
 separate permission ceiling. Responses include `role`, `reason`, complete

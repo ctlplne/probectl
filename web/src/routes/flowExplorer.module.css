@@ -2,6 +2,20 @@
   display: grid;
   gap: var(--space-4);
 }
+.roleSources {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.roleSources summary {
+  cursor: pointer;
+  font-weight: var(--font-weight-semibold);
+  margin-block-end: var(--space-3);
+}
+.roleSources ol {
+  display: grid;
+  gap: var(--space-4);
+  padding-inline-start: var(--space-6);
+}
 .summary {
   display: flex;
   flex-wrap: wrap;

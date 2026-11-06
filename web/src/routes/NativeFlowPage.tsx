@@ -48,6 +48,7 @@ import {
 import { FlowViewLibrary } from './FlowViewLibrary'
 import { FlowFilterLibrary } from './FlowFilterLibrary'
 import { EntityCurrentPivot } from './EntityCurrentPivot'
+import { FlowRoleSources, flowRoleResultReadable } from './FlowRoleSources'
 import { observedIPs } from './entityObservedIPs'
 import { Page } from './RoutePage'
 import styles from './flowExplorer.module.css'
@@ -163,10 +164,18 @@ function FlowWorkspace({ identity }: { identity: string }) {
   const comparisonPage = useExplorerFlowComparisonPage()
   const [filterAfter, setFilterAfter] = useState('')
   const filters = useFlowFilters(filterAfter, identity)
-  const { permissions, user } = useAuth()
+  const { permissions, user, tenant } = useAuth()
   const canWrite = permissions.includes('flow.views.write')
   const dirty = JSON.stringify(definition) !== JSON.stringify(saved?.definition)
   const waitingForSaved = Boolean(params.get('flow_view') && params.get('flow_view') !== saved?.id)
+
+  function discardRetainedRoleResult() {
+    const current = result && (isFlowComparison(result) ? result.flow?.current : result.flow)
+    if (!current?.role_digest) return
+    setResult(undefined)
+    setFirst(undefined)
+    setHistory([])
+  }
 
   function newQuery() {
     lifetime.current.epoch++
@@ -263,8 +272,10 @@ function FlowWorkspace({ identity }: { identity: string }) {
       setHistory([])
       setExecuted(serialized)
     } catch (cause) {
-      if (lifetime.current.active && lifetime.current.epoch === epoch)
+      if (lifetime.current.active && lifetime.current.epoch === epoch) {
+        discardRetainedRoleResult()
         setError(cause instanceof Error ? cause.message : 'Flow query failed.')
+      }
     } finally {
       if (lifetime.current.active && lifetime.current.epoch === epoch) setBusy(false)
     }
@@ -302,8 +313,10 @@ function FlowWorkspace({ identity }: { identity: string }) {
       setResult(next)
       setHistory(direction === 'next' ? [...history, cursor] : history.slice(0, -1))
     } catch (cause) {
-      if (lifetime.current.active && epoch === lifetime.current.epoch)
+      if (lifetime.current.active && epoch === lifetime.current.epoch) {
+        discardRetainedRoleResult()
         setError(cause instanceof Error ? cause.message : 'Snapshot page failed.')
+      }
     } finally {
       if (lifetime.current.active && epoch === lifetime.current.epoch) setBusy(false)
     }
@@ -329,8 +342,26 @@ function FlowWorkspace({ identity }: { identity: string }) {
   }
 
   const plan = definition.plan ?? {}
-  const primary = result && (isFlowComparison(result) ? result.flow?.current : result.flow)
-  const previous = result && isFlowComparison(result) ? result.flow?.previous : undefined
+  const storedPrimary = result && (isFlowComparison(result) ? result.flow?.current : result.flow)
+  const storedPrevious = result && isFlowComparison(result) ? result.flow?.previous : undefined
+  const roleReadable =
+    flowRoleResultReadable(storedPrimary, tenant.id, permissions) &&
+    flowRoleResultReadable(storedPrevious, tenant.id, permissions) &&
+    (!storedPrimary?.role_digest ||
+      !storedPrevious?.role_digest ||
+      storedPrimary.role_digest === storedPrevious.role_digest)
+  const primary = roleReadable ? storedPrimary : undefined
+  const previous = roleReadable ? storedPrevious : undefined
+  useEffect(() => {
+    if (!roleReadable && result) {
+      lifetime.current.epoch++
+      setBusy(false)
+      setResult(undefined)
+      setFirst(undefined)
+      setHistory([])
+      setError('Interface role access changed; run a fresh query.')
+    }
+  }, [roleReadable, result])
   const currentPivotIPs = useMemo(
     () => (primary ? observedIPs(primary.rows.map((row) => row.group)) : []),
     [primary],
@@ -650,6 +681,12 @@ function FlowWorkspace({ identity }: { identity: string }) {
           expression={plan.filter ?? {}}
           onApply={(filter) => patchPlan({ filter })}
         />
+        {result && !roleReadable && (
+          <ErrorState
+            title="Interface role access changed"
+            description="Run a fresh query with current access to this tenant and its source planes."
+          />
+        )}
         {result && primary && (
           <Card>
             <CardHeader
@@ -677,6 +714,7 @@ function FlowWorkspace({ identity }: { identity: string }) {
                   same traffic totals. Unmatched means no uniquely owned exporter has a tag value.
                 </p>
               )}
+              <FlowRoleSources key={primary.role_digest} result={primary} />
               <FlowVisuals
                 current={primary}
                 previous={previous}

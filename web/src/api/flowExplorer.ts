@@ -4,6 +4,8 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
+import type { FlowInterfaceRoleSource } from './sdk.gen'
+
 /** Values and available choices come from the authenticated Explorer schema. */
 export interface FlowQueryPredicate {
   field: string
@@ -111,6 +113,9 @@ export interface FlowMatrixCell {
 export interface FlowExplorerResult {
   query: FlowQueryPlan
   tag_revision?: number
+  role_digest?: string
+  role_tenant_id?: string
+  role_sources?: FlowInterfaceRoleSource[]
   saved_filter_versions?: Record<string, number>
   source: 'raw' | 'rollup'
   resolution_seconds: number
