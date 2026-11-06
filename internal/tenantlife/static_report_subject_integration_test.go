@@ -50,7 +50,9 @@ func TestStaticDocumentChunksSubjectPortabilityErasureAndSiblingSurvival(t *test
 			t.Fatal(err)
 		}
 		err = tenancy.InTenant(bound, pool, func(ctx context.Context, sc tenancy.Scope) error {
-			if _, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{ID: "same-static-view", OwnerID: "another-owner", Name: "Static documents", Preset: "operator", Definition: json.RawMessage(`{}`)}); err != nil {
+			// The subject owns the schedule, not this dashboard. Sharing is
+			// required by the real scheduling authorization used in this fixture.
+			if _, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{ID: "same-static-view", OwnerID: "another-owner", Name: "Static documents", Preset: "operator", Shared: true, Definition: json.RawMessage(`{}`)}); err != nil {
 				return err
 			}
 			if _, err := (store.DashboardReports{}).CreateSchedule(ctx, sc, store.ReportScheduleInput{ID: "same-static-schedule", DashboardID: "same-static-view", OwnerID: subject, Name: "Static schedule", Format: "csv", Cadence: "daily", DestinationID: "tenant-report-inbox", NextRunAt: time.Now().Add(time.Hour)}); err != nil {
