@@ -31,6 +31,9 @@ type BGPRoutingSource struct {
 	RouterID, CollectorAgentID, SourceRef string
 	SenderSerial, OriginSerial            string
 	ObservedAt                            time.Time
+	// Filled only by storage-owned selector resolution. Existing evidence
+	// planes keep their original single-context assignment and credentials.
+	routingSelection *routingSourceSelection
 }
 
 // BGPRoutingSourceAuthority describes this transaction only, not a reusable
@@ -90,6 +93,13 @@ func routingSourceAuthority(ctx context.Context, sc tenancy.Scope, source BGPRou
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
 		return BGPRoutingSourceAuthority{}, err
 	}
+	if source.routingSelection != nil {
+		return boundRoutingSourceAuthority(ctx, sc, source, lock)
+	}
+	return routingCredentialAuthority(ctx, sc, source, lock, "")
+}
+
+func routingCredentialAuthority(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, lock bool, epoch string) (BGPRoutingSourceAuthority, error) {
 	if sc.Q == nil {
 		return BGPRoutingSourceAuthority{}, ErrBGPRoutingSourceUnavailable
 	}
@@ -121,12 +131,16 @@ func routingSourceAuthority(ctx context.Context, sc tenancy.Scope, source BGPRou
  AND NOT EXISTS (SELECT 1 FROM agent_identities revoked
  WHERE revoked.tenant_id=source.tenant_id AND revoked.agent_id=source.agent_id
 	AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')`
+	args := []any{source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID,
+		source.SenderSerial, source.OriginSerial, source.SourceRef, source.ObservedAt}
+	if epoch != "" {
+		query = strings.Replace(query, "source.routing_epoch IS NULL", "source.routing_epoch=$9", 1)
+		args = append(args, epoch)
+	}
 	if lock {
 		query += ` FOR SHARE OF sender,origin,assignment,source,router`
 	}
-	err := sc.Q.QueryRow(ctx, query,
-		source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID,
-		source.SenderSerial, source.OriginSerial, source.SourceRef, source.ObservedAt).Scan(&result.AsOf, &result.ValidUntil)
+	err := sc.Q.QueryRow(ctx, query, args...).Scan(&result.AsOf, &result.ValidUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BGPRoutingSourceAuthority{}, ErrBGPRoutingSourceUnavailable
 	}

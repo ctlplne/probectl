@@ -29,10 +29,12 @@ type routingSourceConfiguration struct {
 }
 
 type routingSourceSelection struct {
-	BaseContextID, ContextID, RouterID string
-	Epoch, BindingID                   string
-	AssignedAt                         time.Time
-	Families                           []uint16
+	BaseContextID, BaseRouterID string
+	ContextID, RouterID         string
+	Epoch, BindingID            string
+	AssignedAt                  time.Time
+	Families                    []uint16
+	Binding                     routingSourceBinding
 }
 
 // Configuration reads grant no route access. The operator adapter authorizes
@@ -159,7 +161,7 @@ func selectRoutingSource(ctx context.Context, sc tenancy.Scope, config routingSo
 		}
 		seen[afi] = true
 	}
-	out := routingSourceSelection{BaseContextID: config.BaseContextID, Families: append([]uint16(nil), families...)}
+	out := routingSourceSelection{BaseContextID: config.BaseContextID, BaseRouterID: config.BaseRouterID, Families: append([]uint16(nil), families...)}
 	if config.Manifest == nil {
 		if peer.Distinguisher != ([8]byte{}) {
 			return routingSourceSelection{}, errBGPRoutingContextBinding
@@ -214,6 +216,8 @@ func selectRoutingSource(ctx context.Context, sc tenancy.Scope, config routingSo
 			return routingSourceSelection{}, ErrBGPRoutingSourceUnavailable
 		}
 		out.ContextID, out.RouterID, out.Epoch, out.BindingID, out.AssignedAt = binding.ContextID, binding.RouterID, config.Manifest.Epoch, binding.ID, config.Manifest.AssignedAt
+		out.Binding = binding
+		out.Binding.Families = append([]uint16(nil), binding.Families...)
 		return out, nil
 	}
 	return routingSourceSelection{}, errBGPRoutingContextBinding

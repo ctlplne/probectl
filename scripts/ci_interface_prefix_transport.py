@@ -155,6 +155,7 @@ INTEGRATION = {
     "internal/store": (
         "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
         "TestRoutingBindingManifestRefusesLegacyAuthorityWithoutChangingOtherTenant",
+        "TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant",
         "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
         "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
@@ -455,6 +456,14 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-bound-origin": (
+        "internal/store/bgp_routing_authority.go",
+        "AND origin.revoked_at IS NULL",
+        "AND true",
+        "TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant",
+        "origin-revoked",
+        "bound routing view retained changed credential or target authority",
+    ),
     "routing-legacy-authority-control": (
         "internal/store/bgp_routing_authority.go",
         " AND source.routing_epoch IS NULL",
