@@ -43,8 +43,16 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 	if out, end, err := ParseBGPEndOfRIB(raw); err != nil && (end || out != (RouteFamily{})) {
 		t.Fatal("invalid marker exposed a completed family")
 	}
-	if out, err := ParseBGPRouteAttributes(ctx, raw, RouteAttributeBudget{memory, work}); err != nil && out != nil {
+	attributes, attributeErr := ParseBGPRouteAttributes(ctx, raw, RouteAttributeBudget{memory, work})
+	if attributeErr != nil && attributes != nil {
 		t.Fatal("invalid attributes exposed a partial path")
+	}
+	if attributeErr == nil {
+		for _, width := range []int{2, 4} {
+			if out, err := ReconstructRouteASPath(ctx, attributes, width, ASPathParseBudget{memory, work}); err != nil && !reflect.DeepEqual(out, RouteASPath{}) {
+				t.Fatal("invalid attribute interpretation exposed a partial AS path")
+			}
+		}
 	}
 	if out, err := ParseBGPUpdateFrame(ctx, raw, UpdateFrameBudget{memory, work}); err != nil && !reflect.DeepEqual(out, UpdateFrame{}) {
 		t.Fatal("invalid UPDATE exposed a partial route change")
