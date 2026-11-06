@@ -61,7 +61,7 @@ func TestBMPPeerUpKeepsWholeSourceMetadataAndOwnedCopies(t *testing.T) {
 				clear(raw[48:68])
 				wantAddress, wantView, wantPort, filtered = netip.Addr{}, BMPLocRIB, 0, true
 			}
-			out, err := ParseBMPPeerUp(context.Background(), raw, PeerUpBudget{128 * int64(len(raw)), 4 * int64(len(raw))})
+			out, err := ParseBMPPeerUp(context.Background(), raw, PeerMessageBudget{128 * int64(len(raw)), 4 * int64(len(raw))})
 			if err != nil || out.Header.View != wantView || out.Header.Filtered != filtered || !out.Header.TimestampKnown || out.Header.PeerASN != 4294967295 || out.LocalAddress != wantAddress || out.LocalPort != wantPort || !bytes.Equal(out.SentOpen, open) || !bytes.Equal(out.ReceivedOpen, open) || !reflect.DeepEqual(out.Information, info) {
 				t.Fatal("complete BMP Peer Up lost route-view, OPEN or ordered information", err, len(out.Information))
 			}
@@ -96,7 +96,7 @@ func (c *peerUpCancelContext) Err() error {
 func TestBMPPeerUpRefusesIncompleteTailAdmissionAndCancellation(t *testing.T) {
 	open := routeOpenForTest([]byte{65, 4, 0, 0, 0, 1, 69, 4, 0, 1, 1, 3}, false)
 	good := peerUpFrameForTest(open, open, []PeerUpInformation{{3, []byte("one")}, {3, []byte("two")}})
-	budget := PeerUpBudget{128 * int64(len(good)+20), 4 * int64(len(good)+20)}
+	budget := PeerMessageBudget{128 * int64(len(good)+20), 4 * int64(len(good)+20)}
 	variants := [][]byte{nil, append([]byte(nil), good[:5]...), append([]byte(nil), good[:68]...), append([]byte(nil), good[:68+len(open)]...), append(append([]byte(nil), good...), 0)}
 	for _, mutate := range []func([]byte){
 		func(raw []byte) { raw[0] = 2 },
@@ -119,9 +119,9 @@ func TestBMPPeerUpRefusesIncompleteTailAdmissionAndCancellation(t *testing.T) {
 			t.Fatal("incomplete Peer Up returned partial source metadata", err)
 		}
 	}
-	for _, limited := range []PeerUpBudget{{0, 10000}, {10000, 0}, {128*int64(len(good)) - 1, 4 * int64(len(good))}, {128 * int64(len(good)), 4*int64(len(good)) - 1}} {
+	for _, limited := range []PeerMessageBudget{{0, 10000}, {10000, 0}, {128*int64(len(good)) - 1, 4 * int64(len(good))}, {128 * int64(len(good)), 4*int64(len(good)) - 1}} {
 		out, err := ParseBMPPeerUp(context.Background(), good, limited)
-		if !errors.Is(err, ErrBMPPeerUpBudget) || !reflect.DeepEqual(out, PeerUp{}) {
+		if !errors.Is(err, ErrBMPPeerMessageBudget) || !reflect.DeepEqual(out, PeerUp{}) {
 			t.Fatal("unadmitted Peer Up allocated visible source metadata", err)
 		}
 	}

@@ -31,28 +31,28 @@ type PeerUp struct {
 	Information            []PeerUpInformation
 }
 
-// PeerUpBudget bounds the whole operation before capability maps or output
+// PeerMessageBudget bounds the whole operation before capability maps or output
 // allocation. MemoryBytes conservatively charges 128 bytes per input byte,
 // including complete OPEN parsing and copied TLV descriptors/values. WorkUnits
 // charges four byte passes. There is no independent TLV/population ceiling.
-type PeerUpBudget struct{ MemoryBytes, WorkUnits int64 }
+type PeerMessageBudget struct{ MemoryBytes, WorkUnits int64 }
 
 var (
-	ErrBMPPeerUp       = errors.New("bgp: malformed or inconsistent peer-up frame")
-	ErrBMPPeerUpBudget = errors.New("bgp: peer-up operation admission exceeded")
+	ErrBMPPeerUp            = errors.New("bgp: malformed or inconsistent peer-up frame")
+	ErrBMPPeerMessageBudget = errors.New("bgp: peer-up operation admission exceeded")
 )
 
 // ParseBMPPeerUp decodes one complete RFC7854/RFC9069 Peer Up frame. Both OPENs
 // and every information tail must validate before any metadata is returned.
 // Authentication, canonical ownership, revocation and session epoch fencing
 // belong to the listener/store; a payload address cannot establish them.
-func ParseBMPPeerUp(ctx context.Context, raw []byte, budget PeerUpBudget) (PeerUp, error) {
+func ParseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (PeerUp, error) {
 	none := PeerUp{}
 	if err := ctx.Err(); err != nil {
 		return none, err
 	}
 	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || int64(len(raw)) > budget.MemoryBytes/128 || int64(len(raw)) > budget.WorkUnits/4 {
-		return none, ErrBMPPeerUpBudget
+		return none, ErrBMPPeerMessageBudget
 	}
 	const bodyOffset = bmpCommonHeaderLen + bmpPeerHeaderLen
 	if len(raw) < bodyOffset+20 || raw[0] != bmpVersion || raw[5] != 3 || uint64(binary.BigEndian.Uint32(raw[1:5])) != uint64(len(raw)) {
