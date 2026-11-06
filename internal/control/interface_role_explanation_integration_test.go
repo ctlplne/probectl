@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -211,8 +212,15 @@ func TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority(t *testin
 	}
 	for _, tenant := range f.tenants {
 		out := read(tenant, entity.InterfaceRoleTransit, "current_evidence")
-		if !out.SNMPCurrent || !out.PrefixCurrent || len(out.Sources) < 5 {
-			t.Fatal("served role explanation lost complete source provenance", out)
+		inputs, err := store.NewInterfaceRoleInputs(f.pool).Load(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), entity.Scope{TenantID: tenant, ContextID: f.contextID}, f.interfaceID, roleExplanationStoreBudget())
+		if err != nil || inputs.SNMP == nil || len(inputs.Peers) != 1 || len(inputs.SNMP.Bindings) != 1 {
+			t.Fatal("served provenance fixture has no complete current inputs", err)
+		}
+		expectedSources := []string{inputs.SNMP.SourceID, inputs.SNMP.PrefixSourceID, inputs.SNMP.Bindings[0].SourceID, inputs.Peers[0].SourceID, "policy/" + inputs.Policy.ID + "/" + inputs.Policy.Revision}
+		slices.Sort(expectedSources)
+		expectedSources = slices.Compact(expectedSources)
+		if !out.SNMPCurrent || !out.PrefixCurrent || !slices.Equal(out.Sources, expectedSources) {
+			t.Fatal("served role explanation lost complete source provenance", out.Sources, expectedSources)
 		}
 		var actor *auth.Principal
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
