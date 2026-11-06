@@ -1213,6 +1213,25 @@ def ix_prefix_controls():
     print(json.dumps({"ix_source_and_owned_input_controls": True}))
 
 
+def peering_interval_combination_control():
+    source = Path("internal/flow/peering_estimate.go").resolve()
+    original = source.read_text()
+    seam = "values[i].Add(values[i], fact.bytes)"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    mutant = overlay_source_path(out, "peering_interval_combination_omitted.go")
+    mutant.write_text(original.replace(seam, "values[i].Set(fact.bytes)"))
+    overlay = out / "peering_interval_combination_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestPeeringEstimateCombinesIntervalsBeforeExactPercentile"
+    result = execute("internal/flow", (root,), "peering_interval_combination_omitted", overlay=overlay)
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, package=PREFIX + "internal/flow", root=root,
+        child="", marker="combined-interval hand p95 differs from eighteen 2s and two 101s",
+    ):
+        raise RuntimeError("peering interval combination did not fail its exact hand assertion")
+
+
 def main(integration, flow_integration=False):
     if not integration:
         artifact_selftest()
@@ -1245,6 +1264,7 @@ def main(integration, flow_integration=False):
         configuration_api_controls()
         configuration_silo_lock_control()
     if not integration:
+        peering_interval_combination_control()
         snmp_dual_stack_address_control()
         role_query_tenant_control()
         prefix_poll_refresh_control()
