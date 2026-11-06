@@ -203,7 +203,10 @@ function InterfaceRoleCurrent({
         <LoadingState label="Explaining the current interface role" />
       ) : null}
       {explanation.isError ? (
-        <ErrorState title="Cannot explain the current role" description={explanation.error.message} />
+        <ErrorState
+          title="Cannot explain the current role"
+          description={explanation.error.message}
+        />
       ) : null}
       {explanation.data && !explanation.isError ? (
         <>
