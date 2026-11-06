@@ -17,7 +17,7 @@ import (
 	"github.com/ctlplne/probectl/internal/flow"
 )
 
-const planCostSettings = "SETTINGS max_execution_time=5,timeout_overflow_mode='throw',max_bytes_to_read=268435456,max_rows_to_read=5000000,read_overflow_mode='throw',max_rows_to_group_by=500000,group_by_overflow_mode='throw',max_result_rows=500000,result_overflow_mode='throw',max_memory_usage=536870912,max_threads=2"
+const planCostSettings = "SETTINGS max_execution_time=5,timeout_overflow_mode='throw',max_bytes_to_read=268435456,max_rows_to_read=5000000,read_overflow_mode='throw',max_rows_to_group_by=500000,group_by_overflow_mode='throw',max_result_rows=500000,result_overflow_mode='throw',max_memory_usage=2147483648,max_threads=2"
 
 const planSQLColumns = "event_time,bytes_scaled,packets_scaled,canonical_src,canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country"
 const planSQLGroup = "g,c,o,p"

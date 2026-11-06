@@ -147,14 +147,18 @@ def selftest():
     print("Prefix transport classifier refuses missing, skipped and unrelated proof")
 
 
-def execute(package, roots, label, integration=False, overlay=None):
+def execute(package, roots, label, integration=False, overlay=None, child=""):
     args = ["go", "test", "-race", "-count=1", "-timeout=5m", "-json"]
     if integration:
         args += ["-tags=integration"]
     if overlay is not None:
         args += ["-overlay", str(overlay)]
+    pattern = "^(" + "|".join(roots) + ")$"
+    if child:
+        assert len(roots) == 1
+        pattern += "/^" + child + "$"
     result = subprocess.run(
-        args + ["-run", "^(" + "|".join(roots) + ")$", "./" + package],
+        args + ["-run", pattern, "./" + package],
         text=True,
         capture_output=True,
         timeout=360,
@@ -392,6 +396,7 @@ EXPLANATION_CONTROLS = {
         "MemoryBytes: 512 << 20",
         "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
         "complete saved role policy cannot be explained under the default profile",
+        "",
     ),
     "grant": (
         "internal/control/interface_role_explanation_api.go",
@@ -399,6 +404,7 @@ EXPLANATION_CONTROLS = {
         "(&currentUserAuthority{principal: actor, policies: current.policies}).requestContext(ctx, actor)",
         "TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority",
         "stale native principal retained revoked current grants",
+        "",
     ),
     "publication": (
         "internal/control/interface_role_explanation_api.go",
@@ -406,6 +412,7 @@ EXPLANATION_CONTROLS = {
         "if false && !sameInterfaceRoleInputs(before, after) {",
         "TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges",
         "role explanation published after its authority changed",
+        "source-anchor",
     ),
     "admission": (
         "internal/control/interface_role_associations.go",
@@ -413,13 +420,22 @@ EXPLANATION_CONTROLS = {
         "budget *interfaceRoleBudget) (interfaceRolePeerAssociation, error) {\ncopyBudget := *budget; budget = &copyBudget",
         "TestInterfaceRolePeerAssociationSharesMultiPeerAdmission",
         "peer association reset shared operation admission",
+        "",
+    ),
+    "publication-policy": (
+        "internal/control/interface_role_explanation_api.go",
+        "if !sameInterfaceRoleInputs(before, after) {",
+        "if false && !sameInterfaceRoleInputs(before, after) {",
+        "TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges",
+        "role explanation published after its authority changed",
+        "policy",
     ),
 }
 
 
 def current_role_explanation_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
-    for name, (file, seam, replacement, root, marker) in EXPLANATION_CONTROLS.items():
+    for name, (file, seam, replacement, root, marker, child) in EXPLANATION_CONTROLS.items():
         source = Path(file).resolve()
         original = source.read_text()
         assert original.count(seam) == 1
@@ -428,9 +444,9 @@ def current_role_explanation_controls():
         overlay = out / ("role_explanation_" + name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
         result = execute("internal/control", (root,), "role_explanation_" + name,
-                         integration=True, overlay=overlay)
+                         integration=True, overlay=overlay, child=child)
         if not report_regression_failed_on_assertion(result.stdout, result.returncode,
-                package=PREFIX + "internal/control", root=root, child="", marker=marker):
+                package=PREFIX + "internal/control", root=root, child=child, marker=marker):
             raise RuntimeError("role explanation control did not fail its exact assertion: " + name)
     print(json.dumps({"current_role_explanation_controls": True}))
 
