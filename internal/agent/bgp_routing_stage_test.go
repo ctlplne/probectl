@@ -42,6 +42,7 @@ func TestRoutingStageClientPreservesCompleteRequestAndRequiresPrivateReceipt(t *
 		{Routing: &agentv1.BmpRoutingStagingReceipt{Status: "staged"}},
 		{Routing: &agentv1.BmpRoutingStagingReceipt{Status: "invalidated", Views: good.Views}},
 		{Accepted: 1, Routing: good},
+		{RoutingMessage: &agentv1.BmpRoutingMessageReceipt{}, Routing: good},
 	} {
 		stub.response = response
 		if _, err := client.StageRoutingPeer(context.Background(), raw); err == nil {

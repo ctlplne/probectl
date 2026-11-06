@@ -29,7 +29,7 @@ func (svc *service) stageRoutingPeer(ctx context.Context, id crypto.SPIFFEID, se
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	raw := req.GetRoutingPeerUp()
-	if raw == nil || len(req.GetObservations())+len(req.GetFaults()) != 0 {
+	if raw == nil || req.GetRoutingMessage() != nil || len(req.GetObservations())+len(req.GetFaults()) != 0 {
 		return nil, status.Error(codes.InvalidArgument, "routing metadata must be a complete exclusive request")
 	}
 	if !svc.admitEntityEvidence(ctx, id.TenantID, 1, proto.Size(req)) {

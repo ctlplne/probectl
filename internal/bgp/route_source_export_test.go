@@ -18,6 +18,6 @@ func SourcePeerUpForTest(ctx context.Context, raw []byte, budget PeerMessageBudg
 
 // SourceChangesForTest exposes complete interpreted source data only to the
 // real-router fixture; it establishes no transport or storage authority.
-func SourceChangesForTest(ctx context.Context, raw []byte, peer PeerUp, budget UpdateFrameBudget) (sourceRouteChanges, error) {
+func SourceChangesForTest(ctx context.Context, raw []byte, peer PeerUp, budget UpdateFrameBudget) (RoutingChanges, error) {
 	return decodeBMPRouteChanges(ctx, raw, peer, budget)
 }

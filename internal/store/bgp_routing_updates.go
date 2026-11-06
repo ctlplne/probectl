@@ -52,6 +52,7 @@ type BGPRoutingChange struct {
 // marker from the authenticated receiver. A caller cannot use an empty route
 // list as a completion marker. Sequence is scoped to the immutable generation.
 type BGPRoutingBatch struct {
+	WireDigest []byte `json:"WireDigest,omitempty"` // exact complete source frame, not interpreted fields alone
 	Sequence   int64
 	AFI        uint16
 	SAFI       uint8
@@ -110,7 +111,7 @@ func prepareRoutingBatch(ctx context.Context, batch BGPRoutingBatch, afi uint16,
 	if err := ctx.Err(); err != nil {
 		return nil, digest, err
 	}
-	if batch.Sequence <= 0 || batch.Sequence == math.MaxInt64 || batch.AFI != afi || batch.SAFI != safi ||
+	if len(batch.WireDigest) != 0 && len(batch.WireDigest) != 32 || batch.Sequence <= 0 || batch.Sequence == math.MaxInt64 || batch.AFI != afi || batch.SAFI != safi ||
 		(afi != 1 && afi != 2) || safi != 1 || batch.ObservedAt.IsZero() ||
 		batch.EndOfRIB && len(batch.Changes) != 0 || batch.Heartbeat && (batch.EndOfRIB || len(batch.Changes) != 0) {
 		return nil, digest, ErrBGPRoutingBatch

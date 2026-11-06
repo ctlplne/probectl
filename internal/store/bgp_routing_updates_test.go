@@ -46,6 +46,17 @@ func TestBGPRoutingBatchKeepsCompleteValuesAndReplayIdentity(t *testing.T) {
 	if err != nil || digest != same {
 		t.Fatal("unchanged batch changed replay identity", err)
 	}
+	batch.WireDigest = make([]byte, 32)
+	_, wire, err := prepareRoutingBatch(t.Context(), batch, 1, 1, routingViewBudget())
+	if err != nil || wire == digest {
+		t.Fatal("complete wire bytes were absent from routing replay identity", err)
+	}
+	batch.WireDigest[0] = 1
+	_, alteredWire, err := prepareRoutingBatch(t.Context(), batch, 1, 1, routingViewBudget())
+	if err != nil || wire == alteredWire {
+		t.Fatal("changed original frame kept routing replay identity", err)
+	}
+	batch.WireDigest = nil
 	batch.Changes[0].Attributes.Wire[2].Value[0] = 1
 	_, changed, err := prepareRoutingBatch(t.Context(), batch, 1, 1, routingViewBudget())
 	if err != nil || changed == digest || attributes.Wire[2].Value[0] != 0 {
@@ -61,6 +72,7 @@ func TestBGPRoutingBatchKeepsCompleteValuesAndReplayIdentity(t *testing.T) {
 
 func TestBGPRoutingBatchRefusesWholeMalformedOrUnadmittedInput(t *testing.T) {
 	for _, change := range []func(*BGPRoutingBatch){
+		func(b *BGPRoutingBatch) { b.WireDigest = []byte{1} },
 		func(b *BGPRoutingBatch) { b.Sequence = 0 },
 		func(b *BGPRoutingBatch) { b.Sequence = math.MaxInt64 },
 		func(b *BGPRoutingBatch) { b.AFI = 2 },

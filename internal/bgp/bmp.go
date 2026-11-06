@@ -789,6 +789,7 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 	// this session within one refresh tick, even if it goes quiet (ING-11).
 	liveHandle := l.registerLive(&bmpLiveSession{id: id, notAfter: id.NotAfter, cancel: sessCancel})
 	defer l.deregisterLive(liveHandle)
+	defer l.endRoutingEvidence(ctx, id, liveHandle)
 
 	l.log.Info("bmp peer session admitted",
 		"tenant_id", id.TenantID, "agent_id", id.AgentID, "spiffe_id", id.SPIFFEID, "remote", bmpRemoteAddr(conn))
@@ -832,6 +833,9 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 				return err
 			}
 			continue
+		}
+		if err := l.queueRoutingMessage(id, liveHandle, msgType, payload); err != nil {
+			return err
 		}
 		if msgType != bmpRouteMonitoring {
 			l.log.Debug("skipping unsupported bmp message", "tenant_id", id.TenantID, "message_type", msgType)

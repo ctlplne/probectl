@@ -228,6 +228,12 @@
     },
     "bgp.DecodeRoutingPeerUp": {
       "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.DecodeRoutingChanges": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.DecodeRoutingLifecycle": {
+      "target": "FuzzBMPRouteMonitoring"
     }
   }
 }

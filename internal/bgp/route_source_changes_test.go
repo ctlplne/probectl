@@ -105,7 +105,7 @@ func TestBMPSourceChangesRefuseMissingMandatoryFieldsAndLateMalformedTail(t *tes
 			}
 			raw := sourceRouteFrameForTest(header, endOfRIBFrameForTest(nil, sourceChangesAttributesForTest(attrs), tail))
 			got, err := decodeBMPRouteChanges(t.Context(), raw, peer, UpdateFrameBudget{128 << 20, 128 << 20})
-			if err == nil || !reflect.DeepEqual(got, sourceRouteChanges{}) {
+			if err == nil || !reflect.DeepEqual(got, RoutingChanges{}) {
 				t.Fatal("invalid source changes exposed partial routing data", change, err)
 			}
 		})
@@ -122,14 +122,14 @@ func TestBMPSourceChangesKeepExclusiveCompletionAndWholeAdmission(t *testing.T) 
 		}
 		for _, budget := range []UpdateFrameBudget{{0, 128 << 20}, {128 << 20, 0}, {8192, 128 << 20}} {
 			got, err = decodeBMPRouteChanges(t.Context(), raw, peer, budget)
-			if !errors.Is(err, ErrBGPUpdateFrameBudget) || !reflect.DeepEqual(got, sourceRouteChanges{}) {
+			if !errors.Is(err, ErrBGPUpdateFrameBudget) || !reflect.DeepEqual(got, RoutingChanges{}) {
 				t.Fatal("unadmitted source changes returned partial data", err)
 			}
 		}
 		canceled, cancel := context.WithCancel(t.Context())
 		cancel()
 		got, err = decodeBMPRouteChanges(canceled, raw, peer, UpdateFrameBudget{128 << 20, 128 << 20})
-		if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(got, sourceRouteChanges{}) {
+		if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(got, RoutingChanges{}) {
 			t.Fatal("canceled source changes returned partial data", err)
 		}
 	}

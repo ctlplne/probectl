@@ -18,14 +18,16 @@ import (
 )
 
 type bmpPeerEvidence struct {
-	routingPeerUp *agentv1.BmpRoutingPeerUp // owned raw metadata, separate from peer-claim suppression
-	sessionHandle uint64                    // listener-owned admitted session, never a BMP payload field
-	tenantID      string
-	routerAgentID string // from a verified router SVID, not the BMP frame
-	routerSerial  string // exact verified SVID; revocation retires this evidence
-	peerAddress   string
-	peerASN       uint32
-	observedAt    time.Time
+	routingMessage *agentv1.BmpRoutingMessage
+	routingEnd     bool
+	routingPeerUp  *agentv1.BmpRoutingPeerUp // owned raw metadata, separate from peer-claim suppression
+	sessionHandle  uint64                    // listener-owned admitted session, never a BMP payload field
+	tenantID       string
+	routerAgentID  string // from a verified router SVID, not the BMP frame
+	routerSerial   string // exact verified SVID; revocation retires this evidence
+	peerAddress    string
+	peerASN        uint32
+	observedAt     time.Time
 }
 
 type bmpPeerEvidenceKey struct {
@@ -67,12 +69,13 @@ func (state bmpEvidenceAttempt) due(now time.Time) bool {
 		(state.attemptAt.IsZero() || !now.Before(state.attemptAt.Add(bmpEvidenceRetry)))
 }
 
-func (l *BMPListener) queuePeerEvidence(peer bmpPeerEvidence) {
+func (l *BMPListener) queuePeerEvidence(peer bmpPeerEvidence) bool {
 	if l.evidence == nil || peer.tenantID != l.laneTenant {
-		return
+		return false
 	}
 	select {
 	case l.evidenceQueue <- peer:
+		return true
 	default:
 		drops := l.evidenceDrops.Add(1)
 		if counter, ok := l.evidence.(interface{ QueueDrop() }); ok {
@@ -84,6 +87,7 @@ func (l *BMPListener) queuePeerEvidence(peer bmpPeerEvidence) {
 				"dropped_batches", drops)
 		}
 	}
+	return false
 }
 
 // One worker and a bounded queue keep the BMP socket read/publish path
@@ -93,6 +97,7 @@ func (l *BMPListener) queuePeerEvidence(peer bmpPeerEvidence) {
 // same certificate on an earlier connection is not a reusable evidence epoch.
 func (l *BMPListener) evidenceLoop(ctx context.Context) {
 	lastSent := make(map[bmpPeerEvidenceKey]bmpEvidenceAttempt)
+	routing := make(map[uint64]bmpRoutingStreamState)
 	remember := func(key bmpPeerEvidenceKey, state bmpEvidenceAttempt) {
 		lastSent[key] = state
 		if len(lastSent) > 4096 {
@@ -105,9 +110,12 @@ func (l *BMPListener) evidenceLoop(ctx context.Context) {
 			return
 		case <-l.evidenceReset:
 			lastSent = make(map[bmpPeerEvidenceKey]bmpEvidenceAttempt)
+			for handle := range routing {
+				l.cancelRoutingSession(handle)
+			}
 		case peer := <-l.evidenceQueue:
-			if peer.routingPeerUp != nil {
-				l.stageRoutingEvidence(ctx, peer)
+			if peer.routingPeerUp != nil || peer.routingMessage != nil || peer.routingEnd {
+				l.routingStreamEvidence(ctx, peer, routing)
 				continue
 			}
 			now := l.now()

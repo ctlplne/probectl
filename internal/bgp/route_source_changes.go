@@ -15,29 +15,36 @@ import (
 
 var errBMPRouteChanges = errors.New("bgp: incomplete or inconsistent route changes")
 
-// sourceRouteChanges retains complete wire attributes separately from the
+// RoutingChanges retains complete wire attributes separately from the
 // interpreted path. No peer ASN becomes a next-hop AS or origin, and no route
 // view becomes a tenant/router grant or a claim about the forwarding table.
-type sourceRouteChanges struct {
+type RoutingChanges struct {
 	Header     BMPRouteViewHeader
 	Attributes []RouteAttribute
 	Path       RouteASPath
-	Groups     []sourceRouteGroup
+	Groups     []RoutingChangeGroup
 }
 
-type sourceRouteGroup struct {
+type RoutingChangeGroup struct {
 	Family               RouteFamily
 	Announced, Withdrawn []RoutePrefix
 	NextHops             []netip.Addr
 	EndOfRIB             bool
 }
 
+// DecodeRoutingChanges validates the whole source frame against retained,
+// complete OPENs. It returns no partial paths on any refusal and grants no
+// canonical source authority; the authenticated service supplies that boundary.
+func DecodeRoutingChanges(ctx context.Context, raw []byte, peer PeerUp, budget UpdateFrameBudget) (RoutingChanges, error) {
+	return decodeBMPRouteChanges(ctx, raw, peer, budget)
+}
+
 // decodeBMPRouteChanges composes source binding, negotiated encoding and the
 // fields required for retained unicast paths. All groups validate before any
 // result is returned. A receiver must invalidate the affected known generation
 // on refusal; it must never keep old complete state after dropping this frame.
-func decodeBMPRouteChanges(ctx context.Context, raw []byte, peer PeerUp, budget UpdateFrameBudget) (sourceRouteChanges, error) {
-	none := sourceRouteChanges{}
+func decodeBMPRouteChanges(ctx context.Context, raw []byte, peer PeerUp, budget UpdateFrameBudget) (RoutingChanges, error) {
+	none := RoutingChanges{}
 	if err := ctx.Err(); err != nil {
 		return none, err
 	}
@@ -52,12 +59,12 @@ func decodeBMPRouteChanges(ctx context.Context, raw []byte, peer PeerUp, budget 
 	if err != nil {
 		return none, err
 	}
-	out := sourceRouteChanges{Header: frame.Header, Attributes: frame.Update.Attributes}
+	out := RoutingChanges{Header: frame.Header, Attributes: frame.Update.Attributes}
 	if frame.Update.HasEndOfRIB {
 		if _, err := parseBMPRouteAddPath(peer.SentOpen, peer.ReceivedOpen, frame.Header.View, frame.Update.EndOfRIB); err != nil {
 			return none, err
 		}
-		out.Groups = []sourceRouteGroup{{Family: frame.Update.EndOfRIB, EndOfRIB: true}}
+		out.Groups = []RoutingChangeGroup{{Family: frame.Update.EndOfRIB, EndOfRIB: true}}
 		if err := ctx.Err(); err != nil {
 			return none, err
 		}
@@ -66,9 +73,9 @@ func decodeBMPRouteChanges(ctx context.Context, raw []byte, peer PeerUp, budget 
 	return sourceUpdateChanges(ctx, frame, peer, part)
 }
 
-func sourceUpdateChanges(ctx context.Context, frame sourceRouteFrame, peer PeerUp, part UpdateFrameBudget) (sourceRouteChanges, error) {
-	none := sourceRouteChanges{}
-	out := sourceRouteChanges{Header: frame.Header, Attributes: frame.Update.Attributes}
+func sourceUpdateChanges(ctx context.Context, frame sourceRouteFrame, peer PeerUp, part UpdateFrameBudget) (RoutingChanges, error) {
+	none := RoutingChanges{}
+	out := RoutingChanges{Header: frame.Header, Attributes: frame.Update.Attributes}
 	if err := validateSourceRouteAttributes(frame.Update.Attributes); err != nil {
 		return none, err
 	}
@@ -170,9 +177,9 @@ func sourceHasOrigin(attributes []RouteAttribute) bool {
 	return false
 }
 
-func sourceLegacyRouteChanges(ctx context.Context, frame sourceRouteFrame, peer PeerUp, budget UpdateFrameBudget) (sourceRouteGroup, error) {
-	none := sourceRouteGroup{}
-	out := sourceRouteGroup{Family: RouteFamily{AFI: 1, SAFI: 1}}
+func sourceLegacyRouteChanges(ctx context.Context, frame sourceRouteFrame, peer PeerUp, budget UpdateFrameBudget) (RoutingChangeGroup, error) {
+	none := RoutingChangeGroup{}
+	out := RoutingChangeGroup{Family: RouteFamily{AFI: 1, SAFI: 1}}
 	if len(frame.Update.WithdrawnIPv4)+len(frame.Update.ReachableIPv4) == 0 {
 		return out, nil
 	}
@@ -202,8 +209,8 @@ func sourceLegacyRouteChanges(ctx context.Context, frame sourceRouteFrame, peer 
 	return out, nil
 }
 
-func sourceMultiprotocolChanges(ctx context.Context, attr RouteAttribute, view BMPRouteView, peer PeerUp, budget UpdateFrameBudget) (sourceRouteGroup, error) {
-	none := sourceRouteGroup{}
+func sourceMultiprotocolChanges(ctx context.Context, attr RouteAttribute, view BMPRouteView, peer PeerUp, budget UpdateFrameBudget) (RoutingChangeGroup, error) {
+	none := RoutingChangeGroup{}
 	if len(attr.Value) < 3 {
 		return none, errBMPRouteChanges
 	}
@@ -221,7 +228,7 @@ func sourceMultiprotocolChanges(ctx context.Context, attr RouteAttribute, view B
 		if len(unreach.Prefixes) == 0 {
 			return none, errBMPRouteChanges
 		}
-		return sourceRouteGroup{Family: family, Withdrawn: unreach.Prefixes}, nil
+		return RoutingChangeGroup{Family: family, Withdrawn: unreach.Prefixes}, nil
 	}
 	if len(attr.Value) < 4 {
 		return none, errBMPRouteChanges
@@ -237,5 +244,5 @@ func sourceMultiprotocolChanges(ctx context.Context, attr RouteAttribute, view B
 	if len(reach.Prefixes) == 0 {
 		return none, errBMPRouteChanges
 	}
-	return sourceRouteGroup{Family: family, Announced: reach.Prefixes, NextHops: reach.NextHops}, nil
+	return RoutingChangeGroup{Family: family, Announced: reach.Prefixes, NextHops: reach.NextHops}, nil
 }

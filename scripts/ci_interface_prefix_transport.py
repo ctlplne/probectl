@@ -81,13 +81,17 @@ UNIT = {
         "TestInterfaceRolePolicyRefusesAmbiguityAndKeepsCanonicalSets",
     ),
     "internal/agent": (
+        "TestRoutingMessageClientKeepsExactStreamAndRefusesMixedReceipts",
         "TestRoutingStageClientPreservesCompleteRequestAndRequiresPrivateReceipt",
         "TestSNMPPrefixEvidenceWireKeepsCompleteSetAndWholeRequestAdmission",
     ),
     "internal/agenttransport": (
+        "TestRoutingProjectionKeepsWholePopulationAndAdmitsDescriptorExpansion",
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestRoutingLifecycleRequiresCompleteMatchingSourceFrame",
+        "TestBMPRoutingWholeStreamKeepsFIFOAndResetsOnSourceClosure",
         "TestBMPRoutingStagingUsesAdmittedIdentityAndCompleteOriginalPeerUp",
         "TestRoutingPeerUpKeepsCompleteDeclaredFamiliesAndRefusesMalformedSource",
         "TestBMPSourceChangesKeepCompleteDualFamilyPathsWithdrawalsAndAttributes",
@@ -146,6 +150,7 @@ INTEGRATION = {
     ),
     "internal/store": (
         "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
+        "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
         "TestInterfaceRoleInputsRetainWholePrefixTableAndRefusePartialBudget",
         "TestInterfaceRoleInputsRequireAuthenticatedFaultClockAndRecovery",
@@ -444,6 +449,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-stream-atomic": (
+        "internal/store/bgp_routing_stream.go",
+        "ROLLBACK TO SAVEPOINT routing_stream_message",
+        "RELEASE SAVEPOINT routing_stream_message",
+        "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
+        "", "late family fault left a partial retained path",
+    ),
     "routing-stage-context": (
         "internal/store/bgp_routing_stage.go",
         "if definition.Peer.Distinguisher != ([8]byte{}) {",
@@ -1195,6 +1207,7 @@ def main(integration, flow_integration=False):
     if not integration:
         artifact_selftest()
     selected = FLOW_INTEGRATION if flow_integration else INTEGRATION if integration else UNIT
+    positive_failures = []
     for package, roots in selected.items():
         result = execute(
             package, roots, package.replace("/", "_") + "_positive", integration
@@ -1203,9 +1216,8 @@ def main(integration, flow_integration=False):
             result.stdout, result.returncode, package=PREFIX + package, tests=roots
         )
         if failures:
-            raise RuntimeError(
-                f"required prefix transport proof missing/failed: {failures}"
-            )
+            positive_failures.extend(failures)
+            print(json.dumps({"required_positive_failure": package, "errors": failures}))
     if integration and not flow_integration:
         bgp_source_peer_control()
         bgp_source_origin_control()
@@ -1253,6 +1265,8 @@ def main(integration, flow_integration=False):
             raise RuntimeError(
                 "omitted whole-request guard did not fail its exact complete-batch assertion"
             )
+    if positive_failures:
+        raise RuntimeError(f"required prefix transport proof missing/failed: {positive_failures}")
     print(
         json.dumps(
             {

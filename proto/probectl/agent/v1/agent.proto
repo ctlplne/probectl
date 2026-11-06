@@ -294,6 +294,27 @@ message BmpRoutingPeerUp {
   bytes message = 5;
 }
 
+// One complete ordered source message within a private staging generation.
+// Heartbeat/reset retain complete source lifecycle bytes. Reset may omit bytes
+// for an authenticated collector socket closure. No tenant,
+// router, context, interpreted paths or client-selected family is accepted.
+message BmpRoutingMessage {
+  string configured_ref = 1;
+  string origin_serial = 2;
+  string generation = 3;
+  int64 observed_unix_nanos = 4;
+  int64 sequence = 5;
+  bytes message = 6;
+  bool heartbeat = 7;
+  bool source_reset = 8;
+}
+
+message BmpRoutingMessageReceipt {
+  string status = 1; // applied | replayed | invalidated; never a live grant
+  string generation = 2;
+  int64 sequence = 3;
+}
+
 message BmpRoutingStagingReceipt {
   string status = 1; // staged | replayed | invalidated; never publication
   repeated BmpRoutingViewReference views = 2;
@@ -309,7 +330,8 @@ message BmpRoutingViewReference {
 message SubmitEntityEvidenceRequest {
   repeated EntityEvidenceObservation observations = 1;
   repeated EntityFaultObservation faults = 2; // 1–64 combined; message size is also bounded
-  BmpRoutingPeerUp routing_peer_up = 3; // exclusive with observations/faults; complete staging only
+  BmpRoutingPeerUp routing_peer_up = 3; // exclusive; complete staging only
+  BmpRoutingMessage routing_message = 4; // exclusive; complete ordered source message
 }
 
 message SubmitEntityEvidenceResponse {
@@ -317,4 +339,5 @@ message SubmitEntityEvidenceResponse {
   uint32 unresolved = 2; // no current source/anchor or ambiguous server-side match
   uint32 faults_persisted = 3; // persisted in the tenant incident stream, including unresolved identity
   BmpRoutingStagingReceipt routing = 4;
+  BmpRoutingMessageReceipt routing_message = 5;
 }

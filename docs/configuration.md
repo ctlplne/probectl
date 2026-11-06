@@ -1200,6 +1200,17 @@ swaps only the evidence SVID and writes its issuing CA to `ca.pem`. A failed
 renewal leaves raw BMP events on their tenant lane; canonical evidence stops
 resolving when the old SVID expires.
 
+The same restricted evidence connection also carries complete BMP routing
+messages in preview. Source bytes never select a canonical tenant, router or
+context. Initial IPv4 and IPv6 views stay private until each family's explicit
+End-of-RIB; updates advance both family sequences atomically. Refused frames,
+sequence gaps and source closure invalidate that source generation. A routing
+lease lasts one minute and renews only from a complete source statistics frame;
+configure the router's statistics interval below that lease. An idle socket or
+collector timer does not renew it. Unbound non-global views are refused until
+an explicit operator context selector is supported; staging receipts are not
+forwarding-table evidence or a completed flow-attribution feature.
+
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `PROBECTL_BMP_LISTEN_ADDR` | (none) | BMP TCP listen address, for example `:1179`; required |

@@ -9,6 +9,7 @@ package bgp
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
@@ -27,6 +28,16 @@ func (l *BMPListener) queueRoutingPeerUp(id bmpIdentity, session uint64, payload
 	if _, ok := l.evidence.(bmpRoutingStager); !ok || len(payload) == 0 || payload[0] != 3 {
 		return nil
 	}
+	if len(payload) < bmpPeerHeaderLen {
+		return ErrBMPPeerUp
+	}
+	header, err := ParseBMPRouteViewHeader(payload[:bmpPeerHeaderLen])
+	if err != nil {
+		return err
+	}
+	if header.Distinguisher != ([8]byte{}) {
+		return nil
+	} // explicit binding remains required
 	nonce, err := crypto.UUIDv4()
 	if err != nil {
 		return err
@@ -37,7 +48,9 @@ func (l *BMPListener) queueRoutingPeerUp(id bmpIdentity, session uint64, payload
 	copy(raw[6:], payload)
 	observed := l.now().UTC()
 	request := &agentv1.BmpRoutingPeerUp{ObservationId: nonce, ConfiguredRef: id.AgentID, OriginSerial: id.Serial, ObservedUnixNanos: observed.UnixNano(), Message: raw}
-	l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, observedAt: observed, routingPeerUp: request})
+	if !l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, observedAt: observed, routingPeerUp: request}) {
+		return errors.New("bgp: complete routing evidence queue admission exceeded")
+	}
 	return nil
 }
 
