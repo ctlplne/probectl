@@ -9,6 +9,7 @@ package store
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"net/netip"
 	"reflect"
 	"time"
@@ -88,4 +89,35 @@ func sameRoutingSelection(a, b routingSourceSelection) bool {
 	return a.BaseContextID == b.BaseContextID && a.BaseRouterID == b.BaseRouterID &&
 		a.ContextID == b.ContextID && a.RouterID == b.RouterID && a.Epoch == b.Epoch && a.BindingID == b.BindingID &&
 		a.AssignedAt.Equal(b.AssignedAt) && reflect.DeepEqual(a.Binding, b.Binding) && reflect.DeepEqual(a.Families, b.Families)
+}
+
+func routingSelectionJSON(source BGPRoutingSource) (any, error) {
+	if source.routingSelection == nil {
+		return nil, nil
+	}
+	if !validRoutingSelection(source, source.routingSelection) {
+		return nil, ErrBGPRoutingView
+	}
+	body, err := json.Marshal(source.routingSelection)
+	if err != nil {
+		return nil, err
+	}
+	return string(body), nil
+}
+
+func routingStoredViewKind(source BGPRoutingSource, definition BGPRoutingViewDefinition) (string, error) {
+	if source.routingSelection == nil {
+		return definition.Kind, nil
+	}
+	selected := source.routingSelection
+	if !validRoutingSelection(source, selected) || definition.Kind != "loc_rib" || definition.Peer.Type != 3 || definition.SAFI != 1 ||
+		definition.Peer.BGPIdentifier.String() != selected.Binding.BGPIdentifier || hex.EncodeToString(definition.Peer.Distinguisher[:]) != selected.Binding.Distinguisher {
+		return "", ErrBGPRoutingView
+	}
+	for _, afi := range selected.Families {
+		if afi == definition.AFI {
+			return "operator_loc_rib", nil
+		}
+	}
+	return "", ErrBGPRoutingView
 }

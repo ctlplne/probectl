@@ -186,6 +186,14 @@ func (store BGPRouting) beginViewInScope(ctx context.Context, sc tenancy.Scope, 
 	if err != nil {
 		return none, err
 	}
+	storedKind, err := routingStoredViewKind(source, definition)
+	if err != nil {
+		return none, err
+	}
+	selection, err := routingSelectionJSON(source)
+	if err != nil {
+		return none, err
+	}
 	if authority.ValidUntil.Before(validUntil) {
 		validUntil = authority.ValidUntil
 	}
@@ -197,7 +205,7 @@ func (store BGPRouting) beginViewInScope(ctx context.Context, sc tenancy.Scope, 
 	if err != nil {
 		return none, err
 	}
-	if err := sc.Q.QueryRow(ctx, `SELECT octet_length($1::jsonb::text)::bigint+256`, string(body)).Scan(&metadataBytes); err != nil {
+	if err := sc.Q.QueryRow(ctx, `SELECT octet_length($1::jsonb::text)::bigint+COALESCE(octet_length($2::jsonb::text),0)+256`, string(body), selection).Scan(&metadataBytes); err != nil {
 		return none, err
 	}
 	for _, value := range []string{source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial} {
@@ -222,18 +230,18 @@ func (store BGPRouting) beginViewInScope(ctx context.Context, sc tenancy.Scope, 
  AND source_kind='router_bmp' AND source_ref=$5 AND view_kind=$6 AND afi=$7 AND safi=$8
  AND (view_kind='loc_rib' OR peer_key=$9) AND state IN ('staging','current')`,
 		source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef,
-		definition.Kind, definition.AFI, definition.SAFI, key[:])
+		storedKind, definition.AFI, definition.SAFI, key[:])
 	if err != nil {
 		return none, err
 	}
 	err = sc.Q.QueryRow(ctx, `INSERT INTO bgp_routing_views
  (tenant_id,context_id,id,generation,source_kind,router_id,collector_agent_id,source_ref,binding_kind,
  sender_serial,origin_serial,view_kind,peer_key,peer_identity,afi,safi,filtered,state,charged_bytes,observed_at,valid_until,
- last_message_observed_at,message_clock_sequence)
- VALUES($1,$2,$3,$4,'router_bmp',$5,$6,$7,'bmp_peer',$8,$9,$10,$11,$12::jsonb,$13,$14,$15,'staging',$16,$17,$18,$17,0)
+ last_message_observed_at,message_clock_sequence,routing_selection)
+ VALUES($1,$2,$3,$4,'router_bmp',$5,$6,$7,'bmp_peer',$8,$9,$10,$11,$12::jsonb,$13,$14,$15,'staging',$16,$17,$18,$17,0,$19::jsonb)
  RETURNING id::text,generation::text`, source.TenantID, source.ContextID, id, generation, source.RouterID,
-		source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, definition.Kind, key[:], string(body),
-		definition.AFI, definition.SAFI, definition.Filtered, metadataBytes, source.ObservedAt, validUntil).Scan(&id, &generation)
+		source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, storedKind, key[:], string(body),
+		definition.AFI, definition.SAFI, definition.Filtered, metadataBytes, source.ObservedAt, validUntil, selection).Scan(&id, &generation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return none, ErrBGPRoutingView
 	}

@@ -80,6 +80,49 @@ func TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant(t *test
 			}
 		}
 	}
+	refs := make([]BGPRoutingViewRef, len(sources))
+	for lane, source := range sources {
+		for _, afi := range []uint16{1, 2} {
+			definition := routingLookupDefinition(afi)
+			definition.Peer.Distinguisher = [8]byte{0, 0, 0, 0, 0, 0, 0x12, 0x34}
+			definition.Peer.BGPIdentifier = netip.MustParseAddr("192.0.2.1")
+			ref := routingLookupBegin(t, f, source, definition)
+			routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 1, AFI: afi, SAFI: 1, EndOfRIB: true})
+			if afi == 1 {
+				refs[lane] = ref
+			}
+		}
+		f.in(source.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+			var bound, legacy, foreign int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE state='current' AND view_kind='operator_loc_rib' AND context_id=$1 AND collector_context_id=$2`, source.ContextID, f.contextID).Scan(&bound); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE view_kind='loc_rib'`).Scan(&legacy); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE tenant_id=$1`, f.tenants[1-lane]).Scan(&foreign); err != nil {
+				return err
+			}
+			if bound != 2 || legacy != 0 || foreign != 0 {
+				t.Fatal("bound routing state lost base assignment, legacy-reader fence or tenant RLS", bound, legacy, foreign)
+			}
+			return nil
+		})
+	}
+	rollbackView := errors.New("restore bound routing view")
+	if err := routingFixtureWrite(t, f, sources[0], func(ctx context.Context, sc tenancy.Scope) error {
+		source, ref := sources[0], refs[0]
+		if _, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET routing_selection=jsonb_set(routing_selection,'{binding_id}',to_jsonb($5::text))
+ WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND generation=$4`, source.TenantID, source.ContextID, ref.ID, ref.Generation, uuid.NewString()); err != nil {
+			return err
+		}
+		if _, err := loadRoutingWriteView(ctx, sc, source, ref); err == nil {
+			t.Fatal("routing writer accepted a generation with different stored binding")
+		}
+		return rollbackView
+	}); !errors.Is(err, rollbackView) {
+		t.Fatal("stored routing binding mismatch proof failed", err)
+	}
 	for _, change := range []func(*BGPRoutingSource){
 		func(s *BGPRoutingSource) { s.OriginSerial = sources[1].OriginSerial },
 		func(s *BGPRoutingSource) { s.SenderSerial = sources[1].SenderSerial },

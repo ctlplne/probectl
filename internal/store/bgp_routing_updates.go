@@ -212,16 +212,20 @@ func validateRoutingChange(change BGPRoutingChange, afi uint16) error {
 
 func loadRoutingWriteView(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef) (routingWriteView, error) {
 	var view routingWriteView
+	selection, err := routingSelectionJSON(source)
+	if err != nil {
+		return view, err
+	}
 	for _, id := range []string{ref.ID, ref.Generation} {
 		if normalized, err := validRegistryUUID(id); err != nil || normalized != id {
 			return view, ErrBGPRoutingView
 		}
 	}
-	err := sc.Q.QueryRow(ctx, `SELECT state,afi,safi,next_sequence,last_sequence,last_digest,observed_at,valid_until,charged_bytes,row_count,last_message_observed_at,message_clock_sequence
+	err = sc.Q.QueryRow(ctx, `SELECT state,afi,safi,next_sequence,last_sequence,last_digest,observed_at,valid_until,charged_bytes,row_count,last_message_observed_at,message_clock_sequence
  FROM bgp_routing_views WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND generation=$4
  AND source_kind='router_bmp' AND router_id=$5 AND collector_agent_id=$6 AND source_ref=$7
- AND sender_serial=$8 AND origin_serial=$9 FOR UPDATE`, source.TenantID, source.ContextID, ref.ID, ref.Generation,
-		source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial).
+ AND sender_serial=$8 AND origin_serial=$9 AND routing_selection IS NOT DISTINCT FROM $10::jsonb FOR UPDATE`, source.TenantID, source.ContextID, ref.ID, ref.Generation,
+		source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, selection).
 		Scan(&view.state, &view.afi, &view.safi, &view.nextSequence, &view.lastSequence, &view.lastDigest,
 			&view.born, &view.validUntil, &view.bytes, &view.rows, &view.lastObservedAt, &view.clockSequence)
 	if errors.Is(err, pgx.ErrNoRows) {

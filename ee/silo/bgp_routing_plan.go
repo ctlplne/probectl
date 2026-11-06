@@ -20,7 +20,7 @@ func bgpRoutingStoragePlan(schema string, tables []string) []string {
 		{"bgp_routing_views", "fx5_route_view_tenant_fk", "tenant_id", "public.tenants", "id"},
 		{"bgp_routing_views", "fx5_route_view_context_fk", "tenant_id,context_id", "entity_contexts", "tenant_id,id"},
 		{"bgp_routing_views", "fx5_route_view_router_fk", "tenant_id,context_id,router_id,router_kind", "entities", "tenant_id,context_id,id,kind"},
-		{"bgp_routing_views", "fx5_route_view_agent_context_fk", "tenant_id,collector_agent_id,context_id", "entity_agent_contexts", "tenant_id,agent_id,context_id"},
+		{"bgp_routing_views", "fx5_route_view_collector_context_fk", "tenant_id,collector_agent_id,collector_context_id", "entity_agent_contexts", "tenant_id,agent_id,context_id"},
 		{"bgp_routing_views", "fx5_route_view_source_fk", "tenant_id,collector_agent_id,binding_kind,source_ref", "entity_source_contexts", "tenant_id,agent_id,source_kind,source_ref"},
 		{"bgp_routing_entries", "fx5_route_entry_view_fk", "tenant_id,context_id,view_id,generation,afi,safi", "bgp_routing_views", "tenant_id,context_id,id,generation,afi,safi"},
 	} {
@@ -37,5 +37,27 @@ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conna
 END IF;
 END $fx5_route_fk$`, quoteLiteral(child), quoteLiteral(key.name), child, quoteIdent(key.name), key.columns, parent, key.parentColumns))
 	}
+	if owned["bgp_routing_views"] {
+		plan = append(plan, routingBindingChecksPlan(q+"."+quoteIdent("bgp_routing_views"))...)
+	}
 	return plan
+}
+
+// Existing silo copies need the expanded checks as well as the new columns.
+// Copy only these named CHECKs from the migrated public table, retaining all
+// existing state/clock/tenant constraints and restoring schema-local FKs above.
+func routingBindingChecksPlan(child string) []string {
+	return []string{
+		"ALTER TABLE " + child + " DROP CONSTRAINT IF EXISTS fx5_route_view_agent_context_fk",
+		"ALTER TABLE " + child + " DROP CONSTRAINT IF EXISTS bgp_routing_views_view_kind_check",
+		fmt.Sprintf(`DO $fx5_route_binding_checks$ DECLARE entry record; BEGIN
+FOR entry IN SELECT conname,pg_get_constraintdef(oid) AS definition FROM pg_constraint
+ WHERE conrelid='public.bgp_routing_views'::regclass AND contype='c'
+ AND conname IN ('fx5_route_view_kind_check','fx5_route_view_routing_selection_check') LOOP
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=entry.conname) THEN
+  EXECUTE 'ALTER TABLE ' || %s || ' ADD CONSTRAINT ' || quote_ident(entry.conname) || ' ' || entry.definition;
+ END IF;
+END LOOP;
+END $fx5_route_binding_checks$`, quoteLiteral(child), quoteLiteral(child)),
+	}
 }

@@ -500,7 +500,8 @@ func (p *Provisioner) readCatalog(ctx context.Context, schema string) (Catalog, 
 
 	colRows, err := p.ddlPool().Query(ctx, `
 		SELECT c.table_schema,c.table_name,c.column_name,
-		       pg_catalog.format_type(a.atttypid,a.atttypmod),c.is_nullable='NO',COALESCE(c.column_default,'')
+		       pg_catalog.format_type(a.atttypid,a.atttypmod),c.is_nullable='NO',COALESCE(c.column_default,''),
+		       CASE WHEN a.attgenerated='s' THEN c.generation_expression ELSE '' END
 		  FROM information_schema.columns c
 		  JOIN pg_catalog.pg_namespace n ON n.nspname=c.table_schema
 		  JOIN pg_catalog.pg_class r ON r.relnamespace=n.oid AND r.relname=c.table_name
@@ -515,7 +516,7 @@ func (p *Provisioner) readCatalog(ctx context.Context, schema string) (Catalog, 
 	for colRows.Next() {
 		var sch, tab string
 		var c Column
-		if err := colRows.Scan(&sch, &tab, &c.Name, &c.DataType, &c.NotNull, &c.Default); err != nil {
+		if err := colRows.Scan(&sch, &tab, &c.Name, &c.DataType, &c.NotNull, &c.Default, &c.Generated); err != nil {
 			return cat, err
 		}
 		if sch == "public" {

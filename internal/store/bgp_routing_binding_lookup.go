@@ -29,12 +29,15 @@ type routingSourceConfiguration struct {
 }
 
 type routingSourceSelection struct {
-	BaseContextID, BaseRouterID string
-	ContextID, RouterID         string
-	Epoch, BindingID            string
-	AssignedAt                  time.Time
-	Families                    []uint16
-	Binding                     routingSourceBinding
+	BaseContextID string               `json:"base_context_id"`
+	BaseRouterID  string               `json:"base_router_id"`
+	ContextID     string               `json:"context_id"`
+	RouterID      string               `json:"router_id"`
+	Epoch         string               `json:"epoch"`
+	BindingID     string               `json:"binding_id"`
+	AssignedAt    time.Time            `json:"assigned_at"`
+	Families      []uint16             `json:"families"`
+	Binding       routingSourceBinding `json:"binding"`
 }
 
 // Configuration reads grant no route access. The operator adapter authorizes

@@ -15,6 +15,10 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
+    "ee/silo": (
+        "TestBGPRoutingPlanKeepsEveryReferenceInItsTenantSchema",
+        "TestBGPRoutingBindingPlanPreservesStoredCollectorContextOnCatchUp",
+    ),
     "internal/opendata": (
         "TestPeeringDBIXPrefixesKeepCompletePopulationClockAndOwnedMatches",
         "TestPeeringDBIXPrefixesRefusePartialAmbiguousOrMalformedSnapshot",
@@ -456,6 +460,14 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-bound-view": (
+        "internal/store/bgp_routing_updates.go",
+        "AND routing_selection IS NOT DISTINCT FROM $10::jsonb",
+        "AND $10::jsonb IS NOT NULL",
+        "TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant",
+        "",
+        "routing writer accepted a generation with different stored binding",
+    ),
     "routing-bound-origin": (
         "internal/store/bgp_routing_authority.go",
         "AND origin.revoked_at IS NULL",

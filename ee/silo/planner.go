@@ -44,10 +44,11 @@ type Catalog struct {
 
 // Column is one column's catalog identity.
 type Column struct {
-	Name     string
-	DataType string // pg_catalog.format_type OID/typmod rendering, used verbatim in ADD COLUMN
-	NotNull  bool
-	Default  string // "" = none
+	Name      string
+	DataType  string // pg_catalog.format_type OID/typmod rendering, used verbatim in ADD COLUMN
+	NotNull   bool
+	Default   string // "" = none
+	Generated string // stored generation expression; mutually exclusive with Default
 }
 
 // TenantOwned filters (via the shared core deny list) and sorts the
@@ -603,7 +604,9 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 			}
 			stmt := "ALTER TABLE " + q + "." + quoteIdent(t) +
 				" ADD COLUMN IF NOT EXISTS " + quoteIdent(c.Name) + " " + c.DataType
-			if c.Default != "" {
+			if c.Generated != "" {
+				stmt += " GENERATED ALWAYS AS (" + c.Generated + ") STORED"
+			} else if c.Default != "" {
 				stmt += " DEFAULT " + c.Default
 			}
 			if c.NotNull {
