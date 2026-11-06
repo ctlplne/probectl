@@ -78,8 +78,8 @@ func validRoutingSelection(source BGPRoutingSource, selected *routingSourceSelec
 			return false
 		}
 	}
-	copy := selected.Binding
-	if normalizeRoutingBinding(&copy) != nil || !reflect.DeepEqual(copy, selected.Binding) {
+	canonical := selected.Binding
+	if normalizeRoutingBinding(&canonical) != nil || !reflect.DeepEqual(canonical, selected.Binding) {
 		return false
 	}
 	return true

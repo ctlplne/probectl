@@ -130,9 +130,9 @@ func TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant(t *test
 		func(s *BGPRoutingSource) { s.routingSelection = sources[1].routingSelection },
 		func(s *BGPRoutingSource) { s.routingSelection = nil },
 	} {
-		copy := sources[0]
-		change(&copy)
-		if err := read(copy, false); err == nil {
+		candidate := sources[0]
+		change(&candidate)
+		if err := read(candidate, false); err == nil {
 			t.Fatal("bound routing target borrowed foreign, stale or missing authority")
 		}
 	}
@@ -150,9 +150,10 @@ func TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant(t *test
 			source := sources[0]
 			err := routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
 				args := []any{source.TenantID}
-				if tc.name == "epoch-replaced" {
+				switch tc.name {
+				case "epoch-replaced":
 					args = append(args, uuid.NewString())
-				} else if tc.name == "target-reborn" {
+				case "target-reborn":
 					args = append(args, source.ContextID, source.RouterID)
 				}
 				if _, err := sc.Q.Exec(ctx, tc.sql, args...); err != nil {

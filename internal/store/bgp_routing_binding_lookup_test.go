@@ -73,9 +73,9 @@ func TestRoutingBindingReaderRefusesUnknownCorruptAndForeignMetadata(t *testing.
 			c.Manifest = &routingSourceManifest{Bindings: []routingSourceBinding{}}
 		},
 	} {
-		copy, header := config, peer
-		mutate(&copy, &header)
-		if selected, err := selectRoutingSource(ctx, scope, copy, header, []uint16{1}); err == nil || selected.ContextID != "" {
+		candidate, header := config, peer
+		mutate(&candidate, &header)
+		if selected, err := selectRoutingSource(ctx, scope, candidate, header, []uint16{1}); err == nil || selected.ContextID != "" {
 			t.Fatal("foreign, withdrawn or unbound selector acquired routing context")
 		}
 	}
