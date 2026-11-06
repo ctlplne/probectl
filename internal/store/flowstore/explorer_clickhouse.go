@@ -170,6 +170,10 @@ func explorerFieldExprWithParams(field flow.QueryField, params chParams) string 
 	}
 	column := field.Column
 	switch field.Derived {
+	case "in_if_role":
+		return "ifNull(nullIf(in_roles.role_value,''),'other')"
+	case "out_if_role":
+		return "ifNull(nullIf(out_roles.role_value,''),'other')"
 	case "src_prefix", "dst_prefix":
 		address := explorerAddressExpr(column)
 		return "if(isIPv4String(" + address + "),concat(toString(tupleElement(IPv4CIDRToRange(toIPv4OrDefault(" + address + "),{prefix4:UInt8}),1)),'/',toString({prefix4:UInt8})),if(isIPv6String(" + address + "),concat(toString(tupleElement(IPv6CIDRToRange(toIPv6OrDefault(" + address + "),{prefix6:UInt8}),1)),'/',toString({prefix6:UInt8})),''))"

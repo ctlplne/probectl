@@ -18,6 +18,17 @@ The current-role explanation preview joins owned SNMP and BMP evidence with
 this configuration through Admin, REST, CLI and native MCP. PeeringDB IX-prefix
 lookup, Explorer role dimensions and real-router acceptance remain unfinished.
 
+The flow-engine component accepts a request-local current role projection for
+`in_if_role` and `out_if_role`. It joins the uniquely owned exporter, protocol,
+complete observation-domain ID and interface index; a row's claimed agent ID
+cannot select a routing context. Unknown metadata remains `other`, with all
+traffic retained. Complete raw and retained inputs use the same classification,
+and result metadata retains source/configuration provenance. Public activation
+still requires the current-authority loader and frozen-reader integration.
+Selecting either field requires `entities.read`, `metrics.read` and
+`events.read`; a missing projection refuses execution rather than inventing
+authority. This component does not qualify the real-router feature.
+
 Explanations require a current tenant user with `entities.read`, `metrics.read`
 and `events.read` for the selected routing context. The actual credential is a
 separate permission ceiling. Responses include `role`, `reason`, complete

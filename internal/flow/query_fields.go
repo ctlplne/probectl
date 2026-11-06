@@ -126,11 +126,16 @@ func init() {
 		{"tcp_flag_names", "tcp_flags", QueryFlags, false, 255},
 		{"in_if_name", "in_if", QueryText, false, 0},
 		{"out_if_name", "out_if", QueryText, false, 0},
+		{"in_if_role", "in_if", QueryText, false, 0},
+		{"out_if_role", "out_if", QueryText, false, 0},
 	} {
 		field := queryField(derived.name, derived.source, derived.kind, derived.summary, derived.max)
 		field.Derived = derived.name
 		if derived.name == "in_if_name" || derived.name == "out_if_name" {
 			field.Permission = "metrics.read"
+		}
+		if derived.name == "in_if_role" || derived.name == "out_if_role" {
+			field.Permission = "entities.read"
 		}
 		queryFieldRegistry = append(queryFieldRegistry, field)
 	}

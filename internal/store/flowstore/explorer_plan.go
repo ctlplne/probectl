@@ -27,6 +27,9 @@ type PlanQuery struct {
 	// Tags is one authenticated tenant's immutable tag revision. Nil keeps
 	// native-only queries on their existing path.
 	Tags *TagQueryData
+	// Roles is current, fully authorized interface metadata. A selected role
+	// field requires it; nil cannot silently turn missing authority into Other.
+	Roles *InterfaceRoleQueryData
 	// SelectedGroups is server-selected comparison membership, never grammar.
 	// Nil ranks automatically; an explicit empty selection puts every row in Other.
 	SelectedGroups [][]string
@@ -68,13 +71,16 @@ type PlanResult struct {
 	// OldestInput is private cache-validity metadata from the same scoped,
 	// filtered input, including groups represented by Other. Empty queries
 	// leave it zero; the requested From bound is not an input-retention clock.
-	OldestInput         time.Time           `json:"-"`
-	Coverage            *PlanSourceCoverage `json:"coverage,omitempty"`
-	Query               flow.QueryPlan      `json:"query"`
-	SavedFilterVersions map[string]int64    `json:"saved_filter_versions,omitempty"`
-	Source              string              `json:"source"`
-	TagRevision         int64               `json:"tag_revision,omitempty"`
-	TagTenantID         string              `json:"tag_tenant_id,omitempty"`
+	OldestInput         time.Time                 `json:"-"`
+	Coverage            *PlanSourceCoverage       `json:"coverage,omitempty"`
+	Query               flow.QueryPlan            `json:"query"`
+	SavedFilterVersions map[string]int64          `json:"saved_filter_versions,omitempty"`
+	Source              string                    `json:"source"`
+	TagRevision         int64                     `json:"tag_revision,omitempty"`
+	TagTenantID         string                    `json:"tag_tenant_id,omitempty"`
+	RoleDigest          string                    `json:"role_digest,omitempty"`
+	RoleTenantID        string                    `json:"role_tenant_id,omitempty"`
+	RoleSources         []InterfaceRoleProjection `json:"role_sources,omitempty"`
 	// TagIDs preserves the immutable field identities in Query and Coverage.
 	// It describes this result, never client-supplied query authority.
 	TagIDs            map[string]string `json:"tag_ids,omitempty"`
@@ -421,6 +427,9 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if plan.Cursor != "" {
 		return PlanResult{}, errors.New("flow cursor must be resolved from its stored snapshot before execution")
 	}
+	if err := validatePlanInterfaceRoles(ctx, query, plan); err != nil {
+		return PlanResult{}, err
+	}
 	if plan.DataSeries == "rollup" {
 		return PlanResult{}, errors.New("rollup coverage is unavailable from the memory store")
 	}
@@ -482,7 +491,7 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 			if found, ok := values[field]; ok {
 				return found
 			}
-			result := explorerFieldValue(entry, field, plan, names, vocabulary, query.Tags)
+			result := explorerFieldValue(entry, field, plan, names, vocabulary, query.Tags, query.Roles)
 			values[field] = result
 			return result
 		}
@@ -591,6 +600,9 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 
 	sortPlanPoints(result.Series)
 	sortPlanPoints(result.OtherSeries)
+	if err := captureResultRoleIdentity(ctx, &result, query); err != nil {
+		return PlanResult{}, err
+	}
 	if err := ctx.Err(); err != nil {
 		return PlanResult{}, err
 	}

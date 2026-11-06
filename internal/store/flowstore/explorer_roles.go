@@ -7,6 +7,7 @@
 package flowstore
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -214,4 +216,73 @@ func (d *InterfaceRoleQueryData) valueForRow(row Row, output bool) string {
 		return string(d.rows[found].Role)
 	}
 	return string(entity.InterfaceRoleOther)
+}
+
+// PlanUsesInterfaceRoles examines normalized, expanded selectors. It confers
+// no permission; current user and source authorization precede projection.
+func PlanUsesInterfaceRoles(plan flow.QueryPlan) bool {
+	return planUsesInterfaceRoles(plan)
+}
+
+func planUsesInterfaceRoles(plan flow.QueryPlan) bool {
+	for _, names := range [][]string{plan.GroupBy, plan.MatrixWith, flow.QueryFilterFields(plan.Filter)} {
+		for _, name := range names {
+			if name == "in_if_role" || name == "out_if_role" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func validatePlanInterfaceRoles(ctx context.Context, query PlanQuery, plan flow.QueryPlan) error {
+	if !planUsesInterfaceRoles(plan) {
+		return nil
+	}
+	return query.Roles.validate(ctx, query.TenantID, time.Now().UTC())
+}
+
+func captureResultRoleIdentity(ctx context.Context, result *PlanResult, query PlanQuery) error {
+	if !planUsesInterfaceRoles(result.Query) {
+		return nil
+	}
+	digest, err := query.Roles.Digest(ctx, query.TenantID, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	result.RoleDigest, result.RoleTenantID = digest, query.TenantID
+	result.RoleSources = slices.Clone(query.Roles.rows)
+	for i := range result.RoleSources {
+		result.RoleSources[i].Sources = slices.Clone(result.RoleSources[i].Sources)
+	}
+	return nil
+}
+
+func (d *InterfaceRoleQueryData) externalRows(ctx context.Context, tenant string, maxBytes int64) ([]byte, error) {
+	if err := d.validate(ctx, tenant, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	var body bytes.Buffer
+	for _, item := range d.rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		row, err := json.Marshal(struct {
+			Tenant   string               `json:"role_tenant"`
+			Exporter string               `json:"role_exporter"`
+			Protocol string               `json:"role_protocol"`
+			Domain   uint32               `json:"role_domain"`
+			Index    uint32               `json:"role_index"`
+			Role     entity.InterfaceRole `json:"role_value"`
+		}{tenant, item.Exporter, item.Protocol, item.Domain, item.IfIndex, item.Role})
+		if err != nil {
+			return nil, err
+		}
+		if int64(body.Len()+len(row)+1) > maxBytes {
+			return nil, ErrExplorerBudget
+		}
+		body.Write(row)
+		body.WriteByte('\n')
+	}
+	return body.Bytes(), nil
 }

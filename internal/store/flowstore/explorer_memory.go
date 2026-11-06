@@ -68,7 +68,7 @@ var explorerRowFields = func() map[string]int {
 }()
 
 func explorerFieldValue(entry memoryRow, name string, spec flow.QueryPlan, names map[string]map[uint32]string,
-	vocabulary flow.QueryVocabulary, tagData *TagQueryData) string {
+	vocabulary flow.QueryVocabulary, tagData *TagQueryData, roleData ...*InterfaceRoleQueryData) string {
 	field, ok := vocabulary.Lookup(name)
 	if !ok {
 		return ""
@@ -85,6 +85,11 @@ func explorerFieldValue(entry memoryRow, name string, spec flow.QueryPlan, names
 		return value
 	}
 	switch field.Derived {
+	case "in_if_role", "out_if_role":
+		if len(roleData) != 1 || roleData[0] == nil {
+			return "other"
+		}
+		return roleData[0].valueForRow(row, field.Derived == "out_if_role")
 	case "src_prefix", "dst_prefix":
 		address := row.SrcAddr
 		if field.Derived == "dst_prefix" {

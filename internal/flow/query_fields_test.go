@@ -8,8 +8,24 @@ package flow
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 )
+
+func TestInterfaceRoleQuerySelectorsRequireAllSourcePlanesAndCompleteInputs(t *testing.T) {
+	plan := QueryPlan{GroupBy: []string{"in_if_role"}, Filter: &QueryFilterGroup{Groups: []QueryFilterGroup{{Conditions: []QueryPredicate{{Field: "out_if_role", Op: QueryEqual, Values: []string{"customer"}}}}}}}
+	permissions := QueryPlanPermissions(plan)
+	slices.Sort(permissions)
+	if !slices.Equal(permissions, []string{"entities.read", "events.read", "metrics.read"}) {
+		t.Fatal("role query omitted a source-plane disclosure grant", permissions)
+	}
+	for _, name := range []string{"in_if_role", "out_if_role"} {
+		field, ok := LookupQueryField(name)
+		if !ok || field.LegacyHourly || !field.Raw || !field.Rollup || field.Type != QueryText {
+			t.Fatal("role query narrowed complete input support or claimed legacy reconstruction", name, field)
+		}
+	}
+}
 
 func TestQueryRegistryRejectsTenantAndStatementSelectors(t *testing.T) {
 	for _, field := range []string{"tenant", "tenant_id", "tenant.id", "tenant-id", "src_addr; SELECT 1", "*", "(SELECT tenant_id)", "unknown"} {

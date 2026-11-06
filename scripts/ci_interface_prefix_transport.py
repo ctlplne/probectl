@@ -17,6 +17,11 @@ UNIT = {
     "internal/store/flowstore": (
         "TestInterfaceRoleQueryProjectionKeepsTenantIdentityAndCompleteMetadata",
         "TestInterfaceRoleQueryProjectionRefusesAmbiguousExpiredOrPartialInputs",
+        "TestInterfaceRoleExplorerPreservesBothDirectionsMissingRowsAndTenantBoundary",
+        "TestInterfaceRoleExplorerSQLKeepsFixedTenantJoinAndCompleteExternalValues",
+    ),
+    "internal/flow": (
+        "TestInterfaceRoleQuerySelectorsRequireAllSourcePlanesAndCompleteInputs",
     ),
     "internal/device": (
         "TestSNMPPollPrefixEvidenceKeepsCompleteEpochAndUnavailableFence",
@@ -72,6 +77,9 @@ UNIT = {
     ),
 }
 INTEGRATION = {
+    "internal/store/flowstore": (
+        "TestInterfaceRoleExplorerClickHouseKeepsTenantDirectionsAndCompleteTotals",
+    ),
     "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
     "internal/control": (
         "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",

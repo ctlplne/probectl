@@ -21,6 +21,7 @@ type explorerExternalKind uint8
 const (
 	externalTagLookup explorerExternalKind = iota + 1
 	externalTagPrefixes
+	externalInterfaceRoles
 )
 
 type explorerExternalData struct {
@@ -36,6 +37,8 @@ func (data explorerExternalData) specification() (string, string, error) {
 		return "tag_lookup", "lookup_tenant String, lookup_exporter String, lookup_context String, tag_values Map(String, String)", nil
 	case externalTagPrefixes:
 		return "tag_prefix_lookup", "prefix_tenant String, prefix_context String, prefix_family UInt8, prefix_start UInt128, prefix_end UInt128, prefix_values Map(String, String), prefix_present UInt8", nil
+	case externalInterfaceRoles:
+		return "interface_role_lookup", "role_tenant String, role_exporter String, role_protocol String, role_domain UInt32, role_index UInt32, role_value String", nil
 	default:
 		return "", "", ErrTagQueryScope
 	}

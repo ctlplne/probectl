@@ -26002,11 +26002,109 @@
         },
         "description": "Keyset page bounded by rows and8MiB; next explicitly reports remaining configuration."
       },
+      "FlowInterfaceRoleSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant_id",
+          "context_id",
+          "router_id",
+          "interface_id",
+          "exporter",
+          "protocol",
+          "obs_domain",
+          "if_index",
+          "role",
+          "reason",
+          "sources",
+          "valid_until"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "exporter": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "netflow5",
+              "netflow9",
+              "ipfix",
+              "sflow5"
+            ]
+          },
+          "obs_domain": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "if_index": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "transit",
+              "ix_peering",
+              "private_peering",
+              "customer",
+              "backbone",
+              "other"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "Complete server-selected current role provenance. Exporter ownership is unique across every active tenant assignment before context authorization; a raw flow agent ID never chooses a context. Metadata describes evidence and grants no permission."
+      },
       "FlowExplorerResult": {
         "type": "object",
         "properties": {
           "query": {
             "$ref": "#/components/schemas/FlowQueryOptions"
+          },
+          "role_digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Stable complete role source/configuration identity, distinct from current disclosure authorization."
+          },
+          "role_tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role_sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowInterfaceRoleSource"
+            }
           },
           "tag_revision": {
             "type": "integer",

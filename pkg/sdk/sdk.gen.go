@@ -1598,27 +1598,30 @@ type FlowExplorerQuerySpec FlowQueryOptions
 
 // Independent detail and chart selections. Other/totals summarize the remainder without summing distinct-group counts. series has up to40 requested group identities; other_series is separate and consumes no requested group slot. Sparse bucket data includes an explicit bucket width and actual final duration; absent buckets are zero observations. Matrix columns are ranked inside selected top rows. Execution/read/memory/response budgets refuse without partial data.
 type FlowExplorerResult struct {
-	ChartOther          map[string]any           `json:"chart_other,omitempty"`
-	ChartRows           []FlowExplorerRow        `json:"chart_rows,omitempty"`
-	Coverage            map[string]any           `json:"coverage,omitempty"`
-	DetailLimited       bool                     `json:"detail_limited"`
-	Matrix              []FlowExplorerMatrixCell `json:"matrix"`
-	MatrixColumns       []FlowExplorerRow        `json:"matrix_columns,omitempty"`
-	MatrixRows          []FlowExplorerRow        `json:"matrix_rows,omitempty"`
-	Other               FlowExplorerRow          `json:"other,omitempty"`
-	OtherSeries         []FlowExplorerPoint      `json:"other_series"`
-	Query               FlowQueryOptions         `json:"query"`
-	ResolutionSeconds   int                      `json:"resolution_seconds"`
-	Rows                []FlowExplorerRow        `json:"rows"`
-	SavedFilterVersions map[string]int           `json:"saved_filter_versions,omitempty"`
-	Series              []FlowExplorerPoint      `json:"series"`
-	Source              string                   `json:"source"`
-	TagIds              map[string]string        `json:"tag_ids,omitempty"`
-	TagRevision         int                      `json:"tag_revision,omitempty"`
-	TagTenantId         string                   `json:"tag_tenant_id,omitempty"`
-	TotalGroups         int                      `json:"total_groups"`
-	TotalSeries         []FlowExplorerPoint      `json:"total_series,omitempty"`
-	Totals              map[string]string        `json:"totals"`
+	ChartOther          map[string]any            `json:"chart_other,omitempty"`
+	ChartRows           []FlowExplorerRow         `json:"chart_rows,omitempty"`
+	Coverage            map[string]any            `json:"coverage,omitempty"`
+	DetailLimited       bool                      `json:"detail_limited"`
+	Matrix              []FlowExplorerMatrixCell  `json:"matrix"`
+	MatrixColumns       []FlowExplorerRow         `json:"matrix_columns,omitempty"`
+	MatrixRows          []FlowExplorerRow         `json:"matrix_rows,omitempty"`
+	Other               FlowExplorerRow           `json:"other,omitempty"`
+	OtherSeries         []FlowExplorerPoint       `json:"other_series"`
+	Query               FlowQueryOptions          `json:"query"`
+	ResolutionSeconds   int                       `json:"resolution_seconds"`
+	RoleDigest          string                    `json:"role_digest,omitempty"`
+	RoleSources         []FlowInterfaceRoleSource `json:"role_sources,omitempty"`
+	RoleTenantId        string                    `json:"role_tenant_id,omitempty"`
+	Rows                []FlowExplorerRow         `json:"rows"`
+	SavedFilterVersions map[string]int            `json:"saved_filter_versions,omitempty"`
+	Series              []FlowExplorerPoint       `json:"series"`
+	Source              string                    `json:"source"`
+	TagIds              map[string]string         `json:"tag_ids,omitempty"`
+	TagRevision         int                       `json:"tag_revision,omitempty"`
+	TagTenantId         string                    `json:"tag_tenant_id,omitempty"`
+	TotalGroups         int                       `json:"total_groups"`
+	TotalSeries         []FlowExplorerPoint       `json:"total_series,omitempty"`
+	Totals              map[string]string         `json:"totals"`
 }
 
 // Exact nonnegative decimal strings. Integer counters and whole-window distinct totals remain exact; fractional statistics use18 places truncated toward zero. Synthetic Other is structural and cannot collide with a real label named Other.
@@ -1677,6 +1680,22 @@ type FlowIngestQualityResponse struct {
 }
 
 type FlowIngestQualityState string
+
+// Complete server-selected current role provenance. Exporter ownership is unique across every active tenant assignment before context authorization; a raw flow agent ID never chooses a context. Metadata describes evidence and grants no permission.
+type FlowInterfaceRoleSource struct {
+	ContextId   string   `json:"context_id"`
+	Exporter    string   `json:"exporter"`
+	IfIndex     int      `json:"if_index"`
+	InterfaceId string   `json:"interface_id"`
+	ObsDomain   int      `json:"obs_domain"`
+	Protocol    string   `json:"protocol"`
+	Reason      string   `json:"reason"`
+	Role        string   `json:"role"`
+	RouterId    string   `json:"router_id"`
+	Sources     []string `json:"sources"`
+	TenantId    string   `json:"tenant_id"`
+	ValidUntil  string   `json:"valid_until"`
+}
 
 // Effective operator-only native MCP allocation admission. Informational; clients cannot override costs. Legacy tool limits remain unchanged.
 type FlowMCPRenderCost struct {

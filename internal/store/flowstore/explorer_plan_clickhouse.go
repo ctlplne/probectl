@@ -48,11 +48,25 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if plan.Cursor != "" {
 		return PlanResult{}, errors.New("flow cursor must be resolved from its stored snapshot before execution")
 	}
+	if err := validatePlanInterfaceRoles(ctx, query, plan); err != nil {
+		return PlanResult{}, err
+	}
 	if query.Tags != nil {
 		external, err = query.Tags.externalData(ctx, query.TenantID, plan, budget.MemoryBytes/4)
 		if err != nil {
 			return PlanResult{}, err
 		}
+	}
+	if planUsesInterfaceRoles(plan) {
+		remaining := budget.MemoryBytes / 4
+		for _, table := range external {
+			remaining -= int64(len(table.rows))
+		}
+		roles, err := query.Roles.externalRows(ctx, query.TenantID, remaining)
+		if err != nil {
+			return PlanResult{}, err
+		}
+		external = append(external, explorerExternalData{kind: externalInterfaceRoles, rows: roles})
 	}
 
 	target, err := c.route(ctx, query.TenantID)
@@ -74,8 +88,8 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if err != nil {
 		return PlanResult{}, err
 	}
-	sql, params, err := planSQLWithTags(budget, plan, source.table, names, query.TenantID,
-		query.Tags, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
+	sql, params, err := planSQLWithRoleMetadata(budget, plan, source.table, names, query.TenantID,
+		query.Tags, query.Roles, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -97,8 +111,8 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 			return PlanResult{}, err
 		}
 		if current.kind != source.kind {
-			sql, params, err := planSQLWithTags(budget, plan, current.table, names, query.TenantID,
-				query.Tags, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
+			sql, params, err := planSQLWithRoleMetadata(budget, plan, current.table, names, query.TenantID,
+				query.Tags, query.Roles, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
 			if err != nil {
 				return PlanResult{}, err
 			}
@@ -195,6 +209,9 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 			return string(encoded)
 		}
 		sort.Slice(selection.rows, func(i, j int) bool { return ranks[key(selection.rows[i])] < ranks[key(selection.rows[j])] })
+	}
+	if err := captureResultRoleIdentity(ctx, &result, query); err != nil {
+		return PlanResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return PlanResult{}, err

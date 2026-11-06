@@ -54,6 +54,12 @@ func planSQLWithBudget(budget ExplorerBudget, plan flow.QueryPlan, table string,
 func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	names map[string]map[uint32]string, tenantID string, tagData *TagQueryData,
 	membership ...[][]string) (string, chParams, error) {
+	return planSQLWithRoleMetadata(budget, plan, table, names, tenantID, tagData, nil, membership...)
+}
+
+func planSQLWithRoleMetadata(budget ExplorerBudget, plan flow.QueryPlan, table string,
+	names map[string]map[uint32]string, tenantID string, tagData *TagQueryData, roleData *InterfaceRoleQueryData,
+	membership ...[][]string) (string, chParams, error) {
 	settings, err := budget.settings()
 	if err != nil {
 		return "", nil, err
@@ -68,6 +74,9 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	plan, err = flow.NormalizeQueryPlanWithVocabulary(plan, time.Now(), vocabulary)
 	if err != nil {
 		return "", nil, err
+	}
+	if planUsesInterfaceRoles(plan) && (roleData == nil || roleData.tenantID != tenantID) {
+		return "", nil, ErrInterfaceRoleQueryScope
 	}
 	if !explorerTablePattern.MatchString(table) {
 		return "", nil, errors.New("invalid flow query table")
@@ -122,6 +131,12 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 			from += prefixTagJoinSQL(side)
 		}
 		from = prefixTagProjectionSQL(from, sides)
+	}
+	if planUsesInterfaceRoles(plan) {
+		for _, side := range []string{"in", "out"} {
+			alias := side + "_roles"
+			from += " ANY LEFT JOIN interface_role_lookup AS " + alias + " ON " + alias + ".role_tenant=tenant_id AND toIPv6OrNull(" + alias + ".role_exporter)=toIPv6OrNull(if(position(exporter,'%')=0,exporter,'')) AND " + alias + ".role_protocol=protocol AND " + alias + ".role_domain=obs_domain AND " + alias + ".role_index=" + side + "_if"
+		}
 	}
 	// Original keys have names distinct from the transformed g/c aliases below.
 	// In particular column_input remaps the original column into g and clears c;

@@ -1503,6 +1503,9 @@ export interface FlowExplorerResult {
   other_series: FlowExplorerPoint[]
   query: FlowQueryOptions
   resolution_seconds: number
+  role_digest?: string
+  role_sources?: FlowInterfaceRoleSource[]
+  role_tenant_id?: string
   rows: FlowExplorerRow[]
   saved_filter_versions?: { [key: string]: number }
   series: FlowExplorerPoint[]
@@ -1570,6 +1573,21 @@ export interface FlowIngestQualityResponse {
 }
 
 export type FlowIngestQualityState = "healthy" | "degraded" | "stale"
+
+export interface FlowInterfaceRoleSource {
+  context_id: string
+  exporter: string
+  if_index: number
+  interface_id: string
+  obs_domain: number
+  protocol: "netflow5" | "netflow9" | "ipfix" | "sflow5"
+  reason: string
+  role: "transit" | "ix_peering" | "private_peering" | "customer" | "backbone" | "other"
+  router_id: string
+  sources: string[]
+  tenant_id: string
+  valid_until: string
+}
 
 export interface FlowMCPRenderCost {
   mcp_csv_page_bytes: number
