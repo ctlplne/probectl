@@ -586,7 +586,7 @@ def interface_role_subject_control():
     result = execute("internal/tenantlife", (root,), "role_policy_subject_omitted", integration=True, overlay=overlay)
     if not report_regression_failed_on_assertion(result.stdout, result.returncode,
             package=PREFIX + "internal/tenantlife", root=root, child="",
-            marker="role policy subject export omitted owned text or selected unrelated rows"):
+            marker="role policy subject erasure retained owned text or deleted unrelated rows"):
         raise RuntimeError("role policy subject omission did not fail its exact assertion")
 
 
