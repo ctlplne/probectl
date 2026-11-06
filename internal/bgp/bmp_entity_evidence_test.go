@@ -121,3 +121,64 @@ func TestBMPEvidenceStablePeerDoesNotWriteOnEveryRoute(t *testing.T) {
 		})
 	}
 }
+
+type capturedBMPEvidence struct{ calls chan []entity.Observation }
+
+func (c capturedBMPEvidence) Submit(_ context.Context, claims []entity.Observation) (int, int, error) {
+	c.calls <- claims
+	return len(claims), 0, nil
+}
+
+func TestBMPEvidenceReconnectRestatesCurrentPeersWithoutPerRouteWrites(t *testing.T) {
+	calls := make(chan []entity.Observation, 8)
+	stack := startBMPTestStack(t, WithBMPTenantLane("tenant-a", "tenant-a-lane"), WithBMPEntityEvidence("listener-auth", capturedBMPEvidence{calls: calls}))
+	defer stack.stop()
+	cert, key, _ := stack.issue("tenant-a", "router-a", time.Hour)
+	conn, err := stack.dial(cert, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	frame := buildBMPRouteMonitoring(64500, "192.0.2.7", []uint32{64500}, "203.0.113.0/24", time.Now())
+	write := func(raw []byte) {
+		t.Helper()
+		if _, err := conn.Write(raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	receive := func(marker string) []entity.Observation {
+		t.Helper()
+		select {
+		case got := <-calls:
+			return got
+		case <-time.After(5 * time.Second):
+			t.Fatal(marker)
+			return nil
+		}
+	}
+	write(frame)
+	first := receive("first authenticated BMP peer did not publish evidence")
+	if len(first) != 2 || first[1].Alias.Value != "192.0.2.7/as64500" {
+		t.Fatal("authenticated BMP peer claim changed", first)
+	}
+	for range 3 {
+		write(frame)
+	}
+	// The worker's FIFO barrier proves all repeated routes were consumed. Only
+	// this different peer may publish before the same-credential reconnection.
+	write(buildBMPRouteMonitoring(64501, "192.0.2.8", []uint32{64501}, "198.51.100.0/24", time.Now()))
+	barrier := receive("BMP evidence worker did not process its peer barrier")
+	if len(barrier) != 2 || barrier[1].Alias.Value != "192.0.2.8/as64501" {
+		t.Fatal("stable BMP peer wrote on every unchanged route", barrier)
+	}
+	_ = conn.Close()
+	conn, err = stack.dial(cert, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(frame)
+	renewed := receive("fresh authenticated BMP session reused old peer evidence suppression")
+	if len(renewed) != 2 || renewed[1].Alias != first[1].Alias || renewed[1].Source != first[1].Source || renewed[1].OriginSerial != first[1].OriginSerial || renewed[1].ID == first[1].ID || !renewed[1].ObservedAt.After(first[1].ObservedAt) {
+		t.Fatal("reconnected BMP peer did not restate same owned source with a new observation", renewed)
+	}
+}

@@ -132,6 +132,9 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	without[0].role, without[2].role = entity.InterfaceRoleOther, entity.InterfaceRoleOther
 	awaitRoleRouterLabels(t, st, reg, without, ids)
 	requireRoleSourceBinding(t, st, reg, routerBMPSourceBinding(listener.collectorID, listener.routerID, reg.contextID, reg.deviceID))
+	// Rebinding invalidates the former assignment epoch. Require a fresh
+	// authenticated FRR dump; restoring configuration cannot revive old facts.
+	listener.reconnectBMP()
 	awaitRoleRouterLabels(t, st, reg, links, ids)
 
 	overridePath := strings.TrimSuffix(roleRouterPath(reg, ids[links[2].index]), "/role") + "/role-override"

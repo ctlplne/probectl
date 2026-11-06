@@ -919,7 +919,7 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 		// The evidence worker applies its own bounded refresh interval.
 		if len(obs.routes) > 0 {
 			l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID,
-				routerAgentID: id.AgentID, routerSerial: id.Serial,
+				routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: liveHandle,
 				peerAddress: obs.peer.Address,
 				peerASN:     obs.peer.ASN, observedAt: l.now().UTC()})
 		}

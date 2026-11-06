@@ -245,6 +245,7 @@ type bgpTenant struct {
 	routerID, routerCert     string
 	routerKey                []byte
 	listenAddr, listenerLog  string
+	reconnectBMP             func()
 	watch                    map[string]any
 	vrp                      []map[string]any
 	want                     []wantEvent
@@ -877,25 +878,32 @@ func tailLines(s string, n int) string {
 // connects to its BMP port, and the sidecar carries that stream to the
 // listener over mTLS with the router's SVID. It adds no trust: the listener
 // still derives the tenant from the SVID. It reconnects until cleanup.
-func bridgeBMP(t *testing.T, routerAddr, listenerAddr string, cfg *tls.Config) {
+func bridgeBMP(t *testing.T, routerAddr, listenerAddr string, cfg *tls.Config) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
+	reset := make(chan struct{}, 1)
 	var wg sync.WaitGroup
 	t.Cleanup(func() { cancel(); wg.Wait() })
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for ctx.Err() == nil {
-			pipeBMP(ctx, routerAddr, listenerAddr, cfg)
+			pipeBMP(ctx, routerAddr, listenerAddr, cfg, reset)
 			select {
 			case <-ctx.Done():
 			case <-time.After(time.Second):
 			}
 		}
 	}()
+	return func() {
+		select {
+		case reset <- struct{}{}:
+		default:
+		}
+	}
 }
 
-func pipeBMP(ctx context.Context, routerAddr, listenerAddr string, cfg *tls.Config) {
+func pipeBMP(ctx context.Context, routerAddr, listenerAddr string, cfg *tls.Config, reset <-chan struct{}) {
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	upstream, err := dialer.DialContext(ctx, "tcp", listenerAddr)
 	if err != nil {
@@ -917,6 +925,7 @@ func pipeBMP(ctx context.Context, routerAddr, listenerAddr string, cfg *tls.Conf
 	select {
 	case <-ctx.Done():
 	case <-done:
+	case <-reset:
 	}
 	_ = router.Close()
 	_ = listener.Close()

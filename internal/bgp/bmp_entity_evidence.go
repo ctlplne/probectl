@@ -17,6 +17,7 @@ import (
 )
 
 type bmpPeerEvidence struct {
+	sessionHandle uint64 // listener-owned admitted session, never a BMP payload field
 	tenantID      string
 	routerAgentID string // from a verified router SVID, not the BMP frame
 	routerSerial  string // exact verified SVID; revocation retires this evidence
@@ -26,6 +27,7 @@ type bmpPeerEvidence struct {
 }
 
 type bmpPeerEvidenceKey struct {
+	sessionHandle uint64
 	routerAgentID string
 	routerSerial  string
 	peerAddress   string
@@ -84,7 +86,9 @@ func (l *BMPListener) queuePeerEvidence(peer bmpPeerEvidence) {
 
 // One worker and a bounded queue keep the BMP socket read/publish path
 // independent of a slow evidence service. The TTL map has an explicit ceiling
-// even if a compromised router varies peer headers at high rate.
+// even if a compromised router varies peer headers at high rate. A newly
+// authenticated session must restate live peers under current assignments; the
+// same certificate on an earlier connection is not a reusable evidence epoch.
 func (l *BMPListener) evidenceLoop(ctx context.Context) {
 	lastSent := make(map[bmpPeerEvidenceKey]bmpEvidenceAttempt)
 	remember := func(key bmpPeerEvidenceKey, state bmpEvidenceAttempt) {
@@ -101,7 +105,7 @@ func (l *BMPListener) evidenceLoop(ctx context.Context) {
 			lastSent = make(map[bmpPeerEvidenceKey]bmpEvidenceAttempt)
 		case peer := <-l.evidenceQueue:
 			now := l.now()
-			key := bmpPeerEvidenceKey{routerAgentID: peer.routerAgentID,
+			key := bmpPeerEvidenceKey{sessionHandle: peer.sessionHandle, routerAgentID: peer.routerAgentID,
 				peerAddress: peer.peerAddress, peerASN: peer.peerASN,
 				routerSerial: peer.routerSerial}
 			if peer.observedAt.IsZero() || !peer.observedAt.After(now.Add(-bmpEvidenceMaxLag)) ||

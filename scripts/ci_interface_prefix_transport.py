@@ -87,6 +87,7 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestBMPEvidenceReconnectRestatesCurrentPeersWithoutPerRouteWrites",
         "TestBMPUpdateFrameUsesReceivingCapabilityAndKeepsFullProtocolMaximum",
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
@@ -290,6 +291,25 @@ def execute(package, roots, label, integration=False, overlay=None, child=""):
     print(result.stderr, end="")
     return result
 
+
+
+def bgp_peer_session_control():
+    source = Path("internal/bgp/bmp_entity_evidence.go").resolve()
+    original = source.read_text()
+    seam = "sessionHandle: peer.sessionHandle, routerAgentID: peer.routerAgentID"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    mutant = overlay_source_path(out, "bmp_evidence_session_omitted.go")
+    mutant.write_text(original.replace(seam, "sessionHandle: 0, routerAgentID: peer.routerAgentID"))
+    overlay = out / "bmp_evidence_session_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestBMPEvidenceReconnectRestatesCurrentPeersWithoutPerRouteWrites"
+    result = execute("internal/bgp", (root,), "bmp_evidence_session_omitted", overlay=overlay)
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, package=PREFIX + "internal/bgp", root=root,
+        child="", marker="fresh authenticated BMP session reused old peer evidence suppression"
+    ):
+        raise RuntimeError("BMP evidence session control did not fail its exact assertion")
 
 
 def bgp_routing_extended_control():
@@ -1113,6 +1133,7 @@ def main(integration, flow_integration=False):
                 f"required prefix transport proof missing/failed: {failures}"
             )
     if integration and not flow_integration:
+        bgp_peer_session_control()
         bgp_routing_extended_control()
         bgp_routing_authority_control()
         bgp_routing_generation_control()

@@ -1155,7 +1155,7 @@ func startRouterBMPEvidenceListener(t *testing.T, st *shipped.Stack, lab *routin
 			"PROBECTL_BMP_EVIDENCE_CA_FILE=" + caFile,
 			"PROBECTL_BMP_EVIDENCE_SERVER_NAME=localhost",
 		})
-	bridgeBMP(t, lab.bmpAddr(t, tn.router), tn.listenAddr, tn.routerTLS(t, st))
+	tn.reconnectBMP = bridgeBMP(t, lab.bmpAddr(t, tn.router), tn.listenAddr, tn.routerTLS(t, st))
 	tn.awaitListener(t, "FX-2 FRR rtr-a's route from edge", "route_observation")
 	return tn
 }
