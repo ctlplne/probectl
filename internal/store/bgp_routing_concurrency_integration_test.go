@@ -145,7 +145,7 @@ func testBGPRoutingStaleSourceSnapshot(t *testing.T) {
 		})
 	})
 	var postgres *pgconn.PgError
-	if !errors.Is(err, ErrBGPRoutingSourceUnavailable) && !(errors.As(err, &postgres) && postgres.Code == "40001") {
+	if !errors.Is(err, ErrBGPRoutingSourceUnavailable) && (!errors.As(err, &postgres) || postgres.Code != "40001") {
 		t.Fatal("stale snapshot acknowledged revoked routing authority", err)
 	}
 }
