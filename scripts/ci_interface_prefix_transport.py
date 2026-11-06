@@ -89,6 +89,7 @@ UNIT = {
     "internal/store": (
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
+        "TestBGPRoutingLookupRequiresTenantExactViewAndWholeAdmissionBeforeStorage",
         "TestBGPRoutingViewMetadataKeepsStablePeerSlotsAndCompleteValues",
         "TestBGPRoutingViewMetadataRefusesIncompleteShapeAndWholeAdmission",
         "TestBGPRoutingBeginRefusesForeignTenantBeforeMetadataOrStorage",
@@ -138,6 +139,8 @@ INTEGRATION = {
         "TestDashboardReportTenantIsolation",
         "TestInterfaceRoleConfigurationPostgresKeepsTenantCASAndOverrideIncarnations",
         "TestBGPRoutingSchemaKeepsTenantFamilyPathIdentityAndPublicationShape",
+        "TestBGPRoutingLookupKeepsLongestPrefixEveryPathTenantFamilyAndSelectedView",
+        "TestBGPRoutingLookupRefusesChangedAuthorityClockCorruptionAndMixedSnapshots",
         "TestBGPRoutingAuthorityKeepsCurrentTenantOriginPurposeAndAssignmentEpoch",
         "TestBGPRoutingBeginKeepsPrivateTenantGenerationsAndAtomicSlotReplacement",
         "TestBGPRoutingWritesSerializeSourceChangesAndRejectStaleSnapshots",
@@ -343,6 +346,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-lookup-view": (
+        "internal/store/bgp_routing_lookup.go",
+        "AND view_kind='loc_rib' AND NOT filtered",
+        "AND NOT filtered",
+        "TestBGPRoutingLookupKeepsLongestPrefixEveryPathTenantFamilyAndSelectedView",
+        "", "adjacent route view impersonated a selected router lookup",
+    ),
+    "routing-lookup-birth": (
+        "internal/store/bgp_routing_lookup.go",
+        "birth.ObservedAt = view.born",
+        "birth.ObservedAt = source.ObservedAt",
+        "TestBGPRoutingLookupRefusesChangedAuthorityClockCorruptionAndMixedSnapshots",
+        "source-rebound", "changed routing authority or corrupt path retained attribution",
+    ),
     "routing-write-lock": (
         "internal/store/bgp_routing_authority.go",
         "query += ` FOR SHARE OF sender,origin,assignment,source,router`",
