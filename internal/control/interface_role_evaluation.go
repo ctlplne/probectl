@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"regexp/syntax"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -138,6 +139,16 @@ func matchInterfaceRoleDescription(ctx context.Context, record entity.InterfaceR
 		}
 		if err := admitInterfaceRoleRegexp(ctx, tree, description, budget); err != nil {
 			return nil, err
+		}
+		// A required, case-sensitive literal at the beginning of the text
+		// can disprove a match without compiling an executable. Keep full
+		// validation and resource admission above, even for rejected rules.
+		// Matching prefixes still use Go's regexp engine; line anchors and
+		// case folding do not qualify for this rejection shortcut.
+		if tree.Op == syntax.OpConcat && len(tree.Sub) >= 2 && tree.Sub[0].Op == syntax.OpBeginText &&
+			tree.Sub[1].Op == syntax.OpLiteral && tree.Sub[1].Flags&syntax.FoldCase == 0 &&
+			!strings.HasPrefix(description, string(tree.Sub[1].Rune)) {
+			continue
 		}
 		compiled, err := regexp.Compile(rule.Pattern)
 		if err != nil {

@@ -170,3 +170,31 @@ func TestInterfaceRoleConfiguredEvaluationKeepsOverrideAcrossWithdrawalAndReset(
 		}
 	}
 }
+
+// Prefix rejection must preserve the regex engine's Unicode, anchor and case
+// semantics and the first matching rule's provenance for each tenant.
+func TestInterfaceRoleDescriptionRejectionPreservesRegexSemantics(t *testing.T) {
+	for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"} {
+		for _, tc := range []struct{ pattern, description string }{
+			{`(?i)^transit`, "TRANSIT uplink"},
+			{`(?m)^transit`, "first line\ntransit"},
+			{`^(?:other|transit)$`, "transit"},
+			{`^Transit [\p{L} ]+$`, "Transit é 線"},
+			{`^transit[0-9]+$`, "transit123"},
+			{`^transit\.edge$`, "transit.edge"},
+		} {
+			facts, _, at := interfaceRoleFixture(tenant)
+			record := interfaceRoleEvaluationRecord(facts)
+			record.Definition.DescriptionRules = []entity.InterfaceRoleDescriptionRule{
+				{ID: "55555555-5555-4555-8555-555555555555", Pattern: "^unrelated-long-prefix$", Role: interfaceRoleCustomer},
+				{ID: "66666666-6666-4666-8666-666666666666", Pattern: tc.pattern, Role: interfaceRolePrivate},
+				{ID: "77777777-7777-4777-8777-777777777777", Pattern: ".*", Role: interfaceRoleBackbone},
+			}
+			got, err := evaluateInterfaceRoleConfiguration(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), facts, record, nil, tc.description, at, nil, interfaceRoleEvaluationBudget())
+			wantSource := "policy/" + record.ID + "/" + record.Revision + "/rule/66666666-6666-4666-8666-666666666666"
+			if err != nil || got.Role != interfaceRolePrivate || !slices.Contains(got.Sources, wantSource) {
+				t.Fatal("description rejection changed complete ordered regex semantics", tenant, tc.pattern, got, err)
+			}
+		}
+	}
+}
