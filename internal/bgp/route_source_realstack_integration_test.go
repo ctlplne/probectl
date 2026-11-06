@@ -74,6 +74,7 @@ func TestBMPLocRIBRealRouterKeepsCompletePeerAndFamilyMarkers(t *testing.T) {
 		if common[5] == 3 {
 			peer, err := bgp.SourcePeerUpForTest(t.Context(), raw, bgp.PeerMessageBudget{MemoryBytes: 16 << 20, WorkUnits: 16 << 20})
 			if err != nil {
+				t.Logf("pinned FRR complete Loc-RIB Peer Up (%d bytes): %x", len(raw), raw)
 				t.Fatal("actual Loc-RIB Peer Up refused", err)
 			}
 			peers[key(h)] = peer
