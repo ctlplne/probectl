@@ -489,6 +489,17 @@ func renderRoleRouterSurfaces(t *testing.T, st *shipped.Stack, first, second edg
 						{Select: "[data-interface-roles] select >> nth=0", Value: pair.reg.contextID},
 						{Select: "[data-interface-roles] select >> nth=1", Value: pair.ids[links[1].index]},
 						{Click: "Refresh role explanation", Within: "[aria-label='Current interface role']", Expect: []string{"ix peering", "Current interface evidence.", "Complete current prefixes.", "peeringdb/ixpfx/7/ixlan/11/snapshot/", "peeringdb/ixpfx/8/ixlan/11/snapshot/"}, ExpectWithin: "[aria-label='Current interface role']"},
+						{Click: "Add description rule", Expect: []string{"Description pattern 1"}},
+						{Fill: "[data-interface-roles] input >> nth=2", Value: "^not-a-live-router-interface$"},
+						{Click: "Save complete role policy", Expect: []string{"Complete role policy saved."}},
+						{Click: "Remove rule 1", Expect: []string{"0 description rules; page 1 of 1."}},
+						{Click: "Save complete role policy", Expect: []string{"Complete role policy saved."}},
+						{Select: "[data-interface-roles] select >> nth=2", Value: "private_peering"},
+						{Click: "Save manual role override", Expect: []string{"Current override: private peering."}},
+						{Click: "Refresh role explanation", Within: "[aria-label='Current interface role']", Expect: []string{"private peering", "operator override"}, ExpectWithin: "[aria-label='Current interface role']"},
+						{Click: "Reset manual role override", Expect: []string{"Reset manual interface role?"}},
+						{Click: "Confirm role reset", Within: "[role='dialog']", Gone: true},
+						{Click: "Refresh role explanation", Within: "[aria-label='Current interface role']", Expect: []string{"ix peering", "Complete current prefixes."}, ExpectWithin: "[aria-label='Current interface role']"},
 					},
 				})
 			})
