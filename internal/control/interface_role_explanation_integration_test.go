@@ -129,7 +129,6 @@ func newRoleExplanationAPIFixture(t *testing.T) *roleExplanationAPIFixture {
 			t.Fatal(err)
 		}
 		f.tokens[tenant.ID] = token
-
 	}
 	return f
 }
@@ -205,7 +204,7 @@ func TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority(t *testin
 		t.Helper()
 		status, raw := request(tenant, path)
 		var out interfaceRoleExplanation
-		if status != http.StatusOK || json.Unmarshal(raw, &out) != nil || out.Scope.TenantID != tenant || out.ContextID != f.contextID || out.InterfaceID != f.interfaceID || out.Role != role || out.Reason != reason || out.Sources == nil {
+		if status != http.StatusOK || json.Unmarshal(raw, &out) != nil || out.TenantID != tenant || out.ContextID != f.contextID || out.InterfaceID != f.interfaceID || out.Role != role || out.Reason != reason || out.Sources == nil {
 			t.Fatal("served role explanation lost owned current source or tenant authority", status, string(raw))
 		}
 		return out
