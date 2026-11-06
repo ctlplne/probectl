@@ -54,17 +54,25 @@ describe('truthful native UI evidence', () => {
     },
   )
 
-  /**
-   * DPR-254 closed the last two `ui` gaps in the registry, so there is no
-   * feature left whose UI cell is an acknowledged gap. That is a claim worth
-   * pinning: the moment a new one appears it must be declared here rather than
-   * left to read as covered.
-   */
-  test('no capability claims a UI gap any more', () => {
+  // Implemented controls do not close a still-unexecuted served proof. Keep
+  // every new qualification gap explicit instead of crediting it as coverage.
+  test('only the declared interface-role served UI qualification remains gapped', () => {
     const gapped = [...capabilityRegistry.matchAll(/^ {2}- id: (\S+)$/gm)]
       .map((match) => match[1])
       .filter((id) => capabilityBlock(id).includes('ui: {gap:'))
-    expect(gapped).toEqual([])
+    expect(gapped).toEqual(['F18'])
+    const f18 = capabilityBlock('F18')
+    expect(nativeRoutes('F18')).toEqual(['/admin', '/planes/device', '/targets', '/topology'])
+    expect(f18).toContain('evidence_status: partial')
+    expect(f18).toContain('Complete paired-tenant, both-theme served interface-role')
+    expect(f18).toContain('qualification remains unproven.')
+    for (const root of [
+      'TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride',
+      'TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority',
+      'TestDeviceTelemetryRealStack',
+      'TestNMSVendorLiveImportTwoTenants',
+      'TestNMSImportExportPreviewRoutesKeepVendorPagesInOneTenant',
+    ]) expect(f18).toContain(`#${root}`)
   })
 
   /**
