@@ -87,6 +87,7 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestBMPPeerUpPreservesMalformedRealSourceCapabilityDiagnosis",
         "TestBMPSourceRouteBindsPeerButUsesActualViewEncodingAndWireClock",
         "TestBMPSourceRouteRefusesOtherPeerMalformedEnvelopeAndPartialAdmission",
         "TestBMPEvidenceReconnectRestatesCurrentPeersWithoutPerRouteWrites",

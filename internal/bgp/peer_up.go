@@ -139,7 +139,7 @@ func takeRouteOpen(raw []byte) ([]byte, []byte, error) {
 		return nil, nil, ErrBMPPeerUp
 	}
 	if _, err := parseRouteOpenCapabilities(raw[:length]); err != nil {
-		return nil, nil, ErrBMPPeerUp
+		return nil, nil, errors.Join(ErrBMPPeerUp, err)
 	}
 	return raw[:length], raw[length:], nil
 }
