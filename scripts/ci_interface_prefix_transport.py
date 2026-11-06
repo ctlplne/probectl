@@ -120,6 +120,7 @@ FLOW_INTEGRATION = {
     ),
 }
 INTEGRATION = {
+    "internal/bgp": ("TestBMPLocRIBRealRouterKeepsCompletePeerAndFamilyMarkers",),
     "cmd/probectl-control": ("TestMCPFlowSourcesRetainConfiguredLocalIXGeneration",),
     "ee/silo": (
         "TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",
