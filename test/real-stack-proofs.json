@@ -267,6 +267,13 @@
       "capabilities": [
         "F9"
       ]
+    },
+    {
+      "ref": "test:internal/bgp/interface_role_realstack_integration_test.go#TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
     }
   ]
 }

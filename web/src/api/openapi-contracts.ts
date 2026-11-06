@@ -29,6 +29,48 @@ export interface APICallContract {
 
 export const API_CALL_CONTRACTS = [
   {
+    file: 'api/interfaceRoles.ts',
+    method: 'GET',
+    path: '`/entity-contexts/${encodeURIComponent(context)}/interfaces/${encodeURIComponent(subject)}/role`',
+    response: 'InterfaceRoleExplanation',
+    generated: 'GetInterfaceRoleExplanationResponse',
+  },
+  {
+    file: 'api/interfaceRoles.ts',
+    method: 'GET',
+    path: '`/entity-contexts/${encodeURIComponent(context)}/interface-role-policy`',
+    response: 'InterfaceRolePolicy',
+    generated: 'GetInterfaceRolePolicyResponse',
+  },
+  {
+    file: 'api/interfaceRoles.ts',
+    method: 'PUT',
+    path: '`/entity-contexts/${encodeURIComponent(context)}/interface-role-policy`',
+    response: 'InterfaceRolePolicy',
+    generated: 'PutInterfaceRolePolicyResponse',
+  },
+  {
+    file: 'api/interfaceRoles.ts',
+    method: 'GET',
+    path: '`/entity-contexts/${encodeURIComponent(context)}/interfaces/${encodeURIComponent(subject)}/role-override`',
+    response: 'InterfaceRoleOverride',
+    generated: 'GetInterfaceRoleOverrideResponse',
+  },
+  {
+    file: 'api/interfaceRoles.ts',
+    method: 'PUT',
+    path: '`/entity-contexts/${encodeURIComponent(context)}/interfaces/${encodeURIComponent(subject)}/role-override`',
+    response: 'InterfaceRoleOverride',
+    generated: 'PutInterfaceRoleOverrideResponse',
+  },
+  {
+    file: 'api/interfaceRoles.ts',
+    method: 'DELETE',
+    path: '`/entity-contexts/${encodeURIComponent(context)}/interfaces/${encodeURIComponent(subject)}/role-override`',
+    response: 'void',
+    generated: 'ResetInterfaceRoleOverrideResponse',
+  },
+  {
     file: 'api/alerts.ts',
     method: 'GET',
     path: '`/alerts/rules/${encodeURIComponent(ruleID)}/tag-filter`',
@@ -581,7 +623,7 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/dashboardReporting.ts',
     method: 'GET',
-    path: '/dashboard-report-artifacts',
+    path: '`/dashboard-report-artifacts${qs}`',
     response: 'ArtifactList',
     generated: 'ListDashboardReportArtifactsResponse',
     reason:

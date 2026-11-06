@@ -209,14 +209,10 @@ export function useUpdateReportSchedule() {
 }
 
 export function useReportArtifacts(identity: string, cursor: string) {
+  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
   return useQuery({
     queryKey: ['dashboards', 'report-artifacts', identity, cursor],
-    queryFn: () =>
-      apiFetch<ArtifactList>(
-        cursor
-          ? `/dashboard-report-artifacts?cursor=${encodeURIComponent(cursor)}`
-          : '/dashboard-report-artifacts',
-      ),
+    queryFn: () => apiFetch<ArtifactList>(`/dashboard-report-artifacts${qs}`),
     refetchInterval: 60_000,
   })
 }
