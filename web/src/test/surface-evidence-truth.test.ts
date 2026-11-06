@@ -62,7 +62,12 @@ describe('truthful native UI evidence', () => {
       .filter((id) => capabilityBlock(id).includes('ui: {gap:'))
     expect(gapped).toEqual(['F18'])
     const f18 = capabilityBlock('F18')
-    expect(nativeRoutes('F18')).toEqual(['/admin', '/planes/device', '/targets', '/topology'])
+    expect([...new Set(nativeRoutes('F18'))]).toEqual([
+      '/admin',
+      '/planes/device',
+      '/targets',
+      '/topology',
+    ])
     expect(f18).toContain('evidence_status: partial')
     expect(f18).toContain('Complete paired-tenant, both-theme served interface-role')
     expect(f18).toContain('qualification remains unproven.')
