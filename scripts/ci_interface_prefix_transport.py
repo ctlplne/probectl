@@ -408,6 +408,14 @@ def configuration_regexp_expansion_control():
 
 
 EXPLANATION_CONTROLS = {
+    "flow-memory": (
+        "internal/control/explorer_flow_roles.go",
+        "MemoryBytes: budget.MemoryBytes / 2, WorkUnits: perInterfaceWork",
+        "MemoryBytes: budget.MemoryBytes / 4, WorkUnits: perInterfaceWork",
+        "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
+        "complete saved policy cannot drive role flow queries under the default profile",
+        "",
+    ),
     "flow-publication": (
         "internal/control/explorer_flow.go",
         "if err != nil || roleBefore.inputDigest != after.inputDigest || result.RoleDigest != digest || result.RoleTenantID != tenant {",

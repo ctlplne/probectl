@@ -65,8 +65,9 @@ func (s *Server) loadFlowRoleSnapshot(ctx context.Context, actor *auth.Principal
 	var projections []flowstore.InterfaceRoleProjection
 	var digest []byte
 	var at time.Time
-	// Both source reads together reserve half the operation. Each source read
-	// partitions that share between catalogue, inputs, evaluation and output.
+	// Sequential reads retain only projections/digests between passes. Reuse
+	// peak input/evaluation allowance for each complete interface policy;
+	// catalogues and retained projections have their own finite shares.
 	limit := budget.MemoryBytes / 8
 	readBudget := entity.InterfaceRolePolicyBudget{MemoryBytes: limit, WorkUnits: limit / 2}
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -159,7 +160,7 @@ func (s *Server) loadFlowRoleSnapshot(ctx context.Context, actor *auth.Principal
 				if inputs.RouterID != owner.RouterID || inputs.SNMP == nil || inputs.IfIndex == 0 {
 					continue
 				}
-				decision, err := explainInterfaceRoleInputs(ctx, inputs, nil, interfaceRoleBudget{MemoryBytes: perInterface, WorkUnits: perInterfaceWork})
+				decision, err := explainInterfaceRoleInputs(ctx, inputs, nil, interfaceRoleBudget{MemoryBytes: budget.MemoryBytes / 2, WorkUnits: perInterfaceWork})
 				if err != nil {
 					return err
 				}
