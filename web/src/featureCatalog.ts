@@ -116,6 +116,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     source: 'contract:features',
   },
   { id: 'F17', name: 'Flow analytics', status: 'delivered', source: 'contract:features' },
+  // Interface-role explanation is a preview extension; real-router and Explorer role qualification remain unfinished.
   { id: 'F18', name: 'Device telemetry', status: 'delivered', source: 'contract:features' },
   {
     id: 'F19',

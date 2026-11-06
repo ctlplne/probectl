@@ -325,16 +325,17 @@ capabilities:
   - id: F18
     name: Device telemetry
     status: delivered
+    evidence_status: partial
     owner: product research/MSP
-    engine: {refs: ["file:internal/device", "file:internal/device/entity_evidence.go", "file:internal/nmsimport"]}
+    engine: {refs: ["file:internal/device", "file:internal/device/entity_evidence.go", "file:internal/nmsimport", "file:internal/control/interface_role_explanation.go", "file:internal/store/interface_role_inputs.go"]}
     binary: {refs: ["file:cmd/probectl-device-agent/main.go#func run"]}
-    api: {refs: ["api:GET /v1/devices", "api:GET /v1/device/metrics", "api:GET /v1/device/traps", "api:GET /v1/entities", "api:GET /v1/entities/resolve", "api:POST /v1/nms-imports/export-plans", "api:POST /v1/nms-imports/{id}/export-pages", "api:POST /v1/nms-imports/{id}/export-seal"]}
-    cli: {refs: ["cli:probectl device list", "cli:probectl device metrics", "cli:probectl device traps", "cli:probectl entities list", "cli:probectl entities resolve", "cli:probectl nms-import export-start", "cli:probectl nms-import export-page", "cli:probectl nms-import export-seal"]}
-    ui: {refs: ["ui:F18@/planes/device"]}
-    docs: {refs: ["file:docs/device-telemetry.md#Device / streaming telemetry", "file:docs/nms-import.md#Incumbent NMS import"]}
+    api: {refs: ["api:GET /v1/entity-contexts/{context_id}/interfaces/{id}/role", "api:GET /v1/entity-contexts/{context_id}/interface-role-policy", "api:GET /v1/entity-contexts/{context_id}/interfaces/{id}/role-override", "api:GET /v1/devices", "api:GET /v1/device/metrics", "api:GET /v1/device/traps", "api:GET /v1/entities", "api:GET /v1/entities/resolve", "api:POST /v1/nms-imports/export-plans", "api:POST /v1/nms-imports/{id}/export-pages", "api:POST /v1/nms-imports/{id}/export-seal"]}
+    cli: {refs: ["cli:probectl interface-roles explain", "cli:probectl interface-roles policy", "cli:probectl interface-roles override", "cli:probectl device list", "cli:probectl device metrics", "cli:probectl device traps", "cli:probectl entities list", "cli:probectl entities resolve", "cli:probectl nms-import export-start", "cli:probectl nms-import export-page", "cli:probectl nms-import export-seal"]}
+    ui: {refs: ["ui:F18@/planes/device", "ui:F18@/admin"]}
+    docs: {refs: ["file:docs/features/interface-roles.md#Interface role configuration", "file:docs/device-telemetry.md#Device / streaming telemetry", "file:docs/nms-import.md#Incumbent NMS import"]}
     config_keys: {refs: ["config:PROBECTL_DEVICE_CONFIG", "config:PROBECTL_DEVICE_TARGET"]}
     telemetry: {refs: ["file:internal/device"]}
-    real_stack_proof: {refs: ["test:internal/device/realstack_integration_test.go#TestDeviceTelemetryRealStack", "test:internal/store/nmsimport_vendor_integration_test.go#TestNMSVendorLiveImportTwoTenants", "test:internal/control/nmsimport_export_integration_test.go#TestNMSImportExportPreviewRoutesKeepVendorPagesInOneTenant"]}
+    real_stack_proof: {refs: ["test:internal/control/interface_role_explanation_integration_test.go#TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority", "test:internal/device/realstack_integration_test.go#TestDeviceTelemetryRealStack", "test:internal/store/nmsimport_vendor_integration_test.go#TestNMSVendorLiveImportTwoTenants", "test:internal/control/nmsimport_export_integration_test.go#TestNMSImportExportPreviewRoutesKeepVendorPagesInOneTenant"]}
     migration: {refs: ["file:migrations/0066_device_neighbor_evidence.sql", "file:migrations/0067_device_collection_outcomes.sql", "file:migrations/0126_device_traps.sql", "file:migrations/0136_entity_registry.sql", "file:migrations/0141_nms_import_plans.sql"]}
 
   - id: F19

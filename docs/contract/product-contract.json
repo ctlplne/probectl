@@ -137,7 +137,7 @@
       ],
       "name": "Device telemetry",
       "status": "delivered",
-      "evidence": "`internal/device` (SNMP + gNMI); FX-2 SNMP/interface/LLDP identity evidence uses `internal/device/entity_evidence.go` and the operator registry card. FX-2b tenant-scoped NMS switching uses `internal/nmsimport`, `internal/control/nmsimport_export.go`, `web/src/routes/admin/NMSImportCard.tsx` and `TestNMSVendorLiveImportTwoTenants` for live LibreNMS/Zabbix; Orion/PRTG remain documented-export preview pending live trials."
+      "evidence": "`internal/device` (SNMP + gNMI); FX-2 SNMP/interface/LLDP identity evidence uses `internal/device/entity_evidence.go` and the operator registry card. FX-2b tenant-scoped NMS switching uses `internal/nmsimport`, `internal/control/nmsimport_export.go`, `web/src/routes/admin/NMSImportCard.tsx` and `TestNMSVendorLiveImportTwoTenants` for live LibreNMS/Zabbix; Orion/PRTG remain documented-export preview pending live trials. Interface-role configuration and the current explanation preview use `internal/control/interface_role_explanation_api.go`, current application-role source snapshots and Admin; PeeringDB IX-prefix, Explorer role dimensions and complete real-router qualification remain unfinished."
     },
     {
       "ids": [
