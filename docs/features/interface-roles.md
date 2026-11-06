@@ -14,9 +14,18 @@ choice remains until an explicit reset, even when automatic source observations
 change or expire. A reset requires confirmation. It never makes missing source
 evidence trustworthy or asserts that a BGP session is up.
 
-This configuration surface is available while automatic classification and its
-real-router acceptance are being completed. Saving a policy does not yet enable
-automatic labels or add role dimensions to Explorer.
+The current-role explanation preview joins owned SNMP and BMP evidence with
+this configuration through Admin, REST, CLI and native MCP. PeeringDB IX-prefix
+lookup, Explorer role dimensions and real-router acceptance remain unfinished.
+
+Explanations require a current tenant user with `entities.read`, `metrics.read`
+and `events.read` for the selected routing context. The actual credential is a
+separate permission ceiling. Responses include `role`, `reason`, complete
+`sources`, `as_of`, `snmp_current` and `prefix_current`. A fresh application-role
+snapshot checks current user grants, context policy and all facts again after
+computation. Rebinding, withdrawal, policy changes or expiry refuse publication;
+refresh to compute from the new state. Missing or ambiguous source association
+remains `other`. An owned override still wins.
 
 The evaluation component validates a complete policy before choosing the first
 matching description rule. Explanations retain the policy ID, exact revision
@@ -24,8 +33,8 @@ and rule ID, or the manual override ID and revision. Regex execution accounts
 for repeat expansion, capture state and matching work before compilation and
 matching; resource refusal or cancellation returns no partial classification.
 Withdrawn or stale source observations cannot produce a description match.
-This component still requires the current-source loader and real-router proof
-before automatic labels are enabled.
+The tenant store supplies current source facts; same-router real sender and
+router acceptance remains required before qualification.
 
 When sender-bound device evidence is configured, each successful base SNMP
 poll reads the complete supported IP-MIB interface-prefix table over that same
@@ -47,8 +56,8 @@ authenticated poll fault withholds automatic facts until a successful new
 observation. Resolving the incident does not invent recovery. The latest peer
 observation replaces its previous ASN. These inputs share the owned interface,
 router and context, and retain the source's current certificate and assignment
-expiry. The loader and evaluator still need served/query integration before
-automatic labels are enabled.
+expiry. The served explanation uses this loader and evaluator; Explorer role
+dimensions remain unfinished.
 
 Bind the BMP router source to its owned canonical router. A peer device
 inferred from an address is a different identity and cannot supply this
@@ -73,6 +82,7 @@ arrays; it does not reset interface overrides.
 
 | Operation | REST | CLI |
 | --- | --- | --- |
+| Explain current role (preview) | `GET /v1/entity-contexts/{context_id}/interfaces/{id}/role` | `probectl interface-roles explain CONTEXT INTERFACE --json` |
 | Read policy | `GET /v1/entity-contexts/{context_id}/interface-role-policy` | `probectl interface-roles policy CONTEXT --json` |
 | Replace complete policy | `PUT` on the policy path | `probectl interface-roles set-policy CONTEXT --body-file - --json` |
 | Read manual override | `GET /v1/entity-contexts/{context_id}/interfaces/{id}/role-override` | `probectl interface-roles override CONTEXT INTERFACE --json` |

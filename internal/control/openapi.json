@@ -77,6 +77,133 @@
     }
   ],
   "paths": {
+    "/v1/entity-contexts/{context_id}/interfaces/{id}/role": {
+      "get": {
+        "x-required-permission": "entities.read",
+        "tags": [
+          "entities"
+        ],
+        "operationId": "getInterfaceRoleExplanation",
+        "summary": "Explain the current owned interface role",
+        "description": "Current tenant user and actual credential ceiling must both hold entities.read, metrics.read and events.read for this routing context. Tenant RLS, current canonical parent, explicit BMP origin anchor, complete same-router SNMP prefixes and current sender/source bindings precede association. An owned override wins, followed by ordered description rules and compatible automatic evidence. Missing or ambiguous evidence remains other. Every selected source and configuration is rechecked before publication; changing authority refuses the response. Classification describes evidence, not BGP session health. PeeringDB IX-prefix wiring is not yet enabled on this route. No source/authority cache or retained role state.",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current owned classification and exact contributing source references.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterfaceRoleExplanation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid complete configuration or missing reset confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, context policy or MFA denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Context/interface absent in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale configuration ID/revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Complete input exceeds operation admission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Tenant fairness or operation memory admission exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Current source, user, lifecycle or publication authority is unavailable or changed; retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-additional-permissions": [
+          "metrics.read",
+          "events.read"
+        ]
+      }
+    },
     "/v1/entity-contexts/{context_id}/interface-role-policy": {
       "get": {
         "x-required-permission": "entities.read",
@@ -13989,6 +14116,57 @@
       }
     },
     "schemas": {
+      "InterfaceRoleExplanation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant_id",
+          "context_id",
+          "interface_id",
+          "role",
+          "reason",
+          "sources",
+          "as_of",
+          "snmp_current",
+          "prefix_current"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/InterfaceRole"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snmp_current": {
+            "type": "boolean"
+          },
+          "prefix_current": {
+            "type": "boolean"
+          }
+        }
+      },
       "InterfaceRole": {
         "type": "string",
         "enum": [

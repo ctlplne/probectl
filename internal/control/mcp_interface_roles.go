@@ -31,6 +31,8 @@ func (b mcpInterfaceRoleBackend) InterfaceRoleConfiguration(ctx context.Context,
 	method := http.MethodGet
 	var value any
 	switch name {
+	case "interface_role_explain":
+		path += "/interfaces/" + url.PathEscape(input.InterfaceID) + "/role"
 	case "interface_role_policy":
 		path += "/interface-role-policy"
 	case "interface_role_policy_set":
@@ -69,6 +71,9 @@ func (b mcpInterfaceRoleBackend) InterfaceRoleConfiguration(ctx context.Context,
 			return nil, apierror.Unavailable("writer unavailable")
 		}
 	}
+	if name == "interface_role_explain" {
+		return b.server.interfaceRoleExplanation(r)
+	}
 	if name == "interface_role_policy" || name == "interface_role_policy_set" {
 		return b.server.interfaceRolePolicy(r)
 	}
@@ -93,7 +98,7 @@ func interfaceRoleToolSchemas() (mcp.NativeFlowSchemas, error) {
 		name, schema   string
 		write, subject bool
 	}{
-		{"interface_role_policy", "", false, false}, {"interface_role_policy_set", "InterfaceRolePolicyInput", true, false},
+		{"interface_role_explain", "", false, true}, {"interface_role_policy", "", false, false}, {"interface_role_policy_set", "InterfaceRolePolicyInput", true, false},
 		{"interface_role_override", "", false, true}, {"interface_role_override_set", "InterfaceRoleOverrideInput", true, true}, {"interface_role_override_reset", "InterfaceRoleOverrideResetInput", true, true},
 	} {
 		root := map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{}, "required": []any{}}

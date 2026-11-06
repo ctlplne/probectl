@@ -68,6 +68,13 @@ func interfaceRoleAssociationID(id string) bool {
 func associateInterfaceRolePeer(ctx context.Context, scope entity.Scope, routerID string, at time.Time,
 	peer interfaceRoleUnboundPeer, snapshot interfaceRolePrefixSnapshot, bindings []interfaceRoleInterfaceBinding,
 	budget interfaceRoleBudget) (interfaceRolePeerAssociation, error) {
+	return associateInterfaceRolePeerAdmitted(ctx, scope, routerID, at, peer, snapshot, bindings, &budget)
+}
+
+// A multi-peer operation shares this remaining envelope; no per-peer reset.
+func associateInterfaceRolePeerAdmitted(ctx context.Context, scope entity.Scope, routerID string, at time.Time,
+	peer interfaceRoleUnboundPeer, snapshot interfaceRolePrefixSnapshot, bindings []interfaceRoleInterfaceBinding,
+	budget *interfaceRoleBudget) (interfaceRolePeerAssociation, error) {
 	none := interfaceRolePeerAssociation{}
 	owned, err := scope.Normalize()
 	tenant, ok := tenancy.FromContext(ctx)

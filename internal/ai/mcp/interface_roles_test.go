@@ -29,7 +29,7 @@ func (b *roleConfigurationProbe) InterfaceRoleConfiguration(_ context.Context, p
 }
 func roleMechanicsSchemas() NativeFlowSchemas {
 	out := NativeFlowSchemas{}
-	for _, name := range []string{"interface_role_policy", "interface_role_policy_set", "interface_role_override", "interface_role_override_set", "interface_role_override_reset"} {
+	for _, name := range []string{"interface_role_explain", "interface_role_policy", "interface_role_policy_set", "interface_role_override", "interface_role_override_set", "interface_role_override_reset"} {
 		out[name] = json.RawMessage(`{"type":"object"}`)
 	}
 	return out
@@ -92,5 +92,31 @@ func TestInterfaceRoleNativeToolsPreserveCompleteInputAndUserTenantBoundary(t *t
 	handle(t, s, p, 4, "tools/call", map[string]any{"name": "interface_role_policy_set", "arguments": map[string]any{"context_id": tagWriteTestID, "expected_revision": "0", "definition": definition}})
 	if len(b.tenants) != before {
 		t.Fatal("lower positive native profile admitted an oversized complete request")
+	}
+}
+
+func TestInterfaceRoleNativeExplanationRequiresEverySourceBeforeBackend(t *testing.T) {
+	b := &roleConfigurationProbe{}
+	s := newTestServer(&fakeBackend{}, testGate(), WithInterfaceRoleBackend(b, roleMechanicsSchemas(), 16<<20))
+	for _, tenant := range []string{"tenant-a", "tenant-b"} {
+		args := map[string]any{"context_id": tagWriteTestID, "interface_id": tagWriteTestID}
+		for _, missing := range []string{"", "entities.read", "metrics.read", "events.read", "user"} {
+			p := principal(tenant, "entities.read", "metrics.read", "events.read")
+			p.UserID = "reader"
+			if missing == "user" {
+				p.UserID = ""
+			} else {
+				delete(p.Permissions, missing)
+			}
+			before := len(b.tenants)
+			reply := handle(t, s, p, 1, "tools/call", map[string]any{"name": "interface_role_explain", "arguments": args})
+			if missing == "" {
+				if reply["result"] == nil || resultOf(t, reply)["isError"] == true || len(b.tenants) != before+1 || b.tenants[before] != tenant || b.command.InterfaceID != tagWriteTestID {
+					t.Fatal("native explanation lost the owned complete request", reply)
+				}
+			} else if len(b.tenants) != before {
+				t.Fatal("native explanation reached facts without every source and current user grant", missing)
+			}
+		}
 	}
 }

@@ -686,6 +686,12 @@ Existing native byte/node bounds and tenant query admission apply. Reporting ser
 
 ### Interface role configuration
 
+`interface_role_explain` takes `context_id` and `interface_id`. It requires a
+current tenant user with `entities.read`, `metrics.read` and `events.read`, and
+returns the explanation preview with complete source references. REST and native
+HTTP/stdio use the same current authority and source checks. PeeringDB IX-prefix
+and Explorer role integration remain unfinished; no session-health claim is made.
+
 `interface_role_policy` and `interface_role_override` read owned current
 configuration with `entities.read`. `interface_role_policy_set`,
 `interface_role_override_set` and `interface_role_override_reset` require an
@@ -696,6 +702,5 @@ requires `confirmed:true`. Complete ordered policies are not truncated into a
 preview. Current context authorization, deployment MFA, lifecycle, fairness,
 atomic domain audit, consent/redaction and final publication checks apply.
 Native request envelopes use the operator's existing native source-byte
-admission on both HTTP and stdio. These tools configure classification; they do
-not assert source freshness or activate automatic role labels. See
+admission on both HTTP and stdio. The five configuration tools do not grant source freshness or telemetry access. See
 [interface role configuration](features/interface-roles.md).

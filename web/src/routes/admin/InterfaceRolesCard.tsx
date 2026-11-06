@@ -13,6 +13,7 @@ import {
   useInterfaceRoleOverride,
   useSaveInterfaceRoleOverride,
   useResetInterfaceRoleOverride,
+  useInterfaceRoleExplanation,
   type InterfaceRole,
   type InterfaceRoleDescriptionRule,
   type InterfaceRolePolicy,
@@ -151,7 +152,7 @@ function InterfaceRoleConfiguration({
         <ErrorState title="Cannot load owned interfaces" message={entities.error.message} />
       ) : null}
       <Select
-        label="Interface for manual role override"
+        label="Interface for role explanation and override"
         value={subject}
         onChange={(event) => setSubject(event.target.value)}
         options={[
@@ -168,6 +169,9 @@ function InterfaceRoleConfiguration({
         </Button>
       ) : null}
       {subject ? (
+        <InterfaceRoleCurrent tenant={tenant} context={context} subject={subject} />
+      ) : null}
+      {subject ? (
         <InterfaceRoleOverrideEditor
           key={subject}
           tenant={tenant}
@@ -177,6 +181,60 @@ function InterfaceRoleConfiguration({
         />
       ) : null}
     </div>
+  )
+}
+
+function InterfaceRoleCurrent({
+  tenant,
+  context,
+  subject,
+}: {
+  tenant: string
+  context: string
+  subject: string
+}) {
+  const { permissions } = useAuth()
+  const canRead = permissions.includes('metrics.read') && permissions.includes('events.read')
+  const explanation = useInterfaceRoleExplanation(tenant, context, subject, canRead)
+  if (!canRead) return <p>Current role explanations require metrics and events read access.</p>
+  return (
+    <section aria-label="Current interface role" className={styles.stack}>
+      {explanation.isPending ? (
+        <LoadingState label="Explaining the current interface role" />
+      ) : null}
+      {explanation.isError ? (
+        <ErrorState title="Cannot explain the current role" message={explanation.error.message} />
+      ) : null}
+      {explanation.data && !explanation.isError ? (
+        <>
+          <p>
+            <strong>{explanation.data.role.replaceAll('_', ' ')}</strong> —{' '}
+            {explanation.data.reason.replaceAll('_', ' ')}
+          </p>
+          <p>
+            As of {explanation.data.as_of}.{' '}
+            {explanation.data.snmp_current
+              ? 'Current interface evidence.'
+              : 'Interface evidence unavailable.'}{' '}
+            {explanation.data.prefix_current
+              ? 'Complete current prefixes.'
+              : 'Prefix association unavailable.'}
+          </p>
+          {explanation.data.sources.length ? (
+            <ul aria-label="Contributing role sources">
+              {explanation.data.sources.map((source) => (
+                <li key={source}>{source}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>No current contributing source.</p>
+          )}
+        </>
+      ) : null}
+      <Button disabled={explanation.isFetching} onClick={() => void explanation.refetch()}>
+        Refresh role explanation
+      </Button>
+    </section>
   )
 }
 

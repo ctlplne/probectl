@@ -21,6 +21,7 @@ UNIT = {
     ),
     "internal/ai/mcp": (
         "TestInterfaceRoleNativeToolsPreserveCompleteInputAndUserTenantBoundary",
+        "TestInterfaceRoleNativeExplanationRequiresEverySourceBeforeBackend",
     ),
     "internal/cli": (
         "TestInterfaceRoleCLIUsesOwnedRoutesAndExactDecimalRevision",
@@ -28,6 +29,10 @@ UNIT = {
     ),
     "internal/control": (
         "TestInterfaceRoleConfigurationRoutesRequireSeparateReadAndWriteGrants",
+        "TestInterfaceRoleExplanationJoinsCompleteOwnedFactsAndPreservesOverride",
+        "TestInterfaceRoleExplanationRefusesForeignCanceledAndIncompleteAdmission",
+        "TestInterfaceRolePeerAssociationSharesMultiPeerAdmission",
+        "TestInterfaceRolePublicationRejectsChangedOrWithdrawnContributors",
         "TestInterfaceRoleOwnedManualOverrideDoesNotInventSourceFreshness",
         "TestInterfaceRoleConfiguredEvaluationKeepsCompleteOrderAndVersionedSources",
         "TestInterfaceRoleConfiguredEvaluationRefusesForeignInvalidAndPartialResults",
@@ -65,6 +70,9 @@ INTEGRATION = {
     "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
     "internal/control": (
         "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",
+        "TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority",
+        "TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges",
+        "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
     ),
     "internal/store": (
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",

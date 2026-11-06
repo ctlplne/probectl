@@ -75,7 +75,8 @@ type cliCoverage struct {
 }
 
 var surfaceCommands = map[string]surfaceCommand{
-	"interface-roles": {Name: "interface-roles", Summary: "context policy and persistent interface overrides", Ops: map[string]apiOp{
+	"interface-roles": {Name: "interface-roles", Summary: "current interface roles, context policy and persistent overrides", Ops: map[string]apiOp{
+		"explain":        {Method: http.MethodGet, Path: "/v1/entity-contexts/{context_id}/interfaces/{id}/role", ArgName: "context_id,id", ExactJSON: true, Description: "explain the current role and contributing sources; requires entities.read, metrics.read and events.read"},
 		"policy":         {Method: http.MethodGet, Path: "/v1/entity-contexts/{context_id}/interface-role-policy", ArgName: "context_id", ExactJSON: true},
 		"set-policy":     {Method: http.MethodPut, Path: "/v1/entity-contexts/{context_id}/interface-role-policy", ArgName: "context_id", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "replace the complete policy with expected_id and exact decimal expected_revision; use --body-file - for stdin"},
 		"override":       {Method: http.MethodGet, Path: "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override", ArgName: "context_id,id", ExactJSON: true},

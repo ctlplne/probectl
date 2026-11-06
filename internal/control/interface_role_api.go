@@ -41,6 +41,7 @@ type interfaceRoleResetInput struct {
 
 func (s *Server) interfaceRoleRoutes() []apiRoute {
 	return []apiRoute{
+		{http.MethodGet, "/v1/entity-contexts/{context_id}/interfaces/{id}/role", s.handleInterfaceRoleExplanation, ai.PermEntitiesRead},
 		{http.MethodGet, "/v1/entity-contexts/{context_id}/interface-role-policy", s.handleInterfaceRolePolicy, ai.PermEntitiesRead},
 		{http.MethodPut, "/v1/entity-contexts/{context_id}/interface-role-policy", s.handleInterfaceRolePolicy, permAgentWrite},
 		{http.MethodGet, "/v1/entity-contexts/{context_id}/interfaces/{id}/role-override", s.handleInterfaceRoleOverride, ai.PermEntitiesRead},
@@ -248,8 +249,10 @@ func interfaceRoleAPIError(err error) error {
 		return apierror.BadRequest("invalid interface role configuration")
 	case errors.Is(err, entity.ErrInterfaceRoleConflict):
 		return apierror.Conflict("interface role configuration changed; reload before editing")
-	case errors.Is(err, entity.ErrInterfaceRoleBudget):
+	case errors.Is(err, entity.ErrInterfaceRoleBudget), errors.Is(err, errInterfaceRoleBudget):
 		return apierror.RateLimited("complete interface role configuration exceeds operation admission")
+	case errors.Is(err, errInterfaceRoleInput):
+		return apierror.Unavailable("current interface role evidence is unavailable")
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return apierror.Unavailable("interface role operation was canceled or exceeded its execution budget")
 	default:

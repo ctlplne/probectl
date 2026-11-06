@@ -2011,6 +2011,18 @@ export interface InterfaceRoleDescriptionRule {
   role: InterfaceRole
 }
 
+export interface InterfaceRoleExplanation {
+  as_of: string
+  context_id: string
+  interface_id: string
+  prefix_current: boolean
+  reason: string
+  role: InterfaceRole
+  snmp_current: boolean
+  sources: string[]
+  tenant_id: string
+}
+
 export interface InterfaceRoleOverride {
   context_id: string
   id: string
@@ -3514,6 +3526,13 @@ export interface PutInterfaceRolePolicyRequest {
 }
 
 export type PutInterfaceRolePolicyResponse = InterfaceRolePolicy
+
+export interface GetInterfaceRoleExplanationRequest {
+  contextId: string
+  id: string
+}
+
+export type GetInterfaceRoleExplanationResponse = InterfaceRoleExplanation
 
 export interface GetInterfaceRoleOverrideRequest {
   contextId: string
@@ -5284,6 +5303,14 @@ export class ProbectlSDKClient {
     path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
     const query = new URLSearchParams()
     return this.requestJSON<PutInterfaceRolePolicyResponse>("PUT", path, query, request.body)
+  }
+
+  async getInterfaceRoleExplanation(request: GetInterfaceRoleExplanationRequest): Promise<GetInterfaceRoleExplanationResponse> {
+    let path = "/v1/entity-contexts/{context_id}/interfaces/{id}/role"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetInterfaceRoleExplanationResponse>("GET", path, query, undefined)
   }
 
   async getInterfaceRoleOverride(request: GetInterfaceRoleOverrideRequest): Promise<GetInterfaceRoleOverrideResponse> {

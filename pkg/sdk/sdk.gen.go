@@ -2133,6 +2133,18 @@ type InterfaceRoleDescriptionRule struct {
 	Role    InterfaceRole `json:"role"`
 }
 
+type InterfaceRoleExplanation struct {
+	AsOf          string        `json:"as_of"`
+	ContextId     string        `json:"context_id"`
+	InterfaceId   string        `json:"interface_id"`
+	PrefixCurrent bool          `json:"prefix_current"`
+	Reason        string        `json:"reason"`
+	Role          InterfaceRole `json:"role"`
+	SnmpCurrent   bool          `json:"snmp_current"`
+	Sources       []string      `json:"sources"`
+	TenantId      string        `json:"tenant_id"`
+}
+
 type InterfaceRoleOverride struct {
 	ContextId   string `json:"context_id"`
 	Id          string `json:"id"`
@@ -4906,6 +4918,30 @@ func (c *Client) PutInterfaceRolePolicy(ctx context.Context, req PutInterfaceRol
 	query := url.Values{}
 	var out InterfaceRolePolicy
 	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Explain the current owned interface role
+type GetInterfaceRoleExplanationRequest struct {
+	ContextId string `json:"-"`
+	Id        string `json:"-"`
+}
+
+func (c *Client) GetInterfaceRoleExplanation(ctx context.Context, req GetInterfaceRoleExplanationRequest) (*InterfaceRoleExplanation, error) {
+	path := "/v1/entity-contexts/{context_id}/interfaces/{id}/role"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out InterfaceRoleExplanation
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

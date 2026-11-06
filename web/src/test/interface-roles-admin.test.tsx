@@ -17,6 +17,8 @@ function roleFixture(tenant: string) {
   const rest = defaultFetch()
   const writes: Record<string, unknown>[] = []
   const resets: Record<string, unknown>[] = []
+  const explanationReads: string[] = []
+  let explanationStatus = 200
   const policy = {
     tenant_id: tenant,
     context_id: contextID,
@@ -81,6 +83,25 @@ function roleFixture(tenant: string) {
       }
       return jsonResponse(policy)
     }
+    if (path === `/v1/entity-contexts/${contextID}/interfaces/${interfaceID}/role`) {
+      explanationReads.push(tenant)
+      if (explanationStatus !== 200)
+        return jsonResponse(
+          { error: { message: 'Role source access withdrawn' } },
+          explanationStatus,
+        )
+      return jsonResponse({
+        tenant_id: tenant,
+        context_id: contextID,
+        interface_id: interfaceID,
+        role: override.role || 'transit',
+        reason: override.role ? 'operator_override' : 'current_evidence',
+        sources: [`${tenant}/${override.role ? 'override' : 'source'}/${override.revision}`],
+        as_of: '2026-11-05T23:00:00Z',
+        snmp_current: true,
+        prefix_current: true,
+      })
+    }
     if (path === `/v1/entity-contexts/${contextID}/interfaces/${interfaceID}/role-override`) {
       if (init?.method === 'PUT') {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>
@@ -97,7 +118,15 @@ function roleFixture(tenant: string) {
     }
     return rest(input, init)
   })
-  return { writes, resets, policy }
+  return {
+    writes,
+    resets,
+    policy,
+    explanationReads,
+    revokeExplanation: () => {
+      explanationStatus = 403
+    },
+  }
 }
 
 for (const theme of ['light', 'dark']) {
@@ -112,7 +141,10 @@ for (const theme of ['light', 'dark']) {
       try {
         const fixture = roleFixture(tenant)
         const view = renderApp('/admin', {
-          me: { tenant_id: tenant, permissions: ['entities.read', 'agent.write'] },
+          me: {
+            tenant_id: tenant,
+            permissions: ['entities.read', 'agent.write', 'metrics.read', 'events.read'],
+          },
         })
         const context = await view.findByRole('combobox', {
           name: 'Interface role routing context',
@@ -143,9 +175,17 @@ for (const theme of ['light', 'dark']) {
           ...fixture.policy.definition.description_rules[30],
           pattern: `^${tenant}-changed$`,
         })
-        const choose = card.getByRole('combobox', { name: 'Interface for manual role override' })
+        const choose = card.getByRole('combobox', {
+          name: 'Interface for role explanation and override',
+        })
         await card.findByRole('option', { name: `${tenant} port (${interfaceID})` })
         fireEvent.change(choose, { target: { value: interfaceID } })
+        const explanation = await card.findByRole('region', { name: 'Current interface role' })
+        await within(explanation).findByText(`${tenant}/override/9007199254740993`)
+        expect(fixture.explanationReads.every((value) => value === tenant)).toBe(true)
+        expect(element.textContent).not.toContain(
+          tenant === 'tenant-role-a' ? 'tenant-role-b' : 'tenant-role-a',
+        )
         const role = await card.findByRole('combobox', { name: 'Manual interface role' })
         fireEvent.change(role, { target: { value: 'transit' } })
         fireEvent.click(card.getByRole('button', { name: 'Save manual role override' }))
@@ -172,7 +212,14 @@ for (const theme of ['light', 'dark']) {
             view.queryByRole('dialog', { name: 'Reset manual interface role?' }),
           ).not.toBeInTheDocument(),
         )
+        await within(explanation).findByText(`${tenant}/source/0`)
         expect(await axe(element)).toHaveNoViolations()
+        fixture.revokeExplanation()
+        fireEvent.click(
+          within(explanation).getByRole('button', { name: 'Refresh role explanation' }),
+        )
+        await within(explanation).findByText('Cannot explain the current role')
+        expect(within(explanation).queryByText(`${tenant}/source/0`)).not.toBeInTheDocument()
         expect(JSON.stringify(fixture.writes)).not.toContain(
           tenant === 'tenant-role-a' ? 'tenant-role-b' : 'tenant-role-a',
         )

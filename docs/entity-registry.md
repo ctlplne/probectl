@@ -56,9 +56,9 @@ observation time, including whether the snapshot was absent.
 
 The complete request must fit the existing 1 MiB evidence envelope. Its JSONB
 storage representation may expand within an 8 MiB physical bound; receivers
-refuse an oversized complete request rather than truncate rows. This protocol
-and retained metadata are preparatory: steady-state prefix polling, current
-role-source loading and automatic interface-role labels are not yet enabled.
+refuse an oversized complete request rather than truncate rows. Steady-state prefix polling and current role-source loading support the
+[role explanation preview](features/interface-roles.md). Explorer role dimensions
+and complete real-router acceptance remain unfinished.
 
 ## Set up a routing context
 

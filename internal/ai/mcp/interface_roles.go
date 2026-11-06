@@ -100,7 +100,7 @@ func decodeInterfaceRoleCommand(raw json.RawMessage, name string, limit int) (In
 
 func WithInterfaceRoleBackend(backend InterfaceRoleBackend, schemas NativeFlowSchemas, inputBytes int) Option {
 	return func(s *Server) {
-		names := []string{"interface_role_policy", "interface_role_policy_set", "interface_role_override", "interface_role_override_set", "interface_role_override_reset"}
+		names := []string{"interface_role_explain", "interface_role_policy", "interface_role_policy_set", "interface_role_override", "interface_role_override_set", "interface_role_override_reset"}
 		if backend == nil || inputBytes <= 0 {
 			return
 		}
@@ -111,18 +111,26 @@ func WithInterfaceRoleBackend(backend InterfaceRoleBackend, schemas NativeFlowSc
 		}
 		s.nativeEnabled = true
 		for _, name := range names {
-			write := name != "interface_role_policy" && name != "interface_role_override"
+			write := name != "interface_role_explain" && name != "interface_role_policy" && name != "interface_role_override"
 			permission := "entities.read"
 			if write {
 				permission = "agent.write"
 			}
-			tool := Tool{Name: name, Permission: permission, RequiresUser: write, Native: true, InputSchema: append(json.RawMessage(nil), schemas[name]...), Description: "Read or explicitly replace owned interface-role configuration with current context authorization and exact incarnation/revision. Ordered rules are complete; overrides persist until a confirmed reset. Does not assert source freshness or enable automatic classification.", Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
+			description := "Read or explicitly replace owned interface-role configuration with current context authorization and exact incarnation/revision. Ordered rules are complete; overrides persist until a confirmed reset."
+			if name == "interface_role_explain" {
+				description = "Explain the current owned interface role and every contributing source. Requires current entities.read, metrics.read and events.read. Missing or ambiguous automatic evidence remains other; an owned override wins. No BGP session-health claim."
+			}
+			tool := Tool{Name: name, Permission: permission, RequiresUser: write, Native: true, InputSchema: append(json.RawMessage(nil), schemas[name]...), Description: description, Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
 				command, err := decodeInterfaceRoleCommand(raw, name, min(inputBytes, s.nativeRequestBytes()))
 				if err != nil {
 					return nil, err
 				}
 				return backend.InterfaceRoleConfiguration(ctx, p, name, command)
 			}}
+			if name == "interface_role_explain" {
+				tool.ExtraPermissions = []string{"metrics.read", "events.read"}
+				tool.RequiresUser = true
+			}
 			s.tools[name] = tool
 			s.order = append(s.order, name)
 		}

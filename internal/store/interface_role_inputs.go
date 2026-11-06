@@ -110,14 +110,46 @@ func (s *InterfaceRoleInputsStore) Load(ctx context.Context, scope entity.Scope,
 	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 {
 		return none, entity.ErrInterfaceRoleBudget
 	}
-	out := InterfaceRoleInputs{Scope: want, InterfaceID: id}
+	var out InterfaceRoleInputs
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var readErr error
+		out, readErr = s.LoadInScope(ctx, sc, want, id, budget)
+		return readErr
+	})
+	if err != nil {
+		return none, err
+	}
+	if err := ctx.Err(); err != nil {
+		return none, err
+	}
+	return out, nil
+}
+
+// LoadInScope reuses an already bound application-role read snapshot. Callers
+// can authorize the current user/context/source planes in that SAME snapshot
+// before any facts are read. It creates no additional connection or grant.
+func (s *InterfaceRoleInputsStore) LoadInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, interfaceID string, budget entity.InterfaceRolePolicyBudget) (InterfaceRoleInputs, error) {
+	none := InterfaceRoleInputs{}
+	want, err := scope.Normalize()
+	tenant, ok := tenancy.FromContext(ctx)
+	if err != nil || !ok || tenant != sc.Tenant || tenant.String() != want.TenantID || sc.Q == nil {
+		return none, entity.ErrScopeMismatch
+	}
+	id, err := validRegistryUUID(interfaceID)
+	if err != nil {
+		return none, err
+	}
+	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 {
+		return none, entity.ErrInterfaceRoleBudget
+	}
+	out := InterfaceRoleInputs{Scope: want, InterfaceID: id}
+	err = func() error {
 		var agent, configured string
 		if err := sc.Q.QueryRow(ctx, `SELECT transaction_timestamp(),COALESCE(parent.id::text,''),
- COALESCE(node.interface_index,0),COALESCE(node.source_agent_id,''),COALESCE(node.configured_ref,'')
- FROM entities node LEFT JOIN entities parent ON
- (parent.tenant_id,parent.context_id,parent.id)=(node.tenant_id,node.context_id,node.parent_entity_id) AND parent.kind='device'
- WHERE node.tenant_id=$1 AND node.context_id=$2 AND node.id=$3 AND node.kind='interface'`,
+	 COALESCE(node.interface_index,0),COALESCE(node.source_agent_id,''),COALESCE(node.configured_ref,'')
+	 FROM entities node LEFT JOIN entities parent ON
+	 (parent.tenant_id,parent.context_id,parent.id)=(node.tenant_id,node.context_id,node.parent_entity_id) AND parent.kind='device'
+	 WHERE node.tenant_id=$1 AND node.context_id=$2 AND node.id=$3 AND node.kind='interface'`,
 			want.TenantID, want.ContextID, id).Scan(&out.AsOf, &out.RouterID, &out.IfIndex, &agent, &configured); err != nil {
 			return err
 		}
@@ -148,7 +180,7 @@ func (s *InterfaceRoleInputsStore) Load(ctx context.Context, scope entity.Scope,
 		}
 		out.Peers, err = loadInterfaceRolePeerInputs(ctx, sc, out, &admission)
 		return err
-	})
+	}()
 	if err != nil {
 		return none, err
 	}

@@ -12,6 +12,7 @@ import type {
   InterfaceRoleOverride,
   InterfaceRoleOverrideInput,
   InterfaceRoleOverrideResetInput,
+  InterfaceRoleExplanation,
 } from './sdk.gen'
 export type {
   InterfaceRole,
@@ -19,6 +20,7 @@ export type {
   InterfaceRolePolicy,
   InterfaceRolePolicyDefinition,
   InterfaceRoleOverride,
+  InterfaceRoleExplanation,
 } from './sdk.gen'
 
 const key = (tenant: string, context: string, subject = '') =>
@@ -26,6 +28,26 @@ const key = (tenant: string, context: string, subject = '') =>
 const root = (context: string) => `/entity-contexts/${encodeURIComponent(context)}`
 const overridePath = (context: string, subject: string) =>
   `${root(context)}/interfaces/${encodeURIComponent(subject)}/role-override`
+const explanationKey = (tenant: string, context: string, subject = '') =>
+  ['interface-role-explanation', tenant, context, subject] as const
+
+export function useInterfaceRoleExplanation(
+  tenant: string,
+  context: string,
+  subject: string,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: explanationKey(tenant, context, subject),
+    enabled: enabled && Boolean(tenant && context && subject),
+    gcTime: 0,
+    queryFn: ({ signal }) =>
+      apiFetch<InterfaceRoleExplanation>(
+        `${root(context)}/interfaces/${encodeURIComponent(subject)}/role`,
+        { signal },
+      ),
+  })
+}
 const json = (method: string, body: unknown): RequestInit => ({
   method,
   headers: { 'Content-Type': 'application/json' },
@@ -45,7 +67,10 @@ export function useSaveInterfaceRolePolicy(tenant: string, context: string) {
   return useMutation({
     mutationFn: (input: InterfaceRolePolicyInput) =>
       apiFetch<InterfaceRolePolicy>(`${root(context)}/interface-role-policy`, json('PUT', input)),
-    onSuccess: (data) => client.setQueryData(key(tenant, context), data),
+    onSuccess: async (data) => {
+      client.setQueryData(key(tenant, context), data)
+      await client.invalidateQueries({ queryKey: ['interface-role-explanation', tenant, context] })
+    },
   })
 }
 export function useInterfaceRoleOverride(tenant: string, context: string, subject: string) {
@@ -61,7 +86,10 @@ export function useSaveInterfaceRoleOverride(tenant: string, context: string, su
   return useMutation({
     mutationFn: (input: InterfaceRoleOverrideInput) =>
       apiFetch<InterfaceRoleOverride>(overridePath(context, subject), json('PUT', input)),
-    onSuccess: (data) => client.setQueryData(key(tenant, context, subject), data),
+    onSuccess: async (data) => {
+      client.setQueryData(key(tenant, context, subject), data)
+      await client.invalidateQueries({ queryKey: explanationKey(tenant, context, subject) })
+    },
   })
 }
 export function useResetInterfaceRoleOverride(tenant: string, context: string, subject: string) {
@@ -69,6 +97,11 @@ export function useResetInterfaceRoleOverride(tenant: string, context: string, s
   return useMutation({
     mutationFn: (input: InterfaceRoleOverrideResetInput) =>
       apiFetch<void>(overridePath(context, subject), json('DELETE', input)),
-    onSuccess: () => client.invalidateQueries({ queryKey: key(tenant, context, subject) }),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: key(tenant, context, subject) }),
+        client.invalidateQueries({ queryKey: explanationKey(tenant, context, subject) }),
+      ])
+    },
   })
 }

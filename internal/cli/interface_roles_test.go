@@ -25,6 +25,7 @@ func TestInterfaceRoleCLIUsesOwnedRoutesAndExactDecimalRevision(t *testing.T) {
 			operation, method, suffix string
 			subject, body             bool
 		}{
+			{"explain", http.MethodGet, "interfaces/owned-interface/role", true, false},
 			{"policy", http.MethodGet, "interface-role-policy", false, false},
 			{"set-policy", http.MethodPut, "interface-role-policy", false, true},
 			{"override", http.MethodGet, "interfaces/owned-interface/role-override", true, false},

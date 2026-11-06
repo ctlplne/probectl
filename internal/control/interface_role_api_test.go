@@ -14,6 +14,7 @@ import (
 func TestInterfaceRoleConfigurationRoutesRequireSeparateReadAndWriteGrants(t *testing.T) {
 	s := &Server{}
 	want := map[string]string{
+		"GET /v1/entity-contexts/{context_id}/interfaces/{id}/role":             "entities.read",
 		"GET /v1/entity-contexts/{context_id}/interface-role-policy":            "entities.read",
 		"PUT /v1/entity-contexts/{context_id}/interface-role-policy":            "agent.write",
 		"GET /v1/entity-contexts/{context_id}/interfaces/{id}/role-override":    "entities.read",
