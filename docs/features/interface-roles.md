@@ -90,6 +90,13 @@ Bind the BMP router source to its owned canonical router. A peer device
 inferred from an address is a different identity and cannot supply this
 origin-router binding for automatic roles.
 
+Changing or restoring that binding starts a new source assignment epoch. Old
+peer observations stay unavailable until the router supplies fresh evidence.
+Reconnect its BMP collection session to restate the current peers; this does
+not require resetting its BGP peering sessions. Each authenticated BMP session
+restates peers even when it uses the same certificate, while repeated routes
+within that session retain evidence suppression.
+
 Reads require `entities.read`; writes require `agent.write`, deployment MFA
 when enabled, and the current context's resource policy. The authenticated
 principal chooses the tenant. Context and interface ownership are enforced in
