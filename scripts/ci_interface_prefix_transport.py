@@ -97,6 +97,7 @@ FLOW_INTEGRATION = {
 INTEGRATION = {
     "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
     "internal/control": (
+        "TestInterfaceRoleNativeTLSKeepsTenantConfigurationAndCurrentSources",
         "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
         "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",
         "TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority",
