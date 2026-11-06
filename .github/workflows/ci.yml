@@ -1265,6 +1265,12 @@ jobs:
             --data-urlencode "SQL_probectl_tenant=ci-isolation" \
             http://localhost:8123/)"
           test "${value}" = "ci-isolation"
+      - name: Current interface role ClickHouse tenant and complete input proof
+        # Reuse the existing initialized development ClickHouse profile. The
+        # earlier Postgres-only prefix stage retains every storage/wire proof.
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: python3 scripts/ci_interface_prefix_transport.py --flow-integration
       - name: Related flow tag ownership and query proof
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"

@@ -79,10 +79,12 @@ UNIT = {
         "TestInterfaceRoleStoragePlanKeepsLocalKindAndTenantForeignKeys",
     ),
 }
-INTEGRATION = {
+FLOW_INTEGRATION = {
     "internal/store/flowstore": (
         "TestInterfaceRoleExplorerClickHouseKeepsTenantDirectionsAndCompleteTotals",
     ),
+}
+INTEGRATION = {
     "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
     "internal/control": (
         "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
@@ -117,7 +119,7 @@ def selftest():
     def encode(values):
         return "\n".join(json.dumps(row) for row in values)
 
-    for package, roots in list(UNIT.items()) + list(INTEGRATION.items()):
+    for package, roots in list(UNIT.items()) + list(INTEGRATION.items()) + list(FLOW_INTEGRATION.items()):
         events = [
             {"Package": PREFIX + package, "Test": root, "Action": action}
             for root in roots
@@ -682,8 +684,9 @@ def configuration_api_controls():
     print(json.dumps({"role_configuration_api_controls": True}))
 
 
-def main(integration):
-    for package, roots in (INTEGRATION if integration else UNIT).items():
+def main(integration, flow_integration=False):
+    selected = FLOW_INTEGRATION if flow_integration else INTEGRATION if integration else UNIT
+    for package, roots in selected.items():
         result = execute(
             package, roots, package.replace("/", "_") + "_positive", integration
         )
@@ -694,7 +697,7 @@ def main(integration):
             raise RuntimeError(
                 f"required prefix transport proof missing/failed: {failures}"
             )
-    if integration:
+    if integration and not flow_integration:
         current_role_explanation_controls()
         current_role_source_controls()
         configuration_incarnation_controls()
@@ -733,7 +736,9 @@ def main(integration):
         json.dumps(
             {
                 "kind": "real-integration" if integration else "simulation",
-                "scope": "mTLS/Postgres with simulated SNMP inputs"
+                "scope": "ClickHouse complete raw/rollup with modeled role projections"
+                if flow_integration
+                else "mTLS/Postgres with simulated SNMP inputs"
                 if integration
                 else "typed complete-set/native wire and silo plan",
                 "passed": True,
@@ -746,9 +751,11 @@ def main(integration):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true")
-    parser.add_argument("--integration", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--integration", action="store_true")
+    mode.add_argument("--flow-integration", action="store_true")
     args = parser.parse_args()
     if args.selftest:
         selftest()
     else:
-        main(args.integration)
+        main(args.integration or args.flow_integration, args.flow_integration)
