@@ -75,6 +75,18 @@ func validateBGPRoutingSource(ctx context.Context, sc tenancy.Scope, source BGPR
 // Rebinding cannot revive an observation older than the new assignment. FORCE
 // RLS remains the outer boundary even if a query predicate is accidentally lost.
 func (BGPRouting) SourceAuthorityInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource) (BGPRoutingSourceAuthority, error) {
+	return routingSourceAuthority(ctx, sc, source, false)
+}
+
+// SourceAuthorityForWriteInScope holds the exact credential, assignment,
+// source and router rows until commit. A concurrent change must precede the
+// write or wait for it; an obsolete REPEATABLE READ snapshot fails rather
+// than acknowledging credentials changed since that snapshot was taken.
+func (BGPRouting) SourceAuthorityForWriteInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource) (BGPRoutingSourceAuthority, error) {
+	return routingSourceAuthority(ctx, sc, source, true)
+}
+
+func routingSourceAuthority(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, lock bool) (BGPRoutingSourceAuthority, error) {
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
 		return BGPRoutingSourceAuthority{}, err
 	}
@@ -82,7 +94,7 @@ func (BGPRouting) SourceAuthorityInScope(ctx context.Context, sc tenancy.Scope, 
 		return BGPRoutingSourceAuthority{}, ErrBGPRoutingSourceUnavailable
 	}
 	var result BGPRoutingSourceAuthority
-	err := sc.Q.QueryRow(ctx, `SELECT transaction_timestamp(),
+	query := `SELECT transaction_timestamp(),
  LEAST(source.expires_at,assignment.expires_at,sender.not_after,origin.not_after)
  FROM entity_source_contexts source
  JOIN entity_agent_contexts assignment ON
@@ -107,7 +119,11 @@ func (BGPRouting) SourceAuthorityInScope(ctx context.Context, sc tenancy.Scope, 
  AND origin.issued_at<=$8 AND origin.not_after>transaction_timestamp() AND origin.revoked_at IS NULL
  AND NOT EXISTS (SELECT 1 FROM agent_identities revoked
  WHERE revoked.tenant_id=source.tenant_id AND revoked.agent_id=source.agent_id
- AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')`,
+	AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')`
+	if lock {
+		query += ` FOR SHARE OF sender,origin,assignment,source,router`
+	}
+	err := sc.Q.QueryRow(ctx, query,
 		source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID,
 		source.SenderSerial, source.OriginSerial, source.SourceRef, source.ObservedAt).Scan(&result.AsOf, &result.ValidUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -115,6 +131,13 @@ func (BGPRouting) SourceAuthorityInScope(ctx context.Context, sc tenancy.Scope, 
 	}
 	if err != nil {
 		return BGPRoutingSourceAuthority{}, err
+	}
+	if lock {
+		// A lock wait can outlive a certificate or assignment. Transaction
+		// start time is insufficient after waiting for another writer.
+		if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&result.AsOf); err != nil {
+			return BGPRoutingSourceAuthority{}, err
+		}
 	}
 	if !result.ValidUntil.After(result.AsOf) {
 		return BGPRoutingSourceAuthority{}, ErrBGPRoutingSourceUnavailable

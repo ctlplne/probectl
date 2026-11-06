@@ -135,6 +135,8 @@ INTEGRATION = {
         "TestBGPRoutingSchemaKeepsTenantFamilyPathIdentityAndPublicationShape",
         "TestBGPRoutingAuthorityKeepsCurrentTenantOriginPurposeAndAssignmentEpoch",
         "TestBGPRoutingBeginKeepsPrivateTenantGenerationsAndAtomicSlotReplacement",
+        "TestBGPRoutingWritesSerializeSourceChangesAndRejectStaleSnapshots",
+        "TestBGPRoutingQuotaWaitUsesFreshTenantAccountAndRefusesOldSnapshots",
     ),
     "internal/agenttransport": (
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
@@ -308,6 +310,43 @@ def bgp_routing_generation_control():
         child="", marker="peer restart mixed former, sibling or unrelated route generations"
     ):
         raise RuntimeError("routing slot retirement control did not fail its exact assertion")
+
+
+ROUTING_WRITE_CONTROLS = {
+    "routing-write-lock": (
+        "internal/store/bgp_routing_authority.go",
+        "query += ` FOR SHARE OF sender,origin,assignment,source,router`",
+        "query += ``",
+        "TestBGPRoutingWritesSerializeSourceChangesAndRejectStaleSnapshots",
+        "sender", "source mutation escaped routing write lock",
+    ),
+    "routing-quota-snapshot": (
+        "internal/store/bgp_routing_views.go",
+        'if isolation != "read committed" {',
+        'if false && isolation != "read committed" {',
+        "TestBGPRoutingQuotaWaitUsesFreshTenantAccountAndRefusesOldSnapshots",
+        "", "routing quota accepted a potentially stale transaction snapshot",
+    ),
+}
+
+
+def bgp_routing_write_controls():
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    for name, (file, seam, replacement, root, child, marker) in ROUTING_WRITE_CONTROLS.items():
+        source = Path(file).resolve()
+        original = source.read_text()
+        assert original.count(seam) == 1
+        mutant = overlay_source_path(out, name + ".go")
+        mutant.write_text(original.replace(seam, replacement))
+        overlay = out / (name + ".json")
+        overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+        result = execute("internal/store", (root,), name, integration=True,
+                         overlay=overlay, child=child)
+        if not report_regression_failed_on_assertion(
+            result.stdout, result.returncode, package=PREFIX + "internal/store",
+            root=root, child=child, marker=marker,
+        ):
+            raise RuntimeError(name + " did not fail its exact assertion")
 
 
 def configuration_incarnation_controls():
@@ -948,6 +987,7 @@ def main(integration, flow_integration=False):
     if integration and not flow_integration:
         bgp_routing_authority_control()
         bgp_routing_generation_control()
+        bgp_routing_write_controls()
         current_role_explanation_controls()
         standalone_role_source_control()
         interface_role_subject_control()

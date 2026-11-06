@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	ErrBGPRoutingBudget = errors.New("complete routing state admission exceeded")
-	ErrBGPRoutingView   = errors.New("routing view metadata is invalid")
+	ErrBGPRoutingBudget        = errors.New("complete routing state admission exceeded")
+	ErrBGPRoutingView          = errors.New("routing view metadata is invalid")
+	ErrBGPRoutingWriteSnapshot = errors.New("routing writes require a read-committed tenant transaction")
 )
 
 // BGPRoutingBudget admits a complete operation and retained tenant state.
@@ -164,7 +165,10 @@ func (store BGPRouting) BeginViewInScope(ctx context.Context, sc tenancy.Scope, 
 		operation.MemoryBytes -= int64(len(value)) * 4
 		operation.WorkUnits -= int64(len(value)) * 2
 	}
-	authority, err := store.SourceAuthorityInScope(ctx, sc, source)
+	if err := lockBGPRoutingState(ctx, sc); err != nil {
+		return none, err
+	}
+	authority, err := store.SourceAuthorityForWriteInScope(ctx, sc, source)
 	if err != nil {
 		return none, err
 	}
@@ -177,11 +181,6 @@ func (store BGPRouting) BeginViewInScope(ctx context.Context, sc tenancy.Scope, 
 	}
 	if !validUntil.After(authority.AsOf) {
 		return none, ErrBGPRoutingSourceUnavailable
-	}
-	// Serialize the retained tenant byte account across contexts and sources;
-	// the lifecycle writer lease remains independently held by the caller.
-	if _, err := sc.Q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('bgp-routing-state:' || $1::text,0))`, source.TenantID); err != nil {
-		return none, err
 	}
 	var used, metadataBytes int64
 	if err := sc.Q.QueryRow(ctx, `SELECT COALESCE(sum(charged_bytes),0)::bigint FROM bgp_routing_views WHERE tenant_id=$1`, source.TenantID).Scan(&used); err != nil {
@@ -233,6 +232,24 @@ func (store BGPRouting) BeginViewInScope(ctx context.Context, sc tenancy.Scope, 
 	// or information values as the supposedly immutable generation definition.
 	definition.Peer = cloneBGPRoutingPeer(definition.Peer)
 	return BGPRoutingView{BGPRoutingSource: source, ID: id, Generation: generation, Definition: definition, PeerKey: key, ValidUntil: validUntil}, nil
+}
+
+func lockBGPRoutingState(ctx context.Context, sc tenancy.Scope) error {
+	if sc.Q == nil {
+		return ErrBGPRoutingSourceUnavailable
+	}
+	var isolation string
+	if err := sc.Q.QueryRow(ctx, `SHOW transaction_isolation`).Scan(&isolation); err != nil {
+		return err
+	}
+	// The next quota statement must see all commits by an earlier lock holder.
+	// A REPEATABLE READ snapshot taken before waiting could over-admit two
+	// different sources even though their advisory locks serialize perfectly.
+	if isolation != "read committed" {
+		return ErrBGPRoutingWriteSnapshot
+	}
+	_, err := sc.Q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('bgp-routing-state:' || $1::text,0))`, sc.Tenant.String())
+	return err
 }
 
 func cloneBGPRoutingPeer(peer BGPRoutingPeer) BGPRoutingPeer {

@@ -35,7 +35,7 @@ func TestBGPRoutingBeginKeepsPrivateTenantGenerationsAndAtomicSlotReplacement(t 
 		var result BGPRoutingView
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID))
 		err := tenancy.FencedTenantWrite(ctx, tenancy.NewPostgresWriterFence(f.pool), source.TenantID, entity.ErrScopeMismatch, func(ctx context.Context) error {
-			return tenancy.InTenantWriteSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			return tenancy.InTenant(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 				var err error
 				result, err = (BGPRouting{}).BeginViewInScope(ctx, sc, source, definition, source.ObservedAt.Add(2*time.Hour), profile)
 				return err
