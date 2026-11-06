@@ -61,3 +61,31 @@ func TestBGPRoutingLookupRequiresTenantExactViewAndWholeAdmissionBeforeStorage(t
 		t.Fatal(err)
 	}
 }
+
+func TestBGPRoutingRouterLookupRequiresExactTenantContextBeforeStorage(t *testing.T) {
+	tenant := "11111111-1111-4111-8111-111111111111"
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+	sc := tenancy.Scope{Tenant: tenancy.ID(tenant)}
+	scope := entity.Scope{TenantID: tenant, ContextID: "22222222-2222-4222-8222-222222222222"}
+	router := "33333333-3333-4333-8333-333333333333"
+	for _, tc := range []struct {
+		name   string
+		ctx    context.Context
+		scope  entity.Scope
+		router string
+		want   error
+	}{
+		{"missing-tenant", t.Context(), scope, router, entity.ErrScopeMismatch},
+		{"foreign-tenant", ctx, entity.Scope{TenantID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", ContextID: scope.ContextID}, router, entity.ErrScopeMismatch},
+		{"invalid-context", ctx, entity.Scope{TenantID: tenant, ContextID: "other"}, router, entity.ErrInvalidScope},
+		{"noncanonical-router", ctx, scope, "33333333333343338333333333333333", entity.ErrInvalidScope},
+		{"missing-storage", ctx, scope, router, ErrBGPRoutingSourceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := (BGPRouting{}).lookupRouterInScope(tc.ctx, sc, tc.scope, tc.router, netip.MustParseAddr("192.0.2.1"), routingViewBudget())
+			if !errors.Is(err, tc.want) || got.Paths != nil || got.Source.TenantID != "" {
+				t.Fatal("router lookup selected a foreign or incomplete context", got, err)
+			}
+		})
+	}
+}

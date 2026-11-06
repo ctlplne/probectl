@@ -90,6 +90,7 @@ UNIT = {
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
         "TestBGPRoutingLookupRequiresTenantExactViewAndWholeAdmissionBeforeStorage",
+        "TestBGPRoutingRouterLookupRequiresExactTenantContextBeforeStorage",
         "TestBGPRoutingViewMetadataKeepsStablePeerSlotsAndCompleteValues",
         "TestBGPRoutingViewMetadataRefusesIncompleteShapeAndWholeAdmission",
         "TestBGPRoutingBeginRefusesForeignTenantBeforeMetadataOrStorage",
@@ -140,6 +141,7 @@ INTEGRATION = {
         "TestInterfaceRoleConfigurationPostgresKeepsTenantCASAndOverrideIncarnations",
         "TestBGPRoutingSchemaKeepsTenantFamilyPathIdentityAndPublicationShape",
         "TestBGPRoutingLookupKeepsLongestPrefixEveryPathTenantFamilyAndSelectedView",
+        "TestBGPRoutingRouterLookupUsesOwnContextAndRefusesConflictingCompleteViews",
         "TestBGPRoutingLookupRefusesChangedAuthorityClockCorruptionAndMixedSnapshots",
         "TestBGPRoutingAuthorityKeepsCurrentTenantOriginPurposeAndAssignmentEpoch",
         "TestBGPRoutingBeginKeepsPrivateTenantGenerationsAndAtomicSlotReplacement",
@@ -346,6 +348,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-router-conflict": (
+        "internal/store/bgp_routing_router.go",
+        "if count != 1 {",
+        "if false && count != 1 {",
+        "TestBGPRoutingRouterLookupUsesOwnContextAndRefusesConflictingCompleteViews",
+        "", "conflicting router views selected a convenient route",
+    ),
     "routing-lookup-view": (
         "internal/store/bgp_routing_lookup.go",
         "AND view_kind='loc_rib' AND NOT filtered",

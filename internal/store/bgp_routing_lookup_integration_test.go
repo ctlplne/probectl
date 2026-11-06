@@ -223,3 +223,58 @@ func TestBGPRoutingLookupRefusesChangedAuthorityClockCorruptionAndMixedSnapshots
 		t.Fatal("missing complete route manufactured a path", got, err)
 	}
 }
+
+func TestBGPRoutingRouterLookupUsesOwnContextAndRefusesConflictingCompleteViews(t *testing.T) {
+	f := newRoleInputsFixture(t)
+	sources := []BGPRoutingSource{routingFixtureSource(f, 0), routingFixtureSource(f, 1)}
+	refs := make([]BGPRoutingViewRef, 2)
+	read := func(source BGPRoutingSource) (routingLookup, error) {
+		var got routingLookup
+		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			got, err = (BGPRouting{}).lookupRouterInScope(ctx, sc, source.Scope, source.RouterID, netip.MustParseAddr("192.0.2.9"), routingViewBudget())
+			return err
+		})
+		return got, err
+	}
+	for lane, source := range sources {
+		refs[lane] = routingLookupBegin(t, f, source, routingLookupDefinition(1))
+		change := routingChangeFixture()
+		change.Segments[1].Values[0] = uint32(64496 + lane)
+		routingLookupApply(t, f, source, refs[lane], BGPRoutingBatch{Sequence: 1, AFI: 1, SAFI: 1, Changes: []BGPRoutingChange{change}})
+		if got, err := read(source); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got.Paths != nil {
+			t.Fatal("router resolver exposed an incomplete view", got, err)
+		}
+		routingLookupApply(t, f, source, refs[lane], BGPRoutingBatch{Sequence: 2, AFI: 1, SAFI: 1, EndOfRIB: true})
+		got, err := read(source)
+		if err != nil || got.View != refs[lane] || len(got.Paths) != 1 || !reflect.DeepEqual(got.Paths[0], change) || got.Source.TenantID != source.TenantID {
+			t.Fatal("router resolver lost owned complete source or tenant", got, err)
+		}
+	}
+	for _, change := range []func(*BGPRoutingSource){func(s *BGPRoutingSource) { s.RouterID = f.otherRouter }, func(s *BGPRoutingSource) { s.ContextID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }} {
+		candidate := sources[0]
+		change(&candidate)
+		if got, err := read(candidate); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got.Paths != nil {
+			t.Fatal("router resolver guessed another router or context", got, err)
+		}
+	}
+	// Deliberate conflicting manifest, with no matching entries: the resolver
+	// must not pick the convenient source merely because its prefix exists.
+	f.in(sources[0].TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `INSERT INTO bgp_routing_views
+ (tenant_id,context_id,id,generation,source_kind,router_id,collector_agent_id,source_ref,binding_kind,sender_serial,origin_serial,
+ view_kind,peer_key,peer_identity,afi,safi,filtered,state,next_sequence,last_sequence,last_digest,row_count,charged_bytes,observed_at,valid_until,completed_at,last_message_observed_at,message_clock_sequence)
+ SELECT tenant_id,context_id,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01'::uuid,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02'::uuid,
+ source_kind,router_id,collector_agent_id,source_ref,binding_kind,sender_serial,origin_serial,
+ view_kind,decode(repeat('02',32),'hex'),peer_identity,afi,safi,filtered,state,next_sequence,last_sequence,last_digest,0,charged_bytes,observed_at,valid_until,completed_at,last_message_observed_at,message_clock_sequence
+ FROM bgp_routing_views WHERE tenant_id=$1 AND id=$2 AND generation=$3`, sources[0].TenantID, refs[0].ID, refs[0].Generation)
+		return err
+	})
+	if got, err := read(sources[0]); !errors.Is(err, errBGPRoutingAmbiguousView) || got.Paths != nil {
+		t.Fatal("conflicting router views selected a convenient route", got, err)
+	}
+	got, err := read(sources[1])
+	if err != nil || got.View != refs[1] || len(got.Paths) != 1 {
+		t.Fatal("router conflict crossed the tenant boundary", err)
+	}
+}

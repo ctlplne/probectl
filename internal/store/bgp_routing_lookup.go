@@ -70,15 +70,8 @@ func (store BGPRouting) lookupViewInScope(ctx context.Context, sc tenancy.Scope,
 			return routingLookup{}, err
 		}
 	}
-	if sc.Q == nil {
-		return routingLookup{}, ErrBGPRoutingSourceUnavailable
-	}
-	var isolation string
-	if err := sc.Q.QueryRow(ctx, `SHOW transaction_isolation`).Scan(&isolation); err != nil {
+	if err := requireRoutingReadSnapshot(ctx, sc); err != nil {
 		return routingLookup{}, err
-	}
-	if isolation != "repeatable read" && isolation != "serializable" {
-		return routingLookup{}, errBGPRoutingReadSnapshot
 	}
 	afi := uint16(2)
 	if address.Is4() {
