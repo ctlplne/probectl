@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +32,7 @@ import (
 
 type roleRouterLink struct {
 	name, peer, routerIP, peerIP, prefix, iface string
+	routerIP6, peerIP6, prefix6                 string
 	index                                       uint32
 	role                                        entity.InterfaceRole
 }
@@ -49,19 +49,19 @@ type servedRouterRole struct {
 
 // The PeeringDB envelope is explicitly synthetic. FRR sessions, kernel SNMP,
 // softflowd captures, issued sender certificates, TLS, bus and stores are real.
-// IPv6, stale/down source clocks, served themes and the remaining lifecycle
-// controls retain their separate required proofs; this root does not close FX4.
+// Stale/down source clocks and remaining lifecycle controls retain their
+// separate required proofs; implementation alone does not close FX4.
 func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		testsupport.SkipOrFatal(t, "same-router role proof requires a Linux host route to the private FRR Docker bridge")
 	}
 	lab := startRoutingLabNamed(t, "probectl-qa-beta-role-router-"+strconv.FormatInt(time.Now().UnixNano()%1e8, 36))
 	primary := lab.ip["rtr-a"]
-	addr, err := netip.ParseAddr(primary)
-	if err != nil {
-		t.Fatal(err)
-	}
-	links := []roleRouterLink{{name: "transit", peer: "edge", routerIP: primary, peerIP: lab.ip["edge"], prefix: netip.PrefixFrom(addr, 24).Masked().String(), role: entity.InterfaceRoleTransit}, addRoleRouterLink(t, lab, "ix", "rrc", 232, rrcASN, entity.InterfaceRoleIX), addRoleRouterLink(t, lab, "customer", "rtr-b", 233, rtrBASN, entity.InterfaceRoleCustomer)}
+	links := []roleRouterLink{addRoleRouterLink(t, lab, "transit", "edge", 234, edgeASN, entity.InterfaceRoleTransit), addRoleRouterLink(t, lab, "ix", "rrc", 232, rrcASN, entity.InterfaceRoleIX), addRoleRouterLink(t, lab, "customer", "rtr-b", 233, rtrBASN, entity.InterfaceRoleCustomer)}
+	// Keep management reachable, but use only the three distinct physical
+	// relationship links for BGP. The initial old peer has no monitored routes.
+	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "neighbor "+lab.ip["edge"]+" shutdown", "-c", "bmp targets probectl", "-c", "bmp monitor ipv6 unicast pre-policy", "-c", "bmp monitor ipv6 unicast post-policy", "-c", "end")
+
 	community := startRouterSNMP(t, lab, "rtr-a")
 	sidecar := lab.name + "-rtr-a-snmp"
 	indexes := map[uint32]bool{}
@@ -80,7 +80,7 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 		}
 	}
 	ixFile := filepath.Join(t.TempDir(), "ixpfx.json")
-	raw, err := json.Marshal(map[string]any{"version": 1, "object": "ixpfx", "observed_at": time.Now().UTC().Add(-time.Second), "complete": true, "record_count": 1, "data": []map[string]any{{"id": 7, "ixlan_id": 11, "protocol": "IPv4", "prefix": links[1].prefix, "status": "ok"}}})
+	raw, err := json.Marshal(map[string]any{"version": 1, "object": "ixpfx", "observed_at": time.Now().UTC().Add(-time.Second), "complete": true, "record_count": 2, "data": []map[string]any{{"id": 7, "ixlan_id": 11, "protocol": "IPv4", "prefix": links[1].prefix, "status": "ok"}, {"id": 8, "ixlan_id": 11, "protocol": "IPv6", "prefix": links[1].prefix6, "status": "ok"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +117,7 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	for _, link := range links {
 		exporter := startRoleRouterExporter(t, lab, image, destination, link)
 		emitRoleRouterTraffic(t, lab, exporter, link)
+		emitRoleRouterCapturedTraffic(t, lab, exporter, link, link.routerIP6, link.peerIP6, "58", true)
 	}
 	awaitRoleRouterFlow(t, st, reg, links, observed)
 
@@ -236,7 +237,10 @@ func awaitRoleRouterLabels(t *testing.T, st *shipped.Stack, reg edgeFlowRegistra
 				break
 			}
 			if link.role == entity.InterfaceRoleIX && !strings.Contains(strings.Join(got.Sources, ","), "peeringdb/ixpfx/7/ixlan/11/snapshot/") {
-				t.Fatal("real IX interface lost the complete prefix generation")
+				t.Fatal("real IX interface lost the complete IPv4 prefix generation")
+			}
+			if link.role == entity.InterfaceRoleIX && !strings.Contains(strings.Join(got.Sources, ","), "peeringdb/ixpfx/8/ixlan/11/snapshot/") {
+				t.Fatal("real IX interface lost the complete IPv6 prefix generation")
 			}
 			if link.role == entity.InterfaceRolePrivate && got.Reason != "operator_override" {
 				t.Fatal("real router override lost its source")
@@ -256,12 +260,14 @@ func awaitRoleRouterLabels(t *testing.T, st *shipped.Stack, reg edgeFlowRegistra
 func addRoleRouterLink(t *testing.T, lab *routingLab, name, peer string, family, peerASN int, role entity.InterfaceRole) roleRouterLink {
 	t.Helper()
 	network := lab.name + "-" + name
-	var base string
+	var base, prefix6, base6 string
 	for attempt := 0; attempt < 8; attempt++ {
-		candidate := fmt.Sprintf("10.%d.%d.", family, (time.Now().Nanosecond()/1000+attempt*37)%250+1)
-		out, err := exec.Command("docker", "network", "create", "--subnet", candidate+"0/24", network).CombinedOutput()
+		part := (time.Now().Nanosecond()/1000+attempt*37)%250 + 1
+		candidate := fmt.Sprintf("10.%d.%d.", family, part)
+		candidate6 := fmt.Sprintf("fd42:%x:%x::", family, part)
+		out, err := exec.Command("docker", "network", "create", "--subnet", candidate+"0/24", "--ipv6", "--subnet", candidate6+"/64", network).CombinedOutput()
 		if err == nil {
-			base = candidate
+			base, base6, prefix6 = candidate, candidate6, candidate6+"/64"
 			break
 		}
 		if !strings.Contains(string(out), "overlap") {
@@ -277,9 +283,9 @@ func addRoleRouterLink(t *testing.T, lab *routingLab, name, peer string, family,
 		}
 		_ = exec.Command("docker", "network", "rm", network).Run()
 	})
-	link := roleRouterLink{name: name, peer: peer, routerIP: base + "11", peerIP: base + "12", prefix: base + "0/24", role: role}
-	lab.docker(t, "network", "connect", "--ip", link.routerIP, network, lab.container("rtr-a"))
-	lab.docker(t, "network", "connect", "--ip", link.peerIP, network, lab.container(peer))
+	link := roleRouterLink{name: name, peer: peer, routerIP: base + "11", peerIP: base + "12", prefix: base + "0/24", role: role, routerIP6: base6 + "11", peerIP6: base6 + "12", prefix6: prefix6}
+	lab.docker(t, "network", "connect", "--ip", link.routerIP, "--ip6", link.routerIP6, network, lab.container("rtr-a"))
+	lab.docker(t, "network", "connect", "--ip", link.peerIP, "--ip6", link.peerIP6, network, lab.container(peer))
 	for _, side := range []struct {
 		router, neighbor string
 		asn, remote      int
@@ -299,6 +305,27 @@ func addRoleRouterLink(t *testing.T, lab *routingLab, name, peer string, family,
 			} `json:"ipv4Unicast"`
 		}
 		return json.Unmarshal(raw, &summary) == nil && summary.IPv4.Peers[link.peerIP].State == "Established"
+	})
+	for _, side := range []struct {
+		router, neighbor string
+		asn, remote      int
+	}{{"rtr-a", link.peerIP6, rtrAASN, peerASN}, {peer, link.routerIP6, peerASN, rtrAASN}} {
+		// Do not send IPv4 NLRI over IPv6 transport: use the actual native AFI.
+		lab.docker(t, "exec", lab.container(side.router), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(side.asn), "-c", "no bgp network import-check", "-c", "neighbor "+side.neighbor+" remote-as "+strconv.Itoa(side.remote), "-c", "address-family ipv4 unicast", "-c", "no neighbor "+side.neighbor+" activate", "-c", "exit-address-family", "-c", "address-family ipv6 unicast", "-c", "neighbor "+side.neighbor+" activate", "-c", "network "+link.prefix6, "-c", "end")
+	}
+	shipped.Await(t, "real FRR IPv6 "+name+" session", 45*time.Second, func() bool {
+		raw, err := exec.Command("docker", "exec", lab.container("rtr-a"), "vtysh", "-c", "show bgp ipv6 unicast summary json").Output()
+		if err != nil {
+			return false
+		}
+		var summary struct {
+			IPv6 struct {
+				Peers map[string]struct {
+					State string `json:"state"`
+				} `json:"peers"`
+			} `json:"ipv6Unicast"`
+		}
+		return json.Unmarshal(raw, &summary) == nil && summary.IPv6.Peers[link.peerIP6].State == "Established"
 	})
 	return link
 }
@@ -332,15 +359,25 @@ func startRoleRouterExporter(t *testing.T, lab *routingLab, image, destination s
 
 func emitRoleRouterTraffic(t *testing.T, lab *routingLab, exporter string, link roleRouterLink) {
 	t.Helper()
+	emitRoleRouterCapturedTraffic(t, lab, exporter, link, link.routerIP, link.peerIP, "1", false)
+}
+
+func emitRoleRouterCapturedTraffic(t *testing.T, lab *routingLab, exporter string, link roleRouterLink, source, destination, protocol string, ipv6 bool) {
+	t.Helper()
 	lab.docker(t, "exec", exporter, "softflowctl", "-c", "/tmp/softflowd.ctl", "delete-all")
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "docker", "exec", exporter, "ping", "-A", "-q", "-I", link.iface, "-c", "4096", "-s", "1200", "-W", "1", link.peerIP).CombinedOutput(); err != nil {
+	args := []string{"exec", exporter, "ping"}
+	if ipv6 {
+		args = append(args, "-6")
+	}
+	args = append(args, "-A", "-q", "-I", link.iface, "-c", "4096", "-s", "1200", "-W", "1", destination)
+	if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
 		t.Fatalf("real %s traffic: %v %.400s", link.name, err, out)
 	}
 	shipped.Await(t, "real captured "+link.name+" packets", 10*time.Second, func() bool {
 		dump, err := exec.Command("docker", "exec", exporter, "softflowctl", "-c", "/tmp/softflowd.ctl", "dump-flows").Output()
-		return err == nil && strings.Contains(string(dump), link.routerIP) && strings.Contains(string(dump), link.peerIP) && strings.Contains(string(dump), "proto:1")
+		return err == nil && strings.Contains(string(dump), source) && strings.Contains(string(dump), destination) && strings.Contains(string(dump), "proto:"+protocol)
 	})
 	lab.docker(t, "exec", exporter, "softflowctl", "-c", "/tmp/softflowd.ctl", "expire-all")
 }
@@ -352,7 +389,7 @@ func awaitRoleRouterFlow(t *testing.T, st *shipped.Stack, reg edgeFlowRegistrati
 		want[link.index] = link.role
 	}
 	shipped.Await(t, "real same-router IPFIX role groups", 60*time.Second, func() bool {
-		plan := flow.QueryPlan{From: observed.Add(-time.Minute), To: time.Now().Add(time.Minute), View: "table", GroupBy: []string{"in_if_role", "out_if_role"}, Metrics: []flow.QueryMetric{{Measure: "flows", Calculation: "total", Role: "primary"}}}
+		plan := flow.QueryPlan{From: observed.Add(-time.Minute), To: time.Now().Add(time.Minute), View: "table", GroupBy: []string{"in_if_role", "out_if_role", "net_type"}, Metrics: []flow.QueryMetric{{Measure: "flows", Calculation: "total", Role: "primary"}}}
 		code, body := st.Do(t, reg.cookie, http.MethodPost, "/v1/explorer/query", map[string]any{"source": "flow", "flow": plan})
 		var got struct {
 			Flow *flowstore.PlanResult `json:"flow"`
@@ -360,16 +397,16 @@ func awaitRoleRouterFlow(t *testing.T, st *shipped.Stack, reg edgeFlowRegistrati
 		if code != http.StatusOK || json.Unmarshal(body, &got) != nil || got.Flow == nil || got.Flow.RoleTenantID != reg.tenantID || len(got.Flow.RoleDigest) != 64 {
 			return false
 		}
-		seen := map[entity.InterfaceRole]bool{}
+		seen := map[string]bool{}
 		for _, row := range got.Flow.Rows {
 			if row.Metrics["flows:total"] != "" && row.Metrics["flows:total"] != "0" {
 				for _, field := range []string{"in_if_role", "out_if_role"} {
-					seen[entity.InterfaceRole(row.Group[field])] = true
+					seen[row.Group[field]+"/"+row.Group["net_type"]] = true
 				}
 			}
 		}
 		for _, link := range links {
-			if !seen[link.role] {
+			if !seen[string(link.role)+"/ipv4"] || !seen[string(link.role)+"/ipv6"] {
 				return false
 			}
 		}
@@ -426,7 +463,7 @@ func renderRoleRouterSurfaces(t *testing.T, st *shipped.Stack, first, second edg
 					Steps: []testsupport.RenderStep{
 						{Select: "[data-interface-roles] select >> nth=0", Value: pair.reg.contextID},
 						{Select: "[data-interface-roles] select >> nth=1", Value: pair.ids[links[1].index]},
-						{Click: "Refresh role explanation", Within: "[aria-label='Current interface role']", Expect: []string{"ix peering", "Current interface evidence.", "Complete current prefixes.", "peeringdb/ixpfx/7/ixlan/11/snapshot/"}, ExpectWithin: "[aria-label='Current interface role']"},
+						{Click: "Refresh role explanation", Within: "[aria-label='Current interface role']", Expect: []string{"ix peering", "Current interface evidence.", "Complete current prefixes.", "peeringdb/ixpfx/7/ixlan/11/snapshot/", "peeringdb/ixpfx/8/ixlan/11/snapshot/"}, ExpectWithin: "[aria-label='Current interface role']"},
 					},
 				})
 			})
