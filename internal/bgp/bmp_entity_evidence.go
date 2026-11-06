@@ -14,10 +14,12 @@ import (
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
 
 type bmpPeerEvidence struct {
-	sessionHandle uint64 // listener-owned admitted session, never a BMP payload field
+	routingPeerUp *agentv1.BmpRoutingPeerUp // owned raw metadata, separate from peer-claim suppression
+	sessionHandle uint64                    // listener-owned admitted session, never a BMP payload field
 	tenantID      string
 	routerAgentID string // from a verified router SVID, not the BMP frame
 	routerSerial  string // exact verified SVID; revocation retires this evidence
@@ -104,6 +106,10 @@ func (l *BMPListener) evidenceLoop(ctx context.Context) {
 		case <-l.evidenceReset:
 			lastSent = make(map[bmpPeerEvidenceKey]bmpEvidenceAttempt)
 		case peer := <-l.evidenceQueue:
+			if peer.routingPeerUp != nil {
+				l.stageRoutingEvidence(ctx, peer)
+				continue
+			}
 			now := l.now()
 			key := bmpPeerEvidenceKey{sessionHandle: peer.sessionHandle, routerAgentID: peer.routerAgentID,
 				peerAddress: peer.peerAddress, peerASN: peer.peerASN,

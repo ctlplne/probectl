@@ -827,6 +827,12 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 		if l.identityRevoked(id) {
 			return fmt.Errorf("bgp bmp: registry-revoked router identity refused mid-session (serial %s)", id.Serial)
 		}
+		if msgType == bmpPeerUp {
+			if err := l.queueRoutingPeerUp(id, liveHandle, payload); err != nil {
+				return err
+			}
+			continue
+		}
 		if msgType != bmpRouteMonitoring {
 			l.log.Debug("skipping unsupported bmp message", "tenant_id", id.TenantID, "message_type", msgType)
 			continue

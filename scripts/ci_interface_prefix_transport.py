@@ -88,6 +88,7 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestBMPRoutingStagingUsesAdmittedIdentityAndCompleteOriginalPeerUp",
         "TestRoutingPeerUpKeepsCompleteDeclaredFamiliesAndRefusesMalformedSource",
         "TestBMPSourceChangesKeepCompleteDualFamilyPathsWithdrawalsAndAttributes",
         "TestBMPSourceChangesRefuseMissingMandatoryFieldsAndLateMalformedTail",
