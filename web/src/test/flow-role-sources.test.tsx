@@ -14,7 +14,7 @@ import type { ExplorerResult } from '../api/explorer'
 import type { FlowQueryPlan } from '../api/flowExplorer'
 import { AuthContext } from '../auth/AuthProvider'
 import { NativeFlowPage } from '../routes/NativeFlowPage'
-import { flowRoleResultReadable } from '../routes/FlowRoleSources'
+import { flowRoleResultReadable } from '../routes/flowRoleSourcePolicy'
 import flowSchema from './flowExplorerSchema.json'
 import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
 
