@@ -1432,10 +1432,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Start TLS Postgres (verify-full, test CA — OPS-010)
         run: ./scripts/ci_pg_tls.sh
-      - name: Authenticated interface prefix storage and lifecycle isolation
-        env:
-          PROBECTL_TEST_REQUIRE_SERVICES: "1"
-        run: python3 scripts/ci_interface_prefix_transport.py --integration
       - name: Start Prometheus with the remote-write receiver and the admin API
         # A service container cannot take the required --web.enable-remote-write-receiver
         # flag, so run it as a step instead. The admin API is the dev stack's
@@ -1650,6 +1646,13 @@ jobs:
           bash scripts/check_integration_coverage.sh SELFTEST
           bash scripts/check_integration_coverage.sh
           docker rm -f tq09-cover-pg >/dev/null 2>&1 || true
+      # Run the complete FX3/FX4 stack and stateful coverage before the
+      # selected-view source proof, so a newer source conformance failure
+      # does not prevent their independent recovery/served proofs running.
+      - name: Authenticated interface prefix storage and lifecycle isolation
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: python3 scripts/ci_interface_prefix_transport.py --integration
 
   perf-smoke:
     name: perf-smoke
