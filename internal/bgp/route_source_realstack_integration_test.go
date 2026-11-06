@@ -26,7 +26,7 @@ import (
 // or flow join; those remain separately required original item proofs.
 func TestBMPLocRIBRealRouterKeepsCompletePeerAndFamilyMarkers(t *testing.T) {
 	lab := startRoutingLabNamed(t, "probectl-qa-beta-current-rib-"+strconv.FormatInt(time.Now().UnixNano()%1e8, 36))
-	_ = addRoleRouterLink(t, lab, "transit", "edge", 234, edgeASN, entity.InterfaceRoleTransit)
+	link := addRoleRouterLink(t, lab, "transit", "edge", 234, edgeASN, entity.InterfaceRoleTransit)
 	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "bmp targets probectl", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "end")
 	conn, err := net.DialTimeout("tcp", lab.bmpAddr(t, "rtr-a"), 5*time.Second)
 	if err != nil {
@@ -97,11 +97,28 @@ func TestBMPLocRIBRealRouterKeepsCompletePeerAndFamilyMarkers(t *testing.T) {
 			markers[frame.Update.EndOfRIB] = true
 		}
 		if len(frame.Update.ReachableIPv4) > 0 {
-			announced[1] = true
+			prefixes, err := bgp.SourceLegacyPrefixesForTest(t.Context(), frame, peer)
+			if err != nil {
+				t.Fatal("actual Loc-RIB legacy NLRI refused", err)
+			}
+			for _, prefix := range prefixes {
+				if prefix.Prefix.String() == prefixA {
+					announced[1] = true
+				}
+			}
 		}
 		for _, attr := range frame.Update.Attributes {
-			if attr.Type == 14 && len(attr.Value) >= 3 && attr.Value[2] == 1 {
-				announced[binary.BigEndian.Uint16(attr.Value[:2])] = true
+			if attr.Type != 14 {
+				continue
+			}
+			reach, err := bgp.SourceMPReachForTest(t.Context(), attr.Value, frame, peer)
+			if err != nil {
+				t.Fatal("actual Loc-RIB multiprotocol reach refused", err)
+			}
+			for _, prefix := range reach.Prefixes {
+				if reach.Family.AFI == 1 && prefix.Prefix.String() == prefixA || reach.Family.AFI == 2 && prefix.Prefix.String() == link.prefix6 {
+					announced[reach.Family.AFI] = true
+				}
 			}
 		}
 	}
