@@ -33,6 +33,8 @@ UNIT = {
         "TestInterfaceRoleQuerySelectorsRequireAllSourcePlanesAndCompleteInputs",
     ),
     "internal/device": (
+        "TestSNMPPollInterfaceAddressesKeepDualStackWholeEpochAndTenantEvidence",
+        "TestSNMPInterfaceAddressesRefusePartialMalformedOrUnadmittedTables",
         "TestSNMPPollPrefixEvidenceKeepsCompleteEpochAndUnavailableFence",
         "TestSNMPPollPrefixEvidenceRetainsWholePopulationAndOwnsInput",
         "TestSNMPPollSkipsExtraPrefixFetchWithoutEvidenceChannel",
@@ -295,6 +297,25 @@ def bgp_routing_authority_control():
         child="origin-purpose", marker="changed source/credential retained routing authority"
     ):
         raise RuntimeError("routing origin purpose control did not fail its exact assertion")
+
+
+def snmp_dual_stack_address_control():
+    source = Path("internal/device/snmp.go").resolve()
+    original = source.read_text()
+    seam = "collectSNMPModernAddresses(ctx, conn, &inv)"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    mutant = overlay_source_path(out, "snmp_modern_addresses_omitted.go")
+    mutant.write_text(original.replace(seam, "_ = ctx"))
+    overlay = out / "snmp_modern_addresses_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestSNMPPollInterfaceAddressesKeepDualStackWholeEpochAndTenantEvidence"
+    result = execute("internal/device", (root,), "snmp_modern_addresses_omitted", overlay=overlay)
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, package=PREFIX + "internal/device", root=root,
+        child="", marker="complete dual-stack IP-MIB addresses were lost",
+    ):
+        raise RuntimeError("dual-stack address omission did not fail its exact assertion")
 
 
 
@@ -1023,6 +1044,7 @@ def main(integration, flow_integration=False):
         configuration_api_controls()
         configuration_silo_lock_control()
     if not integration:
+        snmp_dual_stack_address_control()
         role_query_tenant_control()
         prefix_poll_refresh_control()
         configuration_regexp_expansion_control()
