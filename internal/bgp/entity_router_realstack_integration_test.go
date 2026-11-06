@@ -813,76 +813,7 @@ func discoverEdgePath(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration,
 func startEdgeBMPEvidence(t *testing.T, st *shipped.Stack, lab *routingLab,
 	reg edgeFlowRegistration, edgeIP, deviceAgentID, initialSupportID string) {
 	t.Helper()
-	tn := &bgpTenant{slug: "fx2-router", id: reg.tenantID, cookie: reg.cookie,
-		router: "rtr-a", prefix: prefixA}
-	tn.setupAPI(t, st)
-	tn.registerRouterAPI(t, st)
-	code, payload := st.Do(t, reg.cookie, http.MethodPut, "/v1/entity-source-contexts",
-		map[string]string{"agent_id": tn.collectorID, "source_kind": "bmp_peer",
-			"source_ref": tn.routerID, "context_id": reg.contextID})
-	if code != http.StatusOK {
-		t.Fatalf("assign FX-2 authenticated BMP peer context: HTTP %d: %.300s", code, payload)
-	}
-	csr, key, err := crypto.CreateCSR("fx2-bmp-listener-evidence")
-	if err != nil {
-		t.Fatal(err)
-	}
-	code, payload = st.Do(t, reg.cookie, http.MethodPost, "/v1/agents/enroll-tokens",
-		map[string]any{"name": "fx2-bmp-evidence", "ttl_seconds": 600,
-			"agent_id": tn.collectorID})
-	if code != http.StatusCreated {
-		t.Fatalf("mint FX-2 BMP evidence token: HTTP %d", code)
-	}
-	var token struct{ Token string }
-	if err := json.Unmarshal(payload, &token); err != nil || token.Token == "" {
-		t.Fatalf("decode FX-2 BMP evidence token: %v", err)
-	}
-	code, payload = st.Do(t, reg.cookie, http.MethodPost, "/v1/collectors/register",
-		map[string]string{"token": token.Token, "plane": "entity",
-			"hostname": "fx2-bmp-listener", "csr_pem": string(csr)})
-	if code != http.StatusCreated {
-		t.Fatalf("register FX-2 BMP evidence SVID: HTTP %d: %.300s", code, payload)
-	}
-	var evidence struct {
-		TenantID string           `json:"tenant_id"`
-		AgentID  string           `json:"agent_id"`
-		Plane    string           `json:"plane"`
-		SVID     *enroll.Identity `json:"svid"`
-	}
-	if err := json.Unmarshal(payload, &evidence); err != nil ||
-		evidence.TenantID != reg.tenantID || evidence.AgentID != tn.collectorID ||
-		evidence.Plane != "entity" || evidence.SVID == nil ||
-		evidence.SVID.SPIFFEID != crypto.EntitySPIFFEID(reg.tenantID, tn.collectorID) {
-		t.Fatalf("FX-2 BMP evidence registration lost exact listener identity: %v", err)
-	}
-	certFile, keyFile, caFile := writeRouterEvidenceFiles(t, st, "fx2-bmp-evidence", evidence.SVID.CertPEM, key)
-	logins := bmpLogins(t, st)
-	tn.listenAddr = shipped.FreeAddr(t)
-	tn.listenerLog = st.StartProcess(t, "fx2-bmp-listener",
-		st.Binary(t, "probectl-bmp-listener"), nil, []string{
-			"PROBECTL_BMP_LISTEN_ADDR=" + tn.listenAddr,
-			"PROBECTL_BMP_TLS_CERT_FILE=" + st.ServerCert,
-			"PROBECTL_BMP_TLS_KEY_FILE=" + st.ServerKey,
-			"PROBECTL_BMP_TLS_CA_FILE=" + st.AgentCAFile,
-			"PROBECTL_BMP_DATABASE_URL=" + logins.registry,
-			"PROBECTL_BMP_REVOCATION_DATABASE_URL=" + logins.revocation,
-			"PROBECTL_BMP_TENANT_ID=" + reg.tenantID,
-			"PROBECTL_BMP_AGENT_ID=" + tn.collectorID,
-			"PROBECTL_BMP_COLLECTOR=" + tn.collectorID,
-			"PROBECTL_BMP_BUS_NAMESPACE=" + tn.lane,
-			"PROBECTL_BMP_BUS_MODE=kafka",
-			"PROBECTL_BMP_BUS_BROKERS=" + strings.Join(testsupport.KafkaBrokers(), ","),
-			"PROBECTL_BMP_BUS_ALLOW_PLAINTEXT=true", // CI-only development broker
-			"PROBECTL_BMP_METRICS_ADDR=" + shipped.FreeAddr(t),
-			"PROBECTL_BMP_EVIDENCE_CONTROL_ADDR=" + st.AgentAddr,
-			"PROBECTL_BMP_EVIDENCE_ROTATE_URL=" + st.BaseURL + "/enroll/agent/rotate",
-			"PROBECTL_BMP_EVIDENCE_CERT_FILE=" + certFile,
-			"PROBECTL_BMP_EVIDENCE_KEY_FILE=" + keyFile,
-			"PROBECTL_BMP_EVIDENCE_CA_FILE=" + caFile,
-			"PROBECTL_BMP_EVIDENCE_SERVER_NAME=localhost",
-		})
-	bridgeBMP(t, lab.bmpAddr(t, tn.router), tn.listenAddr, tn.routerTLS(t, st))
-	tn.awaitListener(t, "FX-2 FRR rtr-a's route from edge", "route_observation")
+	tn := startRouterBMPEvidenceListener(t, st, lab, reg, "")
 	last := "no BMP evidence returned"
 	matched := false
 	defer func() {
@@ -927,6 +858,11 @@ func startEdgeBMPEvidence(t *testing.T, st *shipped.Stack, lab *routingLab,
 // The UDP source ACL and the narrower evidence exporter list both name edge.
 func startShippedEdgeFlow(t *testing.T, st *shipped.Stack, lab *routingLab, reg edgeFlowRegistration) string {
 	t.Helper()
+	return startShippedRouterFlow(t, st, lab, reg, lab.ip["edge"])
+}
+
+func startShippedRouterFlow(t *testing.T, st *shipped.Stack, lab *routingLab, reg edgeFlowRegistration, exporterIP string) string {
+	t.Helper()
 	gateway := labBridgeGateway(t, lab)
 	probe, err := net.ListenUDP("udp4", &net.UDPAddr{IP: gateway, Port: 0})
 	if err != nil {
@@ -948,14 +884,14 @@ func startShippedEdgeFlow(t *testing.T, st *shipped.Stack, lab *routingLab, reg 
 	env["PROBECTL_FLOW_SFLOW_ENABLED"] = "false"
 	env["PROBECTL_FLOW_IPFIX_ENABLED"] = "true"
 	env["PROBECTL_FLOW_IPFIX_LISTEN"] = listener
-	env["PROBECTL_FLOW_IPFIX_ALLOWED_SOURCES"] = lab.ip["edge"] + "/32"
+	env["PROBECTL_FLOW_IPFIX_ALLOWED_SOURCES"] = exporterIP + "/32"
 	env["PROBECTL_FLOW_EVIDENCE_CONTROL_ADDR"] = st.AgentAddr
 	env["PROBECTL_FLOW_EVIDENCE_ROTATE_URL"] = st.BaseURL + "/enroll/agent/rotate"
 	env["PROBECTL_FLOW_EVIDENCE_CERT_FILE"] = reg.certFile
 	env["PROBECTL_FLOW_EVIDENCE_KEY_FILE"] = reg.keyFile
 	env["PROBECTL_FLOW_EVIDENCE_CA_FILE"] = reg.caFile
 	env["PROBECTL_FLOW_EVIDENCE_SERVER_NAME"] = "localhost"
-	env["PROBECTL_FLOW_EVIDENCE_EXPORTERS"] = lab.ip["edge"]
+	env["PROBECTL_FLOW_EVIDENCE_EXPORTERS"] = exporterIP
 	keys := make([]string, 0, len(env))
 	for key := range env {
 		keys = append(keys, key)
@@ -1079,6 +1015,11 @@ func emitEdgeFlow(t *testing.T, lab *routingLab, exporterContainer string) {
 
 func startEdgeSNMP(t *testing.T, lab *routingLab) string {
 	t.Helper()
+	return startRouterSNMP(t, lab, "edge")
+}
+
+func startRouterSNMP(t *testing.T, lab *routingLab, router string) string {
+	t.Helper()
 	const base = "alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
 	const image = "probectl-qa-beta-fx2-snmpd:alpine-3.22.6"
 	dockerfile := "FROM " + base + "\nRUN apk add --no-cache net-snmp net-snmp-tools\n"
@@ -1088,11 +1029,11 @@ func startEdgeSNMP(t *testing.T, lab *routingLab) string {
 		t.Fatalf("build pinned FX-2 SNMP fixture: %v\n%s", err, out)
 	}
 	t.Cleanup(func() { _ = exec.Command("docker", "image", "rm", image).Run() })
-	name := lab.name + "-edge-snmp"
+	name := lab.name + "-" + router + "-snmp"
 	_ = exec.Command("docker", "rm", "-f", name).Run()
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
 	lab.docker(t, "create", "--name", name,
-		"--network", "container:"+lab.container("edge"), image,
+		"--network", "container:"+lab.container(router), image,
 		"snmpd", "-f", "-Lo", "-C", "-c", "/etc/snmp/snmpd.conf", "udp:161")
 	secret, err := crypto.Random(16)
 	if err != nil {
@@ -1143,4 +1084,86 @@ func queryEdgeSNMP(t *testing.T, container, community, oid string) string {
 		t.Fatalf("edge SNMP query %s failed: %v", oid, err)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func startRouterBMPEvidenceListener(t *testing.T, st *shipped.Stack, lab *routingLab, reg edgeFlowRegistration, originAnchor string) *bgpTenant {
+	t.Helper()
+	tn := &bgpTenant{slug: "fx2-router", id: reg.tenantID, cookie: reg.cookie,
+		router: "rtr-a", prefix: prefixA}
+	tn.setupAPI(t, st)
+	tn.registerRouterAPI(t, st)
+	code, payload := st.Do(t, reg.cookie, http.MethodPut, "/v1/entity-source-contexts",
+		routerBMPSourceBinding(tn.collectorID, tn.routerID, reg.contextID, originAnchor))
+	if code != http.StatusOK {
+		t.Fatalf("assign FX-2 authenticated BMP peer context: HTTP %d: %.300s", code, payload)
+	}
+	csr, key, err := crypto.CreateCSR("fx2-bmp-listener-evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, payload = st.Do(t, reg.cookie, http.MethodPost, "/v1/agents/enroll-tokens",
+		map[string]any{"name": "fx2-bmp-evidence", "ttl_seconds": 600,
+			"agent_id": tn.collectorID})
+	if code != http.StatusCreated {
+		t.Fatalf("mint FX-2 BMP evidence token: HTTP %d", code)
+	}
+	var token struct{ Token string }
+	if err := json.Unmarshal(payload, &token); err != nil || token.Token == "" {
+		t.Fatalf("decode FX-2 BMP evidence token: %v", err)
+	}
+	code, payload = st.Do(t, reg.cookie, http.MethodPost, "/v1/collectors/register",
+		map[string]string{"token": token.Token, "plane": "entity",
+			"hostname": "fx2-bmp-listener", "csr_pem": string(csr)})
+	if code != http.StatusCreated {
+		t.Fatalf("register FX-2 BMP evidence SVID: HTTP %d: %.300s", code, payload)
+	}
+	var evidence struct {
+		TenantID string           `json:"tenant_id"`
+		AgentID  string           `json:"agent_id"`
+		Plane    string           `json:"plane"`
+		SVID     *enroll.Identity `json:"svid"`
+	}
+	if err := json.Unmarshal(payload, &evidence); err != nil ||
+		evidence.TenantID != reg.tenantID || evidence.AgentID != tn.collectorID ||
+		evidence.Plane != "entity" || evidence.SVID == nil ||
+		evidence.SVID.SPIFFEID != crypto.EntitySPIFFEID(reg.tenantID, tn.collectorID) {
+		t.Fatalf("FX-2 BMP evidence registration lost exact listener identity: %v", err)
+	}
+	certFile, keyFile, caFile := writeRouterEvidenceFiles(t, st, "fx2-bmp-evidence", evidence.SVID.CertPEM, key)
+	logins := bmpLogins(t, st)
+	tn.listenAddr = shipped.FreeAddr(t)
+	tn.listenerLog = st.StartProcess(t, "fx2-bmp-listener",
+		st.Binary(t, "probectl-bmp-listener"), nil, []string{
+			"PROBECTL_BMP_LISTEN_ADDR=" + tn.listenAddr,
+			"PROBECTL_BMP_TLS_CERT_FILE=" + st.ServerCert,
+			"PROBECTL_BMP_TLS_KEY_FILE=" + st.ServerKey,
+			"PROBECTL_BMP_TLS_CA_FILE=" + st.AgentCAFile,
+			"PROBECTL_BMP_DATABASE_URL=" + logins.registry,
+			"PROBECTL_BMP_REVOCATION_DATABASE_URL=" + logins.revocation,
+			"PROBECTL_BMP_TENANT_ID=" + reg.tenantID,
+			"PROBECTL_BMP_AGENT_ID=" + tn.collectorID,
+			"PROBECTL_BMP_COLLECTOR=" + tn.collectorID,
+			"PROBECTL_BMP_BUS_NAMESPACE=" + tn.lane,
+			"PROBECTL_BMP_BUS_MODE=kafka",
+			"PROBECTL_BMP_BUS_BROKERS=" + strings.Join(testsupport.KafkaBrokers(), ","),
+			"PROBECTL_BMP_BUS_ALLOW_PLAINTEXT=true", // CI-only development broker
+			"PROBECTL_BMP_METRICS_ADDR=" + shipped.FreeAddr(t),
+			"PROBECTL_BMP_EVIDENCE_CONTROL_ADDR=" + st.AgentAddr,
+			"PROBECTL_BMP_EVIDENCE_ROTATE_URL=" + st.BaseURL + "/enroll/agent/rotate",
+			"PROBECTL_BMP_EVIDENCE_CERT_FILE=" + certFile,
+			"PROBECTL_BMP_EVIDENCE_KEY_FILE=" + keyFile,
+			"PROBECTL_BMP_EVIDENCE_CA_FILE=" + caFile,
+			"PROBECTL_BMP_EVIDENCE_SERVER_NAME=localhost",
+		})
+	bridgeBMP(t, lab.bmpAddr(t, tn.router), tn.listenAddr, tn.routerTLS(t, st))
+	tn.awaitListener(t, "FX-2 FRR rtr-a's route from edge", "route_observation")
+	return tn
+}
+
+func routerBMPSourceBinding(agent, source, contextID, anchor string) map[string]string {
+	out := map[string]string{"agent_id": agent, "source_kind": "bmp_peer", "source_ref": source, "context_id": contextID}
+	if anchor != "" {
+		out["anchor_entity_id"] = anchor
+	}
+	return out
 }

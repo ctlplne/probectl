@@ -1590,6 +1590,20 @@ jobs:
         run: ./scripts/ci_dex.sh .ci-dex
       - name: Initial navigation retry and fail-closed controls
         run: node --test scripts/realstack_navigation.test.mjs
+      - name: Same-router FRR SNMP and captured IPFIX role proof
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+          PROBECTL_TEST_KAFKA: "localhost:9092"
+          PROBECTL_FLOWSTORE_URL: "http://probectl:probectl@localhost:8123"
+          PROBECTL_TEST_CLICKHOUSE_URL: "http://probectl:probectl@localhost:8123"
+        run: python3 scripts/ci_interface_role_router.py
+      - name: Upload same-router role receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: interface-role-router
+          path: artifacts/interface-role-router/
+          if-no-files-found: error
       - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
         # WIRE-005: require services so the mTLS/enroll wire-defense integration
         # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,
