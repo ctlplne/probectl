@@ -160,6 +160,7 @@ INTEGRATION = {
         "TestRoutingBindingManifestRefusesLegacyAuthorityWithoutChangingOtherTenant",
         "TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant",
         "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
+        "TestRoutingStageReplacementWithdrawsOmittedFamiliesWithoutAffectingSibling",
         "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
         "TestInterfaceRoleInputsRetainWholePrefixTableAndRefusePartialBudget",
@@ -459,6 +460,14 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-stage-families": (
+        "internal/store/bgp_routing_stage.go",
+        "if _, err := invalidateRoutingStageSource(ctx, sc, source); err != nil {",
+        "if _, err := (BGPRoutingStageResult{}), error(nil); err != nil {",
+        "TestRoutingStageReplacementWithdrawsOmittedFamiliesWithoutAffectingSibling",
+        "",
+        "replacement routing peer retained an omitted address family",
+    ),
     "routing-selection-unknown": (
         "internal/store/bgp_routing_bound_authority.go",
         "decoder.DisallowUnknownFields()",

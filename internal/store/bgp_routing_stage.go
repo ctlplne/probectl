@@ -98,6 +98,12 @@ func (store BGPRouting) StagePeerInScope(ctx context.Context, sc tenancy.Scope, 
 }
 
 func (store BGPRouting) persistRoutingStage(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, input BGPRoutingPeerUpInput, refs []BGPRoutingStagedView, profile BGPRoutingBudget) error {
+	// A complete Peer Up replaces the entire source incarnation. A family
+	// omitted from the new OPEN must not survive from the previous generation.
+	// The caller's savepoint keeps retirement atomic with every new family.
+	if _, err := invalidateRoutingStageSource(ctx, sc, source); err != nil {
+		return err
+	}
 	for i, definition := range input.Definitions {
 		definition.Peer.OpenFrameDigest = append([]byte(nil), input.FrameDigest...)
 		definition.Peer.CollectorObservedUnixNanos = input.ObservedAt.UnixNano()
