@@ -47,7 +47,7 @@ func validateBGPRoutingSource(ctx context.Context, sc tenancy.Scope, source BGPR
 	if !present || tenant != sc.Tenant || tenant.String() != source.TenantID {
 		return entity.ErrScopeMismatch
 	}
-	normalized, err := source.Scope.Normalize()
+	normalized, err := source.Normalize()
 	if err != nil || normalized != source.Scope {
 		return entity.ErrInvalidScope
 	}
