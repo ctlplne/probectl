@@ -8,6 +8,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/gosnmp/gosnmp"
@@ -18,13 +19,25 @@ import (
 // library BulkWalk maps several packet errors to nil and is unsuitable for
 // evidence that must distinguish complete from partial snapshots.
 func (c gosnmpConn) walkInterfacePrefixes(ctx context.Context, fn gosnmp.WalkFunc) error {
+	err := c.walkInterfaceColumn(ctx, oidIPAddressPrefixOnLink, fn)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return errSNMPInterfacePrefixIncomplete
+	}
+	return err
+}
+
+func (c gosnmpConn) walkInterfaceAddresses(ctx context.Context, fn gosnmp.WalkFunc) error {
+	return c.walkInterfaceColumn(ctx, oidIPAddressIfIndex, fn)
+}
+
+func (c gosnmpConn) walkInterfaceColumn(ctx context.Context, root string, fn gosnmp.WalkFunc) error {
 	if c.g == nil {
 		return errSNMPInterfacePrefixIncomplete
 	}
 	previous := c.g.Context
 	c.g.Context = ctx
 	defer func() { c.g.Context = previous }()
-	return walkSNMPInterfacePrefixPackets(ctx, func(oid string) (*gosnmp.SnmpPacket, error) {
+	return walkSNMPColumnPackets(ctx, root, func(oid string) (*gosnmp.SnmpPacket, error) {
 		return c.g.GetBulk([]string{oid}, 0, 32)
 	}, fn)
 }
@@ -33,7 +46,15 @@ func (c gosnmpConn) walkInterfacePrefixes(ctx context.Context, fn gosnmp.WalkFun
 // requested column, or EndOfMibView. NoSuchObject/Instance, packet errors and
 // empty packets are unavailable even after valid rows have been received.
 func walkSNMPInterfacePrefixPackets(ctx context.Context, get func(string) (*gosnmp.SnmpPacket, error), fn gosnmp.WalkFunc) error {
-	current := oidIPAddressPrefixOnLink
+	err := walkSNMPColumnPackets(ctx, oidIPAddressPrefixOnLink, get, fn)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return errSNMPInterfacePrefixIncomplete
+	}
+	return err
+}
+
+func walkSNMPColumnPackets(ctx context.Context, root string, get func(string) (*gosnmp.SnmpPacket, error), fn gosnmp.WalkFunc) error {
+	current := root
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -53,12 +74,15 @@ func walkSNMPInterfacePrefixPackets(ctx context.Context, get func(string) (*gosn
 			case gosnmp.EndOfMibView:
 				return nil
 			case gosnmp.NoSuchObject, gosnmp.NoSuchInstance:
+				if current == root {
+					return errors.ErrUnsupported
+				}
 				return errSNMPInterfacePrefixIncomplete
 			}
 			if !snmpPrefixOIDFollows(current, pdu.Name) {
 				return errSNMPInterfacePrefixIncomplete
 			}
-			if !strings.HasPrefix(strings.TrimPrefix(pdu.Name, "."), strings.TrimPrefix(oidIPAddressPrefixOnLink, ".")+".") {
+			if !strings.HasPrefix(strings.TrimPrefix(pdu.Name, "."), strings.TrimPrefix(root, ".")+".") {
 				return nil
 			}
 			if err := fn(pdu); err != nil {

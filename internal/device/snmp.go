@@ -7,6 +7,7 @@
 package device
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -158,7 +159,7 @@ func dialSNMP(dev Target, cred Credential) (snmpConn, error) {
 // pollSNMP performs one poll: system group, IF-MIB tables, address table,
 // HOST-RESOURCES CPU/memory, optional sensors. Every table degrades
 // independently — a vendor that lacks a MIB simply yields fewer metrics.
-func pollSNMP(conn snmpConn, dev Target, tenant, agent string, now time.Time) ([]Metric, Inventory, error) {
+func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent string, now time.Time) ([]Metric, Inventory, error) {
 	inv := Inventory{Device: dev.Address, Interfaces: map[uint32]Interface{}}
 	if peer, ok := conn.(interface{ peerAddress() netip.Addr }); ok {
 		inv.peerAddress = peer.peerAddress()
@@ -245,6 +246,7 @@ func pollSNMP(conn snmpConn, dev Target, tenant, agent string, now time.Time) ([
 		}
 		return nil
 	})
+	collectSNMPModernAddresses(ctx, conn, &inv)
 
 	// Emit per-interface metrics now that names are known.
 	for idx, e := range inv.Interfaces {
@@ -260,6 +262,7 @@ func pollSNMP(conn snmpConn, dev Target, tenant, agent string, now time.Time) ([
 			for _, address := range e.Addrs {
 				m.InterfaceAddresses = append(m.InterfaceAddresses, address.String())
 			}
+			m.InterfaceAddresses = append(m.InterfaceAddresses, e.ScopedAddrs...)
 			m.Name, m.Value, m.Unit = name, v, unit
 			out = append(out, m)
 		}

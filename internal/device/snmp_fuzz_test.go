@@ -65,9 +65,10 @@ func FuzzSNMPPoll(f *testing.F) {
 
 	now := time.Unix(1750000000, 0).UTC()
 	f.Fuzz(func(t *testing.T, val []byte, num int64, kind uint8) {
+		_, _ = parseSNMPInterfaceAddress(gosnmp.SnmpPDU{Name: string(val), Type: gosnmp.Asn1BER(kind), Value: num})
 		conn := fuzzConn{val: val, num: num, kind: gosnmp.Asn1BER(kind)}
 		dev := Target{Address: "192.0.2.10", Port: 161, Transport: "snmpv2c", Sensors: true}
-		metrics, _, err := pollSNMP(conn, dev, "tenant-1", "agent-1", now)
+		metrics, _, err := pollSNMP(t.Context(), conn, dev, "tenant-1", "agent-1", now)
 		if err != nil {
 			return // a refusal is fine; a panic is not
 		}

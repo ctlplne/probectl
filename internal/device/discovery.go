@@ -159,7 +159,7 @@ func (p SNMPDiscoveryProber) Probe(ctx context.Context, target Target, cred Cred
 		return Inventory{}, err
 	}
 	defer conn.Close()
-	_, inv, err := pollSNMP(conn, target, "", "", now())
+	_, inv, err := pollSNMP(ctx, conn, target, "", "", now())
 	return inv, err
 }
 

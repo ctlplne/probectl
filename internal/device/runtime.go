@@ -283,7 +283,7 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	defer conn.Close()
 
 	observedAt := time.Now()
-	metrics, inv, err := pollSNMP(conn, dev, r.cfg.TenantID, r.cfg.AgentID, observedAt)
+	metrics, inv, err := pollSNMP(ctx, conn, dev, r.cfg.TenantID, r.cfg.AgentID, observedAt)
 	if err != nil {
 		r.stats.PollErrors.Add(1)
 		r.emitFailedOutcomes(ctx, dev, observedAt, CollectionReasonBasePollFailed)

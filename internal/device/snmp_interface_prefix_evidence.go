@@ -20,6 +20,10 @@ import (
 // most256 text bytes. No complete in-wire workload is excluded by a row quota.
 func (r *Runtime) collectSNMPPrefixEvidence(ctx context.Context, conn snmpConn, inv *Inventory) {
 	inv.prefixAttempted, inv.interfacePrefixes = true, nil
+	if inv.addressesUnavailable {
+		r.stats.InterfacePrefixUnavailable.Add(1)
+		return
+	}
 	walker, ok := conn.(snmpInterfacePrefixWalker)
 	if !ok {
 		r.stats.InterfacePrefixUnavailable.Add(1)

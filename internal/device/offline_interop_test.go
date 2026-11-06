@@ -16,7 +16,7 @@ func TestOfflineInteropSNMPSimReplayNormalizesMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	conn := &ipWalkConn{fakeConn: healthyConn(), ipRows: map[string]uint32{"10.0.0.1": 1}}
-	ms, inv, err := pollSNMP(conn, Target{Address: "192.0.2.1", Transport: TransportSNMPv2c, Sensors: true}, "tenant-a", "device-agent-1", pollTime)
+	ms, inv, err := pollSNMP(t.Context(), conn, Target{Address: "192.0.2.1", Transport: TransportSNMPv2c, Sensors: true}, "tenant-a", "device-agent-1", pollTime)
 	if err != nil {
 		t.Fatal(err)
 	}

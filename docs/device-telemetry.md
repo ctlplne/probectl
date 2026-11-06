@@ -100,6 +100,11 @@ few places probectl owns the names. In the TSDB they become `probectl_device_*`
 with labels `tenant_id, agent_id, device, device_name, source, if_index,
 if_name` (`source` is `snmp` or `gnmi`). SNMP interface samples also carry
 their normalized interface addresses in the tenant-keyed protobuf bus payload.
+SNMP polls read the IP-version-neutral IP-MIB address table for IPv4 and IPv6;
+explicitly unsupported agents retain the legacy IPv4 table. A failed or partial
+modern address walk publishes no partial address inventory or complete role-prefix
+epoch. Scoped addresses preserve their device-local zone IDs in raw interface
+metrics and never become unscoped canonical address aliases.
 Those addresses rebuild local topology/correlation evidence during replay; they
 do not become high-cardinality TSDB labels.
 

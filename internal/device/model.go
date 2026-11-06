@@ -94,7 +94,10 @@ type Interface struct {
 	Descr     string
 	SpeedMbps uint64
 	OperUp    bool
-	Addrs     []netip.Addr // from ipAddrTable
+	Addrs     []netip.Addr // complete IP-MIB table; legacy IPv4 if unsupported
+	// Scoped addresses retain device-local zone IDs in raw metrics. They are
+	// never promoted to globally scoped canonical address aliases.
+	ScopedAddrs []string
 }
 
 // Inventory is one device's discovered identity + interfaces, fed to the
@@ -109,6 +112,7 @@ type Inventory struct {
 	peerAddress netip.Addr
 	// Complete-poll prefix availability/content participate in identity
 	// change detection. Never reuse another poll's prefix table on failure.
-	prefixAttempted   bool
-	interfacePrefixes []snmpInterfacePrefix
+	prefixAttempted      bool
+	interfacePrefixes    []snmpInterfacePrefix
+	addressesUnavailable bool
 }

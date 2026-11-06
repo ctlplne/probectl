@@ -145,7 +145,7 @@ func TestPollSNMPHealthyDevice(t *testing.T) {
 	conn := &ipWalkConn{fakeConn: healthyConn(), ipRows: map[string]uint32{"10.0.0.1": 1}}
 	dev := Target{Address: "192.0.2.1", Transport: TransportSNMPv2c, Sensors: true}
 
-	ms, inv, err := pollSNMP(conn, dev, "t-a", "agent-1", pollTime)
+	ms, inv, err := pollSNMP(t.Context(), conn, dev, "t-a", "agent-1", pollTime)
 	if err != nil {
 		t.Fatalf("poll: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestPollSNMPGracefulDegradation(t *testing.T) {
 			oidIfOperStatus: {7: pdu(1)},
 		},
 	}
-	ms, inv, err := pollSNMP(conn, Target{Address: "192.0.2.9", Transport: TransportSNMPv2c}, "t-a", "a", pollTime)
+	ms, inv, err := pollSNMP(t.Context(), conn, Target{Address: "192.0.2.9", Transport: TransportSNMPv2c}, "t-a", "a", pollTime)
 	if err != nil {
 		t.Fatalf("poll must degrade, not fail: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestPollSNMPGracefulDegradation(t *testing.T) {
 // auth check), and the runtime counts it.
 func TestPollSNMPUnreachable(t *testing.T) {
 	conn := &fakeConn{getErr: errors.New("timeout")}
-	if _, _, err := pollSNMP(conn, Target{Address: "x"}, "t", "a", pollTime); err == nil {
+	if _, _, err := pollSNMP(t.Context(), conn, Target{Address: "x"}, "t", "a", pollTime); err == nil {
 		t.Fatal("expected error for unreachable device")
 	}
 }
@@ -464,7 +464,7 @@ func TestSNMPIntegration(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 	defer conn.Close()
-	ms, inv, err := pollSNMP(conn, dev, "t-it", "it", time.Now())
+	ms, inv, err := pollSNMP(t.Context(), conn, dev, "t-it", "it", time.Now())
 	if err != nil {
 		t.Fatalf("poll: %v", err)
 	}
