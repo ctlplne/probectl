@@ -107,6 +107,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity",
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
         "TestBGPRoutingLookupRequiresTenantExactViewAndWholeAdmissionBeforeStorage",
@@ -151,6 +152,7 @@ INTEGRATION = {
         "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
     ),
     "internal/store": (
+        "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
         "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
         "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
@@ -451,6 +453,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-binding-epoch": (
+        "internal/store/bgp_routing_bindings.go",
+        'if current == nil && ifMatch != "" || current != nil && *current != ifMatch {',
+        'if false && (current == nil && ifMatch != "" || current != nil && *current != ifMatch) {',
+        "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
+        "", "stale routing editor replaced a current binding",
+    ),
     "routing-rate-refusal": (
         "internal/agenttransport/bgp_routing_message.go",
         "Reset: !admitted || raw.SourceReset",
