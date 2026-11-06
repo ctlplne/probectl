@@ -157,7 +157,7 @@ func TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority(t *testing.T)
 			}
 			for lane, tenant := range tenants {
 				got := load(tenant)
-				if got.TenantID != tenant || got.ContextID != contextID || got.RouterID != routerID || got.InterfaceID != interfaceID || got.SNMP == nil || got.SNMP.Description != "owned-"+tenant || len(got.SNMP.Prefixes) != 2 || len(got.Peers) != 1 || got.Peers[0].ASN != 64496+uint32(lane) || len(got.Policy.Definition.ProviderASNs) != 1 || got.Policy.Definition.ProviderASNs[0] != 64496+uint32(lane) || got.Override == nil || got.Override.Role != entity.InterfaceRoleBackbone {
+				if got.Scope.TenantID != tenant || got.Scope.ContextID != contextID || got.RouterID != routerID || got.InterfaceID != interfaceID || got.SNMP == nil || got.SNMP.Description != "owned-"+tenant || len(got.SNMP.Prefixes) != 2 || len(got.Peers) != 1 || got.Peers[0].ASN != 64496+uint32(lane) || len(got.Policy.Definition.ProviderASNs) != 1 || got.Policy.Definition.ProviderASNs[0] != 64496+uint32(lane) || got.Override == nil || got.Override.Role != entity.InterfaceRoleBackbone {
 					t.Fatal("managed role source crossed physical route, tenant or current authority", got)
 				}
 				run(tenant, func(ctx context.Context, sc tenancy.Scope) error {
