@@ -176,6 +176,11 @@ func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *te
 			return (store.Roles{}).AddPermission(ctx, sc, f.roles[a], permission)
 		})
 	}
+	saveCompleteRoleExplanationPolicy(f, a)
+	code, complete := read(a)
+	if code != http.StatusOK || complete.Flow == nil || complete.Flow.Totals["bytes:total"] != "300" || len(complete.Flow.RoleSources) != 1 || complete.Flow.RoleSources[0].Role != entity.InterfaceRoleBackbone || complete.Flow.RoleSources[0].Reason != "description_rule" {
+		t.Fatal("complete saved policy cannot drive role flow queries under the default profile", code, complete.Flow)
+	}
 	if code, out := read(b); code != http.StatusOK || out.Flow == nil || out.Flow.Rows[0].Group["in_if_role"] != "backbone" {
 		t.Fatal("tenant refusal damaged another tenant's role", code)
 	}

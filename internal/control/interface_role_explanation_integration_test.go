@@ -410,9 +410,9 @@ func TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges(t *testin
 	}
 }
 
-func TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission(t *testing.T) {
-	f := newRoleExplanationAPIFixture(t)
-	a := f.tenants[0]
+func saveCompleteRoleExplanationPolicy(f *roleExplanationAPIFixture, a string) {
+	t := f.t
+	t.Helper()
 	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
 		configuration := store.InterfaceRoleConfiguration{}
 		old, err := configuration.Policy(ctx, sc, f.contextID, interfaceRoleStoreBudget(flowstore.DefaultExplorerBudget()))
@@ -433,6 +433,12 @@ func TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmissio
 		_, err = configuration.PutPolicy(ctx, sc, f.contextID, old.ID, old.Revision, old.Definition, interfaceRoleStoreBudget(flowstore.DefaultExplorerBudget()))
 		return err
 	})
+}
+
+func TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission(t *testing.T) {
+	f := newRoleExplanationAPIFixture(t)
+	a := f.tenants[0]
+	saveCompleteRoleExplanationPolicy(f, a)
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, socket.URL+"/v1/entity-contexts/"+f.contextID+"/interfaces/"+f.interfaceID+"/role", nil)
