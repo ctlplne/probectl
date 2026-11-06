@@ -40,6 +40,7 @@ func FuzzBMPFraming(f *testing.F) {
 // payloads. Everything below it now reads through internal/wire; this proves
 // the composition never panics and never invents an unbounded path.
 func FuzzBMPRouteMonitoring(f *testing.F) {
+	addRouteSourceFuzzSeeds(f)
 	f.Add([]byte{})
 	f.Add(bytes.Repeat([]byte{0xFF}, 64))
 	// AS_PATH attribute shapes: 2-byte and 4-byte ASNs, and a lying count.
@@ -48,6 +49,7 @@ func FuzzBMPRouteMonitoring(f *testing.F) {
 	f.Add([]byte{0x40, 0x02, 0x04, 0x02, 0xFF, 0x00, 0x01})
 
 	f.Fuzz(func(t *testing.T, payload []byte) {
+		fuzzRouteSourceParsers(t, payload)
 		obs, err := parseBMPRouteMonitoring(payload)
 		if err != nil {
 			return
@@ -63,12 +65,14 @@ func FuzzBMPRouteMonitoring(f *testing.F) {
 // FuzzBGPASPath isolates the AS_PATH attribute decoder, the parser the
 // assessment named as having the weakest bounds discipline.
 func FuzzBGPASPath(f *testing.F) {
+	f.Add([]byte{2, 1, 255, 255, 255, 255, 1, 1, 0, 0, 0, 1})
 	f.Add([]byte{0x40, 0x02, 0x06, 0x02, 0x02, 0xFD, 0xE8, 0xFD, 0xE9})
 	f.Add([]byte{0x40, 0x02, 0x00})
 	f.Add([]byte{0x02, 0x7F})
 	f.Add([]byte{})
 
 	f.Fuzz(func(t *testing.T, attrs []byte) {
+		fuzzStructuredASPath(t, attrs)
 		path, err := parseBGPASPath(attrs)
 		if err != nil {
 			return

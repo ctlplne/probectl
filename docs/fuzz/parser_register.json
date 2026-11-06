@@ -1,6 +1,33 @@
 {
   "purpose": "Attack-surface parity for fuzzing (Foundation-Loop S-7f81b4c2). Every function that consumes untrusted input in the ingest-surface packages is bound here to the fuzz target that exercises it, or carries a written exemption saying why it is not untrusted input. internal/cipolicy's TestFuzzParityEveryParserIsRegistered discovers parsers structurally and fails on any that is missing, on a target that does not exist, and on a stale entry that matches no parser.",
   "parsers": {
+    "bgp.ParseASPathSegments": {
+      "target": "FuzzBGPASPath"
+    },
+    "bgp.ParseBGPEndOfRIB": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.ParseBGPRouteAttributes": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.ParseBGPRoutePrefixes": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.ParseBGPUpdateFrame": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.ParseBMPPeerDown": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.ParseBMPPeerUp": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.ParseBMPRouteAddPath": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.ParseBMPRouteViewHeader": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
     "bgp.decodeIPv4NLRI": {
       "target": "FuzzBMPRouteMonitoring"
     },
@@ -20,6 +47,15 @@
       "target": "FuzzBMPRouteMonitoring"
     },
     "bgp.parseBMPRouteMonitoring": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parsePeerDownInformation": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseRouteOpenCapabilities": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.routeOpenCapabilities.parseCapabilities": {
       "target": "FuzzBMPRouteMonitoring"
     },
     "device.Parse": {
