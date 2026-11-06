@@ -60,6 +60,7 @@ UNIT = {
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestInterfaceRoleStorageRequiresTenantBeforeAnyQuery",
         "TestInterfaceRoleInputsRequireTenantBeforeStorageAndCanonicalPeerValues",
+        "TestInterfaceRoleFlowBindingRequiresTenantBeforeStorageAndExactIdentity",
     ),
     "ee/silo": (
         "TestEntityRegistryForeignKeysFollowAllSiloCopies",
@@ -79,6 +80,7 @@ INTEGRATION = {
         "TestInterfaceRoleInputsRetainWholePrefixTableAndRefusePartialBudget",
         "TestInterfaceRoleInputsRequireAuthenticatedFaultClockAndRecovery",
         "TestInterfaceRoleInputsRequireExplicitBMPOriginRouterBinding",
+        "TestInterfaceRoleFlowBindingsKeepCurrentExplicitOriginsAndTenantScope",
         "TestEntityRegistryTenantAndContextIsolation",
         "TestSNMPPrefixStorageKeepsCompleteWirePopulationAndRepairsManagedCopies",
         "TestDashboardReportTenantIsolation",
@@ -454,6 +456,20 @@ def current_role_explanation_controls():
 def current_role_source_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, file, seam, replacement, root, marker in (
+        (
+            "flow_origin_omitted", "interface_role_flow_bindings.go",
+            "AND source.anchor_entity_id=node.id AND e.support_evidence_id IS NULL",
+            "AND TRUE",
+            "TestInterfaceRoleFlowBindingsKeepCurrentExplicitOriginsAndTenantScope",
+            "inferred flow identity supplied explicit origin authority",
+        ),
+        (
+            "flow_latest_omitted", "interface_role_flow_bindings.go",
+            "(e.agent_id,e.configured_ref,e.alias_value,e.observed_at)",
+            "(e.agent_id,e.configured_ref,e.alias_value,latest.observed)",
+            "TestInterfaceRoleFlowBindingsKeepCurrentExplicitOriginsAndTenantScope",
+            "expired latest flow identity revived an older source",
+        ),
         (
             "prefix_latest_nonnull",
             "interface_role_snmp_inputs.go",
