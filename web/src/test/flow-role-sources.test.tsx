@@ -48,6 +48,20 @@ function roleResult(tenant: string): ExplorerResult {
     suggestions: {},
     evidence_path: '/planes/flow',
     truncated: false,
+    execution: {
+      contract_version: 'flow-explorer-execution/v2',
+      source: 'flow',
+      recipe: 'native',
+      tenant_scoped: true,
+      bounds: { from: plan.from!, to: plan.to!, row_limit: 100 },
+      projection: { dimensions: [], groupings: plan.group_by!, measures: ['bytes:total'] },
+      filter_keys: [],
+      source_rows: 1,
+      returned_rows: 1,
+      truncated: false,
+      truncation_reason: 'none',
+      timings: { source_ms: 1, shaping_ms: 1, total_ms: 2 },
+    },
     flow: {
       query: plan,
       source: 'raw',
@@ -221,4 +235,28 @@ test('foreign or unbound role result is refused as a whole, with no partial sour
       [],
     ),
   ).toBe(true)
+})
+
+test('mixed role and tag selectors retain every source grant and tenant binding', () => {
+  const own = roleResult('red').flow!
+  const mixed = {
+    ...own,
+    tag_tenant_id: 'red',
+    query: {
+      ...own.query,
+      filter: {
+        groups: [{ conditions: [{ field: 'tag.agent.owner', op: 'eq', values: ['private'] }] }],
+      },
+    },
+  }
+  expect(flowRoleResultReadable(mixed, 'red', grants)).toBe(false)
+  expect(flowRoleResultReadable(mixed, 'red', [...grants, 'tags.read'])).toBe(false)
+  expect(flowRoleResultReadable(mixed, 'red', [...grants, 'tags.read', 'agent.read'])).toBe(true)
+  expect(
+    flowRoleResultReadable({ ...mixed, tag_tenant_id: 'blue' }, 'red', [
+      ...grants,
+      'tags.read',
+      'agent.read',
+    ]),
+  ).toBe(false)
 })

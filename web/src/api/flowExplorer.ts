@@ -113,6 +113,8 @@ export interface FlowMatrixCell {
 export interface FlowExplorerResult {
   query: FlowQueryPlan
   tag_revision?: number
+  tag_tenant_id?: string
+  tag_ids?: Record<string, string>
   role_digest?: string
   role_tenant_id?: string
   role_sources?: FlowInterfaceRoleSource[]
