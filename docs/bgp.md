@@ -376,3 +376,32 @@ default CI.
 [glossary](glossary.md) (BGP, ASN, prefix, origin AS, RPKI, ROA, route leak, MRT)
 
 **Covers:** F6
+
+
+## Routing source staging (preview)
+
+The existing `AgentService.SubmitEntityEvidence` mTLS RPC accepts an exclusive
+`routing_peer_up` observation containing the complete original BMP Peer Up
+message, a retry UUID, the operator-configured source reference, router SVID
+serial and collector observation time. It accepts no tenant, context or
+canonical router identifier from the payload. The current evidence SVID and
+operator assignment select these under tenant storage isolation; ordinary
+agent and BMP credentials cannot call this RPC.
+
+A `staged` or `replayed` receipt contains private per-family generation handles.
+It does **not** publish routes, complete a dump, renew a replayed lease or make
+flow attribution available. Malformed metadata and replacement-admission failure
+invalidate the current owned source before reporting refusal. An old UUID
+cannot revive a retired generation or reset a newer one. Both supported unicast
+families stage atomically. Raw OPENs and ordered information fields remain
+intact, with an original-frame digest binding exact retries.
+
+Staging uses positive operation admission (128 MiB memory/work accounting,
+1 GiB retained state per tenant and a one-minute initial lease), the existing
+tenant evidence byte/rate buckets and a bounded server deadline. These are
+resource profiles, not route-count limits or measured allocations. Production
+routing UPDATE intake, source configuration, completion/heartbeat transport and
+flow joins remain unfinished; no source is promoted from staging alone.
+Malformed OPEN capabilities remain unavailable, including the empty ADD-PATH
+advertisement observed in current FRR sources. Bytes are not repaired or
+substituted to manufacture a valid source view.

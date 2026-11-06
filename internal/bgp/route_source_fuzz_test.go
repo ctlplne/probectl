@@ -105,6 +105,9 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 			t.Fatal("invalid multiprotocol withdrawal exposed partial routes")
 		}
 	}
+	if out, families, err := DecodeRoutingPeerUp(ctx, raw, PeerMessageBudget{memory, work}); err != nil && (!reflect.DeepEqual(out, PeerUp{}) || families != nil) {
+		t.Fatal("invalid routing Peer Up exposed partial metadata or families")
+	}
 	if out, err := parseBMPPeerUp(ctx, raw, PeerMessageBudget{memory, work}); err != nil && !reflect.DeepEqual(out, PeerUp{}) {
 		t.Fatal("invalid Peer Up exposed partial source metadata")
 	}

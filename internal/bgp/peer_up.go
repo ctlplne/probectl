@@ -143,3 +143,34 @@ func takeRouteOpen(raw []byte) ([]byte, []byte, error) {
 	}
 	return raw[:length], raw[length:], nil
 }
+
+// DecodeRoutingPeerUp validates the complete metadata used to start private
+// routing generations. It grants no tenant/router/session authority. Only
+// supported unicast families declared by both complete OPENs are staged.
+func DecodeRoutingPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (PeerUp, []RouteFamily, error) {
+	peer, err := parseBMPPeerUp(ctx, raw, budget)
+	if err != nil {
+		return PeerUp{}, nil, err
+	}
+	sent, err := parseRouteOpenCapabilities(peer.SentOpen)
+	if err != nil {
+		return PeerUp{}, nil, err
+	}
+	received, err := parseRouteOpenCapabilities(peer.ReceivedOpen)
+	if err != nil {
+		return PeerUp{}, nil, err
+	}
+	var families []RouteFamily
+	for _, family := range []RouteFamily{{AFI: 1, SAFI: 1}, {AFI: 2, SAFI: 1}} {
+		if sent.families[family] && received.families[family] {
+			families = append(families, family)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return PeerUp{}, nil, err
+	}
+	if len(families) == 0 {
+		return PeerUp{}, nil, ErrRouteCapabilities
+	}
+	return peer, families, nil
+}

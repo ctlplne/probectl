@@ -225,6 +225,9 @@
     },
     "bgp.decodeBMPRouteChanges": {
       "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.DecodeRoutingPeerUp": {
+      "target": "FuzzBMPRouteMonitoring"
     }
   }
 }

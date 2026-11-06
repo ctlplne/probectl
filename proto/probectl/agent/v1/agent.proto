@@ -283,13 +283,38 @@ message EntityFaultObservation {
   int64 observed_unix_nanos = 6;
 }
 
+// Complete untrusted BMP Peer Up bytes. Tenant, collector, context and router
+// come from mTLS and current operator assignments, never this payload. The
+// observation UUID is a retry identity only; it grants no source authority.
+message BmpRoutingPeerUp {
+  string observation_id = 1;
+  string configured_ref = 2;
+  string origin_serial = 3;
+  int64 observed_unix_nanos = 4;
+  bytes message = 5;
+}
+
+message BmpRoutingStagingReceipt {
+  string status = 1; // staged | replayed | invalidated; never publication
+  repeated BmpRoutingViewReference views = 2;
+}
+
+message BmpRoutingViewReference {
+  string id = 1;
+  string generation = 2;
+  uint32 afi = 3;
+  uint32 safi = 4;
+}
+
 message SubmitEntityEvidenceRequest {
   repeated EntityEvidenceObservation observations = 1;
   repeated EntityFaultObservation faults = 2; // 1–64 combined; message size is also bounded
+  BmpRoutingPeerUp routing_peer_up = 3; // exclusive with observations/faults; complete staging only
 }
 
 message SubmitEntityEvidenceResponse {
   uint32 accepted = 1;   // canonical claims persisted or idempotent replays
   uint32 unresolved = 2; // no current source/anchor or ambiguous server-side match
   uint32 faults_persisted = 3; // persisted in the tenant incident stream, including unresolved identity
+  BmpRoutingStagingReceipt routing = 4;
 }

@@ -39,15 +39,17 @@ type BGPRoutingBudget struct {
 // BGPRoutingPeer retains the complete parsed Peer Up metadata. It is untrusted
 // protocol information; BGPRoutingSource supplies independent current authority.
 type BGPRoutingPeer struct {
-	Type, Flags            uint8
-	Distinguisher          [8]byte
-	Address                netip.Addr
-	ASN                    uint32
-	BGPIdentifier          netip.Addr
-	LocalAddress           netip.Addr
-	LocalPort, RemotePort  uint16
-	SentOpen, ReceivedOpen []byte
-	Information            []BGPRoutingPeerInformation
+	CollectorObservedUnixNanos int64  `json:",omitempty"` // exact retry clock, beyond Postgres microsecond precision
+	OpenFrameDigest            []byte `json:",omitempty"` // complete original Peer Up, for exact retry identity
+	Type, Flags                uint8
+	Distinguisher              [8]byte
+	Address                    netip.Addr
+	ASN                        uint32
+	BGPIdentifier              netip.Addr
+	LocalAddress               netip.Addr
+	LocalPort, RemotePort      uint16
+	SentOpen, ReceivedOpen     []byte
+	Information                []BGPRoutingPeerInformation
 }
 
 type BGPRoutingPeerInformation struct {
@@ -83,6 +85,9 @@ func routingViewMetadata(ctx context.Context, definition BGPRoutingViewDefinitio
 		return nil, key, ErrBGPRoutingBudget
 	}
 	peer := definition.Peer
+	if len(peer.OpenFrameDigest) != 0 && len(peer.OpenFrameDigest) != 32 {
+		return nil, key, ErrBGPRoutingView
+	}
 	if (definition.AFI != 1 && definition.AFI != 2) || definition.SAFI != 1 || peer.Type > 3 ||
 		!peer.BGPIdentifier.Is4() || len(peer.SentOpen) == 0 || len(peer.ReceivedOpen) == 0 {
 		return nil, key, ErrBGPRoutingView
@@ -260,6 +265,7 @@ func lockBGPRoutingState(ctx context.Context, sc tenancy.Scope) error {
 
 func cloneBGPRoutingPeer(peer BGPRoutingPeer) BGPRoutingPeer {
 	peer.SentOpen, peer.ReceivedOpen = bytes.Clone(peer.SentOpen), bytes.Clone(peer.ReceivedOpen)
+	peer.OpenFrameDigest = bytes.Clone(peer.OpenFrameDigest)
 	peer.Information = slices.Clone(peer.Information)
 	for index := range peer.Information {
 		peer.Information[index].Value = bytes.Clone(peer.Information[index].Value)

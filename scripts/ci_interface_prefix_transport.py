@@ -81,12 +81,14 @@ UNIT = {
         "TestInterfaceRolePolicyRefusesAmbiguityAndKeepsCanonicalSets",
     ),
     "internal/agent": (
+        "TestRoutingStageClientPreservesCompleteRequestAndRequiresPrivateReceipt",
         "TestSNMPPrefixEvidenceWireKeepsCompleteSetAndWholeRequestAdmission",
     ),
     "internal/agenttransport": (
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestRoutingPeerUpKeepsCompleteDeclaredFamiliesAndRefusesMalformedSource",
         "TestBMPSourceChangesKeepCompleteDualFamilyPathsWithdrawalsAndAttributes",
         "TestBMPSourceChangesRefuseMissingMandatoryFieldsAndLateMalformedTail",
         "TestBMPSourceChangesKeepExclusiveCompletionAndWholeAdmission",
@@ -142,6 +144,7 @@ INTEGRATION = {
         "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
     ),
     "internal/store": (
+        "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
         "TestInterfaceRoleInputsRetainWholePrefixTableAndRefusePartialBudget",
         "TestInterfaceRoleInputsRequireAuthenticatedFaultClockAndRecovery",
@@ -167,6 +170,7 @@ INTEGRATION = {
         "TestBGPRoutingMessageClockRejectsLegacyWritersAndUnusableHeartbeats",
     ),
     "internal/agenttransport": (
+        "TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState",
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
     ),
     "internal/tenantlife": (
@@ -436,6 +440,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-stage-atomic": (
+        "internal/store/bgp_routing_stage.go",
+        "ROLLBACK TO SAVEPOINT routing_peer_up_stage",
+        "RELEASE SAVEPOINT routing_peer_up_stage",
+        "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
+        "", "late routing family fault escaped whole-source rollback",
+    ),
+    "routing-stage-retry": (
+        "internal/store/bgp_routing_stage.go",
+        "peer_identity=$5::jsonb AND observed_at=$6::timestamptz",
+        "$5::jsonb IS NOT NULL AND observed_at=$6::timestamptz",
+        "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
+        "", "altered routing retry retained current state or damaged another tenant",
+    ),
     "routing-router-conflict": (
         "internal/store/bgp_routing_router.go",
         "if count != 1 {",
