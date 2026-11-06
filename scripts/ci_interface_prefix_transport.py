@@ -127,6 +127,7 @@ INTEGRATION = {
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
     ),
     "internal/tenantlife": (
+        "TestInterfaceRoleSubjectKeepsWholeExportErasureAndTenantIsolation",
         "TestEntityEvidenceSubjectMetadataExportErasureAndIsolation",
     ),
 }
@@ -546,6 +547,24 @@ def current_role_explanation_controls():
     print(json.dumps({"current_role_explanation_controls": True}))
 
 
+def interface_role_subject_control():
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    source = Path("internal/tenantlife/subject.go").resolve()
+    original = source.read_text()
+    start = original.index('"interface_role_policies": {')
+    end = original.index('"interface_role_overrides":', start)
+    mutant = out / "role_policy_subject_omitted.go"
+    mutant.write_text(original[:start] + '"interface_role_policies": {plane: "postgres:interface_role_policies", disposition: subjectTableNoSubject},\n' + original[end:])
+    overlay = out / "role_policy_subject_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestInterfaceRoleSubjectKeepsWholeExportErasureAndTenantIsolation"
+    result = execute("internal/tenantlife", (root,), "role_policy_subject_omitted", integration=True, overlay=overlay)
+    if not report_regression_failed_on_assertion(result.stdout, result.returncode,
+            package=PREFIX + "internal/tenantlife", root=root, child="",
+            marker="role policy subject export omitted owned text or selected unrelated rows"):
+        raise RuntimeError("role policy subject omission did not fail its exact assertion")
+
+
 def standalone_role_source_control():
     out = Path("artifacts/interface-prefix-transport").resolve()
     source = Path("cmd/probectl-control/mcp_flow_sources.go").resolve()
@@ -809,6 +828,7 @@ def main(integration, flow_integration=False):
     if integration and not flow_integration:
         current_role_explanation_controls()
         standalone_role_source_control()
+        interface_role_subject_control()
         current_role_source_controls()
         configuration_incarnation_controls()
         configuration_api_controls()
