@@ -161,6 +161,7 @@ INTEGRATION = {
         "TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant",
         "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
         "TestRoutingStageReplacementWithdrawsOmittedFamiliesWithoutAffectingSibling",
+        "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
         "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
         "TestInterfaceRoleInputsRetainWholePrefixTableAndRefusePartialBudget",
@@ -460,6 +461,46 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-stage-selector": (
+        "internal/store/bgp_routing_stage.go",
+        "AND source_kind='router_bmp' AND state IN ('staging','current')\n AND ((routing_selection IS NULL AND $6::text IS NULL)\n      OR (routing_selection->>'epoch'=$6 AND routing_selection->>'binding_id'=$7))",
+        "AND source_kind='router_bmp' AND state IN ('staging','current') AND ($6::text IS NULL OR $6::text IS NOT NULL) AND ($7::text IS NULL OR $7::text IS NOT NULL)",
+        "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
+        "",
+        "routing source selector retired a sibling binding or tenant",
+    ),
+    "routing-stage-nonce": (
+        "internal/store/bgp_routing_stage.go",
+        "if conflict, err := routingStageNonceConflicts(ctx, sc, source, input.ObservationID); err != nil || conflict {",
+        "if conflict, err := false, error(nil); err != nil || conflict {",
+        "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
+        "",
+        "former routing observation UUID borrowed a replacement binding",
+    ),
+    "routing-stage-base-credential": (
+        "internal/store/bgp_routing_stage_binding.go",
+        "if _, err := routingCredentialAuthority(ctx, sc, base, true, config.Manifest.Epoch); err != nil {",
+        "if _, err := (BGPRoutingSourceAuthority{}), error(nil); err != nil {",
+        "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
+        "",
+        "foreign credential authorized routing source-wide invalidation",
+    ),
+    "routing-stage-base-clock": (
+        "internal/store/bgp_routing_stage_binding.go",
+        "AND collector_context_id=$4 AND observed_at<=$5",
+        "AND collector_context_id=$4 AND $5::timestamptz IS NOT NULL",
+        "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
+        "",
+        "queued old invalidation retired a newer routing source",
+    ),
+    "routing-stage-complete-peer": (
+        "internal/store/bgp_routing_stage.go",
+        "if completePeer != nil && !bytes.Equal(completePeer, metadata) {",
+        "if false && completePeer != nil && !bytes.Equal(completePeer, metadata) {",
+        "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
+        "",
+        "mixed complete routing peers were staged as one generation",
+    ),
     "routing-stage-families": (
         "internal/store/bgp_routing_stage.go",
         "if _, err := invalidateRoutingStageSource(ctx, sc, source); err != nil {",

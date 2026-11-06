@@ -225,12 +225,15 @@ func (store BGPRouting) beginViewInScope(ctx context.Context, sc tenancy.Scope, 
 	if err != nil {
 		return none, err
 	}
+	epoch, bindingID := routingSourceSlot(source)
 	_, err = sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET state='invalid',updated_at=transaction_timestamp()
  WHERE tenant_id=$1 AND context_id=$2 AND router_id=$3 AND collector_agent_id=$4
  AND source_kind='router_bmp' AND source_ref=$5 AND view_kind=$6 AND afi=$7 AND safi=$8
- AND (view_kind='loc_rib' OR peer_key=$9) AND state IN ('staging','current')`,
+ AND (view_kind='loc_rib' OR peer_key=$9) AND state IN ('staging','current')
+ AND ((routing_selection IS NULL AND $10::text IS NULL)
+      OR (routing_selection->>'epoch'=$10 AND routing_selection->>'binding_id'=$11))`,
 		source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef,
-		storedKind, definition.AFI, definition.SAFI, key[:])
+		storedKind, definition.AFI, definition.SAFI, key[:], epoch, bindingID)
 	if err != nil {
 		return none, err
 	}
