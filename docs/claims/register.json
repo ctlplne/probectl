@@ -542,7 +542,9 @@
     "docs/scim-abac.md",
     "docs/security/tenant-isolation.md",
     "docs/security/threat-model.md",
-    "docs/alerting.md"
+    "docs/alerting.md",
+    "docs/explorer.md",
+    "docs/features/interface-roles.md"
    ],
    "code": [
     "internal/tenancy/writefence.go",

@@ -117,7 +117,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   },
   { id: 'F17', name: 'Flow analytics', status: 'delivered', source: 'contract:features' },
   // Current interface-role explanations, local IX prefixes and Explorer roles remain preview until complete source/served/router qualification.
-  { id: 'F18', name: 'Device telemetry', status: 'delivered', source: 'contract:features' },
+  { id: 'F18', name: 'Device telemetry', status: 'partial', source: 'contract:features' },
   {
     id: 'F19',
     name: 'Internet-outage view',
