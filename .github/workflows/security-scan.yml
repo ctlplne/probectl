@@ -87,6 +87,8 @@ jobs:
         with:
           name: govulncheck-${{ github.run_id }}
           path: govulncheck.sarif
+      - name: Kafka adversarial zstd decoder regression
+        run: go test -count=1 -run '^TestKafkaZstdTwoBlockFrameCannotPanicOrPoisonLaterRecords$' ./internal/bus
       - name: Gate on reachable vulnerabilities
         run: |
           set -o pipefail
