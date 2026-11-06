@@ -391,7 +391,17 @@ ordered entries. For example, a measurement is
 A missing source measurement has `defined:false`; an observed zero has the exact
 value `"0"`. Original timestamps retain nanoseconds. Independent source totals,
 Other, matrix axes and both comparison periods remain separate. Internal storage
-clocks, tenant IDs, SQL previews and cache/filesystem paths are excluded.
+clocks, SQL previews and cache/filesystem paths are excluded. Queries selecting
+`in_if_role` or `out_if_role` also return `role_tenant_id`, `role_digest` and the
+complete `role_sources` provenance: canonical context/router/interface IDs,
+exporter/protocol/full observation domain/index, role/reason/source references
+and source expiry. Each source must belong to the authenticated tenant and the
+same current generation; comparisons refuse mismatched generations. These fields
+describe an authorized result and never grant access. Source-plane permissions
+and current credentials are still rechecked for queries and frozen readers.
+Validated server-created role IDs and configuration references retain their exact
+JSON values through redaction; exporter addresses and arbitrary evidence/text
+remain subject to the complete tenant redaction policy.
 
 Native requests admit the full API grammar within a 4 MiB authenticated HTTP
 body and the shared 2 MiB plan/configuration grammar budget. Initial-catalog HTTP

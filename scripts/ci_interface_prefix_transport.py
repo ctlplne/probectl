@@ -45,6 +45,8 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestNativeFlowRoleProjectionRetainsCompleteTenantProvenance",
+        "TestNativeFlowRoleProjectionRefusesForeignMissingStaleOrChangedIdentity",
         "TestInterfaceRoleMCPMetadataKeepsExactGeneratedIDsAndFullTextRedaction",
         "TestInterfaceRoleMCPMetadataRefusesMalformedIdentifiersAndRevisions",
         "TestInterfaceRoleIXSourceMatchesOnlyOwnedCurrentInputsAndPreservesOverrides",
@@ -742,7 +744,7 @@ def ix_prefix_controls():
          "out.Current = out.Enabled && p.availability(at) == nil", "out.Current = out.Enabled",
          "TestPeeringDBIXPrefixesKeepCompletePopulationClockAndOwnedMatches",
          "stale IX cache retained current evidence"),
-        ("role_metadata_uuid", "internal/control", "mcp_interface_role_metadata.go",
+        ("role_metadata_uuid", "internal/ai/mcp", "native_role_metadata.go",
          r'return []byte(strings.ReplaceAll(string(raw), "-", `\u002d`)), nil', "return raw, nil",
          "TestInterfaceRoleMCPMetadataKeepsExactGeneratedIDsAndFullTextRedaction",
          "native role redaction altered generated structural identity"),
@@ -761,9 +763,10 @@ def ix_prefix_controls():
         children = ("11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") if name == "ix_owned_input" else ("",)
         for child in children:
             label = name + ("_" + child if child else "")
-            result = execute(package, (root,), label, overlay=overlay, child=child)
+            test_package = "internal/control" if name == "role_metadata_uuid" else package
+            result = execute(test_package, (root,), label, overlay=overlay, child=child)
             if not report_regression_failed_on_assertion(result.stdout, result.returncode,
-                    package=PREFIX + package, root=root, child=child, marker=marker):
+                    package=PREFIX + test_package, root=root, child=child, marker=marker):
                 raise RuntimeError("role source control did not fail its exact assertion: " + label)
     print(json.dumps({"ix_source_and_owned_input_controls": True}))
 

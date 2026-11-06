@@ -100,28 +100,50 @@ type NativeFlowCoverage struct {
 	ResolutionSeconds int      `json:"resolution_seconds"`
 	CompleteInputs    bool     `json:"complete_inputs"`
 }
+
+// NativeFlowRoleSource is an explicit projection of current, authorized role
+// provenance. Identity fields contain only validated server-created UUIDs;
+// exporter addresses, reasons and untrusted evidence retain full redaction.
+type NativeFlowRoleSource struct {
+	TenantID    NativeRoleUUID     `json:"tenant_id"`
+	ContextID   NativeRoleUUID     `json:"context_id"`
+	RouterID    NativeRoleUUID     `json:"router_id"`
+	InterfaceID NativeRoleUUID     `json:"interface_id"`
+	Exporter    string             `json:"exporter"`
+	Protocol    string             `json:"protocol"`
+	Domain      uint32             `json:"obs_domain"`
+	IfIndex     uint32             `json:"if_index"`
+	Role        string             `json:"role"`
+	Reason      string             `json:"reason"`
+	Sources     []NativeRoleSource `json:"sources"`
+	ValidUntil  time.Time          `json:"valid_until"`
+}
+
 type NativeFlowResult struct {
-	TagTenantID       string               `json:"tag_tenant_id,omitempty"`
-	TagRevision       string               `json:"tag_revision,omitempty"`
-	TagIDs            []NativeFlowTagID    `json:"tag_ids,omitempty"`
-	Query             flow.QueryPlan       `json:"query"`
-	Coverage          *NativeFlowCoverage  `json:"coverage,omitempty"`
-	FilterVersions    []NativeFlowRevision `json:"filter_versions"`
-	Source            string               `json:"source"`
-	ResolutionSeconds int                  `json:"resolution_seconds"`
-	TotalGroups       int                  `json:"total_groups"`
-	DetailLimited     bool                 `json:"detail_limited"`
-	Rows              []NativeFlowRow      `json:"rows"`
-	ChartRows         []NativeFlowRow      `json:"chart_rows"`
-	MatrixRows        []NativeFlowRow      `json:"matrix_rows"`
-	MatrixColumns     []NativeFlowRow      `json:"matrix_columns"`
-	Other             *NativeFlowRow       `json:"other,omitempty"`
-	ChartOther        *NativeFlowRow       `json:"chart_other,omitempty"`
-	Totals            []NativeFlowValue    `json:"totals"`
-	Series            []NativeFlowPoint    `json:"series"`
-	OtherSeries       []NativeFlowPoint    `json:"other_series"`
-	TotalSeries       []NativeFlowPoint    `json:"total_series"`
-	Matrix            []NativeFlowCell     `json:"matrix"`
+	RoleTenantID      NativeRoleUUID         `json:"role_tenant_id,omitempty"`
+	RoleDigest        string                 `json:"role_digest,omitempty"`
+	RoleSources       []NativeFlowRoleSource `json:"role_sources,omitempty"`
+	TagTenantID       string                 `json:"tag_tenant_id,omitempty"`
+	TagRevision       string                 `json:"tag_revision,omitempty"`
+	TagIDs            []NativeFlowTagID      `json:"tag_ids,omitempty"`
+	Query             flow.QueryPlan         `json:"query"`
+	Coverage          *NativeFlowCoverage    `json:"coverage,omitempty"`
+	FilterVersions    []NativeFlowRevision   `json:"filter_versions"`
+	Source            string                 `json:"source"`
+	ResolutionSeconds int                    `json:"resolution_seconds"`
+	TotalGroups       int                    `json:"total_groups"`
+	DetailLimited     bool                   `json:"detail_limited"`
+	Rows              []NativeFlowRow        `json:"rows"`
+	ChartRows         []NativeFlowRow        `json:"chart_rows"`
+	MatrixRows        []NativeFlowRow        `json:"matrix_rows"`
+	MatrixColumns     []NativeFlowRow        `json:"matrix_columns"`
+	Other             *NativeFlowRow         `json:"other,omitempty"`
+	ChartOther        *NativeFlowRow         `json:"chart_other,omitempty"`
+	Totals            []NativeFlowValue      `json:"totals"`
+	Series            []NativeFlowPoint      `json:"series"`
+	OtherSeries       []NativeFlowPoint      `json:"other_series"`
+	TotalSeries       []NativeFlowPoint      `json:"total_series"`
+	Matrix            []NativeFlowCell       `json:"matrix"`
 }
 type NativeFlowPaging struct {
 	SnapshotID   string    `json:"snapshot_id"`

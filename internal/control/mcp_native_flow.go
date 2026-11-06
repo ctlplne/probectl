@@ -93,7 +93,7 @@ func (b nativeMCPFlowBackend) FlowQuery(ctx context.Context, p *auth.Principal, 
 		if err != nil {
 			return mcp.NativeFlowQueryResult{}, err
 		}
-		return projectNativeFlowQuery(result, p.TenantID)
+		return projectNativeFlowQuery(result, p.TenantID, flowstore.ExplorerQueryBudget(b.server.flowStore))
 	}
 	query, queryCtx, err := b.server.normalizeExplorerQuery(ctx, p,
 		ai.ExplorerQuery{Question: "Native flow query", Source: ai.ExplorerFlow, Flow: &plan}, time.Now())
@@ -104,7 +104,7 @@ func (b nativeMCPFlowBackend) FlowQuery(ctx context.Context, p *auth.Principal, 
 	if err != nil {
 		return mcp.NativeFlowQueryResult{}, err
 	}
-	return projectNativeFlowQuery(result, p.TenantID)
+	return projectNativeFlowQuery(result, p.TenantID, flowstore.ExplorerQueryBudget(b.server.flowStore))
 }
 func (b nativeMCPFlowBackend) FlowCompare(ctx context.Context, p *auth.Principal, input mcp.NativeFlowCompareInput) (mcp.NativeFlowComparisonResult, error) {
 	if err := b.authorize(ctx, p); err != nil {
@@ -134,7 +134,7 @@ func (b nativeMCPFlowBackend) FlowCompare(ctx context.Context, p *auth.Principal
 	if err != nil {
 		return mcp.NativeFlowComparisonResult{}, err
 	}
-	return projectNativeFlowComparison(result, p.TenantID)
+	return projectNativeFlowComparison(result, p.TenantID, flowstore.ExplorerQueryBudget(b.server.flowStore))
 }
 func (b nativeMCPFlowBackend) FlowPage(ctx context.Context, p *auth.Principal, cursor string) (mcp.NativeFlowQueryResult, error) {
 	if err := b.authorize(ctx, p); err != nil {
@@ -144,7 +144,7 @@ func (b nativeMCPFlowBackend) FlowPage(ctx context.Context, p *auth.Principal, c
 	if err != nil {
 		return mcp.NativeFlowQueryResult{}, err
 	}
-	return projectNativeFlowQuery(result, p.TenantID)
+	return projectNativeFlowQuery(result, p.TenantID, flowstore.ExplorerQueryBudget(b.server.flowStore))
 }
 func (b nativeMCPFlowBackend) FlowComparisonPage(ctx context.Context, p *auth.Principal, cursor string) (mcp.NativeFlowComparisonResult, error) {
 	if err := b.authorize(ctx, p); err != nil {
@@ -154,7 +154,7 @@ func (b nativeMCPFlowBackend) FlowComparisonPage(ctx context.Context, p *auth.Pr
 	if err != nil {
 		return mcp.NativeFlowComparisonResult{}, err
 	}
-	return projectNativeFlowComparison(result, p.TenantID)
+	return projectNativeFlowComparison(result, p.TenantID, flowstore.ExplorerQueryBudget(b.server.flowStore))
 }
 func (b nativeMCPFlowBackend) FlowFilters(ctx context.Context, p *auth.Principal, after string, limit int) (mcp.NativeFlowFilterPage, error) {
 	if err := b.authorize(ctx, p); err != nil {
@@ -272,13 +272,13 @@ func (b nativeMCPFlowBackend) RunFlowView(ctx context.Context, p *auth.Principal
 	}
 	switch {
 	case result.Query != nil:
-		query, err := projectNativeFlowQuery(*result.Query, p.TenantID)
+		query, err := projectNativeFlowQuery(*result.Query, p.TenantID, flowstore.ExplorerQueryBudget(b.server.flowStore))
 		if err != nil {
 			return mcp.NativeFlowExecution{}, err
 		}
 		return mcp.NativeFlowExecution{Query: &query}, nil
 	case result.Comparison != nil:
-		comparison, err := projectNativeFlowComparison(*result.Comparison, p.TenantID)
+		comparison, err := projectNativeFlowComparison(*result.Comparison, p.TenantID, flowstore.ExplorerQueryBudget(b.server.flowStore))
 		if err != nil {
 			return mcp.NativeFlowExecution{}, err
 		}
