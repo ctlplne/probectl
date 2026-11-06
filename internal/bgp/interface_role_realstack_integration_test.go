@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -144,6 +145,8 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	}
 	links[2].role = entity.InterfaceRoleTransit
 	awaitRoleRouterLabels(t, st, reg, links, ids)
+	otherIDs := awaitRoleRouterInterfaces(t, st, other, links)
+	renderRoleRouterSurfaces(t, st, reg, other, links, ids, otherIDs, observed)
 	if policy.Revision == "0" {
 		t.Fatal("real-router reclassification did not retain a versioned policy")
 	}
@@ -385,4 +388,65 @@ func awaitRoleRouterFlow(t *testing.T, st *shipped.Stack, reg edgeFlowRegistrati
 		}
 		return len(indexes) == len(links)
 	})
+}
+
+// These are real served pages, not mocked API/DOM fixtures. Fresh contexts use
+// the real tenant session and shipped theme toggle. The same WCAG tags as the
+// standing browser gate apply to the complete final page in each theme.
+func renderRoleRouterSurfaces(t *testing.T, st *shipped.Stack, first, second edgeFlowRegistration, links []roleRouterLink, firstIDs, secondIDs map[uint32]string, observed time.Time) {
+	t.Helper()
+	for _, pair := range []struct {
+		reg, other edgeFlowRegistration
+		ids        map[uint32]string
+		name       string
+	}{{first, second, firstIDs, "primary"}, {second, first, secondIDs, "paired"}} {
+		plan := flow.QueryPlan{From: observed.Add(-time.Minute), To: time.Now().Add(time.Minute), View: "table", GroupBy: []string{"in_if_role", "out_if_role"}, Metrics: []flow.QueryMetric{{Measure: "flows", Calculation: "total", Role: "primary"}}}
+		code, raw := st.Do(t, pair.reg.cookie, http.MethodPost, "/v1/explorer/query", map[string]any{"source": "flow", "flow": plan})
+		var query struct {
+			Flow *flowstore.PlanResult `json:"flow"`
+		}
+		if code != http.StatusOK || json.Unmarshal(raw, &query) != nil || query.Flow == nil || query.Flow.RoleTenantID != pair.reg.tenantID || len(query.Flow.RoleDigest) != 64 {
+			t.Fatalf("served role browser prerequisite current tenant query: HTTP%d", code)
+		}
+		if pair.reg.tenantID == second.tenantID && (len(query.Flow.RoleSources) != 0 || query.Flow.Totals["flows:total"] != "0") {
+			t.Fatal("paired browser tenant received another tenant's physical flow source")
+		}
+		code, raw = st.Do(t, pair.reg.cookie, http.MethodPost, "/v1/explorer/flow-views", map[string]any{"definition": flow.QueryViewDefinition{Name: "Same-router role provenance", Visibility: "private", Time: flow.QueryViewTime{Mode: "absolute"}, Plan: plan}})
+		var saved flow.SavedQueryView
+		if code != http.StatusCreated || json.Unmarshal(raw, &saved) != nil || saved.ID == "" {
+			t.Fatalf("save served role view: HTTP%d", code)
+		}
+		for _, theme := range []string{"light", "dark"} {
+			label := theme + "/" + pair.name
+			t.Run(label+"/admin", func(t *testing.T) {
+				testsupport.RenderUI(t, testsupport.RenderSpec{
+					URL: st.BaseURL + "/ui/admin", Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: pair.reg.cookie}},
+					TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile, Theme: theme, Accessibility: true,
+					Expect: []string{"Interface roles"}, Absent: []string{pair.other.deviceID},
+					Steps: []testsupport.RenderStep{
+						{Select: "[data-interface-roles] select >> nth=0", Value: pair.reg.contextID},
+						{Select: "[data-interface-roles] select >> nth=1", Value: pair.ids[links[1].index]},
+						{Click: "Refresh role explanation", Within: "[aria-label='Current interface role']", Expect: []string{"ix peering", "Current interface evidence.", "Complete current prefixes.", "peeringdb/ixpfx/7/ixlan/11/snapshot/"}, ExpectWithin: "[aria-label='Current interface role']"},
+					},
+				})
+			})
+			t.Run(label+"/flow", func(t *testing.T) {
+				expected := []string{"Roles describe current evidence at query time."}
+				if pair.reg.tenantID == first.tenantID {
+					expected = append(expected, pair.reg.deviceID, firstIDs[links[1].index], "ix peering", "transit")
+				} else {
+					expected = append(expected, "No current owned interface metadata matched this result.")
+				}
+				testsupport.RenderUI(t, testsupport.RenderSpec{
+					URL: st.BaseURL + "/ui/explore?native_flow=1&flow_view=" + saved.ID, Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: pair.reg.cookie}},
+					TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile, Theme: theme, Accessibility: true,
+					Expect: []string{"Flow explorer"}, Absent: []string{pair.other.deviceID},
+					Steps: []testsupport.RenderStep{
+						{Click: "Run flow query", Expect: []string{"Frozen flow results"}},
+						{Click: fmt.Sprintf("Interface role sources (%d)", len(query.Flow.RoleSources)), Expect: expected},
+					},
+				})
+			})
+		}
+	}
 }

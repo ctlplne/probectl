@@ -32,6 +32,11 @@ type RenderSpec struct {
 	Absent   []string        `json:"absent"`
 	Steps    []RenderStep    `json:"steps,omitempty"`
 	Controls []RenderControl `json:"controls,omitempty"`
+	// Theme uses the shipped toggle and verifies both theme selectors. Empty
+	// preserves the existing render. Accessibility requests a real axe run on
+	// the final served page; a missing/unexecuted report never qualifies.
+	Theme         string `json:"theme,omitempty"`
+	Accessibility bool   `json:"accessibility,omitempty"`
 	// TrustCertFiles are the PEM leaf certificates of HTTPS servers under a
 	// throwaway test CA (an HTTPS control plane, an IdP). The browser trusts
 	// their public keys outright, so every handshake verifies on the first
@@ -97,13 +102,28 @@ type RenderCookie struct {
 // forbidden text that did, the page's rendered body text, and the cookies the
 // browser held at the end (a session minted by a real login, for instance).
 type RenderResult struct {
-	Missing []string       `json:"missing"`
-	Present []string       `json:"present"`
-	Title   string         `json:"title"`
-	URL     string         `json:"url"`
-	Errors  []string       `json:"errors"`
-	Text    string         `json:"text"`
-	Cookies []RenderCookie `json:"cookies"`
+	Missing       []string             `json:"missing"`
+	Present       []string             `json:"present"`
+	Title         string               `json:"title"`
+	URL           string               `json:"url"`
+	Errors        []string             `json:"errors"`
+	Text          string               `json:"text"`
+	Cookies       []RenderCookie       `json:"cookies"`
+	Theme         string               `json:"theme,omitempty"`
+	Accessibility *RenderAccessibility `json:"accessibility,omitempty"`
+}
+
+type RenderAccessibility struct {
+	Executed   bool                      `json:"executed"`
+	Passes     int                       `json:"passes"`
+	Incomplete int                       `json:"incomplete"`
+	Violations []RenderAccessibilityRule `json:"violations"`
+}
+
+type RenderAccessibilityRule struct {
+	ID      string     `json:"id"`
+	Impact  string     `json:"impact"`
+	Targets [][]string `json:"targets"`
 }
 
 // Cookie returns the value of the named cookie the browser held at the end.
@@ -129,6 +149,9 @@ const placeholderMarker = "ARCH-004 placeholder"
 // rather than silently skipping a rendered-UI receipt.
 func RenderUI(t testing.TB, spec RenderSpec) RenderResult {
 	t.Helper()
+	if spec.Theme != "" && spec.Theme != "light" && spec.Theme != "dark" {
+		t.Fatal("unknown served render theme", spec.Theme)
+	}
 	if embedsPlaceholderUI(t, spec.URL, spec.CAFile) {
 		SkipOrFatal(t, "the control plane embeds the placeholder UI: build web/ and overlay web/dist onto internal/webui/dist before compiling (CI does this; locally: npm --prefix web run build && cp -R web/dist/. internal/webui/dist/)")
 	}
@@ -146,6 +169,19 @@ func RenderUI(t testing.TB, spec RenderSpec) RenderResult {
 	if shouldRetryRender(spec, res) {
 		t.Logf("render %s: Chromium reported net::ERR_NETWORK_CHANGED; retrying the render once", spec.URL)
 		res = renderOnce(t, spec)
+	}
+	if spec.Theme != "" && res.Theme != spec.Theme {
+		t.Fatal("served theme proof did not execute the requested theme", spec.Theme, res.Theme)
+	}
+	if spec.Accessibility {
+		proof := res.Accessibility
+		if proof == nil || !proof.Executed || proof.Passes == 0 {
+			t.Fatal("served accessibility proof was missing or unexecuted")
+		}
+		if len(proof.Violations) != 0 {
+			t.Fatalf("served accessibility violations: %+v", proof.Violations)
+		}
+		t.Logf("served Chromium accessibility: theme=%s passes=%d incomplete=%d violations=0", res.Theme, proof.Passes, proof.Incomplete)
 	}
 	if failedRender(res) {
 		t.Fatalf("rendered %s (%q): missing %q, must-not-render %q present, page errors %q\nrendered text:\n%s",

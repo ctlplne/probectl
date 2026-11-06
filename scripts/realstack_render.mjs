@@ -73,6 +73,9 @@ async function readStdin() {
 
 async function main() {
   const spec = JSON.parse(await readStdin());
+  if (spec.theme && !["light", "dark"].includes(spec.theme)) {
+    throw new Error("unknown served render theme");
+  }
   const timeout = spec.timeoutMs ?? 30000;
   const { chromium } = bwRequire("playwright");
   const pinned = (spec.trustCertFiles ?? []).map((file) =>
@@ -88,6 +91,11 @@ async function main() {
   const result = { missing: [], present: [], title: "", url: "", errors: [], text: "", cookies: [] };
   try {
     const context = await browser.newContext();
+    if (spec.accessibility) {
+      // Existing hash-locked web dev dependency, injected by the browser
+      // driver before navigation. Product CSP and listeners stay unchanged.
+      await context.addInitScript({ path: join(repoRoot, "web/node_modules/axe-core/axe.min.js") });
+    }
     const origin = new URL(spec.url).origin;
     await context.addCookies((spec.cookies ?? []).map((c) => ({ name: c.name, value: c.value, url: origin })));
     const page = await context.newPage();
@@ -137,6 +145,17 @@ async function main() {
       return text;
     };
     await awaitTexts(spec.expect);
+    if (spec.theme) {
+      const toggle = page.getByRole("button", { name: /^Switch theme \(current: (light|dark)\)$/ });
+      await toggle.waitFor({ state: "visible", timeout: remaining() });
+      if (await page.locator("html").getAttribute("data-theme") !== spec.theme) {
+        await toggle.click({ timeout: remaining() });
+      }
+      await page.waitForFunction((theme) =>
+        document.documentElement.dataset.theme === theme &&
+        document.documentElement.classList.contains("dark") === (theme === "dark"),
+      spec.theme, { timeout: remaining() });
+    }
     let body = await absentNow();
     for (const step of spec.steps ?? []) {
       if (result.missing.length > 0) break;
@@ -204,6 +223,28 @@ async function main() {
       }
     }
     if ((spec.steps ?? []).length > 0 || (spec.controls ?? []).length > 0) body = await absentNow();
+    result.theme = await page.locator("html").getAttribute("data-theme") ?? "";
+    if (spec.theme && (result.theme !== spec.theme ||
+        await page.locator("html").evaluate((root) => root.classList.contains("dark")) !== (spec.theme === "dark"))) {
+      result.missing.push("requested served theme selectors");
+    }
+    if (spec.accessibility) {
+      result.accessibility = await page.evaluate(async () => {
+        const report = await globalThis.axe.run(
+          { include: [["body"]], exclude: [["svg[aria-hidden='true']"]] },
+          { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] } },
+        );
+        return {
+          executed: true,
+          passes: report.passes.length,
+          incomplete: report.incomplete.length,
+          violations: report.violations.map((rule) => ({
+            id: rule.id, impact: rule.impact,
+            targets: rule.nodes.map((node) => node.target),
+          })),
+        };
+      });
+    }
     result.title = await settled(() => page.title(), "");
     result.url = page.url();
     result.text = body.slice(0, 6000);

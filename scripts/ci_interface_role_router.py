@@ -6,12 +6,17 @@
 """Require the same-router FRR/SNMP/captured-IPFIX role proof; no skipped root."""
 
 from pathlib import Path
+import json
 import subprocess
 
-from ci_tag_consumer_proof import classify
+from ci_tag_consumer_proof import classify, report_regression_failed_on_assertion
 
 ROOT = "TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride"
 PACKAGE = "github.com/ctlplne/probectl/internal/bgp"
+SURFACES = tuple(ROOT + "/" + theme + "/" + tenant + "/" + surface
+                 for theme in ("light", "dark")
+                 for tenant in ("primary", "paired")
+                 for surface in ("admin", "flow"))
 
 
 def main():
@@ -26,9 +31,36 @@ def main():
     (out / "router.stderr.txt").write_text(result.stderr)
     print(result.stdout, end="")
     print(result.stderr, end="")
-    errors = classify(result.stdout, result.returncode, package=PACKAGE, tests=(ROOT,))
+    errors = classify(result.stdout, result.returncode, package=PACKAGE, tests=(ROOT, *SURFACES))
     if errors:
         raise RuntimeError("required real-router role proof missing/failed: " + str(errors))
+    # One focused real child models an unexecuted/missing browser report. The
+    # full positive above independently requires all eight served surfaces.
+    source = Path("internal/testsupport/render.go").resolve()
+    original = source.read_text()
+    seam = "res := renderOnce(t, spec)"
+    assert original.count(seam) == 1
+    mutant = out / "missing-accessibility.go"
+    mutant.write_text(original.replace(seam, seam + "\nif spec.Accessibility { res.Accessibility = nil }"))
+    overlay = out / "missing-accessibility.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant.resolve())}}))
+    child = "light/primary/admin"
+    control = subprocess.run(
+        ["go", "test", "-race", "-json", "-count=1", "-tags=integration",
+         "-timeout=15m", "-overlay", str(overlay.resolve()),
+         "-run", "^" + ROOT + "$/^light$/^primary$/^admin$", "./internal/bgp"],
+        text=True, capture_output=True, timeout=960, check=False,
+    )
+    (out / "missing-accessibility.jsonl").write_text(control.stdout)
+    (out / "missing-accessibility.stderr.txt").write_text(control.stderr)
+    print(control.stdout, end="")
+    print(control.stderr, end="")
+    if not report_regression_failed_on_assertion(
+        control.stdout, control.returncode, package=PACKAGE, root=ROOT,
+        child=child, marker="served accessibility proof was missing or unexecuted",
+    ):
+        raise RuntimeError("missing served accessibility report did not fail its exact assertion")
+
 
 
 if __name__ == "__main__":
