@@ -18,8 +18,10 @@ import (
 
 // InterfaceRoleFlowBinding is current source evidence, not row-supplied
 // identity or permission. Callers authorize this context before source reads.
-// Matching a flow requires its collector, exporter, protocol and domain, then
-// a current canonical interface binding on this explicitly assigned router.
+// Collector/protocol/domain identify the attested source, not a raw row's
+// authority. A row's claimed agent must NEVER choose a routing context. Query
+// consumers first require a uniquely owned exporter/context, then a current
+// canonical interface binding on this explicitly assigned router.
 type InterfaceRoleFlowBinding struct {
 	entity.Scope
 	InterfaceRoleEvidenceClock
