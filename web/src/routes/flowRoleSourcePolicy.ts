@@ -8,7 +8,7 @@ import type { FlowExplorerResult, FlowQueryFilterGroup } from '../api/flowExplor
 
 const roleNames = ['transit', 'ix_peering', 'private_peering', 'customer', 'backbone', 'other']
 const roleFields = ['in_if_role', 'out_if_role']
-const sourceGrants = ['entities.read', 'metrics.read', 'events.read']
+const sourceGrants = ['flow.read', 'ai.query', 'entities.read', 'metrics.read', 'events.read']
 
 function hasRoleSelector(result: FlowExplorerResult) {
   if (

@@ -18,7 +18,7 @@ import { flowRoleResultReadable } from '../routes/flowRoleSourcePolicy'
 import flowSchema from './flowExplorerSchema.json'
 import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
 
-const grants = ['entities.read', 'metrics.read', 'events.read']
+const grants = ['flow.read', 'ai.query', 'entities.read', 'metrics.read', 'events.read']
 const plan: FlowQueryPlan = {
   from: '2026-11-06T00:00:00Z',
   to: '2026-11-06T01:00:00Z',
@@ -103,13 +103,7 @@ function Harness({
             tenant: { id: tenant, name: tenant, slug: tenant },
             tenants: [],
             user: { id: 'operator', name: 'Operator', email: 'roles@local.test' },
-            permissions: [
-              'flow.read',
-              'ai.query',
-              'flow.views.write',
-              'flow.filters.write',
-              ...permissions,
-            ],
+            permissions: ['flow.views.write', 'flow.filters.write', ...permissions],
             switchTenant: () => {},
             signOut: () => {},
           }}
