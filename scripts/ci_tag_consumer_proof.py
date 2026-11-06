@@ -125,7 +125,7 @@ def report_regression(env: dict[str, str], *, scheduled: bool = False) -> None:
         )
         held = """\tvar stage *reporting.BodyStage
 \tvar mediaType string
-\terr := tenancy.InTenant(ctx, s.pool, func(renderContext context.Context, _ tenancy.Scope) error {
+\terr = tenancy.InTenant(ctx, s.pool, func(renderContext context.Context, _ tenancy.Scope) error {
 \t\tvar err error
 \t\tstage, mediaType, err = stager(renderContext, item.Schedule.Format, document)
 \t\treturn err
@@ -136,7 +136,7 @@ def report_regression(env: dict[str, str], *, scheduled: bool = False) -> None:
         line = "\tstage, mediaType, err := render(renderContext, req.Format, doc)"
         held = """\tvar stage *reporting.BodyStage
 \tvar mediaType string
-\terr := s.inTenant(r.WithContext(renderContext), func(ctx context.Context, _ tenancy.Scope) error {
+\terr = s.inTenant(r.WithContext(renderContext), func(ctx context.Context, _ tenancy.Scope) error {
 \t\tvar err error
 \t\tstage, mediaType, err = render(ctx, req.Format, doc)
 \t\treturn err
