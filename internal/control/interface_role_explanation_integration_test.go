@@ -421,7 +421,7 @@ func TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmissio
 			return err
 		}
 		for i := range 4096 {
-			old.Definition.DescriptionRules = append(old.Definition.DescriptionRules, entity.InterfaceRoleDescriptionRule{Pattern: "^" + a + strings.Repeat("-uplink", 25) + fmt.Sprint(i) + "$", Role: entity.InterfaceRoleOther})
+			old.Definition.DescriptionRules = append(old.Definition.DescriptionRules, entity.InterfaceRoleDescriptionRule{Pattern: "^" + a + strings.Repeat("-uplink", 25) + fmt.Sprint(i) + "$", Role: entity.InterfaceRoleBackbone})
 		}
 		old.Definition.DescriptionRules = append(old.Definition.DescriptionRules, entity.InterfaceRoleDescriptionRule{Pattern: "^owned-0$", Role: entity.InterfaceRoleBackbone})
 		raw, err := json.Marshal(old.Definition)
