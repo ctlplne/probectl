@@ -423,6 +423,14 @@ def configuration_regexp_expansion_control():
 
 
 EXPLANATION_CONTROLS = {
+    "stdio-credential": (
+        "internal/ai/mcp/stdio.go",
+        "return s.ServeStdio(ctx, r, w, p, refresh)",
+        "return s.ServeStdio(ctx, r, w, p)",
+        "TestInterfaceRoleStdioKeepsWholePoliciesAndRechecksCredentialWithinStream",
+        "role stdio current authority mismatch for interface_role_explain",
+        "",
+    ),
     "ix-publication": (
         "internal/control/interface_role_explanation_api.go",
         "if !ix.SameGeneration(s.interfaceRoleIXSnapshot(time.Now().UTC())) {",
