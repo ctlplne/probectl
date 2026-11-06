@@ -40,7 +40,7 @@ const roles: InterfaceRole[] = [
   'backbone',
   'other',
 ]
-const roleOptions = roles.map((role) => ({ value: role, label: role.replaceAll('_', ' ') }))
+const roleOptions = roles.map((role) => ({ value: role, label: role.replace(/_/g, ' ') }))
 const RULE_PAGE_SIZE = 25
 
 function parseASNs(text: string): number[] {
@@ -208,8 +208,8 @@ function InterfaceRoleCurrent({
       {explanation.data && !explanation.isError ? (
         <>
           <p>
-            <strong>{explanation.data.role.replaceAll('_', ' ')}</strong> —{' '}
-            {explanation.data.reason.replaceAll('_', ' ')}
+            <strong>{explanation.data.role.replace(/_/g, ' ')}</strong> —{' '}
+            {explanation.data.reason.replace(/_/g, ' ')}
           </p>
           <p>
             As of {explanation.data.as_of}.{' '}
@@ -469,7 +469,7 @@ function InterfaceRoleOverrideForm({
       <form className={styles.form} onSubmit={(event) => void submit(event)}>
         <h3>Manual override</h3>
         <p>
-          Current override: {current.role ? current.role.replaceAll('_', ' ') : 'None'}. A manual
+          Current override: {current.role ? current.role.replace(/_/g, ' ') : 'None'}. A manual
           choice persists when source observations change.
         </p>
         {stale ? (
