@@ -18,6 +18,8 @@ func addRouteSourceFuzzSeeds(f *testing.F) {
 	open := routeOpenForTest([]byte{65, 4, 255, 255, 255, 255, 69, 4, 0, 1, 1, 3}, true)
 	up := peerUpFrameForTest(open, open, []PeerUpInformation{{3, []byte("vrf-東京")}, {3, []byte("edge")}})
 	f.Add(open)
+	extendedOpen := nextHopOpenForTest(1, true, true)
+	f.Add(append(append([]byte(nil), extendedOpen...), extendedOpen...))
 	f.Add(append(append([]byte(nil), open...), open...))
 	f.Add(up)
 	f.Add(append([]byte(nil), up[bmpCommonHeaderLen:bmpCommonHeaderLen+bmpPeerHeaderLen]...))
@@ -91,13 +93,20 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 		t.Fatal("invalid OPEN exposed partial capabilities")
 	}
 	if len(raw) <= 4096 {
-		capabilities := routeOpenCapabilities{families: make(map[RouteFamily]bool), addPath: make(map[RouteFamily]byte)}
+		capabilities := routeOpenCapabilities{families: make(map[RouteFamily]bool), mpFamilies: make(map[RouteFamily]bool), nextHops: make(map[routeNextHopCapability]bool), addPath: make(map[RouteFamily]byte)}
 		seen := false
 		// The private helper may accumulate until an error; its complete OPEN
 		// caller above must discard that partial state rather than publish it.
 		_ = capabilities.parseCapabilities(raw, &seen)
 	}
 	for _, view := range []BMPRouteView{BMPAdjRIBInPrePolicy, BMPAdjRIBOutPostPolicy, BMPLocRIB} {
+		for _, family := range []RouteFamily{{1, 1}, {2, 1}} {
+			for _, length := range []int{4, 16, 32} {
+				if out, err := ParseBMPRouteNextHopAFI(raw[:len(raw)/2], raw[len(raw)/2:], view, family, length); err != nil && out != 0 {
+					t.Fatal("invalid source capabilities selected a next-hop address family")
+				}
+			}
+		}
 		if out, err := ParseBMPRouteAddPath(raw[:len(raw)/2], raw[len(raw)/2:], view, RouteFamily{1, 1}); err != nil && out {
 			t.Fatal("invalid capability negotiation selected ADD-PATH")
 		}

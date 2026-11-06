@@ -25,6 +25,9 @@
     "bgp.ParseBMPRouteAddPath": {
       "target": "FuzzBMPRouteMonitoring"
     },
+    "bgp.ParseBMPRouteNextHopAFI": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
     "bgp.ParseBMPRouteViewHeader": {
       "target": "FuzzBMPRouteMonitoring"
     },

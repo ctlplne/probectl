@@ -14,11 +14,18 @@ import (
 
 var ErrRouteCapabilities = errors.New("bgp: unavailable or inconsistent route capabilities")
 
+type routeNextHopCapability struct {
+	NLRI       RouteFamily
+	NextHopAFI uint16
+}
+
 type routeOpenCapabilities struct {
-	families map[RouteFamily]bool
-	addPath  map[RouteFamily]byte
-	fourAS   bool
-	asn      uint32
+	families   map[RouteFamily]bool
+	mpFamilies map[RouteFamily]bool
+	nextHops   map[routeNextHopCapability]bool
+	addPath    map[RouteFamily]byte
+	fourAS     bool
+	asn        uint32
 }
 
 // ParseBMPRouteAddPath derives NLRI encoding from both complete Peer Up OPENs.
@@ -83,8 +90,10 @@ func parseRouteOpenCapabilities(raw []byte) (routeOpenCapabilities, error) {
 		return none, ErrRouteCapabilities
 	}
 	out := routeOpenCapabilities{
-		families: map[RouteFamily]bool{{AFI: 1, SAFI: 1}: true},
-		addPath:  make(map[RouteFamily]byte),
+		families:   map[RouteFamily]bool{{AFI: 1, SAFI: 1}: true},
+		addPath:    make(map[RouteFamily]byte),
+		mpFamilies: make(map[RouteFamily]bool),
+		nextHops:   make(map[routeNextHopCapability]bool),
 	}
 	seenAddPath := false
 	for offset < len(raw) {
@@ -124,7 +133,20 @@ func (c *routeOpenCapabilities) parseCapabilities(raw []byte, seenAddPath *bool)
 			if length != 4 {
 				return ErrRouteCapabilities
 			}
-			c.families[RouteFamily{AFI: binary.BigEndian.Uint16(value[:2]), SAFI: value[3]}] = true
+			family := RouteFamily{AFI: binary.BigEndian.Uint16(value[:2]), SAFI: value[3]}
+			c.families[family], c.mpFamilies[family] = true, true
+		case 5: // RFC8950: NLRI AFI, two-byte SAFI, next-hop AFI.
+			if length == 0 || length%6 != 0 {
+				return ErrRouteCapabilities
+			}
+			for len(value) != 0 {
+				safi := binary.BigEndian.Uint16(value[2:4])
+				if safi <= 255 {
+					key := routeNextHopCapability{NLRI: RouteFamily{AFI: binary.BigEndian.Uint16(value[:2]), SAFI: uint8(safi)}, NextHopAFI: binary.BigEndian.Uint16(value[4:6])}
+					c.nextHops[key] = true
+				}
+				value = value[6:]
+			}
 		case 65: // RFC6793 four-octet-AS capability, never BMP wire width.
 			if length != 4 {
 				return ErrRouteCapabilities
