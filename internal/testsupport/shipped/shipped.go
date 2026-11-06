@@ -618,6 +618,56 @@ func (s *Stack) StartCollector(t *testing.T, binary, name, envPrefix, config str
 	})
 }
 
+// MCPStdio starts the actual control binary with its production store/router
+// environment. The token stays in the environment, never command arguments or
+// logs. The session is bounded and every pipe/process is owned by this stack.
+func (s *Stack) MCPStdio(t *testing.T, label, token string) (io.WriteCloser, io.ReadCloser) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	cmd := exec.CommandContext(ctx, s.Control, "mcp-stdio")
+	cmd.Dir = s.Dir
+	cmd.Env = append(append(os.Environ(), s.env...), "PROBECTL_MCP_TOKEN="+token)
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	output, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		_ = input.Close()
+		t.Fatal(err)
+	}
+	logFile, err := os.OpenFile(filepath.Join(s.Dir, label+".log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		cancel()
+		_ = input.Close()
+		_ = output.Close()
+		t.Fatal(err)
+	}
+	cmd.Stderr = logFile
+	if err := cmd.Start(); err != nil {
+		cancel()
+		_ = input.Close()
+		_ = output.Close()
+		_ = logFile.Close()
+		t.Fatal("start owned MCP process", err)
+	}
+	p := &process{cmd: cmd, done: make(chan struct{})}
+	go func() { _ = cmd.Wait(); close(p.done) }()
+	if s.procs == nil {
+		s.procs = map[string]*process{}
+	}
+	if s.procs[label] != nil {
+		cancel()
+		p.stop()
+		t.Fatal("owned MCP process label reused")
+	}
+	s.procs[label] = p
+	t.Cleanup(func() { _ = input.Close(); p.stop(); cancel(); _ = output.Close(); _ = logFile.Close() })
+	return input, output
+}
+
 // StartProcess runs a shipped binary in the background with env added to
 // the test's environment, logging to <label>.log in the stack's directory, and
 // stops it at cleanup (or earlier through Stop). It is for collectors that take
