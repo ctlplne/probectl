@@ -121,7 +121,7 @@ type NativeFlowRoleSource struct {
 
 type NativeFlowResult struct {
 	RoleTenantID      NativeRoleUUID         `json:"role_tenant_id,omitempty"`
-	RoleDigest        string                 `json:"role_digest,omitempty"`
+	RoleDigest        NativeRoleDigest       `json:"role_digest,omitempty"`
 	RoleSources       []NativeFlowRoleSource `json:"role_sources,omitempty"`
 	TagTenantID       string                 `json:"tag_tenant_id,omitempty"`
 	TagRevision       string                 `json:"tag_revision,omitempty"`

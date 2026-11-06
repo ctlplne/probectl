@@ -309,7 +309,7 @@ func projectNativeFlowRoles(out *mcp.NativeFlowResult, source flowstore.PlanResu
 	if err != nil || digest != source.RoleDigest {
 		return nativeFlowProjectionError()
 	}
-	out.RoleTenantID, out.RoleDigest = mcp.NativeRoleUUID(tenant), digest
+	out.RoleTenantID, out.RoleDigest = mcp.NativeRoleUUID(tenant), mcp.NativeRoleDigest(digest)
 	out.RoleSources = make([]mcp.NativeFlowRoleSource, 0, len(source.RoleSources))
 	for _, row := range source.RoleSources {
 		refs := make([]mcp.NativeRoleSource, 0, len(row.Sources))

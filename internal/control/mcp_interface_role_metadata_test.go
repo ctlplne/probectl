@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/entity"
 )
 
@@ -60,6 +61,18 @@ func TestInterfaceRoleMCPMetadataKeepsExactGeneratedIDsAndFullTextRedaction(t *t
 	if red := ai.RedactTextForTenant(string(encoded), ai.DefaultRedaction, id); strings.Contains(red, id) || !strings.Contains(red, "[pan:") {
 		t.Fatal("untrusted evidence identity bypassed the redaction floor", red)
 	}
+	// A valid server hash can also contain a checksum-shaped numeric run.
+	// Preserve only that typed digest; addresses and arbitrary reasons still mask.
+	digest := revision + strings.Repeat("a", 48)
+	encoded, err = json.Marshal(mcp.NativeFlowResult{RoleTenantID: mcp.NativeRoleUUID(id), RoleDigest: mcp.NativeRoleDigest(digest), RoleSources: []mcp.NativeFlowRoleSource{{TenantID: mcp.NativeRoleUUID(id), Exporter: "192.0.2.1", Reason: "password=" + secret}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projected mcp.NativeFlowResult
+	redacted = ai.RedactTextForTenant(string(encoded), ai.DefaultRedaction, id)
+	if json.Unmarshal([]byte(redacted), &projected) != nil || string(projected.RoleDigest) != digest || string(projected.RoleTenantID) != id || strings.Contains(redacted, "192.0.2.1") || strings.Contains(redacted, secret) {
+		t.Fatal("native role flow metadata changed identity or weakened value redaction")
+	}
 }
 
 func TestInterfaceRoleMCPMetadataRefusesMalformedIdentifiersAndRevisions(t *testing.T) {
@@ -71,6 +84,11 @@ func TestInterfaceRoleMCPMetadataRefusesMalformedIdentifiersAndRevisions(t *test
 	for _, value := range []string{"", "-1", "01", "9223372036854775808", "password=private"} {
 		if _, err := json.Marshal(roleMCPRevision(value)); err == nil {
 			t.Fatal("invalid revision acquired role metadata encoding", value)
+		}
+	}
+	for _, value := range []string{"", "4111111111111111", strings.Repeat("A", 64), strings.Repeat("a", 63)} {
+		if _, err := json.Marshal(mcp.NativeRoleDigest(value)); err == nil {
+			t.Fatal("invalid digest acquired role metadata encoding", value)
 		}
 	}
 }

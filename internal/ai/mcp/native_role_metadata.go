@@ -7,6 +7,7 @@
 package mcp
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -23,6 +24,27 @@ import (
 type NativeRoleUUID string
 
 type NativeRoleRevision string
+
+// NativeRoleDigest encodes a server-computed SHA-256 provenance identity.
+// It is never a sender-controlled identifier or a substitute for authorization.
+type NativeRoleDigest string
+
+func (digest NativeRoleDigest) MarshalJSON() ([]byte, error) {
+	decoded, err := hex.DecodeString(string(digest))
+	if err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != string(digest) {
+		return nil, errors.New("invalid server role metadata digest")
+	}
+	var out strings.Builder
+	out.WriteByte('"')
+	for _, character := range string(digest) {
+		if character >= '0' && character <= '9' {
+			out.WriteString(`\u003`)
+		}
+		out.WriteRune(character)
+	}
+	out.WriteByte('"')
+	return []byte(out.String()), nil
+}
 
 func (id NativeRoleUUID) MarshalJSON() ([]byte, error) {
 	if id == "" {
