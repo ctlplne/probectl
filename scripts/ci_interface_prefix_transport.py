@@ -9,6 +9,7 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 
 from ci_tag_consumer_proof import classify, report_regression_failed_on_assertion
 
@@ -141,6 +142,49 @@ ROOT = UNIT["internal/agent"][0]
 MARKER = "combined complete prefix request escaped whole-wire admission"
 
 
+
+def overlay_source_path(out, filename):
+    """Go discovery ignores these files; explicit overlays still read their bytes."""
+    assert Path(filename).name == filename and filename.endswith(".go")
+    return out / ("_" + filename)
+
+
+def artifact_selftest():
+    """Exercise real Go discovery and an assertion-failing overlay in a tiny module."""
+    with tempfile.TemporaryDirectory(prefix="probectl-prefix-artifact-") as directory:
+        root = Path(directory).resolve()
+        (root / "go.mod").write_text("module artifactproof\n\ngo 1.26\n")
+        out = root / "artifacts/interface-prefix-transport"
+        out.mkdir(parents=True)
+        for package in ("alpha", "beta"):
+            source = root / package / "value.go"
+            source.parent.mkdir()
+            source.write_text(f"package {package}\nconst Value = 1\n")
+            overlay_source_path(out, package + ".go").write_text(
+                f"package {package}\nconst Value = 2\n"
+            )
+        test = root / "alpha/value_test.go"
+        test.write_text('package alpha\nimport "testing"\nfunc TestArtifactOverlay(t *testing.T) { if Value != 1 { t.Fatal("artifact overlay executed the mutation") } }\n')
+        listed = subprocess.run(["go", "list", "./..."], cwd=root,
+                                text=True, capture_output=True, check=True, timeout=60)
+        assert set(listed.stdout.splitlines()) == {"artifactproof/alpha", "artifactproof/beta"}, listed
+        positive = subprocess.run(["go", "test", "-count=1", "-json", "./alpha"], cwd=root,
+                                  text=True, capture_output=True, timeout=60, check=False)
+        assert not classify(positive.stdout, positive.returncode,
+                            package="artifactproof/alpha", tests=("TestArtifactOverlay",)), positive
+        overlay = out / "alpha.json"
+        overlay.write_text(json.dumps({"Replace": {
+            str(root / "alpha/value.go"): str(overlay_source_path(out, "alpha.go"))
+        }}))
+        negative = subprocess.run(["go", "test", "-count=1", "-json", "-overlay", str(overlay), "./alpha"],
+                                  cwd=root, text=True, capture_output=True, timeout=60, check=False)
+        assert report_regression_failed_on_assertion(
+            negative.stdout, negative.returncode, package="artifactproof/alpha",
+            root="TestArtifactOverlay", child="", marker="artifact overlay executed the mutation"
+        ), negative
+    print("Go discovery ignores mutation artifacts and explicit overlays retain exact assertions")
+
+
 def selftest():
     def encode(values):
         return "\n".join(json.dumps(row) for row in values)
@@ -251,7 +295,7 @@ def configuration_incarnation_controls():
             f"AND {parameter}::uuid IS NOT NULL AND revision="
             + ("$4" if name == "policy" else "$5"),
         )
-        path = out / (name + "_incarnation_omitted.go")
+        path = overlay_source_path(out, name + "_incarnation_omitted.go")
         path.write_text(original[:a] + mutant + original[b:])
         overlay = out / (name + "_incarnation_omitted.json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
@@ -282,7 +326,7 @@ def configuration_raw_cli_body_control():
     seam = "op.ExactJSON, op.MaxBodyBytes = profile.ExactJSON, profile.MaxBodyBytes"
     assert original.count(seam) == 1
     out = Path("artifacts/interface-prefix-transport").resolve()
-    path = out / "raw_cli_policy_old_quota.go"
+    path = overlay_source_path(out, "raw_cli_policy_old_quota.go")
     path.write_text(original.replace(seam, "op.ExactJSON = profile.ExactJSON"))
     overlay = out / "raw_cli_policy_old_quota.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
@@ -314,7 +358,7 @@ def configuration_missing_source_control():
         "\t\treturn nil", "\t\treturn errInterfaceRoleInput", 1
     )
     out = Path("artifacts/interface-prefix-transport").resolve()
-    path = out / "manual_override_old_source_requirement.go"
+    path = overlay_source_path(out, "manual_override_old_source_requirement.go")
     path.write_text(mutant)
     overlay = out / "manual_override_old_source_requirement.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
@@ -345,7 +389,7 @@ def configuration_native_request_control():
     seam = "return max(4<<20, s.nativeRenderBudget.SourceBytes)"
     assert original.count(seam) == 1
     out = Path("artifacts/interface-prefix-transport").resolve()
-    path = out / "native_request_old_quota.go"
+    path = overlay_source_path(out, "native_request_old_quota.go")
     path.write_text(original.replace(seam, "return 4<<20"))
     overlay = out / "native_request_old_quota.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
@@ -373,7 +417,7 @@ def configuration_silo_lock_control():
     seam = "tenancy.WithSiloTableLock(r.Context())"
     assert original.count(seam) == 2
     out = Path("artifacts/interface-prefix-transport").resolve()
-    path = out / "role_silo_relation_locks_omitted.go"
+    path = overlay_source_path(out, "role_silo_relation_locks_omitted.go")
     path.write_text(original.replace(seam, "r.Context()"))
     overlay = out / "role_silo_relation_locks_omitted.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
@@ -409,7 +453,7 @@ def configuration_regexp_expansion_control():
         original[:start] + signature + " {\n\treturn ctx.Err()\n}\n" + original[end:]
     )
     out = Path("artifacts/interface-prefix-transport").resolve()
-    path = out / "role_regexp_expansion_admission_omitted.go"
+    path = overlay_source_path(out, "role_regexp_expansion_admission_omitted.go")
     path.write_text(mutant)
     overlay = out / "role_regexp_expansion_admission_omitted.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
@@ -541,7 +585,7 @@ def current_role_explanation_controls():
         source = Path(file).resolve()
         original = source.read_text()
         assert original.count(seam) == 1
-        mutant = out / ("role_explanation_" + name + ".go")
+        mutant = overlay_source_path(out, "role_explanation_" + name + ".go")
         mutant.write_text(original.replace(seam, replacement))
         overlay = out / ("role_explanation_" + name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
@@ -560,7 +604,7 @@ def interface_role_frozen_object_control():
     original = source.read_text()
     seam = "func (source *flowSnapshotSource) validateRoleAuthorization(ctx context.Context, scope flowsnapshot.Scope, receipt flowSnapshotValidity) error {"
     assert original.count(seam) == 1
-    mutant = out / "role_frozen_current_authority_omitted.go"
+    mutant = overlay_source_path(out, "role_frozen_current_authority_omitted.go")
     start = original.index(seam)
     end = original.index("func (source *flowSnapshotSource) validateTagAuthorization", start)
     mutant.write_text(original[:start] + seam + "\nreturn nil\n}\n\n" + original[end:])
@@ -580,7 +624,7 @@ def interface_role_subject_control():
     original = source.read_text()
     start = original.index('"interface_role_policies": {')
     end = original.index('"interface_role_overrides":', start)
-    mutant = out / "role_policy_subject_omitted.go"
+    mutant = overlay_source_path(out, "role_policy_subject_omitted.go")
     mutant.write_text(original[:start] + '"interface_role_policies": {plane: "postgres:interface_role_policies", disposition: subjectTableNoSubject},\n' + original[end:])
     overlay = out / "role_policy_subject_omitted.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
@@ -598,7 +642,7 @@ def standalone_role_source_control():
     original = source.read_text()
     seam = "core.WithOpenDataStatus(en, nil, nil)"
     assert original.count(seam) == 1
-    mutant = out / "standalone_role_source.go"
+    mutant = overlay_source_path(out, "standalone_role_source.go")
     mutant.write_text(original.replace(seam, "_ = en"))
     overlay = out / "standalone_role_source.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
@@ -672,7 +716,7 @@ def current_role_source_controls():
         source = Path("internal/store", file).resolve()
         original = source.read_text()
         assert original.count(seam) == 1
-        path = out / (name + ".go")
+        path = overlay_source_path(out, name + ".go")
         path.write_text(original.replace(seam, replacement))
         overlay = out / (name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
@@ -699,7 +743,7 @@ def role_query_tenant_control():
     seam = "scope.TenantID != tenant"
     original = source.read_text()
     assert original.count(seam) == 1
-    mutant = out / "role_query_tenant_omitted.go"
+    mutant = overlay_source_path(out, "role_query_tenant_omitted.go")
     mutant.write_text(original.replace(seam, "false"))
     overlay = out / "role_query_tenant_omitted.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
@@ -719,7 +763,7 @@ def prefix_poll_refresh_control():
     seam = "PrefixAttempted: inv.prefixAttempted, Prefixes: inv.interfacePrefixes"
     assert original.count(seam) == 1
     out = Path("artifacts/interface-prefix-transport").resolve()
-    path = out / "prefix_poll_metadata_fingerprint_omitted.go"
+    path = overlay_source_path(out, "prefix_poll_metadata_fingerprint_omitted.go")
     path.write_text(original.replace(seam, "PrefixAttempted: false, Prefixes: nil"))
     overlay = out / "prefix_poll_metadata_fingerprint_omitted.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
@@ -772,7 +816,7 @@ def configuration_api_controls():
         ),
     ):
         assert mutant != original
-        path = out / (name + ".go")
+        path = overlay_source_path(out, name + ".go")
         path.write_text(mutant)
         overlay = out / (name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
@@ -824,7 +868,7 @@ def ix_prefix_controls():
         source = Path(package, file).resolve()
         original = source.read_text()
         assert original.count(seam) == 1
-        mutant = out / (name + ".go")
+        mutant = overlay_source_path(out, name + ".go")
         mutant.write_text(original.replace(seam, replacement))
         overlay = out / (name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
@@ -840,6 +884,8 @@ def ix_prefix_controls():
 
 
 def main(integration, flow_integration=False):
+    if not integration:
+        artifact_selftest()
     selected = FLOW_INTEGRATION if flow_integration else INTEGRATION if integration else UNIT
     for package, roots in selected.items():
         result = execute(
@@ -910,11 +956,14 @@ def main(integration, flow_integration=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--artifact-selftest", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--integration", action="store_true")
     mode.add_argument("--flow-integration", action="store_true")
     args = parser.parse_args()
     if args.selftest:
         selftest()
+    elif args.artifact_selftest:
+        artifact_selftest()
     else:
         main(args.integration or args.flow_integration, args.flow_integration)

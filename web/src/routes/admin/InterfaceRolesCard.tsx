@@ -88,7 +88,7 @@ function InterfaceRoleContexts({ tenant, canWrite }: { tenant: string; canWrite:
         <div className={styles.stack}>
           {contexts.isPending ? <LoadingState label="Loading role routing contexts" /> : null}
           {contexts.isError ? (
-            <ErrorState title="Cannot load role contexts" message={contexts.error.message} />
+            <ErrorState title="Cannot load role contexts" description={contexts.error.message} />
           ) : null}
           <Select
             label="Interface role routing context"
@@ -138,7 +138,7 @@ function InterfaceRoleConfiguration({
     <div className={styles.stack}>
       {policy.isPending ? <LoadingState label="Loading interface role policy" /> : null}
       {policy.isError ? (
-        <ErrorState title="Cannot load interface role policy" message={policy.error.message} />
+        <ErrorState title="Cannot load interface role policy" description={policy.error.message} />
       ) : null}
       {policy.data && !policy.isError ? (
         <InterfaceRolePolicyEditor
@@ -149,7 +149,7 @@ function InterfaceRoleConfiguration({
         />
       ) : null}
       {entities.isError ? (
-        <ErrorState title="Cannot load owned interfaces" message={entities.error.message} />
+        <ErrorState title="Cannot load owned interfaces" description={entities.error.message} />
       ) : null}
       <Select
         label="Interface for role explanation and override"
@@ -203,7 +203,7 @@ function InterfaceRoleCurrent({
         <LoadingState label="Explaining the current interface role" />
       ) : null}
       {explanation.isError ? (
-        <ErrorState title="Cannot explain the current role" message={explanation.error.message} />
+        <ErrorState title="Cannot explain the current role" description={explanation.error.message} />
       ) : null}
       {explanation.data && !explanation.isError ? (
         <>
@@ -404,7 +404,7 @@ function InterfaceRoleOverrideEditor({
     <div className={styles.stack}>
       {query.isPending ? <LoadingState label="Loading manual role override" /> : null}
       {query.isError ? (
-        <ErrorState title="Cannot load manual role override" message={query.error.message} />
+        <ErrorState title="Cannot load manual role override" description={query.error.message} />
       ) : null}
       {query.data && !query.isError ? (
         <InterfaceRoleOverrideForm
