@@ -99,6 +99,7 @@ INTEGRATION = {
     "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
     "internal/control": (
         "TestInterfaceRoleNativeTLSKeepsTenantConfigurationAndCurrentSources",
+        "TestInterfaceRoleStdioKeepsWholePoliciesAndRechecksCredentialWithinStream",
         "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
         "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",
         "TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority",
