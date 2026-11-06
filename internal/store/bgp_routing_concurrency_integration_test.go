@@ -32,7 +32,7 @@ func TestBGPRoutingWritesSerializeSourceChangesAndRejectStaleSnapshots(t *testin
 		{"assignment", `UPDATE entity_agent_contexts SET assigned_at=clock_timestamp() WHERE tenant_id=$1 AND agent_id='role-listener'`},
 	} {
 		t.Run(change.name, func(t *testing.T) {
-			f := newRoleInputsFixture(t)
+			f := newRoleInputsFixture(t, 8)
 			ctx, cancel := context.WithTimeout(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), 15*time.Second)
 			defer cancel()
 			var observed time.Time
@@ -121,7 +121,7 @@ func waitBGPRoutingSourceLock(ctx context.Context, f *roleInputsFixture, pid int
 }
 
 func testBGPRoutingStaleSourceSnapshot(t *testing.T) {
-	f := newRoleInputsFixture(t)
+	f := newRoleInputsFixture(t, 8)
 	source := BGPRoutingSource{Scope: entity.Scope{TenantID: f.tenants[0], ContextID: f.contextID}, RouterID: f.routerID,
 		CollectorAgentID: "role-listener", SourceRef: "role-router", SenderSerial: f.serials[f.tenants[0]+"role-listener"], OriginSerial: f.serials[f.tenants[0]+"role-router"]}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID))
@@ -151,7 +151,7 @@ func testBGPRoutingStaleSourceSnapshot(t *testing.T) {
 }
 
 func TestBGPRoutingQuotaWaitUsesFreshTenantAccountAndRefusesOldSnapshots(t *testing.T) {
-	f := newRoleInputsFixture(t)
+	f := newRoleInputsFixture(t, 8)
 	source := BGPRoutingSource{Scope: entity.Scope{TenantID: f.tenants[0], ContextID: f.contextID}, RouterID: f.routerID,
 		CollectorAgentID: "role-listener", SourceRef: "role-router", SenderSerial: f.serials[f.tenants[0]+"role-listener"], OriginSerial: f.serials[f.tenants[0]+"role-router"], ObservedAt: time.Now()}
 	ctx, cancel := context.WithTimeout(tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID)), 15*time.Second)

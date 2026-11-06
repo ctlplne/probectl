@@ -40,9 +40,22 @@ type roleInputsFixture struct {
 	serials                                       map[string]string
 }
 
-func newRoleInputsFixture(t *testing.T) *roleInputsFixture {
+func newRoleInputsFixture(t *testing.T, minimumConnections ...int32) *roleInputsFixture {
 	t.Helper()
 	pool := setup(t.Context(), t)
+	if len(minimumConnections) != 0 && pool.Config().MaxConns < minimumConnections[0] {
+		// Concurrent authority proofs hold the catalogue lease, two writer
+		// leases/transactions and an observer. The default CPU-sized pool on
+		// a small CI runner cannot admit that whole proof concurrently.
+		config := pool.Config()
+		config.MaxConns = minimumConnections[0]
+		replacement, err := pgxpool.NewWithConfig(t.Context(), config)
+		pool.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		pool = replacement
+	}
 	t.Cleanup(pool.Close)
 	testsupport.LockPostgresPublicCatalog(t, pool)
 	f := &roleInputsFixture{t: t, pool: pool, contextID: gouuid.NewString(), routerID: gouuid.NewString(), interfaceID: gouuid.NewString(), otherRouter: gouuid.NewString(), serials: map[string]string{}}
