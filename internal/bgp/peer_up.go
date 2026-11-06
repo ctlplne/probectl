@@ -66,13 +66,14 @@ func ParseBMPPeerUp(ctx context.Context, raw []byte, budget PeerUpBudget) (PeerU
 	localPort := binary.BigEndian.Uint16(raw[bodyOffset+16 : bodyOffset+18])
 	remotePort := binary.BigEndian.Uint16(raw[bodyOffset+18 : bodyOffset+20])
 	var address netip.Addr
-	if header.View == BMPLocRIB {
+	switch {
+	case header.View == BMPLocRIB:
 		if !bytes.Equal(local, make([]byte, 16)) || localPort != 0 || remotePort != 0 {
 			return none, ErrBMPPeerUp
 		}
-	} else if header.Flags&0x80 != 0 {
+	case header.Flags&0x80 != 0:
 		address = netip.AddrFrom16([16]byte(local))
-	} else {
+	default:
 		if !bytes.Equal(local[:12], make([]byte, 12)) {
 			return none, ErrBMPPeerUp
 		}
