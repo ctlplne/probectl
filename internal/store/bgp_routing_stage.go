@@ -20,6 +20,8 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+var errBGPRoutingContextBinding = errors.New("routing view lacks an explicit context binding")
+
 // BGPRoutingPeerUpInput has no tenant/context/router selector. The service
 // supplies the live mTLS collector and serial; RLS operator assignments resolve
 // canonical ownership. Definitions must come from complete server-side decoding.
@@ -67,6 +69,9 @@ func (store BGPRouting) StagePeerInScope(ctx context.Context, sc tenancy.Scope, 
 		return BGPRoutingStageResult{Status: "invalidated"}, nil
 	}
 	refs, err := routingStagePlan(ctx, source, input, profile)
+	if errors.Is(err, errBGPRoutingContextBinding) {
+		return none, err
+	}
 	if err != nil {
 		return invalidateRoutingStageSource(ctx, sc, source)
 	}
@@ -157,6 +162,9 @@ func routingStagePlan(ctx context.Context, source BGPRoutingSource, input BGPRou
 	for _, definition := range input.Definitions {
 		if definition.Kind != "loc_rib" || definition.AFI < 1 || definition.AFI > 2 || definition.SAFI != 1 || seen[definition.AFI] {
 			return nil, ErrBGPRoutingView
+		}
+		if definition.Peer.Distinguisher != ([8]byte{}) {
+			return nil, errBGPRoutingContextBinding
 		}
 		seen[definition.AFI] = true
 		definition.Peer.OpenFrameDigest = append([]byte(nil), input.FrameDigest...)

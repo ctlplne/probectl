@@ -82,6 +82,14 @@ func TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer(t *testing.
 		}
 		return err
 	})
+	unbound := inputs[0]
+	unbound.ObservationID = uuid.NewString()
+	unbound.ObservedAt = routingFixtureTime(f)
+	unbound.Definitions = append([]BGPRoutingViewDefinition(nil), unbound.Definitions...)
+	unbound.Definitions[0].Peer.Distinguisher[0] = 1
+	if _, err := stage(0, unbound, profile); !errors.Is(err, errBGPRoutingContextBinding) || count(0, "staging") != 2 || count(1, "staging") != 2 {
+		t.Fatal("unbound routing VRF changed storage context", err)
+	}
 	changed := inputs[0]
 	changed.FrameDigest = crypto.Hash([]byte("altered original Peer Up"))
 	refused, err := stage(0, changed, profile)
