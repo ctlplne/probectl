@@ -86,6 +86,7 @@ UNIT = {
     ),
     "internal/store": (
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
+        "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
         "TestInterfaceRoleStorageRequiresTenantBeforeAnyQuery",
         "TestInterfaceRoleInputsRequireTenantBeforeStorageAndCanonicalPeerValues",
         "TestInterfaceRoleFlowBindingRequiresTenantBeforeStorageAndExactIdentity",
@@ -129,6 +130,7 @@ INTEGRATION = {
         "TestDashboardReportTenantIsolation",
         "TestInterfaceRoleConfigurationPostgresKeepsTenantCASAndOverrideIncarnations",
         "TestBGPRoutingSchemaKeepsTenantFamilyPathIdentityAndPublicationShape",
+        "TestBGPRoutingAuthorityKeepsCurrentTenantOriginPurposeAndAssignmentEpoch",
     ),
     "internal/agenttransport": (
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
@@ -261,6 +263,27 @@ def execute(package, roots, label, integration=False, overlay=None, child=""):
     print(result.stdout, end="")
     print(result.stderr, end="")
     return result
+
+
+
+def bgp_routing_authority_control():
+    source = Path("internal/store/bgp_routing_authority.go").resolve()
+    original = source.read_text()
+    seam = " AND origin.spiffe_id='spiffe://probectl/tenant/' || source.tenant_id::text || '/bmp/' || source.source_ref"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    mutant = overlay_source_path(out, "routing_origin_purpose_omitted.go")
+    mutant.write_text(original.replace(seam, " AND true"))
+    overlay = out / "routing_origin_purpose_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestBGPRoutingAuthorityKeepsCurrentTenantOriginPurposeAndAssignmentEpoch"
+    result = execute("internal/store", (root,), "routing_origin_purpose_omitted",
+                     integration=True, overlay=overlay, child="origin-purpose")
+    if not report_regression_failed_on_assertion(
+        result.stdout, result.returncode, package=PREFIX + "internal/store", root=root,
+        child="origin-purpose", marker="changed source/credential retained routing authority"
+    ):
+        raise RuntimeError("routing origin purpose control did not fail its exact assertion")
 
 
 def configuration_incarnation_controls():
@@ -899,6 +922,7 @@ def main(integration, flow_integration=False):
                 f"required prefix transport proof missing/failed: {failures}"
             )
     if integration and not flow_integration:
+        bgp_routing_authority_control()
         current_role_explanation_controls()
         standalone_role_source_control()
         interface_role_subject_control()
