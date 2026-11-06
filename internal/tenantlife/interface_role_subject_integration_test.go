@@ -64,7 +64,7 @@ func TestInterfaceRoleSubjectKeepsWholeExportErasureAndTenantIsolation(t *testin
 	for _, tenant := range tenants {
 		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			for _, id := range []string{contextID, unrelatedContext} {
-				if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$2,$2,'neutral-site','neutral-vrf')`, tenant, id); err != nil {
+				if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$2,$2,'neutral-site-'||$2::uuid::text,'neutral-vrf')`, tenant, id); err != nil {
 					return err
 				}
 			}
