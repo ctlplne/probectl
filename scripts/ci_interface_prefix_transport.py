@@ -101,7 +101,10 @@ FLOW_INTEGRATION = {
 }
 INTEGRATION = {
     "cmd/probectl-control": ("TestMCPFlowSourcesRetainConfiguredLocalIXGeneration",),
-    "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
+    "ee/silo": (
+        "TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",
+        "TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority",
+    ),
     "internal/control": (
         "TestNativeFlowRoleTLSKeepsWholeProvenanceAndCurrentAuthority",
         "TestInterfaceRoleNativeTLSKeepsTenantConfigurationAndCurrentSources",
