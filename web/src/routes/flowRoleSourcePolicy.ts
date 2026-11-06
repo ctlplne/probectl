@@ -10,20 +10,15 @@ const roleNames = ['transit', 'ix_peering', 'private_peering', 'customer', 'back
 const roleFields = ['in_if_role', 'out_if_role']
 const sourceGrants = ['flow.read', 'ai.query', 'entities.read', 'metrics.read', 'events.read']
 
-function hasRoleSelector(result: FlowExplorerResult) {
-  if (
-    [...(result.query.group_by ?? []), ...(result.query.matrix_with ?? [])].some((name) =>
-      roleFields.includes(name),
-    )
-  )
-    return true
+function querySelectors(result: FlowExplorerResult) {
+  const names = [...(result.query.group_by ?? []), ...(result.query.matrix_with ?? [])]
   const pending: FlowQueryFilterGroup[] = result.query.filter ? [result.query.filter] : []
   while (pending.length) {
     const group = pending.pop()!
-    if (group.conditions?.some((predicate) => roleFields.includes(predicate.field))) return true
+    names.push(...(group.conditions ?? []).map((predicate) => predicate.field))
     pending.push(...(group.groups ?? []))
   }
-  return false
+  return names
 }
 
 // Hide the entire role result, including its group values, synchronously when
@@ -34,17 +29,34 @@ export function flowRoleResultReadable(
   permissions: readonly string[],
 ) {
   if (!result) return true
+  const selectors = querySelectors(result)
   if (
-    !hasRoleSelector(result) &&
+    !selectors.some((name) => roleFields.includes(name)) &&
     result.role_digest === undefined &&
     result.role_tenant_id === undefined &&
     result.role_sources === undefined
   )
     return true
+  const requiredGrants = new Set(sourceGrants)
+  for (const selector of selectors) {
+    if (!selector.startsWith('tag.')) continue
+    if (result.tag_tenant_id !== tenant) return false
+    requiredGrants.add('tags.read')
+    if (selector.startsWith('tag.agent.')) requiredGrants.add('agent.read')
+    if (
+      selector.startsWith('tag.device.') ||
+      selector.startsWith('tag.in_interface.') ||
+      selector.startsWith('tag.out_interface.')
+    )
+      requiredGrants.add('metrics.read')
+    if (selector.startsWith('tag.src_prefix.') || selector.startsWith('tag.dst_prefix.'))
+      requiredGrants.add('entities.read')
+  }
+  const hasRequired = [...requiredGrants].every((permission) => permissions.includes(permission))
   if (
     result.role_tenant_id !== tenant ||
     !/^[a-f0-9]{64}$/.test(result.role_digest ?? '') ||
-    !sourceGrants.every((permission) => permissions.includes(permission))
+    !hasRequired
   )
     return false
   if (result.role_sources !== undefined && !Array.isArray(result.role_sources)) return false
