@@ -90,6 +90,8 @@ UNIT = {
         "TestBGPRoutingViewMetadataKeepsStablePeerSlotsAndCompleteValues",
         "TestBGPRoutingViewMetadataRefusesIncompleteShapeAndWholeAdmission",
         "TestBGPRoutingBeginRefusesForeignTenantBeforeMetadataOrStorage",
+        "TestBGPRoutingBatchKeepsCompleteValuesAndReplayIdentity",
+        "TestBGPRoutingBatchRefusesWholeMalformedOrUnadmittedInput",
         "TestInterfaceRoleStorageRequiresTenantBeforeAnyQuery",
         "TestInterfaceRoleInputsRequireTenantBeforeStorageAndCanonicalPeerValues",
         "TestInterfaceRoleFlowBindingRequiresTenantBeforeStorageAndExactIdentity",
@@ -137,6 +139,9 @@ INTEGRATION = {
         "TestBGPRoutingBeginKeepsPrivateTenantGenerationsAndAtomicSlotReplacement",
         "TestBGPRoutingWritesSerializeSourceChangesAndRejectStaleSnapshots",
         "TestBGPRoutingQuotaWaitUsesFreshTenantAccountAndRefusesOldSnapshots",
+        "TestBGPRoutingBatchesKeepCompleteTenantPathsReplayWithdrawalAndPublication",
+        "TestBGPRoutingBatchRefusalInvalidatesWithoutPartialWritesOrEpochRevival",
+        "TestBGPRoutingBatchRollsBackLateStorageFaultAndOriginExpiry",
     ),
     "internal/agenttransport": (
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
@@ -327,6 +332,27 @@ ROUTING_WRITE_CONTROLS = {
         "TestBGPRoutingQuotaWaitUsesFreshTenantAccountAndRefusesOldSnapshots",
         "", "routing quota accepted a potentially stale transaction snapshot",
     ),
+    "routing-batch-invalidation": (
+        "internal/store/bgp_routing_updates.go",
+        "SET state='invalid',updated_at=clock_timestamp()",
+        "SET state=state,updated_at=clock_timestamp()",
+        "TestBGPRoutingBatchesKeepCompleteTenantPathsReplayWithdrawalAndPublication",
+        "", "routing batch mixed tenant, initial view or complete path population",
+    ),
+    "routing-birth-epoch": (
+        "internal/store/bgp_routing_updates.go",
+        "birth.ObservedAt = view.born",
+        "birth.ObservedAt = source.ObservedAt",
+        "TestBGPRoutingBatchRefusalInvalidatesWithoutPartialWritesOrEpochRevival",
+        "", "new source assignment revived a former routing generation",
+    ),
+    "routing-final-authority": (
+        "internal/store/bgp_routing_updates.go",
+        "if err := store.checkRoutingWriteLease(ctx, sc, birth, view.validUntil); err != nil {",
+        "if err := error(nil); err != nil {",
+        "TestBGPRoutingBatchRollsBackLateStorageFaultAndOriginExpiry",
+        "origin-expiry", "routing batch acknowledged a late store fault or expired origin",
+    ),
 }
 
 
@@ -335,7 +361,7 @@ def bgp_routing_write_controls():
     for name, (file, seam, replacement, root, child, marker) in ROUTING_WRITE_CONTROLS.items():
         source = Path(file).resolve()
         original = source.read_text()
-        assert original.count(seam) == 1
+        assert original.count(seam) == (2 if name == "routing-final-authority" else 1)
         mutant = overlay_source_path(out, name + ".go")
         mutant.write_text(original.replace(seam, replacement))
         overlay = out / (name + ".json")
