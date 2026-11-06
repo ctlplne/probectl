@@ -20,6 +20,11 @@ func TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity(t *testing
 	if err != nil || len(got) != 1 || got[0].ID == "" || got[0].Distinguisher != binding.Distinguisher || got[0].BGPIdentifier != binding.BGPIdentifier || !reflect.DeepEqual(got[0].Families, []uint16{1, 2}) || binding.Families[0] != 2 {
 		t.Fatal("operator selector lost complete wire values or owned family copies", err)
 	}
+	upper := binding
+	upper.Distinguisher = "FFFFFFFFFFFFFFFF"
+	if normalized, err := prepareRoutingBindings(t.Context(), []routingSourceBinding{upper}, routingViewBudget()); err != nil || normalized[0].Distinguisher != binding.Distinguisher {
+		t.Fatal("operator wire selector case changed the supported value", err)
+	}
 	got[0].Families[0] = 2
 	if !reflect.DeepEqual(binding.Families, []uint16{2, 1}) {
 		t.Fatal("prepared routing manifest aliased operator input")
@@ -27,7 +32,7 @@ func TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity(t *testing
 	for _, change := range []func(*routingSourceBinding){
 		func(b *routingSourceBinding) { b.ContextID = "foreign-context" },
 		func(b *routingSourceBinding) { b.RouterID = "" },
-		func(b *routingSourceBinding) { b.Distinguisher = "FFFFFFFFFFFFFFFF" },
+		func(b *routingSourceBinding) { b.Distinguisher = "gggggggggggggggg" },
 		func(b *routingSourceBinding) { b.Distinguisher = "0000" },
 		func(b *routingSourceBinding) { b.BGPIdentifier = "::ffff:192.0.2.1" },
 		func(b *routingSourceBinding) { b.Families = nil },

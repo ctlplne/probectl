@@ -70,7 +70,7 @@ func putRoutingBindings(ctx context.Context, sc tenancy.Scope, collector, origin
 	}
 	var current *string
 	var previousBytes int64
-	err = sc.Q.QueryRow(ctx, `SELECT source.routing_epoch::text,COALESCE(octet_length(source.routing_bindings::text),0)::bigint
+	err = sc.Q.QueryRow(ctx, `SELECT source.routing_epoch::text,(COALESCE(octet_length(source.routing_bindings::text),0)+CASE WHEN source.routing_epoch IS NULL THEN 0 ELSE 128 END)::bigint
  FROM entity_source_contexts source
  JOIN entity_agent_contexts assignment ON (assignment.tenant_id,assignment.agent_id,assignment.context_id)=(source.tenant_id,source.agent_id,source.context_id)
  WHERE source.tenant_id=$1 AND source.agent_id=$2 AND source.source_kind='bmp_peer' AND source.source_ref=$3
@@ -110,7 +110,7 @@ func putRoutingBindings(ctx context.Context, sc tenancy.Scope, collector, origin
 		return routingSourceManifest{}, err
 	}
 	var nextBytes int64
-	if err := sc.Q.QueryRow(ctx, `SELECT octet_length($1::jsonb::text)::bigint`, string(body)).Scan(&nextBytes); err != nil {
+	if err := sc.Q.QueryRow(ctx, `SELECT octet_length($1::jsonb::text)::bigint+128`, string(body)).Scan(&nextBytes); err != nil {
 		return routingSourceManifest{}, err
 	}
 	used, err := routingStateBytesInScope(ctx, sc)
@@ -177,9 +177,10 @@ func normalizeRoutingBinding(binding *routingSourceBinding) error {
 		return entity.ErrInvalidClaim
 	}
 	rd, err := hex.DecodeString(binding.Distinguisher)
-	if err != nil || len(rd) != 8 || hex.EncodeToString(rd) != binding.Distinguisher {
+	if err != nil || len(rd) != 8 {
 		return entity.ErrInvalidClaim
 	}
+	binding.Distinguisher = hex.EncodeToString(rd)
 	id, err := netip.ParseAddr(binding.BGPIdentifier)
 	if err != nil || !id.Is4() || id.String() != binding.BGPIdentifier {
 		return entity.ErrInvalidClaim
@@ -203,6 +204,6 @@ func routingStateBytesInScope(ctx context.Context, sc tenancy.Scope) (int64, err
 	var used int64
 	err := sc.Q.QueryRow(ctx, `SELECT
  COALESCE((SELECT sum(charged_bytes) FROM bgp_routing_views WHERE tenant_id=$1),0)::bigint
- + COALESCE((SELECT sum(octet_length(routing_bindings::text)) FROM entity_source_contexts WHERE tenant_id=$1),0)::bigint`, sc.Tenant.String()).Scan(&used)
+ + COALESCE((SELECT sum(CASE WHEN routing_epoch IS NULL THEN 0 ELSE octet_length(routing_bindings::text)+128 END) FROM entity_source_contexts WHERE tenant_id=$1),0)::bigint`, sc.Tenant.String()).Scan(&used)
 	return used, err
 }
