@@ -387,11 +387,9 @@ type routingPlannedChange struct {
 }
 
 func planRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, view routingWriteView, changes []routingPreparedChange, profile BGPRoutingBudget) ([]routingPlannedChange, int64, int64, error) {
-	var used int64
-	if total, err := routingStateBytesInScope(ctx, sc); err != nil {
+	used, err := routingStateBytesInScope(ctx, sc)
+	if err != nil {
 		return nil, 0, 0, err
-	} else {
-		used = total
 	}
 	initialUsed, rows, ownBytes := used, view.rows, view.bytes
 	plan := make([]routingPlannedChange, 0, len(changes))

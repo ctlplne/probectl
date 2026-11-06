@@ -192,11 +192,10 @@ func (store BGPRouting) beginViewInScope(ctx context.Context, sc tenancy.Scope, 
 	if !validUntil.After(authority.AsOf) {
 		return none, ErrBGPRoutingSourceUnavailable
 	}
-	var used, metadataBytes int64
-	if total, err := routingStateBytesInScope(ctx, sc); err != nil {
+	var metadataBytes int64
+	used, err := routingStateBytesInScope(ctx, sc)
+	if err != nil {
 		return none, err
-	} else {
-		used = total
 	}
 	if err := sc.Q.QueryRow(ctx, `SELECT octet_length($1::jsonb::text)::bigint+256`, string(body)).Scan(&metadataBytes); err != nil {
 		return none, err
