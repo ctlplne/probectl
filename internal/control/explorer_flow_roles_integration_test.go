@@ -189,11 +189,11 @@ func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *te
 	// addresses; actual PG/RLS/TLS/current authority remain the boundary.
 	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
 		configuration := store.InterfaceRoleConfiguration{}
-		old, err := configuration.Policy(ctx, sc, f.contextID, roleExplanationStoreBudget())
+		old, err := configuration.Policy(ctx, sc, f.contextID, interfaceRoleStoreBudget(flowstore.DefaultExplorerBudget()))
 		if err != nil {
 			return err
 		}
-		_, err = configuration.PutPolicy(ctx, sc, f.contextID, old.ID, old.Revision, entity.InterfaceRolePolicyDefinition{}, roleExplanationStoreBudget())
+		_, err = configuration.PutPolicy(ctx, sc, f.contextID, old.ID, old.Revision, entity.InterfaceRolePolicyDefinition{}, interfaceRoleStoreBudget(flowstore.DefaultExplorerBudget()))
 		return err
 	})
 	ix := roleIXEnricher(t, time.Now().UTC().Add(-time.Minute), "10.42.0.0/24")
