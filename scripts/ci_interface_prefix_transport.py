@@ -154,6 +154,7 @@ INTEGRATION = {
     ),
     "internal/store": (
         "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
+        "TestRoutingBindingManifestRefusesLegacyAuthorityWithoutChangingOtherTenant",
         "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
         "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
@@ -454,6 +455,14 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-legacy-authority-control": (
+        "internal/store/bgp_routing_authority.go",
+        " AND source.routing_epoch IS NULL",
+        " AND true",
+        "TestRoutingBindingManifestRefusesLegacyAuthorityWithoutChangingOtherTenant",
+        "",
+        "explicit routing manifest restored legacy source authority",
+    ),
     "routing-binding-current": (
         "internal/store/bgp_routing_binding_lookup.go",
         "source.routing_epoch=$9 AND source.routing_assigned_at=$4",

@@ -111,6 +111,7 @@ func routingSourceAuthority(ctx context.Context, sc tenancy.Scope, source BGPRou
  AND origin.spiffe_id='spiffe://probectl/tenant/' || source.tenant_id::text || '/bmp/' || source.source_ref
  WHERE source.tenant_id=$1 AND source.context_id=$2 AND source.anchor_entity_id=$3
  AND source.agent_id=$4 AND source.source_kind='bmp_peer' AND source.source_ref=$7
+ AND source.routing_epoch IS NULL
  AND $8::timestamptz<=transaction_timestamp()
  AND source.assigned_at<=$8 AND assignment.assigned_at<=$8
  AND (source.expires_at IS NULL OR source.expires_at>transaction_timestamp())
