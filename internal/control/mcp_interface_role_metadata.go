@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	guuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/entity"
 )
@@ -31,8 +31,8 @@ func (id roleMCPUUID) MarshalJSON() ([]byte, error) {
 	if id == "" {
 		return []byte(`""`), nil
 	}
-	parsed, err := uuid.Parse(string(id))
-	if err != nil || parsed == uuid.Nil || parsed.String() != string(id) {
+	parsed, err := guuid.Parse(string(id))
+	if err != nil || parsed == guuid.Nil || parsed.String() != string(id) {
 		return nil, errors.New("invalid server role metadata UUID")
 	}
 	raw, err := json.Marshal(string(id))
