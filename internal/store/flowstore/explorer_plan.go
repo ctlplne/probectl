@@ -433,22 +433,12 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if plan.DataSeries == "rollup" {
 		return PlanResult{}, errors.New("rollup coverage is unavailable from the memory store")
 	}
-	selectedGroups, err := normalizePlanGroupsWithVocabulary(query.SelectedGroups, plan, vocabulary, budget)
+	membership, err := normalizeMemoryPlanMembership(query, plan, vocabulary, budget)
 	if err != nil {
 		return PlanResult{}, err
 	}
-	selectedColumns, err := normalizePlanColumnsWithVocabulary(query.SelectedColumns, plan, vocabulary, budget)
-	if err != nil {
-		return PlanResult{}, err
-	}
-	selectedChart, err := normalizePlanChartGroupsWithVocabulary(query.SelectedChartGroups, plan, vocabulary, budget)
-	if err != nil {
-		return PlanResult{}, err
-	}
-	selectedMatrixRows, err := normalizePlanMatrixRowsWithVocabulary(query.SelectedMatrixRows, plan, vocabulary, budget)
-	if err != nil {
-		return PlanResult{}, err
-	}
+	selectedGroups, selectedColumns := membership.groups, membership.columns
+	selectedChart, selectedMatrixRows := membership.chart, membership.matrixRows
 	prepared, err := flow.PrepareQueryFilterWithVocabulary(plan.Filter, vocabulary)
 	if err != nil {
 		return PlanResult{}, err
@@ -791,4 +781,32 @@ func sortPlanPoints(points []PlanPoint) {
 	for i, item := range ordered {
 		points[i] = item.point
 	}
+}
+
+// Comparison axes share validation, while retaining their separate nil/empty
+// membership semantics and independent shape/depth constraints.
+type memoryPlanMembership struct {
+	groups, columns, chart, matrixRows [][]string
+}
+
+func normalizeMemoryPlanMembership(query PlanQuery, plan flow.QueryPlan, vocabulary flow.QueryVocabulary, budget ExplorerBudget) (memoryPlanMembership, error) {
+	var selected memoryPlanMembership
+	var err error
+	selected.groups, err = normalizePlanGroupsWithVocabulary(query.SelectedGroups, plan, vocabulary, budget)
+	if err != nil {
+		return memoryPlanMembership{}, err
+	}
+	selected.columns, err = normalizePlanColumnsWithVocabulary(query.SelectedColumns, plan, vocabulary, budget)
+	if err != nil {
+		return memoryPlanMembership{}, err
+	}
+	selected.chart, err = normalizePlanChartGroupsWithVocabulary(query.SelectedChartGroups, plan, vocabulary, budget)
+	if err != nil {
+		return memoryPlanMembership{}, err
+	}
+	selected.matrixRows, err = normalizePlanMatrixRowsWithVocabulary(query.SelectedMatrixRows, plan, vocabulary, budget)
+	if err != nil {
+		return memoryPlanMembership{}, err
+	}
+	return selected, nil
 }

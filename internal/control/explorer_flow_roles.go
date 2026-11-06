@@ -113,13 +113,9 @@ func (s *Server) loadFlowRoleSnapshot(ctx context.Context, actor *auth.Principal
 			if err != nil {
 				return err
 			}
-			allowed := true
-			for _, permission := range []string{permAIQuery, permFlowRead, ai.PermEntitiesRead, "metrics.read", "events.read"} {
-				decision, err := s.decide(ctx, principal, permission, auth.RBACGlobal, entityContextResource(record))
-				if err != nil {
-					return err
-				}
-				allowed = allowed && decision == auth.DecisionAllowed
+			allowed, err := s.flowRoleContextAllowed(ctx, principal, record)
+			if err != nil {
+				return err
 			}
 			digest, err = hashFlowRoleInputs(ctx, digest, struct {
 				Context entity.ContextRecord
@@ -185,28 +181,7 @@ func (s *Server) loadFlowRoleSnapshot(ctx context.Context, actor *auth.Principal
 					if binding.AgentID != owner.AgentID || binding.RouterID != owner.RouterID || binding.Exporter != owner.Exporter {
 						continue
 					}
-					until := inputs.SNMP.ValidUntil
-					if binding.ValidUntil.Before(until) {
-						until = binding.ValidUntil
-					}
-					for _, source := range inputs.SNMP.Bindings {
-						if source.ValidUntil.Before(until) {
-							until = source.ValidUntil
-						}
-					}
-					for _, peer := range inputs.Peers {
-						if peer.ValidUntil.Before(until) {
-							until = peer.ValidUntil
-						}
-					}
-					if inputs.SNMP.Prefixes != nil && inputs.SNMP.PrefixClock.ValidUntil.Before(until) {
-						until = inputs.SNMP.PrefixClock.ValidUntil
-					}
-					for _, prefix := range prefixes {
-						if slices.Contains(decision.Sources, prefix.SourceID) && prefix.Clock.ValidUntil.Before(until) {
-							until = prefix.Clock.ValidUntil
-						}
-					}
+					until := flowRoleProjectionValidity(inputs, binding, prefixes, decision)
 					sources := append(slices.Clone(decision.Sources), binding.SourceID, inputs.SNMP.SourceID)
 					selected = append(selected, flowstore.InterfaceRoleProjection{Scope: owner.Scope, RouterID: owner.RouterID, InterfaceID: id,
 						Exporter: owner.Exporter.String(), Protocol: binding.Protocol, Domain: binding.Domain, IfIndex: inputs.IfIndex,
@@ -263,4 +238,45 @@ func hashFlowRoleInputs(ctx context.Context, previous []byte, value any, limit i
 		return nil, entity.ErrInterfaceRoleBudget
 	}
 	return crypto.Hash(append(previous, body...)), nil
+}
+
+// All contributing current source clocks constrain a projection; the caller
+// has already required complete SNMP inputs and an owned source binding.
+func flowRoleProjectionValidity(inputs store.InterfaceRoleInputs, binding store.InterfaceRoleFlowBinding,
+	prefixes []interfaceRoleIXPrefix, decision interfaceRoleExplanation) time.Time {
+	until := inputs.SNMP.ValidUntil
+	if binding.ValidUntil.Before(until) {
+		until = binding.ValidUntil
+	}
+	for _, source := range inputs.SNMP.Bindings {
+		if source.ValidUntil.Before(until) {
+			until = source.ValidUntil
+		}
+	}
+	for _, peer := range inputs.Peers {
+		if peer.ValidUntil.Before(until) {
+			until = peer.ValidUntil
+		}
+	}
+	if inputs.SNMP.Prefixes != nil && inputs.SNMP.PrefixClock.ValidUntil.Before(until) {
+		until = inputs.SNMP.PrefixClock.ValidUntil
+	}
+	for _, prefix := range prefixes {
+		if slices.Contains(decision.Sources, prefix.SourceID) && prefix.Clock.ValidUntil.Before(until) {
+			until = prefix.Clock.ValidUntil
+		}
+	}
+	return until
+}
+
+func (s *Server) flowRoleContextAllowed(ctx context.Context, principal *auth.Principal, record entity.ContextRecord) (bool, error) {
+	allowed := true
+	for _, permission := range []string{permAIQuery, permFlowRead, ai.PermEntitiesRead, "metrics.read", "events.read"} {
+		decision, err := s.decide(ctx, principal, permission, auth.RBACGlobal, entityContextResource(record))
+		if err != nil {
+			return false, err
+		}
+		allowed = allowed && decision == auth.DecisionAllowed
+	}
+	return allowed, nil
 }

@@ -86,24 +86,7 @@ func planSQLWithRoleMetadata(budget ExplorerBudget, plan flow.QueryPlan, table s
 	params["series_limit"] = strconv.Itoa(plan.SeriesDepth)
 	params["matrix_depth"] = strconv.Itoa(plan.MatrixDepth)
 
-	tuples := []any{}
-	exporters := make([]string, 0, len(names))
-	for exporter := range names {
-		exporters = append(exporters, exporter)
-	}
-	sort.Strings(exporters)
-	for _, exporter := range exporters {
-		indices := make([]int, 0, len(names[exporter]))
-		for index := range names[exporter] {
-			indices = append(indices, int(index))
-		}
-		sort.Ints(indices)
-		for _, index := range indices {
-			tuples = append(tuples, []any{exporter, uint32(index), names[exporter][uint32(index)]})
-		}
-	}
-	encoded, _ := json.Marshal(tuples)
-	params["interfaces"] = string(encoded)
+	params["interfaces"] = planInterfaceNamesJSON(names)
 	filter, err := explorerFilterSQLWithVocabulary(plan.Filter, params, vocabulary)
 	if err != nil {
 		return "", nil, err
@@ -132,12 +115,8 @@ func planSQLWithRoleMetadata(budget ExplorerBudget, plan flow.QueryPlan, table s
 		}
 		from = prefixTagProjectionSQL(from, sides)
 	}
-	if planUsesInterfaceRoles(plan) {
-		for _, side := range []string{"in", "out"} {
-			alias := side + "_roles"
-			from += " ANY LEFT JOIN interface_role_lookup AS " + alias + " ON " + alias + ".role_tenant=tenant_id AND toIPv6OrNull(" + alias + ".role_exporter)=toIPv6OrNull(if(position(exporter,'%')=0,exporter,'')) AND " + alias + ".role_protocol=protocol AND " + alias + ".role_domain=obs_domain AND " + alias + ".role_index=" + side + "_if"
-		}
-	}
+	from = planInterfaceRoleJoinsSQL(from, plan)
+
 	// Original keys have names distinct from the transformed g/c aliases below.
 	// In particular column_input remaps the original column into g and clears c;
 	// nested scalar expansion must keep referring to the original source keys.
@@ -452,4 +431,35 @@ func planSQLMeasures(plan flow.QueryPlan) ([]string, map[string]int) {
 		}
 	}
 	return measures, indices
+}
+
+func planInterfaceRoleJoinsSQL(from string, plan flow.QueryPlan) string {
+	if planUsesInterfaceRoles(plan) {
+		for _, side := range []string{"in", "out"} {
+			alias := side + "_roles"
+			from += " ANY LEFT JOIN interface_role_lookup AS " + alias + " ON " + alias + ".role_tenant=tenant_id AND toIPv6OrNull(" + alias + ".role_exporter)=toIPv6OrNull(if(position(exporter,'%')=0,exporter,'')) AND " + alias + ".role_protocol=protocol AND " + alias + ".role_domain=obs_domain AND " + alias + ".role_index=" + side + "_if"
+		}
+	}
+	return from
+}
+
+func planInterfaceNamesJSON(names map[string]map[uint32]string) string {
+	tuples := []any{}
+	exporters := make([]string, 0, len(names))
+	for exporter := range names {
+		exporters = append(exporters, exporter)
+	}
+	sort.Strings(exporters)
+	for _, exporter := range exporters {
+		indices := make([]int, 0, len(names[exporter]))
+		for index := range names[exporter] {
+			indices = append(indices, int(index))
+		}
+		sort.Ints(indices)
+		for _, index := range indices {
+			tuples = append(tuples, []any{exporter, uint32(index), names[exporter][uint32(index)]})
+		}
+	}
+	encoded, _ := json.Marshal(tuples)
+	return string(encoded)
 }
