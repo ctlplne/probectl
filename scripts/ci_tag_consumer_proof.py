@@ -121,24 +121,24 @@ def report_regression(env: dict[str, str], *, scheduled: bool = False) -> None:
         source = Path("internal/control/dashboardreportsupervisor.go")
         root, marker = SCHEDULE_TEST, SCHEDULE_ASSERTION
         line = (
-            "\tcontent, mediaType, err := s.render(ctx, item.Schedule.Format, document)"
+            "\tstage, mediaType, err := stager(ctx, item.Schedule.Format, document)"
         )
-        held = """\tvar content []byte
+        held = """\tvar stage *reporting.BodyStage
 \tvar mediaType string
 \terr := tenancy.InTenant(ctx, s.pool, func(renderContext context.Context, _ tenancy.Scope) error {
 \t\tvar err error
-\t\tcontent, mediaType, err = s.render(renderContext, item.Schedule.Format, document)
+\t\tstage, mediaType, err = stager(renderContext, item.Schedule.Format, document)
 \t\treturn err
 \t})"""
     else:
         source = Path("internal/control/dashboardreporting.go")
         root, marker = REPORT_TEST, REPORT_ASSERTION
-        line = "\tcontent, mediaType, err := render(renderContext, req.Format, doc)"
-        held = """\tvar content []byte
+        line = "\tstage, mediaType, err := render(renderContext, req.Format, doc)"
+        held = """\tvar stage *reporting.BodyStage
 \tvar mediaType string
 \terr := s.inTenant(r.WithContext(renderContext), func(ctx context.Context, _ tenancy.Scope) error {
 \t\tvar err error
-\t\tcontent, mediaType, err = render(ctx, req.Format, doc)
+\t\tstage, mediaType, err = render(ctx, req.Format, doc)
 \t\treturn err
 \t})"""
     original = source.read_text()
