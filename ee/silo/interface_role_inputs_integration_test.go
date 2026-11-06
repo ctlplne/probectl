@@ -147,14 +147,21 @@ func TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority(t *testing.T)
 				}
 			}
 			reader := store.NewInterfaceRoleInputs(pool)
-			load := func(tenant string) store.InterfaceRoleInputs {
-				t.Helper()
+			read := func(tenant string, scope entity.Scope) (store.InterfaceRoleInputs, error) {
 				var got store.InterfaceRoleInputs
 				err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 					var err error
-					got, err = reader.LoadInScope(ctx, sc, entity.Scope{TenantID: tenant, ContextID: contextID}, interfaceID, budget)
+					got, err = reader.LoadInScope(ctx, sc, scope, interfaceID, budget)
 					return err
 				})
+				if err != nil {
+					return store.InterfaceRoleInputs{}, err
+				}
+				return got, nil
+			}
+			load := func(tenant string) store.InterfaceRoleInputs {
+				t.Helper()
+				got, err := read(tenant, entity.Scope{TenantID: tenant, ContextID: contextID})
 				if err != nil {
 					t.Fatal("managed current role inputs unavailable", err)
 				}
@@ -179,7 +186,7 @@ func TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority(t *testing.T)
 					return nil
 				})
 			}
-			if _, err := reader.Load(tenancy.WithTenant(ctx, tenancy.ID(tenants[1])), entity.Scope{TenantID: tenants[0], ContextID: contextID}, interfaceID, budget); !errors.Is(err, entity.ErrScopeMismatch) {
+			if _, err := read(tenants[1], entity.Scope{TenantID: tenants[0], ContextID: contextID}); !errors.Is(err, entity.ErrScopeMismatch) {
 				t.Fatal("managed role reader accepted contradictory tenant", err)
 			}
 			run(tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
@@ -202,7 +209,7 @@ func TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority(t *testing.T)
 						t.Error(err)
 					}
 				})
-				if got, err := reader.Load(tenancy.WithTenant(ctx, tenancy.ID(tenants[0])), entity.Scope{TenantID: tenants[0], ContextID: contextID}, interfaceID, budget); err == nil || got.SNMP != nil || got.Policy.ID != "" {
+				if got, err := read(tenants[0], entity.Scope{TenantID: tenants[0], ContextID: contextID}); err == nil || got.SNMP != nil || got.Policy.ID != "" {
 					t.Fatal("missing managed role relation fell through to pooled shadow", err)
 				}
 			}
