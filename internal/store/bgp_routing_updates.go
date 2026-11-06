@@ -388,8 +388,10 @@ type routingPlannedChange struct {
 
 func planRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, view routingWriteView, changes []routingPreparedChange, profile BGPRoutingBudget) ([]routingPlannedChange, int64, int64, error) {
 	var used int64
-	if err := sc.Q.QueryRow(ctx, `SELECT COALESCE(sum(charged_bytes),0)::bigint FROM bgp_routing_views WHERE tenant_id=$1`, source.TenantID).Scan(&used); err != nil {
+	if total, err := routingStateBytesInScope(ctx, sc); err != nil {
 		return nil, 0, 0, err
+	} else {
+		used = total
 	}
 	initialUsed, rows, ownBytes := used, view.rows, view.bytes
 	plan := make([]routingPlannedChange, 0, len(changes))
