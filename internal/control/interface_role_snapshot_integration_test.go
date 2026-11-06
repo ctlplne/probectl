@@ -129,7 +129,7 @@ func TestInterfaceRoleFrozenObjectsKeepWholePagesCSVAndCurrentAuthority(t *testi
 	}
 	a, b := f.tenants[0], f.tenants[1]
 	first, sibling := create(a), create(b)
-	if !first.FlowPaging.More || first.FlowPaging.SelectedRows != 2 || first.Flow.Totals["bytes:total"] != "300" || first.Flow.RoleTenantID != a || len(first.Flow.RoleSources) != 1 || sibling.Flow.Totals["bytes:total"] != "900" || sibling.Flow.RoleSources[0].Role != "backbone" {
+	if !first.FlowPaging.More || first.FlowPaging.SelectedRows != 2 || first.Flow.Totals["bytes:total"] != "300" || first.Flow.RoleTenantID != a || len(first.Flow.RoleSources) != 1 || sibling.Flow.Totals["bytes:total"] != "900" || len(sibling.Flow.RoleSources) != 1 || sibling.Flow.RoleSources[0].Role != "backbone" {
 		t.Fatal("frozen role source lost complete groups, totals or paired tenant identity")
 	}
 	continuation := ai.ExplorerQuery{Source: ai.ExplorerFlow, Flow: &flow.QueryPlan{Cursor: first.FlowPaging.NextCursor}}
@@ -196,7 +196,11 @@ func TestInterfaceRoleFrozenObjectsKeepWholePagesCSVAndCurrentAuthority(t *testi
 			{http.MethodPost, "/v1/explorer/query", continuation}, {http.MethodGet, csvPath, nil},
 		} {
 			status, denied := request(tenant, target.method, target.path, target.body)
-			if status == http.StatusOK || strings.Contains(string(denied), first.Flow.RoleDigest) || strings.Contains(string(denied), f.interfaceID) {
+			expected := http.StatusForbidden
+			if tenant != a {
+				expected = http.StatusNotFound
+			}
+			if status != expected || strings.Contains(string(denied), first.Flow.RoleDigest) || strings.Contains(string(denied), f.interfaceID) {
 				t.Fatal(marker, status)
 			}
 		}
@@ -221,12 +225,12 @@ func TestInterfaceRoleFrozenObjectsKeepWholePagesCSVAndCurrentAuthority(t *testi
 	}
 	f.peer(a, 64500)
 	refuse(a, "frozen role output survived changed current source authority")
-	if got := create(b); got.Flow.Totals["bytes:total"] != "900" || got.Flow.RoleSources[0].Role != "backbone" {
+	if got := create(b); got.Flow.Totals["bytes:total"] != "900" || len(got.Flow.RoleSources) != 1 || got.Flow.RoleSources[0].Role != "backbone" {
 		t.Fatal("role source withdrawal damaged sibling frozen authority")
 	}
 	f.peer(a, 64496)
 	objects.afterPut = func() { f.peer(a, 64500) }
-	if status, _ := request(a, http.MethodPost, "/v1/explorer/query", query); status == http.StatusOK {
+	if status, _ := request(a, http.MethodPost, "/v1/explorer/query", query); status != http.StatusForbidden {
 		t.Fatal("role result published after source changed during object upload")
 	}
 	if objects.afterPut != nil {
