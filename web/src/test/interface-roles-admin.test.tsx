@@ -233,7 +233,7 @@ for (const theme of ['light', 'dark']) {
 }
 
 test('read-only role configuration exposes no mutation controls', async () => {
-  roleFixture('tenant-reader')
+  const fixture = roleFixture('tenant-reader')
   const view = renderApp('/admin', {
     me: { tenant_id: 'tenant-reader', permissions: ['entities.read'] },
   })
@@ -244,4 +244,10 @@ test('read-only role configuration exposes no mutation controls', async () => {
   expect(await card.findByRole('textbox', { name: 'Provider ASNs' })).toHaveAttribute('readonly')
   expect(card.queryByRole('button', { name: 'Save complete role policy' })).not.toBeInTheDocument()
   expect(card.queryByRole('button', { name: 'Add description rule' })).not.toBeInTheDocument()
+  const choose = card.getByRole('combobox', { name: 'Interface for role explanation and override' })
+  await card.findByRole('option', { name: `tenant-reader port (${interfaceID})` })
+  fireEvent.change(choose, { target: { value: interfaceID } })
+  await card.findByText('Current role explanations require metrics and events read access.')
+  expect(fixture.explanationReads).toEqual([])
+  expect(card.queryByRole('button', { name: 'Save manual role override' })).not.toBeInTheDocument()
 })
