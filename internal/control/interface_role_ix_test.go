@@ -59,7 +59,7 @@ func TestInterfaceRoleIXSourceMatchesOnlyOwnedCurrentInputsAndPreservesOverrides
 				t.Fatal("owned IX explanation lost versioned LAN source", result, err)
 			}
 			foreign := in
-			foreign.TenantID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+			foreign.Scope.TenantID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 			if _, err := matchInterfaceRoleIXInputs(ctx, foreign, snapshot, interfaceRoleEvaluationBudget()); err == nil {
 				t.Fatal("foreign tenant facts reached the shared IX cache")
 			}
