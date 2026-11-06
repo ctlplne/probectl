@@ -192,6 +192,14 @@ func TestInterfaceRoleStdioKeepsWholePoliciesAndRechecksCredentialWithinStream(t
 			})
 			first.call(t, wire, "interface_role_policy", map[string]any{"context_id": f.contextID}, &got, true)
 			if got.TenantID != a || len(got.Definition.DescriptionRules) != 4097 || !reflect.DeepEqual(got.Definition, expected.Definition) || got.ID != expected.ID || got.Revision != expected.Revision {
+				t.Log("role policy identity/count diagnostics", got.TenantID == a, got.ID == expected.ID, got.Revision == expected.Revision, len(got.Definition.DescriptionRules), len(expected.Definition.DescriptionRules), got.Definition.ProviderASNs, expected.Definition.ProviderASNs, got.Definition.CustomerASNs, expected.Definition.CustomerASNs)
+				for i, rule := range got.Definition.DescriptionRules {
+					if i < len(expected.Definition.DescriptionRules) && rule != expected.Definition.DescriptionRules[i] {
+						original := expected.Definition.DescriptionRules[i]
+						t.Log("synthetic rule difference", i, "same_id", rule.ID == original.ID, "same_role", rule.Role == original.Role, "pattern_bytes", len(rule.Pattern), len(original.Pattern), "rendered_synthetic_pattern", rule.Pattern)
+						break
+					}
+				}
 				t.Fatal("stdio role changed complete policy values or exact identity")
 			}
 			f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
