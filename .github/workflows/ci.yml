@@ -1434,46 +1434,6 @@ jobs:
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
         run: python3 scripts/ci_interface_prefix_transport.py --integration
-      - name: Install independent source report PDF verifier
-        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y poppler-utils
-      - name: Current tag alert, native and report publication proof
-        # Separate TLS DB preserves the full suite's clean initial state.
-        # Every named root must execute and pass; skips/missing tests fail.
-        env:
-          PROBECTL_TEST_REQUIRE_SERVICES: "1"
-        run: |
-          python3 scripts/ci_tag_consumer_proof.py --selftest
-          python3 scripts/ci_tag_consumer_proof.py
-      - name: Complete tag capacity and original quota refusals
-        env:
-          PROBECTL_TEST_REQUIRE_SERVICES: "1"
-        run: |
-          python3 scripts/ci_tag_cardinality_capacity.py --selftest
-          python3 scripts/ci_tag_cardinality_capacity.py
-      - name: Retained entity evidence subject lifecycle isolation
-        env:
-          PROBECTL_TEST_REQUIRE_SERVICES: "1"
-        run: |
-          python3 scripts/ci_entity_subject_lifecycle.py --selftest
-          python3 scripts/ci_entity_subject_lifecycle.py
-      - name: Interface role classifier scope and provenance proof
-        run: |
-          python3 scripts/ci_interface_role_evidence.py --selftest
-          python3 scripts/ci_interface_role_evidence.py --classifier
-          python3 scripts/ci_interface_role_evidence.py --associations
-      - name: Report artifact storage isolation and old-reader refusal
-        env:
-          PROBECTL_TEST_REQUIRE_SERVICES: "1"
-        run: |
-          python3 scripts/ci_report_artifact_storage.py --selftest
-          python3 scripts/ci_report_artifact_storage.py
-          python3 scripts/ci_report_inbox.py --integration
-      - name: Targetless test metadata isolation and original refusal
-        env:
-          PROBECTL_TEST_REQUIRE_SERVICES: "1"
-        run: |
-          python3 scripts/ci_targetless_test_context.py --selftest
-          python3 scripts/ci_targetless_test_context.py
       - name: Start Prometheus with the remote-write receiver and the admin API
         # A service container cannot take the required --web.enable-remote-write-receiver
         # flag, so run it as a step instead. The admin API is the dev stack's
@@ -1512,21 +1472,6 @@ jobs:
         # the fix is to supply the server, exactly as kafka and clickhouse are
         # supplied above.
         run: docker compose -f deploy/compose/dev.yml up -d --wait nats
-      - name: Complete selected row ClickHouse and Postgres isolation
-        env:
-          PROBECTL_TEST_REQUIRE_SERVICES: "1"
-          PROBECTL_TEST_NATS: "nats://localhost:4222"
-          PROBECTL_FLOWSTORE_URL: "http://probectl:probectl@localhost:8123"
-        run: |
-          python3 scripts/ci_flow_row_capacity.py --selftest
-          python3 scripts/ci_flow_row_capacity.py --integration
-      - name: Upload selected row isolation receipts
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: selected-row-integration
-          path: artifacts/flow-row-capacity/
-          retention-days: 90
       - name: Permit unprivileged datagram ICMP (DPR-221 — the loopback probe tests need a socket)
         # DPR-221: TestICMPLoopback (both 127.0.0.1 and ::1) and TestRunLoopback
         # died on "icmp: open socket: socket: permission denied". Both deliberately
@@ -1604,6 +1549,61 @@ jobs:
           name: interface-role-router
           path: artifacts/interface-role-router/
           if-no-files-found: error
+      - name: Install independent source report PDF verifier
+        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y poppler-utils
+      - name: Current tag alert, native and report publication proof
+        # Separate TLS DB preserves the full suite's clean initial state.
+        # Every named root must execute and pass; skips/missing tests fail.
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_tag_consumer_proof.py --selftest
+          python3 scripts/ci_tag_consumer_proof.py
+      - name: Complete tag capacity and original quota refusals
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_tag_cardinality_capacity.py --selftest
+          python3 scripts/ci_tag_cardinality_capacity.py
+      - name: Retained entity evidence subject lifecycle isolation
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_entity_subject_lifecycle.py --selftest
+          python3 scripts/ci_entity_subject_lifecycle.py
+      - name: Interface role classifier scope and provenance proof
+        run: |
+          python3 scripts/ci_interface_role_evidence.py --selftest
+          python3 scripts/ci_interface_role_evidence.py --classifier
+          python3 scripts/ci_interface_role_evidence.py --associations
+      - name: Report artifact storage isolation and old-reader refusal
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_report_artifact_storage.py --selftest
+          python3 scripts/ci_report_artifact_storage.py
+          python3 scripts/ci_report_inbox.py --integration
+      - name: Targetless test metadata isolation and original refusal
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: |
+          python3 scripts/ci_targetless_test_context.py --selftest
+          python3 scripts/ci_targetless_test_context.py
+      - name: Complete selected row ClickHouse and Postgres isolation
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+          PROBECTL_TEST_NATS: "nats://localhost:4222"
+          PROBECTL_FLOWSTORE_URL: "http://probectl:probectl@localhost:8123"
+        run: |
+          python3 scripts/ci_flow_row_capacity.py --selftest
+          python3 scripts/ci_flow_row_capacity.py --integration
+      - name: Upload selected row isolation receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: selected-row-integration
+          path: artifacts/flow-row-capacity/
+          retention-days: 90
       - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
         # WIRE-005: require services so the mTLS/enroll wire-defense integration
         # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,
