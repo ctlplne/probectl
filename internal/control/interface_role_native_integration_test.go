@@ -135,6 +135,14 @@ func interfaceRoleNativeTLSCaller(t *testing.T, f *roleExplanationAPIFixture, wi
 		if err != nil || len(raw) > 128<<20 {
 			t.Fatal("native role response lost whole-result admission", err)
 		}
+		// Transport authentication rejects a revoked bearer before JSON-RPC.
+		// Require the exact public refusal and challenge, with no tool payload.
+		if !wantOK && response.StatusCode == http.StatusUnauthorized {
+			if string(raw) != "invalid token\n" || response.Header.Get("WWW-Authenticate") != "Bearer" {
+				t.Fatal("native role credential refusal changed its bounded public response")
+			}
+			return
+		}
 		if response.Header.Get("Content-Type") == "text/event-stream" {
 			var final []byte
 			for _, line := range bytes.Split(raw, []byte{'\n'}) {
