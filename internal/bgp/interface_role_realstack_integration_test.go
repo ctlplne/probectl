@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -140,6 +141,13 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	overridden := append([]roleRouterLink(nil), links...)
 	overridden[2].role = entity.InterfaceRolePrivate
 	awaitRoleRouterLabels(t, st, reg, overridden, ids)
+
+	// A real failed poll must invalidate automatic facts, while the explicit
+	// operator override stays readable without inventing source freshness.
+	lab.docker(t, "stop", sidecar)
+	awaitRoleRouterUnavailable(t, st, reg, links, ids, links[2].index)
+	lab.docker(t, "start", sidecar)
+	awaitRoleRouterLabels(t, st, reg, overridden, ids)
 	code, _ = st.Do(t, reg.cookie, http.MethodDelete, overridePath, map[string]any{"expected_id": override.ID, "expected_revision": override.Revision, "confirmed": true})
 	if code != http.StatusNoContent {
 		t.Fatalf("real-router explicit override reset: HTTP %d", code)
@@ -148,6 +156,23 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	awaitRoleRouterLabels(t, st, reg, links, ids)
 	otherIDs := awaitRoleRouterInterfaces(t, st, other, links)
 	renderRoleRouterSurfaces(t, st, reg, other, links, ids, otherIDs, observed)
+
+	if t.Failed() {
+		return
+	}
+	// Revoke only the primary tenant's actual issued source credential. The
+	// identical physical addresses in the sibling tenant retain their authority.
+	code, body = st.Do(t, reg.cookie, http.MethodPost, "/v1/agents/"+deviceAgent+"/revoke", nil)
+	var revoked struct {
+		AgentID  string `json:"agent_id"`
+		SPIFFEID string `json:"spiffe_id"`
+		Serials  int    `json:"live_serials_revoked"`
+	}
+	if code != http.StatusOK || json.Unmarshal(body, &revoked) != nil || revoked.AgentID != deviceAgent || revoked.SPIFFEID != crypto.EntitySPIFFEID(reg.tenantID, deviceAgent) || revoked.Serials == 0 {
+		t.Fatalf("real role source credential was not revoked: HTTP%d", code)
+	}
+	awaitRoleRouterUnavailable(t, st, reg, links, ids, 0)
+	awaitRoleRouterLabels(t, st, other, []roleRouterLink{links[1]}, otherIDs)
 	if policy.Revision == "0" {
 		t.Fatal("real-router reclassification did not retain a versioned policy")
 	}
@@ -486,4 +511,25 @@ func renderRoleRouterSurfaces(t *testing.T, st *shipped.Stack, first, second edg
 			})
 		}
 	}
+}
+
+func awaitRoleRouterUnavailable(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, links []roleRouterLink, ids map[uint32]string, manual uint32) {
+	t.Helper()
+	shipped.Await(t, "real role source failure or revocation withdraws automatic metadata", 90*time.Second, func() bool {
+		for _, link := range links {
+			code, body := st.Do(t, reg.cookie, http.MethodGet, roleRouterPath(reg, ids[link.index]), nil)
+			var got servedRouterRole
+			if code != http.StatusOK || json.Unmarshal(body, &got) != nil || got.TenantID != reg.tenantID || got.ContextID != reg.contextID || got.InterfaceID != ids[link.index] || got.SNMPCurrent || got.PrefixCurrent {
+				return false
+			}
+			if link.index == manual {
+				if got.Role != entity.InterfaceRolePrivate || got.Reason != "operator_override" || len(got.Sources) != 1 || !strings.HasPrefix(got.Sources[0], "override/") {
+					t.Fatal("real source loss changed the explicit override or invented automatic authority", got)
+				}
+			} else if got.Role != entity.InterfaceRoleOther || got.Reason != "insufficient_evidence" || len(got.Sources) != 0 {
+				return false
+			}
+		}
+		return true
+	})
 }
