@@ -16,7 +16,7 @@ import (
 // the BMP view/capabilities; the decoder never guesses these from path bytes.
 type ASPathAttributes struct {
 	FourOctetSession                        bool
-	Path, AS4Path                           []byte // nil AS4Path means the attribute is absent
+	Path, AS4Path                           []byte // nil means the attribute is absent
 	AggregatorPresent, AS4AggregatorPresent bool
 	AggregatorASN                           uint32
 }
@@ -35,6 +35,14 @@ type ASPathReconstruction struct {
 // AS_PATH, cancellation and operation admission errors refuse all output.
 func ReconstructASPath(ctx context.Context, input ASPathAttributes, budget ASPathParseBudget) (ASPathReconstruction, error) {
 	none := ASPathReconstruction{}
+	if err := ctx.Err(); err != nil {
+		return none, err
+	}
+	// Nil means the mandatory attribute is absent. A present empty AS_PATH
+	// is represented by a non-nil empty slice and remains a valid empty path.
+	if input.Path == nil {
+		return none, ErrASPathSyntax
+	}
 	width := 2
 	if input.FourOctetSession {
 		width = 4

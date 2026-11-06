@@ -73,6 +73,14 @@ func TestBGPAS4ReconstructionDiscardsOnlyOptionalUnusableEvidence(t *testing.T) 
 	if got, err := ReconstructASPath(ctx, input, ASPathParseBudget{1 << 20, 1 << 20}); !errors.Is(err, context.Canceled) || !reflect.DeepEqual(got, ASPathReconstruction{}) {
 		t.Fatal("canceled AS4 reconstruction retained output", got, err)
 	}
+
+	if got, err := ReconstructASPath(t.Context(), ASPathAttributes{}, ASPathParseBudget{1 << 20, 1 << 20}); !errors.Is(err, ErrASPathSyntax) || !reflect.DeepEqual(got, ASPathReconstruction{}) {
+		t.Fatal("absent mandatory AS_PATH became a complete empty path", got, err)
+	}
+	empty, err := ReconstructASPath(t.Context(), ASPathAttributes{Path: []byte{}}, ASPathParseBudget{1, 1})
+	if err != nil || empty.Segments == nil || len(empty.Segments) != 0 || empty.AS4Action != "absent" {
+		t.Fatal("present empty mandatory AS_PATH was refused", empty, err)
+	}
 	input.Path = []byte{2, 1, 0}
 	if got, err := ReconstructASPath(t.Context(), input, ASPathParseBudget{1 << 20, 1 << 20}); !errors.Is(err, ErrASPathSyntax) || !reflect.DeepEqual(got, ASPathReconstruction{}) {
 		t.Fatal("malformed mandatory AS_PATH was hidden by optional AS4 data", got, err)
