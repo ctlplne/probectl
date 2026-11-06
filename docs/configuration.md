@@ -1911,7 +1911,7 @@ response allocation defaults.
 | `PROBECTL_FLOW_QUERY_MAX_READ_BYTES` | `268435456` | per-query uncompressed ClickHouse read budget and reference-store allocation accounting |
 | `PROBECTL_FLOW_QUERY_MAX_READ_ROWS` | `5000000` | examined source rows; tenant scope applies before reference-store accounting |
 | `PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES` | `67108864` | authenticated ClickHouse response allocation budget; sentinel overflow refuses the entire result |
-| `PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES` | `536870912` | ClickHouse query memory; reference aggregation also respects its read-byte budget |
+| `PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES` | `2147483648` | Finite operation memory admission for ClickHouse/reference queries, role source snapshots and complete ordered role evaluation; not a preallocation. The default admits the complete saved 4097-rule role workload through source revalidation. Smaller explicit profiles refuse the complete operation; tenant query fairness still applies. |
 | `PROBECTL_FLOW_QUERY_MAX_INTERMEDIATE_GROUPS` | `500000` | internal aggregation/result work; overflow throws, with no partial result |
 | `PROBECTL_FLOW_QUERY_MAX_INTERFACE_ITEMS` | `10000` | tenant-local interface-name lookup admission; reference telemetry sample admission is ten times this value |
 | `PROBECTL_FLOW_QUERY_MAX_THREADS` | `2` | ClickHouse threads per native flow query; shared tenant fairness still applies |

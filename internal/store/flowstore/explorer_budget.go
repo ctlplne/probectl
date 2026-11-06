@@ -134,7 +134,7 @@ func DefaultExplorerBudget() ExplorerBudget {
 	return ExplorerBudget{
 		ExecutionLimit: ExplorerExecutionLimit,
 		ReadBytes:      ExplorerReadBytes, ReadRows: ExplorerReadRows,
-		ResponseBytes: chclient.MaxResponseBytes, MemoryBytes: 512 << 20,
+		ResponseBytes: chclient.MaxResponseBytes, MemoryBytes: 2 << 30,
 		IntermediateGroups: planIntermediateLimit,
 		InterfaceItems:     ExplorerInterfaceLimit, Threads: 2,
 	}

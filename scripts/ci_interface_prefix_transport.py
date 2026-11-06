@@ -386,6 +386,13 @@ def configuration_regexp_expansion_control():
 
 
 EXPLANATION_CONTROLS = {
+    "memory": (
+        "internal/store/flowstore/explorer_budget.go",
+        "MemoryBytes: 2 << 30",
+        "MemoryBytes: 512 << 20",
+        "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
+        "complete saved role policy cannot be explained under the default profile",
+    ),
     "grant": (
         "internal/control/interface_role_explanation_api.go",
         "current.requestContext(ctx, actor)",

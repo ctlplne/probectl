@@ -116,3 +116,9 @@ access grants no telemetry/source permission. Complete native requests share the
 operator's existing native source-byte profile across HTTP and stdio. Legacy
 non-native request admission is unchanged. Go and TypeScript SDKs are generated
 from the same OpenAPI schemas.
+
+The default shared operation memory admission is 2 GiB. This is a resource
+allowance, not an allocation: it admits the complete saved 4,097-rule workload
+through two source reads and ordered evaluation. The positive configured
+`PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES` still controls each operation; reduced
+profiles refuse the complete result rather than dropping rules or sources.

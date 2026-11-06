@@ -17,7 +17,7 @@ func loadFlowQueryConfig(l *loader, cfg *Config) {
 	cfg.FlowQueryReadBytes = l.intRange("PROBECTL_FLOW_QUERY_MAX_READ_BYTES", 256<<20, 1, maxInt)
 	cfg.FlowQueryReadRows = l.intRange("PROBECTL_FLOW_QUERY_MAX_READ_ROWS", 5000000, 1, maxInt)
 	cfg.FlowQueryResponseBytes = l.intRange("PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES", 64<<20, 1, maxInt)
-	cfg.FlowQueryMemoryBytes = l.intRange("PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES", 512<<20, 1, maxInt)
+	cfg.FlowQueryMemoryBytes = l.intRange("PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES", 2<<30, 1, maxInt)
 	cfg.FlowQueryIntermediateGroups = l.intRange("PROBECTL_FLOW_QUERY_MAX_INTERMEDIATE_GROUPS", 500000, 1, maxInt)
 	cfg.FlowQueryInterfaceItems = l.intRange("PROBECTL_FLOW_QUERY_MAX_INTERFACE_ITEMS", 10000, 1, maxInt/10)
 	cfg.FlowQueryThreads = l.intRange("PROBECTL_FLOW_QUERY_MAX_THREADS", 2, 1, maxInt)
