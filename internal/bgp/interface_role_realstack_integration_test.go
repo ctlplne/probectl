@@ -571,11 +571,11 @@ func proveRoleRouterStdio(t *testing.T, st *shipped.Stack, first, second edgeFlo
 			}
 			clients := make([]client, 0, 2)
 			for lane, reg := range []edgeFlowRegistration{first, second} {
-				code, raw := st.Do(t, reg.cookie, http.MethodPut, "/v1/governance/policy", map[string]any{"ai_remote_egress": true, "redact_export": true})
+				code, _ := st.Do(t, reg.cookie, http.MethodPut, "/v1/governance/policy", map[string]any{"ai_remote_egress": true, "redact_export": true})
 				if code != http.StatusOK {
 					t.Fatalf("owned role process requires explicit audited tenant consent: HTTP%d", code)
 				}
-				code, raw = st.Do(t, reg.cookie, http.MethodGet, "/v1/me", nil)
+				code, raw := st.Do(t, reg.cookie, http.MethodGet, "/v1/me", nil)
 				var me struct {
 					UserID   string `json:"user_id"`
 					TenantID string `json:"tenant_id"`

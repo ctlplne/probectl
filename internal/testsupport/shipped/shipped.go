@@ -624,7 +624,7 @@ func (s *Stack) StartCollector(t *testing.T, binary, name, envPrefix, config str
 func (s *Stack) MCPStdio(t *testing.T, label, token string) (io.WriteCloser, io.ReadCloser) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
-	cmd := exec.CommandContext(ctx, s.Control, "mcp-stdio")
+	cmd := exec.CommandContext(ctx, "./probectl-control", "mcp-stdio")
 	cmd.Dir = s.Dir
 	cmd.Env = append(append(os.Environ(), s.env...), "PROBECTL_MCP_TOKEN="+token)
 	input, err := cmd.StdinPipe()
