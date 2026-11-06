@@ -571,6 +571,9 @@ type Config struct {
 	// shows "unavailable" in GET /v1/threat/intel/status; the control plane
 	// keeps serving).
 	FlowEnrichASNFile string
+	// Optional complete local PeeringDB ixpfx cache. No outbound requests.
+	FlowEnrichIXPrefixFile   string
+	FlowEnrichIXPrefixMaxAge time.Duration
 	// FlowCHTenantScoping (TENANT-102) attaches a per-request tenant custom
 	// setting to ClickHouse reads so a reader row policy can constrain the
 	// query path at the DB. Requires server-side custom_settings_prefixes=SQL_
@@ -1231,6 +1234,11 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.FlowEnrichGeoDB = l.str("PROBECTL_FLOW_ENRICH_GEOIP_DB", "")
 	cfg.FlowEnrichRIRDir = l.str("PROBECTL_FLOW_ENRICH_RIR_DIR", "")
 	cfg.FlowEnrichASNFile = l.str("PROBECTL_FLOW_ENRICH_ASN_FILE", "")
+	cfg.FlowEnrichIXPrefixFile = l.str("PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE", "")
+	cfg.FlowEnrichIXPrefixMaxAge = l.dur("PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE", 24*time.Hour)
+	if cfg.FlowEnrichIXPrefixMaxAge <= 0 {
+		l.errf("PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE must be positive")
+	}
 	cfg.FlowEnrichIXP = l.boolean("PROBECTL_FLOW_ENRICH_IXP", false)
 	if cfg.FlowEnrichIXP && !cfg.FlowEnrichASN {
 		l.errf("PROBECTL_FLOW_ENRICH_IXP requires PROBECTL_FLOW_ENRICH_ASN=true (PeeringDB keys on the ASN the Team Cymru source resolves; without it the IXP source can never contribute)")

@@ -46,7 +46,9 @@ func NewPeeringDB(client Doer) Source {
 	return &peeringDBSource{client: client, baseURL: peeringDBBase, cache: make(map[uint32][]IXP)}
 }
 
-func (p *peeringDBSource) Descriptor() Descriptor {
+func (p *peeringDBSource) Descriptor() Descriptor { return peeringDBDescriptor() }
+
+func peeringDBDescriptor() Descriptor {
 	return Descriptor{
 		Name:    "peeringdb",
 		Kind:    KindIXP,

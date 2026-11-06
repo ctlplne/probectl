@@ -18,6 +18,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -65,6 +66,7 @@ func (s *Server) loadFlowRoleSnapshot(ctx context.Context, actor *auth.Principal
 	var projections []flowstore.InterfaceRoleProjection
 	var digest []byte
 	var at time.Time
+	var ix opendata.IXPrefixSnapshot
 	// Sequential reads retain only projections/digests between passes. Reuse
 	// peak input/evaluation allowance for each complete interface policy;
 	// catalogs and retained projections have their own finite shares.
@@ -88,6 +90,11 @@ func (s *Server) loadFlowRoleSnapshot(ctx context.Context, actor *auth.Principal
 			}
 		}
 		if err := sc.Q.QueryRow(ctx, `SELECT transaction_timestamp()`).Scan(&at); err != nil {
+			return err
+		}
+		ix = s.interfaceRoleIXSnapshot(at)
+		digest, err = hashFlowRoleInputs(ctx, digest, ix, limit)
+		if err != nil {
 			return err
 		}
 		reader := store.NewInterfaceRoleInputs(s.pool)
@@ -160,7 +167,11 @@ func (s *Server) loadFlowRoleSnapshot(ctx context.Context, actor *auth.Principal
 				if inputs.RouterID != owner.RouterID || inputs.SNMP == nil || inputs.IfIndex == 0 {
 					continue
 				}
-				decision, err := explainInterfaceRoleInputs(ctx, inputs, nil, interfaceRoleBudget{MemoryBytes: budget.MemoryBytes / 2, WorkUnits: perInterfaceWork})
+				prefixes, err := matchInterfaceRoleIXInputs(ctx, inputs, ix, interfaceRoleBudget{MemoryBytes: budget.MemoryBytes / 16, WorkUnits: perInterfaceWork})
+				if err != nil {
+					return err
+				}
+				decision, err := explainInterfaceRoleInputs(ctx, inputs, prefixes, interfaceRoleBudget{MemoryBytes: budget.MemoryBytes / 2, WorkUnits: perInterfaceWork})
 				if err != nil {
 					return err
 				}
@@ -190,6 +201,11 @@ func (s *Server) loadFlowRoleSnapshot(ctx context.Context, actor *auth.Principal
 					}
 					if inputs.SNMP.Prefixes != nil && inputs.SNMP.PrefixClock.ValidUntil.Before(until) {
 						until = inputs.SNMP.PrefixClock.ValidUntil
+					}
+					for _, prefix := range prefixes {
+						if slices.Contains(decision.Sources, prefix.SourceID) && prefix.Clock.ValidUntil.Before(until) {
+							until = prefix.Clock.ValidUntil
+						}
 					}
 					sources := append(slices.Clone(decision.Sources), binding.SourceID, inputs.SNMP.SourceID)
 					selected = append(selected, flowstore.InterfaceRoleProjection{Scope: owner.Scope, RouterID: owner.RouterID, InterfaceID: id,
@@ -224,6 +240,9 @@ func (s *Server) loadFlowRoleSnapshot(ctx context.Context, actor *auth.Principal
 	})
 	if err != nil {
 		return none, interfaceRoleAPIError(err)
+	}
+	if !ix.SameGeneration(s.interfaceRoleIXSnapshot(time.Now().UTC())) {
+		return none, apierror.Unavailable("interface role IX input changed; retry")
 	}
 	data, err := flowstore.NewInterfaceRoleQueryData(ctx, actor.TenantID, at, projections, budget.MemoryBytes/8)
 	if err != nil {

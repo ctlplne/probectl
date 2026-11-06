@@ -7,10 +7,12 @@
 package control
 
 import (
+	"context"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/config"
@@ -26,7 +28,7 @@ import (
 // with the load error — and the control plane keeps serving (open data
 // degrades gracefully, docs/guardrails.md G7-10).
 func BuildEnrichment(cfg *config.Config, log *slog.Logger) (*opendata.Enricher, bool) {
-	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP && cfg.FlowEnrichASNFile == "" {
+	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP && cfg.FlowEnrichASNFile == "" && cfg.FlowEnrichIXPrefixFile == "" {
 		return nil, false
 	}
 	en := opendata.NewEnricher(log, opendata.WithCacheMaxEntries(cfg.FlowEnrichCacheMax))
@@ -68,6 +70,15 @@ func BuildEnrichment(cfg *config.Config, log *slog.Logger) (*opendata.Enricher, 
 	case cfg.FlowEnrichASN:
 		en.Register(opendata.NewCymru(net.DefaultResolver))
 		log.Info("ASN enrichment enabled", "source", "team-cymru")
+	}
+	if cfg.FlowEnrichIXPrefixFile != "" {
+		if idx, err := opendata.LoadPeeringDBIXPrefixes(context.Background(), cfg.FlowEnrichIXPrefixFile, cfg.FlowEnrichIXPrefixMaxAge, int64(cfg.FlowQueryMemoryBytes), time.Now()); err != nil {
+			log.Error("IX prefix enrichment configured but unavailable", "error", err)
+			en.RegisterUnavailable(&opendata.PeeringDBIXPrefixes{}, err)
+		} else {
+			en.Register(idx)
+			log.Info("local IX prefix enrichment enabled", "source", "peeringdb-ix-prefix-file")
+		}
 	}
 	if cfg.FlowEnrichIXP {
 		en.Register(opendata.NewPeeringDB(nil))

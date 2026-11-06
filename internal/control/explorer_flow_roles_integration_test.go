@@ -184,4 +184,42 @@ func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *te
 	if code, out := read(b); code != http.StatusOK || out.Flow == nil || out.Flow.Rows[0].Group["in_if_role"] != "backbone" {
 		t.Fatal("tenant refusal damaged another tenant's role", code)
 	}
+
+	// A synthetic complete public source joins only the canonical owned SNMP
+	// addresses; actual PG/RLS/TLS/current authority remain the boundary.
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		configuration := store.InterfaceRoleConfiguration{}
+		old, err := configuration.Policy(ctx, sc, f.contextID, roleExplanationStoreBudget())
+		if err != nil {
+			return err
+		}
+		_, err = configuration.PutPolicy(ctx, sc, f.contextID, old.ID, old.Revision, entity.InterfaceRolePolicyDefinition{}, roleExplanationStoreBudget())
+		return err
+	})
+	ix := roleIXEnricher(t, time.Now().UTC().Add(-time.Minute), "10.42.0.0/24")
+	f.server.WithOpenDataStatus(ix, nil, nil)
+	code, ixResult := read(a)
+	if code != http.StatusOK || ixResult.Flow == nil || ixResult.Flow.Totals["bytes:total"] != "300" || len(ixResult.Flow.RoleSources) != 1 || ixResult.Flow.RoleSources[0].Role != entity.InterfaceRoleIX ||
+		!strings.Contains(strings.Join(ixResult.Flow.RoleSources[0].Sources, ","), "peeringdb/ixpfx/7/ixlan/11/snapshot/") || ixResult.Flow.RoleSources[0].ValidUntil.After(ix.IXPrefixes(time.Now()).ValidUntil) {
+		t.Fatal("served IX role lost complete tenant totals or current generation", code, ixResult.Flow)
+	}
+	ixProof := proof
+	ixProof.RoleDigest = ixResult.Flow.RoleDigest
+	if err := source.validateRoleAuthorization(ctx, scope, ixProof); err != nil {
+		t.Fatal("current IX receipt was refused", err)
+	}
+	replacement := roleIXEnricher(t, time.Now().UTC().Add(-time.Minute), "203.0.113.0/24")
+	rows.mutate = func() { f.server.WithOpenDataStatus(replacement, nil, nil) }
+	if code, _ := read(a); code != http.StatusServiceUnavailable {
+		t.Fatal("role query published after IX generation withdrawal", code)
+	}
+	if err := source.validateRoleAuthorization(ctx, scope, ixProof); err == nil {
+		t.Fatal("frozen IX receipt survived generation withdrawal")
+	}
+	if code, out := read(a); code != http.StatusOK || out.Flow == nil || out.Flow.Totals["bytes:total"] != "300" || out.Flow.Rows[0].Group["in_if_role"] != "other" {
+		t.Fatal("IX withdrawal truncated flow totals or retained classification", code, out.Flow)
+	}
+	if code, out := read(b); code != http.StatusOK || out.Flow == nil || out.Flow.Totals["bytes:total"] != "900" || out.Flow.Rows[0].Group["in_if_role"] != "backbone" {
+		t.Fatal("shared IX generation damaged paired owned override", code, out.Flow)
+	}
 }

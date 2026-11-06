@@ -74,6 +74,7 @@ Every source obeys the same safety rules, enforced in code:
 | **Team Cymru** IP-to-ASN | `team-cymru` | `asn` | ASN, prefix, registry, AS name | Community service; no redistribution grant established | **unknown** | "IP-to-ASN mapping by Team Cymru" |
 | **MaxMind GeoLite2** | `maxmind-geolite2` | `geo` | country, city, lat/lon | GeoLite EULA, including CC BY-SA terms | **restricted** | "This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com" |
 | **PeeringDB** | `peeringdb` | `ixp` | IXP / facility presence | PeeringDB AUP | **restricted** | "Data from PeeringDB" |
+| **PeeringDB local IX prefixes** | `peeringdb-ix-prefix-file` | `ixp` | complete operator-supplied `ixpfx` LAN subnets; no fetch or membership inference | PeeringDB AUP | **restricted** | "Data from PeeringDB" |
 | **RIR delegated-stats** | `rir-stats` | `allocation` | RIR, country, allocation status/date | Five registry-specific terms | **unknown** | — |
 
 (The `name`, license, attribution, and commercial-use cells above are taken

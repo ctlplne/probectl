@@ -15,8 +15,9 @@ change or expire. A reset requires confirmation. It never makes missing source
 evidence trustworthy or asserts that a BGP session is up.
 
 The current-role explanation preview joins owned SNMP and BMP evidence with
-this configuration through Admin, REST, CLI and native MCP. PeeringDB IX-prefix
-lookup and real-router acceptance remain unfinished. The role query components
+this configuration through Admin, REST, CLI and native MCP. An optional complete
+local PeeringDB IX-prefix cache contributes versioned IX evidence. Real-router
+acceptance remains unfinished. The role query components
 are under focused verification and do not qualify the complete feature.
 
 The flow-engine component accepts a request-local current role projection for
@@ -147,3 +148,56 @@ allowance, not an allocation: it admits the complete saved 4,097-rule workload
 through two source reads and ordered evaluation. The positive configured
 `PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES` still controls each operation; reduced
 profiles refuse the complete result rather than dropping rules or sources.
+
+## Local IX prefix input
+
+`PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE` enables an operator-supplied, read-only
+PeeringDB `ixpfx` snapshot. This is a separate input from per-ASN membership
+lookups: a member address does not establish an IX subnet. probectl fetches
+nothing, sends no tenant addresses or context selectors, and bundles no dataset.
+Obtain the source's permission for the intended use, including provider/MSP use;
+[PeeringDB terms and attribution](../opendata-aup.md) remain restricted.
+
+The local envelope must attest a **complete** v2 prefix object set, not one page
+or a delta. `record_count` counts all records, including inactive ones. Required
+record fields are `id`, `ixlan_id`, `protocol` (`IPv4` or `IPv6`), canonical
+`prefix`, and `status` (`ok`, `pending` or `deleted`). Optional actual v2 fields
+`created`, `updated` and `in_dfz` are accepted. Object timestamps cannot exceed
+`observed_at`. Every object and subnet is unique. Unknown, duplicate, null,
+malformed or partial fields refuse the whole cache; inactive objects contribute
+no IX evidence. A complete empty `data:[]` with count zero withdraws all prefixes.
+
+This **synthetic format example is not PeeringDB data**:
+
+```json
+{
+  "version": 1,
+  "object": "ixpfx",
+  "observed_at": "2026-11-05T12:00:00Z",
+  "complete": true,
+  "record_count": 1,
+  "data": [
+    {"id": 7, "ixlan_id": 11, "protocol": "IPv4", "prefix": "198.51.100.0/24", "status": "ok"}
+  ]
+}
+```
+
+Load the complete snapshot at startup and restart after atomic replacement to
+refresh or withdraw it, as with other local enrichment files. Its exact content
+digest, observation clock and source object/LAN IDs identify the generation.
+`PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE` defaults to a positive 24 hours; reads,
+file modification time and restart never advance `observed_at`. Expired input
+contributes no IX evidence and appears as unavailable through
+`GET /v1/threat/intel/status`. Other source evidence and manual overrides remain
+usable. Admission covers the full file, decoding, retained index and matching
+work through the existing positive flow memory/deadline profile; there is no
+prefix-count quota and no partial index when admission fails.
+
+Only current, authorized canonical SNMP interface addresses are matched locally.
+Explanation and flow source references retain the exact snapshot/object/LAN.
+Publication rechecks generation and freshness. IX-contributing flow validity ends
+no later than the source expiry; frozen readers must establish current authority
+and the same classification again. A public prefix never establishes ownership,
+context, a BGP session's health or a permission grant. Synthetic input proofs
+remain preview until a permitted real snapshot and same-router FRR/SNMP/flow
+acceptance are verified.

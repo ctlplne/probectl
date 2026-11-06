@@ -324,10 +324,13 @@ func (*roleExplanationPublicationTracer) TraceQueryEnd(context.Context, *pgx.Con
 }
 
 func TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges(t *testing.T) {
-	for _, change := range []string{"source-anchor", "current-grant", "policy"} {
+	for _, change := range []string{"source-anchor", "current-grant", "policy", "ix-generation"} {
 		t.Run(change, func(t *testing.T) {
 			f := newRoleExplanationAPIFixture(t)
 			a, b := f.tenants[0], f.tenants[1]
+			if change == "ix-generation" {
+				f.server.WithOpenDataStatus(roleIXEnricher(t, time.Now().UTC().Add(-time.Minute), "10.42.0.0/24"), nil, nil)
+			}
 			tracer := &roleExplanationPublicationTracer{entered: make(chan struct{}), resume: make(chan struct{})}
 			cfg := f.pool.Config().Copy()
 			cfg.ConnConfig.Tracer = tracer
@@ -373,6 +376,9 @@ func TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges(t *testin
 				case "source-anchor":
 					_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET anchor_entity_id=$2 WHERE tenant_id=$1 AND source_kind='device_target'`, a, f.otherRouter)
 					return err
+				case "ix-generation":
+					f.server.WithOpenDataStatus(roleIXEnricher(t, time.Now().UTC().Add(-time.Minute), "203.0.113.0/24"), nil, nil)
+					return nil
 				case "current-grant":
 					_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key='events.read'`, a, f.roles[a])
 					return err

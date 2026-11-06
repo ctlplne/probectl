@@ -130,7 +130,13 @@ func (en *Enricher) Status() []SourceStatus {
 	defer en.mu.Unlock()
 	out := make([]SourceStatus, 0, len(en.sources))
 	for _, ms := range en.sources {
-		out = append(out, SourceStatus{Descriptor: ms.src.Descriptor(), Health: ms.health})
+		health := ms.health
+		if source, ok := ms.src.(*PeeringDBIXPrefixes); ok && health.Enabled {
+			if err := source.availability(time.Now()); err != nil {
+				health.Status, health.LastError = "unavailable", err.Error()
+			}
+		}
+		out = append(out, SourceStatus{Descriptor: ms.src.Descriptor(), Health: health})
 	}
 	return out
 }

@@ -14,6 +14,14 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
+    "internal/opendata": (
+        "TestPeeringDBIXPrefixesKeepCompletePopulationClockAndOwnedMatches",
+        "TestPeeringDBIXPrefixesRefusePartialAmbiguousOrMalformedSnapshot",
+        "TestPeeringDBIXPrefixesKeepInactiveAndExpiredSourcesVisibleWithoutMemberships",
+    ),
+    "internal/config": (
+        "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
+    ),
     "internal/store/flowstore": (
         "TestInterfaceRoleQueryProjectionKeepsTenantIdentityAndCompleteMetadata",
         "TestInterfaceRoleQueryProjectionRefusesAmbiguousExpiredOrPartialInputs",
@@ -37,6 +45,8 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestInterfaceRoleIXSourceMatchesOnlyOwnedCurrentInputsAndPreservesOverrides",
+        "TestBuildEnrichmentIXPrefixFailureRemainsVisibleAndMakesNoOutboundSource",
         "TestFlowRoleSnapshotRequiresCurrentTenantUserBeforeStorage",
         "TestRoleSnapshotReceiptRefusesMissingOrForeignAuthority",
         "TestReportRoleContextCapturePreservesTagsAndCurrentSourceRequirements",
@@ -410,6 +420,14 @@ def configuration_regexp_expansion_control():
 
 
 EXPLANATION_CONTROLS = {
+    "ix-publication": (
+        "internal/control/interface_role_explanation_api.go",
+        "if !ix.SameGeneration(s.interfaceRoleIXSnapshot(time.Now().UTC())) {",
+        "if false && !ix.SameGeneration(s.interfaceRoleIXSnapshot(time.Now().UTC())) {",
+        "TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges",
+        "role explanation published after its authority changed",
+        "ix-generation",
+    ),
     "flow-memory": (
         "internal/control/explorer_flow_roles.go",
         "MemoryBytes: budget.MemoryBytes / 2, WorkUnits: perInterfaceWork",

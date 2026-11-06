@@ -1972,3 +1972,19 @@ func TestClickHouseReaderCredentialConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil || cfg.FlowEnrichIXPrefixFile != "" || cfg.FlowEnrichIXPrefixMaxAge != 24*time.Hour {
+		t.Fatal("IX prefix source is not opt-in", cfg, err)
+	}
+	cfg, err = Load(envFunc(map[string]string{"PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE": "/data/ixpfx.json", "PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE": "48h"}))
+	if err != nil || cfg.FlowEnrichIXPrefixFile != "/data/ixpfx.json" || cfg.FlowEnrichIXPrefixMaxAge != 48*time.Hour || cfg.FlowEnrichASN || cfg.FlowEnrichIXP {
+		t.Fatal("local IX source enabled outbound prerequisites", cfg, err)
+	}
+	for _, value := range []string{"0s", "-1h"} {
+		if _, err := Load(envFunc(map[string]string{"PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE": value})); err == nil {
+			t.Fatal("nonpositive IX source freshness was accepted", value)
+		}
+	}
+}

@@ -42,7 +42,12 @@ func (s *Server) interfaceRoleExplanation(r *http.Request) (json.RawMessage, err
 	if err != nil {
 		return nil, interfaceRoleAPIError(err)
 	}
-	result, err := explainInterfaceRoleInputs(r.Context(), before, nil,
+	ix := s.interfaceRoleIXSnapshot(before.AsOf)
+	prefixes, err := matchInterfaceRoleIXInputs(r.Context(), before, ix, interfaceRoleBudget{MemoryBytes: budget.MemoryBytes / 16, WorkUnits: budget.MemoryBytes / 16})
+	if err != nil {
+		return nil, interfaceRoleAPIError(err)
+	}
+	result, err := explainInterfaceRoleInputs(r.Context(), before, prefixes,
 		interfaceRoleBudget{MemoryBytes: budget.MemoryBytes / 2, WorkUnits: budget.MemoryBytes / 4})
 	if err != nil {
 		return nil, interfaceRoleAPIError(err)
@@ -56,6 +61,9 @@ func (s *Server) interfaceRoleExplanation(r *http.Request) (json.RawMessage, err
 	}
 	if !sameInterfaceRoleInputs(before, after) {
 		return nil, apierror.Unavailable("interface role inputs changed; retry")
+	}
+	if !ix.SameGeneration(s.interfaceRoleIXSnapshot(time.Now().UTC())) {
+		return nil, apierror.Unavailable("interface role IX input changed; retry")
 	}
 	now := time.Now().UTC()
 	if before.SNMP != nil && (!roleInputClock(before.SNMP.InterfaceRoleEvidenceClock).current(now) ||
