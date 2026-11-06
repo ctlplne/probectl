@@ -139,6 +139,7 @@ INTEGRATION = {
     "internal/bgp": ("TestBMPLocRIBRealRouterKeepsCompletePeerAndFamilyMarkers",),
     "cmd/probectl-control": ("TestMCPFlowSourcesRetainConfiguredLocalIXGeneration",),
     "ee/silo": (
+        "TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries",
         "TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",
         "TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority",
     ),
@@ -457,6 +458,22 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-managed-generated": (
+        "ee/silo/provisioner.go",
+        "CASE WHEN a.attgenerated='s' THEN c.generation_expression ELSE '' END",
+        "''",
+        "TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries",
+        "siloed",
+        "silo catch-up lost routing collector computation",
+    ),
+    "routing-managed-collector": (
+        "ee/silo/bgp_routing_plan.go",
+        '{"bgp_routing_views", "fx5_route_view_collector_context_fk",',
+        '{"", "fx5_route_view_collector_context_fk",',
+        "TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries",
+        "siloed",
+        "routing target borrowed an unassigned foreign collector context",
+    ),
     "routing-bound-view": (
         "internal/store/bgp_routing_updates.go",
         "AND routing_selection IS NOT DISTINCT FROM $10::jsonb",
