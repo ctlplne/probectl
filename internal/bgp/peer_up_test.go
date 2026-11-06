@@ -121,7 +121,7 @@ func TestBMPPeerUpRefusesIncompleteTailAdmissionAndCancellation(t *testing.T) {
 	}
 	for _, limited := range []PeerMessageBudget{{0, 10000}, {10000, 0}, {128*int64(len(good)) - 1, 4 * int64(len(good))}, {128 * int64(len(good)), 4*int64(len(good)) - 1}} {
 		out, err := ParseBMPPeerUp(context.Background(), good, limited)
-		if !errors.Is(err, ErrBMPPeerMessageBudget) || !reflect.DeepEqual(out, PeerUp{}) {
+		if !errors.Is(err, ErrBMPPeerUpBudget) || !reflect.DeepEqual(out, PeerUp{}) {
 			t.Fatal("unadmitted Peer Up allocated visible source metadata", err)
 		}
 	}

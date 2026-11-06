@@ -38,8 +38,8 @@ type PeerUp struct {
 type PeerMessageBudget struct{ MemoryBytes, WorkUnits int64 }
 
 var (
-	ErrBMPPeerUp            = errors.New("bgp: malformed or inconsistent peer-up frame")
-	ErrBMPPeerMessageBudget = errors.New("bgp: peer-up operation admission exceeded")
+	ErrBMPPeerUp       = errors.New("bgp: malformed or inconsistent peer-up frame")
+	ErrBMPPeerUpBudget = errors.New("bgp: peer-up operation admission exceeded")
 )
 
 // ParseBMPPeerUp decodes one complete RFC7854/RFC9069 Peer Up frame. Both OPENs
@@ -52,7 +52,7 @@ func ParseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (
 		return none, err
 	}
 	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || int64(len(raw)) > budget.MemoryBytes/128 || int64(len(raw)) > budget.WorkUnits/4 {
-		return none, ErrBMPPeerMessageBudget
+		return none, ErrBMPPeerUpBudget
 	}
 	const bodyOffset = bmpCommonHeaderLen + bmpPeerHeaderLen
 	if len(raw) < bodyOffset+20 || raw[0] != bmpVersion || raw[5] != 3 || uint64(binary.BigEndian.Uint32(raw[1:5])) != uint64(len(raw)) {
