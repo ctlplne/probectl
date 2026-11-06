@@ -20,8 +20,10 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/agent"
+	"github.com/ctlplne/probectl/internal/agenttransport"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/fairness"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -60,7 +62,8 @@ func TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState(t *testing.
 	pool := setup(ctx, t)
 	t.Cleanup(pool.Close)
 	testsupport.LockPostgresPublicCatalog(t, pool)
-	ts := startTestServer(ctx, t, pool)
+	gate := fairness.NewGate(fairness.DefaultPolicy(), nil)
+	ts := startTestServer(ctx, t, pool, func(s *agenttransport.Server) { s.WithFairness(gate) })
 	contextID, siteID, routerID, originID, nonce := newUUID(t), newUUID(t), newUUID(t), newUUID(t), newUUID(t)
 	type lane struct {
 		tenant, collector, originSerial string
@@ -231,8 +234,28 @@ func TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState(t *testing.
 	if err == nil || got.GetStatus() != "invalidated" || counts(lanes[0], "current") != 0 || counts(lanes[1], "current") != 2 {
 		t.Fatal("malformed served routing frame retained partial or foreign state", got, err)
 	}
-	reset := &agentv1.BmpRoutingMessage{ConfiguredRef: lanes[1].input.ConfiguredRef, OriginSerial: lanes[1].input.OriginSerial, Generation: streamNonce, Sequence: 4, ObservedUnixNanos: time.Now().UnixNano(), SourceReset: true}
-	if got, err := lanes[1].client.SubmitRoutingMessage(ctx, reset); err == nil || got.GetStatus() != "invalidated" || counts(lanes[1], "current") != 0 {
+	// Restore the paired source so rate refusal must preserve another current
+	// tenant, rather than merely leaving an already invalid sibling unchanged.
+	restored := proto.Clone(lanes[0].input).(*agentv1.BmpRoutingPeerUp)
+	restored.ObservationId, restored.ObservedUnixNanos = newUUID(t), time.Now().UnixNano()
+	if _, err := lanes[0].client.StageRoutingPeer(ctx, restored); err != nil {
+		t.Fatal(err)
+	}
+	for n, mode := range []string{"routes", "v4-eor", "v6-eor"} {
+		req := &agentv1.BmpRoutingMessage{ConfiguredRef: restored.ConfiguredRef, OriginSerial: restored.OriginSerial, Generation: restored.ObservationId, Sequence: int64(n + 1), ObservedUnixNanos: time.Now().UnixNano(), Message: routingUpdateWire(restored.Message, mode, 64496)}
+		if _, err := lanes[0].client.SubmitRoutingMessage(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !gate.AdmitN(ctx, lanes[1].tenant, fairness.MeterEntityEvidenceBytes, 1<<50) {
+		t.Fatal("rate refusal prerequisite could not consume tenant byte allowance")
+	}
+	rejected := &agentv1.BmpRoutingMessage{ConfiguredRef: lanes[1].input.ConfiguredRef, OriginSerial: lanes[1].input.OriginSerial, Generation: streamNonce, Sequence: 4, ObservedUnixNanos: time.Now().UnixNano(), Message: routingUpdateWire(lanes[1].input.Message, "v4-eor", 64497)}
+	if _, err := lanes[1].client.SubmitRoutingMessage(ctx, rejected); err == nil || counts(lanes[1], "current") != 0 || counts(lanes[0], "current") != 2 {
+		t.Fatal("rate-refused routing frame retained stale or foreign current state", err)
+	}
+	reset := &agentv1.BmpRoutingMessage{ConfiguredRef: restored.ConfiguredRef, OriginSerial: restored.OriginSerial, Generation: restored.ObservationId, Sequence: 4, ObservedUnixNanos: time.Now().UnixNano(), SourceReset: true}
+	if got, err := lanes[0].client.SubmitRoutingMessage(ctx, reset); err == nil || got.GetStatus() != "invalidated" || counts(lanes[0], "current") != 0 {
 		t.Fatal("served source closure retained current routing state", got, err)
 	}
 
