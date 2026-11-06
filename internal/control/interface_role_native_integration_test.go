@@ -37,10 +37,12 @@ func proveInterfaceRoleNativeTLS(t *testing.T, wire string) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	for _, tenant := range f.tenants {
-		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			_, err := sc.Q.Exec(ctx, `INSERT INTO tenant_governance (tenant_id,ai_remote_egress) VALUES($1,true) ON CONFLICT(tenant_id) DO UPDATE SET ai_remote_egress=true`, tenant)
+		if err := tenancy.InProvider(t.Context(), f.pool, func(ctx context.Context, q tenancy.Querier) error {
+			_, err := q.Exec(ctx, `INSERT INTO tenant_governance (tenant_id,ai_remote_egress) VALUES($1,true) ON CONFLICT(tenant_id) DO UPDATE SET ai_remote_egress=true`, tenant)
 			return err
-		})
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	cfg := &config.Config{}
 	server := NewMCPServerWithPolicyLoader(cfg, f.server.log, f.pool, pathstore.NewMemory(), 0, NewAIEgressGate(cfg, f.server.log, f.pool), nil, nil, f.server.MCPPolicyLoader(), AISources{NativeFlow: f.server})
