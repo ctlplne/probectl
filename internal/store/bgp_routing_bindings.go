@@ -127,6 +127,13 @@ func putRoutingBindings(ctx context.Context, sc tenancy.Scope, collector, origin
 	if err != nil {
 		return routingSourceManifest{}, err
 	}
+	// A new configuration must also exclude former complete rows from older
+	// readers that predate explicit selector epochs. Caller commits the source
+	// manifest, invalidation and audit together, or rolls the whole write back.
+	if _, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET state='invalid',updated_at=clock_timestamp()
+ WHERE tenant_id=$1 AND collector_agent_id=$2 AND source_ref=$3 AND source_kind IN ('router_bmp','router_bmp_bound')`, tenant.String(), collector, origin); err != nil {
+		return routingSourceManifest{}, err
+	}
 	return routingSourceManifest{Epoch: epoch, Bindings: prepared, AssignedAt: assignedAt}, nil
 }
 

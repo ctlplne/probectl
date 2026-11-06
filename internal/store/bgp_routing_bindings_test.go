@@ -8,9 +8,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -59,7 +61,7 @@ func TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity(t *testing
 	if out, err := prepareRoutingBindings(t.Context(), []routingSourceBinding{binding}, BGPRoutingBudget{MemoryBytes: 1, WorkUnits: 1, StateBytes: 1}); err == nil || out != nil {
 		t.Fatal("unadmitted routing manifest returned bindings")
 	}
-	if _, err := putRoutingBindings(tenancy.WithTenant(t.Context(), "red"), tenancy.Scope{Tenant: "blue"}, "", "", "", "", nil, routingViewBudget()); err == nil {
+	if _, err := putRoutingBindings(tenancy.WithTenant(t.Context(), "red"), tenancy.Scope{Tenant: "blue"}, "", "", "", "", nil, routingViewBudget()); !errors.Is(err, entity.ErrScopeMismatch) {
 		t.Fatal("foreign routing assignment reached storage")
 	}
 }

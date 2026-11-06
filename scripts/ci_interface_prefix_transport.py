@@ -108,6 +108,7 @@ UNIT = {
     ),
     "internal/store": (
         "TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity",
+        "TestRoutingBindingReaderRefusesUnknownCorruptAndForeignMetadata",
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
         "TestBGPRoutingLookupRequiresTenantExactViewAndWholeAdmissionBeforeStorage",
@@ -453,6 +454,34 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-binding-current": (
+        "internal/store/bgp_routing_binding_lookup.go",
+        "source.routing_epoch=$9 AND source.routing_assigned_at=$4",
+        "$9::uuid IS NOT NULL AND source.routing_assigned_at=$4",
+        "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
+        "", "cached routing selector borrowed a replacement epoch",
+    ),
+    "routing-binding-record": (
+        "internal/store/bgp_routing_binding_lookup.go",
+        "AND binding=$14::jsonb",
+        "AND $14::jsonb IS NOT NULL",
+        "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
+        "", "cached routing selector ignored changed stored metadata",
+    ),
+    "routing-binding-birth": (
+        "internal/store/bgp_routing_binding_lookup.go",
+        "AND router.created_at<=$4 AND target.created_at<=$4",
+        "AND $4::timestamptz IS NOT NULL",
+        "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
+        "", "recreated routing target borrowed an old operator binding",
+    ),
+    "routing-binding-legacy": (
+        "internal/store/bgp_routing_bindings.go",
+        "WHERE tenant_id=$1 AND collector_agent_id=$2 AND source_ref=$3 AND source_kind IN ('router_bmp','router_bmp_bound')",
+        "WHERE false AND tenant_id=$1 AND collector_agent_id=$2 AND source_ref=$3 AND source_kind IN ('router_bmp','router_bmp_bound')",
+        "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
+        "", "new routing manifest retained a legacy current view or invalidated another tenant",
+    ),
     "routing-binding-epoch": (
         "internal/store/bgp_routing_bindings.go",
         'if current == nil && ifMatch != "" || current != nil && *current != ifMatch {',

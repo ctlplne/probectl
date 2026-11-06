@@ -12,10 +12,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -67,14 +69,114 @@ func TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission(t *testi
 		}
 		return manifest
 	}
+	liveCount := func(lane int) int {
+		var count int
+		f.in(f.tenants[lane], func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE tenant_id=$1 AND state='current'`, f.tenants[lane]).Scan(&count)
+		})
+		return count
+	}
+	for lane := range f.tenants {
+		source := routingFixtureSource(f, lane)
+		ref := routingLookupBegin(t, f, source, routingLookupDefinition(1))
+		routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 1, AFI: 1, SAFI: 1, EndOfRIB: true})
+		if liveCount(lane) != 1 {
+			t.Fatal("routing configuration invalidation prerequisite is not current")
+		}
+	}
 	first, err := put(0, "", inputs, routingViewBudget())
 	if err != nil || first.AssignedAt.IsZero() || first.Epoch == "" || len(first.Bindings) != 2 || read(0).Epoch != first.Epoch {
 		t.Fatal("complete explicit source binding was not retained", err)
+	}
+	if liveCount(0) != 0 || liveCount(1) != 1 {
+		t.Fatal("new routing manifest retained a legacy current view or invalidated another tenant")
 	}
 	second, err := put(1, "", inputs, routingViewBudget())
 	if err != nil || second.Epoch == first.Epoch || second.Bindings[0].ID == first.Bindings[0].ID {
 		t.Fatal("paired source selector borrowed a foreign incarnation", err)
 	}
+	configs := make([]routingSourceConfiguration, 2)
+	for lane := range f.tenants {
+		source := routingFixtureSource(f, lane)
+		f.in(source.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			configs[lane], err = loadRoutingSourceConfiguration(ctx, sc, source.CollectorAgentID, source.SourceRef, routingViewBudget())
+			if err != nil {
+				return err
+			}
+			peer := BGPRoutingPeer{Type: 3, BGPIdentifier: netip.MustParseAddr("0.0.0.0")}
+			for i := range peer.Distinguisher {
+				peer.Distinguisher[i] = 255
+			}
+			selected, err := selectRoutingSource(ctx, sc, configs[lane], peer, []uint16{1, 2})
+			if err == nil && (selected.ContextID != targetContext || selected.RouterID != targetRouter || selected.BindingID == "" || selected.Epoch != configs[lane].Manifest.Epoch) {
+				t.Fatal("current operator selector did not supply exact owned context")
+			}
+			return err
+		})
+	}
+	peerForVRF := func() BGPRoutingPeer {
+		peer := BGPRoutingPeer{Type: 3, BGPIdentifier: netip.MustParseAddr("0.0.0.0")}
+		for i := range peer.Distinguisher {
+			peer.Distinguisher[i] = 255
+		}
+		return peer
+	}
+	f.in(f.tenants[1], func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := selectRoutingSource(ctx, sc, configs[0], peerForVRF(), []uint16{1}); !errors.Is(err, entity.ErrScopeMismatch) {
+			t.Fatal("cached selector borrowed another tenant with identical target identifiers", err)
+		}
+		return nil
+	})
+	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
+		source := routingFixtureSource(f, 0)
+		if _, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET routing_epoch=$4 WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='bmp_peer' AND source_ref=$3`, source.TenantID, source.CollectorAgentID, source.SourceRef, uuid.NewString()); err != nil {
+			return err
+		}
+		if selected, err := selectRoutingSource(ctx, sc, configs[0], peerForVRF(), []uint16{1}); err == nil || selected.ContextID != "" {
+			t.Fatal("cached routing selector borrowed a replacement epoch")
+		}
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET routing_epoch=$4 WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='bmp_peer' AND source_ref=$3`, source.TenantID, source.CollectorAgentID, source.SourceRef, configs[0].Manifest.Epoch)
+		return err
+	})
+	f.in(f.tenants[1], func(ctx context.Context, sc tenancy.Scope) error {
+		source := routingFixtureSource(f, 1)
+		if _, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET routing_bindings=(SELECT jsonb_agg(binding || '{"source_format":"future-unknown"}'::jsonb) FROM jsonb_array_elements(routing_bindings) binding) WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='bmp_peer' AND source_ref=$3`, source.TenantID, source.CollectorAgentID, source.SourceRef); err != nil {
+			return err
+		}
+		if selected, err := selectRoutingSource(ctx, sc, configs[1], peerForVRF(), []uint16{1}); err == nil || selected.ContextID != "" {
+			t.Fatal("cached routing selector ignored changed stored metadata")
+		}
+		if _, err := loadRoutingSourceConfiguration(ctx, sc, source.CollectorAgentID, source.SourceRef, routingViewBudget()); err == nil {
+			t.Fatal("fresh routing reader accepted an unknown stored format")
+		}
+		original, err := json.Marshal(configs[1].Manifest.Bindings)
+		if err != nil {
+			return err
+		}
+		_, err = sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET routing_bindings=$4::jsonb WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='bmp_peer' AND source_ref=$3`, source.TenantID, source.CollectorAgentID, source.SourceRef, string(original))
+		return err
+	})
+	source0 := routingFixtureSource(f, 0)
+	// Target recreation must require a fresh operator binding even when an ID
+	// is reused; the new row is younger than the old assignment epoch.
+	f.in(source0.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := sc.Q.Exec(ctx, `DELETE FROM entities WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, source0.TenantID, targetContext, targetRouter); err != nil {
+			return err
+		}
+		_, err := sc.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label) VALUES($1,$2,$3,'device','recreated')`, source0.TenantID, targetContext, targetRouter)
+		return err
+	})
+	f.in(source0.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+		peer := BGPRoutingPeer{Type: 3, BGPIdentifier: netip.MustParseAddr("0.0.0.0")}
+		for i := range peer.Distinguisher {
+			peer.Distinguisher[i] = 255
+		}
+		if selected, err := selectRoutingSource(ctx, sc, configs[0], peer, []uint16{1}); err == nil || selected.ContextID != "" {
+			t.Fatal("recreated routing target borrowed an old operator binding")
+		}
+		return nil
+	})
 	if _, err := put(0, "", inputs, routingViewBudget()); !errors.Is(err, errRoutingBindingConflict) || read(0).Epoch != first.Epoch {
 		t.Fatal("stale routing editor replaced a current binding", err)
 	}
