@@ -29,7 +29,7 @@ import (
 
 // Real Postgres/FORCE-RLS and lifecycle export/erasure. Retained configuration
 // is seeded directly, not claimed as sender or public API proof. Both tenants
-// have the same row/context IDs and subject text, with a whole >1MiB policy.
+// have the same row/context IDs and subject text, with a whole >4MiB policy.
 func TestInterfaceRoleSubjectKeepsWholeExportErasureAndTenantIsolation(t *testing.T) {
 	pool := itPool(t)
 	t.Cleanup(pool.Close)
@@ -46,14 +46,14 @@ func TestInterfaceRoleSubjectKeepsWholeExportErasureAndTenantIsolation(t *testin
 	contextID, unrelatedContext, interfaceID, policyID, otherPolicyID, overrideID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	definition := entity.InterfaceRolePolicyDefinition{ProviderASNs: []uint32{4294967295}, CustomerASNs: []uint32{64602}, DescriptionRules: []entity.InterfaceRoleDescriptionRule{}}
 	for i := range 4096 {
-		definition.DescriptionRules = append(definition.DescriptionRules, entity.InterfaceRoleDescriptionRule{ID: uuid.NewString(), Pattern: "^" + strings.Repeat("unrelated-uplink-", 15) + fmt.Sprint(i) + "$", Role: entity.InterfaceRoleBackbone})
+		definition.DescriptionRules = append(definition.DescriptionRules, entity.InterfaceRoleDescriptionRule{ID: uuid.NewString(), Pattern: "^" + strings.Repeat("unrelated-uplink-", 80) + fmt.Sprint(i) + "$", Role: entity.InterfaceRoleBackbone})
 	}
 	definition.DescriptionRules = append(definition.DescriptionRules, entity.InterfaceRoleDescriptionRule{ID: uuid.NewString(), Pattern: "^device-admin-" + person + "-東京$", Role: entity.InterfaceRolePrivate})
 	raw, err := json.Marshal(definition)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raw) <= 1<<20 {
+	if len(raw) <= 4<<20 {
 		t.Fatal("whole policy subject fixture lost complete metadata reach", len(raw))
 	}
 	neutral, err := json.Marshal(entity.InterfaceRolePolicyDefinition{ProviderASNs: []uint32{}, CustomerASNs: []uint32{}, DescriptionRules: []entity.InterfaceRoleDescriptionRule{}})
