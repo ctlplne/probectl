@@ -329,14 +329,7 @@ func addRoleRouterLink(t *testing.T, lab *routingLab, name, peer string, family,
 		if err != nil {
 			return false
 		}
-		var summary struct {
-			IPv4 struct {
-				Peers map[string]struct {
-					State string `json:"state"`
-				} `json:"peers"`
-			} `json:"ipv4Unicast"`
-		}
-		return json.Unmarshal(raw, &summary) == nil && summary.IPv4.Peers[link.peerIP].State == "Established"
+		return roleRouterSessionEstablished(raw, link.peerIP)
 	})
 	for _, side := range []struct {
 		router, neighbor string
@@ -350,14 +343,7 @@ func addRoleRouterLink(t *testing.T, lab *routingLab, name, peer string, family,
 		if err != nil {
 			return false
 		}
-		var summary struct {
-			IPv6 struct {
-				Peers map[string]struct {
-					State string `json:"state"`
-				} `json:"peers"`
-			} `json:"ipv6Unicast"`
-		}
-		return json.Unmarshal(raw, &summary) == nil && summary.IPv6.Peers[link.peerIP6].State == "Established"
+		return roleRouterSessionEstablished(raw, link.peerIP6)
 	})
 	return link
 }
@@ -664,4 +650,15 @@ func proveRoleRouterStdio(t *testing.T, st *shipped.Stack, first, second edgeFlo
 			call(clients[1], clients[1].interfaceID, true)
 		})
 	}
+}
+
+// A family-specific FRR summary has peers at its root. AFI/SAFI wrappers are
+// emitted only by wildcard summaries; each caller selects the explicit family.
+func roleRouterSessionEstablished(raw []byte, neighbor string) bool {
+	var summary struct {
+		Peers map[string]struct {
+			State string `json:"state"`
+		} `json:"peers"`
+	}
+	return json.Unmarshal(raw, &summary) == nil && summary.Peers[neighbor].State == "Established"
 }
