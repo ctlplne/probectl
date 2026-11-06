@@ -45,6 +45,13 @@
       ]
     },
     {
+      "ref": "test:internal/control/interface_role_explanation_integration_test.go#TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
       "ref": "test:internal/control/fairness_live_ingest_integration_test.go#TestFairnessShedsTheFloodingTenantAndSparesItsNeighbour",
       "profile": "integration",
       "capabilities": [

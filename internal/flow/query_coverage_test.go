@@ -326,7 +326,7 @@ func TestQueryViewListFiltersAndPreferenceBudgetKeepTheirOwnScope(t *testing.T) 
 	if err != nil || len(page.Items) != 1 || page.Items[0].ID != updated.ID {
 		t.Fatalf("updated sort did not lead with latest revision: %+v %v", page, err)
 	}
-	store.maxBytes = 1 // apply a tighter preference budget after the views exist
+	store.maxBytes = 133 // one preference for the five-byte owner; views keep their own scope
 	if err := store.SetQueryViewPreference(ctx, "red", "alice", first.ID, nil, true); err != nil {
 		t.Fatalf("first preference refused: %v", err)
 	}

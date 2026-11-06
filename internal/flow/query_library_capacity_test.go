@@ -63,9 +63,9 @@ func TestQueryLibraryAdmissionKeepsCompletePairedPopulation(t *testing.T) {
 			name := fmt.Sprintf("%s-%04d", tenant, index)
 			filters.byTenant[tenant][id] = SavedQueryFilter{ID: id, TenantID: tenant, Name: name,
 				Expression: input.Expression, Version: 1, UpdatedBy: "alice"}
-			copy := definition
-			copy.Name = name
-			views.byTenant[tenant][id] = SavedQueryView{ID: id, TenantID: tenant, OwnerID: "alice", Version: "1", Definition: copy}
+			entryDefinition := definition
+			entryDefinition.Name = name
+			views.byTenant[tenant][id] = SavedQueryView{ID: id, TenantID: tenant, OwnerID: "alice", Version: "1", Definition: entryDefinition}
 		}
 		if _, err := filters.SaveQueryFilter(t.Context(), tenant, "alice", input); err != nil {
 			t.Fatal("complete saved library retains former fixed byte quota", err)

@@ -331,7 +331,7 @@ capabilities:
     binary: {refs: ["file:cmd/probectl-device-agent/main.go#func run"]}
     api: {refs: ["api:GET /v1/entity-contexts/{context_id}/interfaces/{id}/role", "api:GET /v1/entity-contexts/{context_id}/interface-role-policy", "api:GET /v1/entity-contexts/{context_id}/interfaces/{id}/role-override", "api:GET /v1/devices", "api:GET /v1/device/metrics", "api:GET /v1/device/traps", "api:GET /v1/entities", "api:GET /v1/entities/resolve", "api:POST /v1/nms-imports/export-plans", "api:POST /v1/nms-imports/{id}/export-pages", "api:POST /v1/nms-imports/{id}/export-seal"]}
     cli: {refs: ["cli:probectl interface-roles explain", "cli:probectl interface-roles policy", "cli:probectl interface-roles override", "cli:probectl device list", "cli:probectl device metrics", "cli:probectl device traps", "cli:probectl entities list", "cli:probectl entities resolve", "cli:probectl nms-import export-start", "cli:probectl nms-import export-page", "cli:probectl nms-import export-seal"]}
-    ui: {refs: ["ui:F18@/planes/device", "ui:F18@/admin"]}
+    ui: {gap: "The existing /planes/device and /admin surfaces remain required. Complete current interface-role same-router FRR/SNMP/captured-flow source, paired-tenant both-theme browser and shipped native acceptance is still owed. Existing original and component receipts remain declared; no full UI or item delivery is claimed."}
     docs: {refs: ["file:docs/features/interface-roles.md#Interface role configuration", "file:docs/device-telemetry.md#Device / streaming telemetry", "file:docs/nms-import.md#Incumbent NMS import"]}
     config_keys: {refs: ["config:PROBECTL_DEVICE_CONFIG", "config:PROBECTL_DEVICE_TARGET", "config:PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE", "config:PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE"]}
     telemetry: {refs: ["file:internal/device"]}
@@ -963,13 +963,13 @@ capabilities:
     evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/tags", "file:internal/store/tag_definitions.go", "file:internal/control/tag_import_apply.go"]}
-    binary: {refs: ["file:cmd/probectl-control/main.go", "file:internal/control/tag_definitions.go#func (s *Server) tagRoutes()"]}
+    binary: {refs: ["file:cmd/probectl-control/main.go#func main", "file:internal/control/tag_definitions.go#s.handleListTagDefinitions"]}
     api: {refs: ["api:GET /v1/tags", "api:POST /v1/tags", "api:GET /v1/entity-contexts/{context_id}/tag-rules", "api:GET /v1/entity-contexts/{context_id}/tag-assignments", "api:GET /v1/entity-contexts/{context_id}/resolved-tags", "api:POST /v1/entity-contexts/{context_id}/tag-imports/netbox/preview", "api:POST /v1/entity-contexts/{context_id}/tag-imports/netbox/apply"]}
     cli: {refs: ["cli:probectl tags list", "cli:probectl tags rules-list", "cli:probectl tags assignments-list", "cli:probectl tags netbox-preview", "cli:probectl tags netbox-apply"]}
     ui: {refs: ["ui:F58@/admin"]}
     docs: {refs: ["file:docs/tenant-tags.md#Tenant-defined tags (preview)"]}
     config_keys: {refs: ["config:PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES", "config:PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES", "config:PROBECTL_FLOW_QUERY_TIMEOUT"]}
-    telemetry: {refs: ["file:internal/control/tag_definitions.go", "file:internal/control/tag_import_apply.go"]}
+    telemetry: {refs: ["file:internal/control/audit.go"]}
     real_stack_proof: {gap: "Component and service tests are wired, but complete current integrated main, real sender/source, all consumer/output and served-surface acceptance remains owed. Preview is not a passing full-item receipt."}
     migration: {refs: ["file:migrations/0156_tenant_tags.sql", "file:migrations/0157_tag_permissions.sql", "file:migrations/0158_tag_value_characters.sql", "file:migrations/0160_tag_snmp_match_text.sql", "file:migrations/0161_tag_bulk_revision.sql", "file:migrations/0162_tag_canonical_cidr_sides.sql", "file:migrations/0166_alert_tag_filter.sql", "file:migrations/0167_alert_evaluation_tag_selection.sql"]}
 

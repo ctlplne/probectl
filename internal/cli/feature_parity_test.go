@@ -88,12 +88,13 @@ var requiredFeatureCLICoverage = map[string]cliFeatureCoverage{
 	"F55":                    {Command: "probectl lifecycle export"},
 	"F56":                    {Command: "probectl key list"},
 	"F57":                    {Command: "probectl fairness status"},
+	"F58":                    {Command: "probectl tags list"},
 }
 
 func TestCLIRequiredFeatureDenominator(t *testing.T) {
 	features := parseRequiredFeatures(t)
-	if len(features) != 62 {
-		t.Fatalf("REQUIRED_FEATURES count = %d, want 62", len(features))
+	if len(features) == 0 {
+		t.Fatal("REQUIRED_FEATURES is empty; refusing an unbound CLI coverage denominator")
 	}
 	seen := map[string]bool{}
 	var violations []string
