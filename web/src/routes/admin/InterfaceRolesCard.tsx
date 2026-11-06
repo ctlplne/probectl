@@ -221,7 +221,7 @@ function InterfaceRoleCurrent({
               : 'Prefix association unavailable.'}
           </p>
           {explanation.data.sources.length ? (
-            <ul aria-label="Contributing role sources">
+            <ul aria-label="Contributing role sources" className={styles.sourceList}>
               {explanation.data.sources.map((source) => (
                 <li key={source}>{source}</li>
               ))}

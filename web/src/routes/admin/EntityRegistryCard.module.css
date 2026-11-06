@@ -33,3 +33,7 @@
   display: grid;
   gap: var(--space-4);
 }
+
+.sourceList {
+  overflow-wrap: anywhere;
+}

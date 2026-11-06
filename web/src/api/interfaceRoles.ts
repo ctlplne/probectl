@@ -39,6 +39,8 @@ export function useInterfaceRoleExplanation(
 ) {
   return useQuery({
     queryKey: explanationKey(tenant, context, subject),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
     enabled: enabled && Boolean(tenant && context && subject),
     gcTime: 0,
     queryFn: ({ signal }) =>
