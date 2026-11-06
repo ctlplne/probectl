@@ -8,6 +8,7 @@ package bgp
 
 import (
 	"context"
+	"net/netip"
 	"reflect"
 	"testing"
 )
@@ -26,6 +27,9 @@ func addRouteSourceFuzzSeeds(f *testing.F) {
 	f.Add(endOfRIBFrameForTest(nil, []byte{0x80, 15, 3, 0, 2, 1}, nil))
 	f.Add(endOfRIBFrameForTest([]byte{0}, []byte{0x40, 1, 1, 0, 0x40, 2, 0}, []byte{0}))
 	f.Add([]byte{0x40, 1, 1, 0, 0x40, 2, 0})
+	f.Add(mpReachValueForTest(1, []netip.Addr{netip.MustParseAddr("192.0.2.1")}, []byte{0}))
+	f.Add(mpReachValueForTest(2, []netip.Addr{netip.MustParseAddr("2001:db8::1"), netip.MustParseAddr("fe80::1")}, []byte{0}))
+	f.Add([]byte{0, 2, 1, 0})
 }
 
 func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
@@ -62,6 +66,16 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 			if out, err := ParseBGPRoutePrefixes(ctx, raw, afi, addPath, RoutePrefixBudget{memory, work}); err != nil && out != nil {
 				t.Fatal("invalid prefix input exposed partial routes")
 			}
+		}
+	}
+	for _, addPath := range []bool{false, true} {
+		for _, nextHopAFI := range []uint16{1, 2} {
+			if out, err := ParseMPReachRoutes(ctx, raw, nextHopAFI, addPath, MultiprotocolBudget{memory, work}); err != nil && !reflect.DeepEqual(out, MultiprotocolReach{}) {
+				t.Fatal("invalid multiprotocol reachability exposed partial next hops or routes")
+			}
+		}
+		if out, err := ParseMPUnreachRoutes(ctx, raw, addPath, MultiprotocolBudget{memory, work}); err != nil && !reflect.DeepEqual(out, MultiprotocolWithdraw{}) {
+			t.Fatal("invalid multiprotocol withdrawal exposed partial routes")
 		}
 	}
 	if out, err := ParseBMPPeerUp(ctx, raw, PeerMessageBudget{memory, work}); err != nil && !reflect.DeepEqual(out, PeerUp{}) {

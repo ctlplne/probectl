@@ -28,6 +28,12 @@
     "bgp.ParseBMPRouteViewHeader": {
       "target": "FuzzBMPRouteMonitoring"
     },
+    "bgp.ParseMPReachRoutes": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.ParseMPUnreachRoutes": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
     "bgp.decodeIPv4NLRI": {
       "target": "FuzzBMPRouteMonitoring"
     },

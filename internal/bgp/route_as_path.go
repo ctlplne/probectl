@@ -22,8 +22,8 @@ type RouteASPath struct {
 var ErrRouteASAttributes = errors.New("bgp: invalid or ambiguous path attributes")
 
 // ReconstructRouteASPath interprets complete attributes using the BMP view's
-// explicit ASN width. Missing/invalid mandatory AS_PATH and duplicate relevant
-// attributes refuse output. RFC6793/RFC7606 malformed optional aggregation
+// explicit ASN width. Missing mandatory AS_PATH, invalid relevant flags or duplicate
+// relevant attributes refuse output. RFC6793/RFC7606 malformed optional aggregation
 // data is discarded explicitly, never used to choose reconstruction semantics.
 func ReconstructRouteASPath(ctx context.Context, attributes []RouteAttribute, asnWidth int, budget ASPathParseBudget) (RouteASPath, error) {
 	none := RouteASPath{}
