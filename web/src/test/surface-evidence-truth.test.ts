@@ -72,7 +72,8 @@ describe('truthful native UI evidence', () => {
       'TestDeviceTelemetryRealStack',
       'TestNMSVendorLiveImportTwoTenants',
       'TestNMSImportExportPreviewRoutesKeepVendorPagesInOneTenant',
-    ]) expect(f18).toContain(`#${root}`)
+    ])
+      expect(f18).toContain(`#${root}`)
   })
 
   /**

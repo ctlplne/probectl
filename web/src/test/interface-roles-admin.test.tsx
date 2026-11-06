@@ -129,9 +129,11 @@ function roleFixture(tenant: string) {
   }
 }
 
+// Each tenant/theme gets its own full journey and hang detector. A timeout in
+// one async journey must not overlap cleanup with the next tenant's globals.
 for (const theme of ['light', 'dark']) {
-  test(`complete role configuration retains tenant, order and exact revisions in ${theme}`, async () => {
-    for (const tenant of ['tenant-role-a', 'tenant-role-b']) {
+  for (const tenant of ['tenant-role-a', 'tenant-role-b']) {
+    test(`complete role configuration retains tenant, order and exact revisions in ${theme} for ${tenant}`, async () => {
       const previous = Object.getOwnPropertyDescriptor(window, 'localStorage')
       Object.defineProperty(window, 'localStorage', {
         configurable: true,
@@ -228,8 +230,8 @@ for (const theme of ['light', 'dark']) {
         vi.unstubAllGlobals()
         if (previous) Object.defineProperty(window, 'localStorage', previous)
       }
-    }
-  }, 60_000)
+    }, 60_000)
+  }
 }
 
 test('read-only role configuration exposes no mutation controls', async () => {
