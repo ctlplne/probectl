@@ -7,6 +7,7 @@
 package bgp
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -35,6 +36,7 @@ func TestBMPUpdateFrameUsesReceivingCapabilityAndKeepsFullProtocolMaximum(t *tes
 			source := PeerUp{Header: BMPRouteViewHeader{View: view}, SentOpen: direction.sent, ReceivedOpen: direction.received}
 			for _, size := range []int{4096, 4097, 65535} {
 				raw := extendedRouteFrameForTest(size)
+				want := bytes.Clone(raw[27:])
 				got, err := parseBMPRouteUpdateFrame(t.Context(), raw, source, budget)
 				if size > 4096 && !direction.allowed {
 					if !errors.Is(err, ErrBGPUpdateFrame) || !reflect.DeepEqual(got, UpdateFrame{}) {
@@ -42,11 +44,11 @@ func TestBMPUpdateFrameUsesReceivingCapabilityAndKeepsFullProtocolMaximum(t *tes
 					}
 					continue
 				}
-				if err != nil || len(got.Attributes) != 1 || len(got.Attributes[0].Value) != size-27 || got.Attributes[0].Value[0] != 4 || got.HasEndOfRIB {
+				if err != nil || len(got.Attributes) != 1 || !bytes.Equal(got.Attributes[0].Value, want) || got.HasEndOfRIB {
 					t.Fatal("source UPDATE lost the complete protocol-sized attribute", view, size, err)
 				}
 				clear(raw)
-				if got.Attributes[0].Value[0] != 4 {
+				if !bytes.Equal(got.Attributes[0].Value, want) {
 					t.Fatal("source UPDATE retained borrowed payload")
 				}
 			}
