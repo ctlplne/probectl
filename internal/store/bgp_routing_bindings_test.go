@@ -50,6 +50,9 @@ func TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity(t *testing
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
+	if out, err := prepareRoutingBindings(ctx, nil, routingViewBudget()); err == nil || out != nil {
+		t.Fatal("canceled empty manifest authorized a routing reset")
+	}
 	if out, err := prepareRoutingBindings(ctx, []routingSourceBinding{binding}, routingViewBudget()); err == nil || out != nil {
 		t.Fatal("canceled routing manifest returned bindings")
 	}

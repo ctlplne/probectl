@@ -131,6 +131,9 @@ func putRoutingBindings(ctx context.Context, sc tenancy.Scope, collector, origin
 }
 
 func prepareRoutingBindings(ctx context.Context, bindings []routingSourceBinding, budget BGPRoutingBudget) ([]routingSourceBinding, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := routingBatchCharge(&budget, 4096, 512); err != nil {
 		return nil, err
 	}
@@ -164,6 +167,9 @@ func prepareRoutingBindings(ctx context.Context, bindings []routingSourceBinding
 		}
 		return prepared[i].BGPIdentifier < prepared[j].BGPIdentifier
 	})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return prepared, nil
 }
 
