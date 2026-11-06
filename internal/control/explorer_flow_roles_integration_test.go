@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -56,7 +56,7 @@ func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *te
 	actors := map[string]*auth.Principal{}
 	for _, tenant := range f.tenants {
 		const agent, address = "role-flow", "192.0.2.1"
-		serial := strings.ReplaceAll(uuid.NewString(), "-", "")
+		serial := strings.ReplaceAll(gouuid.NewString(), "-", "")
 		if err := store.NewAgentIdentities(f.pool).Record(t.Context(), tenant, agent, crypto.EntitySPIFFEID(tenant, agent), serial, time.Now().Add(time.Hour), ""); err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +76,7 @@ func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *te
 			actors[tenant] = auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: tenant, UserID: f.users[tenant], ViaBearerToken: true}, grants)
 			return err
 		})
-		claim := entity.Observation{ID: uuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.FlowExporter, SourceRef: address}, Alias: entity.AliasKey{Kind: entity.FlowExporterAlias, Value: address + "/ipfix/4294967295"}, SourceRef: "flow:ipfix:domain:4294967295", ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
+		claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.FlowExporter, SourceRef: address}, Alias: entity.AliasKey{Kind: entity.FlowExporterAlias, Value: address + "/ipfix/4294967295"}, SourceRef: "flow:ipfix:domain:4294967295", ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
 		accepted, unresolved, err := store.NewEntityRegistry(f.pool).WriteEvidenceBatch(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agent, serial, []entity.Observation{claim})
 		if err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatal("owned flow observation was not accepted", accepted, unresolved, err)
