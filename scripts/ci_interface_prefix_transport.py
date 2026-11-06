@@ -107,6 +107,7 @@ INTEGRATION = {
         "TestInterfaceRoleNativeTLSKeepsTenantConfigurationAndCurrentSources",
         "TestInterfaceRoleStdioKeepsWholePoliciesAndRechecksCredentialWithinStream",
         "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
+        "TestInterfaceRoleFrozenObjectsKeepWholePagesCSVAndCurrentAuthority",
         "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",
         "TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority",
         "TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges",
@@ -547,6 +548,27 @@ def current_role_explanation_controls():
     print(json.dumps({"current_role_explanation_controls": True}))
 
 
+def interface_role_frozen_object_control():
+    out = Path("artifacts/interface-prefix-transport")
+    out.mkdir(parents=True, exist_ok=True)
+    source = Path("internal/control/explorer_flow_snapshot_source.go").resolve()
+    original = source.read_text()
+    seam = "func (source *flowSnapshotSource) validateRoleAuthorization(ctx context.Context, scope flowsnapshot.Scope, receipt flowSnapshotValidity) error {"
+    assert original.count(seam) == 1
+    mutant = out / "role_frozen_current_authority_omitted.go"
+    start = original.index(seam)
+    end = original.index("func (source *flowSnapshotSource) validateTagAuthorization", start)
+    mutant.write_text(original[:start] + seam + "\nreturn nil\n}\n\n" + original[end:])
+    overlay = out / "role_frozen_current_authority_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant.resolve())}}))
+    root = "TestInterfaceRoleFrozenObjectsKeepWholePagesCSVAndCurrentAuthority"
+    result = execute("internal/control", (root,), "role_frozen_current_authority_omitted", integration=True, overlay=overlay)
+    if not report_regression_failed_on_assertion(
+            result.stdout, result.returncode, package=PREFIX + "internal/control", root=root, child="",
+            marker="frozen role output survived changed current source authority"):
+        raise RuntimeError("frozen role authority omission did not fail its exact assertion")
+
+
 def interface_role_subject_control():
     out = Path("artifacts/interface-prefix-transport").resolve()
     source = Path("internal/tenantlife/subject.go").resolve()
@@ -829,6 +851,7 @@ def main(integration, flow_integration=False):
         current_role_explanation_controls()
         standalone_role_source_control()
         interface_role_subject_control()
+        interface_role_frozen_object_control()
         current_role_source_controls()
         configuration_incarnation_controls()
         configuration_api_controls()
