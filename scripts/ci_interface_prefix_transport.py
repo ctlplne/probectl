@@ -743,7 +743,7 @@ def ix_prefix_controls():
          "TestPeeringDBIXPrefixesKeepCompletePopulationClockAndOwnedMatches",
          "stale IX cache retained current evidence"),
         ("role_metadata_uuid", "internal/control", "mcp_interface_role_metadata.go",
-         'return []byte(strings.ReplaceAll(string(raw), "-", `\u002d`)), nil', "return raw, nil",
+         r'return []byte(strings.ReplaceAll(string(raw), "-", `\u002d`)), nil', "return raw, nil",
          "TestInterfaceRoleMCPMetadataKeepsExactGeneratedIDsAndFullTextRedaction",
          "native role redaction altered generated structural identity"),
         ("ix_owned_input", "internal/control", "interface_role_ix.go",
