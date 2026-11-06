@@ -30,6 +30,8 @@ UNIT = {
         "TestInterfaceRoleExplorerSQLKeepsFixedTenantJoinAndCompleteExternalValues",
     ),
     "internal/flow": (
+        "TestPeeringEstimateCombinesIntervalsBeforeExactPercentile",
+        "TestPeeringEstimateRefusesForeignMissingPartialAndUnadmittedInputs",
         "TestInterfaceRoleQuerySelectorsRequireAllSourcePlanesAndCompleteInputs",
     ),
     "internal/device": (
