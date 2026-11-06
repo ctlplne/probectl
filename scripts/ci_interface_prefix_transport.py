@@ -102,6 +102,7 @@ INTEGRATION = {
     "cmd/probectl-control": ("TestMCPFlowSourcesRetainConfiguredLocalIXGeneration",),
     "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
     "internal/control": (
+        "TestNativeFlowRoleTLSKeepsWholeProvenanceAndCurrentAuthority",
         "TestInterfaceRoleNativeTLSKeepsTenantConfigurationAndCurrentSources",
         "TestInterfaceRoleStdioKeepsWholePoliciesAndRechecksCredentialWithinStream",
         "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",

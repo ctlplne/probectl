@@ -50,51 +50,7 @@ func (s *rolePublicationFlowStore) ExplorePlan(ctx context.Context, query flowst
 // identities are seeded and flow execution is the memory simulation. Actual
 // ClickHouse, frozen objects, native protocol and router wire remain separate.
 func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *testing.T) {
-	f := newRoleExplanationAPIFixture(t)
-	rows := &rolePublicationFlowStore{Memory: flowstore.NewMemory()}
-	f.server.WithFlowStore(rows)
-	actors := map[string]*auth.Principal{}
-	for _, tenant := range f.tenants {
-		const agent, address = "role-flow", "192.0.2.1"
-		serial := strings.ReplaceAll(gouuid.NewString(), "-", "")
-		if err := store.NewAgentIdentities(f.pool).Record(t.Context(), tenant, agent, crypto.EntitySPIFFEID(tenant, agent), serial, time.Now().Add(time.Hour), ""); err != nil {
-			t.Fatal(err)
-		}
-		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts(tenant_id,agent_id,context_id) VALUES($1,$2,$3)`, tenant, agent, f.contextID); err != nil {
-				return err
-			}
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id) VALUES($1,$2,'flow_exporter',$3,$4,$5)`, tenant, agent, address, f.contextID, f.routerID); err != nil {
-				return err
-			}
-			for _, permission := range []string{"ai.query", "flow.read"} {
-				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
-					return err
-				}
-			}
-			grants, err := (store.Permissions{}).ForSubject(ctx, sc, "user", f.users[tenant])
-			actors[tenant] = auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: tenant, UserID: f.users[tenant], ViaBearerToken: true}, grants)
-			return err
-		})
-		claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.FlowExporter, SourceRef: address}, Alias: entity.AliasKey{Kind: entity.FlowExporterAlias, Value: address + "/ipfix/4294967295"}, SourceRef: "flow:ipfix:domain:4294967295", ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
-		accepted, unresolved, err := store.NewEntityRegistry(f.pool).WriteEvidenceBatch(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agent, serial, []entity.Observation{claim})
-		if err != nil || accepted != 1 || unresolved != 0 {
-			t.Fatal("owned flow observation was not accepted", accepted, unresolved, err)
-		}
-	}
-	a, b := f.tenants[0], f.tenants[1]
-	f.in(b, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := (store.InterfaceRoleConfiguration{}).PutOverride(ctx, sc, f.contextID, f.interfaceID, "", "0", entity.InterfaceRoleBackbone)
-		return err
-	})
-	at := time.Now().UTC().Truncate(time.Microsecond)
-	if err := rows.Insert(t.Context(), []flowstore.Row{
-		{TenantID: a, TS: at, AgentID: "forged-other-context", Exporter: "192.0.2.1", Protocol: "ipfix", ObsDomain: 4294967295, InIf: 7, OutIf: 99, BytesScaled: 100},
-		{TenantID: a, TS: at, Exporter: "192.0.2.2", Protocol: "ipfix", ObsDomain: 4294967295, InIf: 7, OutIf: 99, BytesScaled: 200},
-		{TenantID: b, TS: at, AgentID: "forged-other-context", Exporter: "192.0.2.1", Protocol: "ipfix", ObsDomain: 4294967295, InIf: 7, OutIf: 99, BytesScaled: 900},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	f, rows, actors, at := newRoleFlowQueryFixture(t)
 	plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"in_if_role", "out_if_role"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
 	query := ai.ExplorerQuery{Source: ai.ExplorerFlow, Flow: &plan}
 	socket := httptest.NewTLSServer(f.server.Handler())
@@ -222,4 +178,54 @@ func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *te
 	if code, out := read(b); code != http.StatusOK || out.Flow == nil || out.Flow.Totals["bytes:total"] != "900" || out.Flow.Rows[0].Group["in_if_role"] != "backbone" {
 		t.Fatal("shared IX generation damaged paired owned override", code, out.Flow)
 	}
+}
+
+func newRoleFlowQueryFixture(t *testing.T) (*roleExplanationAPIFixture, *rolePublicationFlowStore, map[string]*auth.Principal, time.Time) {
+	t.Helper()
+	f := newRoleExplanationAPIFixture(t)
+	rows := &rolePublicationFlowStore{Memory: flowstore.NewMemory()}
+	f.server.WithFlowStore(rows)
+	actors := map[string]*auth.Principal{}
+	for _, tenant := range f.tenants {
+		const agent, address = "role-flow", "192.0.2.1"
+		serial := strings.ReplaceAll(gouuid.NewString(), "-", "")
+		if err := store.NewAgentIdentities(f.pool).Record(t.Context(), tenant, agent, crypto.EntitySPIFFEID(tenant, agent), serial, time.Now().Add(time.Hour), ""); err != nil {
+			t.Fatal(err)
+		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts(tenant_id,agent_id,context_id) VALUES($1,$2,$3)`, tenant, agent, f.contextID); err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id) VALUES($1,$2,'flow_exporter',$3,$4,$5)`, tenant, agent, address, f.contextID, f.routerID); err != nil {
+				return err
+			}
+			for _, permission := range []string{"ai.query", "flow.read"} {
+				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
+					return err
+				}
+			}
+			grants, err := (store.Permissions{}).ForSubject(ctx, sc, "user", f.users[tenant])
+			actors[tenant] = auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: tenant, UserID: f.users[tenant], ViaBearerToken: true}, grants)
+			return err
+		})
+		claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.FlowExporter, SourceRef: address}, Alias: entity.AliasKey{Kind: entity.FlowExporterAlias, Value: address + "/ipfix/4294967295"}, SourceRef: "flow:ipfix:domain:4294967295", ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
+		accepted, unresolved, err := store.NewEntityRegistry(f.pool).WriteEvidenceBatch(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agent, serial, []entity.Observation{claim})
+		if err != nil || accepted != 1 || unresolved != 0 {
+			t.Fatal("owned flow observation was not accepted", accepted, unresolved, err)
+		}
+	}
+	a, b := f.tenants[0], f.tenants[1]
+	f.in(b, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := (store.InterfaceRoleConfiguration{}).PutOverride(ctx, sc, f.contextID, f.interfaceID, "", "0", entity.InterfaceRoleBackbone)
+		return err
+	})
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	if err := rows.Insert(t.Context(), []flowstore.Row{
+		{TenantID: a, TS: at, AgentID: "forged-other-context", Exporter: "192.0.2.1", Protocol: "ipfix", ObsDomain: 4294967295, InIf: 7, OutIf: 99, BytesScaled: 100},
+		{TenantID: a, TS: at, Exporter: "192.0.2.2", Protocol: "ipfix", ObsDomain: 4294967295, InIf: 7, OutIf: 99, BytesScaled: 200},
+		{TenantID: b, TS: at, AgentID: "forged-other-context", Exporter: "192.0.2.1", Protocol: "ipfix", ObsDomain: 4294967295, InIf: 7, OutIf: 99, BytesScaled: 900},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return f, rows, actors, at
 }
