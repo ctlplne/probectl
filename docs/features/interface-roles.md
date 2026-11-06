@@ -16,7 +16,8 @@ evidence trustworthy or asserts that a BGP session is up.
 
 The current-role explanation preview joins owned SNMP and BMP evidence with
 this configuration through Admin, REST, CLI and native MCP. An optional complete
-local PeeringDB IX-prefix cache contributes versioned IX evidence. Real-router
+local PeeringDB IX-prefix cache contributes versioned IX evidence in both the
+served and standalone MCP source assemblies. Real-router
 acceptance remains unfinished. The role query components
 are under focused verification and do not qualify the complete feature.
 

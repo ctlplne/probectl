@@ -95,6 +95,7 @@ FLOW_INTEGRATION = {
     ),
 }
 INTEGRATION = {
+    "cmd/probectl-control": ("TestMCPFlowSourcesRetainConfiguredLocalIXGeneration",),
     "ee/silo": ("TestInterfaceRoleAPIKeepsSiloRelationsLockedBeforeConfigurationSQL",),
     "internal/control": (
         "TestInterfaceRoleNativeTLSKeepsTenantConfigurationAndCurrentSources",
@@ -522,6 +523,26 @@ def current_role_explanation_controls():
     print(json.dumps({"current_role_explanation_controls": True}))
 
 
+def standalone_role_source_control():
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    source = Path("cmd/probectl-control/mcp_flow_sources.go").resolve()
+    original = source.read_text()
+    seam = "core.WithOpenDataStatus(en, nil, nil)"
+    assert original.count(seam) == 1
+    mutant = out / "standalone_role_source.go"
+    mutant.write_text(original.replace(seam, "_ = en"))
+    overlay = out / "standalone_role_source.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestMCPFlowSourcesRetainConfiguredLocalIXGeneration"
+    result = execute("cmd/probectl-control", (root,), "standalone_role_source",
+                     integration=True, overlay=overlay)
+    if not report_regression_failed_on_assertion(result.stdout, result.returncode,
+            package=PREFIX + "cmd/probectl-control", root=root, child="",
+            marker="standalone role source omitted configured local IX prefixes"):
+        raise RuntimeError("standalone source omission did not fail its exact assertion")
+    print(json.dumps({"standalone_role_source_control": True}))
+
+
 def current_role_source_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, file, seam, replacement, root, marker in (
@@ -744,6 +765,7 @@ def main(integration, flow_integration=False):
             )
     if integration and not flow_integration:
         current_role_explanation_controls()
+        standalone_role_source_control()
         current_role_source_controls()
         configuration_incarnation_controls()
         configuration_api_controls()

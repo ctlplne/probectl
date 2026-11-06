@@ -165,6 +165,12 @@ func buildMCPFlowSources(cfg *config.Config, log *slog.Logger, db *store.DB, pat
 		WithDeviceOps(deviceOps).WithInventoryViews(inventory.NewPostgresViewStore(db.Pool())).
 		WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(db.Pool(), cfg.FlowQueryLibraryBytes, audit.TenantRecord)).WithFlowQueryViews(flow.NewPostgresQueryViewStore(db.Pool(), cfg.FlowQueryLibraryBytes, audit.TenantRecord)).
 		WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))
+	// Reuse the serving source constructor. The complete local IX generation
+	// is public input, matched only after current tenant source authorization.
+	// This attaches no refresh worker or outbound lookup to stdio.
+	if en, enabled := control.BuildEnrichment(cfg, log); enabled {
+		core.WithOpenDataStatus(en, nil, nil)
+	}
 	// Only RetentionFor and snapshot validity are reachable from this MCP
 	// backend. No lifecycle/erasure or background maintenance tool is installed.
 	lifecycle := tenantlife.NewWithBackupRetention(db.Pool(), flows, objects, nil, nil, cfg.BackupRetentionNote, cfg.BackupRetentionDays, log)
