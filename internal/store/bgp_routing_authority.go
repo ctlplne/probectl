@@ -66,6 +66,10 @@ func validateBGPRoutingSource(ctx context.Context, sc tenancy.Scope, source BGPR
 	return nil
 }
 
+// The existing service path checks tenant lifecycle and actor grants. This
+// repository checks tenant-owned source authority without acquiring access to
+// the provider tenant registry, matching current entity-evidence readers.
+//
 // SourceAuthorityInScope binds the exact tenant, context, explicit origin
 // router, collector, both credential purposes/serials and assignment epochs.
 // Rebinding cannot revive an observation older than the new assignment. FORCE
@@ -87,7 +91,6 @@ func (BGPRouting) SourceAuthorityInScope(ctx context.Context, sc tenancy.Scope, 
  JOIN entities router ON
  (router.tenant_id,router.context_id,router.id)=(source.tenant_id,source.context_id,source.anchor_entity_id)
  AND router.kind='device'
- JOIN tenants owner ON owner.id=source.tenant_id AND owner.status='active'
  JOIN agent_identities sender ON
  (sender.tenant_id,sender.agent_id,sender.serial)=(source.tenant_id,source.agent_id,$5)
  AND sender.spiffe_id='spiffe://probectl/tenant/' || source.tenant_id::text || '/entity/' || source.agent_id
