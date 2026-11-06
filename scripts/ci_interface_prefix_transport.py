@@ -457,6 +457,13 @@ def current_role_source_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, file, seam, replacement, root, marker in (
         (
+            "flow_owner_uniqueness_omitted", "tag_tenant_snapshot.go",
+            "if _, exists := bindings[key]; exists || ambiguous[key] {",
+            "if _, exists := bindings[key]; exists && false || ambiguous[key] && false {",
+            "TestInterfaceRoleFlowBindingsKeepCurrentExplicitOriginsAndTenantScope",
+            "unobserved competing collector manufactured unique role ownership",
+        ),
+        (
             "flow_origin_omitted", "interface_role_flow_bindings.go",
             "AND source.anchor_entity_id=node.id AND e.support_evidence_id IS NULL",
             "AND TRUE",

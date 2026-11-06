@@ -8,7 +8,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -29,6 +31,60 @@ type InterfaceRoleFlowBinding struct {
 	Exporter                    netip.Addr
 	Protocol                    string
 	Domain                      uint32
+}
+
+// InterfaceRoleExporterOwner is operator configuration, not sender proof.
+// The existing tenant-wide uniqueness rule considers EVERY active assignment,
+// including sources without current observations. Neither pruning unreadable
+// contexts nor using a row's claimed agent may manufacture a unique owner.
+type InterfaceRoleExporterOwner struct {
+	entity.Scope
+	AgentID, RouterID string
+	Exporter          netip.Addr
+}
+
+func (s *InterfaceRoleInputsStore) ExporterOwnersInScope(ctx context.Context, sc tenancy.Scope, budget entity.InterfaceRolePolicyBudget) ([]InterfaceRoleExporterOwner, error) {
+	tenant, ok := tenancy.FromContext(ctx)
+	if !ok || tenant != sc.Tenant || sc.Q == nil {
+		return nil, entity.ErrScopeMismatch
+	}
+	admission := roleInputAdmission{memory: budget.MemoryBytes, work: budget.WorkUnits}
+	if err := admission.charge(ctx, 4096, 1); err != nil {
+		return nil, err
+	}
+	bindings, err := loadTagExporterBindings(ctx, sc, tenant.String(), admission.memory, func(values ...string) error {
+		bytes := int64(2048)
+		for _, value := range values {
+			bytes += int64(len(value))
+		}
+		return admission.charge(ctx, bytes, 1)
+	})
+	if errors.Is(err, ErrTagSnapshotBudget) {
+		return nil, entity.ErrInterfaceRoleBudget
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]InterfaceRoleExporterOwner, 0, len(bindings))
+	for address, binding := range bindings {
+		if err := admission.charge(ctx, 1024, 1); err != nil {
+			return nil, err
+		}
+		scope, err := (entity.Scope{TenantID: tenant.String(), ContextID: binding.contextID}).Normalize()
+		if err != nil {
+			return nil, err
+		}
+		exporter, err := netip.ParseAddr(address)
+		if err != nil {
+			return nil, entity.ErrInvalidClaim
+		}
+		out = append(out, InterfaceRoleExporterOwner{Scope: scope, AgentID: binding.agentID, RouterID: binding.deviceID, Exporter: exporter})
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	slices.SortFunc(out, func(a, b InterfaceRoleExporterOwner) int { return a.Exporter.Compare(b.Exporter) })
+	return out, nil
 }
 
 // FlowBindingsInScope shares the caller's application-role snapshot with its

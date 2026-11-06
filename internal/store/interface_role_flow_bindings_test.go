@@ -21,6 +21,13 @@ func TestInterfaceRoleFlowBindingRequiresTenantBeforeStorageAndExactIdentity(t *
 	if out, err := reader.FlowBindingsInScope(t.Context(), tenancy.Scope{}, want, entity.InterfaceRolePolicyBudget{}); !errors.Is(err, entity.ErrScopeMismatch) || out != nil {
 		t.Fatal("missing tenant reached role flow binding storage", out, err)
 	}
+	if out, err := reader.ExporterOwnersInScope(t.Context(), tenancy.Scope{}, entity.InterfaceRolePolicyBudget{}); !errors.Is(err, entity.ErrScopeMismatch) || out != nil {
+		t.Fatal("missing tenant reached role exporter ownership storage", out, err)
+	}
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(want.TenantID))
+	if out, err := reader.ExporterOwnersInScope(ctx, tenancy.Scope{Tenant: tenancy.ID(want.TenantID)}, entity.InterfaceRolePolicyBudget{}); !errors.Is(err, entity.ErrScopeMismatch) || out != nil {
+		t.Fatal("missing application snapshot reached role exporter ownership storage", out, err)
+	}
 	for _, address := range []string{"192.0.2.1", "2001:db8::1"} {
 		for _, protocol := range []string{"netflow5", "netflow9", "ipfix", "sflow5"} {
 			for _, domain := range []string{"0", "4294967295"} {

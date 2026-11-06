@@ -61,14 +61,47 @@ func TestInterfaceRoleFlowBindingsKeepCurrentExplicitOriginsAndTenantScope(t *te
 		})
 		return out, err
 	}
+	owners := func(tenant string, budget entity.InterfaceRolePolicyBudget) ([]InterfaceRoleExporterOwner, error) {
+		var out []InterfaceRoleExporterOwner
+		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			out, err = NewInterfaceRoleInputs(f.pool).ExporterOwnersInScope(ctx, sc, budget)
+			return err
+		})
+		return out, err
+	}
 	for _, tenant := range f.tenants {
 		write(tenant)
 		out, err := load(tenant, roleInputsBudget())
 		if err != nil || len(out) != 1 || out[0].TenantID != tenant || out[0].ContextID != f.contextID || out[0].AgentID != agent || out[0].RouterID != f.routerID || out[0].Exporter != netip.MustParseAddr(address) || out[0].Protocol != "ipfix" || out[0].Domain != 4294967295 || !out[0].ValidUntil.After(time.Now()) || !strings.HasPrefix(out[0].SourceID, "evidence/") {
 			t.Fatal("role flow binding lost current explicit origin or tenant scope", out, err)
 		}
+		owned, err := owners(tenant, roleInputsBudget())
+		if err != nil || len(owned) != 1 || owned[0].TenantID != tenant || owned[0].ContextID != f.contextID || owned[0].AgentID != agent || owned[0].RouterID != f.routerID || owned[0].Exporter != netip.MustParseAddr(address) {
+			t.Fatal("role exporter ownership lost complete tenant configuration", owned, err)
+		}
 	}
 	a, b := f.tenants[0], f.tenants[1]
+	// A second configured collector has NO observation. Dropping it because
+	// it lacks current evidence would let an untrusted row choose the first
+	// collector's context. Keep the complete operator ownership boundary.
+	const competing = "role-flow-without-observations"
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts(tenant_id,agent_id,context_id) VALUES($1,$2,$3)`, a, competing, f.contextID); err != nil {
+			return err
+		}
+		_, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id) VALUES($1,$2,'flow_exporter',$3,$4,$5)`, a, competing, address, f.contextID, f.routerID)
+		return err
+	})
+	if out, err := owners(a, roleInputsBudget()); err != nil || len(out) != 0 {
+		t.Fatal("unobserved competing collector manufactured unique role ownership", out, err)
+	}
+	if out, err := owners(b, roleInputsBudget()); err != nil || len(out) != 1 || out[0].TenantID != b {
+		t.Fatal("ambiguous exporter ownership damaged another tenant", out, err)
+	}
+	if out, err := owners(b, entity.InterfaceRolePolicyBudget{MemoryBytes: 4096, WorkUnits: 1}); !errors.Is(err, entity.ErrInterfaceRoleBudget) || out != nil {
+		t.Fatal("role exporter ownership returned a partial admission result", out, err)
+	}
 	if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(b)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		out, err := NewInterfaceRoleInputs(f.pool).FlowBindingsInScope(ctx, sc, entity.Scope{TenantID: a, ContextID: f.contextID}, roleInputsBudget())
 		if !errors.Is(err, entity.ErrScopeMismatch) || out != nil {
