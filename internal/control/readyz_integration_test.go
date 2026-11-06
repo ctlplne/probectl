@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -22,13 +21,6 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
-
-func integrationDSN() string {
-	if v := os.Getenv("PROBECTL_DATABASE_URL"); v != "" {
-		return v
-	}
-	return "postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable"
-}
 
 // TestReadyzAgainstRealDatabase proves the S1 Done-when: the server boots with a
 // real Postgres pool and /readyz reports ready.

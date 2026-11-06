@@ -24,17 +24,12 @@ import (
 	"github.com/ctlplne/probectl/internal/browser"
 	"github.com/ctlplne/probectl/internal/browsercanary"
 	"github.com/ctlplne/probectl/internal/canary"
-	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 	"github.com/ctlplne/probectl/internal/lifecycle"
-	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/store"
-	"github.com/ctlplne/probectl/internal/store/migrate"
 	"github.com/ctlplne/probectl/internal/tenancy"
-	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/topology"
-	"github.com/ctlplne/probectl/migrations"
 )
 
 func setupAPI(t *testing.T) (http.Handler, *store.DB) {
@@ -220,31 +215,6 @@ func TestCoverageAPITenantIsolation(t *testing.T) {
 func setupAPIWithLatest(t *testing.T, latest *LatestResults) (http.Handler, *store.DB) {
 	srv, db := setupAPIServerWithLatest(t, latest)
 	return srv.Handler(), db
-}
-
-func setupAPIServerWithLatest(t *testing.T, latest *LatestResults) (*Server, *store.DB) {
-	t.Helper()
-	ctx := context.Background()
-	db, err := store.Open(ctx, integrationDSN(), 5, 0, 5*time.Second)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	if err := db.Ping(ctx); err != nil {
-		db.Close()
-		testsupport.SkipOrFatal(t, "no database available: %v", err)
-	}
-	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, db.Pool()); err != nil {
-		db.Close()
-		t.Fatalf("apply migrations: %v", err)
-	}
-	t.Cleanup(db.Close)
-	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "dev"}
-	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).
-		WithTenantStatus(NewTenantStatusCache(db.Pool(), 0))
-	if latest != nil {
-		srv.WithLatestResults(latest)
-	}
-	return srv, db
 }
 
 func apiReq(t *testing.T, h http.Handler, method, path, tenant string, body any) *httptest.ResponseRecorder {
