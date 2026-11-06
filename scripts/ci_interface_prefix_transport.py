@@ -364,7 +364,7 @@ ROUTING_WRITE_CONTROLS = {
     "routing-birth-epoch": (
         "internal/store/bgp_routing_updates.go",
         "birth.ObservedAt = view.born",
-        "birth.ObservedAt = source.ObservedAt",
+        "birth.ObservedAt = source.ObservedAt\n\t_ = view.born",
         "TestBGPRoutingBatchRefusalInvalidatesWithoutPartialWritesOrEpochRevival",
         "", "new source assignment revived a former routing generation",
     ),
