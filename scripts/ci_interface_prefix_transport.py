@@ -92,6 +92,7 @@ UNIT = {
     "ee/silo": (
         "TestEntityRegistryForeignKeysFollowAllSiloCopies",
         "TestInterfaceRoleStoragePlanKeepsLocalKindAndTenantForeignKeys",
+        "TestBGPRoutingPlanKeepsEveryReferenceInItsTenantSchema",
     ),
 }
 FLOW_INTEGRATION = {
@@ -126,6 +127,7 @@ INTEGRATION = {
         "TestSNMPPrefixStorageKeepsCompleteWirePopulationAndRepairsManagedCopies",
         "TestDashboardReportTenantIsolation",
         "TestInterfaceRoleConfigurationPostgresKeepsTenantCASAndOverrideIncarnations",
+        "TestBGPRoutingSchemaKeepsTenantFamilyPathIdentityAndPublicationShape",
     ),
     "internal/agenttransport": (
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",

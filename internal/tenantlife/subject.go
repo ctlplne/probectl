@@ -332,6 +332,15 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		contains: []string{"definition"},
 	},
 	"interface_role_overrides": {plane: "postgres:interface_role_overrides", disposition: subjectTableNoSubject},
+	// Routing source identifiers can name an administratively registered
+	// subject. Removing a matching generation cascades its complete routes.
+	"bgp_routing_views": {
+		plane: "postgres:bgp_routing_views", disposition: subjectTableDeleteMatches,
+		exact: []string{"collector_agent_id", "source_ref"}, contains: []string{"peer_identity"},
+	},
+	// Prefixes, numeric AS segments, wire attributes and next-hop addresses
+	// are operator network inventory, without first-class person ownership.
+	"bgp_routing_entries": {plane: "postgres:bgp_routing_entries", disposition: subjectTableNoSubject},
 	"entity_fault_receipts": {
 		plane: "postgres:entity_fault_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id"}, contains: []string{"source_ref"},
