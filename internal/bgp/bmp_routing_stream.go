@@ -150,4 +150,4 @@ func (l *BMPListener) routingStreamEvidence(ctx context.Context, peer bmpPeerEvi
 
 // Source-driven liveness only: no timer renews routing authority merely because
 // an idle TCP socket is still locally open. The source's statistics interval
-// must fit the configured lease; silence expires to the labelled fallback.
+// must fit the configured lease; silence expires to the labeled fallback.

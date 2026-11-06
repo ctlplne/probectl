@@ -258,7 +258,6 @@ func TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState(t *testing.
 	if got, err := lanes[0].client.SubmitRoutingMessage(ctx, reset); err == nil || got.GetStatus() != "invalidated" || counts(lanes[0], "current") != 0 {
 		t.Fatal("served source closure retained current routing state", got, err)
 	}
-
 }
 
 func routingUpdateWire(up []byte, mode string, asn uint32) []byte {
@@ -266,7 +265,8 @@ func routingUpdateWire(up []byte, mode string, asn uint32) []byte {
 	raw[5] = 0
 	attrs := []byte{}
 	nlri := []byte{}
-	if mode == "routes" {
+	switch mode {
+	case "routes":
 		attrs = []byte{64, 1, 1, 0, 64, 2, 6, 2, 1}
 		attrs = binary.BigEndian.AppendUint32(attrs, asn)
 		attrs = append(attrs, 64, 3, 4, 192, 0, 2, 99)
@@ -274,7 +274,7 @@ func routingUpdateWire(up []byte, mode string, asn uint32) []byte {
 		attrs = append(attrs, 128, 14, byte(len(mp)))
 		attrs = append(attrs, mp...)
 		nlri = []byte{24, 192, 0, 2}
-	} else if mode == "v6-eor" {
+	case "v6-eor":
 		attrs = []byte{128, 15, 3, 0, 2, 1}
 	}
 	update := make([]byte, 19)

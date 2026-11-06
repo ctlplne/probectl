@@ -55,7 +55,8 @@ func TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence(t *testin
 	}
 	batches := func(mode string) []BGPRoutingBatch {
 		out := []BGPRoutingBatch{{AFI: 1, SAFI: 1, Heartbeat: true, WireDigest: crypto.Hash([]byte(mode))}, {AFI: 2, SAFI: 1, Heartbeat: true, WireDigest: crypto.Hash([]byte(mode))}}
-		if mode == "routes" || mode == "late-fault" {
+		switch mode {
+		case "routes", "late-fault":
 			for i := range out {
 				change := routingChangeFixture()
 				if i == 1 {
@@ -67,9 +68,9 @@ func TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence(t *testin
 				}
 				out[i].Heartbeat, out[i].Changes = false, []BGPRoutingChange{change}
 			}
-		} else if mode == "v4-eor" {
+		case "v4-eor":
 			out[0].Heartbeat, out[0].EndOfRIB = false, true
-		} else if mode == "v6-eor" {
+		case "v6-eor":
 			out[1].Heartbeat, out[1].EndOfRIB = false, true
 		}
 		return out
