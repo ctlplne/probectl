@@ -211,3 +211,52 @@ func TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission(t *testi
 		t.Fatal("old routing epoch revived withdrawn bindings", err)
 	}
 }
+
+// A configured source must not regain legacy authority through an old writer
+// after its former generations were invalidated by the configuration write.
+func TestRoutingBindingManifestRefusesLegacyAuthorityWithoutChangingOtherTenant(t *testing.T) {
+	f := newRoleInputsFixture(t)
+	for lane := range f.tenants {
+		source := routingFixtureSource(f, lane)
+		err := routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := (BGPRouting{}).sourceAuthorityForWriteInScope(ctx, sc, source)
+			return err
+		})
+		if err != nil {
+			t.Fatal("legacy authority prerequisite failed", err)
+		}
+	}
+	source := routingFixtureSource(f, 0)
+	if err := routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := putRoutingBindings(ctx, sc, source.CollectorAgentID, source.SourceRef, source.ContextID, "",
+			[]routingSourceBinding{{ContextID: source.ContextID, RouterID: source.RouterID,
+				Distinguisher: "0000000000000000", BGPIdentifier: "192.0.2.1", Families: []uint16{1, 2}}}, routingViewBudget())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for lane := range f.tenants {
+		source := routingFixtureSource(f, lane)
+		for _, write := range []bool{false, true} {
+			err := routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
+				var got BGPRoutingSourceAuthority
+				var err error
+				if write {
+					got, err = (BGPRouting{}).sourceAuthorityForWriteInScope(ctx, sc, source)
+				} else {
+					got, err = (BGPRouting{}).sourceAuthorityInScope(ctx, sc, source)
+				}
+				if lane == 0 && (!errors.Is(err, ErrBGPRoutingSourceUnavailable) || got != (BGPRoutingSourceAuthority{})) {
+					t.Fatal("explicit routing manifest restored legacy source authority", write, got, err)
+				}
+				if lane == 1 && err != nil {
+					t.Fatal("configured source invalidated another tenant's legacy authority", write, err)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
