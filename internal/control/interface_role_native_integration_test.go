@@ -98,7 +98,9 @@ func proveInterfaceRoleNativeTLS(t *testing.T, wire string) {
 
 func interfaceRoleNativeTLSCaller(t *testing.T, f *roleExplanationAPIFixture, wire string) func(tenant, tool string, args any, target any, wantOK bool) {
 	t.Helper()
-	cfg := &config.Config{}
+	// Match config.Load's shipped defaults, rather than a zero-value fixture
+	// that explicitly disables the configurable IP/hostname/PII masks.
+	cfg := &config.Config{AIRedactIPs: true, AIRedactHostnames: true, AIRedactPII: true}
 	server := NewMCPServerWithPolicyLoader(cfg, f.server.log, f.pool, pathstore.NewMemory(), 0, NewAIEgressGate(cfg, f.server.log, f.pool), nil, nil, f.server.MCPPolicyLoader(), AISources{NativeFlow: f.server})
 	socket := httptest.NewTLSServer(server.HTTPHandler(NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false)))
 	t.Cleanup(socket.Close)
