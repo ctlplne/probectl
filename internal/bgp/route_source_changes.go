@@ -100,7 +100,7 @@ func sourceUpdateChanges(ctx context.Context, frame sourceRouteFrame, peer PeerU
 		if !sourceHasOrigin(frame.Update.Attributes) {
 			return none, errBMPRouteChanges
 		}
-		out.Path, err = reconstructRouteASPath(ctx, frame.Update.Attributes, frame.Header.ASNWidth, ASPathParseBudget{MemoryBytes: part.MemoryBytes, WorkUnits: part.WorkUnits})
+		out.Path, err = reconstructRouteASPath(ctx, frame.Update.Attributes, frame.Header.ASNWidth, ASPathParseBudget(part))
 		if err != nil {
 			return none, err
 		}
@@ -212,7 +212,7 @@ func sourceMultiprotocolChanges(ctx context.Context, attr RouteAttribute, view B
 	if err != nil {
 		return none, err
 	}
-	profile := MultiprotocolBudget{MemoryBytes: budget.MemoryBytes, WorkUnits: budget.WorkUnits}
+	profile := MultiprotocolBudget(budget)
 	if attr.Type == 15 {
 		unreach, err := parseMPUnreachRoutes(ctx, attr.Value, add, profile)
 		if err != nil {
