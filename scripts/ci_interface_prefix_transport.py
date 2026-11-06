@@ -748,6 +748,14 @@ def ix_prefix_controls():
          r'return []byte(strings.ReplaceAll(string(raw), "-", `\u002d`)), nil', "return raw, nil",
          "TestInterfaceRoleMCPMetadataKeepsExactGeneratedIDsAndFullTextRedaction",
          "native role redaction altered generated structural identity"),
+        ("native_role_projection", "internal/control", "mcp_native_flow_projection.go",
+         "projectNativeFlowRoles(&out, source, tenant, budget)", "func() error { _ = budget; return nil }()",
+         "TestNativeFlowRoleProjectionRetainsCompleteTenantProvenance",
+         "native flow projection lost complete tenant role provenance"),
+        ("native_role_identity", "internal/control", "mcp_native_flow_projection.go",
+         "projectNativeFlowRoles(&out, source, tenant, budget)", "func() error { _ = budget; return nil }()",
+         "TestNativeFlowRoleProjectionRefusesForeignMissingStaleOrChangedIdentity",
+         "native role projection admitted foreign or inconsistent generation"),
         ("ix_owned_input", "internal/control", "interface_role_ix.go",
          "tenant.String() != scope.TenantID", "(tenant.String() != scope.TenantID && false)",
          "TestInterfaceRoleIXSourceMatchesOnlyOwnedCurrentInputsAndPreservesOverrides",
@@ -760,7 +768,7 @@ def ix_prefix_controls():
         mutant.write_text(original.replace(seam, replacement))
         overlay = out / (name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
-        children = ("11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") if name == "ix_owned_input" else ("",)
+        children = ("11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") if name in ("ix_owned_input", "native_role_projection") else ("foreign_source",) if name == "native_role_identity" else ("",)
         for child in children:
             label = name + ("_" + child if child else "")
             test_package = "internal/control" if name == "role_metadata_uuid" else package
