@@ -51,6 +51,7 @@ func (s *rolePublicationFlowStore) ExplorePlan(ctx context.Context, query flowst
 // ClickHouse, frozen objects, native protocol and router wire remain separate.
 func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *testing.T) {
 	f, rows, actors, at := newRoleFlowQueryFixture(t)
+	a, b := f.tenants[0], f.tenants[1]
 	plan := flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"in_if_role", "out_if_role"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
 	query := ai.ExplorerQuery{Source: ai.ExplorerFlow, Flow: &plan}
 	socket := httptest.NewTLSServer(f.server.Handler())
