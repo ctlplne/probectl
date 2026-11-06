@@ -28,7 +28,7 @@ export function FlowRoleSources({ result }: { result: FlowExplorerResult }) {
   const shown = sources.slice(start, start + pageSize)
   return (
     <details className={styles.roleSources}>
-      <summary>Interface role sources ({sources.length})</summary>
+      <summary role="button">Interface role sources ({sources.length})</summary>
       <div className={styles.stack}>
         <p>
           Roles describe current evidence at query time. Unmatched interfaces remain other, with

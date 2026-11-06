@@ -4,7 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { axe } from 'jest-axe'
@@ -164,7 +164,7 @@ for (const theme of ['light', 'dark']) {
       await userEvent.click(await screen.findByRole('button', { name: 'Run flow query' }))
       await screen.findByRole('heading', { name: 'Frozen flow results' })
       expect(document.documentElement).toHaveAttribute('data-theme', theme)
-      fireEvent.click(screen.getByText('Interface role sources (21)'))
+      await userEvent.click(screen.getByRole('button', { name: 'Interface role sources (21)' }))
       expect(screen.getByText('red-origin-0/9007199254740993')).toBeInTheDocument()
       expect(screen.queryByText('red-origin-20/9007199254740993')).not.toBeInTheDocument()
       await userEvent.click(screen.getByRole('button', { name: 'Next role sources' }))
@@ -178,7 +178,7 @@ for (const theme of ['light', 'dark']) {
       expect(screen.queryByText(/red-origin-/)).not.toBeInTheDocument()
       await userEvent.click(await screen.findByRole('button', { name: 'Run flow query' }))
       await screen.findByRole('heading', { name: 'Frozen flow results' })
-      fireEvent.click(screen.getByText('Interface role sources (21)'))
+      await userEvent.click(screen.getByRole('button', { name: 'Interface role sources (21)' }))
       expect(screen.getByText('blue-origin-0/9007199254740993')).toBeInTheDocument()
       expect(screen.queryByText(/red-origin-/)).not.toBeInTheDocument()
       expect(await axe(view.container)).toHaveNoViolations()
