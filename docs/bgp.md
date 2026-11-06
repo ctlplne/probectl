@@ -393,7 +393,10 @@ It does **not** publish routes, complete a dump, renew a replayed lease or make
 flow attribution available. Malformed metadata and replacement-admission failure
 invalidate the current owned source before reporting refusal. An old UUID
 cannot revive a retired generation or reset a newer one. Both supported unicast
-families stage atomically. Raw OPENs and ordered information fields remain
+families stage atomically. This preview stages only the global Loc-RIB
+(distinguisher zero). A non-global VRF requires an explicit operator source
+selector; its payload distinguisher or name cannot choose a canonical context.
+That binding and full multi-VRF support remain unfinished. Raw OPENs and ordered information fields remain
 intact, with an original-frame digest binding exact retries.
 
 Staging uses positive operation admission (128 MiB memory/work accounting,

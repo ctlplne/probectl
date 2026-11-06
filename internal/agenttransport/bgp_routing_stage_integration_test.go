@@ -158,6 +158,13 @@ func TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState(t *testing.
 			t.Fatal("real routing retry duplicated or published private metadata", retry, err)
 		}
 	}
+	unbound := proto.Clone(lanes[0].input).(*agentv1.BmpRoutingPeerUp)
+	unbound.ObservationId = newUUID(t)
+	unbound.ObservedUnixNanos = time.Now().UnixNano()
+	unbound.Message[8] = 1
+	if _, err := lanes[0].client.StageRoutingPeer(ctx, unbound); err == nil || counts(lanes[0], "staging") != 2 || counts(lanes[1], "staging") != 2 {
+		t.Fatal("unbound routing VRF selected or reset a canonical context", err)
+	}
 	foreign := proto.Clone(lanes[0].input).(*agentv1.BmpRoutingPeerUp)
 	foreign.OriginSerial = lanes[1].originSerial
 	if _, err := lanes[0].client.StageRoutingPeer(ctx, foreign); err == nil || counts(lanes[0], "staging") != 2 || counts(lanes[1], "staging") != 2 {

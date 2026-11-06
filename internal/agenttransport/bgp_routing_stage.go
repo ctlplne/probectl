@@ -42,6 +42,12 @@ func (svc *service) stageRoutingPeer(ctx context.Context, id crypto.SPIFFEID, se
 		if peer.Header.View != bgp.BMPLocRIB {
 			return nil, status.Error(codes.InvalidArgument, "routing staging requires a selected Loc-RIB source")
 		}
+		// A router SVID may carry multiple VRFs. Until an explicit current
+		// operator selector is bound, only its global view belongs to this
+		// source assignment; payload distinguishers cannot select a context.
+		if peer.Header.Distinguisher != ([8]byte{}) {
+			return nil, status.Error(codes.InvalidArgument, "routing view has no explicit source-context binding")
+		}
 		metadata := store.BGPRoutingPeer{Type: peer.Header.PeerType, Flags: peer.Header.Flags, Distinguisher: peer.Header.Distinguisher, Address: peer.Header.PeerAddress, ASN: peer.Header.PeerASN, BGPIdentifier: peer.Header.BGPIdentifier, LocalAddress: peer.LocalAddress, LocalPort: peer.LocalPort, RemotePort: peer.RemotePort, SentOpen: peer.SentOpen, ReceivedOpen: peer.ReceivedOpen}
 		for _, info := range peer.Information {
 			metadata.Information = append(metadata.Information, store.BGPRoutingPeerInformation{Type: info.Type, Value: info.Value})

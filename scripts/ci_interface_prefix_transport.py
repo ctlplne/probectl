@@ -441,6 +441,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-stage-context": (
+        "internal/agenttransport/bgp_routing_stage.go",
+        "if peer.Header.Distinguisher != ([8]byte{}) {",
+        "if false && peer.Header.Distinguisher != ([8]byte{}) {",
+        "TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState",
+        "", "unbound routing VRF selected or reset a canonical context",
+    ),
     "routing-stage-atomic": (
         "internal/store/bgp_routing_stage.go",
         "ROLLBACK TO SAVEPOINT routing_peer_up_stage",
