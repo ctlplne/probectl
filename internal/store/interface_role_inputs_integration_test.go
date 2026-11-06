@@ -44,7 +44,7 @@ func newRoleInputsFixture(t *testing.T, minimumConnections ...int32) *roleInputs
 	t.Helper()
 	pool := setup(t.Context(), t)
 	if len(minimumConnections) != 0 && pool.Config().MaxConns < minimumConnections[0] {
-		// Concurrent authority proofs hold the catalogue lease, two writer
+		// Concurrent authority proofs hold the catalog lease, two writer
 		// leases/transactions and an observer. The default CPU-sized pool on
 		// a small CI runner cannot admit that whole proof concurrently.
 		config := pool.Config()
