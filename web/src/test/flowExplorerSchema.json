@@ -11,16 +11,7 @@
     {
       "name": "agent_id",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -28,16 +19,7 @@
     {
       "name": "exporter",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": true,
       "raw_available": true,
       "rollup_available": true
@@ -45,17 +27,7 @@
     {
       "name": "obs_domain",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -63,16 +35,7 @@
     {
       "name": "protocol",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": true,
       "raw_available": true,
       "rollup_available": true
@@ -80,16 +43,7 @@
     {
       "name": "ts",
       "type": "timestamp",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -97,16 +51,7 @@
     {
       "name": "start_ts",
       "type": "timestamp",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -152,17 +97,7 @@
     {
       "name": "src_port",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -170,17 +105,7 @@
     {
       "name": "dst_port",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -188,16 +113,7 @@
     {
       "name": "transport",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": true,
       "raw_available": true,
       "rollup_available": true
@@ -205,16 +121,7 @@
     {
       "name": "net_type",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -222,17 +129,7 @@
     {
       "name": "in_if",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -240,17 +137,7 @@
     {
       "name": "out_if",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -258,17 +145,7 @@
     {
       "name": "vlan",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -276,17 +153,7 @@
     {
       "name": "tos",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -294,17 +161,7 @@
     {
       "name": "tcp_flags",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -331,17 +188,7 @@
     {
       "name": "raw_bytes",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -349,17 +196,7 @@
     {
       "name": "raw_packets",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -367,17 +204,7 @@
     {
       "name": "sampling",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -385,17 +212,7 @@
     {
       "name": "bytes_scaled",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": true,
       "raw_available": true,
       "rollup_available": true
@@ -403,17 +220,7 @@
     {
       "name": "packets_scaled",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": true,
       "raw_available": true,
       "rollup_available": true
@@ -421,17 +228,7 @@
     {
       "name": "src_asn",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -439,16 +236,7 @@
     {
       "name": "src_as_name",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -456,16 +244,7 @@
     {
       "name": "src_country",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -473,17 +252,7 @@
     {
       "name": "dst_asn",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -491,16 +260,7 @@
     {
       "name": "dst_as_name",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -508,16 +268,7 @@
     {
       "name": "dst_country",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -525,16 +276,7 @@
     {
       "name": "row_id",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": true,
       "raw_available": true,
       "rollup_available": true
@@ -542,16 +284,7 @@
     {
       "name": "src_prefix",
       "type": "prefix",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": true,
       "raw_available": true,
       "rollup_available": true
@@ -559,16 +292,7 @@
     {
       "name": "dst_prefix",
       "type": "prefix",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": true,
       "raw_available": true,
       "rollup_available": true
@@ -576,17 +300,7 @@
     {
       "name": "dscp",
       "type": "unsigned",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "between",
-        "not_between",
-        "gt",
-        "lt",
-        "bit_and"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true
@@ -614,16 +328,7 @@
     {
       "name": "in_if_name",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true,
@@ -632,16 +337,7 @@
     {
       "name": "out_if_name",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true,
@@ -650,16 +346,7 @@
     {
       "name": "in_if_role",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true,
@@ -668,16 +355,7 @@
     {
       "name": "out_if_role",
       "type": "text",
-      "operators": [
-        "eq",
-        "ne",
-        "in",
-        "not_in",
-        "contains",
-        "not_contains",
-        "regex",
-        "not_regex"
-      ],
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
       "legacy_hourly_available": false,
       "raw_available": true,
       "rollup_available": true,
@@ -716,13 +394,7 @@
     {
       "name": "bps",
       "unit": "bit/s",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total"],
       "calculation_units": {
         "avg": "bit/s",
         "max": "bit/s",
@@ -734,13 +406,7 @@
     {
       "name": "pps",
       "unit": "packet/s",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total"],
       "calculation_units": {
         "avg": "packet/s",
         "max": "packet/s",
@@ -752,13 +418,7 @@
     {
       "name": "fps",
       "unit": "flow/s",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total"],
       "calculation_units": {
         "avg": "flow/s",
         "max": "flow/s",
@@ -770,13 +430,7 @@
     {
       "name": "bytes",
       "unit": "byte",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total"],
       "calculation_units": {
         "avg": "byte",
         "max": "byte",
@@ -788,13 +442,7 @@
     {
       "name": "packets",
       "unit": "packet",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total"],
       "calculation_units": {
         "avg": "packet",
         "max": "packet",
@@ -806,13 +454,7 @@
     {
       "name": "flows",
       "unit": "flow",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total"],
       "calculation_units": {
         "avg": "flow",
         "max": "flow",
@@ -825,14 +467,7 @@
       "name": "unique_src",
       "unit": "IP",
       "distinct_field": "src_addr",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total",
-        "bucket_total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
       "calculation_units": {
         "avg": "IP",
         "bucket_total": "IP-observations",
@@ -846,14 +481,7 @@
       "name": "unique_src_port",
       "unit": "port",
       "distinct_field": "src_port",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total",
-        "bucket_total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
       "calculation_units": {
         "avg": "port",
         "bucket_total": "port-observations",
@@ -867,14 +495,7 @@
       "name": "unique_src_asn",
       "unit": "ASN",
       "distinct_field": "src_asn",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total",
-        "bucket_total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
       "calculation_units": {
         "avg": "ASN",
         "bucket_total": "ASN-observations",
@@ -888,14 +509,7 @@
       "name": "unique_src_country",
       "unit": "country",
       "distinct_field": "src_country",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total",
-        "bucket_total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
       "calculation_units": {
         "avg": "country",
         "bucket_total": "country-observations",
@@ -909,14 +523,7 @@
       "name": "unique_dst",
       "unit": "IP",
       "distinct_field": "dst_addr",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total",
-        "bucket_total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
       "calculation_units": {
         "avg": "IP",
         "bucket_total": "IP-observations",
@@ -930,14 +537,7 @@
       "name": "unique_dst_port",
       "unit": "port",
       "distinct_field": "dst_port",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total",
-        "bucket_total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
       "calculation_units": {
         "avg": "port",
         "bucket_total": "port-observations",
@@ -951,14 +551,7 @@
       "name": "unique_dst_asn",
       "unit": "ASN",
       "distinct_field": "dst_asn",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total",
-        "bucket_total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
       "calculation_units": {
         "avg": "ASN",
         "bucket_total": "ASN-observations",
@@ -972,14 +565,7 @@
       "name": "unique_dst_country",
       "unit": "country",
       "distinct_field": "dst_country",
-      "calculations": [
-        "avg",
-        "p95",
-        "p99",
-        "max",
-        "total",
-        "bucket_total"
-      ],
+      "calculations": ["avg", "p95", "p99", "max", "total", "bucket_total"],
       "calculation_units": {
         "avg": "country",
         "bucket_total": "country-observations",
