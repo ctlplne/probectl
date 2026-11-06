@@ -7,6 +7,11 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -80,5 +85,51 @@ func TestConfiguredFlowQueryBudgetSharedConstruction(t *testing.T) {
 	}
 	if flowstore.ExplorerQueryBudget(serving) != want {
 		t.Fatal("failed attachment changed the previous valid policy")
+	}
+}
+
+// Public source catalogue only: this simulation does not claim tenant data or
+// actual stdio process proof. The command constructor must retain its configured
+// IX source so native role classification can use the same inputs as HTTP.
+type mcpSourceActiveTenant struct{}
+
+func (mcpSourceActiveTenant) TenantStatus(context.Context, string) (string, error) {
+	return "active", nil
+}
+
+func TestMCPFlowSourcesRetainConfiguredLocalIXGeneration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ixpfx.json")
+	raw, err := json.Marshal(map[string]any{"version": 1, "object": "ixpfx", "observed_at": time.Now().UTC().Add(-time.Minute), "complete": true, "record_count": 1, "data": []map[string]any{{"id": 7, "ixlan_id": 11, "protocol": "IPv4", "prefix": "198.51.100.0/24", "status": "ok"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{AuthMode: "dev", FlowStoreMode: "memory", TSDBMode: "memory", ObjectStoreDir: t.TempDir(), FlowEnrichIXPrefixFile: path, FlowEnrichIXPrefixMaxAge: time.Hour, FlowQueryMemoryBytes: 2 << 30, FlowEnrichCacheMax: 16}
+	paths := pathstore.NewMemory()
+	defer paths.Close()
+	sources, closeSources, err := buildMCPFlowSources(cfg, quietLogger(), &store.DB{}, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeSources()
+	sources.NativeFlow.WithTenantStatus(mcpSourceActiveTenant{})
+	for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"} {
+		req := httptest.NewRequest(http.MethodGet, "https://localhost/v1/threat/intel/status", nil)
+		req.Header.Set("X-Probectl-Tenant", tenant)
+		out := httptest.NewRecorder()
+		sources.NativeFlow.Handler().ServeHTTP(out, req)
+		var status struct {
+			Enabled bool `json:"open_data_enabled"`
+			Sources []struct {
+				Name    string `json:"name"`
+				Status  string `json:"status"`
+				Enabled bool   `json:"enabled"`
+			} `json:"open_data_sources"`
+		}
+		if out.Code != http.StatusOK || json.Unmarshal(out.Body.Bytes(), &status) != nil || !status.Enabled || len(status.Sources) != 1 || status.Sources[0].Name != "peeringdb-ix-prefix-file" || !status.Sources[0].Enabled || status.Sources[0].Status != "ok" {
+			t.Fatal("standalone role source omitted configured local IX prefixes", out.Code, out.Body.String())
+		}
 	}
 }
