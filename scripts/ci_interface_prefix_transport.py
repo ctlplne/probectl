@@ -702,6 +702,32 @@ def configuration_api_controls():
     print(json.dumps({"role_configuration_api_controls": True}))
 
 
+def ix_prefix_controls():
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    for name, package, file, seam, replacement, root, marker in (
+        ("ix_source_expiry", "internal/opendata", "peeringdb_prefixes.go",
+         "out.Current = out.Enabled && p.availability(at) == nil", "out.Current = out.Enabled",
+         "TestPeeringDBIXPrefixesKeepCompletePopulationClockAndOwnedMatches",
+         "stale IX cache retained current evidence"),
+        ("ix_owned_input", "internal/control", "interface_role_ix.go",
+         "tenant.String() != scope.TenantID", "(tenant.String() != scope.TenantID && false)",
+         "TestInterfaceRoleIXSourceMatchesOnlyOwnedCurrentInputsAndPreservesOverrides",
+         "foreign tenant facts reached the shared IX cache"),
+    ):
+        source = Path(package, file).resolve()
+        original = source.read_text()
+        assert original.count(seam) == 1
+        mutant = out / (name + ".go")
+        mutant.write_text(original.replace(seam, replacement))
+        overlay = out / (name + ".json")
+        overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+        result = execute(package, (root,), name, overlay=overlay)
+        if not report_regression_failed_on_assertion(result.stdout, result.returncode,
+                package=PREFIX + package, root=root, child="", marker=marker):
+            raise RuntimeError("IX source control did not fail its exact assertion: " + name)
+    print(json.dumps({"ix_source_and_owned_input_controls": True}))
+
+
 def main(integration, flow_integration=False):
     selected = FLOW_INTEGRATION if flow_integration else INTEGRATION if integration else UNIT
     for package, roots in selected.items():
@@ -728,6 +754,7 @@ def main(integration, flow_integration=False):
         configuration_native_request_control()
         configuration_raw_cli_body_control()
         configuration_missing_source_control()
+        ix_prefix_controls()
         source = Path("internal/agent/entity_client.go")
         original = source.read_text()
         seam = "if proto.Size(request) > 1<<20 {"
