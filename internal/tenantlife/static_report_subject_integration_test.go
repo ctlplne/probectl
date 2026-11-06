@@ -45,7 +45,7 @@ func TestStaticDocumentChunksSubjectPortabilityErasureAndSiblingSurvival(t *test
 	for lane, tenant := range tenants {
 		bodies[lane] = bytes.Repeat([]byte(fmt.Sprintf("private-static-lane%d,9007199254740993\r\n", lane)), 70001)
 		bound := tenancy.WithTenant(ctx, tenancy.ID(tenant))
-		stage, _, err := reporting.StageBody(bound, tenant, reporting.DefaultBodyStageLimits(), func(w io.Writer) error { _, err := w.Write(bodies[lane]); return err })
+		stage, _, err := reporting.StageBody(bound, tenant, reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes), func(w io.Writer) error { _, err := w.Write(bodies[lane]); return err })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,7 +145,7 @@ func TestStaticDocumentChunksSubjectPortabilityErasureAndSiblingSurvival(t *test
 				if lane == 0 && id != "unrelated-document" {
 					continue
 				}
-				_, stage, err := (store.DashboardReports{}).StageArtifactBody(ctx, sc, id, "another-owner", reporting.DefaultBodyStageLimits())
+				_, stage, err := (store.DashboardReports{}).StageArtifactBody(ctx, sc, id, "another-owner", reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes))
 				if err != nil {
 					return err
 				}

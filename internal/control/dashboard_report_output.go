@@ -40,8 +40,11 @@ func reportBodyStageLimits(policy reporting.OutputPolicy, budget flowstore.Explo
 	memory := budget.MemoryBytes / 2
 	// Reserve all possible chunk-slice accounting, hash/reader scratch and
 	// final-chunk slack. The stage charges actual buffers independently.
-	chunks := (policy.Bytes + reporting.BodyChunkBytes - 1) / reporting.BodyChunkBytes
-	bytes := min(policy.Bytes, memory-chunks*64-(256<<10))
+	reservation := reporting.BodyStageLimitsForBytes(policy.Bytes)
+	if reservation.Bytes != policy.Bytes {
+		return reporting.BodyStageLimits{}, reporting.ErrBodyStageLimit
+	}
+	bytes := min(policy.Bytes, memory-(reservation.MemoryBytes-reservation.Bytes))
 	if bytes <= 0 {
 		return reporting.BodyStageLimits{}, reporting.ErrBodyStageLimit
 	}

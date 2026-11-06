@@ -66,7 +66,7 @@ func TestRouteASPathKeepsAggregationProvenanceAndCompletePath(t *testing.T) {
 				attributes = []RouteAttribute{{0x40, 2, nil}}
 				want = RouteASPath{Path: ASPathReconstruction{Segments: []ASPathSegment{}, AS4Action: "absent"}}
 			}
-			out, err := ReconstructRouteASPath(context.Background(), attributes, width, ASPathParseBudget{1 << 20, 1 << 20})
+			out, err := reconstructRouteASPath(context.Background(), attributes, width, ASPathParseBudget{1 << 20, 1 << 20})
 			if err != nil || !reflect.DeepEqual(out, want) {
 				t.Fatal("attribute AS4 aggregation provenance changed the reconstructed path", out, err)
 			}
@@ -88,20 +88,20 @@ func TestRouteASPathRefusesAmbiguityAdmissionAndCancellation(t *testing.T) {
 		{{0x80, 2, path.Value}}, {{0x60, 2, path.Value}}, {path, {0x40, 17, extended.Value}},
 		{path, {0xc0, 7, []byte{0}}, {0xc0, 7, []byte{1}}},
 	} {
-		out, err := ReconstructRouteASPath(context.Background(), attributes, 2, ASPathParseBudget{1 << 20, 1 << 20})
+		out, err := reconstructRouteASPath(context.Background(), attributes, 2, ASPathParseBudget{1 << 20, 1 << 20})
 		if !errors.Is(err, ErrRouteASAttributes) || !reflect.DeepEqual(out, RouteASPath{}) {
 			t.Fatal("missing, invalid or ambiguous attributes exposed a partial path", err)
 		}
 	}
 	good := []RouteAttribute{path, extended}
 	for _, width := range []int{0, 3, 8} {
-		out, err := ReconstructRouteASPath(context.Background(), good, width, ASPathParseBudget{1 << 20, 1 << 20})
+		out, err := reconstructRouteASPath(context.Background(), good, width, ASPathParseBudget{1 << 20, 1 << 20})
 		if !errors.Is(err, ErrRouteASAttributes) || !reflect.DeepEqual(out, RouteASPath{}) {
 			t.Fatal("unsupported source width guessed path attributes", width, err)
 		}
 	}
 	for _, budget := range []ASPathParseBudget{{0, 10000}, {10000, 0}, {127, 10000}, {1 << 20, 1}, {129, 1 << 20}} {
-		out, err := ReconstructRouteASPath(context.Background(), good, 2, budget)
+		out, err := reconstructRouteASPath(context.Background(), good, 2, budget)
 		if !errors.Is(err, ErrASPathBudget) || !reflect.DeepEqual(out, RouteASPath{}) {
 			t.Fatal("unadmitted attributes exposed a partial reconstruction", err)
 		}
@@ -109,7 +109,7 @@ func TestRouteASPathRefusesAmbiguityAdmissionAndCancellation(t *testing.T) {
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	for _, ctx := range []context.Context{canceled, &peerUpCancelContext{Context: context.Background()}} {
-		out, err := ReconstructRouteASPath(ctx, good, 2, ASPathParseBudget{1 << 20, 1 << 20})
+		out, err := reconstructRouteASPath(ctx, good, 2, ASPathParseBudget{1 << 20, 1 << 20})
 		if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(out, RouteASPath{}) {
 			t.Fatal("canceled attributes retained a reconstructed path", err)
 		}

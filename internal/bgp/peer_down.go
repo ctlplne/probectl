@@ -35,10 +35,10 @@ var (
 	ErrBMPPeerDownBudget = errors.New("bgp: peer-down operation admission exceeded")
 )
 
-// ParseBMPPeerDown validates the whole RFC7854/RFC9069 lifecycle message
+// parseBMPPeerDown validates the whole RFC7854/RFC9069 lifecycle message
 // before exposing source metadata. A caller must invalidate an unprocessable
 // source generation rather than silently keep its former routes current.
-func ParseBMPPeerDown(ctx context.Context, raw []byte, budget PeerMessageBudget) (PeerDown, error) {
+func parseBMPPeerDown(ctx context.Context, raw []byte, budget PeerMessageBudget) (PeerDown, error) {
 	none := PeerDown{}
 	if err := ctx.Err(); err != nil {
 		return none, err

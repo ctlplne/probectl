@@ -238,11 +238,11 @@ func invalidateRoutingView(ctx context.Context, sc tenancy.Scope, source BGPRout
 	return BGPRoutingApplyResult{Status: "invalidated", Reason: reason}, nil
 }
 
-// InvalidateViewInScope closes a known authenticated stream generation before
+// invalidateViewInScope closes a known authenticated stream generation before
 // attempting any replacement metadata or route admission. It needs no payload
 // budget, so an exhausted replacement cannot keep former local attribution
 // alive. The caller commits this control transaction before starting a new one.
-func (store BGPRouting) InvalidateViewInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef) (BGPRoutingApplyResult, error) {
+func (store BGPRouting) invalidateViewInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef) (BGPRoutingApplyResult, error) {
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
@@ -253,21 +253,21 @@ func (store BGPRouting) InvalidateViewInScope(ctx context.Context, sc tenancy.Sc
 	if err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
-	if _, err := store.SourceAuthorityForWriteInScope(ctx, sc, source); err != nil {
+	if _, err := store.sourceAuthorityForWriteInScope(ctx, sc, source); err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
 	birth := source
 	birth.ObservedAt = view.born
-	if _, err := store.SourceAuthorityForWriteInScope(ctx, sc, birth); err != nil {
+	if _, err := store.sourceAuthorityForWriteInScope(ctx, sc, birth); err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
 	return invalidateRoutingView(ctx, sc, source, ref, "source-reset")
 }
 
-// ApplyBatchInScope applies a whole ordered generation batch or commits a
+// applyBatchInScope applies a whole ordered generation batch or commits a
 // refusal invalidation. Caller owns a fenced read-committed tenant transaction;
 // all errors abort it. No rejected result extends the existing view lease.
-func (store BGPRouting) ApplyBatchInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, batch BGPRoutingBatch, profile BGPRoutingBudget) (BGPRoutingApplyResult, error) {
+func (store BGPRouting) applyBatchInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, batch BGPRoutingBatch, profile BGPRoutingBudget) (BGPRoutingApplyResult, error) {
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
@@ -280,13 +280,13 @@ func (store BGPRouting) ApplyBatchInScope(ctx context.Context, sc tenancy.Scope,
 	}
 	// Check both this message's observation and the original generation birth.
 	// A newly assigned source cannot revive a former generation with a new clock.
-	authority, err := store.SourceAuthorityForWriteInScope(ctx, sc, source)
+	authority, err := store.sourceAuthorityForWriteInScope(ctx, sc, source)
 	if err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
 	birth := source
 	birth.ObservedAt = view.born
-	if _, err := store.SourceAuthorityForWriteInScope(ctx, sc, birth); err != nil {
+	if _, err := store.sourceAuthorityForWriteInScope(ctx, sc, birth); err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
 	if view.state == "invalid" || !view.validUntil.After(authority.AsOf) {
@@ -364,7 +364,7 @@ func routingBatchLease(ctx context.Context, sc tenancy.Scope, batch BGPRoutingBa
 }
 
 func (store BGPRouting) checkRoutingWriteLease(ctx context.Context, sc tenancy.Scope, birth BGPRoutingSource, validUntil time.Time) error {
-	authority, err := store.SourceAuthorityForWriteInScope(ctx, sc, birth)
+	authority, err := store.sourceAuthorityForWriteInScope(ctx, sc, birth)
 	if err != nil {
 		return err
 	}

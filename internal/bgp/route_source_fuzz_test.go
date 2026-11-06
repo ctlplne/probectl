@@ -55,12 +55,12 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 	}
 	if attributeErr == nil {
 		for _, width := range []int{2, 4} {
-			if out, err := ReconstructRouteASPath(ctx, attributes, width, ASPathParseBudget{memory, work}); err != nil && !reflect.DeepEqual(out, RouteASPath{}) {
+			if out, err := reconstructRouteASPath(ctx, attributes, width, ASPathParseBudget{memory, work}); err != nil && !reflect.DeepEqual(out, RouteASPath{}) {
 				t.Fatal("invalid attribute interpretation exposed a partial AS path")
 			}
 		}
 	}
-	if out, err := ParseBGPUpdateFrame(ctx, raw, UpdateFrameBudget{memory, work}); err != nil && !reflect.DeepEqual(out, UpdateFrame{}) {
+	if out, err := parseBGPUpdateFrame(ctx, raw, UpdateFrameBudget{memory, work}); err != nil && !reflect.DeepEqual(out, UpdateFrame{}) {
 		t.Fatal("invalid UPDATE exposed a partial route change")
 	}
 	for _, afi := range []uint16{1, 2} {
@@ -72,18 +72,18 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 	}
 	for _, addPath := range []bool{false, true} {
 		for _, nextHopAFI := range []uint16{1, 2} {
-			if out, err := ParseMPReachRoutes(ctx, raw, nextHopAFI, addPath, MultiprotocolBudget{memory, work}); err != nil && !reflect.DeepEqual(out, MultiprotocolReach{}) {
+			if out, err := parseMPReachRoutes(ctx, raw, nextHopAFI, addPath, MultiprotocolBudget{memory, work}); err != nil && !reflect.DeepEqual(out, MultiprotocolReach{}) {
 				t.Fatal("invalid multiprotocol reachability exposed partial next hops or routes")
 			}
 		}
-		if out, err := ParseMPUnreachRoutes(ctx, raw, addPath, MultiprotocolBudget{memory, work}); err != nil && !reflect.DeepEqual(out, MultiprotocolWithdraw{}) {
+		if out, err := parseMPUnreachRoutes(ctx, raw, addPath, MultiprotocolBudget{memory, work}); err != nil && !reflect.DeepEqual(out, MultiprotocolWithdraw{}) {
 			t.Fatal("invalid multiprotocol withdrawal exposed partial routes")
 		}
 	}
-	if out, err := ParseBMPPeerUp(ctx, raw, PeerMessageBudget{memory, work}); err != nil && !reflect.DeepEqual(out, PeerUp{}) {
+	if out, err := parseBMPPeerUp(ctx, raw, PeerMessageBudget{memory, work}); err != nil && !reflect.DeepEqual(out, PeerUp{}) {
 		t.Fatal("invalid Peer Up exposed partial source metadata")
 	}
-	if out, err := ParseBMPPeerDown(ctx, raw, PeerMessageBudget{memory, work}); err != nil && !reflect.DeepEqual(out, PeerDown{}) {
+	if out, err := parseBMPPeerDown(ctx, raw, PeerMessageBudget{memory, work}); err != nil && !reflect.DeepEqual(out, PeerDown{}) {
 		t.Fatal("invalid Peer Down exposed partial lifecycle metadata")
 	}
 	if out, err := parsePeerDownInformation(ctx, raw); err != nil && out != nil {
@@ -102,12 +102,12 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 	for _, view := range []BMPRouteView{BMPAdjRIBInPrePolicy, BMPAdjRIBOutPostPolicy, BMPLocRIB} {
 		for _, family := range []RouteFamily{{1, 1}, {2, 1}} {
 			for _, length := range []int{4, 16, 32} {
-				if out, err := ParseBMPRouteNextHopAFI(raw[:len(raw)/2], raw[len(raw)/2:], view, family, length); err != nil && out != 0 {
+				if out, err := parseBMPRouteNextHopAFI(raw[:len(raw)/2], raw[len(raw)/2:], view, family, length); err != nil && out != 0 {
 					t.Fatal("invalid source capabilities selected a next-hop address family")
 				}
 			}
 		}
-		if out, err := ParseBMPRouteAddPath(raw[:len(raw)/2], raw[len(raw)/2:], view, RouteFamily{1, 1}); err != nil && out {
+		if out, err := parseBMPRouteAddPath(raw[:len(raw)/2], raw[len(raw)/2:], view, RouteFamily{1, 1}); err != nil && out {
 			t.Fatal("invalid capability negotiation selected ADD-PATH")
 		}
 	}

@@ -45,7 +45,7 @@ func TestBMPNextHopEncodingFollowsReceiverAndWireFamily(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sent := nextHopOpenForTest(tc.family, tc.sent, tc.fourAS)
 			received := nextHopOpenForTest(tc.family, tc.received, tc.fourAS)
-			out, err := ParseBMPRouteNextHopAFI(sent, received, tc.view, RouteFamily{tc.family, 1}, tc.length)
+			out, err := parseBMPRouteNextHopAFI(sent, received, tc.view, RouteFamily{tc.family, 1}, tc.length)
 			if err != nil || out != tc.want {
 				t.Fatal("next-hop encoding lost actual receiver, explicit MP family or wire selection", out, err)
 			}
@@ -57,7 +57,7 @@ func TestBMPNextHopEncodingRefusesSenderOnlyAndUnnegotiatedViews(t *testing.T) {
 	plain := nextHopOpenForTest(1, false, false)
 	extended := nextHopOpenForTest(1, true, false)
 	t.Run("sender-capability-is-not-receiver", func(t *testing.T) {
-		out, err := ParseBMPRouteNextHopAFI(plain, extended, BMPAdjRIBInPrePolicy, RouteFamily{1, 1}, 16)
+		out, err := parseBMPRouteNextHopAFI(plain, extended, BMPAdjRIBInPrePolicy, RouteFamily{1, 1}, 16)
 		if !errors.Is(err, ErrRouteCapabilities) || out != 0 {
 			t.Fatal("source capability allowed an unnegotiated next-hop family", out, err)
 		}
@@ -79,13 +79,13 @@ func TestBMPNextHopEncodingRefusesSenderOnlyAndUnnegotiatedViews(t *testing.T) {
 		{extended, plain[:18], BMPAdjRIBInPrePolicy, RouteFamily{1, 1}, 16},
 		{nextHopOpenForTest(2, false, false), nextHopOpenForTest(2, false, false), BMPAdjRIBInPrePolicy, RouteFamily{2, 1}, 4},
 	} {
-		out, err := ParseBMPRouteNextHopAFI(tc.sent, tc.received, tc.view, tc.family, tc.length)
+		out, err := parseBMPRouteNextHopAFI(tc.sent, tc.received, tc.view, tc.family, tc.length)
 		if !errors.Is(err, ErrRouteCapabilities) || out != 0 {
 			t.Fatal("incomplete source or unnegotiated MP view selected a next-hop encoding", out, err)
 		}
 	}
 	for _, length := range []int{-1, 0, 5, 15, 24, 48} {
-		out, err := ParseBMPRouteNextHopAFI(extended, extended, BMPAdjRIBInPrePolicy, RouteFamily{1, 1}, length)
+		out, err := parseBMPRouteNextHopAFI(extended, extended, BMPAdjRIBInPrePolicy, RouteFamily{1, 1}, length)
 		if !errors.Is(err, ErrRouteCapabilities) || out != 0 {
 			t.Fatal("unsupported unicast wire length guessed a next-hop family", length, out, err)
 		}
@@ -93,7 +93,7 @@ func TestBMPNextHopEncodingRefusesSenderOnlyAndUnnegotiatedViews(t *testing.T) {
 	for _, caps := range [][]byte{{5, 0}, {5, 5, 0, 1, 0, 1, 0}, {5, 6, 0, 1, 1, 1, 0, 2}} {
 		caps = append([]byte{1, 4, 0, 1, 0, 1}, caps...)
 		sent := routeOpenForTest(caps, false)
-		out, err := ParseBMPRouteNextHopAFI(sent, plain, BMPAdjRIBInPrePolicy, RouteFamily{1, 1}, 16)
+		out, err := parseBMPRouteNextHopAFI(sent, plain, BMPAdjRIBInPrePolicy, RouteFamily{1, 1}, 16)
 		if !errors.Is(err, ErrRouteCapabilities) || out != 0 {
 			t.Fatal("malformed or wrong full SAFI capability authorized an encoding", out, err)
 		}

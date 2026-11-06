@@ -38,11 +38,11 @@ var (
 	ErrMPRouteBudget     = errors.New("bgp: multiprotocol operation admission exceeded")
 )
 
-// ParseMPReachRoutes decodes a complete MP_REACH value for IPv4/IPv6 unicast.
+// parseMPReachRoutes decodes a complete MP_REACH value for IPv4/IPv6 unicast.
 // The source session must explicitly establish ADD-PATH and next-hop encoding,
 // including RFC8950 capability for IPv4 NLRI with an IPv6 next hop. Neither is
 // guessed from packet length. Next-hop addresses are not next-hop AS numbers.
-func ParseMPReachRoutes(ctx context.Context, value []byte, nextHopAFI uint16, addPath bool, budget MultiprotocolBudget) (MultiprotocolReach, error) {
+func parseMPReachRoutes(ctx context.Context, value []byte, nextHopAFI uint16, addPath bool, budget MultiprotocolBudget) (MultiprotocolReach, error) {
 	none := MultiprotocolReach{}
 	if err := ctx.Err(); err != nil {
 		return none, err
@@ -98,10 +98,10 @@ func ParseMPReachRoutes(ctx context.Context, value []byte, nextHopAFI uint16, ad
 	return MultiprotocolReach{Family: family, NextHopAFI: nextHopAFI, NextHops: append([]netip.Addr(nil), hops[:count]...), Prefixes: prefixes}, nil
 }
 
-// ParseMPUnreachRoutes decodes full MP_UNREACH unicast withdrawals. Empty
+// parseMPUnreachRoutes decodes full MP_UNREACH unicast withdrawals. Empty
 // prefixes alone do not prove synchronization: only the complete exclusive
 // UPDATE marker can establish End-of-RIB for an authorized view/session.
-func ParseMPUnreachRoutes(ctx context.Context, value []byte, addPath bool, budget MultiprotocolBudget) (MultiprotocolWithdraw, error) {
+func parseMPUnreachRoutes(ctx context.Context, value []byte, addPath bool, budget MultiprotocolBudget) (MultiprotocolWithdraw, error) {
 	none := MultiprotocolWithdraw{}
 	if err := ctx.Err(); err != nil {
 		return none, err

@@ -48,7 +48,7 @@ func TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage(t *test
 			if tc.change != nil {
 				tc.change(&input)
 			}
-			got, err := (BGPRouting{}).SourceAuthorityInScope(tc.ctx, tc.scope, input)
+			got, err := (BGPRouting{}).sourceAuthorityInScope(tc.ctx, tc.scope, input)
 			if !errors.Is(err, tc.want) || got != (BGPRoutingSourceAuthority{}) {
 				t.Fatal("routing authority admitted incomplete or foreign scope before storage", got, err)
 			}
@@ -56,7 +56,7 @@ func TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage(t *test
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if _, err := (BGPRouting{}).SourceAuthorityInScope(canceled, scope, source); !errors.Is(err, context.Canceled) {
+	if _, err := (BGPRouting{}).sourceAuthorityInScope(canceled, scope, source); !errors.Is(err, context.Canceled) {
 		t.Fatal("routing authority ignored cancellation before storage", err)
 	}
 }

@@ -13,28 +13,28 @@
     "bgp.ParseBGPRoutePrefixes": {
       "target": "FuzzBMPRouteMonitoring"
     },
-    "bgp.ParseBGPUpdateFrame": {
+    "bgp.parseBGPUpdateFrame": {
       "target": "FuzzBMPRouteMonitoring"
     },
-    "bgp.ParseBMPPeerDown": {
+    "bgp.parseBMPPeerDown": {
       "target": "FuzzBMPRouteMonitoring"
     },
-    "bgp.ParseBMPPeerUp": {
+    "bgp.parseBMPPeerUp": {
       "target": "FuzzBMPRouteMonitoring"
     },
-    "bgp.ParseBMPRouteAddPath": {
+    "bgp.parseBMPRouteAddPath": {
       "target": "FuzzBMPRouteMonitoring"
     },
-    "bgp.ParseBMPRouteNextHopAFI": {
+    "bgp.parseBMPRouteNextHopAFI": {
       "target": "FuzzBMPRouteMonitoring"
     },
     "bgp.ParseBMPRouteViewHeader": {
       "target": "FuzzBMPRouteMonitoring"
     },
-    "bgp.ParseMPReachRoutes": {
+    "bgp.parseMPReachRoutes": {
       "target": "FuzzBMPRouteMonitoring"
     },
-    "bgp.ParseMPUnreachRoutes": {
+    "bgp.parseMPUnreachRoutes": {
       "target": "FuzzBMPRouteMonitoring"
     },
     "bgp.decodeIPv4NLRI": {

@@ -37,7 +37,7 @@ func TestReportBodyStageStreamsCompleteCSV(t *testing.T) {
 	}
 	d.Tables = []CSVTable{table}
 	var rendered CSVReceipt
-	stage, receipt, err := StageBody(ctx, d.TenantScope, DefaultBodyStageLimits(), func(target io.Writer) error {
+	stage, receipt, err := StageBody(ctx, d.TenantScope, BodyStageLimitsForBytes(DefaultCSVLimits().Bytes), func(target io.Writer) error {
 		var err error
 		rendered, err = WriteCSV(ctx, target, d, DefaultCSVLimits())
 		return err
@@ -87,7 +87,7 @@ func TestReportBodyStageStreamsCompletePDF(t *testing.T) {
 	}
 	d.Tables = []CSVTable{reportTable(d, []CSVColumn{{Name: "identity"}, {Name: "exact_bytes", Numeric: true}}, rows)}
 	var rendered PDFReceipt
-	stage, receipt, err := StageBody(ctx, d.TenantScope, DefaultBodyStageLimits(), func(target io.Writer) error {
+	stage, receipt, err := StageBody(ctx, d.TenantScope, BodyStageLimitsForBytes(DefaultCSVLimits().Bytes), func(target io.Writer) error {
 		var err error
 		rendered, err = WritePDF(ctx, target, d, DefaultPDFLimits())
 		return err

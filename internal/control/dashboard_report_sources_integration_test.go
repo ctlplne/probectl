@@ -350,7 +350,7 @@ func assertCapturedReportCSV(ctx context.Context, t *testing.T, capture *reportF
 		Tables: capture.Tables,
 	}
 	var rendered reporting.CSVReceipt
-	stage, receipt, err := reporting.StageBody(ctx, capture.TenantID, reporting.DefaultBodyStageLimits(), func(target io.Writer) error {
+	stage, receipt, err := reporting.StageBody(ctx, capture.TenantID, reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes), func(target io.Writer) error {
 		var err error
 		rendered, err = reporting.WriteCSV(ctx, target, doc, reporting.DefaultCSVLimits())
 		return err

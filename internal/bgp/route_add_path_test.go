@@ -56,7 +56,7 @@ func TestBMPRouteAddPathKeepsDirectionAndLocRIBEncoding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			local := routeOpenForTest([]byte{69, 4, 0, 1, 1, tc.local}, false)
 			remote := routeOpenForTest([]byte{69, 4, 0, 1, 1, tc.remote}, false)
-			got, err := ParseBMPRouteAddPath(local, remote, tc.view, RouteFamily{1, 1})
+			got, err := parseBMPRouteAddPath(local, remote, tc.view, RouteFamily{1, 1})
 			if err != nil || got != tc.want {
 				t.Fatal("ADD-PATH negotiation guessed path identifiers from one endpoint or the wrong direction", got, err)
 			}
@@ -70,13 +70,13 @@ func TestBMPRouteAddPathKeepsDirectionAndLocRIBEncoding(t *testing.T) {
 			caps = append(caps, 200, 0) // Unrecognized capabilities are ignored.
 		}
 		open := routeOpenForTest(caps, true)
-		got, err := ParseBMPRouteAddPath(open, open, BMPLocRIB, family)
+		got, err := parseBMPRouteAddPath(open, open, BMPLocRIB, family)
 		if err != nil || !got {
 			t.Fatal("Loc-RIB lost complete extended OPEN, family or presence-based encoding", family, got, err)
 		}
 	}
 	plain := routeOpenForTest(nil, false)
-	got, err := ParseBMPRouteAddPath(plain, plain, BMPAdjRIBInPrePolicy, RouteFamily{1, 1})
+	got, err := parseBMPRouteAddPath(plain, plain, BMPAdjRIBInPrePolicy, RouteFamily{1, 1})
 	if err != nil || got {
 		t.Fatal("complete ordinary OPEN invented ADD-PATH", got, err)
 	}
@@ -111,7 +111,7 @@ func TestBMPRouteAddPathRefusesIncompleteAndAmbiguousCapabilities(t *testing.T) 
 	variants = append(variants, extended, append([]byte(nil), extended[:31]...))
 	for _, raw := range variants {
 		for _, opens := range [][2][]byte{{raw, good}, {good, raw}} {
-			got, err := ParseBMPRouteAddPath(opens[0], opens[1], BMPAdjRIBInPrePolicy, RouteFamily{1, 1})
+			got, err := parseBMPRouteAddPath(opens[0], opens[1], BMPAdjRIBInPrePolicy, RouteFamily{1, 1})
 			if !errors.Is(err, ErrRouteCapabilities) || got {
 				t.Fatal("incomplete or ambiguous capabilities selected a route encoding", got, err)
 			}
@@ -127,7 +127,7 @@ func TestBMPRouteAddPathRefusesIncompleteAndAmbiguousCapabilities(t *testing.T) 
 		{good, good, BMPLocRIB, RouteFamily{1, 1}}, // No mandatory four-AS capability.
 		{routeOpenForTest([]byte{65, 4, 0, 0, 0, 1, 69, 4, 0, 1, 1, 3}, false), good, BMPLocRIB, RouteFamily{1, 1}},
 	} {
-		got, err := ParseBMPRouteAddPath(tc.sent, tc.received, tc.view, tc.family)
+		got, err := parseBMPRouteAddPath(tc.sent, tc.received, tc.view, tc.family)
 		if !errors.Is(err, ErrRouteCapabilities) || got {
 			t.Fatal("unnegotiated family or fabricated-view mismatch selected an encoding", got, err)
 		}

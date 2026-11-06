@@ -70,19 +70,19 @@ func validateBGPRoutingSource(ctx context.Context, sc tenancy.Scope, source BGPR
 // repository checks tenant-owned source authority without acquiring access to
 // the provider tenant registry, matching current entity-evidence readers.
 //
-// SourceAuthorityInScope binds the exact tenant, context, explicit origin
+// sourceAuthorityInScope binds the exact tenant, context, explicit origin
 // router, collector, both credential purposes/serials and assignment epochs.
 // Rebinding cannot revive an observation older than the new assignment. FORCE
 // RLS remains the outer boundary even if a query predicate is accidentally lost.
-func (BGPRouting) SourceAuthorityInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource) (BGPRoutingSourceAuthority, error) {
+func (BGPRouting) sourceAuthorityInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource) (BGPRoutingSourceAuthority, error) {
 	return routingSourceAuthority(ctx, sc, source, false)
 }
 
-// SourceAuthorityForWriteInScope holds the exact credential, assignment,
+// sourceAuthorityForWriteInScope holds the exact credential, assignment,
 // source and router rows until commit. A concurrent change must precede the
 // write or wait for it; an obsolete REPEATABLE READ snapshot fails rather
 // than acknowledging credentials changed since that snapshot was taken.
-func (BGPRouting) SourceAuthorityForWriteInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource) (BGPRoutingSourceAuthority, error) {
+func (BGPRouting) sourceAuthorityForWriteInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource) (BGPRoutingSourceAuthority, error) {
 	return routingSourceAuthority(ctx, sc, source, true)
 }
 

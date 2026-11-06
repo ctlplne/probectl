@@ -28,14 +28,14 @@ type routeOpenCapabilities struct {
 	asn        uint32
 }
 
-// ParseBMPRouteAddPath derives NLRI encoding from both complete Peer Up OPENs.
+// parseBMPRouteAddPath derives NLRI encoding from both complete Peer Up OPENs.
 // Adjacent views use RFC7911's direction-specific negotiation. RFC9069's
 // fabricated Loc-RIB OPEN instead uses capability presence, regardless of its
 // send/receive intent. An absent or malformed OPEN cannot authorize decoding.
 //
 // ASN wire width still comes from the BMP header, not these capabilities.
 // These source-supplied bytes establish no tenant, router or current session.
-func ParseBMPRouteAddPath(sentOpen, receivedOpen []byte, view BMPRouteView, family RouteFamily) (bool, error) {
+func parseBMPRouteAddPath(sentOpen, receivedOpen []byte, view BMPRouteView, family RouteFamily) (bool, error) {
 	sent, err := parseRouteOpenCapabilities(sentOpen)
 	if err != nil {
 		return false, err

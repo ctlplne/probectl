@@ -32,9 +32,14 @@ type BodyStageReceipt struct {
 	SHA256                string
 }
 
-func DefaultBodyStageLimits() BodyStageLimits {
-	maximum := DefaultCSVLimits().Bytes
-	return BodyStageLimits{Bytes: maximum, MemoryBytes: maximum + (maximum/BodyChunkBytes)*64 + 256<<10}
+// BodyStageLimitsForBytes reserves complete chunk metadata and scratch for
+// an explicit output policy. It allocates nothing; the stage charges buffers.
+func BodyStageLimitsForBytes(maximum int64) BodyStageLimits {
+	if maximum <= 0 || maximum > MaxBodyBytes {
+		return BodyStageLimits{}
+	}
+	chunks := (maximum + BodyChunkBytes - 1) / BodyChunkBytes
+	return BodyStageLimits{Bytes: maximum, MemoryBytes: maximum + chunks*64 + 256<<10}
 }
 
 // BodyStage owns temporary renderer bytes in this request only. It is not an

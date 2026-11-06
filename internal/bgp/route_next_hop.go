@@ -8,13 +8,13 @@ package bgp
 
 import "bytes"
 
-// ParseBMPRouteNextHopAFI validates a unicast MP_REACH next-hop encoding
+// parseBMPRouteNextHopAFI validates a unicast MP_REACH next-hop encoding
 // against complete source OPENs. RFC8950's wire lengths select from allowed
 // encodings; IPv4 NLRI with an IPv6 next hop additionally requires the actual
 // receiving peer's advertised capability. Sender support cannot replace it.
 // MP participation is explicit even for legacy IPv4. These payload facts do
 // not establish tenant/router ownership, source credentials or a live epoch.
-func ParseBMPRouteNextHopAFI(sentOpen, receivedOpen []byte, view BMPRouteView, family RouteFamily, nextHopLength int) (uint16, error) {
+func parseBMPRouteNextHopAFI(sentOpen, receivedOpen []byte, view BMPRouteView, family RouteFamily, nextHopLength int) (uint16, error) {
 	sent, err := parseRouteOpenCapabilities(sentOpen)
 	if err != nil {
 		return 0, err

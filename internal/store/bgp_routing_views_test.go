@@ -136,7 +136,7 @@ func TestBGPRoutingBeginRefusesForeignTenantBeforeMetadataOrStorage(t *testing.T
 	tenant := "11111111-1111-4111-8111-111111111111"
 	source := BGPRoutingSource{Scope: entity.Scope{TenantID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", ContextID: "22222222-2222-4222-8222-222222222222"}}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-	view, err := (BGPRouting{}).BeginViewInScope(ctx, tenancy.Scope{Tenant: tenancy.ID(tenant)}, source, BGPRoutingViewDefinition{}, source.ObservedAt, routingViewBudget())
+	view, err := (BGPRouting{}).beginViewInScope(ctx, tenancy.Scope{Tenant: tenancy.ID(tenant)}, source, BGPRoutingViewDefinition{}, source.ObservedAt, routingViewBudget())
 	if !errors.Is(err, entity.ErrScopeMismatch) || view.ID != "" || view.Generation != "" {
 		t.Fatal("foreign routing generation reached metadata or storage", err)
 	}

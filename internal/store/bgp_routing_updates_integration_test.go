@@ -43,7 +43,7 @@ func routingFixtureBegin(t *testing.T, f *roleInputsFixture, source BGPRoutingSo
 	var view BGPRoutingView
 	err := routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		view, err = (BGPRouting{}).BeginViewInScope(ctx, sc, source, routingViewFixture(), source.ObservedAt.Add(5*time.Minute), routingViewBudget())
+		view, err = (BGPRouting{}).beginViewInScope(ctx, sc, source, routingViewFixture(), source.ObservedAt.Add(5*time.Minute), routingViewBudget())
 		return err
 	})
 	if err != nil {
@@ -66,7 +66,7 @@ func routingFixtureApply(t *testing.T, f *roleInputsFixture, source BGPRoutingSo
 	var result BGPRoutingApplyResult
 	err := routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		result, err = (BGPRouting{}).ApplyBatchInScope(ctx, sc, source, ref, batch, budget)
+		result, err = (BGPRouting{}).applyBatchInScope(ctx, sc, source, ref, batch, budget)
 		return err
 	})
 	return result, err
@@ -229,7 +229,7 @@ func TestBGPRoutingBatchRefusalInvalidatesWithoutPartialWritesOrEpochRevival(t *
 	})
 	source.ObservedAt = routingFixtureTime(f)
 	f.in(source.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := (BGPRouting{}).SourceAuthorityInScope(ctx, sc, source)
+		_, err := (BGPRouting{}).sourceAuthorityInScope(ctx, sc, source)
 		return err
 	})
 	batch := BGPRoutingBatch{Sequence: 1, AFI: 1, SAFI: 1, ObservedAt: source.ObservedAt, EndOfRIB: true}
@@ -286,7 +286,7 @@ func TestBGPRoutingBatchRollsBackLateStorageFaultAndOriginExpiry(t *testing.T) {
 					return err
 				}
 				sc.Q = writer
-				_, err := (BGPRouting{}).ApplyBatchInScope(ctx, sc, source, ref, batch, routingViewBudget())
+				_, err := (BGPRouting{}).applyBatchInScope(ctx, sc, source, ref, batch, routingViewBudget())
 				return err
 			})
 			if writer == nil || writer.inserts != 2 || !errors.Is(err, want) {
@@ -304,7 +304,7 @@ func TestBGPRoutingBatchRollsBackLateStorageFaultAndOriginExpiry(t *testing.T) {
 				if state != "current" || sequence != 1 || rows != 0 || entries != 0 {
 					t.Fatal("late routing failure escaped complete rollback", state, sequence, rows, entries)
 				}
-				_, err := (BGPRouting{}).SourceAuthorityInScope(ctx, sc, source)
+				_, err := (BGPRouting{}).sourceAuthorityInScope(ctx, sc, source)
 				return err
 			})
 		})
@@ -324,7 +324,7 @@ func TestBGPRoutingResetClosesKnownGenerationBeforeRefusedReplacement(t *testing
 	reset := func(source BGPRoutingSource, ref BGPRoutingViewRef) error {
 		source.ObservedAt = routingFixtureTime(f)
 		return routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
-			result, err := (BGPRouting{}).InvalidateViewInScope(ctx, sc, source, ref)
+			result, err := (BGPRouting{}).invalidateViewInScope(ctx, sc, source, ref)
 			if err == nil && (result.Status != "invalidated" || result.Reason != "source-reset") {
 				t.Fatal("known routing reset did not report committed refusal", result)
 			}
@@ -352,7 +352,7 @@ func TestBGPRoutingResetClosesKnownGenerationBeforeRefusedReplacement(t *testing
 	err := routingFixtureWrite(t, f, sources[0], func(ctx context.Context, sc tenancy.Scope) error {
 		budget := routingViewBudget()
 		budget.StateBytes = 1
-		_, err := (BGPRouting{}).BeginViewInScope(ctx, sc, sources[0], routingViewFixture(), sources[0].ObservedAt.Add(time.Minute), budget)
+		_, err := (BGPRouting{}).beginViewInScope(ctx, sc, sources[0], routingViewFixture(), sources[0].ObservedAt.Add(time.Minute), budget)
 		return err
 	})
 	if !errors.Is(err, ErrBGPRoutingBudget) || state(0) != "invalid" || state(1) != "current" {

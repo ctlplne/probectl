@@ -22,7 +22,7 @@ func TestReportBodyStageCopiesExactBytesAndSealsIntegrity(t *testing.T) {
 	for _, tenant := range []string{"red", "blue"} {
 		t.Run(tenant, func(t *testing.T) {
 			ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-			stage, err := NewBodyStage(ctx, tenant, DefaultBodyStageLimits())
+			stage, err := NewBodyStage(ctx, tenant, BodyStageLimitsForBytes(DefaultCSVLimits().Bytes))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -95,7 +95,7 @@ func TestReportBodyStageCopiesExactBytesAndSealsIntegrity(t *testing.T) {
 func TestReportBodyStageRefusesPartialOverBudgetAndCanceledOutput(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), "red")
 	for _, denied := range []context.Context{t.Context(), tenancy.WithTenant(t.Context(), "blue")} {
-		if stage, err := NewBodyStage(denied, "red", DefaultBodyStageLimits()); !errors.Is(err, ErrBodyStageScope) || stage != nil {
+		if stage, err := NewBodyStage(denied, "red", BodyStageLimitsForBytes(DefaultCSVLimits().Bytes)); !errors.Is(err, ErrBodyStageScope) || stage != nil {
 			t.Fatal("unbound or foreign staging admission succeeded", err)
 		}
 	}
@@ -104,7 +104,7 @@ func TestReportBodyStageRefusesPartialOverBudgetAndCanceledOutput(t *testing.T) 
 			t.Fatal("invalid staging budget accepted")
 		}
 	}
-	empty, err := NewBodyStage(ctx, "red", DefaultBodyStageLimits())
+	empty, err := NewBodyStage(ctx, "red", BodyStageLimitsForBytes(DefaultCSVLimits().Bytes))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestReportBodyStageRefusesPartialOverBudgetAndCanceledOutput(t *testing.T) 
 	_ = empty.Close()
 	closed, cancel := context.WithCancel(ctx)
 	cancel()
-	if stage, err := NewBodyStage(closed, "red", DefaultBodyStageLimits()); !errors.Is(err, context.Canceled) || stage != nil {
+	if stage, err := NewBodyStage(closed, "red", BodyStageLimitsForBytes(DefaultCSVLimits().Bytes)); !errors.Is(err, context.Canceled) || stage != nil {
 		t.Fatal("canceled staging admission succeeded", err)
 	}
 	for _, tc := range []struct {
@@ -150,7 +150,7 @@ func TestReportBodyStageRefusesPartialOverBudgetAndCanceledOutput(t *testing.T) 
 	for _, when := range []string{"before_seal", "after_seal"} {
 		t.Run(when, func(t *testing.T) {
 			origin, cancel := context.WithCancel(ctx)
-			stage, err := NewBodyStage(origin, "red", DefaultBodyStageLimits())
+			stage, err := NewBodyStage(origin, "red", BodyStageLimitsForBytes(DefaultCSVLimits().Bytes))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -177,7 +177,7 @@ func TestReportBodyStageRefusesPartialOverBudgetAndCanceledOutput(t *testing.T) 
 	failure := errors.New("source failed after partial output")
 	var partial *BodyStage
 	var held [][]byte
-	stage, receipt, err := StageBody(ctx, "red", DefaultBodyStageLimits(), func(target io.Writer) error {
+	stage, receipt, err := StageBody(ctx, "red", BodyStageLimitsForBytes(DefaultCSVLimits().Bytes), func(target io.Writer) error {
 		partial = target.(*BodyStage)
 		if _, err := target.Write([]byte("partial")); err != nil {
 			return err
@@ -206,7 +206,7 @@ func TestReportBodyStageHashFailureNeverReturnsPartialDigest(t *testing.T) {
 	crypto.Default = failingBodyStageHasher{original}
 	defer func() { crypto.Default = original }()
 	ctx := tenancy.WithTenant(t.Context(), "red")
-	stage, receipt, err := StageBody(ctx, "red", DefaultBodyStageLimits(), func(target io.Writer) error {
+	stage, receipt, err := StageBody(ctx, "red", BodyStageLimitsForBytes(DefaultCSVLimits().Bytes), func(target io.Writer) error {
 		_, err := target.Write([]byte("complete bytes, failed hash"))
 		return err
 	})

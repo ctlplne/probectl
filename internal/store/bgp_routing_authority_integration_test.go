@@ -28,7 +28,7 @@ func TestBGPRoutingAuthorityKeepsCurrentTenantOriginPurposeAndAssignmentEpoch(t 
 		var result BGPRoutingSourceAuthority
 		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
-			result, err = (BGPRouting{}).SourceAuthorityInScope(ctx, sc, source)
+			result, err = (BGPRouting{}).sourceAuthorityInScope(ctx, sc, source)
 			return err
 		})
 		return result, err
@@ -97,7 +97,7 @@ func TestBGPRoutingAuthorityKeepsCurrentTenantOriginPurposeAndAssignmentEpoch(t 
 					if _, err := sc.Q.Exec(ctx, tc.sql, args...); err != nil {
 						return err
 					}
-					got, err := (BGPRouting{}).SourceAuthorityInScope(ctx, sc, source)
+					got, err := (BGPRouting{}).sourceAuthorityInScope(ctx, sc, source)
 					if !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got != (BGPRoutingSourceAuthority{}) {
 						t.Fatal("changed source/credential retained routing authority", got, err)
 					}

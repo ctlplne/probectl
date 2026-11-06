@@ -57,7 +57,7 @@ func TestBMPPeerDownKeepsNotificationFSMAndMonitoringWithdrawal(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := peerDownFrameForTest(tc.reason, tc.data, false)
-			out, err := ParseBMPPeerDown(context.Background(), raw, PeerMessageBudget{128 * int64(len(raw)), 4 * int64(len(raw))})
+			out, err := parseBMPPeerDown(context.Background(), raw, PeerMessageBudget{128 * int64(len(raw)), 4 * int64(len(raw))})
 			if err != nil || out.Reason != tc.reason || out.Header.View != BMPAdjRIBInPrePolicy || out.FSMEvent != tc.fsm || out.FSMEventKnown != (tc.fsm != 0) {
 				t.Fatal("Peer Down changed notification, FSM availability or monitoring-withdrawal reason", out.Reason, out.FSMEvent, err)
 			}
@@ -77,7 +77,7 @@ func TestBMPPeerDownKeepsNotificationFSMAndMonitoringWithdrawal(t *testing.T) {
 		data = append(data, value.Value...)
 	}
 	raw := peerDownFrameForTest(6, data, true)
-	out, err := ParseBMPPeerDown(context.Background(), raw, PeerMessageBudget{128 * int64(len(raw)), 4 * int64(len(raw))})
+	out, err := parseBMPPeerDown(context.Background(), raw, PeerMessageBudget{128 * int64(len(raw)), 4 * int64(len(raw))})
 	if err != nil || out.Header.View != BMPLocRIB || out.Reason != 6 || !out.Header.Filtered || !reflect.DeepEqual(out.Information, info) {
 		t.Fatal("Loc-RIB Peer Down lost ordered names or selected-view withdrawal", err)
 	}
@@ -90,7 +90,7 @@ func TestBMPPeerDownKeepsNotificationFSMAndMonitoringWithdrawal(t *testing.T) {
 func TestBMPPeerDownRefusesMalformedAndWrongViewLifecycle(t *testing.T) {
 	budget := PeerMessageBudget{1 << 20, 1 << 20}
 	t.Run("loc-rib-reason", func(t *testing.T) {
-		out, err := ParseBMPPeerDown(context.Background(), peerDownFrameForTest(4, nil, true), budget)
+		out, err := parseBMPPeerDown(context.Background(), peerDownFrameForTest(4, nil, true), budget)
 		if !errors.Is(err, ErrBMPPeerDown) || !reflect.DeepEqual(out, PeerDown{}) {
 			t.Fatal("Loc-RIB lifecycle accepted an adjacent-view closure reason", err)
 		}
@@ -103,7 +103,7 @@ func TestBMPPeerDownRefusesMalformedAndWrongViewLifecycle(t *testing.T) {
 		{2, nil}, {2, []byte{0}}, {2, []byte{0, 0, 0}}, {4, []byte{0}}, {5, []byte{0}},
 		{6, []byte{0}}, {6, []byte{0, 3, 0, 2, 1}}, {6, []byte{0, 3, 0, 1, 1, 0}},
 	} {
-		out, err := ParseBMPPeerDown(context.Background(), peerDownFrameForTest(tc.reason, tc.data, false), budget)
+		out, err := parseBMPPeerDown(context.Background(), peerDownFrameForTest(tc.reason, tc.data, false), budget)
 		if !errors.Is(err, ErrBMPPeerDown) || !reflect.DeepEqual(out, PeerDown{}) {
 			t.Fatal("malformed Peer Down returned partial lifecycle metadata", tc.reason, err)
 		}
@@ -119,13 +119,13 @@ func TestBMPPeerDownRefusesMalformedAndWrongViewLifecycle(t *testing.T) {
 	} {
 		raw := append([]byte(nil), good...)
 		mutate(raw)
-		out, err := ParseBMPPeerDown(context.Background(), raw, budget)
+		out, err := parseBMPPeerDown(context.Background(), raw, budget)
 		if !errors.Is(err, ErrBMPPeerDown) || !reflect.DeepEqual(out, PeerDown{}) {
 			t.Fatal("broken frame or notification authorized lifecycle metadata", err)
 		}
 	}
 	for _, limited := range []PeerMessageBudget{{0, 10000}, {10000, 0}, {128*int64(len(good)) - 1, 4 * int64(len(good))}, {128 * int64(len(good)), 4*int64(len(good)) - 1}} {
-		out, err := ParseBMPPeerDown(context.Background(), good, limited)
+		out, err := parseBMPPeerDown(context.Background(), good, limited)
 		if !errors.Is(err, ErrBMPPeerDownBudget) || !reflect.DeepEqual(out, PeerDown{}) {
 			t.Fatal("unadmitted Peer Down returned lifecycle metadata", err)
 		}
@@ -134,7 +134,7 @@ func TestBMPPeerDownRefusesMalformedAndWrongViewLifecycle(t *testing.T) {
 	cancel()
 	for _, ctx := range []context.Context{canceled, &peerUpCancelContext{Context: context.Background()}} {
 		raw := peerDownFrameForTest(6, []byte{0, 3, 0, 1, 1, 0, 3, 0, 1, 2, 0, 3, 0, 1, 3}, true)
-		out, err := ParseBMPPeerDown(ctx, raw, budget)
+		out, err := parseBMPPeerDown(ctx, raw, budget)
 		if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(out, PeerDown{}) {
 			t.Fatal("canceled Peer Down retained partial lifecycle metadata", err)
 		}

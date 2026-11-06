@@ -32,11 +32,11 @@ var (
 	ErrBGPUpdateFrameBudget = errors.New("bgp: update frame operation admission exceeded")
 )
 
-// ParseBGPUpdateFrame validates one whole BGP UPDATE's framing. It does not
+// parseBGPUpdateFrame validates one whole BGP UPDATE's framing. It does not
 // decide whether an UPDATE is acceptable for a source session: negotiated
 // extended-message/ADD-PATH encoding, required attributes and RFC7606 error
 // treatment must be established before a caller changes routing state.
-func ParseBGPUpdateFrame(ctx context.Context, raw []byte, budget UpdateFrameBudget) (UpdateFrame, error) {
+func parseBGPUpdateFrame(ctx context.Context, raw []byte, budget UpdateFrameBudget) (UpdateFrame, error) {
 	none := UpdateFrame{}
 	if err := ctx.Err(); err != nil {
 		return none, err

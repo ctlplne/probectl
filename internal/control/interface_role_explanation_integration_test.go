@@ -211,7 +211,12 @@ func TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority(t *testin
 	}
 	for _, tenant := range f.tenants {
 		out := read(tenant, entity.InterfaceRoleTransit, "current_evidence")
-		inputs, err := store.NewInterfaceRoleInputs(f.pool).Load(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), entity.Scope{TenantID: tenant, ContextID: f.contextID}, f.interfaceID, roleExplanationStoreBudget())
+		var inputs store.InterfaceRoleInputs
+		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			inputs, err = store.NewInterfaceRoleInputs(f.pool).LoadInScope(ctx, sc, entity.Scope{TenantID: tenant, ContextID: f.contextID}, f.interfaceID, roleExplanationStoreBudget())
+			return err
+		})
 		if err != nil || inputs.SNMP == nil || len(inputs.Peers) != 1 || len(inputs.SNMP.Bindings) != 1 {
 			t.Fatal("served provenance fixture has no complete current inputs", err)
 		}

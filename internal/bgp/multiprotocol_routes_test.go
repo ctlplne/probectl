@@ -43,13 +43,13 @@ func TestMultiprotocolRoutesKeepExplicitFamiliesHopsAndPathIdentity(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			value := mpReachValueForTest(tc.afi, tc.hops, tc.nlri)
-			out, err := ParseMPReachRoutes(context.Background(), value, tc.hop, tc.addPath, MultiprotocolBudget{1 << 20, 1 << 20})
+			out, err := parseMPReachRoutes(context.Background(), value, tc.hop, tc.addPath, MultiprotocolBudget{1 << 20, 1 << 20})
 			if err != nil || out.Family != (RouteFamily{tc.afi, 1}) || out.NextHopAFI != tc.hop || !reflect.DeepEqual(out.NextHops, tc.hops) || !reflect.DeepEqual(out.Prefixes, tc.prefixes) {
 				t.Fatal("multiprotocol reach lost source family, next-hop encoding or full path identity", out, err)
 			}
 			withdrawal := binary.BigEndian.AppendUint16(nil, tc.afi)
 			withdrawal = append(append(withdrawal, 1), tc.nlri...)
-			withdrawn, err := ParseMPUnreachRoutes(context.Background(), withdrawal, tc.addPath, MultiprotocolBudget{1 << 20, 1 << 20})
+			withdrawn, err := parseMPUnreachRoutes(context.Background(), withdrawal, tc.addPath, MultiprotocolBudget{1 << 20, 1 << 20})
 			if err != nil || withdrawn.Family != (RouteFamily{tc.afi, 1}) || !reflect.DeepEqual(withdrawn.Prefixes, tc.prefixes) {
 				t.Fatal("multiprotocol withdrawal lost complete family/path identities", withdrawn, err)
 			}
@@ -62,7 +62,7 @@ func TestMultiprotocolRoutesKeepExplicitFamiliesHopsAndPathIdentity(t *testing.T
 	}
 	for _, afi := range []uint16{1, 2} {
 		value := []byte{0, byte(afi), 1}
-		out, err := ParseMPUnreachRoutes(context.Background(), value, false, MultiprotocolBudget{1000, 1000})
+		out, err := parseMPUnreachRoutes(context.Background(), value, false, MultiprotocolBudget{1000, 1000})
 		if err != nil || out.Family != (RouteFamily{afi, 1}) || out.Prefixes == nil || len(out.Prefixes) != 0 {
 			t.Fatal("empty multiprotocol withdrawal lost complete family", out, err)
 		}
@@ -73,7 +73,7 @@ func TestMultiprotocolRoutesRefuseGuessedEncodingMalformedTailAndAdmission(t *te
 	budget := MultiprotocolBudget{1 << 20, 1 << 20}
 	good := mpReachValueForTest(1, []netip.Addr{netip.MustParseAddr("192.0.2.1")}, []byte{0})
 	for _, value := range [][]byte{nil, {0, 1, 1}, {0, 1, 1, 4}, good[:8], mpReachValueForTest(1, []netip.Addr{netip.MustParseAddr("192.0.2.1")}, []byte{0, 32, 1})} {
-		out, err := ParseMPReachRoutes(context.Background(), value, 1, false, budget)
+		out, err := parseMPReachRoutes(context.Background(), value, 1, false, budget)
 		if !errors.Is(err, ErrMPRouteAttributes) || !reflect.DeepEqual(out, MultiprotocolReach{}) {
 			t.Fatal("malformed MP_REACH returned partial next-hop or routes", err)
 		}
@@ -89,19 +89,19 @@ func TestMultiprotocolRoutesRefuseGuessedEncodingMalformedTailAndAdmission(t *te
 		{[]byte{0, 3, 1, 4, 192, 0, 2, 1, 0, 0}, 1},
 		{[]byte{0, 1, 2, 4, 192, 0, 2, 1, 0, 0}, 1},
 	} {
-		out, err := ParseMPReachRoutes(context.Background(), tc.value, tc.hop, false, budget)
+		out, err := parseMPReachRoutes(context.Background(), tc.value, tc.hop, false, budget)
 		if !errors.Is(err, ErrMPRouteAttributes) || !reflect.DeepEqual(out, MultiprotocolReach{}) {
 			t.Fatal("unnegotiated family or guessed next-hop encoding admitted routes", err)
 		}
 	}
 	for _, value := range [][]byte{nil, {0, 2}, {0, 3, 1}, {0, 1, 2}, {0, 2, 1, 0, 128, 1}} {
-		out, err := ParseMPUnreachRoutes(context.Background(), value, false, budget)
+		out, err := parseMPUnreachRoutes(context.Background(), value, false, budget)
 		if !errors.Is(err, ErrMPRouteAttributes) || !reflect.DeepEqual(out, MultiprotocolWithdraw{}) {
 			t.Fatal("malformed MP_UNREACH returned partial withdrawals", err)
 		}
 	}
 	for _, limited := range []MultiprotocolBudget{{0, 1000}, {1000, 0}, {128, 1000}, {191, 1000}, {1000, int64(len(good)) + 1}} {
-		out, err := ParseMPReachRoutes(context.Background(), good, 1, false, limited)
+		out, err := parseMPReachRoutes(context.Background(), good, 1, false, limited)
 		if !errors.Is(err, ErrMPRouteBudget) || !reflect.DeepEqual(out, MultiprotocolReach{}) {
 			t.Fatal("unadmitted multiprotocol routes returned partial output", err)
 		}
@@ -111,12 +111,12 @@ func TestMultiprotocolRoutesRefuseGuessedEncodingMalformedTailAndAdmission(t *te
 		cancel()
 		for _, ctx := range []context.Context{canceled, &peerUpCancelContext{Context: context.Background()}} {
 			if which == "reach" {
-				out, err := ParseMPReachRoutes(ctx, good, 1, false, budget)
+				out, err := parseMPReachRoutes(ctx, good, 1, false, budget)
 				if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(out, MultiprotocolReach{}) {
 					t.Fatal("canceled reachability retained a partial route", err)
 				}
 			} else {
-				out, err := ParseMPUnreachRoutes(ctx, []byte{0, 1, 1, 0}, false, budget)
+				out, err := parseMPUnreachRoutes(ctx, []byte{0, 1, 1, 0}, false, budget)
 				if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(out, MultiprotocolWithdraw{}) {
 					t.Fatal("canceled withdrawal retained a partial route", err)
 				}

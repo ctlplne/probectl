@@ -61,7 +61,7 @@ func TestBMPPeerUpKeepsWholeSourceMetadataAndOwnedCopies(t *testing.T) {
 				clear(raw[48:68])
 				wantAddress, wantView, wantPort, filtered = netip.Addr{}, BMPLocRIB, 0, true
 			}
-			out, err := ParseBMPPeerUp(context.Background(), raw, PeerMessageBudget{128 * int64(len(raw)), 4 * int64(len(raw))})
+			out, err := parseBMPPeerUp(context.Background(), raw, PeerMessageBudget{128 * int64(len(raw)), 4 * int64(len(raw))})
 			if err != nil || out.Header.View != wantView || out.Header.Filtered != filtered || !out.Header.TimestampKnown || out.Header.PeerASN != 4294967295 || out.LocalAddress != wantAddress || out.LocalPort != wantPort || !bytes.Equal(out.SentOpen, open) || !bytes.Equal(out.ReceivedOpen, open) || !reflect.DeepEqual(out.Information, info) {
 				t.Fatal("complete BMP Peer Up lost route-view, OPEN or ordered information", err, len(out.Information))
 			}
@@ -114,13 +114,13 @@ func TestBMPPeerUpRefusesIncompleteTailAdmissionAndCancellation(t *testing.T) {
 		if len(raw) >= 5 {
 			binary.BigEndian.PutUint32(raw[1:5], uint32(len(raw)))
 		}
-		out, err := ParseBMPPeerUp(context.Background(), raw, budget)
+		out, err := parseBMPPeerUp(context.Background(), raw, budget)
 		if !errors.Is(err, ErrBMPPeerUp) || !reflect.DeepEqual(out, PeerUp{}) {
 			t.Fatal("incomplete Peer Up returned partial source metadata", err)
 		}
 	}
 	for _, limited := range []PeerMessageBudget{{0, 10000}, {10000, 0}, {128*int64(len(good)) - 1, 4 * int64(len(good))}, {128 * int64(len(good)), 4*int64(len(good)) - 1}} {
-		out, err := ParseBMPPeerUp(context.Background(), good, limited)
+		out, err := parseBMPPeerUp(context.Background(), good, limited)
 		if !errors.Is(err, ErrBMPPeerUpBudget) || !reflect.DeepEqual(out, PeerUp{}) {
 			t.Fatal("unadmitted Peer Up allocated visible source metadata", err)
 		}
@@ -128,7 +128,7 @@ func TestBMPPeerUpRefusesIncompleteTailAdmissionAndCancellation(t *testing.T) {
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	for _, ctx := range []context.Context{canceled, &peerUpCancelContext{Context: context.Background()}} {
-		out, err := ParseBMPPeerUp(ctx, good, budget)
+		out, err := parseBMPPeerUp(ctx, good, budget)
 		if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(out, PeerUp{}) {
 			t.Fatal("canceled Peer Up retained a partial session", err)
 		}

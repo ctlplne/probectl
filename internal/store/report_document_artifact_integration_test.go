@@ -51,7 +51,7 @@ func TestStaticDocumentChunksKeepCompleteBodiesAndRejectSourceDowngrade(t *testi
 	input := ReportArtifactInput{ID: "same-artifact", DashboardID: "same-view", Format: "csv", MediaType: "text/csv", Filename: "complete.csv", GeneratedBy: "alice", AbsoluteFrom: time.Now().Add(-time.Hour), AbsoluteTo: time.Now(), RedactionState: "none"}
 	publish := func(tenant, id, view string, body []byte, rollback bool) error {
 		bound := tenancy.WithTenant(ctx, tenancy.ID(tenant))
-		stage, _, err := reporting.StageBody(bound, tenant, reporting.DefaultBodyStageLimits(), func(w io.Writer) error { _, err := w.Write(body); return err })
+		stage, _, err := reporting.StageBody(bound, tenant, reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes), func(w io.Writer) error { _, err := w.Write(body); return err })
 		if err != nil {
 			return err
 		}
@@ -108,7 +108,7 @@ func TestStaticDocumentChunksKeepCompleteBodiesAndRejectSourceDowngrade(t *testi
 	read := func(tenant, id, user string) ([]byte, error) {
 		var body []byte
 		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
-			meta, stage, err := (DashboardReports{}).StageArtifactBody(ctx, sc, id, user, reporting.DefaultBodyStageLimits())
+			meta, stage, err := (DashboardReports{}).StageArtifactBody(ctx, sc, id, user, reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes))
 			if err != nil {
 				if stage != nil {
 					t.Fatal("failed static read released a partial stage")

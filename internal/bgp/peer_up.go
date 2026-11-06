@@ -42,11 +42,11 @@ var (
 	ErrBMPPeerUpBudget = errors.New("bgp: peer-up operation admission exceeded")
 )
 
-// ParseBMPPeerUp decodes one complete RFC7854/RFC9069 Peer Up frame. Both OPENs
+// parseBMPPeerUp decodes one complete RFC7854/RFC9069 Peer Up frame. Both OPENs
 // and every information tail must validate before any metadata is returned.
 // Authentication, canonical ownership, revocation and session epoch fencing
 // belong to the listener/store; a payload address cannot establish them.
-func ParseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (PeerUp, error) {
+func parseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (PeerUp, error) {
 	none := PeerUp{}
 	if err := ctx.Err(); err != nil {
 		return none, err

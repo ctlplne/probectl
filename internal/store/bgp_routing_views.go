@@ -150,10 +150,10 @@ func routingViewMetadata(ctx context.Context, definition BGPRoutingViewDefinitio
 	return body, key, nil
 }
 
-// BeginViewInScope requires the caller's fenced write transaction. The old slot
+// beginViewInScope requires the caller's fenced write transaction. The old slot
 // and new staging generation change atomically; callers must return every error
 // from their transaction callback. Nothing here publishes incomplete routes.
-func (store BGPRouting) BeginViewInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource,
+func (store BGPRouting) beginViewInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource,
 	definition BGPRoutingViewDefinition, validUntil time.Time, budget BGPRoutingBudget) (BGPRoutingView, error) {
 	none := BGPRoutingView{}
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
@@ -173,7 +173,7 @@ func (store BGPRouting) BeginViewInScope(ctx context.Context, sc tenancy.Scope, 
 	if err := lockBGPRoutingState(ctx, sc); err != nil {
 		return none, err
 	}
-	authority, err := store.SourceAuthorityForWriteInScope(ctx, sc, source)
+	authority, err := store.sourceAuthorityForWriteInScope(ctx, sc, source)
 	if err != nil {
 		return none, err
 	}

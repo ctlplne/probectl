@@ -49,7 +49,7 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 	input := ReportArtifactInput{ID: "same-artifact", DashboardID: "same-view", Format: "csv", MediaType: "text/csv", Filename: "complete.csv", GeneratedBy: "alice", AbsoluteFrom: time.Now().Add(-time.Hour), AbsoluteTo: time.Now(), RedactionState: "none", Provenance: []string{"owned source"}}
 	publish := func(tenant, id string, body []byte, rollback bool) error {
 		tctx := tenancy.WithTenant(ctx, tenancy.ID(tenant))
-		stage, _, err := reporting.StageBody(tctx, tenant, reporting.DefaultBodyStageLimits(), func(w io.Writer) error { _, err := w.Write(body); return err })
+		stage, _, err := reporting.StageBody(tctx, tenant, reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes), func(w io.Writer) error { _, err := w.Write(body); return err })
 		if err != nil {
 			return err
 		}
@@ -103,7 +103,7 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 		return meta, stage, err
 	}
 	for i, tenant := range tenants {
-		legacy, legacyStage, err := read(tenant, "legacy", "alice", reporting.DefaultBodyStageLimits())
+		legacy, legacyStage, err := read(tenant, "legacy", "alice", reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes))
 		if err != nil {
 			t.Fatal("legacy inline snapshot read", err)
 		}
@@ -117,7 +117,7 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 		if err != nil || string(legacyBytes) != "legacy exact Unicode é\r\n" || legacy.BodyStorage != "inline" || len(legacy.BodySHA256) != 64 {
 			t.Fatal("legacy body changed through verified reader", err)
 		}
-		meta, stage, err := read(tenant, "same-artifact", "alice", reporting.DefaultBodyStageLimits())
+		meta, stage, err := read(tenant, "same-artifact", "alice", reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -131,7 +131,7 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 		if err != nil || !bytes.Equal(got, payloads[i]) || meta.Content != nil || meta.BodyBytes != int64(len(got)) {
 			t.Fatal("owned complete chunk body or integrity metadata changed", err)
 		}
-		if metadata, body, err := read(tenant, "same-artifact", "bob", reporting.DefaultBodyStageLimits()); err == nil || metadata != nil || body != nil {
+		if metadata, body, err := read(tenant, "same-artifact", "bob", reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes)); err == nil || metadata != nil || body != nil {
 			t.Fatal("private body escaped same-tenant owner visibility")
 		}
 	}
@@ -139,7 +139,7 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 		t.Fatal("body read ignored caller staging budget")
 	}
 	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenants[0])), pool, func(ctx context.Context, sc tenancy.Scope) error {
-		_, stage, err := (DashboardReports{}).StageArtifactBody(ctx, sc, "same-artifact", "alice", reporting.DefaultBodyStageLimits())
+		_, stage, err := (DashboardReports{}).StageArtifactBody(ctx, sc, "same-artifact", "alice", reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes))
 		if stage != nil {
 			_ = stage.Close()
 			t.Fatal("non-snapshot read returned bytes")
@@ -151,7 +151,7 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 	if err := publish(tenants[0], "rolled-back", payloads[0], true); err == nil {
 		t.Fatal("publication refusal did not abort transaction")
 	}
-	if _, stage, err := read(tenants[0], "rolled-back", "alice", reporting.DefaultBodyStageLimits()); err == nil || stage != nil {
+	if _, stage, err := read(tenants[0], "rolled-back", "alice", reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes)); err == nil || stage != nil {
 		t.Fatal("refused publication left a visible body")
 	}
 	inTenant(ctx, t, pool, tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
@@ -183,7 +183,7 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 			if _, err := pool.Exec(ctx, query, tenants[0], scenario); err != nil {
 				t.Fatal("test corruption setup", err)
 			}
-			if metadata, body, err := read(tenants[0], scenario, "alice", reporting.DefaultBodyStageLimits()); !errors.Is(err, ErrReportArtifactIntegrity) || metadata != nil || body != nil {
+			if metadata, body, err := read(tenants[0], scenario, "alice", reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes)); !errors.Is(err, ErrReportArtifactIntegrity) || metadata != nil || body != nil {
 				t.Fatal("corrupt report exposed metadata or partial bytes", err)
 			}
 		})
@@ -192,7 +192,7 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 	if err := publish(tenants[1], "foreign-only", payloads[1], false); err != nil {
 		t.Fatal(err)
 	}
-	if _, stage, err := read(tenants[0], "foreign-only", "alice", reporting.DefaultBodyStageLimits()); err == nil || stage != nil {
+	if _, stage, err := read(tenants[0], "foreign-only", "alice", reporting.BodyStageLimitsForBytes(reporting.DefaultCSVLimits().Bytes)); err == nil || stage != nil {
 		t.Fatal("foreign report body escaped tenant-first storage")
 	} else if failure, ok := apierror.As(err); !ok || failure.Kind != apierror.KindNotFound {
 		t.Fatal("foreign body exposed another error shape", err)

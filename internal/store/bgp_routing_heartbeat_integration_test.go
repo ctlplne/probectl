@@ -81,7 +81,7 @@ func TestBGPRoutingHeartbeatKeepsIncarnationSequenceClockAndTenantLease(t *testi
 	f.in(sources[0].TenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		source := sources[0]
 		source.ObservedAt = heartbeat.ObservedAt
-		authority, err := (BGPRouting{}).SourceAuthorityInScope(ctx, sc, source)
+		authority, err := (BGPRouting{}).sourceAuthorityInScope(ctx, sc, source)
 		if err != nil {
 			return err
 		}

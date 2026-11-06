@@ -89,42 +89,6 @@ func (b *roleInputAdmission) charge(ctx context.Context, bytes, work int64) erro
 	return nil
 }
 
-// Load uses FORCE RLS, the current tenant router, one REPEATABLE READ time and
-// transaction-wide silo relation locks. Raw IP/ifIndex never chooses ownership.
-// Missing automatic observations preserve an owned manual override; absent or
-// foreign canonical interfaces fail closed before reading any source facts.
-func (s *InterfaceRoleInputsStore) Load(ctx context.Context, scope entity.Scope, interfaceID string, budget entity.InterfaceRolePolicyBudget) (InterfaceRoleInputs, error) {
-	none := InterfaceRoleInputs{}
-	want, err := scope.Normalize()
-	tenant, ok := tenancy.FromContext(ctx)
-	if err != nil || !ok || tenant.String() != want.TenantID {
-		return none, entity.ErrScopeMismatch
-	}
-	id, err := validRegistryUUID(interfaceID)
-	if err != nil {
-		return none, err
-	}
-	if s == nil || s.pool == nil {
-		return none, ErrEntityRegistryUnavailable
-	}
-	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 {
-		return none, entity.ErrInterfaceRoleBudget
-	}
-	var out InterfaceRoleInputs
-	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		var readErr error
-		out, readErr = s.LoadInScope(ctx, sc, want, id, budget)
-		return readErr
-	})
-	if err != nil {
-		return none, err
-	}
-	if err := ctx.Err(); err != nil {
-		return none, err
-	}
-	return out, nil
-}
-
 // LoadInScope reuses an already bound application-role read snapshot. Callers
 // can authorize the current user/context/source planes in that SAME snapshot
 // before any facts are read. It creates no additional connection or grant.

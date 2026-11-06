@@ -45,7 +45,7 @@ func TestBGPRoutingWritesSerializeSourceChangesAndRejectStaleSnapshots(t *testin
 			pid := make(chan int, 1)
 			err := tenancy.FencedTenantWrite(ctx, tenancy.NewPostgresWriterFence(f.pool), source.TenantID, entity.ErrScopeMismatch, func(ctx context.Context) error {
 				return tenancy.InTenant(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
-					if _, err := (BGPRouting{}).BeginViewInScope(ctx, sc, source, routingViewFixture(), observed.Add(time.Minute), routingViewBudget()); err != nil {
+					if _, err := (BGPRouting{}).beginViewInScope(ctx, sc, source, routingViewFixture(), observed.Add(time.Minute), routingViewBudget()); err != nil {
 						return err
 					}
 					go func() {
@@ -79,7 +79,7 @@ func TestBGPRoutingWritesSerializeSourceChangesAndRejectStaleSnapshots(t *testin
 				t.Fatal("serialized source mutation failed", err)
 			}
 			if err := tenancy.InTenantReadSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
-				_, err := (BGPRouting{}).SourceAuthorityInScope(ctx, sc, source)
+				_, err := (BGPRouting{}).sourceAuthorityInScope(ctx, sc, source)
 				return err
 			}); !errors.Is(err, ErrBGPRoutingSourceUnavailable) {
 				t.Fatal("committed source mutation retained routing authority", err)
@@ -90,7 +90,7 @@ func TestBGPRoutingWritesSerializeSourceChangesAndRejectStaleSnapshots(t *testin
 			sibling.TenantID = f.tenants[1]
 			sibling.SenderSerial, sibling.OriginSerial = f.serials[f.tenants[1]+"role-listener"], f.serials[f.tenants[1]+"role-router"]
 			f.in(sibling.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
-				_, err := (BGPRouting{}).SourceAuthorityInScope(ctx, sc, sibling)
+				_, err := (BGPRouting{}).sourceAuthorityInScope(ctx, sc, sibling)
 				return err
 			})
 		})
@@ -137,7 +137,7 @@ func testBGPRoutingStaleSourceSnapshot(t *testing.T) {
 			}); err != nil {
 				return err
 			}
-			_, err := (BGPRouting{}).SourceAuthorityForWriteInScope(ctx, sc, source)
+			_, err := (BGPRouting{}).sourceAuthorityForWriteInScope(ctx, sc, source)
 			if err == nil {
 				return errors.New("stale snapshot acknowledged revoked routing authority")
 			}
@@ -160,7 +160,7 @@ func TestBGPRoutingQuotaWaitUsesFreshTenantAccountAndRefusesOldSnapshots(t *test
 	// that established an old snapshot cannot refresh SUM after its lock wait.
 	err := tenancy.FencedTenantWrite(ctx, tenancy.NewPostgresWriterFence(f.pool), source.TenantID, entity.ErrScopeMismatch, func(ctx context.Context) error {
 		return tenancy.InTenantWriteSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
-			_, err := (BGPRouting{}).BeginViewInScope(ctx, sc, source, routingViewFixture(), source.ObservedAt.Add(time.Minute), routingViewBudget())
+			_, err := (BGPRouting{}).beginViewInScope(ctx, sc, source, routingViewFixture(), source.ObservedAt.Add(time.Minute), routingViewBudget())
 			return err
 		})
 	})
@@ -171,7 +171,7 @@ func TestBGPRoutingQuotaWaitUsesFreshTenantAccountAndRefusesOldSnapshots(t *test
 	pid := make(chan int, 1)
 	err = tenancy.FencedTenantWrite(ctx, tenancy.NewPostgresWriterFence(f.pool), source.TenantID, entity.ErrScopeMismatch, func(ctx context.Context) error {
 		return tenancy.InTenant(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
-			view, err := (BGPRouting{}).BeginViewInScope(ctx, sc, source, routingViewFixture(), source.ObservedAt.Add(time.Minute), routingViewBudget())
+			view, err := (BGPRouting{}).beginViewInScope(ctx, sc, source, routingViewFixture(), source.ObservedAt.Add(time.Minute), routingViewBudget())
 			if err != nil {
 				return err
 			}
@@ -190,7 +190,7 @@ func TestBGPRoutingQuotaWaitUsesFreshTenantAccountAndRefusesOldSnapshots(t *test
 						profile, definition := routingViewBudget(), routingViewFixture()
 						profile.StateBytes = bytes
 						definition.Peer.Address = netip.MustParseAddr("192.0.2.14")
-						_, err := (BGPRouting{}).BeginViewInScope(ctx, sc, source, definition, source.ObservedAt.Add(time.Minute), profile)
+						_, err := (BGPRouting{}).beginViewInScope(ctx, sc, source, definition, source.ObservedAt.Add(time.Minute), profile)
 						return err
 					})
 				})

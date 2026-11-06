@@ -30,7 +30,7 @@ func TestBGPUpdateFrameKeepsWithdrawalsAttributesAndExactCompletion(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := endOfRIBFrameForTest(tc.withdrawn, tc.attr, tc.nlri)
-			out, err := ParseBGPUpdateFrame(context.Background(), raw, UpdateFrameBudget{128 * int64(len(raw)), 8 * int64(len(raw))})
+			out, err := parseBGPUpdateFrame(context.Background(), raw, UpdateFrameBudget{128 * int64(len(raw)), 8 * int64(len(raw))})
 			if err != nil || !bytes.Equal(out.WithdrawnIPv4, tc.withdrawn) || !bytes.Equal(out.ReachableIPv4, tc.nlri) || out.EndOfRIB != tc.family || out.HasEndOfRIB != tc.end {
 				t.Fatal("complete UPDATE lost withdrawal, announcement or exact completion", err)
 			}
@@ -61,13 +61,13 @@ func TestBGPUpdateFrameRefusesMalformedTailAdmissionAndCancellation(t *testing.T
 		variants = append(variants, raw)
 	}
 	for _, raw := range variants {
-		out, err := ParseBGPUpdateFrame(context.Background(), raw, budget)
+		out, err := parseBGPUpdateFrame(context.Background(), raw, budget)
 		if !errors.Is(err, ErrBGPUpdateFrame) || !reflect.DeepEqual(out, UpdateFrame{}) {
 			t.Fatal("malformed UPDATE exposed a partial withdrawal or route", err)
 		}
 	}
 	for _, limited := range []UpdateFrameBudget{{0, 10000}, {10000, 0}, {128*int64(len(good)) - 1, 8 * int64(len(good))}, {128 * int64(len(good)), 8*int64(len(good)) - 1}} {
-		out, err := ParseBGPUpdateFrame(context.Background(), good, limited)
+		out, err := parseBGPUpdateFrame(context.Background(), good, limited)
 		if !errors.Is(err, ErrBGPUpdateFrameBudget) || !reflect.DeepEqual(out, UpdateFrame{}) {
 			t.Fatal("unadmitted UPDATE exposed partial regions", err)
 		}
@@ -75,7 +75,7 @@ func TestBGPUpdateFrameRefusesMalformedTailAdmissionAndCancellation(t *testing.T
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	for _, ctx := range []context.Context{canceled, &peerUpCancelContext{Context: context.Background()}} {
-		out, err := ParseBGPUpdateFrame(ctx, good, budget)
+		out, err := parseBGPUpdateFrame(ctx, good, budget)
 		if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(out, UpdateFrame{}) {
 			t.Fatal("canceled UPDATE retained a partial route change", err)
 		}

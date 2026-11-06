@@ -149,7 +149,12 @@ func TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority(t *testing.T)
 			reader := store.NewInterfaceRoleInputs(pool)
 			load := func(tenant string) store.InterfaceRoleInputs {
 				t.Helper()
-				got, err := reader.Load(tenancy.WithTenant(ctx, tenancy.ID(tenant)), entity.Scope{TenantID: tenant, ContextID: contextID}, interfaceID, budget)
+				var got store.InterfaceRoleInputs
+				err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+					var err error
+					got, err = reader.LoadInScope(ctx, sc, entity.Scope{TenantID: tenant, ContextID: contextID}, interfaceID, budget)
+					return err
+				})
 				if err != nil {
 					t.Fatal("managed current role inputs unavailable", err)
 				}
