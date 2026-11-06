@@ -36,7 +36,7 @@ func captureReportRoleContextRequirements(ctx context.Context, p *auth.Principal
 		return nil
 	}
 	bound, present := tenancy.FromContext(ctx)
-	if p == nil || !present || bound.String() != sink.tenant || p.TenantID != sink.tenant || sink.remaining <= 0 {
+	if p == nil || !present || bound.String() != sink.tenant || p.TenantID != sink.tenant || sink.remaining < 0 {
 		return apierror.Forbidden("report interface role context scope is unavailable")
 	}
 	for _, record := range records {
