@@ -85,6 +85,10 @@ func TestReportRoleContextCapturePreservesTagsAndCurrentSourceRequirements(t *te
 	if err := captureReportRoleContextRequirements(ctx, principal, []entity.ContextRecord{record}, allowed); err != nil || sink.remaining != remaining || len(sink.contexts) != 1 {
 		t.Fatal("authority revalidation duplicated retained metadata or charged it again", sink, err)
 	}
+	sink.remaining = 0 // the already-owned metadata needs no new allocation
+	if err := captureReportRoleContextRequirements(ctx, principal, []entity.ContextRecord{record}, allowed); err != nil || sink.remaining != 0 || len(sink.contexts) != 1 {
+		t.Fatal("exhausted report quota forbids a no-allocation authority recheck", sink, err)
+	}
 	changed := record
 	changed.SiteLabel = "rebound"
 	if err := captureReportRoleContextRequirements(ctx, principal, []entity.ContextRecord{changed}, allowed); err == nil {
