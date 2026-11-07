@@ -511,6 +511,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-capture-subject": (
+        "internal/tenantlife/flow_query_subject.go",
+        ' || table == "bgp_flow_capture_objects"',
+        "",
+        "TestRoutingCaptureSubjectDecodedErasureKeepsFirstReceiptAndSibling", "",
+        "decoded routing capture subject export lost its own content or crossed tenant",
+    ),
     "routing-capture-first": (
         "internal/store/bgp_routing_capture_repository.go",
         "if err != nil || exists {",
