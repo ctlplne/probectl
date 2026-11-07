@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -122,37 +123,9 @@ func prepareRoutingBatch(ctx context.Context, batch BGPRoutingBatch, afi uint16,
 	if err := routingBatchCharge(&profile, 1024, 64); err != nil {
 		return nil, digest, err
 	}
-	// Admit the whole decoded representation and its JSON/digest/plan copies
-	// before allocating them. There is no prefix/path/attribute population cap.
-	for _, change := range batch.Changes {
-		if err := ctx.Err(); err != nil {
-			return nil, digest, err
-		}
-		if err := routingBatchCharge(&profile, 2048, 256); err != nil {
-			return nil, digest, err
-		}
-		for _, segment := range change.Segments {
-			if err := routingBatchCharge(&profile, 256, 32); err != nil {
-				return nil, digest, err
-			}
-			if err := routingBatchPopulationCharge(&profile, len(segment.Values), 128, 32); err != nil {
-				return nil, digest, err
-			}
-		}
-		for _, attribute := range change.Attributes.Wire {
-			if err := routingBatchCharge(&profile, 256, 32); err != nil {
-				return nil, digest, err
-			}
-			if err := routingBatchPopulationCharge(&profile, len(attribute.Value), 16, 8); err != nil {
-				return nil, digest, err
-			}
-		}
-		if err := routingBatchPopulationCharge(&profile, len(change.NextHops), 512, 128); err != nil {
-			return nil, digest, err
-		}
-		if err := validateRoutingChange(change, afi); err != nil {
-			return nil, digest, err
-		}
+	// Admit the whole decoded representation before allocating its copies.
+	if _, err := admitRoutingChanges(ctx, batch.Changes, afi, profile); err != nil {
+		return nil, digest, err
 	}
 	body, err := json.Marshal(batch)
 	if err != nil {
@@ -182,6 +155,40 @@ func prepareRoutingBatch(ctx context.Context, batch BGPRoutingBatch, afi uint16,
 	}
 	copy(digest[:], crypto.Hash(body))
 	return prepared, digest, nil
+}
+
+func admitRoutingChanges(ctx context.Context, changes []BGPRoutingChange, afi uint16, profile BGPRoutingBudget) (BGPRoutingBudget, error) {
+	for _, change := range changes {
+		if err := ctx.Err(); err != nil {
+			return profile, err
+		}
+		if err := routingBatchCharge(&profile, 2048, 256); err != nil {
+			return profile, err
+		}
+		for _, segment := range change.Segments {
+			if err := routingBatchCharge(&profile, 256, 32); err != nil {
+				return profile, err
+			}
+			if err := routingBatchPopulationCharge(&profile, len(segment.Values), 128, 32); err != nil {
+				return profile, err
+			}
+		}
+		for _, attribute := range change.Attributes.Wire {
+			if err := routingBatchCharge(&profile, 256, 32); err != nil {
+				return profile, err
+			}
+			if err := routingBatchPopulationCharge(&profile, len(attribute.Value), 16, 8); err != nil {
+				return profile, err
+			}
+		}
+		if err := routingBatchPopulationCharge(&profile, len(change.NextHops), 512, 128); err != nil {
+			return profile, err
+		}
+		if err := validateRoutingChange(change, afi); err != nil {
+			return profile, err
+		}
+	}
+	return profile, nil
 }
 
 func validateRoutingChange(change BGPRoutingChange, afi uint16) error {
@@ -326,14 +333,14 @@ func (store BGPRouting) applyBatchInScope(ctx context.Context, sc tenancy.Scope,
 	if err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
-	plan, used, rows, err := planRoutingChanges(ctx, sc, source, ref, view, prepared, profile)
+	plan, used, rows, err := planRoutingChanges(ctx, sc, source.Scope, ref, view, prepared, profile)
 	if errors.Is(err, ErrBGPRoutingBudget) {
 		return invalidateRoutingView(ctx, sc, source, ref, "state-budget")
 	}
 	if err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
-	if err := persistRoutingChanges(ctx, sc, source, ref, batch, plan); err != nil {
+	if err := persistRoutingChanges(ctx, sc, source.Scope, ref, batch, plan); err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
 	// Locks serialize explicit changes, but do not stop time. Refuse and roll
@@ -393,7 +400,7 @@ type routingPlannedChange struct {
 	charge int64
 }
 
-func planRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, view routingWriteView, changes []routingPreparedChange, profile BGPRoutingBudget) ([]routingPlannedChange, int64, int64, error) {
+func planRoutingChanges(ctx context.Context, sc tenancy.Scope, source entity.Scope, ref BGPRoutingViewRef, view routingWriteView, changes []routingPreparedChange, profile BGPRoutingBudget) ([]routingPlannedChange, int64, int64, error) {
 	used, err := routingStateBytesInScope(ctx, sc)
 	if err != nil {
 		return nil, 0, 0, err
@@ -442,7 +449,7 @@ func planRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGPRouting
 	return plan, ownBytes, rows, nil
 }
 
-func persistRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, batch BGPRoutingBatch, plan []routingPlannedChange) error {
+func persistRoutingChanges(ctx context.Context, sc tenancy.Scope, source entity.Scope, ref BGPRoutingViewRef, batch BGPRoutingBatch, plan []routingPlannedChange) error {
 	for _, change := range plan {
 		if change.Withdraw {
 			if _, err := sc.Q.Exec(ctx, `DELETE FROM bgp_routing_entries WHERE tenant_id=$1 AND context_id=$2 AND view_id=$3 AND generation=$4 AND prefix=$5::cidr AND has_path_id=$6 AND path_id=$7`,

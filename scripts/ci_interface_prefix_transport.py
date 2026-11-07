@@ -187,6 +187,8 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicSnapshotMessageKeepsWholePathsExactReplayAndExclusiveCompletion",
+        "TestPublicSnapshotMessageRefusesLatePartialShapeBudgetAndForeignScope",
         "TestPublicSnapshotFreshnessUsesOriginalClockAndIndependentAuthorityLimits",
         "TestPublicSnapshotManifestKeepsBothFamiliesWholeIdentityExactClocksAndEmptyPresence",
         "TestPublicSnapshotManifestRefusesLatePartialBudgetAndForeignTenantBeforeStorage",
@@ -270,6 +272,7 @@ INTEGRATION = {
     ),
     "internal/store": (
         "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth",
+        "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions",
         "TestPublicSnapshotStagingKeepsWholeTenantManifestReplayRollbackAndEmptyWithdrawal",
         "TestPublicRoutingSnapshotSchemaKeepsEmptyRIBTenantSourceAndBoundViewIdentity",
         "TestPublicRoutingStagingKeepsTenantPrivateOwnedMetadataAndAtomicReplacement",
@@ -597,6 +600,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-message-sequence": (
+        "internal/store/bgp_public_message_store.go",
+        'if input.Sequence != header.nextSequence || header.state != "staging" {',
+        'if header.state != "staging" {',
+        "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions", "gap",
+        "public completion manufactured data or lost a genuine empty source",
+    ),
+    "public-message-atomic": (
+        "internal/store/bgp_public_message_store.go",
+        '"ROLLBACK TO SAVEPOINT public_snapshot_message"',
+        '"SELECT 1"',
+        "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions", "",
+        "rejected public message committed partial route writes",
+    ),
+    "public-message-manifest": (
+        "internal/store/bgp_public_message_store.go",
+        "verifyPublicSnapshotManifest(ctx, sc, birth, input.SnapshotID, header, profile)",
+        "func() error { return nil }()",
+        "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions", "corrupt-manifest",
+        "public completion manufactured data or lost a genuine empty source",
+    ),
     "public-source-freshness": (
         "internal/store/bgp_public_source_clock.go",
         "origin := time.Unix(0, *sourceClock)",
