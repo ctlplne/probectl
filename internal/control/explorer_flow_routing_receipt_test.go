@@ -84,9 +84,9 @@ func TestFlowRoutingValidityKeepsCompleteOriginalSelectorsAndAdmission(t *testin
 	if err := admitFlowSnapshotValidity(ctx, body, int64(len(body)-1), memory); !errors.Is(err, flowstore.ErrExplorerBudget) {
 		t.Fatal("routing receipt ignored configured whole-byte admission", err)
 	}
-	cancelled, cancel := context.WithCancel(ctx)
+	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := admitFlowSnapshotValidity(cancelled, body, int64(len(body)), memory); !errors.Is(err, context.Canceled) {
+	if err := admitFlowSnapshotValidity(canceled, body, int64(len(body)), memory); !errors.Is(err, context.Canceled) {
 		t.Fatal("routing receipt admission ignored cancellation", err)
 	}
 	t.Logf("simulation: complete two-period receipt, %d original selectors per period, %d encoded bytes; no source authority or database proof", count, len(body))

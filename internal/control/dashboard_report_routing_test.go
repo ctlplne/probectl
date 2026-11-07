@@ -77,10 +77,10 @@ func TestReportRoutingRequirementsKeepWholeOriginalPeriodsAndAdmission(t *testin
 		if partial, err := parseReportSourceRequirements(ctx, raw, 4096); err == nil || partial != nil {
 			t.Fatal("report source decode ignored current workspace admission", err)
 		}
-		cancelled, cancel := context.WithCancel(ctx)
+		canceled, cancel := context.WithCancel(ctx)
 		cancel()
-		if partial, err := parseReportSourceRequirements(cancelled, raw, memory); err == nil || partial != nil {
-			t.Fatal("cancelled report returned source requirements", err)
+		if partial, err := parseReportSourceRequirements(canceled, raw, memory); err == nil || partial != nil {
+			t.Fatal("canceled report returned source requirements", err)
 		}
 		t.Logf("simulation: tenant lane %d, two complete periods of %d original selectors, %d encoded bytes; no current-source or physical-sender grant", lane, count, len(raw))
 	}
