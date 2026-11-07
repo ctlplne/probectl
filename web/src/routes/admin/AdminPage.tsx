@@ -48,6 +48,7 @@ import { IdentityCard } from './IdentityCard'
 import { EntityRegistryCard } from './EntityRegistryCard'
 import { TenantTagsCard } from './TenantTagsCard'
 import { InterfaceRolesCard } from './InterfaceRolesCard'
+import { BGPRoutingBindingsCard } from './BGPRoutingBindingsCard'
 import { TenantTagRulesCard } from './TenantTagRulesCard'
 import { TenantTagAssignmentsCard } from './TenantTagAssignmentsCard'
 import { TagSubjectResolutionCard } from './TagSubjectResolutionCard'
@@ -1114,6 +1115,7 @@ export function AdminPage() {
       <IdentityCard />
       <EntityRegistryCard />
       <InterfaceRolesCard />
+      <BGPRoutingBindingsCard />
       <TenantTagsCard />
       <TenantTagRulesCard />
       <TenantTagAssignmentsCard />

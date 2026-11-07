@@ -50,3 +50,6 @@ export type { IconName } from './Icon'
 export { DeviceCollectionOutcomesCard } from './DeviceCollectionOutcomesCard'
 export { DeviceTrapsCard } from './DeviceTrapsCard'
 export { FlowIngestQualityCard } from './FlowIngestQualityCard'
+
+export { TextArea } from './TextArea'
+export type { TextAreaProps } from './TextArea'

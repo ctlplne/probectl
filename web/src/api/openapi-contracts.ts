@@ -29,6 +29,20 @@ export interface APICallContract {
 
 export const API_CALL_CONTRACTS = [
   {
+    file: 'api/bgpRoutingBindings.ts',
+    method: 'GET',
+    path: '`/entity-contexts/${encodeURIComponent(context)}/bgp-routing-bindings?${query.toString()}`',
+    response: 'BGPRoutingBindingConfiguration',
+    generated: 'GetBGPRoutingBindingsResponse',
+  },
+  {
+    file: 'api/bgpRoutingBindings.ts',
+    method: 'PUT',
+    path: '`/entity-contexts/${encodeURIComponent(context)}/bgp-routing-bindings`',
+    response: 'BGPRoutingBindingConfiguration',
+    generated: 'ReplaceBGPRoutingBindingsResponse',
+  },
+  {
     file: 'api/interfaceRoles.ts',
     method: 'GET',
     path: '`/entity-contexts/${encodeURIComponent(context)}/interfaces/${encodeURIComponent(subject)}/role`',

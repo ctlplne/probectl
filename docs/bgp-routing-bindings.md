@@ -77,3 +77,10 @@ Both require an authenticated tenant user and the same current context
 permissions. They share the REST admission and audit path. Existing egress
 consent and redaction apply to sender/operator values; canonical stored UUIDs
 retain their structural identity. The tools do not grant source freshness.
+
+In Admin → Routing source bindings, choose an owned base context and the current
+collector/origin identities, then read the current epoch and complete binding
+array. The editor replaces the entire array without truncation. Withdrawing
+every selector requires explicit confirmation. Changing tenant or source clears
+the draft; stale responses cannot populate a different source editor. Read-only
+operators can inspect configuration without receiving write controls.
