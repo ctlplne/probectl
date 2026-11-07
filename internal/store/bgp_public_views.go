@@ -79,14 +79,17 @@ func (store BGPRouting) beginPublicViewInScope(ctx context.Context, sc tenancy.S
 	if err != nil {
 		return none, err
 	}
-	var latest *time.Time
-	if err := sc.Q.QueryRow(ctx, `SELECT max(observed_at) FROM bgp_routing_views
+	var latest *int64
+	if err := sc.Q.QueryRow(ctx, `SELECT CASE
+ WHEN count(*)=count(peer_identity->>'CollectorObservedUnixNanos')
+ THEN max((peer_identity->>'CollectorObservedUnixNanos')::bigint)
+ ELSE 9223372036854775807 END FROM bgp_routing_views
  WHERE tenant_id=$1 AND context_id=$2 AND collector_agent_id=$3 AND source_ref=$4
  AND source_kind='public_bgp' AND peer_key=$5 AND afi=$6 AND safi=$7`,
 		source.TenantID, source.ContextID, source.CollectorAgentID, source.SourceRef, key[:], definition.AFI, definition.SAFI).Scan(&latest); err != nil {
 		return none, err
 	}
-	if latest != nil && !source.ObservedAt.Truncate(time.Microsecond).After(*latest) {
+	if latest != nil && clock <= *latest {
 		return none, ErrBGPRoutingSourceUnavailable
 	}
 	id, err := newRegistryID()

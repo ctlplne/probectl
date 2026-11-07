@@ -113,6 +113,13 @@ func TestPublicRoutingStagingKeepsTenantPrivateOwnedMetadataAndAtomicReplacement
 	if err != nil || replacement.PeerKey != initial[0].PeerKey || replacement.Generation == initial[0].Generation || state(initial[0]) != "invalid" || state(replacement) != "staging" || state(otherView) != "staging" || state(initial[1]) != "staging" {
 		t.Fatal("public staging replacement mixed slots or tenant generations", err)
 	}
+	nanosecond := replacement.BGPPublicRoutingSource
+	nanosecond.ObservedAt = nanosecond.ObservedAt.Add(time.Nanosecond)
+	exact, err := begin(nanosecond, definition, budget)
+	if err != nil || exact.Definition.Public.CollectorObservedUnixNanos == nil || *exact.Definition.Public.CollectorObservedUnixNanos != nanosecond.ObservedAt.UnixNano() || state(replacement) != "invalid" {
+		t.Fatal("public staging collapsed distinct nanosecond observations to database precision", err)
+	}
+	replacement = exact
 	if _, err := begin(sources[0], definition, budget); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || state(replacement) != "staging" {
 		t.Fatal("old public staging observation retired a newer incarnation", err)
 	}
