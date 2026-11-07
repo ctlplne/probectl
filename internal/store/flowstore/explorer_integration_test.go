@@ -644,6 +644,7 @@ func TestExplorerClickHouseRealBackfillPreservesAgedHistory(t *testing.T) {
 
 func TestExplorerClickHouseRealRetainedCoverage(t *testing.T) {
 	store := explorerIntegrationStore(t)
+	t.Run("routing_capture", func(t *testing.T) { proveRoutingCaptureRowsInRealStore(t, store) })
 	ctx := t.Context()
 	suffix := time.Now().UnixNano()
 	red := fmt.Sprintf("probectl-qa-beta-fx1-retained-red-%d", suffix)
