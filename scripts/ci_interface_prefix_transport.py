@@ -36,6 +36,7 @@ UNIT = {
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
     ),
     "internal/store/flowstore": (
+        "TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission",
         "TestFlowRoutingCaptureRowsPreserveRawIdentityAndTenant",
         "TestFlowRoutingCaptureRowsRefuseIncompleteOrForeignMetadata",
         "TestFlowRoutingCaptureCHWireRetainsCompleteReferencesAndExpiry",
@@ -540,6 +541,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-capture-read-tenant": (
+        "internal/store/flowstore/routing_capture_reads.go",
+        "entry.row.TenantID != tenant || entry.row.TS.Before(plan.From)",
+        "(false && entry.row.TenantID != tenant) || entry.row.TS.Before(plan.From)",
+        "TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission", "",
+        "routing reference read truncated the complete original population",
+    ),
     "routing-capture-read-context": (
         "internal/store/bgp_routing_capture_reader.go",
         "if err := authorize(ctx, record); err != nil {",
