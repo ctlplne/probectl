@@ -262,6 +262,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/nms-imports/{id}/finalize-review":                           auditExplicit(auditFacetMutation, "nms_import.review_finalized"),
 	"POST /v1/entity-contexts":                                            auditExplicit(auditFacetMutation, "entity.context.created"),
 	"PUT /v1/entity-source-contexts":                                      auditExplicit(auditFacetMutation, "entity.source.assigned"),
+	"GET /v1/entity-contexts/{context_id}/bgp-routing-bindings":           auditWrapped(auditFacetSensitiveRead),
 	"PUT /v1/entity-contexts/{context_id}/bgp-routing-bindings":           auditExplicit(auditFacetMutation, "bgp.routing_bindings.replaced"),
 	"GET /v1/entities":                                                    auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/entities":                                                   auditExplicit(auditFacetMutation, "entity.created"),
