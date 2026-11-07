@@ -28,28 +28,7 @@ import (
 // Actual application-role Postgres/RLS and registry writers. Protocol/source
 // metadata is modeled here; actual FRR/flow wire belongs to the sender proof.
 func TestRoutingFlowCaptureRequiresUniqueCurrentExporterAndKeepsTenantRoutes(t *testing.T) {
-	f := newRoleInputsFixture(t)
-	const exporter, agent = "192.0.2.1", "routing-flow"
-	sources := []BGPRoutingSource{routingFixtureSource(f, 0), routingFixtureSource(f, 1)}
-	changes := make([]BGPRoutingChange, len(sources))
-	serials := make([]string, len(sources))
-	for lane, source := range sources {
-		ref := routingLookupBegin(t, f, source, routingLookupDefinition(1))
-		change := routingChangeFixture()
-		change.Prefix = netip.MustParsePrefix("203.0.113.0/24")
-		change.Segments[1].Values[0] = uint32(64496 + lane)
-		changes[lane] = change
-		routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 1, AFI: 1, SAFI: 1, Changes: []BGPRoutingChange{change}})
-		routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 2, AFI: 1, SAFI: 1, EndOfRIB: true})
-		serials[lane] = strings.ReplaceAll(uuid.NewString(), "-", "")
-		if err := NewAgentIdentities(f.pool).Record(t.Context(), source.TenantID, agent, crypto.EntitySPIFFEID(source.TenantID, agent), serials[lane], time.Now().Add(time.Hour), ""); err != nil {
-			t.Fatal(err)
-		}
-		routingFlowFixtureAssignment(t, f, source.TenantID, agent, exporter)
-		routingFlowFixtureEvidence(t, f, source.TenantID, agent, serials[lane], exporter)
-		f.peerAtAddress(source.TenantID, "2001:db8::1", uint32(65010+lane))
-	}
-	input := BGPRoutingFlowInput{Exporter: netip.MustParseAddr(exporter), Source: netip.MustParseAddr("203.0.113.1"), Destination: netip.MustParseAddr("203.0.113.2"), Protocol: "ipfix", Domain: ^uint32(0)}
+	f, changes, serials, input := newRoutingFlowCaptureFixture(t)
 	read := func(lane int, value BGPRoutingFlowInput, budget BGPRoutingBudget) (BGPRoutingFlowLookup, error) {
 		t.Helper()
 		var got BGPRoutingFlowLookup
@@ -108,21 +87,21 @@ func TestRoutingFlowCaptureRequiresUniqueCurrentExporterAndKeepsTenantRoutes(t *
 		t.Fatal("unadmitted flow lookup exposed partial routing evidence", err)
 	}
 	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx, `DELETE FROM entity_source_contexts WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='flow_exporter'`, f.tenants[0], agent)
+		_, err := sc.Q.Exec(ctx, `DELETE FROM entity_source_contexts WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='flow_exporter'`, f.tenants[0], "routing-flow")
 		return err
 	})
 	if got, err := read(0, input, routingViewBudget()); !errors.Is(err, ErrBGPRoutingFlowSource) || got.Owner.RouterID != "" {
 		t.Fatal("removed flow owner retained access to router evidence", err)
 	}
 	check(1)
-	routingFlowFixtureAssignment(t, f, f.tenants[0], agent, exporter)
+	routingFlowFixtureAssignment(t, f, f.tenants[0], "routing-flow", "192.0.2.1")
 	if got, err := read(0, input, routingViewBudget()); !errors.Is(err, ErrBGPRoutingFlowSource) || got.Source.Route.Paths != nil {
 		t.Fatal("recreated flow binding reused pre-assignment sender evidence", err)
 	}
-	routingFlowFixtureEvidence(t, f, f.tenants[0], agent, serials[0], exporter)
+	routingFlowFixtureEvidence(t, f, f.tenants[0], "routing-flow", serials[0], "192.0.2.1")
 	check(0)
 	// An unobserved competing assignment still makes ownership ambiguous.
-	routingFlowFixtureAssignment(t, f, f.tenants[0], "routing-flow-unobserved", exporter)
+	routingFlowFixtureAssignment(t, f, f.tenants[0], "routing-flow-unobserved", input.Exporter.String())
 	if got, err := read(0, input, routingViewBudget()); !errors.Is(err, ErrBGPRoutingFlowSource) || got.Source.Route.Paths != nil {
 		t.Fatal("unobserved competing exporter manufactured unique routing ownership", err)
 	}
@@ -147,4 +126,31 @@ func routingFlowFixtureEvidence(t *testing.T, f *roleInputsFixture, tenant, agen
 	if err != nil || accepted != 1 || unresolved != 0 {
 		t.Fatal("current explicit flow evidence was not accepted", accepted, unresolved, err)
 	}
+}
+
+func newRoutingFlowCaptureFixture(t *testing.T) (*roleInputsFixture, []BGPRoutingChange, []string, BGPRoutingFlowInput) {
+	t.Helper()
+	f := newRoleInputsFixture(t)
+	const exporter, agent = "192.0.2.1", "routing-flow"
+	sources := []BGPRoutingSource{routingFixtureSource(f, 0), routingFixtureSource(f, 1)}
+	changes := make([]BGPRoutingChange, len(sources))
+	serials := make([]string, len(sources))
+	for lane, source := range sources {
+		ref := routingLookupBegin(t, f, source, routingLookupDefinition(1))
+		change := routingChangeFixture()
+		change.Prefix = netip.MustParsePrefix("203.0.113.0/24")
+		change.Segments[1].Values[0] = uint32(64496 + lane)
+		changes[lane] = change
+		routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 1, AFI: 1, SAFI: 1, Changes: []BGPRoutingChange{change}})
+		routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 2, AFI: 1, SAFI: 1, EndOfRIB: true})
+		serials[lane] = strings.ReplaceAll(uuid.NewString(), "-", "")
+		if err := NewAgentIdentities(f.pool).Record(t.Context(), source.TenantID, agent, crypto.EntitySPIFFEID(source.TenantID, agent), serials[lane], time.Now().Add(time.Hour), ""); err != nil {
+			t.Fatal(err)
+		}
+		routingFlowFixtureAssignment(t, f, source.TenantID, agent, exporter)
+		routingFlowFixtureEvidence(t, f, source.TenantID, agent, serials[lane], exporter)
+		f.peerAtAddress(source.TenantID, "2001:db8::1", uint32(65010+lane))
+	}
+	input := BGPRoutingFlowInput{Exporter: netip.MustParseAddr(exporter), Source: netip.MustParseAddr("203.0.113.1"), Destination: netip.MustParseAddr("203.0.113.2"), Protocol: "ipfix", Domain: ^uint32(0)}
+	return f, changes, serials, input
 }

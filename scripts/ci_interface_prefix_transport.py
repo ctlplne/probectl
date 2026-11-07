@@ -129,6 +129,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestRoutingCaptureServiceRequiresTenantBeforeAvailability",
         "TestRoutingCaptureRepositoryRequiresTenantBeforeStorage",
         "TestRoutingCaptureObjectsKeepEveryFieldAndShareContentAcrossClocks",
         "TestRoutingCaptureObjectsKeepExplicitSelectionsAndUnavailableDirections",
@@ -194,6 +195,7 @@ INTEGRATION = {
         "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
     ),
     "internal/store": (
+        "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges",
         "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone",
         "TestRoutingOperatorConfigurationKeepsTenantPolicyCASAndAtomicAudit",
         "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
