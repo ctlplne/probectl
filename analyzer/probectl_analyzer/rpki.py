@@ -16,9 +16,11 @@ to ``unknown`` rather than breaking analysis (docs/guardrails.md G7-10).
 from __future__ import annotations
 
 import codecs
+import io
 import ipaddress
 import json
 import re
+import sys
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import IO
@@ -33,96 +35,224 @@ IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 # fetch failure (docs/guardrails.md G7-10).
 MAX_VRP_BYTES = 1 << 30
 _STREAM_CHUNK = 1 << 16
-# ING-26: a single entry (one ROA object) is tiny; a region that cannot be
-# decoded within this bound is pathological. Rejecting it here keeps the parse
-# linear — without it, one giant/undelimited entry makes each failed raw_decode
-# re-scan an ever-growing buffer (quadratic) up to the 1 GiB total bound.
-_MAX_ENTRY_BYTES = 1 << 20
-_HEADER_LIMIT = 1 << 20  # metadata before the "roas" array must fit here
-_ROAS_KEY = re.compile(r'"roas"\s*:\s*\[')
-_SEPARATORS = re.compile(r"[\s,]*")
+_JSON_STRING_SPECIAL = re.compile(r'["\\]')
+_JSON_STRUCTURAL = re.compile(r'["\\{}\[\]:,]')
+_JSON_SCALAR_END = re.compile(r"[ \t\r\n,\]}:]")
+# Complete values are framed in one linear pass before one JSON decode. Deep
+# invalid input and representation costs fail admission before materialization.
 
 
 class VRPError(ValueError):
     """The VRP export is malformed, truncated, or larger than MAX_VRP_BYTES."""
 
 
+class _VRPJSONStream:
+    """Bounded incremental JSON values; never buffer a complete VRP export."""
+
+    def __init__(self, fp: IO[bytes], max_bytes: int, chunk_size: int):
+        if max_bytes <= 0 or chunk_size <= 0:
+            raise VRPError("VRP source admission must be positive")
+        self.fp = fp
+        self.max_bytes = max_bytes
+        self.chunk_size = min(chunk_size, max_bytes + 1)
+        self.total = 0
+        self.buf = ""
+        self.pos = 0
+        self.eof = False
+        self.utf8 = codecs.getincrementaldecoder("utf-8")()
+        self.decoder = json.JSONDecoder(
+            object_pairs_hook=self._object, parse_constant=self._constant
+        )
+
+    @staticmethod
+    def _object(pairs: list[tuple[str, object]]) -> dict:
+        out: dict = {}
+        for key, value in pairs:
+            if key in out:
+                raise VRPError("duplicate VRP JSON object key")
+            out[key] = value
+        return out
+
+    @staticmethod
+    def _constant(value: str):
+        raise VRPError(f"non-JSON VRP constant {value}")
+
+    def fill(self) -> bool:
+        if self.eof:
+            return False
+        raw = self.fp.read(min(self.chunk_size, self.max_bytes - self.total + 1))
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8")
+        self.total += len(raw)
+        if self.total > self.max_bytes:
+            raise VRPError(f"VRP export exceeds the {self.max_bytes}-byte bound")
+        self.eof = not raw
+        try:
+            self.buf += self.utf8.decode(raw, final=self.eof)
+        except UnicodeError as err:
+            raise VRPError("VRP export is not complete UTF-8") from err
+        return not self.eof
+
+    def compact(self) -> None:
+        if self.pos > self.chunk_size:
+            self.buf = self.buf[self.pos :]
+            self.pos = 0
+
+    def peek(self) -> str:
+        while True:
+            while self.pos < len(self.buf) and self.buf[self.pos] in " \t\r\n":
+                self.pos += 1
+            if self.pos < len(self.buf):
+                return self.buf[self.pos]
+            self.compact()
+            if not self.fill():
+                return ""
+
+    def take(self, token: str) -> None:
+        if self.peek() != token:
+            raise VRPError(f"malformed or truncated VRP export: expected {token!r}")
+        self.pos += 1
+        self.compact()
+
+    def value(self):
+        if not self.peek():
+            raise VRPError("malformed or truncated VRP export: missing value")
+        fragments, end = self.value_end()
+        fragments.append(self.buf[self.pos : end])
+        try:
+            value = self.decoder.decode("".join(fragments))
+        except (ValueError, RecursionError) as err:
+            raise VRPError("malformed VRP per-entry JSON value") from err
+        self.pos = end
+        self.compact()
+        return value
+
+    def value_end(self) -> tuple[list[str], int]:
+        # Scan each character once before decoding a complete value once.
+        # Large legitimate strings/metadata do not trigger quadratic retries
+        # or inherit the former fixed one-MiB logical entry/header ceiling.
+        start = self.pos
+        fragments: list[str] = []
+        first = self.buf[start]
+        quoted = first == '"'
+        compound = first in "[{"
+        stack = [first] if compound else []
+        in_string = quoted
+        escaped = False
+        index = start + 1 if quoted or compound else start
+        charge = 256
+        while True:
+            if index == len(self.buf):
+                # Retain each scanned chunk once, instead of repeatedly copying
+                # an ever-growing value while waiting for its closing token.
+                fragments.append(self.buf[self.pos : index])
+                self.buf = ""
+                self.pos = 0
+                index = 0
+                if self.fill():
+                    continue
+                if quoted or compound:
+                    raise VRPError("truncated VRP per-entry JSON value")
+                return fragments, index
+            if escaped:
+                escaped = False
+                index += 1
+                charge += 64
+                continue
+            pattern = _JSON_STRING_SPECIAL if in_string else _JSON_STRUCTURAL
+            if not quoted and not compound:
+                pattern = _JSON_SCALAR_END
+            match = pattern.search(self.buf, index)
+            boundary = match.start() if match else len(self.buf)
+            charge += 64 * (boundary - index)
+            if charge > max(MAX_VRP_BYTES, self.max_bytes):
+                raise VRPError("VRP per-entry representation exceeds memory admission")
+            index = boundary
+            if match is None:
+                continue
+            char = self.buf[index]
+            charge += 64 + (256 if not in_string else 0)
+            if not quoted and not compound:
+                return fragments, index
+            if in_string:
+                if char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                    if quoted:
+                        return fragments, index + 1
+            elif char == '"':
+                in_string = True
+            elif char in "[{":
+                stack.append(char)
+                if len(stack) > sys.getrecursionlimit():
+                    raise VRPError("VRP per-entry nesting exceeds JSON runtime admission")
+            elif char in "]}":
+                if not stack or (stack[-1], char) not in (("[", "]"), ("{", "}")):
+                    raise VRPError("mismatched VRP per-entry JSON delimiters")
+                stack.pop()
+                if not stack:
+                    return fragments, index + 1
+            index += 1
+
+    def roas(self) -> Iterator[dict]:
+        self.take("[")
+        if self.peek() == "]":
+            self.take("]")
+            return
+        while True:
+            value = self.value()
+            if not isinstance(value, dict):
+                raise VRPError("every VRP entry must be an object")
+            yield value
+            if self.peek() == "]":
+                self.take("]")
+                return
+            self.take(",")
+            if self.peek() == "]":
+                raise VRPError("trailing comma in VRP array")
+
+
 def iter_roas(
     fp: IO[bytes], *, max_bytes: int = MAX_VRP_BYTES, chunk_size: int = _STREAM_CHUNK
 ) -> Iterator[dict]:
-    """Yield the ROA entries of a validator export without loading it whole.
+    """Stream both export shapes and validate the complete enclosing document.
 
-    Accepts both export shapes — ``{"roas": [...]}`` (rpki-client / Routinator /
-    Cloudflare) and a bare array — and parses one entry at a time from a small
-    rolling buffer, so memory stays proportional to one ROA, not the export.
+    The production set is published only after this iterator finishes. Every
+    entry, metadata value, delimiter, UTF-8 tail and total byte is checked;
+    malformed tails cannot turn a partial source into a complete VRPSet.
     """
-    decoder = json.JSONDecoder()
-    utf8 = codecs.getincrementaldecoder("utf-8")()
-    buf = ""
-    total = 0
-    eof = False
-
-    def fill() -> bool:
-        nonlocal buf, total, eof
-        if eof:
-            return False
-        raw = fp.read(chunk_size)
-        if isinstance(raw, str):  # text streams (tests, str-returning fakes)
-            raw = raw.encode("utf-8")
-        if not raw:
-            eof = True
-            buf += utf8.decode(b"", final=True)
-            return False
-        total += len(raw)
-        if total > max_bytes:
-            raise VRPError(f"VRP export exceeds the {max_bytes}-byte bound")
-        buf += utf8.decode(raw)
-        return True
-
-    # Locate the array: a bare array starts the document; an object carries it
-    # under "roas" within a small metadata header.
-    idx = -1
-    while idx < 0:
-        stripped = buf.lstrip()
-        if stripped.startswith("["):
-            idx = len(buf) - len(stripped) + 1
-            break
-        m = _ROAS_KEY.search(buf)
-        if m:
-            idx = m.end()
-            break
-        if len(buf) > _HEADER_LIMIT:
-            raise VRPError('no "roas" array within the first MiB of the VRP export')
-        if not fill():
-            raise VRPError("VRP export has no ROA array")
-
-    while True:
-        idx = _SEPARATORS.match(buf, idx).end()
-        if idx >= len(buf):
-            if not fill():
-                raise VRPError("truncated VRP export (array never closed)")
-            continue
-        if buf[idx] == "]":
-            return
-        try:
-            obj, end = decoder.raw_decode(buf, idx)
-        except json.JSONDecodeError as err:
-            # ING-26: a single entry that will not decode within the per-entry
-            # bound is rejected quickly, so a pathological giant/undelimited
-            # entry cannot drive quadratic re-parsing of a growing buffer.
-            if len(buf) - idx > _MAX_ENTRY_BYTES:
-                raise VRPError(
-                    f"VRP entry exceeds the {_MAX_ENTRY_BYTES}-byte per-entry bound"
-                ) from err
-            if fill():  # the entry may straddle the chunk boundary
-                continue
-            raise VRPError(f"malformed or truncated VRP export: {err.msg}") from err
-        if isinstance(obj, dict):
-            yield obj
-        idx = end
-        if idx > chunk_size:
-            buf = buf[idx:]
-            idx = 0
+    stream = _VRPJSONStream(fp, max_bytes, chunk_size)
+    if stream.peek() == "[":
+        yield from stream.roas()
+    elif stream.peek() == "{":
+        stream.take("{")
+        found = False
+        if stream.peek() != "}":
+            while True:
+                key = stream.value()
+                if not isinstance(key, str):
+                    raise VRPError("VRP export key must be a string")
+                stream.take(":")
+                if key == "roas":
+                    if found:
+                        raise VRPError("duplicate top-level ROA array")
+                    found = True
+                    yield from stream.roas()
+                else:
+                    stream.value()
+                if stream.peek() == "}":
+                    break
+                stream.take(",")
+                if stream.peek() == "}":
+                    raise VRPError("trailing comma in VRP object")
+        stream.take("}")
+        if not found:
+            raise VRPError("VRP export has no top-level ROA array")
+    else:
+        raise VRPError("VRP export has no ROA array")
+    if stream.peek():
+        raise VRPError("trailing data after complete VRP export")
 
 
 def overlapping(monitored: Iterable[str]) -> Callable[[IPNetwork], bool]:
@@ -147,11 +277,16 @@ def overlapping(monitored: Iterable[str]) -> Callable[[IPNetwork], bool]:
 
 
 def _parse_asn(value: object) -> int:
-    """Accept 13335, "13335", or "AS13335"."""
-    if isinstance(value, int):
-        return value
-    s = str(value).upper().removeprefix("AS").strip()
-    return int(s)
+    """Accept the full uint32 ASN range, including RFC 7607 AS0 ROAs."""
+    if isinstance(value, bool):
+        raise VRPError("VRP ASN must be an integer")
+    text = str(value).strip().upper().removeprefix("AS").strip()
+    if not text.removeprefix("+").isdecimal():
+        raise VRPError("VRP ASN must be an integer")
+    asn = int(text)
+    if not 0 <= asn <= 0xFFFFFFFF:
+        raise VRPError("VRP ASN is outside the uint32 range")
+    return asn
 
 
 @dataclass(frozen=True)
@@ -162,9 +297,19 @@ class ROA:
 
 
 def _roa_from_dict(r: dict) -> ROA:
-    net = ipaddress.ip_network(r["prefix"], strict=False)
-    max_len = int(r.get("maxLength", r.get("max_length", net.prefixlen)))
-    return ROA(network=net, max_length=max_len, asn=_parse_asn(r["asn"]))
+    try:
+        if not isinstance(r["prefix"], str):
+            raise VRPError("VRP prefix must be a string")
+        net = ipaddress.ip_network(r["prefix"], strict=False)
+        value = r.get("maxLength", net.prefixlen)
+        if isinstance(value, bool) or not str(value).strip().removeprefix("+").isdecimal():
+            raise VRPError("VRP maxLength must be an integer")
+        length = int(value)
+        if not net.prefixlen <= length <= net.max_prefixlen:
+            raise VRPError("VRP maxLength does not fit its prefix family")
+        return ROA(network=net, max_length=length, asn=_parse_asn(r["asn"]))
+    except (KeyError, TypeError, ValueError) as err:
+        raise VRPError("malformed VRP entry") from err
 
 
 class VRPSet:
@@ -184,9 +329,7 @@ class VRPSet:
 
     @classmethod
     def from_json(cls, text: str) -> VRPSet:
-        data = json.loads(text)
-        roas = data["roas"] if isinstance(data, dict) else data
-        return cls.from_dicts(roas)
+        return cls.from_stream(io.BytesIO(text.encode("utf-8")))
 
     @classmethod
     def from_stream(
