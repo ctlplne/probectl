@@ -568,13 +568,20 @@ func TestExplorerClickHouseRealD103EveryRegistryFieldPaired(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// These original rows have no routing captures. Model an explicit
+		// tenant-bound empty lookup, preserving their traffic and unavailable
+		// routing values without granting a source or inventing a capture.
+		routing, err := NewRoutingQueryData(ctx, tenant, at, nil, 1<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
 		names := explorerNames{{TenantID: tenant, Exporter: own.Exporter, Index: 7, Name: "inside"}, {TenantID: tenant, Exporter: own.Exporter, Index: 8, Name: "outside"}}
 		memory.WithExplorerInterfaces(names)
 		store.WithExplorerInterfaces(names)
 		for _, field := range flow.QueryFields() {
 			t.Run(tenant+"/"+field.Name, func(t *testing.T) {
 				plan := flow.QueryPlan{From: own.TS.Add(-time.Minute), To: own.TS.Add(time.Minute), GroupBy: []string{field.Name}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
-				query := PlanQuery{TenantID: tenant, Plan: plan, Roles: projection}
+				query := PlanQuery{TenantID: tenant, Plan: plan, Roles: projection, Routing: routing}
 				reference, err := memory.ExplorePlan(ctx, query)
 				if err != nil {
 					t.Fatal(err)
