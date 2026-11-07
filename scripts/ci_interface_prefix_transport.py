@@ -15,9 +15,9 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
-	"cmd/probectl-flow-agent": (
-		"TestObservedFlowEvidenceKeepsCompleteRoutingWitnessChannel",
-	),
+    "cmd/probectl-flow-agent": (
+        "TestObservedFlowEvidenceKeepsCompleteRoutingWitnessChannel",
+    ),
     "internal/pipeline": (
         "TestFlowCaptureConsumerKeepsOriginalDigestFrozenClockAndTenant",
         "TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution",
@@ -540,6 +540,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-witness-runtime": (
+        "cmd/probectl-flow-agent/main.go",
+        "func (o observedFlowEvidence) SubmitFlowRouting(",
+        "func (o observedFlowEvidence) submitFlowRouting(",
+        "TestObservedFlowEvidenceKeepsCompleteRoutingWitnessChannel", "",
+        "runtime evidence wrapper dropped the routing witness channel",
+    ),
     "routing-intent-publication": (
         "internal/store/bgp_routing_capture_repository.go",
         "func readRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]byte, budget BGPRoutingBudget) (routingCaptureReceipt, bool, error) {",
