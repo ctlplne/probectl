@@ -40,11 +40,12 @@ func TestBGPRoutingBindingsNamedAndRawCLIKeepWholeTenantConfiguration(t *testing
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if r.Method == http.MethodGet {
+			switch r.Method {
+			case http.MethodGet:
 				if r.URL.Query().Get("collector_agent_id") != "owned-collector" || r.URL.Query().Get("source_ref") != "owned-origin" {
 					t.Error("routing CLI lost origin selector")
 				}
-			} else if r.Method == http.MethodPut {
+			case http.MethodPut:
 				got, e := io.ReadAll(r.Body)
 				var actual, expected any
 				if e != nil || json.Unmarshal(got, &actual) != nil || json.Unmarshal(want, &expected) != nil {
@@ -56,7 +57,7 @@ func TestBGPRoutingBindingsNamedAndRawCLIKeepWholeTenantConfiguration(t *testing
 				if !bytes.Equal(a, b) {
 					t.Error("routing CLI changed complete replacement, epoch or withdrawal")
 				}
-			} else {
+			default:
 				t.Error("routing CLI changed method")
 			}
 			w.Header().Set("Content-Type", "application/json")
