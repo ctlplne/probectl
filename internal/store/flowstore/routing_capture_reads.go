@@ -29,22 +29,6 @@ type RoutingCaptureRead struct {
 	Ref     entity.FlowCaptureReference
 }
 
-// RoutingCaptureReferenceStore enumerates the complete window before derived
-// routing filters/grouping. It never uses a display/page limit to truncate the
-// metadata population. Resource exhaustion refuses the complete operation.
-type RoutingCaptureReferenceStore interface {
-	routingCaptureReferences(context.Context, string, time.Time, time.Time, string) ([]RoutingCaptureRead, error)
-}
-
-func routingCaptureReferenceStoreOf(st Store) (RoutingCaptureReferenceStore, bool) {
-	plan, ok := PlanStoreOf(st)
-	if !ok {
-		return nil, false
-	}
-	reader, ok := plan.(RoutingCaptureReferenceStore)
-	return reader, ok
-}
-
 func routingReferencePlan(ctx context.Context, tenant string, from, to time.Time, series string) (flow.QueryPlan, error) {
 	if err := ctx.Err(); err != nil {
 		return flow.QueryPlan{}, err
@@ -82,6 +66,8 @@ func sortedRoutingReads(rows map[[32]byte]RoutingCaptureRead) []RoutingCaptureRe
 	return result
 }
 
+// Enumerate the complete window before derived routing filters/grouping. No
+// display/page limit truncates metadata; resource refusal returns no prefix.
 func (m *Memory) routingCaptureReferences(ctx context.Context, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
 	plan, err := routingReferencePlan(ctx, tenant, from, to, series)
 	if err != nil {
