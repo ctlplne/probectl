@@ -360,6 +360,132 @@
       "raw_available": true,
       "rollup_available": true,
       "required_permission": "entities.read"
+    },
+    {
+      "name": "src_bgp_provenance",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "src_bgp_prefix",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "src_bgp_as_paths",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "src_bgp_next_hop_as",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "src_bgp_origin_as",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "src_bgp_first_transit_as",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "src_bgp_rpki",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "dst_bgp_provenance",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "dst_bgp_prefix",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "dst_bgp_as_paths",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "dst_bgp_next_hop_as",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "dst_bgp_origin_as",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "dst_bgp_first_transit_as",
+      "type": "unsigned",
+      "operators": ["eq", "ne", "in", "not_in", "between", "not_between", "gt", "lt", "bit_and"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
+    },
+    {
+      "name": "dst_bgp_rpki",
+      "type": "text",
+      "operators": ["eq", "ne", "in", "not_in", "contains", "not_contains", "regex", "not_regex"],
+      "legacy_hourly_available": false,
+      "raw_available": true,
+      "rollup_available": true,
+      "required_permission": "entities.read"
     }
   ],
   "limits": {
@@ -381,7 +507,7 @@
     "max_table_rows": 2147483647,
     "max_tag_value_bytes": 96000,
     "max_tag_value_characters": 24000,
-    "max_value_bytes": 65536,
+    "max_value_bytes": 2097152,
     "max_values_per_predicate": 1000,
     "memory_bytes": 2147483648,
     "min_bucket_seconds": 1,

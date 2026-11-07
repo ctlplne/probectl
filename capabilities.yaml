@@ -301,7 +301,7 @@ capabilities:
     status: delivered
     evidence_status: complete
     owner: platform/release
-    engine: {refs: ["file:internal/flow", "file:internal/flow/entity_evidence.go", "file:internal/store/flowstore/explorer_plan.go"]}
+    engine: {refs: ["file:internal/flow", "file:internal/flow/entity_evidence.go", "file:internal/store/flowstore/explorer_plan.go", "file:internal/flow/query_routing.go", "file:internal/control/explorer_flow_routing.go"]}
     binary: {refs: ["file:cmd/probectl-flow-agent/main.go#func run"]}
     api: {refs: ["api:GET /v1/flows/top", "api:GET /v1/flows/ingest-quality", "api:GET /v1/explorer/schema", "api:POST /v1/explorer/query", "api:POST /v1/explorer/compare", "api:GET /v1/explorer/flow-views", "api:POST /v1/explorer/flow-views", "api:GET /v1/explorer/flow-filters", "api:POST /v1/explorer/flow-filters", "api:GET /v1/explorer/flow-snapshots/{id}/csv", "api:GET /v1/entities/resolve"]}
     cli: {refs: ["cli:probectl flow top", "cli:probectl flow quality", "cli:probectl explorer query", "cli:probectl explorer compare", "cli:probectl explorer view-run", "cli:probectl explorer filter-list", "cli:probectl explorer snapshot-csv", "cli:probectl entities resolve"]}

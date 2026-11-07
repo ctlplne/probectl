@@ -27,7 +27,9 @@ const (
 	MaxQueryFilterDepth  = 5
 	MaxQueryRegexBytes   = 1024
 	MaxQueryValues       = 1000
-	MaxQueryValueBytes   = 64 * 1024
+	// Complete path values share whole-plan admission instead of a smaller
+	// independent text ceiling. Storage/library/query budgets still apply.
+	MaxQueryValueBytes = MaxPlanGrammarBytes
 )
 
 // QueryPredicate carries typed values. Field and operator resolve through the
@@ -89,7 +91,7 @@ func normalizeQueryPredicates(input []QueryPredicate, lookup func(string) (Query
 			}
 			if value == "" {
 				exact := predicate.Op == QueryEqual || predicate.Op == QueryNotEqual || predicate.Op == QueryIn || predicate.Op == QueryNotIn
-				if exact && (field.Type == QueryText || field.Type == QueryAddress || field.Type == QueryPrefix) {
+				if exact && (field.Type == QueryText || field.Type == QueryAddress || field.Type == QueryPrefix || field.Derived == "flow_routing" && field.Type == QueryUnsigned) {
 					values = append(values, "")
 					continue
 				}

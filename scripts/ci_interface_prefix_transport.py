@@ -36,6 +36,7 @@ UNIT = {
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
     ),
     "internal/store/flowstore": (
+        "TestRoutingASNFiltersBindUnknownSeparatelyFromZeroAndKeepExclusions",
         "TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys",
         "TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission",
         "TestFlowRoutingCaptureRowsPreserveRawIdentityAndTenant",
@@ -47,6 +48,7 @@ UNIT = {
         "TestInterfaceRoleExplorerSQLKeepsFixedTenantJoinAndCompleteExternalValues",
     ),
     "internal/flow": (
+        "TestRoutingRegistryKeepsCompletePathsUnknownASNsAndEveryQueryAxis",
         "TestRoutingQuerySelectorsRequireTheBGPSourcePlaneOnEveryAxis",
         "TestOriginalFlowDigestPreservesUntrustedAndCloudPayloadWithoutAuthority",
         "TestFlowEvidencePreservesEveryConfiguredDomainBeyondTransportAndCachePages",
@@ -233,6 +235,7 @@ INTEGRATION = {
     ),
     "internal/control": (
         "TestRoutingContextRequiresCurrentBGPPolicyAndPreservesSibling",
+        "TestRoutingFieldsPreserveUnknownTrafficAcrossServedAndNativeReaders",
         "TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthority",
         "TestReportRoutingSourceStorageKeepsWholePeriodsAndTenantAdmission",
         "TestReportRoleSourcesKeepCurrentCanonicalContextsWithoutTags",
@@ -568,6 +571,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-registry": (
+        "internal/flow/query_fields.go",
+        "\tregisterRoutingQueryFields()",
+        "\t// Routing registration omitted.",
+        "TestRoutingRegistryKeepsCompletePathsUnknownASNsAndEveryQueryAxis", "",
+        "complete routing field is absent from the shared query registry",
+    ),
+    "routing-complete-filter": (
+        "internal/flow/query_predicates.go",
+        "MaxQueryValueBytes = MaxPlanGrammarBytes",
+        "MaxQueryValueBytes = 64 * 1024",
+        "TestRoutingRegistryKeepsCompletePathsUnknownASNsAndEveryQueryAxis", "",
+        "routing plan lost complete path, matrix, percentile, rows or historical reach",
+    ),
+    "routing-null-predicate": (
+        "internal/store/flowstore/explorer_clickhouse.go",
+        'result = "ifNull(" + result + ",0)"',
+        '_ = result',
+        "TestRoutingASNFiltersBindUnknownSeparatelyFromZeroAndKeepExclusions", "",
+        "routing SQL lost bound values or two-valued nested exclusion",
+    ),
     "report-routing-bgp-global": (
         "internal/control/explorer_flow_routing.go",
         'for _, permission := range []string{ai.PermEntitiesRead, "events.read"}',

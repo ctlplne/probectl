@@ -1074,6 +1074,17 @@ actual credential. Global and original canonical-context permissions are
 checked again for queries, frozen readers and reports. A stored receipt cannot
 replace a revoked source-plane grant.
 
+Explorer's shared API, CLI, UI and MCP schema includes source and destination
+`bgp_provenance`, `bgp_prefix`, `bgp_as_paths`, `bgp_next_hop_as`,
+`bgp_origin_as`, `bgp_first_transit_as` and `bgp_rpki` fields, each prefixed
+with `src_` or `dst_`. Complete paths retain their segment boundaries and
+values; filter values share the whole-plan byte budget. A blank exact ASN
+filter selects unknown independently of ASN zero; `in`/`not_in` lists can
+combine blank with complete uint32 values. Nested exclusions retain unknown
+traffic unless the predicate actually selects it. Older hourly summaries do
+not reconstruct these fields. Current source authorization applies even when
+all selected traffic has unavailable routing metadata.
+
 Older rows and unsupported or unattested sources have no invented capture.
 Raw-input expiry clears these references from complete hourly inputs while
 preserving the existing hourly aggregates. Tenant export and deletion keep the

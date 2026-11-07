@@ -34,6 +34,46 @@ function Harness({ initial }: { initial?: FlowQueryPlan }) {
 }
 
 describe('native flow plan controls', () => {
+  test('offers all routing fields and keeps complete path and unknown ASN operands', () => {
+    const path = JSON.stringify(['64500 '.repeat(65537) + '4294967295'])
+    render(
+      <Harness
+        initial={{
+          group_by: ['src_bgp_as_paths'],
+          view: 'table',
+          filter: {
+            conditions: [
+              { field: 'src_bgp_as_paths', op: 'eq', values: [path] },
+              { field: 'dst_bgp_origin_as', op: 'eq', values: [''] },
+            ],
+          },
+        }}
+      />,
+    )
+    const picker = screen.getByLabelText('Group by dimension 1')
+    for (const side of ['src', 'dst']) {
+      for (const suffix of [
+        'bgp_provenance',
+        'bgp_prefix',
+        'bgp_as_paths',
+        'bgp_next_hop_as',
+        'bgp_origin_as',
+        'bgp_first_transit_as',
+        'bgp_rpki',
+      ]) {
+        expect(picker.querySelector(`option[value="${side}_${suffix}"]`)).not.toBeNull()
+      }
+    }
+    const operand = screen.getByLabelText('Condition 1.1 value 1')
+    expect(operand).toHaveValue(path)
+    expect(Number(operand.getAttribute('maxlength'))).toBeGreaterThan(path.length)
+    expect(screen.getByLabelText('Condition 1.2 value 1')).toHaveValue('')
+    fireEvent.change(operand, { target: { value: path + ' ' } })
+    expect(JSON.parse(screen.getByTestId('plan').textContent).filter.conditions[0].values[0]).toBe(
+      path + ' ',
+    )
+  })
+
   test('discloses retained and legacy dimension availability from the registry', async () => {
     const user = userEvent.setup()
     const coverageSchema: FlowExplorerSchema = {

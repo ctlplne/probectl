@@ -211,9 +211,25 @@ func explorerPredicateSQLWithVocabulary(predicate flow.QueryPredicate, index int
 		return "", errors.New("unsupported flow field")
 	}
 	expression := explorerFieldExprWithParams(field, params)
+	result, err := explorerPredicateExpressionSQL(predicate, index, params, field, expression)
+	if err == nil && field.Derived == "flow_routing" && field.Type == flow.QueryUnsigned {
+		// Match the in-memory predicate's two-valued result before a nested
+		// exclude/NOT is applied. SQL NULL must not erase unknown traffic.
+		result = "ifNull(" + result + ",0)"
+	}
+	return result, err
+}
+
+func explorerPredicateExpressionSQL(predicate flow.QueryPredicate, index int, params chParams, field flow.QueryField, expression string) (string, error) {
 	typ := "String"
 	if field.Type == flow.QueryUnsigned {
 		typ = "UInt64"
+		if field.Derived == "flow_routing" && (predicate.Op == flow.QueryEqual || predicate.Op == flow.QueryNotEqual || predicate.Op == flow.QueryIn || predicate.Op == flow.QueryNotIn) {
+			// Blank is unknown; decimal zero remains a real, distinct value.
+			// Values were canonicalized to exact uint32 decimal or blank.
+			expression = "ifNull(toString(" + expression + "),'')"
+			typ = "String"
+		}
 	}
 	if field.Type == flow.QueryTimestamp {
 		typ = "DateTime64(9,'UTC')"

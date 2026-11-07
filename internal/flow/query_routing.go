@@ -8,7 +8,6 @@ package flow
 
 // RoutingQueryField identifies only code-owned routing dimensions. It grants
 // no source access; storage requires the independent current tenant projection.
-// Registration happens with the complete query adapters, not from these names.
 func RoutingQueryField(name string) (QueryField, bool) {
 	for _, side := range []string{"src", "dst"} {
 		for _, definition := range []struct {
@@ -35,4 +34,13 @@ func RoutingQueryField(name string) (QueryField, bool) {
 		}
 	}
 	return QueryField{}, false
+}
+
+func registerRoutingQueryFields() {
+	for _, side := range []string{"src", "dst"} {
+		for _, suffix := range []string{"bgp_provenance", "bgp_prefix", "bgp_as_paths", "bgp_next_hop_as", "bgp_origin_as", "bgp_first_transit_as", "bgp_rpki"} {
+			field, _ := RoutingQueryField(side + "_" + suffix)
+			queryFieldRegistry = append(queryFieldRegistry, field)
+		}
+	}
 }

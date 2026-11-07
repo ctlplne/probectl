@@ -10,6 +10,7 @@ package flowstore
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store/chclient"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -103,6 +105,7 @@ func proveRoutingQueryJoinsInRealStore(t *testing.T, store *ClickHouse, tenants 
 			if !known || !unknown {
 				t.Fatal("actual routing join changed complete paths, full ASN, key/clock or missing-row semantics", table, known, unknown)
 			}
+			proveRoutingPredicateCountsInRealStore(t, ctx, store, reader, tenant, from, external, count, origin)
 			if lane == 1 {
 				for _, attack := range [][]explorerExternalData{first, grafted} {
 					foreign, err := store.explorerQueryRows(ctx, Target{}, reader, tenant, sql, params, attack...)
@@ -111,6 +114,46 @@ func proveRoutingQueryJoinsInRealStore(t *testing.T, store *ClickHouse, tenants 
 					}
 				}
 			}
+		}
+	}
+}
+
+func proveRoutingPredicateCountsInRealStore(t *testing.T, ctx context.Context, store *ClickHouse, reader chclient.ReadLane, tenant, from string, external []explorerExternalData, count int, origin string) {
+	t.Helper()
+	for _, test := range []struct {
+		op      flow.QueryOperator
+		values  []string
+		exclude bool
+		want    int
+	}{
+		{flow.QueryEqual, []string{""}, false, 3},
+		{flow.QueryEqual, []string{"0"}, false, 0},
+		{flow.QueryEqual, []string{origin}, false, count - 3},
+		{flow.QueryNotEqual, []string{""}, false, count - 3},
+		{flow.QueryNotEqual, []string{"0"}, false, count},
+		{flow.QueryIn, []string{"", origin}, false, count},
+		{flow.QueryNotIn, []string{"", origin}, false, 0},
+		{flow.QueryBetween, []string{"0", "4294967295"}, false, count - 3},
+		{flow.QueryNotBetween, []string{"0", "4294967295"}, false, 0},
+		{flow.QueryBetween, []string{"0", "4294967295"}, true, 3},
+	} {
+		group := &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "src_bgp_origin_as", Op: test.op, Values: test.values}}}
+		if test.exclude {
+			group = &flow.QueryFilterGroup{Groups: []flow.QueryFilterGroup{{Mode: "exclude", Groups: []flow.QueryFilterGroup{*group}}}}
+		}
+		params := chParams{"tenant": tenant}
+		predicate, err := explorerFilterSQL(group, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings, err := DefaultExplorerBudget().settings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		query := "SELECT count() AS population FROM " + from + " WHERE tenant_id={tenant:String} AND " + predicate + "\n" + settings
+		got, err := store.explorerQueryRows(ctx, Target{}, reader, tenant, query, params, external...)
+		if err != nil || len(got) != 1 || chToString(got[0]["population"]) != strconv.Itoa(test.want) {
+			t.Fatal("actual routing predicate confused unknown, zero, full ASN or nested exclusion", test.op, test.exclude, err, got)
 		}
 	}
 }
