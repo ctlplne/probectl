@@ -100,8 +100,13 @@ few places probectl owns the names. In the TSDB they become `probectl_device_*`
 with labels `tenant_id, agent_id, device, device_name, source, if_index,
 if_name` (`source` is `snmp` or `gnmi`). SNMP interface samples also carry
 their normalized interface addresses in the tenant-keyed protobuf bus payload.
-SNMP polls read the IP-version-neutral IP-MIB address table for IPv4 and IPv6;
-explicitly unsupported agents retain the legacy IPv4 table. A failed or partial
+SNMP polls join the complete IP-version-neutral IP-MIB address and address-type
+columns by their exact address index for IPv4 and IPv6. Unicast and anycast
+remain interface addresses; entries explicitly reported as broadcast destinations
+do not become owned addresses, entity aliases or topology hops. Missing, duplicate,
+unmatched or invalid type metadata makes the modern address epoch unavailable;
+no prefix-bit guess supplies a type. Explicitly unsupported agents retain the
+legacy IPv4 table. A failed or partial
 modern address walk publishes no partial address inventory or complete role-prefix
 epoch. Scoped addresses preserve their device-local zone IDs in raw interface
 metrics and never become unscoped canonical address aliases.

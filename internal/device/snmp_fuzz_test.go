@@ -58,6 +58,8 @@ func (c fuzzConn) value() any {
 // PDU values (octet strings, lying counters, hostile table indexes). The
 // poller must never panic and must return tenant-stamped metrics only.
 func FuzzSNMPPoll(f *testing.F) {
+	f.Add([]byte(oidIPAddressType+".1.4.172.17.255.255"), int64(3), uint8(gosnmp.Integer))
+	f.Add([]byte(oidIPAddressType+".2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1"), int64(1), uint8(gosnmp.Integer))
 	f.Add([]byte("Cisco IOS XE"), int64(1000), uint8(gosnmp.OctetString))
 	f.Add([]byte{0xff, 0xfe, 0x00}, int64(-1), uint8(gosnmp.Counter64))
 	f.Add([]byte(""), int64(1<<62), uint8(gosnmp.Integer))
@@ -66,6 +68,7 @@ func FuzzSNMPPoll(f *testing.F) {
 	now := time.Unix(1750000000, 0).UTC()
 	f.Fuzz(func(t *testing.T, val []byte, num int64, kind uint8) {
 		_, _ = parseSNMPInterfaceAddress(gosnmp.SnmpPDU{Name: string(val), Type: gosnmp.Asn1BER(kind), Value: num})
+		_, _, _ = parseSNMPInterfaceAddressType(gosnmp.SnmpPDU{Name: string(val), Type: gosnmp.Asn1BER(kind), Value: num})
 		conn := fuzzConn{val: val, num: num, kind: gosnmp.Asn1BER(kind)}
 		dev := Target{Address: "192.0.2.10", Port: 161, Transport: "snmpv2c", Sensors: true}
 		metrics, _, err := pollSNMP(t.Context(), conn, dev, "tenant-1", "agent-1", now)
