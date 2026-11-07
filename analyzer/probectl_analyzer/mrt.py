@@ -261,13 +261,15 @@ class MRTReader:
 
     def _parse_peer_index(self, body: bytes) -> None:
         r = _Reader(body)
-        self._collector_id = r.u32()
+        collector_id = r.u32()
         view_len = r.u16()
         r.read(view_len)
         count = r.u16()
         peers: list[tuple[int, str]] = []
         for _ in range(count):
             peer_type = r.u8()
+            if peer_type & ~0x03:
+                raise MRTError("undefined peer index type bits")
             r.u32()  # peer BGP id
             if peer_type & 0x01:
                 addr = str(ipaddress.IPv6Address(r.read(16)))
@@ -275,18 +277,22 @@ class MRTReader:
                 addr = str(ipaddress.IPv4Address(r.read(4)))
             asn = r.u32() if peer_type & 0x02 else r.u16()
             peers.append((asn, addr))
+        if r.remaining():
+            raise MRTError("trailing peer index bytes")
+        # Commit the collector and peer map together only after the complete
+        # replacement has validated. A late failure retains neither fragment.
+        self._collector_id = collector_id
         self._peers = peers
 
     def _parse_rib(self, body: bytes, afi: int, event_time_unix_nano: int) -> Iterator[BGPRoute]:
-        r = _Reader(body)
-        r.u32()  # sequence number
-        prefix = r.read_prefix(afi)
-        entry_count = r.u16()
-        for _ in range(entry_count):
-            peer_index = r.u16()
-            r.u32()  # originated time
-            attr_len = r.u16()
-            attrs = r.read(attr_len)
+        # Validate the whole record before its first route is observed. Two
+        # bounded passes retain streaming across large RIB files and avoid a
+        # full record's decoded route/path population in memory.
+        for _, peer_index, attrs in _rib_entries(body, afi):
+            if self._peers and peer_index >= len(self._peers):
+                raise MRTError("RIB references an undefined peer index")
+            _as_path_from_attrs(attrs, four_byte=True)
+        for prefix, peer_index, attrs in _rib_entries(body, afi):
             path = _as_path_from_attrs(attrs, four_byte=True)
             peer_asn, peer_addr = (
                 self._peers[peer_index] if peer_index < len(self._peers) else (0, "")
@@ -380,6 +386,21 @@ class MRTReader:
                 collector_id=self._collector_id,
                 event_time_unix_nano=event_time_unix_nano,
             )
+
+
+def _rib_entries(body: bytes, afi: int) -> Iterator[tuple[str, int, bytes]]:
+    """RFC 6396 section 4.3.4: every entry and the complete envelope."""
+    r = _Reader(body)
+    r.u32()  # sequence number
+    prefix = r.read_prefix(afi)
+    count = r.u16()
+    for _ in range(count):
+        peer_index = r.u16()
+        r.u32()  # originated time
+        attrs = r.read(r.u16())
+        yield prefix, peer_index, attrs
+    if r.remaining():
+        raise MRTError("trailing RIB record bytes")
 
 
 def stream_mrt(fp: BinaryIO) -> Iterator[BGPRoute]:

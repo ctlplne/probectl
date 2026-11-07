@@ -147,7 +147,9 @@ def test_peer_index_late_failure_keeps_whole_original_collector_and_peer_identit
         expected = list(reader.stream(io.BytesIO(original + rib_ipv4("192.0.2.0/24", [64496]))))[0]
         route = list(reader.stream(io.BytesIO(bad + rib_ipv4("198.51.100.0/24", [64502]))))[0]
         assert (route.collector_id, route.peer_asn, route.peer_address) == (
-            expected.collector_id, 64511, "192.0.2.1"
+            expected.collector_id,
+            64511,
+            "192.0.2.1",
         ), "malformed peer table mixed collector and peer generations"
 
 
