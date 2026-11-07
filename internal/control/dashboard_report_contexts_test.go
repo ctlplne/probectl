@@ -58,6 +58,21 @@ func TestReportContextCaptureKeepsOnlyAuthorizedOwnedRequirements(t *testing.T) 
 	}
 }
 
+func TestReportRoutingContextRequirementsKeepTheBGPSourceGrant(t *testing.T) {
+	for _, tenant := range []string{"red", "blue"} {
+		sink := &reportContextCapture{tenant: tenant, remaining: 8 << 10}
+		ctx := context.WithValue(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), reportContextCaptureKey{}, sink)
+		principal := &auth.Principal{TenantID: tenant, UserID: "current-owner"}
+		records := []entity.ContextRecord{{TenantID: tenant, ContextID: "same-context"}}
+		if err := captureReportRoutingContextRequirements(ctx, principal, records, map[string]bool{"same-context": true}); err != nil {
+			t.Fatal(err)
+		}
+		if !sink.captured || len(sink.contexts) != 1 || sink.contexts[0].Resource[auth.ResourceTenantKey] != tenant || !slices.Equal(sink.contexts[0].Permissions, []string{"entities.read", "events.read", permFlowRead}) {
+			t.Fatal("report routing context omitted its BGP source-plane grant")
+		}
+	}
+}
+
 func TestReportContextCaptureRefusesScopeCostAndCancellationAtomically(t *testing.T) {
 	for _, tc := range []struct {
 		name string

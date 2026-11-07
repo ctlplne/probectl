@@ -150,3 +150,48 @@ func TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthor
 	}
 	t.Log("real-integration: one-connection Postgres current user/credential/view access, original empty routing receipt, report publication lock and sibling isolation; positive router/flow facts remain separate")
 }
+
+func TestRoutingContextRequiresCurrentBGPPolicyAndPreservesSibling(t *testing.T) {
+	f, _, actors, _ := newRoleFlowQueryFixture(t)
+	read := func(tenant string, global bool) error {
+		ctx := auth.WithPrincipal(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), actors[tenant])
+		return tenancy.InTenantReadSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			current, err := readCurrentUserAuthorityScope(ctx, sc, actors[tenant].UserID)
+			if err != nil {
+				return err
+			}
+			ctx, principal, err := current.requestContext(ctx, actors[tenant])
+			if err != nil {
+				return err
+			}
+			if global {
+				return f.server.authorize(ctx, principal, "events.read", auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: tenant})
+			}
+			record, err := store.NewEntityRegistry(f.pool).GetEntityContextInScope(ctx, sc, f.contextID)
+			if err != nil {
+				return err
+			}
+			return f.server.authorizeFlowRoutingContext(ctx, principal, record)
+		})
+	}
+	for _, tenant := range f.tenants {
+		if err := read(tenant, false); err != nil {
+			t.Fatal("current routing context lost admitted BGP authority", err)
+		}
+	}
+	red, blue := f.tenants[0], f.tenants[1]
+	f.in(red, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := (store.ABACPolicies{}).Create(ctx, sc, auth.Policy{Name: "deny-routing-bgp-source", Enabled: true, Effect: auth.PolicyDeny, Permission: "events.read", Resource: map[string]string{"context_id": f.contextID}, Priority: 100})
+		return err
+	})
+	if err := read(red, true); err != nil {
+		t.Fatal("context denial fixture lost its independent global grant", err)
+	}
+	if err := read(red, false); err == nil {
+		t.Fatal("routing context reader reused BGP evidence after its context denial")
+	}
+	if err := read(blue, false); err != nil {
+		t.Fatal("routing BGP context denial crossed tenant", err)
+	}
+	t.Log("real-integration: current application-role TLS Postgres user/context/policy and sibling isolation; source routing facts remain separate")
+}

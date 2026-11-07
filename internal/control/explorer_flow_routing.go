@@ -133,13 +133,8 @@ func (s *Server) loadFlowRoutingSnapshotInScope(ctx context.Context, sc tenancy.
 	}
 	records := map[string]entity.ContextRecord{}
 	authorize := func(ctx context.Context, record entity.ContextRecord) error {
-		if record.TenantID != principal.TenantID {
-			return entity.ErrScopeMismatch
-		}
-		for _, permission := range []string{permAIQuery, permFlowRead, ai.PermEntitiesRead, "events.read"} {
-			if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, entityContextResource(record)); err != nil {
-				return err
-			}
+		if err := s.authorizeFlowRoutingContext(ctx, principal, record); err != nil {
+			return err
 		}
 		records[record.ContextID] = record
 		return nil
