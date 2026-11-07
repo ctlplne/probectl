@@ -227,16 +227,21 @@ def iter_roas(
         yield from stream.roas()
     elif stream.peek() == "{":
         stream.take("{")
+
         found = False
+        seen: set[str] = set()
+        key_memory = 0
         if stream.peek() != "}":
             while True:
                 key = stream.value()
-                if not isinstance(key, str):
-                    raise VRPError("VRP export key must be a string")
+                if not isinstance(key, str) or key in seen:
+                    raise VRPError("missing or duplicate VRP export key")
+                key_memory += 128 + 4 * len(key)
+                if key_memory > max(MAX_VRP_BYTES, max_bytes):
+                    raise VRPError("VRP metadata keys exceed memory admission")
+                seen.add(key)
                 stream.take(":")
                 if key == "roas":
-                    if found:
-                        raise VRPError("duplicate top-level ROA array")
                     found = True
                     yield from stream.roas()
                 else:

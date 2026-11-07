@@ -33,6 +33,8 @@ ENTRY = json.dumps(ROA).encode()
         b"[" + ENTRY + b",]",
         b'{"roas":[' + ENTRY + b"],}",
         b'{"roas":[' + ENTRY + b'],"roas":[]}',
+        b'{"roas":[' + ENTRY + b'],"ro\\u0061s":[]}',
+        b'{"metadata":1,"roas":[' + ENTRY + b'],"metadata":2}',
         b'{"metadata":{"roas":[' + ENTRY + b"]}}",
         b'{"roas":[1,' + ENTRY + b"]}",
         b'{"roas":[' + ENTRY + b'],"metadata":NaN}',
