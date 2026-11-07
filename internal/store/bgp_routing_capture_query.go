@@ -23,7 +23,7 @@ import (
 func routingCaptureQueryProjection(ctx context.Context, lookup BGPRoutingFlowLookup, ref BGPRoutingCaptureReference, budget BGPRoutingBudget) (flowstore.RoutingProjection, error) {
 	none := flowstore.RoutingProjection{}
 	tenant, bound := tenancy.FromContext(ctx)
-	scope, err := lookup.Owner.Scope.Normalize()
+	scope, err := lookup.Owner.Normalize()
 	if !bound || tenant.String() != lookup.Owner.TenantID || err != nil || scope != lookup.Owner.Scope {
 		return none, entity.ErrScopeMismatch
 	}
