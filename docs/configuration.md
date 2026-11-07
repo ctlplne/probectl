@@ -1125,6 +1125,7 @@ it, and the bridge rejects any event without one):
 | `monitored_prefixes[].expected_origins` | allowed origin ASNs — an origin outside this set raises `possible_hijack` |
 | `monitored_prefixes[].no_transit` | ASNs that must not transit this prefix — mid-path appearance raises `possible_leak` |
 | `collector` | collector label recorded on events (e.g. `rrc00`) |
+| `ris_message_memory_bytes` | positive integer, default `67108864` (64 MiB); whole RIS message normalization workspace, including complete AS segments and each prefix's path copy, for replay and live input; refusal emits no partial routes |
 | `rpki_vrp_file` / `rpki_vrp_url` | a `rpki-client`/Routinator VRP JSON export for RFC 6811 validation (absent → `unknown`) |
 
 RPKI is the cryptographic registry recording which network is *allowed* to

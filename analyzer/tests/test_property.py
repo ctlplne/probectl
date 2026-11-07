@@ -74,7 +74,10 @@ def test_rib_record_roundtrips(prefix: str, as_path: list[int]):
     assert len(routes) == 1
     assert routes[0].prefix == prefix
     assert routes[0].as_path == as_path
-    assert routes[0].origin_asn == as_path[-1]
+    # AS_TRANS is retained exactly in the complete path, but is not proof of
+    # a reconstructed public origin. Never narrow the generated ASN values.
+    assert routes[0].origin_known == (as_path[-1] != 23456)
+    assert routes[0].origin_asn == (0 if as_path[-1] == 23456 else as_path[-1])
 
 
 VRP = VRPSet.from_dicts(

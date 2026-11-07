@@ -23,6 +23,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import BinaryIO
 
+from .as_path import AS_SEQUENCE, ASPath, ASPathSegment, path_origin, reconstruct_as_path
 from .log import get_logger
 
 _log = get_logger("probectl.analyzer.mrt")
@@ -43,7 +44,10 @@ SUB_BGP4MP_MESSAGE_AS4 = 4
 
 # BGP path-attribute type codes.
 ATTR_AS_PATH = 2
+ATTR_AGGREGATOR = 7
 ATTR_MP_REACH_NLRI = 14
+ATTR_AS4_PATH = 17
+ATTR_AS4_AGGREGATOR = 18
 
 # MRT address families.
 AFI_IPV4 = 1
@@ -79,10 +83,38 @@ class BGPRoute:
     # (RIS Live's ``host``, e.g. "rrc12.ripe.net"). Empty for MRT, whose
     # collector is the operator-configured one (DPR-294).
     collector: str = ""
+    # None is the compatibility shape of manually constructed observations.
+    # Source adapters always retain complete segment semantics independently
+    # of the legacy event path list, which is never a forwarding proof.
+    as_path_segments: tuple[ASPathSegment, ...] | None = None
+    as4_action: str = "absent"
+    as4_confederations_discarded: bool = False
+
+    @property
+    def origin_known(self) -> bool:
+        if self.as_path_segments is not None:
+            return path_origin(self.as_path_segments) is not None
+        return bool(self.as_path) and self.as_path[-1] not in (0, 23456)
 
     @property
     def origin_asn(self) -> int:
+        if self.as_path_segments is not None:
+            return path_origin(self.as_path_segments) or 0
         return self.as_path[-1] if self.as_path else 0
+
+    @property
+    def transit_asns(self) -> list[int]:
+        if self.as_path_segments is None:
+            return self.as_path[:-1]
+        # An unordered aggregate or an internal confederation member is not
+        # evidence of ordered public transit. Keep it in the complete path.
+        ordered = [
+            asn
+            for segment in self.as_path_segments
+            if segment.kind == AS_SEQUENCE
+            for asn in segment.values
+        ]
+        return ordered[:-1] if self.origin_known else []
 
 
 class _Reader:
@@ -245,13 +277,16 @@ class MRTReader:
             r.u32()  # originated time
             attr_len = r.u16()
             attrs = r.read(attr_len)
-            as_path = _as_path_from_attrs(attrs, four_byte=True)
+            path = _as_path_from_attrs(attrs, four_byte=True)
             peer_asn, peer_addr = (
                 self._peers[peer_index] if peer_index < len(self._peers) else (0, "")
             )
             yield BGPRoute(
                 prefix=prefix,
-                as_path=as_path,
+                as_path=[asn for segment in path.segments for asn in segment.values],
+                as_path_segments=path.segments,
+                as4_action=path.as4_action,
+                as4_confederations_discarded=path.confederations_discarded,
                 peer_asn=peer_asn,
                 peer_address=peer_addr,
                 collector_id=self._collector_id,
@@ -297,17 +332,21 @@ class MRTReader:
         r.read(withdrawn_len)  # withdrawals — not monitored here
         total_attr_len = r.u16()
         attrs = r.read(total_attr_len)
-        as_path = _as_path_from_attrs(attrs, four_byte=four_byte)
-
         prefixes = list(_mp_reach_prefixes(attrs))
         nlri = _Reader(r.rest())  # IPv4 NLRI trailing the attributes
         while nlri.remaining() > 0:
             prefixes.append(nlri.read_prefix(AFI_IPV4))
 
+        if not prefixes:
+            return  # A withdrawal-only UPDATE need not carry AS_PATH.
+        path = _as_path_from_attrs(attrs, four_byte=four_byte)
         for prefix in prefixes:
             yield BGPRoute(
                 prefix=prefix,
-                as_path=as_path,
+                as_path=[asn for segment in path.segments for asn in segment.values],
+                as_path_segments=path.segments,
+                as4_action=path.as4_action,
+                as4_confederations_discarded=path.confederations_discarded,
                 peer_asn=peer_as,
                 peer_address=peer_ip,
                 collector_id=self._collector_id,
@@ -329,22 +368,34 @@ def _iter_attrs(attrs: bytes) -> Iterator[tuple[int, bytes]]:
         yield typ, r.read(alen)
 
 
-def _as_path_from_attrs(attrs: bytes, four_byte: bool) -> list[int]:
+def _as_path_from_attrs(attrs: bytes, four_byte: bool) -> ASPath:
+    # Validate the whole attribute envelope before exposing a path. A valid
+    # first AS_PATH cannot hide duplicate attributes or a malformed tail.
+    selected = {}
     for typ, val in _iter_attrs(attrs):
-        if typ == ATTR_AS_PATH:
-            return _parse_as_path(val, four_byte)
-    return []
-
-
-def _parse_as_path(val: bytes, four_byte: bool) -> list[int]:
-    r = _Reader(val)
-    path: list[int] = []
-    while r.remaining() > 0:
-        r.u8()  # segment type (AS_SET / AS_SEQUENCE) — flattened
-        seg_len = r.u8()
-        for _ in range(seg_len):
-            path.append(r.u32() if four_byte else r.u16())
-    return path
+        if typ in (ATTR_AS_PATH, ATTR_AS4_PATH, ATTR_AGGREGATOR, ATTR_AS4_AGGREGATOR):
+            if typ in selected:
+                raise MRTError("duplicate AS path or aggregator attribute")
+            selected[typ] = val
+    if ATTR_AS_PATH not in selected:
+        raise MRTError("announced route has no AS_PATH")
+    aggregator = selected.get(ATTR_AGGREGATOR)
+    aggregator_asn = None
+    if aggregator is not None:
+        width = 4 if four_byte else 2
+        if len(aggregator) != width + 4:
+            raise MRTError("malformed AGGREGATOR")
+        aggregator_asn = int.from_bytes(aggregator[:width], "big")
+    try:
+        return reconstruct_as_path(
+            selected[ATTR_AS_PATH],
+            four_byte,
+            selected.get(ATTR_AS4_PATH),
+            aggregator_asn,
+            len(selected.get(ATTR_AS4_AGGREGATOR, b"")) == 8,
+        )
+    except ValueError as err:
+        raise MRTError(str(err)) from err
 
 
 def _mp_reach_prefixes(attrs: bytes) -> list[str]:

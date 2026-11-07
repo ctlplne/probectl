@@ -19,13 +19,16 @@ import json
 import time
 from collections.abc import Iterable, Iterator
 
+from .as_path import AS_SEQUENCE, AS_SET, ASPathSegment
+from .config import DEFAULT_RIS_MEMORY_BYTES
 from .log import get_logger
 from .mrt import BGPRoute
 
 _log = get_logger("probectl.analyzer.rislive")
 
 RIS_LIVE_URL = "wss://ris-live.ripe.net/v1/ws/"
-MAX_RIS_PATH_HOPS = 1024
+# Complete source paths follow finite whole-message workspace admission, not
+# an independent hop ceiling. Includes retained segments and per-prefix copies.
 MAX_RIS_ANNOUNCEMENTS = 1024
 MAX_RIS_PREFIXES = 4096
 # A RIS collector name is "rrcNN.ripe.net"; anything longer is hostile input.
@@ -55,7 +58,7 @@ def _bounded_list(value: object, field: str, limit: int) -> list:
 def _asn(value: object, field: str) -> int:
     if value in (None, ""):
         return 0
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
         raise RISMessageError(f"{field} must be an ASN")
     try:
         asn = int(value)
@@ -88,33 +91,51 @@ def _timestamp_unix_nano(value: object, field: str) -> int:
     return int(ts * 1_000_000_000)
 
 
-def _flatten_path(path: object) -> list[int]:
-    """Flatten a RIS Live AS path (which may nest AS_SETs as sub-lists)."""
-    hops = _bounded_list(path, "data.path", MAX_RIS_PATH_HOPS)
-    out: list[int] = []
+def _structured_path(path: object, memory_bytes: int) -> tuple[tuple[ASPathSegment, ...], int]:
+    """Preserve RIS AS_SET boundaries; the source does not encode confeds."""
+    hops = _bounded_list(path, "data.path", memory_bytes // 128)
+    # Charge the complete representation BEFORE typed allocation. This is
+    # conservative Python object/list/tuple workspace, not path truncation.
+    charge = 128
+    for hop in hops:
+        charge += 128
+        if isinstance(hop, list):
+            charge += len(hop) * 64
+        if charge > memory_bytes:
+            raise RISMessageError("data.path exceeds message memory admission")
+    out: list[ASPathSegment] = []
+    sequence: list[int] = []
     for hop in hops:
         if isinstance(hop, list):
-            if len(hop) > MAX_RIS_PATH_HOPS:
-                raise RISMessageError("data.path AS_SET too large")
-            for asn in hop:
-                out.append(_asn(asn, "data.path[]"))
+            if not hop:
+                raise RISMessageError("data.path AS_SET is empty")
+            if sequence:
+                out.append(ASPathSegment(AS_SEQUENCE, tuple(sequence)))
+                sequence = []
+            if any(value in (None, "") for value in hop):
+                raise RISMessageError("data.path AS_SET has an absent ASN")
+            out.append(ASPathSegment(AS_SET, tuple(_asn(asn, "data.path[]") for asn in hop)))
         else:
-            out.append(_asn(hop, "data.path[]"))
-        if len(out) > MAX_RIS_PATH_HOPS:
-            raise RISMessageError(f"data.path flattened length exceeds {MAX_RIS_PATH_HOPS}")
-    return out
+            if hop in (None, ""):
+                raise RISMessageError("data.path has an absent ASN")
+            sequence.append(_asn(hop, "data.path[]"))
+    if sequence:
+        out.append(ASPathSegment(AS_SEQUENCE, tuple(sequence)))
+    return tuple(out), charge
 
 
-def parse_ris_message(obj: object) -> list[BGPRoute]:
+def parse_ris_message(
+    obj: object, *, memory_bytes: int = DEFAULT_RIS_MEMORY_BYTES
+) -> list[BGPRoute]:
     """Normalize one RIS Live message into zero or more announced routes."""
     try:
-        return _parse_ris_message(obj)
+        return _parse_ris_message(obj, memory_bytes)
     except (RISMessageError, TypeError, ValueError, KeyError) as err:
         _log.warning("skipping malformed RIS Live message", error=str(err))
         return []
 
 
-def _parse_ris_message(obj: object) -> list[BGPRoute]:
+def _parse_ris_message(obj: object, memory_bytes: int) -> list[BGPRoute]:
     msg = _as_dict(obj, "message")
     if msg.get("type") != "ris_message":
         return []
@@ -122,7 +143,10 @@ def _parse_ris_message(obj: object) -> list[BGPRoute]:
     if data.get("type") != "UPDATE":
         return []
 
-    as_path = _flatten_path(data.get("path", []))
+    if isinstance(memory_bytes, bool) or not isinstance(memory_bytes, int) or memory_bytes <= 0:
+        raise RISMessageError("message memory admission must be a positive integer")
+    path, charged = _structured_path(data.get("path", []), memory_bytes)
+    as_path = [asn for segment in path for asn in segment.values]
     peer_addr = _string(data.get("peer", ""), "data.peer")
     peer_asn = _asn(data.get("peer_asn"), "data.peer_asn")
     # DPR-294: keep which RIS collector saw the update, so a live event says
@@ -148,10 +172,15 @@ def _parse_ris_message(obj: object) -> list[BGPRoute]:
                 raise RISMessageError(
                     f"message has more than {MAX_RIS_PREFIXES} announced prefixes"
                 )
+            prefix = _string(prefix, "data.announcements[].prefixes[]")
+            charged += 1024 + len(prefix) * 4 + len(as_path) * 8
+            if charged > memory_bytes:
+                raise RISMessageError("announced routes exceed message memory admission")
             routes.append(
                 BGPRoute(
-                    prefix=_string(prefix, "data.announcements[].prefixes[]"),
+                    prefix=prefix,
                     as_path=list(as_path),
+                    as_path_segments=path,
                     peer_asn=peer_asn,
                     peer_address=peer_addr,
                     event_time_unix_nano=event_time_unix_nano,
@@ -161,19 +190,41 @@ def _parse_ris_message(obj: object) -> list[BGPRoute]:
     return routes
 
 
-def iter_updates(messages: Iterable[str]) -> Iterator[BGPRoute]:
+def iter_updates(
+    messages: Iterable[str],
+    *,
+    memory_bytes: int = DEFAULT_RIS_MEMORY_BYTES,
+) -> Iterator[BGPRoute]:
     """Yield routes from an iterable of RIS Live JSON message strings (a live
     socket or a recorded replay). Malformed lines are logged and skipped."""
     for raw in messages:
         raw = raw.strip()
         if not raw:
             continue
+        # Reserve conservative JSON-object workspace before json.loads. The
+        # remaining budget still covers the complete normalized result, so
+        # replay and live input cannot spend the same admission twice.
+        if isinstance(memory_bytes, bool) or not isinstance(memory_bytes, int) or memory_bytes <= 0:
+            _log.warning("refusing RIS input with invalid message memory admission")
+            return
+        if len(raw) > memory_bytes // 64:
+            _log.warning("skipping unadmitted RIS Live message", memory_bytes=memory_bytes)
+            continue
+        try:
+            source_charge = len(raw.encode("utf-8")) * 64
+        except UnicodeError:
+            _log.warning("skipping non-UTF8 RIS Live message")
+            continue
+        remaining = memory_bytes - source_charge
+        if remaining <= 0:
+            _log.warning("skipping unadmitted RIS Live message", memory_bytes=memory_bytes)
+            continue
         try:
             obj = json.loads(raw)
         except json.JSONDecodeError as err:
             _log.warning("skipping malformed RIS Live message", error=str(err))
             continue
-        yield from parse_ris_message(obj)
+        yield from parse_ris_message(obj, memory_bytes=remaining)
 
 
 class RISLiveClient:
@@ -188,10 +239,12 @@ class RISLiveClient:
         url: str = RIS_LIVE_URL,
         host: str | None = None,
         max_backoff: float = 30.0,
+        memory_bytes: int = DEFAULT_RIS_MEMORY_BYTES,
     ):
         self._url = url
         self._host = host
         self._max_backoff = max_backoff
+        self._memory_bytes = memory_bytes
 
     def _subscribe_messages(self) -> list[str]:
         host = {"host": self._host} if self._host else {}
@@ -226,4 +279,4 @@ class RISLiveClient:
                 backoff = min(backoff * 2, self._max_backoff)
 
     def routes(self) -> Iterator[BGPRoute]:
-        return iter_updates(self.messages())
+        return iter_updates(self.messages(), memory_bytes=self._memory_bytes)

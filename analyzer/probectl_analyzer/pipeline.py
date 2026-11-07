@@ -112,4 +112,6 @@ class Analyzer:
         return self.process_routes(stream_mrt(fp))
 
     def process_ris_replay(self, lines: Iterable[str]) -> int:
-        return self.process_routes(iter_updates(lines))
+        return self.process_routes(
+            iter_updates(lines, memory_bytes=self._config.ris_message_memory_bytes)
+        )

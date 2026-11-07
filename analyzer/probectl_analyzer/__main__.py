@@ -61,7 +61,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             from .rislive import RISLiveClient
 
-            client = RISLiveClient(host=config.collector or None)
+            client = RISLiveClient(
+                host=config.collector or None, memory_bytes=config.ris_message_memory_bytes
+            )
             log.info("streaming RIS Live (Ctrl-C to stop)")
             analyzer.process_routes(client.routes())
     finally:

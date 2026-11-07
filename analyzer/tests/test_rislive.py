@@ -13,7 +13,6 @@ import json
 import pytest
 
 from probectl_analyzer.rislive import (
-    MAX_RIS_PATH_HOPS,
     MAX_RIS_PREFIXES,
     iter_updates,
     parse_ris_message,
@@ -109,10 +108,10 @@ def test_type_hostile_ris_messages_are_skipped(patch):
     assert list(iter_updates([json.dumps(msg)])) == []
 
 
-def test_ris_message_cardinality_limits_are_enforced():
+def test_ris_message_resource_and_prefix_admission_are_enforced():
     msg = json.loads(json.dumps(RIS_MESSAGE))
-    msg["data"]["path"] = list(range(MAX_RIS_PATH_HOPS + 1))
-    assert parse_ris_message(msg) == []
+    msg["data"]["path"] = list(range(1025))
+    assert parse_ris_message(msg, memory_bytes=4096) == []
 
     msg = json.loads(json.dumps(RIS_MESSAGE))
     msg["data"]["announcements"] = [

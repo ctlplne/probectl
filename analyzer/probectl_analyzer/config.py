@@ -17,6 +17,8 @@ import ipaddress
 import json
 from dataclasses import dataclass, field
 
+DEFAULT_RIS_MEMORY_BYTES = 64 * 1024 * 1024
+
 
 @dataclass
 class MonitoredPrefix:
@@ -47,6 +49,8 @@ class AnalyzerConfig:
     # every update; one event per (prefix, kind, origin) per window keeps the
     # tenant's event surface and the bus readable. 0 disables suppression.
     event_suppression_seconds: float = 300.0
+    # Complete RIS message normalization, including every prefix's path copy.
+    ris_message_memory_bytes: int = DEFAULT_RIS_MEMORY_BYTES
 
     @classmethod
     def from_dict(cls, d: dict) -> AnalyzerConfig:
@@ -55,6 +59,9 @@ class AnalyzerConfig:
         suppression = float(d.get("event_suppression_seconds", 300))
         if suppression < 0:
             raise ValueError("config: event_suppression_seconds must be >= 0")
+        ris_memory = d.get("ris_message_memory_bytes", DEFAULT_RIS_MEMORY_BYTES)
+        if isinstance(ris_memory, bool) or not isinstance(ris_memory, int) or ris_memory <= 0:
+            raise ValueError("config: ris_message_memory_bytes must be a positive integer")
         prefixes = [
             MonitoredPrefix(
                 prefix=p["prefix"],
@@ -72,6 +79,7 @@ class AnalyzerConfig:
             rpki_vrp_allow_insecure=bool(d.get("rpki_vrp_allow_insecure", False)),
             log_level=str(d.get("log_level", "INFO")),
             event_suppression_seconds=suppression,
+            ris_message_memory_bytes=ris_memory,
         )
 
     @classmethod

@@ -22,6 +22,7 @@ collector fetch.
 | ------ | -------------- |
 | `mrt.py` | streaming RFC 6396 parser (TABLE_DUMP_V2 RIB + BGP4MP UPDATE) — yields routes one at a time |
 | `rislive.py` | RIS Live JSON parsing (replayable core) + a reconnecting websocket client |
+| `as_path.py` | complete AS sequence/set/confederation semantics and RFC 6793 four-octet reconstruction |
 | `rpki.py` | RFC 6811 route-origin validation against a VRP set |
 | `monitor.py` | per-prefix baseline + origin-change / possible-hijack / possible-leak detection |
 | `events.py` | the `BGPEvent` schema (its JSON form is the contract with the Go bridge) |
@@ -88,6 +89,24 @@ loads (a full public export such as `https://rpki.cloudflare.com/rpki.json`,
 ~100 MB, stays at a few MB of memory; exports over 1 GiB are refused and
 degrade to `unknown`; DPR-055). The load logs `loading RPKI VRP export` /
 `RPKI VRP export loaded` with the scanned and kept counts.
+
+The source adapters retain complete AS segments, repeated ASNs and full
+unsigned four-byte values. MRT reconstruction uses the record's declared ASN
+width and records how optional `AS4_PATH` was handled, following
+[RFC 6793 sections 4.2.3 and 6](https://www.rfc-editor.org/rfc/rfc6793.html#section-4.2.3).
+An AS set, confederation-only path or unreconstructed `AS_TRANS` does not prove
+a unique origin. Such an observation cannot replace the origin baseline or
+produce an origin/RPKI verdict. The legacy flat event path is descriptive;
+it is not an ordered forwarding proof or a complete public routing table.
+
+RIS normalization admits the whole message against a default 64 MiB workspace,
+including segment objects and each announced prefix's path copy. The per-tenant
+`ris_message_memory_bytes` config key selects a different positive finite
+workspace for live input and replay (the parser library accepts `memory_bytes`).
+JSON input workspace is reserved before decoding and normalization uses the remainder. Accepted paths
+are complete; a malformed or unadmitted message returns no routes. This replaces
+the former independent 1,024-hop ceiling. Live websocket framing and prefix
+admission still apply independently.
 
 ## Conventions
 

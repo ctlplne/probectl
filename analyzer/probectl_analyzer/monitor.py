@@ -96,9 +96,7 @@ class PrefixMonitor:
         for event in emitted:
             detail: object = event.new_origin_asn
             if event.event_type == EventType.POSSIBLE_LEAK:
-                detail = tuple(
-                    a for a in event.new_as_path[:-1] if a in self._match_no_transit(event)
-                )
+                detail = tuple(a for a in route.transit_asns if a in self._match_no_transit(event))
             if not self._suppress((event.prefix, event.event_type.value, detail), now_ns):
                 kept.append(event)
         return kept
@@ -110,6 +108,12 @@ class PrefixMonitor:
     def _observe(self, route: BGPRoute) -> list[BGPEvent]:
         mp = self._match(route.prefix)
         if mp is None:
+            return []
+
+        # No unique origin is proved by an empty/set/confed-only path or an
+        # unreconstructed AS_TRANS. Preserve the observation in its adapter,
+        # but never poison the baseline or claim an origin/RPKI verdict.
+        if not route.origin_known:
             return []
 
         origin = route.origin_asn
@@ -161,7 +165,7 @@ class PrefixMonitor:
             )
 
         # Possible leak: an AS that must not transit this prefix appears mid-path.
-        transit = set(path[:-1])
+        transit = set(route.transit_asns)
         leaked = sorted(transit.intersection(mp.no_transit))
         if leaked:
             events.append(
