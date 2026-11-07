@@ -1094,6 +1094,10 @@ in the receipt.
 
 ### BGP routing intelligence
 
+Router-local selected-RIB source ownership and explicit serializer configuration
+are described in [Router-local selected-RIB bindings](bgp-routing-bindings.md).
+
+
 BGP is the protocol networks use to tell each other which IP blocks (prefixes)
 they can reach — the internet's routing gossip — so a wrong announcement
 elsewhere can silently hijack or blackhole *your* traffic without touching your

@@ -6081,6 +6081,129 @@
         }
       }
     },
+    "/v1/entity-contexts/{context_id}/bgp-routing-bindings": {
+      "get": {
+        "operationId": "getBGPRoutingBindings",
+        "summary": "Read a complete operator routing-source binding manifest",
+        "description": "Requires entities.read globally and for the base and every mapped current context. The authenticated tenant selects FORCE-RLS storage. A null manifest means strict global source configuration; an explicit empty manifest withdraws every selector. No route or forwarding state is granted by this read.",
+        "tags": [
+          "entities",
+          "bgp"
+        ],
+        "x-required-permission": "entities.read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "collector_agent_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "source_ref",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete current tenant-owned routing configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BGPRoutingBindingConfiguration"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current actor, credential or context policy denied."
+          },
+          "404": {
+            "description": "Current source configuration unavailable."
+          }
+        }
+      },
+      "put": {
+        "operationId": "replaceBGPRoutingBindings",
+        "summary": "Atomically replace a complete operator routing-source manifest",
+        "description": "Requires agent.write for the base and every current and proposed target context. expected_epoch is empty only for initial configuration; every replacement gets a new server epoch and binding IDs. The complete manifest, invalidation of prior routing generations and audit append commit together. Empty bindings withdraws all selectors without restoring a legacy fallback. Only current tenant-owned targets can be bound; packet fields cannot select a tenant, context or serializer. Unknown formats and incomplete admission fail closed without a partial replacement.",
+        "tags": [
+          "entities",
+          "bgp"
+        ],
+        "x-required-permission": "agent.write",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BGPRoutingBindingReplacement"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Complete current tenant-owned routing configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BGPRoutingBindingConfiguration"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or incomplete replacement."
+          },
+          "403": {
+            "description": "Current actor, credential or context policy denied."
+          },
+          "404": {
+            "description": "Current source configuration unavailable."
+          },
+          "409": {
+            "description": "Expected source epoch no longer current."
+          },
+          "429": {
+            "description": "Complete operation admission unavailable; no partial replacement."
+          }
+        }
+      }
+    },
     "/v1/entity-source-contexts": {
       "put": {
         "x-required-permission": "agent.write",
@@ -21504,6 +21627,155 @@
             "type": "string",
             "maxLength": 128,
             "description": "Explicit operator-owned CIDR for kind=prefix only; canonicalized to its network range. A display label is never used as a network. Empty clears this optional metadata."
+          }
+        }
+      },
+      "BGPRoutingBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "context_id",
+          "router_id",
+          "distinguisher",
+          "bgp_identifier",
+          "families"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "distinguisher": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{16}$",
+            "description": "Exact opaque eight-byte BMP distinguisher, hexadecimal; never a canonical context ID."
+          },
+          "bgp_identifier": {
+            "type": "string",
+            "format": "ipv4",
+            "description": "Exact monitored BGP identifier; 0.0.0.0 is permitted for a virtual selected-RIB source."
+          },
+          "families": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "enum": [
+                1,
+                2
+              ]
+            },
+            "description": "Complete operator-declared IPv4/IPv6 unicast families."
+          },
+          "source_format": {
+            "type": "string",
+            "enum": [
+              "",
+              "frr_loc_rib_v1"
+            ],
+            "default": "",
+            "description": "Empty uses strict negotiated capabilities. frr_loc_rib_v1 selects the known FRR selected-RIB serializer with the complete declared families, preserving both original OPENs and all metadata. Only operator configuration enables this grammar."
+          }
+        }
+      },
+      "BGPRoutingBindingManifest": {
+        "type": "object",
+        "required": [
+          "epoch",
+          "assigned_at",
+          "bindings"
+        ],
+        "properties": {
+          "epoch": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assigned_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BGPRoutingBinding"
+            }
+          }
+        }
+      },
+      "BGPRoutingBindingConfiguration": {
+        "type": "object",
+        "required": [
+          "collector_agent_id",
+          "source_ref",
+          "context_id",
+          "router_id",
+          "manifest"
+        ],
+        "properties": {
+          "collector_agent_id": {
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "manifest": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BGPRoutingBindingManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "BGPRoutingBindingReplacement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "collector_agent_id",
+          "source_ref",
+          "expected_epoch",
+          "bindings"
+        ],
+        "properties": {
+          "collector_agent_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_epoch": {
+            "type": "string",
+            "description": "Empty for initial configuration; otherwise the exact epoch returned by the current read."
+          },
+          "bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BGPRoutingBinding"
+            }
           }
         }
       },

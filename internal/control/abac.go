@@ -299,6 +299,12 @@ const abacDenialWindow = time.Minute
 // feed need to show. It never changes the caller's 403: an append failure is
 // logged, and repeats inside abacDenialWindow are folded into the first row.
 func (s *Server) auditABACDenial(ctx context.Context, p *auth.Principal, perm string) {
+	if record, ok := ctx.Value(scopedABACDenialKey{}).(*scopedABACDenialRecord); ok {
+		if record.principal == nil && p != nil {
+			record.principal, record.permission = auth.ClonePrincipal(p), perm
+		}
+		return
+	}
 	if s == nil || s.pool == nil || p == nil || p.TenantID == "" {
 		return
 	}

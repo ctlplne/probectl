@@ -158,6 +158,7 @@ INTEGRATION = {
         "TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority",
     ),
     "internal/control": (
+        "TestBGPRoutingConfigurationAPIKeepsTenantCurrentActorEpochAndAtomicAudit",
         "TestNativeFlowRoleTLSKeepsWholeProvenanceAndCurrentAuthority",
         "TestInterfaceRoleNativeTLSKeepsTenantConfigurationAndCurrentSources",
         "TestInterfaceRoleStdioKeepsWholePoliciesAndRechecksCredentialWithinStream",
@@ -481,6 +482,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-api-current-authority": (
+        "internal/control/bgp_routing_api.go",
+        "authority, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)",
+        "authority, err := &currentUserAuthority{principal: actor}, error(nil)",
+        "TestBGPRoutingConfigurationAPIKeepsTenantCurrentActorEpochAndAtomicAudit", "",
+        "served routing read bypassed current mapped-context policy",
+    ),
+    "routing-api-atomic-audit": (
+        "internal/control/bgp_routing_api.go",
+        'return s.recordAudit(ctx, sc, r.WithContext(ctx), "bgp.routing_bindings.replaced", input.SourceRef,\n\t\t\tmap[string]any{"collector_agent_id": input.CollectorAgentID, "context_id": out.ContextID, "epoch": out.Manifest.Epoch, "binding_count": len(out.Manifest.Bindings)})',
+        "return nil",
+        "TestBGPRoutingConfigurationAPIKeepsTenantCurrentActorEpochAndAtomicAudit", "",
+        "routing audit failure committed a source replacement",
+    ),
     "routing-configuration-current-policy": (
         "internal/store/bgp_routing_configuration.go",
         "if config.Manifest != nil {", "if false && config.Manifest != nil {",
