@@ -90,5 +90,4 @@ func TestRoutingStageKeepsDisjointCohortsAndRetiresWholeOverlap(t *testing.T) {
 	if active(0, shrunk) != 0 || active(0, v6) != 0 || active(0, newIdentity) != 1 || active(1, first) != 1 || active(1, second) != 1 {
 		t.Fatal("changed protocol identity retained a disjoint old cohort or changed a sibling tenant")
 	}
-
 }
