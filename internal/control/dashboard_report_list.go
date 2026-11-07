@@ -145,10 +145,10 @@ func (s *Server) currentReportArtifactMetadata(ctx context.Context, sc tenancy.S
 	if _, err := sc.Q.Exec(ctx, `SAVEPOINT report_metadata_access`); err != nil {
 		return nil, err
 	}
-	item, accessErr := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, id, user)
+	item, accessErr := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, id, user, flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
 	if accessErr == nil && !staticReportMetadata(item) {
 		var capture *reportFlowCapture
-		capture, accessErr = parseReportSourceRequirements(ctx, item.SourceCapture)
+		capture, accessErr = parseReportSourceRequirements(ctx, item.SourceCapture, flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
 		if accessErr == nil {
 			accessErr = s.revalidateReportFlowCaptureScope(ctx, sc, actor, capture)
 		}

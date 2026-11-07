@@ -71,7 +71,7 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 	if err != nil {
 		return nil, err
 	}
-	requirements, err := marshalReportSourceRequirements(ctx, capture)
+	requirements, err := marshalReportSourceRequirements(ctx, capture, budget.MemoryBytes/4)
 	if err != nil {
 		return nil, err
 	}

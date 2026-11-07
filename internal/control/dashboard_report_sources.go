@@ -34,13 +34,15 @@ const reportFlowPreparationReserve int64 = 512 << 10
 type reportFlowSourceRef = reporting.FlowSourceRef
 
 type reportFlowInput struct {
-	ID          string    `json:"id"`
-	Version     string    `json:"version"`
-	Period      string    `json:"period"`
-	TagRevision string    `json:"tag_revision,omitempty"`
-	From        time.Time `json:"from"`
-	To          time.Time `json:"to"`
-	TagAsOf     time.Time `json:"tag_as_of,omitempty"`
+	ID            string                       `json:"id"`
+	Version       string                       `json:"version"`
+	Period        string                       `json:"period"`
+	TagRevision   string                       `json:"tag_revision,omitempty"`
+	From          time.Time                    `json:"from"`
+	To            time.Time                    `json:"to"`
+	TagAsOf       time.Time                    `json:"tag_as_of,omitempty"`
+	RoutingSource bool                         `json:"routing_source,omitempty"`
+	Routing       *flowRoutingSnapshotValidity `json:"routing,omitempty"`
 }
 
 // The caller owns the capture and must Close after staging/publication. Values
@@ -369,6 +371,15 @@ func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prep
 		input := reportFlowInput{ID: capture.ID, Version: capture.Version, Period: capture.Period, From: capture.Result.Query.From, To: capture.Result.Query.To, TagAsOf: capture.TagAsOf}
 		if capture.Result.TagRevision > 0 {
 			input.TagRevision = strconv.FormatInt(capture.Result.TagRevision, 10)
+		}
+		input.RoutingSource = flowPlanUsesCapturedRouting(capture.Result.Query)
+		if input.RoutingSource {
+			input.Routing, err = encodeFlowRoutingValidity(capture.Result.RoutingProof)
+			if err != nil {
+				return nil, flowExplorerStoreError(err)
+			}
+		} else if capture.Result.RoutingProof != nil {
+			return nil, errReportSourceRequirements
 		}
 		result.Inputs = append(result.Inputs, input)
 	}

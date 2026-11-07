@@ -30,7 +30,7 @@ func (repo DashboardReports) StageArtifactBody(ctx context.Context, s tenancy.Sc
 	if isolation != "repeatable read" && isolation != "serializable" {
 		return nil, nil, ErrReportArtifactSnapshot
 	}
-	metadata, err := repo.GetArtifactMetadata(ctx, s, id, userID)
+	metadata, err := repo.GetArtifactMetadata(ctx, s, id, userID, limits.MemoryBytes)
 	if err != nil {
 		return nil, nil, err
 	}

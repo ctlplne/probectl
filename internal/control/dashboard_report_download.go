@@ -33,10 +33,21 @@ func (s *Server) downloadDashboardReportArtifact(w http.ResponseWriter, r *http.
 	if err := s.currentReportTenant(ctx, actor.TenantID); err != nil {
 		return err
 	}
+	if s.fairnessGate != nil {
+		release, err := s.fairnessGate.BeginQuery(ctx, actor.TenantID)
+		if err != nil {
+			return tagQueryResponseError(w, tagQueryAdmissionError(err))
+		}
+		defer release()
+	}
 	var metadata *store.ReportArtifactMetadata
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		metadata, err = (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, r.PathValue("id"), dashboardActorID(r))
+		if s.fairnessGate == nil {
+			metadata, err = (store.DashboardReports{}).GetArtifactHeader(ctx, sc, r.PathValue("id"), dashboardActorID(r))
+			return err
+		}
+		metadata, err = (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, r.PathValue("id"), dashboardActorID(r), flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
 		return err
 	}); err != nil {
 		return err
@@ -56,13 +67,6 @@ func (s *Server) downloadDashboardReportArtifact(w http.ResponseWriter, r *http.
 	}
 	if capture != nil && s.fairnessGate == nil {
 		return apierror.Unavailable("report body admission is unavailable")
-	}
-	if s.fairnessGate != nil {
-		release, err := s.fairnessGate.BeginQuery(ctx, actor.TenantID)
-		if err != nil {
-			return tagQueryResponseError(w, tagQueryAdmissionError(err))
-		}
-		defer release()
 	}
 	verified, stage, err := s.stageStoredReport(ctx, metadata.ID, dashboardActorID(r))
 	if err != nil {
@@ -102,7 +106,7 @@ func (s *Server) authorizeStoredReportReader(ctx context.Context, actor *auth.Pr
 	if metadata.BodyStorage != "chunks" {
 		return nil, apierror.Internal("stored report representation is invalid")
 	}
-	capture, err := parseReportSourceRequirements(ctx, metadata.SourceCapture)
+	capture, err := parseReportSourceRequirements(ctx, metadata.SourceCapture, flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
 	if err != nil {
 		return nil, apierror.Internal("stored report source requirements are invalid").Wrap(err)
 	}
@@ -116,7 +120,7 @@ func (s *Server) stageStoredReport(ctx context.Context, id, user string) (*store
 	var metadata *store.ReportArtifactMetadata
 	var stage *reporting.BodyStage
 	err := tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		header, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, id, user)
+		header, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, id, user, flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
 		if err != nil {
 			return err
 		}
@@ -161,7 +165,7 @@ func (s *Server) auditVerifiedReportDownload(r *http.Request, actor *auth.Princi
 		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 			return err
 		}
-		current, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, verified.ID, dashboardActorID(r))
+		current, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, verified.ID, dashboardActorID(r), flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
 		if err != nil {
 			return err
 		}

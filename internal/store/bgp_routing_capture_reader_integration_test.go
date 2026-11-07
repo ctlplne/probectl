@@ -48,6 +48,7 @@ func proveCapturedRoutingReaderRequiresCurrentContextAndOriginalReference(t *tes
 			t.Fatal("current retained routing reader lost its complete original snapshot", lane, calls, err)
 		}
 		proveRoutingCaptureBatchReaderScope(t, f, lane, raw, input, first[lane])
+		proveRoutingReportPublicationScope(t, f, lane, raw, input, first[lane])
 		denied := errors.New("current context permission removed")
 		lookup, err = readFlowCaptureForTest(t, f, lane, raw, input, first[lane], func(context.Context, entity.ContextRecord) error { return denied })
 		if !errors.Is(err, denied) || !reflect.DeepEqual(lookup, BGPRoutingFlowLookup{}) {

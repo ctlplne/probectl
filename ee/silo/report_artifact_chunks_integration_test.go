@@ -55,7 +55,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				// Catch-up must repair every control, and be idempotent.
 				for _, sql := range []string{
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ALTER COLUMN content SET NOT NULL`,
-					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v4`,
+					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v5`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ADD CONSTRAINT dashboard_report_artifacts_body_representation_v2 CHECK(body_storage='inline') NOT VALID`,
 					`DROP POLICY report_artifact_format ON ` + schema + `.dashboard_report_artifacts`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifact_chunks DROP CONSTRAINT dashboard_report_artifact_chunks_artifact_fk`,

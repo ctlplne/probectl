@@ -32,7 +32,7 @@ func (BGPRouting) readFlowCaptureInScope(ctx context.Context, sc tenancy.Scope, 
 	if err != nil || key != ref.Key || ref.CapturedAt.UnixNano() <= 0 {
 		return BGPRoutingFlowLookup{}, ErrBGPRoutingSourceUnavailable
 	}
-	if err := requireRoutingReadSnapshot(ctx, sc); err != nil {
+	if err := requireRoutingCaptureReadSnapshot(ctx, sc); err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}
 	// Authorize a bounded canonical context header before fetching/admitting

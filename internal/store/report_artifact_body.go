@@ -17,7 +17,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-const ReportArtifactSourceEnvelopeMaxBytes = 1 << 20
+const ReportArtifactSourceEnvelopeMaxBytes = 64 << 20
 const reportArtifactMaxBytes = reporting.MaxBodyBytes
 
 var ErrReportArtifactIntegrity = errors.New("stored report body is incomplete or inconsistent")
@@ -37,7 +37,7 @@ const reportArtifactHeaderColumns = `a.id,a.tenant_id::text,a.dashboard_id,a.sch
  COALESCE(a.body_bytes,octet_length(a.content)),COALESCE(encode(a.body_digest,'hex'),'')`
 
 const reportArtifactMetadataColumns = reportArtifactHeaderColumns + `,
- CASE WHEN octet_length(a.source_capture::text)<=1048576 THEN a.source_capture ELSE NULL END`
+ CASE WHEN octet_length(a.source_capture::text)<=67108864 THEN a.source_capture ELSE NULL END`
 
 func scanReportArtifactMetadata(row interface{ Scan(...any) error }, out *ReportArtifactMetadata) error {
 	var provenance, limitations, capture []byte
@@ -55,9 +55,30 @@ func scanReportArtifactMetadata(row interface{ Scan(...any) error }, out *Report
 
 // GetArtifactMetadata never loads the binary body. Current source/context and
 // credential authorization remains the caller's additional publication/read gate.
-func (DashboardReports) GetArtifactMetadata(ctx context.Context, s tenancy.Scope, id, userID string) (*ReportArtifactMetadata, error) {
+func (DashboardReports) GetArtifactMetadata(ctx context.Context, s tenancy.Scope, id, userID string, memoryLimits ...int64) (*ReportArtifactMetadata, error) {
+	limit := int64(ReportArtifactSourceEnvelopeMaxBytes)
+	if len(memoryLimits) > 1 || len(memoryLimits) == 1 && memoryLimits[0] <= 0 {
+		return nil, ErrReportMetadataBudget
+	}
+	if len(memoryLimits) == 1 {
+		limit = min(limit, memoryLimits[0])
+	}
 	var out ReportArtifactMetadata
-	err := scanReportArtifactMetadata(s.Q.QueryRow(ctx, `SELECT `+reportArtifactMetadataColumns+`
+	err := scanReportArtifactMetadata(s.Q.QueryRow(ctx, `SELECT `+reportArtifactHeaderColumns+`,
+ CASE WHEN octet_length(a.source_capture::text)<=$4 THEN a.source_capture ELSE NULL END
+ FROM dashboard_report_artifacts a JOIN dashboard_views v ON v.tenant_id=a.tenant_id AND v.id=a.dashboard_id
+ WHERE a.tenant_id=$1 AND a.id=$2 AND (v.owner_id=$3 OR v.shared)`, s.Tenant.String(), id, userID, limit), &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetArtifactHeader omits private source JSON and the body. Unconfigured
+// source admission can inspect the representation without allocating it.
+func (DashboardReports) GetArtifactHeader(ctx context.Context, s tenancy.Scope, id, userID string) (*ReportArtifactMetadata, error) {
+	var out ReportArtifactMetadata
+	err := scanReportArtifactMetadata(s.Q.QueryRow(ctx, `SELECT `+reportArtifactHeaderColumns+`,NULL::jsonb
  FROM dashboard_report_artifacts a JOIN dashboard_views v ON v.tenant_id=a.tenant_id AND v.id=a.dashboard_id
  WHERE a.tenant_id=$1 AND a.id=$2 AND (v.owner_id=$3 OR v.shared)`, s.Tenant.String(), id, userID), &out)
 	if err != nil {

@@ -79,11 +79,7 @@ func (s *Server) loadFlowRoutingSnapshotFrom(ctx context.Context, actor *auth.Pr
 	if status != "active" {
 		return none, apierror.Forbidden("current routing tenant is inactive")
 	}
-	var reads []flowstore.RoutingCaptureRead
-	var projections []flowstore.RoutingProjection
-	var digest []byte
-	var at time.Time
-	limit := budget.MemoryBytes / 4
+	var result flowRoutingSnapshot
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
 		if err != nil {
@@ -93,71 +89,93 @@ func (s *Server) loadFlowRoutingSnapshotFrom(ctx context.Context, actor *auth.Pr
 		if err != nil {
 			return err
 		}
-		if err := s.authorizeNativeFlow(ctx, principal); err != nil {
-			return err
-		}
-		if err := s.authorize(ctx, principal, ai.PermEntitiesRead, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: actor.TenantID}); err != nil {
-			return err
-		}
-		if err := sc.Q.QueryRow(ctx, `SELECT transaction_timestamp()`).Scan(&at); err != nil {
-			return err
-		}
-		reads, err = selectReferences(ctx)
-		if err != nil {
-			return err
-		}
-		if reads == nil {
-			reads = []flowstore.RoutingCaptureRead{}
-		}
-		digest, err = hashFlowRoleInputs(ctx, nil, reads, limit)
-		if err != nil {
-			return err
-		}
-		records := map[string]entity.ContextRecord{}
-		authorize := func(ctx context.Context, record entity.ContextRecord) error {
-			if record.TenantID != actor.TenantID {
-				return entity.ErrScopeMismatch
-			}
-			for _, permission := range []string{permAIQuery, permFlowRead, ai.PermEntitiesRead} {
-				if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, entityContextResource(record)); err != nil {
-					return err
-				}
-			}
-			records[record.ContextID] = record
-			return nil
-		}
-		profile := store.BGPRoutingBudget{MemoryBytes: limit, WorkUnits: limit, StateBytes: limit}
-		projections, err = (store.BGPRouting{}).FlowCaptureQueryProjectionsInScope(ctx, sc, reads, profile, authorize)
-		if err != nil {
-			return err
-		}
-		ids := make([]string, 0, len(records))
-		for id := range records {
-			ids = append(ids, id)
-		}
-		slices.Sort(ids)
-		captured := make([]entity.ContextRecord, 0, len(ids))
-		allowed := make(map[string]bool, len(ids))
-		for _, id := range ids {
-			digest, err = hashFlowRoleInputs(ctx, digest, records[id], limit)
-			if err != nil {
-				return err
-			}
-			captured = append(captured, records[id])
-			allowed[id] = true
-		}
-		return captureReportRoutingContextRequirements(ctx, principal, captured, allowed)
+		result, err = s.loadFlowRoutingSnapshotInScope(ctx, sc, principal, budget, selectReferences, false)
+		return err
 	})
 	if err != nil {
 		return none, flowRoutingQueryError(err)
 	}
-	data, err := flowstore.NewRoutingQueryData(ctx, actor.TenantID, at, projections, limit)
-	if err != nil {
-		return none, flowExplorerStoreError(err)
+	return result, nil
+}
+
+// The caller refreshes current authority in this same tenant snapshot. Reuse
+// the existing transaction for report readers/publication; never acquire a
+// nested pool connection or turn a retained selector into an access grant.
+func (s *Server) loadFlowRoutingSnapshotInScope(ctx context.Context, sc tenancy.Scope, principal *auth.Principal, budget flowstore.ExplorerBudget, selectReferences func(context.Context) ([]flowstore.RoutingCaptureRead, error), report bool) (flowRoutingSnapshot, error) {
+	none := flowRoutingSnapshot{}
+	bound, present := tenancy.FromContext(ctx)
+	if !present || bound != sc.Tenant || principal == nil || principal.TenantID != sc.Tenant.String() || principal.UserID == "" || sc.Q == nil || selectReferences == nil || budget.Validate() != nil {
+		return none, apierror.Forbidden("current routing snapshot scope is unavailable")
 	}
-	valueDigest, err := data.Digest(ctx, actor.TenantID)
+	if err := s.authorizeNativeFlow(ctx, principal); err != nil {
+		return none, err
+	}
+	if err := s.authorize(ctx, principal, ai.PermEntitiesRead, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: principal.TenantID}); err != nil {
+		return none, err
+	}
+	var at time.Time
+	if err := sc.Q.QueryRow(ctx, `SELECT transaction_timestamp()`).Scan(&at); err != nil {
+		return none, err
+	}
+	reads, err := selectReferences(ctx)
 	if err != nil {
-		return none, flowExplorerStoreError(err)
+		return none, err
+	}
+	if reads == nil {
+		reads = []flowstore.RoutingCaptureRead{}
+	}
+	limit := budget.MemoryBytes / 4
+	digest, err := hashFlowRoleInputs(ctx, nil, reads, limit)
+	if err != nil {
+		return none, err
+	}
+	records := map[string]entity.ContextRecord{}
+	authorize := func(ctx context.Context, record entity.ContextRecord) error {
+		if record.TenantID != principal.TenantID {
+			return entity.ErrScopeMismatch
+		}
+		for _, permission := range []string{permAIQuery, permFlowRead, ai.PermEntitiesRead} {
+			if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, entityContextResource(record)); err != nil {
+				return err
+			}
+		}
+		records[record.ContextID] = record
+		return nil
+	}
+	profile := store.BGPRoutingBudget{MemoryBytes: limit, WorkUnits: limit, StateBytes: limit}
+	reader := (store.BGPRouting{}).FlowCaptureQueryProjectionsInScope
+	if report {
+		reader = (store.BGPRouting{}).FlowCaptureQueryProjectionsForReportInScope
+	}
+	projections, err := reader(ctx, sc, reads, profile, authorize)
+	if err != nil {
+		return none, err
+	}
+	ids := make([]string, 0, len(records))
+	for id := range records {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	captured := make([]entity.ContextRecord, 0, len(ids))
+	allowed := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		digest, err = hashFlowRoleInputs(ctx, digest, records[id], limit)
+		if err != nil {
+			return none, err
+		}
+		captured = append(captured, records[id])
+		allowed[id] = true
+	}
+	if err := captureReportRoutingContextRequirements(ctx, principal, captured, allowed); err != nil {
+		return none, err
+	}
+	data, err := flowstore.NewRoutingQueryData(ctx, principal.TenantID, at, projections, limit)
+	if err != nil {
+		return none, err
+	}
+	valueDigest, err := data.Digest(ctx, principal.TenantID)
+	if err != nil {
+		return none, err
 	}
 	return flowRoutingSnapshot{data: data, reads: reads, inputDigest: hex.EncodeToString(digest), digest: valueDigest}, nil
 }

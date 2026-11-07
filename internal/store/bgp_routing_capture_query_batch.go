@@ -46,7 +46,7 @@ func readRoutingCaptureQueryBatchInScope(ctx context.Context, sc tenancy.Scope, 
 	if authorize == nil {
 		return nil, entity.ErrScopeMismatch
 	}
-	if err := requireRoutingReadSnapshot(ctx, sc); err != nil {
+	if err := requireRoutingCaptureReadSnapshot(ctx, sc); err != nil {
 		return nil, err
 	}
 	keys, err := routingQueryCaptureKeys(ctx, sc, reads, &budget)

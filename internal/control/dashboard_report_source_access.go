@@ -64,15 +64,8 @@ func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenanc
 	if !ok || len(capture.Inputs) == 0 {
 		return apierror.Unavailable("current report source access is unavailable")
 	}
-	for _, table := range capture.Tables {
-		if table.TenantID != capture.TenantID {
-			return apierror.Forbidden("report source record scope is unavailable")
-		}
-	}
-	if !slices.Contains(capture.Permissions, permAIQuery) || !slices.Contains(capture.Permissions, permFlowRead) ||
-		capture.ContextSources != slices.Contains(capture.Permissions, "entities.read") ||
-		(slices.Contains(capture.Permissions, permTagsRead) || capture.ContextSources) && !capture.ContextsCaptured || len(capture.Contexts) > 0 && (!capture.ContextsCaptured || !capture.ContextSources && !slices.Contains(capture.Permissions, permTagsRead)) {
-		return apierror.Forbidden("report source requirements are incomplete")
+	if err := validateReportCapturedSources(capture); err != nil {
+		return err
 	}
 	current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
 	if err != nil {
@@ -127,7 +120,22 @@ func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenanc
 			return err
 		}
 	}
-	return ctx.Err()
+	return s.revalidateReportRoutingScope(ctx, sc, principal, capture)
+}
+
+// Retained source lineage is a requirement, never a reusable permission.
+func validateReportCapturedSources(capture *reportFlowCapture) error {
+	for _, table := range capture.Tables {
+		if table.TenantID != capture.TenantID {
+			return apierror.Forbidden("report source record scope is unavailable")
+		}
+	}
+	if !slices.Contains(capture.Permissions, permAIQuery) || !slices.Contains(capture.Permissions, permFlowRead) ||
+		capture.ContextSources != slices.Contains(capture.Permissions, "entities.read") ||
+		(slices.Contains(capture.Permissions, permTagsRead) || capture.ContextSources) && !capture.ContextsCaptured || len(capture.Contexts) > 0 && (!capture.ContextsCaptured || !capture.ContextSources && !slices.Contains(capture.Permissions, permTagsRead)) {
+		return apierror.Forbidden("report source requirements are incomplete")
+	}
+	return nil
 }
 
 func reportFlowReadPermission(permission string) bool {

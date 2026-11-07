@@ -57,7 +57,7 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
-	requirements, err := marshalReportSourceRequirements(ctx, capture)
+	requirements, err := marshalReportSourceRequirements(ctx, capture, budget.MemoryBytes/4)
 	if err != nil {
 		return false, err
 	}

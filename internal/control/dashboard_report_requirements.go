@@ -19,6 +19,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -36,8 +37,9 @@ type reportSourceRequirements struct {
 	ContextSources   bool                       `json:"context_sources,omitempty"`
 }
 
-func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCapture) (json.RawMessage, error) {
-	if capture == nil {
+func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCapture, memoryLimits ...int64) (json.RawMessage, error) {
+	memory, ok := reportRequirementsMemory(memoryLimits)
+	if !ok || capture == nil {
 		return nil, errReportSourceRequirements
 	}
 	for _, table := range capture.Tables {
@@ -51,19 +53,26 @@ func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCap
 	if requirements.ContextSources {
 		requirements.Version = 2
 	}
-	if err := validateReportSourceRequirements(ctx, requirements); err != nil {
+	if err := validateReportSourceRequirements(ctx, requirements, memory); err != nil {
 		return nil, err
 	}
 	raw, err := json.Marshal(requirements)
-	if err != nil || len(raw) > store.ReportArtifactSourceEnvelopeMaxBytes {
+	if err != nil {
 		return nil, errReportSourceRequirements
+	}
+	if err := admitFlowSnapshotValidity(ctx, raw, store.ReportArtifactSourceEnvelopeMaxBytes, memory); err != nil {
+		return nil, err
 	}
 	return raw, nil
 }
 
-func parseReportSourceRequirements(ctx context.Context, raw json.RawMessage) (*reportFlowCapture, error) {
-	if len(raw) == 0 || len(raw) > store.ReportArtifactSourceEnvelopeMaxBytes {
+func parseReportSourceRequirements(ctx context.Context, raw json.RawMessage, memoryLimits ...int64) (*reportFlowCapture, error) {
+	memory, ok := reportRequirementsMemory(memoryLimits)
+	if !ok || len(raw) == 0 {
 		return nil, errReportSourceRequirements
+	}
+	if err := admitFlowSnapshotValidity(ctx, raw, store.ReportArtifactSourceEnvelopeMaxBytes, memory); err != nil {
+		return nil, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -74,7 +83,7 @@ func parseReportSourceRequirements(ctx context.Context, raw json.RawMessage) (*r
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return nil, errReportSourceRequirements
 	}
-	if err := validateReportSourceRequirements(ctx, requirements); err != nil {
+	if err := validateReportSourceRequirements(ctx, requirements, memory); err != nil {
 		return nil, err
 	}
 	return &reportFlowCapture{TenantID: requirements.TenantID, Inputs: requirements.Inputs,
@@ -87,7 +96,7 @@ func reportRequirementUUID(id string) bool {
 	return err == nil && parsed != gouuid.Nil && parsed.String() == id
 }
 
-func validateReportSourceRequirements(ctx context.Context, value reportSourceRequirements) error {
+func validateReportSourceRequirements(ctx context.Context, value reportSourceRequirements, memory int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -101,6 +110,11 @@ func validateReportSourceRequirements(ctx context.Context, value reportSourceReq
 			return errReportSourceRequirements
 		}
 	}
+	for _, input := range value.Inputs {
+		if input.RoutingSource && (!value.ContextSources || value.Version != 2) {
+			return errReportSourceRequirements
+		}
+	}
 	usesTags := slices.Contains(value.Permissions, permTagsRead)
 	if value.ContextSources != slices.Contains(value.Permissions, "entities.read") || value.ContextSources != (value.Version == 2) ||
 		(usesTags || value.ContextSources) && !value.ContextsCaptured || len(value.Contexts) > 0 && (!value.ContextsCaptured || !usesTags && !value.ContextSources) {
@@ -109,7 +123,7 @@ func validateReportSourceRequirements(ctx context.Context, value reportSourceReq
 	if !reportRequirementStringsFit(ctx, value) {
 		return errReportSourceRequirements
 	}
-	if err := validateReportSourceInputs(ctx, value.Inputs, usesTags); err != nil {
+	if err := validateReportSourceInputs(ctx, value.Inputs, usesTags, memory); err != nil {
 		return err
 	}
 	for _, requirement := range value.Contexts {
@@ -168,7 +182,7 @@ func reportRequirementStringsFit(ctx context.Context, value reportSourceRequirem
 	return true
 }
 
-func validateReportSourceInputs(ctx context.Context, inputs []reportFlowInput, usesTags bool) error {
+func validateReportSourceInputs(ctx context.Context, inputs []reportFlowInput, usesTags bool, memory int64) error {
 	versions := make(map[string]string)
 	periods := make(map[string]bool)
 	for _, input := range inputs {
@@ -189,6 +203,15 @@ func validateReportSourceInputs(ctx context.Context, inputs []reportFlowInput, u
 		if usesTags {
 			if _, err := flow.QueryViewVersion(input.TagRevision); err != nil || input.TagAsOf.IsZero() {
 				return errReportSourceRequirements
+			}
+		}
+		if input.RoutingSource && !reportRoutingRequirementsComplete(input) || !input.RoutingSource && input.Routing != nil {
+			return errReportSourceRequirements
+		}
+		if input.RoutingSource {
+			tenant, _ := tenancy.FromContext(ctx)
+			if _, err := decodeFlowRoutingValidity(ctx, tenant.String(), input.Routing, memory); err != nil {
+				return err
 			}
 		}
 		versions[input.ID], periods[key] = input.Version, true
@@ -219,4 +242,19 @@ func validateStoredReportContext(tenant string, requirement reportContextRequire
 		}
 	}
 	return nil
+}
+
+func reportRequirementsMemory(limits []int64) (int64, bool) {
+	memory := flowstore.DefaultExplorerBudget().MemoryBytes / 4
+	if len(limits) > 1 {
+		return 0, false
+	}
+	if len(limits) == 1 {
+		memory = limits[0]
+	}
+	return memory, memory > 0
+}
+
+func reportRoutingRequirementsComplete(input reportFlowInput) bool {
+	return input.Routing != nil && canonicalFlowRoutingDigest(input.Routing.Digest) && canonicalFlowRoutingDigest(input.Routing.InputDigest)
 }

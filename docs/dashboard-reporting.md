@@ -72,6 +72,12 @@ context lineage; future readers must still hold the applicable `entities.read`
 permission and, for role sources, `metrics.read` and `events.read`. Private
 version-2 source receipts preserve those requirements alongside compatible
 version-1 ordinary/tag receipts in the same tenant-isolated report store.
+Routing-backed reports retain every original selector for each comparison period,
+including the exact first-capture clock. Later reads recheck those selectors
+against current actor, context and source authority; they never re-enumerate
+new traffic to replace historical inputs. Complete source requirements use the
+existing query workspace for decoding admission and the report store supports
+up to 64 MiB of source JSON; resource exhaustion publishes no partial report.
 
 Malformed/unknown-field JSON returns `400`; a manifest above 64 KiB returns
 `413`; invalid bounds, duplicate names, kinds or versions return `422`.

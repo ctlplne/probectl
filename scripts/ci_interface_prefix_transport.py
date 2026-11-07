@@ -78,6 +78,9 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestReportRoutingReaderRequiresCurrentScopedAuthorityBeyondReceipt",
+        "TestReportRoutingRequirementsKeepWholeOriginalPeriodsAndAdmission",
+        "TestReportRoutingRequirementsRefuseOmittedAndMalformedSourceLineage",
         "TestReportCanonicalSourcesRequireCompleteContextLineageAndCurrentPermissions",
         "TestFlowRoutingValidityKeepsCompleteOriginalSelectorsAndAdmission",
         "TestRoutingSnapshotRefusesMissingForeignAndExtraneousAuthority",
@@ -221,6 +224,7 @@ INTEGRATION = {
         "TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority",
     ),
     "internal/control": (
+        "TestReportRoutingSourceStorageKeepsWholePeriodsAndTenantAdmission",
         "TestReportRoleSourcesKeepCurrentCanonicalContextsWithoutTags",
         "TestBGPRoutingBindingsStdioKeepsTenantEpochAndCurrentCredentials",
         "TestBGPRoutingConfigurationAPIKeepsTenantCurrentActorEpochAndAtomicAudit",
@@ -554,6 +558,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "report-routing-source-read": (
+        "internal/store/report_artifact_body.go",
+        "CASE WHEN octet_length(a.source_capture::text)<=$4 THEN a.source_capture ELSE NULL END",
+        "CASE WHEN octet_length(a.source_capture::text)<=1048576 AND octet_length(a.source_capture::text)<=$4 THEN a.source_capture ELSE NULL END",
+        "TestReportRoutingSourceStorageKeepsWholePeriodsAndTenantAdmission", "",
+        "actual report source read lost complete original periods",
+    ),
+    "report-routing-source-admission": (
+        "internal/store/report_artifact_body.go",
+        "ReportArtifactSourceEnvelopeMaxBytes = 64 << 20",
+        "ReportArtifactSourceEnvelopeMaxBytes = 1 << 20",
+        "TestReportRoutingRequirementsKeepWholeOriginalPeriodsAndAdmission", "",
+        "report refused complete original routing selectors above former source envelope",
+    ),
+    "report-routing-publication-lock": (
+        "internal/store/bgp_routing_capture_report.go",
+        "if !held {",
+        "if false && !held {",
+        "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges", "",
+        "report routing reader accepted an unheld publication audit lock",
+    ),
     "report-role-scheduler-ceiling": (
         "internal/control/dashboard_report_source_scheduler.go",
         '"metrics.read", "events.read", permAIQuery',
