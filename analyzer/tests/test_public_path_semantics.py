@@ -31,9 +31,10 @@ def _segments(items, width=4):
     )
 
 
-def _update(attrs, width=4):
+def _update(attrs, width=4, withdrawals=b"", nlri=b"\x18\xc0\x00\x02"):
     # Independent RFC6396/RFC4271 framing, including actual negotiated width.
-    update = b"\x00\x00" + len(attrs).to_bytes(2, "big") + attrs + b"\x18\xc0\x00\x02"
+    update = len(withdrawals).to_bytes(2, "big") + withdrawals
+    update += len(attrs).to_bytes(2, "big") + attrs + nlri
     message = b"\xff" * 16 + (19 + len(update)).to_bytes(2, "big") + b"\x02" + update
     body = (64511).to_bytes(width, "big") + bytes(width) + b"\x00\x00\x00\x01"
     body += ipaddress.ip_address("192.0.2.1").packed + ipaddress.ip_address("192.0.2.2").packed
@@ -247,3 +248,84 @@ def test_public_ris_configured_workspace_reaches_replay_live_and_complete_output
                 assert events[0]["tenant_id"] == "owned-lane"
                 assert events[0]["new_as_path"] == path
                 assert events[0]["new_origin_asn"] == 4294967295
+
+
+def test_public_mrt_keeps_whole_dual_family_withdrawals_before_announcements():
+    attrs = _attribute(2, _segments([(2, (64511, 4294967295))]))
+    reach = b"\x00\x02\x01\x10" + ipaddress.ip_address("2001:db8::1").packed
+    attrs += _attribute(14, reach + b"\x00\x20\x20\x01\x0d\xb8")
+    attrs += _attribute(15, b"\x00\x02\x01\x20\x20\x01\x0d\xb9")
+    changes = list(
+        stream_mrt(
+            io.BytesIO(_update(attrs, withdrawals=b"\x18\xc0\x00\x02", nlri=b"\x18\xc6\x33\x64"))
+        )
+    )
+    assert [row.prefix for row in changes] == [
+        "192.0.2.0/24",
+        "2001:db9::/32",
+        "2001:db8::/32",
+        "198.51.100.0/24",
+    ]
+    assert [row.kind for row in changes] == ["withdraw", "withdraw", "announce", "announce"]
+    assert all(row.peer_asn == 64511 and row.peer_address == "192.0.2.1" for row in changes)
+    assert all(row.event_time_unix_nano == 1700000000 * 1_000_000_000 for row in changes)
+    assert all(not row.origin_known and row.as_path == [] for row in changes[:2])
+    assert all(row.origin_asn == 4294967295 for row in changes[2:])
+
+
+def test_public_mrt_keeps_withdrawal_only_update_without_inventing_a_path():
+    attrs = _attribute(15, b"\x00\x02\x01\x20\x20\x01\x0d\xb9")
+    changes = list(
+        stream_mrt(io.BytesIO(_update(attrs, withdrawals=b"\x18\xc0\x00\x02", nlri=b"")))
+    )
+    assert [row.prefix for row in changes] == ["192.0.2.0/24", "2001:db9::/32"]
+    assert all(
+        row.kind == "withdraw"
+        and not row.origin_known
+        and row.origin_asn == 0
+        and row.as_path_segments == ()
+        for row in changes
+    )
+
+
+@pytest.mark.parametrize(
+    "withdrawals,optional",
+    [
+        (b"\x18\xc0\x00\x02\x20\xc0", b""),
+        (b"\x18\xc0\x00\x02", _attribute(15, b"\x00\x02\x01\x80\x20")),
+        (b"", _attribute(15, b"\x00\x03\x01\x00")),
+        (b"", _attribute(15, b"\x00\x02\x01") * 2),
+    ],
+)
+def test_public_mrt_never_exposes_partial_withdrawals_from_malformed_updates(withdrawals, optional):
+    attrs = _attribute(2, _segments([(2, (64496,))])) + optional
+    assert list(stream_mrt(io.BytesIO(_update(attrs, withdrawals=withdrawals)))) == []
+
+
+def test_public_ris_keeps_every_withdrawal_and_announcement_under_whole_admission():
+    withdrawals = [f"{ipaddress.IPv4Address(0xC0000000 + i)}/32" for i in range(5001)]
+    announcements = [f"{ipaddress.IPv6Address('2001:db8::') + i}/128" for i in range(5001)]
+    message = _ris([64511, 4294967295])
+    message["data"]["withdrawals"] = withdrawals
+    message["data"]["announcements"][0]["prefixes"] = announcements
+    changes = parse_ris_message(message)
+    assert len(changes) == 10002
+    assert [row.prefix for row in changes] == withdrawals + announcements
+    assert all(
+        row.kind == "withdraw" and not row.origin_known and row.as_path_segments == ()
+        for row in changes[:5001]
+    )
+    assert all(
+        row.kind == "announce"
+        and row.as_path == [64511, 4294967295]
+        and row.origin_asn == 4294967295
+        for row in changes[5001:]
+    )
+    assert parse_ris_message(message, memory_bytes=4096) == []
+
+
+@pytest.mark.parametrize("withdrawals", [["192.0.2.0/24", "not-a-prefix"], "192.0.2.0/24", [True]])
+def test_public_ris_rejects_whole_malformed_withdrawal_message(withdrawals):
+    message = _ris([64496])
+    message["data"]["withdrawals"] = withdrawals
+    assert parse_ris_message(message) == []
