@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -47,6 +48,7 @@ func routingReferencePopulation(t *testing.T, tenant string, count int) ([]Row, 
 }
 
 func TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission(t *testing.T) {
+	proveRoutingCaptureReferencesShareBatchAdmission(t)
 	const count = 1001
 	tenants := []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"}
 	st := NewMemory()
@@ -89,5 +91,50 @@ func TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission(t *te
 	}
 	if _, err := routingReadFromRow(Row{}); err == nil {
 		t.Fatal("legacy empty metadata invented an original routing reference")
+	}
+}
+
+func proveRoutingCaptureReferencesShareBatchAdmission(t *testing.T) {
+	t.Helper()
+	const tenant = "11111111-1111-4111-8111-111111111111"
+	const count = 501
+	rows, _ := routingReferencePopulation(t, tenant, count)
+	for i := range rows {
+		rows[i].BytesScaled = rows[i].Bytes
+	}
+	store := NewMemory()
+	if err := store.Insert(t.Context(), rows); err != nil {
+		t.Fatal(err)
+	}
+	budget := DefaultExplorerBudget()
+	budget.ReadRows = count * 2
+	if err := AttachExplorerBudget(store, budget); err != nil {
+		t.Fatal(err)
+	}
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+	batch, err := NewPlanBatch(ctx, store, tenant, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(batch.Close)
+	from, to := rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second)
+	refs, err := batch.RoutingCaptureReferences(from, to, "raw")
+	if err != nil || len(refs) != count {
+		t.Fatal("routing reference batch lost the complete admitted population", len(refs), err)
+	}
+	if partial, err := ReadRoutingCaptureReferences(batch.Context(), store, tenant, from, to, "raw"); !errors.Is(err, ErrExplorerBudget) || partial != nil {
+		t.Fatal("routing reference metadata bypassed its batch owner", err)
+	}
+	plan := flow.QueryPlan{From: from, To: to, GroupBy: []string{"exporter"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
+	result, err := batch.ExplorePlan(PlanQuery{TenantID: tenant, Plan: plan})
+	if err != nil || result.Totals["bytes:total"] != strconv.FormatUint(uint64(count)*rows[0].BytesScaled, 10) {
+		t.Fatal("routing metadata consumed a plan slot or changed complete traffic", err)
+	}
+	if partial, err := batch.RoutingCaptureReferences(from, to, "raw"); !errors.Is(err, ErrExplorerBudget) || partial != nil {
+		t.Fatal("routing reference batch reset its cumulative read allowance", err)
+	}
+	var absent *Memory
+	if partial, err := ReadRoutingCaptureReferences(ctx, absent, tenant, from, to, "raw"); !errors.Is(err, ErrExplorerBudget) || partial != nil {
+		t.Fatal("routing reference discovery accepted an unwired store", err)
 	}
 }

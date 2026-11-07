@@ -227,6 +227,9 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if err := captureResultRoleIdentity(ctx, &result, query); err != nil {
 		return PlanResult{}, err
 	}
+	if err := captureResultRoutingIdentity(ctx, &result, query); err != nil {
+		return PlanResult{}, err
+	}
 	if err := ctx.Err(); err != nil {
 		return PlanResult{}, err
 	}

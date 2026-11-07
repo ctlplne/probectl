@@ -43,6 +43,26 @@ type RoutingProjection struct {
 	FactsID [32]byte
 }
 
+// RoutingQueryProof is private server receipt material, excluded from result
+// JSON. Frozen readers retain original selectors, never a reusable grant.
+type RoutingQueryProof struct {
+	Digest      string
+	InputDigest string
+	Captures    []RoutingCaptureRead
+}
+
+func captureResultRoutingIdentity(ctx context.Context, result *PlanResult, query PlanQuery) error {
+	if !planUsesRouting(result.Query) {
+		return nil
+	}
+	digest, err := query.Routing.Digest(ctx, query.TenantID)
+	if err != nil {
+		return err
+	}
+	result.RoutingProof = &RoutingQueryProof{Digest: digest}
+	return nil
+}
+
 type routingQueryKey struct {
 	key   [32]byte
 	clock int64
@@ -54,6 +74,25 @@ type routingQueryData struct {
 	byKey  map[routingQueryKey][32]byte
 	facts  map[[32]byte]routingQueryFact
 	digest string
+}
+
+// RoutingQueryData exposes an immutable operation-local projection to service
+// adapters. Its fields remain private; the constructor admits complete scope.
+type RoutingQueryData = routingQueryData
+
+// NewRoutingQueryData admits every server-selected original capture, sharing
+// complete content without accepting query-JSON authority or partial results.
+func NewRoutingQueryData(ctx context.Context, tenant string, at time.Time, rows []RoutingProjection, memory int64) (*RoutingQueryData, error) {
+	return newRoutingQueryData(ctx, tenant, at, rows, memory)
+}
+
+// Digest describes complete references, scope and projected values. It is not
+// a grant: service readers recheck the original selectors and current actor.
+func (data *routingQueryData) Digest(ctx context.Context, tenant string) (string, error) {
+	if err := data.validate(ctx, tenant); err != nil {
+		return "", err
+	}
+	return data.digest, nil
 }
 
 type routingQueryFact struct {

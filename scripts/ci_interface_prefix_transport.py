@@ -78,6 +78,7 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestFlowRoutingSnapshotRequiresCurrentTenantUserBeforeReferenceReads",
         "TestBGPRoutingMCPMetadataKeepsStoredIDsAndFullUntrustedRedaction",
         "TestNativeFlowRoleProjectionHonorsCancellationAndExistingTenantScope",
         "TestNativeFlowRoleProjectionRetainsCompleteTenantProvenance",

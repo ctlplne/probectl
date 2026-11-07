@@ -25,6 +25,7 @@ import (
 )
 
 func TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys(t *testing.T) {
+	proveRoutingQueryReceiptsStayPrivate(t)
 	const count = 50_000
 	const tenant = "11111111-1111-4111-8111-111111111111"
 	const contextID = "33333333-3333-4333-8333-333333333333"
@@ -119,5 +120,14 @@ func TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys(t *tes
 	last.TenantID = "22222222-2222-4222-8222-222222222222"
 	if data.valueForRow(last, "src_bgp_as_paths") != "" || data.valueForRow(last, "src_bgp_provenance") != "unavailable" {
 		t.Fatal("routing query projection exposed another tenant's path")
+	}
+}
+
+func proveRoutingQueryReceiptsStayPrivate(t *testing.T) {
+	t.Helper()
+	result := PlanResult{RoutingProof: &RoutingQueryProof{Digest: "private-routing-digest", InputDigest: "private-routing-authority", Captures: []RoutingCaptureRead{{Sender: "private-original-sender"}}}}
+	body, err := json.Marshal(result)
+	if err != nil || bytes.Contains(body, []byte("private-routing")) || bytes.Contains(body, []byte("private-original-sender")) || bytes.Contains(body, []byte("RoutingProof")) {
+		t.Fatal("flow result JSON exposed private routing capture receipts", err)
 	}
 }

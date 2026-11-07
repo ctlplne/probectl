@@ -79,6 +79,11 @@ func proveRoutingQueryJoinsInRealStore(t *testing.T, store *ClickHouse, tenants 
 			provenanceField, _ := flow.RoutingQueryField("src_bgp_provenance")
 			from := planRoutingJoinsSQL(table+" FINAL", flow.QueryPlan{GroupBy: []string{pathField.Name}})
 			sql := "SELECT " + routingQueryFieldSQL(pathField, params) + " AS captured_paths," + routingQueryFieldSQL(originField, params) + " AS captured_origin," + routingQueryFieldSQL(provenanceField, params) + " AS captured_provenance,count() AS population FROM " + from + " WHERE tenant_id={tenant:String} GROUP BY captured_paths,captured_origin,captured_provenance"
+			settings, err := DefaultExplorerBudget().settings()
+			if err != nil {
+				t.Fatal(err)
+			}
+			sql += settings
 			got, err := store.explorerQueryRows(ctx, Target{}, reader, tenant, sql, params, external...)
 			if err != nil || len(got) != 2 {
 				t.Fatal("actual routing join lost known or unknown retained traffic", table, len(got), err)

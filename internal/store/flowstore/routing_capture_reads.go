@@ -29,6 +29,54 @@ type RoutingCaptureRead struct {
 	Ref     entity.FlowCaptureReference
 }
 
+// ReadRoutingCaptureReferences enumerates the full tenant window through the
+// configured backend's existing admission. Selectors are never source grants.
+func ReadRoutingCaptureReferences(ctx context.Context, store Store, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+	backend, ok := PlanStoreOf(store)
+	if !ok {
+		return nil, ErrExplorerBudget
+	}
+	switch reader := backend.(type) {
+	case *Memory:
+		if reader != nil {
+			return reader.routingCaptureReferences(ctx, tenant, from, to, series)
+		}
+	case *ClickHouse:
+		if reader != nil {
+			return reader.routingCaptureReferences(ctx, tenant, from, to, series)
+		}
+	}
+	return nil, ErrExplorerBudget
+}
+
+// RoutingCaptureReferences shares the operation deadline, tenant and cumulative
+// read envelope with the plans. Metadata does not consume another plan slot.
+func (b *PlanBatch) RoutingCaptureReferences(from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+	b.queryMu.Lock()
+	defer b.queryMu.Unlock()
+	if err := b.ctx.Err(); err != nil {
+		return nil, err
+	}
+	if b.failed {
+		return nil, ErrExplorerBudget
+	}
+	var out []RoutingCaptureRead
+	var err error
+	switch backend := b.backend.(type) {
+	case *Memory:
+		out, err = backend.routingCaptureReferences(b.queryContext(), b.tenant, from, to, series)
+	case *ClickHouse:
+		out, err = backend.routingCaptureReferences(b.queryContext(), b.tenant, from, to, series)
+	default:
+		err = ErrExplorerBudget
+	}
+	if err != nil {
+		b.failed = true
+		return nil, err
+	}
+	return out, nil
+}
+
 func routingReferencePlan(ctx context.Context, tenant string, from, to time.Time, series string) (flow.QueryPlan, error) {
 	if err := ctx.Err(); err != nil {
 		return flow.QueryPlan{}, err
@@ -142,6 +190,11 @@ func (c *ClickHouse) routingCaptureReferences(ctx context.Context, tenant string
 	params := chParams{"tenant": tenant, "from": plan.From.UTC().Format("2006-01-02 15:04:05.999999999"), "to": plan.To.UTC().Format("2006-01-02 15:04:05.999999999")}
 	sql := `SELECT DISTINCT tenant_id,agent_id,exporter,protocol,toString(obs_domain) AS obs_domain,src_addr,dst_addr,raw_flow_digest,routing_capture_key,toString(routing_captured_unix_nanos) AS routing_captured_unix_nanos FROM ` + source.table + ` FINAL
  WHERE tenant_id={tenant:String} AND ts>={from:DateTime64(9,'UTC')} AND ts<{to:DateTime64(9,'UTC')} AND routing_capture_key!=''`
+	settings, err := budget.settings()
+	if err != nil {
+		return nil, err
+	}
+	sql += settings
 	rows, err := c.explorerQueryRows(ctx, target, lane, tenant, sql, params)
 	if err != nil {
 		return nil, err

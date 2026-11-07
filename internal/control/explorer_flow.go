@@ -164,6 +164,14 @@ func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.Qu
 	}
 	query := flowstore.PlanQuery{TenantID: tenant, Plan: plan, Tags: tagData, SelectedGroups: selected, SelectedColumns: selectedColumns, SelectedChartGroups: selectedChart, SelectedMatrixRows: selectedMatrixRows}
 	var roleBefore flowRoleSnapshot
+	var routingBefore flowRoutingSnapshot
+	if flowPlanUsesCapturedRouting(plan) {
+		routingBefore, err = s.loadFlowRoutingSnapshot(ctx, auth.PrincipalFrom(ctx), plan, flowstore.ExplorerOperationBudget(ctx, s.flowStore))
+		if err != nil {
+			return flowstore.PlanResult{}, err
+		}
+		query.Routing = routingBefore.data
+	}
 	if flowstore.PlanUsesInterfaceRoles(plan) {
 		roleBefore, err = s.loadFlowRoleSnapshot(ctx, auth.PrincipalFrom(ctx), flowstore.ExplorerOperationBudget(ctx, s.flowStore))
 		if err != nil {
@@ -192,6 +200,16 @@ func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.Qu
 		if err != nil || roleBefore.inputDigest != after.inputDigest || result.RoleDigest != digest || result.RoleTenantID != tenant {
 			return flowstore.PlanResult{}, apierror.Unavailable("interface role inputs changed; run a fresh query")
 		}
+	}
+	if flowPlanUsesCapturedRouting(plan) {
+		after, err := s.recheckFlowRoutingSnapshot(ctx, auth.PrincipalFrom(ctx), routingBefore.reads, flowstore.ExplorerOperationBudget(ctx, s.flowStore))
+		if err != nil {
+			return flowstore.PlanResult{}, err
+		}
+		if routingBefore.digest != after.digest || routingBefore.inputDigest != after.inputDigest || result.RoutingProof == nil || result.RoutingProof.Digest != routingBefore.digest {
+			return flowstore.PlanResult{}, apierror.Unavailable("routing source authority changed; run a fresh query")
+		}
+		result.RoutingProof.InputDigest, result.RoutingProof.Captures = routingBefore.inputDigest, routingBefore.reads
 	}
 	return result, nil
 }
@@ -232,7 +250,7 @@ func (s *Server) recordFlowQuery(ctx context.Context, principal *auth.Principal,
 	if err := s.authorizeFlowMetadata(ctx, principal, plan); err != nil {
 		return explorerResult{}, err
 	}
-	if flowstore.PlanUsesInterfaceRoles(plan) {
+	if flowstore.PlanUsesInterfaceRoles(plan) || flowPlanUsesCapturedRouting(plan) {
 		ctx, err = bindFlowRoleContext(ctx, principal)
 		if err != nil {
 			return explorerResult{}, err

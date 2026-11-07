@@ -29,6 +29,12 @@ type routingQueryCaptureCache struct {
 	current    bool
 }
 
+// FlowCaptureQueryProjectionsInScope requires the caller's current actor
+// authorizer and an existing tenant read snapshot. Keys never grant access.
+func (BGPRouting) FlowCaptureQueryProjectionsInScope(ctx context.Context, sc tenancy.Scope, reads []flowstore.RoutingCaptureRead, budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error) ([]flowstore.RoutingProjection, error) {
+	return readRoutingCaptureQueryBatchInScope(ctx, sc, reads, budget, authorize)
+}
+
 // This cache is born and discarded inside one existing tenant read snapshot.
 // Header authorization precedes all payload admission. Every original tuple,
 // key and clock is checked separately; immutable shared content does not grant

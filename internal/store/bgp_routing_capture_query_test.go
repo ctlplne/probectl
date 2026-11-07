@@ -54,6 +54,7 @@ func TestRetainedRoutingQueryFieldsKeepWholePathsAndExplicitAmbiguity(t *testing
 	}
 	// A second complete path with a different known endpoint is ambiguous.
 	other := path
+	other.HasPathID = true
 	other.PathID++
 	other.Segments = []BGPRoutingSegment{{Kind: 2, Values: []uint32{65000, 64500}}}
 	lookup.Source.Route.Paths = append(lookup.Source.Route.Paths, other)

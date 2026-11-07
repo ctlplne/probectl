@@ -84,6 +84,7 @@ type PlanResult struct {
 	RoleDigest          string                    `json:"role_digest,omitempty"`
 	RoleTenantID        string                    `json:"role_tenant_id,omitempty"`
 	RoleSources         []InterfaceRoleProjection `json:"role_sources,omitempty"`
+	RoutingProof        *RoutingQueryProof        `json:"-"`
 	// TagIDs preserves the immutable field identities in Query and Coverage.
 	// It describes this result, never client-supplied query authority.
 	TagIDs            map[string]string `json:"tag_ids,omitempty"`
@@ -600,6 +601,9 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	sortPlanPoints(result.Series)
 	sortPlanPoints(result.OtherSeries)
 	if err := captureResultRoleIdentity(ctx, &result, query); err != nil {
+		return PlanResult{}, err
+	}
+	if err := captureResultRoutingIdentity(ctx, &result, query); err != nil {
 		return PlanResult{}, err
 	}
 	if err := ctx.Err(); err != nil {

@@ -55,7 +55,7 @@ func (s *Server) recordFlowComparison(ctx context.Context, principal *auth.Princ
 	if err := s.authorizeFlowMetadata(ctx, principal, plan); err != nil {
 		return explorerComparisonResult{}, err
 	}
-	if flowstore.PlanUsesInterfaceRoles(plan) {
+	if flowstore.PlanUsesInterfaceRoles(plan) || flowPlanUsesCapturedRouting(plan) {
 		ctx, err = bindFlowRoleContext(ctx, principal)
 		if err != nil {
 			return explorerComparisonResult{}, err
