@@ -1019,6 +1019,24 @@
     "test:internal/tenantlife/entity_evidence_subject_test.go#TestSubjectAddressAliasesRequireExplicitIPSubject",
     "script:scripts/ci_entity_subject_lifecycle.py"
    ]
+  },
+  {
+   "id": "CLM-BGP-ROUTING-SOURCE-FORMAT",
+   "kind": "capability",
+   "statement": "Unknown selected-RIB serializer formats are refused; an ingest payload cannot enable the operator-owned FRR source profile. Current tenant-owned configuration selects the decoder under the staging source lock.",
+   "pattern": "Unknown formats fail closed; senders cannot enable a profile",
+   "surfaces": [
+    "docs/bgp-routing-bindings.md"
+   ],
+   "code": [
+    "internal/bgp/routing_source_profile.go",
+    "internal/store/bgp_routing_decode.go",
+    "internal/agenttransport/bgp_routing_stage.go"
+   ],
+   "proof": [
+    "test:internal/bgp/routing_source_profile_test.go#TestFRRRoutingProfileRefusesUnknownAmbiguousAndUnadmittedSources",
+    "test:internal/agenttransport/bgp_routing_stage_integration_test.go#TestRoutingFRRProfileRequiresCurrentOperatorBindingThroughRealMTLS"
+   ]
   }
  ]
 }

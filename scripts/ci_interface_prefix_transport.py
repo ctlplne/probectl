@@ -961,11 +961,13 @@ def configuration_incarnation_controls():
 def configuration_raw_cli_body_control():
     source = Path("internal/cli/generic.go").resolve()
     original = source.read_text()
-    seam = "op.ExactJSON, op.MaxBodyBytes = profile.ExactJSON, profile.MaxBodyBytes"
+    profile = 'profile := surfaceCommands["interface-roles"].Ops["set-policy"]\n\t\t'
+    assignment = "op.ExactJSON, op.MaxBodyBytes = profile.ExactJSON, profile.MaxBodyBytes"
+    seam = profile + assignment
     assert original.count(seam) == 1
     out = Path("artifacts/interface-prefix-transport").resolve()
     path = overlay_source_path(out, "raw_cli_policy_old_quota.go")
-    path.write_text(original.replace(seam, "op.ExactJSON = profile.ExactJSON"))
+    path.write_text(original.replace(seam, profile + "op.ExactJSON = profile.ExactJSON"))
     overlay = out / "raw_cli_policy_old_quota.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(path)}}))
     root = "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK"
