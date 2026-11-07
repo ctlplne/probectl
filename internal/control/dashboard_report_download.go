@@ -43,11 +43,7 @@ func (s *Server) downloadDashboardReportArtifact(w http.ResponseWriter, r *http.
 	var metadata *store.ReportArtifactMetadata
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		if s.fairnessGate == nil {
-			metadata, err = (store.DashboardReports{}).GetArtifactHeader(ctx, sc, r.PathValue("id"), dashboardActorID(r))
-			return err
-		}
-		metadata, err = (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, r.PathValue("id"), dashboardActorID(r), flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
+		metadata, err = (store.DashboardReports{}).GetArtifactHeader(ctx, sc, r.PathValue("id"), dashboardActorID(r))
 		return err
 	}); err != nil {
 		return err
@@ -60,6 +56,26 @@ func (s *Server) downloadDashboardReportArtifact(w http.ResponseWriter, r *http.
 		bounded, cancel := profile.context(ctx)
 		ctx = bounded
 		defer cancel()
+	} else {
+		if s.fairnessGate == nil {
+			return s.reportArtifactSourceAccessError(actor.TenantID, metadata.ID, apierror.Unavailable("report source admission is unavailable"))
+		}
+		budget := flowstore.ExplorerQueryBudget(s.flowStore)
+		if err := budget.Validate(); err != nil {
+			return apierror.Unavailable("report source cost policy is unavailable")
+		}
+		bounded, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
+		ctx = bounded
+		defer cancel()
+		// Fetch private requirements only after representation-specific
+		// fairness, byte and deadline admission; the first read is header-only.
+		if err := s.inTenant(r.WithContext(ctx), func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			metadata, err = (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, metadata.ID, dashboardActorID(r), budget.MemoryBytes/4)
+			return err
+		}); err != nil {
+			return err
+		}
 	}
 	capture, err := s.authorizeStoredReportReader(ctx, actor, metadata)
 	if err != nil {

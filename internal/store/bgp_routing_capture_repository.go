@@ -119,8 +119,9 @@ func loadRoutingCaptureReceiptInScope(ctx context.Context, sc tenancy.Scope, key
 
 // This is a private storage read, not a capability: an outward adapter must
 // independently check the current actor and every retained context/source.
-// A repeatable snapshot prevents a concurrent erase/reinsert from mixing the
-// first receipt and two different content objects. The caller must not expose
+// A repeatable snapshot, or the verified report publication audit lock,
+// prevents concurrent erase/reinsert from mixing the first receipt and content
+// objects. The caller must not expose
 // captured evidence if its current publication authorization has changed.
 func readRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]byte, budget BGPRoutingBudget) (routingCaptureReceipt, bool, error) {
 	if err := routingCaptureScope(ctx, sc); err != nil {
