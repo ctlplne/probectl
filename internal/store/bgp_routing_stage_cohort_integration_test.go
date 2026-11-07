@@ -11,6 +11,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -27,12 +28,17 @@ func TestRoutingStageKeepsDisjointCohortsAndRetiresWholeOverlap(t *testing.T) {
 	profile := routingViewBudget()
 	profile.LeaseDuration = 5 * time.Minute
 	sources := []BGPRoutingSource{routingFixtureSource(f, 0), routingFixtureSource(f, 1)}
+	var changedIdentifier string
 	stage := func(lane int, nonce string, families ...uint16) {
 		t.Helper()
 		source := sources[lane]
 		up := BGPRoutingPeerUpInput{CollectorAgentID: source.CollectorAgentID, SenderSerial: source.SenderSerial, SourceRef: source.SourceRef, OriginSerial: source.OriginSerial, ObservationID: nonce, ObservedAt: routingFixtureTime(f), FrameDigest: crypto.Hash([]byte(fmt.Sprint("complete modeled cohort", nonce, families)))}
 		for _, afi := range families {
-			up.Definitions = append(up.Definitions, routingLookupDefinition(afi))
+			definition := routingLookupDefinition(afi)
+			if changedIdentifier != "" {
+				definition.Peer.BGPIdentifier = netip.MustParseAddr(changedIdentifier)
+			}
+			up.Definitions = append(up.Definitions, definition)
 		}
 		var got BGPRoutingStageResult
 		err := routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
@@ -76,4 +82,13 @@ func TestRoutingStageKeepsDisjointCohortsAndRetiresWholeOverlap(t *testing.T) {
 	if active(0, combined) != 0 || active(0, shrunk) != 1 || active(1, first) != 1 || active(1, second) != 1 {
 		t.Fatal("replacement retained omitted family from combined cohort or changed a sibling tenant")
 	}
+	v6 := uuid.NewString()
+	stage(0, v6, 2)
+	changedIdentifier = "192.0.2.99"
+	newIdentity := uuid.NewString()
+	stage(0, newIdentity, 1)
+	if active(0, shrunk) != 0 || active(0, v6) != 0 || active(0, newIdentity) != 1 || active(1, first) != 1 || active(1, second) != 1 {
+		t.Fatal("changed protocol identity retained a disjoint old cohort or changed a sibling tenant")
+	}
+
 }
