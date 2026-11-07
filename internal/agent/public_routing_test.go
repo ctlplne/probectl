@@ -9,8 +9,9 @@ package agent
 import (
 	"testing"
 
-	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"google.golang.org/protobuf/proto"
+
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
 
 func TestPublicRoutingClientKeepsOriginalFramesAndRequiresExclusiveReceipts(t *testing.T) {

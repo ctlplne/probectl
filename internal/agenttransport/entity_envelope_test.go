@@ -7,9 +7,11 @@
 package agenttransport
 
 import (
-	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
-	"google.golang.org/protobuf/proto"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
+
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
 
 func TestEntityEvidenceEnvelopeKeepsOnePlaneAndRefusesUnknownPublicFields(t *testing.T) {

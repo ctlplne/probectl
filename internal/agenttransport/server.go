@@ -31,9 +31,9 @@ import (
 	"github.com/ctlplne/probectl/internal/version"
 )
 
-// maxRecvBytes bounds each inbound gRPC message (FUZZ-005). 4 MiB matches the
-// OTLP receiver; agent result frames are far smaller, so this is purely a
-// safety ceiling against an oversized/hostile message (returns ResourceExhausted).
+// maxRecvBytes is the finite default for each inbound gRPC message (FUZZ-005).
+// Deployments can raise it through the agent transport admission option when
+// a complete original source record needs more wire space.
 const maxRecvBytes = 4 << 20 // 4 MiB
 
 // gRPC server keepalive / lifetime caps for the agent-transport listener.

@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
@@ -44,38 +45,15 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 			counter.Inc()
 		}
 	}()
-	id, err := svc.authenticateEntityEvidence(ctx)
+	id, serial, err := svc.authenticateIssuedEntityEvidence(ctx)
 	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, "evidence identity is not valid")
-	}
-	if svc.pool == nil || svc.fence == nil {
-		return nil, status.Error(codes.Unavailable, "entity evidence store is not configured")
-	}
-	leaf, err := peerLeafFromContext(ctx)
-	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, "evidence certificate is missing")
-	}
-	identities := store.NewAgentIdentities(svc.pool)
-	known, err := identities.KnownIssuedIdentity(ctx, id.TenantID, id.AgentID,
-		id.String(), leaf.SerialNumber.Text(16))
-	if err != nil {
-		return nil, status.Error(codes.Unavailable, "evidence identity lookup failed")
-	}
-	if !known {
-		return nil, status.Error(codes.Unauthenticated, "evidence identity was not issued to this agent")
-	}
-	revoked, err := identities.IsAgentRevoked(ctx, id.TenantID, id.AgentID)
-	if err != nil {
-		return nil, status.Error(codes.Unavailable, "evidence revocation lookup failed")
-	}
-	if revoked {
-		return nil, status.Error(codes.PermissionDenied, "evidence identity was revoked")
+		return nil, err
 	}
 	if !validEntityEvidenceEnvelope(req) {
 		return nil, status.Error(codes.InvalidArgument, "evidence request must contain one complete operation")
 	}
 	if req.PublicRoutingPeerTable != nil || req.PublicRoutingMessage != nil {
-		response, accepted, err := svc.submitPublicRoutingEvidence(ctx, id, leaf.SerialNumber.Text(16), req)
+		response, accepted, err := svc.submitPublicRoutingEvidence(ctx, id, serial, req)
 		if accepted {
 			outcome = "accepted"
 		}
@@ -89,7 +67,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		return response, err
 	}
 	if req.GetRoutingPeerUp() != nil || req.GetRoutingMessage() != nil {
-		response, accepted, err := svc.submitRoutingEvidence(ctx, id, leaf.SerialNumber.Text(16), req)
+		response, accepted, err := svc.submitRoutingEvidence(ctx, id, serial, req)
 		if accepted {
 			outcome = "accepted"
 		}
@@ -170,7 +148,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 				var writeErr error
 				accepted, unresolved, writeErr = store.NewEntityRegistry(svc.pool).
 					WriteEvidenceBatch(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)),
-						id.AgentID, leaf.SerialNumber.Text(16), observations)
+						id.AgentID, serial, observations)
 				return writeErr
 			})
 		if err != nil {
@@ -223,6 +201,39 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		Accepted: uint32(accepted), Unresolved: uint32(unresolved),
 		FaultsPersisted: uint32(faultsPersisted),
 	}, nil
+}
+
+// authenticateIssuedEntityEvidence keeps the restricted purpose, issued serial
+// and current revocation checks before every evidence plane is dispatched.
+func (svc *service) authenticateIssuedEntityEvidence(ctx context.Context) (crypto.SPIFFEID, string, error) {
+	id, err := svc.authenticateEntityEvidence(ctx)
+	if err != nil {
+		return crypto.SPIFFEID{}, "", status.Error(codes.Unauthenticated, "evidence identity is not valid")
+	}
+	if svc.pool == nil || svc.fence == nil {
+		return crypto.SPIFFEID{}, "", status.Error(codes.Unavailable, "entity evidence store is not configured")
+	}
+	leaf, err := peerLeafFromContext(ctx)
+	if err != nil {
+		return crypto.SPIFFEID{}, "", status.Error(codes.Unauthenticated, "evidence certificate is missing")
+	}
+	identities := store.NewAgentIdentities(svc.pool)
+	known, err := identities.KnownIssuedIdentity(ctx, id.TenantID, id.AgentID,
+		id.String(), leaf.SerialNumber.Text(16))
+	if err != nil {
+		return crypto.SPIFFEID{}, "", status.Error(codes.Unavailable, "evidence identity lookup failed")
+	}
+	if !known {
+		return crypto.SPIFFEID{}, "", status.Error(codes.Unauthenticated, "evidence identity was not issued to this agent")
+	}
+	revoked, err := identities.IsAgentRevoked(ctx, id.TenantID, id.AgentID)
+	if err != nil {
+		return crypto.SPIFFEID{}, "", status.Error(codes.Unavailable, "evidence revocation lookup failed")
+	}
+	if revoked {
+		return crypto.SPIFFEID{}, "", status.Error(codes.PermissionDenied, "evidence identity was revoked")
+	}
+	return id, leaf.SerialNumber.Text(16), nil
 }
 
 func parseSNMPPrefixEvidence(snapshot *agentv1.SnmpInterfacePrefixSnapshot) ([]entity.SNMPInterfacePrefix, error) {
