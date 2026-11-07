@@ -1749,7 +1749,7 @@ type FlowQueryDisplay struct {
 	TotalOverlay      *bool    `json:"total_overlay,omitempty"`
 }
 
-// Native fields plus tenant-defined tag.<key>, tag.device.<key>, tag.agent.<key>, tag.in_interface.<key>, tag.out_interface.<key>, tag.src_prefix.<key> and tag.dst_prefix.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor, registered collecting agent, current attested interface index or closest explicit canonical prefix in the owned routing context. They additionally require metrics.read (device/interface), agent.read (agent) or entities.read (prefix). Equal closest prefix networks are ambiguous and return an empty value, without ancestor fallback. Source and destination prefix fields are independent. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client.
+// Native fields plus tenant-defined tag.<key>, tag.device.<key>, tag.agent.<key>, tag.in_interface.<key>, tag.out_interface.<key>, tag.src_prefix.<key> and tag.dst_prefix.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor, registered collecting agent, current attested interface index or closest explicit canonical prefix in the owned routing context. They additionally require metrics.read (device/interface), agent.read (agent) or entities.read (prefix). Equal closest prefix networks are ambiguous and return an empty value, without ancestor fallback. Source and destination prefix fields are independent. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client. Fourteen src_bgp_* and dst_bgp_* fields expose immutable ingestion-time routing captures: provenance, prefix, complete AS paths, next-hop AS, origin AS, first-transit AS and RPKI. They require current entities.read and events.read globally and for every canonical context. Missing routing evidence retains traffic as unavailable/unknown; it never queries a newer RIB to refill an original receipt.
 type FlowQueryField struct {
 	LegacyHourlyAvailable bool     `json:"legacy_hourly_available"`
 	Name                  string   `json:"name"`
@@ -1796,7 +1796,7 @@ type FlowQueryOptions struct {
 	View             string               `json:"view,omitempty"`
 }
 
-// Values are typed and canonicalized by the field registry. Each value is at most65536 UTF-8 bytes; regex patterns at most1024 bytes in the supported RE2 syntax. Empty exact string/address/prefix values match unassigned stored values.
+// Values are typed and canonicalized by the field registry. Each value is at most 2097152 UTF-8 bytes within whole-plan and storage admission; regex patterns remain at most 1024 bytes in supported RE2 syntax. Empty exact string/address/prefix values match unassigned stored values. For routing ASN fields only, blank selects unknown, independently of ASN zero; membership lists may combine unknown and complete uint32 values.
 type FlowQueryPredicate struct {
 	Field  string   `json:"field"`
 	Op     string   `json:"op"`
