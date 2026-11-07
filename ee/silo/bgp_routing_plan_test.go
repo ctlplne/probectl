@@ -59,3 +59,22 @@ func TestBGPRoutingBindingPlanPreservesStoredCollectorContextOnCatchUp(t *testin
 		t.Fatal("silo catch-up retired assignment boundary before its replacement")
 	}
 }
+
+func TestRoutingCapturePlanKeepsTenantReferencesAndImmutableRole(t *testing.T) {
+	const schema = "t_11111111111141118111111111111111"
+	tables := []string{"bgp_flow_capture_objects", "bgp_flow_capture_receipts", "bgp_flow_capture_payloads"}
+	for _, statements := range [][]string{ProvisionPlan(schema, tables), CatchUpPlan(schema, Catalog{TenantTables: tables, SchemaTables: tables})} {
+		plan := strings.Join(statements, "\n")
+		for _, parent := range []string{"bgp_flow_capture_receipts", "bgp_flow_capture_objects"} {
+			if !strings.Contains(plan, `REFERENCES "`+schema+`"."`+parent+`" (tenant_id,`) {
+				t.Fatal("routing capture reference escaped its physical tenant schema", parent)
+			}
+		}
+		for _, table := range tables {
+			qualified := `"` + schema + `"."` + table + `"`
+			if !strings.Contains(plan, "GRANT SELECT, INSERT, DELETE ON "+qualified+" TO probectl_app") || strings.Contains(plan, "GRANT SELECT, INSERT, UPDATE, DELETE ON "+qualified) {
+				t.Fatal("silo routing capture allowed immutable content updates", table)
+			}
+		}
+	}
+}

@@ -341,6 +341,12 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// Prefixes, numeric AS segments, wire attributes and next-hop addresses
 	// are operator network inventory, without first-class person ownership.
 	"bgp_routing_entries": {plane: "postgres:bgp_routing_entries", disposition: subjectTableNoSubject},
+	// Search decoded JSON so escaped source identifiers remain erasable. Content
+	// deletion cascades payload links; hash-only first receipts remain tombstones
+	// and prevent a replay from attaching the erased content again.
+	"bgp_flow_capture_objects":  {plane: "postgres:bgp_flow_capture_objects", disposition: subjectTableDeleteMatches, contains: []string{"searchable_body"}},
+	"bgp_flow_capture_receipts": {plane: "postgres:bgp_flow_capture_receipts", disposition: subjectTableNoSubject},
+	"bgp_flow_capture_payloads": {plane: "postgres:bgp_flow_capture_payloads", disposition: subjectTableNoSubject},
 	"entity_fault_receipts": {
 		plane: "postgres:entity_fault_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id"}, contains: []string{"source_ref"},

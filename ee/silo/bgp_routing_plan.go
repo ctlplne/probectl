@@ -17,6 +17,11 @@ func bgpRoutingStoragePlan(schema string, tables []string) []string {
 	q := quoteIdent(schema)
 	var plan []string
 	for _, key := range []struct{ child, name, columns, parent, parentColumns string }{
+		{"bgp_flow_capture_objects", "fx5_capture_object_tenant_fk", "tenant_id", "public.tenants", "id"},
+		{"bgp_flow_capture_receipts", "fx5_capture_receipt_tenant_fk", "tenant_id", "public.tenants", "id"},
+		{"bgp_flow_capture_payloads", "fx5_capture_payload_receipt_fk", "tenant_id,flow_key", "bgp_flow_capture_receipts", "tenant_id,flow_key"},
+		{"bgp_flow_capture_payloads", "fx5_capture_payload_facts_fk", "tenant_id,facts_digest,facts_kind", "bgp_flow_capture_objects", "tenant_id,digest,kind"},
+		{"bgp_flow_capture_payloads", "fx5_capture_payload_clocks_fk", "tenant_id,clocks_digest,clocks_kind", "bgp_flow_capture_objects", "tenant_id,digest,kind"},
 		{"bgp_routing_views", "fx5_route_view_tenant_fk", "tenant_id", "public.tenants", "id"},
 		{"bgp_routing_views", "fx5_route_view_context_fk", "tenant_id,context_id", "entity_contexts", "tenant_id,id"},
 		{"bgp_routing_views", "fx5_route_view_router_fk", "tenant_id,context_id,router_id,router_kind", "entities", "tenant_id,context_id,id,kind"},

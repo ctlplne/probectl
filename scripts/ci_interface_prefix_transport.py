@@ -129,6 +129,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestRoutingCaptureRepositoryRequiresTenantBeforeStorage",
         "TestRoutingCaptureObjectsKeepEveryFieldAndShareContentAcrossClocks",
         "TestRoutingCaptureObjectsKeepExplicitSelectionsAndUnavailableDirections",
         "TestRoutingCaptureObjectsRefuseTenantMixCorruptionOldFormatsAndPartialAdmission",
@@ -159,6 +160,7 @@ UNIT = {
         "TestInterfaceRoleFlowBindingRequiresTenantBeforeStorageAndExactIdentity",
     ),
     "ee/silo": (
+        "TestRoutingCapturePlanKeepsTenantReferencesAndImmutableRole",
         "TestBGPRoutingPlanKeepsEveryReferenceInItsTenantSchema",
         "TestBGPRoutingBindingPlanPreservesStoredCollectorContextOnCatchUp",
         "TestEntityRegistryForeignKeysFollowAllSiloCopies",
@@ -192,6 +194,7 @@ INTEGRATION = {
         "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
     ),
     "internal/store": (
+        "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone",
         "TestRoutingOperatorConfigurationKeepsTenantPolicyCASAndAtomicAudit",
         "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
         "TestRoutingBindingManifestRefusesLegacyAuthorityWithoutChangingOtherTenant",
