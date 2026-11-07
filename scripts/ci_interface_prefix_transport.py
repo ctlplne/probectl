@@ -241,6 +241,7 @@ INTEGRATION = {
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
     ),
     "internal/tenantlife": (
+        "TestRoutingCaptureSubjectDecodedErasureKeepsFirstReceiptAndSibling",
         "TestInterfaceRoleSubjectKeepsWholeExportErasureAndTenantIsolation",
         "TestEntityEvidenceSubjectMetadataExportErasureAndIsolation",
     ),
