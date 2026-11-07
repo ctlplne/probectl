@@ -187,6 +187,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicSnapshotFreshnessUsesOriginalClockAndIndependentAuthorityLimits",
         "TestPublicSnapshotManifestKeepsBothFamiliesWholeIdentityExactClocksAndEmptyPresence",
         "TestPublicSnapshotManifestRefusesLatePartialBudgetAndForeignTenantBeforeStorage",
         "TestPublicRoutingAuthorityRequiresTenantBeforeStorageAndCompleteAssignment",
@@ -596,6 +597,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-source-freshness": (
+        "internal/store/bgp_public_source_clock.go",
+        "origin := time.Unix(0, *sourceClock)",
+        "origin := asOf",
+        "TestPublicSnapshotFreshnessUsesOriginalClockAndIndependentAuthorityLimits", "",
+        "public source lease came from receipt time or lost original nanoseconds",
+    ),
     "routing-tag-shadow": (
         "internal/tags/resolver.go",
         '"src_bgp_provenance": true',

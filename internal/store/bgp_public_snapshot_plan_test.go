@@ -61,6 +61,12 @@ func TestPublicSnapshotManifestKeepsBothFamiliesWholeIdentityExactClocksAndEmpty
 	if err != nil || empty == nil || len(empty) != 0 || emptyDigest == ([32]byte{}) {
 		t.Fatal("complete empty peer manifest became unavailable", err)
 	}
+	zero := int64(0)
+	input.SourceObservedUnixNanos = &zero
+	if _, known, _, err := preparePublicSnapshot(t.Context(), input, budget); err != nil || known == emptyDigest {
+		t.Fatal("empty public manifest lost original source clock presence", err)
+	}
+	input.SourceObservedUnixNanos = nil
 	input.Definitions = nil
 	if peers, key, _, err := preparePublicSnapshot(t.Context(), input, budget); err == nil || peers != nil || key != ([32]byte{}) {
 		t.Fatal("missing public manifest became a complete empty withdrawal", err)

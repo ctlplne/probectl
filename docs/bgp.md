@@ -358,6 +358,12 @@ state participates in tenant resource accounting, physical silo upgrades and
 source/context/tenant deletion. Whole-source completion, current-authority
 readers and authenticated collector transport remain required before this state
 can serve flow fallback. Existing anomaly events are not a complete public RIB.
+Snapshot freshness retains the original RIB production timestamp separately
+from the collector receipt clock. A newly received old file cannot renew its
+data age. Missing source time can be retained in private staging; current
+publication requires known source time and is bounded by source age, capture
+lease and current credential/assignment authority. Per-route origination time
+remains distinct from the timestamp of the complete RIB snapshot.
 
 - **It's a signal, not a shield.** probectl tells you about a hijack; stopping it
   (calling your upstream, pushing the RPKI fix) is still your move. By design — see

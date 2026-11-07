@@ -24,6 +24,7 @@ import (
 // Present empty means an empty manifest. Nil means unavailable, never empty.
 type BGPPublicSnapshotInput struct {
 	CollectorAgentID, SenderSerial, SourceRef, ObservationID string
+	SourceObservedUnixNanos                                  *int64 // original RIB production clock, never the collector receipt
 	ObservedAt                                               time.Time
 	Definitions                                              []BGPRoutingViewDefinition
 }
@@ -50,6 +51,9 @@ func preparePublicSnapshot(ctx context.Context, input BGPPublicSnapshotInput, pr
 	}
 	if profile.LeaseDuration <= 0 {
 		return nil, digest, profile, ErrBGPRoutingBudget
+	}
+	if input.SourceObservedUnixNanos != nil && *input.SourceObservedUnixNanos < 0 {
+		return nil, digest, profile, ErrBGPRoutingView
 	}
 	if err := routingBatchPopulationCharge(&profile, len(input.Definitions), 1024, 512); err != nil {
 		return nil, digest, profile, err
@@ -90,7 +94,11 @@ func preparePublicSnapshot(ctx context.Context, input BGPPublicSnapshotInput, pr
 		}
 		return int(a.AFI) - int(b.AFI)
 	})
-	manifest, err := json.Marshal(peers)
+	manifest, err := json.Marshal(struct {
+		Version                 int
+		SourceObservedUnixNanos *int64 `json:",omitempty"`
+		Peers                   []publicSnapshotPeer
+	}{1, input.SourceObservedUnixNanos, peers})
 	if err != nil {
 		return nil, digest, profile, err
 	}

@@ -112,6 +112,10 @@ func TestPublicRoutingSnapshotSchemaKeepsEmptyRIBTenantSourceAndBoundViewIdentit
 		return err
 	})
 	assertCode("23514", func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE bgp_public_snapshots SET state='current',completed_at=clock_timestamp() WHERE tenant_id=$1`, f.tenants[0])
+		return err
+	})
+	assertCode("23514", func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `UPDATE bgp_public_snapshots SET observed_unix_nanos=observed_unix_nanos+1000,last_message_unix_nanos=last_message_unix_nanos+1000 WHERE tenant_id=$1`, f.tenants[0])
 		return err
 	})

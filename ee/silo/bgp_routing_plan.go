@@ -64,7 +64,22 @@ END $fx5_route_fk$`, quoteLiteral(child), quoteLiteral(key.name), child, quoteId
 	if owned["entity_source_contexts"] {
 		plan = append(plan, publicSourceChecksPlan(q+"."+quoteIdent("entity_source_contexts")))
 	}
+	if owned["bgp_public_snapshots"] {
+		plan = append(plan, publicSnapshotClockChecksPlan(q+"."+quoteIdent("bgp_public_snapshots")))
+	}
 	return plan
+}
+
+func publicSnapshotClockChecksPlan(child string) string {
+	return fmt.Sprintf(`DO $fx5_public_clock_checks$ DECLARE entry record; BEGIN
+FOR entry IN SELECT conname,pg_get_constraintdef(oid) AS definition FROM pg_constraint
+ WHERE conrelid='public.bgp_public_snapshots'::regclass AND contype='c'
+ AND conname IN ('fx5_public_snapshot_source_clock','fx5_public_snapshot_current_source_clock') LOOP
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=entry.conname) THEN
+  EXECUTE 'ALTER TABLE ' || %s || ' ADD CONSTRAINT ' || quote_ident(entry.conname) || ' ' || entry.definition;
+ END IF;
+END LOOP;
+END $fx5_public_clock_checks$`, quoteLiteral(child), quoteLiteral(child))
 }
 
 // LIKE copies checks for new silos. Catch-up must also replace the old source

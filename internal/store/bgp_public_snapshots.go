@@ -39,6 +39,10 @@ func (store BGPRouting) StagePublicSnapshotInScope(ctx context.Context, sc tenan
 	if err := routingConfigurationScope(ctx, sc); err != nil {
 		return none, err
 	}
+	if input.SourceObservedUnixNanos != nil {
+		clock := *input.SourceObservedUnixNanos
+		input.SourceObservedUnixNanos = &clock
+	}
 	peers, digest, operation, err := preparePublicSnapshot(ctx, input, profile)
 	if err != nil {
 		return none, err
@@ -54,7 +58,7 @@ func (store BGPRouting) StagePublicSnapshotInScope(ctx context.Context, sc tenan
 	if err != nil {
 		return none, err
 	}
-	if replay, exists, err := replayPublicSnapshot(ctx, sc, source, input.ObservationID, peers, digest, authority.AsOf); err != nil || exists {
+	if replay, exists, err := replayPublicSnapshot(ctx, sc, source, input.ObservationID, peers, digest, input.SourceObservedUnixNanos, authority.AsOf); err != nil || exists {
 		return replay, err
 	}
 	var latest *int64
@@ -91,9 +95,9 @@ func (store BGPRouting) StagePublicSnapshotInScope(ctx context.Context, sc tenan
 	}
 	if _, err := sc.Q.Exec(ctx, `INSERT INTO bgp_public_snapshots
  (tenant_id,context_id,id,collector_agent_id,source_ref,sender_serial,manifest_digest,expected_views,state,
- observed_at,observed_unix_nanos,last_message_unix_nanos,valid_until,charged_bytes)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,'staging',$9,$10,$10,$11,$12)`, source.TenantID, source.ContextID, input.ObservationID, source.CollectorAgentID, source.SourceRef, source.SenderSerial,
-		digest[:], int64(len(peers)), source.ObservedAt, source.ObservedAt.UnixNano(), until, charge); err != nil {
+ observed_at,observed_unix_nanos,last_message_unix_nanos,valid_until,charged_bytes,source_observed_unix_nanos)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,'staging',$9,$10,$10,$11,$12,$13)`, source.TenantID, source.ContextID, input.ObservationID, source.CollectorAgentID, source.SourceRef, source.SenderSerial,
+		digest[:], int64(len(peers)), source.ObservedAt, source.ObservedAt.UnixNano(), until, charge, input.SourceObservedUnixNanos); err != nil {
 		return none, err
 	}
 	views := make([]BGPPublicSnapshotView, 0, len(peers))
