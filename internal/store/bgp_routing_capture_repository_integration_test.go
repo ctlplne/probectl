@@ -91,11 +91,12 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 	intentKey := routingCaptureHash([]byte("unattested provisional raw flow"))
 	for lane, tenant := range f.tenants {
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO bgp_flow_capture_intents(tenant_id,flow_key,source_generation,captured_at_unix_nanos) VALUES($1,$2,$3,$4)`, tenant, intentKey[:], generations[lane], inputs[lane].CapturedAt.UnixNano()); err != nil {
+			ref, err := retainRoutingCaptureIntentInScope(ctx, sc, intentKey, objects[lane], generations[lane], budget)
+			if err != nil {
 				return err
 			}
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO bgp_flow_capture_intent_payloads(tenant_id,flow_key,facts_digest,clocks_digest) VALUES($1,$2,$3,$4)`, tenant, intentKey[:], objects[lane].facts.digest[:], objects[lane].clocks.digest[:]); err != nil {
-				return err
+			if ref.Key != intentKey || !ref.CapturedAt.Equal(inputs[lane].CapturedAt) {
+				t.Fatal("provisional ingestion changed complete first identity or clock")
 			}
 			var own, foreign int
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_flow_capture_intents`).Scan(&own); err != nil {
@@ -124,6 +125,13 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 	if receipt, err := write(0, key, &newer, budget); err != nil || !receipt.capturedAt.Equal(inputs[0].CapturedAt) {
 		t.Fatal("retry changed the first successful routing capture", err)
 	}
+	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
+		ref, err := retainRoutingCaptureIntentInScope(ctx, sc, intentKey, newer, generations[0], budget)
+		if err == nil && !ref.CapturedAt.Equal(inputs[0].CapturedAt) {
+			t.Fatal("provisional retry replaced its first processing clock")
+		}
+		return err
+	})
 	if _, err := write(0, otherKey, &objects[0], budget); err != nil {
 		t.Fatal(err)
 	}

@@ -205,6 +205,14 @@ func admitRetainedRoutingCapture(ctx context.Context, sc tenancy.Scope, objects 
 }
 
 func insertRoutingCapturePayload(ctx context.Context, sc tenancy.Scope, key [32]byte, objects routingCaptureObjects) error {
+	if err := insertRoutingCaptureObjects(ctx, sc, objects); err != nil {
+		return err
+	}
+	_, err := sc.Q.Exec(ctx, `INSERT INTO bgp_flow_capture_payloads(tenant_id,flow_key,facts_digest,clocks_digest) VALUES($1,$2,$3,$4)`, sc.Tenant.String(), key[:], objects.facts.digest[:], objects.clocks.digest[:])
+	return err
+}
+
+func insertRoutingCaptureObjects(ctx context.Context, sc tenancy.Scope, objects routingCaptureObjects) error {
 	for i, object := range []routingCaptureObject{objects.facts, objects.clocks} {
 		kind := "routing_facts"
 		if i == 1 {
@@ -221,6 +229,5 @@ func insertRoutingCapturePayload(ctx context.Context, sc tenancy.Scope, key [32]
 			return errRoutingCaptureFormat
 		}
 	}
-	_, err := sc.Q.Exec(ctx, `INSERT INTO bgp_flow_capture_payloads(tenant_id,flow_key,facts_digest,clocks_digest) VALUES($1,$2,$3,$4)`, sc.Tenant.String(), key[:], objects.facts.digest[:], objects.clocks.digest[:])
-	return err
+	return nil
 }
