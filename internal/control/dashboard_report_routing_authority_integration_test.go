@@ -39,13 +39,16 @@ func TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthor
 	f.server.WithFlowStore(rows.Memory)
 	views := flow.NewPostgresQueryViewStore(pool, 0, audit.TenantRecord)
 	f.server.WithFlowQueryViews(views)
+	// Fixture writes use the ordinary writer-fence pool. Only the reader and
+	// its current view access share the deliberately single-connection pool.
+	setupViews := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
 	captures := map[string]*reportFlowCapture{}
 	for _, tenant := range f.tenants {
 		ctx, cancel := context.WithTimeout(auth.WithPrincipal(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), actors[tenant]), 20*time.Second)
 		defer cancel()
 		// Frozen readers ask only for this current access record. The current
 		// saved definition is not a substitute for their original selectors.
-		view, err := views.SaveQueryView(ctx, tenant, actors[tenant].UserID, flow.SaveQueryView{Definition: flow.QueryViewDefinition{Name: "Current routing reader access", Visibility: "private", Time: flow.QueryViewTime{Mode: "absolute"}, Plan: flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"protocol"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}}})
+		view, err := setupViews.SaveQueryView(ctx, tenant, actors[tenant].UserID, flow.SaveQueryView{Definition: flow.QueryViewDefinition{Name: "Current routing reader access", Visibility: "private", Time: flow.QueryViewTime{Mode: "absolute"}, Plan: flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), GroupBy: []string{"protocol"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
