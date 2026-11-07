@@ -46,12 +46,15 @@ func routingCaptureScope(ctx context.Context, sc tenancy.Scope) error {
 // error. This repository creates no reader grant. First capture, including an
 // unavailable result, wins; missing erased payloads can never be refilled by a
 // retry through this seam. Current user/source authorization remains separate.
-func retainRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]byte, objects *routingCaptureObjects, sourceGeneration int64, budget BGPRoutingBudget) (routingCaptureReceipt, error) {
+func retainRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]byte, objects *routingCaptureObjects, sourceGeneration int64, budget BGPRoutingBudget, firstClock ...time.Time) (routingCaptureReceipt, error) {
 	if err := routingCaptureScope(ctx, sc); err != nil {
 		return routingCaptureReceipt{}, err
 	}
 	if key == ([32]byte{}) || budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
 		return routingCaptureReceipt{}, ErrBGPRoutingBudget
+	}
+	if len(firstClock) > 1 || (len(firstClock) == 1 && (firstClock[0].UnixNano() <= 0 || (objects != nil && !objects.capturedAt.Equal(firstClock[0])))) {
+		return routingCaptureReceipt{}, errRoutingCaptureFormat
 	}
 	// Share lifecycle lock order with subject erasure and report publication.
 	// A capture started before validated erasure cannot republish old content.
@@ -79,6 +82,10 @@ func retainRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]
 	receipt := routingCaptureReceipt{key: key, outcome: "unavailable"}
 	if objects != nil {
 		receipt.outcome, receipt.capturedAt = "captured", objects.capturedAt
+	} else if len(firstClock) == 1 {
+		// Finalizing an erased/unavailable provisional candidate must preserve
+		// its original raw-row clock, rather than minting a later retry clock.
+		receipt.capturedAt = firstClock[0].UTC()
 	} else if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&receipt.capturedAt); err != nil {
 		return routingCaptureReceipt{}, err
 	}

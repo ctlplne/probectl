@@ -98,6 +98,18 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 			if ref.Key != intentKey || !ref.CapturedAt.Equal(inputs[lane].CapturedAt) {
 				t.Fatal("provisional ingestion changed complete first identity or clock")
 			}
+			intent, exists, err := loadRoutingCaptureIntentInScope(ctx, sc, intentKey)
+			if err != nil || !exists {
+				t.Fatal("provisional ingestion lost its first epoch and clock", err)
+			}
+			private, err := readRoutingCaptureIntentPayloadInScope(ctx, sc, intent, budget)
+			if err != nil || private == nil {
+				t.Fatal("private candidate lost complete source data", err)
+			}
+			decoded, err := decodeRoutingCapture(ctx, *private, budget)
+			if err != nil || !reflect.DeepEqual(decoded, inputs[lane]) {
+				t.Fatal("private candidate changed complete original paths or source clocks", err)
+			}
 			var own, foreign int
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_flow_capture_intents`).Scan(&own); err != nil {
 				return err

@@ -47,6 +47,46 @@ func loadRoutingCaptureIntentInScope(ctx context.Context, sc tenancy.Scope, key 
 	return intent, true, nil
 }
 
+// The caller holds the existing tenant audit/state locks. Each immutable
+// object is byte-admitted before fetching, then the complete pair is decoded
+// and hash/scope checked. A missing erased link is a tombstone, never an excuse
+// to look up the current RIB or recreate the old candidate.
+func readRoutingCaptureIntentPayloadInScope(ctx context.Context, sc tenancy.Scope, intent routingCaptureIntent, budget BGPRoutingBudget) (*routingCaptureObjects, error) {
+	if err := routingCaptureScope(ctx, sc); err != nil {
+		return nil, err
+	}
+	var facts, clocks []byte
+	err := sc.Q.QueryRow(ctx, `SELECT facts_digest,clocks_digest FROM bgp_flow_capture_intent_payloads WHERE tenant_id=$1 AND flow_key=$2`, sc.Tenant.String(), intent.key[:]).Scan(&facts, &clocks)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(facts) != 32 || len(clocks) != 32 {
+		return nil, errRoutingCaptureFormat
+	}
+	objects := &routingCaptureObjects{capturedAt: intent.capturedAt}
+	for i, item := range []struct {
+		digest []byte
+		kind   string
+	}{{facts, "routing_facts"}, {clocks, "routing_clocks"}} {
+		object, err := readRoutingCaptureObjectInScope(ctx, sc, item.digest, item.kind, budget)
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 {
+			objects.facts = object
+		} else {
+			objects.clocks = object
+		}
+	}
+	if _, err := decodeRoutingCapture(ctx, *objects, budget); err != nil {
+		return nil, err
+	}
+	return objects, nil
+}
+
 // An intent is a private candidate, never a terminal receipt. Only a later
 // exact authenticated witness may publish it. Existing terminal outcomes and
 // intent tombstones win before source content can be inserted or refilled.
