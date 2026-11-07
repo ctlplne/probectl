@@ -366,6 +366,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		"entity_test_contexts",
 		"entity_agent_contexts",
 		"entity_source_contexts",
+		"bgp_public_snapshots",
 		"entities",
 		"entity_evidence",
 		"entity_links",
@@ -397,7 +398,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 	if byName["audit_events"] != subjectTableProjectMatches {
 		t.Fatalf("audit_events disposition = %d, want append-only projection", byName["audit_events"])
 	}
-	for _, table := range []string{"users", "ai_feedback", "incident_correlation_overrides", "flow_query_filters", "flow_query_views", "flow_query_view_preferences", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_fault_receipts", "tenant_tag_definitions", "tenant_tag_assignments", "tenant_tag_rules"} {
+	for _, table := range []string{"users", "ai_feedback", "incident_correlation_overrides", "flow_query_filters", "flow_query_views", "flow_query_view_preferences", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_fault_receipts", "tenant_tag_definitions", "tenant_tag_assignments", "tenant_tag_rules", "bgp_public_snapshots"} {
 		if byName[table] != subjectTableDeleteMatches {
 			t.Fatalf("%s disposition = %d, want count-verified deletion", table, byName[table])
 		}

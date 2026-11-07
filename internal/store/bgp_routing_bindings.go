@@ -225,6 +225,7 @@ func routingStateBytesInScope(ctx context.Context, sc tenancy.Scope) (int64, err
 	var used int64
 	err := sc.Q.QueryRow(ctx, `SELECT
  COALESCE((SELECT sum(charged_bytes) FROM bgp_routing_views WHERE tenant_id=$1),0)::bigint
+ + COALESCE((SELECT sum(charged_bytes) FROM bgp_public_snapshots WHERE tenant_id=$1),0)::bigint
  + COALESCE((SELECT sum(CASE WHEN routing_epoch IS NULL THEN 0 ELSE octet_length(routing_bindings::text)+128 END) FROM entity_source_contexts WHERE tenant_id=$1),0)::bigint
  + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_objects WHERE tenant_id=$1),0)::bigint
  + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_receipts WHERE tenant_id=$1),0)::bigint

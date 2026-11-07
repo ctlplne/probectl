@@ -262,6 +262,7 @@ INTEGRATION = {
     ),
     "internal/store": (
         "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth",
+        "TestPublicRoutingSnapshotSchemaKeepsEmptyRIBTenantSourceAndBoundViewIdentity",
         "TestPublicRoutingStagingKeepsTenantPrivateOwnedMetadataAndAtomicReplacement",
         "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges",
         "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone",
@@ -587,6 +588,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-snapshot-rls": (
+        "internal/store/bgp_public_snapshot_schema_integration_test.go",
+        "f.pool.Exec(ctx, string(definition))",
+        'f.pool.Exec(ctx, string(definition)+"; ALTER TABLE bgp_public_snapshots DISABLE ROW LEVEL SECURITY")',
+        "TestPublicRoutingSnapshotSchemaKeepsEmptyRIBTenantSourceAndBoundViewIdentity", "",
+        "empty public snapshot leaked tenants, lost exact time or escaped tenant admission",
+    ),
     "public-source-managed": (
         "ee/silo/bgp_routing_plan.go",
         'plan = append(plan, publicSourceChecksPlan(q+"."+quoteIdent("entity_source_contexts")))',

@@ -17,6 +17,10 @@ func bgpRoutingStoragePlan(schema string, tables []string) []string {
 	q := quoteIdent(schema)
 	var plan []string
 	for _, key := range []struct{ child, name, columns, parent, parentColumns string }{
+		{"bgp_public_snapshots", "fx5_public_snapshot_tenant_fk", "tenant_id", "public.tenants", "id"},
+		{"bgp_public_snapshots", "fx5_public_snapshot_context_fk", "tenant_id,context_id", "entity_contexts", "tenant_id,id"},
+		{"bgp_public_snapshots", "fx5_public_snapshot_source_fk", "tenant_id,context_id,collector_agent_id,source_kind,source_ref", "entity_source_contexts", "tenant_id,context_id,agent_id,source_kind,source_ref"},
+		{"bgp_routing_views", "fx5_public_view_snapshot_fk", "tenant_id,context_id,public_snapshot_id,collector_agent_id,source_ref,sender_serial", "bgp_public_snapshots", "tenant_id,context_id,id,collector_agent_id,source_ref,sender_serial"},
 		{"bgp_flow_capture_objects", "fx5_capture_object_tenant_fk", "tenant_id", "public.tenants", "id"},
 		{"bgp_flow_capture_receipts", "fx5_capture_receipt_tenant_fk", "tenant_id", "public.tenants", "id"},
 		{"bgp_flow_capture_intents", "fx5_capture_intent_tenant_fk", "tenant_id", "public.tenants", "id"},
@@ -33,7 +37,7 @@ func bgpRoutingStoragePlan(schema string, tables []string) []string {
 		{"bgp_routing_views", "fx5_route_view_source_fk", "tenant_id,collector_agent_id,binding_kind,source_ref", "entity_source_contexts", "tenant_id,agent_id,source_kind,source_ref"},
 		{"bgp_routing_entries", "fx5_route_entry_view_fk", "tenant_id,context_id,view_id,generation,afi,safi", "bgp_routing_views", "tenant_id,context_id,id,generation,afi,safi"},
 	} {
-		if !owned[key.child] {
+		if !owned[key.child] || (key.parent == "bgp_public_snapshots" && !owned[key.parent]) {
 			continue
 		}
 		child, parent := q+"."+quoteIdent(key.child), q+"."+quoteIdent(key.parent)
@@ -81,7 +85,7 @@ func routingBindingChecksPlan(child string) []string {
 		fmt.Sprintf(`DO $fx5_route_binding_checks$ DECLARE entry record; BEGIN
 FOR entry IN SELECT conname,pg_get_constraintdef(oid) AS definition FROM pg_constraint
  WHERE conrelid='public.bgp_routing_views'::regclass AND contype='c'
- AND conname IN ('fx5_route_view_kind_check','fx5_route_view_routing_selection_check') LOOP
+ AND conname IN ('fx5_route_view_kind_check','fx5_route_view_routing_selection_check','fx5_public_view_snapshot_shape') LOOP
  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=entry.conname) THEN
   EXECUTE 'ALTER TABLE ' || %s || ' ADD CONSTRAINT ' || quote_ident(entry.conname) || ' ' || entry.definition;
  END IF;

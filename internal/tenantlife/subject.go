@@ -338,6 +338,10 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:bgp_routing_views", disposition: subjectTableDeleteMatches,
 		exact: []string{"collector_agent_id", "source_ref"}, contains: []string{"peer_identity"},
 	},
+	"bgp_public_snapshots": {
+		plane: "postgres:bgp_public_snapshots", disposition: subjectTableDeleteMatches,
+		exact: []string{"collector_agent_id", "source_ref"},
+	},
 	// Prefixes, numeric AS segments, wire attributes and next-hop addresses
 	// are operator network inventory, without first-class person ownership.
 	"bgp_routing_entries": {plane: "postgres:bgp_routing_entries", disposition: subjectTableNoSubject},

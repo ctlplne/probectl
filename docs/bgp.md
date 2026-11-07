@@ -348,6 +348,17 @@ default CI.
 
 ## Pitfalls & limits
 
+Public routing fallback is under construction. Public collector assignments and
+private peer/family generations retain their own identities, exact source
+clocks and tenant-bound collector credentials. A source snapshot header records
+the complete peer manifest, including a zero-peer snapshot; it does not grant
+read access or establish completeness by itself. Public views require an exact
+snapshot/source/credential binding before they can be marked current. Snapshot
+state participates in tenant resource accounting, physical silo upgrades and
+source/context/tenant deletion. Whole-source completion, current-authority
+readers and authenticated collector transport remain required before this state
+can serve flow fallback. Existing anomaly events are not a complete public RIB.
+
 - **It's a signal, not a shield.** probectl tells you about a hijack; stopping it
   (calling your upstream, pushing the RPKI fix) is still your move. By design — see
   [limitations.md](limitations.md).
