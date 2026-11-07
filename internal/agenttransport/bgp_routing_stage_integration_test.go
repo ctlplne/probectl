@@ -255,7 +255,7 @@ func TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState(t *testing.
 		t.Fatal("rate-refused routing frame retained stale or foreign current state", err)
 	}
 	reset := &agentv1.BmpRoutingMessage{ConfiguredRef: restored.ConfiguredRef, OriginSerial: restored.OriginSerial, Generation: restored.ObservationId, Sequence: 4, ObservedUnixNanos: time.Now().UnixNano(), SourceReset: true}
-	if got, err := lanes[0].client.SubmitRoutingMessage(ctx, reset); err == nil || got.GetStatus() != "invalidated" || counts(lanes[0], "current") != 0 {
+	if got, err := lanes[0].client.SubmitRoutingMessage(ctx, reset); err != nil || got.GetStatus() != "invalidated" || got.GetGeneration() != reset.Generation || got.GetSequence() != reset.Sequence || counts(lanes[0], "current") != 0 {
 		t.Fatal("served source closure retained current routing state", got, err)
 	}
 }
