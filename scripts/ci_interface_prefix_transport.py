@@ -182,6 +182,8 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicSnapshotManifestKeepsBothFamiliesWholeIdentityExactClocksAndEmptyPresence",
+        "TestPublicSnapshotManifestRefusesLatePartialBudgetAndForeignTenantBeforeStorage",
         "TestPublicRoutingAuthorityRequiresTenantBeforeStorageAndCompleteAssignment",
         "TestPublicRoutingMetadataKeepsWholeSourceIdentityWithoutInventedBMP",
         "TestPublicRoutingMetadataRefusesMixedViewsAndCannotGrantRouterWrites",
@@ -262,6 +264,7 @@ INTEGRATION = {
     ),
     "internal/store": (
         "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth",
+        "TestPublicSnapshotStagingKeepsWholeTenantManifestReplayRollbackAndEmptyWithdrawal",
         "TestPublicRoutingSnapshotSchemaKeepsEmptyRIBTenantSourceAndBoundViewIdentity",
         "TestPublicRoutingStagingKeepsTenantPrivateOwnedMetadataAndAtomicReplacement",
         "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges",
@@ -588,6 +591,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-snapshot-manifest": (
+        "internal/store/bgp_public_snapshot_plan.go",
+        "for _, definition := range input.Definitions {",
+        "for _, definition := range input.Definitions[:min(1,len(input.Definitions))] {",
+        "TestPublicSnapshotManifestKeepsBothFamiliesWholeIdentityExactClocksAndEmptyPresence", "",
+        "whole public peer manifest lost identity, family or finite admission",
+    ),
+    "public-snapshot-retry": (
+        "internal/store/bgp_public_snapshot_replay.go",
+        'if !identical || state == "invalid" || !until.After(asOf) {',
+        'if identical || state == "invalid" || !until.After(asOf) {',
+        "TestPublicSnapshotStagingKeepsWholeTenantManifestReplayRollbackAndEmptyWithdrawal", "",
+        "exact public retry changed its private generation",
+    ),
     "public-snapshot-rls": (
         "internal/store/bgp_public_snapshot_schema_integration_test.go",
         "f.pool.Exec(ctx, string(definition))",

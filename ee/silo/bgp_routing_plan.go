@@ -52,6 +52,9 @@ END $fx5_route_fk$`, quoteLiteral(child), quoteLiteral(key.name), child, quoteId
 	}
 	if owned["bgp_routing_views"] {
 		plan = append(plan, routingBindingChecksPlan(q+"."+quoteIdent("bgp_routing_views"))...)
+		if owned["bgp_public_snapshots"] {
+			plan = append(plan, `CREATE UNIQUE INDEX IF NOT EXISTS bgp_routing_views_public_slot_idx ON `+q+`."bgp_routing_views" (tenant_id,context_id,public_snapshot_id,peer_key,afi,safi) WHERE public_snapshot_id IS NOT NULL`)
+		}
 	}
 	if owned["entity_source_contexts"] {
 		plan = append(plan, publicSourceChecksPlan(q+"."+quoteIdent("entity_source_contexts")))
