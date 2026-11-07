@@ -413,7 +413,12 @@ def selftest():
 
 
 def execute(package, roots, label, integration=False, overlay=None, child=""):
-    args = ["go", "test", "-race", "-count=1", "-timeout=5m", "-json"]
+    # The complete positive package batch exceeded five minutes before its
+    # last native protocol root finished. Keep every root and give that
+    # combined workload its own allowance; exact omission runs stay bounded.
+    go_timeout = "15m" if overlay is None else "5m"
+    process_timeout = 960 if overlay is None else 360
+    args = ["go", "test", "-race", "-count=1", "-timeout=" + go_timeout, "-json"]
     if integration:
         args += ["-tags=integration"]
     if overlay is not None:
@@ -426,7 +431,7 @@ def execute(package, roots, label, integration=False, overlay=None, child=""):
         args + ["-run", pattern, "./" + package],
         text=True,
         capture_output=True,
-        timeout=360,
+        timeout=process_timeout,
         check=False,
     )
     out = Path("artifacts/interface-prefix-transport")
@@ -819,14 +824,14 @@ ROUTING_WRITE_CONTROLS = {
         "internal/pipeline/flow_capture.go",
         'ref.Key != projection.key || clock <= 0',
         '(false && ref.Key != projection.key) || clock <= 0',
-        "TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution", "",
+        "TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution", "wrong-key",
         "partial or foreign capture batch reached storage or was acknowledged",
     ),
     "flow-capture-consumer-budget": (
         "internal/pipeline/flow_capture.go",
         'memory -= cost * 4',
         '_ = cost',
-        "TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution", "",
+        "TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution", "aggregate-memory",
         "partial or foreign capture batch reached storage or was acknowledged",
     ),
     "flow-capture-row-identity": (
