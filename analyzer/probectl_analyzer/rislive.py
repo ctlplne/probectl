@@ -19,6 +19,7 @@ import ipaddress
 import json
 import time
 from collections.abc import Iterable, Iterator
+from decimal import Decimal, InvalidOperation
 
 from .as_path import AS_SEQUENCE, AS_SET, ASPathSegment
 from .config import DEFAULT_RIS_MEMORY_BYTES
@@ -82,12 +83,25 @@ def _timestamp_unix_nano(value: object, field: str) -> int:
     if isinstance(value, bool) or isinstance(value, (dict, list)):
         raise RISMessageError(f"{field} must be a unix timestamp")
     try:
-        ts = float(value)
-    except (TypeError, ValueError) as err:
+        ts = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as err:
         raise RISMessageError(f"{field} must be a unix timestamp") from err
-    if ts < 0:
-        raise RISMessageError(f"{field} must be non-negative")
-    return int(ts * 1_000_000_000)
+    if not ts.is_finite() or ts < 0:
+        raise RISMessageError(f"{field} must be finite and non-negative")
+    # The Go bridge's original-clock wire value is a signed int64. Slice its
+    # decimal digits directly: no float rounding, decimal-context rounding or
+    # attacker-sized exponent expansion. Sub-nanosecond remainder rounds down.
+    _, digits, exponent = ts.as_tuple()
+    width = len(digits) + exponent + 9
+    if width <= 0:
+        return 0
+    if width > 19:
+        raise RISMessageError(f"{field} exceeds the clock wire range")
+    text = "".join(str(digit) for digit in digits[:width]) + "0" * max(0, width - len(digits))
+    nanos = int(text)
+    if nanos > 2**63 - 1:
+        raise RISMessageError(f"{field} exceeds the clock wire range")
+    return nanos
 
 
 def _structured_path(path: object, memory_bytes: int) -> tuple[tuple[ASPathSegment, ...], int]:
@@ -227,8 +241,8 @@ def iter_updates(
             _log.warning("skipping unadmitted RIS Live message", memory_bytes=memory_bytes)
             continue
         try:
-            obj = json.loads(raw)
-        except json.JSONDecodeError as err:
+            obj = json.loads(raw, parse_float=Decimal)
+        except (ValueError, RecursionError, InvalidOperation) as err:
             _log.warning("skipping malformed RIS Live message", error=str(err))
             continue
         yield from parse_ris_message(obj, memory_bytes=remaining)
