@@ -409,7 +409,9 @@ of segments with `kind` (1 = set, 2 = sequence, 3 = confederation sequence,
 semantics are preserved. This typed protocol representation remains useful when
 the human-readable `value` resembles a PII pattern; every text value still
 traverses the mandatory tenant redactor. These values describe an authorized
-result and grant no source access.
+result and grant no source access. Native CSV pages retain the original
+records and additionally identify typed path facts in `routing_cells` by
+absolute data-record offset and zero-based column position.
 
 Native requests admit the full API grammar within a 4 MiB authenticated HTTP
 body and the shared 2 MiB plan/configuration grammar budget. Initial-catalog HTTP

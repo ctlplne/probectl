@@ -42,6 +42,20 @@ func TestNativeRoutingASNsKeepStructuredPathsAndMandatoryTextRedaction(t *testin
 	if !reflect.DeepEqual(got.Rows[0].Group[0].RoutingPaths, input.Rows[0].Group[0].RoutingPaths) {
 		t.Fatal("native routing redaction lost exact ASNs, order or segment kinds")
 	}
+	csv := NativeFlowCSVResult{
+		Columns:      []string{"record_type", "src_bgp_as_paths", "label"},
+		Records:      [][]string{{"detail", string(value), "password=local-fixture-only"}},
+		RoutingCells: []NativeFlowCSVRoutingCell{{Record: 50000, Column: 1, Paths: input.Rows[0].Group[0].RoutingPaths}},
+	}
+	csvResponse, err := server.redactedToolResult("routing-fixture", csv, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csvRaw := csvResponse["structuredContent"].(json.RawMessage)
+	var csvCopy NativeFlowCSVResult
+	if err := json.Unmarshal(csvRaw, &csvCopy); err != nil || !reflect.DeepEqual(csvCopy.RoutingCells, csv.RoutingCells) || bytes.Contains(csvRaw, []byte(cardLikePath)) || bytes.Contains(csvRaw, []byte("local-fixture-only")) {
+		t.Fatal("native CSV routing facts lost complete values or bypassed mandatory text redaction", err)
+	}
 	content := response["content"].([]map[string]any)
 	var copy NativeFlowResult
 	if err := json.Unmarshal([]byte(content[0]["text"].(string)), &copy); err != nil || !reflect.DeepEqual(copy, got) {

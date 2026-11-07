@@ -79,6 +79,7 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestNativeRoutingCSVPagesKeepCompleteTypedPathsAndExactSourceRecords",
         "TestNativeFlowRoutingPathsKeepWholeTypedSegmentsAcrossQueryProjections",
         "TestReportRoutingReaderRequiresCurrentScopedAuthorityBeyondReceipt",
         "TestReportRoutingRequirementsKeepWholeOriginalPeriodsAndAdmission",

@@ -178,17 +178,27 @@ type NativeFlowCSVInput struct {
 	RecordOffset int    `json:"record_offset,omitempty"`
 	PageSize     int    `json:"page_size,omitempty"`
 }
+
+// RoutingCells uses absolute data-record offsets and column positions, keeping
+// typed path facts alongside the independently redacted original CSV cells.
+type NativeFlowCSVRoutingCell struct {
+	Record int                     `json:"record"`
+	Column int                     `json:"column"`
+	Paths  []NativeFlowRoutingPath `json:"paths"`
+}
+
 type NativeFlowCSVResult struct {
-	SnapshotID     string     `json:"snapshot_id"`
-	ExpiresAt      time.Time  `json:"expires_at"`
-	Columns        []string   `json:"columns"`
-	Records        [][]string `json:"records"`
-	RecordOffset   int        `json:"record_offset"`
-	NextRecord     *int       `json:"next_record,omitempty"`
-	TotalRecords   int        `json:"total_records"`
-	SelectedGroups int        `json:"selected_groups"`
-	SourceBytes    int64      `json:"source_bytes"`
-	SourceSHA256   string     `json:"source_sha256"`
+	RoutingCells   []NativeFlowCSVRoutingCell `json:"routing_cells,omitempty"`
+	SnapshotID     string                     `json:"snapshot_id"`
+	ExpiresAt      time.Time                  `json:"expires_at"`
+	Columns        []string                   `json:"columns"`
+	Records        [][]string                 `json:"records"`
+	RecordOffset   int                        `json:"record_offset"`
+	NextRecord     *int                       `json:"next_record,omitempty"`
+	TotalRecords   int                        `json:"total_records"`
+	SelectedGroups int                        `json:"selected_groups"`
+	SourceBytes    int64                      `json:"source_bytes"`
+	SourceSHA256   string                     `json:"source_sha256"`
 }
 type NativeFlowComparisonRow struct {
 	Group         []NativeFlowDimension `json:"group"`

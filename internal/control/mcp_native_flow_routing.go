@@ -118,3 +118,28 @@ func projectNativeComparisonRoutingPaths(rows []mcp.NativeFlowComparisonRow, pla
 	}
 	return ctx.Err()
 }
+
+func projectNativeCSVRoutingPaths(ctx context.Context, out *mcp.NativeFlowCSVResult, remaining int64) error {
+	for row, record := range out.Records {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if len(record) != len(out.Columns) {
+			return nativeFlowProjectionError()
+		}
+		if len(record) == 0 || record[0] != "detail" {
+			continue
+		}
+		for column, field := range out.Columns {
+			if _, known := flow.RoutingQueryField(field); !known || !strings.HasSuffix(field, "_bgp_as_paths") || record[column] == "" {
+				continue
+			}
+			dimensions := []mcp.NativeFlowDimension{{Field: field, Value: record[column]}}
+			if err := projectNativeRoutingDimensions(ctx, dimensions, &remaining); err != nil {
+				return err
+			}
+			out.RoutingCells = append(out.RoutingCells, mcp.NativeFlowCSVRoutingCell{Record: out.RecordOffset + row, Column: column, Paths: dimensions[0].RoutingPaths})
+		}
+	}
+	return ctx.Err()
+}

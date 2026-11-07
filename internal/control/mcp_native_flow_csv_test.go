@@ -173,3 +173,52 @@ func TestNativeCSVPreservesCRLFAtReadBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeRoutingCSVPagesKeepCompleteTypedPathsAndExactSourceRecords(t *testing.T) {
+	const count = 65_537
+	paths, err := json.Marshal([]string{"4111 1111 1111 1111", strings.Repeat("64500 ", count) + "4294967295"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := []string{"record_type", "src_bgp_as_paths", "dst_bgp_as_paths", "bytes:total"}
+	records := [][]string{{"detail", string(paths), string(paths), "9007199254740993"}, {"detail", `["{64500,4294967295}"]`, "", "9007199254740994"}, {"other", "", "", "1"}, {"totals", "", "", "18014398509481988"}}
+	prepared := nativeCSVFixture(t, columns, records)
+	var complete [][]string
+	for offset := 0; ; {
+		if _, err := prepared.file.Seek(0, io.SeekStart); err != nil {
+			t.Fatal(err)
+		}
+		page, err := nativeFlowCSVRecords(t.Context(), prepared, mcp.NativeFlowCSVInput{RecordOffset: offset, PageSize: 2})
+		if err != nil {
+			t.Fatal("native routing CSV refused complete admitted typed paths", err)
+		}
+		complete = append(complete, page.Records...)
+		if offset == 0 {
+			if len(page.RoutingCells) != 3 || page.RoutingCells[0].Record != 0 || page.RoutingCells[0].Column != 1 || page.RoutingCells[1].Column != 2 || page.RoutingCells[2].Record != 1 || len(page.RoutingCells[0].Paths[1].Segments[0].ASNs) != count+1 || page.RoutingCells[0].Paths[1].Segments[0].ASNs[count] != ^uint32(0) {
+				t.Fatal("native routing CSV lost complete typed paths or absolute cell positions")
+			}
+		} else if len(page.RoutingCells) != 0 {
+			t.Fatal("native routing CSV invented path facts for aggregate records")
+		}
+		if page.NextRecord == nil {
+			break
+		}
+		offset = *page.NextRecord
+	}
+	if !reflect.DeepEqual(complete, records) {
+		t.Fatal("native routing metadata changed original CSV records")
+	}
+	if _, err := prepared.file.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	if failed, err := nativeFlowCSVRecordsWithBudget(t.Context(), prepared, mcp.NativeFlowCSVInput{PageSize: 2}, mcp.DefaultNativeFlowRenderBudget(), 4096); err == nil || len(failed.Records) != 0 || len(failed.RoutingCells) != 0 {
+		t.Fatal("native routing CSV ignored complete workspace admission or disclosed a prefix", err)
+	}
+	bad := nativeCSVFixture(t, columns, [][]string{records[0], {"detail", `["64500 {1,}"]`, "", "1"}})
+	if _, err := bad.file.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	if failed, err := nativeFlowCSVRecords(t.Context(), bad, mcp.NativeFlowCSVInput{PageSize: 2}); err == nil || len(failed.Records) != 0 || len(failed.RoutingCells) != 0 {
+		t.Fatal("native routing CSV disclosed a prefix before malformed path refusal", err)
+	}
+}

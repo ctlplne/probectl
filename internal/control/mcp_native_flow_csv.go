@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -47,7 +48,7 @@ func (b nativeMCPFlowBackend) FlowCSV(ctx context.Context, p *auth.Principal, in
 		return err
 	}, func(prepared *preparedFlowCSV) error {
 		var err error
-		result, err = nativeFlowCSVRecordsWithBudget(ctx, prepared, input, b.server.flowRenderBudget)
+		result, err = nativeFlowCSVRecordsWithBudget(ctx, prepared, input, b.server.flowRenderBudget, flowstore.ExplorerOperationBudget(ctx, b.server.flowStore).MemoryBytes/8)
 		return err
 	})
 	if err != nil {
@@ -66,7 +67,7 @@ func nativeFlowCSVRecords(ctx context.Context, prepared *preparedFlowCSV, input 
 	return nativeFlowCSVRecordsWithBudget(ctx, prepared, input, mcp.DefaultNativeFlowRenderBudget())
 }
 
-func nativeFlowCSVRecordsWithBudget(ctx context.Context, prepared *preparedFlowCSV, input mcp.NativeFlowCSVInput, budget mcp.NativeFlowRenderBudget) (mcp.NativeFlowCSVResult, error) {
+func nativeFlowCSVRecordsWithBudget(ctx context.Context, prepared *preparedFlowCSV, input mcp.NativeFlowCSVInput, budget mcp.NativeFlowRenderBudget, memoryLimits ...int64) (mcp.NativeFlowCSVResult, error) {
 	if budget.Validate() != nil {
 		return mcp.NativeFlowCSVResult{}, flowsnapshot.ErrBudget
 	}
@@ -110,6 +111,16 @@ func nativeFlowCSVRecordsWithBudget(ctx context.Context, prepared *preparedFlowC
 	}
 	if next := input.RecordOffset + len(out.Records); next < out.TotalRecords {
 		out.NextRecord = &next
+	}
+	remaining := flowstore.DefaultExplorerBudget().MemoryBytes / 8
+	if len(memoryLimits) > 1 {
+		return mcp.NativeFlowCSVResult{}, flowsnapshot.ErrBudget
+	}
+	if len(memoryLimits) == 1 {
+		remaining = memoryLimits[0]
+	}
+	if err := projectNativeCSVRoutingPaths(ctx, &out, remaining); err != nil {
+		return mcp.NativeFlowCSVResult{}, err
 	}
 	return out, nil
 }
