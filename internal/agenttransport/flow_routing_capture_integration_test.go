@@ -12,13 +12,18 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/binary"
 	"encoding/pem"
 	"fmt"
+	"net/netip"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/ctlplne/probectl/internal/agent"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -29,7 +34,7 @@ import (
 // flow dimensions. Absent exporter ownership is deliberately unavailable, never
 // a real sender/current-RIB/flow pipeline or positive route-attachment claim.
 func TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	pool := setup(ctx, t)
 	t.Cleanup(pool.Close)
@@ -106,6 +111,31 @@ func TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender(t *te
 		}
 		lanes = append(lanes, lane{tenant.ID, agentID, client, captures[0]})
 	}
+	t.Run("complete_batch", func(t *testing.T) {
+		// Exceed the shipped 1000-record collector default without trimming the
+		// supported configured workload into one transport prefix.
+		batch := make([]*agentv1.FlowRoutingWitness, 1001)
+		for i := range batch {
+			batch[i] = proto.Clone(raw).(*agentv1.FlowRoutingWitness)
+			binary.BigEndian.PutUint32(batch[i].RawDigest[:4], uint32(i+1))
+			batch[i].ObservationDomain -= uint32(i)
+		}
+		for _, lane := range lanes {
+			captures, err := lane.client.SubmitFlowRouting(ctx, batch)
+			if err != nil || len(captures) != len(batch) {
+				t.Fatal("complete authenticated original batch lost later witnesses", len(captures), err)
+			}
+			for i, capture := range captures {
+				var digest [32]byte
+				copy(digest[:], batch[i].RawDigest)
+				input := store.BGPRoutingFlowInput{Exporter: netip.MustParseAddr(batch[i].ExporterAddress), Source: netip.MustParseAddr(batch[i].SourceAddress), Destination: netip.MustParseAddr(batch[i].DestinationAddress), Protocol: batch[i].FlowProtocol, Domain: batch[i].ObservationDomain}
+				key, err := entity.FlowCaptureKey(lane.tenant, lane.agent, digest, input)
+				if err != nil || !bytes.Equal(capture.Key, key[:]) || capture.CapturedUnixNanos <= 0 {
+					t.Fatal("complete authenticated original batch changed exact ordered witness", i, err)
+				}
+			}
+		}
+	})
 	if bytes.Equal(lanes[0].capture.Key, lanes[1].capture.Key) {
 		t.Fatal("same raw digest/tuple crossed certified tenant scope")
 	}
