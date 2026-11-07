@@ -169,8 +169,15 @@ func fuzzStructuredASPath(t *testing.T, raw []byte) {
 	ctx := context.Background()
 	budget := ASPathParseBudget{int64(len(raw))*128 + 1024, int64(len(raw))*64 + 1024}
 	for _, width := range []int{2, 4} {
-		if out, err := ParseASPathSegments(ctx, raw, width, budget); err != nil && out != nil {
+		out, err := ParseASPathSegments(ctx, raw, width, budget)
+		if err != nil && out != nil {
 			t.Fatal("invalid structured AS path exposed partial segments")
+		}
+		if err == nil {
+			fields, projectionErr := ProjectRoutingPathFields(ctx, out, budget)
+			if projectionErr != nil && (fields.ASPath != nil || fields.OriginAS != nil || fields.ASPathText != "") {
+				t.Fatal("invalid routing projection exposed partial path fields")
+			}
 		}
 		input := ASPathAttributes{FourOctetSession: width == 4, Path: raw, AS4Path: raw[:len(raw)/2]}
 		if len(raw) > 0 {
