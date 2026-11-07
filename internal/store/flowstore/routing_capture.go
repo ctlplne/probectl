@@ -79,6 +79,6 @@ func routingCaptureMigration(raw, rollup, oldView string) chmigrate.Migration {
 		"ALTER TABLE " + rollup + " " + strings.Join(additions, ", "),
 		"CREATE MATERIALIZED VIEW IF NOT EXISTS " + oldView + "_v7 TO " + rollup + " AS " + selection,
 		"DROP TABLE IF EXISTS " + oldView + "_v6",
-		"INSERT INTO " + rollup + " (" + columns + ") " + selection + " SETTINGS max_threads=2,max_memory_usage=536870912",
+		"INSERT INTO " + rollup + " (" + columns + ") " + selection + " SETTINGS max_threads=2,max_memory_usage=2147483648",
 	}, Destructive: true, Justification: "replace only the derived materialized view after installing its complete replacement; preserve raw and hourly data, backfilling immutable references only from retained inputs"}
 }
