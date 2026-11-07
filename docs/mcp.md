@@ -412,6 +412,10 @@ traverses the mandatory tenant redactor. These values describe an authorized
 result and grant no source access. Native CSV pages retain the original
 records and additionally identify typed path facts in `routing_cells` by
 absolute data-record offset and zero-based column position.
+Captured routing metadata additionally requires current `events.read` and
+`entities.read` alongside `ai.query` and `flow.read`, globally and for each
+original canonical context. Credential ceilings and current context policy
+apply to frozen readers and reports as well; retained receipts grant no access.
 
 Native requests admit the full API grammar within a 4 MiB authenticated HTTP
 body and the shared 2 MiB plan/configuration grammar budget. Initial-catalog HTTP

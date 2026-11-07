@@ -1068,6 +1068,11 @@ routing capture key and an exact first processing clock alongside raw and
 complete hourly inputs. Captured retries reuse the raw identity even when
 open-data enrichment changes. A routing key is an identifier; reading its
 retained source evidence requires independent current authorization.
+Captured BGP routing metadata requires `events.read` and `entities.read`, in
+addition to the query's `ai.query` and `flow.read`, for the current user and
+actual credential. Global and original canonical-context permissions are
+checked again for queries, frozen readers and reports. A stored receipt cannot
+replace a revoked source-plane grant.
 
 Older rows and unsupported or unattested sources have no invented capture.
 Raw-input expiry clears these references from complete hourly inputs while
