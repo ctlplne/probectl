@@ -100,6 +100,10 @@ func proveCapturedNextHopReadRequiresCurrentSupportingEvidence(t *testing.T, f *
 	// Restore the source through a new real evidence write. The old retained
 	// reference keeps its expired supporting identity; it is never refilled.
 	f.peerAtAddress(f.tenants[0], "2001:db8::1", 65010)
+	restored, err := readFlowCaptureForTest(t, f, 0, raw, input, first[0], allow)
+	if err != nil || !reflect.DeepEqual(restored.Source, after.Source) || !reflect.DeepEqual(restored.Destination, after.Destination) || !restored.CapturedAt.Equal(first[0].CapturedAt) {
+		t.Fatal("new neighbor evidence refilled an expired retained next-hop identity", err)
+	}
 }
 
 func requireRetiredRoutingReaderUnavailable(t *testing.T, f *roleInputsFixture, lane int, raw [32]byte, input BGPRoutingFlowInput, ref BGPRoutingCaptureReference) {
