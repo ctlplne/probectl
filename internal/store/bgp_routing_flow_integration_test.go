@@ -47,6 +47,7 @@ func TestRoutingFlowCaptureRequiresUniqueCurrentExporterAndKeepsTenantRoutes(t *
 		}
 		routingFlowFixtureAssignment(t, f, source.TenantID, agent, exporter)
 		routingFlowFixtureEvidence(t, f, source.TenantID, agent, serials[lane], exporter)
+		f.peerAtAddress(source.TenantID, "2001:db8::1", uint32(65010+lane))
 	}
 	input := BGPRoutingFlowInput{Exporter: netip.MustParseAddr(exporter), Source: netip.MustParseAddr("203.0.113.1"), Destination: netip.MustParseAddr("203.0.113.2"), Protocol: "ipfix", Domain: ^uint32(0)}
 	read := func(lane int, value BGPRoutingFlowInput, budget BGPRoutingBudget) (BGPRoutingFlowLookup, error) {
@@ -69,9 +70,22 @@ func TestRoutingFlowCaptureRequiresUniqueCurrentExporterAndKeepsTenantRoutes(t *
 		if len(got.Source.Fields) != 1 || len(got.Destination.Fields) != 1 || got.Source.Fields[0].ASPathText != wantText || got.Destination.Fields[0].ASPathText != wantText || got.Source.Fields[0].OriginAS != nil || got.Source.Fields[0].FirstTransitAS != nil {
 			t.Fatal("current flow projection lost complete structured path or invented an endpoint", got, err)
 		}
+		if len(got.Source.NextHops) != 1 || len(got.Destination.NextHops) != 1 || got.Source.NextHops[0].ASN == nil || *got.Source.NextHops[0].ASN != uint32(65010+lane) || got.Destination.NextHops[0].ASN == nil || *got.Destination.NextHops[0].ASN != uint32(65010+lane) || len(got.Source.NextHops[0].Sources) != 1 {
+			t.Fatal("next-hop AS lost current same-router neighbor evidence or crossed tenant", got, err)
+		}
 	}
 	check(0)
 	check(1)
+	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_evidence SET expires_at=transaction_timestamp()-interval '1 second' WHERE tenant_id=$1 AND alias_kind='bmp_peer_id'`, f.tenants[0])
+		return err
+	})
+	if got, err := read(0, input, routingViewBudget()); err != nil || got.Source.State != "router_selected" || len(got.Source.NextHops) != 1 || got.Source.NextHops[0].ASN != nil || got.Source.Fields[0].ASPathText == "" {
+		t.Fatal("expired neighbor retained next-hop AS or erased independent route evidence", got, err)
+	}
+	check(1)
+	f.peerAtAddress(f.tenants[0], "2001:db8::1", 65010)
+	check(0)
 	missing := input
 	missing.Destination = netip.MustParseAddr("198.51.100.1")
 	if got, err := read(0, missing, routingViewBudget()); err != nil || got.Source.State != "router_selected" || got.Destination.State != "no_prefix" || got.Destination.Route.Paths != nil {

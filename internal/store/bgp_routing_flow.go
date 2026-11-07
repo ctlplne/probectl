@@ -31,9 +31,10 @@ type BGPRoutingFlowInput struct {
 // a complete RIB without a prefix, and unavailable current source evidence.
 // Only router_selected has a Route; neither other state invents an empty path.
 type BGPRoutingFlowSide struct {
-	State  string
-	Route  BGPRoutingLookup
-	Fields []bgp.RoutingPathFields // one complete projection per retained path
+	State    string
+	Route    BGPRoutingLookup
+	Fields   []bgp.RoutingPathFields // one complete projection per retained path
+	NextHops []BGPRoutingNextHopAS
 }
 
 // BGPRoutingFlowLookup is capture-time evidence, not a historical forwarding
@@ -96,12 +97,30 @@ func (store BGPRouting) LookupFlowInScope(ctx context.Context, sc tenancy.Scope,
 	if err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}
+	if result.Source.State == "router_selected" || result.Destination.State == "router_selected" {
+		peers, err := reader.RouterPeersInScope(ctx, sc, owner.Scope, owner.RouterID, part)
+		if err != nil {
+			return BGPRoutingFlowLookup{}, err
+		}
+		associationBudget := entity.InterfaceRolePolicyBudget{MemoryBytes: budget.MemoryBytes / 16, WorkUnits: budget.WorkUnits / 16}
+		for _, side := range []*BGPRoutingFlowSide{&result.Source, &result.Destination} {
+			if side.State != "router_selected" {
+				continue
+			}
+			side.NextHops, err = routingNextHopFields(ctx, side.Route.Paths, peers, associationBudget)
+			if err != nil {
+				return BGPRoutingFlowLookup{}, err
+			}
+		}
+	}
 	if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&result.CapturedAt); err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}
 	if !binding.ValidUntil.After(result.CapturedAt) || !routingFlowSideCurrent(&result.Source, result.CapturedAt) || !routingFlowSideCurrent(&result.Destination, result.CapturedAt) {
 		return BGPRoutingFlowLookup{}, ErrBGPRoutingFlowSource
 	}
+	expireRoutingNextHopFields(&result.Source, result.CapturedAt)
+	expireRoutingNextHopFields(&result.Destination, result.CapturedAt)
 	return result, nil
 }
 

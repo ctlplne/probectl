@@ -139,6 +139,8 @@ UNIT = {
         "TestBGPRoutingLookupRequiresTenantExactViewAndWholeAdmissionBeforeStorage",
         "TestRoutingFlowCaptureCannotChooseOwnerFromPayloadOrPartialEvidence",
         "TestRoutingFlowProjectionKeepsEveryPathAndRejectsPartialAdmission",
+        "TestRoutingNextHopASRequiresActualUniqueNeighborAndCompleteProvenance",
+        "TestRoutingNextHopASRefusesLateMalformedUnadmittedAndForeignScope",
         "TestBGPRoutingRouterLookupRequiresExactTenantContextBeforeStorage",
         "TestBGPRoutingViewMetadataKeepsStablePeerSlotsAndCompleteValues",
         "TestBGPRoutingViewMetadataRefusesIncompleteShapeAndWholeAdmission",
@@ -499,6 +501,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-next-hop-as": (
+        "internal/store/bgp_routing_next_hop.go",
+        "if !exists {\n\t\t\tunresolved = true\n\t\t\tcontinue\n\t\t}",
+        "if !exists { group = routingNextHopPeer{asn:65010, validUntil:time.Now().Add(time.Hour)} }",
+        "TestRoutingNextHopASRequiresActualUniqueNeighborAndCompleteProvenance", "",
+        "next-hop AS was guessed from path or a different peer",
+    ),
+    "routing-next-hop-expiry": (
+        "internal/store/bgp_routing_next_hop.go",
+        "if field.ASN != nil && !field.ValidUntil.After(at) {",
+        "if false && field.ASN != nil && !field.ValidUntil.After(at) {",
+        "TestRoutingNextHopASRequiresActualUniqueNeighborAndCompleteProvenance", "",
+        "expired next-hop observation retained an ASN or provenance",
+    ),
     "routing-path-origin-set": (
         "internal/bgp/routing_path_fields.go",
         "if segment.Kind == ASPathSequence {\n\t\t\tvalue := segment.Values[len(segment.Values)-1]",
