@@ -11,7 +11,8 @@ memory (S14 watch-out: MRT dumps are large — stream, don't load). Only the rec
 types probectl needs are decoded — TABLE_DUMP_V2 RIB (IPv4/IPv6) and BGP4MP UPDATE
 messages — and every read is bounds-checked because collector data is untrusted
 (docs/guardrails.md G7-10). A malformed record is logged and skipped rather than
-aborting the whole stream.
+aborting the anomaly stream. Whole-RIB staging uses the strict snapshot reader;
+any refused record prevents completeness.
 """
 
 from __future__ import annotations
