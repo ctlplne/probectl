@@ -30,6 +30,9 @@ type PlanQuery struct {
 	// Roles is current, fully authorized interface metadata. A selected role
 	// field requires it; nil cannot silently turn missing authority into Other.
 	Roles *InterfaceRoleQueryData
+	// Routing is an operation-local, current-authorized capture projection.
+	// Raw keys and query JSON cannot provide this authority.
+	Routing *routingQueryData
 	// SelectedGroups is server-selected comparison membership, never grammar.
 	// Nil ranks automatically; an explicit empty selection puts every row in Other.
 	SelectedGroups [][]string
