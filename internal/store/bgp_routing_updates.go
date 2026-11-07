@@ -37,7 +37,18 @@ type BGPRoutingAttribute struct {
 	Value       []byte
 }
 
-type BGPRoutingAttributes struct{ Wire []BGPRoutingAttribute }
+type BGPRoutingAttributes struct {
+	Wire []BGPRoutingAttribute
+	MRT  *BGPRoutingMRTRecord `json:",omitempty"`
+}
+
+// MRT source facts are one present group; zero timestamps/identifiers remain
+// explicit. They never replace the authenticated processing clock or grant.
+type BGPRoutingMRTRecord struct {
+	RecordUnixNanos, OriginatedUnixNanos int64
+	Sequence                             uint32
+	PeerIndex                            uint16
+}
 
 type BGPRoutingChange struct {
 	Prefix     netip.Prefix
@@ -192,11 +203,15 @@ func admitRoutingChanges(ctx context.Context, changes []BGPRoutingChange, afi ui
 }
 
 func validateRoutingChange(change BGPRoutingChange, afi uint16) error {
+	mrt := change.Attributes.MRT
+	if mrt != nil && (mrt.RecordUnixNanos < 0 || mrt.OriginatedUnixNanos < 0) {
+		return ErrBGPRoutingBatch
+	}
 	if !change.Prefix.IsValid() || change.Prefix != change.Prefix.Masked() || (afi == 1) != change.Prefix.Addr().Is4() || !change.HasPathID && change.PathID != 0 {
 		return ErrBGPRoutingBatch
 	}
 	if change.Withdraw {
-		if len(change.Segments) != 0 || len(change.Attributes.Wire) != 0 || len(change.NextHops) != 0 {
+		if len(change.Segments) != 0 || len(change.Attributes.Wire) != 0 || len(change.NextHops) != 0 || mrt != nil {
 			return ErrBGPRoutingBatch
 		}
 		return nil

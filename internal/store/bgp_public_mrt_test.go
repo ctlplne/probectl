@@ -10,8 +10,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"net/netip"
 	"testing"
+
+	"github.com/ctlplne/probectl/internal/bgp"
+	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func publicMRTRecordForTest(view []byte, empty, fourASN bool, timestamp uint32) []byte {
@@ -41,6 +46,85 @@ func publicMRTRecordForTest(view []byte, empty, fourASN bool, timestamp uint32) 
 	raw = binary.BigEndian.AppendUint16(raw, 1)
 	raw = binary.BigEndian.AppendUint32(raw, uint32(len(body)))
 	return append(raw, body...)
+}
+
+func publicMRTRIBRecordForTest(afi uint16, tail uint32, peer uint16, timestamp uint32, malformed bool) []byte {
+	path := []byte{3, 1}
+	path = binary.BigEndian.AppendUint32(path, 64496)
+	path = append(path, 2, 3)
+	for _, asn := range []uint32{^uint32(0), tail, tail} {
+		path = binary.BigEndian.AppendUint32(path, asn)
+	}
+	path = append(path, 1, 2)
+	for _, asn := range []uint32{64500, 64501} {
+		path = binary.BigEndian.AppendUint32(path, asn)
+	}
+	attributes := []byte{0x40, 1, 1, 0, 0x40, 2, byte(len(path))}
+	attributes = append(attributes, path...)
+	subtype, count := uint16(8), 2
+	if afi == 1 {
+		attributes = append(attributes, 0x40, 3, 4, 192, 0, 2, 1)
+	} else {
+		subtype, count = 4, 1
+		attributes = append(attributes, 0x80, 14, 17, 16)
+		address := netip.MustParseAddr("2001:db8::1").As16()
+		attributes = append(attributes, address[:]...)
+	}
+	body := binary.BigEndian.AppendUint32(nil, ^uint32(0))
+	if afi == 1 {
+		body = append(body, 24, 192, 0, 2)
+	} else {
+		body = append(body, 32, 0x20, 1, 0x0d, 0xb8)
+	}
+	body = binary.BigEndian.AppendUint16(body, uint16(count))
+	for i := range count {
+		body = binary.BigEndian.AppendUint16(body, peer)
+		body = binary.BigEndian.AppendUint32(body, 0)
+		if afi == 1 {
+			body = binary.BigEndian.AppendUint32(body, uint32(i)*^uint32(0))
+		}
+		body = binary.BigEndian.AppendUint16(body, uint16(len(attributes)))
+		values := bytes.Clone(attributes)
+		if malformed && i == count-1 {
+			values[0] = 0
+		}
+		body = append(body, values...)
+	}
+	raw := binary.BigEndian.AppendUint32(nil, timestamp)
+	raw = binary.BigEndian.AppendUint16(raw, 13)
+	raw = binary.BigEndian.AppendUint16(raw, subtype)
+	raw = binary.BigEndian.AppendUint32(raw, uint32(len(body)))
+	return append(raw, body...)
+}
+
+func TestPublicMRTRoutingProjectionKeepsOriginalSourceFactsAndRefusesInvalidMetadata(t *testing.T) {
+	_, profile := publicSnapshotFixture()
+	if out, err := (BGPRouting{}).ApplyPublicMRTFrameInScope(t.Context(), tenancy.Scope{}, BGPPublicSnapshotMessage{}, nil, profile, 0); !errors.Is(err, entity.ErrScopeMismatch) || out.Status != "" {
+		t.Fatal("raw MRT frame reached storage without tenant scope", out, err)
+	}
+	for _, afi := range []uint16{1, 2} {
+		decoded, err := bgp.DecodeMRTRIB(t.Context(), publicMRTRIBRecordForTest(afi, 64497, 0, 1700000000, false), 1, bgp.UpdateFrameBudget{MemoryBytes: profile.MemoryBytes, WorkUnits: profile.WorkUnits})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range decoded.Entries {
+			change := publicMRTRoutingChange(entry, decoded.ObservedUnixNanos, decoded.Sequence)
+			if err := validateRoutingChange(change, afi); err != nil {
+				t.Fatal(err)
+			}
+			if len(change.Segments) != 3 || change.Segments[1].Values[0] != ^uint32(0) || len(change.Attributes.Wire) != 3 || change.Attributes.MRT == nil || change.Attributes.MRT.OriginatedUnixNanos != 0 || change.Attributes.MRT.RecordUnixNanos != 1700000000000000000 || change.Attributes.MRT.Sequence != ^uint32(0) || change.Attributes.MRT.PeerIndex != 0 {
+				t.Fatal("raw MRT projection lost original source facts or complete paths", change)
+			}
+			change.Attributes.MRT.RecordUnixNanos = -1
+			if err := validateRoutingChange(change, afi); err == nil {
+				t.Fatal("raw MRT projection accepted invalid original metadata")
+			}
+		}
+	}
+	_, err := bgp.DecodeMRTRIB(t.Context(), publicMRTRIBRecordForTest(1, 64497, 0, 1700000000, true), 1, bgp.UpdateFrameBudget{MemoryBytes: profile.MemoryBytes, WorkUnits: profile.WorkUnits})
+	if err == nil || !publicMRTFrameRefusal(err) {
+		t.Fatal("malformed MRT route could leave its known source current", err)
+	}
 }
 
 func TestPublicMRTManifestKeepsOriginalEmptySourceAndPeerWireIdentity(t *testing.T) {

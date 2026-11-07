@@ -9,6 +9,7 @@ package bgp
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net/netip"
 )
 
@@ -38,7 +39,7 @@ type MRTRIBEntry struct {
 func DecodeMRTRIB(ctx context.Context, raw []byte, peerCount int, budget UpdateFrameBudget) (MRTRIBRecord, error) {
 	timestamp, subtype, body, err := decodeMRTTableRecord(ctx, raw, budget)
 	if err != nil {
-		return MRTRIBRecord{}, err
+		return MRTRIBRecord{}, errors.Join(ErrMRTRecord, err)
 	}
 	if peerCount < 0 || peerCount > 65535 {
 		return MRTRIBRecord{}, ErrMRTRecord
@@ -48,15 +49,15 @@ func DecodeMRTRIB(ctx context.Context, raw []byte, peerCount int, budget UpdateF
 	}
 	family, route, sequence, entries, count, addEntryPath, err := decodeMRTRIBHeader(ctx, subtype, body, budget)
 	if err != nil {
-		return MRTRIBRecord{}, err
+		return MRTRIBRecord{}, errors.Join(ErrMRTRecord, err)
 	}
 	// The first pass checks every late path; the second retains owned output.
 	if _, err := decodeMRTRIBEntries(ctx, entries, count, peerCount, family, route, addEntryPath, budget, false); err != nil {
-		return MRTRIBRecord{}, err
+		return MRTRIBRecord{}, errors.Join(ErrMRTRecord, err)
 	}
 	output, err := decodeMRTRIBEntries(ctx, entries, count, peerCount, family, route, addEntryPath, budget, true)
 	if err != nil {
-		return MRTRIBRecord{}, err
+		return MRTRIBRecord{}, errors.Join(ErrMRTRecord, err)
 	}
 	return MRTRIBRecord{ObservedUnixNanos: timestamp, Sequence: sequence, Family: family, Entries: output}, nil
 }

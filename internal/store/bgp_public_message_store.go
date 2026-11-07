@@ -32,6 +32,12 @@ type publicSnapshotWriteState struct {
 // abort; invalidated is a committed refusal. Published snapshots are immutable
 // until replacement, including their original data age and complete peer set.
 func (store BGPRouting) ApplyPublicSnapshotMessageInScope(ctx context.Context, sc tenancy.Scope, input BGPPublicSnapshotMessage, profile BGPRoutingBudget, maxAge time.Duration) (BGPRoutingApplyResult, error) {
+	return store.applyPublicSnapshotMessage(ctx, sc, input, profile, maxAge, nil)
+}
+
+type publicSnapshotMessageDecoder func(context.Context, tenancy.Scope, BGPPublicRoutingSource, publicSnapshotWriteState) ([]BGPPublicSnapshotBatch, error)
+
+func (store BGPRouting) applyPublicSnapshotMessage(ctx context.Context, sc tenancy.Scope, input BGPPublicSnapshotMessage, profile BGPRoutingBudget, maxAge time.Duration, decode publicSnapshotMessageDecoder) (BGPRoutingApplyResult, error) {
 	none := BGPRoutingApplyResult{}
 	if err := routingConfigurationScope(ctx, sc); err != nil {
 		return none, err
@@ -73,6 +79,18 @@ func (store BGPRouting) ApplyPublicSnapshotMessageInScope(ctx context.Context, s
 	}
 	if header.state == "invalid" || !header.until.After(authority.AsOf) {
 		return refuse("inactive-snapshot")
+	}
+	if decode != nil {
+		input.Batches, err = decode(ctx, sc, source, header)
+		if err != nil {
+			if ctx.Err() != nil {
+				return none, ctx.Err()
+			}
+			if publicMRTFrameRefusal(err) {
+				return refuse("invalid-source-frame")
+			}
+			return none, err
+		}
 	}
 	prepared, digest, err := preparePublicSnapshotMessage(ctx, input, profile)
 	if err != nil {

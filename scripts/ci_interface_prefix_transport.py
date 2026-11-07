@@ -191,6 +191,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicMRTRoutingProjectionKeepsOriginalSourceFactsAndRefusesInvalidMetadata",
         "TestPublicMRTManifestKeepsOriginalEmptySourceAndPeerWireIdentity",
         "TestPublicMRTManifestRefusesForgedPeerClockUnsupportedSourceAndPartialAdmission",
         "TestPublicSnapshotLookupRequiresTenantAndWholeAdmissionBeforeStorage",
@@ -279,6 +280,7 @@ INTEGRATION = {
     ),
     "internal/store": (
         "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth",
+        "TestPublicMRTRecordsKeepOriginalPathsTenantScopeAndWholeSourceRefusal",
         "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions",
         "TestPublicSnapshotStagingKeepsWholeTenantManifestReplayRollbackAndEmptyWithdrawal",
         "TestPublicRoutingSnapshotSchemaKeepsEmptyRIBTenantSourceAndBoundViewIdentity",
@@ -607,6 +609,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-mrt-refusal": (
+        "internal/store/bgp_public_mrt_message.go",
+        "errors.Is(err, bgp.ErrMRTRecord)",
+        "false",
+        "TestPublicMRTRecordsKeepOriginalPathsTenantScopeAndWholeSourceRefusal", "malformed-known-source",
+        "malformed MRT source was not atomically invalidated",
+    ),
     "public-mrt-reset": (
         "internal/store/bgp_public_message_store.go",
         "profile, !input.Reset)",
