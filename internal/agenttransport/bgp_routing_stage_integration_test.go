@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/binary"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"testing"
@@ -31,6 +32,10 @@ import (
 )
 
 func routingPeerUpWire(t *testing.T) []byte {
+	return routingPeerUpWireForFormat(t, false)
+}
+
+func routingPeerUpWireForFormat(t *testing.T, frr bool) []byte {
 	t.Helper()
 	open := make([]byte, 29)
 	for i := range 16 {
@@ -41,6 +46,11 @@ func routingPeerUpWire(t *testing.T) []byte {
 	binary.BigEndian.PutUint16(open[22:24], 180)
 	copy(open[24:28], []byte{192, 0, 2, 1})
 	options := []byte{2, 12, 65, 4, 0, 0, 252, 0, 1, 4, 0, 2, 0, 1}
+	if frr {
+		// Synthetic known serializer shape: empty ADD-PATH and no IPv6 MP
+		// declaration. Both original OPENs must survive without byte repair.
+		options = []byte{2, 8, 65, 4, 0, 0, 252, 0, 69, 0}
+	}
 	open[28] = byte(len(options))
 	open = append(open, options...)
 	binary.BigEndian.PutUint16(open[16:18], uint16(len(open)))
@@ -66,6 +76,10 @@ func TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource(t *testing
 
 func TestRoutingMalformedUnboundPeerUpPreservesKnownContexts(t *testing.T) {
 	proveRoutingStagingMTLS(t, "malformed-unbound")
+}
+
+func TestRoutingFRRProfileRequiresCurrentOperatorBindingThroughRealMTLS(t *testing.T) {
+	proveRoutingStagingMTLS(t, "frr-profile")
 }
 
 func proveRoutingStagingMTLS(t *testing.T, scenario string) {
@@ -152,9 +166,43 @@ func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 		}
 		t.Cleanup(func() { _ = client.Close() })
 		input := &agentv1.BmpRoutingPeerUp{ObservationId: nonce, ConfiguredRef: originID, OriginSerial: originSerial, ObservedUnixNanos: time.Now().UnixNano(), Message: routingPeerUpWire(t)}
+		if scenario == "frr-profile" {
+			input.Message = routingPeerUpWireForFormat(t, true)
+			if _, err := client.StageRoutingPeer(ctx, input); err == nil {
+				t.Fatal("routing sender enabled a serializer without current operator configuration")
+			}
+			// Storage fixture only: the public operator writer is proved
+			// separately. Identical canonical IDs in each RLS tenant are deliberate.
+			bindings, err := json.Marshal([]map[string]any{{"id": newUUID(t), "context_id": contextID, "router_id": routerID,
+				"distinguisher": "0000000000000000", "bgp_identifier": "192.0.2.1", "families": []uint16{1, 2}, "source_format": store.BGPRoutingSourceFRRLocRIBV1}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := tenancy.InTenant(tenantCtx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+				_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET routing_epoch=$4,routing_bindings=$5::jsonb,routing_assigned_at=clock_timestamp()
+ WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='bmp_peer' AND source_ref=$3`, tenant.ID, collector, originID, newUUID(t), string(bindings))
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			input.ObservedUnixNanos = time.Now().UnixNano()
+		}
 		receipt, err := client.StageRoutingPeer(ctx, input)
 		if err != nil || receipt.GetStatus() != "staged" || len(receipt.GetViews()) != 2 {
 			t.Fatal("real mTLS routing staging lost complete owned source", receipt, err)
+		}
+		if scenario == "frr-profile" {
+			if err := tenancy.InTenant(tenantCtx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+				var total int
+				err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE tenant_id=$1 AND peer_identity->>'SourceFormat'=$2
+ AND decode(peer_identity->>'SentOpen','base64')=$3 AND decode(peer_identity->>'ReceivedOpen','base64')=$3`, tenant.ID, store.BGPRoutingSourceFRRLocRIBV1, input.Message[68:107]).Scan(&total)
+				if err == nil && total != 2 {
+					t.Fatal("stored serializer lost original OPEN bytes or complete family metadata", total)
+				}
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
 		}
 		lanes = append(lanes, lane{tenant.ID, collector, originSerial, client, input, receipt})
 	}

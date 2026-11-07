@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/netip"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -87,6 +88,9 @@ func validRoutingSelection(source BGPRoutingSource, selected *routingSourceSelec
 	if len(selected.Families) == 0 || len(selected.Families) > 2 {
 		return false
 	}
+	if selected.Binding.SourceFormat != "" && !slices.Equal(selected.Families, selected.Binding.Families) {
+		return false
+	}
 	var seen [3]bool
 	for _, afi := range selected.Families {
 		if afi < 1 || afi > 2 || seen[afi] {
@@ -158,11 +162,15 @@ func routingSelectionJSON(source BGPRoutingSource) (any, error) {
 
 func routingStoredViewKind(source BGPRoutingSource, definition BGPRoutingViewDefinition) (string, error) {
 	if source.routingSelection == nil {
+		if definition.Peer.SourceFormat != "" {
+			return "", ErrBGPRoutingView
+		}
 		return definition.Kind, nil
 	}
 	selected := source.routingSelection
 	if !validRoutingSelection(source, selected) || definition.Kind != "loc_rib" || definition.Peer.Type != 3 || definition.SAFI != 1 ||
-		definition.Peer.BGPIdentifier.String() != selected.Binding.BGPIdentifier || hex.EncodeToString(definition.Peer.Distinguisher[:]) != selected.Binding.Distinguisher {
+		definition.Peer.BGPIdentifier.String() != selected.Binding.BGPIdentifier || hex.EncodeToString(definition.Peer.Distinguisher[:]) != selected.Binding.Distinguisher ||
+		definition.Peer.SourceFormat != selected.Binding.SourceFormat {
 		return "", ErrBGPRoutingView
 	}
 	for _, afi := range selected.Families {

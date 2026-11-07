@@ -41,25 +41,6 @@ func (svc *service) stageRoutingPeer(ctx context.Context, id crypto.SPIFFEID, se
 	input := store.BGPRoutingPeerUpInput{CollectorAgentID: id.AgentID, SenderSerial: serial, SourceRef: raw.GetConfiguredRef(), OriginSerial: raw.GetOriginSerial(), ObservationID: raw.GetObservationId(), ObservedAt: time.Unix(0, raw.GetObservedUnixNanos()), RefusedPeer: refusedPeer}
 	if admitted {
 		input.FrameDigest = crypto.Hash(raw.GetMessage())
-		peer, families, decodeErr := bgp.DecodeRoutingPeerUp(ctx, raw.GetMessage(), bgp.PeerMessageBudget{MemoryBytes: profile.MemoryBytes / 2, WorkUnits: profile.WorkUnits / 2})
-		if decodeErr == nil {
-			if peer.Header.View != bgp.BMPLocRIB {
-				return nil, status.Error(codes.InvalidArgument, "routing staging requires a selected Loc-RIB source")
-			}
-			// A router SVID may carry multiple VRFs. Until an explicit current
-			// operator selector is bound, only its global view belongs to this
-			// source assignment; payload distinguishers cannot select a context.
-			if peer.Header.Distinguisher != ([8]byte{}) {
-				return nil, status.Error(codes.InvalidArgument, "routing view has no explicit source-context binding")
-			}
-			metadata := store.BGPRoutingPeer{Type: peer.Header.PeerType, Flags: peer.Header.Flags, Distinguisher: peer.Header.Distinguisher, Address: peer.Header.PeerAddress, ASN: peer.Header.PeerASN, BGPIdentifier: peer.Header.BGPIdentifier, LocalAddress: peer.LocalAddress, LocalPort: peer.LocalPort, RemotePort: peer.RemotePort, SentOpen: peer.SentOpen, ReceivedOpen: peer.ReceivedOpen}
-			for _, info := range peer.Information {
-				metadata.Information = append(metadata.Information, store.BGPRoutingPeerInformation{Type: info.Type, Value: info.Value})
-			}
-			for _, family := range families {
-				input.Definitions = append(input.Definitions, store.BGPRoutingViewDefinition{Kind: string(peer.Header.View), AFI: family.AFI, SAFI: family.SAFI, Filtered: peer.Header.Filtered, Peer: metadata})
-			}
-		}
 	}
 	// Even a metadata refusal retires prior known state under the authenticated
 	// current source; report it only after that invalidation commits.
@@ -67,7 +48,13 @@ func (svc *service) stageRoutingPeer(ctx context.Context, id crypto.SPIFFEID, se
 	err := tenancy.FencedTenantWrite(ctx, svc.fence, id.TenantID, entity.ErrScopeMismatch, func(ctx context.Context) error {
 		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
-			result, err = (store.BGPRouting{}).StagePeerInScope(ctx, sc, input, profile)
+			if admitted {
+				result, err = (store.BGPRouting{}).StagePeerWithDecoderInScope(ctx, sc, input, profile, func(source store.BGPRoutingDecodeProfile) ([]store.BGPRoutingViewDefinition, error) {
+					return decodeRoutingPeerMetadata(ctx, raw.GetMessage(), source, profile)
+				})
+			} else {
+				result, err = (store.BGPRouting{}).StagePeerInScope(ctx, sc, input, profile)
+			}
 			return err
 		})
 	})
@@ -87,4 +74,48 @@ func (svc *service) stageRoutingPeer(ctx context.Context, id crypto.SPIFFEID, se
 		svc.log.Info("routing source staging processed", "tenant_id", id.TenantID, "agent_id", id.AgentID, "outcome", result.Status, "views", len(result.Views))
 	}
 	return &agentv1.SubmitEntityEvidenceResponse{Routing: receipt}, nil
+}
+
+// The grammar comes from the locked current operator binding. The BMP bytes
+// supply only protocol metadata; they cannot enable a serializer profile.
+func decodeRoutingPeerMetadata(ctx context.Context, message []byte, source store.BGPRoutingDecodeProfile, budget store.BGPRoutingBudget) ([]store.BGPRoutingViewDefinition, error) {
+	profile, err := routingSourceProfile(source.Format, source.Families)
+	if err != nil {
+		return nil, err
+	}
+	peer, families, err := bgp.DecodeRoutingPeerUp(ctx, message, bgp.PeerMessageBudget{MemoryBytes: budget.MemoryBytes / 2, WorkUnits: budget.WorkUnits / 2}, profile)
+	if err != nil {
+		return nil, err
+	}
+	if peer.Header.View != bgp.BMPLocRIB || peer.Header.Distinguisher != ([8]byte{}) {
+		return nil, store.ErrBGPRoutingView
+	}
+	metadata := store.BGPRoutingPeer{SourceFormat: profile.Format, Type: peer.Header.PeerType, Flags: peer.Header.Flags, Distinguisher: peer.Header.Distinguisher, Address: peer.Header.PeerAddress, ASN: peer.Header.PeerASN, BGPIdentifier: peer.Header.BGPIdentifier, LocalAddress: peer.LocalAddress, LocalPort: peer.LocalPort, RemotePort: peer.RemotePort, SentOpen: peer.SentOpen, ReceivedOpen: peer.ReceivedOpen}
+	for _, info := range peer.Information {
+		metadata.Information = append(metadata.Information, store.BGPRoutingPeerInformation{Type: info.Type, Value: info.Value})
+	}
+	definitions := make([]store.BGPRoutingViewDefinition, 0, len(families))
+	for _, family := range families {
+		definitions = append(definitions, store.BGPRoutingViewDefinition{Kind: string(peer.Header.View), AFI: family.AFI, SAFI: family.SAFI, Filtered: peer.Header.Filtered, Peer: metadata})
+	}
+	return definitions, nil
+}
+
+func routingSourceProfile(format string, families []uint16) (bgp.RoutingSourceProfile, error) {
+	if format == "" && len(families) == 0 {
+		return bgp.RoutingSourceProfile{}, nil
+	}
+	if format != store.BGPRoutingSourceFRRLocRIBV1 || len(families) == 0 || len(families) > 2 {
+		return bgp.RoutingSourceProfile{}, store.ErrBGPRoutingView
+	}
+	profile := bgp.RoutingSourceProfile{Format: bgp.RoutingSourceFRRLocRIBV1}
+	var seen [3]bool
+	for _, afi := range families {
+		if afi < 1 || afi > 2 || seen[afi] {
+			return bgp.RoutingSourceProfile{}, store.ErrBGPRoutingView
+		}
+		seen[afi] = true
+		profile.Families = append(profile.Families, bgp.RouteFamily{AFI: afi, SAFI: 1})
+	}
+	return profile, nil
 }

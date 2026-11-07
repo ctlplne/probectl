@@ -87,6 +87,20 @@ func decodeRoutingMessage(ctx context.Context, raw *agentv1.BmpRoutingMessage, p
 	bound := bgp.PeerUp{Header: bgp.BMPRouteViewHeader{PeerType: peer.Type, Flags: peer.Flags, Distinguisher: peer.Distinguisher,
 		PeerAddress: peer.Address, PeerASN: peer.ASN, BGPIdentifier: peer.BGPIdentifier, View: bgp.BMPLocRIB, ASNWidth: 4, Filtered: peer.Flags&0x80 != 0},
 		LocalAddress: peer.LocalAddress, LocalPort: peer.LocalPort, RemotePort: peer.RemotePort, SentOpen: peer.SentOpen, ReceivedOpen: peer.ReceivedOpen}
+	if peer.SourceFormat != "" {
+		families := make([]uint16, 0, len(views))
+		for _, view := range views {
+			if view.SAFI != 1 {
+				return nil, store.ErrBGPRoutingView
+			}
+			families = append(families, view.AFI)
+		}
+		profile, err := routingSourceProfile(peer.SourceFormat, families)
+		if err != nil {
+			return nil, err
+		}
+		bound.SourceProfile = profile
+	}
 	if raw.SourceReset || raw.Heartbeat {
 		reset, err := bgp.DecodeRoutingLifecycle(ctx, raw.Message, bound, bgp.PeerMessageBudget{MemoryBytes: profile.MemoryBytes / 4, WorkUnits: profile.WorkUnits / 4})
 		if err != nil || reset != raw.SourceReset || reset {

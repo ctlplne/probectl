@@ -9,6 +9,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -75,5 +76,33 @@ func TestRoutingSelectionReaderRefusesUnknownBorrowedAndIncompleteBindings(t *te
 	cancel()
 	if got, err := decodeRoutingSelection(canceled, raw, source, routingViewBudget()); err == nil || got != nil {
 		t.Fatal("canceled routing selection exposed authority")
+	}
+}
+
+func TestRoutingStoredSerializerRequiresCurrentBindingAndCompleteFamilies(t *testing.T) {
+	ids := []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444"}
+	prepared, err := prepareRoutingBindings(t.Context(), []routingSourceBinding{{ContextID: ids[0], RouterID: ids[1], Distinguisher: "0000000000000000", BGPIdentifier: "192.0.2.9", Families: []uint16{1, 2}, SourceFormat: BGPRoutingSourceFRRLocRIBV1}}, routingViewBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := BGPRoutingSource{Scope: entity.Scope{TenantID: ids[2], ContextID: ids[0]}, RouterID: ids[1], ObservedAt: time.Now().UTC()}
+	definition := BGPRoutingViewDefinition{Kind: "loc_rib", AFI: 1, SAFI: 1, Peer: BGPRoutingPeer{Type: 3, BGPIdentifier: netip.MustParseAddr("192.0.2.9"), SourceFormat: BGPRoutingSourceFRRLocRIBV1}}
+	if _, err := routingStoredViewKind(source, definition); err == nil {
+		t.Fatal("retained routing serializer bypassed a missing operator binding")
+	}
+	source.routingSelection = &routingSourceSelection{BaseContextID: ids[2], BaseRouterID: ids[3], ContextID: ids[0], RouterID: ids[1], Epoch: ids[3], BindingID: prepared[0].ID, AssignedAt: source.ObservedAt.Add(-time.Second), Families: []uint16{1, 2}, Binding: prepared[0]}
+	if kind, err := routingStoredViewKind(source, definition); err != nil || kind != "operator_loc_rib" {
+		t.Fatal("current complete operator serializer was refused", kind, err)
+	}
+	for _, format := range []string{"", "future-unknown"} {
+		bad := definition
+		bad.Peer.SourceFormat = format
+		if _, err := routingStoredViewKind(source, bad); err == nil {
+			t.Fatal("retained routing serializer disagreed with current operator configuration")
+		}
+	}
+	source.routingSelection.Families = []uint16{1}
+	if _, err := routingStoredViewKind(source, definition); err == nil {
+		t.Fatal("configured serializer accepted an incomplete declared family cohort")
 	}
 }

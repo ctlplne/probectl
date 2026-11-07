@@ -137,7 +137,7 @@ func loadRoutingStreamMetadata(ctx context.Context, sc tenancy.Scope, source BGP
 
 func routingStreamPeerMatchesSource(source BGPRoutingSource, peer BGPRoutingPeer, afi uint16, safi uint8) bool {
 	if source.routingSelection == nil {
-		return peer.Distinguisher == ([8]byte{})
+		return peer.Distinguisher == ([8]byte{}) && peer.SourceFormat == ""
 	}
 	_, err := routingStoredViewKind(source, BGPRoutingViewDefinition{Kind: "loc_rib", AFI: afi, SAFI: safi, Peer: peer})
 	return err == nil

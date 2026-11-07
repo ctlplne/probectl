@@ -24,6 +24,15 @@ import (
 // Actual TLS Postgres/FORCE-RLS and source writers; callback projection and
 // source identities are modeled. This is not physical router or mTLS proof.
 func TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation(t *testing.T) {
+	proveRoutingBoundStream(t, "")
+}
+
+func TestRoutingBoundSerializerKeepsCurrentFormatAndCompleteFamilyCohort(t *testing.T) {
+	proveRoutingBoundStream(t, BGPRoutingSourceFRRLocRIBV1)
+}
+
+func proveRoutingBoundStream(t *testing.T, format string) {
+	t.Helper()
 	f := newRoleInputsFixture(t)
 	profile := routingViewBudget()
 	profile.LeaseDuration = 5 * time.Minute
@@ -31,6 +40,9 @@ func TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation(t *te
 	bindings := []routingSourceBinding{
 		{ContextID: targetContext, RouterID: targetRouter, Distinguisher: "0000000000000001", BGPIdentifier: "192.0.2.9", Families: []uint16{1, 2}},
 		{ContextID: targetContext, RouterID: targetRouter, Distinguisher: "0000000000000002", BGPIdentifier: "192.0.2.9", Families: []uint16{1, 2}},
+	}
+	for i := range bindings {
+		bindings[i].SourceFormat = format
 	}
 	manifests := make([]routingSourceManifest, 2)
 	for lane, tenant := range f.tenants {
@@ -56,11 +68,27 @@ func TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation(t *te
 			OriginSerial: source.OriginSerial, ObservationID: nonce, ObservedAt: source.ObservedAt, FrameDigest: crypto.Hash([]byte("complete bound peer up"))}
 		for _, afi := range []uint16{1, 2} {
 			definition := routingLookupDefinition(afi)
+			definition.Peer.SourceFormat = format
 			definition.Peer.Distinguisher[7] = byte(selector + 1)
 			up.Definitions = append(up.Definitions, definition)
 		}
 		if err := routingFixtureWrite(t, f, source, func(ctx context.Context, sc tenancy.Scope) error {
-			got, err := (BGPRouting{}).StagePeerInScope(ctx, sc, up, profile)
+			var got BGPRoutingStageResult
+			var err error
+			if format == "" {
+				got, err = (BGPRouting{}).StagePeerInScope(ctx, sc, up, profile)
+			} else {
+				definitions := up.Definitions
+				peer := definitions[0].Peer
+				up.RefusedPeer, up.Definitions = &peer, nil
+				got, err = (BGPRouting{}).StagePeerWithDecoderInScope(ctx, sc, up, profile, func(selected BGPRoutingDecodeProfile) ([]BGPRoutingViewDefinition, error) {
+					if selected.Format != format || len(selected.Families) != 2 || selected.Families[0] != 1 || selected.Families[1] != 2 {
+						t.Fatal("current operator serializer lost its complete family cohort", selected)
+					}
+					selected.Families[0] = 2 // profile copies cannot mutate the retained operator manifest
+					return definitions, nil
+				})
+			}
 			if err == nil && (got.Status != "staged" || len(got.Views) != 2) {
 				t.Fatal("bound stream staging prerequisite failed", got)
 			}
@@ -78,7 +106,7 @@ func TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation(t *te
 			result, err = (BGPRouting{}).ApplyPeerMessageInScope(ctx, sc, input, budget,
 				func(_ context.Context, peer BGPRoutingPeer, refs []BGPRoutingStagedView) ([]BGPRoutingBatch, error) {
 					called = true
-					if peer.Distinguisher[7] != byte(selector+1) {
+					if peer.Distinguisher[7] != byte(selector+1) || peer.SourceFormat != format {
 						t.Fatal("wrong routing peer reached source decoder")
 					}
 					out := make([]BGPRoutingBatch, len(refs))
@@ -201,6 +229,10 @@ func TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation(t *te
 		t.Fatal("old bound generation invalidated or revived a replacement source", got, called, err)
 	}
 	f.in(f.tenants[1], func(ctx context.Context, sc tenancy.Scope) error {
+		if format != "" {
+			_, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET peer_identity=jsonb_set(peer_identity,'{SourceFormat}',to_jsonb('future-unknown'::text)) WHERE generation=$1`, fresh.Generation)
+			return err
+		}
 		_, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET peer_identity=jsonb_set(peer_identity,'{Distinguisher,7}',to_jsonb(99)) WHERE generation=$1`, fresh.Generation)
 		return err
 	})

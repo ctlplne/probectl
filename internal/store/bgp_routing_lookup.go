@@ -132,16 +132,19 @@ func loadRoutingReadView(ctx context.Context, sc tenancy.Scope, source BGPRoutin
 		return view, err
 	}
 	kind := "loc_rib"
+	format := ""
 	if source.routingSelection != nil {
 		kind = "operator_loc_rib"
+		format = source.routingSelection.Binding.SourceFormat
 	}
 	err = sc.Q.QueryRow(ctx, `SELECT observed_at,valid_until,last_message_observed_at,last_sequence,message_clock_sequence
  FROM bgp_routing_views WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND generation=$4
  AND source_kind='router_bmp' AND router_id=$5 AND collector_agent_id=$6 AND source_ref=$7
  AND sender_serial=$8 AND origin_serial=$9 AND view_kind=$11 AND NOT filtered
  AND state='current' AND completed_at IS NOT NULL AND afi=$10 AND safi=1
- AND routing_selection IS NOT DISTINCT FROM $12::jsonb`,
-		source.TenantID, source.ContextID, ref.ID, ref.Generation, source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, afi, kind, selection).
+ AND routing_selection IS NOT DISTINCT FROM $12::jsonb
+ AND COALESCE(peer_identity->>'SourceFormat','')=$13`,
+		source.TenantID, source.ContextID, ref.ID, ref.Generation, source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, afi, kind, selection, format).
 		Scan(&view.born, &view.validUntil, &view.lastObservedAt, &view.lastSequence, &view.clockSequence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return routingReadView{}, ErrBGPRoutingSourceUnavailable

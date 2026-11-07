@@ -24,6 +24,10 @@ import (
 
 var errRoutingBindingConflict = errors.New("current routing assignment epoch changed")
 
+// BGPRoutingSourceFRRLocRIBV1 names the known selected-RIB wire serializer.
+// It is operator-owned source configuration, never an ingest assertion.
+const BGPRoutingSourceFRRLocRIBV1 = "frr_loc_rib_v1"
+
 // Private configuration DTOs: no ingest frame can write these. The operator
 // adapter must authorize every target context before this tenant-scoped writer.
 // IDs and epoch are server-generated incarnation identifiers, never grants.
@@ -182,6 +186,9 @@ func prepareRoutingBindings(ctx context.Context, bindings []routingSourceBinding
 }
 
 func normalizeRoutingBinding(binding *routingSourceBinding) error {
+	if binding.SourceFormat != "" && binding.SourceFormat != BGPRoutingSourceFRRLocRIBV1 {
+		return entity.ErrInvalidClaim
+	}
 	for _, id := range []string{binding.ContextID, binding.RouterID} {
 		if normalized, err := validRegistryUUID(id); err != nil || normalized != id {
 			return entity.ErrInvalidScope

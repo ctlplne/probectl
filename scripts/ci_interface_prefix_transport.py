@@ -120,6 +120,7 @@ UNIT = {
     ),
     "internal/store": (
         "TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity",
+        "TestRoutingStoredSerializerRequiresCurrentBindingAndCompleteFamilies",
         "TestRoutingBindingReaderRefusesUnknownCorruptAndForeignMetadata",
         "TestRoutingSelectionReaderRefusesUnknownBorrowedAndIncompleteBindings",
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
@@ -176,6 +177,7 @@ INTEGRATION = {
         "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
         "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
         "TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation",
+        "TestRoutingBoundSerializerKeepsCurrentFormatAndCompleteFamilyCohort",
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
         "TestInterfaceRoleInputsRetainWholePrefixTableAndRefusePartialBudget",
         "TestInterfaceRoleInputsRequireAuthenticatedFaultClockAndRecovery",
@@ -204,6 +206,7 @@ INTEGRATION = {
         "TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState",
         "TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource",
         "TestRoutingMalformedUnboundPeerUpPreservesKnownContexts",
+        "TestRoutingFRRProfileRequiresCurrentOperatorBindingThroughRealMTLS",
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
     ),
     "internal/tenantlife": (
@@ -476,6 +479,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-source-profile-current": (
+        "internal/store/bgp_routing_decode.go",
+        "profile, err := routingDecodeProfile(ctx, sc, base, input.RefusedPeer, budget)",
+        "profile, err := BGPRoutingDecodeProfile{}, error(nil); _ = base",
+        "TestRoutingFRRProfileRequiresCurrentOperatorBindingThroughRealMTLS", "",
+        "real mTLS routing staging lost complete owned source",
+    ),
+    "routing-retained-source-format": (
+        "internal/store/bgp_routing_bound_authority.go",
+        "definition.Peer.SourceFormat != selected.Binding.SourceFormat",
+        "false",
+        "TestRoutingBoundSerializerKeepsCurrentFormatAndCompleteFamilyCohort", "",
+        "changed retained routing peer refreshed another bound selector",
+    ),
     "routing-peer-up-rate-refusal": (
         "internal/agenttransport/bgp_routing_stage.go",
         "var result store.BGPRoutingStageResult",
@@ -487,7 +504,7 @@ ROUTING_WRITE_CONTROLS = {
         "internal/agenttransport/bgp_routing_stage.go",
         "if unbound {", "if false && unbound {",
         "TestRoutingMalformedUnboundPeerUpPreservesKnownContexts", "",
-        "malformed unbound routing view retired a known canonical context",
+        "unbound routing VRF selected or reset a canonical context",
     ),
     "routing-refused-selector": (
         "internal/store/bgp_routing_stage_binding.go",
