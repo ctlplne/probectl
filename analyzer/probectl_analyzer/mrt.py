@@ -70,6 +70,15 @@ class MRTError(Exception):
     """A malformed MRT record."""
 
 
+@dataclass(frozen=True)
+class MRTSnapshotPeer:
+    """Complete source identity; absence and zero are distinct upstream facts."""
+
+    asn: int
+    address: str
+    bgp_identifier: int
+
+
 @dataclass
 class BGPRoute:
     """One complete announced or withdrawn prefix, as seen by a collector peer."""
@@ -184,16 +193,54 @@ class MRTReader:
         self._peers: list[tuple[int, str]] = []
         self._has_peer_table = False
         self._collector_id = 0
+        self.snapshot_complete = False
+        self.snapshot_observed_unix_nano: int | None = None
+        self.snapshot_view_name: bytes | None = None
+        self.snapshot_peers: tuple[MRTSnapshotPeer, ...] = ()
 
     def stream(self, fp: BinaryIO) -> Iterator[BGPRoute]:
+        self.snapshot_complete = False
+        yield from self._stream(fp, complete_rib=False)
+
+    @property
+    def snapshot_collector_identifier(self) -> int | None:
+        return self._collector_id if self._has_peer_table else None
+
+    def stream_snapshot(self, fp: BinaryIO) -> Iterator[BGPRoute]:
+        """Yield private staging rows; only a fully validated EOF is complete.
+
+        Unlike the anomaly stream, no malformed, oversized or unsupported
+        record may be skipped. A valid empty peer table proves an empty source;
+        an empty file does not. Callers must abort staging on any exception or
+        abandoned iterator and must never infer completeness from yielded rows.
+        """
+        self.snapshot_complete = False
+        self.snapshot_observed_unix_nano = None
+        self.snapshot_peers = ()
+        self.snapshot_view_name = None
+        self._has_peer_table = False
+        self._peers = []
+        yield from self._stream(fp, complete_rib=True)
+
+    def _stream(self, fp: BinaryIO, *, complete_rib: bool) -> Iterator[BGPRoute]:
         while True:
             header = fp.read(12)
             if not header:
+                if complete_rib:
+                    if not self._has_peer_table:
+                        raise MRTError("complete RIB requires an explicit peer table")
+                    self.snapshot_complete = True
                 return
             if len(header) < 12:
                 raise MRTError("truncated MRT common header")
             ts, mtype, subtype, length = struct.unpack(">IHHI", header)
+            if complete_rib:
+                self._validate_snapshot_record(mtype, subtype)
             if length > self._max_record_length:
+                if complete_rib:
+                    raise MRTError(
+                        f"MRT record length {length} exceeds max {self._max_record_length}"
+                    )
                 if self._skip_oversized(fp, length, mtype, subtype):
                     continue
                 raise MRTError(f"MRT record length {length} exceeds max {self._max_record_length}")
@@ -202,7 +249,11 @@ class MRTReader:
                 raise MRTError("truncated MRT record body")
             try:
                 yield from self._dispatch(mtype, subtype, body, ts * 1_000_000_000)
+                if complete_rib and subtype == SUB_PEER_INDEX_TABLE:
+                    self.snapshot_observed_unix_nano = ts * 1_000_000_000
             except MRTError as err:
+                if complete_rib:
+                    raise
                 # One bad record must not kill a multi-gigabyte dump.
                 _log.warning(
                     "skipping malformed MRT record",
@@ -210,6 +261,19 @@ class MRTReader:
                     subtype=subtype,
                     error=str(err),
                 )
+
+    def _validate_snapshot_record(self, mtype: int, subtype: int) -> None:
+        if mtype != TYPE_TABLE_DUMP_V2 or subtype not in (
+            SUB_PEER_INDEX_TABLE,
+            SUB_RIB_IPV4_UNICAST,
+            SUB_RIB_IPV6_UNICAST,
+        ):
+            raise MRTError("unsupported record cannot establish complete RIB")
+        if subtype == SUB_PEER_INDEX_TABLE:
+            if self._has_peer_table:
+                raise MRTError("peer table replacement requires a separate source snapshot")
+        elif not self._has_peer_table:
+            raise MRTError("complete RIB route requires its original peer table")
 
     def _skip_oversized(self, fp: BinaryIO, length: int, mtype: int, subtype: int) -> bool:
         try:
@@ -264,26 +328,30 @@ class MRTReader:
         r = _Reader(body)
         collector_id = r.u32()
         view_len = r.u16()
-        r.read(view_len)
+        view_name = r.read(view_len)
         count = r.u16()
         peers: list[tuple[int, str]] = []
+        snapshot_peers: list[MRTSnapshotPeer] = []
         for _ in range(count):
             peer_type = r.u8()
             if peer_type & ~0x03:
                 raise MRTError("undefined peer index type bits")
-            r.u32()  # peer BGP id
+            bgp_identifier = r.u32()
             if peer_type & 0x01:
                 addr = str(ipaddress.IPv6Address(r.read(16)))
             else:
                 addr = str(ipaddress.IPv4Address(r.read(4)))
             asn = r.u32() if peer_type & 0x02 else r.u16()
             peers.append((asn, addr))
+            snapshot_peers.append(MRTSnapshotPeer(asn, addr, bgp_identifier))
         if r.remaining():
             raise MRTError("trailing peer index bytes")
         # Commit the collector and peer map together only after the complete
         # replacement has validated. A late failure retains neither fragment.
         self._collector_id = collector_id
         self._peers = peers
+        self.snapshot_view_name = view_name
+        self.snapshot_peers = tuple(snapshot_peers)
         self._has_peer_table = True
 
     def _parse_rib(self, body: bytes, afi: int, event_time_unix_nano: int) -> Iterator[BGPRoute]:
