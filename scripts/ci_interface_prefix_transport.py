@@ -1401,6 +1401,49 @@ def ix_prefix_controls():
     print(json.dumps({"ix_source_and_owned_input_controls": True}))
 
 
+def bmp_routing_transport_controls():
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    for name, file, seam, replacement, root, child, marker in (
+        ("bmp_adapter_stage_hidden", "cmd/probectl-bmp-listener/main.go",
+         "func (o observedBMPEvidence) StageRoutingPeer(",
+         "func (o observedBMPEvidence) hiddenStageRoutingPeer(",
+         "TestBMPEvidenceAdapterKeepsCompleteRoutingTransport", "",
+         "shipped metrics adapter hides routing staging transport"),
+        ("bmp_adapter_stream_hidden", "cmd/probectl-bmp-listener/main.go",
+         "func (o observedBMPEvidence) SubmitRoutingMessage(",
+         "func (o observedBMPEvidence) hiddenSubmitRoutingMessage(",
+         "TestBMPEvidenceAdapterKeepsCompleteRoutingTransport", "",
+         "shipped metrics adapter hides routing message transport"),
+        ("bmp_raw_session_cancelled", "internal/bgp/bmp_routing_stream.go",
+         "reset := func(generation string, sequence *int64) {",
+         "l.cancelRoutingSession(peer.sessionHandle)\n\treset := func(generation string, sequence *int64) {",
+         "TestBMPRoutingEvidenceFailureKeepsRawSessionAndRetiresOnlyOwnedGenerations", "message",
+         "routing evidence failure cancelled raw BGP collection"),
+        ("bmp_queue_loss_ignored", "internal/bgp/bmp_routing_stream.go",
+         "l.loseRoutingEvidence(session)", "_ = session",
+         "TestBMPRoutingQueueLossKeepsRawSessionAndInvalidatesBeforePendingData", "",
+         "lost routing frame allowed queued data to retain a current generation"),
+        ("bmp_idle_loss_ignored", "internal/bgp/bmp_entity_evidence.go",
+         "l.retireLostRoutingStreams(ctx, routing)", "_ = routing",
+         "TestBMPRoutingLossWakesIdleEvidenceWorkerWithoutClosingRawSource", "",
+         "idle evidence worker kept current routing authority after local loss"),
+    ):
+        source = Path(file).resolve()
+        original = source.read_text()
+        assert original.count(seam) == 1
+        mutant = overlay_source_path(out, name + ".go")
+        mutant.write_text(original.replace(seam, replacement))
+        overlay = out / (name + ".json")
+        overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+        package = str(Path(file).parent)
+        result = execute(package, (root,), name, overlay=overlay, child=child)
+        if not report_regression_failed_on_assertion(
+            result.stdout, result.returncode, package=PREFIX + package, root=root,
+            child=child, marker=marker,
+        ):
+            raise RuntimeError(name + " did not fail its exact assertion")
+
+
 def peering_interval_combination_control():
     source = Path("internal/flow/peering_estimate.go").resolve()
     original = source.read_text()
@@ -1452,6 +1495,7 @@ def main(integration, flow_integration=False):
         configuration_api_controls()
         configuration_silo_lock_control()
     if not integration:
+        bmp_routing_transport_controls()
         peering_interval_combination_control()
         snmp_dual_stack_address_control()
         role_query_tenant_control()

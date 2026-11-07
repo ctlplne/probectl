@@ -190,7 +190,7 @@ def main():
             (
                 continuation,
                 'nextCursor, err = "", nil\n_ = lastVisible',
-                "complete inbox retained history narrowed",
+                "default inbox page is not a complete physical batch",
             ),
         )
         for index, (old, replacement, marker) in enumerate(controls):
