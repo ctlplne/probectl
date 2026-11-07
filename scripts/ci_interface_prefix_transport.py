@@ -499,7 +499,7 @@ ROUTING_WRITE_CONTROLS = {
         "definition.Peer.SourceFormat != selected.Binding.SourceFormat",
         "false",
         "TestRoutingBoundSerializerKeepsCurrentFormatAndCompleteFamilyCohort", "",
-        "changed retained routing peer refreshed another bound selector",
+        "wrong routing peer reached source decoder",
     ),
     "routing-peer-up-rate-refusal": (
         "internal/agenttransport/bgp_routing_stage.go",
