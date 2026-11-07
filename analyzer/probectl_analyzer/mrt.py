@@ -182,6 +182,7 @@ class MRTReader:
             raise ValueError("max_record_length must be positive")
         self._max_record_length = max_record_length
         self._peers: list[tuple[int, str]] = []
+        self._has_peer_table = False
         self._collector_id = 0
 
     def stream(self, fp: BinaryIO) -> Iterator[BGPRoute]:
@@ -283,13 +284,14 @@ class MRTReader:
         # replacement has validated. A late failure retains neither fragment.
         self._collector_id = collector_id
         self._peers = peers
+        self._has_peer_table = True
 
     def _parse_rib(self, body: bytes, afi: int, event_time_unix_nano: int) -> Iterator[BGPRoute]:
         # Validate the whole record before its first route is observed. Two
         # bounded passes retain streaming across large RIB files and avoid a
         # full record's decoded route/path population in memory.
         for _, peer_index, attrs in _rib_entries(body, afi):
-            if self._peers and peer_index >= len(self._peers):
+            if self._has_peer_table and peer_index >= len(self._peers):
                 raise MRTError("RIB references an undefined peer index")
             _as_path_from_attrs(attrs, four_byte=True)
         for prefix, peer_index, attrs in _rib_entries(body, afi):

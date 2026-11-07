@@ -167,6 +167,6 @@ def test_empty_peer_replacement_cannot_restore_unknown_peer_routes():
     empty_body = struct.pack(">IHH", 9, 0, 0)
     empty = struct.pack(">IHHI", 0, 13, 1, len(empty_body)) + empty_body
     data = peer_index_table() + empty + rib_ipv4("192.0.2.0/24", [64511, 64496])
-    assert list(stream_mrt(io.BytesIO(data))) == [], (
-        "explicit empty peer replacement allowed an unknown peer route"
-    )
+    assert (
+        list(stream_mrt(io.BytesIO(data))) == []
+    ), "explicit empty peer replacement allowed an unknown peer route"
