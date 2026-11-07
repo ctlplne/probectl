@@ -47,9 +47,13 @@ back the replacement. An authorized base owner can withdraw a reference to a
 deleted target; readback never invents policy attributes for a deleted context.
 
 The distinguisher is the exact opaque eight-byte BMP value in hexadecimal.
-`bgp_identifier` is the monitored peer's IPv4 identifier, including `0.0.0.0`
-when the source uses a virtual selected-RIB peer. `families` declares the complete
-supported unicast cohort: 1 for IPv4, 2 for IPv6.
+`bgp_identifier` is the identifier in the BMP **per-peer header**, separate from
+the identifier inside a fabricated BGP OPEN. For FRR, use the configured
+`bgp router-id` of the global or VRF instance. Its fabricated OPEN can contain
+`0.0.0.0` while the per-peer header contains the actual router ID; copying the
+OPEN value would leave the source unbound. A zero header identifier is supported
+when that is the source's explicit configuration. `families` declares the
+complete supported unicast set: 1 for IPv4, 2 for IPv6.
 
 An omitted or empty `source_format` uses strict negotiated capabilities.
 `frr_loc_rib_v1` describes FRR's known selected-RIB serializer, whose virtual OPEN
