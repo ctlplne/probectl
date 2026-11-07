@@ -57,6 +57,15 @@ func routingPeerUpWire(t *testing.T) []byte {
 // Actual served mTLS evidence client/listener and application-role Postgres.
 // BGP bytes are a protocol fixture, not a real-router or flow-join receipt.
 func TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState(t *testing.T) {
+	proveRoutingStagingMTLS(t, false)
+}
+
+func TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource(t *testing.T) {
+	proveRoutingStagingMTLS(t, true)
+}
+
+func proveRoutingStagingMTLS(t *testing.T, peerUpRateRefusal bool) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	pool := setup(ctx, t)
@@ -251,8 +260,16 @@ func TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState(t *testing.
 		t.Fatal("rate refusal prerequisite could not consume tenant byte allowance")
 	}
 	rejected := &agentv1.BmpRoutingMessage{ConfiguredRef: lanes[1].input.ConfiguredRef, OriginSerial: lanes[1].input.OriginSerial, Generation: streamNonce, Sequence: 4, ObservedUnixNanos: time.Now().UnixNano(), Message: routingUpdateWire(lanes[1].input.Message, "v4-eor", 64497)}
-	if _, err := lanes[1].client.SubmitRoutingMessage(ctx, rejected); err == nil || counts(lanes[1], "current") != 0 || counts(lanes[0], "current") != 2 {
-		t.Fatal("rate-refused routing frame retained stale or foreign current state", err)
+	if peerUpRateRefusal {
+		replacement := proto.Clone(lanes[1].input).(*agentv1.BmpRoutingPeerUp)
+		replacement.ObservationId, replacement.ObservedUnixNanos = uuid.NewString(), time.Now().UnixNano()
+		if _, err := lanes[1].client.StageRoutingPeer(ctx, replacement); err == nil || counts(lanes[1], "current") != 0 || counts(lanes[0], "current") != 2 {
+			t.Fatal("rate-refused routing Peer Up retained stale or foreign current state", err)
+		}
+	} else {
+		if _, err := lanes[1].client.SubmitRoutingMessage(ctx, rejected); err == nil || counts(lanes[1], "current") != 0 || counts(lanes[0], "current") != 2 {
+			t.Fatal("rate-refused routing frame retained stale or foreign current state", err)
+		}
 	}
 	reset := &agentv1.BmpRoutingMessage{ConfiguredRef: restored.ConfiguredRef, OriginSerial: restored.OriginSerial, Generation: restored.ObservationId, Sequence: 4, ObservedUnixNanos: time.Now().UnixNano(), SourceReset: true}
 	if got, err := lanes[0].client.SubmitRoutingMessage(ctx, reset); err != nil || got.GetStatus() != "invalidated" || got.GetGeneration() != reset.Generation || got.GetSequence() != reset.Sequence || counts(lanes[0], "current") != 0 {
