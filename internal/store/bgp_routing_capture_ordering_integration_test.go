@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/store/sourceepoch"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -92,4 +93,95 @@ func proveProvisionalCaptureKeepsOriginalRouteBeforeAuthenticatedPublication(t *
 		}
 		routingLookupApply(t, f, lookup.Source.Route.Source, lookup.Source.Route.View, BGPRoutingBatch{Sequence: 4, AFI: 1, SAFI: 1, Changes: []BGPRoutingChange{changes[lane]}})
 	}
+}
+
+func proveProvisionalCaptureRefusesRetiredAuthority(t *testing.T, f *roleInputsFixture, service *BGPRoutingFlowCaptures, baseline BGPRoutingCaptureReference, input BGPRoutingFlowInput) {
+	t.Helper()
+	tenant := f.tenants[0]
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+	read := func(key [32]byte) routingCaptureReceipt {
+		t.Helper()
+		var receipt routingCaptureReceipt
+		err := tenancy.InTenantReadSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var exists bool
+			var err error
+			receipt, exists, err = readRoutingCaptureInScope(ctx, sc, key, routingViewBudget())
+			if err == nil && !exists {
+				t.Fatal("missing final capture receipt")
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return receipt
+	}
+	stage := func(raw [32]byte, objects *routingCaptureObjects) BGPRoutingCaptureReference {
+		t.Helper()
+		if objects == nil {
+			t.Fatal("missing modeled provisional source")
+		}
+		key, err := service.captureKey(ctx, "routing-flow", raw, input, routingViewBudget())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ref BGPRoutingCaptureReference
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			generation, err := sourceepoch.SourceGenerationInScope(ctx, sc)
+			if err == nil {
+				ref, err = retainRoutingCaptureIntentInScope(ctx, sc, key, *objects, generation, routingViewBudget())
+			}
+			return err
+		})
+		return ref
+	}
+	checkUnavailable := func(raw [32]byte, first BGPRoutingCaptureReference, marker string) {
+		t.Helper()
+		got, err := service.CaptureAuthenticated(ctx, "routing-flow", raw, input, routingViewBudget())
+		if err != nil || got != first {
+			t.Fatal("retired provisional finalization lost its original first clock", err)
+		}
+		if receipt := read(first.Key); receipt.outcome != "unavailable" || receipt.objects != nil {
+			t.Fatal(marker)
+		}
+	}
+	old := read(baseline.Key)
+	rawEpoch := routingCaptureHash([]byte("raw before validated erasure epoch"))
+	beforeEpoch := stage(rawEpoch, old.objects)
+	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := sourceepoch.SourceGenerationInScope(ctx, sc); err != nil {
+			return err
+		}
+		if err := audit.LockTenantStream(ctx, sc.Q, tenant); err != nil {
+			return err
+		}
+		return sourceepoch.InvalidateSourceGenerationInScope(ctx, sc)
+	})
+	checkUnavailable(rawEpoch, beforeEpoch, "expired provisional epoch became canonical after erasure")
+
+	newBaseline, err := service.CaptureAuthenticated(ctx, "routing-flow", routingCaptureHash([]byte("current source after erasure epoch")), input, routingViewBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := read(newBaseline.Key)
+	rawErased := routingCaptureHash([]byte("raw provisional payload erased before witness"))
+	beforeErase := stage(rawErased, current.objects)
+	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `DELETE FROM bgp_flow_capture_objects WHERE tenant_id=$1 AND digest=$2`, tenant, current.objects.clocks.digest[:])
+		return err
+	})
+	checkUnavailable(rawErased, beforeErase, "erased provisional payload was rebuilt from the current route")
+
+	newBaseline, err = service.CaptureAuthenticated(ctx, "routing-flow", routingCaptureHash([]byte("new legitimate source reuses erased content")), input, routingViewBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	current = read(newBaseline.Key)
+	checkUnavailable(rawErased, beforeErase, "new legitimate capture revived erased provisional evidence")
+	rawRevoked := routingCaptureHash([]byte("raw candidate whose source credential was revoked"))
+	beforeRevocation := stage(rawRevoked, current.objects)
+	if _, _, err := NewAgentIdentities(f.pool).RevokeAgent(t.Context(), tenant, "routing-flow", "provisional-source-test"); err != nil {
+		t.Fatal(err)
+	}
+	checkUnavailable(rawRevoked, beforeRevocation, "revoked source finalized a private provisional capture")
 }

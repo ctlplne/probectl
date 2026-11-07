@@ -123,6 +123,7 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 	if receipt := read(0, fresh.Key); receipt.outcome != "captured" || receipt.objects == nil {
 		t.Fatal("new observation did not capture restored current source")
 	}
+	proveProvisionalCaptureRefusesRetiredAuthority(t, f, service, fresh, input)
 	if _, err := f.pool.Exec(t.Context(), `UPDATE tenants SET status='offboarding' WHERE id=$1`, f.tenants[1]); err != nil {
 		t.Fatal(err)
 	}
