@@ -82,5 +82,8 @@ func (BGPRouting) readFlowCaptureInScope(ctx context.Context, sc tenancy.Scope, 
 	if !current {
 		return BGPRoutingFlowLookup{}, ErrBGPRoutingSourceUnavailable
 	}
+	if err := redactUnreadableCapturedNextHops(ctx, sc, &lookup, budget); err != nil {
+		return BGPRoutingFlowLookup{}, err
+	}
 	return lookup, nil
 }
