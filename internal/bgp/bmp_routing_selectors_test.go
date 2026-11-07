@@ -38,6 +38,9 @@ func (c *routingSelectorsCapture) StageRoutingPeer(_ context.Context, request *a
 }
 func (c *routingSelectorsCapture) SubmitRoutingMessage(_ context.Context, request *agentv1.BmpRoutingMessage) (*agentv1.BmpRoutingMessageReceipt, error) {
 	c.messages = append(c.messages, proto.Clone(request).(*agentv1.BmpRoutingMessage))
+	if request.SourceReset {
+		return &agentv1.BmpRoutingMessageReceipt{Status: "invalidated", Generation: request.Generation, Sequence: request.Sequence}, nil
+	}
 	return &agentv1.BmpRoutingMessageReceipt{Status: "applied", Generation: request.Generation, Sequence: request.Sequence}, nil
 }
 
@@ -121,12 +124,40 @@ func TestBMPRoutingSelectorsKeepIndependentGenerationsRefusalsAndSourceClosure(t
 	if last[0].Generation != a || last[1].Generation != b || last[0].Sequence != 2 || last[1].Sequence != 2 {
 		t.Fatal("unbound selector disabled known routing streams", last)
 	}
+	// A selected-view Peer Down closes only its own generation. It also frees
+	// local metadata, and cannot disable another selector on the same socket.
+	down := append(frame(1, false)[:48:48], byte(6))
+	down[5] = 2
+	binary.BigEndian.PutUint32(down[1:5], uint32(len(down)))
+	if err := l.queueRoutingMessage(id, handle, 2, down[6:]); err != nil {
+		t.Fatal(err)
+	}
+	closing := <-l.evidenceQueue
+	l.routingStreamEvidence(context.Background(), closing, states)
+	if _, exists := states.get(closing); exists {
+		t.Fatal("confirmed Peer Down retained routing selector state")
+	}
+	beforeClosed := len(sink.messages)
+	drive(handle, 1, false)
+	if len(sink.messages) != beforeClosed {
+		t.Fatal("closed selector resumed without a fresh complete Peer Up")
+	}
+	drive(handle, 2, false)
+	if message := sink.messages[len(sink.messages)-1]; message.Generation != b || message.Sequence != 3 {
+		t.Fatal("Peer Down changed a sibling selector", message)
+	}
+	drive(handle, 1, true)
+	a = sink.stages[len(sink.stages)-1].ObservationId
+	drive(handle, 1, false)
+	if message := sink.messages[len(sink.messages)-1]; message.Generation != a || message.Sequence != 1 {
+		t.Fatal("fresh selector Peer Up failed to restart its independent sequence", message)
+	}
 	// A real physical source closure retires every one of its known selectors.
 	l.endRoutingEvidence(context.Background(), id, handle)
 	peer := <-l.evidenceQueue
 	before := len(sink.messages)
 	l.routingStreamEvidence(context.Background(), peer, states)
-	want := map[string]int64{a: 3, b: 3}
+	want := map[string]int64{a: 2, b: 4}
 	for _, message := range sink.messages[before:] {
 		sequence, ok := want[message.Generation]
 		if !ok || !message.SourceReset || message.Sequence != sequence {
@@ -155,7 +186,7 @@ func TestBMPRoutingMetadataAdmissionKeepsWholePopulationAndReclaimsSourceState(t
 		raw := make([]byte, 48)
 		copy(raw[36:40], selector.identifier[:])
 		return bmpPeerEvidence{tenantID: "tenant-a", routerAgentID: "router-a", routerSerial: "serial-a", sessionHandle: handle, routingSelector: selector, observedAt: observed,
-			routingPeerUp: &agentv1.BmpRoutingPeerUp{ObservationId: fmt.Sprintf("%08x-1111-4111-8111-111111111111", index), Message: raw}}
+			routingPeerUp: &agentv1.BmpRoutingPeerUp{ObservationId: fmt.Sprintf("%08x-%04x-4111-8111-111111111111", index, handle), Message: raw}}
 	}
 	for i := uint32(1); i <= population; i++ {
 		l.routingStreamEvidence(context.Background(), peer(1, i), states)

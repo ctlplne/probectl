@@ -86,6 +86,7 @@ UNIT = {
         "TestInterfaceRolePolicyRefusesAmbiguityAndKeepsCanonicalSets",
     ),
     "internal/agent": (
+        "TestRoutingResetClientRequiresExactInvalidationReceipt",
         "TestRoutingMessageClientKeepsExactStreamAndRefusesMixedReceipts",
         "TestRoutingStageClientPreservesCompleteRequestAndRequiresPrivateReceipt",
         "TestSNMPPrefixEvidenceWireKeepsCompleteSetAndWholeRequestAdmission",
@@ -95,6 +96,8 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestBMPRoutingSelectorsKeepIndependentGenerationsRefusalsAndSourceClosure",
+        "TestBMPRoutingMetadataAdmissionKeepsWholePopulationAndReclaimsSourceState",
         "TestBMPRoutingEvidenceFailureKeepsRawSessionAndRetiresOnlyOwnedGenerations",
         "TestBMPRoutingQueueLossKeepsRawSessionAndInvalidatesBeforePendingData",
         "TestBMPRoutingLossWakesIdleEvidenceWorkerWithoutClosingRawSource",

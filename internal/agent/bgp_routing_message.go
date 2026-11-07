@@ -63,6 +63,9 @@ func (c *EvidenceClient) SubmitRoutingMessage(ctx context.Context, raw *agentv1.
 	case "applied", "replayed":
 		return receipt, nil
 	case "invalidated":
+		if raw.SourceReset {
+			return receipt, nil
+		}
 		return receipt, ErrEvidenceBatchInvalid
 	default:
 		return nil, ErrEvidenceBatchInvalid
