@@ -43,6 +43,7 @@ func TestNativeRoutingASNsKeepStructuredPathsAndMandatoryTextRedaction(t *testin
 		t.Fatal("native routing redaction lost exact ASNs, order or segment kinds")
 	}
 	csv := NativeFlowCSVResult{
+		RecordOffset: 50000, TotalRecords: 50001,
 		Columns:      []string{"record_type", "src_bgp_as_paths", "label"},
 		Records:      [][]string{{"detail", string(value), "password=local-fixture-only"}},
 		RoutingCells: []NativeFlowCSVRoutingCell{{Record: 50000, Column: 1, Paths: input.Rows[0].Group[0].RoutingPaths}},

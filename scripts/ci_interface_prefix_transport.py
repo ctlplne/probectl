@@ -563,6 +563,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "native-routing-csv-paths": (
+        "internal/control/mcp_native_flow_csv.go",
+        "projectNativeCSVRoutingPaths(ctx, &out, remaining)",
+        "func() error { _ = remaining; return nil }()",
+        "TestNativeRoutingCSVPagesKeepCompleteTypedPathsAndExactSourceRecords", "",
+        "native routing CSV lost complete typed paths or absolute cell positions",
+    ),
+    "routing-path-text": (
+        "internal/bgp/routing_path_text.go",
+        "segment.Values = append(segment.Values, uint32(value))",
+        "if len(segment.Values) == 0 { segment.Values = append(segment.Values, uint32(value)) }",
+        "TestRoutingPathTextKeepsCompleteCanonicalSegmentsAndAdmission", "",
+        "complete routing path text lost canonical values",
+    ),
     "native-routing-paths": (
         "internal/control/mcp_native_flow_routing.go",
         "value.RoutingPaths = complete",
