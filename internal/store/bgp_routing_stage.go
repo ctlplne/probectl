@@ -110,10 +110,10 @@ func (store BGPRouting) StagePeerInScope(ctx context.Context, sc tenancy.Scope, 
 }
 
 func (store BGPRouting) persistRoutingStage(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, input BGPRoutingPeerUpInput, refs []BGPRoutingStagedView, profile BGPRoutingBudget) error {
-	// A complete Peer Up replaces the entire source incarnation. A family
-	// omitted from the new OPEN must not survive from the previous generation.
+	// Preserve disjoint emulated families, but retire a whole overlapping
+	// cohort, including families omitted by its complete replacement OPEN.
 	// The caller's savepoint keeps retirement atomic with every new family.
-	if _, err := invalidateRoutingStageSource(ctx, sc, source); err != nil {
+	if err := retireRoutingStageCohorts(ctx, sc, source, input.Definitions); err != nil {
 		return err
 	}
 	for i, definition := range input.Definitions {

@@ -184,6 +184,7 @@ INTEGRATION = {
         "TestRoutingBoundSerializerLookupRefusesChangedRetainedFormat",
         "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
         "TestRoutingStageReplacementWithdrawsOmittedFamiliesWithoutAffectingSibling",
+        "TestRoutingStageKeepsDisjointCohortsAndRetiresWholeOverlap",
         "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
         "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
         "TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation",
@@ -490,6 +491,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-disjoint-cohort": (
+        "internal/store/bgp_routing_stage.go",
+        "if err := retireRoutingStageCohorts(ctx, sc, source, input.Definitions); err != nil {",
+        "if _, err := invalidateRoutingStageSource(ctx, sc, source); err != nil {",
+        "TestRoutingStageKeepsDisjointCohortsAndRetiresWholeOverlap", "",
+        "disjoint IPv6 Peer Up retired IPv4 or another tenant",
+    ),
     "routing-mapped-selector": (
         "internal/store/bgp_routing_stream.go",
         "if err := routingStreamSelectorMatches(source, input.PeerSelector); err != nil {",
@@ -643,8 +651,8 @@ ROUTING_WRITE_CONTROLS = {
     ),
     "routing-stage-families": (
         "internal/store/bgp_routing_stage.go",
-        "if _, err := invalidateRoutingStageSource(ctx, sc, source); err != nil {",
-        "if _, err := (BGPRoutingStageResult{}), error(nil); err != nil {",
+        "if err := retireRoutingStageCohorts(ctx, sc, source, input.Definitions); err != nil {",
+        "if err := error(nil); err != nil {",
         "TestRoutingStageReplacementWithdrawsOmittedFamiliesWithoutAffectingSibling",
         "",
         "replacement routing peer retained an omitted address family",
