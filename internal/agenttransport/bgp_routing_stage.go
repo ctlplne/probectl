@@ -87,7 +87,7 @@ func decodeRoutingPeerMetadata(ctx context.Context, message []byte, source store
 	if err != nil {
 		return nil, err
 	}
-	if peer.Header.View != bgp.BMPLocRIB || peer.Header.Distinguisher != ([8]byte{}) {
+	if peer.Header.View != bgp.BMPLocRIB {
 		return nil, store.ErrBGPRoutingView
 	}
 	metadata := store.BGPRoutingPeer{SourceFormat: profile.Format, Type: peer.Header.PeerType, Flags: peer.Header.Flags, Distinguisher: peer.Header.Distinguisher, Address: peer.Header.PeerAddress, ASN: peer.Header.PeerASN, BGPIdentifier: peer.Header.BGPIdentifier, LocalAddress: peer.LocalAddress, LocalPort: peer.LocalPort, RemotePort: peer.RemotePort, SentOpen: peer.SentOpen, ReceivedOpen: peer.ReceivedOpen}

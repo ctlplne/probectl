@@ -81,6 +81,7 @@ func proveBMPRoutingStagingCompletePeer(t *testing.T, mapped bool) {
 	// An adjacent-view Peer Up does not select or reset the local routing view.
 	adjacent := append([]byte(nil), frame...)
 	adjacent[6] = 0
+	clear(adjacent[8:16])
 	if _, err := conn.Write(adjacent); err != nil {
 		t.Fatal(err)
 	}

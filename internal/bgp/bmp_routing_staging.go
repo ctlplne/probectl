@@ -38,9 +38,6 @@ func (l *BMPListener) queueRoutingPeerUp(id bmpIdentity, session uint64, payload
 	if err != nil {
 		return err
 	}
-	if header.Distinguisher != ([8]byte{}) {
-		return nil
-	} // explicit binding remains required
 	nonce, err := crypto.UUIDv4()
 	if err != nil {
 		return err

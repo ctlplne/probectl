@@ -38,15 +38,13 @@ func (svc *service) applyRoutingMessage(ctx context.Context, id crypto.SPIFFEID,
 	if raw == nil || req.GetRoutingPeerUp() != nil || len(req.GetObservations())+len(req.GetFaults()) != 0 {
 		return nil, status.Error(codes.InvalidArgument, "routing message must be exclusive")
 	}
-	if len(raw.Message) >= 48 {
-		header, err := bgp.ParseBMPRouteViewHeader(raw.Message[6:48])
-		if err == nil && header.Distinguisher != ([8]byte{}) {
-			return nil, status.Error(codes.InvalidArgument, "routing view has no explicit source-context binding")
-		}
+	selector, unbound := routingRefusalPeer(raw.Message)
+	if unbound {
+		return nil, status.Error(codes.InvalidArgument, "routing message has no complete selected source key")
 	}
 	admitted := svc.admitEntityEvidence(ctx, id.TenantID, 1, proto.Size(req))
 
-	input := store.BGPRoutingStreamInput{CollectorAgentID: id.AgentID, SenderSerial: serial, SourceRef: raw.ConfiguredRef,
+	input := store.BGPRoutingStreamInput{PeerSelector: selector, CollectorAgentID: id.AgentID, SenderSerial: serial, SourceRef: raw.ConfiguredRef,
 		OriginSerial: raw.OriginSerial, Generation: raw.Generation, ObservedAt: time.Unix(0, raw.ObservedUnixNanos), Sequence: raw.Sequence,
 		Reset: !admitted || raw.SourceReset && !raw.Heartbeat && len(raw.Message) == 0}
 	profile := store.BGPRoutingBudget{MemoryBytes: 256 << 20, WorkUnits: 256 << 20, StateBytes: 1 << 30, LeaseDuration: time.Minute}

@@ -110,6 +110,7 @@ UNIT = {
         "TestRoutingLifecycleRequiresCompleteMatchingSourceFrame",
         "TestBMPRoutingWholeStreamKeepsFIFOAndResetsOnSourceClosure",
         "TestBMPRoutingStagingUsesAdmittedIdentityAndCompleteOriginalPeerUp",
+        "TestBMPRoutingMappedPeerRetainsWholeOpaqueSelectorThroughRealTLS",
         "TestRoutingPeerUpKeepsCompleteDeclaredFamiliesAndRefusesMalformedSource",
         "TestBMPSourceChangesKeepCompleteDualFamilyPathsWithdrawalsAndAttributes",
         "TestBMPSourceChangesRefuseMissingMandatoryFieldsAndLateMalformedTail",
@@ -122,6 +123,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestRoutingStreamProtocolSelectorOnlyRefusesCanonicalSelection",
         "TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity",
         "TestRoutingStoredSerializerRequiresCurrentBindingAndCompleteFamilies",
         "TestRoutingBindingReaderRefusesUnknownCorruptAndForeignMetadata",
@@ -214,6 +216,7 @@ INTEGRATION = {
         "TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource",
         "TestRoutingMalformedUnboundPeerUpPreservesKnownContexts",
         "TestRoutingFRRProfileRequiresCurrentOperatorBindingThroughRealMTLS",
+        "TestRoutingMappedVRFRequiresCurrentBindingThroughRealMTLS",
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
     ),
     "internal/tenantlife": (
@@ -486,6 +489,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-mapped-selector": (
+        "internal/store/bgp_routing_stream.go",
+        "if err := routingStreamSelectorMatches(source, input.PeerSelector); err != nil {",
+        "if err := error(nil); err != nil {",
+        "TestRoutingMappedVRFRequiresCurrentBindingThroughRealMTLS", "",
+        "unbound routing UPDATE changed canonical global state",
+    ),
     "routing-native-metadata": (
         "internal/control/mcp_bgp_routing_bindings.go",
         "return marshalBGPRoutingMCPConfiguration(raw)", "return raw, nil",

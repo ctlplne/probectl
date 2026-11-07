@@ -63,8 +63,10 @@ route reads.
 Routing state stays private until each family receives its own complete initial
 view and End-of-RIB. A selected RIB describes routing information, not proof of
 forwarding. Configuration alone does not assert a live router or a current
-route. Non-global receiver activation and complete mapped sender/flow surfaces
-remain under qualification.
+route. The receiver resolves non-global keys through the complete current operator
+binding before decoding. Updates must still match their stored generation
+selector, including refusals; an unknown selector cannot reset a sibling.
+Complete mapped physical sender/flow surfaces remain under qualification.
 
 Operations share the configured Explorer execution, response, memory and tenant
 fairness admission. Complete metadata and retained state also use the routing

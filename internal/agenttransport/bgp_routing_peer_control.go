@@ -14,7 +14,8 @@ import (
 
 // This fixed key can only scope invalidation of already authorized state. It
 // does not decode an OPEN, choose a tenant/context, or create a routing view.
-// The current non-global fence applies even when the OPEN body is malformed.
+// An incomplete non-global key cannot scope a refusal. A complete key is
+// resolved only through the current tenant-owned operator manifest.
 func routingRefusalPeer(message []byte) (*store.BGPRoutingPeer, bool) {
 	if len(message) >= 7 && message[6] != 3 {
 		return nil, true
@@ -22,13 +23,15 @@ func routingRefusalPeer(message []byte) (*store.BGPRoutingPeer, bool) {
 	if len(message) < 16 {
 		return nil, false
 	}
-	for _, value := range message[8:16] {
-		if value != 0 {
-			return nil, true
-		}
-	}
 	if len(message) < 48 {
+		for _, value := range message[8:16] {
+			if value != 0 {
+				return nil, true
+			}
+		}
 		return nil, false
 	}
-	return &store.BGPRoutingPeer{Type: 3, BGPIdentifier: netip.AddrFrom4([4]byte(message[36:40]))}, false
+	peer := &store.BGPRoutingPeer{Type: 3, BGPIdentifier: netip.AddrFrom4([4]byte(message[36:40]))}
+	copy(peer.Distinguisher[:], message[8:16])
+	return peer, false
 }

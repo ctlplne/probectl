@@ -18,6 +18,7 @@ import (
 // generation returned by staging. No packet chooses a tenant, router or context.
 // Sequence/ObservedAt belong to one complete source message across all families.
 type BGPRoutingStreamInput struct {
+	PeerSelector                                                        *BGPRoutingPeer // fixed untrusted protocol key; can only refuse a mismatched generation
 	CollectorAgentID, SenderSerial, SourceRef, OriginSerial, Generation string
 	ObservedAt                                                          time.Time
 	Sequence                                                            int64
@@ -37,6 +38,11 @@ func (store BGPRouting) ApplyPeerMessageInScope(ctx context.Context, sc tenancy.
 	}
 	if handled {
 		return BGPRoutingApplyResult{Status: "invalidated"}, nil
+	}
+	// Check the complete protocol key before a rate refusal or malformed-body
+	// decoder can retire a different current binding on this same source.
+	if err := routingStreamSelectorMatches(source, input.PeerSelector); err != nil {
+		return BGPRoutingApplyResult{}, err
 	}
 	if input.Reset {
 		return invalidateRoutingStream(ctx, sc, source, input.Generation, "source-reset")

@@ -47,9 +47,6 @@ func (l *BMPListener) queueRoutingMessage(id bmpIdentity, session uint64, kind b
 	if err != nil {
 		return err
 	}
-	if header.Distinguisher != ([8]byte{}) {
-		return nil
-	} // explicitly unbound; never resets the global generation
 	message := &agentv1.BmpRoutingMessage{Heartbeat: kind == 1, SourceReset: kind == 2}
 	message.Message = make([]byte, bmpCommonHeaderLen+len(payload))
 	message.Message[0], message.Message[5] = bmpVersion, kind
