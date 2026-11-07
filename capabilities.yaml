@@ -121,7 +121,7 @@ capabilities:
     docs: {refs: ["file:docs/bgp.md#BGP & routing monitoring"]}
     config_keys: {refs: ["config:PROBECTL_BGP_ANALYZER_CONFIG", "config:PROBECTL_BMP_LISTEN_ADDR"]}
     telemetry: {refs: ["file:internal/bgp"]}
-    real_stack_proof: {refs: ["test:internal/bgp/realstack_integration_test.go#TestBGPMonitoringRealStack"]}
+    real_stack_proof: {refs: ["test:internal/bgp/realstack_integration_test.go#TestBGPMonitoringRealStack", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors"]}
     migration: {refs: ["file:migrations/0136_entity_registry.sql"]}
 
   - id: F7
