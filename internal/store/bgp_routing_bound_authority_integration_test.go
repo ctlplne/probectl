@@ -24,6 +24,15 @@ import (
 // Real application-role TLS Postgres. Credentials are modeled registry rows;
 // this proves target delegation, not the physical router or its transport.
 func TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant(t *testing.T) {
+	proveRoutingBoundAuthority(t, "")
+}
+
+func TestRoutingBoundSerializerLookupRefusesChangedRetainedFormat(t *testing.T) {
+	proveRoutingBoundAuthority(t, BGPRoutingSourceFRRLocRIBV1)
+}
+
+func proveRoutingBoundAuthority(t *testing.T, format string) {
+	t.Helper()
 	f := newRoleInputsFixture(t)
 	targetContext, targetRouter := uuid.NewString(), uuid.NewString()
 	sources := make([]BGPRoutingSource, len(f.tenants))
@@ -38,7 +47,7 @@ func TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant(t *test
 		base := routingFixtureSource(f, lane)
 		if err := routingFixtureWrite(t, f, base, func(ctx context.Context, sc tenancy.Scope) error {
 			_, err := putRoutingBindings(ctx, sc, base.CollectorAgentID, base.SourceRef, base.ContextID, "",
-				[]routingSourceBinding{{ContextID: targetContext, RouterID: targetRouter, Distinguisher: "0000000000001234", BGPIdentifier: "192.0.2.1", Families: []uint16{1, 2}}}, routingViewBudget())
+				[]routingSourceBinding{{ContextID: targetContext, RouterID: targetRouter, Distinguisher: "0000000000001234", BGPIdentifier: "192.0.2.1", Families: []uint16{1, 2}, SourceFormat: format}}, routingViewBudget())
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -85,6 +94,7 @@ func TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant(t *test
 	for lane, source := range sources {
 		for _, afi := range []uint16{1, 2} {
 			definition := routingLookupDefinition(afi)
+			definition.Peer.SourceFormat = format
 			definition.Peer.Distinguisher = [8]byte{0, 0, 0, 0, 0, 0, 0x12, 0x34}
 			definition.Peer.BGPIdentifier = netip.MustParseAddr("192.0.2.1")
 			ref := routingLookupBegin(t, f, source, definition)
@@ -129,6 +139,21 @@ func TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant(t *test
 		})
 	}
 	rollbackView := errors.New("restore bound routing view")
+	if format != "" {
+		if err := routingFixtureWrite(t, f, sources[0], func(ctx context.Context, sc tenancy.Scope) error {
+			source, ref := sources[0], refs[0]
+			if _, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET peer_identity=jsonb_set(peer_identity,'{SourceFormat}',to_jsonb('future-unknown'::text))
+ WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND generation=$4`, source.TenantID, source.ContextID, ref.ID, ref.Generation); err != nil {
+				return err
+			}
+			if _, err := loadRoutingReadView(ctx, sc, source, ref, 1); !errors.Is(err, ErrBGPRoutingSourceUnavailable) {
+				t.Fatal("routing lookup accepted a changed retained serializer", err)
+			}
+			return rollbackView
+		}); !errors.Is(err, rollbackView) {
+			t.Fatal("stored routing serializer mismatch proof failed", err)
+		}
+	}
 	if err := routingFixtureWrite(t, f, sources[0], func(ctx context.Context, sc tenancy.Scope) error {
 		source, ref := sources[0], refs[0]
 		if _, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET routing_selection=jsonb_set(routing_selection,'{binding_id}',to_jsonb($5::text))

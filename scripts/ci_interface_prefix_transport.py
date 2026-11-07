@@ -172,6 +172,7 @@ INTEGRATION = {
         "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
         "TestRoutingBindingManifestRefusesLegacyAuthorityWithoutChangingOtherTenant",
         "TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant",
+        "TestRoutingBoundSerializerLookupRefusesChangedRetainedFormat",
         "TestBGPRoutingStagingKeepsTenantRetryLeaseAndAtomicCompletePeer",
         "TestRoutingStageReplacementWithdrawsOmittedFamiliesWithoutAffectingSibling",
         "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
@@ -479,6 +480,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-lookup-source-format": (
+        "internal/store/bgp_routing_lookup.go",
+        "COALESCE(peer_identity->>'SourceFormat','')=$13",
+        "$13::text IS NOT NULL",
+        "TestRoutingBoundSerializerLookupRefusesChangedRetainedFormat", "",
+        "routing lookup accepted a changed retained serializer",
+    ),
     "routing-source-profile-current": (
         "internal/store/bgp_routing_decode.go",
         "profile, err := routingDecodeProfile(ctx, sc, base, input.RefusedPeer, budget)",
@@ -805,6 +813,14 @@ ROUTING_WRITE_CONTROLS = {
 }
 
 
+def routing_control_package(root):
+    matches = {package for suite in (UNIT, INTEGRATION)
+               for package, roots in suite.items() if root in roots}
+    if len(matches) != 1:
+        raise RuntimeError("routing control must name one registered test package: " + root)
+    return matches.pop()
+
+
 def bgp_routing_write_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, (file, seam, replacement, root, child, marker) in ROUTING_WRITE_CONTROLS.items():
@@ -815,7 +831,7 @@ def bgp_routing_write_controls():
         mutant.write_text(original.replace(seam, replacement))
         overlay = out / (name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
-        package = str(Path(file).parent)
+        package = routing_control_package(root)
         result = execute(package, (root,), name, integration=True,
                          overlay=overlay, child=child)
         if not report_regression_failed_on_assertion(
