@@ -71,6 +71,13 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	if revoked {
 		return nil, status.Error(codes.PermissionDenied, "evidence identity was revoked")
 	}
+	if req.GetFlowRouting() != nil {
+		response, err := svc.submitFlowRoutingEvidence(ctx, id, req)
+		if err == nil {
+			outcome = "accepted"
+		}
+		return response, err
+	}
 	if req.GetRoutingPeerUp() != nil || req.GetRoutingMessage() != nil {
 		response, accepted, err := svc.submitRoutingEvidence(ctx, id, leaf.SerialNumber.Text(16), req)
 		if accepted {

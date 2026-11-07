@@ -209,6 +209,9 @@ func (c *EvidenceClient) Submit(ctx context.Context, observations []entity.Obser
 	if err != nil {
 		return 0, 0, err
 	}
+	if response.GetFlowRouting() != nil {
+		return 0, 0, ErrEvidenceBatchInvalid
+	}
 	return int(response.GetAccepted()), int(response.GetUnresolved()), nil
 }
 
@@ -268,7 +271,7 @@ func (c *EvidenceClient) SubmitFaults(ctx context.Context, raw []entity.FaultObs
 	if err != nil {
 		return 0, err
 	}
-	if int(response.GetFaultsPersisted()) != len(raw) {
+	if response.GetFlowRouting() != nil || int(response.GetFaultsPersisted()) != len(raw) {
 		return 0, ErrEvidenceBatchInvalid
 	}
 	return len(raw), nil

@@ -25,6 +25,7 @@ func TestRoutingMessageClientKeepsExactStreamAndRefusesMixedReceipts(t *testing.
 	}
 	for _, response := range []*agentv1.SubmitEntityEvidenceResponse{
 		nil, {}, {RoutingMessage: &agentv1.BmpRoutingMessageReceipt{Status: "invalidated", Generation: raw.Generation, Sequence: raw.Sequence}},
+		{FlowRouting: &agentv1.FlowRoutingCaptureBatch{}, RoutingMessage: good},
 		{Accepted: 1, RoutingMessage: good}, {Routing: &agentv1.BmpRoutingStagingReceipt{}, RoutingMessage: good},
 		{RoutingMessage: &agentv1.BmpRoutingMessageReceipt{Status: "applied", Generation: raw.Generation, Sequence: 8}},
 		{RoutingMessage: &agentv1.BmpRoutingMessageReceipt{Status: "applied", Generation: "22222222-2222-4222-8222-222222222222", Sequence: raw.Sequence}},

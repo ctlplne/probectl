@@ -93,12 +93,15 @@ UNIT = {
         "TestInterfaceRolePolicyRefusesAmbiguityAndKeepsCanonicalSets",
     ),
     "internal/agent": (
+        "TestFlowRoutingClientRequiresCompleteOrderedCertifiedReceipts",
         "TestRoutingResetClientRequiresExactInvalidationReceipt",
         "TestRoutingMessageClientKeepsExactStreamAndRefusesMixedReceipts",
         "TestRoutingStageClientPreservesCompleteRequestAndRequiresPrivateReceipt",
         "TestSNMPPrefixEvidenceWireKeepsCompleteSetAndWholeRequestAdmission",
     ),
     "internal/agenttransport": (
+        "TestFlowRoutingWitnessReceiverKeepsCompleteBatchAndCertifiedScope",
+        "TestFlowRoutingWitnessReceiverRefusesMixedMalformedAndUnknownAuthority",
         "TestRoutingProjectionKeepsWholePopulationAndAdmitsDescriptorExpansion",
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
@@ -239,6 +242,7 @@ INTEGRATION = {
         "TestBGPRoutingMessageClockRejectsLegacyWritersAndUnusableHeartbeats",
     ),
     "internal/agenttransport": (
+        "TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender",
         "TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState",
         "TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource",
         "TestRoutingMalformedUnboundPeerUpPreservesKnownContexts",
@@ -517,6 +521,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-witness-issued": (
+        "internal/agenttransport/entity_evidence.go",
+        "if !known {",
+        "if false && !known {",
+        "TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender", "",
+        "unissued evidence serial reached a routing witness",
+    ),
+    "flow-witness-client": (
+        "internal/agent/flow_routing_capture.go",
+        "!bytes.Equal(capture.Key, expected[i][:])",
+        "(!bytes.Equal(capture.Key, expected[i][:]) && false)",
+        "TestFlowRoutingClientRequiresCompleteOrderedCertifiedReceipts", "",
+        "flow witness client accepted mixed foreign or partial receipt",
+    ),
+    "flow-witness-receiver": (
+        "internal/agenttransport/flow_routing_capture.go",
+        "len(raw.RawDigest) != 32 || len(raw.ProtoReflect().GetUnknown()) != 0",
+        "len(raw.RawDigest) != 32 || false && len(raw.ProtoReflect().GetUnknown()) != 0",
+        "TestFlowRoutingWitnessReceiverRefusesMixedMalformedAndUnknownAuthority", "",
+        "malformed or authority-bearing witness exposed a partial batch",
+    ),
     "routing-capture-bus": (
         "internal/store/bgp_routing_capture_service.go",
         "key, err := service.captureKey(ctx, claimedSender, rawDigest, input, budget)",

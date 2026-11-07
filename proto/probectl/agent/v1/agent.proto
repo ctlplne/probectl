@@ -327,11 +327,40 @@ message BmpRoutingViewReference {
   uint32 safi = 4;
 }
 
+// Original flow dimensions witnessed by the restricted evidence mTLS peer.
+// The digest covers the entire original bus record; this separate tuple binds
+// routing inputs to that digest. No tenant, sender, context or router is accepted.
+message FlowRoutingWitness {
+  bytes raw_digest = 1;
+  string exporter_address = 2;
+  uint32 observation_domain = 3;
+  string flow_protocol = 4;
+  string source_address = 5;
+  string destination_address = 6;
+}
+
+message FlowRoutingWitnessBatch {
+  string contract_version = 1; // flow_capture_v1
+  repeated FlowRoutingWitness observations = 2;
+}
+
+// Identifies a durable first observation, including unavailable/erased results.
+// Neither the key nor its processing clock grants access to routing evidence.
+message FlowRoutingCapture {
+  bytes key = 1;
+  int64 captured_unix_nanos = 2;
+}
+
+message FlowRoutingCaptureBatch {
+  repeated FlowRoutingCapture captures = 1; // same complete order as the request
+}
+
 message SubmitEntityEvidenceRequest {
   repeated EntityEvidenceObservation observations = 1;
   repeated EntityFaultObservation faults = 2; // 1–64 combined; message size is also bounded
   BmpRoutingPeerUp routing_peer_up = 3; // exclusive; complete staging only
   BmpRoutingMessage routing_message = 4; // exclusive; complete ordered source message
+  FlowRoutingWitnessBatch flow_routing = 5; // exclusive; certified sender only
 }
 
 message SubmitEntityEvidenceResponse {
@@ -340,4 +369,5 @@ message SubmitEntityEvidenceResponse {
   uint32 faults_persisted = 3; // persisted in the tenant incident stream, including unresolved identity
   BmpRoutingStagingReceipt routing = 4;
   BmpRoutingMessageReceipt routing_message = 5;
+  FlowRoutingCaptureBatch flow_routing = 6;
 }

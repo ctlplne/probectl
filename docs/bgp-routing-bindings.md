@@ -101,3 +101,23 @@ probectl routing-bindings replace CONTEXT --body-file bindings.json --json
 
 The body file contains the same complete replacement object as REST. The CLI
 does not infer tenant identity or a source format from packet metadata.
+
+## Original-flow witnesses (preview transport)
+
+The restricted agent evidence RPC accepts a `flow_capture_v1` batch containing
+only the original record digest and exporter/protocol/domain/source/destination
+dimensions. Its mTLS certificate supplies the tenant and sender. The sender
+must own the unique current exporter before the service reads its router's
+selected RIB. The digest covers the complete original protobuf record before
+enrichment or exporter-clock clamping, including retained future fields.
+
+The complete ordered response contains capture keys and first processing
+clocks. It contains no routes or read permissions. First receipts are durable:
+retries reuse the original observation; erased payloads and an unavailable
+first observation cannot be filled by later routing data. The raw bus consumer
+can resolve an independently authenticated witness or seal unavailable. A
+claimed bus agent ID cannot create positive canonical routing evidence.
+
+This transport foundation has not yet activated flow ingestion attachment or
+historical query surfaces. Current reader authorization, actual flow-sender
+proofs and complete served-surface acceptance remain required for that release.
