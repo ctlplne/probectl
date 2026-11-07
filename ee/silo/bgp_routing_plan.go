@@ -19,6 +19,10 @@ func bgpRoutingStoragePlan(schema string, tables []string) []string {
 	for _, key := range []struct{ child, name, columns, parent, parentColumns string }{
 		{"bgp_flow_capture_objects", "fx5_capture_object_tenant_fk", "tenant_id", "public.tenants", "id"},
 		{"bgp_flow_capture_receipts", "fx5_capture_receipt_tenant_fk", "tenant_id", "public.tenants", "id"},
+		{"bgp_flow_capture_intents", "fx5_capture_intent_tenant_fk", "tenant_id", "public.tenants", "id"},
+		{"bgp_flow_capture_intent_payloads", "fx5_capture_intent_payload_intent_fk", "tenant_id,flow_key", "bgp_flow_capture_intents", "tenant_id,flow_key"},
+		{"bgp_flow_capture_intent_payloads", "fx5_capture_intent_payload_facts_fk", "tenant_id,facts_digest,facts_kind", "bgp_flow_capture_objects", "tenant_id,digest,kind"},
+		{"bgp_flow_capture_intent_payloads", "fx5_capture_intent_payload_clocks_fk", "tenant_id,clocks_digest,clocks_kind", "bgp_flow_capture_objects", "tenant_id,digest,kind"},
 		{"bgp_flow_capture_payloads", "fx5_capture_payload_receipt_fk", "tenant_id,flow_key", "bgp_flow_capture_receipts", "tenant_id,flow_key"},
 		{"bgp_flow_capture_payloads", "fx5_capture_payload_facts_fk", "tenant_id,facts_digest,facts_kind", "bgp_flow_capture_objects", "tenant_id,digest,kind"},
 		{"bgp_flow_capture_payloads", "fx5_capture_payload_clocks_fk", "tenant_id,clocks_digest,clocks_kind", "bgp_flow_capture_objects", "tenant_id,digest,kind"},

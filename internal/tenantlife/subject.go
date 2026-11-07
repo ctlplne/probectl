@@ -345,9 +345,11 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// Structural scope UUIDs and network inventory are not subject ownership. Content
 	// deletion cascades payload links; hash-only first receipts remain tombstones
 	// and prevent a replay from attaching the erased content again.
-	"bgp_flow_capture_objects":  {plane: "postgres:bgp_flow_capture_objects", disposition: subjectTableDeleteMatches, contains: []string{"searchable_body"}},
-	"bgp_flow_capture_receipts": {plane: "postgres:bgp_flow_capture_receipts", disposition: subjectTableNoSubject},
-	"bgp_flow_capture_payloads": {plane: "postgres:bgp_flow_capture_payloads", disposition: subjectTableNoSubject},
+	"bgp_flow_capture_objects":         {plane: "postgres:bgp_flow_capture_objects", disposition: subjectTableDeleteMatches, contains: []string{"searchable_body"}},
+	"bgp_flow_capture_receipts":        {plane: "postgres:bgp_flow_capture_receipts", disposition: subjectTableNoSubject},
+	"bgp_flow_capture_payloads":        {plane: "postgres:bgp_flow_capture_payloads", disposition: subjectTableNoSubject},
+	"bgp_flow_capture_intents":         {plane: "postgres:bgp_flow_capture_intents", disposition: subjectTableNoSubject},
+	"bgp_flow_capture_intent_payloads": {plane: "postgres:bgp_flow_capture_intent_payloads", disposition: subjectTableNoSubject},
 	"entity_fault_receipts": {
 		plane: "postgres:entity_fault_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id"}, contains: []string{"source_ref"},

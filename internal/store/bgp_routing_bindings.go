@@ -228,6 +228,8 @@ func routingStateBytesInScope(ctx context.Context, sc tenancy.Scope) (int64, err
  + COALESCE((SELECT sum(CASE WHEN routing_epoch IS NULL THEN 0 ELSE octet_length(routing_bindings::text)+128 END) FROM entity_source_contexts WHERE tenant_id=$1),0)::bigint
  + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_objects WHERE tenant_id=$1),0)::bigint
  + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_receipts WHERE tenant_id=$1),0)::bigint
- + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_payloads WHERE tenant_id=$1),0)::bigint`, sc.Tenant.String()).Scan(&used)
+ + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_payloads WHERE tenant_id=$1),0)::bigint
+ + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_intents WHERE tenant_id=$1),0)::bigint
+ + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_intent_payloads WHERE tenant_id=$1),0)::bigint`, sc.Tenant.String()).Scan(&used)
 	return used, err
 }

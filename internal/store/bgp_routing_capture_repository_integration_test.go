@@ -88,6 +88,31 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 			t.Fatal("stored first capture lost complete paths, clocks or tenant identity", lane, err)
 		}
 	}
+	intentKey := routingCaptureHash([]byte("unattested provisional raw flow"))
+	for lane, tenant := range f.tenants {
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO bgp_flow_capture_intents(tenant_id,flow_key,source_generation,captured_at_unix_nanos) VALUES($1,$2,$3,$4)`, tenant, intentKey[:], generations[lane], inputs[lane].CapturedAt.UnixNano()); err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO bgp_flow_capture_intent_payloads(tenant_id,flow_key,facts_digest,clocks_digest) VALUES($1,$2,$3,$4)`, tenant, intentKey[:], objects[lane].facts.digest[:], objects[lane].clocks.digest[:]); err != nil {
+				return err
+			}
+			var own, foreign int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_flow_capture_intents`).Scan(&own); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_flow_capture_intents WHERE tenant_id=$1`, f.tenants[1-lane]).Scan(&foreign); err != nil {
+				return err
+			}
+			if own != 1 || foreign != 0 {
+				t.Fatal("provisional routing capture crossed storage tenant isolation", own, foreign)
+			}
+			return nil
+		})
+		if receipt, exists, err := read(lane, intentKey); err != nil || exists || receipt.objects != nil {
+			t.Fatal("unattested private candidate became canonical routing evidence", err)
+		}
+	}
 	// A later current view cannot replace the successfully committed capture.
 	later := inputs[0]
 	later.CapturedAt = later.CapturedAt.Add(time.Second)
@@ -118,6 +143,21 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 	})
 	if receipt, exists, err := read(0, key); err != nil || !exists || receipt.outcome != "retired" || receipt.objects != nil {
 		t.Fatal("erased capture retained payload or lost its first-capture tombstone", err)
+	}
+	for lane, tenant := range f.tenants {
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var intents, payloads int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_flow_capture_intents WHERE tenant_id=$1 AND flow_key=$2`, tenant, intentKey[:]).Scan(&intents); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_flow_capture_intent_payloads WHERE tenant_id=$1 AND flow_key=$2`, tenant, intentKey[:]).Scan(&payloads); err != nil {
+				return err
+			}
+			if intents != 1 || payloads != lane {
+				t.Fatal("provisional payload erasure lost its tombstone or changed sibling", intents, payloads, lane)
+			}
+			return nil
+		})
 	}
 	if _, err := write(0, key, &objects[0], budget); err != nil {
 		t.Fatal(err)
@@ -168,6 +208,8 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 		`UPDATE bgp_flow_capture_receipts SET outcome='unavailable' WHERE tenant_id=$1`,
 		`UPDATE bgp_flow_capture_objects SET payload=payload WHERE tenant_id=$1`,
 		`UPDATE bgp_flow_capture_payloads SET facts_digest=facts_digest WHERE tenant_id=$1`,
+		`UPDATE bgp_flow_capture_intents SET source_generation=source_generation WHERE tenant_id=$1`,
+		`UPDATE bgp_flow_capture_intent_payloads SET facts_digest=facts_digest WHERE tenant_id=$1`,
 	} {
 		err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 			_, err := sc.Q.Exec(ctx, statement, f.tenants[0])
@@ -192,6 +234,16 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 	}
 	if _, exists, err := read(0, foreignKey); err != nil || exists {
 		t.Fatal("foreign payload refusal retained a partial receipt", err)
+	}
+	err = tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO bgp_flow_capture_intents(tenant_id,flow_key,source_generation,captured_at_unix_nanos) VALUES($1,$2,$3,$4)`, f.tenants[0], foreignKey[:], generations[0], inputs[0].CapturedAt.UnixNano()); err != nil {
+			return err
+		}
+		_, err := sc.Q.Exec(ctx, `INSERT INTO bgp_flow_capture_intent_payloads(tenant_id,flow_key,facts_digest,clocks_digest) VALUES($1,$2,$3,$4)`, f.tenants[0], foreignKey[:], objects[1].facts.digest[:], objects[1].clocks.digest[:])
+		return err
+	})
+	if !errors.As(err, &postgres) || postgres.Code != "23503" {
+		t.Fatal("provisional capture borrowed another tenant's content", err)
 	}
 	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
 		if err := audit.LockTenantStream(ctx, sc.Q, f.tenants[0]); err != nil {

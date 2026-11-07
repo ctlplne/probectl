@@ -62,10 +62,10 @@ func TestBGPRoutingBindingPlanPreservesStoredCollectorContextOnCatchUp(t *testin
 
 func TestRoutingCapturePlanKeepsTenantReferencesAndImmutableRole(t *testing.T) {
 	const schema = "t_11111111111141118111111111111111"
-	tables := []string{"bgp_flow_capture_objects", "bgp_flow_capture_receipts", "bgp_flow_capture_payloads"}
+	tables := []string{"bgp_flow_capture_objects", "bgp_flow_capture_receipts", "bgp_flow_capture_payloads", "bgp_flow_capture_intents", "bgp_flow_capture_intent_payloads"}
 	for _, statements := range [][]string{ProvisionPlan(schema, tables), CatchUpPlan(schema, Catalog{TenantTables: tables, SchemaTables: tables})} {
 		plan := strings.Join(statements, "\n")
-		for _, parent := range []string{"bgp_flow_capture_receipts", "bgp_flow_capture_objects"} {
+		for _, parent := range []string{"bgp_flow_capture_receipts", "bgp_flow_capture_objects", "bgp_flow_capture_intents"} {
 			if !strings.Contains(plan, `REFERENCES "`+schema+`"."`+parent+`" (tenant_id,`) {
 				t.Fatal("routing capture reference escaped its physical tenant schema", parent)
 			}
