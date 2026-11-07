@@ -548,7 +548,7 @@ ROUTING_WRITE_CONTROLS = {
     "routing-intent-clock": (
         "internal/store/bgp_routing_capture_intents.go",
         "return intent.reference(), err",
-        "return BGPRoutingCaptureReference{Key:key,CapturedAt:objects.capturedAt}, err",
+        "_ = intent; return BGPRoutingCaptureReference{Key:key,CapturedAt:objects.capturedAt}, err",
         "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone", "",
         "provisional retry replaced its first processing clock",
     ),
