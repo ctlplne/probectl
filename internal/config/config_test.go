@@ -131,8 +131,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.FairnessQueryConcurrency != 4 {
 		t.Errorf("FairnessQueryConcurrency = %d, want 4", cfg.FairnessQueryConcurrency)
 	}
-	if cfg.FairnessQueriesPerMin != 120 {
-		t.Errorf("FairnessQueriesPerMin = %v, want 120", cfg.FairnessQueriesPerMin)
+	if cfg.FairnessQueriesPerMin != 1200 {
+		t.Errorf("FairnessQueriesPerMin = %v, want 1200", cfg.FairnessQueriesPerMin)
 	}
 	if cfg.SessionIdleTimeout != 30*time.Minute {
 		t.Errorf("SessionIdleTimeout = %v, want 30m", cfg.SessionIdleTimeout)

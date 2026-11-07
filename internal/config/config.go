@@ -1451,7 +1451,7 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.FairnessOTLPSeriesPerSec = l.float("PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC", 5000)
 	cfg.FairnessBurstSeconds = l.float("PROBECTL_FAIRNESS_BURST_SECONDS", 10)
 	cfg.FairnessQueryConcurrency = l.intRange("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", 4, 0, 100000)
-	cfg.FairnessQueriesPerMin = l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 120)
+	cfg.FairnessQueriesPerMin = l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 1200)
 	cfg.FairnessTenantIdleTTL = l.dur("PROBECTL_FAIRNESS_TENANT_IDLE_TTL", 24*time.Hour)
 	cfg.SIEMEnabled = l.boolean("PROBECTL_SIEM_ENABLED", false)
 	cfg.SIEMPreset = l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle")

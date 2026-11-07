@@ -139,7 +139,7 @@ enforced.
 | `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | per-tenant device (SNMP/gNMI) sample rate |
 | `PROBECTL_FAIRNESS_BURST_SECONDS` | `10` | bucket capacity multiplier (capacity = rate × this) |
 | `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `4` | per-tenant in-flight query cap |
-| `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `120` | per-tenant query budget |
+| `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `1200` | per-tenant query-operation budget, including current source metadata reads; supports complete Explorer registry/filter/matrix workflows |
 
 Three rules govern what a value means:
 
