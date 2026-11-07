@@ -23,7 +23,9 @@ func TestRoutingFlowCaptureCannotChooseOwnerFromPayloadOrPartialEvidence(t *test
 	if got, err := routingFlowOwner(tenant, input.Exporter, []InterfaceRoleExporterOwner{owner}); err != nil || got != owner {
 		t.Fatal("unique current configured exporter was not selected", err)
 	}
-	for _, owners := range [][]InterfaceRoleExporterOwner{nil, {owner, owner}, {{Scope: entity.Scope{TenantID: "foreign"}, Exporter: owner.Exporter}}} {
+	foreign := owner
+	foreign.TenantID = "foreign"
+	for _, owners := range [][]InterfaceRoleExporterOwner{nil, {owner, owner}, {foreign}} {
 		if got, err := routingFlowOwner(tenant, input.Exporter, owners); err == nil || got.RouterID != "" {
 			t.Fatal("ambiguous or foreign exporter selected canonical routing ownership")
 		}

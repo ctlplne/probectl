@@ -135,6 +135,7 @@ UNIT = {
         "TestInterfaceRoleCASUsesExactIdentityAndDecimalRevision",
         "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
         "TestBGPRoutingLookupRequiresTenantExactViewAndWholeAdmissionBeforeStorage",
+        "TestRoutingFlowCaptureCannotChooseOwnerFromPayloadOrPartialEvidence",
         "TestBGPRoutingRouterLookupRequiresExactTenantContextBeforeStorage",
         "TestBGPRoutingViewMetadataKeepsStablePeerSlotsAndCompleteValues",
         "TestBGPRoutingViewMetadataRefusesIncompleteShapeAndWholeAdmission",
@@ -203,6 +204,7 @@ INTEGRATION = {
         "TestInterfaceRoleConfigurationPostgresKeepsTenantCASAndOverrideIncarnations",
         "TestBGPRoutingSchemaKeepsTenantFamilyPathIdentityAndPublicationShape",
         "TestBGPRoutingLookupKeepsLongestPrefixEveryPathTenantFamilyAndSelectedView",
+        "TestRoutingFlowCaptureRequiresUniqueCurrentExporterAndKeepsTenantRoutes",
         "TestBGPRoutingRouterLookupUsesOwnContextAndRefusesConflictingCompleteViews",
         "TestBGPRoutingLookupRefusesChangedAuthorityClockCorruptionAndMixedSnapshots",
         "TestBGPRoutingAuthorityKeepsCurrentTenantOriginPurposeAndAssignmentEpoch",
@@ -494,6 +496,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-flow-protocol": (
+        "internal/store/bgp_routing_flow.go",
+        " && binding.Protocol == input.Protocol && binding.Domain == input.Domain",
+        "",
+        "TestRoutingFlowCaptureRequiresUniqueCurrentExporterAndKeepsTenantRoutes", "",
+        "unattested flow protocol/domain received a router path",
+    ),
+    "routing-flow-owner": (
+        "internal/store/bgp_routing_flow.go",
+        'if matches != 1 || selected.RouterID == "" {',
+        'if matches == 0 || selected.RouterID == "" {',
+        "TestRoutingFlowCaptureCannotChooseOwnerFromPayloadOrPartialEvidence", "",
+        "ambiguous or foreign exporter selected canonical routing ownership",
+    ),
     "routing-disjoint-cohort": (
         "internal/store/bgp_routing_stage.go",
         "if err := retireRoutingStageCohorts(ctx, sc, source, input.Definitions); err != nil {",
