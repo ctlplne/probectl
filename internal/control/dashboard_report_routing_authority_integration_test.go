@@ -19,6 +19,7 @@ import (
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -113,6 +114,10 @@ func TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthor
 		if err := f.server.revalidateReportFlowCapture(auth.WithPrincipal(ctx, limited), limited, capture); err == nil {
 			t.Fatal("report routing reader widened its original credential ceiling")
 		}
+		withoutEvents := narrowPrincipalToScopes(auth.ClonePrincipal(actors[tenant]), []string{permAIQuery, permFlowRead, "entities.read"})
+		if err := f.server.revalidateReportFlowCapture(auth.WithPrincipal(ctx, withoutEvents), withoutEvents, capture); err == nil {
+			t.Fatal("routing report reader accepted a credential without BGP event access")
+		}
 		captures[tenant] = capture
 	}
 	red, blue := f.tenants[0], f.tenants[1]
@@ -127,6 +132,21 @@ func TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthor
 	ctx = auth.WithPrincipal(tenancy.WithTenant(t.Context(), tenancy.ID(blue)), actors[blue])
 	if err := f.server.revalidateReportFlowCapture(ctx, actors[blue], captures[blue]); err != nil {
 		t.Fatal("routing report current-user revocation crossed tenant", err)
+	}
+	f.in(red, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[red], "entities.read"); err != nil {
+			return err
+		}
+		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key='events.read'`, red, f.roles[red])
+		return err
+	})
+	ctx = auth.WithPrincipal(tenancy.WithTenant(t.Context(), tenancy.ID(red)), actors[red])
+	if err := f.server.revalidateReportFlowCapture(ctx, actors[red], captures[red]); err == nil {
+		t.Fatal("routing report retained revoked BGP event authority")
+	}
+	ctx = auth.WithPrincipal(tenancy.WithTenant(t.Context(), tenancy.ID(blue)), actors[blue])
+	if err := f.server.revalidateReportFlowCapture(ctx, actors[blue], captures[blue]); err != nil {
+		t.Fatal("BGP event permission revocation crossed report tenant", err)
 	}
 	t.Log("real-integration: one-connection Postgres current user/credential/view access, original empty routing receipt, report publication lock and sibling isolation; positive router/flow facts remain separate")
 }
