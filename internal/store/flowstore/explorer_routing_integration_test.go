@@ -91,7 +91,11 @@ func proveRoutingQueryJoinsInRealStore(t *testing.T, store *ClickHouse, tenants 
 			known, unknown := false, false
 			for _, group := range got {
 				if chToString(group["captured_provenance"]) == "router_selected" {
-					known = chToString(group["captured_paths"]) == string(encoded) && chToString(group["captured_origin"]) == origin && chToString(group["population"]) == strconv.Itoa(count-3)
+					// UInt32 is an unquoted JSON number; chclient.Decode keeps
+					// its exact decimal text with UseNumber. String-only
+					// coercion loses every valid ASN before the assertion.
+					capturedOrigin, numeric := group["captured_origin"].(json.Number)
+					known = chToString(group["captured_paths"]) == string(encoded) && numeric && capturedOrigin.String() == origin && chToString(group["population"]) == strconv.Itoa(count-3)
 				} else {
 					unknown = chToString(group["captured_provenance"]) == "unavailable" && chToString(group["captured_paths"]) == "" && group["captured_origin"] == nil && chToString(group["population"]) == "3"
 				}
