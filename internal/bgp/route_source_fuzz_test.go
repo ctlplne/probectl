@@ -71,6 +71,9 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 			}
 		}
 	}
+	if mask, err := parseRoutingMessageFamilyMask(ctx, raw, UpdateFrameBudget{memory, work}); err != nil && mask != 0 {
+		t.Fatal("invalid source frame exposed partial cohort dispatch")
+	}
 	if out, err := parseBGPUpdateFrame(ctx, raw, UpdateFrameBudget{memory, work}); err != nil && !reflect.DeepEqual(out, UpdateFrame{}) {
 		t.Fatal("invalid UPDATE exposed a partial route change")
 	}

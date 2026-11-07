@@ -234,6 +234,9 @@
     },
     "bgp.DecodeRoutingLifecycle": {
       "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseRoutingMessageFamilyMask": {
+      "target": "FuzzBMPRouteMonitoring"
     }
   }
 }

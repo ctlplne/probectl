@@ -113,6 +113,7 @@ UNIT = {
         "TestBMPRoutingMappedPeerRetainsWholeOpaqueSelectorThroughRealTLS",
         "TestRoutingPeerUpKeepsCompleteDeclaredFamiliesAndRefusesMalformedSource",
         "TestLocRIBPeerUpKeepsExplicitFamilyCohortsAndAdjacentDefaults",
+        "TestRoutingMessageDispatchKeepsCompleteFamiliesAndNoInventedCompletion",
         "TestBMPSourceChangesKeepCompleteDualFamilyPathsWithdrawalsAndAttributes",
         "TestBMPSourceChangesRefuseMissingMandatoryFieldsAndLateMalformedTail",
         "TestBMPSourceChangesKeepExclusiveCompletionAndWholeAdmission",
@@ -1521,6 +1522,10 @@ def ix_prefix_controls():
 def bmp_routing_transport_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, file, seam, replacement, root, child, marker in (
+        ("bmp_message_family_bit_omitted", "internal/bgp/bmp_routing_family.go",
+         "return 1 << (family - 1), nil", "return 1 << (family - family), nil",
+         "TestRoutingMessageDispatchKeepsCompleteFamiliesAndNoInventedCompletion", "",
+         "complete source message lost family dispatch or invented completion"),
         ("loc_rib_explicit_family_cohort_omitted", "internal/bgp/peer_up.go",
          'if peer.Header.View == BMPLocRIB && peer.SourceProfile.Format == "" && len(capabilities.mpFamilies) != 0 {',
          'if false && peer.Header.View == BMPLocRIB && peer.SourceProfile.Format == "" && len(capabilities.mpFamilies) != 0 {',
