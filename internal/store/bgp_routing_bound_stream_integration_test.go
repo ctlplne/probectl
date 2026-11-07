@@ -125,7 +125,7 @@ func TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation(t *te
 			inputs[lane] = append(inputs[lane], input)
 			f.in(f.tenants[lane], func(ctx context.Context, sc tenancy.Scope) error {
 				var published int
-				if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE generation=$1 AND state='current'`).Scan(&published); err != nil {
+				if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE generation=$1 AND state='current'`, input.Generation).Scan(&published); err != nil {
 					return err
 				}
 				if published != 2 {
