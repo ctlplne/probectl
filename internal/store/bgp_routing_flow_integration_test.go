@@ -77,7 +77,12 @@ func TestRoutingFlowCaptureRequiresUniqueCurrentExporterAndKeepsTenantRoutes(t *
 	check(0)
 	check(1)
 	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx, `UPDATE entity_evidence SET expires_at=transaction_timestamp()-interval '1 second' WHERE tenant_id=$1 AND alias_kind='bmp_peer_id'`, f.tenants[0])
+		var observed, expired time.Time
+		err := sc.Q.QueryRow(ctx, `UPDATE entity_evidence SET expires_at=clock_timestamp()-interval '1 microsecond'
+ WHERE tenant_id=$1 AND alias_kind='bmp_peer_id' RETURNING observed_at,expires_at`, f.tenants[0]).Scan(&observed, &expired)
+		if err == nil && (!expired.After(observed) || !expired.Before(time.Now())) {
+			t.Fatal("neighbor expiry fixture changed the observation or retained a live lease", observed, expired)
+		}
 		return err
 	})
 	if got, err := read(0, input, routingViewBudget()); err != nil || got.Source.State != "router_selected" || len(got.Source.NextHops) != 1 || got.Source.NextHops[0].ASN != nil || got.Source.Fields[0].ASPathText == "" {
