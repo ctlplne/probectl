@@ -136,8 +136,14 @@ func run() error {
 }
 
 type observedFlowEvidence struct {
-	client  *agent.EvidenceClient
+	client  flowEvidenceClient
 	metrics *agentmetrics.Runtime
+}
+
+type flowEvidenceClient interface {
+	flow.EvidenceEmitter
+	flow.FaultEmitter
+	flow.RoutingWitnessEmitter
 }
 
 func (o observedFlowEvidence) Submit(ctx context.Context, observations []entity.Observation) (int, int, error) {
