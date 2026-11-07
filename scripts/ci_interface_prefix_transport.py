@@ -157,6 +157,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestRetainedRoutingQueryFieldsKeepWholePathsAndExplicitAmbiguity",
         "TestRoutingCaptureServiceRequiresTenantBeforeAvailability",
         "TestRoutingCaptureRepositoryRequiresTenantBeforeStorage",
         "TestRoutingCaptureObjectsKeepEveryFieldAndShareContentAcrossClocks",
