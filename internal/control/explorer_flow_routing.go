@@ -106,6 +106,9 @@ func (s *Server) loadFlowRoutingSnapshotFrom(ctx context.Context, actor *auth.Pr
 		if err != nil {
 			return err
 		}
+		if reads == nil {
+			reads = []flowstore.RoutingCaptureRead{}
+		}
 		digest, err = hashFlowRoleInputs(ctx, nil, reads, limit)
 		if err != nil {
 			return err

@@ -78,6 +78,8 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestFlowRoutingValidityKeepsCompleteOriginalSelectorsAndAdmission",
+        "TestRoutingSnapshotRefusesMissingForeignAndExtraneousAuthority",
         "TestFlowRoutingSnapshotRequiresCurrentTenantUserBeforeReferenceReads",
         "TestBGPRoutingMCPMetadataKeepsStoredIDsAndFullUntrustedRedaction",
         "TestNativeFlowRoleProjectionHonorsCancellationAndExistingTenantScope",
@@ -104,6 +106,9 @@ UNIT = {
         "TestOpenAPISecurityModelMatchesRoutes",
         "TestOpenAPISecurityGateCatchesPlantedDefects",
         "TestAuditPolicyMatrixCoversRequiredRoutes",
+    ),
+    "internal/store/flowsnapshot": (
+        "TestSnapshotsKeepWholeSourceValidityUnderConfiguredAdmission",
     ),
     "internal/entity": (
         "TestFlowCaptureKeyBindsTenantCertifiedSenderTupleAndEveryDigestByte",
@@ -204,6 +209,9 @@ FLOW_INTEGRATION = {
     ),
 }
 INTEGRATION = {
+    "internal/store/flowsnapshot": (
+        "TestSnapshotsPostgresWholeSourceValidityKeepsChargeTenantAndCurrentRead",
+    ),
     "internal/bgp": ("TestBMPLocRIBRealRouterKeepsCompletePeerAndFamilyMarkers",),
     "cmd/probectl-control": ("TestMCPFlowSourcesRetainConfiguredLocalIXGeneration",),
     "ee/silo": (
@@ -544,6 +552,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-routing-validity-size": (
+        "internal/store/flowsnapshot/stage.go",
+        "int64(len(input.Validity)) > s.config.privateHeaderBytes()",
+        "len(input.Validity) > 8192",
+        "TestSnapshotsPostgresWholeSourceValidityKeepsChargeTenantAndCurrentRead", "",
+        "actual source validity still refuses the complete admitted receipt",
+    ),
     "routing-capture-read-support": (
         "internal/store/bgp_routing_capture_reader.go",
         "if err := redactUnreadableCapturedNextHops(ctx, sc, &lookup, budget); err != nil {",

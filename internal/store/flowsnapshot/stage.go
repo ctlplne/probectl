@@ -55,7 +55,7 @@ func privateAAD(m manifest) []byte {
 }
 
 func (s *Service) stage(ctx context.Context, scope Scope, generation int64, required []string, pageSize int, input Input) (*stagedSnapshot, error) {
-	if len(input.Rows) > MaxRows || !input.ValidUntil.After(s.now()) || len(input.Validity) > 8192 || !json.Valid(input.Validity) {
+	if len(input.Rows) > MaxRows || !input.ValidUntil.After(s.now()) || int64(len(input.Validity)) > s.config.privateHeaderBytes() || !json.Valid(input.Validity) {
 		return nil, ErrBudget
 	}
 	// Bound before encoding or copying. Individual JSON values must be objects;

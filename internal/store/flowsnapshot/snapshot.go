@@ -83,6 +83,10 @@ type Config struct {
 // composition roots without requiring them to duplicate storage defaults.
 func DefaultConfig() Config { return (Config{}).defaults() }
 
+// SourceValidityBytes uses the existing admitted encrypted-object profile;
+// source-policy receipts have no separate population or fixed-byte ceiling.
+func (c Config) SourceValidityBytes() int64 { return c.defaults().privateHeaderBytes() }
+
 func (c Config) defaults() Config {
 	if c.Lifetime <= 0 {
 		c.Lifetime = DefaultLifetime

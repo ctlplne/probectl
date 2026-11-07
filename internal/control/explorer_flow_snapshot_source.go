@@ -45,7 +45,7 @@ func (s *Server) WithFlowSnapshotStorage(options FlowSnapshotStorage) *Server {
 	if exportBytes <= 0 {
 		exportBytes = flowsnapshot.DefaultExportBytes
 	}
-	source := &flowSnapshotSource{server: s, deploymentDays: options.DeploymentRetentionDays, lifetime: lifetime, now: time.Now, tempDir: options.Cache.TempDir, exportBytes: exportBytes, pool: options.Pool}
+	source := &flowSnapshotSource{server: s, deploymentDays: options.DeploymentRetentionDays, lifetime: lifetime, now: time.Now, tempDir: options.Cache.TempDir, exportBytes: exportBytes, pool: options.Pool, proofBytes: options.Cache.SourceValidityBytes()}
 	service := flowsnapshot.New(options.Pool, options.Objects, options.Router, options.Fence, source.validate, options.Cache)
 	s.flowSnapshots = service
 	s.flowSnapshotSource = source
@@ -63,6 +63,7 @@ type flowSnapshotSource struct {
 	tempDir        string
 	exportBytes    int64
 	pool           *pgxpool.Pool
+	proofBytes     int64
 }
 
 func (source *flowSnapshotSource) expiry(ctx context.Context, scope flowsnapshot.Scope, clock flowstore.SnapshotInputs) (time.Time, error) {
@@ -87,9 +88,10 @@ func (source *flowSnapshotSource) expiry(ctx context.Context, scope flowsnapshot
 }
 
 type flowSnapshotValidity struct {
-	Inputs           []flowstore.SnapshotInputs `json:"inputs"`
-	TagAuthorization string                     `json:"tag_authorization,omitempty"`
-	RoleDigest       string                     `json:"role_digest,omitempty"`
+	Inputs           []flowstore.SnapshotInputs     `json:"inputs"`
+	TagAuthorization string                         `json:"tag_authorization,omitempty"`
+	RoleDigest       string                         `json:"role_digest,omitempty"`
+	Routing          []*flowRoutingSnapshotValidity `json:"routing,omitempty"`
 }
 
 func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapshot.Scope, results ...flowstore.PlanResult) (json.RawMessage, time.Time, error) {
@@ -124,6 +126,22 @@ func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapsho
 			}
 			proof.RoleDigest = result.RoleDigest
 		}
+		if flowPlanUsesCapturedRouting(result.Query) {
+			budget := flowstore.ExplorerOperationBudget(ctx, source.server.flowStore)
+			if result.RoutingProof == nil || int64(len(result.RoutingProof.Captures)) > budget.MemoryBytes/4/4096 {
+				return nil, time.Time{}, flowExplorerStoreError(flowstore.ErrSnapshotInputs)
+			}
+			routing, err := encodeFlowRoutingValidity(result.RoutingProof)
+			if err != nil {
+				return nil, time.Time{}, flowExplorerStoreError(err)
+			}
+			if proof.Routing == nil {
+				proof.Routing = make([]*flowRoutingSnapshotValidity, len(proof.Inputs))
+			}
+			proof.Routing = append(proof.Routing, routing)
+		} else if proof.Routing != nil {
+			proof.Routing = append(proof.Routing, nil)
+		}
 		expiry, err := source.expiry(ctx, scope, clock)
 		if err != nil {
 			return nil, time.Time{}, err
@@ -141,8 +159,16 @@ func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapsho
 }
 
 func (source *flowSnapshotSource) validate(ctx context.Context, scope flowsnapshot.Scope, proof json.RawMessage) error {
-	if len(proof) > 8192 {
-		return flowExplorerStoreError(flowstore.ErrSnapshotInputs)
+	if source.server == nil {
+		return apierror.Unavailable("flow snapshot source is unavailable")
+	}
+	limit := source.proofBytes
+	if limit <= 0 {
+		limit = flowsnapshot.DefaultConfig().SourceValidityBytes()
+	}
+	budget := flowstore.ExplorerOperationBudget(ctx, source.server.flowStore)
+	if err := admitFlowSnapshotValidity(ctx, proof, limit, budget.MemoryBytes/4); err != nil {
+		return flowExplorerStoreError(err)
 	}
 	var receipt flowSnapshotValidity
 	decoder := json.NewDecoder(bytes.NewReader(proof))
@@ -160,6 +186,9 @@ func (source *flowSnapshotSource) validate(ctx context.Context, scope flowsnapsh
 		return err
 	}
 	if err := source.validateRoleAuthorization(ctx, scope, receipt); err != nil {
+		return err
+	}
+	if err := source.validateRoutingAuthorization(ctx, scope, receipt); err != nil {
 		return err
 	}
 	verifier, ok := flowstore.SnapshotInputVerifierOf(source.server.flowStore)
