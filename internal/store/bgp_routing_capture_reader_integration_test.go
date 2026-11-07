@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,6 +74,32 @@ func proveCapturedRoutingReaderRequiresCurrentContextAndOriginalReference(t *tes
 			t.Fatal("retained routing reader detached original raw identity", err)
 		}
 	}
+	proveCapturedNextHopReadRequiresCurrentSupportingEvidence(t, f, first, raw, input, changes)
+}
+
+func proveCapturedNextHopReadRequiresCurrentSupportingEvidence(t *testing.T, f *roleInputsFixture, first [2]BGPRoutingCaptureReference, raw [32]byte, input BGPRoutingFlowInput, changes []BGPRoutingChange) {
+	t.Helper()
+	allow := func(context.Context, entity.ContextRecord) error { return nil }
+	before, err := readFlowCaptureForTest(t, f, 0, raw, input, first[0], allow)
+	if err != nil || len(before.Source.NextHops) != 1 || before.Source.NextHops[0].ASN == nil || len(before.Source.NextHops[0].Sources) != 1 {
+		t.Fatal("supporting next-hop source control lacks its original positive", err)
+	}
+	id := strings.TrimPrefix(before.Source.NextHops[0].Sources[0], "evidence/")
+	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_evidence SET expires_at=clock_timestamp()-interval '1 microsecond' WHERE tenant_id=$1 AND id=$2`, f.tenants[0], id)
+		return err
+	})
+	after, err := readFlowCaptureForTest(t, f, 0, raw, input, first[0], allow)
+	if err != nil || len(after.Source.NextHops) != 1 || after.Source.NextHops[0].ASN != nil || len(after.Source.NextHops[0].Sources) != 0 || after.Source.NextHops[0].Reason != "current_source_unavailable" || !reflect.DeepEqual(after.Source.Route.Paths, []BGPRoutingChange{changes[0]}) || !after.CapturedAt.Equal(first[0].CapturedAt) {
+		t.Fatal("retained next-hop read reused unavailable support or erased independent paths", err)
+	}
+	sibling, err := readFlowCaptureForTest(t, f, 1, raw, input, first[1], allow)
+	if err != nil || sibling.Source.NextHops[0].ASN == nil {
+		t.Fatal("supporting source expiry crossed tenant", err)
+	}
+	// Restore the source through a new real evidence write. The old retained
+	// reference keeps its expired supporting identity; it is never refilled.
+	f.peerAtAddress(f.tenants[0], "2001:db8::1", 65010)
 }
 
 func requireRetiredRoutingReaderUnavailable(t *testing.T, f *roleInputsFixture, lane int, raw [32]byte, input BGPRoutingFlowInput, ref BGPRoutingCaptureReference) {
