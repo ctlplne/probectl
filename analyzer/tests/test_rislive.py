@@ -46,6 +46,43 @@ def test_parse_ris_message_yields_one_route_per_prefix():
     assert r.collector == "rrc00"
 
 
+def test_ris_source_clock_preserves_exact_wire_nanoseconds_without_float_rounding():
+    for token, expected in (
+        ("1700000000.123456789", 1_700_000_000_123_456_789),
+        ("9223372036.854775807", 2**63 - 1),
+        ("1.0000000009", 1_000_000_000),
+        ("1e-10000", 0),
+    ):
+        raw = json.dumps(RIS_MESSAGE).replace("1700000000.0", token)
+        routes = list(iter_updates([raw]))
+        assert len(routes) == 2 and all(
+            route.event_time_unix_nano == expected for route in routes
+        ), "RIS source clock lost exact wire nanoseconds"
+
+
+def test_ris_invalid_clock_and_json_numeric_depth_cannot_stop_the_next_message():
+    good = json.dumps(RIS_MESSAGE)
+    for token in ("Infinity", "1e10000", '"Infinity"', "9223372036.854775808", "-1"):
+        bad = good.replace("1700000000.0", token)
+        try:
+            routes = list(iter_updates([bad, good]))
+        except Exception as error:
+            pytest.fail(
+                "invalid RIS source clock escaped whole-message refusal: " + type(error).__name__
+            )
+        assert len(routes) == 2 and all(
+            route.event_time_unix_nano == 1_700_000_000_000_000_000 for route in routes
+        ), "invalid RIS source clock published a partial or out-of-range message"
+    for bad in ("[" * 2000 + "]" * 2000, '{"data":' + "9" * 5000 + "}"):
+        try:
+            routes = list(iter_updates([bad, good]))
+        except Exception as error:
+            pytest.fail(
+                "untrusted JSON numeric/depth input escaped source refusal: " + type(error).__name__
+            )
+        assert len(routes) == 2, "invalid source JSON lost its following valid message"
+
+
 def test_oversized_ris_host_is_refused():
     msg = json.loads(json.dumps(RIS_MESSAGE))
     msg["data"]["host"] = "r" * 254
