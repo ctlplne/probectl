@@ -112,6 +112,7 @@ UNIT = {
         "TestBMPRoutingStagingUsesAdmittedIdentityAndCompleteOriginalPeerUp",
         "TestBMPRoutingMappedPeerRetainsWholeOpaqueSelectorThroughRealTLS",
         "TestRoutingPeerUpKeepsCompleteDeclaredFamiliesAndRefusesMalformedSource",
+        "TestLocRIBPeerUpKeepsExplicitFamilyCohortsAndAdjacentDefaults",
         "TestBMPSourceChangesKeepCompleteDualFamilyPathsWithdrawalsAndAttributes",
         "TestBMPSourceChangesRefuseMissingMandatoryFieldsAndLateMalformedTail",
         "TestBMPSourceChangesKeepExclusiveCompletionAndWholeAdmission",
@@ -1512,6 +1513,11 @@ def ix_prefix_controls():
 def bmp_routing_transport_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, file, seam, replacement, root, child, marker in (
+        ("loc_rib_explicit_family_cohort_omitted", "internal/bgp/peer_up.go",
+         'if peer.Header.View == BMPLocRIB && peer.SourceProfile.Format == "" && len(capabilities.mpFamilies) != 0 {',
+         'if false && peer.Header.View == BMPLocRIB && peer.SourceProfile.Format == "" && len(capabilities.mpFamilies) != 0 {',
+         "TestLocRIBPeerUpKeepsExplicitFamilyCohortsAndAdjacentDefaults", "",
+         "Loc-RIB Peer Up invented another emulated family cohort"),
         ("frr_explicit_serializer_omitted", "internal/bgp/route_add_path.go",
          "if format == RoutingSourceFRRLocRIBV1 {", "if false && format == RoutingSourceFRRLocRIBV1 {",
          "TestFRRRoutingProfileKeepsOriginalMetadataFamiliesAndStrictDefault", "",

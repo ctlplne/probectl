@@ -170,7 +170,7 @@ func DecodeRoutingPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudg
 	}
 	var families []RouteFamily
 	for _, family := range []RouteFamily{{AFI: 1, SAFI: 1}, {AFI: 2, SAFI: 1}} {
-		if sent.families[family] && received.families[family] {
+		if routingPeerDeclaresFamily(peer, sent, family) && routingPeerDeclaresFamily(peer, received, family) {
 			families = append(families, family)
 		}
 	}
@@ -181,4 +181,15 @@ func DecodeRoutingPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudg
 		return PeerUp{}, nil, ErrRouteCapabilities
 	}
 	return peer, families, nil
+}
+
+// RFC9069's fabricated Loc-RIB OPEN identifies an emulated peer's exact
+// family cohort. An explicit MP cohort does not also imply ordinary IPv4.
+// Adjacent BGP keeps its implicit IPv4 default; the operator-selected FRR
+// serializer continues to use its separately validated complete source profile.
+func routingPeerDeclaresFamily(peer PeerUp, capabilities routeOpenCapabilities, family RouteFamily) bool {
+	if peer.Header.View == BMPLocRIB && peer.SourceProfile.Format == "" && len(capabilities.mpFamilies) != 0 {
+		return capabilities.mpFamilies[family]
+	}
+	return capabilities.families[family]
 }

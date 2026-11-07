@@ -45,7 +45,7 @@ func routingPeerUpWireForFormat(t *testing.T, frr bool) []byte {
 	binary.BigEndian.PutUint16(open[20:22], 64512)
 	binary.BigEndian.PutUint16(open[22:24], 180)
 	copy(open[24:28], []byte{192, 0, 2, 1})
-	options := []byte{2, 12, 65, 4, 0, 0, 252, 0, 1, 4, 0, 2, 0, 1}
+	options := []byte{2, 18, 65, 4, 0, 0, 252, 0, 1, 4, 0, 1, 0, 1, 1, 4, 0, 2, 0, 1}
 	if frr {
 		// Synthetic known serializer shape: empty ADD-PATH and no IPv6 MP
 		// declaration. Both original OPENs must survive without byte repair.
