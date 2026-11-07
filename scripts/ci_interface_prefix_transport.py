@@ -224,6 +224,7 @@ INTEGRATION = {
         "TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority",
     ),
     "internal/control": (
+        "TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthority",
         "TestReportRoutingSourceStorageKeepsWholePeriodsAndTenantAdmission",
         "TestReportRoleSourcesKeepCurrentCanonicalContextsWithoutTags",
         "TestBGPRoutingBindingsStdioKeepsTenantEpochAndCurrentCredentials",
@@ -558,6 +559,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "report-routing-current-reader": (
+        "internal/control/dashboard_report_routing.go",
+        "if current.digest != input.Routing.Digest || current.inputDigest != input.Routing.InputDigest {",
+        "if false && (current.digest != input.Routing.Digest || current.inputDigest != input.Routing.InputDigest) {",
+        "TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthority", "",
+        "report reader reused changed original routing source proof",
+    ),
     "report-routing-source-read": (
         "internal/store/report_artifact_body.go",
         "CASE WHEN octet_length(a.source_capture::text)<=$4 THEN a.source_capture ELSE NULL END",
