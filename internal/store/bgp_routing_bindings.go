@@ -34,6 +34,7 @@ type routingSourceBinding struct {
 	Distinguisher string   `json:"distinguisher"`
 	BGPIdentifier string   `json:"bgp_identifier"`
 	Families      []uint16 `json:"families"`
+	SourceFormat  string   `json:"source_format,omitempty"`
 }
 
 type routingSourceManifest struct {

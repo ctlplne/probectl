@@ -39,6 +39,7 @@ type BGPRoutingBudget struct {
 // BGPRoutingPeer retains the complete parsed Peer Up metadata. It is untrusted
 // protocol information; BGPRoutingSource supplies independent current authority.
 type BGPRoutingPeer struct {
+	SourceFormat              string `json:",omitempty"` // current operator-selected serializer, never supplied by BMP
 	CollectorObservedUnixNanos int64  `json:",omitempty"` // exact retry clock, beyond Postgres microsecond precision
 	OpenFrameDigest            []byte `json:",omitempty"` // complete original Peer Up, for exact retry identity
 	Type, Flags                uint8

@@ -40,6 +40,7 @@ func TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity(t *testing
 		func(b *routingSourceBinding) { b.Families = nil },
 		func(b *routingSourceBinding) { b.Families = []uint16{1, 1} },
 		func(b *routingSourceBinding) { b.Families = []uint16{3} },
+		func(b *routingSourceBinding) { b.SourceFormat = "future-unknown" },
 	} {
 		bad := binding
 		change(&bad)
