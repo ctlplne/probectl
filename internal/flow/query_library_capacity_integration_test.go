@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -45,15 +44,7 @@ func TestQueryLibrariesPostgresCompletePopulationKeepsRLSAndPositiveAdmission(t 
 	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, admin); err != nil {
 		t.Fatal(err)
 	}
-	if os.Getenv("PROBECTL_FLOW_FILTER_TEST_DATABASE_URL") == "" {
-		testsupport.SkipOrFatal(t, "library proof requires the application-role PostgreSQL connection")
-		return
-	}
-	pool, err := pgxpool.New(ctx, os.Getenv("PROBECTL_FLOW_FILTER_TEST_DATABASE_URL"))
-	if err != nil {
-		t.Fatal("application-role database configuration invalid")
-	}
-	t.Cleanup(pool.Close)
+	pool := queryLibraryRuntime(t, admin)
 	tenants := store.NewTenants(pool)
 	created := []*store.Tenant{}
 	t.Cleanup(func() {
