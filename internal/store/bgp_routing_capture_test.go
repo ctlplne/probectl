@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -119,15 +118,15 @@ func TestRoutingCaptureObjectsRefuseTenantMixCorruptionOldFormatsAndPartialAdmis
 		func(o *routingCaptureObjects) { o.facts.payload += " " },
 		func(o *routingCaptureObjects) {
 			o.facts.payload += " null"
-			o.facts.digest = crypto.Hash([]byte(o.facts.payload))
+			o.facts.digest = routingCaptureHash([]byte(o.facts.payload))
 		},
 		func(o *routingCaptureObjects) {
 			o.facts.payload = strings.TrimSuffix(o.facts.payload, "}") + `,"tenant_id":"` + routingCaptureTenant + `"}`
-			o.facts.digest = crypto.Hash([]byte(o.facts.payload))
+			o.facts.digest = routingCaptureHash([]byte(o.facts.payload))
 		},
 		func(o *routingCaptureObjects) {
 			o.facts.payload = strings.Replace(o.facts.payload, `"version":1`, `"version":2`, 1)
-			o.facts.digest = crypto.Hash([]byte(o.facts.payload))
+			o.facts.digest = routingCaptureHash([]byte(o.facts.payload))
 		},
 		func(o *routingCaptureObjects) {
 			var c routingCaptureClocks
@@ -174,7 +173,7 @@ func TestRoutingCaptureObjectsRefuseTenantMixCorruptionOldFormatsAndPartialAdmis
 		t.Fatal(err)
 	}
 	changed := objects
-	changed.facts = routingCaptureObject{payload: string(raw), digest: crypto.Hash(raw)}
+	changed.facts = routingCaptureObject{payload: string(raw), digest: routingCaptureHash(raw)}
 	rebindRoutingCaptureClocks(t, &changed)
 	if got, err := decodeRoutingCapture(ctx, changed, routingViewBudget()); err == nil || got.Owner.TenantID != "" {
 		t.Fatal("omitted capture fields were silently reinterpreted", err)
@@ -276,7 +275,7 @@ func FuzzRoutingCaptureObjects(f *testing.F) {
 		if len(facts)+len(clocks) > 2<<20 {
 			return
 		}
-		changed := routingCaptureObjects{facts: routingCaptureObject{payload: string(facts), digest: crypto.Hash(facts)}, clocks: routingCaptureObject{payload: string(clocks), digest: crypto.Hash(clocks)}, capturedAt: input.CapturedAt}
+		changed := routingCaptureObjects{facts: routingCaptureObject{payload: string(facts), digest: routingCaptureHash(facts)}, clocks: routingCaptureObject{payload: string(clocks), digest: routingCaptureHash(clocks)}, capturedAt: input.CapturedAt}
 		got, err := decodeRoutingCapture(ctx, changed, routingViewBudget())
 		if err != nil {
 			if !reflect.DeepEqual(got, BGPRoutingFlowLookup{}) {

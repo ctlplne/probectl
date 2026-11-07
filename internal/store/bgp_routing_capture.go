@@ -123,7 +123,7 @@ func marshalRoutingCaptureObject(value any) (routingCaptureObject, error) {
 	if err != nil {
 		return routingCaptureObject{}, err
 	}
-	return routingCaptureObject{payload: string(raw), digest: crypto.Hash(raw)}, nil
+	return routingCaptureObject{payload: string(raw), digest: routingCaptureHash(raw)}, nil
 }
 
 func decodeRoutingCapture(ctx context.Context, objects routingCaptureObjects, budget BGPRoutingBudget) (BGPRoutingFlowLookup, error) {
@@ -189,7 +189,7 @@ func decodeRoutingCapture(ctx context.Context, objects routingCaptureObjects, bu
 
 func readRoutingCaptureObject(object routingCaptureObject, value any) error {
 	raw := []byte(object.payload)
-	if crypto.Hash(raw) != object.digest {
+	if routingCaptureHash(raw) != object.digest {
 		return errRoutingCaptureFormat
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -310,4 +310,9 @@ func validRoutingCaptureNextHop(field BGPRoutingNextHopAS, at time.Time) bool {
 		}
 	}
 	return true
+}
+
+func routingCaptureHash(raw []byte) (digest [32]byte) {
+	copy(digest[:], crypto.Hash(raw))
+	return digest
 }
