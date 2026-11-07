@@ -169,6 +169,7 @@ INTEGRATION = {
         "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
     ),
     "internal/store": (
+        "TestRoutingOperatorConfigurationKeepsTenantPolicyCASAndAtomicAudit",
         "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
         "TestRoutingBindingManifestRefusesLegacyAuthorityWithoutChangingOtherTenant",
         "TestBGPRoutingBoundAuthorityKeepsBaseCredentialsEpochBirthAndTenant",
@@ -480,6 +481,18 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-configuration-current-policy": (
+        "internal/store/bgp_routing_configuration.go",
+        "if config.Manifest != nil {", "if false && config.Manifest != nil {",
+        "TestRoutingOperatorConfigurationKeepsTenantPolicyCASAndAtomicAudit", "",
+        "routing configuration disclosed a denied current target",
+    ),
+    "routing-configuration-proposed-policy": (
+        "internal/store/bgp_routing_configuration.go",
+        "for _, binding := range replacement {", "for _, binding := range []BGPRoutingBinding(nil) {",
+        "TestRoutingOperatorConfigurationKeepsTenantPolicyCASAndAtomicAudit", "",
+        "routing replacement bypassed proposed target authorization",
+    ),
     "routing-lookup-source-format": (
         "internal/store/bgp_routing_lookup.go",
         "COALESCE(peer_identity->>'SourceFormat','')=$13",
