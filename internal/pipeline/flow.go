@@ -40,13 +40,14 @@ type FlowEnricher interface {
 // FlowConsumer drains probectl.flow.events into the flow store, enriching
 // records on the way in (once, at ingest — not at query time).
 type FlowConsumer struct {
-	bus    bus.Bus
-	store  flowstore.Store
-	enrich FlowEnricher
-	topic  string
-	group  string
-	log    *slog.Logger
-	gate   *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
+	bus      bus.Bus
+	store    flowstore.Store
+	enrich   FlowEnricher
+	topic    string
+	group    string
+	log      *slog.Logger
+	gate     *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
+	captures *flowRoutingCaptures
 
 	// Server-side tenant binding (TENANT-101): payload tenants are verified
 	// against the agents registry (shared lane) or overwritten by the lane
@@ -260,9 +261,6 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopi
 		c.log.Warn("flow batch tenant overwritten by lane (payload disagreed)",
 			"claimed_tenant", ids[0].Tenant, "lane_tenant", tenant, "agent_id", ids[0].Agent)
 	}
-	for _, f := range batch.Flows {
-		f.TenantId = tenant // authoritative re-stamp before anything persists
-	}
 	// Fairness (S-T7): batch-level admission by the VERIFIED tenant —
 	// shedding happens BEFORE enrichment + insert (the expensive section).
 	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterFlowEvents, int64(len(batch.Flows))) {
@@ -270,10 +268,18 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopi
 		c.log.Debug("flow batch shed by fairness bounds", "tenant_id", tenant, "rows", len(batch.Flows))
 		return nil
 	}
+	// Resolve only independently authenticated first receipts. Fingerprinting
+	// precedes even the authoritative tenant restamp: the producer attested
+	// the original protobuf, including unknown fields and original claims.
+	captures, err := c.resolveFlowCaptures(ctx, tenant, batch.Flows)
+	if err != nil {
+		return err // no partially projected raw batch is acknowledged or stored
+	}
 	rows := make([]flowstore.Row, 0, len(batch.Flows))
-	for _, f := range batch.Flows {
+	for i, f := range batch.Flows {
+		f.TenantId = tenant // authoritative re-stamp before anything persists
 		c.enrichRecord(ctx, f)
-		rows = append(rows, rowFromProto(f))
+		rows = append(rows, projectedFlowCapture(f, captures, i))
 	}
 	// CORRECT-010: retry with jittered backoff; exhaustion routes the ORIGINAL
 	// bytes to the flow DLQ — never a silent drop. Meter only what actually
