@@ -131,7 +131,8 @@ func TestBMPRoutingSelectorsKeepIndependentGenerationsRefusalsAndSourceClosure(t
 	}
 	// A selected-view Peer Down closes only its own generation. It also frees
 	// local metadata, and cannot disable another selector on the same socket.
-	down := append(frame(1, false)[:48:48], byte(6))
+	down := frame(1, false)
+	down = append(down[:48:48], byte(6))
 	down[5] = 2
 	binary.BigEndian.PutUint32(down[1:5], uint32(len(down)))
 	if err := l.queueRoutingMessage(id, handle, 2, down[6:]); err != nil {

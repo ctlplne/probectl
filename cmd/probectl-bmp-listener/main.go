@@ -99,11 +99,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	maxSessions, err := parsePositiveBMPInt("max sessions", *maxSessionsRaw)
-	if err != nil {
-		return err
-	}
-	routingStateBytes, err := parsePositiveBMPInt("routing state bytes", *routingStateBytesRaw)
+	maxSessions, routingStateBytes, err := parseBMPResourceBounds(*maxSessionsRaw, *routingStateBytesRaw)
 	if err != nil {
 		return err
 	}
@@ -405,6 +401,15 @@ func (o observedBMPEvidence) SubmitRoutingMessage(ctx context.Context, request *
 }
 
 func (o observedBMPEvidence) QueueDrop() { o.metrics.EntityEvidenceQueueDrop() }
+
+func parseBMPResourceBounds(sessions, stateBytes string) (int, int, error) {
+	maxSessions, err := parsePositiveBMPInt("max sessions", sessions)
+	if err != nil {
+		return 0, 0, err
+	}
+	bytes, err := parsePositiveBMPInt("routing state bytes", stateBytes)
+	return maxSessions, bytes, err
+}
 
 func parsePositiveBMPDuration(label, raw string) (time.Duration, error) {
 	value, err := time.ParseDuration(strings.TrimSpace(raw))
