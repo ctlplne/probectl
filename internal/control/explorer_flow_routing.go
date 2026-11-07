@@ -136,13 +136,17 @@ func (s *Server) loadFlowRoutingSnapshotFrom(ctx context.Context, actor *auth.Pr
 			ids = append(ids, id)
 		}
 		slices.Sort(ids)
+		captured := make([]entity.ContextRecord, 0, len(ids))
+		allowed := make(map[string]bool, len(ids))
 		for _, id := range ids {
 			digest, err = hashFlowRoleInputs(ctx, digest, records[id], limit)
 			if err != nil {
 				return err
 			}
+			captured = append(captured, records[id])
+			allowed[id] = true
 		}
-		return nil
+		return captureReportRoutingContextRequirements(ctx, principal, captured, allowed)
 	})
 	if err != nil {
 		return none, flowRoutingQueryError(err)

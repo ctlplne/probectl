@@ -31,6 +31,14 @@ type reportContextRequirement struct {
 // captured contexts/permissions without replacing the tag requirements. A
 // repeated current-authority read is idempotent, not another retained grant.
 func captureReportRoleContextRequirements(ctx context.Context, p *auth.Principal, records []entity.ContextRecord, allowed map[string]bool) error {
+	return captureReportMetadataContextRequirements(ctx, p, records, allowed, []string{permFlowRead, "entities.read", "metrics.read", "events.read"})
+}
+
+func captureReportRoutingContextRequirements(ctx context.Context, p *auth.Principal, records []entity.ContextRecord, allowed map[string]bool) error {
+	return captureReportMetadataContextRequirements(ctx, p, records, allowed, []string{permFlowRead, "entities.read"})
+}
+
+func captureReportMetadataContextRequirements(ctx context.Context, p *auth.Principal, records []entity.ContextRecord, allowed map[string]bool, needed []string) error {
 	sink, _ := ctx.Value(reportContextCaptureKey{}).(*reportContextCapture)
 	if sink == nil {
 		return nil
@@ -60,11 +68,11 @@ func captureReportRoleContextRequirements(ctx context.Context, p *auth.Principal
 				break
 			}
 		}
-		permissions := []string{permFlowRead, "entities.read", "metrics.read", "events.read"}
+		permissions := slices.Clone(needed)
 		cost := int64(0)
 		if found >= 0 {
 			permissions = slices.Clone(sink.contexts[found].Permissions)
-			for _, permission := range []string{permFlowRead, "entities.read", "metrics.read", "events.read"} {
+			for _, permission := range needed {
 				if !slices.Contains(permissions, permission) {
 					permissions = append(permissions, permission)
 					cost += 64

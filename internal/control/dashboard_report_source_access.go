@@ -70,7 +70,8 @@ func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenanc
 		}
 	}
 	if !slices.Contains(capture.Permissions, permAIQuery) || !slices.Contains(capture.Permissions, permFlowRead) ||
-		slices.Contains(capture.Permissions, permTagsRead) && !capture.ContextsCaptured || len(capture.Contexts) > 0 && (!capture.ContextsCaptured || !slices.Contains(capture.Permissions, permTagsRead)) {
+		capture.ContextSources != slices.Contains(capture.Permissions, "entities.read") ||
+		(slices.Contains(capture.Permissions, permTagsRead) || capture.ContextSources) && !capture.ContextsCaptured || len(capture.Contexts) > 0 && (!capture.ContextsCaptured || !capture.ContextSources && !slices.Contains(capture.Permissions, permTagsRead)) {
 		return apierror.Forbidden("report source requirements are incomplete")
 	}
 	current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
@@ -130,12 +131,16 @@ func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenanc
 }
 
 func reportFlowReadPermission(permission string) bool {
-	return slices.Contains([]string{permFlowRead, permTagsRead, "metrics.read", "agent.read", "entities.read"}, permission)
+	return slices.Contains([]string{permFlowRead, permTagsRead, "metrics.read", "events.read", "agent.read", "entities.read"}, permission)
+}
+
+func reportContextReadPermissions(permissions []string) bool {
+	return slices.Contains(permissions, permFlowRead) && (slices.Contains(permissions, permTagsRead) || slices.Contains(permissions, "entities.read"))
 }
 
 func (s *Server) revalidateReportContext(ctx context.Context, sc tenancy.Scope, p *auth.Principal, requirement reportContextRequirement) error {
 	if requirement.ContextID == "" || requirement.Resource[auth.ResourceTenantKey] != p.TenantID || requirement.Resource["context_id"] != requirement.ContextID ||
-		!slices.Contains(requirement.Permissions, permFlowRead) || !slices.Contains(requirement.Permissions, permTagsRead) {
+		!reportContextReadPermissions(requirement.Permissions) {
 		return apierror.Forbidden("report context requirements are unavailable")
 	}
 	if len(requirement.Resource) != 6 || requirement.Resource["site_id"] == "" || requirement.Resource["vrf_id"] == "" {

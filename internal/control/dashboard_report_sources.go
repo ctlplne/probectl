@@ -54,6 +54,7 @@ type reportFlowCapture struct {
 	Permissions      []string
 	Contexts         []reportContextRequirement
 	ContextsCaptured bool
+	ContextSources   bool
 	release          func()
 	once             sync.Once
 }
@@ -285,9 +286,10 @@ func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prep
 	ctx = context.WithValue(ctx, reportFlowBatchKey{}, batch)
 	usesTags, subjects := reportPreparedSubjects(prepared)
 	scope := &reportContextCapture{tenant: p.TenantID, remaining: workspace / 4}
+	ctx = context.WithValue(ctx, reportContextCaptureKey{}, scope)
 	var tagAsOf time.Time
 	if usesTags {
-		data, err := s.loadFlowTagQuery(context.WithValue(ctx, reportContextCaptureKey{}, scope), p, subjects...)
+		data, err := s.loadFlowTagQuery(ctx, p, subjects...)
 		if err != nil {
 			return nil, err
 		}
@@ -307,6 +309,7 @@ func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prep
 	}
 	captures := make([]capturedReportFlow, 0, len(prepared)*2)
 	permissions := map[string]bool{permAIQuery: true, permFlowRead: true}
+	contextSources := false
 	if usesTags {
 		permissions[permTagsRead] = true
 	}
@@ -315,6 +318,7 @@ func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prep
 		if err != nil {
 			return nil, err
 		}
+		contextSources = contextSources || flowstore.PlanUsesInterfaceRoles(*current.Flow) || flowPlanUsesCapturedRouting(*current.Flow)
 		needed, err := flowPlanPermissions(ctx, p.TenantID, *current.Flow)
 		if err != nil {
 			return nil, err
@@ -356,7 +360,7 @@ func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prep
 	if err != nil {
 		return nil, err
 	}
-	result := &reportFlowCapture{TenantID: p.TenantID, Tables: tables, Contexts: scope.contexts, ContextsCaptured: scope.captured}
+	result := &reportFlowCapture{TenantID: p.TenantID, Tables: tables, Contexts: scope.contexts, ContextsCaptured: scope.captured, ContextSources: contextSources}
 	for permission := range permissions {
 		result.Permissions = append(result.Permissions, permission)
 	}

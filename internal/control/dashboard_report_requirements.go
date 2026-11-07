@@ -33,6 +33,7 @@ type reportSourceRequirements struct {
 	Permissions      []string                   `json:"permissions"`
 	Contexts         []reportContextRequirement `json:"contexts"`
 	ContextsCaptured bool                       `json:"contexts_captured"`
+	ContextSources   bool                       `json:"context_sources,omitempty"`
 }
 
 func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCapture) (json.RawMessage, error) {
@@ -46,7 +47,10 @@ func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCap
 	}
 	requirements := reportSourceRequirements{Version: 1, TenantID: capture.TenantID,
 		Inputs: capture.Inputs, Permissions: capture.Permissions,
-		Contexts: capture.Contexts, ContextsCaptured: capture.ContextsCaptured}
+		Contexts: capture.Contexts, ContextsCaptured: capture.ContextsCaptured, ContextSources: capture.ContextSources}
+	if requirements.ContextSources {
+		requirements.Version = 2
+	}
 	if err := validateReportSourceRequirements(ctx, requirements); err != nil {
 		return nil, err
 	}
@@ -75,7 +79,7 @@ func parseReportSourceRequirements(ctx context.Context, raw json.RawMessage) (*r
 	}
 	return &reportFlowCapture{TenantID: requirements.TenantID, Inputs: requirements.Inputs,
 		Permissions: requirements.Permissions, Contexts: requirements.Contexts,
-		ContextsCaptured: requirements.ContextsCaptured}, nil
+		ContextsCaptured: requirements.ContextsCaptured, ContextSources: requirements.ContextSources}, nil
 }
 
 func reportRequirementUUID(id string) bool {
@@ -88,7 +92,7 @@ func validateReportSourceRequirements(ctx context.Context, value reportSourceReq
 		return err
 	}
 	tenant, ok := tenancy.FromContext(ctx)
-	if !ok || value.Version != 1 || tenant.String() != value.TenantID || !reportRequirementUUID(value.TenantID) ||
+	if !ok || value.Version != 1 && value.Version != 2 || tenant.String() != value.TenantID || !reportRequirementUUID(value.TenantID) ||
 		len(value.Inputs) == 0 || !slices.Contains(value.Permissions, permAIQuery) || !slices.Contains(value.Permissions, permFlowRead) {
 		return errReportSourceRequirements
 	}
@@ -98,7 +102,8 @@ func validateReportSourceRequirements(ctx context.Context, value reportSourceReq
 		}
 	}
 	usesTags := slices.Contains(value.Permissions, permTagsRead)
-	if usesTags && !value.ContextsCaptured || len(value.Contexts) > 0 && (!usesTags || !value.ContextsCaptured) {
+	if value.ContextSources != slices.Contains(value.Permissions, "entities.read") || value.ContextSources != (value.Version == 2) ||
+		(usesTags || value.ContextSources) && !value.ContextsCaptured || len(value.Contexts) > 0 && (!value.ContextsCaptured || !usesTags && !value.ContextSources) {
 		return errReportSourceRequirements
 	}
 	if !reportRequirementStringsFit(ctx, value) {
@@ -200,7 +205,7 @@ func validateStoredReportContext(tenant string, requirement reportContextRequire
 	if !reportRequirementUUID(requirement.ContextID) || len(requirement.Resource) != 6 ||
 		requirement.Resource[auth.ResourceTenantKey] != tenant || requirement.Resource["context_id"] != requirement.ContextID ||
 		!reportRequirementUUID(requirement.Resource["site_id"]) || !reportRequirementUUID(requirement.Resource["vrf_id"]) ||
-		!slices.Contains(requirement.Permissions, permFlowRead) || !slices.Contains(requirement.Permissions, permTagsRead) {
+		!reportContextReadPermissions(requirement.Permissions) {
 		return errReportSourceRequirements
 	}
 	for _, label := range []string{"site_label", "vrf_label"} {

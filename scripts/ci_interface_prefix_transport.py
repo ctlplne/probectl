@@ -78,6 +78,7 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestReportCanonicalSourcesRequireCompleteContextLineageAndCurrentPermissions",
         "TestFlowRoutingValidityKeepsCompleteOriginalSelectorsAndAdmission",
         "TestRoutingSnapshotRefusesMissingForeignAndExtraneousAuthority",
         "TestFlowRoutingSnapshotRequiresCurrentTenantUserBeforeReferenceReads",
@@ -220,6 +221,7 @@ INTEGRATION = {
         "TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority",
     ),
     "internal/control": (
+        "TestReportRoleSourcesKeepCurrentCanonicalContextsWithoutTags",
         "TestBGPRoutingBindingsStdioKeepsTenantEpochAndCurrentCredentials",
         "TestBGPRoutingConfigurationAPIKeepsTenantCurrentActorEpochAndAtomicAudit",
         "TestNativeFlowRoleTLSKeepsWholeProvenanceAndCurrentAuthority",
@@ -552,6 +554,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "report-role-context-capture": (
+        "internal/control/dashboard_report_sources.go",
+        "ctx = context.WithValue(ctx, reportContextCaptureKey{}, scope)",
+        "_ = scope",
+        "TestReportRoleSourcesKeepCurrentCanonicalContextsWithoutTags", "",
+        "role-only report lost complete canonical source context",
+    ),
+    "report-role-context-read": (
+        "internal/control/dashboard_report_source_access.go",
+        "for _, requirement := range capture.Contexts {",
+        "for _, requirement := range capture.Contexts[:0] {",
+        "TestReportRoleSourcesKeepCurrentCanonicalContextsWithoutTags", "",
+        "report reader reused role source after its context denial",
+    ),
     "flow-routing-validity-size": (
         "internal/store/flowsnapshot/stage.go",
         "int64(len(input.Validity)) > s.config.privateHeaderBytes()",
