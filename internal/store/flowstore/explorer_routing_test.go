@@ -7,6 +7,7 @@
 package flowstore
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -71,6 +72,28 @@ func TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys(t *tes
 	}
 	if len(data.facts) != 1 {
 		t.Fatal("routing query projection duplicated identical source facts", len(data.facts))
+	}
+	external, err := data.externalData(ctx, tenant, 64<<20)
+	if err != nil || len(external) != 2 {
+		t.Fatal("complete routing projection lost its reference or fact transport", err)
+	}
+	var references int
+	decoder := json.NewDecoder(bytes.NewReader(external[0].rows))
+	for decoder.More() {
+		var reference struct {
+			Tenant string `json:"routing_ref_tenant"`
+			Clock  string `json:"routing_clock"`
+		}
+		if err := decoder.Decode(&reference); err != nil || reference.Tenant != tenant || reference.Clock != strconv.FormatInt(at.UnixNano(), 10) {
+			t.Fatal("routing reference transport changed exact clock or tenant", err)
+		}
+		references++
+	}
+	if references != count || bytes.Count(external[1].rows, []byte{'\n'}) != 1 {
+		t.Fatal("routing projection transport duplicated full facts or lost original references", references)
+	}
+	if parts, err := data.externalData(ctx, tenant, 1024); !errors.Is(err, ErrExplorerBudget) || parts != nil {
+		t.Fatal("routing projection transport returned a truncated admission prefix", err)
 	}
 	conflict := append([]RoutingProjection(nil), rows[:2]...)
 	conflict[1].Fields = maps.Clone(fields)

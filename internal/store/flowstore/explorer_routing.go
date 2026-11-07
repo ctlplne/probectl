@@ -7,6 +7,7 @@
 package flowstore
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -307,4 +308,84 @@ func routingMissingField(field string) string {
 		}
 	}
 	return ""
+}
+
+func (data *routingQueryData) externalData(ctx context.Context, tenant string, memory int64) ([]explorerExternalData, error) {
+	if err := data.validate(ctx, tenant); err != nil {
+		return nil, err
+	}
+	if memory <= 0 || int64(len(data.byKey)) > memory/256 {
+		return nil, ErrExplorerBudget
+	}
+	keys := make([]routingQueryKey, 0, len(data.byKey))
+	for key := range data.byKey {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, func(a, b routingQueryKey) int { return slices.Compare(a.key[:], b.key[:]) })
+	var references, facts bytes.Buffer
+	for _, key := range keys {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		fact := data.byKey[key]
+		body, err := json.Marshal(struct {
+			Tenant string `json:"routing_ref_tenant"`
+			Key    string `json:"routing_key"`
+			Clock  string `json:"routing_clock"`
+			Fact   string `json:"routing_fact"`
+		}{tenant, hex.EncodeToString(key.key[:]), strconv.FormatInt(key.clock, 10), hex.EncodeToString(fact[:])})
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(body)+1) > memory {
+			return nil, ErrExplorerBudget
+		}
+		memory -= int64(len(body) + 1)
+		references.Write(body)
+		references.WriteByte('\n')
+	}
+	ids := make([][32]byte, 0, len(data.facts))
+	for id := range data.facts {
+		ids = append(ids, id)
+	}
+	slices.SortFunc(ids, func(a, b [32]byte) int { return slices.Compare(a[:], b[:]) })
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		fact := data.facts[id]
+		if fact.Scope.TenantID != tenant {
+			return nil, ErrRoutingQueryScope
+		}
+		cost := int64(512)
+		for name, value := range fact.Fields {
+			cost += int64(len(name)+len(value)) * 12
+			if cost > memory {
+				return nil, ErrExplorerBudget
+			}
+		}
+		body, err := json.Marshal(struct {
+			Tenant string            `json:"routing_fact_tenant"`
+			ID     string            `json:"routing_fact_id"`
+			Fields map[string]string `json:"routing_values"`
+		}{tenant, hex.EncodeToString(id[:]), fact.Fields})
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(body)+1) > memory {
+			return nil, ErrExplorerBudget
+		}
+		memory -= int64(len(body) + 1)
+		facts.Write(body)
+		facts.WriteByte('\n')
+	}
+	return []explorerExternalData{{kind: externalRoutingReferences, rows: references.Bytes()}, {kind: externalRoutingFacts, rows: facts.Bytes()}}, nil
+}
+
+func planRoutingJoinsSQL(from string, plan flow.QueryPlan) string {
+	if !planUsesRouting(plan) {
+		return from
+	}
+	return from + " ANY LEFT JOIN routing_capture_lookup AS routing_refs ON routing_refs.routing_ref_tenant=tenant_id AND routing_refs.routing_key=routing_capture_key AND routing_refs.routing_clock=routing_captured_unix_nanos" +
+		" ANY LEFT JOIN routing_fact_lookup AS routing_meta ON routing_meta.routing_fact_tenant=tenant_id AND routing_meta.routing_fact_id=routing_refs.routing_fact"
 }
