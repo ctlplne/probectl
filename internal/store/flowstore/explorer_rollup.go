@@ -61,7 +61,7 @@ func fullRollupMigration(raw, rollup, oldView string) chmigrate.Migration {
 }
 
 func fullRollupBackfillSQL(raw, rollup string) string {
-	columns, selection := fullRollupSelect(raw)
+	columns, selection := routingCaptureRollupSelect(raw)
 	return "INSERT INTO " + rollup + " (" + columns + ") " + selection + " WHERE tenant_id={tenant:String} AND ts >= {from:DateTime64(3)} AND ts < {to:DateTime64(3)} SETTINGS max_threads=2,max_memory_usage=536870912"
 }
 
@@ -193,7 +193,7 @@ func (c *ClickHouse) configureFullRollupRetention(ctx context.Context, base, tab
 	if days < 0 || !explorerTablePattern.MatchString(table) {
 		return errors.New("invalid complete flow retention configuration")
 	}
-	columns := append([]struct{ name, typ string }{}, fullRollupColumns...)
+	columns := retainedFlowColumns()
 	columns = append(columns, struct{ name, typ string }{"coverage_version", "UInt8 DEFAULT 0"})
 	if days == 0 {
 		// ClickHouse24.8 rejects REMOVE TTL when a column has none. Remove
@@ -227,7 +227,7 @@ func (c *ClickHouse) expireCompleteRollupInputs(ctx context.Context, target Targ
 		return err
 	}
 	updates := []string{}
-	for _, column := range fullRollupColumns {
+	for _, column := range retainedFlowColumns() {
 		value := "0"
 		switch {
 		case column.name == "ts":

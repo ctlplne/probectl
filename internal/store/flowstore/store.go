@@ -38,6 +38,13 @@ type Row struct {
 	ObsDomain uint32 `json:"obs_domain"`
 	Protocol  string `json:"protocol"`
 
+	// Private ingestion references, never a source/read grant. The digest is
+	// taken before enrichment; the key binds it to the verified tenant and
+	// exact source tuple. A zero set denotes legacy/unavailable metadata.
+	RawFlowDigest            string `json:"raw_flow_digest,omitempty"`
+	RoutingCaptureKey        string `json:"routing_capture_key,omitempty"`
+	RoutingCapturedUnixNanos int64  `json:"routing_captured_unix_nanos,omitempty"`
+
 	TS      time.Time `json:"-"` // analytics time axis (flow end)
 	StartTS time.Time `json:"-"`
 
@@ -252,6 +259,9 @@ func validateInsertRows(rows []Row) error {
 	for i := range rows {
 		if rows[i].TenantID == "" {
 			return ErrNoTenant
+		}
+		if err := validateRoutingCaptureRow(rows[i]); err != nil {
+			return err
 		}
 	}
 	return nil

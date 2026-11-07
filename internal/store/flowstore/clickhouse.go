@@ -76,6 +76,11 @@ ORDER BY (tenant_id, ts, exporter, src_addr, dst_addr, src_port, dst_port, proto
 // A redelivered identical row hashes identically (collapsed by the
 // ReplacingMergeTree); any genuine difference yields a different id.
 func flowRowID(r Row) string {
+	if r.RoutingCaptureKey != "" {
+		// Insert validation recomputes this key from the original digest,
+		// tenant, sender and exact routing tuple. Enrichment is not identity.
+		return "flow_capture_v1:" + r.RoutingCaptureKey
+	}
 	identity := struct {
 		TenantID      string `json:"tenant_id"`
 		AgentID       string `json:"agent_id"`
@@ -422,6 +427,7 @@ func chMigrationsFor(table string) []chmigrate.Migration {
 			Justification: "replace only rollup rows whose raw source still exists, preserving aged-out history while backfilling subject keys; then recreate the materialized view",
 		},
 		fullRollupMigration(table, rollupTable, rollupView),
+		routingCaptureMigration(table, rollupTable, rollupView),
 	}
 }
 

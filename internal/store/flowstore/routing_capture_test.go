@@ -10,8 +10,12 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +36,86 @@ func routingCaptureRowForTest(t *testing.T, tenant string, change byte) (Row, ma
 	values := map[string]any{"tenant_id": tenant, "agent_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "exporter": input.Exporter.String(), "obs_domain": input.Domain, "protocol": input.Protocol, "src_addr": input.Source.String(), "dst_addr": input.Destination.String(), "bytes": uint64(99), "raw_flow_digest": hex.EncodeToString(digest[:]), "routing_capture_key": hex.EncodeToString(key[:]), "routing_captured_unix_nanos": int64(1700000000123456789)}
 	row := decodeRoutingCaptureRowForTest(t, values)
 	return row, values
+}
+
+func TestFlowRoutingCaptureCHWireRetainsCompleteReferencesAndExpiry(t *testing.T) {
+	// HTTP transport/migration model; actual ClickHouse persistence and row
+	// policy acceptance remain separate real-stack proofs.
+	var mu sync.Mutex
+	var statements []string
+	var bodies [][]byte
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		query := r.URL.Query().Get("query")
+		mu.Lock()
+		defer mu.Unlock()
+		statements = append(statements, query)
+		if strings.HasPrefix(query, "INSERT INTO probectl_flows ") && strings.Contains(query, "FORMAT JSONEachRow") {
+			bodies = append(bodies, body)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	store, err := NewClickHouseWithClient(server.URL, 0, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, values := routingCaptureRowForTest(t, "11111111-1111-4111-8111-111111111111", 0)
+	rows := make([]Row, 501)
+	for i := range rows {
+		rows[i] = row
+	}
+	if err := store.Insert(t.Context(), rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.configureFullRollupRetention(t.Context(), "", sharedFlowRollupsTable, 17); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.expireCompleteRollupInputs(t.Context(), Target{}, row.TenantID, row.TS); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	var decoded int
+	for _, body := range bodies {
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.UseNumber()
+		for decoder.More() {
+			var got map[string]any
+			if err := decoder.Decode(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got["raw_flow_digest"] != values["raw_flow_digest"] || got["routing_capture_key"] != values["routing_capture_key"] || got["routing_captured_unix_nanos"].(json.Number).String() != "1700000000123456789" || got["row_id"] != flowRowID(row) {
+				t.Fatal("complete CH wire lost immutable capture metadata")
+			}
+			decoded++
+		}
+	}
+	if decoded != len(rows) {
+		t.Fatal("complete CH wire omitted later original references", decoded)
+	}
+	joined := strings.Join(statements, "\n")
+	for _, want := range []string{
+		"ALTER TABLE probectl_flows ADD COLUMN IF NOT EXISTS raw_flow_digest",
+		"ALTER TABLE probectl_flow_rollups_hour ADD COLUMN IF NOT EXISTS raw_flow_digest",
+		"CREATE MATERIALIZED VIEW IF NOT EXISTS probectl_flow_rollups_hour_mv_v7",
+		"routing_captured_unix_nanos FROM probectl_flows",
+		"MODIFY COLUMN routing_captured_unix_nanos Int64 DEFAULT 0 TTL bucket + INTERVAL 17 DAY",
+		"raw_flow_digest='',routing_capture_key='',routing_captured_unix_nanos=0,coverage_version=0 WHERE tenant_id={tenant:String}",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatal("routing capture storage lifecycle lost retained input", want)
+		}
+	}
+	for _, table := range []string{sharedFlowsTable, "probectl_t_abc." + sharedFlowsTable} {
+		migrations := chMigrationsFor(table)
+		if last := migrations[len(migrations)-1]; last.Version != 7 || !strings.Contains(last.Statements[0], "ALTER TABLE "+table+" ADD COLUMN IF NOT EXISTS") {
+			t.Fatal("routed tenant capture schema omitted pooled or siloed catch-up")
+		}
+	}
 }
 
 func decodeRoutingCaptureRowForTest(t *testing.T, values map[string]any) Row {
