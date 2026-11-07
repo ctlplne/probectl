@@ -13,7 +13,6 @@ import json
 import pytest
 
 from probectl_analyzer.rislive import (
-    MAX_RIS_PREFIXES,
     iter_updates,
     parse_ris_message,
 )
@@ -114,7 +113,5 @@ def test_ris_message_resource_and_prefix_admission_are_enforced():
     assert parse_ris_message(msg, memory_bytes=4096) == []
 
     msg = json.loads(json.dumps(RIS_MESSAGE))
-    msg["data"]["announcements"] = [
-        {"prefixes": [f"192.0.2.{i % 255}/32" for i in range(MAX_RIS_PREFIXES + 1)]}
-    ]
-    assert parse_ris_message(msg) == []
+    msg["data"]["announcements"] = [{"prefixes": [f"192.0.2.{i % 255}/32" for i in range(4097)]}]
+    assert parse_ris_message(msg, memory_bytes=4096) == []

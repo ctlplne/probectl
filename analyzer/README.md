@@ -105,8 +105,14 @@ including segment objects and each announced prefix's path copy. The per-tenant
 workspace for live input and replay (the parser library accepts `memory_bytes`).
 JSON input workspace is reserved before decoding and normalization uses the remainder. Accepted paths
 are complete; a malformed or unadmitted message returns no routes. This replaces
-the former independent 1,024-hop ceiling. Live websocket framing and prefix
-admission still apply independently.
+the former independent 1,024-hop ceiling. Live websocket framing still applies
+independently.
+MRT and RIS observations include complete IPv4/IPv6 withdrawals before the
+same message's announcements. Withdrawals carry no invented AS path or origin.
+Malformed update tails produce no partial changes. RIS admission charges the
+complete announcement and withdrawal cohorts rather than independent prefix
+or announcement counts. The anomaly monitor still emits only detections;
+these observations alone do not establish a complete or current public RIB.
 The Go bridge separately admits JSON Lines up to 16 MiB, including both complete
 old and new paths in an origin-change event. Larger records fail the stream;
 they are never clipped or partially published, and tenant binding still applies.

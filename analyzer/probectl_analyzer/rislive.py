@@ -15,6 +15,7 @@ live adapter that owns the websocket and its reconnect/backoff loop (S14 watch-o
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import time
 from collections.abc import Iterable, Iterator
@@ -29,8 +30,6 @@ _log = get_logger("probectl.analyzer.rislive")
 RIS_LIVE_URL = "wss://ris-live.ripe.net/v1/ws/"
 # Complete source paths follow finite whole-message workspace admission, not
 # an independent hop ceiling. Includes retained segments and per-prefix copies.
-MAX_RIS_ANNOUNCEMENTS = 1024
-MAX_RIS_PREFIXES = 4096
 # A RIS collector name is "rrcNN.ripe.net"; anything longer is hostile input.
 MAX_RIS_HOST_LENGTH = 253
 
@@ -127,7 +126,7 @@ def _structured_path(path: object, memory_bytes: int) -> tuple[tuple[ASPathSegme
 def parse_ris_message(
     obj: object, *, memory_bytes: int = DEFAULT_RIS_MEMORY_BYTES
 ) -> list[BGPRoute]:
-    """Normalize one RIS Live message into zero or more announced routes."""
+    """Normalize the whole update, with withdrawals before announcements."""
     try:
         return _parse_ris_message(obj, memory_bytes)
     except (RISMessageError, TypeError, ValueError, KeyError) as err:
@@ -159,34 +158,42 @@ def _parse_ris_message(obj: object, memory_bytes: int) -> list[BGPRoute]:
     )
 
     routes: list[BGPRoute] = []
-    emitted = 0
-    for ann in _bounded_list(
-        data.get("announcements", []), "data.announcements", MAX_RIS_ANNOUNCEMENTS
-    ):
-        ann_obj = _as_dict(ann, "data.announcements[]")
-        for prefix in _bounded_list(
-            ann_obj.get("prefixes", []), "data.announcements[].prefixes", MAX_RIS_PREFIXES
-        ):
-            emitted += 1
-            if emitted > MAX_RIS_PREFIXES:
-                raise RISMessageError(
-                    f"message has more than {MAX_RIS_PREFIXES} announced prefixes"
-                )
-            prefix = _string(prefix, "data.announcements[].prefixes[]")
-            charged += 1024 + len(prefix) * 4 + len(as_path) * 8
+
+    def collect(prefixes: object, kind: str, field: str):
+        nonlocal charged
+        for raw in _bounded_list(prefixes, field, memory_bytes // 1024):
+            text = _string(raw, field + "[]")
+            charged += 1024 + len(text) * 4 + (len(as_path) * 8 if kind == "announce" else 0)
             if charged > memory_bytes:
-                raise RISMessageError("announced routes exceed message memory admission")
+                raise RISMessageError("route changes exceed message memory admission")
+            try:
+                prefix = str(ipaddress.ip_network(text, strict=False))
+            except ValueError as err:
+                raise RISMessageError(field + " must contain IP prefixes") from err
             routes.append(
                 BGPRoute(
                     prefix=prefix,
-                    as_path=list(as_path),
-                    as_path_segments=path,
+                    kind=kind,
+                    as_path=list(as_path) if kind == "announce" else [],
+                    as_path_segments=path if kind == "announce" else (),
                     peer_asn=peer_asn,
                     peer_address=peer_addr,
                     event_time_unix_nano=event_time_unix_nano,
                     collector=host,
                 )
             )
+
+    # Local candidates cannot escape until every prefix and resource charge
+    # succeeds. A same-prefix replacement applies its withdrawal first.
+    collect(data.get("withdrawals", []), "withdraw", "data.withdrawals")
+    for ann in _bounded_list(
+        data.get("announcements", []), "data.announcements", memory_bytes // 128
+    ):
+        charged += 128
+        if charged > memory_bytes:
+            raise RISMessageError("announcements exceed message memory admission")
+        ann_obj = _as_dict(ann, "data.announcements[]")
+        collect(ann_obj.get("prefixes", []), "announce", "data.announcements[].prefixes")
     return routes
 
 

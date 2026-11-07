@@ -46,6 +46,7 @@ SUB_BGP4MP_MESSAGE_AS4 = 4
 ATTR_AS_PATH = 2
 ATTR_AGGREGATOR = 7
 ATTR_MP_REACH_NLRI = 14
+ATTR_MP_UNREACH_NLRI = 15
 ATTR_AS4_PATH = 17
 ATTR_AS4_AGGREGATOR = 18
 
@@ -71,7 +72,7 @@ class MRTError(Exception):
 
 @dataclass
 class BGPRoute:
-    """One announced prefix with its AS path, as seen by a collector peer."""
+    """One complete announced or withdrawn prefix, as seen by a collector peer."""
 
     prefix: str
     as_path: list[int] = field(default_factory=list)
@@ -89,21 +90,28 @@ class BGPRoute:
     as_path_segments: tuple[ASPathSegment, ...] | None = None
     as4_action: str = "absent"
     as4_confederations_discarded: bool = False
+    kind: str = "announce"
 
     @property
     def origin_known(self) -> bool:
+        if self.kind != "announce":
+            return False
         if self.as_path_segments is not None:
             return path_origin(self.as_path_segments) is not None
         return bool(self.as_path) and self.as_path[-1] not in (0, 23456)
 
     @property
     def origin_asn(self) -> int:
+        if self.kind != "announce":
+            return 0
         if self.as_path_segments is not None:
             return path_origin(self.as_path_segments) or 0
         return self.as_path[-1] if self.as_path else 0
 
     @property
     def transit_asns(self) -> list[int]:
+        if self.kind != "announce":
+            return []
         if self.as_path_segments is None:
             return self.as_path[:-1]
         # An unordered aggregate or an internal confederation member is not
@@ -329,17 +337,32 @@ class MRTReader:
         self, r: _Reader, peer_as: int, peer_ip: str, four_byte: bool, event_time_unix_nano: int
     ) -> Iterator[BGPRoute]:
         withdrawn_len = r.u16()
-        r.read(withdrawn_len)  # withdrawals — not monitored here
+        withdrawn_wire = _Reader(r.read(withdrawn_len))
+        withdrawn = []
+        while withdrawn_wire.remaining() > 0:
+            withdrawn.append(withdrawn_wire.read_prefix(AFI_IPV4))
         total_attr_len = r.u16()
         attrs = r.read(total_attr_len)
-        prefixes = list(_mp_reach_prefixes(attrs))
+        prefixes, mp_withdrawn = _mp_prefix_changes(attrs)
+        withdrawn.extend(mp_withdrawn)
         nlri = _Reader(r.rest())  # IPv4 NLRI trailing the attributes
         while nlri.remaining() > 0:
             prefixes.append(nlri.read_prefix(AFI_IPV4))
 
-        if not prefixes:
-            return  # A withdrawal-only UPDATE need not carry AS_PATH.
-        path = _as_path_from_attrs(attrs, four_byte=four_byte)
+        # Validate the WHOLE UPDATE before its first yielded change. An
+        # invalid announcement must not expose a preceding withdrawal prefix.
+        # A withdrawal-only update need not carry the announcement's AS_PATH.
+        path = _as_path_from_attrs(attrs, four_byte=four_byte) if prefixes else ASPath(())
+        for prefix in withdrawn:
+            yield BGPRoute(
+                prefix=prefix,
+                kind="withdraw",
+                as_path_segments=(),
+                peer_asn=peer_as,
+                peer_address=peer_ip,
+                collector_id=self._collector_id,
+                event_time_unix_nano=event_time_unix_nano,
+            )
         for prefix in prefixes:
             yield BGPRoute(
                 prefix=prefix,
@@ -398,18 +421,29 @@ def _as_path_from_attrs(attrs: bytes, four_byte: bool) -> ASPath:
         raise MRTError(str(err)) from err
 
 
-def _mp_reach_prefixes(attrs: bytes) -> list[str]:
+def _mp_prefix_changes(attrs: bytes) -> tuple[list[str], list[str]]:
+    announced, withdrawn = [], []
+    seen = set()
     for typ, val in _iter_attrs(attrs):
-        if typ != ATTR_MP_REACH_NLRI:
+        if typ not in (ATTR_MP_REACH_NLRI, ATTR_MP_UNREACH_NLRI):
             continue
+        if typ in seen:
+            raise MRTError("duplicate multiprotocol reachability attribute")
+        seen.add(typ)
         r = _Reader(val)
         afi = r.u16()
-        r.u8()  # SAFI
-        nh_len = r.u8()
-        r.read(nh_len)  # next hop
-        r.u8()  # reserved / SNPA count
-        out: list[str] = []
+        safi = r.u8()
+        if afi not in (AFI_IPV4, AFI_IPV6) or safi != 1:
+            raise MRTError("unsupported public unicast address family")
+        out = withdrawn
+        if typ == ATTR_MP_REACH_NLRI:
+            nh_len = r.u8()
+            if nh_len not in ((4, 16, 32) if afi == AFI_IPV4 else (16, 32)):
+                raise MRTError("invalid multiprotocol next-hop length")
+            r.read(nh_len)  # Reported source bytes, never next-hop AS authority.
+            if r.u8() != 0:
+                raise MRTError("unsupported nonzero multiprotocol reserved field")
+            out = announced
         while r.remaining() > 0:
-            out.append(r.read_prefix(AFI_IPV6 if afi == AFI_IPV6 else AFI_IPV4))
-        return out
-    return []
+            out.append(r.read_prefix(afi))
+    return announced, withdrawn
