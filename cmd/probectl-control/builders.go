@@ -1000,7 +1000,8 @@ func startAgentTransport(
 	if !cfg.AgentTransportEnabled() {
 		return nil
 	}
-	grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log)
+	grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log,
+		agenttransport.WithRoutingLimits(store.BGPRoutingBudget{MemoryBytes: int64(cfg.PublicRoutingMemoryBytes), WorkUnits: int64(cfg.PublicRoutingWorkUnits), StateBytes: int64(cfg.BGPRoutingStateBytes), LeaseDuration: cfg.PublicRoutingMaxAge}, cfg.PublicRoutingMaxAge, cfg.AgentMaxReceiveBytes))
 	if err != nil {
 		return fmt.Errorf("agent transport: %w", err)
 	}

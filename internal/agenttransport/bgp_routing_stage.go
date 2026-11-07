@@ -37,7 +37,7 @@ func (svc *service) stageRoutingPeer(ctx context.Context, id crypto.SPIFFEID, se
 	if unbound {
 		return nil, status.Error(codes.InvalidArgument, "routing view has no selected source-context binding")
 	}
-	profile := store.BGPRoutingBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, StateBytes: 1 << 30, LeaseDuration: time.Minute}
+	profile := store.BGPRoutingBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, StateBytes: svc.routingStateLimit(), LeaseDuration: time.Minute}
 	input := store.BGPRoutingPeerUpInput{CollectorAgentID: id.AgentID, SenderSerial: serial, SourceRef: raw.GetConfiguredRef(), OriginSerial: raw.GetOriginSerial(), ObservationID: raw.GetObservationId(), ObservedAt: time.Unix(0, raw.GetObservedUnixNanos()), RefusedPeer: refusedPeer}
 	if admitted {
 		input.FrameDigest = crypto.Hash(raw.GetMessage())

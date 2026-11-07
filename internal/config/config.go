@@ -193,10 +193,15 @@ type Config struct {
 
 	// Agent transport (gRPC). Enabled when the address and all three TLS files
 	// are set; the transport is mTLS-only (never plaintext).
-	AgentGRPCAddr    string
-	AgentTLSCertFile string
-	AgentTLSKeyFile  string
-	AgentTLSCAFile   string
+	AgentGRPCAddr            string
+	AgentTLSCertFile         string
+	AgentTLSKeyFile          string
+	AgentTLSCAFile           string
+	AgentMaxReceiveBytes     int
+	PublicRoutingMemoryBytes int
+	PublicRoutingWorkUnits   int
+	BGPRoutingStateBytes     int
+	PublicRoutingMaxAge      time.Duration
 
 	// Version-skew policy (S34): the control plane rejects agents outside the
 	// supported window at registration, so a rolling upgrade never admits an
@@ -1152,6 +1157,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.AgentTLSCertFile = l.str("PROBECTL_AGENT_TLS_CERT_FILE", "")
 	cfg.AgentTLSKeyFile = l.str("PROBECTL_AGENT_TLS_KEY_FILE", "")
 	cfg.AgentTLSCAFile = l.str("PROBECTL_AGENT_TLS_CA_FILE", "")
+	loadPublicRoutingConfig(l, cfg)
 	cfg.BusMode = l.enum("PROBECTL_BUS_MODE", "memory", "memory", "nats", "kafka")
 	cfg.BusStreamMaxAge = l.dur("PROBECTL_BUS_STREAM_MAX_AGE", 168*time.Hour)
 	cfg.BusStreamReplicas = l.intRange("PROBECTL_BUS_STREAM_REPLICAS", 1, 1, 5)
@@ -2288,6 +2294,11 @@ func (c *Config) LogValue() slog.Value {
 		slog.String("bus_mode", c.BusMode),
 		slog.String("tsdb_mode", c.TSDBMode),
 		slog.Int("flow_query_library_bytes", c.FlowQueryLibraryBytes),
+		slog.Int("agent_max_receive_bytes", c.AgentMaxReceiveBytes),
+		slog.Int("public_routing_memory_bytes", c.PublicRoutingMemoryBytes),
+		slog.Int("public_routing_work_units", c.PublicRoutingWorkUnits),
+		slog.Int("bgp_routing_state_bytes", c.BGPRoutingStateBytes),
+		slog.Duration("public_routing_max_age", c.PublicRoutingMaxAge),
 	)
 }
 

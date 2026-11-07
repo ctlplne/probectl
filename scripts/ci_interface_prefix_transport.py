@@ -40,6 +40,7 @@ UNIT = {
         "TestPeeringDBIXPrefixesKeepInactiveAndExpiredSourcesVisibleWithoutMemberships",
     ),
     "internal/config": (
+        "TestPublicRoutingAdmissionIsFiniteRaiseableObservableAndOffline",
         "TestIXMembershipLocalConfigKeepsNoEgressAndIndependentPositiveFreshness",
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
     ),
@@ -327,6 +328,8 @@ INTEGRATION = {
         "TestBGPRoutingMessageClockRejectsLegacyWritersAndUnusableHeartbeats",
     ),
     "internal/agenttransport": (
+        "TestPublicRoutingOriginalMRTRealMTLSKeepsTenantCurrentSourceAndWholeRefusal",
+        "TestPublicRoutingRealMTLSKnownSourceRefusalCommitsWithoutSiblingDamage",
         "TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender",
         "TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState",
         "TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource",
@@ -611,6 +614,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-mrt-envelope": (
+        "internal/agenttransport/entity_evidence.go",
+        "if !validEntityEvidenceEnvelope(req) {",
+        "if false && !validEntityEvidenceEnvelope(req) {",
+        "TestPublicRoutingOriginalMRTRealMTLSKeepsTenantCurrentSourceAndWholeRefusal", "mixed-envelope",
+        "served public MRT accepted a mixed evidence envelope",
+    ),
+    "public-mrt-stage-refusal": (
+        "internal/store/bgp_public_mrt_stage.go",
+        "if err := invalidatePublicSource(ctx, sc, source); err != nil {",
+        "if err := error(nil); err != nil {",
+        "TestPublicRoutingRealMTLSKnownSourceRefusalCommitsWithoutSiblingDamage", "malformed-stage",
+        "served public MRT refusal retained former current paths",
+    ),
     "public-receipt-stage": (
         "internal/agent/bgp_routing_stage.go",
         "hasPublicRoutingReceipt(response)",

@@ -146,7 +146,8 @@ type service struct {
 	fence tenancy.WriterFence
 	// Evidence RPCs use a separate tenant bucket from raw result admission.
 	// New() installs bounded defaults; the runtime injects its shared gate.
-	fairness *fairness.Gate
+	fairness      *fairness.Gate
+	routingLimits routingTransportLimits
 	// Fixed-outcome counters only: no tenant, address or entity metric labels.
 	entityEvidenceBatches      map[string]*metrics.Counter
 	entityEvidenceObservations map[string]*metrics.Counter

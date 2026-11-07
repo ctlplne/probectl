@@ -74,6 +74,13 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	if !validEntityEvidenceEnvelope(req) {
 		return nil, status.Error(codes.InvalidArgument, "evidence request must contain one complete operation")
 	}
+	if req.PublicRoutingPeerTable != nil || req.PublicRoutingMessage != nil {
+		response, accepted, err := svc.submitPublicRoutingEvidence(ctx, id, leaf.SerialNumber.Text(16), req)
+		if accepted {
+			outcome = "accepted"
+		}
+		return response, err
+	}
 	if req.GetFlowRouting() != nil {
 		response, err := svc.submitFlowRoutingEvidence(ctx, id, req)
 		if err == nil {

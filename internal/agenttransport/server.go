@@ -109,7 +109,16 @@ type Server struct {
 // published to b (the result bus); a nil bus accepts and counts results without
 // publishing. broker coordinates agent-to-agent sessions; a nil broker disables
 // coordination (PollCoordination returns no task).
-func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker *a2a.Broker, log *slog.Logger) (*Server, error) {
+func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker *a2a.Broker, log *slog.Logger, options ...Option) (*Server, error) {
+	limits := defaultRoutingTransportLimits()
+	for _, option := range options {
+		if option == nil {
+			return nil, fmt.Errorf("agent transport: missing configuration option")
+		}
+		if err := option(&limits); err != nil {
+			return nil, err
+		}
+	}
 	// The registry-driven revocation deny-list is checked at the handshake
 	// (U-038): a compromised agent cert is refused before its short-lived cert
 	// expires. Starts empty (no effect); the control plane refreshes it from
@@ -132,8 +141,9 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 		// CRY-01: the handlers share the SAME deny-list the TLS handshake
 		// consults, so a per-RPC revocation recheck refuses an agent revoked
 		// after its long-lived stream was established (see service.authenticate).
-		revocations: revocations,
-		fairness:    fairness.NewGate(fairness.DefaultPolicy(), nil),
+		revocations:   revocations,
+		fairness:      fairness.NewGate(fairness.DefaultPolicy(), nil),
+		routingLimits: limits,
 	}
 	if pool != nil {
 		// Default fence over the shared pool; the runtime replaces it with the
@@ -154,7 +164,7 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 	// buggy client flooding the decoder.
 	opts := []grpc.ServerOption{
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
-		grpc.MaxRecvMsgSize(maxRecvBytes),
+		grpc.MaxRecvMsgSize(limits.receiveBytes),
 	}
 	// Bound keepalive, connection age/idle, and concurrent streams so a stuck or
 	// idle agent cannot pin connections and streams open (G7-12).

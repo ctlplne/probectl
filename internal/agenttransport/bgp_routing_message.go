@@ -47,7 +47,7 @@ func (svc *service) applyRoutingMessage(ctx context.Context, id crypto.SPIFFEID,
 	input := store.BGPRoutingStreamInput{PeerSelector: selector, CollectorAgentID: id.AgentID, SenderSerial: serial, SourceRef: raw.ConfiguredRef,
 		OriginSerial: raw.OriginSerial, Generation: raw.Generation, ObservedAt: time.Unix(0, raw.ObservedUnixNanos), Sequence: raw.Sequence,
 		Reset: !admitted || raw.SourceReset && !raw.Heartbeat && len(raw.Message) == 0}
-	profile := store.BGPRoutingBudget{MemoryBytes: 256 << 20, WorkUnits: 256 << 20, StateBytes: 1 << 30, LeaseDuration: time.Minute}
+	profile := store.BGPRoutingBudget{MemoryBytes: 256 << 20, WorkUnits: 256 << 20, StateBytes: svc.routingStateLimit(), LeaseDuration: time.Minute}
 	var result store.BGPRoutingApplyResult
 	err := tenancy.FencedTenantWrite(ctx, svc.fence, id.TenantID, entity.ErrScopeMismatch, func(ctx context.Context) error {
 		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool, func(ctx context.Context, sc tenancy.Scope) error {
