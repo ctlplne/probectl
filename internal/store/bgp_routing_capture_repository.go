@@ -126,7 +126,7 @@ func readRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]by
 	if err := routingCaptureScope(ctx, sc); err != nil {
 		return routingCaptureReceipt{}, false, err
 	}
-	if err := requireRoutingReadSnapshot(ctx, sc); err != nil {
+	if err := requireRoutingCaptureReadSnapshot(ctx, sc); err != nil {
 		return routingCaptureReceipt{}, false, err
 	}
 	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
