@@ -34,6 +34,7 @@ import (
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/flow/cloudflow"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/version"
 )
@@ -156,6 +157,10 @@ func (o observedFlowEvidence) SubmitFaults(ctx context.Context, faults []entity.
 	accepted, err := o.client.SubmitFaults(ctx, faults)
 	o.metrics.EntityFault(err)
 	return accepted, err
+}
+
+func (o observedFlowEvidence) SubmitFlowRouting(ctx context.Context, witnesses []*agentv1.FlowRoutingWitness) ([]*agentv1.FlowRoutingCapture, error) {
+	return o.client.SubmitFlowRouting(ctx, witnesses)
 }
 
 func (o observedFlowEvidence) QueueDrop() { o.metrics.EntityEvidenceQueueDrop() }

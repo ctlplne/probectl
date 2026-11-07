@@ -268,7 +268,7 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopi
 		c.log.Debug("flow batch shed by fairness bounds", "tenant_id", tenant, "rows", len(batch.Flows))
 		return nil
 	}
-	// Resolve only independently authenticated first receipts. Fingerprinting
+	// Resolve first-ingestion metadata without granting route authority. Fingerprinting
 	// precedes even the authoritative tenant restamp: the producer attested
 	// the original protobuf, including unknown fields and original claims.
 	captures, err := c.resolveFlowCaptures(ctx, tenant, batch.Flows)

@@ -1075,6 +1075,15 @@ preserving the existing hourly aggregates. Tenant export and deletion keep the
 same storage-level tenant boundary. The migration extends pooled and routed
 tenant stores without changing the checksums of earlier migrations.
 
-The producer-to-consumer timing adapter and outward BGP join remain inactive in
-this candidate. Stored reference support alone does not establish a physical
-flow join, a current router path or a forwarding claim.
+The control-plane consumer records these references before enrichment. If raw
+ingestion wins the race with the asynchronous evidence worker, its routing
+candidate remains private. An exact digest and observed tuple from the existing
+issued mTLS evidence channel can finalize that original snapshot, subject to
+current sender, source and lifecycle checks. It cannot substitute a newer RIB.
+Missing, erased or invalidated evidence stays unavailable. Raw bus publication
+never waits for the evidence RPC; optional witness failures and queue drops are
+counted in collector statistics.
+
+The outward BGP join remains preview and incomplete. Stored reference support
+alone does not establish a physical flow join, a current router path or a
+forwarding claim. Readers still require independent current authorization.

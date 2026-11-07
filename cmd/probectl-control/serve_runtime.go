@@ -703,6 +703,7 @@ func (rt *serveRuntime) startIngestConsumers() {
 	rt.g.Go(func() error {
 		return superviseBusLaneRestart(rt.gctx, "flow-pipeline", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return pipeline.NewFlowConsumer(rt.resultBus, rt.flowStore, rt.flowEnricher, rt.log).
+				WithRoutingCaptureStore(rt.db.Pool(), store.BGPRoutingBudget{MemoryBytes: 256 << 20, WorkUnits: 256 << 20, StateBytes: 1 << 30, LeaseDuration: time.Minute}).
 				WithTenantBinding(rt.tenantBinding).
 				WithNamespaceTenants(snap.tenants).
 				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).

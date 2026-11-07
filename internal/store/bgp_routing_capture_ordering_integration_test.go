@@ -78,6 +78,9 @@ func proveProvisionalCaptureKeepsOriginalRouteBeforeAuthenticatedPublication(t *
 		if pending, exists := read(lane, key); exists || pending.objects != nil {
 			t.Fatal("unattested provisional candidate became canonical before sender evidence")
 		}
+		if retry, err := service.ResolveWitness(ctx, "routing-flow", raw, input, routingViewBudget()); err != nil || retry != provisional {
+			t.Fatal("legacy raw retry replaced a private candidate's first clock", err)
+		}
 		changed := routingChangeFixture()
 		changed.Prefix = changes[lane].Prefix
 		changed.Segments[1].Values[0] = uint32(65090 + lane)

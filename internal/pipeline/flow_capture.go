@@ -42,9 +42,8 @@ type flowCaptureProjection struct {
 var errFlowCaptureReference = errors.New("pipeline: incomplete or mismatched original flow capture reference")
 
 // WithRoutingCaptures installs finite byte/work admission for a whole raw
-// batch. No source lookup or canonical grant is derived from bus payloads.
-// Nil retains legacy ingestion. The runtime activates this only together with
-// the producer timing and durable first-receipt adapter.
+// batch. No canonical grant is derived from bus payloads. Nil retains legacy
+// ingestion; production uses the durable private staging adapter.
 func (c *FlowConsumer) WithRoutingCaptures(resolve FlowRoutingCaptureResolver, memoryBytes, workUnits int64) *FlowConsumer {
 	if resolve == nil {
 		c.captures = nil

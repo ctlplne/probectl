@@ -131,7 +131,7 @@ func (service *BGPRoutingFlowCaptures) captureKey(ctx context.Context, sender st
 	return entity.FlowCaptureKey(tenant.String(), sender, rawDigest, input)
 }
 
-// ResolveWitness is the raw consumer's only capture writer. Claimed bus agent
+// ResolveWitness is a legacy witness lookup/seal helper. Claimed bus agent
 // identity is a lookup selector for an independently authenticated witness.
 // If no witness exists, seal unavailable under the same first-receipt/lifecycle
 // locks. This method never reads a router, resolves an exporter or creates a
@@ -142,17 +142,17 @@ func (service *BGPRoutingFlowCaptures) ResolveWitness(ctx context.Context, claim
 		return BGPRoutingCaptureReference{}, err
 	}
 	ctx = tenancy.WithSiloTableLock(ctx)
-	var receipt routingCaptureReceipt
+	var reference BGPRoutingCaptureReference
 	err = tenancy.InTenant(ctx, service.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		generation, err := sourceepoch.SourceGenerationInScope(ctx, sc)
 		if err != nil {
 			return err
 		}
-		receipt, err = retainRoutingCaptureInScope(ctx, sc, key, nil, generation, budget)
+		reference, err = retainRawRoutingCaptureInScope(ctx, sc, key, nil, generation, budget)
 		return err
 	})
 	if err != nil {
 		return BGPRoutingCaptureReference{}, err
 	}
-	return routingCaptureReference(receipt), nil
+	return reference, nil
 }

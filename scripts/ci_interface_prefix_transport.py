@@ -15,6 +15,9 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
+	"cmd/probectl-flow-agent": (
+		"TestObservedFlowEvidenceKeepsCompleteRoutingWitnessChannel",
+	),
     "internal/pipeline": (
         "TestFlowCaptureConsumerKeepsOriginalDigestFrozenClockAndTenant",
         "TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution",

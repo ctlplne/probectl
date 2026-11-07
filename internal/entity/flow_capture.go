@@ -26,7 +26,8 @@ type FlowCaptureReference struct {
 
 // FlowCaptureWitness is a complete original-record fingerprint and observed
 // lookup tuple. Sender/tenant authority is supplied by its calling transport,
-// never by this value. Raw consumers use it only to resolve existing witnesses.
+// never by this value. Raw consumers may stage private candidates, never
+// publish a positive canonical routing receipt.
 type FlowCaptureWitness struct {
 	RawDigest [32]byte
 	Input     FlowCaptureInput

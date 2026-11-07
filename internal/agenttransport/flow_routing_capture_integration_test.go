@@ -139,6 +139,9 @@ func TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender(t *te
 	if bytes.Equal(lanes[0].capture.Key, lanes[1].capture.Key) {
 		t.Fatal("same raw digest/tuple crossed certified tenant scope")
 	}
+	for _, lane := range lanes {
+		proveFlowRoutingRuntimeOrdering(t, pool, lane.tenant, lane.agent, lane.client)
+	}
 	if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(lanes[0].tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var foreign int
 		err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_flow_capture_receipts WHERE flow_key=$1`, lanes[1].capture.Key).Scan(&foreign)
