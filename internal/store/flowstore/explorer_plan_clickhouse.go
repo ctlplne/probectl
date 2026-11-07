@@ -51,6 +51,9 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if err := validatePlanInterfaceRoles(ctx, query, plan); err != nil {
 		return PlanResult{}, err
 	}
+	if err := validatePlanRouting(ctx, query, plan); err != nil {
+		return PlanResult{}, err
+	}
 	if query.Tags != nil {
 		external, err = query.Tags.externalData(ctx, query.TenantID, plan, budget.MemoryBytes/4)
 		if err != nil {
@@ -67,6 +70,17 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 			return PlanResult{}, err
 		}
 		external = append(external, explorerExternalData{kind: externalInterfaceRoles, rows: roles})
+	}
+	if planUsesRouting(plan) {
+		remaining := budget.MemoryBytes / 4
+		for _, table := range external {
+			remaining -= int64(len(table.rows))
+		}
+		data, err := query.Routing.externalData(ctx, query.TenantID, remaining)
+		if err != nil {
+			return PlanResult{}, err
+		}
+		external = append(external, data...)
 	}
 
 	target, err := c.route(ctx, query.TenantID)
@@ -88,8 +102,8 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if err != nil {
 		return PlanResult{}, err
 	}
-	sql, params, err := planSQLWithRoleMetadata(budget, plan, source.table, names, query.TenantID,
-		query.Tags, query.Roles, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
+	sql, params, err := planSQLWithRoutingMetadata(budget, plan, source.table, names, query.TenantID,
+		query.Tags, query.Roles, query.Routing, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -111,8 +125,8 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 			return PlanResult{}, err
 		}
 		if current.kind != source.kind {
-			sql, params, err := planSQLWithRoleMetadata(budget, plan, current.table, names, query.TenantID,
-				query.Tags, query.Roles, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
+			sql, params, err := planSQLWithRoutingMetadata(budget, plan, current.table, names, query.TenantID,
+				query.Tags, query.Roles, query.Routing, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
 			if err != nil {
 				return PlanResult{}, err
 			}

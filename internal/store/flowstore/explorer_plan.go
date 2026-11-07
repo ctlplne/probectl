@@ -433,6 +433,9 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if err := validatePlanInterfaceRoles(ctx, query, plan); err != nil {
 		return PlanResult{}, err
 	}
+	if err := validatePlanRouting(ctx, query, plan); err != nil {
+		return PlanResult{}, err
+	}
 	if plan.DataSeries == "rollup" {
 		return PlanResult{}, errors.New("rollup coverage is unavailable from the memory store")
 	}
@@ -485,6 +488,9 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 				return found
 			}
 			result := explorerFieldValue(entry, field, plan, names, vocabulary, query.Tags, query.Roles)
+			if _, routing := flow.RoutingQueryField(field); routing {
+				result = query.Routing.valueForRow(entry.row, field)
+			}
 			values[field] = result
 			return result
 		}

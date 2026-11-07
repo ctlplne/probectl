@@ -170,6 +170,8 @@ func explorerFieldExprWithParams(field flow.QueryField, params chParams) string 
 	}
 	column := field.Column
 	switch field.Derived {
+	case "flow_routing":
+		return routingQueryFieldSQL(field, params)
 	case "in_if_role":
 		return "ifNull(nullIf(in_roles.role_value,''),'other')"
 	case "out_if_role":

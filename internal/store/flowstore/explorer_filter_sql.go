@@ -41,6 +41,11 @@ func explorerFilterSQLWithVocabulary(input *flow.QueryFilterGroup, params chPara
 			if err != nil {
 				return "", err
 			}
+			if field, routing := flow.RoutingQueryField(predicate.Field); routing && field.Type == flow.QueryUnsigned {
+				// Unknown numeric routing evidence is a false predicate, then
+				// participates in the same explicit Boolean exclusion as native.
+				sql = "ifNull(" + sql + ",0)"
+			}
 			index++
 			parts = append(parts, "("+sql+")")
 		}

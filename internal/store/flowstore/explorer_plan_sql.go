@@ -60,6 +60,12 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 func planSQLWithRoleMetadata(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	names map[string]map[uint32]string, tenantID string, tagData *TagQueryData, roleData *InterfaceRoleQueryData,
 	membership ...[][]string) (string, chParams, error) {
+	return planSQLWithRoutingMetadata(budget, plan, table, names, tenantID, tagData, roleData, nil, membership...)
+}
+
+func planSQLWithRoutingMetadata(budget ExplorerBudget, plan flow.QueryPlan, table string,
+	names map[string]map[uint32]string, tenantID string, tagData *TagQueryData, roleData *InterfaceRoleQueryData,
+	routing *routingQueryData, membership ...[][]string) (string, chParams, error) {
 	settings, err := budget.settings()
 	if err != nil {
 		return "", nil, err
@@ -77,6 +83,9 @@ func planSQLWithRoleMetadata(budget ExplorerBudget, plan flow.QueryPlan, table s
 	}
 	if planUsesInterfaceRoles(plan) && (roleData == nil || roleData.tenantID != tenantID) {
 		return "", nil, ErrInterfaceRoleQueryScope
+	}
+	if planUsesRouting(plan) && (routing == nil || routing.tenant != tenantID) {
+		return "", nil, ErrRoutingQueryScope
 	}
 	if !explorerTablePattern.MatchString(table) {
 		return "", nil, errors.New("invalid flow query table")
@@ -116,6 +125,7 @@ func planSQLWithRoleMetadata(budget ExplorerBudget, plan flow.QueryPlan, table s
 		from = prefixTagProjectionSQL(from, sides)
 	}
 	from = planInterfaceRoleJoinsSQL(from, plan)
+	from = planRoutingJoinsSQL(from, plan)
 
 	// Original keys have names distinct from the transformed g/c aliases below.
 	// In particular column_input remaps the original column into g and clears c;

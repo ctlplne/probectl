@@ -394,3 +394,19 @@ func planRoutingJoinsSQL(from string, plan flow.QueryPlan) string {
 	return from + " ANY LEFT JOIN routing_capture_lookup AS routing_refs ON routing_refs.routing_ref_tenant=tenant_id AND routing_refs.routing_key=routing_capture_key AND routing_refs.routing_clock=routing_captured_unix_nanos" +
 		" ANY LEFT JOIN routing_fact_lookup AS routing_meta ON routing_meta.routing_fact_tenant=tenant_id AND routing_meta.routing_fact_id=routing_refs.routing_fact"
 }
+
+func routingQueryFieldSQL(field flow.QueryField, params chParams) string {
+	expected, ok := flow.RoutingQueryField(field.Name)
+	if !ok || expected.Type != field.Type || field.Derived != "flow_routing" || params == nil {
+		return "''"
+	}
+	parameter := "routing_field_" + field.Name
+	params[parameter] = field.Name
+	value := "routing_meta.routing_values[{" + parameter + ":String}]"
+	if field.Type == flow.QueryUnsigned {
+		return "toUInt32OrNull(" + value + ")"
+	}
+	missing := parameter + "_missing"
+	params[missing] = routingMissingField(field.Name)
+	return "ifNull(nullIf(" + value + ",''),{" + missing + ":String})"
+}
