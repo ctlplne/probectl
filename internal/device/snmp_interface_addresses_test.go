@@ -24,8 +24,10 @@ import (
 
 type modernAddressConn struct {
 	*ipWalkConn
-	rows []gosnmp.SnmpPDU
-	err  error
+	rows    []gosnmp.SnmpPDU
+	err     error
+	types   []gosnmp.SnmpPDU
+	typeErr error
 }
 
 func (c *modernAddressConn) walkInterfaceAddresses(ctx context.Context, fn gosnmp.WalkFunc) error {
@@ -38,6 +40,28 @@ func (c *modernAddressConn) walkInterfaceAddresses(ctx context.Context, fn gosnm
 		}
 	}
 	return c.err
+}
+
+// Modeled complete RFC4293 companion column. Tests can replace it with a
+// complete broadcast/anycast population or a deliberately incomplete epoch.
+func (c *modernAddressConn) walkInterfaceAddressTypes(ctx context.Context, fn gosnmp.WalkFunc) error {
+	rows := c.types
+	if rows == nil {
+		for _, row := range c.rows {
+			row.Name = strings.Replace(row.Name, oidIPAddressIfIndex, ".1.3.6.1.2.1.4.34.1.4", 1)
+			row.Value = int64(1)
+			rows = append(rows, row)
+		}
+	}
+	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := fn(row); err != nil {
+			return err
+		}
+	}
+	return c.typeErr
 }
 
 func addressRow(address string, index uint32, zone *uint32) gosnmp.SnmpPDU {
@@ -140,5 +164,61 @@ func TestSNMPInterfaceAddressesRefusePartialMalformedOrUnadmittedTables(t *testi
 	_, inv, err := pollSNMP(t.Context(), conn, Target{Address: "192.0.2.1"}, "tenant", "agent", pollTime)
 	if err != nil || inv.addressesUnavailable || !slices.Contains(inv.Interfaces[1].Addrs, netip.MustParseAddr("192.0.2.1")) {
 		t.Fatal("unsupported modern IP-MIB lost existing legacy IPv4 evidence", err)
+	}
+}
+
+func TestSNMPModernAddressTypeNeverTurnsBroadcastIntoOwnedHop(t *testing.T) {
+	for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"} {
+		conn := modernAddressFixture()
+		conn.rows = append(conn.rows, addressRow("172.17.255.255", 2, nil), addressRow("2001:db8::a", 2, nil))
+		for _, row := range conn.rows {
+			row.Name = strings.Replace(row.Name, oidIPAddressIfIndex, ".1.3.6.1.2.1.4.34.1.4", 1)
+			row.Value = int64(1)
+			if strings.HasSuffix(row.Name, ".172.17.255.255") {
+				row.Value = int64(3)
+			}
+			conn.types = append(conn.types, row)
+		}
+		conn.types[len(conn.types)-1].Value = int64(2)
+		metrics, inv, err := pollSNMP(t.Context(), conn, Target{Address: "192.0.2.1"}, tenant, "agent", pollTime)
+		if err != nil || inv.addressesUnavailable || len(metrics) == 0 {
+			t.Fatal("complete IP-MIB type epoch lost raw counters", err)
+		}
+		if slices.Contains(inv.Interfaces[2].Addrs, netip.MustParseAddr("172.17.255.255")) {
+			t.Fatal("IP-MIB broadcast entry became an owned interface address or topology hop")
+		}
+		if !slices.Contains(inv.Interfaces[2].Addrs, netip.MustParseAddr("2001:db8::a")) || !slices.Contains(inv.Interfaces[1].Addrs, netip.MustParseAddr("fd42:e8:1::11")) {
+			t.Fatal("address type selection removed supported anycast or dual-stack input")
+		}
+		for _, m := range metrics {
+			if m.TenantID != tenant {
+				t.Fatal("typed IP-MIB epoch crossed its tenant")
+			}
+		}
+	}
+}
+
+func TestSNMPModernAddressTypeRequiresCompleteMatchingColumn(t *testing.T) {
+	for _, change := range []func(*modernAddressConn){
+		func(c *modernAddressConn) { c.types = []gosnmp.SnmpPDU{} },
+		func(c *modernAddressConn) { c.typeErr = errors.New("late type table failure") },
+		func(c *modernAddressConn) {
+			row := c.rows[0]
+			row.Name = strings.Replace(row.Name, oidIPAddressIfIndex, ".1.3.6.1.2.1.4.34.1.4", 1)
+			row.Value = int64(4)
+			c.types = []gosnmp.SnmpPDU{row}
+		},
+	} {
+		conn := modernAddressFixture()
+		change(conn)
+		_, inv, err := pollSNMP(t.Context(), conn, Target{Address: "192.0.2.1"}, "tenant", "agent", pollTime)
+		if err != nil || !inv.addressesUnavailable {
+			t.Fatal("incomplete address type table retained current interface authority", err)
+		}
+		for _, iface := range inv.Interfaces {
+			if len(iface.Addrs) > 0 || len(iface.ScopedAddrs) > 0 {
+				t.Fatal("partial typed address table escaped")
+			}
+		}
 	}
 }
