@@ -37,23 +37,7 @@ func NewBGPRoutingFlowCaptures(pool *pgxpool.Pool) *BGPRoutingFlowCaptures {
 }
 
 func (service *BGPRoutingFlowCaptures) CaptureAuthenticated(ctx context.Context, sender string, rawDigest [32]byte, input BGPRoutingFlowInput, budget BGPRoutingBudget) (BGPRoutingCaptureReference, error) {
-	if err := ctx.Err(); err != nil {
-		return BGPRoutingCaptureReference{}, err
-	}
-	tenant, ok := tenancy.FromContext(ctx)
-	if canonical, err := validRegistryUUID(tenant.String()); !ok || err != nil || canonical != tenant.String() {
-		return BGPRoutingCaptureReference{}, entity.ErrScopeMismatch
-	}
-	if sender == "" {
-		return BGPRoutingCaptureReference{}, entity.ErrScopeMismatch
-	}
-	if rawDigest == ([32]byte{}) || budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
-		return BGPRoutingCaptureReference{}, ErrBGPRoutingBudget
-	}
-	if service == nil || service.pool == nil {
-		return BGPRoutingCaptureReference{}, ErrBGPRoutingSourceUnavailable
-	}
-	key, err := entity.FlowCaptureKey(tenant.String(), sender, rawDigest, input)
+	key, err := service.captureKey(ctx, sender, rawDigest, input, budget)
 	if err != nil {
 		return BGPRoutingCaptureReference{}, err
 	}
@@ -122,4 +106,50 @@ func (service *BGPRoutingFlowCaptures) captureCurrentFlow(ctx context.Context, s
 
 func routingCaptureReference(receipt routingCaptureReceipt) BGPRoutingCaptureReference {
 	return BGPRoutingCaptureReference{Key: receipt.key, CapturedAt: receipt.capturedAt.UTC()}
+}
+
+func (service *BGPRoutingFlowCaptures) captureKey(ctx context.Context, sender string, rawDigest [32]byte, input BGPRoutingFlowInput, budget BGPRoutingBudget) ([32]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return [32]byte{}, err
+	}
+	tenant, ok := tenancy.FromContext(ctx)
+	if canonical, err := validRegistryUUID(tenant.String()); !ok || err != nil || canonical != tenant.String() {
+		return [32]byte{}, entity.ErrScopeMismatch
+	}
+	if sender == "" {
+		return [32]byte{}, entity.ErrScopeMismatch
+	}
+	if rawDigest == ([32]byte{}) || budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
+		return [32]byte{}, ErrBGPRoutingBudget
+	}
+	if service == nil || service.pool == nil {
+		return [32]byte{}, ErrBGPRoutingSourceUnavailable
+	}
+	return entity.FlowCaptureKey(tenant.String(), sender, rawDigest, input)
+}
+
+// ResolveWitness is the raw consumer's only capture writer. Claimed bus agent
+// identity is a lookup selector for an independently authenticated witness.
+// If no witness exists, seal unavailable under the same first-receipt/lifecycle
+// locks. This method never reads a router, resolves an exporter or creates a
+// positive capture, even when the claimed sender is registered and owns one.
+func (service *BGPRoutingFlowCaptures) ResolveWitness(ctx context.Context, claimedSender string, rawDigest [32]byte, input BGPRoutingFlowInput, budget BGPRoutingBudget) (BGPRoutingCaptureReference, error) {
+	key, err := service.captureKey(ctx, claimedSender, rawDigest, input, budget)
+	if err != nil {
+		return BGPRoutingCaptureReference{}, err
+	}
+	ctx = tenancy.WithSiloTableLock(ctx)
+	var receipt routingCaptureReceipt
+	err = tenancy.InTenant(ctx, service.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		generation, err := flowsnapshot.SourceGenerationInScope(ctx, sc)
+		if err != nil {
+			return err
+		}
+		receipt, err = retainRoutingCaptureInScope(ctx, sc, key, nil, generation, budget)
+		return err
+	})
+	if err != nil {
+		return BGPRoutingCaptureReference{}, err
+	}
+	return routingCaptureReference(receipt), nil
 }

@@ -67,6 +67,26 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 			t.Fatal("capture adapter lost complete owned paths or crossed tenant", lane, err)
 		}
 	}
+	// The raw lane can resolve a positive certificate-authored witness, but
+	// payload IDs alone must seal unavailable despite a fully live owned RIB.
+	witnessed, err := service.ResolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "routing-flow", rawDigest, input, routingViewBudget())
+	if err != nil || witnessed != first[0] {
+		t.Fatal("raw consumer lost independently authenticated first witness", err)
+	}
+	rawOnly := routingCaptureHash([]byte("raw payload claiming a registered live exporter"))
+	rawReference, err := service.ResolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "routing-flow", rawOnly, input, routingViewBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt := read(0, rawReference.Key); receipt.outcome != "unavailable" || receipt.objects != nil {
+		t.Fatal("bus claimed sender created a positive canonical capture")
+	}
+	if late, err := service.CaptureAuthenticated(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "routing-flow", rawOnly, input, routingViewBudget()); err != nil || late != rawReference {
+		t.Fatal("late authenticated proof changed first raw capture clock", err)
+	}
+	if receipt := read(0, rawReference.Key); receipt.outcome != "unavailable" || receipt.objects != nil {
+		t.Fatal("late authenticated proof refilled an unavailable raw capture")
+	}
 	if got, err := service.CaptureAuthenticated(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "other-authenticated-agent", rawDigest, input, routingViewBudget()); !errors.Is(err, entity.ErrScopeMismatch) || got != (BGPRoutingCaptureReference{}) {
 		t.Fatal("authenticated sender selected another agent's canonical router", err)
 	}
@@ -104,6 +124,10 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 	}
 	if _, err := f.pool.Exec(t.Context(), `UPDATE tenants SET status='offboarding' WHERE id=$1`, f.tenants[1]); err != nil {
 		t.Fatal(err)
+	}
+	var rawPostgres *pgconn.PgError
+	if got, err := service.ResolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[1])), "routing-flow", rawDigest, input, routingViewBudget()); !errors.As(err, &rawPostgres) || rawPostgres.Code != "55000" || got != (BGPRoutingCaptureReference{}) {
+		t.Fatal("offboarding raw lookup exposed first witness before tenant fence", err)
 	}
 	var postgres *pgconn.PgError
 	if got, err := service.CaptureAuthenticated(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[1])), "routing-flow", rawDigest, input, routingViewBudget()); !errors.As(err, &postgres) || postgres.Code != "55000" || got != (BGPRoutingCaptureReference{}) {

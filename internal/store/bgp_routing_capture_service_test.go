@@ -23,6 +23,9 @@ func TestRoutingCaptureServiceRequiresTenantBeforeAvailability(t *testing.T) {
 			t.Fatal("unscoped capture reached service availability", err)
 		}
 	}
+	if got, err := service.ResolveWitness(t.Context(), "routing-flow", key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, entity.ErrScopeMismatch) || got != (BGPRoutingCaptureReference{}) {
+		t.Fatal("raw capture lookup reached availability before tenant scope", err)
+	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(routingCaptureTenant))
 	if got, err := service.CaptureAuthenticated(ctx, "routing-flow", key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got != (BGPRoutingCaptureReference{}) {
 		t.Fatal("missing capture storage invented a reference", err)

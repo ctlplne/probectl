@@ -517,6 +517,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-capture-bus": (
+        "internal/store/bgp_routing_capture_service.go",
+        "key, err := service.captureKey(ctx, claimedSender, rawDigest, input, budget)",
+        "if rawDigest != ([32]byte{}) { return service.CaptureAuthenticated(ctx, claimedSender, rawDigest, input, budget) }; key, err := service.captureKey(ctx, claimedSender, rawDigest, input, budget)",
+        "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges", "",
+        "bus claimed sender created a positive canonical capture",
+    ),
     "flow-capture-wire": (
         "internal/flow/routing_capture.go",
         "body, err := (proto.MarshalOptions{Deterministic: true}).Marshal(record)",
