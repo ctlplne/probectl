@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -109,7 +110,11 @@ func TestBMPRoutingSelectorsKeepIndependentGenerationsRefusalsAndSourceClosure(t
 	if len(sink.messages) != 2 || sink.messages[0].Generation != a || sink.messages[1].Generation != b || sink.messages[0].Sequence != 1 || sink.messages[1].Sequence != 1 {
 		t.Fatal("routing selectors shared a generation or sequence", sink.messages)
 	}
+	beforeRefusal := states.used
 	drive(handle, 99, true)
+	if len(states.sessions[handle]) != 2 || states.used != beforeRefusal {
+		t.Fatal("rejected fresh selector retained routing metadata")
+	}
 	if ctx.Err() != nil {
 		t.Fatal("unbound selector closed raw collection")
 	}
@@ -181,9 +186,11 @@ func TestBMPRoutingMetadataAdmissionKeepsWholePopulationAndReclaimsSourceState(t
 	const population = 5001
 	observed := time.Now().UTC()
 	peer := func(handle uint64, index uint32) bmpPeerEvidence {
-		var selector bmpRoutingSelector
-		binary.BigEndian.PutUint32(selector.identifier[:], index)
+		header := BMPRouteViewHeader{BGPIdentifier: netip.AddrFrom4([4]byte{192, 0, 2, byte(index % 2)})}
+		binary.BigEndian.PutUint64(header.Distinguisher[:], uint64(index))
+		selector := bmpSelector(header)
 		raw := make([]byte, 48)
+		copy(raw[8:16], selector.distinguisher[:])
 		copy(raw[36:40], selector.identifier[:])
 		return bmpPeerEvidence{tenantID: "tenant-a", routerAgentID: "router-a", routerSerial: "serial-a", sessionHandle: handle, routingSelector: selector, observedAt: observed,
 			routingPeerUp: &agentv1.BmpRoutingPeerUp{ObservationId: fmt.Sprintf("%08x-%04x-4111-8111-111111111111", index, handle), Message: raw}}
@@ -241,5 +248,52 @@ func TestBMPRoutingMetadataAdmissionKeepsWholePopulationAndReclaimsSourceState(t
 	configured := NewBMPListener(nil, nil, "", nil, WithBMPRoutingStateBytes(DefaultBMPRoutingStateBytes*2))
 	if configured.routingStateBytes != DefaultBMPRoutingStateBytes*2 {
 		t.Fatal("routing byte profile option was ignored")
+	}
+}
+
+func TestBMPRoutingSourceLossRetiresAllSelectorsAfterSocketDeregistration(t *testing.T) {
+	sink := &routingSelectorsCapture{}
+	l := NewBMPListener(nil, nil, "", nil, WithBMPTenantLane("tenant-a", "lane-a"), WithBMPEntityEvidence("listener-a", sink))
+	rawCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	id := bmpIdentity{TenantID: "tenant-a", AgentID: "router-a", Serial: "serial-a"}
+	handle := l.registerLive(&bmpLiveSession{id: id, cancel: cancel})
+	other := l.registerLive(&bmpLiveSession{id: id, cancel: func() {}})
+	states := routingBookForTest()
+	observed := time.Now().UTC()
+	for index := byte(1); index <= 3; index++ {
+		peer := bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: handle,
+			routingSelector: bmpRoutingSelector{identifier: [4]byte{192, 0, 2, index}}, routingLoss: l.routingSessionLoss(handle), observedAt: observed}
+		if !states.put(peer, bmpRoutingStreamState{source: peer, generation: fmt.Sprintf("owned-%d", index), sequence: int64(index)}) {
+			t.Fatal("known stream metadata admission refused")
+		}
+	}
+	sibling := bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: other, routingLoss: l.routingSessionLoss(other)}
+	if !states.put(sibling, bmpRoutingStreamState{source: sibling, generation: "sibling", sequence: 11}) {
+		t.Fatal("sibling stream metadata admission refused")
+	}
+	l.loseRoutingEvidence(handle)
+	l.deregisterLive(handle)
+	l.retireLostRoutingStreams(context.Background(), states)
+	if len(sink.messages) != 3 {
+		t.Fatal("physical loss left known routing selectors current", len(sink.messages))
+	}
+	seen := map[string]bool{}
+	for _, message := range sink.messages {
+		if !message.SourceReset || message.Generation == "sibling" || seen[message.Generation] || message.OriginSerial != id.Serial || message.ConfiguredRef != id.AgentID {
+			t.Fatal("physical loss reset unrelated authority or repeated a selector", message)
+		}
+		seen[message.Generation] = true
+	}
+	for _, state := range states.sessions[handle] {
+		if !state.failed {
+			t.Fatal("physical loss retained a writable routing selector")
+		}
+	}
+	if state, _ := states.get(sibling); state.failed || state.sequence != 11 {
+		t.Fatal("physical loss changed another socket's routing state")
+	}
+	if rawCtx.Err() != nil {
+		t.Fatal("evidence loss canceled raw BGP collection")
 	}
 }
