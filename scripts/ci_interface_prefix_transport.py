@@ -140,6 +140,8 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestAnalyzerBridgeKeepsCompleteOldAndNewPathsAndTenantBinding",
+        "TestAnalyzerBridgeRefusesUnadmittedWholeLineWithoutPublishingPrefix",
         "TestRoutingPathTextKeepsCompleteCanonicalSegmentsAndAdmission",
         "TestRoutingPathFieldsKeepCompleteSemanticsAndExplicitUnknowns",
         "TestRoutingPathFieldsRefuseWholeAdmissionMalformedAndCancelledInput",
@@ -563,6 +565,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "analyzer-bridge-complete-paths": (
+        "internal/bgp/bridge.go",
+        "const maxEventLine = 16 << 20",
+        "const maxEventLine = 1 << 20",
+        "TestAnalyzerBridgeKeepsCompleteOldAndNewPathsAndTenantBinding", "",
+        "complete bound analyzer paths were refused or lost tenant admission",
+    ),
     "native-routing-csv-paths": (
         "internal/control/mcp_native_flow_csv.go",
         "projectNativeCSVRoutingPaths(ctx, &out, remaining)",
