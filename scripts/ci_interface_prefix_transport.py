@@ -16,6 +16,8 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
     "internal/pipeline": (
+        "TestFlowCaptureConsumerKeepsOriginalDigestFrozenClockAndTenant",
+        "TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution",
         "TestFlowProjectionUsesFrozenFirstProcessingClock",
         "TestSFlowStartTimeFallback",
     ),
@@ -535,6 +537,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-capture-consumer-wire": (
+        "internal/pipeline/flow_capture.go",
+        'ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant))',
+        'ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant)); for _, record := range records { record.TenantId = tenant }',
+        "TestFlowCaptureConsumerKeepsOriginalDigestFrozenClockAndTenant", "",
+        "capture consumer lost verified tenant or original raw digest before enrichment",
+    ),
+    "flow-capture-consumer-key": (
+        "internal/pipeline/flow_capture.go",
+        'ref.Key != projection.key || clock <= 0',
+        '(false && ref.Key != projection.key) || clock <= 0',
+        "TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution", "",
+        "partial or foreign capture batch reached storage or was acknowledged",
+    ),
+    "flow-capture-consumer-budget": (
+        "internal/pipeline/flow_capture.go",
+        'memory -= cost * 4',
+        '_ = cost',
+        "TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution", "",
+        "partial or foreign capture batch reached storage or was acknowledged",
+    ),
     "flow-capture-row-identity": (
         "internal/store/flowstore/clickhouse.go",
         'if r.RoutingCaptureKey != "" {',

@@ -119,7 +119,7 @@ func TestFlowCaptureConsumerKeepsOriginalDigestFrozenClockAndTenant(t *testing.T
 
 func TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution(t *testing.T) {
 	message := captureBatchMessageForTest(t, flowCaptureBatchForTest(3))
-	for _, mode := range []string{"memory", "work", "wrong-key", "missing-clock", "resolver-failure", "foreign-context"} {
+	for _, mode := range []string{"memory", "work", "aggregate-memory", "wrong-key", "missing-clock", "resolver-failure", "foreign-context"} {
 		t.Run(mode, func(t *testing.T) {
 			store := flowstore.NewMemory()
 			calls := 0
@@ -144,13 +144,16 @@ func TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution(t *tes
 			if mode == "work" {
 				work = 1
 			}
+			if mode == "aggregate-memory" {
+				memory = 256*3 + int64(proto.Size(flowCaptureBatchForTest(3).Flows[0]))*4 + 64
+			}
 			consumer := NewFlowConsumer(nil, store, nil, nil).WithRoutingCaptures(resolve, memory, work)
 			ctx := t.Context()
 			if mode == "foreign-context" {
 				ctx = tenancy.WithTenant(ctx, tenancy.ID(flowCaptureTenantB))
 			}
 			err := consumer.handleLane(ctx, message, message.Topic, flowCaptureTenantA)
-			if err == nil || store.Len() != 0 || ((mode == "memory" || mode == "work" || mode == "foreign-context") && calls != 0) {
+			if err == nil || store.Len() != 0 || ((mode == "memory" || mode == "work" || mode == "aggregate-memory" || mode == "foreign-context") && calls != 0) {
 				t.Fatal("partial or foreign capture batch reached storage or was acknowledged", err, store.Len(), calls)
 			}
 		})
