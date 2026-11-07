@@ -216,6 +216,9 @@ func projectNativeFlow(source flowstore.PlanResult, tenant string, options ...na
 		}
 		out.Matrix = append(out.Matrix, mcp.NativeFlowCell{Row: row, Column: column, RowOther: cell.RowOther, ColumnOther: cell.ColumnOther, Metrics: values})
 	}
+	if err := projectNativeFlowRoutingPaths(ctx, &out, source, budget); err != nil {
+		return mcp.NativeFlowResult{}, err
+	}
 	return out, nil
 }
 func nativeFlowPaging(source *flowSnapshotPaging) *mcp.NativeFlowPaging {
@@ -278,6 +281,9 @@ func projectNativeFlowComparison(source explorerComparisonResult, tenant string,
 			return mcp.NativeFlowComparisonResult{}, err
 		}
 		rows = append(rows, mcp.NativeFlowComparisonRow{Group: group, Other: row.Other, Metric: row.Measure, Calculation: row.Aggregation, Current: row.CurrentExact, Previous: row.PreviousExact, Delta: row.DeltaExact, PercentChange: row.PercentExact, State: row.DeltaState})
+	}
+	if err := projectNativeComparisonRoutingPaths(rows, source.Flow.Current.Query, options); err != nil {
+		return mcp.NativeFlowComparisonResult{}, err
 	}
 	return mcp.NativeFlowComparisonResult{ContractVersion: source.ContractVersion, Current: now, Previous: before, Rows: rows, Membership: source.Flow.Membership, Paging: nativeFlowPaging(source.FlowPaging)}, nil
 }

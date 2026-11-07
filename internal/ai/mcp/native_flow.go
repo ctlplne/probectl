@@ -63,9 +63,21 @@ type NativeFlowQuestionResult struct {
 
 // Entries are ordered by the validated query. Arbitrary storage-map keys never
 // become new fields. Values are authoritative decimal/text strings, not floats.
+// RoutingPaths provides complete typed ASNs/segment kinds independently of
+// free-text presentation. Every text field still traverses mandatory redaction.
+type NativeFlowRoutingSegment struct {
+	Kind uint8    `json:"kind"`
+	ASNs []uint32 `json:"asns"`
+}
+
+type NativeFlowRoutingPath struct {
+	Segments []NativeFlowRoutingSegment `json:"segments"`
+}
+
 type NativeFlowDimension struct {
-	Field string `json:"field"`
-	Value string `json:"value"`
+	Field        string                  `json:"field"`
+	Value        string                  `json:"value"`
+	RoutingPaths []NativeFlowRoutingPath `json:"routing_paths,omitempty"`
 }
 type NativeFlowValue struct {
 	Metric  string `json:"metric"`

@@ -403,6 +403,14 @@ Validated server-created role IDs and configuration references retain their exac
 JSON values through redaction; exporter addresses and arbitrary evidence/text
 remain subject to the complete tenant redaction policy.
 
+AS-path dimensions additionally carry complete `routing_paths`: ordered paths
+of segments with `kind` (1 = set, 2 = sequence, 3 = confederation sequence,
+4 = confederation set) and full uint32 `asns`. Prepends and set/confederation
+semantics are preserved. This typed protocol representation remains useful when
+the human-readable `value` resembles a PII pattern; every text value still
+traverses the mandatory tenant redactor. These values describe an authorized
+result and grant no source access.
+
 Native requests admit the full API grammar within a 4 MiB authenticated HTTP
 body and the shared 2 MiB plan/configuration grammar budget. Initial-catalog HTTP
 requests retain their 1 MiB body limit. Native output has server-owned 32 MiB

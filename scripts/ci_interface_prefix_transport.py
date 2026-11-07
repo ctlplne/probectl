@@ -68,6 +68,7 @@ UNIT = {
         "TestSNMPPollSkipsExtraPrefixFetchWithoutEvidenceChannel",
     ),
     "internal/ai/mcp": (
+        "TestNativeRoutingASNsKeepStructuredPathsAndMandatoryTextRedaction",
         "TestBGPRoutingNativeToolsKeepCompleteInputAndTenantUserBoundary",
         "TestBGPRoutingNativeParserRefusesAuthorityHintsAndIncompleteReplacement",
         "TestInterfaceRoleNativeToolsPreserveCompleteInputAndUserTenantBoundary",
@@ -78,6 +79,7 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestNativeFlowRoutingPathsKeepWholeTypedSegmentsAcrossQueryProjections",
         "TestReportRoutingReaderRequiresCurrentScopedAuthorityBeyondReceipt",
         "TestReportRoutingRequirementsKeepWholeOriginalPeriodsAndAdmission",
         "TestReportRoutingRequirementsRefuseOmittedAndMalformedSourceLineage",
@@ -137,6 +139,7 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestRoutingPathTextKeepsCompleteCanonicalSegmentsAndAdmission",
         "TestRoutingPathFieldsKeepCompleteSemanticsAndExplicitUnknowns",
         "TestRoutingPathFieldsRefuseWholeAdmissionMalformedAndCancelledInput",
         "TestFRRRoutingProfileKeepsOriginalMetadataFamiliesAndStrictDefault",
@@ -559,6 +562,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "native-routing-paths": (
+        "internal/control/mcp_native_flow_routing.go",
+        "value.RoutingPaths = complete",
+        "_ = complete",
+        "TestNativeFlowRoutingPathsKeepWholeTypedSegmentsAcrossQueryProjections", "",
+        "native routing projection lost complete typed paths",
+    ),
     "report-routing-current-reader": (
         "internal/control/dashboard_report_routing.go",
         "if current.digest != input.Routing.Digest || current.inputDigest != input.Routing.InputDigest {",
