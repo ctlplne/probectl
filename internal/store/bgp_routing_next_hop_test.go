@@ -60,6 +60,12 @@ func TestRoutingNextHopASRequiresActualUniqueNeighborAndCompleteProvenance(t *te
 	if got, err := routingNextHopFields(t.Context(), []BGPRoutingChange{path}, []InterfaceRolePeerInput{linkLocal}, budget); err != nil || got[0].ASN != nil {
 		t.Fatal("unscoped link-local neighbor invented next-hop ownership", got, err)
 	}
+	mapped := routingChangeFixture()
+	mapped.NextHops = []netip.Addr{netip.MustParseAddr("::ffff:192.0.2.1")}
+	v4 := routingNextHopTestPeer("192.0.2.1", 65010, first)
+	if got, err := routingNextHopFields(t.Context(), []BGPRoutingChange{mapped}, []InterfaceRolePeerInput{v4}, budget); err != nil || got[0].ASN == nil || *got[0].ASN != 65010 || !mapped.NextHops[0].Is4In6() {
+		t.Fatal("mapped next hop lost canonical association or its complete retained wire value", got, err)
+	}
 	side := BGPRoutingFlowSide{NextHops: fields}
 	expireRoutingNextHopFields(&side, peer.ValidUntil)
 	if side.NextHops[1].ASN != nil || side.NextHops[1].Sources != nil || side.NextHops[1].Reason != "expired_neighbor_observation" {

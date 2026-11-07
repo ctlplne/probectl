@@ -125,9 +125,11 @@ func routingNextHopField(ctx context.Context, path BGPRoutingChange, indexed map
 		}
 		// A link-local address has no independently proven interface scope.
 		// IPv6's accompanying global next hop can still identify the neighbor.
-		if !address.IsValid() || address.Zone() != "" || address.Is4In6() {
+		if !address.IsValid() || address.Zone() != "" {
 			return BGPRoutingNextHopAS{}, entity.ErrInvalidClaim
 		}
+		// Match the canonical address without changing any retained wire value.
+		address = address.Unmap()
 		if !address.IsGlobalUnicast() || address.IsLinkLocalUnicast() {
 			continue
 		}
