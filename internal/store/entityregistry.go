@@ -99,10 +99,14 @@ func (s *EntityRegistry) GetEntityContext(ctx context.Context, scope entity.Scop
 // existing tenant transaction. It never acquires a connection or supplies
 // lifecycle, credential, writer-fence or publication authority.
 func (s *EntityRegistry) GetEntityContextInScope(ctx context.Context, sc tenancy.Scope, contextID string) (entity.ContextRecord, error) {
+	tenant, ok := tenancy.FromContext(ctx)
+	if !ok || tenant != sc.Tenant {
+		return entity.ContextRecord{}, entity.ErrScopeMismatch
+	}
 	if sc.Q == nil {
 		return entity.ContextRecord{}, ErrEntityRegistryUnavailable
 	}
-	want, err := s.scope(ctx, entity.Scope{TenantID: sc.Tenant.String(), ContextID: contextID})
+	want, err := (entity.Scope{TenantID: sc.Tenant.String(), ContextID: contextID}).Normalize()
 	if err != nil {
 		return entity.ContextRecord{}, err
 	}
