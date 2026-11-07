@@ -129,6 +129,12 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestRoutingCaptureObjectsKeepEveryFieldAndShareContentAcrossClocks",
+        "TestRoutingCaptureObjectsKeepExplicitSelectionsAndUnavailableDirections",
+        "TestRoutingCaptureObjectsRefuseTenantMixCorruptionOldFormatsAndPartialAdmission",
+        "TestRoutingCaptureObjectsRejectRehashedSemanticAndTenantCorruption",
+        "TestRoutingCaptureObjectsPreserveCompleteLargePathAndAttributes",
+        "FuzzRoutingCaptureObjects",
         "TestRoutingStreamProtocolSelectorOnlyRefusesCanonicalSelection",
         "TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity",
         "TestRoutingStoredSerializerRequiresCurrentBindingAndCompleteFamilies",
@@ -501,6 +507,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-capture-scope": (
+        "internal/store/bgp_routing_capture.go",
+        "if source.Scope != owner.Scope || source.RouterID != owner.RouterID {",
+        "if false && source.Scope != owner.Scope || source.RouterID != owner.RouterID {",
+        "TestRoutingCaptureObjectsRejectRehashedSemanticAndTenantCorruption", "foreign-route",
+        "rehashed invalid capture exposed facts",
+    ),
+    "routing-capture-projection": (
+        "internal/store/bgp_routing_capture.go",
+        "if !reflect.DeepEqual(fields, side.Fields) {",
+        "if false && !reflect.DeepEqual(fields, side.Fields) {",
+        "TestRoutingCaptureObjectsRejectRehashedSemanticAndTenantCorruption", "path-text",
+        "rehashed invalid capture exposed facts",
+    ),
     "routing-next-hop-as": (
         "internal/store/bgp_routing_next_hop.go",
         "if !exists {\n\t\t\tunresolved = true\n\t\t\tcontinue\n\t\t}",
