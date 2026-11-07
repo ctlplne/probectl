@@ -35,7 +35,7 @@ func captureReportRoleContextRequirements(ctx context.Context, p *auth.Principal
 }
 
 func captureReportRoutingContextRequirements(ctx context.Context, p *auth.Principal, records []entity.ContextRecord, allowed map[string]bool) error {
-	return captureReportMetadataContextRequirements(ctx, p, records, allowed, []string{permFlowRead, "entities.read"})
+	return captureReportMetadataContextRequirements(ctx, p, records, allowed, []string{permFlowRead, "entities.read", "events.read"})
 }
 
 func captureReportMetadataContextRequirements(ctx context.Context, p *auth.Principal, records []entity.ContextRecord, allowed map[string]bool, needed []string) error {

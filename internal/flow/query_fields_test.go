@@ -12,6 +12,34 @@ import (
 	"testing"
 )
 
+func TestRoutingQuerySelectorsRequireTheBGPSourcePlaneOnEveryAxis(t *testing.T) {
+	lookup := func(name string) (QueryField, bool) {
+		if field, ok := RoutingQueryField(name); ok {
+			return field, true
+		}
+		return LookupQueryField(name)
+	}
+	for _, side := range []string{"src", "dst"} {
+		for _, suffix := range []string{"bgp_provenance", "bgp_prefix", "bgp_as_paths", "bgp_next_hop_as", "bgp_origin_as", "bgp_first_transit_as", "bgp_rpki"} {
+			field := side + "_" + suffix
+			for _, plan := range []QueryPlan{
+				{GroupBy: []string{field}},
+				{GroupBy: []string{"protocol"}, MatrixWith: []string{field}},
+				{Filter: &QueryFilterGroup{Mode: "exclude", Groups: []QueryFilterGroup{{Conditions: []QueryPredicate{{Field: field, Op: QueryEqual, Values: []string{"unavailable"}}}}}}},
+			} {
+				permissions := queryPlanPermissions(plan, lookup)
+				slices.Sort(permissions)
+				if !slices.Equal(permissions, []string{"entities.read", "events.read"}) {
+					t.Fatal("routing selector omitted its BGP source-plane grant", field, permissions)
+				}
+			}
+		}
+	}
+	if permissions := queryPlanPermissions(QueryPlan{GroupBy: []string{"protocol"}}, lookup); len(permissions) != 0 {
+		t.Fatal("ordinary flow selectors acquired unrelated BGP grants", permissions)
+	}
+}
+
 func TestInterfaceRoleQuerySelectorsRequireAllSourcePlanesAndCompleteInputs(t *testing.T) {
 	plan := QueryPlan{GroupBy: []string{"in_if_role"}, Filter: &QueryFilterGroup{Groups: []QueryFilterGroup{{Conditions: []QueryPredicate{{Field: "out_if_role", Op: QueryEqual, Values: []string{"customer"}}}}}}}
 	permissions := QueryPlanPermissions(plan)

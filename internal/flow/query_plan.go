@@ -205,6 +205,9 @@ func queryPlanPermissions(plan QueryPlan, lookup func(string) (QueryField, bool)
 		if ok && field.Permission != "" && !slices.Contains(result, field.Permission) {
 			result = append(result, field.Permission)
 		}
+		if ok && field.Derived == "flow_routing" && !slices.Contains(result, "events.read") {
+			result = append(result, "events.read")
+		}
 		if ok && (field.Derived == "in_if_role" || field.Derived == "out_if_role") {
 			for _, permission := range []string{"entities.read", "metrics.read", "events.read"} {
 				if !slices.Contains(result, permission) {

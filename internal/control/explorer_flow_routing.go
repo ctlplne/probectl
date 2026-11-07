@@ -110,8 +110,10 @@ func (s *Server) loadFlowRoutingSnapshotInScope(ctx context.Context, sc tenancy.
 	if err := s.authorizeNativeFlow(ctx, principal); err != nil {
 		return none, err
 	}
-	if err := s.authorize(ctx, principal, ai.PermEntitiesRead, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: principal.TenantID}); err != nil {
-		return none, err
+	for _, permission := range []string{ai.PermEntitiesRead, "events.read"} {
+		if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: principal.TenantID}); err != nil {
+			return none, err
+		}
 	}
 	var at time.Time
 	if err := sc.Q.QueryRow(ctx, `SELECT transaction_timestamp()`).Scan(&at); err != nil {
@@ -134,7 +136,7 @@ func (s *Server) loadFlowRoutingSnapshotInScope(ctx context.Context, sc tenancy.
 		if record.TenantID != principal.TenantID {
 			return entity.ErrScopeMismatch
 		}
-		for _, permission := range []string{permAIQuery, permFlowRead, ai.PermEntitiesRead} {
+		for _, permission := range []string{permAIQuery, permFlowRead, ai.PermEntitiesRead, "events.read"} {
 			if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, entityContextResource(record)); err != nil {
 				return err
 			}
