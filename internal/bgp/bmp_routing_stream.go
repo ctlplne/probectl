@@ -103,13 +103,13 @@ func (l *BMPListener) retireLostRoutingStreams(ctx context.Context, states map[u
 }
 
 // Reset only generations actually attempted by this authenticated source. A
-// failed reset cannot renew their lease; readers expire to the labelled fallback.
+// failed reset cannot renew their lease; readers expire to the labeled fallback.
 func (l *BMPListener) retireRoutingStream(ctx context.Context, writer bmpRoutingMessageWriter, peer bmpPeerEvidence, state *bmpRoutingStreamState) {
 	reset := func(generation string, sequence *int64) {
 		if generation == "" || *sequence == math.MaxInt64 {
 			return
 		}
-		*sequence += 1
+		*sequence++
 		_, err := writer.SubmitRoutingMessage(ctx, &agentv1.BmpRoutingMessage{SourceReset: true, ConfiguredRef: peer.routerAgentID, OriginSerial: peer.routerSerial, Generation: generation, Sequence: *sequence, ObservedUnixNanos: peer.observedAt.UnixNano()})
 		if err != nil {
 			l.log.Warn("bmp routing reset unavailable; generation cannot renew", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent)

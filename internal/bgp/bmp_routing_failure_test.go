@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/ctlplne/probectl/internal/entity"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
-	"google.golang.org/protobuf/proto"
 )
 
 type routingFailureCapture struct {
@@ -67,7 +68,7 @@ func TestBMPRoutingEvidenceFailureKeepsRawSessionAndRetiresOnlyOwnedGenerations(
 			}
 			l.routingStreamEvidence(context.Background(), peer, states)
 			if rawCtx.Err() != nil {
-				t.Fatal("routing evidence failure cancelled raw BGP collection")
+				t.Fatal("routing evidence failure canceled raw BGP collection")
 			}
 			want := map[string]int64{"old-generation": 8}
 			if stageFailure {
@@ -123,7 +124,7 @@ func TestBMPRoutingQueueLossKeepsRawSessionAndInvalidatesBeforePendingData(t *te
 	states := map[uint64]bmpRoutingStreamState{handle: {generation: "owned", sequence: 4}}
 	l.routingStreamEvidence(context.Background(), pending, states)
 	if ctx.Err() != nil {
-		t.Fatal("routing queue overflow cancelled raw source")
+		t.Fatal("routing queue overflow canceled raw source")
 	}
 	if len(sink.messages) != 1 || !sink.messages[0].SourceReset || sink.messages[0].Generation != "owned" || sink.messages[0].Sequence != 5 || !states[handle].failed {
 		t.Fatal("lost routing frame allowed queued data to retain a current generation", sink.messages)
@@ -171,6 +172,6 @@ func TestBMPRoutingLossWakesIdleEvidenceWorkerWithoutClosingRawSource(t *testing
 		t.Fatal("idle evidence worker kept current routing authority after local loss")
 	}
 	if rawCtx.Err() != nil {
-		t.Fatal("idle evidence loss cancelled raw collection")
+		t.Fatal("idle evidence loss canceled raw collection")
 	}
 }

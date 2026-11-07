@@ -1418,7 +1418,7 @@ def bmp_routing_transport_controls():
          "reset := func(generation string, sequence *int64) {",
          "l.cancelRoutingSession(peer.sessionHandle)\n\treset := func(generation string, sequence *int64) {",
          "TestBMPRoutingEvidenceFailureKeepsRawSessionAndRetiresOnlyOwnedGenerations", "message",
-         "routing evidence failure cancelled raw BGP collection"),
+         "routing evidence failure canceled raw BGP collection"),
         ("bmp_queue_loss_ignored", "internal/bgp/bmp_routing_stream.go",
          "l.loseRoutingEvidence(session)", "_ = session",
          "TestBMPRoutingQueueLossKeepsRawSessionAndInvalidatesBeforePendingData", "",
