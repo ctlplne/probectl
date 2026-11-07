@@ -295,4 +295,17 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 	if !errors.Is(err, flowsnapshot.ErrInvalidating) {
 		t.Fatal("pre-erasure provisional capture republished source data", err)
 	}
+	// The invalidating marker also refuses writes, so independently prove the
+	// stale token after normal lifecycle completion has reopened admission.
+	lifecycle := flowsnapshot.NewLifecycle(f.pool, nil, tenancy.NewPostgresWriterFence(f.pool))
+	if err := lifecycle.Invalidate(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), f.tenants[0], func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	err = tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := retainRoutingCaptureIntentInScope(ctx, sc, limitedKey, objects[0], generations[0], budget)
+		return err
+	})
+	if !errors.Is(err, flowsnapshot.ErrInvalidating) {
+		t.Fatal("pre-erasure provisional capture republished source data", err)
+	}
 }
