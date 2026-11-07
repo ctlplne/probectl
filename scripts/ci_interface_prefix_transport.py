@@ -154,6 +154,8 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestMRTPeerIndexKeepsWholeWirePopulationBinaryIdentityAndEmptySource",
+        "TestMRTPeerIndexRefusesWholeLateMalformedUnadmittedAndCanceledRecords",
         "TestAnalyzerBridgeKeepsCompleteOldAndNewPathsAndTenantBinding",
         "TestAnalyzerBridgeRefusesUnadmittedWholeLineWithoutPublishingPrefix",
         "TestRoutingPathTextKeepsCompleteCanonicalSegmentsAndAdmission",
@@ -601,6 +603,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "mrt-peer-framing": (
+        "internal/bgp/mrt_peer_index.go",
+        "if len(raw) != 0 {",
+        "if false && len(raw) != 0 {",
+        "TestMRTPeerIndexRefusesWholeLateMalformedUnadmittedAndCanceledRecords", "",
+        "MRT source exposed partial peers after whole-record refusal",
+    ),
     "public-read-source": (
         "internal/store/bgp_public_lookup.go",
         "store.publicSourceAuthorityInScope(ctx, sc, source, false)",

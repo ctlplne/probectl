@@ -240,6 +240,15 @@
     },
     "bgp.parseRoutingMessageFamilyMask": {
       "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.DecodeMRTPeerIndex": {
+      "target": "FuzzMRTPeerIndex"
+    },
+    "bgp.decodeMRTTableRecord": {
+      "target": "FuzzMRTPeerIndex"
+    },
+    "bgp.decodeMRTIndexPeers": {
+      "target": "FuzzMRTPeerIndex"
     }
   }
 }
