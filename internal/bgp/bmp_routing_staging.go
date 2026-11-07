@@ -51,7 +51,7 @@ func (l *BMPListener) queueRoutingPeerUp(id bmpIdentity, session uint64, payload
 	copy(raw[6:], payload)
 	observed := l.now().UTC()
 	request := &agentv1.BmpRoutingPeerUp{ObservationId: nonce, ConfiguredRef: id.AgentID, OriginSerial: id.Serial, ObservedUnixNanos: observed.UnixNano(), Message: raw}
-	if !l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, observedAt: observed, routingPeerUp: request, routingLoss: loss}) {
+	if !l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, observedAt: observed, routingPeerUp: request, routingLoss: loss, routingSelector: bmpSelector(header)}) {
 		l.loseRoutingEvidence(session)
 	}
 	return nil

@@ -59,7 +59,7 @@ func (l *BMPListener) queueRoutingMessage(id bmpIdentity, session uint64, kind b
 	observed := l.now().UTC()
 	message.ObservedUnixNanos = observed.UnixNano()
 	if !l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial,
-		sessionHandle: session, observedAt: observed, routingMessage: message, routingLoss: loss}) {
+		sessionHandle: session, observedAt: observed, routingMessage: message, routingLoss: loss, routingSelector: bmpSelector(header)}) {
 		l.loseRoutingEvidence(session)
 	}
 	return nil
@@ -86,19 +86,21 @@ func (l *BMPListener) loseRoutingEvidence(handle uint64) {
 
 // One coalesced wake scans worker-owned state, including sockets already
 // deregistered. The shared token cannot be lost behind a full data queue.
-func (l *BMPListener) retireLostRoutingStreams(ctx context.Context, states map[uint64]bmpRoutingStreamState) {
+func (l *BMPListener) retireLostRoutingStreams(ctx context.Context, states *bmpRoutingStreams) {
 	writer, ok := l.evidence.(bmpRoutingMessageWriter)
 	if !ok {
 		return
 	}
-	for handle, state := range states {
-		if state.failed || state.source.routingLoss == nil || !state.source.routingLoss.Load() {
-			continue
+	for _, selectors := range states.sessions {
+		for _, state := range selectors {
+			if state.failed || state.source.routingLoss == nil || !state.source.routingLoss.Load() {
+				continue
+			}
+			peer := state.source
+			peer.observedAt = l.now().UTC()
+			l.retireRoutingStream(ctx, writer, peer, &state)
+			states.put(peer, state)
 		}
-		peer := state.source
-		peer.observedAt = l.now().UTC()
-		l.retireRoutingStream(ctx, writer, peer, &state)
-		states[handle] = state
 	}
 }
 
@@ -147,9 +149,9 @@ func (l *BMPListener) cancelRoutingSession(handle uint64) {
 	}
 }
 
-// This map is worker-owned and has one entry per admitted live socket. No
-// packet identifier can create a population of retained routing sessions.
-func (l *BMPListener) routingStreamEvidence(ctx context.Context, peer bmpPeerEvidence, states map[uint64]bmpRoutingStreamState) {
+// Each selector has an independent generation and sequence. Retained metadata
+// is admitted before staging, and source closure retires its whole selector set.
+func (l *BMPListener) routingStreamEvidence(ctx context.Context, peer bmpPeerEvidence, states *bmpRoutingStreams) {
 	writer, ok := l.evidence.(bmpRoutingMessageWriter)
 	if !ok {
 		if peer.routingPeerUp != nil {
@@ -160,39 +162,61 @@ func (l *BMPListener) routingStreamEvidence(ctx context.Context, peer bmpPeerEvi
 	if peer.tenantID != l.laneTenant {
 		return
 	}
-	state := states[peer.sessionHandle]
-	state.source = bmpPeerEvidence{tenantID: peer.tenantID, routerAgentID: peer.routerAgentID,
-		routerSerial: peer.routerSerial, sessionHandle: peer.sessionHandle, routingLoss: peer.routingLoss}
 	if peer.routingEnd {
-		defer delete(states, peer.sessionHandle)
-		l.retireRoutingStream(ctx, writer, peer, &state)
+		for selector, state := range states.sessions[peer.sessionHandle] {
+			peer.routingSelector = selector
+			l.retireRoutingStream(ctx, writer, peer, &state)
+			states.remove(peer)
+		}
 		return
 	}
-	if peer.routingLoss != nil && peer.routingLoss.Load() && !state.failed {
-		l.retireRoutingStream(ctx, writer, peer, &state)
-		states[peer.sessionHandle] = state
+	state, existed := states.get(peer)
+	state.source = bmpPeerEvidence{tenantID: peer.tenantID, routerAgentID: peer.routerAgentID,
+		routerSerial: peer.routerSerial, sessionHandle: peer.sessionHandle, routingLoss: peer.routingLoss, routingSelector: peer.routingSelector}
+	if peer.routingLoss != nil && peer.routingLoss.Load() {
+		if existed && !state.failed {
+			l.retireRoutingStream(ctx, writer, peer, &state)
+			states.put(peer, state)
+		}
+		return
 	}
-	if state.failed {
+	if state.failed && peer.routingPeerUp == nil {
 		return
 	}
 	if peer.routingPeerUp != nil {
 		stager, ok := l.evidence.(bmpRoutingStager)
 		if !ok {
 			l.retireRoutingStream(ctx, writer, peer, &state)
-			states[peer.sessionHandle] = state
+			if existed {
+				states.put(peer, state)
+			}
 			return
 		}
+		previous := state
 		state.previous, state.generation = state.generation, peer.routingPeerUp.ObservationId
 		state.previousSequence, state.sequence = state.sequence, 0
+		if !states.put(peer, state) {
+			l.routingStateRefused(states)
+			if existed {
+				l.retireRoutingStream(ctx, writer, peer, &previous)
+				states.put(peer, previous)
+			}
+			return
+		}
 		receipt, err := stager.StageRoutingPeer(ctx, peer.routingPeerUp)
 		if err != nil || receipt == nil || len(receipt.Views) == 0 {
-			l.loseRoutingEvidence(peer.sessionHandle)
 			l.retireRoutingStream(ctx, writer, peer, &state)
-			states[peer.sessionHandle] = state
+			if existed {
+				states.put(peer, state)
+			} else {
+				// A rejected fresh selector cannot grow retained state. Its
+				// attempted private generation has already been reset.
+				states.remove(peer)
+			}
 			l.log.Warn("bmp routing staging unavailable; raw collection retained", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent)
 			return
 		}
-		states[peer.sessionHandle] = bmpRoutingStreamState{generation: peer.routingPeerUp.ObservationId, source: state.source}
+		states.put(peer, bmpRoutingStreamState{generation: peer.routingPeerUp.ObservationId, source: state.source})
 		return
 	}
 	if state.generation == "" {
@@ -201,18 +225,21 @@ func (l *BMPListener) routingStreamEvidence(ctx context.Context, peer bmpPeerEvi
 	message := peer.routingMessage
 	if message == nil || state.sequence >= math.MaxInt64-1 {
 		l.retireRoutingStream(ctx, writer, peer, &state)
-		states[peer.sessionHandle] = state
+		states.put(peer, state)
 		return
 	}
 	state.sequence++
 	message.ConfiguredRef, message.OriginSerial, message.Generation, message.Sequence = peer.routerAgentID, peer.routerSerial, state.generation, state.sequence
 	_, err := writer.SubmitRoutingMessage(ctx, message)
 	if err != nil {
-		l.loseRoutingEvidence(peer.sessionHandle)
 		l.retireRoutingStream(ctx, writer, peer, &state)
 		l.log.Warn("bmp ordered routing evidence unavailable", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent)
 	}
-	states[peer.sessionHandle] = state
+	if message.SourceReset && err == nil {
+		states.remove(peer)
+	} else {
+		states.put(peer, state)
+	}
 }
 
 // Source-driven liveness only: no timer renews routing authority merely because

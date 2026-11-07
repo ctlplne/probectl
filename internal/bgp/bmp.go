@@ -144,14 +144,15 @@ type BMPListener struct {
 
 	// Tenant lane (DPR-049): when set, this listener serves exactly one
 	// tenant's routers and publishes on that tenant's namespaced lane.
-	laneTenant      string
-	laneNamespace   string
-	evidenceAgent   string
-	evidence        BMPEvidenceEmitter
-	evidenceQueue   chan bmpPeerEvidence
-	evidenceReset   chan struct{}
-	routingLossWake chan struct{}
-	evidenceDrops   atomic.Uint64
+	laneTenant        string
+	laneNamespace     string
+	evidenceAgent     string
+	evidence          BMPEvidenceEmitter
+	evidenceQueue     chan bmpPeerEvidence
+	evidenceReset     chan struct{}
+	routingLossWake   chan struct{}
+	routingStateBytes int64
+	evidenceDrops     atomic.Uint64
 
 	// Pre-auth admission (ING-11): a small semaphore bounding concurrent
 	// unauthenticated handshakes, held only until promotion, plus per-source-IP
@@ -382,27 +383,28 @@ func NewBMPListener(ln net.Listener, pub Publisher, collector string, log *slog.
 		log = slog.Default()
 	}
 	l := &BMPListener{
-		ln:               ln,
-		pub:              pub,
-		log:              log,
-		collector:        collector,
-		now:              time.Now,
-		inventory:        NewBMPPeerInventory(),
-		handshakeTimeout: DefaultBMPHandshakeTimeout,
-		readTimeout:      DefaultBMPReadTimeout,
-		idleTimeout:      DefaultBMPIdleTimeout,
-		suppression:      DefaultBMPEventSuppression,
-		seen:             make(map[bmpRouteKey]int64),
-		baseline:         make(map[bmpOriginBaselineKey]uint32),
-		maxSessions:      DefaultBMPMaxSessions,
-		revocations:      probectlc.NewRevocationList(),
-		maxPreAuth:       DefaultBMPMaxPreAuthHandshakes,
-		maxPerSource:     DefaultBMPMaxSessionsPerSource,
-		maxPerIdentity:   DefaultBMPMaxSessionsPerIdentity,
-		livenessRefresh:  DefaultBMPLivenessRefresh,
-		perSource:        make(map[netip.Addr]int),
-		perIdentity:      make(map[string]int),
-		live:             make(map[uint64]*bmpLiveSession),
+		ln:                ln,
+		pub:               pub,
+		log:               log,
+		collector:         collector,
+		now:               time.Now,
+		inventory:         NewBMPPeerInventory(),
+		handshakeTimeout:  DefaultBMPHandshakeTimeout,
+		readTimeout:       DefaultBMPReadTimeout,
+		idleTimeout:       DefaultBMPIdleTimeout,
+		suppression:       DefaultBMPEventSuppression,
+		routingStateBytes: DefaultBMPRoutingStateBytes,
+		seen:              make(map[bmpRouteKey]int64),
+		baseline:          make(map[bmpOriginBaselineKey]uint32),
+		maxSessions:       DefaultBMPMaxSessions,
+		revocations:       probectlc.NewRevocationList(),
+		maxPreAuth:        DefaultBMPMaxPreAuthHandshakes,
+		maxPerSource:      DefaultBMPMaxSessionsPerSource,
+		maxPerIdentity:    DefaultBMPMaxSessionsPerIdentity,
+		livenessRefresh:   DefaultBMPLivenessRefresh,
+		perSource:         make(map[netip.Addr]int),
+		perIdentity:       make(map[string]int),
+		live:              make(map[uint64]*bmpLiveSession),
 	}
 	for _, opt := range opts {
 		opt(l)

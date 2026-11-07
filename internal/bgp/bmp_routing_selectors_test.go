@@ -10,7 +10,9 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -19,6 +21,7 @@ import (
 )
 
 type routingSelectorsCapture struct {
+	refuse   bool
 	stages   []*agentv1.BmpRoutingPeerUp
 	messages []*agentv1.BmpRoutingMessage
 }
@@ -28,7 +31,7 @@ func (*routingSelectorsCapture) Submit(context.Context, []entity.Observation) (i
 }
 func (c *routingSelectorsCapture) StageRoutingPeer(_ context.Context, request *agentv1.BmpRoutingPeerUp) (*agentv1.BmpRoutingStagingReceipt, error) {
 	c.stages = append(c.stages, proto.Clone(request).(*agentv1.BmpRoutingPeerUp))
-	if request.Message[39] == 99 {
+	if c.refuse && request.Message[39] == 99 {
 		return nil, errors.New("unbound selector")
 	}
 	return &agentv1.BmpRoutingStagingReceipt{Status: "staged", Views: []*agentv1.BmpRoutingViewReference{{Generation: request.ObservationId, Afi: 1, Safi: 1}}}, nil
@@ -38,14 +41,14 @@ func (c *routingSelectorsCapture) SubmitRoutingMessage(_ context.Context, reques
 	return &agentv1.BmpRoutingMessageReceipt{Status: "applied", Generation: request.Generation, Sequence: request.Sequence}, nil
 }
 
-func routingBookForTest() map[uint64]bmpRoutingStreamState {
-	return make(map[uint64]bmpRoutingStreamState)
+func routingBookForTest() *bmpRoutingStreams {
+	return newBMPRoutingStreams(DefaultBMPRoutingStateBytes)
 }
 
 // Protocol identity is opaque. The modeled server alone decides ownership;
 // this test verifies complete transport sequencing and source-local cleanup.
 func TestBMPRoutingSelectorsKeepIndependentGenerationsRefusalsAndSourceClosure(t *testing.T) {
-	sink := &routingSelectorsCapture{}
+	sink := &routingSelectorsCapture{refuse: true}
 	l := NewBMPListener(nil, nil, "", nil, WithBMPTenantLane("tenant-a", "lane-a"), WithBMPEntityEvidence("listener-a", sink))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -137,5 +140,75 @@ func TestBMPRoutingSelectorsKeepIndependentGenerationsRefusalsAndSourceClosure(t
 	drive(other, 1, false)
 	if last := sink.messages[len(sink.messages)-1]; last.Generation != sibling || last.Sequence != 1 || last.SourceReset {
 		t.Fatal("source closure changed another physical connection", last)
+	}
+}
+
+func TestBMPRoutingMetadataAdmissionKeepsWholePopulationAndReclaimsSourceState(t *testing.T) {
+	sink := &routingSelectorsCapture{}
+	l := NewBMPListener(nil, nil, "", nil, WithBMPTenantLane("tenant-a", "lane-a"), WithBMPEntityEvidence("listener-a", sink))
+	states := newBMPRoutingStreams(l.routingStateBytes)
+	const population = 5001
+	observed := time.Now().UTC()
+	peer := func(handle uint64, index uint32) bmpPeerEvidence {
+		var selector bmpRoutingSelector
+		binary.BigEndian.PutUint32(selector.identifier[:], index)
+		raw := make([]byte, 48)
+		copy(raw[36:40], selector.identifier[:])
+		return bmpPeerEvidence{tenantID: "tenant-a", routerAgentID: "router-a", routerSerial: "serial-a", sessionHandle: handle, routingSelector: selector, observedAt: observed,
+			routingPeerUp: &agentv1.BmpRoutingPeerUp{ObservationId: fmt.Sprintf("%08x-1111-4111-8111-111111111111", index), Message: raw}}
+	}
+	for i := uint32(1); i <= population; i++ {
+		l.routingStreamEvidence(context.Background(), peer(1, i), states)
+	}
+	if len(states.sessions[1]) != population || len(sink.stages) != population || states.used <= 0 || states.used >= l.routingStateBytes {
+		t.Fatal("complete selector population clipped to a former count or lost metadata accounting", len(states.sessions[1]), len(sink.stages), states.used)
+	}
+	for _, state := range states.sessions[1] {
+		if state.source.routingPeerUp != nil || state.source.routingMessage != nil {
+			t.Fatal("retained stream metadata borrowed a complete wire payload")
+		}
+	}
+	t.Log("complete routing metadata admission bytes", states.used, "selectors", population)
+	// Other physical sources with identical selectors have independent state.
+	l.routingStreamEvidence(context.Background(), peer(2, 1), states)
+	sibling, _ := states.get(peer(2, 1))
+	siblingCharge := bmpRoutingStateCharge(sibling)
+	states.limit = states.used
+	before := states.used
+	l.routingStreamEvidence(context.Background(), peer(1, population+1), states)
+	if states.used != before || len(sink.stages) != population+1 || len(states.sessions[1]) != population || l.evidenceDrops.Load() != 1 {
+		t.Fatal("unadmitted selector staged partial state or changed known routing population")
+	}
+	// A larger configured byte profile admits the same complete source, with
+	// no changed workload, truncated definition or weakened assertion.
+	expanded := peer(1, population+1)
+	charge := bmpRoutingStateCharge(bmpRoutingStreamState{generation: expanded.routingPeerUp.ObservationId, source: bmpPeerEvidence{tenantID: expanded.tenantID, routerAgentID: expanded.routerAgentID, routerSerial: expanded.routerSerial}})
+	states.limit += charge
+	l.routingStreamEvidence(context.Background(), expanded, states)
+	if len(states.sessions[1]) != population+1 || len(sink.stages) != population+2 || states.used != before+charge {
+		t.Fatal("increased byte profile did not admit the complete original selector")
+	}
+	// Replacing a known generation also needs admission for both nonces until
+	// the receiver confirms replacement. Refusal must retire only the old one.
+	replacement := peer(1, 1)
+	replacement.routingPeerUp.ObservationId = "aaaaaaaa-1111-4111-8111-111111111111"
+	resets := len(sink.messages)
+	l.routingStreamEvidence(context.Background(), replacement, states)
+	failed, _ := states.get(replacement)
+	if !failed.failed || len(sink.stages) != population+2 || len(sink.messages) != resets+1 || !sink.messages[resets].SourceReset || sink.messages[resets].Generation == replacement.routingPeerUp.ObservationId {
+		t.Fatal("unadmitted replacement retained old current authority or reset an unattempted generation")
+	}
+	// A source reset frees every selector and byte charge, preserving siblings.
+	l.routingStreamEvidence(context.Background(), bmpPeerEvidence{tenantID: "tenant-a", routerAgentID: "router-a", routerSerial: "serial-a", sessionHandle: 1, routingEnd: true, observedAt: observed}, states)
+	if _, exists := states.sessions[1]; exists || len(states.sessions[2]) != 1 || states.used != siblingCharge {
+		t.Fatal("source closure lost sibling accounting or retained selector metadata", states.used, siblingCharge)
+	}
+	l.routingStreamEvidence(context.Background(), bmpPeerEvidence{tenantID: "tenant-a", routerAgentID: "router-a", routerSerial: "serial-a", sessionHandle: 2, routingEnd: true, observedAt: observed}, states)
+	if states.used != 0 || len(states.sessions) != 0 {
+		t.Fatal("complete source closure leaked retained stream metadata", states.used)
+	}
+	configured := NewBMPListener(nil, nil, "", nil, WithBMPRoutingStateBytes(DefaultBMPRoutingStateBytes*2))
+	if configured.routingStateBytes != DefaultBMPRoutingStateBytes*2 {
+		t.Fatal("routing byte profile option was ignored")
 	}
 }

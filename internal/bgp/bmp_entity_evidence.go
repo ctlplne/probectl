@@ -19,17 +19,18 @@ import (
 )
 
 type bmpPeerEvidence struct {
-	routingLoss    *atomic.Bool // shared only by one admitted physical source
-	routingMessage *agentv1.BmpRoutingMessage
-	routingEnd     bool
-	routingPeerUp  *agentv1.BmpRoutingPeerUp // owned raw metadata, separate from peer-claim suppression
-	sessionHandle  uint64                    // listener-owned admitted session, never a BMP payload field
-	tenantID       string
-	routerAgentID  string // from a verified router SVID, not the BMP frame
-	routerSerial   string // exact verified SVID; revocation retires this evidence
-	peerAddress    string
-	peerASN        uint32
-	observedAt     time.Time
+	routingSelector bmpRoutingSelector
+	routingLoss     *atomic.Bool // shared only by one admitted physical source
+	routingMessage  *agentv1.BmpRoutingMessage
+	routingEnd      bool
+	routingPeerUp   *agentv1.BmpRoutingPeerUp // owned raw metadata, separate from peer-claim suppression
+	sessionHandle   uint64                    // listener-owned admitted session, never a BMP payload field
+	tenantID        string
+	routerAgentID   string // from a verified router SVID, not the BMP frame
+	routerSerial    string // exact verified SVID; revocation retires this evidence
+	peerAddress     string
+	peerASN         uint32
+	observedAt      time.Time
 }
 
 type bmpPeerEvidenceKey struct {
@@ -99,7 +100,7 @@ func (l *BMPListener) queuePeerEvidence(peer bmpPeerEvidence) bool {
 // same certificate on an earlier connection is not a reusable evidence epoch.
 func (l *BMPListener) evidenceLoop(ctx context.Context) {
 	lastSent := make(map[bmpPeerEvidenceKey]bmpEvidenceAttempt)
-	routing := make(map[uint64]bmpRoutingStreamState)
+	routing := newBMPRoutingStreams(l.routingStateBytes)
 	remember := func(key bmpPeerEvidenceKey, state bmpEvidenceAttempt) {
 		lastSent[key] = state
 		if len(lastSent) > 4096 {
@@ -114,7 +115,7 @@ func (l *BMPListener) evidenceLoop(ctx context.Context) {
 			l.retireLostRoutingStreams(ctx, routing)
 		case <-l.evidenceReset:
 			lastSent = make(map[bmpPeerEvidenceKey]bmpEvidenceAttempt)
-			for handle := range routing {
+			for handle := range routing.sessions {
 				l.cancelRoutingSession(handle)
 			}
 		case peer := <-l.evidenceQueue:

@@ -52,8 +52,11 @@ func TestBMPRoutingEvidenceFailureKeepsRawSessionAndRetiresOnlyOwnedGenerations(
 			rawCtx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			handle := l.registerLive(&bmpLiveSession{cancel: cancel})
-			states := map[uint64]bmpRoutingStreamState{handle: {generation: "old-generation", sequence: 7}, handle + 1: {generation: "sibling", sequence: 11}}
 			peer := bmpPeerEvidence{tenantID: "tenant-a", routerAgentID: "router-a", routerSerial: "serial-a", sessionHandle: handle, observedAt: time.Now()}
+			states := routingBookForTest()
+			if !states.put(peer, bmpRoutingStreamState{generation: "old-generation", sequence: 7}) || !states.put(bmpPeerEvidence{sessionHandle: handle + 1}, bmpRoutingStreamState{generation: "sibling", sequence: 11}) {
+				t.Fatal("test stream admission refused")
+			}
 			if stageFailure {
 				peer.routingPeerUp = &agentv1.BmpRoutingPeerUp{ObservationId: "attempted-generation"}
 			} else {
@@ -89,7 +92,9 @@ func TestBMPRoutingEvidenceFailureKeepsRawSessionAndRetiresOnlyOwnedGenerations(
 			if len(want) != 0 {
 				t.Fatal("routing evidence failure retained an owned current generation", want)
 			}
-			if !states[handle].failed || states[handle+1].generation != "sibling" || states[handle+1].sequence != 11 {
+			current, _ := states.get(peer)
+			sibling, _ := states.get(bmpPeerEvidence{sessionHandle: handle + 1})
+			if !current.failed || sibling.generation != "sibling" || sibling.sequence != 11 {
 				t.Fatal("routing refusal changed sibling stream or retained failed state")
 			}
 			before := len(sink.messages)
@@ -121,12 +126,16 @@ func TestBMPRoutingQueueLossKeepsRawSessionAndInvalidatesBeforePendingData(t *te
 		t.Fatal("routing queue overflow interrupted raw BGP collection", err)
 	}
 	pending := <-l.evidenceQueue
-	states := map[uint64]bmpRoutingStreamState{handle: {generation: "owned", sequence: 4}}
+	states := routingBookForTest()
+	if !states.put(pending, bmpRoutingStreamState{generation: "owned", sequence: 4}) {
+		t.Fatal("test stream admission refused")
+	}
 	l.routingStreamEvidence(context.Background(), pending, states)
 	if ctx.Err() != nil {
 		t.Fatal("routing queue overflow canceled raw source")
 	}
-	if len(sink.messages) != 1 || !sink.messages[0].SourceReset || sink.messages[0].Generation != "owned" || sink.messages[0].Sequence != 5 || !states[handle].failed {
+	current, _ := states.get(pending)
+	if len(sink.messages) != 1 || !sink.messages[0].SourceReset || sink.messages[0].Generation != "owned" || sink.messages[0].Sequence != 5 || !current.failed {
 		t.Fatal("lost routing frame allowed queued data to retain a current generation", sink.messages)
 	}
 	if err := l.queueRoutingMessage(id, handle, 0, raw[6:]); err != nil || len(l.evidenceQueue) != 0 {
