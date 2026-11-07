@@ -249,6 +249,15 @@
     },
     "bgp.decodeMRTIndexPeers": {
       "target": "FuzzMRTPeerIndex"
+    },
+    "bgp.DecodeMRTRIB": {
+      "target": "FuzzMRTRIB"
+    },
+    "bgp.decodeMRTRIBHeader": {
+      "target": "FuzzMRTRIB"
+    },
+    "bgp.decodeMRTRIBEntries": {
+      "target": "FuzzMRTRIB"
     }
   }
 }

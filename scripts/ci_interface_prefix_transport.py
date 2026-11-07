@@ -154,6 +154,8 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestMRTRIBKeepsWholeDualFamilyPathsAttributesClocksAndExplicitAddPath",
+        "TestMRTRIBRefusesWholeLateMalformedForeignPeerAndUnadmittedRecords",
         "TestMRTPeerIndexKeepsWholeWirePopulationBinaryIdentityAndEmptySource",
         "TestMRTPeerIndexRefusesWholeLateMalformedUnadmittedAndCanceledRecords",
         "TestAnalyzerBridgeKeepsCompleteOldAndNewPathsAndTenantBinding",
@@ -603,6 +605,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "mrt-rib-whole": (
+        "internal/bgp/mrt_rib.go",
+        "validateSourceRouteAttributes(entry.Attributes)",
+        "func() error { return nil }()",
+        "TestMRTRIBRefusesWholeLateMalformedForeignPeerAndUnadmittedRecords", "",
+        "MRT RIB exposed an earlier path from a refused whole record",
+    ),
     "mrt-peer-framing": (
         "internal/bgp/mrt_peer_index.go",
         "if len(raw) != 0 {",
