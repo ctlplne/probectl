@@ -107,6 +107,9 @@ JSON input workspace is reserved before decoding and normalization uses the rema
 are complete; a malformed or unadmitted message returns no routes. This replaces
 the former independent 1,024-hop ceiling. Live websocket framing and prefix
 admission still apply independently.
+The Go bridge separately admits JSON Lines up to 16 MiB, including both complete
+old and new paths in an origin-change event. Larger records fail the stream;
+they are never clipped or partially published, and tenant binding still applies.
 
 ## Conventions
 

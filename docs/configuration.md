@@ -1145,6 +1145,8 @@ tenant). Event types: `origin_change` (old/new origin + AS path), `possible_hija
 actions — probectl never acts on routing. MRT dumps are **stream-processed** (no
 full RIB in memory); a down RPKI/collector source degrades gracefully rather
 than breaking the plane.
+The analyzer bridge admits complete JSON Lines up to 16 MiB, including both
+old/new AS paths; oversized lines fail the stream without partial publication.
 RouteViews/RIS are open data — their AUP/provenance matters for MSP/commercial
 resale, not for private development or single-tenant OSS use.
 

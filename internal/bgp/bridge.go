@@ -32,9 +32,10 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-// maxEventLine bounds a single JSONL record (defensive: collector-derived input
-// is untrusted — docs/guardrails.md G7-10).
-const maxEventLine = 1 << 20
+// maxEventLine admits complete old/new paths in one origin-change event while
+// retaining a finite stream allocation. Collector input remains untrusted
+// (docs/guardrails.md G7-10); an oversized record is refused, never truncated.
+const maxEventLine = 16 << 20
 
 // Publisher is the subset of the bus the bridge needs.
 type Publisher interface {
