@@ -288,6 +288,26 @@ def test_public_mrt_keeps_withdrawal_only_update_without_inventing_a_path():
     )
 
 
+def test_public_mrt_withdrawal_only_message_still_validates_present_path():
+    attrs = _attribute(2, b"\x02\x01\x01")
+    assert (
+        list(stream_mrt(io.BytesIO(_update(attrs, withdrawals=b"\x18\xc0\x00\x02", nlri=b""))))
+        == []
+    )
+
+
+def test_public_mrt_normalizes_unused_prefix_bits_without_losing_network_reach():
+    attrs = _attribute(2, _segments([(2, (64496,))]))
+    attrs += _attribute(15, b"\x00\x02\x01\x21\x20\x01\x0d\xb8\xff")
+    changes = list(stream_mrt(io.BytesIO(_update(attrs, withdrawals=b"\x11\xc0\x00\xff"))))
+    assert [row.prefix for row in changes] == [
+        "192.0.128.0/17",
+        "2001:db8:8000::/33",
+        "192.0.2.0/24",
+    ]
+    assert [row.kind for row in changes] == ["withdraw", "withdraw", "announce"]
+
+
 @pytest.mark.parametrize(
     "withdrawals,optional",
     [

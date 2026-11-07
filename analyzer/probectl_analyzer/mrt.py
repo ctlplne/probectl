@@ -169,7 +169,9 @@ class _Reader:
             ip: object = ipaddress.IPv6Address(padded)
         else:
             ip = ipaddress.IPv4Address(padded)
-        return f"{ip}/{bits}"
+        # Low unused bits of the final NLRI octet cannot create a different
+        # routing key or baseline for the same network.
+        return str(ipaddress.ip_network(f"{ip}/{bits}", strict=False))
 
 
 class MRTReader:
@@ -352,7 +354,10 @@ class MRTReader:
         # Validate the WHOLE UPDATE before its first yielded change. An
         # invalid announcement must not expose a preceding withdrawal prefix.
         # A withdrawal-only update need not carry the announcement's AS_PATH.
-        path = _as_path_from_attrs(attrs, four_byte=four_byte) if prefixes else ASPath(())
+        has_path = any(typ == ATTR_AS_PATH for typ, _ in _iter_attrs(attrs))
+        path = (
+            _as_path_from_attrs(attrs, four_byte=four_byte) if prefixes or has_path else ASPath(())
+        )
         for prefix in withdrawn:
             yield BGPRoute(
                 prefix=prefix,
