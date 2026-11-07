@@ -74,6 +74,6 @@ func TestRoutingPathFieldsRefuseWholeAdmissionMalformedAndCancelledInput(t *test
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if got, err := ProjectRoutingPathFields(ctx, path, ASPathParseBudget{MemoryBytes: 8 << 20, WorkUnits: 8 << 20}); !errors.Is(err, context.Canceled) || got.ASPath != nil {
-		t.Fatal("cancelled routing projection retained partial fields", err)
+		t.Fatal("canceled routing projection retained partial fields", err)
 	}
 }

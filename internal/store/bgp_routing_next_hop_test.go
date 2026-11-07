@@ -98,7 +98,7 @@ func TestRoutingNextHopASRefusesLateMalformedUnadmittedAndForeignScope(t *testin
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if got, err := routingNextHopFields(ctx, []BGPRoutingChange{path}, nil, budget); !errors.Is(err, context.Canceled) || got != nil {
-		t.Fatal("cancelled next-hop projection exposed partial state", err)
+		t.Fatal("canceled next-hop projection exposed partial state", err)
 	}
 	ctx = tenancy.WithTenant(t.Context(), tenancy.ID(id))
 	for _, sc := range []tenancy.Scope{{}, {Tenant: tenancy.ID("foreign")}, {Tenant: tenancy.ID(id)}} {
