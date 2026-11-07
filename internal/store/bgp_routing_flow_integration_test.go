@@ -11,6 +11,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"reflect"
 	"strings"
@@ -63,6 +64,10 @@ func TestRoutingFlowCaptureRequiresUniqueCurrentExporterAndKeepsTenantRoutes(t *
 		got, err := read(lane, input, routingViewBudget())
 		if err != nil || got.Owner.TenantID != f.tenants[lane] || got.Owner.RouterID != f.routerID || got.CapturedAt.IsZero() || got.Source.State != "router_selected" || got.Destination.State != "router_selected" || !reflect.DeepEqual(got.Source.Route.Paths, []BGPRoutingChange{changes[lane]}) || !reflect.DeepEqual(got.Destination.Route.Paths, got.Source.Route.Paths) {
 			t.Fatal("current exporter lookup lost complete owned paths or crossed tenant", lane, got, err)
+		}
+		wantText := fmt.Sprintf("(64496) %d 64497 64497 {64500,64501}", 64496+lane)
+		if len(got.Source.Fields) != 1 || len(got.Destination.Fields) != 1 || got.Source.Fields[0].ASPathText != wantText || got.Destination.Fields[0].ASPathText != wantText || got.Source.Fields[0].OriginAS != nil || got.Source.Fields[0].FirstTransitAS != nil {
+			t.Fatal("current flow projection lost complete structured path or invented an endpoint", got, err)
 		}
 	}
 	check(0)

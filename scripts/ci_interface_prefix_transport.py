@@ -138,6 +138,7 @@ UNIT = {
         "TestBGPRoutingAuthorityRequiresTenantAndCompleteSourceBeforeStorage",
         "TestBGPRoutingLookupRequiresTenantExactViewAndWholeAdmissionBeforeStorage",
         "TestRoutingFlowCaptureCannotChooseOwnerFromPayloadOrPartialEvidence",
+        "TestRoutingFlowProjectionKeepsEveryPathAndRejectsPartialAdmission",
         "TestBGPRoutingRouterLookupRequiresExactTenantContextBeforeStorage",
         "TestBGPRoutingViewMetadataKeepsStablePeerSlotsAndCompleteValues",
         "TestBGPRoutingViewMetadataRefusesIncompleteShapeAndWholeAdmission",

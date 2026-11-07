@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/bgp"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -30,8 +31,9 @@ type BGPRoutingFlowInput struct {
 // a complete RIB without a prefix, and unavailable current source evidence.
 // Only router_selected has a Route; neither other state invents an empty path.
 type BGPRoutingFlowSide struct {
-	State string
-	Route BGPRoutingLookup
+	State  string
+	Route  BGPRoutingLookup
+	Fields []bgp.RoutingPathFields // one complete projection per retained path
 }
 
 // BGPRoutingFlowLookup is capture-time evidence, not a historical forwarding
@@ -149,10 +151,17 @@ func routingFlowBinding(owner InterfaceRoleExporterOwner, input BGPRoutingFlowIn
 }
 
 func (store BGPRouting) routingFlowSide(ctx context.Context, sc tenancy.Scope, owner InterfaceRoleExporterOwner, address netip.Addr, budget BGPRoutingBudget) (BGPRoutingFlowSide, error) {
-	route, err := store.LookupRouterInScope(ctx, sc, owner.Scope, owner.RouterID, address, budget)
+	readBudget := budget
+	readBudget.MemoryBytes /= 2
+	readBudget.WorkUnits /= 2
+	route, err := store.LookupRouterInScope(ctx, sc, owner.Scope, owner.RouterID, address, readBudget)
 	switch {
 	case err == nil:
-		return BGPRoutingFlowSide{State: "router_selected", Route: route}, nil
+		fields, err := routingFlowPathFields(ctx, route.Paths, readBudget)
+		if err != nil {
+			return BGPRoutingFlowSide{}, err
+		}
+		return BGPRoutingFlowSide{State: "router_selected", Route: route, Fields: fields}, nil
 	case errors.Is(err, ErrBGPRoutingRouteMissing):
 		return BGPRoutingFlowSide{State: "no_prefix"}, nil
 	case errors.Is(err, ErrBGPRoutingSourceUnavailable):
