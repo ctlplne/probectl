@@ -587,6 +587,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-source-managed": (
+        "ee/silo/bgp_routing_plan.go",
+        'plan = append(plan, publicSourceChecksPlan(q+"."+quoteIdent("entity_source_contexts")))',
+        '// public source schema catch-up omitted',
+        "TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries", "siloed",
+        "managed public source assignment was refused after schema catch-up",
+    ),
     "public-stage-slot": (
         "internal/store/bgp_public_views.go",
         "AND source_kind='public_bgp' AND peer_key=$5 AND afi=$6 AND safi=$7 AND state IN ('staging','current')",

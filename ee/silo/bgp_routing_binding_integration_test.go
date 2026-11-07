@@ -56,7 +56,11 @@ func TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries(t *tes
 				// Restore only this owned empty table's old column/constraint
 				// shape. Catch-up must recover the generated storage expression.
 				child := quoteIdent(SchemaName(tenants[0])) + `."bgp_routing_views"`
+				sourceChild := quoteIdent(SchemaName(tenants[0])) + `."entity_source_contexts"`
 				for _, sql := range []string{
+					"ALTER TABLE " + sourceChild + " DROP CONSTRAINT IF EXISTS fx5_public_source_shape",
+					"ALTER TABLE " + sourceChild + " DROP CONSTRAINT entity_source_contexts_source_kind_check",
+					"ALTER TABLE " + sourceChild + " ADD CONSTRAINT entity_source_contexts_source_kind_check CHECK (source_kind IN ('device_target','flow_exporter','path_agent','bmp_peer','agent_site'))",
 					"ALTER TABLE " + child + " DROP CONSTRAINT IF EXISTS fx5_route_view_collector_context_fk",
 					"ALTER TABLE " + child + " DROP CONSTRAINT fx5_route_view_routing_selection_check",
 					"ALTER TABLE " + child + " DROP CONSTRAINT fx5_route_view_kind_check",
@@ -113,6 +117,9 @@ func TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries(t *tes
 					if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id) VALUES($1,'routing-collector','bmp_peer','routing-origin',$2,$3)`, tenant, collectorContext, baseRouter); err != nil {
 						return err
 					}
+					if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id) VALUES($1,'routing-collector','public_bgp','ris/mrt_table_dump_v2/rrc00',$2)`, tenant, collectorContext); err != nil {
+						t.Fatal("managed public source assignment was refused after schema catch-up", err)
+					}
 					body, err := json.Marshal(map[string]any{"base_context_id": collectorContext, "base_router_id": baseRouter,
 						"context_id": targetContext, "router_id": targetRouter, "epoch": uuid.NewString(), "binding_id": uuid.NewString(),
 						"assigned_at": time.Now().UTC(), "families": []int{1, 2}, "binding": map[string]any{}})
@@ -152,6 +159,13 @@ func TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries(t *tes
 					if own != 1 || foreign != 0 || legacy != 0 || base != collectorContext || target != targetContext {
 						t.Fatal("managed routing target lost base context, tenant RLS or old-reader exclusion", own, foreign, legacy, base, target)
 					}
+					var public, anchors int
+					if err := sc.Q.QueryRow(ctx, `SELECT count(*),count(anchor_entity_id) FROM entity_source_contexts WHERE source_kind='public_bgp'`).Scan(&public, &anchors); err != nil {
+						return err
+					}
+					if public != 1 || anchors != 0 {
+						t.Fatal("managed public source escaped tenant storage or gained router authority", public, anchors)
+					}
 					return nil
 				}); err != nil {
 					t.Fatal(err)
@@ -164,6 +178,13 @@ func TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries(t *tes
 			var pg *pgconn.PgError
 			if !errors.As(err, &pg) || pg.Code != "23503" {
 				t.Fatal("routing target borrowed an unassigned foreign collector context", err)
+			}
+			err = run(tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
+				_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET anchor_entity_id=$2 WHERE tenant_id=$1 AND source_kind='public_bgp'`, tenants[0], baseRouter)
+				return err
+			})
+			if !errors.As(err, &pg) || pg.Code != "23514" {
+				t.Fatal("managed public source accepted an invented router anchor", err)
 			}
 		})
 	}
