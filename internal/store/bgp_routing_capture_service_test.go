@@ -19,14 +19,14 @@ func TestRoutingCaptureServiceRequiresTenantBeforeAvailability(t *testing.T) {
 	service := NewBGPRoutingFlowCaptures(nil)
 	key := routingCaptureHash([]byte("verified raw flow"))
 	for _, ctx := range []context.Context{t.Context(), tenancy.WithTenant(t.Context(), tenancy.ID("invalid"))} {
-		if _, err := (BGPRouting{}).ReadFlowCaptureInScope(ctx, tenancy.Scope{}, "routing-flow", entity.FlowCaptureWitness{}, BGPRoutingCaptureReference{}, routingViewBudget(), nil); !errors.Is(err, entity.ErrScopeMismatch) {
+		if _, err := (BGPRouting{}).readFlowCaptureInScope(ctx, tenancy.Scope{}, "routing-flow", entity.FlowCaptureWitness{}, BGPRoutingCaptureReference{}, routingViewBudget(), nil); !errors.Is(err, entity.ErrScopeMismatch) {
 			t.Fatal("retained routing reader reached storage before tenant scope", err)
 		}
 		if got, err := service.CaptureAuthenticated(ctx, "routing-flow", key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, entity.ErrScopeMismatch) || got != (BGPRoutingCaptureReference{}) {
 			t.Fatal("unscoped capture reached service availability", err)
 		}
 	}
-	if got, err := service.ResolveWitness(t.Context(), "routing-flow", key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, entity.ErrScopeMismatch) || got != (BGPRoutingCaptureReference{}) {
+	if got, err := service.resolveWitness(t.Context(), "routing-flow", key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, entity.ErrScopeMismatch) || got != (BGPRoutingCaptureReference{}) {
 		t.Fatal("raw capture lookup reached availability before tenant scope", err)
 	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(routingCaptureTenant))

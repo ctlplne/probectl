@@ -131,12 +131,12 @@ func (service *BGPRoutingFlowCaptures) captureKey(ctx context.Context, sender st
 	return entity.FlowCaptureKey(tenant.String(), sender, rawDigest, input)
 }
 
-// ResolveWitness is a legacy witness lookup/seal helper. Claimed bus agent
+// resolveWitness is a legacy witness lookup/seal helper. Claimed bus agent
 // identity is a lookup selector for an independently authenticated witness.
 // If no witness exists, seal unavailable under the same first-receipt/lifecycle
 // locks. This method never reads a router, resolves an exporter or creates a
 // positive capture, even when the claimed sender is registered and owns one.
-func (service *BGPRoutingFlowCaptures) ResolveWitness(ctx context.Context, claimedSender string, rawDigest [32]byte, input BGPRoutingFlowInput, budget BGPRoutingBudget) (BGPRoutingCaptureReference, error) {
+func (service *BGPRoutingFlowCaptures) resolveWitness(ctx context.Context, claimedSender string, rawDigest [32]byte, input BGPRoutingFlowInput, budget BGPRoutingBudget) (BGPRoutingCaptureReference, error) {
 	key, err := service.captureKey(ctx, claimedSender, rawDigest, input, budget)
 	if err != nil {
 		return BGPRoutingCaptureReference{}, err

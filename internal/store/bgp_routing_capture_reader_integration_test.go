@@ -24,7 +24,7 @@ func readFlowCaptureForTest(t *testing.T, f *roleInputsFixture, lane int, raw [3
 	var out BGPRoutingFlowLookup
 	err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[lane])), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		out, err = (BGPRouting{}).ReadFlowCaptureInScope(ctx, sc, "routing-flow", entity.FlowCaptureWitness{RawDigest: raw, Input: input}, ref, routingViewBudget(), authorize)
+		out, err = (BGPRouting{}).readFlowCaptureInScope(ctx, sc, "routing-flow", entity.FlowCaptureWitness{RawDigest: raw, Input: input}, ref, routingViewBudget(), authorize)
 		return err
 	})
 	return out, err
@@ -53,7 +53,7 @@ func proveCapturedRoutingReaderRequiresCurrentContextAndOriginalReference(t *tes
 		err = tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 			budget := routingViewBudget()
 			budget.MemoryBytes, budget.WorkUnits = 1, 1
-			_, err := (BGPRouting{}).ReadFlowCaptureInScope(ctx, sc, "routing-flow", entity.FlowCaptureWitness{RawDigest: raw, Input: input}, first[lane], budget, func(context.Context, entity.ContextRecord) error { return denied })
+			_, err := (BGPRouting{}).readFlowCaptureInScope(ctx, sc, "routing-flow", entity.FlowCaptureWitness{RawDigest: raw, Input: input}, first[lane], budget, func(context.Context, entity.ContextRecord) error { return denied })
 			return err
 		})
 		if !errors.Is(err, denied) {

@@ -65,7 +65,7 @@ func proveRoutingCaptureRowsInRealStore(t *testing.T, store *ClickHouse) {
 	for lane, tenant := range tenants {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		for _, series := range []string{"raw", "rollup"} {
-			refs, err := store.RoutingCaptureReferences(ctx, tenant, rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), series)
+			refs, err := store.routingCaptureReferences(ctx, tenant, rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), series)
 			if err != nil || len(refs) != count {
 				t.Fatal("complete raw/hourly routing reference read lost tenant inputs", series, len(refs), err)
 			}

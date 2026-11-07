@@ -16,12 +16,12 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-// ReadFlowCaptureInScope reads the original terminal snapshot, never the
+// readFlowCaptureInScope reads the original terminal snapshot, never the
 // current RIB. The caller must refresh actor/credential authority in this same
 // tenant read snapshot and authorize its captured canonical context. Possession
 // of a flow key/clock does not grant source access. Private intents, changed
 // ownership/credentials and erased payloads are unavailable.
-func (BGPRouting) ReadFlowCaptureInScope(ctx context.Context, sc tenancy.Scope, sender string, witness entity.FlowCaptureWitness, ref BGPRoutingCaptureReference, budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error) (BGPRoutingFlowLookup, error) {
+func (BGPRouting) readFlowCaptureInScope(ctx context.Context, sc tenancy.Scope, sender string, witness entity.FlowCaptureWitness, ref BGPRoutingCaptureReference, budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error) (BGPRoutingFlowLookup, error) {
 	if err := routingCaptureScope(ctx, sc); err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}

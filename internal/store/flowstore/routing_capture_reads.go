@@ -33,10 +33,10 @@ type RoutingCaptureRead struct {
 // routing filters/grouping. It never uses a display/page limit to truncate the
 // metadata population. Resource exhaustion refuses the complete operation.
 type RoutingCaptureReferenceStore interface {
-	RoutingCaptureReferences(context.Context, string, time.Time, time.Time, string) ([]RoutingCaptureRead, error)
+	routingCaptureReferences(context.Context, string, time.Time, time.Time, string) ([]RoutingCaptureRead, error)
 }
 
-func RoutingCaptureReferenceStoreOf(st Store) (RoutingCaptureReferenceStore, bool) {
+func routingCaptureReferenceStoreOf(st Store) (RoutingCaptureReferenceStore, bool) {
 	plan, ok := PlanStoreOf(st)
 	if !ok {
 		return nil, false
@@ -82,7 +82,7 @@ func sortedRoutingReads(rows map[[32]byte]RoutingCaptureRead) []RoutingCaptureRe
 	return result
 }
 
-func (m *Memory) RoutingCaptureReferences(ctx context.Context, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+func (m *Memory) routingCaptureReferences(ctx context.Context, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
 	plan, err := routingReferencePlan(ctx, tenant, from, to, series)
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (m *Memory) RoutingCaptureReferences(ctx context.Context, tenant string, fr
 	return sortedRoutingReads(reads), nil
 }
 
-func (c *ClickHouse) RoutingCaptureReferences(ctx context.Context, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+func (c *ClickHouse) routingCaptureReferences(ctx context.Context, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
 	plan, err := routingReferencePlan(ctx, tenant, from, to, series)
 	if err != nil {
 		return nil, err

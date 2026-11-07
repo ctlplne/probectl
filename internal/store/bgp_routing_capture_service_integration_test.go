@@ -72,12 +72,12 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 	proveCompleteRawCaptureBatchKeepsTenantAndAtomicRefusal(t, f, service, input)
 	// The raw lane can resolve a positive certificate-authored witness, but
 	// payload IDs alone must seal unavailable despite a fully live owned RIB.
-	witnessed, err := service.ResolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "routing-flow", rawDigest, input, routingViewBudget())
+	witnessed, err := service.resolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "routing-flow", rawDigest, input, routingViewBudget())
 	if err != nil || witnessed != first[0] {
 		t.Fatal("raw consumer lost independently authenticated first witness", err)
 	}
 	rawOnly := routingCaptureHash([]byte("raw payload claiming a registered live exporter"))
-	rawReference, err := service.ResolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "routing-flow", rawOnly, input, routingViewBudget())
+	rawReference, err := service.resolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "routing-flow", rawOnly, input, routingViewBudget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 		t.Fatal(err)
 	}
 	var rawPostgres *pgconn.PgError
-	if got, err := service.ResolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[1])), "routing-flow", rawDigest, input, routingViewBudget()); !errors.As(err, &rawPostgres) || rawPostgres.Code != "55000" || got != (BGPRoutingCaptureReference{}) {
+	if got, err := service.resolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[1])), "routing-flow", rawDigest, input, routingViewBudget()); !errors.As(err, &rawPostgres) || rawPostgres.Code != "55000" || got != (BGPRoutingCaptureReference{}) {
 		t.Fatal("offboarding raw lookup exposed first witness before tenant fence", err)
 	}
 	if got, err := service.StageRaw(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[1])), "routing-flow", []entity.FlowCaptureWitness{{RawDigest: rawDigest, Input: input}}, routingViewBudget()); !errors.As(err, &rawPostgres) || rawPostgres.Code != "55000" || got != nil {

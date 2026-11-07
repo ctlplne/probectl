@@ -56,7 +56,7 @@ func TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission(t *te
 			t.Fatal(err)
 		}
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-		got, err := st.RoutingCaptureReferences(ctx, tenant, rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), "raw")
+		got, err := st.routingCaptureReferences(ctx, tenant, rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), "raw")
 		if err != nil || len(got) != count {
 			t.Fatal("routing reference read truncated the complete original population", len(got), err)
 		}
@@ -69,7 +69,7 @@ func TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission(t *te
 				t.Fatal("routing reference read changed order, exact clock or full source domain", i)
 			}
 		}
-		if partial, err := st.RoutingCaptureReferences(ctx, tenants[1], rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), "raw"); tenant == tenants[0] && (!errors.Is(err, ErrNoTenant) || partial != nil) {
+		if partial, err := st.routingCaptureReferences(ctx, tenants[1], rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), "raw"); tenant == tenants[0] && (!errors.Is(err, ErrNoTenant) || partial != nil) {
 			t.Fatal("routing reference reader accepted a foreign tenant context", err)
 		}
 		wire[len(wire)-1]["tenant_id"] = tenants[1]
@@ -84,7 +84,7 @@ func TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission(t *te
 	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenants[0]))
 	at := time.Unix(1700000000, 123000000).UTC()
-	if partial, err := st.RoutingCaptureReferences(ctx, tenants[0], at.Add(-time.Second), at.Add(time.Second), "raw"); !errors.Is(err, ErrExplorerBudget) || partial != nil {
+	if partial, err := st.routingCaptureReferences(ctx, tenants[0], at.Add(-time.Second), at.Add(time.Second), "raw"); !errors.Is(err, ErrExplorerBudget) || partial != nil {
 		t.Fatal("routing reference admission returned a truncated prefix", err)
 	}
 	if _, err := routingReadFromRow(Row{}); err == nil {
