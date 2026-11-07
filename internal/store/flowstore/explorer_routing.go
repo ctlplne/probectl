@@ -12,9 +12,12 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"net/netip"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -145,9 +148,12 @@ func (builder *routingQueryBuilder) internFact(ctx context.Context, row RoutingP
 				return [32]byte{}, ErrRoutingQueryScope
 			}
 		}
+		if err := validateRoutingFieldValue(name, value); err != nil {
+			return [32]byte{}, err
+		}
 	}
 	for _, source := range row.SourceIDs {
-		if source == "" {
+		if source == "" || !utf8.ValidString(source) || strings.ContainsAny(source, "\x00\r\n") {
 			return [32]byte{}, ErrRoutingQueryScope
 		}
 		cost += 256 + int64(len(source))*12
@@ -178,6 +184,43 @@ func (builder *routingQueryBuilder) internFact(ctx context.Context, row RoutingP
 		builder.hints[row.FactsID] = id
 	}
 	return id, nil
+}
+
+func validateRoutingFieldValue(name, value string) error {
+	if !utf8.ValidString(value) {
+		return ErrRoutingQueryScope
+	}
+	switch {
+	case strings.HasSuffix(name, "_provenance"):
+		switch value {
+		case "router_selected", "public_ris", "public_routeviews", "no_prefix", "unavailable", "ambiguous":
+			return nil
+		default:
+			return ErrRoutingQueryScope
+		}
+	case strings.HasSuffix(name, "_rpki"):
+		switch value {
+		case "valid", "invalid", "not_found", "unknown":
+			return nil
+		default:
+			return ErrRoutingQueryScope
+		}
+	case strings.HasSuffix(name, "_prefix") && value != "":
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil || prefix != prefix.Masked() || prefix.String() != value {
+			return ErrRoutingQueryScope
+		}
+	case strings.HasSuffix(name, "_as_paths") && value != "":
+		var paths []string
+		if err := json.Unmarshal([]byte(value), &paths); err != nil || len(paths) == 0 {
+			return ErrRoutingQueryScope
+		}
+		canonical, err := json.Marshal(paths)
+		if err != nil || string(canonical) != value {
+			return ErrRoutingQueryScope
+		}
+	}
+	return nil
 }
 
 func (builder *routingQueryBuilder) finish(ctx context.Context) (*routingQueryData, error) {

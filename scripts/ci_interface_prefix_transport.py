@@ -36,6 +36,7 @@ UNIT = {
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
     ),
     "internal/store/flowstore": (
+        "TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys",
         "TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission",
         "TestFlowRoutingCaptureRowsPreserveRawIdentityAndTenant",
         "TestFlowRoutingCaptureRowsRefuseIncompleteOrForeignMetadata",
@@ -541,6 +542,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-routing-sharing": (
+        "internal/store/flowstore/explorer_routing.go",
+        "if err := builder.charge(512); err != nil {",
+        "if err := builder.charge(4096); err != nil {",
+        "TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys", "",
+        "complete routing query projection lost shared full paths or original references",
+    ),
     "flow-capture-read-tenant": (
         "internal/store/flowstore/routing_capture_reads.go",
         "entry.row.TenantID != tenant || entry.row.TS.Before(plan.From)",

@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -70,6 +71,12 @@ func TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys(t *tes
 	}
 	if len(data.facts) != 1 {
 		t.Fatal("routing query projection duplicated identical source facts", len(data.facts))
+	}
+	conflict := append([]RoutingProjection(nil), rows[:2]...)
+	conflict[1].Fields = maps.Clone(fields)
+	conflict[1].Fields["src_bgp_origin_as"] = "64500"
+	if partial, err := newRoutingQueryData(ctx, tenant, at, conflict, 64<<20); !errors.Is(err, ErrRoutingQueryScope) || partial != nil {
+		t.Fatal("routing query source hint replaced complete verified fields", err)
 	}
 	if got := data.valueForRow(last, "src_bgp_as_paths"); got != string(encoded) || data.valueForRow(last, "src_bgp_origin_as") != "4294967295" {
 		t.Fatal("routing query projection truncated the complete path or full ASN")
