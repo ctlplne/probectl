@@ -179,4 +179,26 @@ test('Admin source assignment sends only the chosen context and source, with no 
       context_id: redContext,
     }),
   )
+  fireEvent.change(within(card).getByRole('textbox', { name: /Canonical anchor UUID/ }), {
+    target: { value: blue },
+  })
+  fireEvent.change(within(card).getByRole('combobox', { name: 'Source kind' }), {
+    target: { value: 'public_bgp' },
+  })
+  expect(within(card).queryByRole('textbox', { name: /Canonical anchor UUID/ })).toBeNull()
+  fireEvent.change(within(card).getByRole('textbox', { name: 'Configured source reference' }), {
+    target: { value: 'ris/mrt_table_dump_v2/rrc00' },
+  })
+  await waitFor(() =>
+    expect(within(card).getByRole('button', { name: 'Assign source' })).toBeEnabled(),
+  )
+  fireEvent.click(within(card).getByRole('button', { name: 'Assign source' }))
+  await waitFor(() =>
+    expect(assigned).toEqual({
+      agent_id: red,
+      source_kind: 'public_bgp',
+      source_ref: 'ris/mrt_table_dump_v2/rrc00',
+      context_id: redContext,
+    }),
+  )
 })

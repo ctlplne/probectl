@@ -51,6 +51,7 @@ const sourceKinds = [
   'path_agent',
   'bmp_peer',
   'agent_site',
+  'public_bgp',
 ] as const
 const aliasKinds = [
   'address',
@@ -204,7 +205,7 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
         source_kind: sourceKind,
         source_ref: sourceRef.trim(),
         context_id: contextID,
-        ...(anchorID ? { anchor_entity_id: anchorID } : {}),
+        ...(anchorID && sourceKind !== 'public_bgp' ? { anchor_entity_id: anchorID } : {}),
       })
     } catch {
       /* mutation state shows the server's failure */
@@ -564,7 +565,10 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
                         onChange={(event) =>
                           setSourceKind(event.target.value as EntitySourceAssignment['source_kind'])
                         }
-                        options={sourceKinds.map((kind) => ({ value: kind, label: kind }))}
+                        options={sourceKinds.map((kind) => ({
+                          value: kind,
+                          label: kind === 'public_bgp' ? 'public_bgp (preview)' : kind,
+                        }))}
                       />
                       <Field
                         label="Configured source reference"
@@ -572,11 +576,13 @@ function EntityRegistryContents({ tenantID, canWrite }: { tenantID: string; canW
                         value={sourceRef}
                         onChange={(event) => setSourceRef(event.target.value)}
                       />
-                      <Field
-                        label="Canonical anchor UUID (optional; unanchored flow/BMP needs unique current SNMP evidence)"
-                        value={anchorID}
-                        onChange={(event) => setAnchorID(event.target.value)}
-                      />
+                      {sourceKind !== 'public_bgp' ? (
+                        <Field
+                          label="Canonical anchor UUID (optional; unanchored flow/BMP needs unique current SNMP evidence)"
+                          value={anchorID}
+                          onChange={(event) => setAnchorID(event.target.value)}
+                        />
+                      ) : null}
                       <Button type="submit" disabled={assignSource.isPending}>
                         Assign source
                       </Button>

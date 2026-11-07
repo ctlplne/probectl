@@ -434,6 +434,45 @@ func TestEntityAdminAssignmentIsTenantAndContextBound(t *testing.T) {
 			SourceRef: "10.42.0.1", ContextID: ctxB}); !failed {
 		t.Fatal("MCP assigned tenant A source into tenant B context")
 	}
+	t.Run("public-source", func(t *testing.T) {
+		for _, fixture := range []struct{ tenant, agent, own, foreign, device string }{
+			{a, agentA, ctxA, ctxB, deviceA}, {b, agentB, ctxB, ctxA, deviceB},
+		} {
+			input := map[string]string{"agent_id": fixture.agent, "source_kind": "public_bgp", "source_ref": "ris/mrt_table_dump_v2/rrc00", "context_id": fixture.own, "anchor_entity_id": fixture.device}
+			if rec := apiReq(t, h, http.MethodPut, "/v1/entity-source-contexts", fixture.tenant, input); rec.Code != http.StatusBadRequest {
+				t.Fatal("public source acquired an invented router anchor", rec.Code, rec.Body.String())
+			}
+			delete(input, "anchor_entity_id")
+			input["context_id"] = fixture.foreign
+			if rec := apiReq(t, h, http.MethodPut, "/v1/entity-source-contexts", fixture.tenant, input); rec.Code != http.StatusNotFound {
+				t.Fatal("public source assignment accepted a foreign routing context", rec.Code, rec.Body.String())
+			}
+			principal := *operator
+			principal.TenantID = fixture.tenant
+			if _, failed := nativeControlCall(t, mcpServer, &principal, "entity_source_assign", input); !failed {
+				t.Fatal("native public source assignment accepted a foreign routing context")
+			}
+			input["context_id"] = fixture.own
+			if rec := apiReq(t, h, http.MethodPut, "/v1/entity-source-contexts", fixture.tenant, input); rec.Code != http.StatusOK {
+				t.Fatal("REST public source assignment was refused", rec.Code, rec.Body.String())
+			}
+			if data, failed := nativeControlCall(t, mcpServer, &principal, "entity_source_assign", input); failed {
+				t.Fatal("native public source assignment was refused", string(data))
+			}
+			if err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(fixture.tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+				var count, anchors int
+				if err := sc.Q.QueryRow(ctx, `SELECT count(*),count(anchor_entity_id) FROM entity_source_contexts WHERE source_kind='public_bgp'`).Scan(&count, &anchors); err != nil {
+					return err
+				}
+				if count != 1 || anchors != 0 {
+					t.Fatal("served public assignment escaped tenant storage or acquired an anchor", count, anchors)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
 	// Legacy registry deletion is still a supported API. Its transaction must
 	// close the entity bindings even though an issued SVID may outlive the row.
 	err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.ID(a)),
@@ -454,5 +493,15 @@ func TestEntityAdminAssignmentIsTenantAndContextBound(t *testing.T) {
 		entity.SourceKey{AgentID: agentB, Kind: entity.DeviceTarget, SourceRef: "10.42.0.1"})
 	if err != nil || got.ContextID != ctxB {
 		t.Fatalf("deleting tenant A agent changed tenant B source: %+v %v", got, err)
+	}
+	_, err = store.NewEntityRegistry(db.Pool()).ResolveSourceContext(tenancy.WithTenant(t.Context(), tenancy.ID(a)), a,
+		entity.SourceKey{AgentID: agentA, Kind: entity.PublicBGP, SourceRef: "ris/mrt_table_dump_v2/rrc00"})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatal("deleted collector retained public source authority", err)
+	}
+	got, err = store.NewEntityRegistry(db.Pool()).ResolveSourceContext(tenancy.WithTenant(t.Context(), tenancy.ID(b)), b,
+		entity.SourceKey{AgentID: agentB, Kind: entity.PublicBGP, SourceRef: "ris/mrt_table_dump_v2/rrc00"})
+	if err != nil || got.ContextID != ctxB {
+		t.Fatal("collector deletion changed sibling public source", got, err)
 	}
 }

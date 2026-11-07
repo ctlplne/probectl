@@ -242,6 +242,7 @@ INTEGRATION = {
         "TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority",
     ),
     "internal/control": (
+        "TestEntityAdminAssignmentIsTenantAndContextBound",
         "TestRoutingContextRequiresCurrentBGPPolicyAndPreservesSibling",
         "TestRoutingFieldsPreserveUnknownTrafficAcrossServedAndNativeReaders",
         "TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthority",
