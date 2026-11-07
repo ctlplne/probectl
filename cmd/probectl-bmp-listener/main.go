@@ -385,6 +385,18 @@ func (o observedBMPEvidence) Submit(ctx context.Context, observations []entity.O
 	return accepted, unresolved, err
 }
 
+func (o observedBMPEvidence) StageRoutingPeer(ctx context.Context, request *agentv1.BmpRoutingPeerUp) (*agentv1.BmpRoutingStagingReceipt, error) {
+	receipt, err := o.client.StageRoutingPeer(ctx, request)
+	o.metrics.EntityEvidence(0, 0, err)
+	return receipt, err
+}
+
+func (o observedBMPEvidence) SubmitRoutingMessage(ctx context.Context, request *agentv1.BmpRoutingMessage) (*agentv1.BmpRoutingMessageReceipt, error) {
+	receipt, err := o.client.SubmitRoutingMessage(ctx, request)
+	o.metrics.EntityEvidence(0, 0, err)
+	return receipt, err
+}
+
 func (o observedBMPEvidence) QueueDrop() { o.metrics.EntityEvidenceQueueDrop() }
 
 func parsePositiveBMPDuration(label, raw string) (time.Duration, error) {

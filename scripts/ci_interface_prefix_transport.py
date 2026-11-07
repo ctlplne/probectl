@@ -15,6 +15,9 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
+    "cmd/probectl-bmp-listener": (
+        "TestBMPEvidenceAdapterKeepsCompleteRoutingTransport",
+    ),
     "internal/opendata": (
         "TestPeeringDBIXPrefixesKeepCompletePopulationClockAndOwnedMatches",
         "TestPeeringDBIXPrefixesRefusePartialAmbiguousOrMalformedSnapshot",
@@ -92,6 +95,9 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestBMPRoutingEvidenceFailureKeepsRawSessionAndRetiresOnlyOwnedGenerations",
+        "TestBMPRoutingQueueLossKeepsRawSessionAndInvalidatesBeforePendingData",
+        "TestBMPRoutingLossWakesIdleEvidenceWorkerWithoutClosingRawSource",
         "TestRoutingLifecycleRequiresCompleteMatchingSourceFrame",
         "TestBMPRoutingWholeStreamKeepsFIFOAndResetsOnSourceClosure",
         "TestBMPRoutingStagingUsesAdmittedIdentityAndCompleteOriginalPeerUp",

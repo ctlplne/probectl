@@ -144,13 +144,14 @@ type BMPListener struct {
 
 	// Tenant lane (DPR-049): when set, this listener serves exactly one
 	// tenant's routers and publishes on that tenant's namespaced lane.
-	laneTenant    string
-	laneNamespace string
-	evidenceAgent string
-	evidence      BMPEvidenceEmitter
-	evidenceQueue chan bmpPeerEvidence
-	evidenceReset chan struct{}
-	evidenceDrops atomic.Uint64
+	laneTenant      string
+	laneNamespace   string
+	evidenceAgent   string
+	evidence        BMPEvidenceEmitter
+	evidenceQueue   chan bmpPeerEvidence
+	evidenceReset   chan struct{}
+	routingLossWake chan struct{}
+	evidenceDrops   atomic.Uint64
 
 	// Pre-auth admission (ING-11): a small semaphore bounding concurrent
 	// unauthenticated handshakes, held only until promotion, plus per-source-IP
@@ -177,10 +178,11 @@ type BMPListener struct {
 // sets the connection deadline) so the handler returns and tears the session
 // down; killReason records why the sweep closed it, for the handler's log.
 type bmpLiveSession struct {
-	id         bmpIdentity
-	notAfter   time.Time
-	cancel     context.CancelFunc
-	killReason string
+	routingLost atomic.Bool // optional evidence loss never cancels raw collection
+	id          bmpIdentity
+	notAfter    time.Time
+	cancel      context.CancelFunc
+	killReason  string
 }
 
 // BMPSessionMetrics receives process-aggregate session health without tenant
@@ -211,6 +213,7 @@ func WithBMPEntityEvidence(listenerAgentID string, emitter BMPEvidenceEmitter) B
 		if emitter != nil {
 			l.evidenceQueue = make(chan bmpPeerEvidence, 128)
 			l.evidenceReset = make(chan struct{}, 1)
+			l.routingLossWake = make(chan struct{}, 1)
 		}
 	}
 }
@@ -830,12 +833,14 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 		}
 		if msgType == bmpPeerUp {
 			if err := l.queueRoutingPeerUp(id, liveHandle, payload); err != nil {
-				return err
+				l.loseRoutingEvidence(liveHandle)
+				l.log.Warn("bmp routing metadata refused; raw collection retained", "tenant_id", id.TenantID)
 			}
 			continue
 		}
 		if err := l.queueRoutingMessage(id, liveHandle, msgType, payload); err != nil {
-			return err
+			l.loseRoutingEvidence(liveHandle)
+			l.log.Warn("bmp routing frame refused; raw collection retained", "tenant_id", id.TenantID)
 		}
 		if msgType != bmpRouteMonitoring {
 			l.log.Debug("skipping unsupported bmp message", "tenant_id", id.TenantID, "message_type", msgType)

@@ -9,7 +9,6 @@ package bgp
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
@@ -26,6 +25,10 @@ type bmpRoutingStager interface {
 // byte. The router identity and serial come only from the admitted mTLS session.
 func (l *BMPListener) queueRoutingPeerUp(id bmpIdentity, session uint64, payload []byte) error {
 	if _, ok := l.evidence.(bmpRoutingStager); !ok || len(payload) == 0 || payload[0] != 3 {
+		return nil
+	}
+	loss := l.routingSessionLoss(session)
+	if loss != nil && loss.Load() {
 		return nil
 	}
 	if len(payload) < bmpPeerHeaderLen {
@@ -48,8 +51,8 @@ func (l *BMPListener) queueRoutingPeerUp(id bmpIdentity, session uint64, payload
 	copy(raw[6:], payload)
 	observed := l.now().UTC()
 	request := &agentv1.BmpRoutingPeerUp{ObservationId: nonce, ConfiguredRef: id.AgentID, OriginSerial: id.Serial, ObservedUnixNanos: observed.UnixNano(), Message: raw}
-	if !l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, observedAt: observed, routingPeerUp: request}) {
-		return errors.New("bgp: complete routing evidence queue admission exceeded")
+	if !l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, observedAt: observed, routingPeerUp: request, routingLoss: loss}) {
+		l.loseRoutingEvidence(session)
 	}
 	return nil
 }

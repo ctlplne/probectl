@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -18,6 +19,7 @@ import (
 )
 
 type bmpPeerEvidence struct {
+	routingLoss    *atomic.Bool // shared only by one admitted physical source
 	routingMessage *agentv1.BmpRoutingMessage
 	routingEnd     bool
 	routingPeerUp  *agentv1.BmpRoutingPeerUp // owned raw metadata, separate from peer-claim suppression
@@ -108,6 +110,8 @@ func (l *BMPListener) evidenceLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-l.routingLossWake:
+			l.retireLostRoutingStreams(ctx, routing)
 		case <-l.evidenceReset:
 			lastSent = make(map[bmpPeerEvidenceKey]bmpEvidenceAttempt)
 			for handle := range routing {
