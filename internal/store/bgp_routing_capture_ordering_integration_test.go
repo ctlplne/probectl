@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/sourceepoch"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -52,14 +53,28 @@ func proveProvisionalCaptureKeepsOriginalRouteBeforeAuthenticatedPublication(t *
 		if err != nil {
 			t.Fatal(err)
 		}
-		var provisional BGPRoutingCaptureReference
-		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			generation, err := sourceepoch.SourceGenerationInScope(ctx, sc)
+		refs, err := service.StageRaw(ctx, "routing-flow", []entity.FlowCaptureWitness{{RawDigest: raw, Input: input}}, routingViewBudget())
+		if err != nil || len(refs) != 1 || refs[0].Key != key {
+			t.Fatal("raw staging lost its complete original first reference", err)
+		}
+		provisional := refs[0]
+		err = tenancy.InTenantReadSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			intent, exists, err := loadRoutingCaptureIntentInScope(ctx, sc, key)
+			if err != nil || !exists {
+				t.Fatal("raw staging omitted its private candidate", err)
+			}
+			objects, err := readRoutingCaptureIntentPayloadInScope(ctx, sc, intent, routingViewBudget())
+			if err == nil && objects == nil {
+				t.Fatal("raw staging omitted complete candidate source data")
+			}
 			if err == nil {
-				provisional, err = retainRoutingCaptureIntentInScope(ctx, sc, key, *original.objects, generation, routingViewBudget())
+				lookup, err = decodeRoutingCapture(ctx, *objects, routingViewBudget())
 			}
 			return err
 		})
+		if err != nil || !lookup.CapturedAt.Equal(provisional.CapturedAt) || !reflect.DeepEqual(lookup.Source.Route.Paths, []BGPRoutingChange{changes[lane]}) {
+			t.Fatal("raw staging changed complete original path or first clock", err)
+		}
 		if pending, exists := read(lane, key); exists || pending.objects != nil {
 			t.Fatal("unattested provisional candidate became canonical before sender evidence")
 		}

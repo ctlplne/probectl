@@ -68,6 +68,7 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 		}
 	}
 	proveProvisionalCaptureKeepsOriginalRouteBeforeAuthenticatedPublication(t, f, service, first, changes, input)
+	proveCompleteRawCaptureBatchKeepsTenantAndAtomicRefusal(t, f, service, input)
 	// The raw lane can resolve a positive certificate-authored witness, but
 	// payload IDs alone must seal unavailable despite a fully live owned RIB.
 	witnessed, err := service.ResolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "routing-flow", rawDigest, input, routingViewBudget())
@@ -130,6 +131,9 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 	var rawPostgres *pgconn.PgError
 	if got, err := service.ResolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[1])), "routing-flow", rawDigest, input, routingViewBudget()); !errors.As(err, &rawPostgres) || rawPostgres.Code != "55000" || got != (BGPRoutingCaptureReference{}) {
 		t.Fatal("offboarding raw lookup exposed first witness before tenant fence", err)
+	}
+	if got, err := service.StageRaw(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[1])), "routing-flow", []entity.FlowCaptureWitness{{RawDigest: rawDigest, Input: input}}, routingViewBudget()); !errors.As(err, &rawPostgres) || rawPostgres.Code != "55000" || got != nil {
+		t.Fatal("offboarding raw staging exposed first metadata before tenant fence", err)
 	}
 	var postgres *pgconn.PgError
 	if got, err := service.CaptureAuthenticated(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[1])), "routing-flow", rawDigest, input, routingViewBudget()); !errors.As(err, &postgres) || postgres.Code != "55000" || got != (BGPRoutingCaptureReference{}) {

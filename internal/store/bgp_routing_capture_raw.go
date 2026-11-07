@@ -165,8 +165,17 @@ func captureRawRoutingCandidate(ctx context.Context, sc tenancy.Scope, sender st
 }
 
 func retainRawRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]byte, objects *routingCaptureObjects, generation int64, budget BGPRoutingBudget) (BGPRoutingCaptureReference, error) {
+	if err := routingCaptureScope(ctx, sc); err != nil {
+		return BGPRoutingCaptureReference{}, err
+	}
+	if key == ([32]byte{}) || budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
+		return BGPRoutingCaptureReference{}, ErrBGPRoutingBudget
+	}
 	if objects != nil {
 		return retainRoutingCaptureIntentInScope(ctx, sc, key, *objects, generation, budget)
+	}
+	if _, err := sourceepoch.SourceGenerationInScope(ctx, sc); err != nil {
+		return BGPRoutingCaptureReference{}, err
 	}
 	if err := tenancy.LockTenantAuditStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 		return BGPRoutingCaptureReference{}, err
