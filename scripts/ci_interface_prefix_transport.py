@@ -47,6 +47,7 @@ UNIT = {
         "TestInterfaceRoleExplorerSQLKeepsFixedTenantJoinAndCompleteExternalValues",
     ),
     "internal/flow": (
+        "TestRoutingQuerySelectorsRequireTheBGPSourcePlaneOnEveryAxis",
         "TestOriginalFlowDigestPreservesUntrustedAndCloudPayloadWithoutAuthority",
         "TestFlowEvidencePreservesEveryConfiguredDomainBeyondTransportAndCachePages",
         "TestFlowRoutingWorkerKeepsCompleteEligibleRecordsWithoutWaitingOnRPC",
@@ -84,6 +85,7 @@ UNIT = {
         "TestReportRoutingReaderRequiresCurrentScopedAuthorityBeyondReceipt",
         "TestReportRoutingRequirementsKeepWholeOriginalPeriodsAndAdmission",
         "TestReportRoutingRequirementsRefuseOmittedAndMalformedSourceLineage",
+        "TestReportRoutingContextRequirementsKeepTheBGPSourceGrant",
         "TestReportCanonicalSourcesRequireCompleteContextLineageAndCurrentPermissions",
         "TestFlowRoutingValidityKeepsCompleteOriginalSelectorsAndAdmission",
         "TestRoutingSnapshotRefusesMissingForeignAndExtraneousAuthority",
@@ -230,6 +232,7 @@ INTEGRATION = {
         "TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority",
     ),
     "internal/control": (
+        "TestRoutingContextRequiresCurrentBGPPolicyAndPreservesSibling",
         "TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthority",
         "TestReportRoutingSourceStorageKeepsWholePeriodsAndTenantAdmission",
         "TestReportRoleSourcesKeepCurrentCanonicalContextsWithoutTags",
@@ -565,6 +568,34 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "report-routing-bgp-global": (
+        "internal/control/explorer_flow_routing.go",
+        'for _, permission := range []string{ai.PermEntitiesRead, "events.read"}',
+        'for _, permission := range []string{ai.PermEntitiesRead}',
+        "TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthority", "",
+        "routing report reader accepted a credential without BGP event access",
+    ),
+    "report-routing-bgp-context": (
+        "internal/control/explorer_flow_routing_authority.go",
+        'for _, permission := range []string{permAIQuery, permFlowRead, "entities.read", "events.read"}',
+        'for _, permission := range []string{permAIQuery, permFlowRead, "entities.read"}',
+        "TestRoutingContextRequiresCurrentBGPPolicyAndPreservesSibling", "",
+        "routing context reader reused BGP evidence after its context denial",
+    ),
+    "report-routing-bgp-requirements": (
+        "internal/control/dashboard_report_contexts.go",
+        'allowed, []string{permFlowRead, "entities.read", "events.read"}',
+        'allowed, []string{permFlowRead, "entities.read"}',
+        "TestReportRoutingContextRequirementsKeepTheBGPSourceGrant", "",
+        "report routing context omitted its BGP source-plane grant",
+    ),
+    "routing-query-bgp-permissions": (
+        "internal/flow/query_plan.go",
+        'if ok && field.Derived == "flow_routing" && !slices.Contains(result, "events.read") {',
+        'if false && ok && field.Derived == "flow_routing" && !slices.Contains(result, "events.read") {',
+        "TestRoutingQuerySelectorsRequireTheBGPSourcePlaneOnEveryAxis", "",
+        "routing selector omitted its BGP source-plane grant",
+    ),
     "analyzer-bridge-complete-paths": (
         "internal/bgp/bridge.go",
         "const maxEventLine = 16 << 20",
