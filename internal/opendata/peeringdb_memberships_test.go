@@ -82,6 +82,16 @@ func TestIXMembershipCacheKeepsCompletePortsExactSelectorsAndOriginalFreshness(t
 	if en.IXMemberships(time.Now()).Current {
 		t.Fatal("disabled membership retained current authority")
 	}
+	cleared, err := LoadPeeringDBIXMemberships(t.Context(), membershipFile(t, membershipManifest(at, []ixMembershipRecord{})), time.Hour, 1<<20, time.Now())
+	if err != nil {
+		t.Fatal("explicit complete membership withdrawal was refused", err)
+	}
+	next := NewEnricher(nil)
+	next.Register(cleared)
+	withdrawn := next.IXMemberships(time.Now())
+	if got, err := withdrawn.Members(t.Context(), 64500, 7, 11, 1<<20, 1<<20); err != nil || len(got) != 0 || !withdrawn.Current || withdrawn.SameGeneration(snapshot) {
+		t.Fatal("empty membership replacement revived its former source", err)
+	}
 }
 
 func TestIXMembershipCacheRefusesPartialCorruptOrUnadmittedWholeManifests(t *testing.T) {

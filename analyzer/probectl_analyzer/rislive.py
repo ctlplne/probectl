@@ -88,6 +88,8 @@ def _timestamp_unix_nano(value: object, field: str) -> int:
         raise RISMessageError(f"{field} must be a unix timestamp") from err
     if not ts.is_finite() or ts < 0:
         raise RISMessageError(f"{field} must be finite and non-negative")
+    if ts.is_zero():
+        return 0
     # The Go bridge's original-clock wire value is a signed int64. Slice its
     # decimal digits directly: no float rounding, decimal-context rounding or
     # attacker-sized exponent expansion. Sub-nanosecond remainder rounds down.

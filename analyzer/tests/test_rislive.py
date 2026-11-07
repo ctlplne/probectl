@@ -52,6 +52,7 @@ def test_ris_source_clock_preserves_exact_wire_nanoseconds_without_float_roundin
         ("9223372036.854775807", 2**63 - 1),
         ("1.0000000009", 1_000_000_000),
         ("1e-10000", 0),
+        ("0e99999", 0),
     ):
         raw = json.dumps(RIS_MESSAGE).replace("1700000000.0", token)
         routes = list(iter_updates([raw]))
