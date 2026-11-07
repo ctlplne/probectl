@@ -67,6 +67,7 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 			t.Fatal("capture adapter lost complete owned paths or crossed tenant", lane, err)
 		}
 	}
+	proveProvisionalCaptureKeepsOriginalRouteBeforeAuthenticatedPublication(t, f, service, first, changes, input)
 	// The raw lane can resolve a positive certificate-authored witness, but
 	// payload IDs alone must seal unavailable despite a fully live owned RIB.
 	witnessed, err := service.ResolveWitness(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), "routing-flow", rawDigest, input, routingViewBudget())
