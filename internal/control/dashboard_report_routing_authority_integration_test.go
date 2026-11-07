@@ -88,8 +88,15 @@ func TestReportRoutingCurrentReaderKeepsOriginalReceiptAndSingleConnectionAuthor
 		}); err != nil {
 			t.Fatal("current report publication could not reuse its one connection", err)
 		}
-		changed := *capture
-		changed.Inputs = append([]reportFlowInput(nil), capture.Inputs...)
+		// Clone retained requirements, never the live capture's release lock.
+		changed := reportFlowCapture{
+			TenantID:         capture.TenantID,
+			Permissions:      append([]string(nil), capture.Permissions...),
+			Contexts:         capture.Contexts,
+			ContextsCaptured: capture.ContextsCaptured,
+			ContextSources:   capture.ContextSources,
+			Inputs:           append([]reportFlowInput(nil), capture.Inputs...),
+		}
 		proof := *capture.Inputs[0].Routing
 		proof.Digest = strings.Repeat("a", 64)
 		if proof.Digest == capture.Inputs[0].Routing.Digest {
