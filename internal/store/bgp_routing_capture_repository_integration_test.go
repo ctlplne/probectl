@@ -167,6 +167,20 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 			return nil
 		})
 	}
+	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
+		ref, err := retainRoutingCaptureIntentInScope(ctx, sc, intentKey, objects[0], generations[0], budget)
+		if err != nil {
+			return err
+		}
+		var payloads int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_flow_capture_intent_payloads WHERE tenant_id=$1 AND flow_key=$2`, f.tenants[0], intentKey[:]).Scan(&payloads); err != nil {
+			return err
+		}
+		if !ref.CapturedAt.Equal(inputs[0].CapturedAt) || payloads != 0 {
+			t.Fatal("erased provisional retry refilled its payload or changed first clock", payloads)
+		}
+		return nil
+	})
 	if _, err := write(0, key, &objects[0], budget); err != nil {
 		t.Fatal(err)
 	}
@@ -261,5 +275,12 @@ func TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone(t *
 	})
 	if _, err := write(0, limitedKey, &objects[0], budget); !errors.Is(err, flowsnapshot.ErrInvalidating) {
 		t.Fatal("pre-erasure routing capture republished source data", err)
+	}
+	err = tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0])), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := retainRoutingCaptureIntentInScope(ctx, sc, limitedKey, objects[0], generations[0], budget)
+		return err
+	})
+	if !errors.Is(err, flowsnapshot.ErrInvalidating) {
+		t.Fatal("pre-erasure provisional capture republished source data", err)
 	}
 }

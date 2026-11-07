@@ -58,6 +58,12 @@ func retainRoutingCaptureIntentInScope(ctx context.Context, sc tenancy.Scope, ke
 	if key == ([32]byte{}) || objects.capturedAt.UnixNano() <= 0 || budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
 		return BGPRoutingCaptureReference{}, ErrBGPRoutingBudget
 	}
+	// Prepare the ordinary tenant writer lease before the audit lock, even
+	// when returning an existing private first clock. Offboarding cannot turn
+	// this operation into a metadata-only bypass of its write fence.
+	if _, err := sourceepoch.SourceGenerationInScope(ctx, sc); err != nil {
+		return BGPRoutingCaptureReference{}, err
+	}
 	if err := tenancy.LockTenantAuditStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 		return BGPRoutingCaptureReference{}, err
 	}
